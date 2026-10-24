@@ -37,8 +37,12 @@ export default function SubnetsPage({ family }) {
   const subnets = useApi(() => api.dhcp.subnets(family, { q, shared_network: shared }), [family, q, shared])
   const pools = useApi(() => api.dhcp.utilization(family), [family])
   const networks = useApi(() => api.dhcp.sharedNetworks(family), [family])
+  // Ids are unique per family: the form checks them against the unfiltered list.
+  const filtered = Boolean(q || shared)
+  const allSubnets = useApi(() => api.dhcp.subnets(family), [family], { enabled: filtered })
   const refresh = () => {
     subnets.refetch()
+    if (filtered) allSubnets.refetch()
     pools.refetch()
   }
   const flow = usePlanFlow({ onApplied: refresh })
@@ -166,7 +170,7 @@ export default function SubnetsPage({ family }) {
         <SubnetForm
           family={family}
           subnet={editing.subnet}
-          existing={items}
+          existing={filtered ? allSubnets.data?.items || items : items}
           sharedNetworks={networks.data?.items || []}
           onClose={() => setEditing(null)}
           flow={flow}

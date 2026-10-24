@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 
@@ -41,6 +43,17 @@ def verify_password(password_hash: str, password: str) -> bool:
         return _hasher.verify(password_hash, password)
     except (VerifyMismatchError, InvalidHashError):
         return False
+
+
+_dummy: str | None = None
+
+
+def dummy_hash() -> str:
+    """A constant argon2id hash of a random password, verified when the user does not exist."""
+    global _dummy
+    if _dummy is None:
+        _dummy = _hasher.hash(secrets.token_urlsafe(24))
+    return _dummy
 
 
 def needs_rehash(password_hash: str) -> bool:

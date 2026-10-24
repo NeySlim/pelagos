@@ -25,6 +25,8 @@ class AccountService:
         self.ctx = ctx
         self._pending_totp: dict[str, tuple[str, float]] = {}
         self._lock = threading.Lock()
+        # Shared by login and enrollment: a code observed once cannot be replayed within its window.
+        self.totp_guard = totp_mod.ReplayGuard()
 
     def user(self, user_id: str) -> User:
         user = next((u for u in self.ctx.cluster().users if u.id == user_id), None)
@@ -121,7 +123,7 @@ class AccountService:
         secret = self._pending(user.id)
         if secret is None:
             raise Conflict("no pending TOTP enrollment; call /auth/totp/enroll first")
-        if not isinstance(code, str) or not totp_mod.verify(secret, code):
+        if not isinstance(code, str) or not self.totp_guard.verify(user.id, secret, code):
             self._audit(user, "totp_confirm", AuditResult.DENIED, client_ip, "invalid code")
             raise ValidationError("invalid one-time code", [field_error("code", "invalid")])
         assert self.ctx.secrets is not None

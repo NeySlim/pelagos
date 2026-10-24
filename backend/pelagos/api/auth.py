@@ -10,8 +10,7 @@ from pelagos.api import models as m
 from pelagos.api.common import json_body
 from pelagos.api.errors import ApiError
 from pelagos.api.security import client_ip, ctx, current_session, require, services
-from pelagos.auth import totp as totp_mod
-from pelagos.auth.passwords import verify_password
+from pelagos.auth.passwords import dummy_hash, verify_password
 from pelagos.auth.rbac import resolve_permissions
 from pelagos.auth.sessions import COOKIE_NAME
 from pelagos.domain.audit import AuditEntry, AuditResult
@@ -58,6 +57,9 @@ class Login(Resource):
 
         cluster = c.cluster()
         user = cluster.user(username)
+        if user is None or not user.enabled:
+            # Same argon2 cost whether the user exists or not: no enumeration by response time.
+            verify_password(dummy_hash(), password)
         if user is None or not user.enabled or not verify_password(user.password_hash, password):
             _audit("auth.login_failed", username, AuditResult.DENIED, "invalid credentials")
             raise ApiError("invalid_credentials", "invalid username or password")
@@ -67,7 +69,7 @@ class Login(Resource):
             if not code:
                 raise ApiError("totp_required", "a one-time code is required")
             secret = c.secrets.decrypt(f"totp/{user.username}", user.totp_secret) if c.secrets else None
-            if secret is None or not totp_mod.verify(secret, str(code)):
+            if secret is None or not services().account.totp_guard.verify(user.id, secret, str(code)):
                 _audit("auth.login_failed", username, AuditResult.DENIED, "invalid one-time code")
                 raise ApiError("invalid_credentials", "invalid one-time code")
         elif cluster.settings.get("require_totp"):

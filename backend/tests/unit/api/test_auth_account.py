@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pyotp
 import pytest
 
@@ -65,7 +67,17 @@ def test_totp_enroll_confirm_login_disable(login, app):
         "/api/v1/auth/login", json={"username": "dora", "password": USER_PASSWORD, "totp_code": "1"}
     )
     assert r.status_code == 401 and r.get_json()["code"] == "invalid_credentials"
-    again = login("dora", totp_code=pyotp.TOTP(secret).now())
+    # The enrollment code was used: replaying it fails, the next step (within the drift window) works.
+    r = anon.post(
+        "/api/v1/auth/login", json={"username": "dora", "password": USER_PASSWORD, "totp_code": code}
+    )
+    assert r.status_code == 401 and r.get_json()["code"] == "invalid_credentials"
+    nxt = pyotp.TOTP(secret).at(time.time() + 30)
+    again = login("dora", totp_code=nxt)
+    r = anon.post(
+        "/api/v1/auth/login", json={"username": "dora", "password": USER_PASSWORD, "totp_code": nxt}
+    )
+    assert r.status_code == 401 and r.get_json()["code"] == "invalid_credentials"
     assert again.login_answer["user"]["has_totp"] is True
 
     r = again.delete("/api/v1/auth/totp", json={"password": "wrong"})

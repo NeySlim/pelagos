@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 from pelagos.auth.last_login import LastLoginStore
 from pelagos.core.context import NodeContext
@@ -33,6 +34,7 @@ class Services:
         self.ctx = ctx
         self._own_registry = registry is None
         self._node_mtime = self._node_stat()
+        self._refresh_lock = threading.Lock()
         self.registry = registry if registry is not None else ConnectorRegistry.from_node(ctx)
         self.peers = peers if peers is not None else PeerGateway(ctx)
         self.events = EventHub(ctx.node.id)
@@ -85,30 +87,47 @@ class Services:
 
     def refresh_engines(self) -> bool:
         """Rebuilds the connectors when node.toml [engines] changed (an import or install ran as
-        root): the services keep their objects and get the new backends. True when it did."""
+        root): the services keep their objects and get the new backends. True when it did; on a
+        registry that cannot be built the previous connectors stay in place."""
         if not self._own_registry:
             return False
-        mtime = self._node_stat()
-        if mtime == self._node_mtime:
-            return False
-        self._node_mtime = mtime
-        try:
-            engines = self.ctx.config_store.load_node().engines
-        except Exception:
-            log.exception("node.toml not readable; engines kept")
-            return False
-        if engines == self.ctx.node.engines:
-            return False
-        self.ctx.node.engines = engines
-        fresh = ConnectorRegistry.from_node(self.ctx)
-        for name in ("dns", "kea4", "kea6", "d2"):
-            setattr(self.registry, name, getattr(fresh, name))
-        self.dns.local = self.registry.dns
-        for service, local in ((self.dhcp4, self.registry.kea4), (self.dhcp6, self.registry.kea6)):
-            service.local = local
-            service.d2 = self.registry.d2
-        log.info("engines reloaded from node.toml")
-        return True
+        with self._refresh_lock:
+            mtime = self._node_stat()
+            if mtime == self._node_mtime:
+                return False
+            self._node_mtime = mtime
+            try:
+                engines = self.ctx.config_store.load_node().engines
+            except Exception:
+                log.exception("node.toml not readable; engines kept")
+                return False
+            if engines == self.ctx.node.engines:
+                return False
+            previous = self.ctx.node.engines
+            self.ctx.node.engines = engines
+            try:
+                fresh = ConnectorRegistry.from_node(self.ctx)
+            except Exception:
+                self.ctx.node.engines = previous
+                log.exception("engines in node.toml not usable; previous connectors kept")
+                return False
+            old = [getattr(self.registry, name) for name in ("dns", "kea4", "kea6", "d2")]
+            for name in ("dns", "kea4", "kea6", "d2"):
+                setattr(self.registry, name, getattr(fresh, name))
+            self.dns.local = self.registry.dns
+            for service, local in ((self.dhcp4, self.registry.kea4), (self.dhcp6, self.registry.kea6)):
+                service.local = local
+                service.d2 = self.registry.d2
+            kept = (fresh.dns, fresh.kea4, fresh.kea6, fresh.d2)
+            for connector in old:
+                close = getattr(connector, "close", None)
+                if callable(close) and not any(connector is k for k in kept):
+                    try:
+                        close()
+                    except Exception:
+                        log.warning("closing a replaced connector failed", exc_info=True)
+            log.info("engines reloaded from node.toml")
+            return True
 
     def dhcp(self, family: Family) -> DhcpService:
         return self.dhcp4 if family is Family.V4 else self.dhcp6

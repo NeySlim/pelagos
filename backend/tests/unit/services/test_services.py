@@ -55,19 +55,35 @@ def test_registry_from_node_toml(node_ctx):
     assert ConnectorRegistry.from_node(node_ctx).engines() == []
 
 
-def test_services_follow_engines_written_to_node_toml(node_ctx):
+def test_services_follow_engines_written_to_node_toml(node_ctx, monkeypatch):
     services = Services(node_ctx)
     try:
         assert services.registry.engines() == [Engine.BIND, Engine.KEA4]  # the fixture's node.toml
         assert services.refresh_engines() is False
         old_kea4 = services.registry.kea4
+        # An engines section the registry cannot build keeps the running connectors.
+        node = node_ctx.config_store.load_node()
+        node.engines = {"bind": True, "kea4": True, "kea": {"socket_dir": "/run/kea-broken"}}
+        node_ctx.config_store.save_node(node)
+        os.utime(node_ctx.paths.node_toml, ns=(3, 3))
+        real_from_node = ConnectorRegistry.from_node
+
+        def broken(_ctx):
+            raise ValueError("bad engines")
+
+        monkeypatch.setattr(ConnectorRegistry, "from_node", broken)
+        assert services.refresh_engines() is False
+        assert services.registry.kea4 is old_kea4 and node_ctx.node.engines.get("kea") is None
+        monkeypatch.setattr(ConnectorRegistry, "from_node", real_from_node)
+        closed: list[bool] = []
+        old_kea4.close = lambda: closed.append(True)
         node = node_ctx.config_store.load_node()
         node.engines = {"bind": True, "kea4": True, "d2": True, "kea": {"socket_dir": "/run/kea-test"}}
         node_ctx.config_store.save_node(node)
         os.utime(node_ctx.paths.node_toml, ns=(1, 1))  # a new mtime even on coarse clocks
         assert services.refresh_engines() is True
         assert services.registry.engines() == [Engine.BIND, Engine.KEA4, Engine.D2]
-        assert services.registry.kea4 is not old_kea4
+        assert services.registry.kea4 is not old_kea4 and closed == [True]
         assert services.dhcp4.local is services.registry.kea4 and services.dns.local is services.registry.dns
         assert services.dhcp4.d2 is services.registry.d2 and services.plans.registry is services.registry
         assert services.refresh_engines() is False

@@ -1529,7 +1529,9 @@ Alert kinds and rules (thresholds from `settings`):
 
 Authentication: username + argon2id password (`argon2-cffi`, defaults
 m=64 MiB, t=3, p=4), optional TOTP (RFC 6238, 30 s, 6 digits, 1 step of
-drift) enforced cluster-wide by `settings.require_totp`. Sessions are
+drift) enforced cluster-wide by `settings.require_totp`. Each accepted time
+step is used once per user and node (`var/totp_steps.json`, kept across
+restarts, not replicated). Sessions are
 server-side in the web process memory (`auth.sessions`), keyed by a 32-byte
 random id in cookie `pelagos_session` (`HttpOnly`, `Secure`,
 `SameSite=Strict`, `Path=/`). Idle timeout `session_idle_seconds`, absolute

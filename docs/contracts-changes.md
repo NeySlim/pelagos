@@ -100,6 +100,24 @@ Packaging and CI only; no API or domain change. Everyone should know:
   (`.github/workflows/ci.yml`) calls these targets, and the daemon job fails
   when any daemon test is skipped.
 
+## 2026-10-24, F-FIX: runtime operations review fixes, TOTP step file
+- `rndc nta` takes the view as a trailing positional argument (`nta
+  [-lifetime d] domain [view]`, `nta -remove domain [view]`); `nta-dump`
+  takes no `view` (rndc lists every view). `reload` and `sync` refuse `view`
+  without `zone` (field error `view: needs zone`) instead of acting on every
+  view.
+- `cache-flush` sends the bare integer `count` as `arguments`, as the
+  host_cache hook expects; `KeaControlSocket.call` accepts non-object
+  arguments.
+- The `/advanced/ops` route and its nav item need `read:dns` or `read:dhcp`
+  (new optional `anyPermission` on routes and nav items, `lib/access.js`).
+- `pelagos.service`: `SuccessExitStatus=75`, `RestartForceExitStatus=75`;
+  gunicorn `on_starting` drops a stale restart marker.
+- Known gap: the TOTP replay guard is per node. Accepted steps persist in
+  `var/totp_steps.json` across restarts, but are not replicated, since a
+  login never writes cluster state: a code seen on one node can still be
+  used once on another node within the drift window (about 90 s).
+
 ## 2026-10-24, F-FIX: runtime operations endpoints, snapshot kind `op`
 `docs/architecture.md` section 13 (snapshot kind `op`) and section 17
 (Runtime operations): `GET|POST /dns/ops`, `GET|POST /dhcp/{family}/ops`

@@ -10,7 +10,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
-import { modulesPatch } from './settingsForm'
+import { modulesPatch, setClusterModule } from './settingsForm'
 
 const CLUSTER = ['dhcpv6', 'advanced_editor']
 const ENGINES = ['bind', 'kea4', 'kea6', 'd2']
@@ -72,7 +72,7 @@ export default function ModulesPage() {
               <ToggleSwitch
                 key={key}
                 checked={Boolean(draft.cluster?.[key])}
-                onChange={(v) => setDraft((d) => ({ ...d, cluster: { ...d.cluster, [key]: v } }))}
+                onChange={(v) => setDraft((d) => setClusterModule(d, key, v))}
                 label={t(`modules.features.${key}`)}
                 description={t(`modules.features.${key}Help`)}
               />

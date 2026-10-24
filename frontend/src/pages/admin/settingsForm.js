@@ -17,6 +17,15 @@ export function diffPatch(before, after) {
 
 export const modulesPatch = diffPatch
 
+// Set a cluster module; turning dhcpv6 off also stops kea6 on every node.
+export function setClusterModule(modules, key, value) {
+  const next = { ...modules, cluster: { ...modules.cluster, [key]: value } }
+  if (key === 'dhcpv6' && !value && isObject(modules.nodes)) {
+    next.nodes = Object.fromEntries(Object.entries(modules.nodes).map(([id, mods]) => [id, mods?.kea6 ? { ...mods, kea6: false } : mods]))
+  }
+  return next
+}
+
 export function fieldType(value) {
   if (typeof value === 'boolean') return 'boolean'
   if (Number.isInteger(value)) return 'integer'

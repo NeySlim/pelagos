@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { diffPatch, describeSettings, setIn, getIn, parseNumber, fieldType } from './settingsForm'
+import { diffPatch, describeSettings, setIn, getIn, parseNumber, fieldType, setClusterModule, modulesPatch } from './settingsForm'
 import { passwordProblem, fieldErrors, groupPermissions, USERNAME_RE } from './validation'
 
 describe('settings form', () => {
@@ -62,5 +62,17 @@ describe('admin validation', () => {
       { family: 'dhcp', items: ['read:dhcp'] },
       { family: 'users', items: ['admin:users'] },
     ])
+  })
+})
+
+describe('cluster modules', () => {
+  it('turns kea6 off on every node with dhcpv6', () => {
+    const before = { cluster: { dhcpv6: true, advanced_editor: false }, nodes: { n1: { bind: true, kea4: true, kea6: true, d2: true }, n2: { bind: true, kea4: false, kea6: false, d2: false } } }
+    const after = setClusterModule(before, 'dhcpv6', false)
+    expect(after.cluster.dhcpv6).toBe(false)
+    expect(after.nodes.n1.kea6).toBe(false)
+    expect(before.nodes.n1.kea6).toBe(true)
+    expect(modulesPatch(before, after)).toEqual({ cluster: { dhcpv6: false }, nodes: { n1: { kea6: false } } })
+    expect(setClusterModule(before, 'advanced_editor', true).nodes).toBe(before.nodes)
   })
 })

@@ -16,6 +16,8 @@ import { Question, Funnel } from '@phosphor-icons/react'
 import { Badge } from '../Badge'
 import { FilterSelect } from './Select'
 import { useTranslation } from 'react-i18next'
+import { titleCaseClass } from '../../lib/displayCase'
+import { IconButton } from '../motion/Layout'
 
 export function UnifiedPageHeader({
   // Title section
@@ -44,6 +46,8 @@ export function UnifiedPageHeader({
   isMobile = false,
   // Detail pages whose title is not the navbar section (a zone page) still show it on mobile.
   mobileTitle = false,
+  // True when the title is data (a zone or host name): the display face keeps its case.
+  literalTitle,
   
   // Custom className
   className
@@ -67,33 +71,16 @@ export function UnifiedPageHeader({
       {isMobile && (actions || hasFilters || (showHelp && onHelpClick)) && (
         <div className="flex flex-wrap items-center justify-end gap-1.5 px-3 py-2" data-testid="page-actions-mobile">
           {hasFilters && (
-            <button
-              type="button"
-              onClick={onOpenFilters}
-              aria-label={t('table.filters')}
-              title={t('table.filters')}
-              className="relative flex items-center justify-center rounded-lg bg-bg-tertiary hover:bg-bg-hover border border-border h-8 w-8 transition-colors"
-            >
-              <Funnel size={16} className="text-text-secondary" />
+            <IconButton icon={Funnel} label={t('table.filters')} onClick={onOpenFilters}>
               {activeFilters > 0 && (
                 <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-accent-primary text-white text-2xs flex items-center justify-center">
                   {activeFilters}
                 </span>
               )}
-            </button>
+            </IconButton>
           )}
           {actions}
-          {showHelp && onHelpClick && (
-            <button
-              type="button"
-              onClick={onHelpClick}
-              aria-label={t('common.help')}
-              title={t('common.help')}
-              className="flex items-center justify-center rounded-lg bg-bg-tertiary hover:bg-bg-hover border border-border h-8 w-8 transition-colors"
-            >
-              <Question size={16} className="text-text-secondary" />
-            </button>
-          )}
+          {showHelp && onHelpClick && <IconButton icon={Question} label={t('common.help')} onClick={onHelpClick} />}
         </div>
       )}
 
@@ -117,6 +104,7 @@ export function UnifiedPageHeader({
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
               <h1 className={cn(
                 "ui-page-title font-semibold text-text-primary truncate min-w-0 max-w-full",
+                titleCaseClass(title, literalTitle),
                 isMobile ? "text-sm" : "text-lg"
               )}>
                 {title}
@@ -158,43 +146,13 @@ export function UnifiedPageHeader({
             </div>
           )}
           
-          {/* Mobile: Filter button */}
-          {isMobile && hasFilters && (
-            <button
-              onClick={onOpenFilters}
-              className={cn(
-                'relative flex items-center justify-center rounded-lg',
-                'bg-bg-tertiary hover:bg-bg-hover border border-border',
-                'h-8 w-8',
-                'transition-colors'
-              )}
-            >
-              <Funnel size={16} className="text-text-secondary" />
-              {activeFilters > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-accent-primary text-white text-2xs flex items-center justify-center">
-                  {activeFilters}
-                </span>
-              )}
-            </button>
-          )}
-          
           {/* Custom actions */}
           {actions}
           
           {/* Help button */}
           {showHelp && onHelpClick && (
             isMobile ? (
-              <button
-                onClick={onHelpClick}
-                className={cn(
-                  'flex items-center justify-center rounded-lg',
-                  'bg-bg-tertiary hover:bg-bg-hover border border-border',
-                  'h-8 w-8',
-                  'transition-colors'
-                )}
-              >
-                <Question size={16} className="text-text-secondary" />
-              </button>
+              <IconButton icon={Question} label={t('common.help')} onClick={onHelpClick} />
             ) : (
               <button
                 onClick={onHelpClick}

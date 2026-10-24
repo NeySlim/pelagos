@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { cn } from '../lib/utils'
 import { IconBadge } from './IconBadge'
+import { titleCaseClass } from '../lib/displayCase'
 
 export function Card({ 
   children, 
@@ -56,7 +57,7 @@ Card.Header = function CardHeader({ children, className, icon: Icon, iconColor =
             <IconBadge icon={Icon} color={iconColor} size="sm" rounded="lg" />
           )}
           <div>
-            {title && <h3 className="ui-card-title text-sm font-semibold text-text-primary">{title}</h3>}
+            {title && <h3 className={cn('ui-card-title text-sm font-semibold text-text-primary', titleCaseClass(title))}>{title}</h3>}
             {subtitle && <p className="text-xs text-text-secondary mt-0.5">{subtitle}</p>}
           </div>
         </div>

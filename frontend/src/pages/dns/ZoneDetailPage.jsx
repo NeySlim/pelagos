@@ -328,6 +328,7 @@ export default function ZoneDetailPage() {
       icon={Globe}
       title={zone?.name || absZone(zoneParam)}
       mobileTitle
+      literalTitle
       subtitle={t('pages.zoneDetail.subtitle')}
       badge={
         zone && (

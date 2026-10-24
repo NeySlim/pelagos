@@ -6,6 +6,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CaretUp, CaretDown, CaretUpDown, ArrowsClockwise, Table as TableIcon } from '@phosphor-icons/react'
 import { cn } from '../lib/utils'
+import { titleCaseClass } from '../lib/displayCase'
 import { Pagination } from './Pagination'
 import { SearchBar } from './SearchBar'
 import { FilterSelect } from './ui/Select'
@@ -95,7 +96,7 @@ export function DataTable({
     <div className={cn('ui-table flex flex-col rounded-xl border border-border bg-bg-secondary overflow-hidden', className)} data-testid={testId}>
       {hasToolbar && (
         <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border-op60">
-          {title && <h3 className="ui-card-title text-sm font-semibold text-text-primary mr-2">{title}</h3>}
+          {title && <h3 className={cn('ui-card-title text-sm font-semibold text-text-primary mr-2', titleCaseClass(title))}>{title}</h3>}
           {search && (
             <SearchBar
               value={search.value}

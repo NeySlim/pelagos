@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 
+from pelagos.auth.last_login import LastLoginStore
 from pelagos.core.context import NodeContext
 from pelagos.domain import Family
 from pelagos.services.account_service import AccountService
@@ -49,6 +50,9 @@ class Services:
         self.account = AccountService(ctx)
         self.advanced = AdvancedService(ctx, self.dns)
         self.install = InstallService(ctx, self.dns, self.dhcp4)
+        self.last_login = LastLoginStore(
+            ctx.paths.var / "last_login.json", ctx.paths.locks_dir / "last_login.lock"
+        )
         self.listener: EventSocketListener | None = None
         self._publish_audit()
         ctx.extra["services"] = self

@@ -17,12 +17,17 @@ def admin():
     return services().admin
 
 
+def public(user) -> dict:
+    """User public fields with this node's last login (auth.last_login)."""
+    return services().last_login.overlay(user.public())
+
+
 @ns.route("/users")
 class Users(Resource):
     @require("admin:users")
     @ns.response(200, "Users (public fields only)", m.UserList)
     def get(self):
-        return {"items": [u.public() for u in admin().users()]}
+        return {"items": [public(u) for u in admin().users()]}
 
     @require("admin:users")
     @ns.expect(m.UserCreate)
@@ -30,7 +35,7 @@ class Users(Resource):
     @ns.response(400, "validation_error", m.Problem)
     @ns.response(409, "conflict: username taken", m.Problem)
     def post(self):
-        return admin().create_user(json_body(), username(), client_ip()).public(), 201
+        return public(admin().create_user(json_body(), username(), client_ip())), 201
 
 
 @ns.route("/users/<string:user_id>")
@@ -39,20 +44,21 @@ class OneUser(Resource):
     @ns.response(200, "One user", m.UserPublic)
     @ns.response(404, "not_found", m.Problem)
     def get(self, user_id: str):
-        return admin().user(user_id).public()
+        return public(admin().user(user_id))
 
     @require("admin:users")
     @ns.expect(m.UserUpdate)
     @ns.response(200, "Updated; the user's sessions are revoked when roles or enabled change", m.UserPublic)
     @ns.response(409, "conflict: last admin, or own account", m.Problem)
     def put(self, user_id: str):
-        return admin().update_user(user_id, json_body(), username(), client_ip()).public()
+        return public(admin().update_user(user_id, json_body(), username(), client_ip()))
 
     @require("admin:users")
     @ns.response(204, "Deleted")
     @ns.response(409, "conflict: last admin, or own account", m.Problem)
     def delete(self, user_id: str):
         admin().delete_user(user_id, username(), client_ip())
+        services().last_login.forget(user_id)
         return "", 204
 
 

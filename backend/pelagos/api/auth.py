@@ -15,7 +15,6 @@ from pelagos.auth.passwords import verify_password
 from pelagos.auth.rbac import resolve_permissions
 from pelagos.auth.sessions import COOKIE_NAME
 from pelagos.domain.audit import AuditEntry, AuditResult
-from pelagos.domain.common import utcnow
 
 ns = Namespace("auth", description="Authentication and account", path="/auth")
 
@@ -79,13 +78,13 @@ class Login(Resource):
 
         perms = resolve_permissions(user.roles, cluster.roles)
         session = c.sessions.create(user.id, user.username, perms, client_ip(), restriction=restriction)
-        c.config_store.update_cluster(
-            lambda cfg: _touch_login(cfg, user.username), updated_by=f"user:{user.username}@node:{c.node.id}"
-        )
+        # Local only: writing cluster.toml here would bump the version and replicate on every login.
+        logins = services().last_login
+        logins.record(user.id)
         _audit("auth.login", username, AuditResult.OK)
         resp = make_response(
             {
-                "user": user.public(),
+                "user": logins.overlay(user.public()),
                 "permissions": sorted(perms),
                 "csrf_token": session.csrf_token,
                 "totp_required": restriction == "totp_enrollment",
@@ -102,12 +101,6 @@ class Login(Resource):
             max_age=int(cluster.settings.get("session_ttl_seconds", 43200)),
         )
         return resp
-
-
-def _touch_login(cfg, username: str) -> None:
-    u = cfg.user(username)
-    if u is not None:
-        u.last_login = utcnow()
 
 
 @ns.route("/logout")
@@ -136,7 +129,7 @@ class SessionInfo(Resource):
             c.sessions.revoke(session.id)
             raise ApiError("unauthenticated", "user no longer exists")
         return {
-            "user": user.public(),
+            "user": services().last_login.overlay(user.public()),
             "permissions": sorted(session.permissions),
             "csrf_token": session.csrf_token,
             "node": c.self_node().to_dict(),

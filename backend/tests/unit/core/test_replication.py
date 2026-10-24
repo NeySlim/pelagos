@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import os
+import socket
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import timedelta
@@ -15,12 +17,13 @@ from pelagos.core import ca as ca_mod
 from pelagos.core.bootstrap import bootstrap_first_node, dev_paths
 from pelagos.core.config_store import ConfigStore, NodeConfig
 from pelagos.core.context import NodeContext, read_replication_state
-from pelagos.core.enrollment import EnrollError, enroll_node
+from pelagos.core.enrollment import EnrollError, EnrollRequest, enroll_node
 from pelagos.core.paths import Paths
 from pelagos.core.repl_http import pinned_context, request_json
 from pelagos.core.replication import (
     ReplicationClient,
     ReplicationError,
+    ReplicationServer,
     ReplicationService,
     client_ssl_context,
 )
@@ -194,6 +197,45 @@ def test_token_is_single_use_and_expires(cluster, tmp_root):
     assert denied and denied[0].action == "admin.node.enroll"
 
 
+def test_anonymous_enroll_failures_do_not_flood_the_audit_log(cluster):
+    a = cluster.first()
+    svc = a.service.enrollment
+    _key, csr = ca_mod.node_csr(new_id(), "ns9", ["ns9"])
+    bogus = _enroll_request("nope", csr.decode())
+
+    def denied() -> int:
+        return sum(1 for e in a.ctx.audit_log.read() if e.result.value == "denied")
+
+    for _ in range(5):
+        with pytest.raises(EnrollError):
+            svc.enroll(bogus, "192.0.2.50")
+    assert denied() == 1
+    with pytest.raises(EnrollError):
+        svc.enroll(bogus, "192.0.2.51")
+    assert denied() == 2
+
+
+def test_invalid_enroll_request_does_not_burn_the_token(cluster):
+    a = cluster.first()
+    svc = a.service.enrollment
+    issued = svc.issue_token("user:admin")
+    with pytest.raises(EnrollError) as err:
+        svc.enroll(_enroll_request(issued["token"], "garbage"))
+    assert err.value.code == "validation_error"
+    # A CSR for an already enrolled id is refused too, and the token survives both.
+    _key, csr = ca_mod.node_csr(a.id, "ns1", ["ns1"])
+    with pytest.raises(EnrollError) as err:
+        svc.enroll(_enroll_request(issued["token"], csr.decode()))
+    assert err.value.code == "conflict"
+    assert svc.tokens.pending() == 1
+
+
+def _enroll_request(token: str, csr_pem: str) -> EnrollRequest:
+    return EnrollRequest.from_dict(
+        {"token": token, "name": "ns9", "csr_pem": csr_pem, "url": "https://192.0.2.9:8444"}
+    )
+
+
 def test_wrong_ca_fingerprint_is_refused_before_sending_the_token(cluster, tmp_root):
     a = cluster.first()
     issued = a.service.enrollment.issue_token("user:admin")
@@ -272,21 +314,21 @@ def test_offline_peer_pulls_the_diff_on_return(pair):
     )
     for i in range(3):
         a.ctx.audit_log.append(_entry(a, f"dns.rrset.add{i}"))
-    a.service._retry_at = 0.0
-    a.service.run_once()
+    # The collector.sock datagrams reach A's listener, and its worker pushes and fails.
+    wait_for(lambda: a.service._pending, timeout=5, what="write signalled")
+    statuses = a.service.replicator.statuses
+    wait_for(lambda: not statuses[b.id].reachable, timeout=10, what="failed push recorded")
     assert a.service._pending, "the push must stay pending while the peer is down"
-    status = a.service.replicator.statuses[b.id]
-    assert status.reachable is False and status.error
+    assert statuses[b.id].error
     assert b.ctx.cluster().version < a.ctx.cluster().version
 
     b.restart()  # pull on start
     assert b.ctx.cluster().version == a.ctx.cluster().version
     assert any(r.name == "ops" for r in b.ctx.cluster().roles)
     assert _same_audit(a, b)
-    # The pending push on A succeeds once B is back, and the retry state clears.
-    a.service._retry_at = 0.0
-    a.service.run_once()
-    assert not a.service._pending and a.service.replicator.statuses[b.id].reachable
+    # The pending push on A succeeds once B is back (B's pull woke it), and the retry state clears.
+    wait_for(lambda: not a.service._pending, timeout=10, what="pending push retried")
+    assert a.service.replicator.statuses[b.id].reachable
 
 
 def test_anti_entropy_catches_interleaved_audit(pair):
@@ -452,9 +494,10 @@ def test_remote_plan_apply_rollback_and_snapshot(pair):
 # Certificates -----------------------------------------------------------------------
 
 
-def test_certificate_renewal_through_a_peer_and_locally(pair):
+def test_certificate_renewal_through_a_peer_and_locally(pair, tmp_root):
     a, b = pair
     ca = ca_mod.KeyPair((a.paths.pki_dir / "ca.key").read_bytes(), (a.paths.pki_dir / "ca.crt").read_bytes())
+    enrolled_fp = a.ctx.cluster().peer(b.id).cert_fingerprint
     # Give B a certificate that expires in 10 days.
     csr = ca_mod.csr_for_key((b.paths.pki_dir / "node.key").read_bytes(), b.id, "ns2", ["ns2"])
     short = ca_mod.sign_node(ca, csr, days=10)
@@ -466,6 +509,10 @@ def test_certificate_renewal_through_a_peer_and_locally(pair):
     assert not ca_mod.needs_renewal(renewed)
     assert ca_mod.cert_not_after(renewed) > utcnow() + timedelta(days=700)
     assert a.ctx.cluster().peer(b.id).cert_fingerprint == ca_mod.fingerprint(renewed)
+    # The replaced certificate is revoked; the renewal is audited with the op verb.
+    assert enrolled_fp and enrolled_fp in a.ctx.cluster().revoked
+    renew_entry = [e for e in a.ctx.audit_log.read() if e.action == "admin.node.op"][-1]
+    assert renew_entry.request == {"op": "renew"}
     # The new certificate is used on the next connection.
     assert ReplicationClient(b.ctx.cluster().peer(a.id), b.service.client_context).status().reachable
     assert b.service.renew_certificate() is False
@@ -474,7 +521,98 @@ def test_certificate_renewal_through_a_peer_and_locally(pair):
     assert a.service.renew_certificate(force=True) is True
     after = (a.paths.pki_dir / "node.crt").read_bytes()
     assert after != before and a.ctx.cluster().peer(a.id).cert_fingerprint == ca_mod.fingerprint(after)
+    assert ca_mod.fingerprint(before) in a.ctx.cluster().revoked
     assert ReplicationClient(a.ctx.cluster().peer(b.id), a.service.client_context).status().reachable
+    # Once B has adopted that config, A's previous certificate no longer authenticates.
+    wait_for(lambda: ca_mod.fingerprint(before) in b.ctx.cluster().revoked, timeout=10, what="revocation")
+    (tmp_root / "old.crt").write_bytes(before)
+    old_ctx = client_ssl_context(
+        a.paths.pki_dir / "ca.crt", tmp_root / "old.crt", a.paths.pki_dir / "node.key"
+    )
+    with pytest.raises(ReplicationError) as err:
+        ReplicationClient(a.ctx.cluster().peer(b.id), old_ctx).status()
+    assert err.value.code == "revoked"
+
+
+# Robustness -----------------------------------------------------------------------
+
+
+def test_malformed_peer_answers_never_escape_the_replicator(pair, monkeypatch):
+    a, b = pair
+    a.ctx.audit_log.append(_entry(a, "dns.rrset.add"))
+    monkeypatch.setattr(
+        b.service.app, "_get_audit", lambda _q: (200, {"entries": [{"bogus": True}], "next": None})
+    )
+    peer_b = a.ctx.cluster().peer(b.id)
+    replicator = a.service.replicator
+    for call in (lambda: replicator.sync_peer(peer_b), lambda: replicator.push_all()[0]):
+        status = call()
+        assert status.reachable is False and status.error
+    monkeypatch.setattr(b.service.app, "config_payload", lambda: {"version": 99})
+    monkeypatch.setattr(
+        b.service.app, "status_payload", lambda: {"node_id": b.id, "config_version": 99, "audit_count": 0}
+    )
+    assert replicator.sync_peer(peer_b).reachable is False
+
+
+def test_run_once_backs_off_when_the_replicator_raises(pair, monkeypatch):
+    a, _b = pair
+    svc = a.service
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(svc.replicator, "push_all", boom)
+    monkeypatch.setattr(svc.replicator, "pull_all", boom)
+    with svc._lock:
+        svc._pending.add("audit")
+        svc._retry_at = 0.0
+    svc._next_poll = 0.0
+    svc.run_once()  # must not raise
+    assert svc._pending and svc._retry_at is not None and svc._retry_at > time.monotonic()
+    assert svc._next_poll > time.monotonic() + 100
+
+
+def test_newer_schema_on_a_peer_is_a_divergence_not_an_outage(pair, monkeypatch):
+    a, b = pair
+    toml_text = b.paths.cluster_toml.read_text()
+    newer = "schema_version = 99\n" + "\n".join(
+        line for line in toml_text.splitlines() if not line.startswith("schema_version")
+    )
+    real_status = b.service.app.status_payload
+
+    def status_payload():
+        data = real_status()
+        data["config_version"] += 5
+        return data
+
+    monkeypatch.setattr(b.service.app, "status_payload", status_payload)
+    monkeypatch.setattr(b.service.app, "config_payload", lambda: {"version": 0, "toml": newer})
+    replicator = a.service.replicator
+    status = replicator.sync_peer(a.ctx.cluster().peer(b.id))
+    assert status.reachable is True and status.code == "schema_mismatch"
+    assert status.to_dict()["code"] == "schema_mismatch"
+    assert replicator.failures[b.id] == 0 and replicator.offline_peers() == []
+
+
+def test_replication_server_binds_ipv6_brackets(pair):
+    a, _b = pair
+    if not socket.has_ipv6:
+        pytest.skip("no IPv6")
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s:
+            s.bind(("::1", 0))
+            port = s.getsockname()[1]
+    except OSError:
+        pytest.skip("no IPv6 loopback")
+    server = ReplicationServer(a.service.app, f"[::1]:{port}", a.service.server_context)
+    server.start()
+    try:
+        assert server.address[0] == "::1" and server.url == f"https://[::1]:{port}"
+        peer = a.ctx.cluster().peer(a.id).replace(url=server.url)
+        assert ReplicationClient(peer, a.service.client_context).status().node_id == a.id
+    finally:
+        server.stop()
 
 
 def test_housekeeping_purges_old_backups_and_tokens(cluster):

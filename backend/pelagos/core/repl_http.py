@@ -20,6 +20,10 @@ class TransportError(Exception):
     """Network, TLS or protocol failure; the message is safe to log."""
 
 
+class ConnectFailed(TransportError):
+    """No connection was made: the request certainly never reached the peer."""
+
+
 @dataclass(slots=True)
 class HttpResult:
     status: int
@@ -55,12 +59,12 @@ def request_json(
         try:
             conn.connect()
         except (OSError, ssl.SSLError) as exc:
-            raise TransportError(f"cannot connect to {host}:{port}: {exc}") from exc
+            raise ConnectFailed(f"cannot connect to {host}:{port}: {exc}") from exc
         peer_der = conn.sock.getpeercert(binary_form=True) if conn.sock is not None else None
         if expect_node_id is not None:
             found = ca_mod.node_id_from_der(peer_der) if peer_der else None
             if found != expect_node_id:
-                raise TransportError(
+                raise ConnectFailed(
                     f"{host}:{port} presented node {found or 'unknown'}, expected {expect_node_id}"
                 )
         data = None if body is None else json.dumps(body).encode()

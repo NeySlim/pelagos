@@ -32,7 +32,7 @@ from pelagos.core.enrollment import EnrollError, EnrollmentService, EnrollReques
 from pelagos.core.paths import Paths
 from pelagos.core.plan_secrets import hand_secrets_to_backend
 from pelagos.core.registry import UNLOCKED_SCOPES, ConnectorRegistry, EngineNotConfigured
-from pelagos.core.repl_http import TransportError, request_json
+from pelagos.core.repl_http import ConnectFailed, TransportError, request_json
 from pelagos.core.retention import purge_backups
 from pelagos.core.secrets import SecretBox
 from pelagos.core.signals import EVENT_AUDIT, EVENT_CONFIG, SignalListener
@@ -92,6 +92,10 @@ class PeerStatus:
             "error": self.error,
             "code": self.code,
         }
+
+
+# ReplicationError.code when no connection was made (the request never reached the peer).
+UNREACHABLE = "unreachable"
 
 
 class ReplicationError(Exception):
@@ -169,7 +173,8 @@ class ReplicationClient:
                 expect_node_id=self.peer.id,
             )
         except TransportError as exc:
-            raise ReplicationError(str(exc)) from exc
+            code = UNREACHABLE if isinstance(exc, ConnectFailed) else None
+            raise ReplicationError(str(exc), code=code) from exc
         if not res.ok:
             detail = code = None
             if isinstance(res.body, dict):

@@ -92,7 +92,14 @@ class PlanService:
             raise PlanError("confirmation_required", "this plan needs confirm=true")
         if plan.scope is PlanScope.HOST and plan.id not in self._composites:
             raise PlanError("plan_state", "host plan parts are gone; build the plan again")
-        if plan.scope not in JOB_SCOPES and plan.scope is not PlanScope.HOST and self._backend(plan) is None:
+        # The local engine is needed only when this node is a target (a peer lease delete is not).
+        local = self.ctx.node.id in (plan.target_node_ids or [self.ctx.node.id])
+        if (
+            plan.scope not in JOB_SCOPES
+            and plan.scope is not PlanScope.HOST
+            and local
+            and self._backend(plan) is None
+        ):
             raise PlanError(
                 "engine_unavailable",
                 f"this node does not run {plan.engine.value if plan.engine else 'the engine'}",
@@ -164,40 +171,67 @@ class PlanService:
             self.ctx.plan_store.update(plan)
         results: list[NodeApplyResult] = []
         applied: list[tuple[Plan, list[str]]] = []
-        failed = False
+        progress: list[str] = []  # nodes of the current part applied (or maybe applied) so far
+        in_flight: Plan | None = None
+        try:
+            failed = False
+            for part in parts:
+                # A failing part has already rolled back its own nodes; earlier parts are undone below.
+                progress.clear()
+                in_flight = part
+                part_results, ok = self._apply_one(part, who, progress)
+                results.extend(part_results)
+                if not ok:
+                    failed = True
+                    plan.error = plan.error or part.error
+                    break
+                applied.append((part, [r.node_id for r in part_results if r.ok]))
+                in_flight = None
+            if failed:
+                for part, node_ids in reversed(applied):
+                    results.extend(self._rollback_nodes(part, node_ids, who))
+                rolled = [r for r in results if r.rolled_back]
+                plan.state = (
+                    PlanState.ROLLED_BACK if rolled and all(r.ok for r in rolled) else PlanState.FAILED
+                )
+                plan.error = plan.error or next((r.message for r in results if not r.ok), "apply failed")
+            else:
+                plan.state = PlanState.APPLIED
+        except Exception as exc:
+            # Never leave the plan APPLYING: undo what was applied, then record the failure.
+            log.exception("apply of plan %s aborted", plan.id)
+            current = [(in_flight, list(progress))] if in_flight is not None and progress else []
+            for part, node_ids in [*current, *reversed(applied)]:
+                try:
+                    results.extend(self._rollback_nodes(part, node_ids, who))
+                except Exception:
+                    log.exception("rollback of plan %s after an aborted apply failed", plan.id)
+            plan.state = PlanState.FAILED
+            plan.error = f"apply aborted: {type(exc).__name__}: {exc}"
+            results.append(NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=plan.error))
         for part in parts:
-            # A failing part has already rolled back its own nodes; earlier parts are undone below.
-            part_results, ok = self._apply_one(part, who)
-            results.extend(part_results)
-            if not ok:
-                failed = True
-                plan.error = plan.error or part.error
-                break
-            applied.append((part, [r.node_id for r in part_results if r.ok]))
-        if failed:
-            for part, node_ids in reversed(applied):
-                results.extend(self._rollback_nodes(part, node_ids, who))
-            rolled = [r for r in results if r.rolled_back]
-            plan.state = PlanState.ROLLED_BACK if rolled and all(r.ok for r in rolled) else PlanState.FAILED
-            plan.error = plan.error or next((r.message for r in results if not r.ok), "apply failed")
-            for part in parts:
-                part.state = plan.state
-        else:
-            plan.state = PlanState.APPLIED
-            for part in parts:
-                part.state = PlanState.APPLIED
+            part.state = plan.state
         self.ctx.plan_store.update(plan)
         self.ctx.plan_store.touch(plan)
-        self._audit_summary(plan, user, client_ip)
+        note = self._audit_summary(plan, user, client_ip)
+        if note:
+            results.append(
+                NodeApplyResult(node_id=self.ctx.node.id, ok=plan.state is PlanState.APPLIED, message=note)
+            )
         result = ApplyResult(
             plan_id=plan.id, state=plan.state, results=_masked(results), finished_at=utcnow()
         )
         self._publish(result)
         return result
 
-    def _apply_one(self, plan: Plan, who: tuple[str, str | None]) -> tuple[list[NodeApplyResult], bool]:
-        """Apply one engine plan on self, then on the other targets; roll back its own nodes on failure."""
+    def _apply_one(
+        self, plan: Plan, who: tuple[str, str | None], progress: list[str] | None = None
+    ) -> tuple[list[NodeApplyResult], bool]:
+        """Apply one engine plan on self, then on the other targets; roll back its own nodes on failure.
+        A node whose outcome is unknown (transport failure) is rolled back too: rollbacks are guarded.
+        `progress` receives each node that applied, for the caller's cleanup if this raises."""
         results: list[NodeApplyResult] = []
+        progress = progress if progress is not None else []
         targets = plan.target_node_ids or [self.ctx.node.id]
         try:
             outgoing = self._outgoing(plan, targets)
@@ -205,10 +239,13 @@ class PlanService:
             plan.error = str(exc)
             return [NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=str(exc))], False
         for node_id in targets:
+            progress.append(node_id)  # until it answers, the node may have applied
             result = self._apply_on(plan if node_id == self.ctx.node.id else outgoing, node_id, who)
             results.append(result)
+            if not (result.ok or result.outcome_unknown):
+                progress.remove(node_id)
             if not result.ok:
-                done = [r.node_id for r in results if r.ok]
+                done = [r.node_id for r in results if r.ok or r.outcome_unknown]
                 results.extend(self._rollback_nodes(plan, done, who))
                 plan.error = result.message
                 return results, False
@@ -320,16 +357,24 @@ class PlanService:
             self.ctx.plan_store.update(plan)
         parts = self.parts(plan) if plan.scope is PlanScope.HOST else [plan]
         results: list[NodeApplyResult] = []
-        for part in reversed(parts):
-            targets = part.target_node_ids or [self.ctx.node.id]
-            results.extend(self._rollback_nodes(part, targets, (user, client_ip)))
-        plan.state = PlanState.ROLLED_BACK if all(r.ok for r in results) else PlanState.FAILED
-        if plan.state is PlanState.FAILED:
-            plan.error = next((r.message for r in results if not r.ok), "rollback failed")
+        try:
+            for part in reversed(parts):
+                targets = part.target_node_ids or [self.ctx.node.id]
+                results.extend(self._rollback_nodes(part, targets, (user, client_ip)))
+            plan.state = PlanState.ROLLED_BACK if all(r.ok for r in results) else PlanState.FAILED
+            if plan.state is PlanState.FAILED:
+                plan.error = next((r.message for r in results if not r.ok), "rollback failed")
+        except Exception as exc:
+            log.exception("rollback of plan %s aborted", plan.id)
+            plan.state = PlanState.FAILED
+            plan.error = f"rollback aborted: {type(exc).__name__}: {exc}"
+            results.append(NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=plan.error))
         for part in parts:
             part.state = plan.state
         self.ctx.plan_store.update(plan)
-        self._audit_summary(plan, user, client_ip, verb="rollback")
+        note = self._audit_summary(plan, user, client_ip, verb="rollback")
+        if note:
+            results.append(NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=note))
         result = ApplyResult(
             plan_id=plan.id, state=plan.state, results=_masked(results), finished_at=utcnow()
         )
@@ -386,10 +431,17 @@ class PlanService:
         )
         entry.request = _mask_text_values(entry.request)
         entry.response = _mask_text_values(entry.response)
-        self.ctx.audit_log.append(entry)
+        try:
+            self.ctx.audit_log.append(entry)
+        except OSError as exc:
+            # The change is live: a full or failing disk must not abort the apply and wedge the plan.
+            log.error("audit entry of plan %s not written: %s", plan.id, exc)
+            result.message = f"{result.message} (audit entry not written: {exc})".strip()
+            return
         result.audit_ids = [*result.audit_ids, entry.id]
 
-    def _audit_summary(self, plan: Plan, user: str, client_ip: str | None, verb: str = "apply") -> None:
+    def _audit_summary(self, plan: Plan, user: str, client_ip: str | None, verb: str = "apply") -> str | None:
+        """Best effort: a note for the caller when the entry could not be written, else None."""
         result = {
             PlanState.APPLIED: AuditResult.OK,
             PlanState.ROLLED_BACK: AuditResult.ROLLED_BACK,
@@ -413,7 +465,12 @@ class PlanService:
             message=masked_text(plan.error) if plan.error else None,
             client_ip=client_ip,
         )
-        self.ctx.audit_log.append(entry)
+        try:
+            self.ctx.audit_log.append(entry)
+        except OSError as exc:
+            log.error("summary audit entry of plan %s not written: %s", plan.id, exc)
+            return f"audit entry not written: {exc}"
+        return None
 
 
 def _masked(results: list[NodeApplyResult]) -> list[NodeApplyResult]:

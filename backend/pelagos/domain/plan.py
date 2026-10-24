@@ -157,6 +157,8 @@ class NodeApplyResult(Model):
     message: str = ""
     rolled_back: bool = False
     audit_ids: list[str] = field(default_factory=list)
+    # The call failed in transport: the node may still have applied the plan, so it is rolled back too.
+    outcome_unknown: bool = False
 
 
 @dataclass(slots=True)

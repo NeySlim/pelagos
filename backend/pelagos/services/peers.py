@@ -18,6 +18,7 @@ from pelagos.core.context import NodeContext
 from pelagos.core.replication import (
     PeerStatus,
     ReplicationClient,
+    UNREACHABLE,
     ReplicationError,
     Replicator,
     client_ssl_context,
@@ -195,5 +196,13 @@ class PeerGateway:
             return NodeApplyResult(
                 node_id=peer.id, ok=False, message="remote plan apply is not available yet"
             )
-        except (ReplicationError, OSError) as exc:
-            return NodeApplyResult(node_id=peer.id, ok=False, message=f"{peer.name}: {exc}")
+        except ReplicationError as exc:
+            # No answer (transport) or a server error: the peer may have applied the plan anyway.
+            unknown = (exc.status is None and exc.code != UNREACHABLE) or (exc.status or 0) >= 500
+            return NodeApplyResult(
+                node_id=peer.id, ok=False, message=f"{peer.name}: {exc}", outcome_unknown=unknown
+            )
+        except OSError as exc:
+            return NodeApplyResult(
+                node_id=peer.id, ok=False, message=f"{peer.name}: {exc}", outcome_unknown=True
+            )

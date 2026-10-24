@@ -1720,7 +1720,7 @@ class FakeReplicationClient:
         from pelagos.core.replication import ReplicationError
 
         if not self.reachable:
-            raise ReplicationError(f"node {self.node_id} unreachable")
+            raise ReplicationError(f"node {self.node_id} unreachable", code="unreachable")
 
     @property
     def peer(self) -> Any:
@@ -1791,6 +1791,12 @@ class FakeReplicationClient:
         self._check()
         self.calls.append(("apply", plan.id))
         received = Plan.from_dict(plan.to_dict())
+        if getattr(self, "answer_lost", False):
+            # Applied, but the answer never comes back (read timeout): the caller cannot know.
+            from pelagos.core.replication import ReplicationError
+
+            self.registry.backend(plan.engine).apply(received)
+            raise ReplicationError("read timed out")
         backend = self.registry.backend(plan.engine)
         try:
             if self.secrets is not None:

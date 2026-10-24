@@ -239,3 +239,15 @@ def test_host_reservation_goes_to_every_kea(role_client, peer_b, fake_registry, 
         subnet = next(s for s in backend.config["subnet4"] if s["id"] == 1)
         assert any(r.get("hw-address") == "aa:bb:cc:dd:ee:43" for r in subnet.get("reservations", []))
     assert plan["id"] not in peer_b.registry.dns.applied
+
+
+def test_peer_with_unknown_outcome_is_rolled_back_too(role_client, peer_b, fake_registry, node_ctx):
+    op = role_client("dhcp-operator")
+    change = {"op": "add", "target": "subnet4/22", "after": {"subnet": "192.0.2.208/28"}}
+    plan = op.post("/api/v1/dhcp/v4/subnets/plan", json={"change": change}).get_json()
+    peer_b.answer_lost = True
+    result = op.post(f"/api/v1/plans/{plan['id']}/apply", json={}).get_json()
+    assert result["state"] == "rolled_back"
+    assert ("rollback", plan["id"]) in peer_b.calls
+    for backend in (fake_registry.kea4, peer_b.registry.kea4):
+        assert not any(s["id"] == 22 for s in backend.config["subnet4"])

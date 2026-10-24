@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from pelagos.connectors.base import ConnectorContext, DdnsBackend, DhcpBackend, DnsBackend
+from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBackend, DhcpBackend, DnsBackend
 from pelagos.core.context import NodeContext
 from pelagos.domain import Engine, Family, NodeApplyResult, Plan, PlanScope
 
@@ -89,6 +89,9 @@ def connector_context(ctx: NodeContext, engine: str, table: Any) -> ConnectorCon
 # Plans received from peers (section 13, /repl/v1/plans/apply|rollback) ---------------------------
 
 INSTALLER_SCOPES = frozenset({PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY})
+# A peer waits for its engine lock well below the caller's plan timeout (300 s), so a busy engine
+# answers EngineBusy, a definite failure, before the caller gives up with an unknown outcome.
+PEER_LOCK_TIMEOUT = 60.0
 
 
 class PlanRunner:
@@ -108,10 +111,14 @@ class PlanRunner:
     def apply(self, plan: Plan) -> NodeApplyResult:
         from pelagos.services.installer_runner import run_received
 
-        with self._lock():
-            if plan.scope in INSTALLER_SCOPES:
-                return run_received(self.ctx, plan)
-            return self.backend.apply(plan)
+        try:
+            with self._lock():
+                if plan.scope in INSTALLER_SCOPES:
+                    return run_received(self.ctx, plan)
+                return self.backend.apply(plan)
+        except ConnectorError as exc:
+            # Raised before any change (busy engine, precondition): a definite failure for the caller.
+            return NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=str(exc))
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
         if plan.scope in INSTALLER_SCOPES:
@@ -120,14 +127,17 @@ class PlanRunner:
                 ok=False,
                 message="installer steps roll back their own files when they fail; restore from history",
             )
-        with self._lock():
-            return self.backend.rollback(plan)
+        try:
+            with self._lock():
+                return self.backend.rollback(plan)
+        except ConnectorError as exc:
+            return NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=str(exc))
 
     def _lock(self) -> Any:
         """The same per-engine lock as the web process's PlanService (section 6)."""
         from pelagos.services.engine_lock import engine_lock
 
-        return engine_lock(self.ctx.paths.locks_dir, self.engine.value)
+        return engine_lock(self.ctx.paths.locks_dir, self.engine.value, timeout=PEER_LOCK_TIMEOUT)
 
     def pop_details(self, plan_id: str) -> dict[str, Any]:
         pop = getattr(self.backend, "pop_details", None)

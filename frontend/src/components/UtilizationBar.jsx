@@ -35,9 +35,9 @@ export function UtilizationBar({
 
   return (
     <div className={cn('min-w-[120px]', className)} data-testid="utilization-bar" data-level={level}>
-      <div className={cn('w-full rounded-full bg-tertiary-op80 overflow-hidden', heights[size] || heights.md)}>
+      <div className={cn('ui-progress-track w-full rounded-full bg-tertiary-op80 overflow-hidden', heights[size] || heights.md)}>
         <div
-          className={cn('h-full rounded-full transition-all duration-300', colors[level])}
+          className={cn('ui-progress-fill h-full rounded-full transition-all duration-300', colors[level])}
           style={{ width: `${clamped}%` }}
           role="progressbar"
           aria-label={label || i18n.t('common:common.utilization')}

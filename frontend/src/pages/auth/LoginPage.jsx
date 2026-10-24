@@ -9,12 +9,15 @@ import { useAuth } from '../../contexts/AuthContext'
 import { Button } from '../../components/Button'
 import { Input } from '../../components/Input'
 import { Logo } from '../../components/Logo'
+import { AppBackdrop } from '../../components/motion'
+import { useTheme } from '../../contexts/ThemeContext'
 import { errorMessage } from '../../services/apiClient'
 import { languages } from '../../i18n'
 import { persistPreference } from '../../stores/preferencesStore'
 
 export default function LoginPage() {
   const { t, i18n } = useTranslation('auth')
+  const { effects } = useTheme()
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -51,8 +54,9 @@ export default function LoginPage() {
   const currentLang = i18n.language?.split('-')[0] || 'en'
 
   return (
-    <div className="min-h-full flex items-center justify-center p-4" style={{ background: 'var(--gradient-bg)' }}>
-      <div className="w-full max-w-sm">
+    <div className="relative min-h-full flex items-center justify-center p-4 overflow-hidden" style={{ background: 'var(--gradient-bg)' }}>
+      {effects === 'mission' && <AppBackdrop />}
+      <div className="relative z-[1] w-full max-w-sm">
         <div className="flex justify-center mb-6">
           <Logo variant="vertical" size="lg" />
         </div>

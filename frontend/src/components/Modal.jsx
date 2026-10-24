@@ -36,7 +36,7 @@ export function Modal({
             "sm:inset-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2",
             "w-full h-full sm:h-auto sm:mx-4",
             sizes[size],
-            "bg-bg-primary sm:modal-enhanced sm:rounded-xl",
+            "ui-modal bg-bg-primary sm:modal-enhanced sm:rounded-xl",
             "flex flex-col",
             // Animations (desktop only)
             "sm:data-[state=open]:animate-in sm:data-[state=closed]:animate-out",
@@ -49,11 +49,11 @@ export function Modal({
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border-op50 shrink-0 modal-header-gradient">
-            <Dialog.Title className="text-sm font-semibold text-text-primary">
+            <Dialog.Title className="ui-modal-title text-sm font-semibold text-text-primary">
               {title}
             </Dialog.Title>
             {showClose && (
-              <Dialog.Close className="w-8 h-8 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-all focus-ring">
+              <Dialog.Close className="ui-icon-button ui-icon-button-sm w-8 h-8 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-all focus-ring">
                 <X size={18} className="sm:hidden" />
                 <X size={16} className="hidden sm:block" />
               </Dialog.Close>

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts'
 import { useTheme } from '../contexts/ThemeContext'
+import { MiniHistogram } from './motion/Charts'
 
 const FALLBACK = { primary: '#2DD4BF', pro: '#93C5FD', success: '#34D399', warning: '#FBBF24', danger: '#F87171', grid: '#1E3A4C', text: '#9FBFCB' }
 
@@ -57,17 +58,25 @@ function NoData() {
 // series: [{ key, label, color }]; data: [{ [xKey]: ..., [key]: number }]
 export function TrendAreaChart({ data = [], series = [], xKey = 'ts', height = '100%', xFormatter, stacked = false }) {
   const colors = useChartColors()
+  // The Mission family fills areas with a dot stipple instead of a gradient wash.
+  const stipple = useTheme().effects === 'mission'
   if (!data.length || !series.length) return <NoData />
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
         <defs>
-          {series.map((s) => (
-            <linearGradient key={s.key} id={`trend-${s.key}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={colors[s.color] || s.color || colors.primary} stopOpacity={0.3} />
-              <stop offset="95%" stopColor={colors[s.color] || s.color || colors.primary} stopOpacity={0} />
-            </linearGradient>
-          ))}
+          {series.map((s) =>
+            stipple ? (
+              <pattern key={s.key} id={`trend-${s.key}`} width="6" height="6" patternUnits="userSpaceOnUse">
+                <circle cx="3" cy="3" r="1" fill={colors[s.color] || s.color || colors.primary} fillOpacity={0.6} />
+              </pattern>
+            ) : (
+              <linearGradient key={s.key} id={`trend-${s.key}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={colors[s.color] || s.color || colors.primary} stopOpacity={0.3} />
+                <stop offset="95%" stopColor={colors[s.color] || s.color || colors.primary} stopOpacity={0} />
+              </linearGradient>
+            ),
+          )}
         </defs>
         <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: colors.text }} tickFormatter={xFormatter} axisLine={false} tickLine={false} />
         <YAxis tick={{ fontSize: 10, fill: colors.text }} axisLine={false} tickLine={false} allowDecimals={false} />
@@ -81,7 +90,8 @@ export function TrendAreaChart({ data = [], series = [], xKey = 'ts', height = '
             stackId={stacked ? 'stack' : undefined}
             stroke={colors[s.color] || s.color || colors.primary}
             fill={`url(#trend-${s.key})`}
-            strokeWidth={2}
+            strokeWidth={stipple ? 1.25 : 2}
+            activeDot={stipple ? { r: 4, strokeWidth: 0, style: { filter: 'drop-shadow(0 0 4px currentColor)' } } : undefined}
             isAnimationActive={false}
           />
         ))}
@@ -129,8 +139,10 @@ export function DistributionPieChart({ segments = [], height = '100%', onSegment
 
 export function MiniSparkline({ data = [], color = 'primary', height = 30 }) {
   const colors = useChartColors()
+  const { effects } = useTheme()
   const stroke = colors[color] || colors.primary
   if (data.length === 0) return null
+  if (effects === 'mission') return <MiniHistogram data={data} tone={color} height={height} />
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>

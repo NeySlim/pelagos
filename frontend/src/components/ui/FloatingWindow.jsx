@@ -78,7 +78,7 @@ export function FloatingWindow({
       ref={panelRef}
       data-testid="floating-detail-window"
       className={cn(
-        'fixed flex flex-col',
+        'ui-floating fixed flex flex-col',
         'bg-bg-secondary rounded-xl',
         className,
       )}
@@ -107,7 +107,7 @@ export function FloatingWindow({
       {/* Header: draggable */}
       <div
         className={cn(
-          'shrink-0 flex items-center justify-between gap-2 px-3 py-1.5',
+          'ui-floating-header shrink-0 flex items-center justify-between gap-2 px-3 py-1.5',
           'border-b border-border-op60 cursor-grab active:cursor-grabbing select-none',
           'rounded-t-xl',
         )}

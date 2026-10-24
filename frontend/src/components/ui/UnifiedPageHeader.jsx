@@ -54,7 +54,7 @@ export function UnifiedPageHeader({
 
   return (
     <div className={cn(
-      'shrink-0 border-b border-border-op60 bg-bg-secondary shadow-[inset_0_-1px_0_rgba(255,255,255,0.03)]',
+      'ui-page-header shrink-0 border-b border-border-op60 bg-bg-secondary shadow-[inset_0_-1px_0_rgba(255,255,255,0.03)]',
       className
     )}>
       {/* Mobile: the title is in the AppShell navbar; page actions stay reachable in a compact row. */}
@@ -107,7 +107,7 @@ export function UnifiedPageHeader({
         <div className="flex items-center gap-2 min-w-0 flex-1 basis-64">
           {Icon && (
             <div className={cn(
-              "rounded-lg bg-gradient-to-br from-accent-primary to-accent-primary-op70 flex items-center justify-center shrink-0 shadow-sm",
+              "ui-page-icon rounded-lg bg-gradient-to-br from-accent-primary to-accent-primary-op70 flex items-center justify-center shrink-0 shadow-sm",
               isMobile ? "w-7 h-7" : "w-9 h-9"
             )}>
               <Icon size={isMobile ? 14 : 18} weight="bold" className="text-white" />
@@ -116,7 +116,7 @@ export function UnifiedPageHeader({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
               <h1 className={cn(
-                "font-semibold text-text-primary truncate min-w-0 max-w-full",
+                "ui-page-title font-semibold text-text-primary truncate min-w-0 max-w-full",
                 isMobile ? "text-sm" : "text-lg"
               )}>
                 {title}
@@ -124,7 +124,7 @@ export function UnifiedPageHeader({
               {badge}
             </div>
             {subtitle && !isMobile && (
-              <p className="text-sm text-text-secondary truncate">
+              <p className="ui-page-subtitle text-sm text-text-secondary truncate">
                 {subtitle}
               </p>
             )}
@@ -217,10 +217,10 @@ export function UnifiedPageHeader({
       {/* Tabs row (if provided) */}
       {hasTabs && (
         <div className={cn(
-          'overflow-x-auto scrollbar-hide',
+          'ui-tabs-row overflow-x-auto scrollbar-hide',
           isMobile ? 'px-3' : 'px-6'
         )}>
-          <div className="flex gap-0.5 min-w-max pb-0">
+          <div className="ui-tabs flex gap-0.5 min-w-max pb-0">
             {tabs.map((tab) => {
               const TabIcon = tab.icon
               const isActive = activeTab === tab.id
@@ -234,7 +234,8 @@ export function UnifiedPageHeader({
                   aria-label={iconOnly ? tab.label : undefined}
                   title={iconOnly ? tab.label : undefined}
                   className={cn(
-                    "flex items-center gap-1.5 rounded-t-lg text-sm font-medium transition-all",
+                    "ui-tab flex items-center gap-1.5 rounded-t-lg text-sm font-medium transition-all",
+                    isActive && "is-active",
                     "border-b-2 -mb-px",
                     isMobile ? "px-2.5 py-1.5" : "px-3 py-2",
                     isActive

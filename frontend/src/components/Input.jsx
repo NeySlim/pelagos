@@ -119,7 +119,7 @@ export const Input = forwardRef(function Input({
           ref={ref}
           type={inputType}
           className={cn(
-            "w-full px-2.5 py-1.5 bg-bg-tertiary border rounded-md text-sm text-text-primary placeholder-text-tertiary",
+            "ui-input w-full px-2.5 py-1.5 bg-bg-tertiary border rounded-md text-sm text-text-primary placeholder-text-tertiary",
             "transition-all duration-150",
             "hover:border-text-tertiary",
             "focus:outline-none focus:border-accent-primary",

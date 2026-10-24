@@ -66,7 +66,8 @@ export function Badge({
   return (
     <span
       className={cn(
-        'inline-flex items-center font-semibold border badge-enhanced',
+        'ui-badge inline-flex items-center font-semibold border badge-enhanced',
+        `ui-badge-${variant}`,
         'transition-all duration-200 whitespace-nowrap',
         sizes[size],
         variants[variant],
@@ -76,9 +77,9 @@ export function Badge({
     >
       {dot && (
         <span className={cn(
-          'w-1.5 h-1.5 rounded-full shrink-0',
+          'ui-badge-dot w-1.5 h-1.5 rounded-full shrink-0',
           dotColors[variant] || dotColors.default,
-          pulse && 'animate-pulse'
+          pulse && 'relative fx-dot-pulse'
         )} />
       )}
       {Icon && <Icon size={iconSizes[size]} weight="bold" className="shrink-0" />}

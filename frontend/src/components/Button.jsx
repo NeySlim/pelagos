@@ -48,7 +48,8 @@ export function Button({ children, type = 'button', variant = 'primary', size = 
       type={type}
       {...props}
       className={cn(
-        'inline-flex items-center justify-center rounded-md font-medium',
+        'ui-btn inline-flex items-center justify-center rounded-md font-medium',
+        `ui-btn-${variant}`,
         'disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none',
         needsFocusRing && 'focus-ring',
         variants[variant],

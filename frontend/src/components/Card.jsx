@@ -50,13 +50,13 @@ export function Card({
 Card.Header = function CardHeader({ children, className, icon: Icon, iconColor = 'primary', title, subtitle, action }) {
   if (Icon || title) {
     return (
-      <div className={cn('flex items-start justify-between gap-3 p-3 pb-2 border-b border-border-op30 section-header-gradient', className)}>
+      <div className={cn('ui-card-header flex items-start justify-between gap-3 p-3 pb-2 border-b border-border-op30 section-header-gradient', className)}>
         <div className="flex items-center gap-3">
           {Icon && (
             <IconBadge icon={Icon} color={iconColor} size="sm" rounded="lg" />
           )}
           <div>
-            {title && <h3 className="text-sm font-semibold text-text-primary">{title}</h3>}
+            {title && <h3 className="ui-card-title text-sm font-semibold text-text-primary">{title}</h3>}
             {subtitle && <p className="text-xs text-text-secondary mt-0.5">{subtitle}</p>}
           </div>
         </div>

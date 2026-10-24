@@ -20,8 +20,8 @@ const EXPANDED_KEY = 'pelagos-nav-expanded'
 
 function itemClass(active) {
   return cn(
-    'flex items-center gap-2 px-2 py-[5px] rounded-md text-[13px] transition-all duration-150 relative',
-    active ? 'nav-item-active bg-accent-primary-op15 text-accent-primary font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary',
+    'ui-nav-item flex items-center gap-2 px-2 py-[5px] rounded-md text-[13px] transition-all duration-150 relative',
+    active ? 'is-active nav-item-active bg-accent-primary-op15 text-accent-primary font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary',
   )
 }
 
@@ -34,7 +34,7 @@ function NavGroup({ group, items, activeId, expanded, onToggle, t }) {
         type="button"
         onClick={onToggle}
         className={cn(
-          'w-full flex items-center gap-2 px-2.5 py-[7px] rounded-md text-[11px] font-semibold tracking-wide uppercase transition-colors',
+          'ui-nav-group w-full flex items-center gap-2 px-2.5 py-[7px] rounded-md text-[11px] font-semibold tracking-wide uppercase transition-colors',
           groupHasActive ? 'text-accent-primary' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-tertiary',
         )}
         aria-expanded={expanded}
@@ -50,7 +50,7 @@ function NavGroup({ group, items, activeId, expanded, onToggle, t }) {
             const label = t(item.labelKey)
             return (
               <Link key={item.id} to={item.path} title={label} className={itemClass(active)} data-nav={item.id}>
-                {active && <div className="absolute left-0 w-[3px] h-4 bg-accent-primary rounded-r-full" />}
+                {active && <div className="ui-nav-indicator absolute left-0 w-[3px] h-4 bg-accent-primary rounded-r-full" />}
                 {Icon && <Icon size={15} weight={active ? 'fill' : 'regular'} className="shrink-0" />}
                 <span className="truncate">{label}</span>
               </Link>
@@ -138,11 +138,11 @@ export function Sidebar({ activeId }) {
   ]
 
   return (
-    <aside className="w-[200px] h-full border-r border-border bg-bg-secondary flex flex-col py-2.5 overflow-hidden" data-testid="sidebar">
+    <aside className="ui-sidebar w-[200px] h-full border-r border-border bg-bg-secondary flex flex-col py-2.5 overflow-hidden" data-testid="sidebar">
       <Link to="/" className="flex items-center gap-2.5 px-3.5 mb-1 shrink-0" title={t('nav.dashboard')}>
         <Logo variant="icon" withText={false} size="sm" />
         <div className="flex flex-col min-w-0">
-          <span className="text-xs font-bold text-text-primary leading-tight">Pelagos</span>
+          <span className="ui-brand text-xs font-bold text-text-primary leading-tight">Pelagos</span>
           <span className="text-3xs text-text-tertiary leading-tight truncate font-mono">{node?.peer?.name || node?.name || t('nav.node')}</span>
         </div>
       </Link>
@@ -152,7 +152,7 @@ export function Sidebar({ activeId }) {
       {dashboardItem && (
         <div className="px-2 mb-1 shrink-0">
           <Link to="/" className={cn(itemClass(activeId === 'dashboard'), 'px-2.5 py-[6px] w-full')} data-nav="dashboard">
-            {activeId === 'dashboard' && <div className="absolute left-0 w-[3px] h-4 bg-accent-primary rounded-r-full" />}
+            {activeId === 'dashboard' && <div className="ui-nav-indicator absolute left-0 w-[3px] h-4 bg-accent-primary rounded-r-full" />}
             <House size={15} weight={activeId === 'dashboard' ? 'fill' : 'regular'} className="shrink-0" />
             <span>{t('nav.dashboard')}</span>
           </Link>
@@ -192,7 +192,7 @@ export function Sidebar({ activeId }) {
             </button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
-            <DropdownMenu.Content className="min-w-[210px] bg-bg-secondary border border-border rounded-lg shadow-xl p-1 z-50" sideOffset={5} side="right" align="end">
+            <DropdownMenu.Content className="ui-menu min-w-[210px] bg-bg-secondary border border-border rounded-lg shadow-xl p-1 z-50" sideOffset={5} side="right" align="end">
               <div className="px-3 py-2 mb-1">
                 <div className="text-sm font-semibold text-text-primary truncate">{user?.username}</div>
                 <div className="text-xs text-text-tertiary truncate">{(user?.roles || []).join(', ')}</div>
@@ -239,7 +239,7 @@ export function Sidebar({ activeId }) {
                   <CaretRight size={12} className="text-text-tertiary" />
                 </DropdownMenu.SubTrigger>
                 <DropdownMenu.Portal>
-                  <DropdownMenu.SubContent className="min-w-[160px] bg-bg-secondary border border-border rounded-lg shadow-lg p-1 z-50">
+                  <DropdownMenu.SubContent className="ui-menu min-w-[160px] bg-bg-secondary border border-border rounded-lg shadow-lg p-1 z-50">
                     {languages.map((lang) => (
                       <DropdownMenu.Item key={lang.code} onClick={() => changeLanguage(lang.code)} className="flex items-center gap-3 px-3 py-2 text-sm rounded-md cursor-pointer outline-none hover:bg-bg-tertiary text-text-primary">
                         <span className="flex-1">{lang.name}</span>

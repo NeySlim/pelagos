@@ -120,7 +120,7 @@ export function NotificationProvider({ children }) {
         {toasts.map(toast => (
           <Toast.Root
             key={toast.id}
-            className={`rounded-xl border p-4 shadow-2xl backdrop-blur-sm transition-all ${getColors(toast.type)}`}
+            className={`ui-toast rounded-xl border p-4 shadow-2xl backdrop-blur-sm transition-all ${getColors(toast.type)}`}
             open={true}
             onOpenChange={() => removeToast(toast.id)}
           >

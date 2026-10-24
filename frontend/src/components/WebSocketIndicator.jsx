@@ -25,7 +25,7 @@ export function WebSocketIndicator({ className, showLabel = false, variant = 'de
         data-testid="ws-dot"
         className={cn(
           'w-2.5 h-2.5 rounded-full border-2 border-bg-secondary',
-          isConnected ? 'bg-status-success' : state === WsState.ERROR ? 'bg-status-danger' : 'bg-text-tertiary',
+          isConnected ? 'bg-status-success fx-dot-pulse' : state === WsState.ERROR ? 'bg-status-danger' : 'bg-text-tertiary',
           className,
         )}
       />

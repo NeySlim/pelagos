@@ -92,10 +92,10 @@ export function DataTable({
   const cellPad = dense ? 'px-3 py-1.5' : 'px-3 py-2'
 
   return (
-    <div className={cn('flex flex-col rounded-xl border border-border bg-bg-secondary overflow-hidden', className)} data-testid={testId}>
+    <div className={cn('ui-table flex flex-col rounded-xl border border-border bg-bg-secondary overflow-hidden', className)} data-testid={testId}>
       {hasToolbar && (
         <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border-op60">
-          {title && <h3 className="text-sm font-semibold text-text-primary mr-2">{title}</h3>}
+          {title && <h3 className="ui-card-title text-sm font-semibold text-text-primary mr-2">{title}</h3>}
           {search && (
             <SearchBar
               value={search.value}
@@ -172,9 +172,9 @@ export function DataTable({
                   <tr
                     key={key}
                     className={cn(
-                      'border-b border-border-op30 last:border-b-0 transition-colors',
+                      'ui-row border-b border-border-op30 last:border-b-0 transition-colors',
                       onRowClick && 'cursor-pointer hover:bg-tertiary-op40',
-                      selected && 'bg-accent-primary-op10',
+                      selected && 'bg-accent-primary-op10 is-selected',
                       typeof rowClassName === 'function' ? rowClassName(row) : rowClassName,
                     )}
                     onClick={onRowClick ? () => onRowClick(row) : undefined}

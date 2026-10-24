@@ -1,0 +1,414 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Mission Control effects layer. Everything here is scoped to html[data-effects='mission'],
+   which ThemeContext sets for the mission family only, so the other families stay sober.
+   Glass panels blur a static backdrop; nested panels never blur twice. */
+
+@font-face {
+  font-family: 'Michroma';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Michroma-Regular-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Michroma';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Michroma-Regular-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+  --font-display: 'Michroma', 'Inter', system-ui, sans-serif;
+}
+
+/* ============ Tokens ============ */
+:root[data-effects='mission'] {
+  --m-glass: rgba(38, 48, 51, 0.66);
+  --m-glass-strong: rgba(30, 39, 41, 0.88);
+  --m-glass-solid: var(--bg-secondary);
+  --m-hairline: rgba(255, 255, 255, 0.07);
+  --m-hairline-strong: rgba(255, 255, 255, 0.13);
+  --m-row: rgba(255, 255, 255, 0.035);
+  --m-row-hover: rgba(255, 255, 255, 0.065);
+  --m-pill: rgba(255, 255, 255, 0.06);
+  --m-pill-active: rgba(255, 255, 255, 0.14);
+  --m-radius: 18px;
+  --m-radius-inner: 10px;
+  --m-blur: 16px;
+  --m-shadow: 0 18px 50px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --m-glow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 55%, transparent), 0 0 18px color-mix(in srgb, var(--accent-primary) 30%, transparent);
+  --m-btn-text: #141B1D;
+  --m-scene-1: #22302F;
+  --m-scene-2: #141B1D;
+  --m-scene-3: #0C1112;
+  --m-contour: rgba(170, 210, 200, 0.07);
+  --m-grid: rgba(170, 210, 200, 0.035);
+  --m-vignette: rgba(4, 7, 8, 0.75);
+  --glass-bg: var(--m-glass);
+  --glass-border: var(--m-hairline);
+  --border-subtle: var(--m-hairline);
+  --border-strong: var(--m-hairline-strong);
+}
+
+:root[data-effects='mission'].theme-light {
+  --m-glass: rgba(255, 255, 255, 0.62);
+  --m-glass-strong: rgba(250, 252, 252, 0.9);
+  --m-hairline: rgba(16, 24, 26, 0.09);
+  --m-hairline-strong: rgba(16, 24, 26, 0.16);
+  --m-row: rgba(16, 24, 26, 0.035);
+  --m-row-hover: rgba(16, 24, 26, 0.06);
+  --m-pill: rgba(16, 24, 26, 0.05);
+  --m-pill-active: rgba(255, 255, 255, 0.95);
+  --m-shadow: 0 14px 40px rgba(40, 60, 64, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --m-glow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 45%, transparent), 0 0 14px color-mix(in srgb, var(--accent-primary) 18%, transparent);
+  --m-btn-text: #FFFFFF;
+  --m-scene-1: #F2F6F6;
+  --m-scene-2: #E4EAEA;
+  --m-scene-3: #D5DDDD;
+  --m-contour: rgba(30, 60, 64, 0.08);
+  --m-grid: rgba(30, 60, 64, 0.04);
+  --m-vignette: rgba(150, 170, 172, 0.35);
+}
+
+/* ============ Ground ============ */
+:root[data-effects='mission'] body {
+  font-variant-numeric: tabular-nums;
+  background: var(--m-scene-2);
+}
+:root[data-effects='mission'] .ui-app { background: transparent; }
+
+:root[data-effects='mission'] .fx-backdrop {
+  background:
+    radial-gradient(120% 90% at 30% 75%, var(--m-scene-1) 0%, transparent 60%),
+    linear-gradient(170deg, var(--m-scene-2) 0%, var(--m-scene-3) 100%);
+}
+:root[data-effects='mission'] .fx-backdrop-grid {
+  background-image:
+    linear-gradient(var(--m-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--m-grid) 1px, transparent 1px);
+  background-size: 64px 64px;
+  -webkit-mask-image: radial-gradient(ellipse at 50% 60%, #000 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse at 50% 60%, #000 20%, transparent 75%);
+}
+:root[data-effects='mission'] .fx-backdrop-contours path { stroke: var(--m-contour); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+:root[data-effects='mission'] .fx-backdrop-vignette {
+  background: radial-gradient(ellipse at 50% 45%, transparent 45%, var(--m-vignette) 100%);
+}
+
+/* ============ Typography ============ */
+:root[data-effects='mission'] .ui-brand,
+:root[data-effects='mission'] .ui-page-title,
+:root[data-effects='mission'] .ui-card-title,
+:root[data-effects='mission'] .ui-modal-title,
+:root[data-effects='mission'] .ui-display,
+:root[data-effects='mission'] .logo-text-gradient {
+  font-family: var(--font-display);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+:root[data-effects='mission'] .ui-brand { font-size: 13px; letter-spacing: 0.12em; }
+:root[data-effects='mission'] .ui-page-title { font-size: 15px; line-height: 1.5; }
+:root[data-effects='mission'] .ui-card-title,
+:root[data-effects='mission'] .ui-modal-title { font-size: 11.5px; line-height: 1.6; }
+:root[data-effects='mission'] .ui-nav-group { font-family: var(--font-display); font-weight: 400; font-size: 9.5px; letter-spacing: 0.1em; }
+
+/* ============ Glass surfaces ============ */
+:root[data-effects='mission'] .card-soft,
+:root[data-effects='mission'] .card-interactive,
+:root[data-effects='mission'] .ui-table,
+:root[data-effects='mission'] .ui-sidebar,
+:root[data-effects='mission'] .ui-page-header,
+:root[data-effects='mission'] .ui-topbar,
+:root[data-effects='mission'] .ui-toast,
+:root[data-effects='mission'] .ui-menu,
+:root[data-effects='mission'] .modal-enhanced,
+:root[data-effects='mission'] .ui-panel {
+  background: var(--m-glass);
+  border: 1px solid var(--m-hairline);
+  -webkit-backdrop-filter: blur(var(--m-blur)) saturate(1.15);
+  backdrop-filter: blur(var(--m-blur)) saturate(1.15);
+  box-shadow: var(--m-shadow);
+}
+:root[data-effects='mission'] .card-soft,
+:root[data-effects='mission'] .card-interactive,
+:root[data-effects='mission'] .ui-table,
+:root[data-effects='mission'] .ui-panel,
+:root[data-effects='mission'] .modal-enhanced { border-radius: var(--m-radius); }
+:root[data-effects='mission'] .ui-menu,
+:root[data-effects='mission'] .ui-toast { border-radius: 14px; background: var(--m-glass-strong); }
+
+/* A panel inside a panel is a lighter row, not a second blur. */
+:root[data-effects='mission'] :is(.card-soft, .ui-table, .ui-panel, .modal-enhanced, .ui-modal) :is(.card-soft, .card-interactive, .ui-table, .ui-panel) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--m-row);
+  box-shadow: none;
+  border-radius: var(--m-radius-inner);
+}
+:root[data-effects='mission'] .card-soft:hover { border-color: var(--m-hairline-strong); box-shadow: var(--m-shadow); }
+:root[data-effects='mission'] .card-interactive:hover {
+  background: color-mix(in srgb, var(--accent-primary) 6%, var(--m-glass));
+  border-color: color-mix(in srgb, var(--accent-primary) 35%, var(--m-hairline));
+}
+:root[data-effects='mission'] .section-header-gradient { background: transparent; }
+:root[data-effects='mission'] .ui-card-header { border-color: var(--m-hairline); }
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-effects='mission'] :is(.card-soft, .card-interactive, .ui-table, .ui-sidebar, .ui-page-header, .ui-topbar, .ui-toast, .ui-menu, .modal-enhanced, .ui-panel) {
+    background: var(--m-glass-solid);
+  }
+}
+@media (prefers-contrast: more) {
+  :root[data-effects='mission'] :is(.card-soft, .card-interactive, .ui-table, .ui-sidebar, .ui-page-header, .ui-topbar, .ui-toast, .ui-menu, .modal-enhanced, .ui-panel) {
+    background: var(--m-glass-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border-color: var(--border);
+  }
+}
+
+/* ============ Shell ============ */
+:root[data-effects='mission'] .ui-sidebar-slot { padding: 10px 0 10px 10px; height: 100%; }
+:root[data-effects='mission'] .ui-sidebar {
+  border-radius: var(--m-radius);
+  width: 212px;
+}
+:root[data-effects='mission'] .ui-sidebar .h-px.bg-border { background: var(--m-hairline); }
+:root[data-effects='mission'] .ui-nav-item {
+  border-radius: 9999px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+:root[data-effects='mission'] .ui-nav-item:not(.is-active):hover { background: var(--m-pill); }
+:root[data-effects='mission'] .ui-nav-item.is-active {
+  background: var(--m-pill-active);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--m-hairline-strong);
+}
+:root[data-effects='mission'] .ui-nav-item.is-active svg { color: var(--accent-primary); }
+:root[data-effects='mission'] .ui-nav-indicator {
+  left: auto;
+  right: 10px;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  box-shadow: 0 0 8px var(--accent-primary);
+}
+:root[data-effects='mission'] .ui-nav-group:hover { background: transparent; }
+
+:root[data-effects='mission'] .ui-topbar { border-radius: 0 0 14px 14px; border-top: none; }
+
+/* Page header: a floating glass bar with pill tabs */
+:root[data-effects='mission'] .ui-page-header {
+  margin: 10px 10px 0;
+  border-radius: var(--m-radius);
+}
+/* On a phone a header with no actions renders nothing: no empty glass strip. */
+:root[data-effects='mission'] .ui-page-header:empty { display: none; }
+:root[data-effects='mission'] .ui-page-icon {
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent-primary) 85%, #fff) 0%, var(--accent-primary) 55%, color-mix(in srgb, var(--accent-primary) 70%, #000) 100%);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent-primary) 45%, transparent);
+}
+:root[data-effects='mission'] .ui-page-icon svg { color: var(--m-btn-text); }
+:root[data-effects='mission'] .ui-tabs-row { padding-bottom: 10px; }
+:root[data-effects='mission'] .ui-tabs { gap: 6px; border-bottom: none; }
+:root[data-effects='mission'] .ui-tab {
+  border: 1px solid var(--m-hairline);
+  border-radius: 9999px;
+  margin-bottom: 0;
+  background: var(--m-pill);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+:root[data-effects='mission'] .ui-tab:hover { color: var(--text-primary); background: var(--m-row-hover); }
+:root[data-effects='mission'] .ui-tab.is-active,
+:root[data-effects='mission'] .ui-tab[data-state='active'] {
+  background: var(--m-pill-active);
+  border-color: var(--m-hairline-strong);
+  color: var(--text-primary);
+}
+:root[data-effects='mission'] .ui-tab.is-active svg,
+:root[data-effects='mission'] .ui-tab[data-state='active'] svg { color: var(--accent-primary); }
+:root[data-effects='mission'] .ui-tab-underline { display: none; }
+:root[data-effects='mission'] .ui-tabs .ui-tab { padding-top: 6px; padding-bottom: 6px; }
+
+/* ============ Controls ============ */
+:root[data-effects='mission'] .ui-btn { border-radius: var(--m-radius-inner); }
+:root[data-effects='mission'] .btn-gradient {
+  background: var(--accent-primary);
+  color: var(--m-btn-text);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-primary) 60%, transparent), 0 4px 16px color-mix(in srgb, var(--accent-primary) 28%, transparent);
+}
+:root[data-effects='mission'] .btn-gradient.success { background: var(--accent-success); color: var(--m-btn-text); box-shadow: 0 4px 16px color-mix(in srgb, var(--accent-success) 25%, transparent); }
+:root[data-effects='mission'] .btn-gradient.danger { background: var(--accent-danger); color: var(--m-btn-text); box-shadow: 0 4px 16px color-mix(in srgb, var(--accent-danger) 25%, transparent); }
+:root[data-effects='mission'] .btn-gradient:hover { box-shadow: var(--m-glow); }
+:root[data-effects='mission'] .btn-soft {
+  background: var(--m-pill);
+  border-color: var(--m-hairline);
+  box-shadow: none;
+}
+:root[data-effects='mission'] .btn-soft:hover { background: var(--m-row-hover); border-color: var(--m-hairline-strong); }
+
+:root[data-effects='mission'] .ui-icon-button,
+:root[data-effects='mission'] .ui-page-header .ui-btn-secondary:has(> svg:only-child) {
+  border-radius: 9999px;
+}
+.ui-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.ui-icon-button:hover { color: var(--text-primary); }
+.ui-icon-button:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.ui-icon-button-sm { width: 28px; height: 28px; }
+.ui-icon-button-md { width: 36px; height: 36px; }
+.ui-icon-button-lg { width: 44px; height: 44px; }
+.ui-icon-button.is-active { color: var(--accent-primary); }
+:root[data-effects='mission'] .ui-icon-button {
+  background: var(--m-pill);
+  border-color: var(--m-hairline);
+}
+:root[data-effects='mission'] .ui-icon-button:hover { background: var(--m-row-hover); border-color: var(--m-hairline-strong); }
+:root[data-effects='mission'] .ui-icon-button.is-active { box-shadow: var(--m-glow); }
+:root[data-effects='mission'] .ui-modal-header .ui-icon-button,
+:root[data-effects='mission'] .ui-modal .ui-icon-button { border-color: transparent; background: var(--m-pill); }
+
+/* Stat chip: tiny uppercase label above a prominent value */
+.ui-stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px 6px 10px;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  min-width: 0;
+}
+.ui-stat-chip-icon { color: var(--fx-c, var(--text-secondary)); }
+.ui-stat-chip-label { font-size: 9px; line-height: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-tertiary); white-space: nowrap; }
+.ui-stat-chip-value { font-size: 14px; line-height: 18px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+:root[data-effects='mission'] .ui-stat-chip { background: var(--m-pill); border-color: var(--m-hairline); }
+:root[data-effects='mission'] .ui-stat-chip-label { font-family: var(--font-display); font-size: 8.5px; }
+
+/* Inputs */
+:root[data-effects='mission'] .ui-input {
+  background: var(--m-row);
+  border-color: var(--m-hairline-strong);
+  border-radius: var(--m-radius-inner);
+}
+:root[data-effects='mission'] .ui-input:hover { background: var(--m-row-hover); }
+:root[data-effects='mission'] .ui-input:focus,
+:root[data-effects='mission'] .ui-input:focus-visible,
+:root[data-effects='mission'] .ui-input[data-state='open'] {
+  border-color: var(--accent-primary);
+  box-shadow: var(--m-glow) !important;
+}
+:root[data-effects='mission'] .ui-input[aria-invalid='true'] { border-color: var(--accent-danger); }
+
+/* ============ Table ============ */
+:root[data-effects='mission'] .ui-table thead,
+:root[data-effects='mission'] .ui-table .table-header-gradient { background: var(--m-glass-strong); }
+:root[data-effects='mission'] .ui-table th { border-color: var(--m-hairline); font-size: 9.5px; letter-spacing: 0.09em; }
+:root[data-effects='mission'] .ui-table > div { border-color: var(--m-hairline); }
+:root[data-effects='mission'] .ui-row { border-color: var(--m-hairline); }
+:root[data-effects='mission'] .ui-row:hover { background: var(--m-row-hover); }
+:root[data-effects='mission'] .ui-row.is-selected {
+  background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent-primary);
+}
+
+/* ============ Modal and toasts ============ */
+:root[data-effects='mission'] .modal-backdrop {
+  background: radial-gradient(ellipse at center, rgba(8, 12, 13, 0.45), rgba(8, 12, 13, 0.75));
+}
+:root[data-effects='mission'].theme-light .modal-backdrop {
+  background: radial-gradient(ellipse at center, rgba(200, 210, 212, 0.35), rgba(120, 135, 138, 0.55));
+}
+:root[data-effects='mission'] .ui-modal { background: var(--m-glass-strong); overflow: hidden; }
+@media (min-width: 640px) {
+  :root[data-effects='mission'] .ui-modal {
+    border: 1px solid var(--m-hairline-strong);
+    border-radius: var(--m-radius);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+}
+:root[data-effects='mission'] .modal-header-gradient { background: transparent; }
+:root[data-effects='mission'] .modal-header-gradient::before {
+  left: 18px;
+  right: auto;
+  width: 64px;
+  background: var(--accent-primary);
+  box-shadow: 0 0 10px var(--accent-primary);
+  border-radius: 0 0 2px 2px;
+}
+:root[data-effects='mission'] .ui-modal .border-border,
+:root[data-effects='mission'] .ui-modal .border-border-op50,
+:root[data-effects='mission'] .ui-modal-footer { border-color: var(--m-hairline); }
+:root[data-effects='mission'] .ui-toast { border-left-width: 3px; }
+:root[data-effects='mission'] .ui-toast.status-success-border { border-left-color: var(--accent-success); }
+:root[data-effects='mission'] .ui-toast.status-danger-border { border-left-color: var(--accent-danger); }
+:root[data-effects='mission'] .ui-toast.status-warning-border { border-left-color: var(--accent-warning); }
+:root[data-effects='mission'] .ui-toast.status-primary-border { border-left-color: var(--accent-primary); }
+
+/* Floating detail windows move by transform; the blur stays constant while dragging. */
+:root[data-effects='mission'] .ui-floating {
+  background: var(--m-glass-strong);
+  -webkit-backdrop-filter: blur(var(--m-blur)) saturate(1.15);
+  backdrop-filter: blur(var(--m-blur)) saturate(1.15);
+  border-color: var(--m-hairline-strong) !important;
+  border-radius: var(--m-radius);
+}
+:root[data-effects='mission'] .ui-floating-header {
+  background: transparent !important;
+  border-color: var(--m-hairline);
+  border-radius: var(--m-radius) var(--m-radius) 0 0;
+}
+
+/* ============ Badges, status, progress ============ */
+:root[data-effects='mission'] .ui-badge { border-radius: 9999px; }
+:root[data-effects='mission'] .ui-badge-default,
+:root[data-effects='mission'] .ui-badge-secondary,
+:root[data-effects='mission'] .ui-badge-gray {
+  background: var(--m-pill);
+  border-color: var(--m-hairline);
+  color: var(--text-secondary);
+}
+:root[data-effects='mission'] .ui-badge-dot { box-shadow: 0 0 6px currentColor; color: inherit; }
+:root[data-effects='mission'] .ui-progress-track { background: var(--m-pill); height: 4px; }
+:root[data-effects='mission'] .ui-progress-fill {
+  box-shadow: 0 0 8px color-mix(in srgb, currentColor 60%, transparent);
+}
+:root[data-effects='mission'] .ui-progress-fill.status-success-bg-solid { color: var(--accent-success); }
+:root[data-effects='mission'] .ui-progress-fill.status-warning-bg-solid { color: var(--accent-warning); }
+:root[data-effects='mission'] .ui-progress-fill.status-danger-bg-solid { color: var(--accent-danger); }
+
+/* ============ Plan preview and detail cards ============ */
+:root[data-effects='mission'] .ui-subpanel {
+  border-color: var(--m-hairline);
+  border-radius: var(--m-radius-inner);
+  background: var(--m-row);
+}
+:root[data-effects='mission'] .ui-subpanel > button { background: transparent; }
+:root[data-effects='mission'] .ui-subpanel > button:hover { background: var(--m-row-hover); }
+:root[data-effects='mission'] .detail-header-gradient { border-radius: var(--m-radius); }
+:root[data-effects='mission'] .detail-field-frame { border-radius: var(--m-radius-inner); }
+
+/* ============ Small screens ============ */
+@media (max-width: 640px) {
+  :root[data-effects='mission'] .ui-page-header { margin: 6px 6px 0; border-radius: 14px; }
+  :root[data-effects='mission'] .ui-modal { border-radius: 0; }
+  :root[data-effects='mission'] .card-soft,
+  :root[data-effects='mission'] .ui-table { border-radius: 14px; }
+}

@@ -32,7 +32,7 @@ function isPlanGone(err) {
 function Section({ title, count, defaultOpen = true, children, testId }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className="border border-border rounded-lg overflow-hidden" data-testid={testId}>
+    <div className="ui-subpanel border border-border rounded-lg overflow-hidden" data-testid={testId}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

@@ -51,7 +51,7 @@ export function FormModal({
       <form onSubmit={handleSubmit} data-testid={testId}>
         <div className="p-4 space-y-4">{children}</div>
         {footer ?? (
-          <div className="flex justify-end gap-2 p-4 border-t border-border">
+          <div className="ui-modal-footer flex justify-end gap-2 p-4 border-t border-border">
             <Button type="button" variant="secondary" onClick={handleClose} disabled={loading}>
               {cancelLabel || t('actions.cancel')}
             </Button>

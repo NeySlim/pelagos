@@ -8,6 +8,8 @@ import { List, X, House, UserCircle, SignOut } from '@phosphor-icons/react'
 import { Sidebar, useVisibleNavItems } from './Sidebar'
 import { WebSocketIndicator } from './WebSocketIndicator'
 import { Logo } from './Logo'
+import { AppBackdrop, PageTransition } from './motion'
+import { useTheme } from '../contexts/ThemeContext'
 import { cn } from '../lib/utils'
 import { useAuth } from '../contexts/AuthContext'
 import { useMobile } from '../contexts/MobileContext'
@@ -19,6 +21,7 @@ export function AppShell() {
   const navigate = useNavigate()
   const { logout } = useAuth()
   const { isMobile } = useMobile()
+  const { effects } = useTheme()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const visibleItems = useVisibleNavItems()
   const activeId = resolveActiveNavId(location.pathname)
@@ -34,10 +37,11 @@ export function AppShell() {
   const activeItem = allNavItems.find((i) => i.id === activeId)
 
   return (
-    <div className="flex h-full w-full overflow-hidden bg-bg-primary">
-      <div className="flex flex-col w-full h-full overflow-hidden relative">
+    <div className="ui-app relative flex h-full w-full overflow-hidden bg-bg-primary">
+      {effects === 'mission' && <AppBackdrop />}
+      <div className="relative z-[1] flex flex-col w-full h-full overflow-hidden">
         {isMobile && (
-          <header className="shrink-0 h-10 bg-bg-secondary border-b border-border-op50 flex items-center px-2 z-40 gap-1">
+          <header className="ui-topbar shrink-0 h-10 bg-bg-secondary border-b border-border-op50 flex items-center px-2 z-40 gap-1">
             <Logo variant="icon" withText={false} size="xs" />
             <span className="ml-1 text-xs font-medium text-text-primary truncate flex-1">{activeItem ? t(activeItem.labelKey) : 'Pelagos'}</span>
             <WebSocketIndicator className="scale-90" />
@@ -56,7 +60,7 @@ export function AppShell() {
           <>
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setMobileMenuOpen(false)} />
             <div className="fixed top-10 right-0 left-0 z-50 p-2">
-              <div className="bg-bg-secondary border border-border rounded-xl shadow-2xl p-2 max-h-[70vh] overflow-auto">
+              <div className="ui-menu bg-bg-secondary border border-border rounded-xl shadow-2xl p-2 max-h-[70vh] overflow-auto">
                 <div className="grid grid-cols-4 gap-1 mb-1">
                   <Link to="/" className={cn('flex flex-col items-center gap-0.5 p-1.5 rounded-lg', activeId === 'dashboard' ? 'bg-accent-primary-op15 text-accent-primary' : 'text-text-secondary')}>
                     <House size={18} />
@@ -95,14 +99,17 @@ export function AppShell() {
           </>
         )}
 
-        <div className="flex-1 flex min-h-0 overflow-hidden">
+        <div className="ui-body flex-1 flex min-h-0 overflow-hidden">
           {!isMobile && (
-            <div className="flex-shrink-0">
+            <div className="ui-sidebar-slot flex-shrink-0">
               <Sidebar activeId={activeId} />
             </div>
           )}
           <main className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden" id="main">
-            <Outlet />
+            {/* Keyed by nav entry, not path: a page's own sub-routes keep their state. */}
+            <PageTransition routeKey={activeId || 'none'}>
+              <Outlet />
+            </PageTransition>
           </main>
         </div>
       </div>

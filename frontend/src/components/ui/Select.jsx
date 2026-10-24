@@ -86,7 +86,7 @@ export function Select({
 
   const triggerStyles = cn(
     // Base styles
-    'flex items-center justify-between rounded-md border',
+    'ui-input flex items-center justify-between rounded-md border',
     'focus:outline-none focus:ring-2 focus:ring-accent-primary-op30 focus:border-accent-primary',
     'disabled:opacity-50 disabled:cursor-not-allowed',
     'transition-all duration-200',
@@ -144,7 +144,7 @@ export function Select({
           <SelectPrimitive.Content
             className={cn(
               // Glass effect
-              "bg-secondary-op95 backdrop-blur-md",
+              "ui-menu bg-secondary-op95 backdrop-blur-md",
               "border border-border-op50 rounded-lg",
               "shadow-xl shadow-black/20",
               "overflow-hidden",

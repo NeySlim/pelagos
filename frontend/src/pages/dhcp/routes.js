@@ -3,7 +3,7 @@
 // The v6 routes and nav entries are gated by the cluster module `dhcpv6`.
 import { lazy } from 'react'
 import {
-  Network, TreeStructure, SlidersHorizontal, Tag, Clock, BookmarkSimple, Heartbeat, ArrowsClockwise, PuzzlePiece,
+  Network, TreeStructure, SlidersHorizontal, Tag, Clock, BookmarkSimple, Heartbeat, ArrowsClockwise, PuzzlePiece, ChartBar,
 } from '@phosphor-icons/react'
 import './detailWindows'
 
@@ -17,6 +17,7 @@ const screens = [
   { id: 'ha', path: 'ha', icon: Heartbeat, component: lazy(() => import('./HaPage')) },
   { id: 'ddns', path: 'ddns', icon: ArrowsClockwise, component: lazy(() => import('./DdnsPage')) },
   { id: 'hooks', path: 'hooks', icon: PuzzlePiece, component: lazy(() => import('./HooksPage')) },
+  { id: 'stats', path: 'stats', icon: ChartBar, component: lazy(() => import('./StatsPage')) },
 ]
 
 const families = [

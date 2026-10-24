@@ -16,6 +16,7 @@ const PAGES = [
   ['/dns/dnssec', 'page-dns-dnssec', 'dnssec-zones'],
   ['/dns/rpz', 'page-dns-rpz', 'rpz-table'],
   ['/dns/catalogs', 'page-dns-catalogs', 'catalog-card'],
+  ['/dns/instances', 'page-dns-instances', 'dns-instance-rcodes'],
   ...['v4', 'v6'].flatMap((family) =>
     [
       ['subnets', 'subnets', 'subnets-table'],
@@ -27,6 +28,7 @@ const PAGES = [
       ['ha', 'ha', 'ha-summary'],
       ['ddns', 'ddns', 'ddns-params'],
       ['hooks', 'hooks', 'hooks-table'],
+      ['stats', 'stats', 'dhcp-stats-global'],
     ].map(([path, page, data]) => [`/dhcp/${family}/${path}`, `page-dhcp-${page}`, data]),
   ),
   ['/hosts', 'page-hosts-list', 'hosts-table'],

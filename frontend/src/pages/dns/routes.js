@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// DNS area: zones and records, resolver, ACLs and keys, secondaries, DNSSEC, RPZ, catalog zones.
+// DNS area: zones and records, resolver, ACLs and keys, secondaries, DNSSEC, RPZ, catalog zones,
+// instance statistics.
 import { lazy } from 'react'
-import { Globe, ArrowsLeftRight, Key, CopySimple, ShieldCheck, Prohibit, BookOpen } from '@phosphor-icons/react'
+import { Globe, ArrowsLeftRight, Key, CopySimple, ShieldCheck, Prohibit, BookOpen, ChartBar } from '@phosphor-icons/react'
 
 const ZonesPage = lazy(() => import('./ZonesPage'))
 const ZoneDetailPage = lazy(() => import('./ZoneDetailPage'))
@@ -11,6 +12,7 @@ const SecondariesPage = lazy(() => import('./SecondariesPage'))
 const DnssecPage = lazy(() => import('./DnssecPage'))
 const RpzPage = lazy(() => import('./RpzPage'))
 const CatalogsPage = lazy(() => import('./CatalogsPage'))
+const InstancesPage = lazy(() => import('./InstancesPage'))
 
 const read = 'read:dns'
 
@@ -25,6 +27,7 @@ export default {
     { path: '/dns/dnssec', component: DnssecPage, permission: read },
     { path: '/dns/rpz', component: RpzPage, permission: read },
     { path: '/dns/catalogs', component: CatalogsPage, permission: read },
+    { path: '/dns/instances', component: InstancesPage, permission: read },
   ],
   nav: [
     { id: 'dns-zones', group: 'dns', path: '/dns/zones', labelKey: 'dns:nav.zones', icon: Globe, permission: read, order: 10 },
@@ -34,5 +37,6 @@ export default {
     { id: 'dns-dnssec', group: 'dns', path: '/dns/dnssec', labelKey: 'dns:nav.dnssec', icon: ShieldCheck, permission: read, order: 14 },
     { id: 'dns-rpz', group: 'dns', path: '/dns/rpz', labelKey: 'dns:nav.rpz', icon: Prohibit, permission: read, order: 15 },
     { id: 'dns-catalogs', group: 'dns', path: '/dns/catalogs', labelKey: 'dns:nav.catalogs', icon: BookOpen, permission: read, order: 16 },
+    { id: 'dns-instances', group: 'dns', path: '/dns/instances', labelKey: 'dns:nav.instances', icon: ChartBar, permission: read, order: 17 },
   ],
 }

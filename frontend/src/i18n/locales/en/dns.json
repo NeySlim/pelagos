@@ -6,7 +6,8 @@
     "secondaries": "Secondaries",
     "dnssec": "DNSSEC",
     "rpz": "RPZ",
-    "catalogs": "Catalog zones"
+    "catalogs": "Catalog zones",
+    "instances": "Instances"
   },
   "pages": {
     "zones": {
@@ -40,6 +41,10 @@
     "catalogs": {
       "title": "Catalog zones",
       "subtitle": "Consumed and produced catalogs and their member zones"
+    },
+    "instances": {
+      "title": "Instances",
+      "subtitle": "BIND status and statistics-channel counters per node"
     }
   },
   "kind": {
@@ -341,5 +346,32 @@
     "readError": "Not readable here: {{error}}",
     "noMembers": "No member",
     "open": "Catalog zones"
+  },
+  "instances": {
+    "empty": "No node runs BIND",
+    "running": "Running",
+    "stopped": "Stopped",
+    "noChannel": "No statistics channel",
+    "noCounters": "No counter yet",
+    "rcodes": "Response codes",
+    "qtypes": "Query types",
+    "rndcStatus": "rndc status",
+    "memoryInUse": "Memory in use",
+    "memoryTotal": "Memory allocated",
+    "bootTime": "Started",
+    "uptime": "Uptime",
+    "uptimeValue": "{{days}} d {{hours}} h",
+    "configTime": "Configuration loaded",
+    "collectedAt": "Read at",
+    "counters": {
+      "queries": "Queries",
+      "responses": "Responses",
+      "recursive": "Recursive queries",
+      "updates": "Dynamic updates",
+      "updateFailures": "Failed updates",
+      "transfers": "Zone transfers",
+      "validated": "DNSSEC validated",
+      "validationFailures": "Validation failures"
+    }
   }
 }

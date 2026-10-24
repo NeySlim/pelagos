@@ -39,7 +39,7 @@ const DYNAMIC = [
   ...['bind', 'kea4', 'kea6', 'd2'].map((m) => ['nodes', `modules.${m}`]),
   ['hosts', 'pages.list.title'],
   ['nodes', 'pages.list.title'],
-  ...['subnets', 'sharedNetworks', 'options', 'classes', 'leases', 'reservations', 'ha', 'ddns', 'hooks'].flatMap((p) => [
+  ...['subnets', 'sharedNetworks', 'options', 'classes', 'leases', 'reservations', 'ha', 'ddns', 'hooks', 'stats'].flatMap((p) => [
     ['dhcp', `pages.${p}.title`],
     ['dhcp', `pages.${p}.subtitle`],
   ]),

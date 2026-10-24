@@ -8,7 +8,8 @@
     "reservations": "Réservations",
     "ha": "Haute disponibilité",
     "ddns": "DDNS",
-    "hooks": "Hooks"
+    "hooks": "Hooks",
+    "stats": "Statistiques"
   },
   "pages": {
     "subnets": {
@@ -46,6 +47,10 @@
     "hooks": {
       "title": "Hooks",
       "subtitle": "Bibliothèques de hooks chargées"
+    },
+    "stats": {
+      "title": "Statistiques",
+      "subtitle": "Compteurs Kea par serveur et par sous-réseau"
     }
   },
   "fields": {
@@ -302,5 +307,22 @@
     "adoptRunning": "Adopter la configuration en cours",
     "hint": "Le fichier : Kea charge ce que dit le fichier. La configuration en cours : le fichier est réécrit, commentaires conservés.",
     "otherNode": "Adoptez-le depuis {{node}}, le nœud qui porte le fichier."
+  },
+  "stats": {
+    "server": "Compteurs du serveur",
+    "subnets": "Sous-réseaux",
+    "none": "Aucun compteur",
+    "filter": "Filtrer les compteurs...",
+    "noServer": "Aucun nœud ne fait tourner ce serveur Kea",
+    "columns": {
+      "total-addresses": "Total",
+      "assigned-addresses": "Attribuées",
+      "declined-addresses": "Refusées",
+      "reclaimed-leases": "Récupérés",
+      "total-nas": "NA total",
+      "assigned-nas": "NA attribuées",
+      "total-pds": "PD total",
+      "assigned-pds": "PD attribués"
+    }
   }
 }

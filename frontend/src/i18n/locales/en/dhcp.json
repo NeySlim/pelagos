@@ -8,7 +8,8 @@
     "reservations": "Reservations",
     "ha": "High availability",
     "ddns": "DDNS",
-    "hooks": "Hooks"
+    "hooks": "Hooks",
+    "stats": "Statistics"
   },
   "pages": {
     "subnets": {
@@ -46,6 +47,10 @@
     "hooks": {
       "title": "Hooks",
       "subtitle": "Loaded hook libraries"
+    },
+    "stats": {
+      "title": "Statistics",
+      "subtitle": "Kea counters per server and per subnet"
     }
   },
   "fields": {
@@ -302,5 +307,22 @@
     "adoptRunning": "Adopt the running configuration",
     "hint": "The file: Kea loads what the file says. The running configuration: the file is rewritten, comments kept.",
     "otherNode": "Adopt it from {{node}}, the node that holds the file."
+  },
+  "stats": {
+    "server": "Server counters",
+    "subnets": "Subnets",
+    "none": "No counter",
+    "filter": "Filter counters...",
+    "noServer": "No node runs this Kea server",
+    "columns": {
+      "total-addresses": "Total",
+      "assigned-addresses": "Assigned",
+      "declined-addresses": "Declined",
+      "reclaimed-leases": "Reclaimed",
+      "total-nas": "Total NA",
+      "assigned-nas": "Assigned NA",
+      "total-pds": "Total PD",
+      "assigned-pds": "Assigned PD"
+    }
   }
 }

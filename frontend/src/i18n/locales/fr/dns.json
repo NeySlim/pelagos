@@ -6,7 +6,8 @@
     "secondaries": "Secondaires",
     "dnssec": "DNSSEC",
     "rpz": "RPZ",
-    "catalogs": "Zones catalogues"
+    "catalogs": "Zones catalogues",
+    "instances": "Instances"
   },
   "pages": {
     "zones": {
@@ -40,6 +41,10 @@
     "catalogs": {
       "title": "Zones catalogues",
       "subtitle": "Catalogues consommés et produits, avec leurs zones membres"
+    },
+    "instances": {
+      "title": "Instances",
+      "subtitle": "État de BIND et compteurs du canal de statistiques par nœud"
     }
   },
   "kind": {
@@ -341,5 +346,32 @@
     "readError": "Illisible ici : {{error}}",
     "noMembers": "Aucun membre",
     "open": "Zones catalogues"
+  },
+  "instances": {
+    "empty": "Aucun nœud ne fait tourner BIND",
+    "running": "En marche",
+    "stopped": "Arrêté",
+    "noChannel": "Pas de canal de statistiques",
+    "noCounters": "Aucun compteur pour l'instant",
+    "rcodes": "Codes de réponse",
+    "qtypes": "Types de requête",
+    "rndcStatus": "rndc status",
+    "memoryInUse": "Mémoire utilisée",
+    "memoryTotal": "Mémoire allouée",
+    "bootTime": "Démarré",
+    "uptime": "En marche depuis",
+    "uptimeValue": "{{days}} j {{hours}} h",
+    "configTime": "Configuration chargée",
+    "collectedAt": "Lu à",
+    "counters": {
+      "queries": "Requêtes",
+      "responses": "Réponses",
+      "recursive": "Requêtes récursives",
+      "updates": "Mises à jour dynamiques",
+      "updateFailures": "Mises à jour en échec",
+      "transfers": "Transferts de zone",
+      "validated": "Validées DNSSEC",
+      "validationFailures": "Échecs de validation"
+    }
   }
 }

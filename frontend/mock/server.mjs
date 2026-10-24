@@ -529,29 +529,44 @@ function bindTree(state) {
   }
 }
 
-function bindConfig(state) {
+// BindConfigTree (architecture section 4): statements as {name, value, path, line, managed}.
+function bindConfig(state, nodeId) {
+  const options = '/etc/bind/named.conf.options'
+  const managedOptions = '/etc/bind/pelagos/options.conf'
+  const opt = (name, value, path = managedOptions, line = 1) => ({ name, value, path, line, managed: path.startsWith('/etc/bind/pelagos/') })
   return {
-    includes: ['/etc/bind/named.conf', '/etc/bind/named.conf.options', '/etc/bind/named.conf.local', '/etc/bind/pelagos/pelagos.conf', '/etc/bind/pelagos/keys.conf', '/etc/bind/pelagos/acls.conf', '/etc/bind/pelagos/zones.conf', '/etc/bind/pelagos/options.conf'],
-    options: {
-      directory: '"/var/cache/bind"',
-      recursion: state.resolver.recursion ? 'yes' : 'no',
-      'allow-recursion': `{ ${state.resolver.allow_recursion.join('; ')}; }`,
-      forwarders: `{ ${state.resolver.forwarders.join('; ')}; }`,
-      forward: state.resolver.forward,
-      'dnssec-validation': state.resolver.dnssec_validation,
-    },
-    keys: Object.fromEntries(state.keys.map((k) => [k.name, { algorithm: k.algorithm, secret: '********', provenance: { file: k.config_path, line: 1 } }])),
-    acls: Object.fromEntries(state.acls.map((a) => [a.name, { elements: a.elements, provenance: { file: a.config_path, line: 1 } }])),
-    controls: [{ inet: '127.0.0.1', port: 953, allow: ['127.0.0.1'], keys: ['rndc-key'] }],
-    statistics_channels: [{ inet: '127.0.0.1', port: 8053, allow: ['127.0.0.1'] }],
-    logging: 'channel default_log { file "/var/log/named/default.log" versions 3 size 20m; severity info; };',
+    node_id: nodeId || state.selfId,
+    user_conf: '/etc/bind/named.conf',
+    includes: ['/etc/bind/named.conf', options, '/etc/bind/named.conf.local', '/etc/bind/pelagos/pelagos.conf', '/etc/bind/pelagos/keys.conf', '/etc/bind/pelagos/acls.conf', '/etc/bind/pelagos/zones.conf', managedOptions],
+    options: [
+      opt('directory', '"/var/cache/bind"', options, 2),
+      opt('recursion', state.resolver.recursion ? 'yes' : 'no'),
+      opt('allow-recursion', `{ ${state.resolver.allow_recursion.join('; ')}; }`, managedOptions, 2),
+      opt('forwarders', `{ ${state.resolver.forwarders.join('; ')}; }`, managedOptions, 3),
+      opt('forward', state.resolver.forward, managedOptions, 4),
+      opt('dnssec-validation', state.resolver.dnssec_validation, managedOptions, 5),
+    ],
+    keys: state.keys.map((k, i) => ({ name: k.name, value: `algorithm ${k.algorithm}; secret "***"`, path: k.config_path, line: 1 + i * 4, managed: k.source === 'pelagos' })),
+    acls: state.acls.map((a, i) => ({ name: a.name, value: `{ ${a.elements.join('; ')}; }`, path: a.config_path, line: 1 + i * 3, managed: a.source === 'pelagos' })),
+    controls: [{ name: 'inet', value: '127.0.0.1 port 953 allow { 127.0.0.1; } keys { "rndc-key"; }', path: options, line: 20, managed: false }],
+    statistics_channels: [{ name: 'inet', value: '127.0.0.1 port 8053 allow { 127.0.0.1; }', path: options, line: 24, managed: false }],
+    logging: 'logging {\n\tchannel default_log { file "/var/log/named/default.log" versions 3 size 20m; severity info; };\n};',
     views: {},
     zones: state.zones,
     pelagos: {
-      managed_files: ['keys.conf', 'acls.conf', 'zones.conf', 'options.conf'],
-      include_present: true,
+      include_dir: '/etc/bind/pelagos',
+      managed_files: { 'pelagos.conf': true, 'keys.conf': true, 'acls.conf': true, 'zones.conf': true, 'options.conf': true },
+      view_files: [],
+      include_line_present: true,
       options_include_present: true,
+      view_includes_present: {},
+      missing_includes: [],
+      parse_errors: [],
+      other_statements: [],
+      has_views: false,
+      checkconf: { ok: true, output: '' },
     },
+    collected_at: iso(Date.now()),
   }
 }
 
@@ -1020,7 +1035,7 @@ function buildHandlers(state, emit) {
           : { signed: false, policy: null, keys: [] },
       }
     },
-    'GET /dns/config': () => bindConfig(state),
+    'GET /dns/config': ({ query }) => bindConfig(state, query.get('node_id')),
     'POST /dns/config/plan': ({ body, user }) => {
       if (!Array.isArray(body.changes) || !body.changes.length) throw invalid('changes', 'at least one change is required')
       const first = body.changes[0]
@@ -1054,7 +1069,7 @@ function buildHandlers(state, emit) {
         })
       }
       const statement = String(first.target || '').replace(/^options\//, '')
-      const current = bindConfig(state).options[statement] ?? null
+      const current = bindConfig(state).options.find((o) => o.name === statement)?.value ?? null
       return settingsPlan(state, user, {
         scope: 'dns.config',
         engine: 'bind',
@@ -1256,12 +1271,15 @@ function buildHandlers(state, emit) {
     'GET /dhcp/{family}/utilization': ({ params, query }) => ({ items: utilization(state, params.family, query.get('node_id')) }),
     'GET /dhcp/{family}/stats': ({ params, query }) => {
       const items = utilization(state, params.family, query.get('node_id'))
-      const statistics = { 'pkt4-received': 120220, 'pkt4-discover-received': 30110, 'pkt4-request-received': 70210, 'pkt4-ack-sent': 70011, 'pkt4-nak-sent': 12, 'pkt4-receive-drop': 3 }
+      const counters = { 'pkt4-received': 120220, 'pkt4-discover-received': 30110, 'pkt4-request-received': 70210, 'pkt4-ack-sent': 70011, 'pkt4-nak-sent': 12, 'pkt4-receive-drop': 3 }
       items.forEach((r, i) => {
-        statistics[`subnet[${r.subnet_id}].pool[${i}].total-addresses`] = r.total
-        statistics[`subnet[${r.subnet_id}].pool[${i}].assigned-addresses`] = r.assigned
-        statistics[`subnet[${r.subnet_id}].pool[${i}].declined-addresses`] = r.declined
+        counters[`subnet[${r.subnet_id}].pool[${i}].total-addresses`] = r.total
+        counters[`subnet[${r.subnet_id}].pool[${i}].assigned-addresses`] = r.assigned
+        counters[`subnet[${r.subnet_id}].pool[${i}].declined-addresses`] = r.declined
       })
+      // Kea statistic-get-all: each value is a list of [value, "YYYY-MM-DD hh:mm:ss.ffffff"] samples.
+      const stamp = iso(Date.now()).replace('T', ' ').replace('Z', '000')
+      const statistics = Object.fromEntries(Object.entries(counters).map(([k, v]) => [k, [[v, stamp]]]))
       return { node_id: nodeOr(query), statistics }
     },
     'GET /dhcp/{family}/ha': ({ params }) => ({ items: state.ha[params.family] }),

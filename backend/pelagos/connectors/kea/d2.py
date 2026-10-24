@@ -248,8 +248,10 @@ class D2Backend(DdnsBackend):
         targets = [*secrets]
         if self.conf_path.exists():
             targets.append(self.conf_path)
+        # Own label: pipeline.run() makes its backup right after, possibly within the same millisecond.
+        snapshot = self._pipeline(new_cfg, before_hash, f"{label}-before")
         try:
-            backup_dir = pipeline.backup(targets) if targets else None
+            backup_dir = snapshot.backup(targets) if targets else None
         except OSError as exc:
             return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=f"backup failed: {exc}")
         if backup_dir is not None and not label.endswith("-rollback"):

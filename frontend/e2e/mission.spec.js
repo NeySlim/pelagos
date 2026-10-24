@@ -48,6 +48,30 @@ test('the Mission dashboard tiles enter staggered', async ({ page }) => {
   expect(indicator).toBe('none')
 })
 
+test('the sign-in page shows the radar scene behind an unblurred card', async ({ page }) => {
+  await page.goto('/login')
+  await expect(page.getByTestId('login-scene')).toBeAttached()
+  const blur = await page.getByTestId('login-form').evaluate((el) => getComputedStyle(el).backdropFilter)
+  expect(blur).toBe('none')
+})
+
+test('the dashboard hero draws the cluster radar and live rates', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/')
+  const radar = page.getByTestId('cluster-radar')
+  await expect(radar.getByTestId('radar-node')).toHaveCount(2)
+  await expect(radar.getByTestId('radar-ha-pill').first()).toBeVisible()
+  await expect(radar.getByTestId('radar-link')).toHaveCount(1)
+  // The sweep and the tick ring turn at full motion.
+  const sweep = await radar.locator('.radar-sweep').evaluate((el) => getComputedStyle(el).animationName)
+  expect(sweep).toBe('fx-spin')
+  // Two polls of the mock's growing counters give a query rate, on the tile and the pins.
+  await expect(page.getByTestId('dns-rate').locator('.sr-only')).toHaveText(/^[1-9][\d,.]*$/, { timeout: 20000 })
+  await expect(page.getByTestId('tile-dns').getByTestId('stippled-area-chart')).toBeVisible()
+  await expect(radar.getByTestId('radar-node').first()).toContainText('q/s')
+  await expect(page.getByTestId('tile-dhcp').getByTestId('dhcp-pool').first()).toBeVisible()
+})
+
 test('a zone page keeps the DNS name case in the display title', async ({ page }) => {
   await signIn(page)
   await page.goto('/dns/zones/lab.example.lan')
@@ -96,6 +120,10 @@ test.describe('reduced motion from the system', () => {
     expect(await rootData(page, 'motion')).toBe('reduced')
     const pulse = await page.getByTestId('ws-dot').evaluate((el) => getComputedStyle(el, '::after').animationName)
     expect(pulse).toBe('none')
+    await page.goto('/')
+    const sweep = page.getByTestId('cluster-radar').locator('.radar-sweep')
+    await expect(sweep).toBeAttached()
+    expect(await sweep.evaluate((el) => getComputedStyle(el).animationName)).toBe('none')
   })
 })
 

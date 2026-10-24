@@ -12,6 +12,7 @@ from pelagos.core.config_store import DEFAULT_SETTINGS, ClusterConfig, deep_merg
 from pelagos.core.context import NodeContext
 from pelagos.domain import AuditEntry, AuditResult, NodeModules, Role, User, new_id, utcnow
 from pelagos.services.errors import Conflict, NotFound, ValidationError, field_error
+from pelagos.services.masking import masked
 
 USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,62}$")
 ROLE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
@@ -74,7 +75,7 @@ class AdminService:
                 user=actor,
                 action=action,
                 target=target,
-                request=request,
+                request=masked(request),
                 response={"ok": True},
                 result=AuditResult.OK,
                 message=message,
@@ -184,10 +185,12 @@ class AdminService:
         if current.username == actor:
             raise Conflict("you cannot delete your own account")
         self._guard_last_admin(cfg, exclude=current.id)
-        self.ctx.config_store.update_cluster(
-            lambda c: c.users.__setitem__(slice(None), [u for u in c.users if u.id != user_id]),
-            updated_by=self._by(actor),
-        )
+
+        def mutate(c: ClusterConfig) -> None:
+            c.users[:] = [u for u in c.users if u.id != user_id]
+            c.secrets.pop(f"totp/{current.username}", None)
+
+        self.ctx.config_store.update_cluster(mutate, updated_by=self._by(actor))
         self.ctx.sessions.revoke_user(user_id)
         self._audit(
             "admin.user.delete", f"user:{current.username}", actor, {"username": current.username}, client_ip
@@ -458,12 +461,22 @@ class AdminService:
         own = nodes.get(self.ctx.node.id)
         if own:
             # node.toml [engines] mirrors [[nodes]].modules for this node; a restart builds the connectors.
+            # An engine is on when its entry is truthy; a disabled table is parked under `disabled`.
+            engines = self.ctx.node.engines
+            parked = engines.get("disabled") if isinstance(engines.get("disabled"), dict) else {}
             for k, v in own.items():
-                current = self.ctx.node.engines.get(k)
-                if isinstance(current, dict):
-                    current["enabled"] = v
-                else:
-                    self.ctx.node.engines[k] = v
+                current = engines.get(k)
+                if v and not current:
+                    table = parked.pop(k, None)
+                    engines[k] = {kk: vv for kk, vv in table.items() if kk != "enabled"} if table else True
+                elif not v and current:
+                    if isinstance(current, dict):
+                        parked[k] = current
+                    engines[k] = False
+            if parked:
+                engines["disabled"] = parked
+            else:
+                engines.pop("disabled", None)
             self.ctx.config_store.save_node(self.ctx.node)
         self._audit("admin.settings.replace", "modules", actor, body, client_ip)
         return self.modules()

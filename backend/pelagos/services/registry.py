@@ -71,9 +71,7 @@ class ConnectorRegistry:
 
 
 def enabled(value: Any) -> bool:
-    """`bind = true` or a `[engines.bind]` table (enabled unless it says `enabled = false`)."""
-    if isinstance(value, dict):
-        return bool(value.get("enabled", True))
+    """`bind = true` or a non-empty `[engines.bind]` table; same rule as NodeConfig.modules."""
     return bool(value)
 
 

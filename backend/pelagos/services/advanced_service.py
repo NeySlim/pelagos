@@ -96,7 +96,7 @@ class AdvancedService:
 
     def history_entry(self, history_id: str) -> dict[str, Any]:
         engine, _, name = history_id.partition("/")
-        if not engine or not name or "/" in name or ".." in name:
+        if engine not in {e.value for e in Engine} or not name or "/" in name or ".." in name:
             raise NotFound(f"history entry {history_id}")
         bdir = self.ctx.paths.backups_dir / engine / name
         manifest = bdir / "manifest.json"

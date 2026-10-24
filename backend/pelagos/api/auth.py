@@ -45,7 +45,7 @@ class Login(Resource):
     def post(self):
         c = ctx()
         body = request.get_json(silent=True) or {}
-        username = str(body.get("username", "")).strip()
+        username = str(body.get("username", "")).strip().lower()
         password = str(body.get("password", ""))
         code = body.get("totp_code")
         ip = client_ip() or "?"

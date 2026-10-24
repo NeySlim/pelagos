@@ -166,3 +166,42 @@ def test_modules(admin, node_ctx):
     r = admin.get("/api/v1/advanced/bind/tree")
     assert r.status_code == 404 and r.get_json()["code"] == "module_disabled"
     assert admin.put("/api/v1/admin/modules", json={"nodes": {"ghost": {"bind": True}}}).status_code == 400
+
+
+def test_login_is_case_insensitive(admin, login):
+    assert (
+        admin.post(
+            "/api/v1/admin/users", json={"username": "Carla", "password": GOOD, "roles": ["viewer"]}
+        ).status_code
+        == 201
+    )
+    assert login(" Carla ", GOOD).get("/api/v1/auth/session").status_code == 200
+
+
+def test_delete_user_drops_its_totp_secret(admin, login, node_ctx):
+    import pyotp
+
+    vera = _users(admin)["vera"]
+    c = login("vera")
+    secret = c.post("/api/v1/auth/totp/enroll").get_json()["secret"]
+    assert c.post("/api/v1/auth/totp/confirm", json={"code": pyotp.TOTP(secret).now()}).status_code == 204
+    assert "totp/vera" in node_ctx.cluster().secrets
+    assert admin.delete(f"/api/v1/admin/users/{vera['id']}").status_code == 204
+    assert "totp/vera" not in node_ctx.cluster().secrets
+
+
+def test_disabling_an_engine_table_agrees_with_node_modules(admin, node_ctx):
+    from pelagos.services.registry import enabled
+
+    node_ctx.node.engines["bind"] = {"rndc_key": "/etc/bind/rndc.key"}
+    nid = node_ctx.node.id
+    r = admin.put("/api/v1/admin/modules", json={"nodes": {nid: {"bind": False}}})
+    assert r.status_code == 200 and r.get_json()["nodes"][nid]["bind"] is False
+    saved = node_ctx.config_store.load_node()
+    assert (
+        saved.engines["bind"] is False and saved.modules.bind is False and not enabled(saved.engines["bind"])
+    )
+    assert admin.put("/api/v1/admin/modules", json={"nodes": {nid: {"bind": True}}}).status_code == 200
+    saved = node_ctx.config_store.load_node()
+    assert saved.engines["bind"] == {"rndc_key": "/etc/bind/rndc.key"} and "disabled" not in saved.engines
+    assert saved.modules.bind is True and enabled(saved.engines["bind"])

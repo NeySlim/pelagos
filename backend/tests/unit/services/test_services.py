@@ -46,7 +46,8 @@ def test_registry_from_node_toml(node_ctx):
     assert registry.engines() == [Engine.BIND, Engine.KEA4, Engine.D2]
     assert str(registry.kea4.socket.path) == "/run/kea-test/k4"
     assert registry.dhcp(Family.V6) is None and registry.backend(Engine.KEA6) is None
-    assert enabled({"enabled": False}) is False and enabled({"named_conf": "/x"}) is True
+    # Same rule as NodeConfig.modules: a non-empty table is on, `false` is off.
+    assert enabled({}) is False and enabled(False) is False and enabled({"named_conf": "/x"}) is True
     ctx = connector_context(node_ctx, "bind", {"named_conf": "/etc/bind/named.conf"})
     assert ctx.engine_config == {"named_conf": "/etc/bind/named.conf"} and ctx.node_id == node_ctx.node.id
     assert ctx.backup_root == node_ctx.paths.backups_dir / "bind"
@@ -259,6 +260,11 @@ def test_history_from_write_pipeline_backups(node_ctx):
 
         with pytest.raises(NotFound):
             services.advanced.history_entry("bind/../../etc")
+        sibling = node_ctx.paths.backups_dir.parent / "leak"
+        sibling.mkdir(parents=True)
+        (sibling / "manifest.json").write_text('{"files": []}')
+        with pytest.raises(NotFound):
+            services.advanced.history_entry("../leak")
         with pytest.raises(ValidationError):
             services.advanced.history(None, "another-node")
     finally:

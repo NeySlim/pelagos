@@ -13,15 +13,18 @@ caught up. The VMs are rolled back first; the pair is left running with Pelagos 
 from __future__ import annotations
 
 import json
+import re
 import time
 
 import pytest
 
+from pelagos.installer import keaconf
 from tests.lab.labkit import (
     CLIENT,
     NS1,
     NS2,
     Api,
+    ApiError,
     deb_package,
     rollback,
     run_script,
@@ -87,6 +90,48 @@ def open_alerts(address: str, kind: str) -> list[dict]:
 
 def dig(host: str, name: str, rtype: str = "A") -> str:
     return ssh(host, f"dig +short @127.0.0.1 {name} {rtype}")[1].strip()
+
+
+STATIC_ZONE = "static.example.lan"
+STATIC_FILE = f"/var/lib/bind/db.{STATIC_ZONE}"
+STATIC_TEXT = f"""; {STATIC_ZONE}: written by hand, keep this comment
+$TTL 3600
+@\tIN SOA ns1.example.lan. hostmaster.example.lan. ( SERIAL 3600 900 604800 300 )
+\tIN NS ns1.example.lan.
+\tIN NS ns2.example.lan.
+ns1\tIN A {A1}
+"""
+KEA4_CONF = "/etc/kea/kea-dhcp4.conf"
+HAND_COMMENT = "// edited by hand on the lab"
+# A global-only key: no subnet copy and no bounds tied to other keys.
+PROBATION = "decline-probation-period"
+
+
+def install_file(host: str, path: str, content: str, owner: str, mode: str = "0664") -> None:
+    user, group = owner.split(":")
+    ssh(host, f"sudo install -m {mode} -o {user} -g {group} /dev/stdin {path}", data=content.encode())
+
+
+def hand_edit_kea(host: str, old: int, new: int) -> None:
+    """Sets the probation period in the file only (tee keeps owner and mode); Kea runs the old value."""
+    text = sudo_cat(host, KEA4_CONF)
+    edited = re.sub(rf'"{PROBATION}"\s*:\s*{old}\b', f'"{PROBATION}": {new}', text, count=1)
+    if edited == text:
+        edited = re.sub(r'"Dhcp4"\s*:\s*\{', f'"Dhcp4": {{\n    "{PROBATION}": {new},', text, count=1)
+    assert edited != text, "no Dhcp4 object in the Kea file"
+    if not edited.startswith(HAND_COMMENT):
+        edited = f"{HAND_COMMENT}\n{edited}"
+    ssh(host, f"sudo tee {KEA4_CONF} >/dev/null", data=edited.encode())
+
+
+def file_diverged(address: str) -> bool:
+    me = node_id(address)
+    items = api(address).get("/dhcp/v4/config/file")["items"]
+    return any(i["node_id"] == me and i["diverged"] for i in items)
+
+
+def file_alerts(address: str) -> list[dict]:
+    return [a for a in open_alerts(address, "config_divergence") if a["subject"] == "kea4:config-file"]
 
 
 class TestReferencePair:
@@ -314,7 +359,111 @@ class TestReferencePair:
         assert any(e.get("plan_id") == plan["id"] for e in audit)
         wait_for("peer back online", lambda: not open_alerts(A1, "peer_offline"), timeout=180, interval=5)
 
-    def test_10_demo_state(self):
+    def test_10_static_zone_file_edit_on_the_pair(self):
+        """A static zone added by hand on ns1 (secondary on ns2): a record written through ns2 is a
+        file edit on ns1, comments kept, and the secondary transfers the new serial."""
+        text = STATIC_TEXT.replace("SERIAL", time.strftime("%Y%m%d01"))
+        install_file(A1, STATIC_FILE, text, "bind:bind")
+        primary = (
+            f'zone "{STATIC_ZONE}" {{ type primary; file "{STATIC_FILE}"; '
+            f"allow-transfer {{ key ddi-read; {A2}; }}; also-notify {{ {A2}; }}; notify yes; }};\n"
+        )
+        secondary = (
+            f'zone "{STATIC_ZONE}" {{ type secondary; primaries {{ {A1}; }}; '
+            f'file "/var/cache/bind/db.{STATIC_ZONE}"; }};\n'
+        )
+        for host, stanza in ((A1, primary), (A2, secondary)):
+            ssh(host, "sudo tee -a /etc/bind/named.conf.local >/dev/null", data=stanza.encode())
+            ssh(host, "sudo named-checkconf && sudo rndc reconfig")
+        wait_for("the secondary loads the static zone", lambda: dig(A2, f"ns1.{STATIC_ZONE}") == A1)
+        assert api(A1).get(f"/dns/zones/{STATIC_ZONE}")["mode"] == "static"
+
+        def plan_through_ns2() -> dict | None:
+            # ns2 routes the plan to the primary's node once it has seen ns1's zones.
+            change = {"op": "add", "target": "www/A", "after": {"ttl": 300, "rdata": ["10.99.0.82"]}}
+            plan = api(A2).post(f"/dns/zones/{STATIC_ZONE}/records/plan", {"changes": [change]})
+            return plan if plan.get("target_node_ids") == [node_id(A1)] else None
+
+        plan = wait_for("a static zone plan routed to ns1", plan_through_ns2, timeout=120, interval=10)
+        result = api(A2).apply(plan)
+        assert result["state"] == "applied", json.dumps(result, indent=2)
+        text = sudo_cat(A1, STATIC_FILE)
+        assert text.startswith(f"; {STATIC_ZONE}: written by hand") and "10.99.0.82" in text, text
+        assert ssh(A1, f"sudo test -e {STATIC_FILE}.jnl", check=False)[0] != 0
+        wait_for("ns2 transfers the edit", lambda: dig(A2, f"www.{STATIC_ZONE}") == "10.99.0.82", timeout=90)
+
+    def test_11_static_zone_converted_to_dynamic(self):
+        """The security audit's static_zone remediation adds an update-policy; records then go by UPDATE."""
+        findings = api(A1).get("/install/security")["findings"]
+        static = [f for f in findings if f["kind"] == "static_zone"]
+        assert [f["subject"] for f in static] == [f"_default/{STATIC_ZONE}."], findings
+        plan = api(A1).post("/install/security/plan", {"finding_ids": [static[0]["id"]]})
+        api(A1).apply(plan)
+        assert api(A1).get("/install/security")["findings"] == []
+        assert api(A1).get(f"/dns/zones/{STATIC_ZONE}")["mode"] == "dynamic"
+        change = {"op": "add", "target": "dyn/A", "after": {"ttl": 300, "rdata": ["10.99.0.83"]}}
+        plan = api(A1).post(f"/dns/zones/{STATIC_ZONE}/records/plan", {"changes": [change]})
+        assert "file edit" not in json.dumps(plan), plan
+        assert api(A1).apply(plan)["state"] == "applied"
+        wait_for("the UPDATE reaches ns2", lambda: dig(A2, f"dyn.{STATIC_ZONE}") == "10.99.0.83", timeout=90)
+        assert dig(A1, f"www.{STATIC_ZONE}") == "10.99.0.82"
+
+    def test_12_kea_file_divergence_adopted(self):
+        """A hand edit of ns1's Kea file blocks the pair's plans (409 on ns2 too) until adopted;
+        ns2 then adopts its own edited file, and one options plan brings both back in line."""
+        old = kea_command(A1, "config-get")["arguments"]["Dhcp4"][PROBATION]
+        hand_edit_kea(A1, old, old + 3600)
+        wait_for("ns1 sees its file diverge", lambda: file_diverged(A1), timeout=90, interval=5)
+        after = {
+            "subnet_id": 1,
+            "id_type": "hw-address",
+            "identifier": "02:00:00:00:12:34",
+            "ip_address": "10.99.1.60",
+        }
+        body = {"change": {"op": "add", "target": "", "after": after}}
+
+        def blocked_on_ns2() -> bool:
+            try:
+                api(A2).post("/dhcp/v4/reservations/plan", body)
+            except ApiError as exc:
+                return exc.status == 409 and exc.body["code"] == "config_divergence"
+            return False
+
+        wait_for("the pair's plans refused from ns2", blocked_on_ns2, timeout=120, interval=10)
+        plan = api(A1).post("/dhcp/v4/config/adopt/plan", {"source": "running"})
+        assert plan["requires_confirmation"], plan
+        assert api(A1).apply(plan)["state"] == "applied"
+        text = sudo_cat(A1, KEA4_CONF)
+        assert text.startswith(HAND_COMMENT), text[:200]
+        assert keaconf.loads(text)["Dhcp4"][PROBATION] == old
+        assert not file_diverged(A1)
+        wait_for("the file alert resolved", lambda: not file_alerts(A1), timeout=120, interval=5)
+
+        hand_edit_kea(A2, old, old + 3600)
+        wait_for("ns2 sees its file diverge", lambda: file_diverged(A2), timeout=90, interval=5)
+        plan = api(A2).post("/dhcp/v4/config/adopt/plan", {"source": "file"})
+        assert api(A2).apply(plan)["state"] == "applied"
+        assert kea_command(A2, "config-get")["arguments"]["Dhcp4"][PROBATION] == old + 3600
+        assert not file_diverged(A2)
+        change = {"op": "replace", "target": PROBATION, "after": old}
+        plan = api(A1).post("/dhcp/v4/options/plan", {"changes": [change]})
+        assert sorted(plan["target_node_ids"]) == sorted([node_id(A1), node_id(A2)]), plan
+        assert api(A1).apply(plan)["state"] == "applied"
+        for host in (A1, A2):
+            assert kea_command(host, "config-get")["arguments"]["Dhcp4"][PROBATION] == old
+            assert keaconf.loads(sudo_cat(host, KEA4_CONF))["Dhcp4"][PROBATION] == old
+        wait_for(
+            "no file alert left", lambda: not file_alerts(A1) and not file_alerts(A2), timeout=120, interval=5
+        )
+        # config-set restarts the HA service on both peers: they resynchronize first.
+        wait_for(
+            "hot-standby after the options plan",
+            lambda: kea_command(A1, "ha-heartbeat")["arguments"]["state"] == "hot-standby",
+            timeout=180,
+            interval=5,
+        )
+
+    def test_13_demo_state(self):
         api(A1).call(
             "PUT",
             "/admin/settings",

@@ -143,7 +143,8 @@ class WritePipeline:
         (bdir / "manifest.json").write_text(json.dumps({"label": self.label, "files": manifest}, indent=2))
         return bdir
 
-    def restore(self, backup_dir: Path) -> PipelineResult:
+    def restore(self, backup_dir: Path, reload: bool = True) -> PipelineResult:
+        """Put the backed up files back; `reload=False` when the engine never loaded what was written."""
         result = PipelineResult(ok=False, backup_dir=backup_dir)
         try:
             manifest = json.loads((backup_dir / "manifest.json").read_text())
@@ -161,7 +162,8 @@ class WritePipeline:
                     except PermissionError:
                         pass
             self._step(result, "rollback", lambda: "restored")
-            self._step(result, "reload", self.reload)
+            if reload:
+                self._step(result, "reload", self.reload)
             result.ok = True
             result.rolled_back = True
         except Exception as exc:
@@ -185,12 +187,14 @@ class WritePipeline:
                 _atomic_write(c.path, c.content, c.mode, c.group)
             return f"{len(changes)} file(s)"
 
+        reloaded = False
         try:
             self._step(result, "write", write_all)
             validation = self._step(result, "validate", self.validate)
             result.validation = validation
             if not validation.ok:
                 raise PipelineError(f"validation failed ({validation.tool}): {validation.output.strip()}")
+            reloaded = True
             self._step(result, "reload", self.reload)
             if self.verify is not None and not self._step(result, "verify", self.verify):
                 raise PipelineError("verification failed after reload")
@@ -198,7 +202,8 @@ class WritePipeline:
             return result
         except Exception as exc:
             result.error = str(exc)
-            restored = self.restore(result.backup_dir) if result.backup_dir else None
+            # Before any reload the engine still runs its old files: restoring them is enough.
+            restored = self.restore(result.backup_dir, reload=reloaded) if result.backup_dir else None
             if restored is not None:
                 result.steps.extend(restored.steps)
                 result.rolled_back = restored.rolled_back

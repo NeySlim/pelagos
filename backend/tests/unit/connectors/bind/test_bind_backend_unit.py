@@ -10,7 +10,6 @@ import pytest
 
 from pelagos.connectors.base import ConnectorContext, ConnectorDenied, ConnectorUnavailable, NotSupported
 from pelagos.connectors.bind import BindBackend
-from pelagos.connectors.bind.backend import _Reloader
 from pelagos.connectors.bind.rndc import RndcNotFound, parse_dnssec_status, zone_args, zone_status_from
 from pelagos.domain.dns import RRset, ZoneKind
 from pelagos.domain.plan import Change, ChangeOp, PlanScope, PlanState, PreconditionKind
@@ -253,20 +252,6 @@ def test_include_setup_plan(tmp_root: Path) -> None:
     assert tree.pelagos["include_line_present"] and tree.pelagos["options_include_present"]
     assert all(tree.pelagos["managed_files"].values())
     assert backend.plan_include_setup().error == "no change"
-
-
-def test_reloader_skips_until_files_change(tmp_root: Path) -> None:
-    backend, rec = make_backend(tmp_root)
-    target = tmp_root / "f.conf"
-    target.write_text("a")
-    reload = _Reloader(backend, [target])
-    assert "skipped" in reload() and rec.calls == []
-    target.write_text("b")
-    reload()
-    assert rec.calls == [("reconfig",)]
-    target.write_text("a")
-    reload()  # once named has loaded new files, a restore must reload again
-    assert rec.calls == [("reconfig",), ("reconfig",)]
 
 
 def test_capabilities_when_everything_is_down(tmp_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -42,7 +42,7 @@ from pelagos.connectors.bind.rndc import (
     zone_status_from,
 )
 from pelagos.connectors.bind.stats import StatsClient
-from pelagos.core.write_pipeline import FileChange, sha256_file
+from pelagos.core.write_pipeline import FileChange
 from pelagos.domain import (
     BindConfigTree,
     BindInstanceStats,
@@ -69,29 +69,6 @@ DEFAULT_VIEW = "_default"
 RCODE_PREREQ = {"YXDOMAIN", "YXRRSET", "NXDOMAIN", "NXRRSET"}
 WRITTEN_FILE = "pelagos-written.json"  # in the backup directory: sha256 of what the plan wrote
 MAX_DETAILS = 256  # audit material kept per process; callers should pop_details() after copying
-
-
-class _Reloader:
-    """`rndc reconfig`, skipped while the files still match the state named last loaded.
-
-    The write pipeline calls reload after restoring a backup even when validation failed and
-    nothing was reloaded: skipping keeps named untouched in that case.
-    """
-
-    def __init__(self, backend: BindBackend, paths: list[Path]) -> None:
-        self.backend = backend
-        self.paths = paths
-        self.baseline = self._hashes()
-        self.reloaded = False
-
-    def _hashes(self) -> dict[str, str]:
-        return {str(p): sha256_file(p) if p.is_file() else "absent" for p in self.paths}
-
-    def __call__(self) -> str:
-        if not self.reloaded and self._hashes() == self.baseline:
-            return "files unchanged: reconfig skipped"
-        self.reloaded = True
-        return self.backend.reconfig() or "reconfig done"
 
 
 class BindBackend(DnsBackend):
@@ -457,11 +434,10 @@ class BindBackend(DnsBackend):
                     create_dirs=not is_zone,
                 )
             )
-        watched = [*paths, self.named_conf]
         pipeline = self.ctx.pipeline_factory(
             backup_root=self.ctx.backup_root,
             validate=lambda: run_checkconf(self.checkconf, self.named_conf),
-            reload=_Reloader(self, watched),
+            reload=lambda: self.reconfig() or "reconfig done",
             verify=self._verify(plan),
             label=plan.id,
         )

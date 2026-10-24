@@ -52,8 +52,41 @@ def test_validation_failure_restores_without_reload(tmp_root):
     assert not result.ok and result.rolled_back
     assert target.read_text() == "old\n"
     assert "syntax error" in result.error
-    # The restore reloads once; the failed write itself never reached reload.
-    assert reloads == [1]
+    # Nothing was loaded: the restore puts the files back without reloading (section 7).
+    assert reloads == []
+    assert "reload" not in [s["name"] for s in result.steps]
+
+
+def test_verify_failure_restores_and_reloads(tmp_root):
+    target = tmp_root / "zones.conf"
+    target.write_text("old\n")
+    reloads: list[int] = []
+    pipe = WritePipeline(
+        tmp_root / "backups",
+        validate=lambda: ValidationResult(ok=True, tool="t"),
+        reload=lambda: (reloads.append(1), "ok")[1],
+        verify=lambda: False,
+    )
+    result = pipe.run([FileChange(target, b"new\n")])
+    assert not result.ok and result.rolled_back
+    assert target.read_text() == "old\n"
+    assert reloads == [1, 1]
+
+
+def test_explicit_restore_reloads_unless_told_not_to(tmp_root):
+    target = tmp_root / "zones.conf"
+    target.write_text("old\n")
+    reloads: list[int] = []
+    pipe = WritePipeline(
+        tmp_root / "backups",
+        validate=lambda: ValidationResult(ok=True, tool="t"),
+        reload=lambda: (reloads.append(1), "ok")[1],
+    )
+    result = pipe.run([FileChange(target, b"new\n")])
+    assert result.ok and reloads == [1]
+    assert pipe.restore(result.backup_dir).ok and reloads == [1, 1]
+    assert target.read_text() == "old\n"
+    assert pipe.restore(result.backup_dir, reload=False).ok and reloads == [1, 1]
 
 
 def test_reload_failure_restores_and_removes_new_files(tmp_root):

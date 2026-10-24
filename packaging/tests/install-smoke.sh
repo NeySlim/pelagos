@@ -67,8 +67,8 @@ check "state owned by pelagos" test "$($SUDO stat -c %U /var/lib/pelagos/cluster
 for d in /etc/pelagos /var/lib/pelagos; do
   check "$d still 0750 with the units running" test "$($SUDO stat -c %a "$d")" = 750
 done
-# Certificates are public; everything else must not be readable by other users.
-check "no world-readable state" test -z "$($SUDO find /etc/pelagos /var/lib/pelagos -perm -o=r ! -name '*.crt')"
+# Certificates and pelagos.env (no secrets, root's) are public; nothing else is readable.
+check "no world-readable state" test -z "$($SUDO find /etc/pelagos /var/lib/pelagos -perm -o=r ! -name '*.crt' ! -name pelagos.env)"
 check "/ serves the UI or the API-only notice" bash -c \
   "curl -fsk https://127.0.0.1:8443/ | grep -qiE 'Pelagos|<div id=\"root\"'"
 

@@ -47,6 +47,7 @@ def test_operation_targets_and_arguments():
         "dnssec", "-checkds", "withdrawn", "example.lan",
     ]  # fmt: skip
     assert ops.rndc_args("sync", "example.lan", None, {"clean": True}) == ["sync", "-clean", "example.lan"]
+    assert ops.rndc_args("sync", "example.lan", "inside", {}) == ["sync", "example.lan", "IN", "inside"]
     for bad in (
         lambda: ops.parse_target("op:rm/_default/x."),
         lambda: ops.parse_target("zones/x"),
@@ -117,6 +118,15 @@ def test_dnssec_status_policy_and_ds():
     for name, statements in (("default", []), ("bad name!", []), ("x", [{"name": "nope", "value": "1"}])):
         with pytest.raises(dnssec.PolicyError):
             dnssec.render_policy(name, statements)
+    # A value may not close the block or carry a second statement into policies.conf.
+    for value in (
+        '1d; }; options { recursion yes; }; dnssec-policy "z" { max-zone-ttl 1d',
+        "1d; signatures-validity 5d",
+        "1d; }",
+        "{ 1d",
+    ):
+        with pytest.raises(dnssec.PolicyError):
+            dnssec.render_policy("x", [{"name": "max-zone-ttl", "value": value}])
 
 
 def test_added_zones_from_showzone_and_stats(tmp_path: Path):

@@ -189,7 +189,7 @@ export const DEDICATED_STATEMENTS = ['zone', 'key', 'acl', 'include']
 const baseName = (path) => String(path || '').split('/').pop()
 const generated = (file) => file.managed && baseName(file.path) === 'pelagos.conf'
 
-// What the editor may change, mirroring what POST /dns/config/plan accepts: in a managed
+// What the editor may change (POST /dns/config/plan accepts more, zones included): in a managed
 // file (raw:<file>) any top-level statement without a dedicated screen, pelagos.conf
 // excepted; in a user file only the statements of its single options block
 // (options/<statement>), since user files are never rewritten.

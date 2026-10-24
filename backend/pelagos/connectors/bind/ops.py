@@ -88,7 +88,7 @@ def rndc_args(name: str, zone: str, view: str | None, args: dict[str, Any]) -> l
     args = check_args(name, args)
     where = zone_args(zone, view)
     if name == "sync":
-        return ["sync", *(["-clean"] if args.get("clean") else []), where[0]]
+        return ["sync", *(["-clean"] if args.get("clean") else []), *where]
     if name == "dnssec-rollover":
         when = ["-when", args["when"]] if args.get("when") else []
         return ["dnssec", "-rollover", "-key", str(args["key_id"]), *when, *where]

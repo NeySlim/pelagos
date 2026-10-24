@@ -76,9 +76,17 @@ def render_policy(name: str, statements: list[dict[str, Any]]) -> str:
         seen.add(sname)
         if not value:
             raise PolicyError(f"{sname} needs a value")
-        body.append(f"{sname} {value};")
-    text = f"dnssec-policy {quote(name)} {{ {' '.join(body)} }};"
-    parse_statements(text)  # unbalanced braces or quotes raise here
+        body.append((sname, f"{sname} {value};"))
+    text = f"dnssec-policy {quote(name)} {{ {' '.join(b for _, b in body)} }};"
+    try:
+        parsed = parse_statements(text)
+    except ValueError as exc:
+        raise PolicyError(f"invalid policy text: {exc}") from None
+    # A value closing the block early would smuggle other statements into the file.
+    if len(parsed) != 1 or parsed[0].name != "dnssec-policy" or parsed[0].args != [name]:
+        raise PolicyError("a value closes the dnssec-policy block: braces or ';' out of place")
+    if [s.name for s in parsed[0].statements()] != [n for n, _ in body]:
+        raise PolicyError("a value holds more than one statement: braces or ';' out of place")
     return format_statement(text)
 
 

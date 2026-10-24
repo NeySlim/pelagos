@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// Leases: server-side search and filters (subnet, state, node), paginated; a row
-// opens the lease card that compares the copies held by each HA partner.
-import { useMemo, useState } from 'react'
+// Leases: Kea lookups for a search term, filters (subnet, state, node), and pages that
+// follow Kea's own cursor (meta.next); a row opens the lease card that compares the
+// copies held by each HA partner.
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { Clock, Lightning } from '@phosphor-icons/react'
@@ -11,13 +12,13 @@ import { Modal } from '../../components/Modal'
 import { StatusBadge } from '../../components/StatusBadge'
 import { useOpenDetail } from '../../components/FloatingDetailWindow'
 import { useMobile } from '../../contexts/MobileContext'
-import { useApi, usePaginatedApi } from '../../hooks/useApi'
+import { useApi } from '../../hooks/useApi'
 import { useWsTopic } from '../../hooks/useWebSocket'
 import { api } from '../../services/api'
 import { formatDate, formatRelativeTime } from '../../lib/utils'
 import { AreaPage } from './ui'
 import { useNodeNames } from './hooks'
-import { LEASE_STATES, keaEngine, secondsFromNow } from './lib'
+import { LEASE_STATES, keaEngine, nextCursor, previousCursor, secondsFromNow } from './lib'
 import { LeaseDetail } from './LeaseDetail'
 
 export default function LeasesPage({ family }) {
@@ -33,9 +34,17 @@ export default function LeasesPage({ family }) {
   const openDetail = useOpenDetail()
   const { nameOf } = useNodeNames()
 
-  const filters = useMemo(() => ({ q, subnet_id: subnetId, state, node_id: nodeId }), [q, subnetId, state, nodeId])
-  // `family` sits in the filters so a family switch resets the page; it is not a query parameter.
-  const leases = usePaginatedApi(({ family: _family, ...query }) => api.dhcp.leases(family, query), { perPage: 50, filters: { ...filters, family } })
+  const [limit, setLimit] = useState(100)
+  // One entry per page seen: the from_address that page started at (null for the first).
+  const [cursors, setCursors] = useState([null])
+  const filterKey = JSON.stringify({ q, subnetId, state, nodeId, family, limit })
+  useEffect(() => setCursors([null]), [filterKey])
+  const from = cursors[cursors.length - 1]
+  const query = useApi(
+    () => api.dhcp.leases(family, { q, subnet_id: subnetId, state, node_id: nodeId, from_address: from, limit }),
+    [filterKey, from],
+  )
+  const leases = { ...query, items: query.data?.items || [], meta: query.data?.meta || {} }
   const subnets = useApi(() => api.dhcp.subnets(family), [family])
   const servers = useApi(() => api.dhcp.servers(family), [family])
 
@@ -95,7 +104,7 @@ export default function LeasesPage({ family }) {
     <AreaPage ns="dhcp" page="leases" icon={Clock} family={family} onRefresh={refresh} loading={leases.loading}>
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2 text-xs text-text-tertiary">
-          <span data-testid="lease-total">{t('leases.total', { n: leases.total })}</span>
+          <span data-testid="lease-total">{t('leases.pageCount', { n: leases.items.length, page: cursors.length })}</span>
           {readNode && <span>· {t('leases.readFrom', { node: nameOf(readNode) })}</span>}
           {activity > 0 && (
             <Button variant="warning-soft" size="xs" onClick={refresh} className="ml-auto" data-testid="lease-activity">
@@ -118,12 +127,41 @@ export default function LeasesPage({ family }) {
             { key: 'node_id', label: t('fields.node'), value: nodeId, onChange: setNodeId, options: nodeOptions, placeholder: t('leases.localNode') },
           ]}
           onRowClick={open}
-          pagination={{ page: leases.page, perPage: leases.perPage, total: leases.total, onPageChange: leases.setPage, onPerPageChange: leases.setPerPage }}
           emptyTitle={t('leases.empty')}
           emptyIcon={Clock}
           dense
           testId="leases-table"
         />
+        <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-text-tertiary" data-testid="lease-pager">
+          <label className="flex items-center gap-1">
+            {t('leases.perPage')}
+            <select
+              value={limit}
+              onChange={(e) => setLimit(Number(e.target.value))}
+              className="h-7 px-1 bg-bg-tertiary border border-border rounded text-text-primary"
+              data-testid="lease-limit"
+            >
+              {[50, 100, 250, 500, 1000].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+          <Button variant="secondary" size="xs" disabled={cursors.length < 2 || leases.loading} onClick={() => setCursors(previousCursor)} data-testid="lease-prev">
+            {t('leases.previous')}
+          </Button>
+          <span>{t('leases.page', { page: cursors.length })}</span>
+          <Button
+            variant="secondary"
+            size="xs"
+            disabled={!leases.meta.next || leases.loading}
+            onClick={() => setCursors((stack) => nextCursor(stack, leases.meta.next))}
+            data-testid="lease-next"
+          >
+            {t('leases.next')}
+          </Button>
+        </div>
       </div>
       {mobileIp && (
         <Modal open onClose={() => setMobileIp(null)} title={mobileIp}>

@@ -42,6 +42,7 @@ const PERMISSIONS = {
   'POST /dhcp/{family}/ha/maintenance/plan': 'ops:dhcp.ha', 'POST /dhcp/{family}/service/plan': 'ops:dhcp.ha',
   'POST /dhcp/{family}/ddns/plan': 'write:dhcp.options', 'POST /dhcp/{family}/hooks/plan': 'write:dhcp.config',
   'POST /dhcp/{family}/config/plan': 'write:dhcp.config', 'POST /dhcp/d2/config/plan': 'write:dhcp.config',
+  'POST /dhcp/{family}/config/adopt/plan': 'write:dhcp.config', 'POST /dhcp/d2/config/adopt/plan': 'write:dhcp.config',
   'GET /hosts': 'read:hosts', 'GET /hosts/{key}': 'read:hosts', 'POST /hosts/plan': 'write:hosts',
   'GET /alerts': 'read:alerts', 'GET /alerts/summary': 'read:alerts', 'POST /alerts/{id}/ack': 'write:alerts',
   'POST /alerts/consistency/run': 'write:alerts',
@@ -74,6 +75,44 @@ class Problem extends Error {
   }
 }
 const notFound = (what) => new Problem(404, 'not_found', `${what} not found`)
+
+// Section 9: a diverged Kea file blocks configuration plans of that engine (409 config_divergence).
+function fileStatus(state, engine) {
+  const f = state.keaFiles[engine]
+  return { node_id: state.selfId, path: f.path, readable: true, files: [f.path], includes: false, diverged: f.diverged, differences: f.differences, count: f.differences.length, alert_id: null }
+}
+function assertFileAgrees(state, engine) {
+  const f = state.keaFiles[engine]
+  if (f?.diverged) {
+    throw new Problem(409, 'config_divergence', `the ${engine === 'd2' ? 'd2' : `kea${engine.slice(1)}`} configuration file (${f.path}) differs from the running configuration on ns1: adopt the file or the running configuration first`)
+  }
+}
+function adoptPlan(state, user, engine, body) {
+  if (!['file', 'running'].includes(body.source)) throw invalid('source', 'file or running')
+  const f = state.keaFiles[engine]
+  const before = { ...f, differences: [...f.differences] }
+  const daemon = engine === 'd2' ? 'd2' : `kea${engine.slice(1)}`
+  const diff = body.source === 'file'
+    ? `--- running (${daemon} config-get)\n+++ ${f.path}\n${f.differences.map((d) => `~ ${d}`).join('\n')}\n`
+    : unifiedDiff('"algorithm": "HMAC-SHA256"', '"algorithm": "HMAC-MD5"', f.path)
+  return createPlan(state, user, {
+    scope: engine === 'd2' ? 'd2.config' : 'dhcp.config',
+    engine: daemon,
+    summary: body.source === 'file' ? `${daemon}: adopt ${f.path} as the running configuration` : `${daemon}: write the running configuration to ${f.path}`,
+    changes: [{ op: 'replace', target: `adopt/${body.source}`, before: { files: [f.path], differences: f.differences }, after: { source: body.source }, node_ids: [] }],
+    diff,
+    targets: [state.selfId],
+    tool: body.source === 'file' ? 'config-test' : 'lossless-editor',
+    requires_confirmation: true,
+    apply: () => {
+      f.diverged = false
+      f.differences = []
+      for (const a of state.alerts) if (a.subject === `${daemon}:config-file` && a.state !== 'resolved') a.state = 'resolved'
+      return body.source === 'file' ? 'config-test, config-set' : `patched ${f.path}`
+    },
+    rollback: () => Object.assign(f, before),
+  })
+}
 const invalid = (field, message) => new Problem(400, 'validation_error', 'Invalid request', [{ field, message }])
 // Finding ids carry no fixed vocabulary: the dual-key rotation is keyed on kind and engine.
 const SECURITY_FINDINGS = [
@@ -1265,6 +1304,7 @@ function buildHandlers(state, emit) {
       return { ...subnet, reservations: state.reservations[params.family].filter((r) => r.subnet_id === subnet.id) }
     },
     'POST /dhcp/{family}/subnets/plan': ({ params, body, user }) => {
+      assertFileAgrees(state, params.family)
       const list = state.subnets[params.family]
       const change = body.change || {}
       const after = change.after ? { family: params.family, pools: [], pd_pools: [], options: [], reservations: [], client_classes: [], relay: [], ddns: {}, user_context: {}, raw: {}, ...change.after } : null
@@ -1334,15 +1374,28 @@ function buildHandlers(state, emit) {
         targetPrefix: subnetId ? `subnet${params.family === 'v4' ? '4' : '6'}/${subnetId}/reservations/` : 'global/reservations/',
       })
     },
+    // Cursor pages as Kea gives them (lease-get-page from an address); a search term is an exact lookup.
     'GET /dhcp/{family}/leases': ({ params, query }) => {
-      const q = (query.get('q') || '').toLowerCase()
+      const q = (query.get('q') || '').toLowerCase().trim()
       const subnetId = query.get('subnet_id')
       const stateFilter = query.get('state')
-      const items = leasesFor(state, params.family, query.get('node_id'))
+      const limit = Number(query.get('limit') || 100)
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000) throw invalid('limit', 'between 1 and 1000')
+      const from = query.get('from_address')
+      const key = (ip) => ip.split(/[.:]/).map((p) => p.padStart(5, '0')).join('.')
+      let items = leasesFor(state, params.family, query.get('node_id'))
         .filter((l) => !subnetId || String(l.subnet_id) === subnetId)
-        .filter((l) => !stateFilter || l.state === stateFilter)
-        .filter((l) => !q || [l.ip_address, l.hw_address, l.hostname, l.client_id, l.duid].some((v) => v && v.toLowerCase().includes(q)))
-      return paginate(items, query, { node_id: query.get('node_id') || state.selfId })
+        .sort((a, b) => key(a.ip_address).localeCompare(key(b.ip_address)))
+      let next = null
+      if (q) {
+        items = items.filter((l) => [l.ip_address, l.hw_address, l.hostname?.replace(/\.$/, ''), l.duid].some((v) => v && v.toLowerCase() === q.replace(/\.$/, '')))
+      } else {
+        if (from) items = items.filter((l) => key(l.ip_address) > key(from))
+        if (items.length > limit) next = items[limit - 1].ip_address
+        items = items.slice(0, limit)
+      }
+      items = items.filter((l) => !stateFilter || l.state === stateFilter)
+      return { items, page: 1, per_page: limit, total: items.length, meta: { node_id: query.get('node_id') || state.selfId, next, limit } }
     },
     'GET /dhcp/{family}/leases/{ip}': ({ params }) => {
       const items = state.leases[params.family].filter((l) => l.ip_address === params.ip)
@@ -1470,6 +1523,7 @@ function buildHandlers(state, emit) {
     }),
     'POST /dhcp/{family}/config/plan': ({ params, body, user }) => {
       if (!body.config || typeof body.config !== 'object') throw invalid('config', 'required')
+      assertFileAgrees(state, params.family)
       const current = bareKea(keaConfig(state, params.family))
       const root = params.family === 'v4' ? 'Dhcp4' : 'Dhcp6'
       const sent = body.config[root] ?? body.config
@@ -1498,8 +1552,13 @@ function buildHandlers(state, emit) {
     }),
     'GET /dhcp/d2/stats': ({ query }) => state.d2[nodeOr(query)] || (() => { throw notFound('D2 on this node') })(),
     'GET /dhcp/d2/config': ({ query }) => ({ node_id: nodeOr(query), config: bareKea(d2Config()) }),
+    'GET /dhcp/{family}/config/file': ({ params }) => ({ items: [fileStatus(state, params.family)] }),
+    'POST /dhcp/{family}/config/adopt/plan': ({ params, body, user }) => adoptPlan(state, user, params.family, body),
+    'GET /dhcp/d2/config/file': () => ({ items: [fileStatus(state, 'd2')] }),
+    'POST /dhcp/d2/config/adopt/plan': ({ body, user }) => adoptPlan(state, user, 'd2', body),
     'POST /dhcp/d2/config/plan': ({ body, user }) => {
       if (!body.config || typeof body.config !== 'object') throw invalid('config', 'required')
+      assertFileAgrees(state, 'd2')
       return createPlan(state, user, {
         scope: 'd2.config',
         engine: 'd2',

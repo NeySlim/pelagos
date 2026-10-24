@@ -85,11 +85,11 @@ export const dhcp = {
   subnets: (family, params) => apiClient.get(`/dhcp/${family}/subnets${buildQueryString(params)}`),
   subnet: (family, id) => apiClient.get(`/dhcp/${family}/subnets/${enc(id)}`),
   subnetPlan: (family, change) => apiClient.post(`/dhcp/${family}/subnets/plan`, { change }),
-  sharedNetworks: (family) => apiClient.get(`/dhcp/${family}/shared-networks`),
+  sharedNetworks: (family, node_id) => apiClient.get(`/dhcp/${family}/shared-networks${buildQueryString({ node_id })}`),
   sharedNetworkPlan: (family, change) => apiClient.post(`/dhcp/${family}/shared-networks/plan`, { change }),
-  clientClasses: (family) => apiClient.get(`/dhcp/${family}/client-classes`),
+  clientClasses: (family, node_id) => apiClient.get(`/dhcp/${family}/client-classes${buildQueryString({ node_id })}`),
   clientClassPlan: (family, change) => apiClient.post(`/dhcp/${family}/client-classes/plan`, { change }),
-  options: (family) => apiClient.get(`/dhcp/${family}/options`),
+  options: (family, node_id) => apiClient.get(`/dhcp/${family}/options${buildQueryString({ node_id })}`),
   optionsPlan: (family, changes) => apiClient.post(`/dhcp/${family}/options/plan`, { changes }),
   reservations: (family, params) => apiClient.get(`/dhcp/${family}/reservations${buildQueryString(params)}`),
   reservationPlan: (family, change) => apiClient.post(`/dhcp/${family}/reservations/plan`, { change }),
@@ -110,6 +110,9 @@ export const dhcp = {
   config: (family, node_id) => apiClient.get(`/dhcp/${family}/config${buildQueryString({ node_id })}`),
   configPlan: (family, config, node_ids) =>
     apiClient.post(`/dhcp/${family}/config/plan`, node_ids ? { node_ids, config } : { config }),
+  // Section 9: does the file on disk say what Kea runs; adopt one side when it does not.
+  configFile: (family) => apiClient.get(`/dhcp/${family}/config/file`),
+  adoptPlan: (family, source) => apiClient.post(`/dhcp/${family}/config/adopt/plan`, { source }),
 }
 
 export const d2 = {
@@ -118,6 +121,8 @@ export const d2 = {
   config: (node_id) => apiClient.get(`/dhcp/d2/config${buildQueryString({ node_id })}`),
   configPlan: (config, node_ids) =>
     apiClient.post('/dhcp/d2/config/plan', node_ids ? { node_ids, config } : { config }),
+  configFile: () => apiClient.get('/dhcp/d2/config/file'),
+  adoptPlan: (source) => apiClient.post('/dhcp/d2/config/adopt/plan', { source }),
 }
 
 export const hosts = {

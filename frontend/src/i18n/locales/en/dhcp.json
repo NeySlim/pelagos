@@ -199,8 +199,13 @@
     "openHost": "Host card",
     "readFrom": "read from {{node}}",
     "rev": "reverse",
-    "search": "IP, MAC, hostname or client ID...",
-    "total": "Leases: {{n}}"
+    "search": "IP, MAC, DUID or exact hostname...",
+    "total": "Leases: {{n}}",
+    "pageCount": "{{n}} leases on page {{page}}",
+    "perPage": "Per page",
+    "previous": "Previous",
+    "next": "Next",
+    "page": "Page {{page}}"
   },
   "reservations": {
     "create": "New reservation",
@@ -287,5 +292,14 @@
     "parameterCount": "Parameters: {{n}}",
     "remove": "Unload",
     "unknown": "unknown"
+  },
+  "keaFile": {
+    "title": "{{path}} on {{node}} differs from the running configuration",
+    "blocked": "Kea changes through Pelagos are blocked until one side is adopted.",
+    "more": "and {{n}} more",
+    "adoptFile": "Adopt the file",
+    "adoptRunning": "Adopt the running configuration",
+    "hint": "The file: Kea loads what the file says. The running configuration: the file is rewritten, comments kept.",
+    "otherNode": "Adopt it from {{node}}, the node that holds the file."
   }
 }

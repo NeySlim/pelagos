@@ -233,7 +233,9 @@
     "enabled": "Enabled",
     "disabled": "Disabled",
     "true": "Yes",
-    "false": "No"
+    "false": "No",
+    "unavailable": "Unavailable",
+    "standby": "Standby"
   },
   "table": {
     "clearFilters": "Clear filters",

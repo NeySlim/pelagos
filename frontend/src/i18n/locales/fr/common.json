@@ -233,7 +233,9 @@
     "enabled": "Activé",
     "disabled": "Désactivé",
     "true": "Oui",
-    "false": "Non"
+    "false": "Non",
+    "unavailable": "Indisponible",
+    "standby": "Secours"
   },
   "table": {
     "clearFilters": "Effacer les filtres",

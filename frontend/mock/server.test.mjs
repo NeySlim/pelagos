@@ -101,6 +101,8 @@ const BODIES = {
   'POST /dns/ops': { op: 'status' },
   'POST /dhcp/{family}/ops': { command: 'status-get' },
   'POST /dhcp/d2/ops': { command: 'status-get' },
+  'POST /dhcp/{family}/config/adopt/plan': { source: 'running' },
+  'POST /dhcp/d2/config/adopt/plan': { source: 'file' },
   'POST /hosts/plan': { hostname: 'printer2', ip: '192.0.2.43', mac: '02:00:5e:00:aa:01', zone: 'example.lan', reservation: true, subnet_id: 1 },
   'POST /plans/{id}/apply': { confirm: true },
   'POST /alerts/{id}/ack': { comment: 'known' },
@@ -127,9 +129,38 @@ const EXPECTED = {
   'POST /plans/{id}/rollback': 404,
   'DELETE /plans/{id}': 404,
   'GET /jobs/{id}': 404,
+  'POST /dhcp/d2/config/plan': 409, // the mock D2 file diverges until adopted
 }
 
 describe('mock server', () => {
+  it('blocks D2 writes while its file diverges, until a side is adopted', async () => {
+    const admin = client(await login('admin', 'admin'))
+    const status = await admin('GET', '/dhcp/d2/config/file')
+    expect(status.data.items[0]).toMatchObject({ diverged: true, path: '/etc/kea/kea-dhcp-ddns.conf' })
+    const blocked = await admin('POST', '/dhcp/d2/config/plan', { config: {} })
+    expect(blocked.status).toBe(409)
+    expect(blocked.data.code).toBe('config_divergence')
+    const plan = await admin('POST', '/dhcp/d2/config/adopt/plan', { source: 'running' })
+    expect(plan.data).toMatchObject({ requires_confirmation: true, scope: 'd2.config' })
+    const applied = await admin('POST', `/plans/${plan.data.id}/apply`, { confirm: true })
+    expect(applied.data.state).toBe('applied')
+    expect((await admin('GET', '/dhcp/d2/config/file')).data.items[0].diverged).toBe(false)
+    expect((await admin('POST', '/dhcp/d2/config/plan', { config: {} })).status).toBe(200)
+    const rolled = await admin('POST', `/plans/${plan.data.id}/rollback`)
+    expect(rolled.data.state).toBe('rolled_back')
+    expect((await admin('GET', '/dhcp/d2/config/file')).data.items[0].diverged).toBe(true)
+  })
+
+  it('pages leases with a cursor', async () => {
+    const admin = client(await login('admin', 'admin'))
+    const first = await admin('GET', '/dhcp/v4/leases?limit=3')
+    expect(first.data.items).toHaveLength(3)
+    expect(first.data.meta.next).toBe(first.data.items[2].ip_address)
+    const second = await admin('GET', `/dhcp/v4/leases?limit=3&from_address=${first.data.meta.next}`)
+    expect(second.data.items[0].ip_address).not.toBe(first.data.items[0].ip_address)
+    expect((await admin('GET', '/dhcp/v4/leases?limit=0')).status).toBe(400)
+  })
+
   it('answers anonymous health and refuses the rest without a session', async () => {
     const health = await fetch(`${base}/health`)
     expect(health.status).toBe(200)
@@ -169,11 +200,12 @@ describe('mock server', () => {
 
   it('paginates and filters', async () => {
     const call = client(await login('admin', 'admin'))
-    const page = await call('GET', '/dhcp/v4/leases?per_page=10&page=2')
+    const page = await call('GET', '/audit?per_page=10&page=2')
     expect(page.data).toMatchObject({ page: 2, per_page: 10 })
     expect(page.data.items).toHaveLength(10)
     expect(page.data.total).toBeGreaterThan(20)
-    const filtered = await call('GET', '/dhcp/v4/leases?q=pc12.')
+    // Lease search is an exact lookup (address, MAC, DUID or hostname), as Kea answers it.
+    const filtered = await call('GET', '/dhcp/v4/leases?q=pc12.example.lan')
     expect(filtered.data.items.map((l) => l.hostname)).toEqual(['pc12.example.lan'])
     const leases = await call('GET', '/dhcp/v4/leases/192.0.2.157')
     expect(leases.data.items).toHaveLength(1)

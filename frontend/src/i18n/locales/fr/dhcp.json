@@ -199,8 +199,13 @@
     "openHost": "Fiche hôte",
     "readFrom": "lu sur {{node}}",
     "rev": "inverse",
-    "search": "IP, MAC, nom d'hôte ou client ID...",
-    "total": "Baux : {{n}}"
+    "search": "IP, MAC, DUID ou nom d'hôte exact...",
+    "total": "Baux : {{n}}",
+    "pageCount": "{{n}} baux en page {{page}}",
+    "perPage": "Par page",
+    "previous": "Précédent",
+    "next": "Suivant",
+    "page": "Page {{page}}"
   },
   "reservations": {
     "create": "Nouvelle réservation",
@@ -287,5 +292,14 @@
     "parameterCount": "Paramètres : {{n}}",
     "remove": "Décharger",
     "unknown": "inconnu"
+  },
+  "keaFile": {
+    "title": "{{path}} sur {{node}} diffère de la configuration en cours",
+    "blocked": "Les modifications Kea par Pelagos sont bloquées tant qu'un des deux côtés n'est pas adopté.",
+    "more": "et {{n}} de plus",
+    "adoptFile": "Adopter le fichier",
+    "adoptRunning": "Adopter la configuration en cours",
+    "hint": "Le fichier : Kea charge ce que dit le fichier. La configuration en cours : le fichier est réécrit, commentaires conservés.",
+    "otherNode": "Adoptez-le depuis {{node}}, le nœud qui porte le fichier."
   }
 }

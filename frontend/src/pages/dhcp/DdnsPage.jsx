@@ -15,6 +15,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { api } from '../../services/api'
 import { formatRelativeTime } from '../../lib/utils'
 import { AreaPage, NativeSelect, RowActions, SectionError, Stat } from './ui'
+import { KeaFileBanner } from './KeaFileBanner'
 import { usePlanFlow, useNodeNames } from './hooks'
 import { fieldErrors, parseDdnsValue } from './lib'
 
@@ -80,6 +81,7 @@ export default function DdnsPage({ family }) {
       }
     >
       <div className="space-y-4">
+        <KeaFileBanner engine="d2" />
         <div className="grid gap-4 lg:grid-cols-2">
           <DataTable
             title={t('ddns.parameters')}

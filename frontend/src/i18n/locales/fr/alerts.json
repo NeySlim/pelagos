@@ -36,7 +36,10 @@
     "ack": "Acquitter",
     "runConsistency": "Vérifier la cohérence",
     "openHost": "Ouvrir l'hôte",
-    "openZone": "Ouvrir la zone"
+    "openZone": "Ouvrir la zone",
+    "adoptFile": "Adopter le fichier",
+    "adoptRunning": "Adopter la configuration en cours",
+    "adoptElsewhere": "Adoptez-le depuis {{node}}, le nœud qui porte le fichier"
   },
   "ack": {
     "title": "Acquitter l'alerte",

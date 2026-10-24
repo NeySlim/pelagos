@@ -217,3 +217,12 @@ export function absName(name) {
   return !lower || lower.endsWith('.') ? lower : `${lower}.`
 }
 
+
+// Lease pages follow Kea's cursor (meta.next): the stack holds the from_address of each page seen.
+export function nextCursor(stack, next) {
+  return next ? [...stack, next] : stack
+}
+
+export function previousCursor(stack) {
+  return stack.length > 1 ? stack.slice(0, -1) : stack
+}

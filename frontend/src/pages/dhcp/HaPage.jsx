@@ -27,6 +27,8 @@ export default function HaPage({ family }) {
   const { hasPermission } = usePermission()
   const canOperate = hasPermission('ops:dhcp.ha')
   const { nameOf } = useNodeNames()
+  // Kea roles and modes (primary, standby, hot-standby, ...) read in the UI language.
+  const haTerm = (value) => (value ? t(`common:status.${value}`, { defaultValue: value }) : '-')
   const ha = useApi(() => api.dhcp.ha(family), [family])
   const servers = useApi(() => api.dhcp.servers(family), [family])
   const transitions = useApi(() => api.dhcp.haTransitions(family), [family])
@@ -98,7 +100,7 @@ export default function HaPage({ family }) {
             data-testid="ha-summary"
           >
             {healthy ? <CheckCircle size={16} weight="fill" /> : <Warning size={16} weight="fill" />}
-            {healthy ? t('ha.healthy', { mode: items[0].mode || '-' }) : t('ha.degraded')}
+            {healthy ? t('ha.healthy', { mode: haTerm(items[0].mode) }) : t('ha.degraded')}
           </div>
         )}
         <div className="grid gap-4 lg:grid-cols-2">
@@ -117,7 +119,7 @@ export default function HaPage({ family }) {
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-border section-header-gradient">
                   <Heartbeat size={16} className="text-accent-pro" />
                   <span className="text-sm font-semibold text-text-primary">{name}</span>
-                  {h.role && <Badge variant="outline" size="sm">{h.role}</Badge>}
+                  {h.role && <Badge variant="outline" size="sm">{haTerm(h.role)}</Badge>}
                   <span className="ml-auto">{h.enabled ? <StatusBadge status={h.state} data-testid="ha-state" /> : <Badge variant="gray" size="sm">{t('ha.hookMissing')}</Badge>}</span>
                 </div>
                 <div className="p-3 space-y-3 text-xs">
@@ -125,7 +127,7 @@ export default function HaPage({ family }) {
                     <dt className="text-text-tertiary">{t('fields.node')}</dt>
                     <dd className="font-mono">{nameOf(h.node_id)}</dd>
                     <dt className="text-text-tertiary">{t('ha.mode')}</dt>
-                    <dd>{h.mode || '-'}</dd>
+                    <dd>{haTerm(h.mode)}</dd>
                     <dt className="text-text-tertiary">{t('ha.scopes')}</dt>
                     <dd className="font-mono">{h.scopes?.length ? h.scopes.join(', ') : t('ha.noScopes')}</dd>
                     <dt className="text-text-tertiary">{t('ha.unsent')}</dt>
@@ -145,7 +147,7 @@ export default function HaPage({ family }) {
                         </Badge>
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-text-secondary">
-                        <span>{t('ha.partnerRole', { role: h.partner.role || '-' })}</span>
+                        <span>{t('ha.partnerRole', { role: haTerm(h.partner.role) })}</span>
                         {h.partner.age !== null && h.partner.age !== undefined && <span>{t('ha.partnerAge', { seconds: h.partner.age })}</span>}
                         {h.partner.unacked_clients > 0 && <span className="status-warning-text">{t('ha.unacked', { n: h.partner.unacked_clients })}</span>}
                       </div>

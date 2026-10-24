@@ -36,7 +36,10 @@
     "ack": "Acknowledge",
     "runConsistency": "Check consistency",
     "openHost": "Open the host",
-    "openZone": "Open the zone"
+    "openZone": "Open the zone",
+    "adoptFile": "Adopt the file",
+    "adoptRunning": "Adopt the running configuration",
+    "adoptElsewhere": "Adopt it from {{node}}, the node that holds the file"
   },
   "ack": {
     "title": "Acknowledge the alert",

@@ -775,6 +775,11 @@ function makeAlerts() {
     a('ALRT0000000000000000000008', 'reservation_mismatch', 'warning', 'open', 'ip:192.0.2.125', 'Reservation for kiosk has no lease and the host is unreachable', {
       details: { ip: '192.0.2.125', mac: MAC(400) },
     }),
+    a('ALRT0000000000000000000009', 'config_divergence', 'warning', 'open', 'd2:config-file', '/etc/kea/kea-dhcp-ddns.conf differs from the running d2 configuration', {
+      engine: 'd2',
+      node_id: NODE_IDS.ns1,
+      details: { path: '/etc/kea/kea-dhcp-ddns.conf', differences: ["/tsig-keys[0]/algorithm: 'HMAC-SHA256' in the file, 'HMAC-MD5' running"], count: 1, cause: 'file' },
+    }),
   ]
 }
 
@@ -957,6 +962,12 @@ export function createState() {
     availableHooks: [['lease_cmds', 'Lease commands (lease4-get, lease4-del, ...)'], ['host_cmds', 'Host reservation commands'], ['subnet_cmds', 'Subnet and shared network commands'], ['stat_cmds', 'Lease statistics per subnet and pool'], ['ha', 'High availability'], ['flex_id', 'Flexible identifier'], ['class_cmds', 'Client class commands'], ['run_script', 'External script hook'], ['bootp', 'BOOTP support'], ['limits', 'Rate limits per class or subnet']].map(([name, description]) => ({ name, description })),
     d2: { [NODE_IDS.ns1]: d2Stats(NODE_IDS.ns1, 0), [NODE_IDS.ns2]: d2Stats(NODE_IDS.ns2, 4) },
     alerts: makeAlerts(),
+    // Section 9: the D2 file of this node was edited by hand; the Kea files agree.
+    keaFiles: {
+      v4: { path: '/etc/kea/kea-dhcp4.conf', diverged: false, differences: [] },
+      v6: { path: '/etc/kea/kea-dhcp6.conf', diverged: false, differences: [] },
+      d2: { path: '/etc/kea/kea-dhcp-ddns.conf', diverged: true, differences: ["/tsig-keys[0]/algorithm: 'HMAC-SHA256' in the file, 'HMAC-MD5' running"] },
+    },
     audit: makeAudit(),
     settings: makeSettings(),
     modules: { cluster: { dhcpv6: true, advanced_editor: true } },

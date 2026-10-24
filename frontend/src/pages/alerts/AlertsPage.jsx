@@ -16,6 +16,8 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { ENGINES, INCONSISTENCY_KINDS, KINDS, SEVERITIES, STATES, jobResult, subjectLink } from './lib'
+import { adoptCall, fileAlertEngine } from '../dhcp/keaFile'
+import { useNodeNames, usePlanFlow } from '../dhcp/hooks'
 
 const FILTERS = ['state', 'severity', 'kind', 'engine', 'node_id']
 const JOB_POLL_MS = 1000
@@ -27,6 +29,31 @@ function Field({ label, children }) {
       <dt className="text-2xs uppercase tracking-wider text-text-tertiary">{label}</dt>
       <dd className="text-xs text-text-primary break-all">{children || '-'}</dd>
     </div>
+  )
+}
+
+// A Kea file alert (section 9) is settled by adopting one side, on the node that holds the file.
+function FileAdoptActions({ alert }) {
+  const { t } = useTranslation('alerts')
+  const { hasPermission } = usePermission()
+  const { nodes, nameOf } = useNodeNames()
+  const flow = usePlanFlow()
+  const engine = fileAlertEngine(alert)
+  if (!engine || alert.state === 'resolved' || !hasPermission('write:dhcp.config')) return null
+  const selfId = nodes.find((n) => n.is_self)?.peer?.id
+  if (selfId && alert.node_id && alert.node_id !== selfId) {
+    return <p className="text-2xs text-text-tertiary self-center">{t('actions.adoptElsewhere', { node: nameOf(alert.node_id) })}</p>
+  }
+  return (
+    <>
+      <Button variant="secondary" size="sm" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'file'))} data-testid="alert-adopt-file">
+        {t('actions.adoptFile')}
+      </Button>
+      <Button variant="secondary" size="sm" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'running'))} data-testid="alert-adopt-running">
+        {t('actions.adoptRunning')}
+      </Button>
+      {flow.modal}
+    </>
   )
 }
 
@@ -65,6 +92,7 @@ function AlertDetail({ alert, nodeName, canAck, onAck, onClose }) {
             )}
           </div>
           <div className="flex flex-wrap justify-end gap-2">
+            <FileAdoptActions alert={alert} />
             {link && (
               <Button variant="secondary" size="sm" onClick={() => navigate(link.to)} data-testid="alert-open-subject">
                 <ArrowSquareOut size={14} />

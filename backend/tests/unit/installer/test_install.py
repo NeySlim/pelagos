@@ -7,8 +7,12 @@ import json
 
 import pytest
 
+from pelagos.core.bootstrap import bootstrap_first_node
+from pelagos.core.config_store import ConfigStore
+from pelagos.core.secrets import SecretBox
 from pelagos.domain import Job, JobState, PlanScope, PlanState
 from pelagos.installer import bindconf, keaconf
+from pelagos.installer.importer import build_import_plan
 from pelagos.installer.install import build_install_plan
 from pelagos.installer.jobs import JobRunner, Step, apply_plan
 from tests.unit.installer.fakes import debian_tree, make_env
@@ -163,3 +167,70 @@ def test_switch_from_distro_kea_to_isc_keeps_configs(tmp_path):
     key = keaconf.tsig_keys(keaconf.loads((kea / "kea-dhcp-ddns.conf").read_text()))[0]
     assert key == {"name": "kea-ddns", "algorithm": "HMAC-SHA256", "secret-file": str(kea / "kea-ddns.tsig")}
     assert (kea / "kea-ddns.tsig").read_text() == "c2VjcmV0"
+
+
+def test_install_before_init_then_import_records_secrets(tmp_path):
+    """Install on a node without cluster.toml, `pelagos init`, then import: nothing is lost."""
+    env = debian_tree(tmp_path)
+    env.binaries.update({"kea-dhcp4": None, "kea-dhcp-ddns": None})
+    plan = build_install_plan(env, ["bind", "d2"], "distro")
+    env.binaries.update({"kea-dhcp-ddns": "/usr/sbin/kea-dhcp-ddns"})
+    job = apply_plan(plan, env)
+    assert job.state is JobState.DONE, job.error
+    assert not env.node_initialized()
+    keys = {
+        k.name: k.secret
+        for k in bindconf.keys(bindconf.parse((tmp_path / "etc/bind/pelagos/keys.conf").read_text()))
+    }
+    bootstrap_first_node(env.node_paths, name="ns1", admin_password="correct-horse", engines={"bind": True})
+    env.node_id = env.local_node_id()
+    job = apply_plan(build_import_plan(env, ["bind"]), env)
+    assert job.state is JobState.DONE, job.error
+    store = ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml)
+    cluster = store.load_cluster()
+    box = SecretBox.from_file(env.node_paths.master_key)
+    for name in ("ddi-read", "ddi-admin", "kea-ddns"):
+        assert box.decrypt(f"tsig/{name}", cluster.secrets[f"tsig/{name}"]) == keys[name]
+    assert store.load_node().engines["bind"]["include_dir"] == str(tmp_path / "etc/bind/pelagos")
+    # A second import has nothing left to store.
+    assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    assert (
+        ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml).load_cluster().secrets
+        == cluster.secrets
+    )
+
+
+def test_kept_d2_config_gets_no_new_bind_key(tmp_path):
+    env = debian_tree(tmp_path)
+    env.binaries.update({"kea-dhcp4": None})
+    kea = tmp_path / "etc/kea"
+    kea.mkdir(parents=True)
+    (kea / "kea-dhcp-ddns.conf").write_text(json.dumps({"DhcpDdns": {"tsig-keys": []}}))
+    plan = build_install_plan(env, ["bind", "d2"], "distro")
+    adopt = next(c for c in plan.changes if c.target == "install/bind/adopt")
+    assert adopt.after["keys"] == ["ddi-read", "ddi-admin"]
+    assert next(c for c in plan.changes if c.target == "install/d2/config").after["mode"] == "keep"
+
+
+def test_kea_reload_rejected_rolls_back(tmp_path):
+    from pelagos.installer import keasetup
+
+    env = make_env(tmp_path)
+    kea = tmp_path / "etc/kea"
+    kea.mkdir(parents=True)
+    conf = kea / "kea-dhcp4.conf"
+    old = '{"Dhcp4": {"control-socket": {"socket-type": "unix", "socket-name": "kea4-ctrl-socket"}}}\n'
+    conf.write_text(old)
+    unit = env.kea_unit("kea4")
+    env.services.active.add(unit)
+    sent: list[str] = []
+
+    def command(sock, cmd, arguments=None):
+        sent.append(cmd)
+        return {"result": 1, "text": "bad subnet"} if conf.read_text() != old else {"result": 0}
+
+    env.tools.kea_command = command
+    with pytest.raises(RuntimeError, match="rejected the configuration: bad subnet"):
+        keasetup.write_config(env, "kea4", conf, old + " ", "test", restart=False)
+    assert conf.read_text() == old
+    assert sent == ["config-reload", "config-reload"]  # the rejected one, then the restored file

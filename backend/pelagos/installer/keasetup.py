@@ -254,7 +254,7 @@ def socket_path(env: Any, engine: str, conf: Path) -> Path:
 
 
 def kea_pipeline(env: Any, engine: str, conf: Path, label: str, restart: bool) -> WritePipeline:
-    """Validate with `<daemon> -t`; reload by restart (new install) or SIGHUP (running server)."""
+    """Validate with `<daemon> -t`; reload by restart (new install) or config-reload (running server)."""
     daemon = DAEMONS[engine]
     unit = env.kea_unit(engine)
 
@@ -269,8 +269,17 @@ def kea_pipeline(env: Any, engine: str, conf: Path, label: str, restart: bool) -
             return env.services.restart(unit) or f"{unit} restarted"
         if not env.services.is_active(unit):
             return f"{unit} not running: reload skipped"
-        env.runner.run(["systemctl", "kill", "--signal=SIGHUP", "--kill-whom=main", unit], privileged=True)
-        return f"{unit}: configuration reloaded (SIGHUP)"
+        try:
+            answer = env.t.kea_command(socket_path(env, engine, conf), "config-reload")
+        except (OSError, ValueError):
+            # No socket yet (this write adds it): SIGHUP reloads the same file without a verdict.
+            env.runner.run(
+                ["systemctl", "kill", "--signal=SIGHUP", "--kill-whom=main", unit], privileged=True
+            )
+            return f"{unit}: configuration reloaded (SIGHUP)"
+        if answer.get("result") != 0:
+            raise RuntimeError(f"{daemon} rejected the configuration: {answer.get('text', answer)}")
+        return f"{unit}: configuration reloaded (config-reload)"
 
     def verify() -> bool:
         if not env.services.is_active(unit) and not restart:

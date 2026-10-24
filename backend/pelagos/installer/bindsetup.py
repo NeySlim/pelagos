@@ -7,7 +7,6 @@ Nothing in the user's files changes except the two include lines.
 
 from __future__ import annotations
 
-import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -278,11 +277,15 @@ def adopt(env: Any, named_conf: Path, opts: AdoptOptions) -> AdoptResult:
     # Keys: create the missing ones, never redefine a name the configuration already has.
     keys_conf = paths.keys_conf
     existing_keys_text = keys_conf.read_text() if keys_conf.exists() else None
-    in_keys_conf = (
-        {k.name for k in bindconf.keys(bindconf.parse(existing_keys_text))} if existing_keys_text else set()
-    )
+    managed_keys = bindconf.keys(bindconf.parse(existing_keys_text)) if existing_keys_text else []
+    in_keys_conf = {k.name for k in managed_keys}
     new_keys: dict[str, tuple[str, str]] = {}
     secrets: dict[str, str] = {}
+    # keys.conf is ours: a key written while the node had no cluster.toml gets its secret stored now.
+    stored = env.stored_secret_names()
+    for k in managed_keys:
+        if k.secret and f"tsig/{k.name}" not in stored:
+            secrets[f"tsig/{k.name}"] = k.secret.strip('"')
     for name in opts.create_keys:
         if name in defined or name in in_keys_conf:
             out.append(f"key {name} already defined; kept")
@@ -454,7 +457,6 @@ __all__ = [
     "controls_info",
     "find_options",
     "inspect",
-    "os",
     "stats_listener",
     "update_policy_proposal",
 ]

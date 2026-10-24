@@ -105,9 +105,13 @@ def build_install_plan(
     groups = ([paths.bind_group] if "bind" in engines else []) + ([paths.kea_group] if kea else [])
     changes.append(_change(f"install/user/{PELAGOS_USER}", env, {"groups": groups}))
 
+    d2_minimal = "d2" in engines and not (
+        kea_installed(env, "d2") and paths.kea_conf(KEA_DAEMONS["d2"]).exists()
+    )
     if "bind" in engines:
         changes.append(_change("install/service/bind", env, {"unit": paths.bind_service, "enable": True}))
-        keys = [managed.READ_KEY, managed.ADMIN_KEY] + ([KEA_DDNS_KEY] if "d2" in engines else [])
+        # kea-ddns only when the installer writes the D2 configuration that uses it.
+        keys = [managed.READ_KEY, managed.ADMIN_KEY] + ([KEA_DDNS_KEY] if d2_minimal else [])
         changes.append(
             _change(
                 "install/bind/adopt",
@@ -279,7 +283,7 @@ def step_bind_adopt(env: Any, change: Change, ctx: InstallContext) -> str:
         ),
     )
     ctx.engine_config["bind"] = result.engine_config
-    stored = env.store_secrets({k: v for k, v in result.secrets.items() if k != f"tsig/{KEA_DDNS_KEY}"})
+    stored = env.store_secrets(result.secrets)
     return "\n".join([*result.output, stored])
 
 
@@ -361,7 +365,7 @@ def install_steps(plan: Plan, env: Any) -> list[Step]:
     ctx = InstallContext(env)
     steps: list[Step] = []
     for change in plan.changes:
-        if change.node_ids and env.node_id not in change.node_ids:
+        if env.node_id not in change.node_ids:
             continue
         t = change.target
         c = change

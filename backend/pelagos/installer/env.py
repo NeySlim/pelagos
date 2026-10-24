@@ -247,10 +247,21 @@ class InstallerEnv:
         if existing:
             self.runner.run(["restorecon", *existing], privileged=True, check=False, timeout=60)
 
+    def stored_secret_names(self) -> set[str]:
+        """Names in cluster.toml [secrets]; empty before `pelagos init` (nothing can be stored yet)."""
+        if not (self.node_initialized() and self.node_paths.master_key.exists()):
+            return set()
+        from pelagos.core.config_store import ConfigStore
+
+        cluster = ConfigStore(self.node_paths.node_toml, self.node_paths.cluster_toml).load_cluster()
+        return set(cluster.secrets)
+
     def store_secrets(self, secrets: dict[str, str]) -> str:
         """Encrypts secrets into cluster.toml [secrets] when the node is initialized."""
         if not secrets:
             return "no secret to store"
+        if self.dry_run:
+            return f"dry run: would store {', '.join(sorted(secrets))}"
         if not (self.node_initialized() and self.node_paths.master_key.exists()):
             return "node not initialized; secrets kept only in the engine files"
         from pelagos.core.config_store import ConfigStore

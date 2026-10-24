@@ -35,10 +35,12 @@ const ALERTS = [
 
 let savedLayout = []
 let settings = {}
+let summaryExtra = {}
+const settingsCalls = vi.fn()
 vi.mock('../../services/api', () => {
   const api = {
     dashboard: {
-      summary: async () => SUMMARY,
+      summary: async () => ({ ...SUMMARY, ...summaryExtra }),
       getLayout: async () => ({ layout: savedLayout }),
       saveLayout: async (layout) => {
         calls.saveLayout(layout)
@@ -46,7 +48,12 @@ vi.mock('../../services/api', () => {
       },
     },
     alerts: { list: async () => ({ items: ALERTS, total: 2, page: 1, per_page: 100 }) },
-    admin: { settings: async () => settings },
+    admin: {
+      settings: async () => {
+        settingsCalls()
+        return settings
+      },
+    },
   }
   return { api, default: api }
 })
@@ -66,6 +73,8 @@ const renderPage = () =>
 beforeEach(() => {
   savedLayout = []
   settings = {}
+  summaryExtra = {}
+  settingsCalls.mockReset()
   calls.saveLayout.mockReset()
   showSuccess.mockReset()
 })
@@ -101,6 +110,25 @@ describe('DashboardPage', () => {
     renderPage()
     const pools = await screen.findByTestId('tile-pools')
     await waitFor(() => expect(within(pools).getByText('0 above threshold')).toBeInTheDocument())
+  })
+
+  it('takes the pool thresholds from the summary without reading the settings', async () => {
+    summaryExtra = { thresholds: { pool_warning_percent: 95, pool_critical_percent: 99 } }
+    settings = { alerts_pool_warning_percent: 10, alerts_pool_critical_percent: 20 }
+    renderPage()
+    const pools = await screen.findByTestId('tile-pools')
+    await waitFor(() => expect(within(pools).getByText('0 above threshold')).toBeInTheDocument())
+    expect(settingsCalls).not.toHaveBeenCalled()
+  })
+
+  it('links the DHCP tiles to DHCPv6 when no node runs kea-dhcp4', async () => {
+    const v6only = { bind: true, kea4: false, kea6: true, d2: true }
+    summaryExtra = { nodes: SUMMARY.nodes.map((n) => ({ ...n, peer: { ...n.peer, modules: v6only } })) }
+    renderPage()
+    const pools = await screen.findByTestId('tile-pools')
+    expect(within(pools).getByRole('link').getAttribute('href')).toBe('/dhcp/v6/subnets')
+    expect(within(screen.getByTestId('tile-ha')).getByRole('link').getAttribute('href')).toBe('/dhcp/v6/ha')
+    expect(within(screen.getByTestId('tile-d2')).getByRole('link').getAttribute('href')).toBe('/dhcp/v6/ddns')
   })
 
   it('saves the layout through PUT /dashboard/layout', async () => {

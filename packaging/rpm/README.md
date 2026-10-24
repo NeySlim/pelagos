@@ -23,7 +23,8 @@ Install behaviour matches the deb:
   inactive until `/etc/pelagos/node.toml` exists (`pelagos init` or
   `pelagos enroll`).
 - `/etc/pelagos/pelagos.env` is `%config(noreplace)`; state and
-  configuration stay after `dnf remove`; the user goes with the last erase.
+  configuration stay after `dnf remove`, and so does the `pelagos` user, so a
+  reinstall finds its files with the same owner.
 - `bind`, `bind-utils` and `kea` are `Suggests`, never pulled in.
 
 Tests: `packaging/tests/install-smoke.sh <rpm>` on a fresh host (SELinux

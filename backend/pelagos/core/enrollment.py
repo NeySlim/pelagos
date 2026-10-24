@@ -15,6 +15,7 @@ import logging
 import secrets
 import socket
 import threading
+import time
 import tomllib
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
@@ -38,6 +39,7 @@ log = logging.getLogger(__name__)
 
 TOKEN_TTL_SECONDS = 900
 MAX_TOKEN_TTL_SECONDS = 86400
+DENIED_AUDIT_WINDOW_SECONDS = 300.0
 REPL_PREFIX = "/repl/v1"
 
 
@@ -195,6 +197,8 @@ class TokenStore:
     ) -> tuple[str, datetime]:
         ttl = max(1, min(int(ttl_seconds), MAX_TOKEN_TTL_SECONDS))
         token = secrets.token_urlsafe(32)
+        while token.startswith("-"):  # `pelagos enroll --token -abc` would parse as an option
+            token = secrets.token_urlsafe(32)
         expires = utcnow() + timedelta(seconds=ttl)
         with self._lock, self._locked():
             tokens = self._live(self._load(), utcnow())
@@ -224,6 +228,30 @@ class TokenStore:
             return len(self._live(self._load(), utcnow()))
 
 
+class _WindowLimiter:
+    """At most one event per key per window; anonymous callers must not grow the replicated audit log."""
+
+    MAX_KEYS = 4096
+
+    def __init__(self, window_seconds: float) -> None:
+        self.window = window_seconds
+        self._last: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            last = self._last.get(key)
+            if last is not None and now - last < self.window:
+                return False
+            if len(self._last) >= self.MAX_KEYS:
+                self._last = {k: t for k, t in self._last.items() if now - t < self.window}
+                if len(self._last) >= self.MAX_KEYS:
+                    return False
+            self._last[key] = now
+            return True
+
+
 class EnrollmentService:
     """Issuing side: tokens, signing, node registration, renewal, revocation."""
 
@@ -240,6 +268,7 @@ class EnrollmentService:
         self.audit_log = audit_log
         self.node = node
         self.tokens = tokens or TokenStore(paths.enroll_tokens, paths.locks_dir / "enroll.lock")
+        self._denied_limiter = _WindowLimiter(DENIED_AUDIT_WINDOW_SECONDS)
 
     # CA material -----------------------------------------------------------
 
@@ -279,12 +308,7 @@ class EnrollmentService:
     # Enrollment ------------------------------------------------------------
 
     def enroll(self, req: EnrollRequest, client_ip: str | None = None) -> EnrollResponse:
-        record = self.tokens.consume(req.token)
-        if record is None:
-            self._audit(
-                "admin.node.enroll", f"node:{req.name}", "", AuditResult.DENIED, "invalid token", client_ip
-            )
-            raise EnrollError("invalid_token", "enrollment token unknown, expired or already used")
+        # Everything that can fail is checked before the single-use token is burnt.
         ca = self._ca()
         csr_pem = req.csr_pem.encode()
         try:
@@ -295,6 +319,19 @@ class EnrollmentService:
             raise EnrollError("validation_error", "CSR lacks the urn:pelagos:node SAN", 400)
         if self.config_store.load_cluster().peer(new_id_) is not None:
             raise EnrollError("conflict", f"node {new_id_} is already enrolled", 409)
+        record = self.tokens.consume(req.token)
+        if record is None:
+            log.warning("enrollment of %r from %s refused: invalid token", req.name, client_ip or "unknown")
+            if self._denied_limiter.allow(client_ip or "unknown"):
+                self._audit(
+                    "admin.node.enroll",
+                    f"node:{req.name}",
+                    "",
+                    AuditResult.DENIED,
+                    "invalid token",
+                    client_ip,
+                )
+            raise EnrollError("invalid_token", "enrollment token unknown, expired or already used")
         cert_pem = ca_mod.sign_node(ca, csr_pem)
         peer = Peer(
             id=new_id_,
@@ -346,21 +383,28 @@ class EnrollmentService:
             raise EnrollError("forbidden", f"node {caller_node_id} is not enrolled")
         cert_pem = ca_mod.sign_node(self._ca(), csr_pem)
         fp = ca_mod.fingerprint(cert_pem)
+        previous: list[str] = []
 
         def mutate(c: ClusterConfig) -> None:
             peer = c.peer(caller_node_id)
             if peer is not None:
+                # The replaced certificate stops authenticating once peers adopt this version.
+                old = peer.cert_fingerprint
+                if old and old != fp and old not in c.revoked:
+                    c.revoked.append(old)
+                    previous.append(old)
                 peer.cert_fingerprint = fp
 
         self.config_store.update_cluster(mutate, updated_by=f"node:{self.node.id}")
         self._audit(
-            "admin.node.renew",
+            "admin.node.op",
             f"node:{caller_node_id}",
             f"node:{caller_node_id}",
             AuditResult.OK,
             "certificate renewed",
             None,
-            response={"cert_fingerprint": fp},
+            request={"op": "renew"},
+            response={"cert_fingerprint": fp, "revoked_fingerprint": previous[0] if previous else None},
         )
         return cert_pem
 

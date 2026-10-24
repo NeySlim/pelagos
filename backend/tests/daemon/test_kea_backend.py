@@ -247,7 +247,7 @@ def test_config_replace_failure_and_rollback(kea_dhcp4, tmp_root):
     backend = make_backend(kea_dhcp4, tmp_root)
     before_hash = backend.config_hash()
     cfg = backend.config_get()
-    cfg["subnet4"][0]["pools"].append({"pool": "10.0.0.1 - 10.0.0.9"})  # outside the subnet
+    cfg["subnet4"][0]["pools"].append({"pool": "203.0.113.1 - 203.0.113.9"})  # outside the subnet
     plan = backend.plan_config_replace({"Dhcp4": cfg})
     assert plan.state is PlanState.FAILED and plan.scope is PlanScope.DHCP_CONFIG
     result = backend.apply(plan)

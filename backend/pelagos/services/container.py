@@ -28,6 +28,8 @@ from pelagos.services.registry import ConnectorRegistry
 
 log = logging.getLogger(__name__)
 
+GROUPS_RECHECK_DELAY = 5.0
+
 
 class Services:
     def __init__(
@@ -65,9 +67,18 @@ class Services:
             ctx.paths.var / "last_login.json", ctx.paths.locks_dir / "last_login.lock"
         )
         self.listener: EventSocketListener | None = None
-        self.groups = GroupWatch(ctx.paths.run)
+        self.groups = GroupWatch(ctx.paths.run, busy=lambda: self.jobs.active() or self.plans.busy())
+        # A restart deferred by a job runs once it is done, a moment later so the UI reads the outcome.
+        self.jobs.on_finished = lambda job: self._recheck_groups()
         self._publish_audit()
         ctx.extra["services"] = self
+
+    def _recheck_groups(self) -> None:
+        if not self.groups.deferred:
+            return
+        timer = threading.Timer(GROUPS_RECHECK_DELAY, self.groups.check, kwargs={"force": True})
+        timer.daemon = True
+        timer.start()
 
     def _publish_audit(self) -> None:
         """Every entry this process appends also goes to the `audit` WebSocket topic (section 18)."""

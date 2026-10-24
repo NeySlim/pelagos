@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import traceback
 from collections.abc import Callable
@@ -10,6 +11,8 @@ from typing import Any
 
 from pelagos.domain import Job, JobState, utcnow
 from pelagos.services.events import EventHub
+
+log = logging.getLogger(__name__)
 
 Runner = Callable[[Job, Callable[[Job], None]], Any]
 
@@ -21,6 +24,12 @@ class JobStore:
         self._jobs: dict[str, Job] = {}
         self._order: list[str] = []
         self._lock = threading.Lock()
+        self.on_finished: Callable[[Job], None] | None = None
+
+    def active(self) -> bool:
+        """True while a job is queued or running."""
+        with self._lock:
+            return any(j.state in (JobState.QUEUED, JobState.RUNNING) for j in self._jobs.values())
 
     def get(self, job_id: str) -> Job | None:
         with self._lock:
@@ -79,6 +88,11 @@ class JobStore:
         job.finished_at = utcnow()
         if self.events is not None:
             self.events.publish("jobs", "done" if job.state is JobState.DONE else "failed", job)
+        if self.on_finished is not None:
+            try:
+                self.on_finished(job)
+            except Exception:  # a hook never turns a finished job into a crash
+                log.exception("job %s: finish hook failed", job.id)
 
 
 def step(job: Job, name: str, fn: Callable[[], Any], progress: Callable[[Job], None], weight: int = 0) -> Any:

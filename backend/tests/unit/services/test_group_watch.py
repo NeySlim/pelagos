@@ -86,3 +86,40 @@ def test_gunicorn_on_exit_hook_exits_75(node_paths):
     out = subprocess.run([sys.executable, "-c", plain], env=env, capture_output=True, text=True, timeout=60)
     assert out.returncode == 0 and "no exit" in out.stdout
     assert not marker.exists()
+
+
+def test_restart_waits_for_running_jobs_and_plans(tmp_path, monkeypatch, node_ctx):
+    from pelagos.services.container import Services
+    from pelagos.services.registry import ConnectorRegistry
+
+    kills: list[tuple[int, int]] = []
+    monkeypatch.setenv(gw.MASTER_ENV, "4242")
+    monkeypatch.setattr(gw, "RESTART_DELAY", 0.01)
+    services = Services(node_ctx, registry=ConnectorRegistry())
+    try:
+        services.groups.probe = lambda: ["_kea"]
+        services.groups.kill = lambda p, s: kills.append((p, s))
+        monkeypatch.setattr("pelagos.services.container.GROUPS_RECHECK_DELAY", 0.01)
+        release = []
+
+        def runner(job, progress):
+            assert services.groups.check(force=True) == []  # deferred while this job runs
+            while not release:
+                time.sleep(0.01)
+
+        job = services.jobs.submit(runner)
+        deadline = time.monotonic() + 2
+        while not services.groups.deferred and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert services.groups.deferred and services.jobs.active() and not kills
+        release.append(1)
+        deadline = time.monotonic() + 3
+        while not kills and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert job.state.value == "done" and kills == [(4242, signal.SIGTERM)]
+        services.groups.requested = False
+        services.plans._track(1)
+        assert services.groups.check(force=True) == [] and services.groups.deferred
+        services.plans._track(-1)
+    finally:
+        services.close()

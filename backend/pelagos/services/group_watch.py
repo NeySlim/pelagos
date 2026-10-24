@@ -57,8 +57,11 @@ class GroupWatch:
         probe: Callable[[], list[str]] = missing_groups,
         clock: Callable[[], float] = time.monotonic,
         kill: Callable[[int, int], None] = os.kill,
+        busy: Callable[[], bool] = lambda: False,
     ) -> None:
         self.run_dir = run_dir
+        self.busy = busy
+        self.deferred = False
         self.interval = interval
         self.probe = probe
         self.clock = clock
@@ -73,7 +76,12 @@ class GroupWatch:
             now = self.clock()
             if self.requested or (not force and now < self._next):
                 return []
+            # A restart kills in-memory jobs and in-flight applies: wait until they are done.
+            if self.busy():
+                self.deferred = True
+                return []
             self._next = now + self.interval
+            self.deferred = False
         missing = self.probe()
         if missing:
             self.request_restart(missing)

@@ -64,6 +64,14 @@ class PlanService:
         self.events = events
         self._composites: dict[str, list[Plan]] = {}
         self._lock = threading.Lock()
+        self._in_flight = 0  # applies and rollbacks running in this process
+
+    def busy(self) -> bool:
+        return self._in_flight > 0
+
+    def _track(self, delta: int) -> None:
+        with self._lock:
+            self._in_flight += delta
 
     # Composites ---------------------------------------------------------
 
@@ -153,6 +161,13 @@ class PlanService:
     def apply(
         self, plan: Plan, user: str, confirm: bool = False, client_ip: str | None = None
     ) -> ApplyResult:
+        self._track(1)
+        try:
+            return self._apply(plan, user, confirm, client_ip)
+        finally:
+            self._track(-1)
+
+    def _apply(self, plan: Plan, user: str, confirm: bool, client_ip: str | None) -> ApplyResult:
         parts = self.parts(plan) if plan.scope is PlanScope.HOST else [plan]
         who = (user, client_ip)
         # Check and claim under the lock: a concurrent caller then sees APPLYING and gets plan_state.
@@ -350,6 +365,13 @@ class PlanService:
     # Rollback -----------------------------------------------------------
 
     def rollback(self, plan: Plan, user: str, client_ip: str | None = None) -> ApplyResult:
+        self._track(1)
+        try:
+            return self._rollback(plan, user, client_ip)
+        finally:
+            self._track(-1)
+
+    def _rollback(self, plan: Plan, user: str, client_ip: str | None) -> ApplyResult:
         with self._lock:
             if plan.state is not PlanState.APPLIED:
                 raise PlanError("plan_state", f"only applied plans roll back; plan is {plan.state.value}")

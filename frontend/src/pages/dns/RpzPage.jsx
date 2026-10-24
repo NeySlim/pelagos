@@ -16,14 +16,16 @@ import { zoneHref } from './helpers'
 
 const POLICY_VARIANT = { given: 'gray', disabled: 'gray', passthru: 'success', drop: 'danger', nxdomain: 'danger', nodata: 'warning', tcp_only: 'warning', cname: 'info' }
 
-// Rule count = records of the zone minus SOA and NS; null when the zone is not served here.
+// Rule count = RRsets of the zone minus SOA and NS; null when the zone is not served here.
 async function loadRpz() {
   const { items } = await api.dns.rpz()
   return Promise.all(
     items.map(async (item) => {
       try {
-        const res = await api.dns.records(item.zone, { per_page: 500 })
-        const rules = (res.items || []).filter((r) => r.rtype !== 'SOA' && r.rtype !== 'NS').length
+        // Paginated totals (per_page=1): exact whatever the zone size.
+        const count = (type) => api.dns.records(item.zone, { per_page: 1, type }).then((res) => res.total ?? (res.items || []).length)
+        const [all, soa, ns] = await Promise.all([count(undefined), count('SOA'), count('NS')])
+        const rules = Math.max(0, all - soa - ns)
         return { ...item, rules, local: true }
       } catch {
         return { ...item, rules: null, local: false }

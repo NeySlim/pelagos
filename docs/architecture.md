@@ -1575,7 +1575,8 @@ when it sees them. An `ACKED` alert that resolves and then returns opens
 again as `OPEN`.
 
 Kea file versus running configuration: the file (comments and trailing
-commas allowed, files with `<?include?>` skipped) is compared to `config-get`
+commas allowed, includes resolved: an unreadable included file keeps the
+alert open and blocks writes) is compared to `config-get`
 as a subset, because `config-get` adds every default: each key the file sets
 must hold the same value at runtime. Normalized like Kea does: blanks around
 the `-` of pool ranges, lower-case hardware and client identifiers, the

@@ -196,8 +196,29 @@ BIND zones come in two kinds, and Pelagos edits each the way BIND expects:
   `key ddi-read` so Pelagos can read it). Never edit the zone file of a dynamic zone by hand while `named`
   runs: freeze it first (`rndc freeze <zone>`, edit, `rndc thaw <zone>`).
 - **Static zones** have neither. BIND refuses UPDATE for them, so Pelagos
-  does not send record changes there; the import proposal offers to make
-  such a zone dynamic (see Troubleshooting below).
+  edits the zone file itself: only the changed lines, serial bumped,
+  `named-checkzone` on a copy, then `rndc reload <zone>` (details in
+  `dns-zones.md`). The security audit offers to make such a zone dynamic.
+
+  The `pelagos` service user must be able to replace the zone file: write
+  access to the file and to its directory, usually through the engine group
+  (`named` on RHEL, where `/var/named` is `root:named 0770`; `bind` on
+  Debian, where `/var/lib/bind` is `bind:bind`, add `g+w`). The units may
+  write `/etc/bind`, `/etc/named`, `/var/cache/bind`, `/var/lib/bind` and
+  `/var/named`; a zone file anywhere else is on a read-only mount for the
+  service (`ProtectSystem=strict`) and the plan says so. Allow its directory
+  with a drop-in on both units:
+
+  ```
+  sudo systemctl edit pelagos.service pelagos-collector.service
+  # [Service]
+  # ReadWritePaths=-/srv/zones
+  sudo systemctl restart pelagos pelagos-collector
+  ```
+
+  The same holds for Kea files pulled in by `<?include?>` outside
+  `/etc/kea`: Pelagos writes them itself, so their directory needs the same
+  drop-in.
 
 The zone screen shows the kind of each zone. Secondary zones are read only:
 change them on their primary.
@@ -344,6 +365,21 @@ History (every plan with its steps and outputs).
 - A node that was down catches up by itself when it comes back: it pulls
   the newer `cluster.toml` and the missing audit entries.
 
+### Lost admin password or TOTP device
+
+On any node, as root:
+
+```
+sudo pelagos user reset-password admin
+sudo pelagos user disable-totp admin
+```
+
+`reset-password` prompts for the new password (`PELAGOS_NEW_PASSWORD` for
+scripts), enables the account again and asks for a new password at the next
+login. Both replicate to the other nodes and leave an audit entry. Sessions
+already open stay valid until they expire or `sudo systemctl restart
+pelagos` runs.
+
 ### AppArmor and SELinux
 
 - **Debian and Ubuntu**: the `named` AppArmor profile confines BIND to
@@ -367,6 +403,14 @@ History (every plan with its steps and outputs).
   copying files there by hand, run
   `sudo restorecon -Rv /etc/named /var/named`. Denials show in
   `sudo ausearch -m avc -ts recent`.
+- **Kea under SELinux**: where the policy confines Kea (`dhcpd_t` on RHEL 9,
+  or a `kea_t` module), `config-write` needs Kea to write its own
+  configuration files. The installer then loads a small CIL module,
+  `pelagos-kea-dhcpd_t` or `pelagos-kea-kea_t`, whose source is kept in
+  `/etc/pelagos/selinux/`. It only grants writes on the Kea configuration
+  types. `dnf remove pelagos` removes it; by hand:
+  `sudo semodule -r pelagos-kea-dhcpd_t` (`semodule -l | grep pelagos`
+  lists it).
 - **Firewall**: open `8443/tcp` to administrators and `8444/tcp` between
   nodes (`firewall-cmd --add-port`); DNS (53) and DHCP (67/68, 547) are the
   engines' business.
@@ -381,4 +425,4 @@ History (every plan with its steps and outputs).
 | Configuration | `/etc/pelagos/node.toml`, environment in `/etc/pelagos/pelagos.env` (root owned) |
 | State | `/var/lib/pelagos/` |
 | Code | `/opt/pelagos/` |
-| CLI | `pelagos version`, `init`, `enroll`, `install`, `import`, `audit` |
+| CLI | `pelagos version`, `init`, `enroll`, `install`, `import`, `audit`, `user` |

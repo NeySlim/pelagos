@@ -91,7 +91,11 @@ def check_version_support(obj: Any, version: str | None, path: str = "") -> None
     if is_v3(version):
         return
     if isinstance(obj, dict):
-        scoped = any(k in obj for k in ("pool", "subnet", "prefix", "subnet4", "subnet6"))
+        # Pools, pd-pools, subnets and shared networks take `client-class` on 2.6; the root's
+        # `client-classes` (definitions) and reservations' `client-classes` exist on both.
+        scoped = any(k in obj for k in ("pool", "subnet", "prefix")) or (
+            "name" in obj and any(k in obj for k in ("subnet4", "subnet6"))
+        )
         for key, value in obj.items():
             where = f"{path}/{key}" if path else key
             if key in V3_ONLY_KEYS or (key == "client-classes" and scoped):
@@ -343,6 +347,20 @@ def subnet_from_kea(
     )
 
 
+def _drop_mirrored_bounds(out: dict[str, Any], raw: dict[str, Any], key: str) -> None:
+    """config-get prints min/max bounds equal to the lifetime when Kea derived them from it.
+
+    When the lifetime changes, bounds that only mirrored the old value are dropped so Kea derives
+    them again instead of rejecting the new lifetime as out of range.
+    """
+    old, new = raw.get(key), out.get(key)
+    if old is None or old == new:
+        return
+    for bound in (f"min-{key}", f"max-{key}"):
+        if out.get(bound) == old and raw.get(bound) == old:
+            out.pop(bound)
+
+
 def subnet_to_kea(subnet: Subnet, version: str | None = None) -> dict[str, Any]:
     out = dict(subnet.raw)
     out["id"] = subnet.id
@@ -359,8 +377,10 @@ def subnet_to_kea(subnet: Subnet, version: str | None = None) -> dict[str, Any]:
     _set(out, "valid-lifetime", subnet.valid_lifetime)
     _set(out, "min-valid-lifetime", subnet.min_valid_lifetime)
     _set(out, "max-valid-lifetime", subnet.max_valid_lifetime)
+    _drop_mirrored_bounds(out, subnet.raw, "valid-lifetime")
     if subnet.family is Family.V6:
         _set(out, "preferred-lifetime", subnet.preferred_lifetime)
+        _drop_mirrored_bounds(out, subnet.raw, "preferred-lifetime")
     _set(out, "reservations-global", subnet.reservations_global)
     _set(out, "reservations-in-subnet", subnet.reservations_in_subnet)
     _set(out, "reservations-out-of-pool", subnet.reservations_out_of_pool)

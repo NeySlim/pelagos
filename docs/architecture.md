@@ -1751,7 +1751,7 @@ change revokes the user's other sessions.
 | `POST /dns/keys/plan` | `write:dns.config` | `{"change": Change}` (`after` = `{"name","algorithm","secret"?}`; secret generated when absent) | `Plan` |
 | `GET /dns/acls` | `read:dns` | | `{"items": [{"name","elements":[..],"source","config_path"}]}` |
 | `POST /dns/acls/plan` | `write:dns.config` | `{"change": Change}` | `Plan` |
-| `GET /dns/resolver` | `read:dns` | | `{"recursion", "allow_recursion", "forwarders", "forward", "dnssec_validation", "per_node": {...}}` |
+| `GET /dns/resolver` | `read:dns` | | `{"recursion" (BIND default yes when absent), "recursion_explicit", "allow_recursion", "forwarders", "forward", "dnssec_validation", "per_node": {...}}` |
 | `POST /dns/resolver/plan` | `write:dns.config` | the keys to change, named like the `named.conf` statements: `{"recursion"?, "allow-recursion"?, "forwarders"?, "forward"?, "dnssec-validation"?}`; `null` removes the statement | `Plan` |
 | `GET /dns/rpz` | `read:dns` | | `{"items": [{"zone","policy","source"}]}` |
 | `GET /dns/catalog-zones?node_id=` | `read:dns` | | `{"items": [{"zone", "view", "role": "consumer"|"producer", "members": [{"zone", "label", "group", "coo"}], "member_count", "version", "default_primaries"?, "statement"?, "options"?, "error"}]}` (members read from the catalog zone now) |

@@ -244,6 +244,11 @@ def test_acls_resolver_rpz_catalog_stats(role_client, fake_dns):
     res = dora.get("/api/v1/dns/resolver").get_json()
     assert res["recursion"] is False and res["forwarders"] == ["192.0.2.53"] and res["forward"] == "only"
     assert res["allow_recursion"] == ["trusted"] and list(res["per_node"]) == [fake_dns.node_id]
+    assert res["recursion_explicit"] is True
+    saved = fake_dns.options.pop("recursion")
+    res = dora.get("/api/v1/dns/resolver").get_json()
+    assert res["recursion"] is True and res["recursion_explicit"] is False  # BIND's default
+    fake_dns.options["recursion"] = saved
     r = dora.post(
         "/api/v1/dns/resolver/plan", json={"forwarders": ["192.0.2.54", "192.0.2.55"], "forward": None}
     )

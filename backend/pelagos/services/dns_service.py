@@ -667,7 +667,9 @@ def _elements(value: str) -> list[str]:
 def _resolver_view(tree: BindConfigTree) -> dict[str, Any]:
     options = {o.name: o.value for o in tree.options}
     return {
-        "recursion": options.get("recursion", "no").strip() == "yes",
+        # BIND 9.20 recurses when the statement is absent.
+        "recursion": options.get("recursion", "yes").strip().lower() in ("yes", "true", "1"),
+        "recursion_explicit": "recursion" in options,
         "allow_recursion": _elements(options["allow-recursion"]) if "allow-recursion" in options else [],
         "forwarders": _elements(options["forwarders"]) if "forwarders" in options else [],
         "forward": options.get("forward", "").strip() or None,

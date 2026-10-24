@@ -4,5 +4,56 @@
       "title": "Compte",
       "subtitle": "Mot de passe, authentification à deux facteurs et préférences"
     }
+  },
+  "profile": {
+    "title": "Profil",
+    "username": "Identifiant",
+    "roles": "Rôles",
+    "lastLogin": "Dernière connexion",
+    "node": "Connecté sur",
+    "sessionNote": "Une session appartient à un nœud : changer de nœud demande de se reconnecter."
+  },
+  "password": {
+    "title": "Mot de passe",
+    "current": "Mot de passe actuel",
+    "new": "Nouveau mot de passe",
+    "confirm": "Confirmer le nouveau mot de passe",
+    "policy": "Au moins 12 caractères de trois types parmi : minuscules, majuscules, chiffres, symboles",
+    "submit": "Changer le mot de passe",
+    "changed": "Mot de passe changé",
+    "mustChange": "Un administrateur vous demande de choisir un nouveau mot de passe.",
+    "errors": {
+      "current": "Saisissez votre mot de passe actuel",
+      "wrong": "Le mot de passe actuel est faux",
+      "passwordShort": "Au moins 12 caractères",
+      "passwordClasses": "Utilisez trois types parmi : minuscules, majuscules, chiffres, symboles",
+      "same": "Choisissez un mot de passe différent de l'actuel",
+      "mismatch": "Les deux mots de passe diffèrent"
+    }
+  },
+  "totp": {
+    "title": "Authentification à deux facteurs",
+    "help": "Un code à 6 chiffres d'une application d'authentification à chaque connexion.",
+    "on": "Activée",
+    "off": "Désactivée",
+    "enable": "Configurer un authentificateur",
+    "step1": "Scannez le QR code avec une application d'authentification, ou saisissez le secret.",
+    "step2": "Saisissez le code à 6 chiffres affiché pour confirmer.",
+    "qrAlt": "QR code pour l'application d'authentification",
+    "secret": "Secret",
+    "code": "Code",
+    "confirm": "Confirmer",
+    "password": "Mot de passe",
+    "disable": "Désactiver le second facteur",
+    "enabledToast": "L'authentification à deux facteurs est activée",
+    "disabledToast": "L'authentification à deux facteurs est désactivée",
+    "errors": {
+      "code": "Saisissez les 6 chiffres affichés par l'application",
+      "password": "Saisissez votre mot de passe"
+    }
+  },
+  "preferences": {
+    "title": "Préférences",
+    "help": "Enregistrées dans votre compte et appliquées sur chaque nœud."
   }
 }

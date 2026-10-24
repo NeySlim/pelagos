@@ -4,5 +4,56 @@
       "title": "Account",
       "subtitle": "Password, two-factor authentication and preferences"
     }
+  },
+  "profile": {
+    "title": "Profile",
+    "username": "Username",
+    "roles": "Roles",
+    "lastLogin": "Last sign-in",
+    "node": "Signed in on",
+    "sessionNote": "Sessions belong to one node: switching node asks you to sign in again."
+  },
+  "password": {
+    "title": "Password",
+    "current": "Current password",
+    "new": "New password",
+    "confirm": "Confirm the new password",
+    "policy": "At least 12 characters from three of: lowercase, uppercase, digits, symbols",
+    "submit": "Change the password",
+    "changed": "Password changed",
+    "mustChange": "An administrator asks you to choose a new password.",
+    "errors": {
+      "current": "Enter your current password",
+      "wrong": "The current password is wrong",
+      "passwordShort": "At least 12 characters",
+      "passwordClasses": "Use three of: lowercase, uppercase, digits, symbols",
+      "same": "Choose a password different from the current one",
+      "mismatch": "The two passwords differ"
+    }
+  },
+  "totp": {
+    "title": "Two-factor authentication",
+    "help": "A 6-digit code from an authenticator app at each sign-in.",
+    "on": "Enabled",
+    "off": "Disabled",
+    "enable": "Set up an authenticator",
+    "step1": "Scan the QR code with an authenticator app, or type the secret.",
+    "step2": "Enter the 6-digit code it shows to confirm.",
+    "qrAlt": "QR code for the authenticator app",
+    "secret": "Secret",
+    "code": "Code",
+    "confirm": "Confirm",
+    "password": "Password",
+    "disable": "Turn off two-factor",
+    "enabledToast": "Two-factor authentication is on",
+    "disabledToast": "Two-factor authentication is off",
+    "errors": {
+      "code": "Enter the 6 digits shown by the app",
+      "password": "Enter your password"
+    }
+  },
+  "preferences": {
+    "title": "Preferences",
+    "help": "Saved to your account and applied on every node."
   }
 }

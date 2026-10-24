@@ -38,7 +38,9 @@ make run            # pelagos init (first time) + API on http://127.0.0.1:8480, 
 `make run` initializes a development node under `backend/.pelagos-dev`
 (admin / `admin-dev-password`). The API is served under `/api/v1`
 (`GET /api/v1/health` and `GET /api/v1/version` need no authentication);
-Swagger is at `/api/v1/docs`.
+Swagger is at `/api/v1/docs`. The UI dev server proxies `/api` to it; live
+updates over the WebSocket need the gunicorn worker instead of
+`pelagos serve` (see `frontend/README.md`).
 
 ## License
 

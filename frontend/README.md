@@ -11,7 +11,7 @@ VITE_API_MOCK=1 npm run dev        # Vite on 5173, /api proxied to the mock
 npm run dev                        # Vite, /api proxied to pelagos serve on 8480
 npm run lint                       # eslint, zero warnings
 npx vitest run                     # unit and component tests, mock server tests
-npx playwright test                # smoke test; starts the mock and Vite itself
+npx playwright test                # e2e against the mock; starts the mock and Vite itself
 npm run build                      # dist/
 ```
 
@@ -20,6 +20,33 @@ runs on lab-dev pick free ports instead of the defaults.
 
 Mock users: `admin`/`admin`, `alice`/`alice` (dns-operator), `bob`/`bob` with
 TOTP code `123456` (dhcp-operator), `viewer`/`viewer`.
+
+The mock answers with the shapes the real API returns (checked against a
+backend driving real `named` and Kea); when the two disagree, the backend
+wins and the mock follows. Shapes the specification leaves open are logged
+in `docs/contracts-changes.md`.
+
+## Against the real backend
+
+`npm run dev` proxies `/api` to `VITE_API_TARGET` (default
+`http://127.0.0.1:8480`, what `make run` starts). `pelagos serve` is the
+Flask development server: REST works, but it has no WebSocket worker, so
+the live-updates dot stays off. For the WebSocket, run the web process
+under gunicorn with the gevent-websocket worker and point Vite at it:
+
+```sh
+cd backend
+PELAGOS_HOME=.pelagos-dev .venv/bin/gunicorn -c pelagos/gunicorn_conf.py \
+  -b 127.0.0.1:8443 --certfile .pelagos-dev/var/pki/node.crt \
+  --keyfile .pelagos-dev/var/pki/node.key 'pelagos.app:wsgi_app()'
+cd ../frontend
+VITE_API_TARGET=https://127.0.0.1:8443 npm run dev
+```
+
+The backend accepts a WebSocket only when its `Origin` matches the `Host`
+it receives, so the dev proxy presents the target's origin on upgrades
+(`vite.config.js`). The proxy does not verify the node's self-signed
+certificate.
 
 ## Layout
 
@@ -35,7 +62,7 @@ TOTP code `123456` (dhcp-operator), `viewer`/`viewer`.
 | `src/pages/routes.js` | the list of areas and the sidebar groups |
 | `src/i18n/locales/<lang>/<ns>.json` | `common`, `auth` and one namespace per area |
 | `mock/` | mock API (`server.mjs`), sample data (`data.mjs`), plan lifecycle (`plans.mjs`), WebSocket (`ws.mjs`) |
-| `e2e/` | Playwright tests against the mock |
+| `e2e/` | Playwright tests against the mock: every page with its data and no console error, plan apply and rollback, area flows |
 
 ## Working on an area
 
@@ -55,9 +82,8 @@ time without touching the same files:
 - Area-specific components stay in the area folder. A component two areas
   need goes to `src/components/` in its own commit.
 - New mock behavior goes in `mock/server.mjs` next to the endpoint it serves.
-
-Every area page currently renders `AreaPlaceholder`, which shows the raw
-answer of its main endpoint; replace it with the real screen.
+- A new page adds its path, page test id and data test id to `PAGES` in
+  `e2e/smoke.spec.js`.
 
 ## Shared building blocks
 

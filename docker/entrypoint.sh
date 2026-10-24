@@ -12,7 +12,9 @@
 #                           kea group, primary group of the root Kea daemons in compose)
 #   PELAGOS_BIND_GID        group of the BIND container (default 53, the ISC image)
 #   PELAGOS_BIND_UID        user of named, owner of its working directory (default 53)
-#   PELAGOS_BIND_HOST      address of named for rndc (default 127.0.0.1; "bind" in compose)
+#   PELAGOS_BIND_HOST      address of named for rndc (default 127.0.0.1; "bind" in compose); when
+#                           not local, node.toml [engines.bind] gets rndc_address, statistics_url
+#                           and query_address for that host
 set -eu
 
 mode="${1:-serve}"
@@ -111,10 +113,64 @@ prepare_node() {
   fi
 }
 
+configure_bind_engine() {
+  # A BIND container (PELAGOS_BIND_HOST not local): node.toml [engines.bind] says where named
+  # listens. Keys already present are kept; "pelagos import" keeps them too.
+  [ -f "$ETC/node.toml" ] && [ -d /etc/bind ] || return 0
+  case "$BIND_HOST" in 127.0.0.1|::1|localhost) return 0 ;; esac
+  # rndc and the statistics URL take a name; DNS queries and UPDATEs need an address.
+  bind_ip="$(getent ahostsv4 "$BIND_HOST" | awk 'NR == 1 { print $1 }')"
+  [ -n "$bind_ip" ] || bind_ip="$(getent hosts "$BIND_HOST" | awk 'NR == 1 { print $1 }')"
+  if [ -z "$bind_ip" ]; then
+    log "cannot resolve $BIND_HOST; node.toml [engines.bind] left as is"
+    return 0
+  fi
+  bind_group="$(group_name "$BIND_GID" bind)"
+  runuser -u pelagos -- /opt/pelagos/venv/bin/python -I - \
+    "$ETC/node.toml" "$VAR/cluster.toml" "$BIND_HOST" "$bind_ip" "$bind_group" <<'PY'
+import sys
+from pathlib import Path
+
+from pelagos.core.config_store import ConfigStore
+
+node_toml, cluster_toml = Path(sys.argv[1]), Path(sys.argv[2])
+host, address, group = sys.argv[3], sys.argv[4], sys.argv[5]
+store = ConfigStore(node_toml, cluster_toml)
+node = store.load_node()
+table = node.engines.get("bind")
+parked = (node.engines.get("disabled") or {}).get("bind")
+# An engine turned off keeps its table under [engines.disabled.bind] (section 10): update that one,
+# never turn BIND back on here. A boolean true becomes a table, which stays on.
+target = "bind" if table is True or isinstance(table, dict) else "parked"
+current = table if isinstance(table, dict) else (parked if isinstance(parked, dict) else {})
+wanted = {
+    "rndc_address": host,
+    "statistics_url": f"http://{host}:8053/json/v1",
+    "query_address": address,
+    "named_conf": "/etc/bind/named.conf",
+    "include_dir": "/etc/bind/pelagos",
+    "rndc_conf": "/etc/bind/pelagos/rndc-pelagos.conf",
+    "group": group,
+}
+missing = {k: v for k, v in wanted.items() if not current.get(k)}
+if missing:
+    merged = {**current, **missing}
+    if target == "bind":
+        node.engines["bind"] = merged
+    else:
+        node.engines.setdefault("bind", False)
+        node.engines["disabled"] = {**(node.engines.get("disabled") or {}), "bind": merged}
+    store.save_node(node)
+    print(f"pelagos-entrypoint: node.toml [engines.{'bind' if target == 'bind' else 'disabled.bind'}] "
+          + ", ".join(sorted(missing)), file=sys.stderr)
+PY
+}
+
 prepare() {
   prepare_bind
   prepare_kea
   prepare_node
+  configure_bind_engine
 }
 
 as_pelagos() {

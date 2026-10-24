@@ -27,6 +27,9 @@ from pelagos.platform import (
     user_exists,
 )
 
+# node.toml [engines.bind] keys that say where named listens; an import never overrides them.
+BIND_CONNECTION_KEYS = ("rndc_address", "rndc_port", "statistics_url", "query_address", "query_port")
+
 
 class Tools:
     """Engine tools behind one object so tests can replace them without a daemon."""
@@ -235,6 +238,19 @@ class InstallerEnv:
 
         store = ConfigStore(self.node_paths.node_toml, self.node_paths.cluster_toml)
         node = store.load_node()
+        current = node.engines.get("bind")
+        disabled = node.engines.get("disabled")
+        if (
+            not isinstance(current, dict)
+            and isinstance(disabled, dict)
+            and isinstance(engines.get("bind"), dict)
+        ):
+            # Importing turns BIND on: the table parked when it was turned off comes back first.
+            current = disabled.pop("bind", None)
+        if isinstance(current, dict) and isinstance(engines.get("bind"), dict):
+            # How to reach named (a BIND container, set by the image entrypoint) is kept as found.
+            kept = {k: current[k] for k in BIND_CONNECTION_KEYS if current.get(k)}
+            engines = {**engines, "bind": {**engines["bind"], **kept}}
         node.engines = deep_merge(node.engines, engines)
         store.save_node(node)
         return f"node.toml engines: {', '.join(sorted(k for k, v in node.engines.items() if v))}"

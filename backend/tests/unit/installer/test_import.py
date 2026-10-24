@@ -223,3 +223,26 @@ def test_adopt_dry_run_names_the_bind_group_and_the_include_lines(tmp_path):
     assert result.engine_config["group"] == env.paths.bind_group == "bind"
     assert any(o.startswith("dry run: would add include") and "pelagos.conf" in o for o in result.output)
     assert _snapshot(etc) == before
+
+
+@pytest.mark.parametrize("parked", [False, True])
+def test_import_keeps_how_named_is_reached(tmp_path, parked):
+    from pelagos.core.bootstrap import bootstrap_first_node
+    from pelagos.core.config_store import ConfigStore
+
+    env = debian_tree(tmp_path)
+    remote = {
+        "rndc_address": "192.0.2.53",
+        "statistics_url": "http://192.0.2.53:8053/json/v1",
+        "query_address": "192.0.2.53",
+    }
+    # The image entrypoint parks the table while BIND is off, or fills the table when it is on.
+    engines = {"bind": False, "disabled": {"bind": remote}} if parked else {"bind": remote}
+    bootstrap_first_node(env.node_paths, name="ns1", admin_password="correct-horse", engines=engines)
+    job = apply_plan(build_import_plan(env, ["bind"]), env)
+    assert job.state is JobState.DONE, job.error
+    engines = ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml).load_node().engines
+    bind = engines["bind"]
+    assert {k: bind[k] for k in remote} == remote
+    assert "bind" not in (engines.get("disabled") or {})
+    assert bind["group"] == "bind" and bind["include_dir"] == str(tmp_path / "etc/bind/pelagos")

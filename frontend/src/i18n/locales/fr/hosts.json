@@ -7,5 +7,61 @@
       "title": "Hôtes",
       "subtitle": "Baux, réservations et enregistrements réunis par hôte"
     }
+  },
+  "fields": {
+    "ips": "Adresses",
+    "key": "Clé",
+    "reverseZone": "Zone inverse",
+    "ttl": "TTL",
+    "zone": "Zone"
+  },
+  "list": {
+    "all": "Tous les hôtes",
+    "allSubnets": "Tous les sous-réseaux",
+    "allZones": "Toutes les zones",
+    "empty": "Aucun hôte ne correspond",
+    "emptyInconsistent": "Aucune incohérence : DNS et DHCP concordent",
+    "inconsistent": "Incohérents seulement",
+    "join": "Présent dans",
+    "lease": "bail",
+    "noName": "sans nom",
+    "reservation": "réservation",
+    "search": "Nom, IP ou MAC...",
+    "total": "{{n}} hôtes"
+  },
+  "card": {
+    "alerts": "Incohérences",
+    "consistent": "Cohérent",
+    "issues": "{{n}} problèmes",
+    "lease": "Bail",
+    "noAlerts": "Aucune incohérence ouverte pour cet hôte",
+    "noLease": "Aucun bail actif",
+    "noRecords": "Aucun enregistrement A, AAAA ou PTR",
+    "noReservation": "Aucune réservation",
+    "ptrMismatch": "Un enregistrement PTR pointe vers un autre nom que cet hôte",
+    "records": "Enregistrements DNS",
+    "reservation": "Réservation",
+    "reservationMismatch": "{{reserved}} réservée mais {{leased}} attribuée",
+    "title": "Hôte"
+  },
+  "actions": {
+    "createRecords": "Créer A et PTR",
+    "deleteLease": "Supprimer le bail",
+    "deleteReservation": "Supprimer",
+    "leaseDetails": "Vue par nœud",
+    "openAlerts": "Ouvrir la liste des incohérences",
+    "openReservation": "Ouvrir dans les réservations",
+    "openZone": "Ouvrir la zone",
+    "reserve": "Réserver cette adresse"
+  },
+  "create": {
+    "button": "Nouvel hôte",
+    "notesHint": "Enregistrée dans le user-context de la réservation",
+    "reverseAuto": "Le PTR va dans {{zone}}",
+    "reverseNone": "Aucune zone inverse connue : pas de PTR sauf si vous en indiquez une",
+    "subnetAuto": "Automatique : {{subnet}}",
+    "subnetPick": "Choisir un sous-réseau",
+    "title": "Nouvel hôte",
+    "withReservation": "Créer aussi une réservation DHCP"
   }
 }

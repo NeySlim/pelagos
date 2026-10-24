@@ -2,6 +2,7 @@
 // Hosts area: the lease / reservation / records join, host card, create host plan.
 import { lazy } from 'react'
 import { Desktop } from '@phosphor-icons/react'
+import './detailWindows'
 
 const HostsPage = lazy(() => import('./HostsPage'))
 

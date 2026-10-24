@@ -7,5 +7,61 @@
       "title": "Hosts",
       "subtitle": "Leases, reservations and records joined per host"
     }
+  },
+  "fields": {
+    "ips": "Addresses",
+    "key": "Key",
+    "reverseZone": "Reverse zone",
+    "ttl": "TTL",
+    "zone": "Zone"
+  },
+  "list": {
+    "all": "All hosts",
+    "allSubnets": "All subnets",
+    "allZones": "All zones",
+    "empty": "No host matches",
+    "emptyInconsistent": "No inconsistency: DNS and DHCP agree",
+    "inconsistent": "Inconsistent only",
+    "join": "Found in",
+    "lease": "lease",
+    "noName": "no name",
+    "reservation": "reservation",
+    "search": "Name, IP or MAC...",
+    "total": "{{n}} hosts"
+  },
+  "card": {
+    "alerts": "Inconsistencies",
+    "consistent": "Consistent",
+    "issues": "{{n}} issues",
+    "lease": "Lease",
+    "noAlerts": "No open inconsistency for this host",
+    "noLease": "No active lease",
+    "noRecords": "No A, AAAA or PTR record",
+    "noReservation": "No reservation",
+    "ptrMismatch": "A PTR record points to another name than this host",
+    "records": "DNS records",
+    "reservation": "Reservation",
+    "reservationMismatch": "Reserved {{reserved}} but leased {{leased}}",
+    "title": "Host"
+  },
+  "actions": {
+    "createRecords": "Create A and PTR",
+    "deleteLease": "Delete lease",
+    "deleteReservation": "Delete",
+    "leaseDetails": "Per-node view",
+    "openAlerts": "Open the inconsistency list",
+    "openReservation": "Open in reservations",
+    "openZone": "Open the zone",
+    "reserve": "Reserve this address"
+  },
+  "create": {
+    "button": "New host",
+    "notesHint": "Saved in the reservation user-context",
+    "reverseAuto": "PTR goes to {{zone}}",
+    "reverseNone": "No known reverse zone: no PTR unless you name one",
+    "subnetAuto": "Automatic: {{subnet}}",
+    "subnetPick": "Pick a subnet",
+    "title": "New host",
+    "withReservation": "Also create a DHCP reservation"
   }
 }

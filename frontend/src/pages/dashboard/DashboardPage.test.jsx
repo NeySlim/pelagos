@@ -34,6 +34,7 @@ const ALERTS = [
 ]
 
 let savedLayout = []
+let settings = {}
 vi.mock('../../services/api', () => {
   const api = {
     dashboard: {
@@ -45,6 +46,7 @@ vi.mock('../../services/api', () => {
       },
     },
     alerts: { list: async () => ({ items: ALERTS, total: 2, page: 1, per_page: 100 }) },
+    admin: { settings: async () => settings },
   }
   return { api, default: api }
 })
@@ -63,6 +65,7 @@ const renderPage = () =>
 
 beforeEach(() => {
   savedLayout = []
+  settings = {}
   calls.saveLayout.mockReset()
   showSuccess.mockReset()
 })
@@ -91,6 +94,13 @@ describe('DashboardPage', () => {
     const inc = screen.getByTestId('tile-inconsistencies')
     expect(within(inc).getByTestId('tile-alerts-critical')).toHaveTextContent('1')
     await waitFor(() => expect(within(inc).getAllByTestId('tile-alert')[0]).toHaveTextContent('ns1 partner is down'))
+  })
+
+  it('takes the pool thresholds from the alert settings', async () => {
+    settings = { alerts_pool_warning_percent: 95, alerts_pool_critical_percent: 99 }
+    renderPage()
+    const pools = await screen.findByTestId('tile-pools')
+    await waitFor(() => expect(within(pools).getByText('0 above threshold')).toBeInTheDocument())
   })
 
   it('saves the layout through PUT /dashboard/layout', async () => {

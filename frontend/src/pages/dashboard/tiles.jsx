@@ -239,8 +239,9 @@ export function ZoneSyncTile({ summary, editing, nameOf }) {
 export function PoolsTile({ summary, editing, nameOf, thresholds }) {
   const { t } = useTranslation(['dashboard', 'common'])
   const pools = [...(summary?.pools || [])].sort((a, b) => b.percent - a.percent)
-  const warn = thresholds?.pool_warn_percent ?? 80
-  const full = thresholds?.pool_full_percent ?? 95
+  // Same thresholds as the pool_near_full / pool_full alerts ([settings]); defaults otherwise.
+  const warn = thresholds?.alerts_pool_warning_percent ?? 80
+  const full = thresholds?.alerts_pool_critical_percent ?? 95
   const hot = pools.filter((p) => p.percent >= warn).length
   return (
     <TileFrame

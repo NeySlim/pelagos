@@ -32,6 +32,7 @@ export default function DashboardPage() {
   const { hasPermission } = usePermission()
   const { showSuccess, showError } = useNotification()
   const canAlerts = hasPermission('read:alerts')
+  const canSettings = hasPermission('admin:settings')
 
   const summary = useApi(() => api.dashboard.summary(), [])
   const alerts = useApi(() => (canAlerts ? api.alerts.list({ state: 'open', per_page: 100 }) : Promise.resolve(null)), [canAlerts])
@@ -39,6 +40,8 @@ export default function DashboardPage() {
     () => [...(alerts.data?.items || [])].sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || String(b.last_seen).localeCompare(String(a.last_seen))).slice(0, 6),
     [alerts.data],
   )
+  // Pool thresholds follow the alert settings when the user may read them.
+  const settings = useApi(() => (canSettings ? api.admin.settings().catch(() => null) : Promise.resolve(null)), [canSettings])
   const saved = useApi(() => api.dashboard.getLayout().catch(() => ({ layout: [] })), [])
   const nodes = summary.data?.nodes
   const nameOf = useCallback((id) => (nodes || []).find((n) => n.peer.id === id)?.peer.name || String(id || '').slice(-6), [nodes])
@@ -105,7 +108,7 @@ export default function DashboardPage() {
     setEditing(false)
   }
 
-  const tileProps = { summary: summary.data, alerts: canAlerts ? topAlerts : null, editing, nameOf }
+  const tileProps = { summary: summary.data, alerts: canAlerts ? topAlerts : null, editing, nameOf, thresholds: settings.data }
   const ordered = useMemo(() => [...layout].sort((a, b) => a.y - b.y || a.x - b.x), [layout])
 
   return (

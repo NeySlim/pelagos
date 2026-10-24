@@ -7,5 +7,60 @@
       "title": "Alertes et incohérences",
       "subtitle": "Alertes ouvertes, acquittements et écarts DNS/DHCP"
     }
-  }
+  },
+  "stats": {
+    "open": "Ouvertes",
+    "acked": "Acquittées",
+    "critical": "Critiques",
+    "warning": "Avertissements",
+    "info": "Informations"
+  },
+  "columns": {
+    "severity": "Gravité",
+    "title": "Alerte",
+    "kind": "Type",
+    "subject": "Sujet",
+    "node": "Nœud",
+    "lastSeen": "Vue le",
+    "state": "État"
+  },
+  "filters": {
+    "state": "État",
+    "severity": "Gravité",
+    "kind": "Type",
+    "engine": "Moteur",
+    "node": "Nœud",
+    "allStates": "Tous les états"
+  },
+  "actions": {
+    "ack": "Acquitter",
+    "runConsistency": "Vérifier la cohérence",
+    "openHost": "Ouvrir l'hôte",
+    "openZone": "Ouvrir la zone"
+  },
+  "ack": {
+    "title": "Acquitter l'alerte",
+    "prompt": "Commentaire facultatif, conservé dans le journal d'audit",
+    "done": "Alerte acquittée"
+  },
+  "consistency": {
+    "running": "Vérification de cohérence en cours",
+    "done": "Vérification terminée : {{count}} incohérences trouvées",
+    "failed": "Échec de la vérification : {{message}}"
+  },
+  "detail": {
+    "title": "Alerte",
+    "firstSeen": "Vue la première fois",
+    "lastSeen": "Vue la dernière fois",
+    "ackedBy": "Acquittée par",
+    "ackedAt": "Acquittée le",
+    "resolvedAt": "Résolue le",
+    "details": "Détails",
+    "noDetails": "Aucun détail"
+  },
+  "inconsistency": "Incohérence",
+  "empty": "Aucune alerte",
+  "emptyOpen": "Aucune alerte ouverte",
+  "emptyHelp": "Le collecteur lève des alertes sur les pools, les zones, la HA, le DDNS, les nœuds et les écarts DNS/DHCP.",
+  "fresh": "Les alertes ont changé : recharger"
 }

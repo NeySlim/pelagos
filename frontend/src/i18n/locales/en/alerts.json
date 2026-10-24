@@ -7,5 +7,60 @@
       "title": "Alerts and inconsistencies",
       "subtitle": "Open alerts, acknowledgements and DNS/DHCP mismatches"
     }
-  }
+  },
+  "stats": {
+    "open": "Open",
+    "acked": "Acknowledged",
+    "critical": "Critical",
+    "warning": "Warning",
+    "info": "Info"
+  },
+  "columns": {
+    "severity": "Severity",
+    "title": "Alert",
+    "kind": "Kind",
+    "subject": "Subject",
+    "node": "Node",
+    "lastSeen": "Last seen",
+    "state": "State"
+  },
+  "filters": {
+    "state": "State",
+    "severity": "Severity",
+    "kind": "Kind",
+    "engine": "Engine",
+    "node": "Node",
+    "allStates": "All states"
+  },
+  "actions": {
+    "ack": "Acknowledge",
+    "runConsistency": "Check consistency",
+    "openHost": "Open the host",
+    "openZone": "Open the zone"
+  },
+  "ack": {
+    "title": "Acknowledge the alert",
+    "prompt": "Optional comment, kept in the audit log",
+    "done": "Alert acknowledged"
+  },
+  "consistency": {
+    "running": "Consistency check running",
+    "done": "Consistency check done: {{count}} inconsistencies found",
+    "failed": "Consistency check failed: {{message}}"
+  },
+  "detail": {
+    "title": "Alert",
+    "firstSeen": "First seen",
+    "lastSeen": "Last seen",
+    "ackedBy": "Acknowledged by",
+    "ackedAt": "Acknowledged at",
+    "resolvedAt": "Resolved at",
+    "details": "Details",
+    "noDetails": "No details"
+  },
+  "inconsistency": "Inconsistency",
+  "empty": "No alert",
+  "emptyOpen": "No open alert",
+  "emptyHelp": "The collector raises alerts on pools, zones, HA, DDNS, nodes and DNS/DHCP mismatches.",
+  "fresh": "Alerts changed: reload"
 }

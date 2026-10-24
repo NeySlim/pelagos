@@ -116,10 +116,6 @@
     "good": "Good",
     "strong": "Strong"
   },
-  "placeholder": {
-    "title": "This screen is being built",
-    "body": "The raw answer of the API is shown below until the dedicated view lands."
-  },
   "plan": {
     "allNodes": "all nodes",
     "apply": "Apply",

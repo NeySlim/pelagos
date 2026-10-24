@@ -311,6 +311,8 @@ function reverseToIp(name) {
 
 const ipSortKey = (ip = '') => (ip.includes(':') ? [6, v6Nibbles(ip)] : [4, String(ipToInt(ip)).padStart(12, '0')])
 
+const INCONSISTENCY_KINDS = new Set(['lease_without_record', 'record_without_lease', 'reservation_mismatch', 'ptr_mismatch', 'duplicate_ip'])
+
 // The join of the hosts service: hosts merge on a shared MAC, then IP, then name,
 // over v4 and (when the module is on) v6 leases, reservations, A/AAAA and PTR records.
 function buildHosts(state) {
@@ -1565,6 +1567,11 @@ function buildHandlers(state, emit) {
         job.state = 'done'
         job.progress = 100
         job.steps[0].state = 'done'
+        // Like the jobs service: the runner's return value becomes a final "result" step.
+        const found = state.alerts.filter((x) => INCONSISTENCY_KINDS.has(x.kind) && x.state !== 'resolved')
+        const byKind = {}
+        for (const x of found) byKind[x.kind] = (byKind[x.kind] || 0) + 1
+        job.steps.push({ name: 'result', state: 'done', output: { found: found.length, by_kind: byKind, alerts: found, errors: {}, collector_signalled: true }, started_at: job.finished_at, finished_at: iso(Date.now()) })
         job.finished_at = iso(Date.now())
         emit('jobs', 'done', job)
       }, 500)

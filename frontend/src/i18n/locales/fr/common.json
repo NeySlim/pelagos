@@ -116,10 +116,6 @@
     "good": "Bon",
     "strong": "Robuste"
   },
-  "placeholder": {
-    "title": "Cet écran est en construction",
-    "body": "La réponse brute de l'API est affichée ci-dessous en attendant la vue dédiée."
-  },
   "plan": {
     "allNodes": "tous les nœuds",
     "apply": "Appliquer",

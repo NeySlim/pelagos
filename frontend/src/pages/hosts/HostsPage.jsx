@@ -96,7 +96,7 @@ export default function HostsPage() {
             <Badge variant={f.hasReservation ? 'purple' : 'gray'} size="sm" icon={BookmarkSimple} title={t('card.reservation')}>
               {t('list.reservation')}
             </Badge>
-            <Badge variant={f.hasForward ? 'primary' : 'gray'} size="sm">A</Badge>
+            <Badge variant={f.hasForward ? 'primary' : 'gray'} size="sm">{f.forwardTypes.join('/') || 'A'}</Badge>
             <Badge variant={f.hasPtr ? 'teal' : 'gray'} size="sm">PTR</Badge>
           </span>
         )

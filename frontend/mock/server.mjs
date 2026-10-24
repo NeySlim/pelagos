@@ -274,39 +274,96 @@ function subnetUtilization(state, family) {
   return out
 }
 
+// Expanded IPv6 as 32 hex nibbles; canonical compression is not needed for matching.
+function v6Nibbles(ip) {
+  const [head, tail = ''] = ip.toLowerCase().split('::')
+  const h = head ? head.split(':') : []
+  const t = ip.includes('::') && tail ? tail.split(':') : []
+  const groups = [...h, ...Array(ip.includes('::') ? 8 - h.length - t.length : 0).fill('0'), ...t]
+  return groups.map((g) => g.padStart(4, '0')).join('')
+}
+
+function canonicalV6(nibbles) {
+  const groups = nibbles.match(/.{4}/g).map((g) => g.replace(/^0+(?=.)/, ''))
+  let best = [-1, 0]
+  for (let i = 0; i < 8; i += 1) {
+    let j = i
+    while (j < 8 && groups[j] === '0') j += 1
+    if (j - i > best[1] && j - i > 1) best = [i, j - i]
+  }
+  if (best[0] < 0) return groups.join(':')
+  return `${groups.slice(0, best[0]).join(':')}::${groups.slice(best[0] + best[1]).join(':')}`
+}
+
+// Address of an in-addr.arpa or ip6.arpa owner name, or null.
+function reverseToIp(name) {
+  const labels = absName(name).split('.').slice(0, -1)
+  if (labels.slice(-2).join('.') === 'in-addr.arpa' && labels.length === 6) return labels.slice(0, 4).reverse().join('.')
+  if (labels.slice(-2).join('.') === 'ip6.arpa' && labels.length === 34) return canonicalV6(labels.slice(0, 32).reverse().join(''))
+  return null
+}
+
+const ipSortKey = (ip = '') => (ip.includes(':') ? [6, v6Nibbles(ip)] : [4, String(ipToInt(ip)).padStart(12, '0')])
+
+// The join of the hosts service: hosts merge on a shared MAC, then IP, then name,
+// over v4 and (when the module is on) v6 leases, reservations, A/AAAA and PTR records.
 function buildHosts(state) {
   const hosts = new Map()
-  const leases = leasesFor(state, 'v4')
-  const records = state.records['example.lan.'] || []
-  const reverse = state.records['2.0.192.in-addr.arpa.'] || []
-  const add = (key, patch) => {
-    const host = hosts.get(key) || { key, mac: null, ips: [], hostname: null, lease: null, reservation: null, records: [], alerts: [] }
-    hosts.set(key, Object.assign(host, patch(host)))
+  const byMac = new Map()
+  const byIp = new Map()
+  const byName = new Map()
+  const attach = (mac, ips, name) => {
+    ips = ips.filter(Boolean)
+    name = name ? absName(name.includes('.') ? name : `${name}.example.lan`) : null
+    let host = (mac && hosts.get(byMac.get(mac))) || ips.map((ip) => hosts.get(byIp.get(ip))).find(Boolean) || (name && hosts.get(byName.get(name)))
+    if (!host) {
+      const key = mac ? `mac:${mac}` : ips.length ? `ip:${ips[0]}` : `name:${name}`
+      host = { key, mac: null, ips: [], hostname: null, lease: null, reservation: null, records: [], alerts: [] }
+      hosts.set(key, host)
+    }
+    if (mac && !host.mac) host.mac = mac
+    for (const ip of ips) if (!host.ips.includes(ip)) host.ips.push(ip)
+    if (name && !host.hostname) host.hostname = name
+    if (host.mac) byMac.set(host.mac, host.key)
+    for (const ip of host.ips) byIp.set(ip, host.key)
+    if (host.hostname) byName.set(host.hostname, host.key)
+    return host
   }
-  for (const lease of leases) {
-    const key = lease.hw_address ? `mac:${lease.hw_address}` : `ip:${lease.ip_address}`
-    add(key, (h) => ({ mac: lease.hw_address, ips: [...new Set([...h.ips, lease.ip_address])], hostname: absName(lease.hostname?.includes('.') ? lease.hostname : `${lease.hostname}.example.lan`), lease }))
+  const families = state.modules.cluster.dhcpv6 ? ['v4', 'v6'] : ['v4']
+  for (const family of families) {
+    for (const lease of leasesFor(state, family)) {
+      if (lease.lease_type === 'IA_PD') continue
+      const host = attach(lease.hw_address, [lease.ip_address], lease.hostname)
+      if (!host.lease) host.lease = lease
+    }
+    for (const r of state.reservations[family]) {
+      const host = attach(r.id_type === 'hw-address' ? r.identifier : null, r.ip_address ? [r.ip_address] : r.ip_addresses, r.hostname)
+      if (!host.reservation) host.reservation = r
+    }
   }
-  for (const r of state.reservations.v4) {
-    const key = `mac:${r.identifier}`
-    add(key, (h) => ({ mac: r.identifier, ips: [...new Set([...h.ips, r.ip_address])], hostname: h.hostname || absName(r.hostname), reservation: r }))
-  }
-  for (const rrset of records.filter((r) => r.rtype === 'A')) {
-    for (const ip of rrset.rdata) {
-      const existing = [...hosts.values()].find((h) => h.ips.includes(ip))
-      const key = existing ? existing.key : `ip:${ip}`
-      add(key, (h) => ({ ips: [...new Set([...h.ips, ip])], hostname: h.hostname || rrset.name, records: [...h.records, rrset] }))
+  for (const zone of state.zones) {
+    for (const rrset of state.records[zone.name] || []) {
+      if (rrset.rtype === 'A' || rrset.rtype === 'AAAA') {
+        for (const ip of rrset.rdata) {
+          const host = attach(null, [ip], rrset.name)
+          if (!host.records.includes(rrset)) host.records.push(rrset)
+        }
+      } else if (rrset.rtype === 'PTR') {
+        const ip = reverseToIp(rrset.name)
+        if (!ip) continue
+        const host = attach(null, [ip], rrset.rdata[0])
+        if (!host.records.includes(rrset)) host.records.push(rrset)
+      }
     }
   }
   for (const host of hosts.values()) {
-    for (const ip of host.ips) {
-      const last = ip.split('.')[3]
-      const ptr = reverse.find((r) => r.name === `${last}.2.0.192.in-addr.arpa.`)
-      if (ptr && !host.records.includes(ptr)) host.records.push(ptr)
-      host.alerts.push(...state.alerts.filter((a) => a.subject === `ip:${ip}` && a.state !== 'resolved'))
-    }
+    host.alerts = state.alerts.filter((a) => a.state !== 'resolved' && host.ips.some((ip) => a.subject === `ip:${ip}`))
   }
-  return [...hosts.values()].sort((a, b) => ipToInt(a.ips[0] || '0.0.0.0') - ipToInt(b.ips[0] || '0.0.0.0'))
+  return [...hosts.values()].sort((a, b) => {
+    const [fa, ka] = ipSortKey(a.ips[0])
+    const [fb, kb] = ipSortKey(b.ips[0])
+    return fa - fb || (ka < kb ? -1 : ka > kb ? 1 : 0)
+  })
 }
 
 function summary(state) {
@@ -1040,12 +1097,16 @@ function buildHandlers(state, emit) {
     },
     'GET /dns/rpz': () => ({
       items: [
-        { zone: 'rpz.example.lan.', policy: 'given', source: 'user_conf' },
-        { zone: 'feed.rpz.example.', policy: 'nxdomain', source: 'user_conf' },
+        { zone: 'rpz.example.lan.', policy: 'given', source: 'user_conf', configured: true },
+        { zone: 'feed.rpz.example.', policy: 'nxdomain', source: 'missing', configured: false },
       ],
     }),
     'GET /dns/catalog-zones': () => ({
-      items: [{ zone: 'catalog.example.lan.', default_primaries: ['192.0.2.53'], member_count: 4, source: 'user_conf' }],
+      items: [{
+        zone: 'catalog.example.lan.',
+        statement: '{ zone "catalog.example.lan" default-primaries { 192.0.2.53; } in-memory no; }',
+        members: ['lab.example.lan.', 'partner.example.', 'upstream.example.', 'rpz.example.lan.'],
+      }],
     }),
     'GET /dns/stats': ({ query }) => bindStats(state, nodeOr(query)),
 
@@ -1339,25 +1400,38 @@ function buildHandlers(state, emit) {
     },
     'POST /hosts/plan': ({ body, user }) => {
       const errors = []
+      const ip = String(body.ip || '').trim().toLowerCase()
+      const v6 = ip.includes(':')
       if (!body.hostname) errors.push({ field: 'hostname', message: 'required' })
-      if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(body.ip || '')) errors.push({ field: 'ip', message: 'must be an IPv4 address' })
-      if (body.reservation && !/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(body.mac || '')) errors.push({ field: 'mac', message: 'required for a reservation, lowercase colon-separated' })
-      if (errors.length) throw new Problem(400, 'validation_error', 'Invalid host', errors)
+      if (!(v6 ? /^[0-9a-f:]+$/.test(ip) && ip.split('::').length <= 2 && v6Nibbles(ip).length === 32 : /^(\d{1,3}\.){3}\d{1,3}$/.test(ip))) {
+        errors.push({ field: 'ip', message: 'a valid IPv4 or IPv6 address is required' })
+      }
+      if (body.reservation && !/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(body.mac || '')) errors.push({ field: 'mac', message: 'required for a reservation' })
+      if (errors.length) throw new Problem(400, 'validation_error', 'invalid host request', errors)
+      const family = v6 ? 'v6' : 'v4'
+      const rtype = v6 ? 'AAAA' : 'A'
+      const address = v6 ? canonicalV6(v6Nibbles(ip)) : ip
       const zone = absName(body.zone || 'example.lan')
       const fqdn = absName(body.hostname.includes('.') ? body.hostname : `${body.hostname}.${zone}`)
-      const ttl = Number(body.ttl || 3600)
+      const ttl = Number(body.ttl ?? 300)
       const records = state.records[zone]
       if (!records) throw notFound(`zone ${zone}`)
-      const reverseZone = absName(body.reverse_zone || '2.0.192.in-addr.arpa')
-      const ptrName = `${body.ip.split('.')[3]}.${reverseZone}`
-      const reverse = state.records[reverseZone] || null
+      // Reverse pointer of the address; the PTR goes in the longest reverse zone holding it.
+      const ptrName = v6
+        ? `${v6Nibbles(address).split('').reverse().join('.')}.ip6.arpa.`
+        : `${address.split('.').reverse().join('.')}.in-addr.arpa.`
+      const reverseZone = body.reverse_zone
+        ? absName(body.reverse_zone)
+        : Object.keys(state.records).filter((z) => ptrName.endsWith(`.${z}`)).sort((a, b) => b.length - a.length)[0]
+      const reverse = (reverseZone && state.records[reverseZone]) || null
+      const subnetId = body.subnet_id ?? state.subnets[family][0]?.id ?? 1
       const reservation = body.reservation
         ? {
-            subnet_id: body.subnet_id ?? 1,
+            subnet_id: subnetId,
             id_type: 'hw-address',
             identifier: body.mac.toLowerCase(),
-            ip_address: body.ip,
-            ip_addresses: [],
+            ip_address: v6 ? null : address,
+            ip_addresses: v6 ? [address] : [],
             prefixes: [],
             hostname: fqdn.replace(/\.$/, ''),
             client_classes: [],
@@ -1365,41 +1439,43 @@ function buildHandlers(state, emit) {
             next_server: null,
             server_hostname: null,
             boot_file_name: null,
-            user_context: body.notes ? { 'pelagos:note': body.notes } : {},
+            user_context: body.notes ? { pelagos: { notes: body.notes, updated_by: user.username } } : {},
             raw: {},
           }
         : null
+      const forward = { name: fqdn, rtype, ttl, rdata: [address] }
+      const ptr = reverse ? { name: ptrName, rtype: 'PTR', ttl, rdata: [fqdn] } : null
       const changes = [
-        { op: 'add', target: `${zone}/${fqdn}/A`, before: null, after: { name: fqdn, rtype: 'A', ttl, rdata: [body.ip] }, node_ids: [] },
-        ...(reverse ? [{ op: 'add', target: `${reverseZone}/${ptrName}/PTR`, before: null, after: { name: ptrName, rtype: 'PTR', ttl, rdata: [fqdn] }, node_ids: [] }] : []),
-        ...(reservation ? [{ op: 'add', target: `subnet4/${reservation.subnet_id}/reservations/hw-address=${reservation.identifier}`, before: null, after: reservation, node_ids: [] }] : []),
+        { op: 'add', target: `${zone}/${fqdn}/${rtype}`, before: null, after: forward, node_ids: [] },
+        ...(ptr ? [{ op: 'add', target: `${reverseZone}/${ptrName}/PTR`, before: null, after: ptr, node_ids: [] }] : []),
+        ...(reservation ? [{ op: 'add', target: `subnet${v6 ? 6 : 4}/${subnetId}/reservations/hw-address=${reservation.identifier}`, before: null, after: reservation, node_ids: [] }] : []),
       ]
       const text = changes.map((c) => (c.after.rtype ? rrsetText(c.after) : jsonText(c.after))).join('\n')
       return createPlan(state, user, {
         scope: 'host',
         engine: null,
-        summary: `create host ${fqdn} (${body.ip})`,
+        summary: `host ${fqdn} -> ${address}${reservation ? ` reserved for ${reservation.identifier}` : ''}`,
         changes,
         diff: unifiedDiff('', text, `host ${fqdn}`),
         targets: state.nodes.map((n) => n.peer.id),
         validations: [
           { ok: true, tool: 'dnspython', output: '', node_id: state.selfId },
-          ...(reservation ? [{ ok: true, tool: 'kea-dhcp4 -t', output: '', node_id: state.selfId }] : []),
+          ...(reservation ? [{ ok: true, tool: `kea-dhcp${v6 ? 6 : 4} -t`, output: '', node_id: state.selfId }] : []),
         ],
-        preconditions: [{ kind: 'rrset_absent', node_id: state.selfId, subject: `${zone}/${fqdn}/A`, value: '' }],
+        preconditions: [{ kind: 'rrset_absent', node_id: state.selfId, subject: `${zone}/${fqdn}/${rtype}`, value: '' }],
         apply() {
-          records.push(changes[0].after)
+          records.push(forward)
           bumpSerial(records)
-          if (reverse) {
-            reverse.push(changes[1].after)
+          if (ptr) {
+            reverse.push(ptr)
             bumpSerial(reverse)
           }
-          if (reservation) state.reservations.v4.push(reservation)
+          if (reservation) state.reservations[family].push(reservation)
         },
         rollback() {
-          records.splice(records.indexOf(changes[0].after), 1)
-          if (reverse) reverse.splice(reverse.indexOf(changes[1].after), 1)
-          if (reservation) state.reservations.v4.splice(state.reservations.v4.indexOf(reservation), 1)
+          records.splice(records.indexOf(forward), 1)
+          if (ptr) reverse.splice(reverse.indexOf(ptr), 1)
+          if (reservation) state.reservations[family].splice(state.reservations[family].indexOf(reservation), 1)
         },
       })
     },

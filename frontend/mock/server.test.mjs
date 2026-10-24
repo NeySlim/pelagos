@@ -189,6 +189,36 @@ describe('mock server', () => {
     expect((await call('GET', '/dns/zones/example.lan/records?name=e2e&type=A')).data.total).toBe(0)
   })
 
+  it('joins v6 leases, reservations, AAAA and ip6.arpa PTR into hosts', async () => {
+    const call = client(await login('admin', 'admin'))
+    const hosts = (await call('GET', '/hosts?q=v6host1&per_page=500')).data.items
+    const host = hosts.find((h) => h.hostname === 'v6host1.example.lan.')
+    expect(host.ips).toContain('2001:db8::1000')
+    expect(host.lease.family).toBe('v6')
+    expect(host.records.map((r) => r.rtype).sort()).toEqual(['AAAA', 'PTR'])
+    const router = (await call('GET', '/hosts?q=router6')).data.items[0]
+    expect(router.reservation.ip_addresses).toEqual(['2001:db8::100'])
+    expect(router.records.map((r) => r.rtype)).toEqual(['AAAA'])
+  })
+
+  it('plans an IPv6 host with AAAA, ip6.arpa PTR and a v6 reservation', async () => {
+    const call = client(await login('admin', 'admin'))
+    const plan = (await call('POST', '/hosts/plan', { hostname: 'cam6', ip: '2001:db8::2a', zone: 'example.lan', mac: '02:00:5e:00:aa:66', reservation: true })).data
+    expect(plan.state).toBe('validated')
+    expect(plan.changes.map((c) => c.target)).toEqual([
+      'example.lan./cam6.example.lan./AAAA',
+      '0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa./a.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa./PTR',
+      'subnet6/1/reservations/hw-address=02:00:5e:00:aa:66',
+    ])
+    expect((await call('POST', `/plans/${plan.id}/apply`, {})).data.state).toBe('applied')
+    const host = (await call('GET', '/hosts?q=cam6')).data.items[0]
+    expect(host).toMatchObject({ mac: '02:00:5e:00:aa:66', ips: ['2001:db8::2a'] })
+    expect(host.reservation.ip_addresses).toEqual(['2001:db8::2a'])
+    expect((await call('POST', `/plans/${plan.id}/rollback`)).data.state).toBe('rolled_back')
+    expect((await call('GET', '/hosts?q=cam6')).data.total).toBe(0)
+    expect((await call('POST', '/hosts/plan', { hostname: 'x', ip: '2001:db8::zz', zone: 'example.lan' })).status).toBe(400)
+  })
+
   it('rejects invalid rdata at validation and requires confirmation where needed', async () => {
     const call = client(await login('admin', 'admin'))
     const bad = (await call('POST', '/dns/zones/example.lan/records/plan', { changes: [{ op: 'add', target: 'example.lan./x/A', after: { rdata: ['invalid'] } }] })).data

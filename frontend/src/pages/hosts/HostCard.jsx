@@ -22,7 +22,7 @@ import { formatDate } from '../../lib/utils'
 import { ClassChips, SectionError, UserContextView } from '../dhcp/ui'
 import { usePlanFlow, useNodeNames } from '../dhcp/hooks'
 import { absName, reservationTarget, zoneOf } from '../dhcp/lib'
-import { hostFacts } from './lib'
+import { hostFacts, reservedIps } from './lib'
 
 function Section({ icon: Icon, title, badge, actions, children, testId }) {
   return (
@@ -229,7 +229,7 @@ export function HostCard({ hostKey, onChanged }) {
             <ClassChips classes={reservation.client_classes} />
             {facts.reservationMismatch && (
               <p className="status-warning-text" data-testid="host-reservation-mismatch">
-                {t('hosts:card.reservationMismatch', { reserved: reservation.ip_address, leased: lease.ip_address })}
+                {t('hosts:card.reservationMismatch', { reserved: reservedIps(reservation).join(', '), leased: lease.ip_address })}
               </p>
             )}
             <UserContextView context={reservation.user_context} />

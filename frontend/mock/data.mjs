@@ -253,6 +253,9 @@ function makeRecords(hosts) {
     rr(`_ldap._tcp.${z}`, 'SRV', 3600, `0 100 389 dc.${z}`),
     rr(`dc.${z}`, 'A', 3600, '192.0.2.10'),
     rr(`printer.${z}`, 'A', 3600, '192.0.2.42'),
+    rr(`v6host1.${z}`, 'AAAA', 1200, '2001:db8::1000'),
+    rr(`v6host2.${z}`, 'AAAA', 1200, '2001:db8::1001'),
+    rr(`router6.${z}`, 'AAAA', 3600, '2001:db8::100'),
   ]
   const reverse = [
     rr('2.0.192.in-addr.arpa.', 'SOA', 3600, `ns1.${z} hostmaster.${z} 2026102401 3600 900 1209600 300`),
@@ -280,6 +283,9 @@ function makeRecords(hosts) {
       rr(six, 'SOA', 3600, `ns1.${z} hostmaster.${z} 2026102401 3600 900 1209600 300`),
       rr(six, 'NS', 3600, [`ns1.${z}`, `ns2.${z}`]),
       rr(`3.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.${six}`, 'PTR', 3600, `ns1.${z}`),
+      // DHCPv6 clients registered by DDNS: v6host1 and v6host2 (see makeLeases6).
+      rr(`0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.${six}`, 'PTR', 1200, `v6host1.${z}`),
+      rr(`1.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.${six}`, 'PTR', 1200, `v6host2.${z}`),
     ],
     [lab]: [
       rr(lab, 'SOA', 3600, `ns1.${z} hostmaster.${z} 2026102010 3600 900 1209600 300`),
@@ -333,7 +339,7 @@ function makeSubnets4() {
       ...lifetime,
       ...flags,
       ddns: { 'ddns-send-updates': true, 'ddns-qualifying-suffix': 'example.lan.' },
-      user_context: { site: 'office', 'pelagos:note': 'Office LAN' },
+      user_context: { site: 'office', pelagos: { notes: 'Office LAN', tags: ['lan'] } },
       raw: {},
     },
     {
@@ -557,7 +563,7 @@ function makeReservations4(seeds) {
       next_server: null,
       server_hostname: null,
       boot_file_name: null,
-      user_context: { 'pelagos:owner': s.name.startsWith('phone') ? 'telecom' : 'it', 'pelagos:note': `Reserved for ${s.name}` },
+      user_context: { pelagos: { owner: s.name.startsWith('phone') ? 'telecom' : 'it', notes: `Reserved for ${s.name}` } },
       raw: {},
     }))
 }
@@ -607,7 +613,7 @@ function makeClasses(family) {
       next_server: null,
       server_hostname: null,
       boot_file_name: null,
-      user_context: { 'pelagos:note': 'Guest network' },
+      user_context: { pelagos: { notes: 'Guest network' } },
       raw: {},
     },
     {
@@ -930,7 +936,7 @@ export function createState() {
         { library: '/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_ha.so', parameters: {}, known: true, name: 'ha' },
       ],
     },
-    availableHooks: ['lease_cmds', 'host_cmds', 'subnet_cmds', 'stat_cmds', 'ha', 'flex_id', 'class_cmds', 'run_script', 'bootp', 'limits'],
+    availableHooks: [['lease_cmds', 'Lease commands (lease4-get, lease4-del, ...)'], ['host_cmds', 'Host reservation commands'], ['subnet_cmds', 'Subnet and shared network commands'], ['stat_cmds', 'Lease statistics per subnet and pool'], ['ha', 'High availability'], ['flex_id', 'Flexible identifier'], ['class_cmds', 'Client class commands'], ['run_script', 'External script hook'], ['bootp', 'BOOTP support'], ['limits', 'Rate limits per class or subnet']].map(([name, description]) => ({ name, description })),
     d2: { [NODE_IDS.ns1]: d2Stats(NODE_IDS.ns1, 0), [NODE_IDS.ns2]: d2Stats(NODE_IDS.ns2, 4) },
     alerts: makeAlerts(),
     audit: makeAudit(),

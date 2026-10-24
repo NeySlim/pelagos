@@ -7,6 +7,19 @@ const absolute = (name) => {
   return !lower || lower.endsWith('.') ? lower : `${lower}.`
 }
 
+// Addresses a reservation holds (v4 ip_address, v6 ip_addresses).
+export const reservedIps = (reservation) =>
+  reservation ? (reservation.ip_address ? [reservation.ip_address] : reservation.ip_addresses || []) : []
+
+// A lease of one family disagrees with a reservation of the same family that does not list its address.
+function reservationMismatch(lease, reservation) {
+  const reserved = reservedIps(reservation)
+  if (!lease || !reserved.length || lease.lease_type === 'IA_PD') return false
+  const v6 = lease.ip_address.includes(':')
+  const sameFamily = reserved.filter((ip) => ip.includes(':') === v6)
+  return sameFamily.length > 0 && !sameFamily.includes(lease.ip_address)
+}
+
 export function hostFacts(host) {
   const records = host.records || []
   const forward = records.filter((r) => r.rtype === 'A' || r.rtype === 'AAAA')
@@ -20,7 +33,8 @@ export function hostFacts(host) {
     hasForward: forward.length > 0,
     hasPtr: ptr.length > 0,
     ptrMismatch: Boolean(name) && ptr.some((r) => !r.rdata.map(absolute).includes(name)),
-    reservationMismatch: Boolean(lease && reservation?.ip_address && reservation.ip_address !== lease.ip_address),
+    forwardTypes: [...new Set(forward.map((r) => r.rtype))].sort(),
+    reservationMismatch: reservationMismatch(lease, reservation),
     inconsistent: (host.alerts || []).length > 0,
   }
 }

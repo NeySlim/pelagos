@@ -37,7 +37,7 @@ def test_compose_stack_serves_health(docker_host):
     _, out, _ = ssh(
         docker_host,
         f"cd {src} && KEEP=1 BIND_DNS_PORT=5300 PELAGOS_HTTPS_PORT=8443 "
-        "packaging/tests/compose-smoke.sh pelagos:latest",
+        "bash packaging/tests/compose-smoke.sh pelagos:latest",
         timeout=1200,
     )
     assert "all checks passed" in out, out

@@ -28,9 +28,11 @@ from pelagos.core.config_store import ConfigError, ConfigStore, NodeConfig
 from pelagos.core.context import REPL_READY, REPL_SYNCING, NodeContext, write_replication_state
 from pelagos.core.enrollment import EnrollError, EnrollmentService, EnrollRequest, install_certificate
 from pelagos.core.paths import Paths
+from pelagos.core.plan_secrets import hand_secrets_to_backend
 from pelagos.core.registry import ConnectorRegistry, EngineNotConfigured
 from pelagos.core.repl_http import TransportError, request_json
 from pelagos.core.retention import purge_backups
+from pelagos.core.secrets import SecretBox
 from pelagos.core.signals import EVENT_AUDIT, EVENT_CONFIG, SignalListener
 from pelagos.domain.audit import AuditEntry, AuditResult
 from pelagos.domain.cluster import Peer
@@ -256,8 +258,11 @@ class ReplicationApp:
         registry: ConnectorRegistry | None = None,
         enrollment: EnrollmentService | None = None,
         snapshot: SnapshotProvider | None = None,
+        secrets: SecretBox | None = None,
     ) -> None:
         self.node = node
+        # Master key: unseals the secrets a plan built on another node carries (core.plan_secrets).
+        self.secrets = secrets
         self.config_store = config_store
         self.audit_log = audit_log
         self.registry = registry or ConnectorRegistry(node.id)
@@ -423,7 +428,9 @@ class ReplicationApp:
             plan = Plan.from_dict(body["plan"])
         except (KeyError, TypeError, ValueError) as exc:
             raise _Refused(400, "validation_error", f"invalid plan: {exc}") from None
-        result = self.registry.apply(plan) if verb == "apply" else self.registry.rollback(plan)
+        result = self._unseal(plan) if verb == "apply" else None
+        if result is None:
+            result = self.registry.apply(plan) if verb == "apply" else self.registry.rollback(plan)
         result.node_id = self.node.id
         entry = AuditEntry(
             node_id=self.node.id,
@@ -441,6 +448,17 @@ class ReplicationApp:
         self.audit_log.append(entry)
         result.audit_ids = [*result.audit_ids, entry.id]
         return 200, result.to_dict()
+
+    def _unseal(self, plan: Plan) -> NodeApplyResult | None:
+        """Give sealed plan secrets to the backend; a failed result when they cannot be opened."""
+        if not self.registry.has(plan.engine):
+            return None
+        try:
+            hand_secrets_to_backend(plan, self.registry.get(plan.engine), self.secrets)
+        except Exception as exc:
+            log.warning("secrets of plan %s refused: %s", plan.id, exc)
+            return NodeApplyResult(node_id=self.node.id, ok=False, message=f"plan secrets: {exc}")
+        return None
 
     def _enroll(self, body: dict[str, Any], client_ip: str | None) -> tuple[int, Any]:
         if self.enrollment is None:
@@ -881,7 +899,13 @@ class ReplicationService:
         self.registry = registry or ConnectorRegistry(ctx.node.id)
         self.enrollment = EnrollmentService(self.paths, ctx.config_store, ctx.audit_log, ctx.node)
         self.app = ReplicationApp(
-            ctx.node, ctx.config_store, ctx.audit_log, self.registry, self.enrollment, snapshot=snapshot
+            ctx.node,
+            ctx.config_store,
+            ctx.audit_log,
+            self.registry,
+            self.enrollment,
+            snapshot=snapshot,
+            secrets=ctx.secrets,
         )
         self.app.on_peer_seen = self._on_peer_seen
         self.on_audit_merged = on_audit_merged

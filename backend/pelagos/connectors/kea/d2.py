@@ -224,6 +224,36 @@ class D2Backend(DdnsBackend):
             )
         return plan
 
+    # Secrets of plans applied on several nodes ---------------------------------------------------
+
+    def plan_secrets(self, plan_id: str) -> dict[str, str]:
+        """{secret file path: clear secret} held for a plan this backend built; sealed into the plan
+        by `core.plan_secrets.seal_backend_secrets` before the plan goes to peers."""
+        self._sweep()
+        private = self._private.get(plan_id)
+        return {str(path): secret for path, secret in (private.secrets if private else {}).items()}
+
+    def accept_plan_secrets(self, plan: Plan, secrets: dict[str, str]) -> None:
+        """Secrets of a plan built on another node: only the files the plan declares, matching digests."""
+        self._sweep()
+        declared = {
+            str(c.after.get("path")): str(c.after.get("sha256") or "")
+            for c in plan.changes
+            if c.target.startswith("secret-file/") and isinstance(c.after, dict)
+        }
+        accepted: dict[Path, str] = {}
+        for path, secret in secrets.items():
+            if path not in declared:
+                raise ConnectorError(f"secret for {path} is not declared by plan {plan.id}")
+            if declared[path] and hashlib.sha256(secret.encode()).hexdigest() != declared[path]:
+                raise ConnectorError(f"secret for {path} does not match the plan digest")
+            accepted[Path(path)] = secret
+        if not accepted:
+            return
+        expires = utcnow() + timedelta(seconds=self.plan_ttl)
+        private = self._private.setdefault(plan.id, _PlanPrivate(expires_at=expires, secrets={}))
+        private.secrets = accepted
+
     # Apply and rollback -------------------------------------------------------------------------
 
     def _config_change(self, plan: Plan) -> Change:

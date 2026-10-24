@@ -141,6 +141,8 @@ class Plan(Model):
     state: PlanState = PlanState.DRAFT
     expires_at: datetime = field(default_factory=lambda: utcnow() + timedelta(seconds=600))
     error: str | None = None
+    # Translatable form of `summary` (domain.messages); None for plans built before message keys.
+    summary_message: dict[str, Any] | None = None
 
     @property
     def permission(self) -> str:

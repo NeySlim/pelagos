@@ -79,6 +79,8 @@ class Alert(Model):
     acked_by: str | None = None
     acked_at: datetime | None = None
     resolved_at: datetime | None = None
+    # Translatable form of `title` (domain.messages).
+    title_message: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.id:

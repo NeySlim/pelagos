@@ -16,6 +16,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from pelagos.connectors.kea.control_socket import JsonEnd
 from pelagos.core.keafile import (  # noqa: F401  (re-exported for the installer)
     KeaConfigError,
     has_include,
@@ -165,15 +166,17 @@ def send_command(
         s.connect(str(sock_path))
         s.sendall(json.dumps(payload).encode())
         buf = bytearray()
+        end = JsonEnd()
         while True:
             chunk = s.recv(65536)
             if not chunk:
                 break
             buf.extend(chunk)
-            try:
-                return json.loads(buf.decode())
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                continue
+            if end.feed(chunk):
+                try:
+                    return json.loads(buf.decode())
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
     return json.loads(buf.decode())
 
 

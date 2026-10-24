@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,56 @@ ERROR = 1
 UNSUPPORTED = 2
 EMPTY = 3
 CONFLICT = 4
+
+
+_IN_STRING = re.compile(rb'["\\]')
+_OUTSIDE = re.compile(rb'["{}\[\]]')
+
+
+class JsonEnd:
+    """Finds where one JSON value ends in a byte stream fed chunk by chunk, in linear time: brackets
+    are counted outside strings, so the answer is parsed once, when the top-level value closes."""
+
+    def __init__(self) -> None:
+        self.depth = 0
+        self.in_string = False
+        self.skip = False  # the byte after a backslash starts the next chunk
+        self.started = False
+
+    def feed(self, chunk: bytes) -> bool:
+        """True once the top-level value is complete."""
+        i, n = 0, len(chunk)
+        if self.skip and n:
+            self.skip = False
+            i = 1
+        while i < n:
+            if self.in_string:
+                m = _IN_STRING.search(chunk, i)
+                if m is None:
+                    return False
+                if m.group(0) == b"\\":
+                    if m.start() + 1 >= n:
+                        self.skip = True
+                        return False
+                    i = m.start() + 2
+                    continue
+                self.in_string = False
+                i = m.end()
+                continue
+            m = _OUTSIDE.search(chunk, i)
+            if m is None:
+                return False
+            c, i = m.group(0), m.end()
+            if c == b'"':
+                self.in_string = True
+            elif c in (b"{", b"["):
+                self.depth += 1
+                self.started = True
+            else:
+                self.depth -= 1
+                if self.started and self.depth == 0:
+                    return True
+        return False
 
 
 class KeaCommandError(ConnectorError):
@@ -45,16 +96,19 @@ class KeaControlSocket:
                 sock.connect(str(self.path))
                 sock.sendall(data)
                 buf = bytearray()
+                end = JsonEnd()
                 while True:
                     chunk = sock.recv(65536)
                     if not chunk:
                         break
                     buf.extend(chunk)
-                    # Kea closes after the answer; parsing early avoids waiting on servers that keep it open.
-                    try:
-                        return _first(json.loads(buf.decode()))
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        continue
+                    # Kea closes after the answer; parsing once the value closes avoids waiting on
+                    # servers that keep the socket open, without re-parsing a growing buffer.
+                    if end.feed(chunk):
+                        try:
+                            return _first(json.loads(buf.decode()))
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            continue
         except TimeoutError as exc:
             raise ConnectorTimeout(f"{command}: Kea did not answer within {self.timeout}s") from exc
         except (FileNotFoundError, ConnectionRefusedError, PermissionError, OSError) as exc:

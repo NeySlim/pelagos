@@ -335,6 +335,7 @@ class FakeDdnsBackend(DdnsBackend):
         super().__init__(fake_ctx(node_id))
         self.node_id = node_id
         self.down = False
+        self.hash = "d2hash"
         self.totals: dict[str, int] = {
             "update-sent": 0,
             "update-error": 0,
@@ -356,6 +357,9 @@ class FakeDdnsBackend(DdnsBackend):
 
     def config_get(self) -> dict[str, Any]:
         return {"DhcpDdns": {}}
+
+    def config_hash(self) -> str:
+        return self.hash
 
     def stats(self) -> D2Stats:
         self._check()

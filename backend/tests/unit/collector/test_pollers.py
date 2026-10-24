@@ -3,11 +3,14 @@
 
 from __future__ import annotations
 
+import os
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from pelagos.collector import rules
+from pelagos.collector.pollers import kea as kea_poller
 from pelagos.collector.pollers.bind import BindPoller
 from pelagos.collector.pollers.kea import D2Poller, KeaPoller, normalized_config_hash
 from pelagos.collector.series import SeriesStore, connect
@@ -350,3 +353,42 @@ def test_d2_file_divergence(store, tmp_root):
     backend.conf_path.write_text('{"DhcpDdns": {"tsig-keys": []}}')
     alerts = [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE]
     assert alerts and alerts[0].engine is Engine.D2
+
+
+def test_file_divergence_is_cached_until_the_file_or_hash_changes(store, tmp_root, monkeypatch):
+    backend = FakeDhcpBackend(Family.V4)
+    backend.conf_path = tmp_root / "kea-dhcp4.conf"
+    calls = []
+
+    def config_get():
+        calls.append(1)
+        return RUNNING_V4
+
+    backend.config_get = config_get  # type: ignore[method-assign]
+    backend.conf_path.write_text(FILE_V4.replace('"valid-lifetime": 3600', '"valid-lifetime": 7200'))
+    old = time.time() - 60
+    os.utime(backend.conf_path, (old, old))
+    poller = KeaPoller(backend, NODE, store, SETTINGS, Clock())
+    parsed = []
+    real = kea_poller.file_divergence
+
+    def counting(*args):
+        parsed.append(1)
+        return real(*args)
+
+    monkeypatch.setattr(kea_poller, "file_divergence", counting)
+    first = [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE]
+    second = [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE]
+    assert len(first) == len(second) == 1 and len(parsed) == 1
+    backend.hash = "changed"
+    poller.poll()
+    assert len(parsed) == 2
+    backend.conf_path.write_text(FILE_V4)
+    os.utime(backend.conf_path, (old + 1, old + 1))
+    assert [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE] == []
+    assert len(parsed) == 3
+    # A file written just now is never trusted to the cache.
+    os.utime(backend.conf_path, None)
+    poller.poll()
+    poller.poll()
+    assert len(parsed) == 5

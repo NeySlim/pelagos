@@ -88,6 +88,44 @@ def file_divergence(backend: Any, engine: Engine, node_id: str, running: dict[st
     return rules.config_file_divergence(node_id, engine, str(path), differences)
 
 
+# A file modified this recently may change again within the same mtime tick: never cached.
+_RACY_SECONDS = 2.0
+
+
+class FileDivergenceCache:
+    """Re-runs `file_divergence` only when the file (mtime, size) or the running config-hash changed.
+
+    A backend without `config_hash` is compared on every poll.
+    """
+
+    def __init__(self, backend: Any, engine: Engine, node_id: str) -> None:
+        self.backend = backend
+        self.engine = engine
+        self.node_id = node_id
+        self._key: tuple[Any, ...] | None = None
+        self._alert: Alert | None = None
+
+    def check(self, running_hash: str | None, running: Callable[[], dict[str, Any]]) -> Alert | None:
+        key = self._file_key(running_hash)
+        if key is not None and key == self._key:
+            return self._alert
+        self._alert = file_divergence(self.backend, self.engine, self.node_id, running())
+        self._key = key
+        return self._alert
+
+    def _file_key(self, running_hash: str | None) -> tuple[Any, ...] | None:
+        path = getattr(self.backend, "conf_path", None)
+        if running_hash is None or not isinstance(path, Path):
+            return None
+        try:
+            st = path.stat()
+        except OSError:
+            return None
+        if time.time() - st.st_mtime < _RACY_SECONDS:
+            return None
+        return (st.st_mtime_ns, st.st_size, st.st_ino, running_hash)
+
+
 class KeaPoller:
     def __init__(
         self,
@@ -107,6 +145,7 @@ class KeaPoller:
         self.last_sample_ts: int | None = None
         self.last_active: int | None = None
         self.last_reclaimed: int | None = None
+        self.file_check = FileDivergenceCache(backend, self.engine, node_id)
 
     @property
     def sample_period(self) -> int:
@@ -134,8 +173,9 @@ class KeaPoller:
         self._poll_pools(now, out)
         try:
             running = self.backend.config_get()
-            self.store.write_snapshot(self.node_id, engine, "config_hash", now, self._config_hash(running))
-            alert = file_divergence(self.backend, self.engine, self.node_id, running)
+            hashes = self._config_hash(running)
+            self.store.write_snapshot(self.node_id, engine, "config_hash", now, hashes)
+            alert = self.file_check.check(str(hashes["hash"]), lambda: running)
             if alert is not None:
                 out.alerts.append(alert)
         except (ConnectorError, NotImplementedError) as exc:
@@ -261,6 +301,7 @@ class D2Poller:
         self.settings = settings
         self.clock = clock
         self.samples: list[tuple[int, dict[str, int]]] = []
+        self.file_check = FileDivergenceCache(backend, Engine.D2, node_id)
 
     def poll(self) -> PollOutcome:
         out = PollOutcome(kinds=D2_KINDS, where=engine_filter(self.node_id, Engine.D2.value))
@@ -284,7 +325,9 @@ class D2Poller:
             log.debug("d2 stats failed: %s", exc)
             return out
         try:
-            alert = file_divergence(self.backend, Engine.D2, self.node_id, self.backend.config_get())
+            config_hash = getattr(self.backend, "config_hash", None)
+            running_hash = str(config_hash()) if callable(config_hash) else None
+            alert = self.file_check.check(running_hash, self.backend.config_get)
             if alert is not None:
                 out.alerts.append(alert)
         except (ConnectorError, NotImplementedError) as exc:

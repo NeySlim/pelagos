@@ -41,11 +41,14 @@ What changed (file, symbol). Why. Which packages must react, and how.
   statement of acls.conf survive an add and a replace byte for byte, named-checkconf passes).
   WP-FRONTEND: user-file statements are read-only except the single `options` block (sent as
   `options/<statement>`); offer new top-level statements in the managed files.
-- `POST /dns/config/plan`, `POST /dhcp/{family}/subnets/plan` and `.../reservations/plan`: a
-  partial domain object in `after` (`{"id","subnet","pools"}`) is completed with the domain
-  defaults before the connector sees it; `subnet<4|6>/<id>` gives the id.
+- `POST /dhcp/{family}/subnets/plan` and `.../reservations/plan`: a partial domain object in
+  `after` is completed before the connector sees it: with the domain defaults on `add`
+  (`subnet<4|6>/<id>` gives the id), over the current object (without `raw`) on `replace`, so
+  unnamed pools, options, reservations or addresses are kept.
 - `GET /dns/zones` items gain `status: {node_id: ZoneStatus}` for secondary, mirror and stub
-  zones (the read node's `rndc zonestatus`: `next_refresh`, `expires`, ...), `{}` otherwise.
+  zones (the read node's `rndc zonestatus`: `next_refresh`, `expires`, ...), `{}` otherwise
+  (also when the zone cannot be read). Kept per zone for `peer_poll_seconds`, cleared by a zone
+  operation; the zone detail (`GET /dns/zones/{zone}`) stays live.
   `GET /dashboard/summary` gains `thresholds` with the four `alerts_*` settings (same keys as
   `GET /admin/settings`). WP-FRONTEND: drop the per-zone reads and the settings call.
 - `POST /dhcp/{family}/ha/maintenance/plan`: `node_id` is the server that goes in-maintenance
@@ -69,16 +72,16 @@ What changed (file, symbol). Why. Which packages must react, and how.
 - Installer plans run phase by phase across nodes (`services.installer_runner.InstallerRunner`):
   step 2 of the shared key switch runs on every D2 node before step 3 on any node. A peer's part
   is sent over `/repl/v1/plans/apply` after a `sync_peer` with it.
-- Collector side (INT-CORE, INT-COLLECTOR): the core registry given to `ReplicationService` should
-  wrap each backend in `pelagos.services.registry.PlanRunner(ctx, engine, backend)` (or be built by
-  `replication_registry(ctx, registry)`), so peers run installer sub-plans (scope `security`,
-  engine `d2` for step 2) and plans sealed by `services.d2_secrets`. Without it a remote installer
-  phase fails cleanly with "engine not configured" or the backend's refusal.
-- D2 secrets to peers: the plan service seals a copy of a D2 plan for its peers with
-  `pelagos.core.plan_secrets.seal_backend_secrets` when that module exists (INT-CORE, key
-  `sealed`), else with `services.d2_secrets.seal` (key `sealed_secret`, AAD
-  `d2-plan/<plan id>/<file>`, opened by `PlanRunner`, handed to `D2Backend.accept_plan_secrets`
-  or `hold_secrets`). The stored plan, answers and audit never carry either key.
+- Collector side: `collector.main.build_registries` builds the core registry given to
+  `ReplicationService` with `pelagos.services.registry.replication_registry(ctx, registry,
+  lock=backend_lock)`: each backend is wrapped in `PlanRunner(ctx, engine, backend)`, so peers run
+  installer sub-plans (scope `security`, engine `d2` for step 2 of the key switch) and every other
+  plan reaches the backend (attributes such as `accept_plan_secrets` pass through).
+- D2 secrets to peers: the plan service seals the copy of a D2 plan it sends to peers with
+  `pelagos.core.plan_secrets.seal_backend_secrets` (key `sealed`, opened by `ReplicationApp._plan`
+  through `hand_secrets_to_backend`). A secret no longer held, or a D2 connector without
+  `plan_secrets()`, fails the apply before any node is touched. The stored plan, answers and audit
+  never carry the key.
 - gunicorn: `gunicorn_conf.py` already used the `ssl_context` hook (no `ssl_version`); a unit test
   loads it through gunicorn's Config and checks no deprecation warning and TLS 1.2 minimum.
 - SPA: the Flask static route is gone; `/<path>` serves real files of `frontend/dist`, else

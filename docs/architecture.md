@@ -1177,11 +1177,14 @@ config hash, utilization), `subnets`, `leases` (`subnet_id`, `limit`,
 the answer's `"error"` member, never as an HTTP error. On the client side,
 `ReplicationClient.engine_snapshot(engine, kind="summary", params=None)`.
 The same registry serves `/repl/v1/plans/apply|rollback`: the plan's
-`engine` selects the backend. `pelagos.services.registry.replication_registry(ctx)`
-builds that core registry from node.toml with each backend wrapped in
-`services.registry.PlanRunner`, which also runs installer sub-plans (scope
+`engine` selects the backend. The collector builds that core registry with
+`pelagos.services.registry.replication_registry(ctx, registry, lock=...)`
+(`collector.main.build_registries`): each backend is wrapped in
+`services.registry.PlanRunner`, which runs installer sub-plans (scope
 `install`, `import`, `security`, engine `bind` or `d2`) as a synchronous job
-and opens D2 secrets sealed by `services.d2_secrets` (`after.sealed_secret`).
+and hands every other plan to the backend. D2 secrets travel sealed by
+`core.plan_secrets` (`after.sealed`); `ReplicationApp` opens them and gives
+them to `D2Backend.accept_plan_secrets` before the apply.
 
 The collector serves `/repl/v1` (it runs `ReplicationService` with a
 registry over its own backends) and adds the kind `cache`: the answer is
@@ -1498,7 +1501,7 @@ change revokes the user's other sessions.
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
 | `GET /dns/instances` | `read:dns` | | `{"items": [{"node_id", "capabilities": DnsCapabilities, "status": {rndc status fields}}]}` |
-| `GET /dns/zones?view=&kind=&q=` | `read:dns` | | `{"items": [{"zone": Zone, "serials": {node_id: int|null}, "divergent": bool, "status": {node_id: ZoneStatus}}]}` (`status` filled for secondary, mirror and stub zones with the read node's status, else `{}`) |
+| `GET /dns/zones?view=&kind=&q=` | `read:dns` | | `{"items": [{"zone": Zone, "serials": {node_id: int|null}, "divergent": bool, "status": {node_id: ZoneStatus}}]}` (`status` filled for secondary, mirror and stub zones with the read node's status, kept `peer_poll_seconds`, else `{}`) |
 | `GET /dns/zones/{zone}?view=` | `read:dns` | | `{"zone": Zone, "status": {node_id: ZoneStatus}}` |
 | `POST /dns/zones/plan` | `write:dns.zones` | `{"change": Change}` (target `<view>/<zone>`, `after` = Zone) | `Plan` |
 | `GET /dns/zones/{zone}/records?view=&type=&name=&q=&page=&per_page=` | `read:dns` | | paginated `RRset` (`node_id` of the node read in `meta`) |
@@ -1530,7 +1533,7 @@ the API normalizes to the absolute form.
 | `GET /dhcp/{family}/servers` | `read:dhcp` | | `{"items": [{"node_id", "capabilities": DhcpCapabilities, "status": {...status-get}, "ha": HAState|null, "config_hash"}]}` |
 | `GET /dhcp/{family}/subnets?shared_network=&q=` | `read:dhcp` | | `{"items": [Subnet], "utilization": {subnet_id: {"total","assigned","percent"}}, "node_id"}` |
 | `GET /dhcp/{family}/subnets/{id}` | `read:dhcp` | | `Subnet` |
-| `POST /dhcp/{family}/subnets/plan` | `write:dhcp.subnets` | `{"change": Change}` (`after` = Subnet) | `Plan` |
+| `POST /dhcp/{family}/subnets/plan` | `write:dhcp.subnets` | `{"change": Change}` (`after` = Subnet; a partial one is completed with defaults on add, over the current subnet on replace) | `Plan` |
 | `GET /dhcp/{family}/shared-networks` | `read:dhcp` | | `{"items": [SharedNetwork]}` |
 | `POST /dhcp/{family}/shared-networks/plan` | `write:dhcp.subnets` | `{"change": Change}` | `Plan` |
 | `GET /dhcp/{family}/client-classes` | `read:dhcp` | | `{"items": [ClientClass]}` |

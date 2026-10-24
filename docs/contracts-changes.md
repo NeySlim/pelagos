@@ -329,7 +329,17 @@ handle `restriction` (route to password change or TOTP enrollment).
   `plan_remediation`) remain as wrappers.
 - Cross-node order of the dual-key switch (step 2 on every D2 node before
   step 3) is the plan service's job: each change carries its `node_ids`, and a
-  node's Job runs only its own changes.
+  node's Job runs only the changes whose `node_ids` contain its id. An empty
+  `node_ids` means a manual step (`after.manual: true`) that no Job runs. When
+  `build_security_plan` gets no `d2_node_ids` and D2 is not on this node, step 2
+  is manual and so is step 3, since removing the old key before every D2 has
+  switched would break DDNS; the BIND side of a finding raised on a D2-only
+  node (steps 1 and 3) is manual too.
+- Secrets of keys in the Pelagos `keys.conf` that are missing from
+  `cluster.toml` (an install applied before `pelagos init`) are stored by the
+  next import or install adoption. Kea reloads of a running daemon use the
+  `config-reload` command; a non-zero result rolls the file back (SIGHUP only
+  when the daemon has no control socket yet).
 - Lab note for WP-LAB-E2E: `scripts/lab/rollback.sh` and `scripts/lab/README.md`
   list VMIDs off by one (Proxmox has lab-ns1 9111, lab-ns2 9112, lab-rpm 9113,
   lab-client 9114, lab-dev 9115, pelagos-gw 9110); rolling back by name hits the

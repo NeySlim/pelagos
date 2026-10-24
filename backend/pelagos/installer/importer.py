@@ -313,7 +313,7 @@ def import_steps(plan: Plan, env: Any) -> list[Step]:
 
     steps.append(Step("import/preconditions", preconditions))
     for change in plan.changes:
-        if change.node_ids and env.node_id not in change.node_ids:
+        if env.node_id not in change.node_ids:
             continue
         t, c = change.target, change
         if t.startswith("import/read/") or t.startswith("import/bind/update-policy/"):

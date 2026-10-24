@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from pelagos.domain import JobState, PlanScope, Severity
-from pelagos.installer import bindconf, keaconf
+from pelagos.installer import bindconf, keaconf, managed
 from pelagos.installer.importer import build_import_plan
 from pelagos.installer.jobs import apply_plan
 from pelagos.installer.security_audit import (
@@ -20,7 +20,7 @@ from pelagos.installer.security_audit import (
     build_security_plan,
     run_audit,
 )
-from tests.unit.installer.fakes import DATA, copy_kea, debian_tree, legacy_tree
+from tests.unit.installer.fakes import DATA, copy_kea, debian_tree, legacy_tree, make_env
 
 pytestmark = pytest.mark.unit
 
@@ -304,3 +304,38 @@ def test_unknown_or_manual_findings_are_refused(tmp_path):
         build_security_plan(env, ["bind:nope:x"])
     copy_kea(tmp_path, {})  # no Kea config: only BIND findings
     assert all(f.engine == "bind" for f in run_audit(env))
+
+
+def test_dual_key_on_bind_only_node_runs_step_one_only(tmp_path):
+    """D2 lives on another node: this node adds the new key and leaves steps 2 and 3 to the operator."""
+    env = legacy_tree(tmp_path)
+    assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    fid = "bind:weak_shared_kea_key:kea-ddns"
+    plan = build_security_plan(env, [fid])
+    assert [c.node_ids for c in plan.changes] == [["node-a"], [], []]
+    assert [c.after["manual"] for c in plan.changes] == [False, True, True]
+    job = apply_plan(plan, env)
+    assert job.state is JobState.DONE, job.error
+    assert [s["name"] for s in job.steps] == ["security/preconditions", f"security/{fid}/1-bind-add"]
+    keys = {
+        k.name for k in bindconf.keys(list(bindconf.load_files(tmp_path / "etc/bind/named.conf").top_level()))
+    }
+    assert {"kea-ddns", "kea-ddns-sha256"} <= keys  # the remote D2 still signs with the old key
+
+
+def test_dual_key_on_d2_only_node_runs_step_two_only(tmp_path):
+    env = make_env(tmp_path)
+    conf = _d2_with_md5(tmp_path)
+    fid = "kea:weak_shared_kea_key:kea-ddns"
+    plan = build_security_plan(env, [fid])
+    assert [c.node_ids for c in plan.changes] == [[], ["node-a"], []]
+    # The BIND node already added the new key; its secret reaches this node through the cluster.
+    keys_conf = env.paths.keys_conf
+    keys_conf.parent.mkdir(parents=True)
+    keys_conf.write_text(managed.render_keys_conf({"kea-ddns-sha256": ("hmac-sha256", "bmV3c2VjcmV0")}))
+    job = apply_plan(plan, env)
+    assert job.state is JobState.DONE, job.error
+    assert [s["name"] for s in job.steps] == ["security/preconditions", f"security/{fid}/2-d2-switch"]
+    key = keaconf.tsig_keys(keaconf.loads(conf.read_text()))[0]
+    assert key["name"] == "kea-ddns-sha256"
+    assert not (tmp_path / "etc/bind/named.conf").exists()

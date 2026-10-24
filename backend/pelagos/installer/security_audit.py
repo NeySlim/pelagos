@@ -525,10 +525,11 @@ def build_security_plan(
     unknown = [i for i in finding_ids if i not in findings]
     if unknown:
         raise ValueError(f"unknown finding id(s): {', '.join(unknown)}")
+    local = [env.node_id]
     if d2_node_ids is not None:
         d2_nodes = list(d2_node_ids)
     else:
-        d2_nodes = [env.node_id] if env.paths.kea_conf("kea-dhcp-ddns").exists() else []
+        d2_nodes = local if env.paths.kea_conf("kea-dhcp-ddns").exists() else []
     changes: list[Change] = []
     preconditions: list[Precondition] = []
     files_seen: set[str] = set()
@@ -539,18 +540,21 @@ def build_security_plan(
         payload = {"finding": f.to_dict(), "details": f.details}
         if f.kind == "weak_shared_kea_key":
             new = f.details["new_key"]
-            bind_local = f.engine == "bind"
+            bind_nodes = local if f.engine == "bind" else []
+            # Removing the old key on this node is only safe once every D2 has switched: without a
+            # known D2 node set, step 3 is left to the operator like the steps of other nodes.
+            remove_nodes = bind_nodes if d2_nodes else []
             steps = [
                 (
                     "1-bind-add",
                     f"add key {new} ({NEW_ALGORITHM}) and grant it next to {f.subject}",
-                    [env.node_id] if bind_local else [],
+                    bind_nodes,
                 ),
                 ("2-d2-switch", f"switch D2 from {f.subject} to {new}", d2_nodes),
                 (
                     "3-bind-remove",
                     f"remove {f.subject} from update rules and the configuration",
-                    [env.node_id] if bind_local else [],
+                    remove_nodes,
                 ),
             ]
             for suffix, what, nodes in steps:
@@ -559,7 +563,12 @@ def build_security_plan(
                         ChangeOp.REPLACE,
                         f"security/{fid}/{suffix}",
                         before={"key": f.subject, "algorithm": f.details.get("algorithm")},
-                        after={**payload, "step": suffix, "summary": what},
+                        after={
+                            **payload,
+                            "step": suffix,
+                            "summary": what if nodes else f"manual, on the node that runs it: {what}",
+                            "manual": not nodes,
+                        },
                         node_ids=list(nodes),
                     )
                 )
@@ -1008,8 +1017,8 @@ def remediation_steps(plan: Plan, env: Any) -> list[Step]:
 
     steps.append(Step("security/preconditions", preconditions))
     for change in plan.changes:
-        if change.node_ids and env.node_id not in change.node_ids:
-            continue
+        if env.node_id not in change.node_ids:
+            continue  # another node's change, or a manual step
         details = change.after["details"]
         if "step" in change.after:
             fn = DUAL_KEY_STEPS[change.after["step"]]

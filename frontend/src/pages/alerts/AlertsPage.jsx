@@ -93,7 +93,11 @@ export default function AlertsPage() {
   const [running, setRunning] = useState(false)
   const [selectedId, setSelectedId] = useState(null)
   const alive = useRef(true)
-  useEffect(() => () => { alive.current = false }, [])
+  // Re-armed on every mount: StrictMode runs the cleanup once before the real mount.
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false }
+  }, [])
 
   // No state in the URL means open alerts; ?state= (empty) means every state.
   const filters = useMemo(() => {

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { StrictMode } from 'react'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { subjectLink, jobResult } from './lib'
@@ -89,6 +90,20 @@ describe('AlertsPage', () => {
     fireEvent.click(await screen.findByTestId('alerts-consistency'))
     await waitFor(() => expect(notify.showSuccess).toHaveBeenCalledWith(expect.stringContaining('3')))
     expect(calls.run).toHaveBeenCalled()
+  })
+
+  it('reports the consistency pass under StrictMode', async () => {
+    render(
+      <StrictMode>
+        <MemoryRouter initialEntries={['/alerts']}>
+          <AlertsPage />
+        </MemoryRouter>
+      </StrictMode>,
+    )
+    const button = await screen.findByTestId('alerts-consistency')
+    fireEvent.click(button)
+    await waitFor(() => expect(notify.showSuccess).toHaveBeenCalledWith(expect.stringContaining('3')))
+    await waitFor(() => expect(screen.getByTestId('alerts-consistency')).not.toBeDisabled())
   })
 
   it('hides write actions without write:alerts', async () => {

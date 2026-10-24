@@ -2,11 +2,11 @@
 // What the tiles derive from GET /dashboard/summary beyond its raw lists.
 
 // DHCP family the HA, DDNS and pool links open: v4 unless no node runs kea-dhcp4
-// and one runs kea-dhcp6 (node modules, else the engines of this node).
+// and one runs kea-dhcp6 (node modules, else the engines of this node that run).
 export function dhcpFamily(summary) {
   const modules = (summary?.nodes || []).map((n) => n.peer?.modules || {})
   const engines = summary?.engines || {}
-  const has = (engine) => modules.some((m) => m[engine]) || Boolean(engines[engine])
+  const has = (engine) => modules.some((m) => m[engine]) || Boolean(engines[engine] && engines[engine].running !== false)
   return !has('kea4') && has('kea6') ? 'v6' : 'v4'
 }
 

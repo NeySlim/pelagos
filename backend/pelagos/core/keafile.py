@@ -1,16 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Kea configuration file parsing: JSON with `//`, `#`, `/* */` comments and trailing commas.
+"""Kea configuration files: parsing (comments, trailing commas, `<?include?>`), comparison with the
+running configuration (config-get), and the merges Pelagos needs to write a file back losslessly.
 
-Shared by the installer and the collector; `<?include?>` is refused since the daemon resolves it.
+Shared by the installer, the collector and the Kea connectors; the lossless text editor itself is
+`pelagos.core.keadoc`.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
+from difflib import SequenceMatcher
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-_INCLUDE_RE = re.compile(r"<\?include\s+\"([^\"]+)\"\s*\?>")
+_INCLUDE_RE = re.compile(r"<\?\s*include\s+\"([^\"\n]+)\"\s*\?>")
 
 
 class KeaConfigError(ValueError):
@@ -80,17 +85,287 @@ def strip_trailing_commas(text: str) -> str:
 
 
 def has_include(text: str) -> bool:
-    return bool(_INCLUDE_RE.search(text))
+    return bool(_INCLUDE_RE.search(strip_comments(text)))
 
 
 def loads(text: str, path: str | None = None) -> dict[str, Any]:
-    """Parses a Kea config file; `<?include?>` directives are refused (the daemon resolves them)."""
-    if has_include(text):
-        raise KeaConfigError(f"{path or 'config'} uses <?include?>, which is not parsed here")
+    """Parses a Kea config file. `<?include?>` is resolved when `path` names the file (the included
+    files are read from disk, relative names as Kea opens them); without a path it is refused."""
+    from pelagos.core.keadoc import KeaDocument
+
+    if has_include(text) and path is None:
+        raise KeaConfigError("config uses <?include?> and no file path was given to resolve it")
     try:
-        data = json.loads(strip_trailing_commas(strip_comments(text)))
-    except json.JSONDecodeError as exc:
-        raise KeaConfigError(f"{path or 'config'}: invalid JSON: {exc}") from exc
+        data = KeaDocument.from_text(text, path or "config").value
+    except KeaConfigError as exc:
+        raise KeaConfigError(f"{path or 'config'}: {exc}") from exc
     if not isinstance(data, dict):
         raise KeaConfigError(f"{path or 'config'}: top level is not an object")
     return data
+
+
+def load(path: Path) -> dict[str, Any]:
+    """The configuration a Kea file says, includes resolved."""
+    try:
+        text = path.read_text()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise KeaConfigError(f"cannot read {path}: {exc}") from exc
+    return loads(text, str(path))
+
+
+def included_files(path: Path) -> list[Path]:
+    """Every file a Kea configuration pulls in through `<?include?>`, the file itself excluded."""
+    from pelagos.core.keadoc import KeaDocument
+
+    doc = KeaDocument(path)
+    return [p for p in dict.fromkeys(doc.paths) if p != doc.path]
+
+
+# File versus running configuration (CONFIG_DIVERGENCE, cause "file") ------------------------------
+
+KEA_ROOTS = ("Dhcp4", "Dhcp6", "DhcpDdns")
+# Not compared: logging is not service behavior, and Kea 3.x rewrites log paths under its log dir.
+KEA_IGNORED_TOP = frozenset({"loggers", "hash"})
+KEA_LOWERCASE = frozenset({"hw-address", "duid", "client-id", "circuit-id", "flex-id"})
+KEA_REDACTED = frozenset({"*****", "****", "***"})
+_RANGE = re.compile(r"\s*-\s*")
+# Lists Kea keeps as maps by name: config-get returns them sorted, whatever the file order.
+KEA_NAMED_SETS = frozenset({"ddns-domains", "tsig-keys"})
+
+
+def kea_body(config: dict[str, Any]) -> dict[str, Any]:
+    return next((config[k] for k in KEA_ROOTS if isinstance(config.get(k), dict)), config)
+
+
+def _kea_scalar(key: str, value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    if key == "pool":
+        return _RANGE.sub("-", value.strip())
+    if key in KEA_LOWERCASE:
+        return value.strip().lower()
+    return value
+
+
+def is_sensitive_kea_key(key: str) -> bool:
+    """Keys whose values never appear in a difference (`secret`, `basic-auth-password`, ...)."""
+    key = key.lower()
+    return key.endswith(("password", "secret"))
+
+
+_DIFF_PATH = re.compile(r"^(?P<path>[^:]*): ")
+_LAST_KEY = re.compile(r"/(?P<key>[^/\[]+)(?:\[\d+\])*$")
+
+
+def redact_kea_difference(line: str) -> str:
+    """`<path>: differs` when the path ends on a sensitive key, the line unchanged otherwise."""
+    m = _DIFF_PATH.match(line)
+    if not m:
+        return line
+    last = _LAST_KEY.search(m.group("path"))
+    if last and is_sensitive_kea_key(last.group("key")):
+        return f"{m.group('path')}: differs"
+    return line
+
+
+def same_scalar(key: str, file_value: Any, running: Any) -> bool:
+    a, b = _kea_scalar(key, file_value), _kea_scalar(key, running)
+    if a == b:
+        return True
+    if isinstance(b, str) and b in KEA_REDACTED:
+        return True  # secrets and passwords are masked by config-get
+    if isinstance(a, str) and isinstance(b, str) and (a.startswith("/") != b.startswith("/")):
+        # Kea resolves relative socket, lease, hook and secret file names against its own directories.
+        return PurePosixPath(a).name == PurePosixPath(b).name
+    return False
+
+
+def _by_name(items: list[Any]) -> list[Any]:
+    return sorted(items, key=lambda x: str(x.get("name", "")).lower())
+
+
+def _named_set(key: str, a: list[Any], b: list[Any]) -> bool:
+    return key in KEA_NAMED_SETS and all(isinstance(x, dict) for x in a + b)
+
+
+def _kea_diff(file_value: Any, running: Any, path: str, key: str) -> Iterator[str]:
+    if isinstance(file_value, dict):
+        if not isinstance(running, dict):
+            yield f"{path or '/'}: object in the file, {type(running).__name__} running"
+            return
+        for k, v in file_value.items():
+            sub = f"{path}/{k}"
+            if not path and k in KEA_IGNORED_TOP:
+                continue
+            if k == "comment" and "comment" not in running:
+                # Kea moves a `comment` into user-context.
+                v_running = (running.get("user-context") or {}).get("comment")
+                if v_running != v:
+                    yield f"{sub}: {v!r} in the file, {v_running!r} running"
+                continue
+            if not path and k == "control-socket" and k not in running and "control-sockets" in running:
+                # Kea 3.x reports the singular form as a one-item control-sockets list.
+                yield from _kea_diff([v], running["control-sockets"], "/control-sockets", k)
+                continue
+            if k not in running:
+                yield f"{sub}: in the file, absent from the running configuration"
+                continue
+            yield from _kea_diff(v, running[k], sub, k)
+        return
+    if isinstance(file_value, list):
+        if not isinstance(running, list):
+            yield f"{path}: list in the file, {type(running).__name__} running"
+        elif len(file_value) != len(running):
+            yield f"{path}: {len(file_value)} item(s) in the file, {len(running)} running"
+        else:
+            if _named_set(key, file_value, running):
+                file_value, running = _by_name(file_value), _by_name(running)
+            for i, (a, b) in enumerate(zip(file_value, running, strict=True)):
+                yield from _kea_diff(a, b, f"{path}[{i}]", key)
+        return
+    if not same_scalar(key, file_value, running):
+        if is_sensitive_kea_key(key):
+            yield f"{path}: differs"
+        else:
+            yield f"{path}: {file_value!r} in the file, {running!r} running"
+
+
+def kea_config_differences(file_config: dict[str, Any], running_config: dict[str, Any]) -> list[str]:
+    """Paths where the file on disk says something the running daemon (config-get) does not.
+
+    config-get adds every default, so the file is compared as a subset: each key the file sets must
+    hold the same value at runtime; keys only present at runtime are defaults and ignored. Values are
+    normalized as Kea does (pool ranges without blanks, lower-case identifiers, the singular
+    control-socket as a list, `comment` in user-context, masked secrets, paths resolved by Kea).
+    """
+    return list(_kea_diff(kea_body(file_config), kea_body(running_config), "", ""))
+
+
+# Merges used to write a file back ---------------------------------------------------------------
+
+# Keys identifying list items, so a running-config change follows the item rather than its index.
+_ITEM_KEYS = ("id", "name", "library", "subnet", "prefix", "pool", "hw-address", "duid", "client-id")
+
+
+def _item_id(value: Any) -> str:
+    if isinstance(value, dict):
+        for k in _ITEM_KEYS:
+            if k in value and not isinstance(value[k], dict | list):
+                return f"{k}={value[k]!r}"
+    return json.dumps(value, sort_keys=True)
+
+
+def _copy(value: Any) -> Any:
+    return json.loads(json.dumps(value))
+
+
+def rebase(file_value: Any, before: Any, after: Any, key: str = "") -> Any:
+    """What the file should say once the running configuration went from `before` to `after`.
+
+    The file is a subset of `before` (config-get adds defaults): what did not change keeps the file's
+    spelling, changed values take `after`, new items and keys come from `after`, and keys that left
+    the running configuration leave the file. Lists that do not line up with `before` are replaced.
+    """
+    if json.dumps(before, sort_keys=True) == json.dumps(after, sort_keys=True):
+        return _copy(file_value)
+    if isinstance(file_value, dict) and isinstance(before, dict) and isinstance(after, dict):
+        out: dict[str, Any] = {}
+        for k, v in file_value.items():
+            if k in before and k in after:
+                out[k] = rebase(v, before[k], after[k], k)
+            elif k in before:
+                continue  # removed from the running configuration
+            elif k == "control-socket" and "control-sockets" in before and "control-sockets" not in after:
+                continue
+            else:
+                out[k] = _copy(v)  # spelled differently in the file (comment, control-socket)
+        for k, v in after.items():
+            if k in out or k in file_value:
+                continue
+            if k not in before or json.dumps(before[k], sort_keys=True) != json.dumps(v, sort_keys=True):
+                out[k] = _copy(v)
+        return out
+    if isinstance(file_value, list) and isinstance(before, list) and isinstance(after, list):
+        if len(file_value) != len(before):
+            return _copy(after)
+        if _named_set(key, file_value + before, after):
+            files = {str(x.get("name", "")).lower(): x for x in file_value}
+            befores = {str(x.get("name", "")).lower(): x for x in before}
+            result = []
+            for item in after:
+                name = str(item.get("name", "")).lower()
+                if name in files and name in befores:
+                    result.append(rebase(files[name], befores[name], item, key))
+                else:
+                    result.append(_copy(item))
+            order = {str(x.get("name", "")).lower(): i for i, x in enumerate(file_value)}
+            return sorted(result, key=lambda x: order.get(str(x.get("name", "")).lower(), len(order)))
+        a = [_item_id(x) for x in before]
+        b = [_item_id(x) for x in after]
+        result = []
+        for tag, i1, i2, j1, j2 in SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+            if tag == "equal":
+                result.extend(
+                    rebase(file_value[i], before[i], after[j], key)
+                    for i, j in zip(range(i1, i2), range(j1, j2), strict=True)
+                )
+            elif tag == "replace":
+                paired = min(i2 - i1, j2 - j1)
+                result.extend(
+                    rebase(file_value[i1 + p], before[i1 + p], after[j1 + p], key) for p in range(paired)
+                )
+                result.extend(_copy(after[j]) for j in range(j1 + paired, j2))
+            elif tag == "insert":
+                result.extend(_copy(after[j]) for j in range(j1, j2))
+        return result
+    return _copy(after)
+
+
+def conform(file_value: Any, running: Any, key: str = "") -> Any:
+    """The file made to agree with `running` (adopt running): values that differ take the running
+    value, keys absent at runtime go, defaults config-get adds stay out of the file."""
+    if isinstance(file_value, dict) and isinstance(running, dict):
+        out: dict[str, Any] = {}
+        for k, v in file_value.items():
+            if not key and k in KEA_IGNORED_TOP:
+                out[k] = _copy(v)
+            elif k == "comment" and "comment" not in running:
+                rc = (running.get("user-context") or {}).get("comment")
+                if rc is not None:
+                    out[k] = rc
+            elif k == "control-socket" and k not in running and "control-sockets" in running:
+                if not list(_kea_diff([v], running["control-sockets"], "", k)):
+                    out[k] = _copy(v)
+                else:
+                    out["control-sockets"] = _copy(running["control-sockets"])
+            elif k in running:
+                out[k] = conform(v, running[k], k)
+        return out
+    if isinstance(file_value, list) and isinstance(running, list) and len(file_value) == len(running):
+        if _named_set(key, file_value, running):
+            by = {str(x.get("name", "")).lower(): x for x in running}
+            return [
+                conform(x, by[str(x.get("name", "")).lower()], key)
+                if str(x.get("name", "")).lower() in by
+                else _copy(x)
+                for x in file_value
+            ]
+        return [conform(a, b, key) for a, b in zip(file_value, running, strict=True)]
+    if not isinstance(file_value, dict | list) and same_scalar(key, file_value, running):
+        return _copy(file_value)
+    return _copy(running)
+
+
+def conform_root(file_config: dict[str, Any], running_body: dict[str, Any], root: str) -> dict[str, Any]:
+    """`conform` on the root object (`{"Dhcp4": {...}}`), other top-level keys kept."""
+    out = _copy(file_config)
+    out[root] = conform(file_config.get(root) or {}, running_body)
+    return out
+
+
+def rebase_root(
+    file_config: dict[str, Any], before_body: dict[str, Any], after_body: dict[str, Any], root: str
+) -> dict[str, Any]:
+    out = _copy(file_config)
+    out[root] = rebase(file_config.get(root) or {}, before_body, after_body)
+    return out

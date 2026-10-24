@@ -10,10 +10,7 @@ at all, every name in it counts as managed (crafted inputs in tests).
 from __future__ import annotations
 
 import ipaddress
-import re
-from collections.abc import Iterable, Iterator
-from pathlib import PurePosixPath
-from typing import Any
+from collections.abc import Iterable
 
 from pelagos.domain import (
     Alert,
@@ -340,114 +337,12 @@ def run_all(
     return list(unique.values())
 
 
-# Kea configuration file versus config-get (CONFIG_DIVERGENCE, cause "file") -------------------------
+# Kea configuration file versus config-get (CONFIG_DIVERGENCE, cause "file"): lives in core.keafile
+# so the Kea connectors use the same comparison; re-exported for the collector.
+from pelagos.core.keafile import (  # noqa: E402
+    is_sensitive_kea_key,
+    kea_config_differences,
+    redact_kea_difference,
+)
 
-KEA_ROOTS = ("Dhcp4", "Dhcp6", "DhcpDdns")
-# Not compared: logging is not service behavior, and Kea 3.x rewrites log paths under its log dir.
-KEA_IGNORED_TOP = frozenset({"loggers", "hash"})
-KEA_LOWERCASE = frozenset({"hw-address", "duid", "client-id", "circuit-id", "flex-id"})
-KEA_REDACTED = frozenset({"*****", "****", "***"})
-_RANGE = re.compile(r"\s*-\s*")
-# Lists Kea keeps as maps by name: config-get returns them sorted, whatever the file order.
-KEA_NAMED_SETS = frozenset({"ddns-domains", "tsig-keys"})
-
-
-def _kea_body(config: dict[str, Any]) -> dict[str, Any]:
-    return next((config[k] for k in KEA_ROOTS if isinstance(config.get(k), dict)), config)
-
-
-def _kea_scalar(key: str, value: Any) -> Any:
-    if not isinstance(value, str):
-        return value
-    if key == "pool":
-        return _RANGE.sub("-", value.strip())
-    if key in KEA_LOWERCASE:
-        return value.strip().lower()
-    return value
-
-
-def is_sensitive_kea_key(key: str) -> bool:
-    """Keys whose values never appear in a difference (`secret`, `basic-auth-password`, ...)."""
-    key = key.lower()
-    return key.endswith(("password", "secret"))
-
-
-_DIFF_PATH = re.compile(r"^(?P<path>[^:]*): ")
-_LAST_KEY = re.compile(r"/(?P<key>[^/\[]+)(?:\[\d+\])*$")
-
-
-def redact_kea_difference(line: str) -> str:
-    """`<path>: differs` when the path ends on a sensitive key, the line unchanged otherwise."""
-    m = _DIFF_PATH.match(line)
-    if not m:
-        return line
-    last = _LAST_KEY.search(m.group("path"))
-    if last and is_sensitive_kea_key(last.group("key")):
-        return f"{m.group('path')}: differs"
-    return line
-
-
-def _same_scalar(key: str, file_value: Any, running: Any) -> bool:
-    a, b = _kea_scalar(key, file_value), _kea_scalar(key, running)
-    if a == b:
-        return True
-    if isinstance(b, str) and b in KEA_REDACTED:
-        return True  # secrets and passwords are masked by config-get
-    if isinstance(a, str) and isinstance(b, str) and (a.startswith("/") != b.startswith("/")):
-        # Kea resolves relative socket, lease, hook and secret file names against its own directories.
-        return PurePosixPath(a).name == PurePosixPath(b).name
-    return False
-
-
-def _kea_diff(file_value: Any, running: Any, path: str, key: str) -> Iterator[str]:
-    if isinstance(file_value, dict):
-        if not isinstance(running, dict):
-            yield f"{path or '/'}: object in the file, {type(running).__name__} running"
-            return
-        for k, v in file_value.items():
-            sub = f"{path}/{k}"
-            if not path and k in KEA_IGNORED_TOP:
-                continue
-            if k == "comment" and "comment" not in running:
-                # Kea moves a `comment` into user-context.
-                v_running = (running.get("user-context") or {}).get("comment")
-                if v_running != v:
-                    yield f"{sub}: {v!r} in the file, {v_running!r} running"
-                continue
-            if not path and k == "control-socket" and k not in running and "control-sockets" in running:
-                # Kea 3.x reports the singular form as a one-item control-sockets list.
-                yield from _kea_diff([v], running["control-sockets"], "/control-sockets", k)
-                continue
-            if k not in running:
-                yield f"{sub}: in the file, absent from the running configuration"
-                continue
-            yield from _kea_diff(v, running[k], sub, k)
-        return
-    if isinstance(file_value, list):
-        if not isinstance(running, list):
-            yield f"{path}: list in the file, {type(running).__name__} running"
-        elif len(file_value) != len(running):
-            yield f"{path}: {len(file_value)} item(s) in the file, {len(running)} running"
-        else:
-            if key in KEA_NAMED_SETS and all(isinstance(x, dict) for x in file_value + running):
-                file_value = sorted(file_value, key=lambda x: str(x.get("name", "")).lower())
-                running = sorted(running, key=lambda x: str(x.get("name", "")).lower())
-            for i, (a, b) in enumerate(zip(file_value, running, strict=True)):
-                yield from _kea_diff(a, b, f"{path}[{i}]", key)
-        return
-    if not _same_scalar(key, file_value, running):
-        if is_sensitive_kea_key(key):
-            yield f"{path}: differs"
-        else:
-            yield f"{path}: {file_value!r} in the file, {running!r} running"
-
-
-def kea_config_differences(file_config: dict[str, Any], running_config: dict[str, Any]) -> list[str]:
-    """Paths where the file on disk says something the running daemon (config-get) does not.
-
-    config-get adds every default, so the file is compared as a subset: each key the file sets must
-    hold the same value at runtime; keys only present at runtime are defaults and ignored. Values are
-    normalized as Kea does (pool ranges without blanks, lower-case identifiers, the singular
-    control-socket as a list, `comment` in user-context, masked secrets, paths resolved by Kea).
-    """
-    return list(_kea_diff(_kea_body(file_config), _kea_body(running_config), "", ""))
+__all__ = ["is_sensitive_kea_key", "kea_config_differences", "redact_kea_difference", "run_all"]

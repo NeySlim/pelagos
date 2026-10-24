@@ -27,12 +27,12 @@
     "noName": "sans nom",
     "reservation": "réservation",
     "search": "Nom, IP ou MAC...",
-    "total": "{{n}} hôtes"
+    "total": "Hôtes : {{n}}"
   },
   "card": {
     "alerts": "Incohérences",
     "consistent": "Cohérent",
-    "issues": "{{n}} problèmes",
+    "issues": "Problèmes : {{n}}",
     "lease": "Bail",
     "noAlerts": "Aucune incohérence ouverte pour cet hôte",
     "noLease": "Aucun bail actif",

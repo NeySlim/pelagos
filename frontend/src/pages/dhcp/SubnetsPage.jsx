@@ -71,7 +71,7 @@ export default function SubnetsPage({ family }) {
       key: 'pools',
       label: t('fields.pools'),
       render: (s) => (
-        <span className="text-xs text-text-secondary">
+        <span className="text-xs text-text-secondary whitespace-nowrap">
           {t('subnets.poolCount', { n: s.pools.length })}
           {family === 'v6' && s.pd_pools?.length > 0 && <> · {t('subnets.pdPoolCount', { n: s.pd_pools.length })}</>}
         </span>

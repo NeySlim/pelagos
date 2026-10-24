@@ -67,7 +67,7 @@ export default function LeasesPage({ family }) {
       ),
     },
     { key: 'hw_address', label: family === 'v6' ? t('fields.duid') : t('fields.mac'), mono: true, truncate: true, render: (l) => (family === 'v6' ? l.duid : l.hw_address) || '-' },
-    { key: 'hostname', label: t('fields.hostname'), truncate: true },
+    { key: 'hostname', label: t('fields.hostname'), className: 'break-all' },
     { key: 'subnet_id', label: t('fields.subnetId'), mono: true, width: 70 },
     ...(family === 'v6' ? [{ key: 'lease_type', label: t('fields.leaseType'), mono: true }] : []),
     { key: 'state', label: t('fields.state'), render: (l) => <StatusBadge status={l.state} /> },

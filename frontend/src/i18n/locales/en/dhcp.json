@@ -197,7 +197,7 @@
     "readFrom": "read from {{node}}",
     "rev": "reverse",
     "search": "IP, MAC, hostname or client ID...",
-    "total": "{{n}} leases"
+    "total": "Leases: {{n}}"
   },
   "reservations": {
     "create": "New reservation",
@@ -281,7 +281,7 @@
     "addTitle": "Load a hook library",
     "core": "used by Pelagos",
     "empty": "No hook library loaded",
-    "parameterCount": "{{n}} parameters",
+    "parameterCount": "Parameters: {{n}}",
     "remove": "Unload",
     "unknown": "unknown"
   }

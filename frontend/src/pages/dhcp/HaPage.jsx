@@ -180,7 +180,7 @@ export default function HaPage({ family }) {
         <DataTable
           title={t('ha.transitions')}
           columns={transitionColumns}
-          rows={transitions.data?.items || []}
+          rows={[...(transitions.data?.items || [])].sort((a, b) => String(b.ts).localeCompare(String(a.ts)))}
           rowKey={(r, i) => `${r.ts}-${r.node_id}-${i}`}
           loading={transitions.loading}
           error={transitions.error}

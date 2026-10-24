@@ -112,7 +112,7 @@ describe('HostCard', () => {
     expect(await screen.findByTestId('host-card')).toBeInTheDocument()
     expect(mocks.api.hosts.get).toHaveBeenCalledWith(`mac:${MAC}`)
     expect(screen.getByTestId('host-name')).toHaveTextContent('pc7.example.lan.')
-    expect(screen.getByTestId('host-status')).toHaveTextContent('1 issues')
+    expect(screen.getByTestId('host-status')).toHaveTextContent('Issues: 1')
     const leaseSection = screen.getByTestId('host-lease')
     expect(leaseSection).toHaveTextContent('192.0.2.106')
     expect(within(leaseSection).getByText('Active')).toBeInTheDocument()

@@ -120,8 +120,7 @@ export default function NodesPage() {
     {
       key: 'url',
       label: t('fields.url'),
-      mono: true,
-      truncate: true,
+      className: 'font-mono text-2xs break-all',
       render: (n) =>
         n.peer.web_url && !n.is_self ? (
           <a href={n.peer.web_url} className="text-accent-primary hover:underline" onClick={(e) => e.stopPropagation()} target="_blank" rel="noreferrer">

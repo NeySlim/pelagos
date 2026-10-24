@@ -68,7 +68,7 @@ export default function ReservationsPage({ family }) {
       mono: true,
       render: (r) => (family === 'v6' ? [...(r.ip_addresses || []), ...(r.prefixes || [])].join(', ') || '-' : r.ip_address || '-'),
     },
-    { key: 'hostname', label: t('fields.hostname'), truncate: true },
+    { key: 'hostname', label: t('fields.hostname'), className: 'break-all' },
     { key: 'subnet_id', label: t('fields.subnetId'), mono: true, width: 70, render: (r) => r.subnet_id ?? t('reservations.global') },
     { key: 'client_classes', label: t('fields.clientClasses'), render: (r) => <ClassChips classes={r.client_classes} /> },
     { key: 'owner', label: t('userContext.owner'), render: (r) => r.user_context?.[OWNER_KEY] || '' },

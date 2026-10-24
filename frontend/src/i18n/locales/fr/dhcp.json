@@ -197,7 +197,7 @@
     "readFrom": "lu sur {{node}}",
     "rev": "inverse",
     "search": "IP, MAC, nom d'hôte ou client ID...",
-    "total": "{{n}} baux"
+    "total": "Baux : {{n}}"
   },
   "reservations": {
     "create": "Nouvelle réservation",
@@ -281,7 +281,7 @@
     "addTitle": "Charger une bibliothèque de hook",
     "core": "utilisé par Pelagos",
     "empty": "Aucune bibliothèque de hook chargée",
-    "parameterCount": "{{n}} paramètres",
+    "parameterCount": "Paramètres : {{n}}",
     "remove": "Décharger",
     "unknown": "inconnu"
   }

@@ -27,12 +27,12 @@
     "noName": "no name",
     "reservation": "reservation",
     "search": "Name, IP or MAC...",
-    "total": "{{n}} hosts"
+    "total": "Hosts: {{n}}"
   },
   "card": {
     "alerts": "Inconsistencies",
     "consistent": "Consistent",
-    "issues": "{{n}} issues",
+    "issues": "Issues: {{n}}",
     "lease": "Lease",
     "noAlerts": "No open inconsistency for this host",
     "noLease": "No active lease",

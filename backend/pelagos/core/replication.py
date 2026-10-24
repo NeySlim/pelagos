@@ -16,6 +16,7 @@ import threading
 import time
 import urllib.parse
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -29,7 +30,7 @@ from pelagos.core.context import REPL_READY, REPL_SYNCING, NodeContext, write_re
 from pelagos.core.enrollment import EnrollError, EnrollmentService, EnrollRequest, install_certificate
 from pelagos.core.paths import Paths
 from pelagos.core.plan_secrets import hand_secrets_to_backend
-from pelagos.core.registry import ConnectorRegistry, EngineNotConfigured
+from pelagos.core.registry import UNLOCKED_SCOPES, ConnectorRegistry, EngineNotConfigured
 from pelagos.core.repl_http import TransportError, request_json
 from pelagos.core.retention import purge_backups
 from pelagos.core.secrets import SecretBox
@@ -437,8 +438,10 @@ class ReplicationApp:
             plan = Plan.from_dict(body["plan"])
         except (KeyError, TypeError, ValueError) as exc:
             raise _Refused(400, "validation_error", f"invalid plan: {exc}") from None
-        # Secrets handed over and the apply run as one step against the collector's polls.
-        with self.registry.lock:
+        # Secrets handed over and the apply run as one step against the collector's polls; installer
+        # plans touch files and services, not the connectors' sockets, so they never hold the polls.
+        lock = nullcontext() if plan.scope.value in UNLOCKED_SCOPES else self.registry.lock
+        with lock:
             result = self._unseal(plan) if verb == "apply" else None
             if result is None:
                 result = self.registry.apply(plan) if verb == "apply" else self.registry.rollback(plan)
@@ -583,7 +586,7 @@ class ReplicationServer:
             # An empty host binds every interface, which is the node.toml default.
             self._server = pywsgi.WSGIServer(
                 (host, int(port)),
-                self.app,
+                _offloaded(self.app),
                 handler_class=_handler_class(),
                 log=logging.getLogger("pelagos.repl.access"),
                 error_log=logging.getLogger("pelagos.repl.error"),
@@ -601,6 +604,43 @@ class ReplicationServer:
                 gevent.sleep(0.2)
         finally:
             self._server.stop(timeout=3)
+
+
+# OS threads running the handlers: a slow plan apply or a held backend lock blocks one of them,
+# never the gevent hub that accepts and answers every other peer.
+HANDLER_THREADS = 16
+
+
+def _offloaded(app: Callable[..., Any]) -> Callable[..., Any]:
+    """The app run in the hub's thread pool; the body is read and the answer written on the hub."""
+
+    def wsgi(environ: dict[str, Any], start_response: Callable[..., Any]) -> list[bytes]:
+        import io
+
+        import gevent
+
+        try:
+            length = int(environ.get("CONTENT_LENGTH") or 0)
+        except ValueError:
+            length = 0
+        body = environ["wsgi.input"].read(length) if 0 < length <= MAX_BODY else b""
+        environ["wsgi.input"] = io.BytesIO(body)
+        captured: dict[str, Any] = {}
+
+        def capture(
+            status: str, headers: list[tuple[str, str]], exc_info: Any = None
+        ) -> Callable[[bytes], None]:
+            captured["status"], captured["headers"] = status, headers
+            return lambda _data: None
+
+        pool = gevent.get_hub().threadpool
+        if pool.maxsize < HANDLER_THREADS:
+            pool.maxsize = HANDLER_THREADS
+        chunks = pool.apply(lambda: list(app(environ, capture)))
+        start_response(captured["status"], captured["headers"])
+        return chunks
+
+    return wsgi
 
 
 _handler_cache: list[type] = []

@@ -10,12 +10,17 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any
 
 from pelagos.domain.common import Engine, to_rfc3339, utcnow
 from pelagos.domain.plan import NodeApplyResult, Plan
 
 log = logging.getLogger(__name__)
+
+# Installer plans edit files and restart services: they do not use the connectors' sockets, so they
+# run without the backend lock and never stall the collector's polls for minutes.
+UNLOCKED_SCOPES = frozenset({"install", "import", "security"})
 
 
 class EngineNotConfigured(LookupError):
@@ -61,7 +66,7 @@ class ConnectorRegistry:
         except EngineNotConfigured as exc:
             return NodeApplyResult(node_id=self.node_id, ok=False, message=str(exc))
         try:
-            with self.lock:
+            with nullcontext() if plan.scope.value in UNLOCKED_SCOPES else self.lock:
                 result: NodeApplyResult = getattr(backend, verb)(plan)
         except Exception as exc:
             log.exception("%s of plan %s failed", verb, plan.id)

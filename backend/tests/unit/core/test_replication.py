@@ -658,6 +658,68 @@ def test_malformed_peer_answers_never_escape_the_replicator(pair, monkeypatch):
     assert replicator.sync_peer(peer_b).reachable is False
 
 
+def test_a_blocked_handler_does_not_stall_the_other_peers(pair, monkeypatch):
+    """Handlers run on OS threads: one waiting on the backend lock leaves /status answering."""
+    import threading
+
+    a, b = pair
+    release = threading.Event()
+    entered = threading.Event()
+
+    def slow_snapshot(engine, kind, params):
+        entered.set()
+        release.wait(20)
+        return {"engine": engine, "kind": kind}
+
+    b.service.app.snapshot = slow_snapshot
+    peer_b = a.ctx.cluster().peer(b.id)
+    answers: list[dict] = []
+    worker = threading.Thread(
+        target=lambda: answers.append(
+            ReplicationClient(peer_b, a.service.client_context, timeout=30).engine_snapshot("bind", "zones")
+        )
+    )
+    worker.start()
+    try:
+        assert entered.wait(10)
+        started = time.monotonic()
+        assert ReplicationClient(peer_b, a.service.client_context, timeout=5).status().reachable
+        assert time.monotonic() - started < 5
+    finally:
+        release.set()
+        worker.join(30)
+    assert answers == [{"engine": "bind", "kind": "zones"}]
+
+
+def test_installer_plans_do_not_wait_for_the_backend_lock():
+    import threading
+
+    from pelagos.core.registry import ConnectorRegistry
+
+    class Runner:
+        def apply(self, plan):
+            return NodeApplyResult(node_id="x", ok=True, message=plan.scope.value)
+
+    registry = ConnectorRegistry("n1")
+    registry.register(Engine.D2, Runner())
+    held, done = threading.Event(), threading.Event()
+
+    def hold():
+        with registry.lock:
+            held.set()
+            done.wait(20)
+
+    holder = threading.Thread(target=hold)
+    holder.start()
+    try:
+        assert held.wait(5)
+        plan = Plan(scope=PlanScope.SECURITY, node_id="n2", summary="s", engine=Engine.D2)
+        assert registry.apply(plan).ok
+    finally:
+        done.set()
+        holder.join(10)
+
+
 def test_internal_errors_do_not_leak_details_to_peers(pair, monkeypatch):
     a, b = pair
 

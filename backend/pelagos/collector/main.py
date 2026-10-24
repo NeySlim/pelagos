@@ -348,7 +348,8 @@ class Collector:
             try:
                 with self.backend_lock:
                     reservations.extend(backend.list_reservations())
-                    leases.extend(_all_leases(backend, self.node_id))
+                # The lock is taken page by page: remote plans and snapshots get in between pages.
+                leases.extend(_all_leases(backend, self.node_id, self.backend_lock))
             except (ConnectorError, NotImplementedError) as exc:
                 errors.append(f"{backend.engine_name}: {exc or type(exc).__name__}")
         return leases, reservations, errors
@@ -381,15 +382,25 @@ class Collector:
         return forward, reverse, errors
 
 
-def _all_leases(backend: DhcpBackend, node_id: str) -> list[Lease]:
-    """Walk lease4-get-page / lease6-get-page through the ABC's paging arguments."""
+def _all_leases(backend: DhcpBackend, node_id: str, lock: Any = None) -> list[Lease]:
+    """Walk lease4-get-page / lease6-get-page through the ABC's paging arguments.
+
+    Leases are projected on what the consistency checks read: the raw Kea answer and the user
+    context are dropped, which keeps a large lease table to a fraction of its memory.
+    """
     out: list[Lease] = []
     start: str | None = None
     while True:
-        page = backend.leases(limit=LEASE_PAGE, from_address=start)
+        if lock is not None:
+            with lock:
+                page = backend.leases(limit=LEASE_PAGE, from_address=start)
+        else:
+            page = backend.leases(limit=LEASE_PAGE, from_address=start)
         for lease in page:
             if lease.node_id is None:
                 lease.node_id = node_id
+            lease.raw = {}
+            lease.user_context = {}
         out.extend(page)
         if len(page) < LEASE_PAGE or not page:
             break

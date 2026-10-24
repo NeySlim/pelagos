@@ -80,7 +80,9 @@ def test_atomic_writes_remove_temps_left_by_a_crash(node_paths, monkeypatch):
     for tmp in (stale, fresh):
         tmp.write_text("partial")
     os.utime(stale, (1, 1))
-    ConfigStore(node_paths.node_toml, node_paths.cluster_toml).update_cluster(lambda c: None, updated_by="node:x")
+    ConfigStore(node_paths.node_toml, node_paths.cluster_toml).update_cluster(
+        lambda c: None, updated_by="node:x"
+    )
     assert not stale.exists() and fresh.exists()
     assert synced == [str(node_paths.cluster_toml.parent)]
     engine_file = node_paths.var / "named.conf"

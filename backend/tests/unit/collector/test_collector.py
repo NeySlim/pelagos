@@ -361,6 +361,49 @@ def test_polls_and_replication_share_one_backend_lock(rig, monkeypatch):
         assert not worker.is_alive()
 
 
+def test_live_snapshot_answers_busy_instead_of_waiting_forever(rig, monkeypatch):
+    import threading
+
+    from pelagos.collector import snapshots
+    from pelagos.collector.snapshots import SnapshotProvider
+
+    collector, backends, _ = rig
+    _core, service = collector_main.build_registries(collector.ctx, backends, collector.backend_lock)
+    provider = SnapshotProvider(
+        collector.node_id, collector.ctx.paths.series_db, service, collector.backend_lock
+    )
+    monkeypatch.setattr(snapshots, "LOCK_TIMEOUT", 0.2)
+    answers: list[dict] = []
+    with collector.backend_lock:
+        worker = threading.Thread(target=lambda: answers.append(provider("kea4", "subnets", {})))
+        worker.start()
+        worker.join(5)
+    assert answers and answers[0]["error"].startswith("busy")
+
+
+def test_lease_pages_are_projected_and_locked_page_by_page(rig):
+    collector, backends, _ = rig
+    raw = {"ip-address": "198.51.100.7", "big": "x" * 1000}
+    backends.kea4.lease_list = [
+        Lease(ip_address="198.51.100.7", subnet_id=1, family=Family.V4, raw=raw, user_context={"a": 1})
+    ]
+
+    class CountingLock:
+        def __init__(self):
+            self.entered = 0
+
+        def __enter__(self):
+            self.entered += 1
+
+        def __exit__(self, *exc):
+            return False
+
+    lock = CountingLock()
+    leases = collector_main._all_leases(backends.kea4, collector.node_id, lock)
+    assert lock.entered == 1 and leases[0].raw == {} and leases[0].user_context == {}
+    assert leases[0].node_id == collector.node_id
+
+
 def test_engines_watch_sees_node_toml_changes(node_ctx):
     import os
 

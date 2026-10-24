@@ -19,6 +19,7 @@ from pelagos.domain import Engine
 log = logging.getLogger(__name__)
 
 CACHE_KIND = "cache"
+LOCK_TIMEOUT = 8.0
 
 
 class SnapshotProvider:
@@ -40,8 +41,18 @@ class SnapshotProvider:
             return self.cache(engine)
         from pelagos.services.snapshot import engine_snapshot
 
-        with self.lock:
+        # A peer waits about 10 s: answer "busy" (data, not an HTTP error) rather than time it out.
+        if not self.lock.acquire(timeout=LOCK_TIMEOUT):
+            return {
+                "node_id": self.node_id,
+                "engine": engine,
+                "kind": kind,
+                "error": "busy: the collector is reading",
+            }
+        try:
             return engine_snapshot(self.registry, Engine(engine), kind, dict(params))
+        finally:
+            self.lock.release()
 
     def cache(self, engine: str) -> dict[str, Any]:
         try:

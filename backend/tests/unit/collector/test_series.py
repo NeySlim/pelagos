@@ -179,12 +179,12 @@ def test_retention_keeps_latest_serial_and_purges_others(store):
     store.write_ha_transition(now - 1 * DAY, NODE, "kea4", "s", "hot-standby", "waiting", None, None, None)
     store.conn.execute(
         "INSERT INTO alerts VALUES ('A','daemon_down','critical','resolved',?,"
-        " 'bind','engine:bind','t','{}',?,?,NULL,NULL,?)",
+        " 'bind','engine:bind','t','{}',?,?,NULL,NULL,?,NULL)",
         (NODE, now - 200 * DAY, now - 100 * DAY, now - 100 * DAY),
     )
     store.conn.execute(
         "INSERT INTO alerts VALUES ('B','daemon_down','critical','open',?,"
-        " 'kea4','engine:kea4','t','{}',?,?,NULL,NULL,NULL)",
+        " 'kea4','engine:kea4','t','{}',?,?,NULL,NULL,NULL,NULL)",
         (NODE, now - 200 * DAY, now),
     )
     store.conn.commit()

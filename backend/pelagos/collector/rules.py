@@ -21,13 +21,17 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
-from pelagos.domain import Alert, AlertKind, Engine, HAState, Severity, ZoneKind, ZoneStatus
+from pelagos.domain import Alert, AlertKind, Engine, HAState, Severity, ZoneKind, ZoneStatus, messages
 from pelagos.services.consistency import redact_kea_difference
 
 # Steady states per HA mode: anything else is degraded, except partner-down which has its own alert.
 HA_NORMAL_STATES = frozenset({"hot-standby", "load-balancing", "backup", "passive-backup"})
 HA_PARTNER_DOWN_STATES = frozenset({"partner-down"})
 STALE_WINDOW = timedelta(hours=24)
+
+
+def _title(key: str, **params: Any) -> dict[str, Any]:
+    return messages.fields("title", messages.msg(key, **params))
 
 
 def zone_subject(zone: str, view: str | None) -> str:
@@ -45,7 +49,7 @@ def daemon_down(node_id: str, engine: Engine, error: str) -> Alert:
         node_id=node_id,
         engine=engine,
         subject=f"engine:{engine.value}",
-        title=f"{engine.value} does not answer",
+        **_title("alert.daemon_down", engine=engine.value),
         details={"error": error},
     )
 
@@ -65,9 +69,9 @@ def zone_alerts(node_id: str, status: ZoneStatus, now: datetime) -> list[Alert]:
                 node_id=node_id,
                 engine=Engine.BIND,
                 subject=subject,
-                title=f"zone {status.zone} is not loaded"
-                if status.error is None
-                else f"zone {status.zone}: error",
+                **_title(
+                    "alert.zone_not_loaded" if status.error is None else "alert.zone_error", zone=status.zone
+                ),
                 details={"view": status.view, "error": status.error, "raw": status.raw},
             )
         )
@@ -81,7 +85,7 @@ def zone_alerts(node_id: str, status: ZoneStatus, now: datetime) -> list[Alert]:
                     node_id=node_id,
                     engine=Engine.BIND,
                     subject=subject,
-                    title=f"secondary zone {status.zone} expires soon",
+                    **_title("alert.secondary_stale", zone=status.zone),
                     details={
                         "view": status.view,
                         "expires": status.expires.isoformat(),
@@ -152,7 +156,7 @@ def pool_alerts(
                 node_id=node_id,
                 engine=Engine(engine),
                 subject=subject,
-                title=f"pool {pool} of subnet {subnet_id} is {percent:.0f}% used",
+                **_title("alert.pool_usage", pool=pool, subnet_id=subnet_id, percent=f"{percent:.0f}"),
                 details={
                     "subnet_id": subnet_id,
                     "subnet": row.get("subnet"),
@@ -197,7 +201,7 @@ def ha_alerts(
                 node_id=node_id,
                 engine=engine,
                 subject=subject,
-                title=f"{engine.value} HA partner is down (state {ha.state})",
+                **_title("alert.ha_partner_down", engine=engine.value, state=ha.state),
                 details=base,
             )
         )
@@ -209,7 +213,7 @@ def ha_alerts(
                 node_id=node_id,
                 engine=engine,
                 subject=subject,
-                title=f"{engine.value} HA is in state {ha.state}",
+                **_title("alert.ha_degraded", engine=engine.value, state=ha.state),
                 details=base,
             )
         )
@@ -230,7 +234,9 @@ def ha_alerts(
                 node_id=node_id,
                 engine=engine,
                 subject=subject,
-                title=f"{engine.value} HA moved from {previous_state} to {ha.state}",
+                **_title(
+                    "alert.ha_transition", engine=engine.value, from_state=previous_state, to_state=ha.state
+                ),
                 details={**base, "from_state": previous_state},
             )
         )
@@ -263,7 +269,7 @@ def d2_errors(node_id: str, rate: float, deltas: dict[str, int], threshold: floa
         node_id=node_id,
         engine=Engine.D2,
         subject="d2:updates",
-        title=f"DDNS updates failing: {rate * 100:.1f}% over the last hour",
+        **_title("alert.d2_errors", percent=f"{rate * 100:.1f}"),
         details={"rate": round(rate, 4), "threshold": threshold, **deltas},
     )
 
@@ -275,7 +281,7 @@ def peer_offline(peer_id: str, peer_name: str, failures: int, error: str | None)
         node_id=peer_id,
         engine=None,
         subject=f"peer:{peer_id}",
-        title=f"node {peer_name} is unreachable",
+        **_title("alert.peer_offline", node=peer_name),
         details={"failures": failures, "error": error},
     )
 
@@ -289,7 +295,7 @@ def serial_divergence(
         node_id=node_id,
         engine=Engine.BIND,
         subject=zone_subject(zone, view),
-        title=f"zone {zone} serial {serial} differs from the primary ({reference})",
+        **_title("alert.serial_divergence", zone=zone, serial=str(serial), reference=str(reference)),
         details={
             "view": view,
             "serial": serial,
@@ -307,7 +313,7 @@ def config_divergence(engine: str, hashes: dict[str, str | None]) -> Alert:
         node_id=None,
         engine=Engine(engine),
         subject=f"{engine}:config-hash",
-        title=f"{engine} configuration differs between nodes",
+        **_title("alert.config_divergence", engine=engine),
         details={"hashes": hashes},
     )
 
@@ -320,7 +326,7 @@ def schema_mismatch(peer_id: str, peer_name: str, error: str | None) -> Alert:
         node_id=peer_id,
         engine=None,
         subject=f"schema:{peer_id}",
-        title=f"cluster.toml schema differs with node {peer_name}: upgrade the older node",
+        **_title("alert.schema_mismatch", node=peer_name),
         details={"error": error, "cause": "schema_mismatch"},
     )
 
@@ -334,6 +340,6 @@ def config_file_divergence(node_id: str, engine: Engine, path: str, differences:
         node_id=node_id,
         engine=engine,
         subject=f"{engine.value}:config-file",
-        title=f"{path} differs from the running {engine.value} configuration",
+        **_title("alert.config_file_divergence", path=path, engine=engine.value),
         details={"path": path, "differences": differences[:20], "count": len(differences), "cause": "file"},
     )

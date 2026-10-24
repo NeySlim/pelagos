@@ -59,6 +59,7 @@ def security_outcome(findings: list[dict[str, Any]], node_id: str) -> PollOutcom
                 severity=Severity.WARNING,
                 subject=f"{engine}:{f.get('subject')}",
                 title=str(f.get("description") or kind),
+                title_message=f.get("description_message"),
                 node_id=node_id,
                 engine=Engine.BIND if engine == "bind" else None,
                 details={

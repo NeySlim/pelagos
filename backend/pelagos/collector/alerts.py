@@ -45,6 +45,7 @@ def row_to_alert(row: sqlite3.Row) -> Alert:
             "subject": row["subject"],
             "title": row["title"],
             "details": json.loads(row["details"]),
+            "title_message": _message(row),
             "first_seen": _dt(row["first_seen"]),
             "last_seen": _dt(row["last_seen"]),
             "acked_by": row["acked_by"],
@@ -52,6 +53,17 @@ def row_to_alert(row: sqlite3.Row) -> Alert:
             "resolved_at": _dt(row["resolved_at"]),
         }
     )
+
+
+def _message(row: sqlite3.Row) -> dict[str, Any] | None:
+    # The web process opens the cache read-only and may meet one the collector has not migrated yet.
+    if "title_message" not in row.keys() or not row["title_message"]:
+        return None
+    try:
+        value = json.loads(row["title_message"])
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def ack_entry(node_id: str, alert: Alert, user: str, comment: str | None = None) -> AuditEntry:
@@ -74,9 +86,11 @@ class AlertStore:
 
     def upsert(self, alert: Alert) -> None:
         self.conn.execute(
-            """INSERT INTO alerts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """INSERT INTO alerts (id, kind, severity, state, node_id, engine, subject, title, details,
+                 first_seen, last_seen, acked_by, acked_at, resolved_at, title_message)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(id) DO UPDATE SET severity=excluded.severity, state=excluded.state,
-               title=excluded.title, first_seen=excluded.first_seen,
+               title=excluded.title, title_message=excluded.title_message, first_seen=excluded.first_seen,
                details=excluded.details, last_seen=excluded.last_seen, acked_by=excluded.acked_by,
                acked_at=excluded.acked_at, resolved_at=excluded.resolved_at""",
             (
@@ -94,6 +108,7 @@ class AlertStore:
                 alert.acked_by,
                 _ts(alert.acked_at),
                 _ts(alert.resolved_at),
+                json.dumps(alert.title_message) if alert.title_message else None,
             ),
         )
         self.conn.commit()
@@ -188,11 +203,13 @@ class AlertStore:
                     current.details != alert.details
                     or current.severity != alert.severity
                     or current.title != alert.title
+                    or current.title_message != alert.title_message
                 )
                 current.last_seen = now
                 current.details = alert.details
                 current.severity = alert.severity
                 current.title = alert.title
+                current.title_message = alert.title_message
                 self.upsert(current)
                 if changed:
                     updated.append(current)

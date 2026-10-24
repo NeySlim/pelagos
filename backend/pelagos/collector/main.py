@@ -372,7 +372,12 @@ class Collector:
             target="alert:" + alert.id,
             user="system",
             engine=alert.engine,
-            request={"kind": alert.kind.value, "subject": alert.subject, "node_id": alert.node_id},
+            request={
+                "kind": alert.kind.value,
+                "subject": alert.subject,
+                "node_id": alert.node_id,
+                "title_message": alert.title_message,
+            },
             response={"severity": alert.severity.value, "details": alert.details},
             message=alert.title,
         )

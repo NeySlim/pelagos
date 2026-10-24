@@ -61,12 +61,20 @@ def connect(path: Path, readonly: bool = False) -> sqlite3.Connection:
         # The cache is derived and rebuildable: WAL with NORMAL never corrupts, at worst loses a poll.
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.executescript(SCHEMA)
+        _migrate(conn)
         conn.execute(
             "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
         )
         conn.commit()
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Columns added after schema version 1; a cache created before them gains them in place."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(alerts)")}
+    if "title_message" not in columns:
+        conn.execute("ALTER TABLE alerts ADD COLUMN title_message TEXT")
 
 
 def rebuild(path: Path) -> None:

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ipaddress
 from collections.abc import Iterable
+from typing import Any
 
 from pelagos.domain import (
     Alert,
@@ -21,10 +22,15 @@ from pelagos.domain import (
     ReservationIdType,
     RRset,
     Severity,
+    messages,
 )
 from pelagos.domain.dns import normalize_name
 
 ADDRESS_TYPES = ("A", "AAAA")
+
+
+def _title(key: str, **params: Any) -> dict[str, Any]:
+    return messages.fields("title", messages.msg(key, **params))
 
 
 def canonical_ip(value: str) -> str | None:
@@ -91,7 +97,9 @@ def leases_without_record(leases: Iterable[Lease], forward: dict[str, list[RRset
                 severity=Severity.INFO,
                 engine=lease.family.kea_engine,
                 subject=f"ip:{lease.ip_address}",
-                title=f"lease {lease.ip_address} ({fqdn}) has no {rtype} record in {zone}",
+                **_title(
+                    "alert.lease_without_record", ip=lease.ip_address, fqdn=fqdn, rtype=rtype, zone=zone
+                ),
                 details={
                     "hostname": fqdn,
                     "zone": zone,
@@ -124,7 +132,7 @@ def records_without_lease(rrsets: Iterable[RRset], leases: Iterable[Lease]) -> l
                 kind=AlertKind.RECORD_WITHOUT_LEASE,
                 severity=Severity.INFO,
                 subject=f"name:{name}/{rtype}",
-                title=f"{rtype} record {name} ({', '.join(missing)}) has a DHCID but no lease",
+                **_title("alert.record_without_lease", rtype=rtype, name=name, addresses=missing),
                 details={"name": name, "rtype": rtype, "addresses": missing},
             )
         )
@@ -165,13 +173,22 @@ def reservation_mismatches(reservations: Iterable[Reservation], rrsets: Iterable
             continue
         for ip in ips:
             rtype = "AAAA" if ":" in ip else "A"
-            problems: list[str] = []
+            problems: list[dict[str, Any]] = []
             recorded = index.get((fqdn, rtype))
             if recorded is not None and ip not in recorded:
-                problems.append(f"{rtype} {fqdn} is {', '.join(sorted(recorded))}")
+                problems.append(
+                    messages.msg(
+                        "alert.reservation_mismatch.records",
+                        rtype=rtype,
+                        fqdn=fqdn,
+                        addresses=sorted(recorded),
+                    )
+                )
             targets = ptr.get(reverse_name(ip))
             if targets is not None and fqdn not in targets:
-                problems.append(f"PTR {ip} is {', '.join(sorted(targets))}")
+                problems.append(
+                    messages.msg("alert.reservation_mismatch.ptr", ip=ip, targets=sorted(targets))
+                )
             if not problems:
                 continue
             alerts.append(
@@ -179,7 +196,12 @@ def reservation_mismatches(reservations: Iterable[Reservation], rrsets: Iterable
                     kind=AlertKind.RESERVATION_MISMATCH,
                     severity=Severity.WARNING,
                     subject=f"ip:{ip}",
-                    title=f"reservation {res.key} ({fqdn}) disagrees with DNS: " + "; ".join(problems),
+                    **_title(
+                        "alert.reservation_mismatch",
+                        reservation=res.key,
+                        fqdn=fqdn,
+                        problems=messages.join(problems, "; "),
+                    ),
                     details={
                         "reservation": res.key,
                         "hostname": fqdn,
@@ -204,7 +226,7 @@ def ptr_mismatches(forward: Iterable[RRset], reverse: Iterable[RRset]) -> list[A
     for rr in reverse:
         if rr.rtype.upper() == "PTR":
             ptr.setdefault(normalize_name(rr.name), set()).update(normalize_name(v) for v in rr.rdata)
-    problems: dict[str, list[str]] = {}
+    problems: dict[str, list[dict[str, Any]]] = {}
     for (name, _rtype), ips in index.items():
         for ip in ips:
             rname = reverse_name(ip)
@@ -212,8 +234,10 @@ def ptr_mismatches(forward: Iterable[RRset], reverse: Iterable[RRset]) -> list[A
                 continue
             targets = ptr.get(rname, set())
             if name not in targets:
-                found = ", ".join(sorted(targets)) if targets else "none"
-                problems.setdefault(ip, []).append(f"{name} has no PTR (found {found})")
+                found = sorted(targets) if targets else messages.msg("common.none")
+                problems.setdefault(ip, []).append(
+                    messages.msg("alert.ptr_mismatch.no_ptr", name=name, found=found)
+                )
     forward_by_ip: dict[str, set[str]] = {}
     for (name, _rtype), ips in index.items():
         for ip in ips:
@@ -227,16 +251,14 @@ def ptr_mismatches(forward: Iterable[RRset], reverse: Iterable[RRset]) -> list[A
             if _in_zone(target, fwd_apexes) is None:
                 continue
             if target not in forward_by_ip.get(ip, set()):
-                problems.setdefault(ip, []).append(
-                    f"PTR points to {target} which has no address record for it"
-                )
+                problems.setdefault(ip, []).append(messages.msg("alert.ptr_mismatch.dangling", target=target))
     return [
         Alert(
             kind=AlertKind.PTR_MISMATCH,
             severity=Severity.WARNING,
             subject=f"ip:{ip}",
-            title=f"{ip}: " + "; ".join(items),
-            details={"ip": ip, "problems": items},
+            **_title("alert.ptr_mismatch", ip=ip, problems=messages.join(items, "; ")),
+            details={"ip": ip, "problems": [messages.render(m) for m in items]},
         )
         for ip, items in sorted(problems.items())
     ]
@@ -288,7 +310,7 @@ def duplicate_ips(reservations: Iterable[Reservation], leases: Iterable[Lease]) 
                         kind=AlertKind.DUPLICATE_IP,
                         severity=Severity.WARNING,
                         subject=f"ip:{ip}",
-                        title=f"{ip} is reserved twice",
+                        **_title("alert.duplicate_reservation", ip=ip),
                         details={"reservations": [other.key, res.key]},
                     )
                 )
@@ -308,7 +330,7 @@ def duplicate_ips(reservations: Iterable[Reservation], leases: Iterable[Lease]) 
                     kind=AlertKind.DUPLICATE_IP,
                     severity=Severity.WARNING,
                     subject=f"ip:{ip}",
-                    title=f"{ip} is reserved for {res.identifier} but leased to {lease_key}",
+                    **_title("alert.duplicate_lease", ip=ip, identifier=res.identifier, lease=lease_key),
                     details={"reservation": res.key, "lease": lease_key, "subnet_id": lease.subnet_id},
                 )
             )

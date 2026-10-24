@@ -10,7 +10,10 @@ at all, every name in it counts as managed (crafted inputs in tests).
 from __future__ import annotations
 
 import ipaddress
-from collections.abc import Iterable
+import re
+from collections.abc import Iterable, Iterator
+from pathlib import PurePosixPath
+from typing import Any
 
 from pelagos.domain import (
     Alert,
@@ -335,3 +338,87 @@ def run_all(
     for alert in alerts:
         unique.setdefault(alert.id, alert)
     return list(unique.values())
+
+
+# Kea configuration file versus config-get (CONFIG_DIVERGENCE, cause "file") -------------------------
+
+KEA_ROOTS = ("Dhcp4", "Dhcp6", "DhcpDdns")
+# Not compared: logging is not service behavior, and Kea 3.x rewrites log paths under its log dir.
+KEA_IGNORED_TOP = frozenset({"loggers", "hash"})
+KEA_LOWERCASE = frozenset({"hw-address", "duid", "client-id", "circuit-id", "flex-id"})
+KEA_REDACTED = frozenset({"*****", "****", "***"})
+_RANGE = re.compile(r"\s*-\s*")
+
+
+def _kea_body(config: dict[str, Any]) -> dict[str, Any]:
+    return next((config[k] for k in KEA_ROOTS if isinstance(config.get(k), dict)), config)
+
+
+def _kea_scalar(key: str, value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    if key == "pool":
+        return _RANGE.sub("-", value.strip())
+    if key in KEA_LOWERCASE:
+        return value.strip().lower()
+    return value
+
+
+def _same_scalar(key: str, file_value: Any, running: Any) -> bool:
+    a, b = _kea_scalar(key, file_value), _kea_scalar(key, running)
+    if a == b:
+        return True
+    if isinstance(b, str) and b in KEA_REDACTED:
+        return True  # secrets and passwords are masked by config-get
+    if isinstance(a, str) and isinstance(b, str) and (a.startswith("/") != b.startswith("/")):
+        # Kea resolves relative socket, lease, hook and secret file names against its own directories.
+        return PurePosixPath(a).name == PurePosixPath(b).name
+    return False
+
+
+def _kea_diff(file_value: Any, running: Any, path: str, key: str) -> Iterator[str]:
+    if isinstance(file_value, dict):
+        if not isinstance(running, dict):
+            yield f"{path or '/'}: object in the file, {type(running).__name__} running"
+            return
+        for k, v in file_value.items():
+            sub = f"{path}/{k}"
+            if not path and k in KEA_IGNORED_TOP:
+                continue
+            if k == "comment" and "comment" not in running:
+                # Kea moves a `comment` into user-context.
+                v_running = (running.get("user-context") or {}).get("comment")
+                if v_running != v:
+                    yield f"{sub}: {v!r} in the file, {v_running!r} running"
+                continue
+            if not path and k == "control-socket" and k not in running and "control-sockets" in running:
+                # Kea 3.x reports the singular form as a one-item control-sockets list.
+                yield from _kea_diff([v], running["control-sockets"], "/control-sockets", k)
+                continue
+            if k not in running:
+                yield f"{sub}: in the file, absent from the running configuration"
+                continue
+            yield from _kea_diff(v, running[k], sub, k)
+        return
+    if isinstance(file_value, list):
+        if not isinstance(running, list):
+            yield f"{path}: list in the file, {type(running).__name__} running"
+        elif len(file_value) != len(running):
+            yield f"{path}: {len(file_value)} item(s) in the file, {len(running)} running"
+        else:
+            for i, (a, b) in enumerate(zip(file_value, running, strict=True)):
+                yield from _kea_diff(a, b, f"{path}[{i}]", key)
+        return
+    if not _same_scalar(key, file_value, running):
+        yield f"{path}: {file_value!r} in the file, {running!r} running"
+
+
+def kea_config_differences(file_config: dict[str, Any], running_config: dict[str, Any]) -> list[str]:
+    """Paths where the file on disk says something the running daemon (config-get) does not.
+
+    config-get adds every default, so the file is compared as a subset: each key the file sets must
+    hold the same value at runtime; keys only present at runtime are defaults and ignored. Values are
+    normalized as Kea does (pool ranges without blanks, lower-case identifiers, the singular
+    control-socket as a list, `comment` in user-context, masked secrets, paths resolved by Kea).
+    """
+    return list(_kea_diff(_kea_body(file_config), _kea_body(running_config), "", ""))

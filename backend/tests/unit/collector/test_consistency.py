@@ -185,3 +185,30 @@ def test_helpers():
     assert c._ptr_to_ip("1.2.0.192.in-addr.arpa.") == "192.0.2.1"
     with pytest.raises(ValueError, match="example"):
         c._ptr_to_ip("foo.example.lan.")
+
+
+def test_kea_config_differences_normalizes_what_kea_rewrites():
+    from pelagos.services.consistency import kea_config_differences
+
+    running = {
+        "Dhcp6": {
+            "control-sockets": [{"socket-type": "unix", "socket-name": "/run/kea/kea6-ctrl-socket"}],
+            "hooks-libraries": [{"library": "/usr/lib/kea/hooks/libdhcp_lease_cmds.so"}],
+            "subnet6": [{"id": 1, "pools": [{"pool": "2001:db8::10-2001:db8::20"}], "user-context": {}}],
+            "renew-timer": 900,
+        }
+    }
+    same = {
+        "Dhcp6": {
+            "control-socket": {"socket-type": "unix", "socket-name": "kea6-ctrl-socket"},
+            "hooks-libraries": [{"library": "libdhcp_lease_cmds.so"}],
+            "subnet6": [{"id": 1, "pools": [{"pool": "2001:db8::10 - 2001:db8::20"}]}],
+            "loggers": [{"name": "kea-dhcp6"}],
+        }
+    }
+    assert kea_config_differences(same, running) == []
+    other = {"Dhcp6": {"subnet6": [{"id": 1, "comment": "x"}, {"id": 2}], "rebind-timer": 1}}
+    assert kea_config_differences(other, running) == [
+        "/subnet6: 2 item(s) in the file, 1 running",
+        "/rebind-timer: in the file, absent from the running configuration",
+    ]

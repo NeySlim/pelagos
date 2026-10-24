@@ -19,13 +19,15 @@ import json
 import logging
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from pelagos.collector import rules
 from pelagos.collector.pollers import PollOutcome, engine_filter
 from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend
-from pelagos.domain import AlertKind, Engine
+from pelagos.domain import Alert, AlertKind, Engine
+from pelagos.services.consistency import kea_config_differences
 
 log = logging.getLogger(__name__)
 
@@ -37,9 +39,12 @@ KEA_KINDS = frozenset(
         AlertKind.HA_DEGRADED.value,
         AlertKind.HA_PARTNER_DOWN.value,
         AlertKind.HA_TRANSITION.value,
+        AlertKind.CONFIG_DIVERGENCE.value,
     }
 )
-D2_KINDS = frozenset({AlertKind.DAEMON_DOWN.value, AlertKind.D2_ERRORS.value})
+D2_KINDS = frozenset(
+    {AlertKind.DAEMON_DOWN.value, AlertKind.D2_ERRORS.value, AlertKind.CONFIG_DIVERGENCE.value}
+)
 D2_WINDOW_SECONDS = 3600
 # Keys that legitimately differ between HA peers: dropped before hashing for config_divergence.
 PER_NODE_TOP_KEYS = frozenset({"interfaces-config", "control-socket", "control-sockets", "loggers", "hash"})
@@ -60,6 +65,28 @@ def normalized_config_hash(config: dict[str, Any]) -> str:
     body = {k: v for k, v in body.items() if k not in PER_NODE_TOP_KEYS}
     text = json.dumps(_strip_per_node(body), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+def file_divergence(backend: Any, engine: Engine, node_id: str, running: dict[str, Any]) -> Alert | None:
+    """CONFIG_DIVERGENCE when the configuration file on disk says something config-get does not.
+
+    Files using <?include?> or that cannot be read or parsed are skipped (logged): the daemon
+    resolves includes itself and an unreadable file is the installer's finding, not a divergence.
+    """
+    path = getattr(backend, "conf_path", None)
+    if not isinstance(path, Path):
+        return None
+    from pelagos.installer.keaconf import KeaConfigError, loads
+
+    try:
+        on_disk = loads(path.read_text(), str(path))
+    except (OSError, UnicodeDecodeError, KeaConfigError) as exc:
+        log.debug("%s file not compared: %s", engine.value, exc)
+        return None
+    differences = kea_config_differences(on_disk, running)
+    if not differences:
+        return None
+    return rules.config_file_divergence(node_id, engine, str(path), differences)
 
 
 class KeaPoller:
@@ -106,19 +133,23 @@ class KeaPoller:
 
         self._poll_ha(now, out)
         self._poll_pools(now, out)
-        for name, fn in (("config_hash", self._config_hash), ("subnets", self._subnets)):
-            try:
-                self.store.write_snapshot(self.node_id, engine, name, now, fn())
-            except (ConnectorError, NotImplementedError) as exc:
-                log.debug("%s %s failed: %s", engine, name, exc)
+        try:
+            running = self.backend.config_get()
+            self.store.write_snapshot(self.node_id, engine, "config_hash", now, self._config_hash(running))
+            alert = file_divergence(self.backend, self.engine, self.node_id, running)
+            if alert is not None:
+                out.alerts.append(alert)
+        except (ConnectorError, NotImplementedError) as exc:
+            log.debug("%s config_hash failed: %s", engine, exc)
+        try:
+            self.store.write_snapshot(self.node_id, engine, "subnets", now, self._subnets())
+        except (ConnectorError, NotImplementedError) as exc:
+            log.debug("%s subnets failed: %s", engine, exc)
         return out
 
-    def _config_hash(self) -> dict[str, Any]:
+    def _config_hash(self, running: dict[str, Any]) -> dict[str, Any]:
         """Raw config-hash-get (what /dhcp/{family}/servers shows) and the hash peers compare."""
-        return {
-            "hash": self.backend.config_hash(),
-            "normalized": normalized_config_hash(self.backend.config_get()),
-        }
+        return {"hash": self.backend.config_hash(), "normalized": normalized_config_hash(running)}
 
     def _subnets(self) -> list[dict[str, Any]]:
         return [s.to_dict() for s in self.backend.list_subnets()]
@@ -253,6 +284,12 @@ class D2Poller:
         except ConnectorError as exc:
             log.debug("d2 stats failed: %s", exc)
             return out
+        try:
+            alert = file_divergence(self.backend, Engine.D2, self.node_id, self.backend.config_get())
+            if alert is not None:
+                out.alerts.append(alert)
+        except (ConnectorError, NotImplementedError) as exc:
+            log.debug("d2 config-get failed: %s", exc)
         payload = stats.to_dict()
         payload.pop("raw", None)
         self.store.write_snapshot(self.node_id, "d2", "stats", now, payload)

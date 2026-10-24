@@ -291,3 +291,62 @@ def test_d2_poller_error_rate_over_window(store):
     d2.down = True
     out = poller.poll()
     assert kinds(out) == {AlertKind.DAEMON_DOWN} and out.alerts[0].engine is Engine.D2
+
+
+RUNNING_V4 = {
+    "Dhcp4": {
+        "valid-lifetime": 3600,
+        "control-sockets": [{"socket-type": "unix", "socket-name": "/run/kea/kea4-ctrl-socket"}],
+        "subnet4": [
+            {
+                "id": 1,
+                "subnet": "192.0.2.0/24",
+                "pools": [{"pool": "192.0.2.100-192.0.2.199", "option-data": []}],
+                "reservations": [{"hw-address": "aa:bb:cc:dd:ee:01", "ip-address": "192.0.2.50"}],
+                "user-context": {"comment": "lab"},
+                "t1-percent": 0.5,
+            }
+        ],
+    }
+}
+FILE_V4 = """// Kea file with comments, a singular control-socket and a trailing comma
+{"Dhcp4": {
+  "valid-lifetime": 3600,
+  "control-socket": {"socket-type": "unix", "socket-name": "kea4-ctrl-socket"},
+  "loggers": [{"name": "kea-dhcp4", "output-options": [{"output": "kea-dhcp4.log"}]}],
+  "subnet4": [{
+    "id": 1, "subnet": "192.0.2.0/24", "comment": "lab",
+    "pools": [{"pool": "192.0.2.100 - 192.0.2.199"}],  # spaces around the range
+    "reservations": [{"hw-address": "AA:BB:CC:DD:EE:01", "ip-address": "192.0.2.50"}],
+  }]
+}}
+"""
+
+
+def test_kea_file_divergence(store, tmp_root):
+    backend = FakeDhcpBackend(Family.V4)
+    backend.conf_path = tmp_root / "kea-dhcp4.conf"
+    backend.config_get = lambda: RUNNING_V4  # type: ignore[method-assign]
+    backend.conf_path.write_text(FILE_V4)
+    poller = KeaPoller(backend, NODE, store, SETTINGS, Clock())
+    assert [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE] == []
+    backend.conf_path.write_text(FILE_V4.replace('"valid-lifetime": 3600', '"valid-lifetime": 7200'))
+    alerts = [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE]
+    assert len(alerts) == 1 and alerts[0].subject == "kea4:config-file" and alerts[0].node_id == NODE
+    assert alerts[0].details["differences"] == ["/valid-lifetime: 7200 in the file, 3600 running"]
+    # Includes are resolved by the daemon only: not compared.
+    backend.conf_path.write_text('<?include "/etc/kea/subnets.json"?>\n' + FILE_V4)
+    assert [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE] == []
+
+
+def test_d2_file_divergence(store, tmp_root):
+    backend = FakeDdnsBackend()
+    backend.conf_path = tmp_root / "kea-dhcp-ddns.conf"
+    running = {"DhcpDdns": {"tsig-keys": [{"name": "k", "secret": "*****"}]}}
+    backend.config_get = lambda: running  # type: ignore[method-assign]
+    backend.conf_path.write_text('{"DhcpDdns": {"tsig-keys": [{"name": "k", "secret": "c2VjcmV0"}]}}')
+    poller = D2Poller(backend, NODE, store, SETTINGS, Clock())
+    assert [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE] == []
+    backend.conf_path.write_text('{"DhcpDdns": {"tsig-keys": []}}')
+    alerts = [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE]
+    assert alerts and alerts[0].engine is Engine.D2

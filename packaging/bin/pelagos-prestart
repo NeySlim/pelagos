@@ -31,8 +31,15 @@ if [ "$mode" = web ] && { [ ! -s "$etc/tls/server.crt" ] || [ ! -s "$etc/tls/ser
   umask 022
 fi
 
-# Only touch what is not already right so large backup trees stay cheap.
-find "$etc" "$var" \( ! -user "$user" -o ! -group "$group" \) -exec chown "$user:$group" {} + 2>/dev/null || true
-chmod 0750 "$etc" "$var" "$etc/tls"
-[ ! -f "$etc/tls/server.key" ] || chmod 0600 "$etc/tls/server.key"
+# Only touch what is not already right so large backup trees stay cheap. Symlinks are never
+# followed (the service user could plant one) and pelagos.env stays root's: /usr/bin/pelagos
+# reads it as root.
+find "$etc" "$var" ! -type l ! -path "$etc/pelagos.env" \( ! -user "$user" -o ! -group "$group" \) \
+  -exec chown -h "$user:$group" {} + 2>/dev/null || true
+for d in "$etc" "$var" "$etc/tls"; do
+  [ -L "$d" ] || chmod 0750 "$d"
+done
+if [ -f "$etc/tls/server.key" ] && [ ! -L "$etc/tls/server.key" ]; then
+  chmod 0600 "$etc/tls/server.key"
+fi
 exit 0

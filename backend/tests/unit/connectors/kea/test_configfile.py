@@ -123,3 +123,24 @@ def test_persist_takes_secrets_from_the_applied_values(tmp_path):
     applied = {"tsig-keys": [key("k1", "NEW1"), key("k2", "S2")]}
     file.persist(doc, sock.body, "rotate", [applied])
     assert '"NEW1"' in keys.read_text() and '"S1"' not in keys.read_text()
+
+
+def test_includes_on_a_read_only_mount_block_writes(tmp_path, monkeypatch):
+    """Pelagos writes included files itself: a sandboxed directory is refused before any change."""
+    import os
+    from types import SimpleNamespace
+
+    from pelagos.core import writable
+
+    part = tmp_path / "subs.json"
+    file, sock = make(
+        tmp_path,
+        f'{{"DhcpDdns": {{ <?include "{part}"?> "port": 53001 }}}}',
+        {"subs.json": '"dns-server-timeout": 3,'},
+        {"dns-server-timeout": 3, "port": 53001},
+    )
+    assert file.guard(sock.body) is not None
+    monkeypatch.setattr(writable.os, "statvfs", lambda p: SimpleNamespace(f_flag=os.ST_RDONLY))
+    with pytest.raises(ConnectorError, match="read-only mount"):
+        file.guard(sock.body)
+    assert sock.calls == []

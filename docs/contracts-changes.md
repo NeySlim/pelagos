@@ -13,6 +13,16 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, F-OPS: units may write the engines' zone directories
+`pelagos.service` and `pelagos-collector.service` replace the `pelagos`
+subdirectories in `ReadWritePaths=` by `-/etc/bind -/etc/named -/etc/kea
+-/var/cache/bind -/var/lib/bind -/var/named`, so static zone files (edited
+in place) are no longer on a read-only mount; file permissions decide.
+`core/writable.py` (new) detects a read-only mount (`ST_RDONLY`):
+`staticzone.write_problem` and `KeaConfigFile.guard` (files with
+`<?include?>`) report it with the drop-in to add instead of the group
+advice. Nobody has to react.
+
 ## 2026-10-24, F-KEA: Kea file divergence, includes, lossless edits, single-node replaces
 All additive; `docs/architecture.md` sections 5, 6, 7, 9, 17 and 19 updated.
 - `connectors/base.py`: `DhcpBackend.plan_adopt(source)` and `DdnsBackend.plan_adopt(source)`,

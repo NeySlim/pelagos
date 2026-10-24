@@ -34,8 +34,9 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 ReadWritePaths=/var/lib/pelagos /run/pelagos /etc/pelagos
-ReadWritePaths=-/etc/bind/pelagos -/etc/named/pelagos -/etc/kea
-ReadWritePaths=-/var/cache/bind/pelagos -/var/named/pelagos
+# Static zone files live next to the user's zones; file permissions still decide.
+ReadWritePaths=-/etc/bind -/etc/named -/etc/kea
+ReadWritePaths=-/var/cache/bind -/var/lib/bind -/var/named
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes

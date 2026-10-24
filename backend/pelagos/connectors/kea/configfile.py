@@ -28,6 +28,7 @@ from pelagos.core.keafile import (
     redact_kea_difference,
     restore_secrets,
 )
+from pelagos.core.writable import read_only_problem
 from pelagos.core.write_pipeline import FileChange
 from pelagos.domain import (
     Change,
@@ -116,6 +117,11 @@ class KeaConfigFile:
         diffs = self.differences(running_body, doc)
         if diffs:
             raise FileDiverged(self.engine, self.path, diffs)
+        # With includes Pelagos writes the files itself (Kea's config-write runs in the daemon).
+        if doc is not None and doc.has_includes:
+            blocked = read_only_problem(self.files(doc), "Kea file")
+            if blocked:
+                raise ConnectorError(blocked)
         return doc
 
     def files(self, doc: KeaDocument | None) -> list[Path]:
@@ -165,6 +171,9 @@ class KeaConfigFile:
                 node_id=self.node_id,
             )
 
+        blocked = read_only_problem(list(changed), "Kea file")
+        if blocked:
+            raise ConnectorError(blocked)
         changes = [FileChange(path=p, content=t.encode(), create_dirs=False) for p, t in changed.items()]
         result = self._pipeline(f"{label}-files", validate).run(changes)
         if not result.ok:

@@ -20,6 +20,7 @@ from pathlib import Path
 from pelagos.connectors.bind import zonefile
 from pelagos.connectors.bind.rrset import RRsetChange
 from pelagos.connectors.bind.zonefile import RecordEdit, ZoneFiles
+from pelagos.core.writable import SANDBOX_HINT, read_only_mount
 from pelagos.domain.dns import Zone, ZoneKind, normalize_name
 from pelagos.domain.plan import ValidationResult
 
@@ -92,7 +93,8 @@ def _owner(st: os.stat_result) -> str:
 
 
 def write_problem(paths: list[Path]) -> str | None:
-    """Why this process cannot replace the files atomically (file and directory need write access)."""
+    """Why this process cannot replace the files atomically (file and directory need write access).
+    A read-only mount is the service sandbox, which no file permission can lift."""
     who = _who()
     for path in paths:
         for target, what in ((path, "file"), (path.parent, "directory")):
@@ -100,6 +102,8 @@ def write_problem(paths: list[Path]) -> str | None:
                 st = target.stat()
             except OSError as exc:
                 return f"{what} {target} is not accessible: {exc.strerror or exc}"
+            if read_only_mount(target):
+                return f"the zone {what} {target} is on a read-only mount for {who}: {SANDBOX_HINT}"
             mode = os.W_OK | (os.X_OK if what == "directory" else 0)
             if not os.access(target, mode):
                 return (

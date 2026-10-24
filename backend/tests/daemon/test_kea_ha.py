@@ -92,4 +92,5 @@ def test_ha_state_and_maintenance(ha_pair, tmp_root):
     wait_for(
         lambda: local_state(primary) == local_state(standby) == "hot-standby",
         timeout=30,
-   
+        what="back to normal",
+    )

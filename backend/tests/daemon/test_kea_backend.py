@@ -116,7 +116,9 @@ def test_subnet_add_update_delete(kea4_any, tmp_root):
     assert file_subnets(daemon)[2]["valid-lifetime"] == 1800
 
     # Update: lifetime and a second pool; keys Pelagos does not model survive.
-    edited = added.replace(valid_lifetime=900, pools=[*added.pools, Pool(pool="198.51.100.50 - 198.51.100.60")])
+    edited = added.replace(
+        valid_lifetime=900, pools=[*added.pools, Pool(pool="198.51.100.50 - 198.51.100.60")]
+    )
     plan = backend.plan_subnet_change(Change(ChangeOp.REPLACE, "subnet4/2", after=edited.to_dict()))
     assert plan.state is PlanState.VALIDATED, plan.validations
     result = backend.apply(plan)
@@ -149,10 +151,16 @@ def test_subnet_update_with_reservations(kea4_any, tmp_root):
     backend = make_backend(daemon, tmp_root)
     subnet = backend.get_subnet(1)
     extra = Reservation(
-        subnet_id=1, id_type=ReservationIdType.HW_ADDRESS, identifier="aa:bb:cc:dd:ee:77", ip_address="192.0.2.77"
+        subnet_id=1,
+        id_type=ReservationIdType.HW_ADDRESS,
+        identifier="aa:bb:cc:dd:ee:77",
+        ip_address="192.0.2.77",
     )
     edited = subnet.replace(
-        options=[*subnet.options], reservations=[*subnet.reservations, extra], interface=None, valid_lifetime=7200
+        options=[*subnet.options],
+        reservations=[*subnet.reservations, extra],
+        interface=None,
+        valid_lifetime=7200,
     )
     plan = backend.plan_subnet_change(Change(ChangeOp.REPLACE, "subnet4/1", after=edited.to_dict()))
     assert plan.state is PlanState.VALIDATED, plan.validations
@@ -190,7 +198,9 @@ def test_reservation_add_delete(kea4_any, tmp_root):
     found = {r.identifier: r for r in backend.list_reservations(1)}
     assert found["aa:bb:cc:dd:ee:42"].ip_address == "192.0.2.42"
     assert found["aa:bb:cc:dd:ee:42"].user_context["pelagos"]["owner"] == "tester"
-    in_file = [r for r in file_subnets(daemon)[1]["reservations"] if r.get("hw-address") == "aa:bb:cc:dd:ee:42"]
+    in_file = [
+        r for r in file_subnets(daemon)[1]["reservations"] if r.get("hw-address") == "aa:bb:cc:dd:ee:42"
+    ]
     assert in_file and in_file[0]["hostname"] == "pc42"
 
     plan = backend.plan_reservation_change(Change(ChangeOp.DELETE, target))
@@ -220,7 +230,9 @@ def test_config_test_failure_leaves_hash_unchanged(kea4_any, tmp_root):
     backend = make_backend(daemon, tmp_root)
     before_hash = backend.config_hash()
     before_file = daemon.config_path.read_bytes()
-    broken = Subnet(id=7, subnet="203.0.113.0/24", family=Family.V4, pools=[Pool(pool="192.0.2.10 - 192.0.2.20")])
+    broken = Subnet(
+        id=7, subnet="203.0.113.0/24", family=Family.V4, pools=[Pool(pool="192.0.2.10 - 192.0.2.20")]
+    )
     plan = backend.plan_subnet_change(Change(ChangeOp.ADD, "subnet4/new", after=broken.to_dict()))
     assert plan.state is PlanState.FAILED
     assert plan.validations[0].tool == "config-test" and not plan.validations[0].ok
@@ -318,7 +330,9 @@ def test_leases_reads_and_delete(kea_dhcp4, tmp_root):
 
 def test_statistics_and_utilization(kea_dhcp4, tmp_root):
     backend = make_backend(kea_dhcp4, tmp_root)
-    kea_dhcp4.ok("lease4-add", {"ip-address": "192.0.2.150", "hw-address": "aa:bb:cc:dd:ee:02", "subnet-id": 1})
+    kea_dhcp4.ok(
+        "lease4-add", {"ip-address": "192.0.2.150", "hw-address": "aa:bb:cc:dd:ee:02", "subnet-id": 1}
+    )
     rows = backend.pool_utilization()
     row = next(r for r in rows if r["subnet_id"] == 1)
     assert row["total"] == 100 and row["assigned"] == 1 and row["percent"] == 1.0

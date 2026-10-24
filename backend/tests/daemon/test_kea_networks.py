@@ -67,7 +67,9 @@ def test_shared_network_lifecycle(kea4, tmp_root):
         ],
         user_context={"pelagos": {"notes": "floor 1"}},
     )
-    plan = backend.plan_shared_network_change(Change(ChangeOp.ADD, "shared-networks/office", after=net.to_dict()))
+    plan = backend.plan_shared_network_change(
+        Change(ChangeOp.ADD, "shared-networks/office", after=net.to_dict())
+    )
     assert plan.state is PlanState.VALIDATED, plan.validations
     result = backend.apply(plan)
     assert result.ok, result.message
@@ -129,7 +131,9 @@ def test_client_class_lifecycle(kea4, tmp_root):
     assert classes["phones"].user_context["pelagos"]["tags"] == ["voip"]
 
     edited = classes["phones"].replace(test="option[60].text == 'sip'")
-    plan = backend.plan_class_change(Change(ChangeOp.REPLACE, "client-classes/phones", after=edited.to_dict()))
+    plan = backend.plan_class_change(
+        Change(ChangeOp.REPLACE, "client-classes/phones", after=edited.to_dict())
+    )
     assert backend.apply(plan).ok
     assert backend.list_client_classes()[0].test == "option[60].text == 'sip'"
     assert backend.rollback(plan).ok
@@ -138,7 +142,9 @@ def test_client_class_lifecycle(kea4, tmp_root):
     # A pool restricted to the class (3.x client-classes list).
     subnet = backend.get_subnet(1)
     pools = [subnet.pools[0].replace(client_classes=["phones"])]
-    plan = backend.plan_subnet_change(Change(ChangeOp.REPLACE, "subnet4/1", after=subnet.replace(pools=pools).to_dict()))
+    plan = backend.plan_subnet_change(
+        Change(ChangeOp.REPLACE, "subnet4/1", after=subnet.replace(pools=pools).to_dict())
+    )
     assert backend.apply(plan).ok
     assert backend.get_subnet(1).pools[0].client_classes == ["phones"]
     assert backend.rollback(plan).ok

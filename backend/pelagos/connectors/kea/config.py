@@ -70,6 +70,20 @@ def is_v3(version: str | None) -> bool:
         return True
 
 
+def version_tuple(version: str | None) -> tuple[int, ...]:
+    """'3.2.1' -> (3, 2, 1); unknown versions sort as the newest 3.x."""
+    parts = re.findall(r"\d+", version or "")
+    return tuple(int(p) for p in parts[:3]) if parts else (3, 99, 99)
+
+
+def normalize_root(cfg: dict[str, Any], version: str | None) -> dict[str, Any]:
+    """Map root keys that a version no longer accepts; Kea 3.3.1 and later only read control-sockets."""
+    if version_tuple(version) >= (3, 3, 1) and "control-socket" in cfg and "control-sockets" not in cfg:
+        cfg = dict(cfg)
+        cfg["control-sockets"] = [cfg.pop("control-socket")]
+    return cfg
+
+
 def root_key(family: Family) -> str:
     return "Dhcp4" if family is Family.V4 else "Dhcp6"
 
@@ -604,7 +618,7 @@ def apply_change(
     if t.kind == "config":
         if not isinstance(change.after, dict):
             raise ConnectorError("config change needs the whole Dhcp4/Dhcp6 object in `after`")
-        new = copy.deepcopy(change.after)
+        new = normalize_root(copy.deepcopy(change.after), version)
         check_version_support(new, version)
         return new
     if t.kind == "subnet":
@@ -637,6 +651,7 @@ def apply_change(
         else:
             check_version_support({t.name: change.after}, version)
             out[t.name or ""] = copy.deepcopy(change.after)
+            out = normalize_root(out, version)
     else:
         raise ConnectorError(f"change {change.target} does not edit the configuration")
     return out

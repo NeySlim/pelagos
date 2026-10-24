@@ -309,6 +309,27 @@ def test_dual_key_switch(tmp_path):
     assert "bind:weak_shared_kea_key:kea-ddns" not in {f.id for f in run_audit(env)}
 
 
+def test_dual_key_removes_a_key_kept_in_a_file_named_after_it(tmp_path):
+    env = debian_tree(tmp_path)
+    etc = tmp_path / "etc/bind"
+    key = 'key "kea-ddns" {\n\talgorithm hmac-md5;\n\tsecret "bWQ1LXNlY3JldA==";\n};\n'
+    (etc / "kea-ddns.key").write_text(key)
+    (etc / "named.conf.local").write_text(
+        f'include "{etc}/kea-ddns.key";\n'
+        'zone "example.lan" {\n\ttype primary;\n\tfile "db.example.lan";\n'
+        "\tallow-update { key kea-ddns; };\n};\n"
+    )
+    _d2_with_md5(tmp_path)
+    assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    job = apply_plan(build_security_plan(env, ["bind:weak_shared_kea_key:kea-ddns"]), env)
+    assert job.state is JobState.DONE, job.error
+    assert "still referenced" not in job.steps[-1]["output"]
+    top = list(bindconf.load_files(etc / "named.conf").top_level())
+    assert "kea-ddns" not in {k.name for k in bindconf.keys(top)}
+    assert f'include "{etc}/kea-ddns.key";' in (etc / "named.conf.local").read_text()
+    assert not [f for f in run_audit(env) if f.kind.startswith("weak")]
+
+
 def test_dual_key_intermediate_state_accepts_both(tmp_path):
     """After step 1 alone (another node still on the old key), BIND grants both keys."""
     env = legacy_tree(tmp_path)

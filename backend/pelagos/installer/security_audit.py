@@ -944,6 +944,27 @@ def dual_key_switch_d2(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
     return "\n".join(out)
 
 
+def _without_includes(text: str, path: str) -> str:
+    """`text` without its include statements: a file named after a key is not a use of the key."""
+    try:
+        stmts = bindconf.parse(text, path)
+    except bindconf.ParseError:
+        return text
+    spans: list[tuple[int, int]] = []
+
+    def walk(items: list[Statement]) -> None:
+        for st in items:
+            if st.name == "include":
+                spans.append((st.start, st.end))
+            for block in st.blocks:
+                walk(block.statements)
+
+    walk(stmts)
+    for start, end in sorted(spans, reverse=True):
+        text = text[:start] + text[end:]
+    return text
+
+
 def dual_key_remove(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
     old = d["key"]
     files = _reload_files(env)
@@ -953,7 +974,7 @@ def dual_key_remove(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
         path = str(z.stmt.path)
         by_file[path] = _remove_rules_for_key(by_file.get(path, _file_text(files, path)), z, old)
     # Drop the key statement only when nothing else names it any more.
-    remaining = "\n".join(by_file.get(p, files.texts[p]) for p in files.order)
+    remaining = "\n".join(_without_includes(by_file.get(p, files.texts[p]), p) for p in files.order)
     found = _find_key(files, old)
     note = ""
     if found is not None:

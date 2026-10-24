@@ -1,0 +1,108 @@
+# SPDX-License-Identifier: Apache-2.0
+"""RFC 7807 problem documents and the error code table (section 19)."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from flask import Response, jsonify, request
+
+PROBLEM_TYPE = "urn:pelagos:error:"
+PROBLEM_MIME = "application/problem+json"
+
+STATUS_BY_CODE: dict[str, int] = {
+    "validation_error": 400,
+    "invalid_credentials": 401,
+    "totp_required": 401,
+    "unauthenticated": 401,
+    "forbidden": 403,
+    "csrf_failed": 403,
+    "not_found": 404,
+    "module_disabled": 404,
+    "method_not_allowed": 405,
+    "conflict": 409,
+    "precondition_failed": 409,
+    "plan_state": 409,
+    "plan_expired": 410,
+    "engine_validation_failed": 422,
+    "confirmation_required": 428,
+    "rate_limited": 429,
+    "internal_error": 500,
+    "not_supported": 501,
+    "not_implemented": 501,
+    "engine_unavailable": 503,
+    "replication_syncing": 503,
+}
+
+TITLES: dict[str, str] = {
+    "validation_error": "Validation error",
+    "invalid_credentials": "Invalid credentials",
+    "totp_required": "One-time code required",
+    "unauthenticated": "Authentication required",
+    "forbidden": "Forbidden",
+    "csrf_failed": "CSRF check failed",
+    "not_found": "Not found",
+    "module_disabled": "Module disabled",
+    "method_not_allowed": "Method not allowed",
+    "conflict": "Conflict",
+    "precondition_failed": "Precondition failed",
+    "plan_state": "Plan is not in the expected state",
+    "plan_expired": "Plan expired",
+    "engine_validation_failed": "Engine validation failed",
+    "confirmation_required": "Confirmation required",
+    "rate_limited": "Too many requests",
+    "internal_error": "Internal error",
+    "not_supported": "Not supported by the engine",
+    "not_implemented": "Not implemented",
+    "engine_unavailable": "Engine unavailable",
+    "replication_syncing": "Replication in progress",
+}
+
+
+class ApiError(Exception):
+    def __init__(
+        self,
+        code: str,
+        detail: str | None = None,
+        *,
+        status: int | None = None,
+        errors: list[dict[str, Any]] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        if code not in STATUS_BY_CODE:
+            raise ValueError(f"unknown error code {code}")
+        super().__init__(detail or TITLES[code])
+        self.code = code
+        self.status = status or STATUS_BY_CODE[code]
+        self.detail = detail
+        self.errors = errors or []
+        self.headers = headers or {}
+
+    def to_problem(self, instance: str | None = None) -> dict[str, Any]:
+        doc: dict[str, Any] = {
+            "type": PROBLEM_TYPE + self.code,
+            "title": TITLES[self.code],
+            "status": self.status,
+            "detail": self.detail or TITLES[self.code],
+            "instance": instance or request.path,
+            "code": self.code,
+        }
+        if self.errors:
+            doc["errors"] = self.errors
+        return doc
+
+
+def not_implemented(package: str = "") -> ApiError:
+    detail = "This endpoint is specified but not built yet"
+    if package:
+        detail += f" (owner: {package})"
+    return ApiError("not_implemented", detail)
+
+
+def problem_response(err: ApiError) -> Response:
+    resp = jsonify(err.to_problem())
+    resp.status_code = err.status
+    resp.mimetype = PROBLEM_MIME
+    for k, v in err.headers.items():
+        resp.headers[k] = v
+    return resp

@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: Apache-2.0
+[project]
+name = "pelagos"
+version = "0.1.0.dev0"
+description = "DNS and DHCP management for BIND 9 and Kea"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+authors = [{ name = "NeySlim" }]
+dependencies = [
+  "Flask>=3.1,<4",
+  "flask-restx>=1.3,<2",
+  "gunicorn>=23",
+  "gevent>=24.11",
+  "gevent-websocket>=0.10",
+  "dnspython>=2.7",
+  "cryptography>=43",
+  "argon2-cffi>=23.1",
+  "pyotp>=2.9",
+  "tomli-w>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-timeout>=2.3",
+  "ruff>=0.8",
+  "requests>=2.32",
+]
+
+[project.scripts]
+pelagos = "pelagos.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pelagos"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q -p no:cacheprovider --strict-markers"
+timeout = 120
+markers = [
+  "unit: no network, no daemons",
+  "daemon: starts real named and kea processes (run on lab-dev)",
+  "lab: needs the lab VMs, skipped unless PELAGOS_LAB=1",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I", "UP", "S", "N", "RUF"]
+ignore = [
+  "S101",   # assert is fine in tests and invariants
+  "S603",   # subprocess without shell, arguments are controlled
+  "S607",   # binaries resolved through PATH on purpose
+  "B008",   # Flask-RESTX patterns
+  "RUF012", # mutable class attributes in RESTX models
+  "N818",   # exception names without Error suffix in the ConnectorError family
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106", "S108", "S311", "B011"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pelagos"]

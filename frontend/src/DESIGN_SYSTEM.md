@@ -189,6 +189,14 @@ stipple under a thin line, glowing marker on the current point),
 `PageTransition`, `StatChip`, `IconButton`, `AppBackdrop`. Tones: `primary`,
 `pro`, `success`, `warning`, `danger`, `neutral`.
 
+The shared components use them, so pages get motion without page code:
+`PageLayout` staggers its children (`display: contents` wrapper), `DetailGrid`
+staggers its fields, `DetailHeader` stats are `StatChip`s and `RichStatsBar`,
+`CompactStats` and the header stats count up numbers (`AnimatedValue`),
+`Badge`, `StatusIndicator` and the WebSocket dot draw `StatusDot`s, and the
+icon-only header actions, the mobile menu toggle and the modal close button
+are `IconButton`s. Dashboard tiles enter in reading order (`fx-stagger-item`).
+
 ## Mission Control effects layer
 
 A family declares `effects: 'mission' | 'none'`; ThemeContext writes it as
@@ -207,8 +215,10 @@ classes:
   solid `bg-secondary` when `backdrop-filter` is unsupported or
   `prefers-contrast: more`.
 - Type: Michroma (`font-display`, `--font-display`) uppercase for the brand,
-  page, card and modal titles and nav group labels; Inter with tabular numerals
-  everywhere else.
+  page, card and modal titles and nav group labels (10px minimum); Inter with
+  tabular numerals everywhere else. A title that carries an identifier (a dot,
+  colon, slash, `@` or `_`, or `literalTitle` on `PageLayout`) gets
+  `ui-title-literal` and keeps its case (`lib/displayCase.js`).
 - Controls: pill nav items and tabs (active = lighter fill), round icon
   buttons, ember primary buttons with dark text (white in light mode), ember
   focus glow on inputs, pill badges with glowing dots.
@@ -296,5 +306,8 @@ not a flat `bg-accent-primary`. Match this when rebuilding buttons elsewhere.
   every family. The UCM families and Pelagic share the UCM hues; Mission
   Control uses neon green, yellow (kept apart from the ember accent) and
   red-pink, checked for AA contrast in `ThemeContext.test.jsx`.
+- `accent-warning-fill` is the non-text warning color (bars, dots, chart tone).
+  It equals `accent-warning` except in Mission light, where the AA text token
+  is a dark olive and the fill stays a bright yellow (`#E0B000`).
 - Adding a family: one entry in `themeFamilies` with every key of an existing
   family (`id`, `name`, `description`, `accent`, `effects`, `dark`, `light`).

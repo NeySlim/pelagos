@@ -2,7 +2,7 @@
 // Small SVG data-viz primitives in the Mission style: mini histogram, stippled area
 // chart with a glowing current-point marker, segmented progress. Value changes animate
 // through transform transitions only, which the motion level can switch off.
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useElementWidth } from '../../hooks/useElementWidth'
 import { cn } from '../../lib/utils'
 import { PulsingHalo } from './Decor'
@@ -58,48 +58,82 @@ export function MiniHistogram({ data = [], tone = 'primary', height = 22, barWid
 }
 
 // points: numbers or { value, label }. The stipple is a grid of dots under the curve.
-export function StippledAreaChart({ points = [], tone = 'primary', height = 140, step = 7, current, labels, className, label }) {
+// `capacity` fixes the window: fewer points fill it from the right, like a live feed.
+// `formatValue` / `formatLabel` turn on a glass tooltip that follows the pointer.
+export function StippledAreaChart({ points = [], tone = 'primary', height = 140, step = 7, current, labels, className, label, capacity, formatValue, formatLabel }) {
   const [ref, width] = useElementWidth()
-  const values = useMemo(() => points.map((p) => (typeof p === 'object' ? Number(p?.value) || 0 : Number(p) || 0)), [points])
+  const [hover, setHover] = useState(null)
+  const values = useMemo(() => points.map((p) => (typeof p === 'object' ? Number(p?.value ?? p?.v) || 0 : Number(p) || 0)), [points])
   const geometry = useMemo(() => {
     if (values.length < 2) return null
     const pad = 6
+    const slots = Math.max(values.length, Number(capacity) || 0)
+    const offset = slots - values.length
     const max = Math.max(...values, 0) || 1
     const min = Math.min(...values, 0)
     const span = max - min || 1
     const innerH = height - pad * 2
-    const xAt = (i) => pad + (i / (values.length - 1)) * (width - pad * 2)
+    const xAt = (i) => pad + ((i + offset) / (slots - 1)) * (width - pad * 2)
     const yAt = (v) => pad + innerH - ((v - min) / span) * innerH
     const coords = values.map((v, i) => [xAt(i), yAt(v)])
     const line = coords.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join('')
+    const indexAt = (x) => ((x - pad) / (width - pad * 2)) * (slots - 1) - offset
     const curveY = (x) => {
-      const f = ((x - pad) / (width - pad * 2)) * (values.length - 1)
+      const f = indexAt(x)
       const i = Math.min(values.length - 2, Math.max(0, Math.floor(f)))
-      const tt = f - i
+      const tt = Math.min(1, Math.max(0, f - i))
       return coords[i][1] + (coords[i + 1][1] - coords[i][1]) * tt
     }
     const dots = []
+    const first = coords[0][0]
     for (let x = pad; x <= width - pad; x += step) {
+      if (x < first - 0.5) continue
       const top = curveY(x)
       for (let y = height - pad; y >= top; y -= step) dots.push(`M${x.toFixed(1)} ${y.toFixed(1)}h0`)
     }
     const idx = current === undefined ? values.length - 1 : Math.min(values.length - 1, Math.max(0, current))
-    return { line, dots: dots.join(''), marker: coords[idx] }
-  }, [values, width, height, step, current])
+    return { line, dots: dots.join(''), marker: coords[idx], coords, indexAt }
+  }, [values, width, height, step, current, capacity])
 
   const color = toneColor(tone)
+  const tooltip = Boolean(formatValue || formatLabel)
+  const onMove = (e) => {
+    if (!geometry) return
+    const x = e.clientX - e.currentTarget.getBoundingClientRect().left
+    const i = Math.round(geometry.indexAt(x))
+    setHover(i >= 0 && i < values.length ? i : null)
+  }
+  const hovered = tooltip && hover !== null && geometry ? geometry.coords[hover] : null
   return (
-    <div ref={ref} className={cn('fx-stipple relative w-full', className)} style={{ height }} data-testid="stippled-area-chart">
+    <div
+      ref={ref}
+      className={cn('fx-stipple relative w-full', className)}
+      style={{ height }}
+      data-testid="stippled-area-chart"
+      onPointerMove={tooltip ? onMove : undefined}
+      onPointerLeave={tooltip ? () => setHover(null) : undefined}
+    >
       {geometry && (
         <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : 'true'} className="fx-enter-fade block max-w-full">
           <path d={geometry.dots} stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.7" />
           <path d={geometry.line} stroke={color} strokeWidth="1.2" fill="none" strokeLinejoin="round" />
+          {hovered && <line x1={hovered[0]} x2={hovered[0]} y1={0} y2={height} stroke={color} strokeWidth="1" strokeDasharray="2 3" opacity="0.8" />}
         </svg>
       )}
       {geometry && (
         <span className="absolute pointer-events-none" style={{ left: geometry.marker[0], top: geometry.marker[1], transform: 'translate(-50%, -50%)' }}>
           <PulsingHalo tone={tone} size={22} rings={1} flat={false} />
         </span>
+      )}
+      {hovered && (
+        <div
+          className="fx-chart-tooltip absolute pointer-events-none"
+          style={{ left: hovered[0], top: hovered[1], transform: `translate(${hovered[0] > width / 2 ? 'calc(-100% - 10px)' : '10px'}, -50%)` }}
+          data-testid="chart-tooltip"
+        >
+          {formatLabel && <div className="fx-chart-tooltip-label">{formatLabel(points[hover], hover)}</div>}
+          <div className="fx-chart-tooltip-value">{formatValue ? formatValue(values[hover], points[hover]) : values[hover]}</div>
+        </div>
       )}
       {labels?.length > 0 && (
         <div className="absolute left-0 right-0 bottom-0 translate-y-full flex justify-between pt-1 text-3xs text-text-tertiary">
@@ -110,10 +144,12 @@ export function StippledAreaChart({ points = [], tone = 'primary', height = 140,
   )
 }
 
-// segments: [{ key, state: 'done' | 'current' | 'next', weight }] laid out left to right.
-export function SegmentedProgress({ segments = [], height = 3, className, label }) {
+// segments: [{ key, state: 'done' | 'current' | 'next' | 'warning' | 'danger', weight }]
+// laid out left to right. `value` (0 to 100) reports a percentage instead of done segments.
+export function SegmentedProgress({ segments = [], height = 3, className, label, value }) {
   const total = segments.reduce((n, s) => n + (Number(s.weight) || 1), 0) || 1
   const done = segments.filter((s) => s.state === 'done').length
+  const percent = value !== undefined && value !== null
   return (
     <div
       className={cn('fx-segments flex w-full gap-1', className)}
@@ -121,8 +157,8 @@ export function SegmentedProgress({ segments = [], height = 3, className, label 
       role="progressbar"
       aria-label={label}
       aria-valuemin={0}
-      aria-valuemax={segments.length}
-      aria-valuenow={done}
+      aria-valuemax={percent ? 100 : segments.length}
+      aria-valuenow={percent ? Math.round(value) : done}
       data-testid="segmented-progress"
     >
       {segments.map((s, i) => (

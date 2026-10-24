@@ -2,7 +2,7 @@
 // Motion primitives: counters land on the value (immediately below full level), charts
 // render their data, and decorative pieces stay out of the accessibility tree.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MotionProvider } from '../../contexts/MotionContext'
 import { CountUp, MiniHistogram, SegmentedProgress, StatusDot, StippledAreaChart, Stagger, RadarRing, StatChip, IconButton, AppBackdrop } from '.'
 
@@ -48,6 +48,27 @@ describe('charts', () => {
     expect(screen.getByRole('img', { name: 'rate' })).toBeInTheDocument()
     expect(container.querySelectorAll('path')).toHaveLength(2)
     expect(container.querySelector('.fx-halo')).toBeInTheDocument()
+  })
+
+  it('fills a fixed window from the right and shows a glass tooltip on hover', () => {
+    const { container } = render(<StippledAreaChart points={[2, 4]} capacity={11} height={40} formatValue={(v) => `${v}/s`} formatLabel={(_, i) => `#${i}`} />)
+    const line = container.querySelectorAll('path')[1].getAttribute('d')
+    // 300 px fallback width, pad 6: the two points take the last two of eleven slots.
+    expect(line.startsWith('M265.2 ')).toBe(true)
+    const chart = screen.getByTestId('stippled-area-chart')
+    chart.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 40 })
+    fireEvent.pointerMove(chart, { clientX: 290 })
+    expect(screen.getByTestId('chart-tooltip')).toHaveTextContent('#14/s')
+    fireEvent.pointerLeave(chart)
+    expect(screen.queryByTestId('chart-tooltip')).toBeNull()
+  })
+
+  it('reports a percentage when segmented progress gets a value', () => {
+    render(<SegmentedProgress label="pool" value={42.4} segments={[{ state: 'done' }, { state: 'warning' }]} />)
+    const bar = screen.getByRole('progressbar', { name: 'pool' })
+    expect(bar).toHaveAttribute('aria-valuenow', '42')
+    expect(bar).toHaveAttribute('aria-valuemax', '100')
+    expect(bar.querySelector('.fx-segment-warning')).not.toBeNull()
   })
 
   it('needs two points to draw', () => {

@@ -152,6 +152,24 @@ html[data-motion='off'] .fx-halo-ring { opacity: 0.45; transform: scale(0.75); }
 .fx-segment-done { background: var(--accent-success); box-shadow: 0 0 6px color-mix(in srgb, var(--accent-success) 50%, transparent); }
 .fx-segment-current { background: var(--accent-primary); box-shadow: 0 0 6px color-mix(in srgb, var(--accent-primary) 55%, transparent); }
 .fx-segment-next { background: color-mix(in srgb, var(--text-tertiary) 35%, transparent); }
+.fx-segment-warning { background: var(--accent-warning-fill, var(--accent-warning)); box-shadow: 0 0 6px color-mix(in srgb, var(--accent-warning-fill, var(--accent-warning)) 50%, transparent); }
+.fx-segment-danger { background: var(--accent-danger); box-shadow: 0 0 6px color-mix(in srgb, var(--accent-danger) 55%, transparent); }
+
+/* Chart tooltip: a small glass card next to the hovered point. */
+.fx-chart-tooltip {
+  z-index: 5;
+  padding: 5px 9px;
+  border-radius: 10px;
+  white-space: nowrap;
+  background: var(--glass-bg, var(--bg-secondary));
+  border: 1px solid var(--glass-border, var(--border));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 12px));
+  backdrop-filter: blur(var(--glass-blur, 12px));
+  box-shadow: var(--shadow-lg);
+}
+.fx-chart-tooltip-label { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary); }
+.fx-chart-tooltip-value { font-size: 13px; font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+:root[data-effects='mission'] .fx-chart-tooltip { background: var(--m-glass-strong); border-color: var(--m-hairline-strong); }
 
 /* ---- Entry animations ---- */
 .fx-enter-fade { animation: fx-fade 0.5s var(--ease-out, ease-out) backwards; }

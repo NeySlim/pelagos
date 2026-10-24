@@ -12,18 +12,23 @@ import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { useEngineNodes } from './useEngineNodes'
 import { unifiedDiff } from './lineDiff'
+import { findPreviousBackup } from './history'
 
 const ENGINES = ['bind', 'kea4', 'kea6', 'd2']
 
-function BackupDetail({ item, previous }) {
+function BackupDetail({ item }) {
   const { t } = useTranslation('advanced')
   const { data, error, loading } = useApi(() => api.advanced.historyEntry(item.id), [item.id])
-  const prevQ = useApi(() => (previous ? api.advanced.historyEntry(previous.id) : Promise.resolve(null)), [previous?.id])
+  const prevQ = useApi(async () => {
+    const previous = await findPreviousBackup(item, (q) => api.advanced.history(q))
+    return previous ? { previous, entry: await api.advanced.historyEntry(previous.id) } : null
+  }, [item.id])
+  const previous = prevQ.data?.previous
   const [file, setFile] = useState(null)
   const paths = Object.keys(data?.files || {})
   const current = file && paths.includes(file) ? file : paths[0]
   const content = current ? data.files[current] : ''
-  const prevContent = current ? prevQ.data?.files?.[current] : undefined
+  const prevContent = current ? prevQ.data?.entry?.files?.[current] : undefined
   const diff = useMemo(() => (prevContent !== undefined ? unifiedDiff(prevContent, content, current) : null), [prevContent, content, current])
 
   if (loading) return <div className="flex justify-center py-8"><LoadingSpinner size="md" /></div>
@@ -75,10 +80,6 @@ export default function HistoryPage() {
   const list = usePaginatedApi((q) => api.advanced.history(q), { perPage: 25, filters: { engine: engine || undefined, node_id: nodeId || undefined } })
 
   const open = list.items.find((i) => i.id === openId)
-  // The previous backup of the same engine, node and first file, for a diff.
-  const previous = open
-    ? list.items.find((i) => i.ts < open.ts && i.engine === open.engine && i.node_id === open.node_id && i.files?.[0] === open.files?.[0])
-    : null
 
   const columns = [
     { key: 'ts', label: t('history.columns.ts'), render: (row) => <span className="whitespace-nowrap text-xs">{formatDate(row.ts)}</span> },
@@ -120,7 +121,7 @@ export default function HistoryPage() {
         testId="history-table"
       />
       <Modal open={Boolean(open)} onClose={() => setOpenId(null)} title={open ? t('history.title', { label: open.label }) : ''} size="lg">
-        <div className="p-4 overflow-auto">{open && <BackupDetail item={open} previous={previous} />}</div>
+        <div className="p-4 overflow-auto">{open && <BackupDetail item={open} />}</div>
       </Modal>
     </PageLayout>
   )

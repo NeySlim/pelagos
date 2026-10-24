@@ -80,21 +80,45 @@ export function textToOptions(text, family, previous = []) {
   })
 }
 
-export const NOTE_KEY = 'pelagos:note'
-export const OWNER_KEY = 'pelagos:owner'
+// Pelagos metadata lives under user-context "pelagos" (architecture section 5):
+// {notes, tags, owner, updated_by, updated_at}. Flat "pelagos:note" keys are read too.
+export const META_KEY = 'pelagos'
+const LEGACY_NOTE = 'pelagos:note'
+const LEGACY_OWNER = 'pelagos:owner'
 
-// Merges the note and owner fields of a form into an existing user-context.
+const metaOf = (context) => (context && typeof context[META_KEY] === 'object' && context[META_KEY]) || {}
+export const noteOf = (context) => metaOf(context).notes || context?.[LEGACY_NOTE] || ''
+export const ownerOf = (context) => metaOf(context).owner || context?.[LEGACY_OWNER] || ''
+export const tagsOf = (context) => (Array.isArray(metaOf(context).tags) ? metaOf(context).tags : [])
+
+// Merges the note and owner fields of a form into an existing user-context; other keys stay.
 export function withNote(context, note, owner) {
   const next = { ...(context || {}) }
+  const meta = { ...metaOf(context) }
   if (note !== undefined) {
-    if (note) next[NOTE_KEY] = note
-    else delete next[NOTE_KEY]
+    if (note) meta.notes = note
+    else delete meta.notes
+    delete next[LEGACY_NOTE]
   }
   if (owner !== undefined) {
-    if (owner) next[OWNER_KEY] = owner
-    else delete next[OWNER_KEY]
+    if (owner) meta.owner = owner
+    else delete meta.owner
+    delete next[LEGACY_OWNER]
   }
+  if (Object.keys(meta).length) next[META_KEY] = meta
+  else delete next[META_KEY]
   return next
+}
+
+// Flat key/value rows for display: the "pelagos" object is spread into its fields.
+export function userContextEntries(context) {
+  const rows = []
+  for (const [key, value] of Object.entries(context || {})) {
+    if (key === META_KEY && value && typeof value === 'object' && !Array.isArray(value)) {
+      for (const [field, v] of Object.entries(value)) rows.push([`${META_KEY}.${field}`, v])
+    } else rows.push([key, value])
+  }
+  return rows
 }
 
 // Field errors of a 400 problem, keyed by the last path segment.

@@ -17,7 +17,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { api } from '../../services/api'
 import { AreaPage, OptionChips, RowActions, SectionError, TextArea, UserContextView } from './ui'
 import { usePlanFlow } from './hooks'
-import { NOTE_KEY, fieldErrors, optionsToText, splitList, textToOptions, withNote } from './lib'
+import { noteOf, fieldErrors, optionsToText, splitList, textToOptions, withNote } from './lib'
 
 export default function SharedNetworksPage({ family }) {
   const { t } = useTranslation(['dhcp', 'common'])
@@ -127,7 +127,7 @@ function NetworkForm({ family, network, existing, flow, onClose }) {
     interface: network?.interface || '',
     relay: (network?.relay || []).join(', '),
     options: optionsToText(network?.options),
-    note: network?.user_context?.[NOTE_KEY] || '',
+    note: noteOf(network?.user_context),
   })
   const [errors, setErrors] = useState({})
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value?.target ? value.target.value : value }))

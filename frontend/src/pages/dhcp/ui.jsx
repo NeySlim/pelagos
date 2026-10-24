@@ -7,7 +7,9 @@ import { Button } from '../../components/Button'
 import { PageLayout } from '../../components/PageLayout'
 import { errorMessage } from '../../services/apiClient'
 import { cn } from '../../lib/utils'
-import { NOTE_KEY, OWNER_KEY } from './lib'
+import { userContextEntries } from './lib'
+
+const KNOWN_LABELS = { 'pelagos.notes': 'userContext.note', 'pelagos:note': 'userContext.note', 'pelagos.owner': 'userContext.owner', 'pelagos:owner': 'userContext.owner' }
 
 export function OptionChips({ options = [], empty = '-', className }) {
   if (!options.length) return <span className="text-text-tertiary">{empty}</span>
@@ -40,14 +42,14 @@ export function ClassChips({ classes = [] }) {
 // user-context comes from Kea and is untrusted: rendered as text, never as markup.
 export function UserContextView({ context }) {
   const { t } = useTranslation('dhcp')
-  const entries = Object.entries(context || {})
+  const entries = userContextEntries(context)
   if (!entries.length) return <span className="text-xs text-text-tertiary">{t('userContext.empty')}</span>
   return (
     <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs" data-testid="user-context">
       {entries.map(([key, value]) => (
         <div key={key} className="contents">
           <dt className="text-text-tertiary font-mono">
-            {key === NOTE_KEY ? t('userContext.note') : key === OWNER_KEY ? t('userContext.owner') : key}
+            {KNOWN_LABELS[key] ? t(KNOWN_LABELS[key]) : key}
           </dt>
           <dd className="text-text-primary break-all">{typeof value === 'string' ? value : JSON.stringify(value)}</dd>
         </div>

@@ -8,7 +8,7 @@ import { Input } from '../../components/Input'
 import { api } from '../../services/api'
 import { NativeSelect, TextArea } from './ui'
 import {
-  NOTE_KEY, fieldErrors, isPool, isPrefix, optionsToText, splitLines, splitList, subnetKey, textToOptions, withNote,
+  noteOf, fieldErrors, isPool, isPrefix, optionsToText, splitLines, splitList, subnetKey, textToOptions, withNote,
 } from './lib'
 
 function pdPoolsToText(pdPools = []) {
@@ -47,7 +47,7 @@ export function SubnetForm({ family, subnet, existing, sharedNetworks, onClose, 
     interface: subnet?.interface || '',
     relay: (subnet?.relay || []).join(', '),
     client_classes: (subnet?.client_classes || []).join(', '),
-    note: subnet?.user_context?.[NOTE_KEY] || '',
+    note: noteOf(subnet?.user_context),
   }))
   const [errors, setErrors] = useState({})
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value?.target ? value.target.value : value }))

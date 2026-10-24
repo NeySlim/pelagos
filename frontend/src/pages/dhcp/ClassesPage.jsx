@@ -13,7 +13,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { api } from '../../services/api'
 import { AreaPage, Checkbox, OptionChips, RowActions, TextArea } from './ui'
 import { usePlanFlow } from './hooks'
-import { NOTE_KEY, fieldErrors, optionsToText, textToOptions, withNote } from './lib'
+import { noteOf, fieldErrors, optionsToText, textToOptions, withNote } from './lib'
 
 export default function ClassesPage({ family }) {
   const { t } = useTranslation(['dhcp', 'common'])
@@ -39,7 +39,7 @@ export default function ClassesPage({ family }) {
     ...(family === 'v4'
       ? [{ key: 'boot', label: t('fields.boot'), mono: true, render: (c) => [c.next_server, c.boot_file_name].filter(Boolean).join(' / ') }]
       : []),
-    { key: 'note', label: t('fields.note'), truncate: true, render: (c) => c.user_context?.[NOTE_KEY] || '' },
+    { key: 'note', label: t('fields.note'), truncate: true, render: (c) => noteOf(c.user_context) },
     ...(canWrite
       ? [{
           key: 'actions',
@@ -98,7 +98,7 @@ function ClassForm({ family, cls, existing, flow, onClose }) {
     next_server: cls?.next_server || '',
     server_hostname: cls?.server_hostname || '',
     boot_file_name: cls?.boot_file_name || '',
-    note: cls?.user_context?.[NOTE_KEY] || '',
+    note: noteOf(cls?.user_context),
   })
   const [errors, setErrors] = useState({})
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value?.target ? value.target.value : value }))

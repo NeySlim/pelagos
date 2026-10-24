@@ -15,7 +15,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { api } from '../../services/api'
 import { AreaPage, ClassChips, OptionChips, RowActions, SectionError, UserContextView } from './ui'
 import { usePlanFlow } from './hooks'
-import { NOTE_KEY, formatDuration, subnetKey } from './lib'
+import { noteOf, formatDuration, subnetKey } from './lib'
 import { SubnetForm } from './SubnetForm'
 
 function ipSortValue(subnet) {
@@ -95,7 +95,7 @@ export default function SubnetsPage({ family }) {
       label: t('fields.link'),
       render: (s) => <span className="font-mono text-xs">{s.interface || (s.relay?.length ? t('subnets.relay', { list: s.relay.join(', ') }) : '-')}</span>,
     },
-    { key: 'note', label: t('fields.note'), truncate: true, render: (s) => s.user_context?.[NOTE_KEY] || '' },
+    { key: 'note', label: t('fields.note'), truncate: true, render: (s) => noteOf(s.user_context) },
     ...(canWrite
       ? [
           {

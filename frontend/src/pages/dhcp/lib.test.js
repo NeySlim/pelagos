@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { parseDdnsValue } from './lib'
+import { parseDdnsValue, noteOf, ownerOf, withNote, userContextEntries } from './lib'
 
 describe('parseDdnsValue', () => {
   it('refuses an empty value but accepts an explicit empty string', () => {
@@ -22,5 +22,24 @@ describe('parseDdnsValue', () => {
 
   it('passes unknown parameters through parseScalar', () => {
     expect(parseDdnsValue('ddns-custom', '{"a":1}')).toEqual({ value: { a: 1 } })
+  })
+})
+
+describe('user-context metadata', () => {
+  it('reads notes and owner under "pelagos", and the flat legacy keys', () => {
+    expect(noteOf({ pelagos: { notes: 'Desk 7', owner: 'it' } })).toBe('Desk 7')
+    expect(ownerOf({ pelagos: { notes: 'Desk 7', owner: 'it' } })).toBe('it')
+    expect(noteOf({ 'pelagos:note': 'old' })).toBe('old')
+    expect(noteOf(undefined)).toBe('')
+  })
+
+  it('writes under "pelagos" and keeps foreign keys', () => {
+    const ctx = withNote({ site: 'office', 'pelagos:note': 'old', pelagos: { tags: ['lab'] } }, 'new', 'it')
+    expect(ctx).toEqual({ site: 'office', pelagos: { tags: ['lab'], notes: 'new', owner: 'it' } })
+    expect(withNote({ pelagos: { notes: 'x' } }, '')).toEqual({})
+  })
+
+  it('lists the metadata fields for display', () => {
+    expect(userContextEntries({ site: 'a', pelagos: { notes: 'n' } })).toEqual([['site', 'a'], ['pelagos.notes', 'n']])
   })
 })

@@ -43,7 +43,7 @@ function reservation(overrides = {}) {
   return {
     subnet_id: 1, id_type: 'hw-address', identifier: MAC, ip_address: '192.0.2.106', ip_addresses: [], prefixes: [],
     hostname: 'pc7.example.lan', client_classes: ['voip'], options: [], next_server: null, server_hostname: null,
-    boot_file_name: null, user_context: { 'pelagos:note': 'Desk 7', 'pelagos:owner': 'it' }, raw: {}, ...overrides,
+    boot_file_name: null, user_context: { pelagos: { notes: 'Desk 7', owner: 'it' } }, raw: {}, ...overrides,
   }
 }
 
@@ -243,6 +243,20 @@ describe('host helpers', () => {
     expect(facts).toMatchObject({ hasLease: true, hasReservation: true, hasForward: true, hasPtr: true, ptrMismatch: true, reservationMismatch: false, inconsistent: true })
     expect(hostFacts(host({ reservation: reservation({ ip_address: '192.0.2.99' }) })).reservationMismatch).toBe(true)
     expect(hostFacts({ ...host(), records: [], alerts: [] })).toMatchObject({ hasForward: false, ptrMismatch: false, inconsistent: false })
+  })
+
+  it('derives the join facts of an IPv6 host', () => {
+    const v6 = host({
+      ips: ['2001:db8::1000'],
+      lease: lease({ ip_address: '2001:db8::1000', family: 'v6', lease_type: 'IA_NA', duid: '00:03:00:01:02:00:5e:00:00:07' }),
+      reservation: reservation({ ip_address: null, ip_addresses: ['2001:db8::1000'] }),
+      records: [{ name: 'pc7.example.lan.', rtype: 'AAAA', ttl: 1200, rdata: ['2001:db8::1000'] }],
+    })
+    expect(hostFacts(v6)).toMatchObject({ hasForward: true, forwardTypes: ['AAAA'], reservationMismatch: false })
+    const moved = { ...v6, reservation: reservation({ ip_address: null, ip_addresses: ['2001:db8::99'] }) }
+    expect(hostFacts(moved).reservationMismatch).toBe(true)
+    // A v4 reservation says nothing about a v6 lease.
+    expect(hostFacts({ ...v6, reservation: reservation() }).reservationMismatch).toBe(false)
   })
 
   it('finds the subnet and the reverse zone of an address', () => {

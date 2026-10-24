@@ -16,7 +16,7 @@ import { api } from '../../services/api'
 import { AreaPage, ClassChips, NativeSelect, RowActions, TextArea } from './ui'
 import { usePlanFlow } from './hooks'
 import {
-  NOTE_KEY, OWNER_KEY, fieldErrors, isIP, isMac, isPrefix, reservationTarget, splitList, withNote,
+  noteOf, ownerOf, fieldErrors, isIP, isMac, isPrefix, reservationTarget, splitList, withNote,
 } from './lib'
 
 const ID_TYPES = ['hw-address', 'duid', 'client-id', 'circuit-id', 'flex-id']
@@ -71,8 +71,8 @@ export default function ReservationsPage({ family }) {
     { key: 'hostname', label: t('fields.hostname'), className: 'break-all' },
     { key: 'subnet_id', label: t('fields.subnetId'), mono: true, width: 70, render: (r) => r.subnet_id ?? t('reservations.global') },
     { key: 'client_classes', label: t('fields.clientClasses'), render: (r) => <ClassChips classes={r.client_classes} /> },
-    { key: 'owner', label: t('userContext.owner'), render: (r) => r.user_context?.[OWNER_KEY] || '' },
-    { key: 'note', label: t('fields.note'), truncate: true, render: (r) => r.user_context?.[NOTE_KEY] || '' },
+    { key: 'owner', label: t('userContext.owner'), render: (r) => ownerOf(r.user_context) },
+    { key: 'note', label: t('fields.note'), truncate: true, render: (r) => noteOf(r.user_context) },
     ...(canWrite
       ? [{
           key: 'actions',
@@ -149,8 +149,8 @@ export function ReservationForm({ family, reservation, prefill = {}, subnets, cl
     client_classes: (r.client_classes || []).join(', '),
     next_server: r.next_server || '',
     boot_file_name: r.boot_file_name || '',
-    note: r.user_context?.[NOTE_KEY] || '',
-    owner: r.user_context?.[OWNER_KEY] || '',
+    note: noteOf(r.user_context),
+    owner: ownerOf(r.user_context),
   })
   const [errors, setErrors] = useState({})
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value?.target ? value.target.value : value }))

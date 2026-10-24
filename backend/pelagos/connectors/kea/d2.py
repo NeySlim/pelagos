@@ -19,6 +19,7 @@ from typing import Any
 from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBackend, PreconditionFailed
 from pelagos.connectors.kea.commands import normalize_version
 from pelagos.connectors.kea.config import canonical, config_diff, normalize_root
+from pelagos.connectors.kea.configfile import ADOPT_FILE, ADOPT_TARGETS, KeaConfigFile
 from pelagos.connectors.kea.control_socket import KeaControlSocket
 from pelagos.connectors.kea.schema import config_schema
 from pelagos.core.write_pipeline import FileChange
@@ -121,6 +122,16 @@ class D2Backend(DdnsBackend):
         self.plan_ttl = int((ctx.settings or {}).get("plan_ttl_seconds", 600))
         # Per plan id, never serialized; dropped once the plan can no longer be applied or rolled back.
         self._private: dict[str, _PlanPrivate] = {}
+        self.file = KeaConfigFile(
+            self.conf_path,
+            ROOT,
+            "d2",
+            lambda: self.socket,
+            ctx.pipeline_factory,
+            self.backup_root,
+            ctx.node_id,
+            cwd=Path(cfg.get("kea_cwd", "/")),
+        )
 
     # Observation ----------------------------------------------------------------------
 
@@ -172,6 +183,7 @@ class D2Backend(DdnsBackend):
         if ROOT in config and len(config) <= 2:
             config = config[ROOT]
         before = self.config_get()
+        self.file.guard(before)
         current_hash = self.config_hash()
         config = normalize_root(config, normalize_version(self.socket.version()))
         new_cfg, secrets = externalize_secrets(config, self.secret_dir)
@@ -276,11 +288,17 @@ class D2Backend(DdnsBackend):
                 return change
         raise ConnectorError("plan has no config change")
 
-    def _pipeline(self, new_cfg: dict[str, Any], before_hash: str, label: str) -> Any:
+    def _pipeline(
+        self,
+        new_cfg: dict[str, Any],
+        before_hash: str,
+        label: str,
+        doc: Any = None,
+        before_body: dict[str, Any] | None = None,
+    ) -> Any:
         def reload() -> str:
             self.socket.call("config-set", {ROOT: new_cfg})
-            written = self.socket.call("config-write")
-            return f"config-set, config-write {written.get('filename', '')}"
+            return f"config-set, {self.file.persist(doc, before_body or {}, label)}"
 
         def verify() -> bool:
             return self.config_hash() != before_hash or canonical(self.config_get()) == canonical(new_cfg)
@@ -300,6 +318,9 @@ class D2Backend(DdnsBackend):
                 if observed != p.value:
                     raise PreconditionFailed(p, observed)
         self._sweep()
+        adopt = next((c for c in plan.changes if c.target in ADOPT_TARGETS), None)
+        if adopt is not None:
+            return self._apply_adopt(plan, adopt)
         change = self._config_change(plan)
         private = self._private.get(plan.id)
         secrets = private.secrets if private else {}
@@ -311,6 +332,9 @@ class D2Backend(DdnsBackend):
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
         self._sweep()
+        adopt = next((c for c in plan.changes if c.target in ADOPT_TARGETS), None)
+        if adopt is not None:
+            return self._rollback_adopt(plan, adopt)
         change = self._config_change(plan)
         private = self._private.pop(plan.id, None)
         before = private.before if private and private.before is not None else change.before
@@ -324,20 +348,125 @@ class D2Backend(DdnsBackend):
         backup = private.backup if private else None
         if backup is not None and result.ok:
             # Secret files written by the plan go back to what they were (or disappear).
-            self._pipeline(dict(before), "", f"{plan.id}-restore").restore(backup)
+            self._pipeline(dict(before), "", f"{plan.id}-restore").restore(backup, reload=False)
         return result
+
+    # Adopt (section 9) ---------------------------------------------------------------------------
+
+    def plan_adopt(self, source: str, created_by: str = "") -> Plan:
+        """adopt "file": config-test and config-set of what the file says; adopt "running": the file
+        is rewritten to say what kea-dhcp-ddns runs (patched losslessly, else config-write)."""
+        self._sweep()
+        running = self.config_get()
+        current_hash = self.config_hash()
+        change, diff, differences = self.file.plan_adopt(source, running)
+        doc = self.file.document()
+        if source == "file":
+            body = (doc.value if doc else {}).get(ROOT)
+            validation = (
+                self.config_test(body)
+                if isinstance(body, dict)
+                else ValidationResult(
+                    ok=False, tool="read", output=f"no {ROOT} object", node_id=self.ctx.node_id
+                )
+            )
+        else:
+            validation = ValidationResult(
+                ok=True, tool="lossless-editor", output=change.after["mode"], node_id=self.ctx.node_id
+            )
+        summary = (
+            f"kea-dhcp-ddns: adopt {self.conf_path} as the running configuration"
+            if source == "file"
+            else f"kea-dhcp-ddns: write the running configuration to {self.conf_path}"
+        )
+        if not differences:
+            summary += " (no difference found)"
+        plan = Plan(
+            scope=PlanScope.D2_CONFIG,
+            node_id=self.ctx.node_id,
+            summary=summary,
+            created_by=created_by,
+            engine=Engine.D2,
+            changes=[change],
+            diff=diff,
+            preconditions=[
+                Precondition(PreconditionKind.CONFIG_HASH, "d2:config", current_hash, self.ctx.node_id),
+                *self.file.preconditions(doc),
+            ],
+            validations=[validation],
+            target_node_ids=[self.ctx.node_id],
+            requires_confirmation=True,
+            state=PlanState.VALIDATED if validation.ok else PlanState.FAILED,
+            expires_at=utcnow() + timedelta(seconds=self.plan_ttl),
+            error=None if validation.ok else validation.output,
+        )
+        # The running configuration holds clear TSIG secrets: it stays out of the plan.
+        self._private[plan.id] = _PlanPrivate(
+            expires_at=plan.expires_at or utcnow() + timedelta(seconds=self.plan_ttl),
+            secrets={},
+            before=running,
+        )
+        return plan
+
+    def _apply_adopt(self, plan: Plan, change: Change) -> NodeApplyResult:
+        try:
+            message, backup = self.file.apply_adopt(change, plan.id, self.config_test)
+        except ConnectorError as exc:
+            return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=str(exc))
+        private = self._private.setdefault(
+            plan.id, _PlanPrivate(expires_at=utcnow() + timedelta(seconds=self.plan_ttl), secrets={})
+        )
+        private.backup = backup
+        private.expires_at = utcnow() + timedelta(seconds=self.plan_ttl)
+        return NodeApplyResult(node_id=self.ctx.node_id, ok=True, message=message)
+
+    def _rollback_adopt(self, plan: Plan, change: Change) -> NodeApplyResult:
+        private = self._private.pop(plan.id, None)
+        if change.target == ADOPT_FILE:
+            if private is None or private.before is None:
+                return NodeApplyResult(
+                    node_id=self.ctx.node_id,
+                    ok=False,
+                    message="the configuration this plan replaced is no longer held",
+                )
+            try:
+                self.socket.call("config-set", {ROOT: private.before})
+            except ConnectorError as exc:
+                return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=str(exc))
+            return NodeApplyResult(
+                node_id=self.ctx.node_id,
+                ok=True,
+                message="previous running configuration set back",
+                rolled_back=True,
+            )
+        if private is None or private.backup is None:
+            return NodeApplyResult(
+                node_id=self.ctx.node_id,
+                ok=False,
+                message=f"no backup recorded for this plan; restore {self.conf_path} from {self.backup_root}",
+            )
+        ok = self.file.restore(private.backup)
+        return NodeApplyResult(
+            node_id=self.ctx.node_id,
+            ok=ok,
+            message=f"files restored from {private.backup}" if ok else f"restoring {private.backup} failed",
+            rolled_back=ok,
+        )
 
     def _write(self, new_cfg: dict[str, Any], label: str, secrets: dict[Path, str]) -> NodeApplyResult:
         before_hash = self.config_hash()
+        before_body = self.config_get()
+        try:
+            doc = self.file.guard(before_body)
+        except ConnectorError as exc:
+            return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=str(exc))
         files = [
             FileChange(path=path, content=secret.encode(), mode=0o640, group=self.secret_group)
             for path, secret in secrets.items()
         ]
-        pipeline = self._pipeline(new_cfg, before_hash, label)
-        # The configuration file itself is written by Kea (config-write); back it up alongside.
-        targets = [*secrets]
-        if self.conf_path.exists():
-            targets.append(self.conf_path)
+        pipeline = self._pipeline(new_cfg, before_hash, label, doc, before_body)
+        # The configuration files are written by Kea (config-write) or patched: back them up alongside.
+        targets = [*secrets, *self.file.files(doc)]
         # Own label: pipeline.run() makes its backup right after, possibly within the same millisecond.
         snapshot = self._pipeline(new_cfg, before_hash, f"{label}-before")
         try:
@@ -361,8 +490,8 @@ class D2Backend(DdnsBackend):
                         node_id=self.ctx.node_id, ok=False, message=f"config-test: {validation.output}"
                     )
                 self.socket.call("config-set", {ROOT: new_cfg})
-                self.socket.call("config-write")
-                ok, rolled_back, error, steps = True, False, None, "config-test, config-set, config-write"
+                written = self.file.persist(doc, before_body, label)
+                ok, rolled_back, error, steps = True, False, None, f"config-test, config-set, {written}"
         except ConnectorError as exc:
             # config-set refused or config-write failed after it: put the running config back.
             rolled_back = self._restore_running(before_hash)

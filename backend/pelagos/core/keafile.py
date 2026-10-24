@@ -8,6 +8,7 @@ Shared by the installer, the collector and the Kea connectors; the lossless text
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 from collections.abc import Iterator
@@ -141,10 +142,24 @@ def _kea_scalar(key: str, value: Any) -> Any:
     if not isinstance(value, str):
         return value
     if key == "pool":
-        return _RANGE.sub("-", value.strip())
+        return _pool_range(value) or _RANGE.sub("-", value.strip())
     if key in KEA_LOWERCASE:
         return value.strip().lower()
     return value
+
+
+def _pool_range(value: str) -> tuple[int, int, int] | None:
+    """(version, first, last) of "a - b" or "prefix/len": Kea prints an aligned range as a prefix."""
+    text = value.strip()
+    try:
+        if "/" in text:
+            net = ipaddress.ip_network(text, strict=False)
+            return net.version, int(net.network_address), int(net.broadcast_address)
+        first, _, last = _RANGE.sub("-", text).partition("-")
+        a, b = ipaddress.ip_address(first), ipaddress.ip_address(last)
+        return a.version, int(a), int(b)
+    except ValueError:
+        return None
 
 
 def is_sensitive_kea_key(key: str) -> bool:

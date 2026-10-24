@@ -244,7 +244,8 @@ def test_failure_mid_way_restores_running_config(kea3):
     assert not result.ok and result.rolled_back
     assert "database is down" in result.message and "subnet4-add" in result.message
     assert json.dumps(fake.cfg, sort_keys=True) == before
-    assert fake.commands()[-2:] == ["config-hash-get", "config-write"]
+    # The file was never written: only the running configuration goes back.
+    assert fake.commands()[-2:] == ["config-set", "config-hash-get"] and "config-write" not in fake.commands()
 
 
 def test_verification_failure_restores(kea3):
@@ -495,7 +496,7 @@ def test_subnet_reservations_stay_in_memory_with_a_hosts_database(tmp_root):
 def test_backup_failure_is_reported(kea3, tmp_root):
     backend, fake = kea3
     backend.conf_path.write_text("{}")
-    backend.backup_root = tmp_root / "not-a-dir"
+    backend.backup_root = backend.file.backup_root = tmp_root / "not-a-dir"
     backend.backup_root.write_text("")
     plan = backend.plan_global_change([Change(ChangeOp.REPLACE, "valid-lifetime", after=60)])
     result = backend.apply(plan)

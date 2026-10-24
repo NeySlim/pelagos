@@ -35,6 +35,7 @@ from pelagos.connectors.kea.commands import (
     object_commands,
     pool_utilization_from_stats,
 )
+from pelagos.connectors.kea.configfile import ADOPT_FILE, ADOPT_TARGETS, KeaConfigFile
 from pelagos.connectors.kea.control_socket import EMPTY, KeaCommandError, KeaControlSocket
 from pelagos.connectors.kea.ha import MAINTENANCE_COMMANDS, ha_state_from_status
 from pelagos.connectors.kea.schema import config_schema
@@ -119,6 +120,19 @@ class KeaBackend(DhcpBackend):
         self.backup_root = Path(ctx.backup_root) / self.engine_name
         self.plan_ttl = int((ctx.settings or {}).get("plan_ttl_seconds", 600))
         self._version: str | None = None
+        self.file = KeaConfigFile(
+            self.conf_path,
+            kcfg.root_key(family),
+            self.engine_name,
+            lambda: self.socket,
+            ctx.pipeline_factory,
+            self.backup_root,
+            ctx.node_id,
+            cwd=Path(cfg.get("kea_cwd", "/")),
+        )
+        # Per applied plan: config-hash right after apply (rollback staleness guard) and file backup.
+        self._applied: dict[str, tuple[str, Path | None]] = {}
+        self._last_backup: Path | None = None
 
     # Helpers ----------------------------------------------------------------------
 
@@ -476,6 +490,7 @@ class KeaBackend(DhcpBackend):
                 raise ConnectorError(f"{t.name} changes go through their own plans or the config replace")
         caps = self.capabilities()
         cfg = self.config_get()
+        self.file.guard(cfg)
         current_hash = self.config_hash()
         version = self.version()
         hosts_db = self._hosts_db_mode(cfg, changes, caps)
@@ -647,19 +662,58 @@ class KeaBackend(DhcpBackend):
 
     def apply(self, plan: Plan) -> NodeApplyResult:
         self._check_preconditions(plan)
-        return self._run(plan.changes, plan.id, plan.scope)
+        result = self._run(plan.changes, plan.id, plan.scope)
+        if result.ok and plan.scope not in (PlanScope.DHCP_LEASE, PlanScope.DHCP_HA):
+            self._remember(plan.id, result)
+        return result
+
+    def _remember(self, plan_id: str, result: NodeApplyResult) -> None:
+        try:
+            after = self.config_hash()
+        except ConnectorError:
+            return
+        backup = self._last_backup
+        self._applied[plan_id] = (after, backup)
+        # Bounded: only the plans still inside their rollback window matter.
+        while len(self._applied) > 256:
+            self._applied.pop(next(iter(self._applied)))
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
-        """Apply the inverse changes through the same path; a config replace restores the exact JSON."""
-        inverse = [c.inverse() for c in reversed(plan.changes)]
-        return self._run(inverse, f"{plan.id}-rollback", plan.scope)
+        """Apply the inverse changes through the same path; a config replace restores the exact JSON.
+
+        Refused when the running configuration moved since this plan was applied (another plan or a
+        hand edit), which a blind inverse would silently undo."""
+        recorded = self._applied.get(plan.id)
+        if recorded is not None and plan.scope not in (PlanScope.DHCP_LEASE, PlanScope.DHCP_HA):
+            observed = self.config_hash()
+            if observed != recorded[0]:
+                raise PreconditionFailed(
+                    Precondition(
+                        PreconditionKind.CONFIG_HASH,
+                        f"{self.engine_name}:config",
+                        recorded[0],
+                        self.ctx.node_id,
+                    ),
+                    observed,
+                )
+        if any(c.target in ADOPT_TARGETS for c in plan.changes):
+            result = self._rollback_adopt(plan, recorded[1] if recorded else None)
+        else:
+            inverse = [c.inverse() for c in reversed(plan.changes)]
+            result = self._run(inverse, f"{plan.id}-rollback", plan.scope)
+        if result.ok:
+            self._applied.pop(plan.id, None)
+        return result
 
     def _run(self, changes: list[Change], label: str, scope: PlanScope) -> NodeApplyResult:
+        self._last_backup = None
         try:
             if scope is PlanScope.DHCP_LEASE:
                 return self._run_lease(changes)
             if scope is PlanScope.DHCP_HA:
                 return self._run_ha(changes)
+            if any(c.target in ADOPT_TARGETS for c in changes):
+                return self._run_adopt(changes, label)
             return self._run_config(changes, label)
         except PreconditionFailed:
             raise
@@ -713,17 +767,6 @@ class KeaBackend(DhcpBackend):
                 raise ConnectorError(f"{change.target} is not an HA or service change")
         return NodeApplyResult(node_id=self.ctx.node_id, ok=True, message="; ".join(m for m in messages if m))
 
-    def _backup(self, label: str) -> Path | None:
-        if not self.conf_path.exists():
-            return None
-        pipeline = self.ctx.pipeline_factory(
-            self.backup_root,
-            validate=lambda: ValidationResult(ok=True, tool="none"),
-            reload=lambda: "",
-            label=label,
-        )
-        return pipeline.backup([self.conf_path])
-
     def _run_config(self, changes: list[Change], label: str) -> NodeApplyResult:
         caps = self.capabilities()
         if not caps.running:
@@ -731,15 +774,18 @@ class KeaBackend(DhcpBackend):
         version = self.version()
         before = self.config_get()
         before_hash = self.config_hash()
+        doc = self.file.guard(before)
         use_commands = command_path_available(changes, caps)
         hosts_db = self._hosts_db_mode(before, changes, caps)
         try:
-            backup_dir = self._backup(label)
+            backup_dir = self.file.backup(label, doc)
         except OSError as exc:
             return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=f"backup failed: {exc}")
+        self._last_backup = backup_dir
         steps: list[str] = []
         undo: list[Command] = []
         mutated = False
+        persisting = False
         try:
             if use_commands:
                 current = before
@@ -767,13 +813,14 @@ class KeaBackend(DhcpBackend):
             if problems:
                 raise ConnectorError("verification failed: " + "; ".join(problems))
             steps.append("verify")
-            self.socket.call("config-write")
-            steps.append("config-write")
+            persisting = True
+            steps.append(self.file.persist(doc, before, label))
         except ConnectorError as exc:
             rolled_back = False
             if mutated:
                 hosts_back = self._undo_hosts(undo)
-                rolled_back = self._restore(before, before_hash, backup_dir) and hosts_back
+                files = backup_dir if persisting else None
+                rolled_back = self._restore(before, before_hash, files) and hosts_back
             path = "commands" if use_commands else "config-set"
             return NodeApplyResult(
                 node_id=self.ctx.node_id,
@@ -797,23 +844,97 @@ class KeaBackend(DhcpBackend):
         return ok
 
     def _restore(self, before: dict[str, Any], before_hash: str, backup_dir: Path | None) -> bool:
-        """Put the running config back and keep the file consistent; True when the hash is back."""
+        """Put the running config back; the files go back to the backup when the write had started
+        (they matched `before`, which the guard checked). True when the hash is back."""
         try:
             self.socket.call("config-set", self._wrap(before))
             if self.config_hash() != before_hash:
                 return False
+        except ConnectorError:
+            return False
+        if backup_dir is not None and not self.file.restore(backup_dir):
             try:
                 self.socket.call("config-write")
             except ConnectorError:
-                if backup_dir is not None:
-                    self.ctx.pipeline_factory(
-                        self.backup_root,
-                        validate=lambda: ValidationResult(ok=True, tool="none"),
-                        reload=lambda: "",
-                    ).restore(backup_dir)
-            return True
-        except ConnectorError:
-            return False
+                return False
+        return True
+
+    # Adopt (section 9: the file and the running configuration disagree) ---------------------------
+
+    def plan_adopt(self, source: str, created_by: str = "") -> Plan:
+        """adopt "file": config-test then config-set of what the file says; adopt "running": the
+        file is rewritten (patched losslessly, or config-write) to say what the daemon runs."""
+        running = self.config_get()
+        current_hash = self.config_hash()
+        change, diff, differences = self.file.plan_adopt(source, running)
+        if source == "file":
+            change.before = {**change.before, "config": running}
+            doc = self.file.document()
+            body = (doc.value if doc else {}).get(self.root_key)
+            validation = (
+                self.config_test(body)
+                if isinstance(body, dict)
+                else ValidationResult(
+                    ok=False, tool="read", output=f"no {self.root_key} object", node_id=self.ctx.node_id
+                )
+            )
+        else:
+            validation = ValidationResult(
+                ok=True, tool="lossless-editor", output=change.after["mode"], node_id=self.ctx.node_id
+            )
+        summary = (
+            f"{self.engine_name}: adopt {self.conf_path} as the running configuration"
+            if source == "file"
+            else f"{self.engine_name}: write the running configuration to {self.conf_path}"
+        )
+        if not differences:
+            summary += " (no difference found)"
+        return self._new_plan(
+            PlanScope.DHCP_CONFIG,
+            summary,
+            [change],
+            created_by,
+            diff=diff,
+            preconditions=[
+                self._hash_precondition(current_hash),
+                *self.file.preconditions(self.file.document()),
+            ],
+            validations=[validation],
+            requires_confirmation=True,
+        )
+
+    def _run_adopt(self, changes: list[Change], label: str) -> NodeApplyResult:
+        change = next(c for c in changes if c.target in ADOPT_TARGETS)
+        message, backup = self.file.apply_adopt(change, label, self.config_test)
+        self._last_backup = backup
+        return NodeApplyResult(node_id=self.ctx.node_id, ok=True, message=message)
+
+    def _rollback_adopt(self, plan: Plan, backup: Path | None) -> NodeApplyResult:
+        change = next(c for c in plan.changes if c.target in ADOPT_TARGETS)
+        if change.target == ADOPT_FILE:
+            before = (change.before or {}).get("config")
+            if not isinstance(before, dict):
+                raise ConnectorError("this plan does not hold the configuration it replaced")
+            self.socket.call("config-set", self._wrap(before))
+            return NodeApplyResult(
+                node_id=self.ctx.node_id,
+                ok=True,
+                message="previous running configuration set back",
+                rolled_back=True,
+            )
+        if backup is None:
+            return NodeApplyResult(
+                node_id=self.ctx.node_id,
+                ok=False,
+                message=f"no backup recorded for this plan; restore {self.conf_path} from {self.backup_root}",
+            )
+        ok = self.file.restore(backup)
+        return NodeApplyResult(
+            node_id=self.ctx.node_id,
+            ok=ok,
+            message=f"files restored from {backup}" if ok else f"restoring {backup} failed",
+            rolled_back=ok,
+        )
 
     def _verify(self, changes: list[Change], cfg: dict[str, Any], hosts_db: bool = False) -> list[str]:
         """Each target must now be present (add, replace) or absent (delete) in the running config,

@@ -55,7 +55,14 @@ def _atomic_write(path: Path, content: bytes, mode: int | None, group: str | Non
     """Temp file next to the target, fsync, rename; keeps owner, group and mode unless overridden."""
     existing = path.stat() if path.exists() else None
     remove_stale_temps(path)
-    fd, tmp = tempfile.mkstemp(prefix=temp_prefix(path), dir=path.parent)
+    try:
+        fd, tmp = tempfile.mkstemp(prefix=temp_prefix(path), dir=path.parent)
+    except PermissionError:
+        # A directory we may not write (/etc/kea is root:kea 0750) still has group-writable files.
+        if existing is None or not os.access(path, os.W_OK):
+            raise
+        _write_in_place(path, content)
+        return
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(content)
@@ -92,6 +99,15 @@ def _copy_selinux_label(source: Path, target: str) -> None:
         os.setxattr(target, "security.selinux", label)
     except OSError:
         pass  # relabelling needs privileges this process may not have; restorecon fixes it
+
+
+def _write_in_place(path: Path, content: bytes) -> None:
+    """Truncate and rewrite an existing file; owner, group, mode and SELinux label stay."""
+    with path.open("r+b") as fh:
+        fh.truncate(0)
+        fh.write(content)
+        fh.flush()
+        os.fsync(fh.fileno())
 
 
 class WritePipeline:

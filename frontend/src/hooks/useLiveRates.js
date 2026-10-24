@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Polls counter endpoints while the page is visible and turns them into rate series
-// (live.js). Series live in a module store mirrored to sessionStorage, so leaving the
+// (lib/liveRates.js). Series live in a module store mirrored to sessionStorage, so leaving the
 // dashboard and coming back, or reloading the tab, keeps the recent history.
 import { useEffect, useMemo, useState } from 'react'
-import { api } from '../../services/api'
-import { LIVE_CAPACITY, LIVE_INTERVAL_MS, advance, dhcpCounters, dnsCounters, emptySource, prune, sampleTime } from './live'
+import { api } from '../services/api'
+import { LIVE_CAPACITY, LIVE_INTERVAL_MS, advance, dhcpCounters, dnsCounters, emptySource, prune, sampleTime } from '../lib/liveRates'
 
 const STORAGE_KEY = 'pelagos-live-rates'
 const MAX_AGE_MS = LIVE_CAPACITY * LIVE_INTERVAL_MS * 1.5
@@ -40,6 +40,11 @@ export function resetLiveRates() {
   }
 }
 
+export const dnsTarget = (id) => ({ key: `dns:${id}`, kind: 'dns', node: id, load: () => api.dns.stats(id), counters: dnsCounters })
+export const dhcpTarget = (family, id) => ({
+  key: `dhcp:${family}:${id}`, kind: 'dhcp', family, node: id, load: () => api.dhcp.stats(family, id), counters: (res) => dhcpCounters(res, family),
+})
+
 // Targets for the dashboard: BIND and Kea counters of every node that runs them.
 export function liveTargets(nodes, { dns = true, dhcp = true } = {}) {
   const out = []
@@ -49,11 +54,9 @@ export function liveTargets(nodes, { dns = true, dhcp = true } = {}) {
     if (!id) continue
     const m = n.peer?.modules
     const has = (engine) => !m || m[engine] !== false
-    if (dns && has('bind')) out.push({ key: `dns:${id}`, kind: 'dns', node: id, load: () => api.dns.stats(id), counters: dnsCounters })
+    if (dns && has('bind')) out.push(dnsTarget(id))
     for (const family of ['v4', 'v6']) {
-      if (dhcp && has(family === 'v4' ? 'kea4' : 'kea6')) {
-        out.push({ key: `dhcp:${family}:${id}`, kind: 'dhcp', family, node: id, load: () => api.dhcp.stats(family, id), counters: (res) => dhcpCounters(res, family) })
-      }
+      if (dhcp && has(family === 'v4' ? 'kea4' : 'kea6')) out.push(dhcpTarget(family, id))
     }
   }
   return out

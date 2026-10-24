@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { RadarTile, DnsTile, DhcpTile } from './heroTiles'
-import { summarizeLive } from './live'
+import { summarizeLive } from '../../lib/liveRates'
 
 const N1 = 'N1'
 const N2 = 'N2'

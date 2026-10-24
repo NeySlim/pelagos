@@ -23,8 +23,8 @@ import { errorMessage } from '../../services/apiClient'
 import { COLS, ROW_HEIGHT, DEFAULT_LAYOUT, normalizeLayout, serializeLayout, sameLayout } from './layout'
 import { NodesTile, HaTile, InconsistenciesTile, ZoneSyncTile, PoolsTile, D2Tile } from './tiles'
 import { RadarTile, DnsTile, DhcpTile } from './heroTiles'
-import { liveTargets, useLiveRates } from './useLiveRates'
-import { summarizeLive } from './live'
+import { liveTargets, useLiveRates } from '../../hooks/useLiveRates'
+import { summarizeLive } from '../../lib/liveRates'
 
 const TILE_COMPONENTS = {
   radar: RadarTile, dns: DnsTile, dhcp: DhcpTile,

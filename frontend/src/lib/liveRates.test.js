@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { advance, appendPoint, combine, dhcpCounters, dnsCounters, emptySource, keaCounter, latest, prune, sampleTime, share, summarizeLive } from './live'
-import { liveTargets } from './useLiveRates'
+import { advance, appendPoint, combine, dhcpCounters, dnsCounters, emptySource, keaCounter, latest, prune, sampleTime, share, summarizeLive } from './liveRates'
+import { liveTargets } from '../hooks/useLiveRates'
 
 const sample = (t, total, parts = {}) => ({ t: t * 1000, counters: { total, parts } })
 

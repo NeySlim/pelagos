@@ -9,7 +9,7 @@ import { CountUp, IconButton, MiniHistogram, SegmentedProgress, StatChip, Status
 import { cn } from '../../lib/utils'
 import { TileFrame } from './tiles'
 import { ClusterRadar } from './ClusterRadar'
-import { LIVE_CAPACITY, LIVE_INTERVAL_MS, RCODES, latest, share } from './live'
+import { LIVE_CAPACITY, LIVE_INTERVAL_MS, RCODES, latest, share } from '../../lib/liveRates'
 import { haTone, utilizationSegments } from './radarLayout'
 import { dhcpFamily, poolThresholds } from './summary'
 import { useElementSize } from '../../hooks/useElementSize'

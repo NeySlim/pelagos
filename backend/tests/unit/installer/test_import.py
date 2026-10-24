@@ -246,3 +246,23 @@ def test_import_keeps_how_named_is_reached(tmp_path, parked):
     assert {k: bind[k] for k in remote} == remote
     assert "bind" not in (engines.get("disabled") or {})
     assert bind["group"] == "bind" and bind["include_dir"] == str(tmp_path / "etc/bind/pelagos")
+
+
+def test_reimport_of_a_local_named_takes_the_new_connection(tmp_path):
+    from pelagos.core.bootstrap import bootstrap_first_node
+    from pelagos.core.config_store import ConfigStore
+
+    env = debian_tree(tmp_path)
+    local = {"rndc_address": "127.0.0.1", "statistics_url": "http://127.0.0.1:8053/json/v1"}
+    bootstrap_first_node(env.node_paths, name="ns1", admin_password="correct-horse", engines={"bind": local})
+    new = {"rndc_address": "127.0.0.1", "statistics_url": "http://127.0.0.1:8054/json/v1"}
+    line = env.update_node_engines({"bind": new})
+    assert "kept" not in line
+    bind = ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml).load_node().engines["bind"]
+    assert bind["statistics_url"] == "http://127.0.0.1:8054/json/v1"
+    remote = {"rndc_address": "192.0.2.53", "statistics_url": "http://192.0.2.53:8053/json/v1"}
+    env.update_node_engines({"bind": remote})
+    line = env.update_node_engines({"bind": new})
+    assert line.endswith("(kept: rndc_address, statistics_url)")
+    bind = ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml).load_node().engines["bind"]
+    assert bind["statistics_url"] == remote["statistics_url"]

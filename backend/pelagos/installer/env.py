@@ -29,6 +29,7 @@ from pelagos.platform import (
 
 # node.toml [engines.bind] keys that say where named listens; an import never overrides them.
 BIND_CONNECTION_KEYS = ("rndc_address", "rndc_port", "statistics_url", "query_address", "query_port")
+LOCAL_ADDRESSES = frozenset({"", "127.0.0.1", "::1", "localhost"})
 
 
 class Tools:
@@ -247,13 +248,20 @@ class InstallerEnv:
         ):
             # Importing turns BIND on: the table parked when it was turned off comes back first.
             current = disabled.pop("bind", None)
-        if isinstance(current, dict) and isinstance(engines.get("bind"), dict):
-            # How to reach named (a BIND container, set by the image entrypoint) is kept as found.
+        kept: dict[str, Any] = {}
+        if (
+            isinstance(current, dict)
+            and isinstance(engines.get("bind"), dict)
+            and str(current.get("rndc_address") or "") not in LOCAL_ADDRESSES
+        ):
+            # A remote named (a BIND container, set by the image entrypoint) is reached as found;
+            # a local one takes what this import detected (a new statistics port, say).
             kept = {k: current[k] for k in BIND_CONNECTION_KEYS if current.get(k)}
             engines = {**engines, "bind": {**engines["bind"], **kept}}
         node.engines = deep_merge(node.engines, engines)
         store.save_node(node)
-        return f"node.toml engines: {', '.join(sorted(k for k, v in node.engines.items() if v))}"
+        line = f"node.toml engines: {', '.join(sorted(k for k, v in node.engines.items() if v))}"
+        return f"{line} (kept: {', '.join(sorted(kept))})" if kept else line
 
     def relabel(self, paths: list[Path]) -> None:
         """SELinux: a file written through a temp file gets its directory's default type; restore it."""

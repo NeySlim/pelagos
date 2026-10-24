@@ -10,7 +10,7 @@ from flask_restx import Api
 from werkzeug.exceptions import HTTPException
 
 from pelagos import API_VERSION, __version__
-from pelagos.api.errors import PROBLEM_TYPE, ApiError, translate
+from pelagos.api.errors import PROBLEM_TYPE, ApiError, title_message, translate, unexpected_detail
 from pelagos.api.security import load_session
 
 API_PREFIX = f"/api/{API_VERSION}"
@@ -88,6 +88,7 @@ def register_api(app: Flask) -> Api:
             "detail": err.description,
             "instance": request.path,
             "code": code,
+            "title_message": title_message(code),
         }, err.code or 500
 
     @api.errorhandler(Exception)
@@ -95,7 +96,11 @@ def register_api(app: Flask) -> Api:
         mapped = translate(err)
         if mapped is None:
             log.exception("unhandled error on %s", request.path)
-            mapped = ApiError("internal_error", "unexpected error; see the server log")
+            mapped = ApiError(
+                "internal_error",
+                "unexpected error; see the server log",
+                extra={"detail_message": unexpected_detail()},
+            )
         return mapped.to_problem(), mapped.status, mapped.headers
 
     for module in (

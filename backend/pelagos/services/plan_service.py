@@ -478,6 +478,7 @@ class PlanService:
             request={
                 "entry": "summary",
                 "summary": plan.summary,
+                "summary_message": plan.summary_message,
                 "changes": masked([c.to_dict() for c in plan.changes]),
                 "target_node_ids": plan.target_node_ids,
             },

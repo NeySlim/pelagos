@@ -23,6 +23,7 @@ from pelagos.domain import (
     PlanState,
     Zone,
     ZoneKind,
+    messages,
     normalize_name,
 )
 from pelagos.services.errors import EngineUnavailable, NotFound, ServiceError, ValidationError, field_error
@@ -60,7 +61,7 @@ class DnsExtras:
         plan = Plan(
             scope=PlanScope.DNS_ZONE,
             node_id=self.ctx.node.id,
-            summary=f"{zone}: rndc {op} on {peer.name}",
+            **_summary(messages.msg("plan.zone.rndc_on", zone=zone, op=op, node=peer.name)),
             created_by=user,
             engine=Engine.BIND,
             changes=[Change(ChangeOp.REPLACE, ops.target(op, zone, view), after={})],
@@ -174,7 +175,16 @@ class DnsExtras:
             raise ValidationError(str(exc), [field_error("member", str(exc))]) from exc
         raw = [c.to_dict() for c in changes]
         plan = self.plan_records(catalog_zone, raw, view, created_by)
-        plan.summary = f"catalog {catalog_zone}: {op} member {normalize_name(member)}"
+        messages.set_text(
+            plan,
+            "summary",
+            messages.msg(
+                "plan.zone.catalog_member",
+                catalog=catalog_zone,
+                op=messages.op(op),
+                member=normalize_name(member),
+            ),
+        )
         return self.ctx.plan_store.update(plan)
 
     # DNSSEC -------------------------------------------------------------------------------------
@@ -229,3 +239,7 @@ class DnsExtras:
         if node_id and node_id != self.ctx.node.id:
             plan.target_node_ids = [self._target_nodes([node_id])[-1]]
         return self._store(plan)
+
+
+def _summary(message: dict[str, Any]) -> dict[str, Any]:
+    return {"summary": messages.render(message), "summary_message": message}

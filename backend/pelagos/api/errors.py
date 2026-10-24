@@ -7,6 +7,8 @@ from typing import Any
 
 from flask import Response, jsonify, request
 
+from pelagos.domain import messages
+
 PROBLEM_TYPE = "urn:pelagos:error:"
 PROBLEM_MIME = "application/problem+json"
 
@@ -61,6 +63,15 @@ TITLES: dict[str, str] = {
 }
 
 
+def title_message(code: str) -> dict[str, Any]:
+    """Translatable form of the problem title (domain.messages key problem.<code>)."""
+    return messages.msg(f"problem.{code}" if code in TITLES else "problem.internal_error")
+
+
+def unexpected_detail() -> dict[str, Any]:
+    return messages.msg("problem.detail.unexpected")
+
+
 class ApiError(Exception):
     def __init__(
         self,
@@ -91,7 +102,10 @@ class ApiError(Exception):
             "detail": self.detail or TITLES[self.code],
             "instance": instance or request.path,
             "code": self.code,
+            "title_message": title_message(self.code),
         }
+        if self.detail is None:
+            doc["detail_message"] = doc["title_message"]
         if self.errors:
             doc["errors"] = self.errors
         for key, value in self.extra.items():

@@ -35,6 +35,7 @@ from pelagos.domain import (
     Reservation,
     SharedNetwork,
     Subnet,
+    messages,
 )
 from pelagos.services import kea_files, lease_query
 from pelagos.services.dhcp_checks import check_hook_libraries, check_v6_reservation, hook_dirs
@@ -641,7 +642,11 @@ class DhcpService:
             dhcp_state = status.get("dhcp-state") if isinstance(status.get("dhcp-state"), dict) else {}
             currently = not bool(dhcp_state.get("disabled-by-user", False))
             enable = body["enable"]
-            verb = "enable" if enable else "disable"
+            summary = messages.msg(
+                "plan.kea.service_enable_on" if enable else "plan.kea.service_disable_on",
+                engine=self.engine.value,
+                node=peer.name,
+            )
             change = Change(
                 ChangeOp.REPLACE, "service", before={"enabled": currently}, after={"enable": enable}
             )
@@ -649,7 +654,8 @@ class DhcpService:
                 scope=PlanScope.DHCP_HA,
                 node_id=self.ctx.node.id,
                 engine=self.engine,
-                summary=f"{verb} DHCP service ({self.engine.value} on {peer.name})",
+                summary=messages.render(summary),
+                summary_message=summary,
                 created_by=created_by,
                 changes=[change],
                 diff=f"-enabled: {str(currently).lower()}\n+enabled: {str(enable).lower()}\n",
@@ -666,7 +672,7 @@ class DhcpService:
                 scope=PlanScope.DHCP_LEASE,
                 node_id=self.ctx.node.id,
                 engine=self.engine,
-                summary=f"delete lease {ip} on {peer.name}",
+                **_summary(messages.msg("plan.kea.lease_delete_on", ip=ip, node=peer.name)),
                 created_by=created_by,
                 changes=[Change(ChangeOp.DELETE, f"lease{n}/{ip}", before=lease)],
                 diff=f"-{ip} {who} {lease.get('hostname') or ''} subnet {lease.get('subnet_id')}\n",
@@ -745,7 +751,7 @@ class DhcpService:
             plan = self._local().plan_ha_maintenance(action, created_by)
             plan.target_node_ids = [me]
             if down is not None:
-                plan.summary = _maintenance_label(action, names[down], names[me])
+                messages.set_text(plan, "summary", _maintenance_label(action, names[down], names[me]))
             return plan
         partners = self.peers.peers_running(self.engine)
         if len(partners) != 1:
@@ -777,7 +783,7 @@ class DhcpService:
             scope=PlanScope.DHCP_HA,
             node_id=me,
             engine=self.engine,
-            summary=_maintenance_label(action, names[me], partner.name),
+            **_summary(_maintenance_label(action, names[me], partner.name)),
             created_by=created_by,
             changes=[
                 Change(ChangeOp.REPLACE, "ha/maintenance", before=state, after=action, node_ids=[partner.id])
@@ -1030,13 +1036,13 @@ def _ip_key(value: str) -> tuple[int, int]:
         return 9, 0
 
 
-def _maintenance_label(action: str, down: str, up: str) -> str:
-    if action == "start":
-        return (
-            f"HA maintenance start: {down} goes in-maintenance and can be shut down;"
-            f" {up} keeps serving (partner-in-maintenance)"
-        )
-    return f"HA maintenance cancel: {down} leaves maintenance and both servers return to normal ({up} drives)"
+def _maintenance_label(action: str, down: str, up: str) -> dict[str, Any]:
+    key = "plan.kea.ha_start" if action == "start" else "plan.kea.ha_cancel"
+    return messages.msg(key, down=down, up=up)
+
+
+def _summary(message: dict[str, Any]) -> dict[str, Any]:
+    return {"summary": messages.render(message), "summary_message": message}
 
 
 def _domain_after(change: Change, model: Any, current: dict[str, Any] | None, **defaults: Any) -> Any:

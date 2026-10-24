@@ -28,6 +28,7 @@ from pelagos.domain import (
     RRset,
     ZoneKind,
     host_key,
+    messages,
     normalize_name,
 )
 from pelagos.services import kea_files, remote_rrset
@@ -418,7 +419,7 @@ class HostsService:
         plan = Plan(
             scope=PlanScope.HOST,
             node_id=self.ctx.node.id,
-            summary=f"host {fqdn} -> {ip}" + (f" reserved for {mac}" if want_reservation else ""),
+            **_host_summary(fqdn, ip, mac if want_reservation else None),
             created_by=created_by,
             engine=None,
         )
@@ -550,3 +551,12 @@ def _ip_sort(ip: str) -> tuple[int, int]:
         return addr.version, int(addr)
     except ValueError:
         return 9, 0
+
+
+def _host_summary(fqdn: str, ip: str, mac: str | None) -> dict[str, Any]:
+    m = (
+        messages.msg("plan.host.reserved", fqdn=fqdn, ip=ip, mac=mac)
+        if mac
+        else messages.msg("plan.host", fqdn=fqdn, ip=ip)
+    )
+    return {"summary": messages.render(m), "summary_message": m}

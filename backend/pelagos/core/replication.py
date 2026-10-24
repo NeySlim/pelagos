@@ -459,7 +459,12 @@ class ReplicationApp:
             target=plan.changes[0].target if plan.changes else plan.scope.value,
             engine=plan.engine,
             plan_id=plan.id,
-            request={"summary": plan.summary, "created_by": plan.created_by, "remote": True},
+            request={
+                "summary": plan.summary,
+                "summary_message": plan.summary_message,
+                "created_by": plan.created_by,
+                "remote": True,
+            },
             response=result.to_dict(),
             diff=plan.diff or None,
             result=AuditResult.OK if result.ok else AuditResult.ERROR,

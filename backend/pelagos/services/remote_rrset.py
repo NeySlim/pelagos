@@ -23,6 +23,7 @@ from pelagos.domain import (
     RRset,
     ValidationResult,
     ZoneKind,
+    messages,
     normalize_name,
 )
 from pelagos.services.errors import EngineUnavailable
@@ -64,10 +65,14 @@ def plan_on_primary(dns: Any, ctx: Any, zone: str, changes: list[Change], create
         preconditions.append(
             Precondition(PreconditionKind.SOA_SERIAL, zone, soa.rdata[0].split()[2], peer.id)
         )
+    summary = (
+        rr.summary_message(zone, resolved) if resolved else messages.msg("plan.rrset.changes", zone=zone)
+    )
     plan = Plan(
         scope=PlanScope.DNS_RRSET,
         node_id=ctx.node.id,
-        summary=rr.summary_text(zone, resolved) if resolved else f"{zone}: record changes",
+        summary=messages.render(summary),
+        summary_message=summary,
         created_by=created_by,
         engine=Engine.BIND,
         changes=[rr.to_change(zone, rc) for rc in resolved],

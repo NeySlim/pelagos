@@ -9,7 +9,14 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException, NotFound
 
-from pelagos.api.errors import PROBLEM_MIME, PROBLEM_TYPE, ApiError, translate
+from pelagos.api.errors import (
+    PROBLEM_MIME,
+    PROBLEM_TYPE,
+    ApiError,
+    title_message,
+    translate,
+    unexpected_detail,
+)
 from pelagos.core.context import NodeContext
 from pelagos.core.paths import Paths
 
@@ -83,6 +90,7 @@ def create_app(
                 "detail": err.description,
                 "instance": request.path,
                 "code": code,
+                "title_message": title_message(code),
             },
             err.code or 500,
         )
@@ -101,6 +109,8 @@ def create_app(
                 "detail": "unexpected error; see the server log",
                 "instance": request.path,
                 "code": "internal_error",
+                "title_message": title_message("internal_error"),
+                "detail_message": unexpected_detail(),
             },
             500,
         )

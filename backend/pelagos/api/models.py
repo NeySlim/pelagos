@@ -153,6 +153,8 @@ Problem = model(
         "code": fields.String(required=True),
         "errors": fields.List(fields.Raw, description='[{"field", "message"}]'),
         "plan": fields.Nested(Plan, description="the failed plan of a 422 engine_validation_failed"),
+        "title_message": fields.Raw(description='{"key": "problem.<code>", "params": {}}'),
+        "detail_message": fields.Raw(description="translatable detail, when the backend has one"),
     },
 )
 

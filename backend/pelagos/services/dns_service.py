@@ -31,6 +31,7 @@ from pelagos.domain import (
     ZoneKind,
     ZoneSource,
     ZoneStatus,
+    messages,
     normalize_name,
 )
 from pelagos.services.dns_extras import DnsExtras, zone_mode
@@ -439,7 +440,8 @@ class DnsService(DnsExtras):
             plan.target_node_ids = [primary]
             if self._static_on(primary, zone, view):
                 peer = self.peers.peer(primary)
-                plan.summary += f" (file edit on {peer.name if peer else primary}, the zone stays static)"
+                note = messages.msg("note.static_file_edit_on", node=peer.name if peer else primary)
+                messages.add_note(plan, "summary", note)
         return self._store(plan)
 
     def _static_on(self, node_id: str, zone: str, view: str | None) -> bool:

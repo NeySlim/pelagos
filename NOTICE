@@ -1,0 +1,24 @@
+Pelagos
+Copyright 2026 NeySlim
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+Portions derived from Ultimate CA Manager (UCM) by the same author,
+relicensed under Apache-2.0 for inclusion in this project:
+  - frontend design system (CSS tokens, Tailwind configuration, theme
+    context, fonts, base UI components, application shell and layout)
+  - backend patterns for session authentication, CSRF handling, rate
+    limiting and secret encryption at rest
+
+Third-party components
+----------------------
+This product bundles the following fonts (frontend/public/fonts):
+  - Inter, Copyright The Inter Project Authors, SIL Open Font License 1.1
+  - Fira Code, Copyright The Fira Code Project Authors, SIL Open Font License 1.1
+
+Runtime dependencies are declared in backend/pyproject.toml and
+frontend/package.json and keep their own licenses (MIT, BSD, Apache-2.0,
+PSF, MPL-2.0). BIND 9 and Kea are products of Internet Systems Consortium,
+Inc., licensed under the Mozilla Public License 2.0; Pelagos drives them
+and does not redistribute them except in the optional all-in-one container
+image, which ships their license texts.

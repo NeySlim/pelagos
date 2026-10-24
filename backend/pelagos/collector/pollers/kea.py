@@ -26,6 +26,7 @@ from pelagos.collector import rules
 from pelagos.collector.pollers import PollOutcome, engine_filter
 from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend
+from pelagos.core.keafile import KeaConfigError, loads
 from pelagos.domain import Alert, AlertKind, Engine
 from pelagos.services.consistency import kea_config_differences
 
@@ -76,8 +77,6 @@ def file_divergence(backend: Any, engine: Engine, node_id: str, running: dict[st
     path = getattr(backend, "conf_path", None)
     if not isinstance(path, Path):
         return None
-    from pelagos.installer.keaconf import KeaConfigError, loads
-
     try:
         on_disk = loads(path.read_text(), str(path))
     except (OSError, UnicodeDecodeError, KeaConfigError) as exc:

@@ -49,8 +49,9 @@ What changed (file, symbol). Why. Which packages must react, and how.
 - Section 15: `config_divergence` alerts gain two subjects: `schema:<peer id>` (node_id the peer,
   no engine, from `peer_statuses()` with `code == "schema_mismatch"`) and `<engine>:config-file`
   (kea4, kea6, d2: the file on disk compared to `config-get`, normalization documented in section
-  15; files with `<?include?>` are skipped). The Kea pollers import `installer.keaconf.loads` to
-  read Kea JSON with comments. Writes are not blocked by a file divergence yet (section 9 says they
+  15; files with `<?include?>` are skipped). The Kea pollers read Kea JSON with comments through
+  `core.keafile.loads` (moved out of `installer.keaconf`, which re-exports it); the differences hide
+  the values of keys ending in `password` or `secret`. Writes are not blocked by a file divergence yet (section 9 says they
   should until the user adopts one side): that is the plan service's decision (WP-API-AUTH).
 - The installer adds the include lines through `BindBackend.plan_include_setup()` (one per view as
   well) after writing its managed files; `bindsetup.adopt` no longer edits user files itself.

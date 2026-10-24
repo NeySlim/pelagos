@@ -562,14 +562,10 @@ def test_d2_refuses_peer_secrets_outside_the_secret_dir(tmp_root, path):
     path = path.format(dir=tmp_root)
     plan = d2.plan_config_replace({"DhcpDdns": d2.config_get()})
     digest = hashlib.sha256(b"c2VjcmV0").hexdigest()
-    plan.changes.append(
-        Change(op=ChangeOp.ADD, target="secret-file/x.secret", before=None, after={"path": path, "sha256": digest})
-    )
+    plan.changes.append(Change(ChangeOp.ADD, "secret-file/x.secret", after={"path": path, "sha256": digest}))
     with pytest.raises(ConnectorError, match="outside"):
         d2.accept_plan_secrets(plan, {path: "c2VjcmV0"})
     good = str(tmp_root / "x.secret")
-    plan.changes.append(
-        Change(op=ChangeOp.ADD, target="secret-file/x.secret", before=None, after={"path": good, "sha256": digest})
-    )
+    plan.changes.append(Change(ChangeOp.ADD, "secret-file/x.secret", after={"path": good, "sha256": digest}))
     d2.accept_plan_secrets(plan, {good: "c2VjcmV0"})
     assert d2.plan_secrets(plan.id) == {good: "c2VjcmV0"}

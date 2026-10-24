@@ -16,6 +16,14 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from pelagos.core.keafile import (  # noqa: F401  (re-exported for the installer)
+    KeaConfigError,
+    has_include,
+    loads,
+    strip_comments,
+    strip_trailing_commas,
+)
+
 DAEMON_KEYS: dict[str, str] = {
     "kea-dhcp4": "Dhcp4",
     "kea-dhcp6": "Dhcp6",
@@ -24,91 +32,6 @@ DAEMON_KEYS: dict[str, str] = {
 }
 ENGINE_DAEMONS: dict[str, str] = {"kea4": "kea-dhcp4", "kea6": "kea-dhcp6", "d2": "kea-dhcp-ddns"}
 WEAK_TSIG = frozenset({"hmac-md5", "hmac-sha1"})
-
-_INCLUDE_RE = re.compile(r"<\?include\s+\"([^\"]+)\"\s*\?>")
-
-
-class KeaConfigError(ValueError):
-    pass
-
-
-def strip_comments(text: str) -> str:
-    """Removes the three comment kinds outside strings; keeps the JSON otherwise byte-identical."""
-    out: list[str] = []
-    i, n = 0, len(text)
-    in_str = False
-    while i < n:
-        ch = text[i]
-        if in_str:
-            out.append(ch)
-            if ch == "\\" and i + 1 < n:
-                out.append(text[i + 1])
-                i += 2
-                continue
-            if ch == '"':
-                in_str = False
-            i += 1
-            continue
-        if ch == '"':
-            in_str = True
-            out.append(ch)
-            i += 1
-        elif text.startswith("//", i) or ch == "#":
-            j = text.find("\n", i)
-            i = n if j < 0 else j
-        elif text.startswith("/*", i):
-            j = text.find("*/", i + 2)
-            i = n if j < 0 else j + 2
-        else:
-            out.append(ch)
-            i += 1
-    return "".join(out)
-
-
-def strip_trailing_commas(text: str) -> str:
-    """Drops a comma followed only by blanks and `}` or `]`, which Kea's parser tolerates and JSON not."""
-    out: list[str] = []
-    i, n = 0, len(text)
-    in_str = False
-    while i < n:
-        ch = text[i]
-        if in_str:
-            out.append(ch)
-            if ch == "\\" and i + 1 < n:
-                out.append(text[i + 1])
-                i += 2
-                continue
-            in_str = ch != '"'
-        elif ch == '"':
-            in_str = True
-            out.append(ch)
-        elif ch == ",":
-            j = i + 1
-            while j < n and text[j] in " \t\r\n":
-                j += 1
-            if j >= n or text[j] not in "}]":
-                out.append(ch)
-        else:
-            out.append(ch)
-        i += 1
-    return "".join(out)
-
-
-def has_include(text: str) -> bool:
-    return bool(_INCLUDE_RE.search(text))
-
-
-def loads(text: str, path: str | None = None) -> dict[str, Any]:
-    """Parses a Kea config file; `<?include?>` directives are refused (the daemon resolves them)."""
-    if has_include(text):
-        raise KeaConfigError(f"{path or 'config'} uses <?include?>, which the installer does not rewrite")
-    try:
-        data = json.loads(strip_trailing_commas(strip_comments(text)))
-    except json.JSONDecodeError as exc:
-        raise KeaConfigError(f"{path or 'config'}: invalid JSON: {exc}") from exc
-    if not isinstance(data, dict):
-        raise KeaConfigError(f"{path or 'config'}: top level is not an object")
-    return data
 
 
 def dumps(config: dict[str, Any]) -> str:

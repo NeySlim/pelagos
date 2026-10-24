@@ -129,8 +129,8 @@ Import rules: `domain` imports nothing from the package. `connectors` import
 `domain` and `core.write_pipeline` only. `services` import `domain`,
 `connectors.base`, `core`. `api` imports `services`, `auth`, `domain`.
 `collector` imports `domain`, `connectors.base`, `core`, `services.consistency`, plus
-`services.snapshot` and `services.registry` (to serve engine snapshots) and
-`installer.keaconf` (to read Kea files with comments); `collector.main` builds the connectors.
+`services.snapshot` and `services.registry` (to serve engine snapshots); Kea files with comments
+are read through `core.keafile`; `collector.main` builds the connectors.
 Nothing imports `api` or `collector` except `cli`/`app`.
 
 ## 3. Filesystem layout and distro abstraction

@@ -19,13 +19,14 @@ from typing import Any
 
 from pelagos.connectors.base import ConnectorError
 from pelagos.connectors.kea.control_socket import KeaControlSocket
-from pelagos.core.keadoc import DEFAULT_CWD, KeaDocument
+from pelagos.core.keadoc import DEFAULT_CWD, KeaDocument, KeaFileUnreadable
 from pelagos.core.keafile import (
     KeaConfigError,
     conform_root,
     kea_config_differences,
     rebase_root,
     redact_kea_difference,
+    restore_secrets,
 )
 from pelagos.core.write_pipeline import FileChange
 from pelagos.domain import (
@@ -93,12 +94,15 @@ class KeaConfigFile:
     # Reading -----------------------------------------------------------------------------
 
     def document(self) -> KeaDocument | None:
-        """The file tree, or None when it cannot be read (absent, permissions): Kea then owns it."""
+        """The file tree, or None when the top-level file cannot be read (absent, permissions): Kea
+        then owns it. An unreadable included file is an error, so writes never drop the includes."""
         try:
             return KeaDocument(self.path, cwd=self.cwd)
-        except KeaConfigError as exc:
-            if "cannot read" in str(exc):
+        except KeaFileUnreadable as exc:
+            if not exc.included:
                 return None
+            raise ConnectorError(f"{self.path}: {exc}") from exc
+        except KeaConfigError as exc:
             raise ConnectorError(f"{self.path}: {exc}") from exc
 
     def differences(self, running_body: dict[str, Any], doc: KeaDocument | None) -> list[str]:
@@ -167,13 +171,27 @@ class KeaConfigFile:
             raise ConnectorError(f"writing {', '.join(str(p) for p in changed)} failed: {result.error}")
         return f"patched {', '.join(p.name for p in changed)}"
 
-    def persist(self, doc: KeaDocument | None, before_body: dict[str, Any], label: str) -> str:
-        """Makes the file say what the daemon now runs. config-write unless the file uses includes."""
+    def _unmask(self, target: dict[str, Any], doc: KeaDocument, clear: list[Any], action: str) -> None:
+        """Clear secrets back into `target`; refuses when one is only known masked by config-get."""
+        missing = restore_secrets(target, clear, doc.value)
+        if missing:
+            shown = ", ".join(missing[:3]) + (f" (+{len(missing) - 3} more)" if len(missing) > 3 else "")
+            raise ConnectorError(
+                f"{action} would write the masked value config-get returns for {shown} into {self.path}: "
+                "adopt the file, or edit the secret by hand or move it to a secret file"
+            )
+
+    def persist(
+        self, doc: KeaDocument | None, before_body: dict[str, Any], label: str, clear: list[Any] | None = None
+    ) -> str:
+        """Makes the file say what the daemon now runs. config-write unless the file uses includes.
+        `clear` holds the values just applied, which carry the secrets config-get masks."""
         if doc is None or not doc.has_includes:
             written = self.socket.call("config-write")
             return f"config-write {written.get('filename', '')}".strip()
         after_body = self.socket.config_get()[self.root]
         target = rebase_root(doc.value, before_body, after_body, self.root)
+        self._unmask(target, doc, list(clear or []), "persisting the change")
         try:
             changed = doc.patch(target)
         except KeaConfigError as exc:
@@ -186,11 +204,13 @@ class KeaConfigFile:
 
     # Adopt -----------------------------------------------------------------------------------
 
-    def plan_adopt(self, source: str, running_body: dict[str, Any]) -> tuple[Change, str, list[str]]:
-        """(change, diff, differences) for adopt/file or adopt/running; the change carries no config."""
+    def plan_adopt(
+        self, source: str, running_body: dict[str, Any], doc: KeaDocument | None
+    ) -> tuple[Change, str, list[str]]:
+        """(change, diff, differences) for adopt/file or adopt/running; the change carries no config.
+        `doc` is read once by the caller, so the diff, validation and hashes describe the same files."""
         if source not in ("file", "running"):
             raise ConnectorError("source must be 'file' or 'running'")
-        doc = self.document()
         if doc is None:
             raise ConnectorError(f"{self.path} cannot be read by Pelagos")
         diffs = self.differences(running_body, doc)
@@ -235,6 +255,9 @@ class KeaConfigFile:
         """("patch", texts) when the editor can carry the running values into the files; without
         includes, ("config-write", {}) as the fallback when it cannot."""
         target = conform_root(doc.value, running_body, self.root)
+        if not doc.has_includes and restore_secrets(target, [], doc.value):
+            return "config-write", {}  # Kea writes the secrets it holds in clear
+        self._unmask(target, doc, [], "adopting the running configuration")
         try:
             return "patch", doc.patch(target)
         except KeaConfigError as exc:

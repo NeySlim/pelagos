@@ -631,10 +631,50 @@ def option_value_to_kea(value: Any) -> dict[str, Any]:
 # In-memory edits ----------------------------------------------------------------------------
 
 
+def explicit_keys(file_body: dict[str, Any] | None, family: Family) -> dict[str, set[str]] | None:
+    """Keys each shared network and subnet sets itself in the configuration file, by object identity
+    (`_object_ids`); None when the file is unknown. An object as config-write prints it carries every
+    inherited copy, so it tells nothing and is left out."""
+    if not isinstance(file_body, dict):
+        return None
+    sub = subnet_key(family)
+    out: dict[str, set[str]] = {}
+    objects = [*(file_body.get("shared-networks") or [])]
+    objects += [obj for net in file_body.get("shared-networks") or [] for obj in net.get(sub) or []]
+    objects += list(file_body.get(sub) or [])
+    for obj in objects:
+        if isinstance(obj, dict) and not _written_by_kea(obj):
+            for ident in _object_ids(obj)[:1]:
+                out.setdefault(ident, set()).update(obj)
+    return out
+
+
+def _written_by_kea(obj: dict[str, Any]) -> bool:
+    """Kea prints an empty relay (and an empty 4o6-interface) in every subnet and network it writes."""
+    return obj.get("relay") == {"ip-addresses": []} or obj.get("4o6-interface") == ""
+
+
+def _object_ids(obj: dict[str, Any]) -> list[str]:
+    """Identities of a subnet or shared network, the most specific first (a file may omit the id)."""
+    ids = []
+    if "name" in obj and "subnet" not in obj:
+        ids.append(f"network:{obj['name']}")
+    if "id" in obj:
+        ids.append(f"subnet-id:{obj['id']}")
+    if "subnet" in obj:
+        ids.append(f"subnet:{obj['subnet']}")
+    return ids
+
+
 def apply_change(
-    cfg: dict[str, Any], change: Change, family: Family, version: str | None = None
+    cfg: dict[str, Any],
+    change: Change,
+    family: Family,
+    version: str | None = None,
+    explicit: dict[str, set[str]] | None = None,
 ) -> dict[str, Any]:
-    """Return a deep copy of the Dhcp4/Dhcp6 object with one Change applied; raises on a stale change."""
+    """Return a deep copy of the Dhcp4/Dhcp6 object with one Change applied; raises on a stale change.
+    `explicit` (from `explicit_keys`) names the subnet and network values the file sets itself."""
     out = copy.deepcopy(cfg)
     t = parse_target(change.target)
     op = change.op
@@ -684,15 +724,22 @@ def apply_change(
             check_version_support({t.name: change.after}, version)
             out[t.name or ""] = copy.deepcopy(change.after)
             out = normalize_root(out, version)
-        _drop_inherited(out, t.name or "", previous, family)
+        _drop_inherited(out, t.name or "", previous, family, explicit)
     else:
         raise ConnectorError(f"change {change.target} does not edit the configuration")
     return out
 
 
-def _drop_inherited(out: dict[str, Any], key: str, previous: Any, family: Family) -> None:
+def _drop_inherited(
+    out: dict[str, Any],
+    key: str,
+    previous: Any,
+    family: Family,
+    explicit: dict[str, set[str]] | None = None,
+) -> None:
     """config-get writes inherited global values into every shared network and subnet; one equal to
-    the old global value was inherited, so it goes and the object follows the new global value."""
+    the old global value was inherited, so it goes and the object follows the new global value.
+    A value the file sets on the object itself (`explicit`) is its own and stays, bounds included."""
     if previous is None or isinstance(previous, dict | list):
         return
     inherited = {key: previous}
@@ -706,16 +753,25 @@ def _drop_inherited(out: dict[str, Any], key: str, previous: Any, family: Family
     nested += [obj for net in out.get("shared-networks") or [] for obj in net.get(sub) or []]
     nested += list(out.get(sub) or [])
     for obj in nested:
+        own: set[str] = set()
+        for ident in _object_ids(obj):
+            own |= (explicit or {}).get(ident, set())
         for name, value in inherited.items():
+            if name in own or (name != key and key in own):
+                continue
             if obj.get(name) == value:
                 obj.pop(name, None)
 
 
 def apply_changes(
-    cfg: dict[str, Any], changes: list[Change], family: Family, version: str | None = None
+    cfg: dict[str, Any],
+    changes: list[Change],
+    family: Family,
+    version: str | None = None,
+    explicit: dict[str, set[str]] | None = None,
 ) -> dict[str, Any]:
     for change in changes:
-        cfg = apply_change(cfg, change, family, version)
+        cfg = apply_change(cfg, change, family, version, explicit)
     return cfg
 
 

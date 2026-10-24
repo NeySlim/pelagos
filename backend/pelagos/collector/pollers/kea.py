@@ -27,7 +27,7 @@ from pelagos.collector import rules
 from pelagos.collector.pollers import PollOutcome, engine_filter
 from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend
-from pelagos.core.keadoc import DEFAULT_CWD, KeaDocument
+from pelagos.core.keadoc import DEFAULT_CWD, KeaDocument, KeaFileUnreadable
 from pelagos.core.keafile import KeaConfigError, kea_config_differences
 from pelagos.domain import Alert, AlertKind, Engine
 
@@ -71,6 +71,10 @@ def normalized_config_hash(config: dict[str, Any]) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+class _Unreadable(Exception):
+    """An included file cannot be read: the file tree no longer says what Kea would load."""
+
+
 def _document(backend: Any, engine: Engine) -> KeaDocument | None:
     path = getattr(backend, "conf_path", None)
     if not isinstance(path, Path):
@@ -78,6 +82,11 @@ def _document(backend: Any, engine: Engine) -> KeaDocument | None:
     cwd = getattr(getattr(backend, "file", None), "cwd", DEFAULT_CWD)
     try:
         return KeaDocument(path, cwd=cwd if isinstance(cwd, Path) else DEFAULT_CWD)
+    except KeaFileUnreadable as exc:
+        if exc.included:
+            raise _Unreadable(str(exc)) from exc
+        log.debug("%s file not compared: %s", engine.value, exc)
+        return None
     except KeaConfigError as exc:
         log.debug("%s file not compared: %s", engine.value, exc)
         return None
@@ -87,12 +96,18 @@ def file_divergence(
     backend: Any, engine: Engine, node_id: str, running: dict[str, Any], doc: KeaDocument | None = None
 ) -> Alert | None:
     """CONFIG_DIVERGENCE when the configuration file on disk (its includes resolved) says something
-    config-get does not. A file that cannot be read or parsed is skipped (logged): an unreadable file
-    is the installer's finding, not a divergence.
+    config-get does not, or when one of its included files cannot be read. An unreadable or
+    unparsable top-level file is skipped (logged): that is the installer's finding.
     """
     path = getattr(backend, "conf_path", None)
-    doc = doc if doc is not None else _document(backend, engine)
-    if doc is None or not isinstance(path, Path):
+    if not isinstance(path, Path):
+        return None
+    if doc is None:
+        try:
+            doc = _document(backend, engine)
+        except _Unreadable as exc:
+            return rules.config_file_divergence(node_id, engine, str(path), [str(exc)])
+    if doc is None:
         return None
     differences = kea_config_differences(doc.value, running)
     if not differences:
@@ -121,7 +136,13 @@ class FileDivergenceCache:
         key = self._file_key(running_hash)
         if key is not None and key == self._key:
             return self._alert
-        doc = _document(self.backend, self.engine)
+        try:
+            doc = _document(self.backend, self.engine)
+        except _Unreadable:
+            # Reported by file_divergence, never cached: fixing the include touches no tracked file.
+            self._files, self._key = [], None
+            self._alert = file_divergence(self.backend, self.engine, self.node_id, running())
+            return self._alert
         self._files = list(dict.fromkeys(doc.paths)) if doc is not None else []
         self._alert = file_divergence(self.backend, self.engine, self.node_id, running(), doc)
         self._key = self._file_key(running_hash)

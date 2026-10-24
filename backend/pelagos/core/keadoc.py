@@ -49,6 +49,16 @@ class KeaEditError(KeaConfigError):
     """The text cannot be parsed, or a change cannot be written without guessing."""
 
 
+class KeaFileUnreadable(KeaEditError):
+    """A file of the tree cannot be read; `included` is False for the top-level file itself."""
+
+    def __init__(self, path: Path, reason: object, included: bool) -> None:
+        kind = "included file" if included else "file"
+        super().__init__(f"cannot read {kind} {path}: {reason}")
+        self.path = path
+        self.included = included
+
+
 @dataclass(slots=True)
 class Token:
     kind: str  # one of { } [ ] : , str lit
@@ -142,7 +152,7 @@ class KeaDocument:
             try:
                 text = self._reader(path)
             except (OSError, UnicodeDecodeError) as exc:
-                raise KeaEditError(f"cannot read {path}: {exc}") from exc
+                raise KeaFileUnreadable(path, exc, bool(stack)) from exc
         index = len(self.paths)
         self.paths.append(path)
         self.texts.append(text)

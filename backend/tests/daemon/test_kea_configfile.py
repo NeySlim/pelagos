@@ -109,6 +109,25 @@ def test_plans_write_into_the_included_file(kea_dhcp4, tmp_root):
     assert '"valid-lifetime": 3600' in main.read_text() and reads_as_running(backend) == []
 
 
+def test_a_subnet_value_written_in_the_file_survives_a_global_change(kea_dhcp4, tmp_root):
+    main, part = split_into_includes(kea_dhcp4)
+    text = part.read_text()
+    assert text.count('"id": 1,') == 1
+    part.write_text(text.replace('"id": 1,', '"id": 1,\n  "valid-lifetime": 3600, // its own value'))
+    kea_dhcp4.ok("config-reload")
+    backend = backend_for(kea_dhcp4, tmp_root)
+    plan = backend.plan_global_change([Change(ChangeOp.REPLACE, "valid-lifetime", after=1800)])
+    result = backend.apply(plan)
+    assert result.ok, result.message
+    assert '"valid-lifetime": 1800' in main.read_text()
+    assert '"valid-lifetime": 3600, // its own value' in part.read_text()
+    assert reads_as_running(backend) == []
+    kea_dhcp4.ok("config-reload")
+    cfg = backend.config_get()
+    assert cfg["valid-lifetime"] == 1800
+    assert next(s for s in cfg["subnet4"] if s["id"] == 1)["valid-lifetime"] == 3600
+
+
 def test_hand_edit_blocks_until_adopt_running(kea_dhcp4, tmp_root):
     main, _part = split_into_includes(kea_dhcp4)
     backend = backend_for(kea_dhcp4, tmp_root)

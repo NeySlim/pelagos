@@ -345,9 +345,25 @@ def test_kea_file_divergence(store, tmp_root):
     part.write_text('"valid-lifetime": 60,')
     alerts = [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE]
     assert alerts[0].details["differences"] == ["/valid-lifetime: 60 in the file, 3600 running"]
-    # A missing include is not a divergence (the installer reports unreadable files).
+    # An include Pelagos cannot read keeps the alert open: the tree is not what Kea would load.
     backend.conf_path.write_text('<?include "/nonexistent/subnets.json"?>\n' + FILE_V4)
+    alerts = [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE]
+    assert "cannot read included file /nonexistent/subnets.json" in alerts[0].details["differences"][0]
+    part.write_text('"valid-lifetime": 3600,')
+    backend.conf_path.write_text(FILE_V4.replace('"valid-lifetime": 3600,', f'<?include "{part}"?>'))
+    part.chmod(0)
+    try:
+        alerts = [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE]
+        assert "cannot read included file" in alerts[0].details["differences"][0]
+    finally:
+        part.chmod(0o644)
     assert [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE] == []
+    # An unreadable top-level file is the installer's finding, not a divergence.
+    backend.conf_path.chmod(0)
+    try:
+        assert [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE] == []
+    finally:
+        backend.conf_path.chmod(0o644)
 
 
 def test_daemon_down_keeps_the_file_alert_open(store, tmp_root):

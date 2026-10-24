@@ -42,6 +42,7 @@ from pelagos.connectors.kea.configfile import ADOPT_FILE, ADOPT_TARGETS, KeaConf
 from pelagos.connectors.kea.control_socket import EMPTY, KeaCommandError, KeaControlSocket
 from pelagos.connectors.kea.ha import MAINTENANCE_COMMANDS, ha_state_from_status
 from pelagos.connectors.kea.schema import config_schema
+from pelagos.core.keadoc import KeaDocument
 from pelagos.domain import (
     Change,
     ChangeOp,
@@ -517,6 +518,9 @@ class KeaBackend(DhcpBackend):
             return cfg.get(t.name or "")
         return None
 
+    def _explicit(self, doc: KeaDocument | None) -> dict[str, set[str]] | None:
+        return kcfg.explicit_keys(doc.value.get(self.root_key) if doc else None, self.family)
+
     def _plan_config(self, scope: PlanScope, changes: list[Change], created_by: str, summary: str) -> Plan:
         # The scope decides the permission checked at apply, so every target must belong to it.
         allowed = SCOPE_TARGETS[scope]
@@ -531,7 +535,7 @@ class KeaBackend(DhcpBackend):
                 raise ConnectorError(f"{t.name} changes go through their own plans or the config replace")
         caps = self.capabilities()
         cfg = self.config_get()
-        self.file.guard(cfg)
+        explicit = self._explicit(self.file.guard(cfg))
         current_hash = self.config_hash()
         version = self.version()
         hosts_db = self._hosts_db_mode(cfg, changes, caps)
@@ -552,7 +556,7 @@ class KeaBackend(DhcpBackend):
                 raise ConnectorError(f"{change.target} not found")
             prepared.append(change)
         in_config = [c for c in prepared if not (hosts_db and _is_reservation(c))]
-        new_cfg = kcfg.apply_changes(cfg, in_config, self.family, version)
+        new_cfg = kcfg.apply_changes(cfg, in_config, self.family, version, explicit)
         diff = kcfg.config_diff(cfg, new_cfg, str(self.conf_path))
         for change in prepared:
             if hosts_db and _is_reservation(change):
@@ -816,6 +820,7 @@ class KeaBackend(DhcpBackend):
         before = self.config_get()
         before_hash = self.config_hash()
         doc = self.file.guard(before)
+        explicit = self._explicit(doc)
         use_commands = command_path_available(changes, caps)
         hosts_db = self._hosts_db_mode(before, changes, caps)
         try:
@@ -840,9 +845,9 @@ class KeaBackend(DhcpBackend):
                     if undo_cmd is not None:
                         undo.append(undo_cmd)
                     if not in_db:
-                        current = kcfg.apply_change(current, change, self.family, version)
+                        current = kcfg.apply_change(current, change, self.family, version, explicit)
             else:
-                new_cfg = kcfg.apply_changes(before, changes, self.family, version)
+                new_cfg = kcfg.apply_changes(before, changes, self.family, version, explicit)
                 validation = self.config_test(new_cfg)
                 if not validation.ok:
                     raise ValidationFailed(validation)
@@ -855,7 +860,7 @@ class KeaBackend(DhcpBackend):
                 raise ConnectorError("verification failed: " + "; ".join(problems))
             steps.append("verify")
             persisting = True
-            steps.append(self.file.persist(doc, before, label))
+            steps.append(self.file.persist(doc, before, label, [c.after for c in changes]))
         except ConnectorError as exc:
             rolled_back = False
             if mutated:
@@ -907,10 +912,10 @@ class KeaBackend(DhcpBackend):
         file is rewritten (patched losslessly, or config-write) to say what the daemon runs."""
         running = self.config_get()
         current_hash = self.config_hash()
-        change, diff, differences = self.file.plan_adopt(source, running)
+        doc = self.file.document()
+        change, diff, differences = self.file.plan_adopt(source, running, doc)
         if source == "file":
             change.before = {**change.before, "config": running}
-            doc = self.file.document()
             body = (doc.value if doc else {}).get(self.root_key)
             validation = (
                 self.config_test(body)
@@ -938,7 +943,7 @@ class KeaBackend(DhcpBackend):
             diff=diff,
             preconditions=[
                 self._hash_precondition(current_hash),
-                *self.file.preconditions(self.file.document()),
+                *self.file.preconditions(doc),
             ],
             validations=[validation],
             requires_confirmation=True,

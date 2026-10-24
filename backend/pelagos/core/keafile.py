@@ -434,3 +434,70 @@ def rebase_root(
                 globals_[bound] = after_body[lifetime]
     out[root] = rebase(file_config.get(root) or {}, before_body, after_body, "", globals_)
     return out
+
+
+# Secrets config-get hides --------------------------------------------------------------------------
+
+# Siblings naming the object a secret belongs to (a TSIG key, an HA peer, a control socket user).
+_SECRET_OWNER_KEYS = (*_ITEM_KEYS, "user")
+
+
+def _secret_owner(obj: dict[str, Any]) -> str:
+    for k in _SECRET_OWNER_KEYS:
+        v = obj.get(k)
+        if v is not None and not isinstance(v, dict | list) and not is_sensitive_kea_key(k):
+            return f"{k}={v!r}"
+    return ""
+
+
+def _clear_secrets(value: Any, out: dict[tuple[str, str], set[str]]) -> None:
+    if isinstance(value, list):
+        for v in value:
+            _clear_secrets(v, out)
+    elif isinstance(value, dict):
+        owner = _secret_owner(value)
+        for k, v in value.items():
+            if is_sensitive_kea_key(k) and isinstance(v, str):
+                if v not in KEA_REDACTED:
+                    out.setdefault((k, owner), set()).add(v)
+            else:
+                _clear_secrets(v, out)
+
+
+def restore_secrets(target: Any, clear: list[Any], known: Any) -> list[str]:
+    """Puts clear secrets back into `target` (in place), matched by key and owner (`name`, `user`...).
+
+    `clear` holds what was just applied (a plan's values): it wins wherever it names the owner.
+    `known` (the file) only fills values config-get masked. Returns the paths still masked: writing
+    them would replace a real secret with `*****`.
+    """
+    applied: dict[tuple[str, str], set[str]] = {}
+    for value in clear:
+        _clear_secrets(value, applied)
+    filed: dict[tuple[str, str], set[str]] = {}
+    _clear_secrets(known, filed)
+    missing: list[str] = []
+
+    def walk(value: Any, path: str) -> None:
+        if isinstance(value, list):
+            for i, v in enumerate(value):
+                walk(v, f"{path}[{i}]")
+            return
+        if not isinstance(value, dict):
+            return
+        owner = _secret_owner(value)
+        for k, v in value.items():
+            if not (is_sensitive_kea_key(k) and isinstance(v, str)):
+                walk(v, f"{path}/{k}")
+                continue
+            for source, only_masked in ((applied, False), (filed, True)):
+                found = source.get((k, owner), set())
+                # Ownerless secrets are only ever filled in, never replaced: the match is too loose.
+                if len(found) == 1 and (v in KEA_REDACTED or not (only_masked or owner == "")):
+                    value[k] = v = next(iter(found))
+                    break
+            if v in KEA_REDACTED:
+                missing.append(f"{path}/{k}")
+
+    walk(target, "")
+    return missing

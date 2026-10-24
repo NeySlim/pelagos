@@ -298,7 +298,7 @@ class D2Backend(DdnsBackend):
     ) -> Any:
         def reload() -> str:
             self.socket.call("config-set", {ROOT: new_cfg})
-            return f"config-set, {self.file.persist(doc, before_body or {}, label)}"
+            return f"config-set, {self.file.persist(doc, before_body or {}, label, [new_cfg])}"
 
         def verify() -> bool:
             return self.config_hash() != before_hash or canonical(self.config_get()) == canonical(new_cfg)
@@ -359,8 +359,8 @@ class D2Backend(DdnsBackend):
         self._sweep()
         running = self.config_get()
         current_hash = self.config_hash()
-        change, diff, differences = self.file.plan_adopt(source, running)
         doc = self.file.document()
+        change, diff, differences = self.file.plan_adopt(source, running, doc)
         if source == "file":
             body = (doc.value if doc else {}).get(ROOT)
             validation = (
@@ -490,7 +490,7 @@ class D2Backend(DdnsBackend):
                         node_id=self.ctx.node_id, ok=False, message=f"config-test: {validation.output}"
                     )
                 self.socket.call("config-set", {ROOT: new_cfg})
-                written = self.file.persist(doc, before_body, label)
+                written = self.file.persist(doc, before_body, label, [new_cfg])
                 ok, rolled_back, error, steps = True, False, None, f"config-test, config-set, {written}"
         except ConnectorError as exc:
             # config-set refused or config-write failed after it: put the running config back.

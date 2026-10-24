@@ -213,6 +213,10 @@ class DnsExtras:
         if action not in DNSSEC_ACTIONS:
             raise ValidationError("action must be rollover or checkds", [field_error("action", "invalid")])
         args = {k: body[k] for k in ("key_id", "when", "state") if body.get(k) is not None}
+        try:
+            ops.check_view(body.get("view"))
+        except ops.OpError as exc:
+            raise ValidationError(str(exc), [field_error("view", "invalid view name")]) from exc
         backend = self._local()
         planner = getattr(backend, "plan_operation", None)
         if planner is None:

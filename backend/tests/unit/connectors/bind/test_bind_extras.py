@@ -207,3 +207,10 @@ def test_policy_plan_adds_policies_conf_to_pelagos_conf(tmp_path: Path):
     again = ConfigPlanner(conf, inc, "n1")
     again.apply_change(Change(ChangeOp.ADD, "dnssec-policy/default", after={"statements": statements}))
     assert again.finish().errors
+
+
+def test_views_are_one_rndc_word():
+    for view in ("v -key 9", "-x", "a b", "x" * 65, 3):
+        with pytest.raises(ops.OpError):
+            ops.rndc_args("dnssec-rollover", "example.lan", view, {"key_id": 1})
+    assert ops.check_view("inside") == "inside" and ops.check_view("") is None

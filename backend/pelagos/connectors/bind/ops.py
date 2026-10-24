@@ -20,6 +20,8 @@ ZONE_OPS = ("retransfer", "notify", "reload", "freeze", "thaw", "sync")
 DNSSEC_OPS = ("dnssec-rollover", "dnssec-checkds")
 CHECKDS_STATES = ("published", "withdrawn")
 _WHEN = re.compile(r"^(now|\d{14})$")
+# One rndc word: rndc joins its arguments with spaces, so a view never carries blanks or a leading dash.
+VIEW_RE = re.compile(r"^(?!-)[A-Za-z0-9_.-]{1,64}$")
 DEFAULT_VIEW = "_default"
 
 
@@ -84,8 +86,17 @@ def check_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def check_view(view: Any) -> str | None:
+    if view is None or view == "":
+        return None
+    if not isinstance(view, str) or not VIEW_RE.match(view):
+        raise OpError(f"invalid view name {view!r}")
+    return view
+
+
 def rndc_args(name: str, zone: str, view: str | None, args: dict[str, Any]) -> list[str]:
     args = check_args(name, args)
+    view = check_view(view)
     where = zone_args(zone, view)
     if name == "sync":
         return ["sync", *(["-clean"] if args.get("clean") else []), *where]

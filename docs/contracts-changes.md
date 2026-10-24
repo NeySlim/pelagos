@@ -45,6 +45,13 @@ wrote cluster.toml by hand to force a tie must write through `update_cluster`.
   `apply` and `run_received`). `InstallerEnv.plan_secrets` hands the verified
   secret to the D2 step. A peer that sends unsealed steps (older release) is
   refused: upgrade both nodes before a dual-key switch.
+- Peers may only send the `2-d2-switch` step (`helper.PEER_STEPS`): a sealed
+  `1-bind-add` or `3-bind-remove` from another node is refused by `authorize`
+  and `verify_peer_steps` (the planner never sends them). The seal uses the
+  shared master key, readable by the `pelagos` user: it guards transport and
+  integrity, not the origin against a compromised local web process; the
+  audit match is the real guard. Signing steps with the origin node's TLS key
+  is left for later.
 - Robustness: replication handlers run on OS threads; installer plans skip
   the backend lock (`core.registry.UNLOCKED_SCOPES`); live snapshots answer
   `busy` after 8 s; peer plan calls wait 300 s (engine) or 1800 s

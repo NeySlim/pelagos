@@ -24,9 +24,9 @@ from typing import Any
 
 from pelagos import __version__
 from pelagos.core import ca as ca_mod
+from pelagos.core import context as context_mod
 from pelagos.core.audit_log import AuditLog
 from pelagos.core.config_store import ConfigError, ConfigStore, NodeConfig
-from pelagos.core import context as context_mod
 from pelagos.core.context import REPL_READY, REPL_SYNCING, NodeContext, write_replication_state
 from pelagos.core.enrollment import EnrollError, EnrollmentService, EnrollRequest, install_certificate
 from pelagos.core.paths import Paths

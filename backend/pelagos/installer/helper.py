@@ -38,6 +38,8 @@ DEFAULT_PLANS = "/run/pelagos-helper/plans"
 PLAN_TTL = 7 * 86400
 REQUEST_TIMEOUT = 30.0
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+# The only step a peer ever sends: BIND steps of a dual-key switch always run on their own node.
+PEER_STEPS = frozenset({"2-d2-switch"})
 SAFE_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 OPERATIONS = ("detect", "audit", "plan_install", "plan_import", "plan_security", "apply")
 INSTALLER_SCOPES = (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY)
@@ -195,7 +197,7 @@ def authorize(plan: Plan, env: Any) -> None:
     """Raises HelperError("...", "value") unless every change of `plan` for this node may run as root.
 
     A plan made on this node must have been built by this helper, change for change. A plan made on
-    a peer (received over mTLS) may only carry the dual-key switch steps. Either way, the paths,
+    a peer (received over mTLS) may only carry the D2 switch step of a dual-key switch. Either way, the paths,
     groups, packages and include lines named by a change must be this host's own."""
     mine = [c for c in plan.changes if env.node_id in c.node_ids]
     if plan.node_id == env.node_id:
@@ -207,14 +209,12 @@ def authorize(plan: Plan, env: Any) -> None:
             if _digest(change.to_dict()) not in known:
                 raise HelperError(f"change {change.target} differs from the planned one", "value")
     else:
-        from pelagos.installer.security_audit import DUAL_KEY_STEPS
-
         if plan.scope is not PlanScope.SECURITY:
             raise HelperError(f"{plan.scope} plans from another node are not accepted", "value")
         for change in mine:
             after = change.after if isinstance(change.after, dict) else {}
             details = after.get("details") if isinstance(after.get("details"), dict) else {}
-            if after.get("step") not in DUAL_KEY_STEPS:
+            if after.get("step") not in PEER_STEPS:
                 raise HelperError(f"change {change.target} from another node is not accepted", "value")
             for name in ("key", "new_key"):
                 if name in details and not SAFE_KEY.match(str(details[name])):
@@ -270,13 +270,14 @@ def verify_peer_steps(
         except (SecretError, ValueError) as exc:
             raise HelperError(str(exc), "value") from None
         step = change.after["step"]
+        if step not in PEER_STEPS:
+            raise HelperError(f"change {change.target} from another node is not accepted", "value")
         details = change.after.get("details") if isinstance(change.after.get("details"), dict) else {}
         key, new = str(details.get("key") or ""), str(details.get("new_key") or "")
         _match_audit(change, step, key, new, details, findings, env)
-        if step == "2-d2-switch":
-            secret = sealed_secret or _member_secret(cluster, box, new)
-            if secret is not None:
-                secrets[new] = secret
+        secret = sealed_secret or _member_secret(cluster, box, new)
+        if secret is not None:
+            secrets[new] = secret
         digests.append(step_seal.seal_digest(change))
     if record:
         _consume(digests, consumed_dir or plans_dir() / "consumed")
@@ -320,30 +321,16 @@ def _match_audit(
     algorithm = str(before.get("algorithm") or details.get("algorithm") or "").lower()
     if algorithm != str(finding.details.get("algorithm") or "").lower():
         refuse(f"algorithm {algorithm or 'unknown'} differs from this node's audit")
-    if step != "2-d2-switch" and details.get("file"):
-        from pelagos.installer import bindconf
-
-        try:
-            files = set(bindconf.load_files(env.paths.named_conf).order)
-        except (OSError, bindconf.ParseError):
-            files = set()
-        if str(details["file"]) not in files:
-            refuse(f"file {details['file']} is not part of this node's BIND configuration")
 
 
 def _step_done(step: str, key: str, new: str, env: Any) -> bool:
-    """A retried step whose effect is already there: the audit no longer reports the key."""
-    from pelagos.installer import bindconf, keaconf
+    """A retried D2 switch whose effect is already there: D2 holds the new key, not the old one."""
+    from pelagos.installer import keaconf
 
     try:
-        if step == "2-d2-switch":
-            conf = env.paths.kea_conf("kea-dhcp-ddns")
-            names = {
-                str(k.get("name")) for k in keaconf.tsig_keys(keaconf.loads(conf.read_text(), str(conf)))
-            }
-            return new in names and key not in names
-        names = {k.name for k in bindconf.keys(list(bindconf.load_files(env.paths.named_conf).top_level()))}
-    except (OSError, ValueError, bindconf.ParseError):
+        conf = env.paths.kea_conf("kea-dhcp-ddns")
+        names = {str(k.get("name")) for k in keaconf.tsig_keys(keaconf.loads(conf.read_text(), str(conf)))}
+    except (OSError, ValueError):
         return False
     return new in names and key not in names
 

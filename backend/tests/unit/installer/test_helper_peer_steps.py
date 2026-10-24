@@ -161,20 +161,20 @@ def test_steps_must_match_this_nodes_audit(nodes):
             helper.verify_peer_steps(sealed(mutate), env_b, record=False)
 
 
-def test_bind_steps_name_files_of_this_layout(nodes):
+def test_bind_steps_from_a_peer_are_refused(nodes):
+    """BIND steps always run on their own node: a sealed one sent by a member is still refused."""
     env_a, _env_b, _conf_b, box = nodes
-    # A step 1 for node A, sent by node B (a member): files must be A's own BIND files.
     plan = build_security_plan(env_a, [FID], "admin", d2_node_ids=["node-b"])
     plan.node_id = "node-b"
-    plan.changes = [c for c in plan.changes if c.after.get("step") == "1-bind-add"]
-    good = _wire(plan)
-    seal_steps(good, box, origin="node-b", receiver="node-a")
-    assert helper.verify_peer_steps(good, env_a, record=False) == {}
-    bad = _wire(plan)
-    bad.changes[0].after["details"]["file"] = "/etc/shadow"
-    seal_steps(bad, box, origin="node-b", receiver="node-a")
-    with pytest.raises(helper.HelperError, match="not part of this node's BIND configuration"):
-        helper.verify_peer_steps(bad, env_a, record=False)
+    for step in ("1-bind-add", "3-bind-remove"):
+        sent = _wire(plan)
+        sent.changes = [c for c in sent.changes if c.after.get("step") == step]
+        sent.changes[0].node_ids = ["node-a"]
+        seal_steps(sent, box, origin="node-b", receiver="node-a")
+        with pytest.raises(helper.HelperError, match="not accepted"):
+            helper.verify_peer_steps(sent, env_a, record=False)
+        with pytest.raises(helper.HelperError, match="not accepted"):
+            helper.authorize(_wire(sent), env_a)
 
 
 def test_replicated_secret_must_be_written_by_a_member(nodes):

@@ -81,8 +81,10 @@ live under `/run`: a reboot drops them, which is fine since plans do not
 survive a restart of the web process either.
 
 Dual-key steps sent by a peer (`helper.verify_peer_steps`, also run by
-`services.installer_runner.run_received` when no helper is used) are checked
-beyond the key name: each step carries `after.seal` (`core.step_seal`), made
+`services.installer_runner.run_received` when no helper is used) are limited
+to `2-d2-switch` (`helper.PEER_STEPS`): BIND steps always run on the node that
+planned them, so a peer-sent `1-bind-add` or `3-bind-remove` is refused. They
+are checked beyond the key name: each step carries `after.seal` (`core.step_seal`), made
 by the sending node with the master key for this receiving node, and must
 open with this node's copy of the key, match the change byte for byte, name
 the plan's origin node as sender, be less than one hour old, and come from a
@@ -90,8 +92,11 @@ current, non-revoked member of `[[nodes]]`; a seal already run is refused
 (digests kept next to the plan records, or under `/run/pelagos/peer-steps`
 without helper). The step must be what this node's own security audit gives
 for that key (a `weak_shared_kea_key` finding on the same key and algorithm,
-successor `<key>-sha256`, `security/<finding>/<step>` target, BIND files from
-this host's configuration), or already be done (a retry). The new key's
+successor `<key>-sha256`, `security/<finding>/<step>` target), or already be
+done (a retry: D2 holds the new key and not the old one). The seal guards
+transport and integrity between members, not the origin against a local
+compromise: the `pelagos` service user can read the master key, so the audit
+match is the real guard. The new key's
 secret comes sealed in step 2 (`after.sealed_secret` and `after.secret_sha256`,
 added by `InstallerRunner` from `cluster.toml [secrets]`), otherwise from
 `tsig/<new key>` in `cluster.toml`, accepted only when the entry's last

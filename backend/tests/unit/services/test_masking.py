@@ -10,7 +10,9 @@ pytestmark = pytest.mark.unit
 
 def test_masked_covers_kea_suffix_keys():
     value = {
-        "peers": [{"name": "ns1", "basic-auth-password": "hunter2", "basic-auth-password-file": "/etc/kea/p"}],
+        "peers": [
+            {"name": "ns1", "basic-auth-password": "hunter2", "basic-auth-password-file": "/etc/kea/p"}
+        ],
         "client_secret": "abc",
         "password": "x",
         "must_change_password": True,

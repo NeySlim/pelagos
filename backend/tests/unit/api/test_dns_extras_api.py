@@ -149,5 +149,6 @@ def test_dnssec_policy_and_key_operation_plans(role_client, fake_registry):
     bad = admin.post(Z + "/example.lan/dnssec/plan", json={"action": "checkds", "state": "maybe"})
     assert bad.status_code == 400
     assert admin.post(Z + "/example.lan/dnssec/plan", json={"action": "rollover"}).status_code == 400
-    r = admin.post(Z + "/example.lan/dnssec/plan", json={"action": "rollover", "key_id": 1, "view": "v -key 9"})
+    body = {"action": "rollover", "key_id": 1, "view": "v -key 9"}
+    r = admin.post(Z + "/example.lan/dnssec/plan", json=body)
     assert r.status_code == 400 and r.get_json()["errors"][0]["field"] == "view"

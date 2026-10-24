@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Capture real Kea 3.x control-socket payloads into this directory (run on a host with Kea 3.x control sockets).
+"""Capture real Kea 3.x control-socket payloads into this directory (run on a host with Kea 3.x).
 
     cd backend && PATH=/usr/sbin:$PATH .venv/bin/python tests/unit/connectors/kea/data/capture.py
 

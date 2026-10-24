@@ -16,9 +16,9 @@ from typing import Any
 
 from pelagos.core.context import NodeContext
 from pelagos.core.replication import (
+    UNREACHABLE,
     PeerStatus,
     ReplicationClient,
-    UNREACHABLE,
     ReplicationError,
     Replicator,
     client_ssl_context,

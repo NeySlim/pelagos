@@ -119,8 +119,16 @@ configure_bind_engine() {
   [ -f "$ETC/node.toml" ] && [ -d /etc/bind ] || return 0
   case "$BIND_HOST" in 127.0.0.1|::1|localhost) return 0 ;; esac
   # rndc and the statistics URL take a name; DNS queries and UPDATEs need an address.
-  bind_ip="$(getent ahostsv4 "$BIND_HOST" | awk 'NR == 1 { print $1 }')"
-  [ -n "$bind_ip" ] || bind_ip="$(getent hosts "$BIND_HOST" | awk 'NR == 1 { print $1 }')"
+  # The BIND container starts after pelagos-init: the long-running modes wait for its name.
+  tries=30
+  [ "$mode" = init ] && tries=1
+  bind_ip=""
+  while [ -z "$bind_ip" ] && [ "$tries" -gt 0 ]; do
+    bind_ip="$(getent ahostsv4 "$BIND_HOST" | awk 'NR == 1 { print $1 }')"
+    [ -n "$bind_ip" ] || bind_ip="$(getent hosts "$BIND_HOST" | awk 'NR == 1 { print $1 }')"
+    tries=$((tries - 1))
+    [ -n "$bind_ip" ] || [ "$tries" -eq 0 ] || sleep 1
+  done
   if [ -z "$bind_ip" ]; then
     log "cannot resolve $BIND_HOST; node.toml [engines.bind] left as is"
     return 0

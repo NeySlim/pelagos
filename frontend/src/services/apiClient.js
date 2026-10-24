@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // HTTP client for /api/v1: session cookie, X-CSRF-Token on unsafe methods, RFC 7807
-// problem documents turned into ApiError. A 401 outside the auth endpoints fires
+// problem documents turned into ApiError. A 401 `unauthenticated` (lost session) fires
 // `pelagos:unauthenticated` so AuthContext can drop the session without a hard reload.
 
 export const API_BASE_URL = '/api/v1'
@@ -99,7 +99,7 @@ class APIClient {
     if (!response.ok) {
       const error = problemToError(response.status, data)
       const isAuthEndpoint = endpoint.startsWith('/auth/login') || endpoint.startsWith('/auth/session')
-      if (response.status === 401 && !isAuthEndpoint) {
+      if (response.status === 401 && error.code === 'unauthenticated' && !isAuthEndpoint) {
         window.dispatchEvent(new CustomEvent('pelagos:unauthenticated', { detail: error }))
       }
       throw error

@@ -120,6 +120,16 @@ describe('api.js', () => {
     expect(listener).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps the session on a 401 invalid_credentials from the account endpoints', async () => {
+    global.fetch = vi.fn(async () => jsonResponse(401, { code: 'invalid_credentials' }, 'application/problem+json'))
+    const listener = vi.fn()
+    window.addEventListener('pelagos:unauthenticated', listener)
+    const err = await apiClient.post('/auth/password', { current_password: 'typo', new_password: 'x' }).catch((e) => e)
+    window.removeEventListener('pelagos:unauthenticated', listener)
+    expect(err.code).toBe('invalid_credentials')
+    expect(listener).not.toHaveBeenCalled()
+  })
+
   it('builds query strings without empty values', () => {
     expect(buildQueryString({ a: 1, b: '', c: null, d: [1, 2], e: false })).toBe('?a=1&d=1&d=2&e=false')
     expect(buildQueryString({})).toBe('')

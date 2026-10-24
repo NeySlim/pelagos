@@ -31,3 +31,6 @@ frontend/coverage/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Agent tooling and worktrees
+.claude/

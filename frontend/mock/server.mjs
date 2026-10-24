@@ -1116,9 +1116,14 @@ function buildHandlers(state, emit) {
       per_node: Object.fromEntries(state.nodes.map((n) => [n.peer.id, { ...state.resolver }])),
     }),
     'POST /dns/resolver/plan': ({ body, user }) => {
+      // Body keys are the named.conf statement names; the answer of GET uses underscores.
       const keys = ['recursion', 'allow_recursion', 'forwarders', 'forward', 'dnssec_validation']
       const next = { ...state.resolver }
-      for (const key of keys) if (key in body) next[key] = body[key]
+      for (const key of keys) {
+        const statement = key.replace(/_/g, '-')
+        if (statement in body) next[key] = body[statement]
+        else if (key in body) next[key] = body[key]
+      }
       return settingsPlan(state, user, {
         scope: 'dns.config', engine: 'bind', target: 'options/resolver', current: state.resolver, next,
         tool: 'named-checkconf', summary: 'update resolver settings',
@@ -1199,6 +1204,8 @@ function buildHandlers(state, emit) {
       if (!Array.isArray(body.changes) || !body.changes.length) throw invalid('changes', 'at least one change is required')
       const list = state.globalOptions[params.family]
       const next = JSON.parse(JSON.stringify(list))
+      const bad = body.changes.findIndex((c) => !/^option-data\/[^/]+\/[^/]+$/.test(c.target || ''))
+      if (bad >= 0) throw new Problem(409, 'conflict', `unknown change target '${body.changes[bad].target}'`)
       for (const c of body.changes) {
         const key = c.after?.name || c.before?.name
         const at = next.findIndex((o) => o.name === key)

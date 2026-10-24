@@ -87,7 +87,7 @@ const BODIES = {
   'POST /dhcp/{family}/subnets/plan': { change: { op: 'add', after: { subnet: '192.0.2.224/28' } } },
   'POST /dhcp/{family}/shared-networks/plan': { change: { op: 'add', after: { name: 'lab' } } },
   'POST /dhcp/{family}/client-classes/plan': { change: { op: 'add', after: { name: 'printers', test: "option[60].text == 'printer'" } } },
-  'POST /dhcp/{family}/options/plan': { changes: [{ op: 'add', after: { name: 'time-offset', code: 2, data: '3600' } }] },
+  'POST /dhcp/{family}/options/plan': { changes: [{ op: 'add', target: 'option-data/dhcp4/time-offset', after: { name: 'time-offset', code: 2, data: '3600' } }] },
   'POST /dhcp/{family}/reservations/plan': { change: { op: 'add', after: { subnet_id: 1, identifier: '02:00:5e:00:99:99', ip_address: '192.0.2.99', hostname: 'new' } } },
   'POST /dhcp/{family}/ha/maintenance/plan': { action: 'start' },
   'POST /dhcp/{family}/service/plan': { enable: false },

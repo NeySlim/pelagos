@@ -18,6 +18,9 @@ import { fieldErrors, optionSpace } from './lib'
 const flag = (value) => (value === true ? '✓' : '')
 const optionId = (o) => o.name || String(o.code)
 
+// Change target of a global option (architecture section 6): option-data/<space>/<name or code>.
+const optionTarget = (o, family) => `option-data/${o.space || (family === 'v6' ? 'dhcp6' : 'dhcp4')}/${o.name || String(o.code)}`
+
 export default function OptionsPage({ family }) {
   const { t } = useTranslation(['dhcp', 'common'])
   const { hasPermission } = usePermission()
@@ -29,7 +32,7 @@ export default function OptionsPage({ family }) {
   const defs = options.data?.option_defs || []
 
   const remove = (o) =>
-    flow.build(() => api.dhcp.optionsPlan(family, [{ op: 'delete', target: `option-data/${optionId(o)}`, before: o, after: null }]))
+    flow.build(() => api.dhcp.optionsPlan(family, [{ op: 'delete', target: optionTarget(o, family), before: o, after: null }]))
 
   const columns = [
     { key: 'name', label: t('fields.name'), sortable: true, mono: true },
@@ -141,7 +144,7 @@ function OptionForm({ family, option, existing, flow, onClose }) {
     }
     try {
       const plan = await flow.build(
-        () => api.dhcp.optionsPlan(family, [{ op: isNew ? 'add' : 'replace', target: `option-data/${optionId(after)}`, before: option || null, after }]),
+        () => api.dhcp.optionsPlan(family, [{ op: isNew ? 'add' : 'replace', target: optionTarget(after, family), before: option || null, after }]),
         { rethrow: true },
       )
       if (plan) onClose()

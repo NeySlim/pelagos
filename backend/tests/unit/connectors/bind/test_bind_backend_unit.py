@@ -234,6 +234,7 @@ def test_key_plans_mask_secrets(tmp_root: Path, conf_tree: Path) -> None:
     assert "not an options statement" in unknown.error
     raw = backend.plan_config_change([Change(ChangeOp.ADD, "raw:../named.conf", after="acl x { none; };")])
     assert "not a managed file" in raw.error
+    assert backend.plan_config_change([]).error == "no change"
 
 
 def test_include_setup_plan(tmp_root: Path) -> None:

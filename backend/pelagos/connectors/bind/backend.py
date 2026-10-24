@@ -352,9 +352,9 @@ class BindBackend(DnsBackend):
 
     def plan_config_change(self, changes: list[Change], created_by: str = "") -> Plan:
         kinds = {c.target.split("/", 1)[0] for c in changes}
-        scope = {"keys": PlanScope.DNS_KEY, "acls": PlanScope.DNS_ACL}.get(kinds.pop(), PlanScope.DNS_CONFIG)
-        if len({c.target.split("/", 1)[0] for c in changes}) != 1:
-            scope = PlanScope.DNS_CONFIG
+        scope = PlanScope.DNS_CONFIG
+        if len(kinds) == 1:
+            scope = {"keys": PlanScope.DNS_KEY, "acls": PlanScope.DNS_ACL}.get(kinds.pop(), scope)
         targets = ", ".join(f"{ChangeOp(c.op).value} {c.target}" for c in changes)
         return self._file_plan(scope, changes, f"BIND configuration: {targets}", created_by)
 

@@ -254,8 +254,8 @@ Looked up at call time; until they exist the endpoint answers
 `command`). WP-INSTALLER: `installer.importer.run_import(plan, job, progress)`
 and `installer.security_audit.run_remediation(plan, job, progress)` next to
 the existing `install.run_install`, all called inside a `Job`. WP-KEA:
-`pelagos.connectors.kea.schema.describe(family: Family, version: str | None)
--> dict` for `GET /advanced/kea/{family}/schema`. WP-BIND: optional
+`pelagos.connectors.kea.schema.config_schema(daemon, version)` (daemon `v4`,
+`v6` or `d2`) for `GET /advanced/kea/{family}/schema`. WP-BIND: optional
 `DnsBackend.read_key_secret(name) -> str | None`, used by
 `GET /dns/keys/{name}/secret` when `cluster.toml [secrets]` has no
 `tsig/<name>`. WP-COLLECTOR: `/run/pelagos/collector.sock` may receive

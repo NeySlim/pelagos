@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.core.context import NodeContext
-from pelagos.domain import BindConfigTree, ConfigEntry, Engine, Family
+from pelagos.domain import BindConfigTree, ConfigEntry, Engine
 from pelagos.services.dns_service import DnsService
 from pelagos.services.errors import NotFound, ValidationError, field_error
 
@@ -28,20 +28,24 @@ class AdvancedService:
         return namedconf.grammar()
 
     def kea_schema(self, family: str, dhcp: Any = None) -> dict[str, Any]:
-        """`pelagos.connectors.kea.schema.describe(family, version)` (contracts-changes.md)."""
+        """`pelagos.connectors.kea.schema.config_schema(daemon, version)`, daemon v4, v6 or d2."""
         import importlib
 
+        if family not in {"v4", "v6", "d2"}:
+            raise ValidationError(f"unknown Kea family {family}", [field_error("family", "invalid")])
         try:
             module = importlib.import_module("pelagos.connectors.kea.schema")
         except ImportError:
             raise NotImplementedError("WP-KEA") from None
+        if family == "d2":
+            dhcp = None
         version = None
         if dhcp is not None and dhcp.local is not None:
             try:
                 version = dhcp.local.capabilities().version
             except Exception:
                 version = None
-        return module.describe(Family(family), version)
+        return module.config_schema(family, version)
 
     # BIND tree ----------------------------------------------------------
 

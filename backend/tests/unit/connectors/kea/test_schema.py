@@ -43,7 +43,9 @@ def test_versions_differ_where_kea_does():
     v3, v26 = config_schema("v4", "3.2.1"), config_schema("v4", "2.6.3")
     assert "control-sockets" in v3["keys"] and "control-sockets" not in v26["keys"]
     assert "deprecated" in v3["keys"]["control-socket"] and "deprecated" not in v26["keys"]["control-socket"]
-    assert "client-classes" in v3["objects"]["pool"]["keys"] and "client-class" in v26["objects"]["pool"]["keys"]
+    assert (
+        "client-classes" in v3["objects"]["pool"]["keys"] and "client-class" in v26["objects"]["pool"]["keys"]
+    )
     assert "only-if-required" in v26["objects"]["client-class"]["keys"]
     assert "evaluate-additional-classes" in v3["objects"]["subnet4"]["keys"]
     assert config_schema("Dhcp6", None)["series"] == "3"

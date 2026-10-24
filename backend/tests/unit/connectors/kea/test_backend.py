@@ -345,3 +345,29 @@ def test_d2_plan_masks_and_externalizes(tmp_root):
     assert [k["name"] for k in fake.cfg["tsig-keys"]] == ["kea-ddns"]
     assert d2.config_schema()["root"] == "DhcpDdns"
     assert d2.stats().node_id == "n1"
+
+
+def test_plans_only_touch_their_scope(kea3):
+    backend, _ = kea3
+    whole = Change(ChangeOp.REPLACE, "config", after={})
+    with pytest.raises(ConnectorError, match=r"dhcp\.subnet plan"):
+        backend.plan_subnet_change(whole)
+    with pytest.raises(ConnectorError):
+        backend.plan_reservation_change(Change(ChangeOp.DELETE, "subnet4/1"))
+    with pytest.raises(ConnectorError):
+        backend.plan_class_change(Change(ChangeOp.DELETE, "shared-networks/office"))
+    with pytest.raises(ConnectorError, match="own plans"):
+        backend.plan_global_change([Change(ChangeOp.REPLACE, "subnet4", after=[])])
+    with pytest.raises(ConnectorError):
+        backend.plan_global_change([whole])
+    with pytest.raises(ConnectorError, match="not a kea4 subnet"):
+        backend.plan_subnet_change(Change(ChangeOp.DELETE, "subnet6/1"))
+
+
+def test_subnet_add_uses_the_target_id(kea3):
+    backend, _ = kea3
+    subnet = Subnet(id=0, subnet="203.0.113.0/26", family=Family.V4)
+    plan = backend.plan_subnet_change(Change(ChangeOp.ADD, "subnet4/42", after=subnet.to_dict()))
+    assert plan.changes[0].target == "subnet4/42" and plan.changes[0].after["id"] == 42
+    with pytest.raises(ConnectorError, match="already exists"):
+        backend.plan_subnet_change(Change(ChangeOp.ADD, "subnet4/2", after=subnet.to_dict()))

@@ -776,6 +776,7 @@ function makeAlerts() {
       details: { ip: '192.0.2.125', mac: MAC(400) },
     }),
     a('ALRT0000000000000000000009', 'config_divergence', 'warning', 'open', 'd2:config-file', '/etc/kea/kea-dhcp-ddns.conf differs from the running d2 configuration', {
+      title_message: { key: 'alert.config_file_divergence', params: { path: '/etc/kea/kea-dhcp-ddns.conf', engine: 'd2' } },
       engine: 'd2',
       node_id: NODE_IDS.ns1,
       details: { path: '/etc/kea/kea-dhcp-ddns.conf', differences: ["/tsig-keys[0]/algorithm: 'HMAC-SHA256' in the file, 'HMAC-MD5' running"], count: 1, cause: 'file' },

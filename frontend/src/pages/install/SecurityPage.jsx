@@ -5,6 +5,7 @@
 // one step after the other with backup, validation and rollback on failure.
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useMessage } from '../../i18n/message'
 import { ShieldWarning, ShieldCheck, ArrowsClockwise, Lightning } from '@phosphor-icons/react'
 import { PageLayout, Card, Button, Badge, StatusBadge, LoadingSpinner, EmptyState, PlanPreview } from '../../components'
 import { useApi } from '../../hooks'
@@ -15,6 +16,7 @@ import { SEVERITY_ORDER, sortFindings, toggleId, allSelected } from './findings'
 
 function Finding({ finding, checked, onToggle, disabled }) {
   const { t } = useTranslation('install')
+  const msg = useMessage()
   return (
     <label className={cn('flex items-start gap-3 rounded-lg border p-3 cursor-pointer', checked ? 'border-accent-primary bg-accent-primary-op5' : 'border-border hover:bg-bg-tertiary')} data-testid="security-finding" data-finding={finding.id}>
       <input type="checkbox" className="mt-1" checked={checked} onChange={onToggle} disabled={disabled} />
@@ -25,15 +27,15 @@ function Finding({ finding, checked, onToggle, disabled }) {
           <Badge variant="secondary" size="sm">{t(`security.kind.${finding.kind}`, { defaultValue: finding.kind })}</Badge>
           <span className="font-mono text-xs text-text-secondary break-all">{finding.subject}</span>
         </div>
-        <p className="text-sm text-text-primary">{finding.description}</p>
+        <p className="text-sm text-text-primary">{msg(finding.description_message, finding.description)}</p>
         <dl className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
           <div>
             <dt className="text-2xs uppercase tracking-wider text-text-tertiary">{t('security.proposal')}</dt>
-            <dd className="text-text-secondary">{finding.proposal}</dd>
+            <dd className="text-text-secondary">{msg(finding.proposal_message, finding.proposal)}</dd>
           </div>
           <div>
             <dt className="text-2xs uppercase tracking-wider text-text-tertiary">{t('security.risk')}</dt>
-            <dd className="text-text-secondary">{finding.risk}</dd>
+            <dd className="text-text-secondary">{msg(finding.risk_message, finding.risk)}</dd>
           </div>
         </dl>
         {finding.details?.steps || (finding.kind === 'insecure_key' && finding.engine === 'd2') ? (

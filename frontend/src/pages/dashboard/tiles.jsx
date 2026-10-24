@@ -2,6 +2,7 @@
 // Dashboard tiles, each fed by GET /dashboard/summary (plus open alerts for the
 // inconsistencies tile). The header is the drag handle while editing the layout.
 import { useTranslation } from 'react-i18next'
+import { useMessage } from '../../i18n/message'
 import { Link } from 'react-router-dom'
 import {
   HardDrives, ArrowsLeftRight, WarningDiamond, Globe, ChartBar, Lightning, DotsSixVertical, ArrowRight, Crown,
@@ -151,6 +152,7 @@ const SEVERITIES = ['critical', 'warning', 'info']
 
 export function InconsistenciesTile({ summary, alerts, editing }) {
   const { t } = useTranslation(['dashboard', 'common'])
+  const msg = useMessage()
   const counts = summary?.alerts || { open: 0, critical: 0, warning: 0, info: 0 }
   return (
     <TileFrame
@@ -179,8 +181,8 @@ export function InconsistenciesTile({ summary, alerts, editing }) {
           {alerts.map((a) => (
             <li key={a.id} className="flex items-start gap-2 text-xs" data-testid="tile-alert">
               <StatusBadge status={a.severity} />
-              <span className="flex-1 min-w-0 text-text-primary truncate" title={a.title}>
-                {a.title}
+              <span className="flex-1 min-w-0 text-text-primary truncate" title={msg(a.title_message, a.title)}>
+                {msg(a.title_message, a.title)}
               </span>
               <span className="text-2xs text-text-tertiary font-mono whitespace-nowrap">{t(`kinds.${a.kind}`, { defaultValue: a.kind })}</span>
             </li>

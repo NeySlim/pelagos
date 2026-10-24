@@ -118,7 +118,14 @@ const invalid = (field, message) => new Problem(400, 'validation_error', 'Invali
 const SECURITY_FINDINGS = [
   { id: 'rndc-md5', kind: 'insecure_key', severity: 'critical', engine: 'bind', subject: 'key:rndc-key', description: 'The rndc key uses hmac-md5.', proposal: 'Regenerate the rndc key with hmac-sha256.', risk: 'rndc restarts briefly; no query impact.' },
   { id: 'd2-key-md5', kind: 'insecure_key', severity: 'warning', engine: 'd2', subject: 'key:kea-ddns', description: 'All nodes share one DDNS key created with hmac-md5.', proposal: 'Add a new hmac-sha256 key to the BIND update-policy, switch D2 on every node, then remove the old key.', risk: 'Updates in flight during the switch are retried.' },
-  { id: 'stats-public', kind: 'insecure_listener', severity: 'warning', engine: 'bind', subject: 'statistics-channels', description: 'statistics-channels listens on 0.0.0.0.', proposal: 'Bind it to 127.0.0.1 only.', risk: 'External scrapers lose access.' },
+  {
+    id: 'stats-public', kind: 'insecure_listener', severity: 'warning', engine: 'bind', subject: 'statistics-channels',
+    description: 'The statistics channel listens on 0.0.0.0 and allows all.',
+    description_message: { key: 'finding.stats_nonlocal.description', params: { address: '0.0.0.0', allowed: { key: 'finding.allowed.all', params: {} } } },
+    proposal: 'statistics-channels { inet 127.0.0.1 port 8053 allow { 127.0.0.1; }; };',
+    risk: 'Remote collectors of the BIND statistics lose access; Pelagos reads them locally.',
+    risk_message: { key: 'finding.stats_nonlocal.risk', params: {} },
+  },
   { id: 'transfer-any', kind: 'insecure_listener', severity: 'info', engine: 'bind', subject: 'zone:partner.example.', description: 'allow-transfer is not restricted on one zone.', proposal: 'Restrict to key ddi-read.', risk: 'None.' },
 ]
 const isDualKey = (finding) => finding?.kind === 'insecure_key' && finding?.engine === 'd2'
@@ -1889,13 +1896,15 @@ function buildHandlers(state, emit) {
     'POST /install/security/plan': ({ body, user }) => {
       const ids = body.finding_ids || []
       if (!ids.length) throw invalid('finding_ids', 'choose at least one finding')
-      const steps = ids.flatMap((id) =>
+      const preconditions = { name: 'security/preconditions', label: 'Check that the configuration did not change', label_message: { key: 'job.step.preconditions', params: {} } }
+      const steps = [preconditions, ...ids.flatMap((id) =>
         isDualKey(SECURITY_FINDINGS.find((f) => f.id === id))
           ? ['add the new key to BIND update-policy', 'switch D2 to the new key on every node', 'remove the old key']
           : [`remediate ${id}`],
-      )
+      )]
       return createPlan(state, user, {
-        scope: 'security', engine: null, summary: `apply ${ids.length} security remediation(s)`,
+        scope: 'security', engine: null, summary: `security remediation: ${ids.length} finding(s)`,
+        summary_message: { key: 'plan.security', params: { count: ids.length } },
         changes: ids.map((id) => ({ op: 'replace', target: `security/${id}`, before: null, after: null, node_ids: [] })),
         diff: unifiedDiff('key "rndc-key" {\n\talgorithm hmac-md5;\n};', 'key "rndc-key" {\n\talgorithm hmac-sha256;\n};', '/etc/bind/rndc.key'),
         targets: state.nodes.map((n) => n.peer.id), tool: 'named-checkconf', requires_confirmation: true, job: steps,

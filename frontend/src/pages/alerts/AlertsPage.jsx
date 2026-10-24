@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useMessage } from '../../i18n/message'
 import { Bell, ArrowsClockwise, CheckCircle, MagnifyingGlass, Warning, WarningOctagon, Info, ArrowSquareOut } from '@phosphor-icons/react'
 import { PageLayout, DataTable, Button, Badge, StatusBadge, Modal, JsonTree } from '../../components'
 import { RichStatsBar } from '../../components/ui/RichStatsBar'
@@ -59,10 +60,11 @@ function FileAdoptActions({ alert }) {
 
 function AlertDetail({ alert, nodeName, canAck, onAck, onClose }) {
   const { t } = useTranslation(['alerts', 'dashboard', 'common'])
+  const msg = useMessage()
   const navigate = useNavigate()
   const link = alert ? subjectLink(alert) : null
   return (
-    <Modal open={Boolean(alert)} onClose={onClose} title={alert?.title || t('detail.title')}>
+    <Modal open={Boolean(alert)} onClose={onClose} title={(alert && msg(alert.title_message, alert.title)) || t('detail.title')}>
       {alert && (
         <div className="p-4 space-y-4" data-testid="alert-detail">
           <div className="flex flex-wrap items-center gap-2">
@@ -114,6 +116,7 @@ function AlertDetail({ alert, nodeName, canAck, onAck, onClose }) {
 
 export default function AlertsPage() {
   const { t } = useTranslation(['alerts', 'dashboard', 'common'])
+  const msg = useMessage()
   const [params, setParams] = useSearchParams()
   const { hasPermission } = usePermission()
   const { showSuccess, showError, showInfo, showPrompt } = useNotification()
@@ -208,7 +211,7 @@ export default function AlertsPage() {
       label: t('columns.title'),
       render: (a) => (
         <span className="inline-flex items-center gap-1.5 min-w-0">
-          <span className="truncate text-text-primary">{a.title}</span>
+          <span className="truncate text-text-primary">{msg(a.title_message, a.title)}</span>
           {INCONSISTENCY_KINDS.has(a.kind) && <Badge variant="purple" size="sm">{t('inconsistency')}</Badge>}
         </span>
       ),

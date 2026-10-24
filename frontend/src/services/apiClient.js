@@ -3,6 +3,8 @@
 // problem documents turned into ApiError. A 401 `unauthenticated` (lost session) fires
 // `pelagos:unauthenticated` so AuthContext can drop the session without a hard reload.
 
+import { renderMessage } from '../i18n/message'
+
 export const API_BASE_URL = '/api/v1'
 const CSRF_TOKEN_KEY = 'pelagos_csrf_token'
 const UNSAFE_METHODS = ['POST', 'PUT', 'DELETE', 'PATCH']
@@ -150,15 +152,23 @@ export function buildQueryString(params) {
   return str ? `?${str}` : ''
 }
 
+// The problem's detail in the UI language when the backend sent a message key for it
+// (detail_message), else the English detail.
+function problemText(err) {
+  const keyed = err.problem?.detail_message
+  return keyed ? renderMessage(keyed, err.message) : err.message
+}
+
 // Human message for an error coming out of apiClient (or anything else).
 export function errorMessage(err, fallback = 'Request failed') {
   if (!err) return fallback
   if (err instanceof ApiError) {
+    const base = problemText(err)
     if (err.errors?.length) {
       const first = err.errors[0]
-      return first.field ? `${err.message}: ${first.field} ${first.message}` : `${err.message}: ${first.message}`
+      return first.field ? `${base}: ${first.field} ${first.message}` : `${base}: ${first.message}`
     }
-    return err.message || fallback
+    return base || fallback
   }
   return err.message || String(err) || fallback
 }

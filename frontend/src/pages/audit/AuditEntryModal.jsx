@@ -2,6 +2,7 @@
 // One audit entry: who, what, where, the request sent to the engine, its answer
 // and the diff. Engine payloads are untrusted and render as text only.
 import { useTranslation } from 'react-i18next'
+import { useMessage } from '../../i18n/message'
 import { Modal, StatusBadge, Badge, JsonTree, DiffView, LoadingSpinner } from '../../components'
 import { useApi } from '../../hooks'
 import { api } from '../../services/api'
@@ -32,6 +33,7 @@ function Payload({ title, data, testId }) {
 
 export function AuditEntryDetail({ entry, nodeName = (id) => id }) {
   const { t } = useTranslation(['audit', 'common'])
+  const msg = useMessage()
   return (
     <div className="space-y-4" data-testid="audit-entry">
       <dl className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -48,9 +50,14 @@ export function AuditEntryDetail({ entry, nodeName = (id) => id }) {
         <Field label={t('detail.plan')} mono>{entry.plan_id}</Field>
         <Field label={t('detail.id')} mono>{entry.id}</Field>
       </dl>
+      {entry.request?.summary && (
+        <p className="text-sm text-text-primary" data-testid="audit-entry-summary">
+          {msg(entry.request.summary_message, entry.request.summary)}
+        </p>
+      )}
       {entry.message && (
         <p className="rounded-lg border border-border px-3 py-2 text-sm text-text-primary" data-testid="audit-entry-message">
-          {entry.message}
+          {msg(entry.request?.title_message, entry.message)}
         </p>
       )}
       <section className="space-y-1">

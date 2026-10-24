@@ -1,0 +1,469 @@
+{
+  "alert.config_divergence": [
+    "engine"
+  ],
+  "alert.config_file_divergence": [
+    "engine",
+    "path"
+  ],
+  "alert.d2_errors": [
+    "percent"
+  ],
+  "alert.daemon_down": [
+    "engine"
+  ],
+  "alert.duplicate_lease": [
+    "identifier",
+    "ip",
+    "lease"
+  ],
+  "alert.duplicate_reservation": [
+    "ip"
+  ],
+  "alert.ha_degraded": [
+    "engine",
+    "state"
+  ],
+  "alert.ha_partner_down": [
+    "engine",
+    "state"
+  ],
+  "alert.ha_transition": [
+    "engine",
+    "from_state",
+    "to_state"
+  ],
+  "alert.lease_without_record": [
+    "fqdn",
+    "ip",
+    "rtype",
+    "zone"
+  ],
+  "alert.peer_offline": [
+    "node"
+  ],
+  "alert.pool_usage": [
+    "percent",
+    "pool",
+    "subnet_id"
+  ],
+  "alert.ptr_mismatch": [
+    "ip",
+    "problems"
+  ],
+  "alert.ptr_mismatch.dangling": [
+    "target"
+  ],
+  "alert.ptr_mismatch.no_ptr": [
+    "found",
+    "name"
+  ],
+  "alert.record_without_lease": [
+    "addresses",
+    "name",
+    "rtype"
+  ],
+  "alert.reservation_mismatch": [
+    "fqdn",
+    "problems",
+    "reservation"
+  ],
+  "alert.reservation_mismatch.ptr": [
+    "ip",
+    "targets"
+  ],
+  "alert.reservation_mismatch.records": [
+    "addresses",
+    "fqdn",
+    "rtype"
+  ],
+  "alert.schema_mismatch": [
+    "node"
+  ],
+  "alert.secondary_stale": [
+    "zone"
+  ],
+  "alert.serial_divergence": [
+    "reference",
+    "serial",
+    "zone"
+  ],
+  "alert.zone_error": [
+    "zone"
+  ],
+  "alert.zone_not_loaded": [
+    "zone"
+  ],
+  "common.none": [],
+  "common.the_partner": [],
+  "common.with_note": [
+    "note",
+    "text"
+  ],
+  "finding.allow_update_by_address.description": [
+    "addresses",
+    "zone"
+  ],
+  "finding.allow_update_by_address.proposal": [
+    "policy"
+  ],
+  "finding.allow_update_by_address.risk": [],
+  "finding.allowed.all": [],
+  "finding.allowed.nothing": [],
+  "finding.dnssec_validation_off.description": [],
+  "finding.dnssec_validation_off.risk": [],
+  "finding.kea_ctrl_agent_http.description": [
+    "address"
+  ],
+  "finding.kea_ctrl_agent_http.description_noauth": [
+    "address"
+  ],
+  "finding.kea_ctrl_agent_http.proposal": [],
+  "finding.kea_ctrl_agent_http.risk": [],
+  "finding.kea_http_socket_plain.description": [
+    "address",
+    "engine"
+  ],
+  "finding.kea_http_socket_plain.proposal": [],
+  "finding.kea_http_socket_plain.risk": [],
+  "finding.kea_socket_dir_mode.description": [
+    "mode",
+    "path"
+  ],
+  "finding.kea_socket_dir_mode.risk": [],
+  "finding.kea_tsig_clear_secret.description": [
+    "key"
+  ],
+  "finding.kea_tsig_clear_secret.proposal": [],
+  "finding.kea_tsig_clear_secret.risk": [],
+  "finding.open_allow_transfer.description_options": [],
+  "finding.open_allow_transfer.description_zone": [
+    "zone"
+  ],
+  "finding.open_allow_transfer.risk": [],
+  "finding.open_recursion.description": [],
+  "finding.open_recursion.proposal": [
+    "statement"
+  ],
+  "finding.open_recursion.risk": [],
+  "finding.rndc_nonlocal.description": [
+    "address",
+    "allowed"
+  ],
+  "finding.rndc_nonlocal.risk": [],
+  "finding.static_zone.description": [
+    "zone"
+  ],
+  "finding.static_zone.proposal_add": [
+    "policy"
+  ],
+  "finding.static_zone.proposal_replace": [
+    "policy"
+  ],
+  "finding.static_zone.risk": [
+    "file",
+    "name"
+  ],
+  "finding.static_zone.the_zone_file": [],
+  "finding.stats_nonlocal.description": [
+    "address",
+    "allowed"
+  ],
+  "finding.stats_nonlocal.risk": [],
+  "finding.transfer_without_read_key.description": [
+    "key",
+    "where"
+  ],
+  "finding.transfer_without_read_key.proposal_add": [
+    "statement"
+  ],
+  "finding.transfer_without_read_key.risk": [],
+  "finding.transfer_without_read_key.where_options": [],
+  "finding.transfer_without_read_key.where_zone": [
+    "zone"
+  ],
+  "finding.update_without_admin_key.description": [
+    "key",
+    "zone"
+  ],
+  "finding.update_without_admin_key.proposal": [
+    "key",
+    "where"
+  ],
+  "finding.update_without_admin_key.proposal_grant": [
+    "statement"
+  ],
+  "finding.update_without_admin_key.proposal_replace": [
+    "policy"
+  ],
+  "finding.update_without_admin_key.risk": [],
+  "finding.update_without_admin_key.risk_inherited": [],
+  "finding.update_without_admin_key.where_allow_update": [],
+  "finding.update_without_admin_key.where_inherited": [],
+  "finding.update_without_admin_key.where_inherited_at": [
+    "location"
+  ],
+  "finding.update_without_admin_key.where_policy": [],
+  "finding.view_key.description": [
+    "admin_key",
+    "clients",
+    "read_key",
+    "view"
+  ],
+  "finding.view_key.proposal": [
+    "key",
+    "view"
+  ],
+  "finding.view_key.proposal_earlier": [
+    "earlier",
+    "key",
+    "view"
+  ],
+  "finding.view_key.risk": [],
+  "finding.weak_rndc_key.description": [
+    "algorithm",
+    "key"
+  ],
+  "finding.weak_rndc_key.proposal": [
+    "key",
+    "new_algorithm"
+  ],
+  "finding.weak_rndc_key.risk": [],
+  "finding.weak_shared_kea_key.d2_description": [
+    "algorithm",
+    "key"
+  ],
+  "finding.weak_shared_kea_key.d2_proposal": [
+    "new_key"
+  ],
+  "finding.weak_shared_kea_key.description": [
+    "algorithm",
+    "key"
+  ],
+  "finding.weak_shared_kea_key.proposal": [
+    "new_algorithm",
+    "new_key"
+  ],
+  "finding.weak_shared_kea_key.risk": [],
+  "finding.weak_tsig_key.description": [
+    "algorithm",
+    "key"
+  ],
+  "finding.weak_tsig_key.proposal": [
+    "key",
+    "new_algorithm"
+  ],
+  "finding.weak_tsig_key.risk": [],
+  "job.phase.bind_add": [],
+  "job.phase.bind_remove": [],
+  "job.phase.changes": [],
+  "job.phase.d2_switch": [],
+  "job.step.bind_adopt": [],
+  "job.step.error": [],
+  "job.step.kea_config": [
+    "engine"
+  ],
+  "job.step.kea_socket": [
+    "engine"
+  ],
+  "job.step.node": [],
+  "job.step.packages": [],
+  "job.step.preconditions": [],
+  "job.step.remote": [
+    "node",
+    "phase"
+  ],
+  "job.step.replicate": [
+    "node"
+  ],
+  "job.step.repo": [
+    "repo"
+  ],
+  "job.step.result": [],
+  "job.step.security": [
+    "finding"
+  ],
+  "job.step.security_bind_add": [
+    "finding"
+  ],
+  "job.step.security_bind_remove": [
+    "finding"
+  ],
+  "job.step.security_d2_switch": [
+    "finding"
+  ],
+  "job.step.service": [
+    "engine"
+  ],
+  "job.step.user": [
+    "user"
+  ],
+  "job.step.verify": [],
+  "note.no_difference": [],
+  "note.secret_files": [
+    "count"
+  ],
+  "note.static_file_edit": [],
+  "note.static_file_edit_on": [
+    "node"
+  ],
+  "op.add": [],
+  "op.delete": [],
+  "op.replace": [],
+  "plan.bind.config": [
+    "changes"
+  ],
+  "plan.bind.includes": [],
+  "plan.change": [
+    "op",
+    "target"
+  ],
+  "plan.host": [
+    "fqdn",
+    "ip"
+  ],
+  "plan.host.reserved": [
+    "fqdn",
+    "ip",
+    "mac"
+  ],
+  "plan.import": [
+    "engines"
+  ],
+  "plan.install": [
+    "engines",
+    "source"
+  ],
+  "plan.install.distro_packages": [],
+  "plan.install.isc_kea": [
+    "series"
+  ],
+  "plan.kea.adopt_file": [
+    "engine",
+    "path"
+  ],
+  "plan.kea.global": [
+    "engine",
+    "targets"
+  ],
+  "plan.kea.global_more": [
+    "engine",
+    "targets"
+  ],
+  "plan.kea.ha_cancel": [
+    "down",
+    "up"
+  ],
+  "plan.kea.ha_effect_cancel": [],
+  "plan.kea.ha_effect_start": [
+    "partner"
+  ],
+  "plan.kea.ha_maintenance": [
+    "action",
+    "effect",
+    "server"
+  ],
+  "plan.kea.ha_start": [
+    "down",
+    "up"
+  ],
+  "plan.kea.lease_delete": [
+    "ip"
+  ],
+  "plan.kea.lease_delete_on": [
+    "ip",
+    "node"
+  ],
+  "plan.kea.replace_config": [
+    "engine"
+  ],
+  "plan.kea.reservation": [
+    "op",
+    "target"
+  ],
+  "plan.kea.service_disable": [
+    "engine"
+  ],
+  "plan.kea.service_disable_on": [
+    "engine",
+    "node"
+  ],
+  "plan.kea.service_enable": [
+    "engine"
+  ],
+  "plan.kea.service_enable_on": [
+    "engine",
+    "node"
+  ],
+  "plan.kea.subnet": [
+    "op",
+    "subnet"
+  ],
+  "plan.kea.write_running": [
+    "engine",
+    "path"
+  ],
+  "plan.rrset.changes": [
+    "zone"
+  ],
+  "plan.rrset.count": [
+    "count",
+    "op"
+  ],
+  "plan.rrset.counts": [
+    "counts",
+    "zone"
+  ],
+  "plan.rrset.no_change": [
+    "zone"
+  ],
+  "plan.security": [
+    "count"
+  ],
+  "plan.zone.added": [
+    "command",
+    "op",
+    "target"
+  ],
+  "plan.zone.catalog_member": [
+    "catalog",
+    "member",
+    "op"
+  ],
+  "plan.zone.change": [
+    "op",
+    "target"
+  ],
+  "plan.zone.operation": [
+    "command",
+    "zone"
+  ],
+  "plan.zone.rndc_on": [
+    "node",
+    "op",
+    "zone"
+  ],
+  "problem.config_divergence": [],
+  "problem.confirmation_required": [],
+  "problem.conflict": [],
+  "problem.csrf_failed": [],
+  "problem.detail.unexpected": [],
+  "problem.engine_unavailable": [],
+  "problem.engine_validation_failed": [],
+  "problem.forbidden": [],
+  "problem.internal_error": [],
+  "problem.invalid_credentials": [],
+  "problem.method_not_allowed": [],
+  "problem.module_disabled": [],
+  "problem.not_found": [],
+  "problem.not_implemented": [],
+  "problem.not_supported": [],
+  "problem.plan_expired": [],
+  "problem.plan_state": [],
+  "problem.precondition_failed": [],
+  "problem.rate_limited": [],
+  "problem.replication_syncing": [],
+  "problem.totp_required": [],
+  "problem.unauthenticated": [],
+  "problem.validation_error": []
+}

@@ -4,6 +4,7 @@
 // inconsistencies of one host, with cross actions that build plans on both sides.
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useMessage } from '../../i18n/message'
 import { useNavigate } from 'react-router-dom'
 import {
   Desktop, Clock, BookmarkSimple, Globe, Warning, Trash, Plus, ArrowSquareOut, Copy, Check, PencilSimple,
@@ -50,6 +51,7 @@ function Field({ label, children }) {
 
 export function HostCard({ hostKey, onChanged }) {
   const { t } = useTranslation(['hosts', 'dhcp', 'common'])
+  const msg = useMessage()
   const navigate = useNavigate()
   const openDetail = useOpenDetail()
   const { isMobile } = useMobile()
@@ -294,7 +296,7 @@ export function HostCard({ hostKey, onChanged }) {
             {h.alerts.map((a) => (
               <li key={a.id} className="flex items-start gap-2">
                 <StatusBadge status={a.severity} />
-                <span className="flex-1 text-text-primary">{a.title}</span>
+                <span className="flex-1 text-text-primary">{msg(a.title_message, a.title)}</span>
                 <span className="text-text-tertiary font-mono text-2xs">{a.kind}</span>
               </li>
             ))}

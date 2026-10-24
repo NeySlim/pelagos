@@ -47,7 +47,7 @@ export function rrsetText(rrset) {
 
 const CONFIRM_SCOPES = new Set(['dhcp.ha', 'dhcp.lease', 'security'])
 
-// spec: { scope, engine, summary, changes, diff, targets, preconditions?, validations?,
+// spec: { scope, engine, summary, summary_message?, changes, diff, targets, preconditions?, validations?,
 //         requires_confirmation?, apply(), rollback?(), job? }
 export function createPlan(state, user, spec) {
   const created = Date.now()
@@ -65,6 +65,7 @@ export function createPlan(state, user, spec) {
     scope: spec.scope,
     engine: spec.engine ?? null,
     summary: spec.summary,
+    summary_message: spec.summary_message ?? null,
     changes: spec.changes || [],
     diff: spec.diff || '',
     preconditions: spec.preconditions || [],
@@ -251,7 +252,8 @@ export function rollbackPlan(state, user, id, emit) {
 
 // Long-running scopes (install, import, security): steps advance on a timer.
 function startJob(state, user, held, emit) {
-  const steps = held.job.map((name) => ({ name, state: 'queued', output: '', started_at: null, finished_at: null }))
+  // A step is a name, or {name, label, label_message} like the backend's installer jobs.
+  const steps = held.job.map((s) => ({ ...(typeof s === 'string' ? { name: s } : s), state: 'queued', output: '', started_at: null, finished_at: null }))
   const job = { id: ulid(), plan_id: held.plan.id, state: 'queued', progress: 0, steps, created_at: iso(Date.now()), finished_at: null, error: null }
   state.jobs.set(job.id, job)
   let index = 0

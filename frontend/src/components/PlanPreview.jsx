@@ -13,6 +13,7 @@ import { api } from '../services/api'
 import { errorMessage } from '../services/apiClient'
 import { useWsTopic } from '../hooks/useWebSocket'
 import { useNodeNames } from '../hooks/useNodeNames'
+import { useMessage } from '../i18n/message'
 import { Button } from './Button'
 import { Badge } from './Badge'
 import { StatusBadge } from './StatusBadge'
@@ -74,6 +75,7 @@ export function PlanPreview({
   nodeName: nodeNameProp,
 }) {
   const { t } = useTranslation()
+  const msg = useMessage()
   const fetchedNodeName = useNodeNames(!nodeNameProp)
   const nodeName = nodeNameProp || fetchedNodeName
   const fieldLabel = (key) => t('fieldLabel', { label: t(key) })
@@ -215,7 +217,7 @@ export function PlanPreview({
       </div>
 
       <p className="text-sm text-text-primary" data-testid="plan-summary">
-        {plan.summary}
+        {msg(plan.summary_message, plan.summary)}
       </p>
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-text-tertiary">
@@ -320,7 +322,7 @@ export function PlanPreview({
             {(job.steps || []).map((step, i) => (
               <li key={i} className="flex items-center gap-2">
                 <StatusBadge status={step.state} dot={false} size="sm" />
-                <span className="text-text-primary">{step.name}</span>
+                <span className="text-text-primary" title={step.name}>{msg(step.label_message, step.label || step.name)}</span>
                 {step.output && <span className="text-text-tertiary font-mono truncate">{step.output}</span>}
               </li>
             ))}

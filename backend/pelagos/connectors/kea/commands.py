@@ -100,8 +100,9 @@ def _reservation_sync(
     have = {reservation_key(r): r for r in current}
     want = {reservation_key(r): r for r in wanted}
     cmds: list[Command] = []
-    for key in have.keys() - want.keys():
-        id_type, identifier = key.split("=", 1)
+    for key in sorted(have.keys() - want.keys()):
+        id_type = key.split("=", 1)[0]
+        identifier = str(have[key][id_type])
         args = {"subnet-id": subnet_id, "identifier-type": id_type, "identifier": identifier, **target}
         cmds.append(("reservation-del", args))
     for key, obj in want.items():
@@ -329,16 +330,21 @@ def pool_utilization_from_stats(
             "node_id": node_id,
         }
 
+    # Kea keys pool statistics by pool-id (default 0), so pools without an explicit id share one row.
     seen_pool_subnets: set[int] = set()
-    for (sid, pooltype, index), values in sorted(by_pool.items()):
+    for (sid, pooltype, pool_id), values in sorted(by_pool.items()):
         subnet = names.get(sid)
-        pool_name: str | None = None
+        labels: list[str] = []
         if subnet is not None:
-            pools = subnet.pd_pools if pooltype == "pd-pool" else subnet.pools
-            if index < len(pools):
-                p = pools[index]
-                pool_name = p.pool if pooltype == "pool" else f"{p.prefix}/{p.prefix_len}"  # type: ignore[union-attr]
-        rows.append(row(sid, pool_name or f"{pooltype}[{index}]", pooltype, values))
+            if pooltype == "pd-pool":
+                labels = [
+                    f"{p.prefix}/{p.prefix_len}"
+                    for p in subnet.pd_pools
+                    if p.raw.get("pool-id", 0) == pool_id
+                ]
+            else:
+                labels = [p.pool for p in subnet.pools if p.raw.get("pool-id", 0) == pool_id]
+        rows.append(row(sid, ", ".join(labels) or f"{pooltype}[{pool_id}]", pooltype, values))
         seen_pool_subnets.add(sid)
     for sid, values in sorted(by_subnet.items()):
         if sid not in seen_pool_subnets:

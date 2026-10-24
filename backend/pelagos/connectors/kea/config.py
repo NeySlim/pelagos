@@ -134,6 +134,13 @@ def _set(out: dict[str, Any], key: str, value: Any) -> None:
         out[key] = value
 
 
+def _set_str(out: dict[str, Any], key: str, value: str | None) -> None:
+    """Like _set, but an unset field keeps the blank value Kea printed ("" or 0.0.0.0)."""
+    if value is None and key in out and _none_if_blank(out[key]) is None:
+        return
+    _set(out, key, value)
+
+
 def _classes_from(obj: dict[str, Any]) -> list[str]:
     if "client-classes" in obj:
         return [str(c) for c in obj.get("client-classes") or []]
@@ -275,11 +282,27 @@ def pd_pool_to_kea(pd: PdPool, version: str | None = None) -> dict[str, Any]:
 # Reservations ------------------------------------------------------------------
 
 
+_HEX_ID = re.compile(r"^[0-9A-Fa-f]{2}([:-]?[0-9A-Fa-f]{2})*$")
+
+
+def normalize_identifier(identifier: str) -> str:
+    """Comparison form: Kea prints hw-address as aa:bb:.. but client-id as 010A0B..; both mean the same."""
+    text = identifier.strip()
+    if _HEX_ID.match(text):
+        return text.replace(":", "").replace("-", "").lower()
+    return text
+
+
+def normalize_key(key: str) -> str:
+    id_type, _, identifier = key.partition("=")
+    return f"{id_type}={normalize_identifier(identifier)}"
+
+
 def reservation_key(obj: dict[str, Any]) -> str:
-    """`<id_type>=<identifier>` as used in Change targets; identifiers compare lowercase."""
+    """`<id_type>=<identifier>` in comparison form (see normalize_identifier)."""
     for key in ID_KEYS:
         if obj.get(key):
-            return f"{key}={str(obj[key]).lower()}"
+            return f"{key}={normalize_identifier(str(obj[key]))}"
     raise ConnectorError("reservation without identifier")
 
 
@@ -293,7 +316,7 @@ def reservation_from_kea(obj: dict[str, Any], subnet_id: int | None) -> Reservat
     return Reservation(
         subnet_id=subnet_id,
         id_type=ReservationIdType(id_type),
-        identifier=str(obj[id_type]).lower(),
+        identifier=str(obj[id_type]),
         ip_address=obj.get("ip-address") or None,
         ip_addresses=[str(a) for a in obj.get("ip-addresses") or []],
         prefixes=[str(p) for p in obj.get("prefixes") or []],
@@ -316,12 +339,12 @@ def reservation_to_kea(res: Reservation, with_subnet_id: bool = False) -> dict[s
     _set(out, "ip-address", res.ip_address)
     _set(out, "ip-addresses", list(res.ip_addresses))
     _set(out, "prefixes", list(res.prefixes))
-    _set(out, "hostname", res.hostname)
+    _set_str(out, "hostname", res.hostname)
     _set(out, "client-classes", list(res.client_classes))
     _set(out, "option-data", [option_to_kea(o) for o in res.options])
-    _set(out, "next-server", res.next_server)
-    _set(out, "server-hostname", res.server_hostname)
-    _set(out, "boot-file-name", res.boot_file_name)
+    _set_str(out, "next-server", res.next_server)
+    _set_str(out, "server-hostname", res.server_hostname)
+    _set_str(out, "boot-file-name", res.boot_file_name)
     _set(out, "user-context", dict(res.user_context))
     out.pop("subnet-id", None)
     if with_subnet_id:
@@ -387,7 +410,7 @@ def subnet_to_kea(subnet: Subnet, version: str | None = None) -> dict[str, Any]:
     _set_classes(out, subnet.client_classes, version)
     if subnet.relay or "relay" in out:
         out["relay"] = {**(out.get("relay") or {}), "ip-addresses": list(subnet.relay)}
-    _set(out, "interface", subnet.interface)
+    _set_str(out, "interface", subnet.interface)
     _set(out, "valid-lifetime", subnet.valid_lifetime)
     _set(out, "min-valid-lifetime", subnet.min_valid_lifetime)
     _set(out, "max-valid-lifetime", subnet.max_valid_lifetime)
@@ -426,7 +449,7 @@ def shared_network_to_kea(net: SharedNetwork, version: str | None = None) -> dic
     key = subnet_key(net.family)
     out[key] = [subnet_to_kea(s.replace(shared_network=net.name), version) for s in net.subnets]
     _set(out, "option-data", [option_to_kea(o) for o in net.options])
-    _set(out, "interface", net.interface)
+    _set_str(out, "interface", net.interface)
     if net.relay or "relay" in out:
         out["relay"] = {**(out.get("relay") or {}), "ip-addresses": list(net.relay)}
     _set(out, "user-context", dict(net.user_context))
@@ -464,9 +487,9 @@ def client_class_to_kea(cls: ClientClass, version: str | None = None) -> dict[st
     out.pop("only-if-required", None)
     if cls.only_in_additional_list is not None:
         out[only_additional_key(version)] = cls.only_in_additional_list
-    _set(out, "next-server", cls.next_server)
-    _set(out, "server-hostname", cls.server_hostname)
-    _set(out, "boot-file-name", cls.boot_file_name)
+    _set_str(out, "next-server", cls.next_server)
+    _set_str(out, "server-hostname", cls.server_hostname)
+    _set_str(out, "boot-file-name", cls.boot_file_name)
     _set(out, "user-context", dict(cls.user_context))
     return out
 
@@ -530,7 +553,7 @@ def find_by_name(items: list[dict[str, Any]], name: str) -> int | None:
 
 
 def find_reservation(items: list[dict[str, Any]], key: str) -> int | None:
-    key = key.lower()
+    key = normalize_key(key)
     for i, obj in enumerate(items):
         try:
             if reservation_key(obj) == key:

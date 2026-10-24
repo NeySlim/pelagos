@@ -23,15 +23,16 @@ PVE_NODE="${PVE_NODE:-pve}"
 
 # vmid:name:snapshot
 VMS=(
-  "9110:lab-ns1:clean"
-  "9111:lab-ns2:clean"
-  "9112:lab-rpm:clean"
-  "9113:lab-client:clean"
-  "9114:lab-gw:clean"
+  "9111:lab-ns1:clean"
+  "9112:lab-ns2:clean"
+  "9113:lab-rpm:clean"
+  "9114:lab-client:clean"
   "9115:lab-dev:ready"
+  "9116:lab-pkg-rpm:clean"
+  "9117:lab-docker:clean"
 )
-# "all" targets only the disposable test VMs.
-ALL_TARGETS=(9110 9111 9112 9113)
+# "all" targets only the disposable test VMs; the gateway (9110) is never rolled back.
+ALL_TARGETS=(9111 9112 9113 9114)
 
 usage() { sed -n '3,12p' "$0"; exit 2; }
 

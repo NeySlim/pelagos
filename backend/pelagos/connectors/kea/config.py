@@ -653,6 +653,7 @@ def apply_change(
     elif t.kind == "reservation":
         _edit_reservation(out, t, change, family)
     elif t.kind == "option":
+        had_options = "option-data" in out
         items = out.setdefault("option-data", [])
         idx = next(
             (i for i, o in enumerate(items) if option_matches(o, t.space or "", t.name or "", family)), None
@@ -661,6 +662,12 @@ def apply_change(
             if idx is None:
                 raise ConnectorError(f"option {change.target} not found")
             del items[idx]
+        elif change.after is None:
+            # Inverse of a change that created the option: absent is the target state.
+            if idx is not None:
+                del items[idx]
+            if not items and not had_options:
+                out.pop("option-data", None)
         else:
             obj = option_value_to_kea(change.after)
             obj.setdefault("space", t.space)
@@ -669,7 +676,8 @@ def apply_change(
             else:
                 items[idx] = obj
     elif t.kind == "key":
-        if op is ChangeOp.DELETE:
+        # A None `after` is the inverse of a change that created the key.
+        if op is ChangeOp.DELETE or change.after is None:
             out.pop(t.name or "", None)
         else:
             check_version_support({t.name: change.after}, version)

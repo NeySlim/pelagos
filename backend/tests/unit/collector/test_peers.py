@@ -8,6 +8,7 @@ import pytest
 from pelagos.collector.alerts import AlertStore
 from pelagos.collector.pollers.peers import PeersPoller, ReplicationPeerClient, peer_engines
 from pelagos.collector.series import SeriesStore, connect
+from pelagos.core.replication import ReplicationError
 from pelagos.domain import AlertKind, NodeModules, NodeStatus, Peer
 from tests.unit.collector.fakes import NODE, PEER, FakePeerClient, snapshot_payload
 
@@ -190,10 +191,11 @@ def test_peer_engines_and_replication_client_wrapper():
     client = ReplicationPeerClient(ssl_context=None)
     p = peer()
     assert client._client(p) is client._client(p)
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ReplicationError):
         client.status(p)
     out = PeersPoller(client, NODE, lambda: [p], SeriesStore(connect_memory()), SETTINGS, Clock()).poll()
-    assert out.alerts == [] and out.events == []
+    assert out.alerts == []
+    assert [e[:2] for e in out.events] == [("nodes", "status")]
 
 
 def connect_memory():

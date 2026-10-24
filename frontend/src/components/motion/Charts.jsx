@@ -91,7 +91,7 @@ export function StippledAreaChart({ points = [], tone = 'primary', height = 140,
   return (
     <div ref={ref} className={cn('fx-stipple relative w-full', className)} style={{ height }} data-testid="stippled-area-chart">
       {geometry && (
-        <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : 'true'} className="fx-enter-fade">
+        <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : 'true'} className="fx-enter-fade block max-w-full">
           <path d={geometry.dots} stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.7" />
           <path d={geometry.line} stroke={color} strokeWidth="1.2" fill="none" strokeLinejoin="round" />
         </svg>
@@ -103,7 +103,7 @@ export function StippledAreaChart({ points = [], tone = 'primary', height = 140,
       )}
       {labels?.length > 0 && (
         <div className="absolute left-0 right-0 bottom-0 translate-y-full flex justify-between pt-1 text-3xs text-text-tertiary">
-          {labels.map((l) => <span key={l}>{l}</span>)}
+          {labels.map((l, i) => <span key={`${i}-${l}`}>{l}</span>)}
         </div>
       )}
     </div>

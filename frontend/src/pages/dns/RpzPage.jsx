@@ -21,6 +21,8 @@ async function loadRpz() {
   const { items } = await api.dns.rpz()
   return Promise.all(
     items.map(async (item) => {
+      // A policy zone named in response-policy but not declared here has no records to count.
+      if (item.configured === false) return { ...item, rules: null, local: false }
       try {
         // Paginated totals (per_page=1): exact whatever the zone size.
         const count = (type) => api.dns.records(item.zone, { per_page: 1, type }).then((res) => res.total ?? (res.items || []).length)

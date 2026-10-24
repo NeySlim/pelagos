@@ -389,7 +389,13 @@ class HostsService:
             target = f"{dhcp.subnet_key}/{int(subnet_id)}/reservations/hw-address={mac}"
             targets = dhcp._all_nodes()
             kea_files.check(
-                dhcp.alerts, dhcp.engine, targets, self.ctx.node.id, dhcp.local, dhcp._node_names()
+                dhcp.alerts,
+                dhcp.engine,
+                targets,
+                self.ctx.node.id,
+                dhcp.local,
+                dhcp._node_names(),
+                dhcp.peers,
             )
             try:
                 part = dhcp.local.plan_reservation_change(

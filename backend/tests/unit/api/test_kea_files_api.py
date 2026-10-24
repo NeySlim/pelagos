@@ -109,6 +109,18 @@ def test_open_file_alert_blocks_config_plans_until_fixed(role_client, alerts, no
     assert r.status_code == 409 and r.get_json()["code"] == "config_divergence"
 
 
+def test_a_diverged_partner_file_blocks_the_pair(role_client, peer_b):
+    c = role_client("admin")
+    peer_b.registry.kea4.file = StubFile(["/valid-lifetime: 60 in the file, 3600 running"])
+    r = c.post(D + "/subnets/plan", json=SUBNET)
+    assert r.status_code == 409, r.get_json()
+    assert r.get_json()["divergences"][0]["node_id"] == NODE_B
+    items = {i["node_id"]: i for i in c.get(D + "/config/file").get_json()["items"]}
+    assert items[NODE_B]["diverged"] is True
+    peer_b.registry.kea4.file = StubFile([])
+    assert c.post(D + "/subnets/plan", json=SUBNET).status_code == 200
+
+
 def test_adopt_needs_this_node_and_a_source(role_client, peer_b):
     c = role_client("admin")
     assert c.post(D + "/config/adopt/plan", json={"source": "both"}).status_code == 400

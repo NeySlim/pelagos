@@ -67,10 +67,13 @@ def check(
     self_id: str,
     local: Any,
     names: dict[str, str] | None = None,
+    peers: Any = None,
 ) -> None:
-    """Raises 409 config_divergence when a target node has an open file alert for `engine`."""
+    """Raises 409 config_divergence when a target node has an open file alert for `engine`, or, for
+    a peer target, when the peer's own comparison (snapshot `file`) says its file diverges."""
     names = names or {}
     items: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for alert in open_file_alerts(alerts, engine, node_ids):
         differences = list(alert.details.get("differences") or [])
         if alert.node_id == self_id and local is not None:
@@ -78,6 +81,7 @@ def check(
             if live is not None and not live:
                 continue  # fixed since the collector's last poll
             differences = live or differences
+        seen.add(alert.node_id or "")
         items.append(
             {
                 "node_id": alert.node_id,
@@ -87,6 +91,22 @@ def check(
                 "differences": differences[:20],
             }
         )
+    for node_id in node_ids:
+        if node_id == self_id or node_id in seen or peers is None:
+            continue
+        peer = peers.peer(node_id)
+        snap = peers.snapshot(peer, engine, "file") if peer is not None else None
+        item = (snap or {}).get("file") if not (snap or {}).get("error") else None
+        if isinstance(item, dict) and item.get("diverged"):
+            items.append(
+                {
+                    "node_id": node_id,
+                    "node_name": names.get(node_id, node_id),
+                    "alert_id": item.get("alert_id"),
+                    "path": item.get("path"),
+                    "differences": list(item.get("differences") or [])[:20],
+                }
+            )
     if items:
         raise diverged_error(engine, items)
 

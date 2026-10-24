@@ -483,7 +483,9 @@ class DhcpService:
             targets = self._target_nodes(body["node_ids"])
         else:
             targets = self._all_nodes()
-        kea_files.check(self.alerts, self.engine, targets, self.ctx.node.id, backend, self._node_names())
+        kea_files.check(
+            self.alerts, self.engine, targets, self.ctx.node.id, backend, self._node_names(), self.peers
+        )
         try:
             plan = self._build_config_plan(kind, body, backend, created_by)
         except FileDiverged as exc:

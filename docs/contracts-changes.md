@@ -13,6 +13,42 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, final review (backend): security and robustness fixes
+All additive; `docs/architecture.md` sections 5, 9, 15 and the Kea SELinux note updated.
+- `domain/plan.py`: `NodeApplyResult.outcome_unknown` (default False). `PeerGateway` sets it when a
+  peer plan call fails in transport (no answer, or a 5xx); `PlanService` then rolls that node back
+  too. `core.repl_http.ConnectFailed` (a `TransportError`) and `ReplicationError.code ==
+  "unreachable"` mark a request that never reached the peer (definite failure). A peer's
+  `PlanRunner` waits 60 s for its engine lock and answers connector errors as a failed result,
+  never a 500. Nothing to react to.
+- `PlanService`: a plan never stays APPLYING (unexpected errors roll back what was applied and end
+  FAILED); audit writes are best effort (a full disk adds "audit entry not written" to the result);
+  the local engine is required only when this node is a target.
+- `services/masking.py`: any string under a key ending in `password` or `secret` is masked
+  (`basic-auth-password`...), booleans such as `must_change_password` are not. The Kea advanced
+  editor's masked values are put back before planning (`KeaBackend.unmask_config`); an unknown
+  masked value is a 400 (`config<path>` field). `node_ids` naming another node on a config replace
+  is a 400 (`node_ids`).
+- Kea: `engine_config.command_timeout` (default 120 s) for config-set/-write/-reload/-test; the
+  rollback staleness guard (config hash after apply) is kept on disk under
+  `<backup_root>/applied/` and D2 gets the same guard. BIND: `engine_config.reload_wait_seconds`
+  (default 30): a static zone edit polls `rndc zonestatus` for the new serial instead of restoring
+  on a queued reload.
+- `GET /dns/resolver`: `recursion` follows BIND's default (yes) when absent; `recursion_explicit`
+  added. DNSSEC operation `view` must be one rndc word (400 `view`).
+- `core/audit_log.py`: `AuditLog.scan(offset, inode, needle)` reads entries appended after a byte
+  offset; the collector replays acks from its saved offset, keeps acks whose alert is not open yet
+  (up to a day), and `ACK_SKEW` is 300 s. `core/write_pipeline.py`: in-place write journal and
+  `recover_in_place_writes`.
+- Engine snapshot kind `leases` answers `next` and `partial` and is bounded to 10 000 leases;
+  `DhcpService.all_leases` walks cursor pages (hosts, web consistency pass); `GET /hosts`
+  `meta.errors` says when a lease read was partial and the Hosts page shows it.
+- Installer: the Kea SELinux module lives in `/var/lib/pelagos-helper/selinux` (root 0700) and only
+  Kea-private types are granted; files outside the Kea configuration directory or reached through a
+  symlink are never chmodded or written by the helper.
+- Web restarts for new groups wait while a job or plan runs; the collector's engines-change exit
+  waits (up to 600 s) for received plans in flight.
+
 ## 2026-10-24, F-OPS: units may write the engines' zone directories
 `pelagos.service` and `pelagos-collector.service` replace the `pelagos`
 subdirectories in `ReadWritePaths=` by `-/etc/bind -/etc/named -/etc/kea

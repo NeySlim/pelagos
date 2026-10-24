@@ -630,6 +630,7 @@ class Plan(Model):
 @dataclass(slots=True)
 class NodeApplyResult(Model):
     node_id: str; ok: bool; message: str; rolled_back: bool; audit_ids: list[str]
+    outcome_unknown: bool = False  # transport failure: the node may have applied, it is rolled back too
 
 @dataclass(slots=True)
 class ApplyResult(Model):
@@ -965,6 +966,11 @@ editor swap and backup files are never touched) and preserve the existing owner,
 unless overridden; when the directory refuses a temp file but the existing
 file is writable (the `pelagos` user, in the Kea group, facing `/etc/kea`
 0750), the file is rewritten in place, owner, mode and SELinux label kept.
+An in-place rewrite first saves the old bytes and an intent journal under
+`<backup_root>/.inplace/` (flock held during the write) and writes the new
+bytes before cutting the file to length; at start the web process and the
+collector call `recover_in_place_writes(backups_dir)`, which puts back the
+old bytes of any file that reads as neither its old nor its new content.
 `validate` runs before `reload`; if it fails nothing is
 reloaded and the backup is restored (no reload: the engine still runs its old files; the same holds when
 the write itself fails). If `reload` raises or `verify` returns
@@ -1590,7 +1596,7 @@ Alert kinds and rules (thresholds from `settings`):
 
 | Kind | Severity | Rule |
 | --- | --- | --- |
-| `pool_near_full` / `pool_full` | warning / critical | assigned/total >= warning percent / critical percent on the latest sample |
+| `pool_near_full` / `pool_full` | warning / critical | assigned/total >= warning percent / critical percent on two polls in a row; an open one holds until 5 points under its threshold (hysteresis) |
 | `serial_divergence` | warning | a secondary's SOA serial differs from the primary's for longer than `alerts_serial_divergence_seconds` |
 | `secondary_stale` | critical | secondary `expires` within 24 h, or AXFR refused |
 | `zone_error` | critical | `rndc zonestatus` fails or the zone is not loaded |

@@ -93,7 +93,9 @@ export default function ZonesPage() {
 
   const items = useMemo(() => data?.items || [], [data])
   const rows = useMemo(() => items.filter((it) => !sync || (sync === 'divergent' ? it.divergent : !it.divergent)), [items, sync])
-  const views = useMemo(() => [...new Set(['_default', ...items.map((it) => it.zone.view)])], [items])
+  // View names come from an unfiltered list so the filter can switch views directly.
+  const allZones = useApi(() => api.dns.zones(), [])
+  const views = useMemo(() => [...new Set(['_default', ...(allZones.data?.items || []).map((it) => it.zone.view), ...items.map((it) => it.zone.view)])], [allZones.data, items])
   const canOps = hasPermission('ops:dns')
   const canCreate = hasPermission('write:dns.zones')
 

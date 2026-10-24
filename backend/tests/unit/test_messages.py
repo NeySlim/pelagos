@@ -39,7 +39,7 @@ def test_every_key_is_in_the_ui_catalog_with_its_parameters(lang):
         assert key in catalog, f"{lang}/messages.json lacks {key}"
         ui = sorted(set(re.findall(r"\{\{\s*(\w+)\s*\}\}", catalog[key])))
         assert ui == sorted(messages.placeholders(template)), f"{lang}/messages.json {key}"
-        assert "—" not in catalog[key]
+        assert "\u2014" not in catalog[key]
     assert set(catalog) == set(CATALOG)
 
 

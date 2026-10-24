@@ -14,6 +14,7 @@ export function parseUnifiedDiff(text) {
     else if (line.startsWith('diff ') || line.startsWith('index ')) kind = 'meta'
     else if (line.startsWith('+')) kind = 'add'
     else if (line.startsWith('-')) kind = 'del'
+    else if (line.startsWith('~')) kind = 'change'
     return { index, kind, text: line }
   })
 }
@@ -21,6 +22,7 @@ export function parseUnifiedDiff(text) {
 const rowClass = {
   add: 'bg-status-success-op10 text-status-success',
   del: 'bg-status-danger-op10 text-status-danger',
+  change: 'bg-status-warning-op10 text-status-warning',
   hunk: 'text-accent-primary bg-accent-primary-op10',
   file: 'text-text-primary font-semibold bg-tertiary-op50',
   meta: 'text-text-tertiary',
@@ -31,7 +33,11 @@ export function DiffView({ diff, maxHeight = 360, className, emptyLabel }) {
   const { t } = useTranslation()
   const lines = useMemo(() => parseUnifiedDiff(diff), [diff])
   const stats = useMemo(
-    () => lines.reduce((acc, l) => ({ add: acc.add + (l.kind === 'add' ? 1 : 0), del: acc.del + (l.kind === 'del' ? 1 : 0) }), { add: 0, del: 0 }),
+    () => lines.reduce((acc, l) => ({
+      add: acc.add + (l.kind === 'add' ? 1 : 0),
+      del: acc.del + (l.kind === 'del' ? 1 : 0),
+      change: acc.change + (l.kind === 'change' ? 1 : 0),
+    }), { add: 0, del: 0, change: 0 }),
     [lines],
   )
 
@@ -42,8 +48,14 @@ export function DiffView({ diff, maxHeight = 360, className, emptyLabel }) {
   return (
     <div className={cn('rounded-lg border border-border overflow-hidden bg-bg-primary', className)} data-testid="diff-view">
       <div className="flex items-center gap-3 px-3 py-1.5 border-b border-border text-2xs font-mono bg-bg-secondary">
-        <span className="text-status-success">+{stats.add}</span>
-        <span className="text-status-danger">-{stats.del}</span>
+        {/* A pseudo diff of `~` differences has no +/- lines: counting them would read as no change. */}
+        {(stats.add > 0 || stats.del > 0 || stats.change === 0) && (
+          <>
+            <span className="text-status-success">+{stats.add}</span>
+            <span className="text-status-danger">-{stats.del}</span>
+          </>
+        )}
+        {stats.change > 0 && <span className="text-status-warning">~{stats.change}</span>}
         <span className="text-text-tertiary">{t('diff.lines', { count: lines.length })}</span>
       </div>
       <pre className="overflow-auto text-xs font-mono leading-5 m-0" style={{ maxHeight }}>

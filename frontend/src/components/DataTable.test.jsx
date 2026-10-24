@@ -93,6 +93,14 @@ describe('small shared components', () => {
     expect(screen.getByText('+new')).toBeInTheDocument()
   })
 
+  it('DiffView counts ~ differences as changes, not as +0 -0', () => {
+    const diff = '--- running\n+++ /etc/kea/kea-dhcp4.conf\n~ /valid-lifetime: 4000 != 3600\n'
+    expect(parseUnifiedDiff(diff)[2].kind).toBe('change')
+    render(<DiffView diff={diff} />)
+    expect(screen.getByText('~1')).toBeInTheDocument()
+    expect(screen.queryByText('+0')).toBeNull()
+  })
+
   it('JsonTree renders untrusted strings as text', () => {
     render(<JsonTree data={{ 'user-context': { note: '<img src=x onerror=alert(1)>' } }} expandedDepth={3} />)
     expect(screen.getByText('"<img src=x onerror=alert(1)>"')).toBeInTheDocument()

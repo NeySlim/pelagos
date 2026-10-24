@@ -895,12 +895,13 @@ def canonical(cfg: Any) -> str:
 
 
 def config_diff(before: Any, after: Any, path: str) -> str:
+    sep = "" if path.startswith("/") else "/"  # a/etc/kea/x.conf, a/hosts-database/...
     return "".join(
         difflib.unified_diff(
             canonical(before).splitlines(keepends=True),
             canonical(after).splitlines(keepends=True),
-            fromfile=f"a/{path}",
-            tofile=f"b/{path}",
+            fromfile=f"a{sep}{path}",
+            tofile=f"b{sep}{path}",
             n=3,
         )
     )

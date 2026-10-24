@@ -226,14 +226,16 @@ class KeaConfigFile:
         listing = [redact_kea_difference(d) for d in diffs]
         files = [str(p) for p in self.files(doc)]
         if source == "file":
-            diff = "".join(f"~ {d}\n" for d in listing) or "file and running configuration agree\n"
+            # `~` lines: one difference each (the UI renders them as changes); empty when they agree.
+            diff = "".join(f"~ {d}\n" for d in listing)
             change = Change(
                 ChangeOp.REPLACE,
                 ADOPT_FILE,
                 before={"files": files, "differences": listing},
                 after={"source": "file", "path": str(self.path)},
             )
-            return change, f"--- running ({self.engine} config-get)\n+++ {self.path}\n{diff}", listing
+            header = f"--- running ({self.engine} config-get)\n+++ {self.path}\n" if diff else ""
+            return change, header + diff, listing
         mode, changed = self._adopt_running_texts(doc, running_body)
         if mode == "patch":
             texts = dict(zip(doc.paths, doc.texts, strict=True))
@@ -256,7 +258,7 @@ class KeaConfigFile:
             before={"files": files, "differences": listing},
             after={"source": "running", "mode": mode, "files": [str(p) for p in changed] or [str(self.path)]},
         )
-        return change, diff or "file and running configuration agree\n", listing
+        return change, diff, listing
 
     def _adopt_running_texts(
         self, doc: KeaDocument, running_body: dict[str, Any]

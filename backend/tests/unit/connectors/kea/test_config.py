@@ -308,6 +308,6 @@ def test_apply_change_replace_without_raw_keeps_existing_keys():
 def test_config_diff():
     before = {"a": 1, "b": [1, 2]}
     diff = kcfg.config_diff(before, {"a": 2, "b": [1, 2]}, "/etc/kea/kea-dhcp4.conf")
-    assert diff.startswith("--- a//etc/kea/kea-dhcp4.conf\n+++ b//etc/kea/kea-dhcp4.conf\n")
+    assert diff.startswith("--- a/etc/kea/kea-dhcp4.conf\n+++ b/etc/kea/kea-dhcp4.conf\n")
     assert '-  "a": 1,' in diff and '+  "a": 2,' in diff
     assert kcfg.config_diff(before, before, "x") == ""

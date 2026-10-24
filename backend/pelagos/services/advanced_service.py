@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -147,7 +148,7 @@ def _context_label(name: str) -> str:
 
 def _args_text(entry: dict[str, Any], name: str) -> str:
     grammar = str(entry.get("grammar") or "")
-    text = " ".join(grammar.replace("<", " ").replace(">", " ").split())
+    text = " ".join(re.sub(r"<([^<>]*)>", r"\1", grammar).split())
     if name == "include" and not text:
         return "quoted_string"
     if entry.get("block"):
@@ -177,6 +178,18 @@ def grammar_document(grammar: dict[str, Any]) -> dict[str, Any]:
                 }
             if label not in row["contexts"]:
                 row["contexts"].append(label)
+    if not any(name == "include" for name, _args in rows):
+        # named accepts include anywhere; the generated grammar has no statement entry for it.
+        rows[("include", "quoted_string")] = {
+            "name": "include",
+            "contexts": ["toplevel", "options", "view", "zone"],
+            "args": "quoted_string",
+            "multiple": True,
+            "doc": f"{grammar.get('doc_base', '')}#include-directive" if grammar.get("doc_base") else None,
+            "types": ["quoted_string"],
+            "status": "current",
+            "block": None,
+        }
     return {
         **grammar,
         "version": grammar.get("bind_version"),

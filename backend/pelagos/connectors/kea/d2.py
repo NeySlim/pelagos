@@ -93,6 +93,7 @@ class _PlanPrivate:
     secrets: dict[Path, str]
     before: dict[str, Any] | None = None  # the real before state when it holds clear secrets
     backup: Path | None = None
+    after_hash: str | None = None  # config-hash right after the apply: rollback refuses once it moved
 
 
 def has_masked_secrets(config: Any) -> bool:
@@ -328,10 +329,35 @@ class D2Backend(DdnsBackend):
             # Secrets are no longer needed; what rollback needs stays for the rollback window.
             private.secrets = {}
             private.expires_at = utcnow() + timedelta(seconds=self.plan_ttl)
-        return self._write(dict(change.after), plan.id, secrets)
+        return self._remember(plan.id, self._write(dict(change.after), plan.id, secrets))
+
+    def _remember(self, plan_id: str, result: NodeApplyResult) -> NodeApplyResult:
+        if result.ok:
+            private = self._private.setdefault(
+                plan_id, _PlanPrivate(expires_at=utcnow() + timedelta(seconds=self.plan_ttl), secrets={})
+            )
+            try:
+                private.after_hash = self.config_hash()
+            except ConnectorError:
+                private.after_hash = None
+        return result
+
+    def _check_stale(self, plan: Plan) -> None:
+        """A rollback after a later D2 change (another plan, the key switch, a hand edit) would undo
+        it with this plan's whole before state: refused once the running hash moved."""
+        private = self._private.get(plan.id)
+        if private is None or private.after_hash is None:
+            return
+        observed = self.config_hash()
+        if observed != private.after_hash:
+            raise PreconditionFailed(
+                Precondition(PreconditionKind.CONFIG_HASH, "d2:config", private.after_hash, self.ctx.node_id),
+                observed,
+            )
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
         self._sweep()
+        self._check_stale(plan)
         adopt = next((c for c in plan.changes if c.target in ADOPT_TARGETS), None)
         if adopt is not None:
             return self._rollback_adopt(plan, adopt)
@@ -418,7 +444,7 @@ class D2Backend(DdnsBackend):
         )
         private.backup = backup
         private.expires_at = utcnow() + timedelta(seconds=self.plan_ttl)
-        return NodeApplyResult(node_id=self.ctx.node_id, ok=True, message=message)
+        return self._remember(plan.id, NodeApplyResult(node_id=self.ctx.node_id, ok=True, message=message))
 
     def _rollback_adopt(self, plan: Plan, change: Change) -> NodeApplyResult:
         private = self._private.pop(plan.id, None)

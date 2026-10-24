@@ -550,6 +550,23 @@ def test_d2_running_clear_secret_stays_out_of_plans(tmp_root):
     assert not result.ok and "backup" in result.message
 
 
+def test_d2_rollback_refused_after_a_later_change(tmp_root):
+    d2, fake = d2_with(tmp_root)
+    a = d2.config_get()
+    a["dns-server-timeout"] = 700
+    plan_a = d2.plan_config_replace({"DhcpDdns": a})
+    assert d2.apply(plan_a).ok
+    b = d2.config_get()
+    b["dns-server-timeout"] = 800
+    plan_b = d2.plan_config_replace({"DhcpDdns": b})
+    assert d2.apply(plan_b).ok
+    with pytest.raises(PreconditionFailed):
+        d2.rollback(plan_a)
+    assert fake.cfg["dns-server-timeout"] == 800
+    assert d2.rollback(plan_b).ok and fake.cfg["dns-server-timeout"] == 700
+    assert d2.rollback(plan_a).ok and fake.cfg["dns-server-timeout"] != 700
+
+
 def test_d2_expired_plans_drop_their_secrets(tmp_root):
     d2, _fake = d2_with(tmp_root)
     cfg = d2.config_get()

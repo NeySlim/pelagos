@@ -500,6 +500,15 @@ def start_replication(
 
 # Exit status asking the service manager for a restart (Restart=on-failure): the engines changed.
 EXIT_ENGINES_CHANGED = 75
+# A peer's installer plan rewrites node.toml before its verify step: the exit waits for it to answer.
+EXIT_WAIT_MAX = 600.0
+
+
+def exit_due(changed_at: float | None, now: float, in_flight: int) -> bool:
+    """True when the collector may exit for an engines change seen at `changed_at`."""
+    if changed_at is None:
+        return False
+    return in_flight == 0 or now - changed_at >= EXIT_WAIT_MAX
 
 
 class EnginesWatch:
@@ -630,9 +639,14 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     watch = EnginesWatch(ctx)
     settings_watch = SettingsWatch(ctx)
     next_modules_check = 0.0
+    changed_at: float | None = None
+    from pelagos.services.registry import plans_in_flight
+
     try:
         while True:
-            if watch.changed():
+            if changed_at is None and watch.changed():
+                changed_at = time.monotonic()
+            if exit_due(changed_at, time.monotonic(), plans_in_flight()):
                 log.info("node.toml engines changed: exiting so the service restarts with them")
                 return EXIT_ENGINES_CHANGED
             if settings_watch.changed():

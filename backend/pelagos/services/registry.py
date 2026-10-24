@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -94,6 +95,30 @@ INSTALLER_SCOPES = frozenset({PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SEC
 PEER_LOCK_TIMEOUT = 60.0
 
 
+class _Active:
+    """Plans a PlanRunner is applying or rolling back right now (replication handler threads)."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.count = 0
+
+    def __enter__(self) -> None:
+        with self._lock:
+            self.count += 1
+
+    def __exit__(self, *exc: object) -> None:
+        with self._lock:
+            self.count -= 1
+
+
+ACTIVE_PLANS = _Active()
+
+
+def plans_in_flight() -> int:
+    """How many received plans this process is running: the collector waits for 0 before exiting."""
+    return ACTIVE_PLANS.count
+
+
 class PlanRunner:
     """One engine's entry in the replication registry: the backend, plus what only the receiving node
     can do. Installer plans (install, import, security) run as a synchronous job; everything else,
@@ -112,7 +137,7 @@ class PlanRunner:
         from pelagos.services.installer_runner import run_received
 
         try:
-            with self._lock():
+            with ACTIVE_PLANS, self._lock():
                 if plan.scope in INSTALLER_SCOPES:
                     return run_received(self.ctx, plan)
                 return self.backend.apply(plan)
@@ -128,7 +153,7 @@ class PlanRunner:
                 message="installer steps roll back their own files when they fail; restore from history",
             )
         try:
-            with self._lock():
+            with ACTIVE_PLANS, self._lock():
                 return self.backend.rollback(plan)
         except ConnectorError as exc:
             return NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=str(exc))

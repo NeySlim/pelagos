@@ -93,13 +93,14 @@ class PackageManager:
             return self.runner.run(["dnf", "-q", "makecache"], privileged=True, timeout=600).output
         raise RuntimeError(f"no package manager for {self.distro.id}")
 
-    def install(self, packages: list[str]) -> str:
+    def install(self, packages: list[str], replace: bool = False) -> str:
+        """`replace`: conflicting packages may be removed (apt does it with -y, dnf needs --allowerasing)."""
         if not packages:
             return "nothing to install"
         if self.kind == "apt":
             argv = ["apt-get", "install", "-y", "-q", "-o", "Dpkg::Options::=--force-confold", *packages]
         elif self.kind == "dnf":
-            argv = ["dnf", "install", "-y", "-q", *packages]
+            argv = ["dnf", "install", "-y", "-q", *(["--allowerasing"] if replace else []), *packages]
         else:
             raise RuntimeError(f"no package manager for {self.distro.id}")
         return (

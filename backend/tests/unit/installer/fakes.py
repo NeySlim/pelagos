@@ -178,8 +178,8 @@ class FakePackages:
     def available(self, p: str) -> bool:
         return True
 
-    def install(self, pkgs: list[str]) -> str:
-        self.calls.append(("install", *pkgs))
+    def install(self, pkgs: list[str], replace: bool = False) -> str:
+        self.calls.append(("install-replace" if replace else "install", *pkgs))
         self.installed.update(pkgs)
         return "installed"
 
@@ -213,6 +213,7 @@ def make_env(tmp: Path, distro: str = "debian13", kea_version: str = "3.2.1") ->
         kea_lease_dir=tmp / "var/lib/kea",
         kea_log_dir=tmp / "var/log/kea",
         systemd_dir=tmp / "etc/systemd/system",
+        root=tmp,
     )
     node = Paths(
         etc=tmp / "pelagos/etc", var=tmp / "pelagos/var", run=tmp / "pelagos/run", opt=tmp / "pelagos/opt"

@@ -131,3 +131,30 @@ def test_job_runner_stops_at_first_failure():
     assert job.state is JobState.FAILED and job.error == "b: no network"
     assert [s["name"] for s in job.steps] == ["a", "b"]
     assert job.steps[1]["state"] == "failed"
+
+
+def test_switch_from_distro_kea_to_isc_keeps_configs(tmp_path):
+    env = make_env(tmp_path)
+    env.packages.installed.update({"kea-dhcp4-server", "kea-dhcp-ddns-server"})
+    kea = tmp_path / "etc/kea"
+    kea.mkdir(parents=True)
+    d4 = (
+        '// mine\n{"Dhcp4": {"control-socket": {"socket-type": "unix", "socket-name": "kea4-ctrl-socket"}}}\n'
+    )
+    (kea / "kea-dhcp4.conf").write_text(d4)
+    secret_key = {"name": "kea-ddns", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0"}
+    (kea / "kea-dhcp-ddns.conf").write_text(json.dumps({"DhcpDdns": {"tsig-keys": [secret_key]}}))
+    plan = build_install_plan(env, ["kea4", "d2"], "isc", "3.2")
+    pkgs = next(c for c in plan.changes if c.target == "install/packages").after
+    assert pkgs["replaces"] == ["kea-dhcp4-server", "kea-dhcp-ddns-server"]
+    assert [c.after["mode"] for c in plan.changes if c.target.endswith("/config")] == ["keep", "keep"]
+    job = apply_plan(plan, env)
+    assert job.state is JobState.DONE, job.error
+    assert env.packages.calls[-1][0] == "install-replace"
+    assert ("fetch", "https://dl.cloudsmith.io/public/isc/kea-3-2/gpg.key") in env.tools.calls
+    sources = (tmp_path / "etc/apt/sources.list.d/isc-kea-3-2.list").read_text()
+    assert "kea-3-2/deb/debian trixie main" in sources
+    assert (kea / "kea-dhcp4.conf").read_text() == d4  # untouched, comments included
+    key = keaconf.tsig_keys(keaconf.loads((kea / "kea-dhcp-ddns.conf").read_text()))[0]
+    assert key == {"name": "kea-ddns", "algorithm": "HMAC-SHA256", "secret-file": str(kea / "kea-ddns.tsig")}
+    assert (kea / "kea-ddns.tsig").read_text() == "c2VjcmV0"

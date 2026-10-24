@@ -123,6 +123,7 @@ class PlatformPaths:
     bind_checkconf: str = "named-checkconf"
     selinux: bool = False
     systemd_dir: Path = Path("/etc/systemd/system")
+    root: Path = Path("/")  # prefix for package repository files (tests point it at a temp tree)
 
     @property
     def rndc_conf_pelagos(self) -> Path:

@@ -95,11 +95,12 @@ def build_install_plan(
     wanted += paths.kea_packages_for(kea, isc)
     missing = [p for p in wanted if not env.packages.is_installed(p)]
     if missing:
-        changes.append(
-            _change(
-                "install/packages", env, {"install": missing, "present": sorted(set(wanted) - set(missing))}
-            )
-        )
+        after_pkgs: dict[str, Any] = {"install": missing, "present": sorted(set(wanted) - set(missing))}
+        if isc:
+            # The ISC packages conflict with the distro ones, which the package manager removes.
+            distro_kea = paths.kea_packages_for(kea, isc=False)
+            after_pkgs["replaces"] = [p for p in distro_kea if env.packages.is_installed(p)]
+        changes.append(_change("install/packages", env, after_pkgs))
 
     groups = ([paths.bind_group] if "bind" in engines else []) + ([paths.kea_group] if kea else [])
     changes.append(_change(f"install/user/{PELAGOS_USER}", env, {"groups": groups}))
@@ -201,13 +202,14 @@ def step_repo(env: Any, change: Change) -> str:
             out.append(f"dry run: would write {f.path}")
             continue
         data = f.content.encode() if f.content is not None else env.t.fetch(str(f.url))
-        f.path.parent.mkdir(parents=True, exist_ok=True)
-        if f.path.exists() and f.path.read_bytes() == data:
-            out.append(f"{f.path} present")
+        target = env.paths.root / f.path.relative_to("/")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and target.read_bytes() == data:
+            out.append(f"{target} present")
             continue
-        f.path.write_bytes(data)
-        os.chmod(f.path, f.mode)
-        out.append(f"{f.path} written")
+        target.write_bytes(data)
+        os.chmod(target, f.mode)
+        out.append(f"{target} written")
     out.append(env.packages.refresh() or "package index refreshed")
     return "\n".join(o for o in out if o)
 
@@ -219,6 +221,8 @@ def step_packages(env: Any, change: Change) -> str:
         if missing:
             # Older RHEL releases ship Kea in EPEL only.
             env.packages.install(["epel-release"])
+    if change.after.get("replaces"):
+        return env.packages.install(pkgs, replace=True)
     return env.packages.install(pkgs)
 
 
@@ -263,6 +267,18 @@ def step_kea_config(env: Any, engine: str, change: Change, ctx: InstallContext) 
     out = [f"{daemon} {version or 'version unknown'}"]
     if change.after.get("mode") == "keep":
         text = conf.read_text()
+        if engine == "d2" and keaconf.supports_secret_file(version):
+            # Kea 3.x refuses clear D2 secrets: move them to secret files before the new daemon starts.
+            migrated, secret_files = keasetup.migrate_inline_secrets(
+                keaconf.loads(text), env.paths.kea_conf_dir
+            )
+            for path, secret in secret_files.items():
+                out.append(keasetup.write_secret_file(env, path, secret))
+            if secret_files:
+                text = keaconf.dumps(migrated)
+                out.append(
+                    keasetup.write_config(env, engine, conf, text, f"install-{engine}-secrets", restart=False)
+                )
         new_text, changed = keasetup.ensure_unix_socket(text, engine, version)
         if changed:
             out.append(keasetup.write_config(env, engine, conf, new_text, f"install-{engine}", restart=False))

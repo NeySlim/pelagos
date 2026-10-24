@@ -216,6 +216,20 @@ def secret_file_path(conf_dir: Path, key_name: str) -> Path:
     return conf_dir / f"{key_name}.tsig"
 
 
+def migrate_inline_secrets(
+    d2_config: dict[str, Any], conf_dir: Path
+) -> tuple[dict[str, Any], dict[Path, str]]:
+    """Copy of a D2 config whose clear `secret` entries became `secret-file`; returns the files to write."""
+    cfg = json.loads(json.dumps(d2_config))
+    files: dict[Path, str] = {}
+    for key in cfg.get("DhcpDdns", {}).get("tsig-keys", []) or []:
+        if "secret" in key and key.get("name"):
+            path = secret_file_path(conf_dir, str(key["name"]))
+            files[path] = str(key.pop("secret"))
+            key["secret-file"] = str(path)
+    return cfg, files
+
+
 # Apply ---------------------------------------------------------------------------------------
 
 
@@ -245,10 +259,12 @@ def kea_pipeline(env: Any, engine: str, conf: Path, label: str, restart: bool) -
     unit = env.kea_unit(engine)
 
     def validate() -> ValidationResult:
+        env.relabel([conf])
         ok, output = env.t.kea_test(daemon, conf)
         return ValidationResult(ok=ok, tool=f"{daemon} -t", output=output, node_id=env.node_id)
 
     def reload() -> str:
+        env.relabel([conf])
         if restart:
             return env.services.restart(unit) or f"{unit} restarted"
         if not env.services.is_active(unit):
@@ -282,13 +298,14 @@ def write_secret_file(env: Any, path: Path, secret: str) -> str:
         return f"dry run: would write {path}"
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(secret + "\n")
+    tmp.write_text(secret)  # no trailing newline: Kea reads the file as the secret itself
     os.chmod(tmp, 0o640)
     try:
         os.chown(tmp, 0, grp.getgrnam(env.paths.kea_group).gr_gid)
     except (KeyError, PermissionError):
         pass
     os.replace(tmp, path)
+    env.relabel([path])
     return f"{path} written"
 
 

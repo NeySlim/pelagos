@@ -235,6 +235,14 @@ class InstallerEnv:
         store.save_node(node)
         return f"node.toml engines: {', '.join(sorted(k for k, v in node.engines.items() if v))}"
 
+    def relabel(self, paths: list[Path]) -> None:
+        """SELinux: a file written through a temp file gets its directory's default type; restore it."""
+        if not self.paths.selinux or self.dry_run:
+            return
+        existing = [str(p) for p in paths if p.exists()]
+        if existing:
+            self.runner.run(["restorecon", *existing], privileged=True, check=False, timeout=60)
+
     def store_secrets(self, secrets: dict[str, str]) -> str:
         """Encrypts secrets into cluster.toml [secrets] when the node is initialized."""
         if not secrets:

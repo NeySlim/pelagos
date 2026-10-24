@@ -641,7 +641,9 @@ def _run_bind(env: Any, edits: dict[str, str], label: str, restart: bool = False
 
     if env.dry_run:
         return "dry run: would write " + ", ".join(edits)
-    pipeline = bindsetup.bind_pipeline(env, env.paths.named_conf, label=label, restart=restart)
+    pipeline = bindsetup.bind_pipeline(
+        env, env.paths.named_conf, label=label, restart=restart, written=[Path(p) for p in edits]
+    )
     result = pipeline.run([FileChange(Path(p), t.encode()) for p, t in edits.items()])
     if not result.ok:
         raise RuntimeError(f"{label}: {result.error} (rolled back: {result.rolled_back})")
@@ -863,7 +865,8 @@ def remediate_update_policy(env: Any, d: dict[str, Any], ctx: dict[str, Any]) ->
     au = z.stmt.sub("allow-update")
     if au is None:
         return "allow-update already gone"
-    proposal = bindsetup.update_policy_proposal(z, d.get("kea_key"))
+    # Read the updating key now: a dual-key switch earlier in the same plan may have renamed it.
+    proposal = bindsetup.update_policy_proposal(z, bindsetup.kea_key_of_zone(z))
     text = _file_text(files, str(z.stmt.path))
     return _run_bind(
         env,

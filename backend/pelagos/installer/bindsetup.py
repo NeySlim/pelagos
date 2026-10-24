@@ -367,7 +367,9 @@ def adopt(env: Any, named_conf: Path, opts: AdoptOptions) -> AdoptResult:
         out.append("dry run: would write " + ", ".join(str(p) for p in changes))
         return AdoptResult(out, secrets, engine_config, None)
 
-    pipeline = bind_pipeline(env, named_conf, label="install-bind", verify_stats=stats_url)
+    pipeline = bind_pipeline(
+        env, named_conf, label="install-bind", verify_stats=stats_url, written=list(changes)
+    )
     file_changes = [
         FileChange(
             path=p,
@@ -393,15 +395,22 @@ def named_running(env: Any) -> bool:
 
 
 def bind_pipeline(
-    env: Any, named_conf: Path, label: str, verify_stats: str | None = None, restart: bool = False
+    env: Any,
+    named_conf: Path,
+    label: str,
+    verify_stats: str | None = None,
+    restart: bool = False,
+    written: list[Path] | None = None,
 ) -> WritePipeline:
     """Validate with named-checkconf, reload with `rndc reconfig` (or a restart), verify rndc and stats."""
 
     def validate() -> ValidationResult:
+        env.relabel(written or [])
         ok, output = env.t.checkconf(named_conf)
         return ValidationResult(ok=ok, tool="named-checkconf", output=output, node_id=env.node_id)
 
     def reload() -> str:
+        env.relabel(written or [])  # also after a restore
         if not named_running(env):
             return "named not running: reload skipped"
         if restart:

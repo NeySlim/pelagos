@@ -1,0 +1,121 @@
+# SPDX-License-Identifier: Apache-2.0
+"""cluster_merge: per-entry stamps, tombstones, commutative and idempotent merge."""
+
+from __future__ import annotations
+
+import pytest
+
+from pelagos.core import cluster_merge as cm
+from pelagos.core.config_store import ClusterConfig, merge_configs
+from pelagos.domain import Peer, Role, User
+
+pytestmark = pytest.mark.unit
+
+
+def _base() -> ClusterConfig:
+    cfg = ClusterConfig.new("node:A")
+    cfg.users.append(User(id="U1", username="admin", password_hash="h", roles=["admin"]))
+    cfg.nodes.append(
+        Peer(id="A", name="ns1", url="https://ns1.example.lan:8444", cert_fingerprint="sha256:a")
+    )
+    cfg.secrets["tsig/ddi-admin"] = "enc:v1:a"
+    state, _ = cm.record_write(cm.State(), cm.flatten(cfg.document()), "A")
+    cfg.stamped, cfg.stamps, cfg.version = True, state.stamps, 1
+    return cfg
+
+
+def _write(cfg: ClusterConfig, node: str, mutate) -> ClusterConfig:
+    out = ClusterConfig.from_toml(_roundtrip(cfg))
+    before = out.state()
+    mutate(out)
+    state, counter = cm.record_write(before, cm.flatten(out.document()), node, floor=out.version)
+    out.stamps, out.tombstones, out.version, out.updated_by = (
+        state.stamps,
+        state.tombstones,
+        counter,
+        f"node:{node}",
+    )
+    return ClusterConfig.from_toml(_roundtrip(out))
+
+
+def _roundtrip(cfg: ClusterConfig) -> dict:
+    import tomllib
+
+    return tomllib.loads(cfg.dumps())
+
+
+def test_flatten_paths_and_round_trip():
+    cfg = _base()
+    values = cm.flatten(cfg.document())
+    assert values["users/U1"] is cm.RECORD
+    assert values["users/U1/roles"] == ["admin"]
+    assert values["secrets/tsig%2Fddi-admin"] == "enc:v1:a"
+    assert values["settings/collector/poll_seconds"] == 60
+    assert values["nodes/A/modules/bind"] is False
+    doc = cm.unflatten(values, cfg.stamps)
+    assert cm.flatten(doc) == values
+
+
+def test_merge_is_commutative_and_idempotent():
+    base = _base()
+    a = _write(base, "A", lambda c: c.settings.__setitem__("plan_ttl_seconds", 1))
+    b = _write(base, "B", lambda c: c.roles.append(Role(name="ops", permissions=["read:dns"])))
+    b = _write(b, "B", lambda c: c.users[0].roles.append("viewer"))
+    ab, ba = merge_configs(a, b), merge_configs(b, a)
+    assert ab.digest() == ba.digest() and ab.version == ba.version
+    assert merge_configs(ab, ab).digest() == ab.digest()
+    assert merge_configs(ab, a).digest() == ab.digest()
+    assert ab.settings["plan_ttl_seconds"] == 1
+    assert [r.name for r in ab.roles] == ["ops"]
+    assert ab.users[0].roles == ["admin", "viewer"]
+
+
+def test_same_key_conflict_greater_stamp_then_node_wins():
+    base = _base()
+    a = _write(base, "A", lambda c: c.settings.__setitem__("plan_ttl_seconds", 1))
+    b = _write(base, "B", lambda c: c.settings.__setitem__("plan_ttl_seconds", 2))
+    assert merge_configs(a, b).settings["plan_ttl_seconds"] == 2  # same counter, "B" > "A"
+    a2 = _write(a, "A", lambda c: c.settings.__setitem__("plan_ttl_seconds", 3))
+    assert merge_configs(b, a2).settings["plan_ttl_seconds"] == 3  # higher counter
+
+
+def test_tombstones_delete_wins_and_prunes_fields():
+    base = _base()
+    base = _write(base, "A", lambda c: c.roles.append(Role(name="ops", permissions=["read:dns"])))
+    deleted = _write(base, "A", lambda c: setattr(c, "roles", []))
+    edited = _write(base, "B", lambda c: setattr(c.roles[0], "description", "x"))
+    edited = _write(edited, "B", lambda c: setattr(c.roles[0], "description", "y"))
+    merged = merge_configs(edited, deleted)
+    assert merged.roles == []
+    assert "roles/ops" in merged.tombstones
+    assert not [p for p in {**merged.stamps, **merged.tombstones} if p.startswith("roles/ops/")]
+    # A removed secret stays removed when the other side still has it.
+    gone = _write(base, "A", lambda c: c.secrets.clear())
+    assert merge_configs(base, gone).secrets == {}
+    assert merge_configs(gone, base).secrets == {}
+
+
+def test_concurrent_same_username_keeps_one_record():
+    base = _base()
+    a = _write(base, "A", lambda c: c.users.append(User(id="U2", username="bob", password_hash="a")))
+    b = _write(base, "B", lambda c: c.users.append(User(id="U3", username="bob", password_hash="b")))
+    ab, ba = merge_configs(a, b), merge_configs(b, a)
+    assert [u.id for u in ab.users if u.username == "bob"] == ["U3"]
+    assert ab.digest() == ba.digest()
+
+
+def test_revoked_is_a_set_and_records_keep_creation_order():
+    base = _base()
+    a = _write(base, "A", lambda c: c.revoked.append("sha256:zz"))
+    b = _write(base, "B", lambda c: c.revoked.append("sha256:aa"))
+    b = _write(b, "B", lambda c: c.users.append(User(id="U9", username="carol", password_hash="c")))
+    merged = merge_configs(a, b)
+    assert merged.revoked == ["sha256:aa", "sha256:zz"]
+    assert [u.username for u in merged.users] == ["admin", "carol"]
+
+
+def test_stamp_helpers():
+    assert cm.parse_stamp("12@01ABC") == (12, "01ABC")
+    assert cm.parse_stamp("bad") == cm.ZERO
+    assert cm.writer_node("user:admin@node:01ABC") == "01ABC"
+    assert cm.writer_node("system") == "system"

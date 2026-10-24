@@ -6,6 +6,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import socket
+import time
 from datetime import timedelta
 
 import pytest
@@ -393,3 +394,44 @@ def test_node_publishes_its_own_modules_again(node_ctx):
     assert cluster.peer(node_ctx.node.id).modules == node_ctx.node.modules
     assert cluster.version == version + 2
     assert publish_own_modules(node_ctx) is False
+
+
+def test_collector_settings_reload_live(rig):
+    """settings.collector changes (local write or merged from a peer) apply without a restart."""
+    import os
+
+    from pelagos.collector.main import SettingsWatch, reload_settings
+
+    collector, _, _ = rig
+    ctx = collector.ctx
+    tasks = collector.tasks()
+    far = time.monotonic() + 10_000.0
+    for task in tasks:
+        task.next_run = far
+    watch = SettingsWatch(ctx)
+    assert watch.changed() is False
+
+    class Service:
+        peer_poll_seconds = 30.0
+
+        def set_peer_poll_seconds(self, seconds):
+            self.peer_poll_seconds = seconds
+
+    handle = type("Handle", (), {"service": Service()})()
+
+    def faster(cfg):
+        cfg.settings["collector"].update(poll_seconds=10, peer_poll_seconds=5)
+        cfg.settings["alerts_pool_warning_percent"] = 50
+
+    ctx.config_store.update_cluster(faster, updated_by=f"node:{ctx.node.id}")
+    os.utime(ctx.paths.cluster_toml, ns=(5, 5))
+    assert watch.changed() is True and watch.changed() is False
+    changed = reload_settings(collector, tasks, handle)
+    assert set(changed) == {"poll_bind", "poll_kea", "poll_d2", "apply_acks", "poll_peers"}
+    periods = {t.name: t for t in tasks}
+    assert periods["poll_kea"].period == 10.0 and periods["poll_peers"].period == 5.0
+    assert periods["poll_kea"].next_run < far  # a shorter period applies at once
+    assert periods["consistency"].next_run == far
+    assert handle.service.peer_poll_seconds == 5.0
+    assert all(p.settings["alerts_pool_warning_percent"] == 50 for p in collector.kea)
+    assert reload_settings(collector, tasks, handle) == []

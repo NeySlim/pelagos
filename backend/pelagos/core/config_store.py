@@ -13,6 +13,7 @@ from typing import Any
 
 import tomli_w
 
+from pelagos.core import cluster_merge as cm
 from pelagos.core.locks import FileLock
 from pelagos.domain.cluster import NodeModules, Peer, Role, User
 from pelagos.domain.common import from_rfc3339, new_id, to_rfc3339, utcnow
@@ -170,6 +171,10 @@ class ClusterConfig:
     secrets: dict[str, str] = field(default_factory=dict)
     revoked: list[str] = field(default_factory=list)
     schema_version: int = SCHEMA_VERSION
+    # Per-entry stamps and tombstones (core.cluster_merge); `stamped` is False for a pre-merge file.
+    stamps: dict[str, cm.Stamp] = field(default_factory=dict)
+    tombstones: dict[str, cm.Stamp] = field(default_factory=dict)
+    stamped: bool = False
 
     @classmethod
     def new(cls, created_by: str) -> ClusterConfig:
@@ -196,6 +201,11 @@ class ClusterConfig:
             revoked=list(data.get("revoked") or []),
             schema_version=schema,
         )
+        repl = data.get("replication")
+        if isinstance(repl, dict):
+            cfg.stamped = True
+            cfg.stamps = {str(k): cm.parse_stamp(v) for k, v in (repl.get("stamps") or {}).items()}
+            cfg.tombstones = {str(k): cm.parse_stamp(v) for k, v in (repl.get("tombstones") or {}).items()}
         return cfg
 
     def to_toml(self) -> dict[str, Any]:
@@ -212,7 +222,27 @@ class ClusterConfig:
             "settings": self.settings,
             "secrets": self.secrets,
             "revoked": self.revoked,
+            **self._replication_table(),
         }
+
+    def _replication_table(self) -> dict[str, Any]:
+        if not self.stamped:
+            return {}
+        stamps = {p: cm.stamp_text(s) for p, s in sorted(self.stamps.items()) if s != cm.ZERO}
+        tombs = {p: cm.stamp_text(s) for p, s in sorted(self.tombstones.items())}
+        return {"replication": {"stamps": stamps, "tombstones": tombs}}
+
+    def document(self) -> dict[str, Any]:
+        """The replicated entries' document: `to_toml()` without the header."""
+        return {k: v for k, v in self.to_toml().items() if k not in cm.HEADER}
+
+    def state(self) -> cm.State:
+        # A pre-merge file: every entry carries the file's own (version, writer), the old rule.
+        fallback = cm.ZERO if self.stamped else (self.version, cm.writer_node(self.updated_by))
+        return cm.state_of(self.document(), self.stamps, self.tombstones, fallback)
+
+    def digest(self) -> str:
+        return self.state().digest()
 
     def dumps(self) -> str:
         return "# SPDX-License-Identifier: Apache-2.0\n" + tomli_w.dumps(self.to_toml())
@@ -273,17 +303,35 @@ class ConfigStore:
         with self.lock:
             if self.cluster_path.exists():
                 raise ConfigError("cluster.toml already exists")
+            state, _ = cm.record_write(cm.State(), cm.flatten(cfg.document()), self._writer(cfg.updated_by))
             cfg.version = 1
+            cfg.stamped = True
+            cfg.stamps = {p: (1, s[1]) for p, s in state.stamps.items()}
+            cfg.tombstones = {}
             cfg.updated_at = utcnow()
             atomic_write(self.cluster_path, cfg.dumps().encode())
         return cfg
 
+    def _writer(self, updated_by: str) -> str:
+        if "node:" in (updated_by or ""):
+            return cm.writer_node(updated_by)
+        try:
+            return self.load_node().id
+        except (OSError, ConfigError, ValueError):
+            return updated_by
+
     def update_cluster(self, mutate: Callable[[ClusterConfig], None], updated_by: str) -> ClusterConfig:
-        """Lock, load, mutate, bump version, write atomically, notify."""
+        """Lock, load, mutate, stamp what changed, bump version, write atomically, notify."""
         with self.lock:
             cfg = self.load_cluster()
+            before = cfg.state()
             mutate(cfg)
-            cfg.version += 1
+            state, counter = cm.record_write(
+                before, cm.flatten(cfg.document()), self._writer(updated_by), floor=cfg.version
+            )
+            cfg.stamped = True
+            cfg.stamps, cfg.tombstones = state.stamps, state.tombstones
+            cfg.version = counter
             cfg.updated_at = utcnow()
             cfg.updated_by = updated_by
             atomic_write(self.cluster_path, cfg.dumps().encode())
@@ -292,18 +340,48 @@ class ConfigStore:
         return cfg
 
     def merge_remote(self, toml_text: str) -> bool:
-        """Adopt a remote cluster.toml when it wins by the section 10 rule."""
+        """Merge a peer's cluster.toml entry by entry (section 13); True when the local file changed."""
         remote = ClusterConfig.from_toml(tomllib.loads(toml_text))
         with self.lock:
             if self.cluster_path.exists():
                 local = self.load_cluster()
-                if not remote.wins_over(local):
+                merged = merge_configs(local, remote)
+                if merged.digest() == local.digest() and merged.version == local.version:
                     return False
-            atomic_write(self.cluster_path, toml_text.encode())
+            else:
+                merged = remote
+            atomic_write(self.cluster_path, merged.dumps().encode())
         for cb in self._on_change:
-            cb(remote)
+            cb(merged)
         return True
+
+    def digest(self) -> str:
+        """Digest of the replicated entries: two nodes agree exactly when their digests match."""
+        return self.load_cluster().digest()
 
     def cluster_version(self) -> tuple[int, str, str]:
         cfg = self.load_cluster()
         return cfg.version, to_rfc3339(cfg.updated_at), cfg.updated_by
+
+
+def merge_configs(local: ClusterConfig, remote: ClusterConfig) -> ClusterConfig:
+    """The deterministic merge of two cluster files: the same result whichever side computes it."""
+    lstate, rstate = local.state(), remote.state()
+    merged = cm.merge_states(lstate, rstate)
+    digest = merged.digest()
+    version = max(local.version, remote.version, merged.clock())
+    if digest not in (lstate.digest(), rstate.digest()):
+        version += 1  # a state neither side had: a new version, computed alike on both
+    head = max((local.updated_at, local.updated_by), (remote.updated_at, remote.updated_by))
+    data = cm.unflatten(merged.values, merged.stamps)
+    data.update(
+        schema_version=max(local.schema_version, remote.schema_version),
+        version=version,
+        updated_at=to_rfc3339(head[0]),
+        updated_by=head[1],
+        cluster_id=local.cluster_id,
+    )
+    cfg = ClusterConfig.from_toml(data)
+    cfg.stamped = True
+    cfg.stamps, cfg.tombstones = merged.stamps, merged.tombstones
+    return cfg

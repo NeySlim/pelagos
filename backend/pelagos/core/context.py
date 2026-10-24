@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import os
+import socket
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -22,18 +25,45 @@ REPL_READY = "ready"
 REPL_SYNCING = "syncing"
 
 
+# A `syncing` state older than this is stale (a collector killed mid-pull): the node is writable again.
+SYNCING_STALE_SECONDS = 300
+
+
 def read_replication_state(paths: Paths) -> str:
-    """The collector writes the state file; without one (no collector, tests) the node is writable."""
+    """The collector writes the state file; without one (no collector, tests) the node is writable.
+
+    `syncing` counts only while its writer process lives and for at most SYNCING_STALE_SECONDS.
+    """
+    path = paths.replication_state_file
     try:
-        state = paths.replication_state_file.read_text().strip()
+        words = path.read_text().split()
+        age = time.time() - path.stat().st_mtime
     except OSError:
         return REPL_READY
-    return REPL_SYNCING if state == REPL_SYNCING else REPL_READY
+    if not words or words[0] != REPL_SYNCING or age > SYNCING_STALE_SECONDS:
+        return REPL_READY
+    # The pid means something only in the writer's own pid namespace (compose runs two containers).
+    same_host = len(words) > 2 and words[2] == socket.gethostname()
+    if same_host and words[1].isdigit() and not _alive(int(words[1])):
+        return REPL_READY
+    return REPL_SYNCING
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # another user's process (the collector runs as pelagos)
+    return True
 
 
 def write_replication_state(paths: Paths, state: str) -> None:
     paths.run.mkdir(parents=True, exist_ok=True, mode=0o750)
-    atomic_write(paths.replication_state_file, (state + "\n").encode(), mode=0o644)
+    atomic_write(
+        paths.replication_state_file, f"{state} {os.getpid()} {socket.gethostname()}\n".encode(), mode=0o644
+    )
 
 
 @dataclass(slots=True)

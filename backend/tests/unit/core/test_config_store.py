@@ -44,17 +44,38 @@ def test_update_bumps_version_and_round_trips(node_paths):
     assert "totp_secret" not in raw["users"][0]  # None fields are absent in TOML
 
 
-def test_merge_remote_rule(node_paths):
+def test_merge_remote_rule(node_paths, tmp_root):
+    store = ConfigStore(node_paths.node_toml, node_paths.cluster_toml)
+    text = node_paths.cluster_toml.read_text()
+    assert store.merge_remote(text) is False  # the same file: nothing to adopt
+    # A copy of this file written on another node: its write is stamped by that node.
+    other = ConfigStore(tmp_root / "other.toml", tmp_root / "other-cluster.toml")
+    (tmp_root / "other-cluster.toml").write_text(text)
+    remote = other.update_cluster(
+        lambda c: setattr(c.users[0], "must_change_password", True), updated_by="node:OTHER"
+    )
+    store.update_cluster(lambda c: c.modules.__setitem__("dhcpv6", True), updated_by="node:LOCAL")
+    assert store.merge_remote(remote.dumps()) is True
+    merged = store.load_cluster()
+    assert merged.users[0].must_change_password is True and merged.modules["dhcpv6"] is True
+    assert merged.version == remote.version + 1  # a state neither file had
+    assert store.merge_remote(remote.dumps()) is False  # idempotent
+    raw = tomllib.loads(node_paths.cluster_toml.read_text())
+    stamps = raw["replication"]["stamps"]
+    assert stamps["modules/dhcpv6"].endswith("@LOCAL")
+    assert any(k.endswith("/must_change_password") and v.endswith("@OTHER") for k, v in stamps.items())
+
+
+def test_pre_merge_file_keeps_the_version_rule(node_paths):
+    """A file without stamps (older release): its entries carry the file's own (version, writer)."""
     store = ConfigStore(node_paths.node_toml, node_paths.cluster_toml)
     local = store.load_cluster()
-    remote = ClusterConfig.from_toml(tomllib.loads(node_paths.cluster_toml.read_text()))
-    remote.version = local.version  # tie: same version, remote older timestamp
-    remote.updated_at = local.updated_at
-    remote.updated_by = "a"
-    assert store.merge_remote(remote.dumps()) is False
-    remote.version = local.version + 5
-    remote.users[0].username = "renamed"
-    assert store.merge_remote(remote.dumps()) is True
+    legacy = ClusterConfig.from_toml(tomllib.loads(node_paths.cluster_toml.read_text()))
+    legacy.stamped = False
+    legacy.version = local.version + 5
+    legacy.updated_by = "node:OLD"
+    legacy.users[0].username = "renamed"
+    assert store.merge_remote(legacy.dumps()) is True
     assert store.load_cluster().users[0].username == "renamed"
     assert store.load_cluster().version == local.version + 5
 

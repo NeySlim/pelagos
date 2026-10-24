@@ -85,14 +85,6 @@ def open_alerts(address: str, kind: str) -> list[dict]:
     return api(address).get(f"/alerts?state=open&kind={kind}")["items"]
 
 
-def restart_collectors() -> None:
-    """The collectors read their periods at start; the web processes wait for them to be ready."""
-    for address in (A1, A2):
-        ssh(address, "sudo systemctl restart pelagos-collector")
-    for address in (A1, A2):
-        wait_for(f"{address} ready", lambda a=address: Api(a).get("/health")["replication"] == "ready")
-
-
 def dig(host: str, name: str, rtype: str = "A") -> str:
     return ssh(host, f"dig +short @127.0.0.1 {name} {rtype}")[1].strip()
 
@@ -280,7 +272,6 @@ class TestReferencePair:
             "settings replicated",
             lambda: api(A2).get("/admin/settings")["collector"]["poll_seconds"] == 10,
         )
-        restart_collectors()
         ssh(A1, "sudo systemctl kill -s KILL kea-dhcp4-server")
         alert = wait_for(
             "HA partner-down alert on ns2",
@@ -333,7 +324,6 @@ class TestReferencePair:
             "settings replicated",
             lambda: api(A2).get("/admin/settings")["collector"]["poll_seconds"] == 60,
         )
-        restart_collectors()
         for address in (A1, A2):
             assert api(address).get("/nodes/replication")["state"] == "ready"
             health = Api(address).get("/health")

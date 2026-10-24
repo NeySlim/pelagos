@@ -278,6 +278,29 @@ class Collector:
             Task("retention", 3600.0, self.retention),
         ]
 
+    def refresh_tasks(self, tasks: list[Task], now: float | None = None) -> list[str]:
+        """Apply the periods of settings.collector as they are now; returns the tasks that changed.
+
+        A shorter period takes effect at once (the next run moves closer), a longer one after the
+        run already scheduled. Thresholds and retention are re-read by each task run anyway.
+        """
+        now = time.monotonic() if now is None else now
+        fresh = {t.name: t.period for t in self.tasks()}
+        changed: list[str] = []
+        for task in tasks:
+            period = fresh.get(task.name)
+            if period is not None and period != task.period:
+                task.period = period
+                task.next_run = min(task.next_run, now + period)
+                changed.append(task.name)
+        settings = self.ctx.settings()
+        for poller in self.kea:
+            poller.settings = settings
+        if self.d2 is not None:
+            self.d2.settings = settings
+        self.peers.settings = settings
+        return changed
+
     # Internals -------------------------------------------------------------
 
     def _finish(self, outcome: PollOutcome) -> None:
@@ -429,6 +452,10 @@ def start_replication(
         return None
     except Exception:
         log.exception("replication service failed to start")
+        # Without replication the node still accepts writes: never leave it read-only.
+        from pelagos.core.context import REPL_READY, write_replication_state
+
+        write_replication_state(ctx.paths, REPL_READY)
         return None
 
 
@@ -463,12 +490,49 @@ class EnginesWatch:
         return engines != self.engines
 
 
+class SettingsWatch:
+    """Tells when cluster.toml changed (a local write or a merge from a peer): settings to re-read."""
+
+    def __init__(self, ctx: NodeContext) -> None:
+        self.ctx = ctx
+        self._mtime = self._stat()
+
+    def _stat(self) -> int | None:
+        try:
+            return self.ctx.paths.cluster_toml.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def changed(self) -> bool:
+        mtime = self._stat()
+        if mtime == self._mtime:
+            return False
+        self._mtime = mtime
+        return True
+
+
+def reload_settings(collector: Collector, tasks: list[Task], replication: Any = None) -> list[str]:
+    """Live reload of settings.collector: task periods, poller thresholds, the anti-entropy period."""
+    try:
+        changed = collector.refresh_tasks(tasks)
+        peer_poll = float(collector.ctx.settings().get("collector", {}).get("peer_poll_seconds", 30))
+    except Exception:  # a half-written or broken file: keep the current periods
+        log.exception("cluster.toml not readable")
+        return []
+    service = getattr(replication, "service", None)
+    if service is not None and hasattr(service, "set_peer_poll_seconds"):
+        service.set_peer_poll_seconds(peer_poll)
+    if changed:
+        log.info("collector periods reloaded: %s", ", ".join(f"{t.name}={t.period:g}s" for t in tasks))
+    return changed
+
+
 MODULES_CHECK_SECONDS = 30.0
 
 
 def publish_own_modules(ctx: NodeContext) -> bool:
     """Each node owns its [[nodes]].modules entry: when cluster.toml says something else than
-    node.toml [engines] (a concurrent write won the last-writer-wins merge), publish it again."""
+    node.toml [engines] (a peer wrote that entry later), publish it again."""
     try:
         own = ctx.config_store.load_cluster().peer(ctx.node.id)
     except Exception:
@@ -525,12 +589,15 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     if replicator is not None:
         collector.peers.liveness = replicator
     watch = EnginesWatch(ctx)
+    settings_watch = SettingsWatch(ctx)
     next_modules_check = 0.0
     try:
         while True:
             if watch.changed():
                 log.info("node.toml engines changed: exiting so the service restarts with them")
                 return EXIT_ENGINES_CHANGED
+            if settings_watch.changed():
+                reload_settings(collector, tasks, replication)
             if time.monotonic() >= next_modules_check:
                 next_modules_check = time.monotonic() + MODULES_CHECK_SECONDS
                 try:

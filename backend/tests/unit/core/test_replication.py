@@ -18,7 +18,12 @@ from pelagos.collector.events import SignalListener
 from pelagos.core import ca as ca_mod
 from pelagos.core.bootstrap import bootstrap_first_node, dev_paths
 from pelagos.core.config_store import ConfigStore, NodeConfig
-from pelagos.core.context import NodeContext, read_replication_state
+from pelagos.core.context import (
+    SYNCING_STALE_SECONDS,
+    NodeContext,
+    read_replication_state,
+    write_replication_state,
+)
 from pelagos.core.enrollment import EnrollError, EnrollRequest, enroll_node
 from pelagos.core.paths import Paths
 from pelagos.core.repl_http import pinned_context, request_json
@@ -388,34 +393,103 @@ def test_peer_offline_after_three_failed_polls(pair):
     assert a.service.replicator.offline_peers() == []
 
 
-def test_tie_break_rule(pair):
+def _write(node: LiveNode, mutate) -> None:
+    node.ctx.config_store.update_cluster(mutate, updated_by=f"user:admin@node:{node.id}")
+
+
+def _same_config(*nodes: LiveNode) -> bool:
+    return len({n.ctx.config_store.digest() for n in nodes}) == 1
+
+
+def test_concurrent_writes_on_two_nodes_are_both_kept(pair):
+    """The lost write of the former last-writer-wins rule: one write on each node in the same window."""
     a, b = pair
+    assert _same_config(a, b)
+    b.service.stop()
+    _write(a, lambda c: c.users.append(User(id=new_id(), username="bob", password_hash="x")))
+    _write(b, lambda c: c.settings.__setitem__("plan_ttl_seconds", 321))
     cfg_a, cfg_b = a.ctx.cluster(), b.ctx.cluster()
+    # Same version on both sides: the former rule kept one file whole and dropped the other write.
     assert cfg_a.version == cfg_b.version
-    # Same version written independently: B's is newer, so A must adopt it and B must refuse A's.
-    cfg_a.version = cfg_b.version = cfg_a.version + 1
-    cfg_a.updated_at = utcnow() - timedelta(seconds=30)
-    cfg_b.updated_at = utcnow()
-    cfg_a.modules["advanced_editor"] = False
-    cfg_b.modules["dhcpv6"] = True
-    a.paths.cluster_toml.write_text(cfg_a.dumps())
-    b.paths.cluster_toml.write_text(cfg_b.dumps())
-    statuses = a.service.replicator.pull_all()
-    assert statuses[0].reachable and statuses[0].config_adopted is True
-    assert a.ctx.cluster().modules == {"dhcpv6": True, "advanced_editor": True}
-    assert b.ctx.cluster().modules == {"dhcpv6": True, "advanced_editor": True}
-    # Same version and timestamp: the lexically greater updated_by wins.
-    cfg_a, cfg_b = a.ctx.cluster(), b.ctx.cluster()
-    cfg_a.version = cfg_b.version = cfg_a.version + 1
-    cfg_a.updated_at = cfg_b.updated_at = utcnow()
-    cfg_a.updated_by, cfg_b.updated_by = "node:zzz", "node:aaa"
-    cfg_a.settings["plan_ttl_seconds"] = 111
-    cfg_b.settings["plan_ttl_seconds"] = 222
-    a.paths.cluster_toml.write_text(cfg_a.dumps())
-    b.paths.cluster_toml.write_text(cfg_b.dumps())
-    b.service.replicator.pull_all()
-    assert a.ctx.cluster().settings["plan_ttl_seconds"] == 111
-    assert b.ctx.cluster().settings["plan_ttl_seconds"] == 111
+    legacy = cfg_a if cfg_a.wins_over(cfg_b) else cfg_b
+    assert legacy.user("bob") is None or legacy.settings["plan_ttl_seconds"] != 321
+
+    b.restart()  # pull (and push) on start
+    for node in (a, b):
+        cfg = node.ctx.cluster()
+        assert cfg.user("bob") is not None and cfg.settings["plan_ttl_seconds"] == 321
+    assert _same_config(a, b)
+    assert a.ctx.cluster().version == b.ctx.cluster().version > cfg_a.version
+
+
+def test_concurrent_writes_to_the_same_key_resolve_alike_everywhere(pair):
+    a, b = pair
+    b.service.stop()
+    _write(a, lambda c: c.settings.__setitem__("plan_ttl_seconds", 111))
+    _write(b, lambda c: c.settings.__setitem__("plan_ttl_seconds", 222))
+    # Same counter on both: the greater node id wins, on whichever node merges.
+    expected = 111 if a.id > b.id else 222
+    b.restart()
+    assert a.ctx.settings()["plan_ttl_seconds"] == expected
+    assert b.ctx.settings()["plan_ttl_seconds"] == expected
+    # A later write wins over both, whoever made the earlier ones.
+    _write(b, lambda c: c.settings.__setitem__("plan_ttl_seconds", 333))
+    wait_for(lambda: a.ctx.settings()["plan_ttl_seconds"] == 333, timeout=10, what="push of the newer write")
+    assert _same_config(a, b)
+
+
+def test_deletions_are_tombstoned_and_beat_concurrent_edits(pair):
+    a, b = pair
+    _write(a, lambda c: c.roles.append(Role(name="ops", permissions=["read:dns"])))
+    _write(a, lambda c: c.secrets.__setitem__("tsig/old", "enc:v1:x"))
+    wait_for(lambda: _same_config(a, b), timeout=10, what="role replicated")
+    b.service.stop()
+    _write(a, lambda c: setattr(c, "roles", [r for r in c.roles if r.name != "ops"]))
+    _write(a, lambda c: c.secrets.pop("tsig/old"))
+    # B edits the role A deleted and adds a module switch, all while disconnected.
+    _write(b, lambda c: setattr(next(r for r in c.roles if r.name == "ops"), "description", "edited"))
+    _write(b, lambda c: c.modules.__setitem__("dhcpv6", True))
+    _write(b, lambda c: c.settings.__setitem__("plan_ttl_seconds", 700))
+    b.restart()
+    for node in (a, b):
+        cfg = node.ctx.cluster()
+        assert all(r.name != "ops" for r in cfg.roles), "the deleted role came back"
+        assert "tsig/old" not in cfg.secrets
+        assert cfg.modules["dhcpv6"] is True and cfg.settings["plan_ttl_seconds"] == 700
+    assert _same_config(a, b)
+    # A record created again after its deletion is live again.
+    _write(b, lambda c: c.roles.append(Role(name="ops", permissions=["read:dhcp"])))
+    wait_for(lambda: any(r.name == "ops" for r in a.ctx.cluster().roles), timeout=10, what="re-created role")
+    assert next(r for r in a.ctx.cluster().roles if r.name == "ops").permissions == ["read:dhcp"]
+
+
+def test_three_nodes_converge_after_concurrent_writes(cluster):
+    a = cluster.first()
+    b = cluster.enroll(a, "ns2")
+    c = cluster.enroll(a, "ns3")
+    for node in (a, b, c):
+        node.service.replicator.pull_all()
+    assert _same_config(a, b, c)
+    for node in (a, b, c):
+        node.service.stop()
+    _write(a, lambda cfg: cfg.users.append(User(id=new_id(), username="ann", password_hash="x")))
+    _write(b, lambda cfg: cfg.roles.append(Role(name="dhcp-ops", permissions=["read:dhcp"])))
+    _write(c, lambda cfg: cfg.settings["collector"].__setitem__("poll_seconds", 15))
+    _write(c, lambda cfg: cfg.modules.__setitem__("advanced_editor", False))
+    for node in (a, b, c):
+        node.service = ReplicationService(node.ctx, peer_poll_seconds=300)
+        node.service.start(pull=False)
+    # Anti-entropy only, in an order where no single exchange sees every write.
+    c.service.replicator.pull_all()
+    a.service.replicator.pull_all()
+    assert _same_config(a, b, c)
+    for node in (a, b, c):
+        cfg = node.ctx.cluster()
+        assert cfg.user("ann") is not None
+        assert any(r.name == "dhcp-ops" for r in cfg.roles)
+        assert cfg.settings["collector"]["poll_seconds"] == 15
+        assert cfg.modules["advanced_editor"] is False
+    assert len({n.ctx.cluster().version for n in (a, b, c)}) == 1
 
 
 def test_revoked_node_is_refused(pair):
@@ -584,6 +658,19 @@ def test_malformed_peer_answers_never_escape_the_replicator(pair, monkeypatch):
     assert replicator.sync_peer(peer_b).reachable is False
 
 
+def test_internal_errors_do_not_leak_details_to_peers(pair, monkeypatch):
+    a, b = pair
+
+    def boom():
+        raise RuntimeError("/var/lib/pelagos/secret-path exploded")
+
+    monkeypatch.setattr(b.service.app, "status_payload", boom)
+    with pytest.raises(ReplicationError) as err:
+        ReplicationClient(a.ctx.cluster().peer(b.id), a.service.client_context).status()
+    assert err.value.status == 500 and err.value.code == "internal_error"
+    assert "secret-path" not in str(err.value)
+
+
 def test_run_once_backs_off_when_the_replicator_raises(pair, monkeypatch):
     a, _b = pair
     svc = a.service
@@ -613,6 +700,7 @@ def test_newer_schema_on_a_peer_is_a_divergence_not_an_outage(pair, monkeypatch)
     def status_payload():
         data = real_status()
         data["config_version"] += 5
+        data["config_digest"] = "sha256:newer"
         return data
 
     monkeypatch.setattr(b.service.app, "status_payload", status_payload)
@@ -663,7 +751,7 @@ def test_housekeeping_purges_old_backups_and_tokens(cluster):
 
 def test_replication_state_file(pair):
     a, _b = pair
-    assert a.paths.replication_state_file.read_text().strip() == "ready"
+    assert a.paths.replication_state_file.read_text().split()[0] == "ready"
     assert a.ctx.replication_state == "ready"
     a.ctx.replication_state_override = "syncing"
     assert a.ctx.replication_state == "syncing"
@@ -672,3 +760,32 @@ def test_replication_state_file(pair):
     assert not a.paths.replication_state_file.exists()
     assert read_replication_state(a.paths) == "ready"
     assert not os.path.exists(a.paths.collector_sock)
+
+
+def test_stale_or_orphan_syncing_state_is_ready(tmp_root):
+    paths = dev_paths(tmp_root / "n")
+    write_replication_state(paths, "syncing")
+    assert read_replication_state(paths) == "syncing"  # this process wrote it and lives
+    state = paths.replication_state_file
+    state.write_text(f"syncing 999999999 {socket.gethostname()}\n")  # writer gone
+    assert read_replication_state(paths) == "ready"
+    state.write_text("syncing 999999999 another-host\n")  # another pid namespace: age only
+    assert read_replication_state(paths) == "syncing"
+    old = time.time() - SYNCING_STALE_SECONDS - 5
+    os.utime(state, (old, old))
+    assert read_replication_state(paths) == "ready"
+
+
+def test_start_failure_leaves_the_node_writable(pair):
+    a, _b = pair
+    a.service.stop()
+    busy = socket.socket()
+    busy.bind(("127.0.0.1", 0))
+    busy.listen()
+    try:
+        svc = ReplicationService(a.ctx, listen=f"127.0.0.1:{busy.getsockname()[1]}", peer_poll_seconds=300)
+        with pytest.raises(ReplicationError):
+            svc.start()
+    finally:
+        busy.close()
+    assert read_replication_state(a.paths) == "ready"

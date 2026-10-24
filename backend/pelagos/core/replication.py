@@ -71,6 +71,8 @@ class PeerStatus:
     name: str | None = None
     config_updated_at: str | None = None
     config_updated_by: str | None = None
+    # Digest of the peer's cluster.toml entries (core.cluster_merge); None from an older peer.
+    config_digest: str | None = None
     modules: dict[str, Any] = field(default_factory=dict)
     last_seen: datetime | None = None
     config_adopted: bool = False
@@ -187,6 +189,7 @@ class ReplicationClient:
             name=data.get("name"),
             config_updated_at=data.get("config_updated_at"),
             config_updated_by=data.get("config_updated_by"),
+            config_digest=data.get("config_digest"),
             modules=dict(data.get("modules") or {}),
             last_seen=utcnow(),
         )
@@ -286,9 +289,13 @@ class ReplicationApp:
             status, body = exc.status, {"code": exc.code, "detail": exc.detail, "status": exc.status}
         except EnrollError as exc:
             status, body = exc.status, {"code": exc.code, "detail": str(exc), "status": exc.status}
-        except Exception as exc:
+        except Exception:
             log.exception("replication request %s %s failed", method, path)
-            status, body = 500, {"code": "internal_error", "detail": str(exc), "status": 500}
+            # The cause stays in this node's journal; peers get no paths or internal messages.
+            status, body = (
+                500,
+                {"code": "internal_error", "detail": "internal error, see the node's log", "status": 500},
+            )
         data = json.dumps(body).encode()
         start_response(
             f"{status} {_REASONS.get(status, 'Status')}",
@@ -366,6 +373,7 @@ class ReplicationApp:
             "config_version": cfg.version,
             "config_updated_at": to_rfc3339(cfg.updated_at),
             "config_updated_by": cfg.updated_by,
+            "config_digest": cfg.digest(),
             "audit_count": count,
             "audit_head": head,
             "time": to_rfc3339(utcnow()),
@@ -390,7 +398,8 @@ class ReplicationApp:
         except (ConfigError, ValueError) as exc:
             # tomllib errors derive from ValueError; a newer schema is a ConfigError.
             raise _Refused(409, "schema_mismatch", str(exc)) from None
-        return 200, {"adopted": adopted, "local_version": self.config_store.load_cluster().version}
+        local = self.config_store.load_cluster()
+        return 200, {"adopted": adopted, "local_version": local.version, "digest": local.digest()}
 
     def _get_audit(self, query: str) -> tuple[int, Any]:
         params = dict(p.split("=", 1) if "=" in p else (p, "") for p in query.split("&") if p)
@@ -721,21 +730,17 @@ class Replicator:
         status.error, status.code = str(exc), "schema_mismatch"
 
     def _sync_config(self, client: ReplicationClient, status: PeerStatus) -> bool:
-        local = self.config_store.load_cluster()
-        remote_version = status.config_version if status.config_version is not None else -1
-        adopted = False
-        if remote_version > local.version:
-            adopted = self.config_store.merge_remote(client.fetch_config()["toml"])
-        elif remote_version < local.version:
+        """Two-way merge: pull and merge the peer's file, then push ours when the peer lacks entries.
+
+        Both sides merge entry by entry (core.cluster_merge), so after one exchange each holds the
+        union of the writes, whatever their order. True when the local file changed.
+        """
+        # A peer without a digest (older release) is always merged both ways.
+        if status.config_digest is not None and status.config_digest == self.config_store.digest():
+            return False
+        adopted = self.config_store.merge_remote(client.fetch_config()["toml"])
+        if status.config_digest is None or self.config_store.digest() != status.config_digest:
             self._push_config_to(client)
-        elif (
-            status.config_updated_at != to_rfc3339(local.updated_at)
-            or status.config_updated_by != local.updated_by
-        ):
-            # Same version from two writers: both apply the tie-break; one adopts, one refuses.
-            adopted = self.config_store.merge_remote(client.fetch_config()["toml"])
-            if not adopted:
-                self._push_config_to(client)
         return adopted
 
     def _push_config_to(self, client: ReplicationClient) -> bool:
@@ -852,15 +857,12 @@ class Replicator:
             client = self.client(peer)
             try:
                 status = client.status()
-                local = self.config_store.load_cluster()
-                remote_version = status.config_version if status.config_version is not None else -1
-                if remote_version < local.version:
-                    try:
-                        status.config_adopted = self._push_config_to(client)
-                    except ReplicationError as exc:
-                        if not _is_schema_mismatch(exc):
-                            raise
-                        self._mark_schema_mismatch(peer, status, exc)
+                try:
+                    status.config_adopted = self._sync_config(client, status)
+                except (ConfigError, ReplicationError) as exc:
+                    if not _is_schema_mismatch(exc):
+                        raise
+                    self._mark_schema_mismatch(peer, status, exc)
                 status.audit_added = self._sync_audit(client, status)
                 out.append(self._record(peer, status, None))
             except Exception as exc:
@@ -945,13 +947,27 @@ class ReplicationService:
     # Lifecycle ---------------------------------------------------------------
 
     def start(self, pull: bool = True) -> None:
+        """Serve, then exchange both ways with every peer (pull and push on start), then `ready`.
+
+        Whatever fails, the state never stays `syncing`: the web process would refuse every write.
+        """
         self._set_state(REPL_SYNCING)
-        self.server.start()
-        if self.listener is not None:
-            self.listener.start()
+        try:
+            self.server.start()
+            if self.listener is not None:
+                self.listener.start()
+        except BaseException:
+            self.server.stop()
+            self._set_state(REPL_READY)
+            raise
         if pull:
             try:
-                self._after_exchange(self.replicator.pull_all())
+                results = self._after_exchange(self.replicator.pull_all())
+                if any(not r.reachable for r in results):
+                    # Peers missed at start get our writes as soon as they answer (push backoff).
+                    with self._lock:
+                        self._pending.update((EVENT_CONFIG, EVENT_AUDIT))
+                        self._retry_at = time.monotonic() + PUSH_BACKOFF_SECONDS[0]
             except Exception:
                 # Never left in `syncing` without a worker: anti-entropy retries the pull.
                 log.exception("initial pull failed")
@@ -974,6 +990,15 @@ class ReplicationService:
             self.paths.replication_state_file.unlink()
         except FileNotFoundError:
             pass
+
+    def set_peer_poll_seconds(self, seconds: float) -> None:
+        """Live change of the anti-entropy period (settings.collector.peer_poll_seconds)."""
+        seconds = max(1.0, float(seconds))
+        if seconds == self.peer_poll_seconds:
+            return
+        self.peer_poll_seconds = seconds
+        self._next_poll = min(self._next_poll, time.monotonic() + seconds)
+        self._wake.set()
 
     def _set_state(self, state: str) -> None:
         self.state = state

@@ -337,9 +337,32 @@ def test_kea_file_divergence(store, tmp_root):
     alerts = [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE]
     assert len(alerts) == 1 and alerts[0].subject == "kea4:config-file" and alerts[0].node_id == NODE
     assert alerts[0].details["differences"] == ["/valid-lifetime: 7200 in the file, 3600 running"]
-    # Includes are resolved by the daemon only: not compared.
-    backend.conf_path.write_text('<?include "/etc/kea/subnets.json"?>\n' + FILE_V4)
+    # Includes are resolved as Kea does; a difference inside an included file is found too.
+    part = tmp_root / "lifetime.json"
+    part.write_text('"valid-lifetime": 3600,')
+    backend.conf_path.write_text(
+        FILE_V4.replace('"valid-lifetime": 3600,', f'<?include "{part}"?>')
+    )
     assert [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE] == []
+    part.write_text('"valid-lifetime": 60,')
+    alerts = [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE]
+    assert alerts[0].details["differences"] == ["/valid-lifetime: 60 in the file, 3600 running"]
+    # A missing include is not a divergence (the installer reports unreadable files).
+    backend.conf_path.write_text('<?include "/nonexistent/subnets.json"?>\n' + FILE_V4)
+    assert [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE] == []
+
+
+def test_daemon_down_keeps_the_file_alert_open(store, tmp_root):
+    backend = FakeDhcpBackend(Family.V4)
+    poller = KeaPoller(backend, NODE, store, SETTINGS, Clock())
+    backend.down = True
+    out = poller.poll()
+    assert AlertKind.CONFIG_DIVERGENCE.value not in out.kinds
+    assert AlertKind.DAEMON_DOWN.value in out.kinds
+    d2 = FakeDdnsBackend()
+    d2.down = True
+    out = D2Poller(d2, NODE, store, SETTINGS, Clock()).poll()
+    assert AlertKind.CONFIG_DIVERGENCE.value not in out.kinds
 
 
 def test_d2_file_divergence(store, tmp_root):

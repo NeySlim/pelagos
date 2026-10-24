@@ -26,9 +26,9 @@ from pelagos.collector import rules
 from pelagos.collector.pollers import PollOutcome, engine_filter
 from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend
-from pelagos.core.keafile import KeaConfigError, loads
+from pelagos.core.keadoc import DEFAULT_CWD, KeaDocument
+from pelagos.core.keafile import KeaConfigError, kea_config_differences
 from pelagos.domain import Alert, AlertKind, Engine
-from pelagos.services.consistency import kea_config_differences
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +47,8 @@ D2_KINDS = frozenset(
     {AlertKind.DAEMON_DOWN.value, AlertKind.D2_ERRORS.value, AlertKind.CONFIG_DIVERGENCE.value}
 )
 D2_WINDOW_SECONDS = 3600
+# A daemon that cannot be read says nothing about its file: its open file alert stays as it is.
+UNREAD_KINDS = frozenset({AlertKind.CONFIG_DIVERGENCE.value})
 # Keys that legitimately differ between HA peers: dropped before hashing for config_divergence.
 PER_NODE_TOP_KEYS = frozenset({"interfaces-config", "control-socket", "control-sockets", "loggers", "hash"})
 PER_NODE_NESTED_KEYS = frozenset({"this-server-name"})
@@ -68,21 +70,30 @@ def normalized_config_hash(config: dict[str, Any]) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def file_divergence(backend: Any, engine: Engine, node_id: str, running: dict[str, Any]) -> Alert | None:
-    """CONFIG_DIVERGENCE when the configuration file on disk says something config-get does not.
-
-    Files using <?include?> or that cannot be read or parsed are skipped (logged): the daemon
-    resolves includes itself and an unreadable file is the installer's finding, not a divergence.
-    """
+def _document(backend: Any, engine: Engine) -> KeaDocument | None:
     path = getattr(backend, "conf_path", None)
     if not isinstance(path, Path):
         return None
+    cwd = getattr(getattr(backend, "file", None), "cwd", DEFAULT_CWD)
     try:
-        on_disk = loads(path.read_text(), str(path))
-    except (OSError, UnicodeDecodeError, KeaConfigError) as exc:
+        return KeaDocument(path, cwd=cwd if isinstance(cwd, Path) else DEFAULT_CWD)
+    except KeaConfigError as exc:
         log.debug("%s file not compared: %s", engine.value, exc)
         return None
-    differences = kea_config_differences(on_disk, running)
+
+
+def file_divergence(
+    backend: Any, engine: Engine, node_id: str, running: dict[str, Any], doc: KeaDocument | None = None
+) -> Alert | None:
+    """CONFIG_DIVERGENCE when the configuration file on disk (its includes resolved) says something
+    config-get does not. A file that cannot be read or parsed is skipped (logged): an unreadable file
+    is the installer's finding, not a divergence.
+    """
+    path = getattr(backend, "conf_path", None)
+    doc = doc if doc is not None else _document(backend, engine)
+    if doc is None or not isinstance(path, Path):
+        return None
+    differences = kea_config_differences(doc.value, running)
     if not differences:
         return None
     return rules.config_file_divergence(node_id, engine, str(path), differences)
@@ -93,9 +104,8 @@ _RACY_SECONDS = 2.0
 
 
 class FileDivergenceCache:
-    """Re-runs `file_divergence` only when the file (mtime, size) or the running config-hash changed.
-
-    A backend without `config_hash` is compared on every poll.
+    """Re-runs `file_divergence` only when a file of the tree (mtime, size) or the running config-hash
+    changed. A backend without `config_hash` is compared on every poll.
     """
 
     def __init__(self, backend: Any, engine: Engine, node_id: str) -> None:
@@ -104,26 +114,32 @@ class FileDivergenceCache:
         self.node_id = node_id
         self._key: tuple[Any, ...] | None = None
         self._alert: Alert | None = None
+        self._files: list[Path] = []
 
     def check(self, running_hash: str | None, running: Callable[[], dict[str, Any]]) -> Alert | None:
         key = self._file_key(running_hash)
         if key is not None and key == self._key:
             return self._alert
-        self._alert = file_divergence(self.backend, self.engine, self.node_id, running())
-        self._key = key
+        doc = _document(self.backend, self.engine)
+        self._files = list(dict.fromkeys(doc.paths)) if doc is not None else []
+        self._alert = file_divergence(self.backend, self.engine, self.node_id, running(), doc)
+        self._key = self._file_key(running_hash)
         return self._alert
 
     def _file_key(self, running_hash: str | None) -> tuple[Any, ...] | None:
         path = getattr(self.backend, "conf_path", None)
         if running_hash is None or not isinstance(path, Path):
             return None
-        try:
-            st = path.stat()
-        except OSError:
-            return None
-        if time.time() - st.st_mtime < _RACY_SECONDS:
-            return None
-        return (st.st_mtime_ns, st.st_size, st.st_ino, running_hash)
+        key: list[Any] = [running_hash]
+        for f in self._files or [path]:
+            try:
+                st = f.stat()
+            except OSError:
+                return None
+            if time.time() - st.st_mtime < _RACY_SECONDS:
+                return None
+            key.append((str(f), st.st_mtime_ns, st.st_size, st.st_ino))
+        return tuple(key)
 
 
 class KeaPoller:
@@ -161,12 +177,14 @@ class KeaPoller:
         except ConnectorError as exc:
             out.ok, out.error = False, str(exc)
             out.alerts.append(rules.daemon_down(self.node_id, self.engine, str(exc)))
+            out.kinds = KEA_KINDS - UNREAD_KINDS
             return out
         self.store.write_snapshot(self.node_id, engine, "capabilities", now, caps.to_dict())
         self.store.write_snapshot(self.node_id, engine, "status", now, status)
         if not caps.running:
             out.ok, out.error = False, f"{engine} is not running"
             out.alerts.append(rules.daemon_down(self.node_id, self.engine, out.error))
+            out.kinds = KEA_KINDS - UNREAD_KINDS
             return out
 
         self._poll_ha(now, out)
@@ -180,6 +198,7 @@ class KeaPoller:
                 out.alerts.append(alert)
         except (ConnectorError, NotImplementedError) as exc:
             log.debug("%s config_hash failed: %s", engine, exc)
+            out.kinds = KEA_KINDS - UNREAD_KINDS
         try:
             self.store.write_snapshot(self.node_id, engine, "subnets", now, self._subnets())
         except (ConnectorError, NotImplementedError) as exc:
@@ -312,17 +331,20 @@ class D2Poller:
         except ConnectorError as exc:
             out.ok, out.error = False, str(exc)
             out.alerts.append(rules.daemon_down(self.node_id, Engine.D2, str(exc)))
+            out.kinds = D2_KINDS - UNREAD_KINDS
             return out
         self.store.write_snapshot(self.node_id, "d2", "capabilities", now, caps)
         self.store.write_snapshot(self.node_id, "d2", "status", now, status)
         if not caps.get("running", True):
             out.ok, out.error = False, "kea-dhcp-ddns is not running"
             out.alerts.append(rules.daemon_down(self.node_id, Engine.D2, out.error))
+            out.kinds = D2_KINDS - UNREAD_KINDS
             return out
         try:
             stats = self.backend.stats()
         except ConnectorError as exc:
             log.debug("d2 stats failed: %s", exc)
+            out.kinds = D2_KINDS - UNREAD_KINDS
             return out
         try:
             config_hash = getattr(self.backend, "config_hash", None)
@@ -332,6 +354,7 @@ class D2Poller:
                 out.alerts.append(alert)
         except (ConnectorError, NotImplementedError) as exc:
             log.debug("d2 config-get failed: %s", exc)
+            out.kinds = D2_KINDS - UNREAD_KINDS
         payload = stats.to_dict()
         payload.pop("raw", None)
         self.store.write_snapshot(self.node_id, "d2", "stats", now, payload)

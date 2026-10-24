@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,7 @@ from pelagos.connectors.base import (
 )
 from pelagos.connectors.kea import backend as kb
 from pelagos.connectors.kea.backend import KeaBackend
-from pelagos.connectors.kea.d2 import D2Backend
+from pelagos.connectors.kea.d2 import D2Backend, externalize_secrets
 from pelagos.domain import (
     Change,
     ChangeOp,
@@ -27,6 +28,7 @@ from pelagos.domain import (
     Reservation,
     ReservationIdType,
     Subnet,
+    utcnow,
 )
 from tests.unit.connectors.kea.fake import FakeKea, config_of, err, load, make_ctx
 
@@ -65,8 +67,27 @@ def test_capabilities(kea3, kea26, tmp_root):
 
 def test_command_passthrough_refuses_writes(kea3):
     backend, fake = kea3
-    with pytest.raises(ConnectorDenied):
-        backend.command("config-set", {})
+    for command in (
+        "config-set",
+        "config-write",
+        "shutdown",
+        "lease4-wipe",
+        "lease4-del",
+        "lease4-add",
+        "reservation-del",
+        "subnet4-del",
+        "class-del",
+        "dhcp-disable",
+        "ha-maintenance-start",
+        "ha-scopes",
+        "statistic-reset-all",
+        "server-tag-set",
+        "config-backend-pull",
+    ):
+        with pytest.raises(ConnectorDenied):
+            backend.command(command, {})
+    assert backend.command("version-get")
+    assert "Dhcp4" in backend.command("config-get")
     assert backend.command("status-get")["pid"] == 1
     fake.overrides["lease4-get"] = err("Lease not found.", 3)
     assert backend.command("lease4-get", {"ip-address": "192.0.2.1"}) == {}
@@ -371,3 +392,161 @@ def test_subnet_add_uses_the_target_id(kea3):
     assert plan.changes[0].target == "subnet4/42" and plan.changes[0].after["id"] == 42
     with pytest.raises(ConnectorError, match="already exists"):
         backend.plan_subnet_change(Change(ChangeOp.ADD, "subnet4/2", after=subnet.to_dict()))
+
+
+def test_rollback_removes_created_key_and_option(kea3):
+    backend, fake = kea3
+    original = json.dumps(fake.cfg, sort_keys=True)
+    assert "cache-max-age" not in fake.cfg
+    plan = backend.plan_global_change(
+        [
+            Change(ChangeOp.REPLACE, "cache-max-age", after=600),
+            Change(
+                ChangeOp.REPLACE,
+                "option-data/dhcp4/ntp-servers",
+                after={"name": "ntp-servers", "data": "192.0.2.123"},
+            ),
+        ]
+    )
+    assert plan.changes[0].before is None and plan.changes[1].before is None
+    assert backend.apply(plan).ok and fake.cfg["cache-max-age"] == 600
+    result = backend.rollback(plan)
+    assert result.ok, result.message
+    assert json.dumps(fake.cfg, sort_keys=True) == original
+
+
+def hosts_db_backend(tmp_root):
+    backend, fake = backend_with(tmp_root, "kea32-dhcp4-config-get", "3.2.1")
+    fake.cfg["hosts-database"] = {"type": "postgresql", "name": "kea"}
+    return backend, fake
+
+
+def db_res(ip: str = "192.0.2.21") -> Reservation:
+    return Reservation(
+        subnet_id=1, id_type=ReservationIdType.HW_ADDRESS, identifier="aa:00:00:00:00:21", ip_address=ip
+    )
+
+
+TARGET21 = "subnet4/1/reservations/hw-address=aa:00:00:00:00:21"
+
+
+def test_reservations_go_to_the_hosts_database(tmp_root):
+    backend, fake = hosts_db_backend(tmp_root)
+    config_before = json.dumps(fake.cfg, sort_keys=True)
+    plan = backend.plan_reservation_change(Change(ChangeOp.ADD, TARGET21, after=db_res().to_dict()))
+    assert plan.state is PlanState.VALIDATED and "hosts-database/" + TARGET21 in plan.diff
+    result = backend.apply(plan)
+    assert result.ok, result.message
+    adds = [a for c, a in fake.sent if c == "reservation-add"]
+    assert "operation-target" not in adds[-1]
+    assert [h["ip-address"] for h in fake.db_hosts] == ["192.0.2.21"]
+    assert json.dumps(fake.cfg, sort_keys=True) == config_before
+
+    replace = backend.plan_reservation_change(
+        Change(ChangeOp.REPLACE, TARGET21, after=db_res("192.0.2.22").to_dict())
+    )
+    assert replace.changes[0].before["ip_address"] == "192.0.2.21"
+    assert backend.apply(replace).ok and fake.db_hosts[0]["ip-address"] == "192.0.2.22"
+    assert backend.rollback(replace).ok and fake.db_hosts[0]["ip-address"] == "192.0.2.21"
+
+    delete = backend.plan_reservation_change(Change(ChangeOp.DELETE, TARGET21))
+    assert backend.apply(delete).ok and fake.db_hosts == []
+    assert backend.rollback(delete).ok and fake.db_hosts[0]["ip-address"] == "192.0.2.21"
+    assert backend.rollback(plan).ok and fake.db_hosts == []
+
+
+def test_hosts_database_failure_undoes_the_host_commands(tmp_root):
+    backend, fake = hosts_db_backend(tmp_root)
+    fake.db_hosts.append({**kb.kcfg.reservation_to_kea(db_res(), with_subnet_id=True)})
+    replace = backend.plan_reservation_change(
+        Change(ChangeOp.REPLACE, TARGET21, after=db_res("192.0.2.22").to_dict())
+    )
+    add = Reservation(subnet_id=1, id_type=ReservationIdType.HW_ADDRESS, identifier="aa:00:00:00:00:23")
+    target23 = "subnet4/1/reservations/hw-address=aa:00:00:00:00:23"
+    plan = backend.plan_reservation_change(Change(ChangeOp.ADD, target23, after=add.to_dict()))
+    # The host lands in the database but config-write fails: the add is undone with reservation-del.
+    fake.overrides["config-write"] = err("disk full")
+    result = backend.apply(plan)
+    assert not result.ok and result.rolled_back and "disk full" in result.message
+    assert [h["hw-address"] for h in fake.db_hosts] == ["aa:00:00:00:00:21"]
+    result = backend.apply(replace)
+    assert not result.ok and result.rolled_back
+    assert fake.db_hosts[0]["ip-address"] == "192.0.2.21"
+    del fake.overrides["config-write"]
+    # A host command that reports success without writing fails verification.
+    fake.overrides["reservation-add"] = {"result": 0, "text": "pretended"}
+    plan = backend.plan_reservation_change(Change(ChangeOp.ADD, target23, after=add.to_dict()))
+    result = backend.apply(plan)
+    assert not result.ok and f"{target23} missing" in result.message
+
+
+def test_subnet_reservations_stay_in_memory_with_a_hosts_database(tmp_root):
+    backend, fake = hosts_db_backend(tmp_root)
+    res = Reservation(subnet_id=7, id_type=ReservationIdType.HW_ADDRESS, identifier="aa:00:00:00:00:07")
+    subnet = Subnet(id=7, subnet="203.0.113.0/26", family=Family.V4, reservations=[res])
+    plan = backend.plan_subnet_change(Change(ChangeOp.ADD, "subnet4/new", after=subnet.to_dict()))
+    result = backend.apply(plan)
+    assert result.ok, result.message
+    assert [a.get("operation-target") for c, a in fake.sent if c == "reservation-add"] == ["memory"]
+    assert fake.db_hosts == [] and backend.get_subnet(7).reservations[0].identifier == "aa:00:00:00:00:07"
+
+
+def test_backup_failure_is_reported(kea3, tmp_root):
+    backend, fake = kea3
+    backend.conf_path.write_text("{}")
+    backend.backup_root = tmp_root / "not-a-dir"
+    backend.backup_root.write_text("")
+    plan = backend.plan_global_change([Change(ChangeOp.REPLACE, "valid-lifetime", after=60)])
+    result = backend.apply(plan)
+    assert not result.ok and result.message.startswith("backup failed")
+    assert fake.cfg["valid-lifetime"] == 3600
+
+
+def test_version_follows_an_upgrade(kea26):
+    backend, fake = kea26
+    assert backend.version() == "2.6.3"
+    fake.version_text = "3.2.1"
+    assert backend.capabilities().version == "3.2.1" and backend.version() == "3.2.1"
+
+
+def d2_with(tmp_root):
+    d2 = D2Backend(
+        make_ctx(tmp_root, d2_conf=str(tmp_root / "kea-dhcp-ddns.conf"), d2_secret_dir=str(tmp_root))
+    )
+    fake = FakeKea("DhcpDdns", config_of("kea32-d2-config-get"))
+    d2.socket = fake
+    return d2, fake
+
+
+def test_d2_running_clear_secret_stays_out_of_plans(tmp_root):
+    d2, fake = d2_with(tmp_root)
+    fake.cfg["tsig-keys"] = [{"name": "old", "algorithm": "HMAC-SHA256", "secret": "b2xkc2VjcmV0b2xk"}]
+    original = json.loads(json.dumps(fake.cfg))
+    new = d2.config_get()
+    new["tsig-keys"] = [{"name": "old", "algorithm": "HMAC-SHA256", "secret-file": "/etc/kea/old.secret"}]
+    plan = d2.plan_config_replace({"DhcpDdns": new})
+    assert "b2xkc2VjcmV0b2xk" not in json.dumps(plan.to_dict())
+    assert d2.apply(plan).ok
+    assert d2.rollback(plan).ok and fake.cfg == original
+    # Once the private copy is gone, a masked before state is never written back.
+    plan = d2.plan_config_replace({"DhcpDdns": new})
+    d2._private.clear()
+    result = d2.rollback(plan)
+    assert not result.ok and "backup" in result.message
+
+
+def test_d2_expired_plans_drop_their_secrets(tmp_root):
+    d2, _fake = d2_with(tmp_root)
+    cfg = d2.config_get()
+    cfg["tsig-keys"].append({"name": "extra", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0c2VjcmV0"})
+    plan = d2.plan_config_replace({"DhcpDdns": cfg})
+    assert plan.id in d2._private
+    d2._private[plan.id].expires_at = utcnow() - timedelta(seconds=1)
+    d2.plan_config_replace({"DhcpDdns": d2.config_get()})
+    assert plan.id not in d2._private
+
+
+def test_d2_secret_file_wins_over_clear_secret(tmp_root):
+    cfg = {"tsig-keys": [{"name": "k", "secret": "c2VjcmV0", "secret-file": "/etc/kea/k.secret"}]}
+    out, files = externalize_secrets(cfg, tmp_root)
+    assert out["tsig-keys"] == [{"name": "k", "secret-file": "/etc/kea/k.secret"}] and files == {}

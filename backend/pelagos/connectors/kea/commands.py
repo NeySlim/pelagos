@@ -78,9 +78,9 @@ def object_commands(
     t = parse_target(change.target)
     n = _n(family)
     if t.kind == "subnet":
-        return _subnet_commands(t, change, family, cfg, version, n, hosts_db)
+        return _subnet_commands(t, change, family, cfg, version, n)
     if t.kind == "shared_network":
-        return _network_commands(t, change, family, version, n, hosts_db)
+        return _network_commands(t, change, family, version, n)
     if t.kind == "reservation":
         return _reservation_commands(t, change, hosts_db)
     if t.kind == "client_class":
@@ -88,15 +88,17 @@ def object_commands(
     raise ConnectorError(f"{change.target} has no object command")
 
 
-def _host_target(hosts_db: bool) -> dict[str, Any]:
-    return {} if hosts_db else {"operation-target": "memory"}
+MEMORY = {"operation-target": "memory"}
 
 
 def _reservation_sync(
-    subnet_id: int, current: list[dict[str, Any]], wanted: list[dict[str, Any]], hosts_db: bool
+    subnet_id: int, current: list[dict[str, Any]], wanted: list[dict[str, Any]]
 ) -> list[Command]:
-    """host_cmds commands turning the reservations of one subnet from `current` into `wanted`."""
-    target = _host_target(hosts_db)
+    """host_cmds commands turning the reservations of one subnet from `current` into `wanted`.
+
+    Reservations embedded in a subnet belong to its configuration object, so they always target
+    memory (persisted by config-write), even when a hosts database is configured."""
+    target = MEMORY
     have = {reservation_key(r): r for r in current}
     want = {reservation_key(r): r for r in wanted}
     cmds: list[Command] = []
@@ -120,7 +122,6 @@ def _subnet_commands(
     cfg: dict[str, Any],
     version: str | None,
     n: str,
-    hosts_db: bool,
 ) -> list[Command]:
     # subnet_cmds refuses embedded reservations: they go through host_cmds after the subnet command.
     key = subnet_key(family)
@@ -139,7 +140,7 @@ def _subnet_commands(
         cmds.append((f"subnet{n}-add", {key: [obj]}))
         if subnet.shared_network:
             cmds.append((f"network{n}-subnet-add", {"name": subnet.shared_network, "id": subnet.id}))
-        return cmds + _reservation_sync(subnet.id, [], wanted, hosts_db)
+        return cmds + _reservation_sync(subnet.id, [], wanted)
     if found is None:
         raise ConnectorError(f"subnet {t.subnet_id} not found")
     container, idx, current_net = found
@@ -152,11 +153,11 @@ def _subnet_commands(
     if subnet.shared_network and current_net != subnet.shared_network:
         cmds.append((f"network{n}-subnet-add", {"name": subnet.shared_network, "id": subnet.id}))
     current = container[idx].get("reservations") or []
-    return cmds + _reservation_sync(subnet.id, current, wanted, hosts_db)
+    return cmds + _reservation_sync(subnet.id, current, wanted)
 
 
 def _network_commands(
-    t: Target, change: Change, family: Family, version: str | None, n: str, hosts_db: bool
+    t: Target, change: Change, family: Family, version: str | None, n: str
 ) -> list[Command]:
     if change.op is ChangeOp.DELETE:
         return [(f"network{n}-del", {"name": t.name, "subnets-action": "delete"})]
@@ -169,12 +170,13 @@ def _network_commands(
     reservations: list[Command] = []
     for sub in obj.get(subnet_key(family)) or []:
         wanted = sub.pop("reservations", None) or []
-        reservations += _reservation_sync(int(sub["id"]), [], wanted, hosts_db)
+        reservations += _reservation_sync(int(sub["id"]), [], wanted)
     return [(f"network{n}-add", {"shared-networks": [obj]}), *reservations]
 
 
 def _reservation_commands(t: Target, change: Change, hosts_db: bool) -> list[Command]:
-    target: dict[str, Any] = {} if hosts_db else {"operation-target": "memory"}
+    # Standalone reservations go to the hosts database (Kea's default target) when one exists.
+    target: dict[str, Any] = {} if hosts_db else dict(MEMORY)
     subnet_id = 0 if t.global_reservation else int(t.subnet_id or 0)
     if change.op is ChangeOp.DELETE:
         id_type, identifier = (t.reservation_key or "=").split("=", 1)

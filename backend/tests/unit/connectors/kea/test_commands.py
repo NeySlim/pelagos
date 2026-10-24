@@ -80,8 +80,13 @@ def test_subnet_update_syncs_reservations_and_moves():
         "reservation-del",
         "reservation-add",
     ]
-    # The identifier goes back as Kea printed it, and with a host database no operation-target is set.
-    assert cmds[2][1] == {"subnet-id": 2, "identifier-type": "client-id", "identifier": "010A0B0C0D0E0F"}
+    # The identifier goes back as Kea printed it; subnet reservations stay in memory with a hosts db.
+    assert cmds[2][1] == {
+        "subnet-id": 2,
+        "identifier-type": "client-id",
+        "identifier": "010A0B0C0D0E0F",
+        "operation-target": "memory",
+    }
     s10 = kcfg.subnet_from_kea(cfg["shared-networks"][0]["subnet4"][0], Family.V4, "office", "3.2.1")
     cmds = kc.object_commands(
         Change(ChangeOp.REPLACE, "subnet4/10", after=s10.replace(shared_network=None).to_dict()),

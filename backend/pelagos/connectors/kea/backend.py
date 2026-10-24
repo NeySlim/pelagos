@@ -27,6 +27,7 @@ from pelagos.connectors.base import (
 )
 from pelagos.connectors.kea import config as kcfg
 from pelagos.connectors.kea.commands import (
+    Command,
     command_path_available,
     lease_from_kea,
     lease_to_kea_add,
@@ -60,7 +61,21 @@ from pelagos.domain import (
 )
 
 HOOK_PREFIX = "libdhcp_"
-WRITE_COMMANDS = frozenset({"config-set", "config-write", "config-reload", "shutdown"})
+# Raw passthrough: read-only commands only; everything that changes state goes through a plan.
+READ_COMMANDS = frozenset(
+    {
+        "list-commands",
+        "status-get",
+        "version-get",
+        "build-report",
+        "config-get",
+        "config-hash-get",
+        "statistic-get",
+        "statistic-get-all",
+        "ha-heartbeat",
+    }
+)
+READ_SUFFIXES = ("-get", "-get-all", "-get-page", "-list")
 KNOWN_HOOKS = ("lease_cmds", "host_cmds", "subnet_cmds", "stat_cmds", "ha", "class_cmds")
 LEASE_PAGE = 1000
 # Target kinds (config.parse_target) each configuration plan scope may touch.
@@ -75,6 +90,14 @@ SCOPE_TARGETS = {
 }
 # Top-level keys holding objects that have their own plans (and permissions).
 OBJECT_KEYS = frozenset({"subnet4", "subnet6", "shared-networks", "reservations", "client-classes"})
+
+
+def is_read_command(command: str) -> bool:
+    return command in READ_COMMANDS or command.endswith(READ_SUFFIXES) or "-get-by-" in command
+
+
+def hosts_db_configured(cfg: dict[str, Any]) -> bool:
+    return bool(cfg.get("hosts-database") or cfg.get("hosts-databases"))
 
 
 def hook_name(library: str) -> str:
@@ -133,6 +156,8 @@ class KeaBackend(DhcpBackend):
             )
         hooks = [hook_name(h.get("library", "")) for h in config.get("hooks-libraries", [])]
         has = {h: (h in hooks) for h in KNOWN_HOOKS}
+        # Re-read the version: an in-place upgrade (2.6 to 3.x) changes the key names to write.
+        self._version = normalize_version(self.socket.version())
         return DhcpCapabilities(
             engine=self.family.kea_engine,
             version=self.version(),
@@ -158,7 +183,7 @@ class KeaBackend(DhcpBackend):
         return config_schema(self.family.value, self.version())
 
     def command(self, command: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-        if command in WRITE_COMMANDS:
+        if not is_read_command(command):
             raise ConnectorDenied(f"{command} must go through a plan")
         return self.socket.call(command, arguments, allow_empty=True)
 
@@ -358,7 +383,42 @@ class KeaBackend(DhcpBackend):
             ok=ok, tool="config-test", output=str(resp.get("text", "")), node_id=self.ctx.node_id
         )
 
-    def _before_of(self, cfg: dict[str, Any], change: Change) -> Any:
+    def _hosts_db_mode(self, cfg: dict[str, Any], changes: list[Change], caps: DhcpCapabilities) -> bool:
+        """Reservation plans live in the hosts database when one is configured and host_cmds is used."""
+        return hosts_db_configured(cfg) and caps.running and command_path_available(changes, caps)
+
+    @staticmethod
+    def _host_key(t: kcfg.Target) -> dict[str, Any]:
+        id_type, identifier = (t.reservation_key or "=").split("=", 1)
+        subnet_id = 0 if t.global_reservation else int(t.subnet_id or 0)
+        return {"subnet-id": subnet_id, "identifier-type": id_type, "identifier": identifier}
+
+    def _host_get(self, t: kcfg.Target) -> dict[str, Any] | None:
+        """reservation-get: sees configuration and database hosts alike; None when absent."""
+        resp = self.socket.send("reservation-get", self._host_key(t))
+        result = int(resp.get("result", 1))
+        if result == EMPTY:
+            return None
+        if result != 0:
+            raise KeaCommandError("reservation-get", result, str(resp.get("text", "")))
+        return dict(resp.get("arguments") or {})
+
+    def _host_undo(self, change: Change) -> Command | None:
+        """Command that undoes a database host change; config-set cannot reach the database."""
+        t = kcfg.parse_target(change.target)
+        key = self._host_key(t)
+        if change.op is ChangeOp.ADD:
+            return ("reservation-del", key)
+        prior = self._host_get(t)
+        if prior is None:
+            return None
+        prior.setdefault("subnet-id", key["subnet-id"])
+        return (
+            "reservation-add" if change.op is ChangeOp.DELETE else "reservation-update",
+            {"reservation": prior},
+        )
+
+    def _before_of(self, cfg: dict[str, Any], change: Change, hosts_db: bool = False) -> Any:
         """Current state of the change target as a domain dict (or raw value), None when absent."""
         t = kcfg.parse_target(change.target)
         version = self.version()
@@ -383,6 +443,9 @@ class KeaBackend(DhcpBackend):
             items = cfg.get("client-classes") or []
             idx = kcfg.find_by_name(items, t.name or "")
             return None if idx is None else kcfg.client_class_from_kea(items[idx], version).to_dict()
+        if t.kind == "reservation" and hosts_db:
+            host = self._host_get(t)
+            return None if host is None else kcfg.reservation_from_kea(host, t.subnet_id).to_dict()
         if t.kind == "reservation":
             try:
                 items = kcfg.reservation_list(json.loads(json.dumps(cfg)), t, self.family)
@@ -411,9 +474,11 @@ class KeaBackend(DhcpBackend):
                     raise ConnectorError(f"{change.target} is not a {self.engine_name} subnet")
             if t.kind == "key" and t.name in OBJECT_KEYS:
                 raise ConnectorError(f"{t.name} changes go through their own plans or the config replace")
+        caps = self.capabilities()
         cfg = self.config_get()
         current_hash = self.config_hash()
         version = self.version()
+        hosts_db = self._hosts_db_mode(cfg, changes, caps)
         prepared: list[Change] = []
         for change in changes:
             change = Change.from_dict(change.to_dict())  # private copy
@@ -426,12 +491,18 @@ class KeaBackend(DhcpBackend):
                 after["id"] = sid
                 change.after = after
                 change.target = f"subnet{self.n}/{sid}"
-            change.before = self._before_of(cfg, change)
+            change.before = self._before_of(cfg, change, hosts_db)
             if change.op is ChangeOp.DELETE and change.before is None and t.kind != "key":
                 raise ConnectorError(f"{change.target} not found")
             prepared.append(change)
-        new_cfg = kcfg.apply_changes(cfg, prepared, self.family, version)
+        in_config = [c for c in prepared if not (hosts_db and _is_reservation(c))]
+        new_cfg = kcfg.apply_changes(cfg, in_config, self.family, version)
         diff = kcfg.config_diff(cfg, new_cfg, str(self.conf_path))
+        for change in prepared:
+            if hosts_db and _is_reservation(change):
+                diff += kcfg.config_diff(
+                    change.before or {}, change.after or {}, f"hosts-database/{change.target}"
+                )
         validation = self.config_test(new_cfg)
         return self._new_plan(
             scope,
@@ -660,22 +731,31 @@ class KeaBackend(DhcpBackend):
         version = self.version()
         before = self.config_get()
         before_hash = self.config_hash()
-        new_cfg = kcfg.apply_changes(before, changes, self.family, version)
         use_commands = command_path_available(changes, caps)
-        hosts_db = bool(before.get("hosts-database") or before.get("hosts-databases"))
-        backup_dir = self._backup(label)
+        hosts_db = self._hosts_db_mode(before, changes, caps)
+        try:
+            backup_dir = self._backup(label)
+        except OSError as exc:
+            return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=f"backup failed: {exc}")
         steps: list[str] = []
+        undo: list[Command] = []
         mutated = False
         try:
             if use_commands:
                 current = before
                 for change in changes:
+                    in_db = hosts_db and _is_reservation(change)
+                    undo_cmd = self._host_undo(change) if in_db else None
                     for command, args in object_commands(change, self.family, current, version, hosts_db):
                         self.socket.call(command, args)
                         mutated = True
                         steps.append(command)
-                    current = kcfg.apply_change(current, change, self.family, version)
+                    if undo_cmd is not None:
+                        undo.append(undo_cmd)
+                    if not in_db:
+                        current = kcfg.apply_change(current, change, self.family, version)
             else:
+                new_cfg = kcfg.apply_changes(before, changes, self.family, version)
                 validation = self.config_test(new_cfg)
                 if not validation.ok:
                     raise ValidationFailed(validation)
@@ -683,7 +763,7 @@ class KeaBackend(DhcpBackend):
                 self.socket.call("config-set", self._wrap(new_cfg))
                 mutated = True
                 steps.append("config-set")
-            problems = self._verify(changes, self.config_get())
+            problems = self._verify(changes, self.config_get(), hosts_db)
             if problems:
                 raise ConnectorError("verification failed: " + "; ".join(problems))
             steps.append("verify")
@@ -692,7 +772,8 @@ class KeaBackend(DhcpBackend):
         except ConnectorError as exc:
             rolled_back = False
             if mutated:
-                rolled_back = self._restore(before, before_hash, backup_dir)
+                hosts_back = self._undo_hosts(undo)
+                rolled_back = self._restore(before, before_hash, backup_dir) and hosts_back
             path = "commands" if use_commands else "config-set"
             return NodeApplyResult(
                 node_id=self.ctx.node_id,
@@ -705,6 +786,15 @@ class KeaBackend(DhcpBackend):
         hashes = f"config-hash {before_hash[:12]} -> {after_hash[:12]}"
         message = f"applied through {path}: {', '.join(steps)}; {hashes}"
         return NodeApplyResult(node_id=self.ctx.node_id, ok=True, message=message)
+
+    def _undo_hosts(self, undo: list[Command]) -> bool:
+        ok = True
+        for command, args in reversed(undo):
+            try:
+                self.socket.call(command, args)
+            except ConnectorError:
+                ok = False
+        return ok
 
     def _restore(self, before: dict[str, Any], before_hash: str, backup_dir: Path | None) -> bool:
         """Put the running config back and keep the file consistent; True when the hash is back."""
@@ -725,16 +815,21 @@ class KeaBackend(DhcpBackend):
         except ConnectorError:
             return False
 
-    def _verify(self, changes: list[Change], cfg: dict[str, Any]) -> list[str]:
-        """Each target must now be present (add, replace) or absent (delete) in the running config."""
+    def _verify(self, changes: list[Change], cfg: dict[str, Any], hosts_db: bool = False) -> list[str]:
+        """Each target must now be present (add, replace) or absent (delete) in the running config,
+        or in the hosts database for reservation plans that went there."""
         problems = []
         for change in changes:
             t = kcfg.parse_target(change.target)
             if t.kind in ("config", "key", "option"):
                 continue
-            present = self._before_of(cfg, change) is not None
+            present = self._before_of(cfg, change, hosts_db) is not None
             if change.op is ChangeOp.DELETE and present:
                 problems.append(f"{change.target} still present")
             if change.op is not ChangeOp.DELETE and not present:
                 problems.append(f"{change.target} missing")
         return problems
+
+
+def _is_reservation(change: Change) -> bool:
+    return kcfg.parse_target(change.target).kind == "reservation"

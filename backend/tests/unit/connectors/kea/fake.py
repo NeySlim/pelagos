@@ -64,6 +64,9 @@ class FakeKea(KeaControlSocket):
         self.reject_test: Callable[[dict[str, Any]], str | None] = lambda cfg: None
         self.overrides: dict[str, Any] = {}
         self.disabled = False
+        # Hosts written without operation-target "memory" when a hosts database is configured;
+        # config-get never lists them, like a real server.
+        self.db_hosts: list[dict[str, Any]] = []
 
     # Transport ---------------------------------------------------------------
 
@@ -222,26 +225,74 @@ class FakeKea(KeaControlSocket):
         lst, i = self._find(sid)
         return lst[i].setdefault("reservations", [])
 
+    @property
+    def has_hosts_db(self) -> bool:
+        return bool(self.cfg.get("hosts-database") or self.cfg.get("hosts-databases"))
+
+    def _in_db(self, args) -> bool:
+        return args.get("operation-target") != "memory" and self.has_hosts_db
+
+    @staticmethod
+    def _id_of(res: dict[str, Any]) -> tuple[str, str]:
+        id_type = next(k for k in ("hw-address", "duid", "client-id", "circuit-id", "flex-id") if k in res)
+        return id_type, str(res[id_type]).lower()
+
+    def _db_index(self, sid: int, id_type: str, identifier: str) -> int | None:
+        for i, h in enumerate(self.db_hosts):
+            if h["subnet-id"] == sid and str(h.get(id_type, "")).lower() == identifier.lower():
+                return i
+        return None
+
     def _reservation_add(self, args):
+        res = dict(args["reservation"])
+        if self._in_db(args):
+            if self._db_index(res["subnet-id"], *self._id_of(res)) is not None:
+                return err("Host already exists.")
+            self.db_hosts.append(res)
+            return ok(text="Host added.")
         if args.get("operation-target") != "memory":
             return err("Host database not available, cannot add host.")
-        res = dict(args["reservation"])
         self._reservation_list(res.pop("subnet-id")).append(res)
         return ok(text="Host added.")
 
     def _reservation_update(self, args):
         res = dict(args["reservation"])
+        if self._in_db(args):
+            idx = self._db_index(res["subnet-id"], *self._id_of(res))
+            if idx is None:
+                return err("Host not updated (not found).")
+            self.db_hosts[idx] = res
+            return ok(text="Host updated.")
         lst = self._reservation_list(res.pop("subnet-id"))
-        id_type = next(k for k in ("hw-address", "duid", "client-id", "circuit-id", "flex-id") if k in res)
+        id_type = self._id_of(res)[0]
         idx = next(i for i, r in enumerate(lst) if r.get(id_type) == res[id_type])
         lst[idx] = res
         return ok(text="Host updated.")
 
     def _reservation_del(self, args):
+        if self._in_db(args):
+            idx = self._db_index(args["subnet-id"], args["identifier-type"], args["identifier"])
+            if idx is None:
+                return err("Host not deleted (not found).", 3)
+            del self.db_hosts[idx]
+            return ok(text="Host deleted.")
         lst = self._reservation_list(args["subnet-id"])
         before = len(lst)
         lst[:] = [r for r in lst if r.get(args["identifier-type"], "").lower() != args["identifier"]]
         return ok(text="Host deleted.") if len(lst) < before else err("Host not deleted (not found).", 3)
+
+    def _reservation_get(self, args):
+        sid, id_type, identifier = args["subnet-id"], args["identifier-type"], args["identifier"].lower()
+        try:
+            for r in self._reservation_list(sid):
+                if str(r.get(id_type, "")).lower() == identifier:
+                    return ok({**copy.deepcopy(r), "subnet-id": sid})
+        except TypeError:
+            pass
+        idx = self._db_index(sid, id_type, identifier)
+        if idx is not None:
+            return ok(copy.deepcopy(self.db_hosts[idx]))
+        return err("Host not found.", 3)
 
     def _reservation_get_page(self, args):
         sid = args["subnet-id"]

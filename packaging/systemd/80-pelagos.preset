@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
+# The units are enabled at install time and stay inactive until node.toml exists.
+enable pelagos.service
+enable pelagos-collector.service

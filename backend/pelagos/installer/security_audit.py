@@ -29,7 +29,7 @@ from pelagos.domain import (
     PreconditionKind,
     Severity,
 )
-from pelagos.installer import bindconf, bindsetup, keaconf, keasetup, managed
+from pelagos.installer import bindconf, bindsetup, keaconf, keasetup, managed, zone_audit
 from pelagos.installer.bindconf import ConfigFiles, Statement
 from pelagos.installer.jobs import Step
 
@@ -250,6 +250,7 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
             )
 
     findings += _pelagos_access(files, top, {k.name for k in key_defs})
+    findings += zone_audit.findings(files, top, {k.name for k in key_defs})
 
     for stmt in (s for s in top if s.name == "controls"):
         for lst in bindconf.inet_listeners(stmt):
@@ -326,9 +327,12 @@ def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str
     findings: list[Finding] = []
     read_key, admin_key = managed.READ_KEY, managed.ADMIN_KEY
     options_needed = False
+    multi_view = len(zone_audit.views(top)) >= 2
     for z in bindconf.zones(top):
         subject = f"{z.view}/{z.name}"
         dynamic = z.is_primary and _dynamic(z)
+        if multi_view:
+            continue  # each view gets its own key, which reads and writes its zones (finding view_key)
         if admin_key in key_names and dynamic:
             by_address = any(_is_address(e) for e in z.elements("allow-update"))
             if not by_address and not _grants_key(z, admin_key):
@@ -358,8 +362,10 @@ def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str
                         },
                     )
                 )
-        # Static primaries (localhost and the like) are neither written nor read by Pelagos.
-        if read_key not in key_names or not (dynamic or z.kind in COPY_KINDS):
+        # Static primaries are read and edited through their file; the distribution's own zones
+        # (localhost and the like) are left alone.
+        static = zone_audit.is_static(z) and z.name not in zone_audit.BUILTIN_ZONES
+        if read_key not in key_names or not (dynamic or static or z.kind in COPY_KINDS):
             continue
         xfr_stmt = z.stmt.sub("allow-transfer")
         if xfr_stmt is None:
@@ -649,6 +655,8 @@ def build_security_plan(
     changes: list[Change] = []
     preconditions: list[Precondition] = []
     files_seen: set[str] = set()
+    # A view key comes first: the grants and transfers of that view's zones use it.
+    finding_ids = sorted(finding_ids, key=lambda i: findings[i].kind != "view_key")
     for fid in finding_ids:
         f = findings[fid]
         if not f.details.get("remediable", True):
@@ -1176,6 +1184,8 @@ REMEDIATIONS = {
     "ctrl_agent": remediate_ctrl_agent,
     "socket_dir": remediate_socket_dir,
     "secret_file": remediate_secret_file,
+    "convert_dynamic": zone_audit.remediate_convert_dynamic,
+    "view_key": zone_audit.remediate_view_key,
 }
 DUAL_KEY_STEPS = {
     "1-bind-add": dual_key_add,

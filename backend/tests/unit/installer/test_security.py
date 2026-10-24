@@ -412,12 +412,105 @@ def test_dual_key_on_d2_only_node_runs_step_two_only(tmp_path):
     assert not (tmp_path / "etc/bind/named.conf").exists()
 
 
-def test_static_zones_need_no_pelagos_access(tmp_path):
+def test_static_zone_conversion_to_dynamic(tmp_path):
     env = debian_tree(tmp_path)
-    (tmp_path / "etc/bind/named.conf.local").write_text(
+    local = tmp_path / "etc/bind/named.conf.local"
+    local.write_text(
         'zone "localhost.localdomain" IN {\n\ttype master;\n\tfile "named.localhost";\n'
         "\tallow-update { none; };\n};\n"
-        'zone "static.example.lan" {\n\ttype primary;\n\tfile "db.static";\n};\n'
+        'zone "static.example.lan" {\n\ttype primary;\n\tfile "db.static";\n\tallow-update { none; };\n};\n'
     )
+    assert run_audit(env) == []  # before the import: no Pelagos key, nothing to propose
     assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    found = {f.kind: f for f in run_audit(env)}
+    # The distribution's localhost zone is left alone; the static zone is read and may be converted.
+    assert set(found) == {"static_zone", "transfer_without_read_key"}
+    static = found["static_zone"]
+    assert static.id == "bind:static_zone:_default/static.example.lan." and static.severity is Severity.INFO
+    assert "zone file" in static.description and "rndc freeze" in static.risk and ".jnl" in static.risk
+    assert static.proposal.startswith("Replace allow-update { none; } by update-policy")
+    _plan, job = _apply(env, [static.id, found["transfer_without_read_key"].id])
+    assert job.state is JobState.DONE, job.error
+    top = list(bindconf.load_files(tmp_path / "etc/bind/named.conf").top_level())
+    zone = {z.name: z for z in bindconf.zones(top)}["static.example.lan."]
+    assert zone.elements("update-policy") == ["grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX DHCID"]
+    assert zone.elements("allow-update") == []
+    assert run_audit(env) == []
+
+
+def test_conversion_refuses_a_directory_named_cannot_write(tmp_path):
+    import getpass
+    import grp
+    import os
+
+    from pelagos.installer import zone_audit
+
+    zones = tmp_path / "zones"
+    zones.mkdir()
+    (tmp_path / "named.conf").write_text(
+        f'options {{ directory "{zones}"; }};\nzone "s.example.lan" {{ type primary; file "s.db"; }};\n'
+    )
+    files = bindconf.load_files(tmp_path / "named.conf")
+    zone = bindconf.zones(list(files.top_level()))[0]
+
+    class Paths:
+        bind_user = getpass.getuser()
+        bind_group = grp.getgrgid(os.getgid()).gr_name
+
+    class Env:
+        paths = Paths()
+
+    zones.chmod(0o555)
+    try:
+        assert "cannot write" in zone_audit.journal_problem(Env(), files, zone)
+    finally:
+        zones.chmod(0o755)
+    assert zone_audit.journal_problem(Env(), files, zone) is None
+
+
+VIEWS = """
+key "partner" { algorithm hmac-sha256; secret "c2VjcmV0LWZvci1wYXJ0bmVy"; };
+view "inside" {
+\tmatch-clients { 192.0.2.0/24; localhost; };
+\tzone "split.example.lan" { type primary; file "inside.db"; update-policy { grant partner zonesub A; }; };
+};
+view "outside" {
+\tallow-transfer { key partner; };
+\tzone "split.example.lan" { type primary; file "outside.db"; update-policy { grant partner zonesub A; }; };
+};
+"""
+
+
+def test_views_get_one_key_each(tmp_path):
+    env = debian_tree(tmp_path)
+    (tmp_path / "etc/bind/named.conf.local").write_text(VIEWS)
+    conf = tmp_path / "etc/bind/named.conf"
+    # With views every zone lives in a view: the top-level root hints go.
+    conf.write_text(conf.read_text().replace(f'include "{tmp_path}/etc/bind/named.conf.root-hints";', ""))
+    assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    found = {f.id: f for f in run_audit(env) if f.kind == "view_key"}
+    assert set(found) == {"bind:view_key:inside", "bind:view_key:outside"}
+    outside = found["bind:view_key:outside"]
+    assert "`!key ddi-outside;` first in those of inside" in outside.proposal
+    assert "keep their view" in outside.risk
+    other = [f.id for f in run_audit(env) if f.kind != "view_key"]
+    _plan, job = _apply(env, [*other, *found])
+    assert job.state is JobState.DONE, job.error
+    top = list(bindconf.load_files(conf).top_level())
+    views = {v.words[0].strip('"'): v for v in top if v.name == "view"}
+    assert bindconf.acl_elements(views["inside"].sub("match-clients")) == [
+        "!key ddi-outside",
+        "key ddi-inside",
+        "192.0.2.0/24",
+        "localhost",
+    ]
+    assert bindconf.acl_elements(views["outside"].sub("match-clients")) == ["key ddi-outside", "any"]
+    assert bindconf.acl_elements(views["outside"].sub("allow-transfer")) == ["key ddi-outside", "key partner"]
+    zones = {(z.view, z.name): z for z in bindconf.zones(top)}
+    assert (
+        zones[("inside", "split.example.lan.")]
+        .elements("update-policy")[-1]
+        .startswith("grant ddi-inside zonesub")
+    )
+    assert {k.name for k in bindconf.keys(top)} >= {"ddi-inside", "ddi-outside"}
     assert run_audit(env) == []

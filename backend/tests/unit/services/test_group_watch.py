@@ -72,10 +72,17 @@ def test_without_gunicorn_only_logs(tmp_path, monkeypatch):
 
 def test_gunicorn_on_exit_hook_exits_75(node_paths):
     node_paths.run.mkdir(parents=True, exist_ok=True)
-    gw.marker_path(node_paths.run).write_text("_kea\n")
+    marker = gw.marker_path(node_paths.run)
     env = {**os.environ, "PELAGOS_HOME": str(node_paths.etc.parent)}
-    code = "import pelagos.gunicorn_conf as g; g.on_starting(None); g.on_exit(None); print('no exit')"
+    code = (
+        "import pathlib, pelagos.gunicorn_conf as g; g.on_starting(None); "
+        f"pathlib.Path({str(marker)!r}).write_text('_kea'); g.on_exit(None); print('no exit')"
+    )
     out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=60)
     assert out.returncode == gw.EXIT_GROUPS_CHANGED, out.stderr
-    out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, timeout=60)
+    # A marker left from an earlier run is dropped at start: a plain stop exits 0.
+    marker.write_text("_kea\n")
+    plain = "import pelagos.gunicorn_conf as g; g.on_starting(None); g.on_exit(None); print('no exit')"
+    out = subprocess.run([sys.executable, "-c", plain], env=env, capture_output=True, text=True, timeout=60)
     assert out.returncode == 0 and "no exit" in out.stdout
+    assert not marker.exists()

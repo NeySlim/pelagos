@@ -19,6 +19,9 @@ ExecStartPre=+/opt/pelagos/bin/pelagos-prestart
 ExecStart=/opt/pelagos/venv/bin/gunicorn -c /opt/pelagos/gunicorn_conf.py 'pelagos.app:wsgi_app()'
 Restart=on-failure
 RestartSec=3
+# 75: restart asked after a supplementary group change; not a failure.
+SuccessExitStatus=75
+RestartForceExitStatus=75
 RuntimeDirectory=pelagos
 RuntimeDirectoryPreserve=yes
 RuntimeDirectoryMode=0750

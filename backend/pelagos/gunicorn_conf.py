@@ -46,16 +46,23 @@ def ssl_context(conf, default_ssl_context_factory):  # gunicorn hook
 
 
 def on_starting(server):  # gunicorn hook, in the master before workers fork
-    """Workers find their master here to ask for a restart (services.group_watch)."""
+    """Workers find their master here to ask for a restart (services.group_watch).
+
+    A marker left by an earlier run is stale: it must not turn this run's plain stop into exit 75.
+    """
     import os
 
-    from pelagos.services.group_watch import MASTER_ENV
+    from pelagos.services.group_watch import MASTER_ENV, marker_path
 
     os.environ[MASTER_ENV] = str(os.getpid())
+    try:
+        marker_path(_paths.run).unlink()
+    except OSError:
+        pass
 
 
 def on_exit(server):  # gunicorn hook, in the master after it stopped the workers
-    """Exit 75 when a worker saw new supplementary groups: systemd (Restart=on-failure) restarts us."""
+    """Exit 75 when a worker saw new supplementary groups: systemd (RestartForceExitStatus) restarts us."""
     import os
 
     from pelagos.services.group_watch import exit_status_for_restart

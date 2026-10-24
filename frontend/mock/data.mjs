@@ -839,12 +839,26 @@ function makeHistory() {
   return items
 }
 
+// Backed-up file contents per history id, different for each backup so that
+// consecutive backups of the same file show a diff.
+function makeHistoryFiles(history) {
+  const files = {}
+  history.forEach((item, i) => {
+    const step = 12 - i
+    files[item.id] = item.engine === 'bind'
+      ? { [item.files[0]]: `// pelagos:managed\n${Array.from({ length: Math.ceil(step / 2) }, (_, z) => `zone "lab${z}.example.lan" {\n\ttype primary;\n\tfile "db.lab${z}.example.lan";\n};`).join('\n')}\n` }
+      : { [item.files[0]]: `${JSON.stringify({ Dhcp4: { 'valid-lifetime': 3600, 'subnet4': [{ id: 3, subnet: '192.0.2.128/26', 'valid-lifetime': 600 + step * 100 }] } }, null, 2)}\n` }
+  })
+  return files
+}
+
 export function createState() {
   const seeds = makeHostSeeds()
   const zones = makeZones()
   const records = makeRecords(seeds)
   const subnets4 = makeSubnets4()
   const reservations4 = makeReservations4(seeds)
+  const history = makeHistory()
   return {
     selfId: SELF_ID,
     nodeIds: NODE_IDS,
@@ -922,7 +936,8 @@ export function createState() {
     audit: makeAudit(),
     settings: makeSettings(),
     modules: { cluster: { dhcpv6: true, advanced_editor: true } },
-    history: makeHistory(),
+    history,
+    historyFiles: makeHistoryFiles(history),
     plans: new Map(),
     jobs: new Map(),
     layouts: new Map(),

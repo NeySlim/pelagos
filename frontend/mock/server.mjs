@@ -6,7 +6,7 @@
 // Users: admin/admin, alice/alice (dns-operator), bob/bob + TOTP 123456
 // (dhcp-operator), viewer/viewer.
 import http from 'node:http'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { ENDPOINTS } from '../src/services/endpoints.js'
 import { createState, iso, ulid, ALL_PERMISSIONS } from './data.mjs'
@@ -937,6 +937,35 @@ function buildHandlers(state, emit) {
     'POST /dns/config/plan': ({ body, user }) => {
       if (!Array.isArray(body.changes) || !body.changes.length) throw invalid('changes', 'at least one change is required')
       const first = body.changes[0]
+      // Advanced editor: raw:<file> and several options/<statement> changes in one plan.
+      if (body.changes.length > 1 || String(first.target || '').startsWith('raw:')) {
+        const text = (c, side) => (typeof c[side] === 'string' ? c[side] : jsonText(c[side]))
+        const diff = body.changes
+          .map((c) => unifiedDiff(text(c, 'before'), text(c, 'after'), String(c.target).replace(/^raw:\/?/, '')))
+          .join('')
+        const unbalanced = body.changes.find((c) => {
+          const after = text(c, 'after')
+          return (after.match(/{/g) || []).length !== (after.match(/}/g) || []).length
+        })
+        const targets = body.node_ids || state.nodes.map((n) => n.peer.id)
+        return createPlan(state, user, {
+          scope: 'dns.config',
+          engine: 'bind',
+          summary: `${body.changes.length} configuration change(s)`,
+          changes: body.changes.map((c) => ({ op: c.op || 'replace', target: c.target, before: c.before ?? null, after: c.after ?? null, node_ids: c.node_ids || [] })),
+          diff,
+          targets,
+          validations: targets.map((node_id) => ({
+            ok: !unbalanced,
+            tool: 'named-checkconf',
+            output: unbalanced ? `${String(unbalanced.target).replace(/^raw:/, '')}: missing '}' before end of file` : '',
+            node_id,
+          })),
+          preconditions: targets.map((node_id) => ({ kind: 'config_hash', node_id, subject: 'bind', value: configHash(state, 'bind') })),
+          apply: () => {},
+          rollback: () => {},
+        })
+      }
       const statement = String(first.target || '').replace(/^options\//, '')
       const current = bindConfig(state).options[statement] ?? null
       return settingsPlan(state, user, {
@@ -1478,6 +1507,11 @@ function buildHandlers(state, emit) {
     'GET /advanced/history/{id}': ({ params }) => {
       const item = state.history.find((h) => h.id === params.id)
       if (!item) throw notFound(`history ${params.id}`)
+      const stored = state.historyFiles?.[item.id]
+      if (stored) {
+        const sha256 = Object.fromEntries(Object.keys(stored).map((p) => [p, createHash('sha256').update(stored[p]).digest('hex')]))
+        return { manifest: { ...item, sha256 }, files: stored }
+      }
       const content = item.engine === 'bind'
         ? '// pelagos:managed\nzone "lab.example.lan" {\n\ttype primary;\n\tfile "db.lab.example.lan";\n};\n'
         : JSON.stringify({ Dhcp4: { 'valid-lifetime': 1800 } }, null, 2)

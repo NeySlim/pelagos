@@ -7,7 +7,8 @@ import json
 import logging
 import shutil
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,8 @@ def connect(path: Path, readonly: bool = False) -> sqlite3.Connection:
         path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(path, check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
+        # The cache is derived and rebuildable: WAL with NORMAL never corrupts, at worst loses a poll.
+        conn.execute("PRAGMA synchronous=NORMAL")
         conn.executescript(SCHEMA)
         conn.execute(
             "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),)
@@ -84,6 +87,22 @@ class SeriesStore:
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
+        self._batch_depth = 0
+
+    def _commit(self) -> None:
+        if self._batch_depth == 0:
+            self.conn.commit()
+
+    @contextmanager
+    def batch(self) -> Iterator[None]:
+        """One transaction (one fsync) for every write of a poll instead of one per row."""
+        self._batch_depth += 1
+        try:
+            yield
+        finally:
+            self._batch_depth -= 1
+            if self._batch_depth == 0:
+                self.conn.commit()
 
     # Meta ------------------------------------------------------------------
 
@@ -93,7 +112,7 @@ class SeriesStore:
 
     def set_meta(self, key: str, value: str) -> None:
         self.conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (key, value))
-        self.conn.commit()
+        self._commit()
 
     # Writers ---------------------------------------------------------------
 
@@ -113,7 +132,7 @@ class SeriesStore:
     def write_pool_samples(self, rows: Iterable[tuple[int, str, str, int, str, int, int, int]]) -> None:
         """Batch insert; rows: (ts, node_id, engine, subnet_id, pool, total, assigned, declined)."""
         self.conn.executemany("INSERT OR REPLACE INTO series_pool VALUES (?,?,?,?,?,?,?,?)", rows)
-        self.conn.commit()
+        self._commit()
 
     def write_serial(
         self, ts: int, zone: str, view: str, node_id: str, serial: int | None, divergent: bool
@@ -122,7 +141,7 @@ class SeriesStore:
             "INSERT OR REPLACE INTO series_serial VALUES (?,?,?,?,?,?)",
             (ts, zone, view, node_id, serial, int(divergent)),
         )
-        self.conn.commit()
+        self._commit()
 
     def latest_serial(self, zone: str, view: str, node_id: str) -> tuple[int, int | None, bool] | None:
         """(ts, serial, divergent) of the most recent row for one zone on one node."""
@@ -159,7 +178,7 @@ class SeriesStore:
             "INSERT OR REPLACE INTO ha_transitions VALUES (?,?,?,?,?,?,?,?,?)",
             (ts, node_id, engine, server_name, from_state, to_state, partner_state, scopes, reason),
         )
-        self.conn.commit()
+        self._commit()
 
     def last_ha_state(self, node_id: str, engine: str) -> str | None:
         row = self.conn.execute(
@@ -176,7 +195,7 @@ class SeriesStore:
             "INSERT OR REPLACE INTO engine_snapshots VALUES (?,?,?,?,?)",
             (node_id, engine, kind, ts, json.dumps(payload, separators=(",", ":"))),
         )
-        self.conn.commit()
+        self._commit()
 
     def snapshot(self, node_id: str, engine: str, kind: str) -> tuple[int, Any] | None:
         row = self.conn.execute(
@@ -226,7 +245,7 @@ class SeriesStore:
 
     def delete_snapshots(self, node_id: str) -> int:
         cur = self.conn.execute("DELETE FROM engine_snapshots WHERE node_id = ?", (node_id,))
-        self.conn.commit()
+        self._commit()
         return cur.rowcount
 
     # Readers ---------------------------------------------------------------
@@ -369,7 +388,7 @@ class SeriesStore:
             ],
         )
         deleted = self.conn.execute("DELETE FROM series_pool WHERE ts < ?", (before_ts,)).rowcount
-        self.conn.commit()
+        self._commit()
         return len(rows), deleted
 
     def apply_retention(self, now: int, retention: dict[str, int]) -> dict[str, int]:
@@ -397,7 +416,7 @@ class SeriesStore:
             "DELETE FROM alerts WHERE state = 'resolved' AND resolved_at < ?",
             (now - days("alerts_resolved_days", 90) * DAY,),
         ).rowcount
-        self.conn.commit()
+        self._commit()
         self.set_meta("last_run_retention", str(now))
         return {
             "pool_raw_deleted": raw_deleted,

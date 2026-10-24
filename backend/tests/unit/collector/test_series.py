@@ -37,6 +37,21 @@ def test_connect_sets_schema_and_wal(tmp_root):
     ro.close()
 
 
+def test_batch_commits_once_with_normal_sync(tmp_root, store):
+    assert store.conn.execute("PRAGMA synchronous").fetchone()[0] == 1  # NORMAL
+    reader = connect(tmp_root / "series.sqlite", readonly=True)
+    with store.batch():
+        store.write_pool_sample(100, NODE, "kea4", 1, "p", 10, 5)
+        store.set_meta("k", "v")
+        with store.batch():
+            store.write_pool_sample(160, NODE, "kea4", 1, "p", 10, 6)
+        assert reader.execute("SELECT COUNT(*) FROM series_pool").fetchone()[0] == 0  # not committed yet
+    assert reader.execute("SELECT COUNT(*) FROM series_pool").fetchone()[0] == 2
+    store.set_meta("k2", "v2")  # outside a batch: committed at once
+    assert reader.execute("SELECT value FROM meta WHERE key='k2'").fetchone()[0] == "v2"
+    reader.close()
+
+
 def test_rebuild_drops_everything(tmp_root, store):
     store.write_pool_sample(100, NODE, "kea4", 1, "p", 10, 5)
     store.conn.close()

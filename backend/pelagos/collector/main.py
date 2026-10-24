@@ -12,6 +12,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -163,6 +164,11 @@ class Collector:
 
     # Tasks -----------------------------------------------------------------
 
+    def batch(self) -> Any:
+        """The series writes of one task in one transaction (the store commits once at the end)."""
+        batch = getattr(self.store, "batch", None)
+        return batch() if callable(batch) else nullcontext()
+
     def poll_bind(self) -> None:
         if self.bind is not None:
             with self.backend_lock:
@@ -257,7 +263,8 @@ class Collector:
             ("retention", self.retention),
         ):
             try:
-                fn()
+                with self.batch():
+                    fn()
             except Exception as exc:
                 log.exception("task %s failed", name)
                 self.last_report.errors[name] = str(exc)
@@ -619,7 +626,8 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
             for task in tasks:
                 if task.next_run <= now:
                     try:
-                        task.fn()
+                        with collector.batch():
+                            task.fn()
                     except Exception:
                         log.exception("task %s failed", task.name)
                     task.next_run = now + task.period

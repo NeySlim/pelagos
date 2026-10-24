@@ -1,0 +1,130 @@
+# SPDX-License-Identifier: Apache-2.0
+# Builds the deb, the rpms (RHEL 9 and 10), the node image and the all-in-one image, and
+# smoke tests the compose stack. The frontend is built first when it exists; without it the
+# packages ship the API-only notice page.
+name: packages
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "packaging/**"
+      - "docker/**"
+      - "Makefile"
+      - ".github/workflows/packages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect frontend
+        id: detect
+        run: echo "present=$([ -f frontend/package.json ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        if: steps.detect.outputs.present == 'true'
+        with:
+          node-version: 22
+      - name: Build frontend
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          cd frontend
+          npm ci --no-fund --no-audit
+          npm run build
+      - name: Placeholder when there is no frontend
+        if: steps.detect.outputs.present != 'true'
+        run: mkdir -p frontend/dist && touch frontend/dist/.none
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          include-hidden-files: true
+
+  deb:
+    needs: frontend
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    steps:
+      - name: Build dependencies
+        run: |
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends \
+            ca-certificates git make dpkg-dev debhelper fakeroot lintian python3 python3-venv python3-pip
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - name: Drop the placeholder
+        run: rm -f frontend/dist/.none && rmdir --ignore-fail-on-non-empty frontend/dist
+      - name: make deb
+        run: make deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: build/deb/*.deb
+
+  rpm:
+    needs: frontend
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - el: 9
+            python: python3.12 python3.12-pip
+          - el: 10
+            python: python3 python3-pip
+    container: rockylinux/rockylinux:${{ matrix.el }}
+    steps:
+      - name: Build dependencies
+        run: dnf install -y -q git make findutils rpm-build systemd-rpm-macros ${{ matrix.python }}
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - name: Drop the placeholder
+        run: rm -f frontend/dist/.none && rmdir --ignore-fail-on-non-empty frontend/dist
+      - name: make rpm
+        run: make rpm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-el${{ matrix.el }}
+          path: build/rpm/*.rpm
+
+  docker:
+    needs: frontend
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - name: Drop the placeholder
+        run: rm -f frontend/dist/.none && rmdir --ignore-fail-on-non-empty frontend/dist
+      - name: make docker
+        run: make docker
+      - name: Compose smoke test
+        run: packaging/tests/compose-smoke.sh pelagos:latest
+      - name: make docker-allinone
+        run: make docker-allinone
+      - name: All-in-one smoke test
+        run: |
+          docker run -d --name aio -e PELAGOS_ADMIN_PASSWORD=ci-smoke-password -p 9443:8443 pelagos-allinone:latest
+          for i in $(seq 1 60); do
+            if curl -fsk https://127.0.0.1:9443/api/v1/health; then ok=1; break; fi
+            sleep 2
+          done
+          docker exec aio supervisorctl status
+          [ "${ok:-0}" = 1 ] || { docker logs aio; exit 1; }
+          docker rm -f aio

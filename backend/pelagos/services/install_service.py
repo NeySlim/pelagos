@@ -11,7 +11,6 @@ from __future__ import annotations
 import importlib
 import threading
 from collections.abc import Callable
-from dataclasses import asdict
 from typing import Any
 
 from pelagos.core.context import NodeContext
@@ -78,17 +77,14 @@ class InstallService:
         return self.ctx.plan_store.put(plan_import(paths, engines, created_by, self.ctx.node.id))
 
     def security(self) -> list[dict[str, Any]]:
-        from pelagos.installer import security_audit as sa
+        from pelagos.installer.env import InstallerEnv
+        from pelagos.installer.security_audit import run_audit
 
-        findings = []
-        if self.dns is not None and self.dns.local is not None:
-            findings += sa.audit_bind(self.dns.local.read_config().to_dict())
-        if self.dhcp4 is not None and self.dhcp4.local is not None:
-            d2 = self.dhcp4.d2.config_get() if self.dhcp4.d2 is not None else None
-            findings += sa.audit_kea(self.dhcp4.local.config_get(), d2)
+        env = InstallerEnv.detect(node_paths=self.ctx.paths, node_id=self.ctx.node.id)
+        findings = run_audit(env)
         with self._lock:
             self._findings = {f.id: f for f in findings}
-        return [_finding_dict(f) for f in findings]
+        return [f.to_dict() for f in findings]
 
     def plan_security(self, body: dict[str, Any], created_by: str) -> Plan:
         from pelagos.installer.security_audit import plan_remediation
@@ -119,10 +115,3 @@ class InstallService:
         if fn is None:
             raise NotImplementedError("WP-INSTALLER")
         return fn
-
-
-def _finding_dict(finding: Any) -> dict[str, Any]:
-    data = asdict(finding)
-    severity = data.get("severity")
-    data["severity"] = getattr(severity, "value", severity)
-    return data

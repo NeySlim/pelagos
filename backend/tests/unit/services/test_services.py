@@ -229,8 +229,7 @@ def test_job_scope_plans_run_as_jobs(node_ctx):
         assert job.state is JobState.DONE and seen == [plan.id] and plan.state is PlanState.APPLIED
         entry = node_ctx.audit_log.query(action="install.apply")[0][0]
         assert entry.plan_id == plan.id and entry.result.value == "ok"
-        with pytest.raises(NotImplementedError):
-            services.install.runner(PlanScope.SECURITY)
+        assert callable(services.install.runner(PlanScope.SECURITY))
     finally:
         services.close()
 

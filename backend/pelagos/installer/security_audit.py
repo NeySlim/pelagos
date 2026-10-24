@@ -613,6 +613,14 @@ def plan_remediation(findings: list[Finding], created_by: str, node_ids: list[st
     return build_security_plan(env, [f.id for f in findings], created_by, d2_node_ids=node_ids or None)
 
 
+def run_remediation(plan: Plan, job: Any, progress: Any) -> Any:
+    """Job runner for security plans (POST /plans/{id}/apply)."""
+    from pelagos.installer.env import InstallerEnv
+    from pelagos.installer.jobs import apply_plan
+
+    return apply_plan(plan, InstallerEnv.detect(node_id=plan.node_id), job, progress)
+
+
 # Remediation -----------------------------------------------------------------------------------
 
 

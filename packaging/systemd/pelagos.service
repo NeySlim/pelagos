@@ -12,7 +12,7 @@ Group=pelagos
 # Supplementary groups are set by the package postinst (bind or named, _kea or kea).
 EnvironmentFile=-/etc/pelagos/pelagos.env
 WorkingDirectory=/opt/pelagos
-ExecStart=/opt/pelagos/venv/bin/gunicorn --config /opt/pelagos/venv/lib/pelagos/gunicorn_conf.py pelagos.app:wsgi_app()
+ExecStart=/opt/pelagos/venv/bin/gunicorn -c /opt/pelagos/gunicorn_conf.py 'pelagos.app:wsgi_app()'
 Restart=on-failure
 RestartSec=3
 RuntimeDirectory=pelagos

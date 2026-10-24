@@ -23,17 +23,22 @@ daemon tests BIND 9.20 (`named`, `named-checkconf`, `rndc`, `tsig-keygen`)
 and Kea 3.x (`kea-dhcp4`, `kea-dhcp6`, `kea-dhcp-ddns`, hooks in
 `/usr/lib/kea/hooks` or `/usr/lib/x86_64-linux-gnu/kea/hooks`).
 
+Contributors run everything on the shared lab-dev VM (see `AGENTS.md`); the
+commands are the same anywhere the toolchain exists.
+
 ```sh
-make dev            # create backend/.venv and install frontend deps (run on the lab-dev VM, see AGENTS.md)
+make dev            # create backend/.venv and install frontend deps
 make lint           # ruff + eslint
 make test           # unit tests (no daemons)
 make test-daemon    # starts real named and kea in a temp dir
 make build-frontend # vite build into frontend/dist
-make run            # API on http://127.0.0.1:8480, UI dev server on :5173
+make run            # pelagos init (first time) + API on http://127.0.0.1:8480, UI dev server on :5173
 ```
 
-The API is served under `/api/v1`; `GET /api/v1/health` and
-`GET /api/v1/version` work without authentication.
+`make run` initializes a development node under `backend/.pelagos-dev`
+(admin / `admin-dev-password`). The API is served under `/api/v1`
+(`GET /api/v1/health` and `GET /api/v1/version` need no authentication);
+Swagger is at `/api/v1/docs`.
 
 ## License
 

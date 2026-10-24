@@ -1,0 +1,14 @@
+*
+!backend
+!packaging
+!docker
+!frontend/dist
+!LICENSE
+!NOTICE
+!README.md
+backend/.venv
+backend/.pytest_cache
+backend/.ruff_cache
+backend/.pelagos-dev
+**/__pycache__
+**/node_modules

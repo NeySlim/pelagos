@@ -326,6 +326,7 @@ def step_kea_config(env: Any, engine: str, change: Change, ctx: InstallContext) 
         out.append(
             keasetup.write_config(env, engine, conf, keaconf.dumps(config), f"install-{engine}", restart=True)
         )
+    out.append(keasetup.ensure_config_writable(env, conf, daemon))
     out.append(keasetup.ensure_socket_access(env, engine, version))
     if keasetup.needs_socket_dropin(version) and not env.dry_run:
         out.append(env.services.restart(env.kea_unit(engine)) or "restarted for the socket drop-in")

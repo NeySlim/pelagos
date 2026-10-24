@@ -281,6 +281,7 @@ def step_kea_socket(env: Any, engine: str, change: Change, ctx: dict[str, Any]) 
         out.append(keasetup.write_config(env, engine, conf, new_text, f"import-{engine}", restart=False))
     else:
         out.append("control socket present")
+    out.append(keasetup.ensure_config_writable(env, conf, daemon))
     dropin = keasetup.ensure_socket_access(env, engine, version)
     out.append(dropin)
     if dropin.endswith("written") and env.services.is_active(env.kea_unit(engine)):

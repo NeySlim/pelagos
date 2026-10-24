@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 
 import pytest
@@ -185,6 +186,43 @@ def test_import_kea_adds_socket_and_dropin_logic(tmp_path):
     assert cfg["control-sockets"] == [{"socket-type": "unix", "socket-name": "kea4-ctrl-socket"}]
     assert kea_fingerprint(text) == kea_fingerprint(without)
     assert any(c[0] == "kea_test" for c in env.tools.calls)
+
+
+def test_import_makes_the_kea_config_writable_by_kea(tmp_path):
+    import dataclasses
+    import grp
+
+    env = debian_tree(tmp_path)
+    group = grp.getgrgid(os.getgid()).gr_name
+    # The Kea user is someone else (root), its group is ours: config-write must go through the group.
+    env.paths = dataclasses.replace(env.paths, kea_user="root", kea_group=group)
+    copy_kea(tmp_path, {"kea-dhcp4.conf": "debian-2.6-kea-dhcp4.conf"})
+    conf = tmp_path / "etc/kea/kea-dhcp4.conf"
+    conf.chmod(0o644)
+    job = apply_plan(build_import_plan(env, ["kea4"]), env)
+    assert job.state is JobState.DONE, job.error
+    assert conf.stat().st_mode & 0o777 == 0o660
+    step = next(s for s in job.steps if s["name"] == "import/kea4/socket")
+    assert "so config-write works" in step["output"]
+    again = apply_plan(build_import_plan(env, ["kea4"]), env)
+    assert "writable by Kea" in next(s for s in again.steps if s["name"] == "import/kea4/socket")["output"]
+
+
+def test_import_lets_apparmor_confined_kea_write_its_config(tmp_path):
+    env = debian_tree(tmp_path)
+    copy_kea(tmp_path, {"kea-dhcp4.conf": "debian-2.6-kea-dhcp4.conf"})
+    profiles = tmp_path / "etc/apparmor.d"
+    (profiles / "local").mkdir(parents=True)
+    (profiles / "usr.sbin.kea-dhcp4").write_text(
+        "profile kea-dhcp4 {\n  #include <local/usr.sbin.kea-dhcp4>\n}\n"
+    )
+    (profiles / "local/usr.sbin.kea-dhcp4").write_text("# Site-specific additions\n")
+    for _ in range(2):
+        job = apply_plan(build_import_plan(env, ["kea4"]), env)
+        assert job.state is JobState.DONE, job.error
+    rules = (profiles / "local/usr.sbin.kea-dhcp4").read_text().splitlines()
+    assert rules[0] == "# Site-specific additions"
+    assert rules.count(f"{tmp_path}/etc/kea/kea-dhcp4.conf rw,") == 1
 
 
 def test_bind_fingerprint_ignores_only_pelagos_additions(tmp_path):

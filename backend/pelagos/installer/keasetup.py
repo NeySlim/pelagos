@@ -11,6 +11,7 @@ from __future__ import annotations
 import grp
 import json
 import os
+import pwd
 import time
 from pathlib import Path
 from typing import Any
@@ -299,6 +300,57 @@ def write_config(env: Any, engine: str, conf: Path, text: str, label: str, resta
     if not result.ok:
         raise RuntimeError(f"{conf}: {result.error}")
     return f"{conf} written; " + "; ".join(f"{s['name']} ok" for s in result.steps if s["ok"])
+
+
+APPARMOR_MARK = "# pelagos: config-write of the Kea configuration"
+
+
+def ensure_apparmor_write(env: Any, daemon: str, conf: Path) -> str:
+    """Debian confines Kea with AppArmor to reading /etc/kea: the profile's local include gets a
+    write rule for the configuration file, then the profile is reloaded."""
+    base = Path(env.paths.root) / "etc/apparmor.d"
+    profile = base / f"usr.sbin.{daemon}"
+    if not profile.exists():
+        return ""
+    local = base / "local" / f"usr.sbin.{daemon}"
+    rule = f"{conf} rw,"
+    text = local.read_text() if local.exists() else ""
+    if rule in text.splitlines():
+        return f"AppArmor: {daemon} may write {conf}"
+    if env.dry_run:
+        return f"dry run: would allow {daemon} to write {conf} in {local}"
+    local.parent.mkdir(parents=True, exist_ok=True)
+    sep = "\n" if text and not text.endswith("\n") else ""
+    local.write_text(f"{text}{sep}{APPARMOR_MARK}\n{rule}\n")
+    enabled = Path("/sys/module/apparmor/parameters/enabled")
+    if Path(env.paths.root) == Path("/") and enabled.exists() and enabled.read_text().startswith("Y"):
+        env.runner.run(["apparmor_parser", "-r", str(profile)], privileged=True, check=False, timeout=60)
+    return f"AppArmor: {daemon} may now write {conf} ({local})"
+
+
+def ensure_config_writable(env: Any, conf: Path, daemon: str | None = None) -> str:
+    """`config-write` runs as the Kea user: the configuration must be writable by it, as its owner or
+    through the Kea group (root:<kea group> 0660; distro packages ship root:root 0644)."""
+    note = ensure_apparmor_write(env, daemon, conf) if daemon else ""
+    return "\n".join(o for o in (_config_mode(env, conf), note) if o)
+
+
+def _config_mode(env: Any, conf: Path) -> str:
+    try:
+        st = conf.stat()
+        uid = pwd.getpwnam(env.paths.kea_user).pw_uid
+        gid = grp.getgrnam(env.paths.kea_group).gr_gid
+    except (OSError, KeyError):
+        return f"{conf}: Kea user or file not found; config-write left as is"
+    if (st.st_uid == uid and st.st_mode & 0o200) or (st.st_gid == gid and st.st_mode & 0o020):
+        return f"{conf} writable by Kea (config-write)"
+    mode = (st.st_mode & 0o770) | 0o060
+    if env.dry_run:
+        return f"dry run: would make {conf} {oct(mode)} group {env.paths.kea_group}"
+    os.chown(conf, -1, gid)
+    os.chmod(conf, mode)
+    env.relabel([conf])
+    return f"{conf} is now {oct(mode)[2:]} group {env.paths.kea_group} so config-write works"
 
 
 def write_secret_file(env: Any, path: Path, secret: str) -> str:

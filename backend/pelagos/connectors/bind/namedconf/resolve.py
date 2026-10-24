@@ -58,6 +58,7 @@ class ConfigFiles:
     order: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    unreadable: list[str] = field(default_factory=list)  # present but not readable (permissions...)
     directory: Path | None = None  # options `directory` once seen; named resolves relative includes there
     targets: dict[int, list[Path]] = field(default_factory=dict)  # id(include node) -> files
 
@@ -79,6 +80,10 @@ class ConfigFiles:
             doc = parse(reader(path), key)
         except FileNotFoundError:
             self.missing.append(key)
+            return
+        except OSError as exc:
+            self.errors.append(f"{key}: {exc.strerror or exc}")
+            self.unreadable.append(key)
             return
         except ParseError as exc:
             self.errors.append(str(exc))
@@ -431,10 +436,15 @@ def run_checkconf(binary: str, conf: Path, print_tree: bool = False, timeout: fl
     return {"ok": proc.returncode == 0, "output": (proc.stdout + proc.stderr).strip()}
 
 
-def key_secret(files: ConfigFiles, name: str) -> tuple[str, str] | None:
-    """(algorithm, secret) of a key statement anywhere in the configuration; for the connector only."""
+def key_secret(files: ConfigFiles, name: str, include_dir: Path | None = None) -> tuple[str, str] | None:
+    """(algorithm, secret) of a key statement in the configuration, only in files under include_dir
+    when given; for the connector only."""
+    name = name.rstrip(".")
+    root = include_dir.resolve() if include_dir is not None else None
     for res in files.statements():
-        if res.node.name == "key" and res.node.args and unquote(res.node.args[0]) == name:
+        if root is not None and not _under(Path(res.path), root):
+            continue
+        if res.node.name == "key" and res.node.args and unquote(res.node.args[0]).rstrip(".") == name:
             alg = res.node.first("algorithm")
             secret = res.node.first("secret")
             if alg and alg.args and secret and secret.args:

@@ -128,12 +128,15 @@ _SAFE_WORD = re.compile(r"^[A-Za-z0-9_.:/*!-]+$")
 
 def unquote(text: str) -> str:
     if len(text) >= 2 and text[0] == '"' and text[-1] == '"':
-        return text[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        return text[1:-1].replace('\\"', '"')
     return text
 
 
 def quote(text: str) -> str:
-    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    """named's lexer only unescapes `\\"`; other backslashes are kept as they are."""
+    if text.endswith("\\") or '\\"' in text:
+        raise ValueError(f"{text!r} cannot be written as a named.conf string")
+    return '"' + text.replace('"', '\\"') + '"'
 
 
 def word_or_quoted(text: str) -> str:

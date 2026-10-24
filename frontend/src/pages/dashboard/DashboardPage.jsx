@@ -175,7 +175,8 @@ export default function DashboardPage() {
         <EmptyState icon={Gauge} title={errorMessage(summary.error)} action={{ label: t('common:actions.retry'), onClick: refetchAll }} />
       ) : isMobile ? (
         <div className="space-y-3" data-testid="dashboard-stack">
-          {ordered.map((item, i) => {
+          {/* On a phone the radar leads, the other tiles follow in reading order. */}
+          {[...ordered.filter((it) => it.i === 'radar'), ...ordered.filter((it) => it.i !== 'radar')].map((item, i) => {
             const Tile = TILE_COMPONENTS[item.i]
             return (
               <div key={item.i} className="fx-stagger-item" style={{ height: item.h * ROW_HEIGHT, '--fx-i': i }}>

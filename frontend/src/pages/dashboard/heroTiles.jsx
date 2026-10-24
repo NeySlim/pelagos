@@ -87,12 +87,14 @@ export function RadarTile({ summary, openAlerts, editing, live }) {
             <StatChip icon={Globe} tone={divergent ? 'warning' : 'success'} label={t('tiles.radar.zones')} value={t('tiles.radar.zonesValue', { total: zones.length, divergent })} />
           </div>
         )}
+        {!compact && (
         <div className="absolute right-3 top-3 flex flex-col gap-2" data-testid="radar-controls">
           <IconButton icon={HardDrives} label={t('tiles.nodes.title')} onClick={() => navigate('/nodes')} />
           <IconButton icon={WarningDiamond} label={t('tiles.inconsistencies.title')} onClick={() => navigate('/alerts')} />
           <IconButton icon={Globe} label={t('tiles.zones.title')} onClick={() => navigate('/dns/zones')} />
           <IconButton icon={ArrowsLeftRight} label={t('tiles.ha.title')} onClick={() => navigate(`/dhcp/${family}/ha`)} />
         </div>
+        )}
       </div>
     </TileFrame>
   )

@@ -68,8 +68,6 @@ from the distribution, from the ISC Cloudsmith repositories (Kea 3.x), or let
 PELAGOS_PYTHON=%{pelagos_python} packaging/build-tree.sh %{buildroot} "$PWD"
 install -D -m 0644 packaging/systemd/pelagos.service %{buildroot}%{_unitdir}/pelagos.service
 install -D -m 0644 packaging/systemd/pelagos-collector.service %{buildroot}%{_unitdir}/pelagos-collector.service
-%{_unitdir}/pelagos-helper.socket
-%{_unitdir}/pelagos-helper@.service
 install -D -m 0644 packaging/systemd/pelagos-helper.socket %{buildroot}%{_unitdir}/pelagos-helper.socket
 install -D -m 0644 packaging/systemd/pelagos-helper@.service %{buildroot}%{_unitdir}/pelagos-helper@.service
 install -D -m 0644 packaging/pelagos.env %{buildroot}%{_sysconfdir}/pelagos/pelagos.env
@@ -123,6 +121,8 @@ fi
 %{_bindir}/pelagos
 %{_unitdir}/pelagos.service
 %{_unitdir}/pelagos-collector.service
+%{_unitdir}/pelagos-helper.socket
+%{_unitdir}/pelagos-helper@.service
 %{_presetdir}/80-pelagos.preset
 %dir %attr(0750,%{pelagos_user},%{pelagos_user}) %{_sysconfdir}/pelagos
 %dir %attr(0750,%{pelagos_user},%{pelagos_user}) %{_sysconfdir}/pelagos/tls

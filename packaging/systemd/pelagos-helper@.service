@@ -12,3 +12,6 @@ StandardInput=socket
 StandardOutput=socket
 StandardError=journal
 UMask=0027
+# One request per instance: a stuck or silent client never pins a root process for long.
+RuntimeMaxSec=3600
+TimeoutStopSec=30

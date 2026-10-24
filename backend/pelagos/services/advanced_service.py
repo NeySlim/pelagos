@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 from pathlib import Path
@@ -197,12 +198,24 @@ def grammar_document(grammar: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _head_arg(arg: str, first: bool) -> str:
+    """Block head arguments as named-checkconf -p prints them: the name quoted (zone "x", key "k"),
+    addresses, prefixes and classes bare (server 192.0.2.1, dns64 64:ff9b::/96, IN)."""
+    if not first or arg.startswith('"'):
+        return arg
+    try:
+        ipaddress.ip_network(arg, strict=False)
+        return arg
+    except ValueError:
+        return '"' + arg.replace('"', '\\"') + '"'
+
+
 def _editor_statement(stmt: dict[str, Any]) -> dict[str, Any]:
     out = dict(stmt)
     children = stmt.get("statements")
     if children is not None:
-        args = stmt.get("args") or []
-        out["value"] = " ".join(str(a) for a in args) or None
+        args = [str(a) for a in stmt.get("args") or []]
+        out["value"] = " ".join(_head_arg(a, i == 0) for i, a in enumerate(args)) or None
         out["children"] = [_editor_statement(c) for c in children]
     return out
 

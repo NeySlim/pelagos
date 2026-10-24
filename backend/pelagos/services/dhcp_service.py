@@ -393,6 +393,9 @@ class DhcpService:
                 change.target = f"{self.subnet_key}/{sid}"
             if change.op is not ChangeOp.DELETE and after.get("subnet"):
                 _check_prefix(after["subnet"], self.family)
+            sid = change.target.rpartition("/")[2]
+            ids = {"id": int(sid)} if sid.isdigit() else {}
+            change.after = _domain_after(change.after, Subnet, family=self.family, **ids)
             plan = backend.plan_subnet_change(change, created_by)
         elif kind == "shared_network":
             change = parse_change(body.get("change"), "change")
@@ -420,6 +423,7 @@ class DhcpService:
             for field in ("ip_address",):
                 if after.get(field):
                     _check_ip(after[field], self.family, f"change.after.{field}")
+            change.after = _domain_after(change.after, Reservation)
             plan = backend.plan_reservation_change(change, created_by)
         elif kind == "class":
             change = parse_change(body.get("change"), "change")
@@ -739,3 +743,14 @@ def _maintenance_label(action: str, down: str, up: str) -> str:
             f" {up} keeps serving (partner-in-maintenance)"
         )
     return f"HA maintenance cancel: {down} leaves maintenance and both servers return to normal ({up} drives)"
+
+
+def _domain_after(after: Any, model: Any, **defaults: Any) -> Any:
+    """A domain object given with only some fields (`{"id", "subnet", "pools"}`) is completed, so the
+    connector sees a domain dict; Kea-style dicts (dashed keys) pass through untouched."""
+    if not isinstance(after, dict) or any("-" in k for k in after):
+        return after
+    try:
+        return model.from_dict({**defaults, **after}).to_dict()
+    except (TypeError, ValueError, KeyError):
+        return after  # incomplete: the connector reports what is missing

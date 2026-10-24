@@ -115,16 +115,7 @@ class PlanService:
             if pre.kind in (PreconditionKind.RRSET_EXISTS, PreconditionKind.RRSET_ABSENT) and isinstance(
                 backend, DnsBackend
             ):
-                owner, _, rtype = pre.subject.partition("/")
-                owner = normalize_name(owner)
-                zone = next((z.name for z in backend.list_zones() if owner.endswith(z.name)), None)
-                if zone is None:
-                    return None
-                exists = any(
-                    normalize_name(r.name) == owner and r.rtype.upper() == rtype.upper()
-                    for r in backend.read_zone(zone)
-                )
-                return "exists" if exists else "absent"
+                return _observe_rrset(backend, pre)
             if pre.kind is PreconditionKind.HA_STATE and isinstance(backend, DhcpBackend):
                 return backend.ha_state().state or ""
             if pre.kind is PreconditionKind.FILE_SHA256:
@@ -427,3 +418,29 @@ def _mask_text_values(value: Any) -> Any:
     if isinstance(value, list):
         return [_mask_text_values(v) for v in value]
     return value
+
+
+def _observe_rrset(backend: DnsBackend, pre: Precondition) -> str | None:
+    """The precondition's value as it reads now. Two conventions: "exists"/"absent", or BIND's
+    value-dependent one ("" for absent, the rdata one per line for exists, order not significant)."""
+    owner, _, rtype = pre.subject.partition("/")
+    owner = normalize_name(owner)
+    zones = [z.name for z in backend.list_zones() if owner == z.name or owner.endswith("." + z.name)]
+    if not zones:
+        return None
+    zone = max(zones, key=len)
+    rdata = next(
+        (
+            list(r.rdata)
+            for r in backend.read_zone(zone)
+            if normalize_name(r.name) == owner and r.rtype.upper() == rtype.upper()
+        ),
+        None,
+    )
+    if pre.value in ("exists", "absent"):
+        return "exists" if rdata is not None else "absent"
+    if rdata is None:
+        return ""
+    if sorted(rdata) == sorted(line for line in pre.value.split("\n") if line):
+        return pre.value
+    return "\n".join(rdata)

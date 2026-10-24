@@ -41,12 +41,25 @@ class SeriesCache:
     def __init__(self, path: Path) -> None:
         self.path = path
         self._conn: sqlite3.Connection | None = None
+        self._identity: tuple[int, int] | None = None
+
+    def _current_identity(self) -> tuple[int, int] | None:
+        try:
+            st = self.path.stat()
+        except OSError:
+            return None
+        return (st.st_dev, st.st_ino)
 
     @property
     def conn(self) -> sqlite3.Connection | None:
-        if self._conn is None and self.path.exists():
+        # `collector --rebuild` or a restore replaces the file: reopen when the inode changes.
+        identity = self._current_identity()
+        if self._conn is not None and identity != self._identity:
+            self.close()
+        if self._conn is None and identity is not None:
             try:
                 self._conn = series_mod.connect(self.path, readonly=True)
+                self._identity = identity
             except sqlite3.Error as exc:
                 log.warning("series cache %s not readable: %s", self.path, exc)
                 return None
@@ -66,6 +79,7 @@ class SeriesCache:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
+            self._identity = None
 
 
 class AlertsService:

@@ -133,7 +133,7 @@ export default function ZonesPage() {
     { key: 'zone.kind', label: t('zones.kind'), sortable: true, render: (row) => <StatusBadge status={row.zone.kind} label={t(`kind.${row.zone.kind}`, { defaultValue: row.zone.kind })} dot={false} /> },
     { key: 'zone.view', label: t('zones.view'), sortable: true, mono: true },
     { key: 'zone.source', label: t('zones.source'), render: (row) => <SourceBadge source={row.zone.source} /> },
-    { key: 'serials', label: t('zones.serials'), render: (row) => <SerialCells serials={row.serials} nameOf={nameOf} /> },
+    { key: 'serials', label: t('zones.serials'), render: (row) => (row.zone.kind === 'forward' ? <span className="text-text-tertiary">-</span> : <SerialCells serials={row.serials} nameOf={nameOf} />) },
     {
       key: 'divergent',
       label: t('zones.sync'),

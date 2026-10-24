@@ -149,7 +149,6 @@ export function RecordEditor({
             placeholder={t(`editor.placeholder.${form.rtype}`, { defaultValue: '' })}
             helperText={t('editor.rdataHelp')}
             error={fieldError('rdata')}
-            className="font-mono"
             data-testid="record-rdata"
           />
         </>

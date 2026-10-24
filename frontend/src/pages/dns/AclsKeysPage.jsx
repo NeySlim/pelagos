@@ -157,7 +157,7 @@ export default function AclsKeysPage() {
   }
 
   const aclColumns = [
-    { key: 'name', label: t('acls.name'), sortable: true, render: (a) => <span className="font-mono text-xs">{a.name}</span> },
+    { key: 'name', label: t('acls.name'), sortable: true, render: (a) => <span className="font-mono text-xs whitespace-nowrap">{a.name}</span> },
     { key: 'elements', label: t('acls.elements'), render: (a) => <ListValue items={a.elements} /> },
     { key: 'source', label: t('zones.source'), render: (a) => <SourceBadge source={a.source} /> },
     { key: 'config_path', label: t('detail.configPath'), mono: true, truncate: true },
@@ -186,7 +186,7 @@ export default function AclsKeysPage() {
   ]
 
   const keyColumns = [
-    { key: 'name', label: t('keys.name'), sortable: true, render: (k) => <span className="font-mono text-xs">{k.name}</span> },
+    { key: 'name', label: t('keys.name'), sortable: true, render: (k) => <span className="font-mono text-xs whitespace-nowrap">{k.name}</span> },
     {
       key: 'algorithm',
       label: t('keys.algorithm'),

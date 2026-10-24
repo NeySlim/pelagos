@@ -22,7 +22,11 @@ RuntimeDirectory=pelagos
 RuntimeDirectoryPreserve=yes
 RuntimeDirectoryMode=0750
 StateDirectory=pelagos
+StateDirectoryMode=0750
 ConfigurationDirectory=pelagos
+ConfigurationDirectoryMode=0750
+# Files created by the services are never world readable (section 3 modes).
+UMask=0027
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

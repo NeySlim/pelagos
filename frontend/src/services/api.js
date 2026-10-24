@@ -1,0 +1,197 @@
+// SPDX-License-Identifier: Apache-2.0
+// One function per endpoint of docs/architecture.md section 17, grouped by area.
+// Bodies and query parameters follow the spec literally; every function returns
+// the parsed JSON (or null for 204). Plans come back as Plan objects and are
+// applied through api.plans.apply(id, confirm).
+import { apiClient, buildQueryString, API_BASE_URL } from './apiClient'
+
+const enc = encodeURIComponent
+const zonePath = (zone) => enc(String(zone).replace(/\.$/, ''))
+
+export const meta = {
+  health: () => apiClient.get('/health'),
+  version: () => apiClient.get('/version'),
+  capabilities: () => apiClient.get('/capabilities'),
+}
+
+export const auth = {
+  login: (username, password, totp_code) =>
+    apiClient.post('/auth/login', totp_code ? { username, password, totp_code } : { username, password }),
+  logout: () => apiClient.post('/auth/logout'),
+  session: () => apiClient.get('/auth/session'),
+  changePassword: (current_password, new_password) =>
+    apiClient.post('/auth/password', { current_password, new_password }),
+  totpEnroll: () => apiClient.post('/auth/totp/enroll'),
+  totpConfirm: (code) => apiClient.post('/auth/totp/confirm', { code }),
+  totpDisable: (password) => apiClient.delete('/auth/totp', { password }),
+}
+
+export const account = {
+  getPreferences: () => apiClient.get('/account/preferences'),
+  updatePreferences: (prefs) => apiClient.put('/account/preferences', prefs),
+}
+
+export const nodes = {
+  list: () => apiClient.get('/nodes'),
+  self: () => apiClient.get('/nodes/self'),
+  get: (id) => apiClient.get(`/nodes/${enc(id)}`),
+  enrollToken: (ttl_seconds) => apiClient.post('/nodes/enroll-token', ttl_seconds ? { ttl_seconds } : {}),
+  remove: (id) => apiClient.delete(`/nodes/${enc(id)}`),
+  sync: (id) => apiClient.post(`/nodes/${enc(id)}/sync`),
+  replication: () => apiClient.get('/nodes/replication'),
+}
+
+export const dashboard = {
+  summary: () => apiClient.get('/dashboard/summary'),
+  getLayout: () => apiClient.get('/dashboard/layout'),
+  saveLayout: (layout) => apiClient.put('/dashboard/layout', { layout }),
+}
+
+export const dns = {
+  instances: () => apiClient.get('/dns/instances'),
+  zones: (params) => apiClient.get(`/dns/zones${buildQueryString(params)}`),
+  zone: (zone, view) => apiClient.get(`/dns/zones/${zonePath(zone)}${buildQueryString({ view })}`),
+  zonePlan: (change) => apiClient.post('/dns/zones/plan', { change }),
+  records: (zone, params) => apiClient.get(`/dns/zones/${zonePath(zone)}/records${buildQueryString(params)}`),
+  recordsPlan: (zone, changes, view) =>
+    apiClient.post(`/dns/zones/${zonePath(zone)}/records/plan`, view ? { view, changes } : { changes }),
+  retransfer: (zone, node_id, view) =>
+    apiClient.post(`/dns/zones/${zonePath(zone)}/retransfer`, { node_id, ...(view ? { view } : {}) }),
+  notify: (zone, body = {}) => apiClient.post(`/dns/zones/${zonePath(zone)}/notify`, body),
+  reload: (zone, body = {}) => apiClient.post(`/dns/zones/${zonePath(zone)}/reload`, body),
+  dnssec: (zone, params) => apiClient.get(`/dns/zones/${zonePath(zone)}/dnssec${buildQueryString(params)}`),
+  config: (node_id) => apiClient.get(`/dns/config${buildQueryString({ node_id })}`),
+  configPlan: (changes, node_ids) =>
+    apiClient.post('/dns/config/plan', node_ids ? { node_ids, changes } : { changes }),
+  keys: () => apiClient.get('/dns/keys'),
+  keySecret: (name) => apiClient.get(`/dns/keys/${enc(name)}/secret`),
+  keysPlan: (change) => apiClient.post('/dns/keys/plan', { change }),
+  acls: () => apiClient.get('/dns/acls'),
+  aclsPlan: (change) => apiClient.post('/dns/acls/plan', { change }),
+  resolver: () => apiClient.get('/dns/resolver'),
+  resolverPlan: (settings) => apiClient.post('/dns/resolver/plan', settings),
+  rpz: () => apiClient.get('/dns/rpz'),
+  catalogZones: () => apiClient.get('/dns/catalog-zones'),
+  stats: (node_id) => apiClient.get(`/dns/stats${buildQueryString({ node_id })}`),
+}
+
+// `family` is 'v4' or 'v6' (v6 paths answer 404 module_disabled when the module is off).
+export const dhcp = {
+  servers: (family) => apiClient.get(`/dhcp/${family}/servers`),
+  subnets: (family, params) => apiClient.get(`/dhcp/${family}/subnets${buildQueryString(params)}`),
+  subnet: (family, id) => apiClient.get(`/dhcp/${family}/subnets/${enc(id)}`),
+  subnetPlan: (family, change) => apiClient.post(`/dhcp/${family}/subnets/plan`, { change }),
+  sharedNetworks: (family) => apiClient.get(`/dhcp/${family}/shared-networks`),
+  sharedNetworkPlan: (family, change) => apiClient.post(`/dhcp/${family}/shared-networks/plan`, { change }),
+  clientClasses: (family) => apiClient.get(`/dhcp/${family}/client-classes`),
+  clientClassPlan: (family, change) => apiClient.post(`/dhcp/${family}/client-classes/plan`, { change }),
+  options: (family) => apiClient.get(`/dhcp/${family}/options`),
+  optionsPlan: (family, changes) => apiClient.post(`/dhcp/${family}/options/plan`, { changes }),
+  reservations: (family, params) => apiClient.get(`/dhcp/${family}/reservations${buildQueryString(params)}`),
+  reservationPlan: (family, change) => apiClient.post(`/dhcp/${family}/reservations/plan`, { change }),
+  leases: (family, params) => apiClient.get(`/dhcp/${family}/leases${buildQueryString(params)}`),
+  lease: (family, ip) => apiClient.get(`/dhcp/${family}/leases/${enc(ip)}`),
+  leaseDeletePlan: (family, ip) => apiClient.post(`/dhcp/${family}/leases/${enc(ip)}/delete/plan`),
+  utilization: (family, node_id) => apiClient.get(`/dhcp/${family}/utilization${buildQueryString({ node_id })}`),
+  stats: (family, node_id) => apiClient.get(`/dhcp/${family}/stats${buildQueryString({ node_id })}`),
+  ha: (family) => apiClient.get(`/dhcp/${family}/ha`),
+  haMaintenancePlan: (family, node_id, action) =>
+    apiClient.post(`/dhcp/${family}/ha/maintenance/plan`, { node_id, action }),
+  haTransitions: (family, params) => apiClient.get(`/dhcp/${family}/ha/transitions${buildQueryString(params)}`),
+  servicePlan: (family, node_id, enable) => apiClient.post(`/dhcp/${family}/service/plan`, { node_id, enable }),
+  ddns: (family) => apiClient.get(`/dhcp/${family}/ddns`),
+  ddnsPlan: (family, changes) => apiClient.post(`/dhcp/${family}/ddns/plan`, { changes }),
+  hooks: (family) => apiClient.get(`/dhcp/${family}/hooks`),
+  hooksPlan: (family, changes) => apiClient.post(`/dhcp/${family}/hooks/plan`, { changes }),
+  config: (family, node_id) => apiClient.get(`/dhcp/${family}/config${buildQueryString({ node_id })}`),
+  configPlan: (family, config, node_ids) =>
+    apiClient.post(`/dhcp/${family}/config/plan`, node_ids ? { node_ids, config } : { config }),
+}
+
+export const d2 = {
+  servers: () => apiClient.get('/dhcp/d2/servers'),
+  stats: (node_id) => apiClient.get(`/dhcp/d2/stats${buildQueryString({ node_id })}`),
+  config: (node_id) => apiClient.get(`/dhcp/d2/config${buildQueryString({ node_id })}`),
+  configPlan: (config, node_ids) =>
+    apiClient.post('/dhcp/d2/config/plan', node_ids ? { node_ids, config } : { config }),
+}
+
+export const hosts = {
+  list: (params) => apiClient.get(`/hosts${buildQueryString(params)}`),
+  get: (key) => apiClient.get(`/hosts/${enc(key)}`),
+  plan: (body) => apiClient.post('/hosts/plan', body),
+}
+
+export const plans = {
+  get: (id) => apiClient.get(`/plans/${enc(id)}`),
+  apply: (id, confirm = false) => apiClient.post(`/plans/${enc(id)}/apply`, { confirm }),
+  rollback: (id) => apiClient.post(`/plans/${enc(id)}/rollback`),
+  remove: (id) => apiClient.delete(`/plans/${enc(id)}`),
+}
+
+export const jobs = {
+  get: (id) => apiClient.get(`/jobs/${enc(id)}`),
+}
+
+export const alerts = {
+  list: (params) => apiClient.get(`/alerts${buildQueryString(params)}`),
+  summary: () => apiClient.get('/alerts/summary'),
+  ack: (id, comment) => apiClient.post(`/alerts/${enc(id)}/ack`, comment ? { comment } : {}),
+  runConsistency: () => apiClient.post('/alerts/consistency/run'),
+}
+
+export const series = {
+  pools: (params) => apiClient.get(`/series/pools${buildQueryString(params)}`),
+  serials: (params) => apiClient.get(`/series/serials${buildQueryString(params)}`),
+  haTransitions: (params) => apiClient.get(`/series/ha-transitions${buildQueryString(params)}`),
+}
+
+export const audit = {
+  list: (params) => apiClient.get(`/audit${buildQueryString(params)}`),
+  get: (id) => apiClient.get(`/audit/${enc(id)}`),
+  // NDJSON stream: returned as text, one AuditEntry per line.
+  exportEntries: (params) => apiClient.get(`/audit/export${buildQueryString(params)}`, { responseType: 'text' }),
+  exportUrl: (params) => `${API_BASE_URL}/audit/export${buildQueryString(params)}`,
+}
+
+export const advanced = {
+  bindGrammar: () => apiClient.get('/advanced/bind/grammar'),
+  bindTree: (node_id) => apiClient.get(`/advanced/bind/tree${buildQueryString({ node_id })}`),
+  keaSchema: (family) => apiClient.get(`/advanced/kea/${family}/schema`),
+  history: (params) => apiClient.get(`/advanced/history${buildQueryString(params)}`),
+  historyEntry: (id) => apiClient.get(`/advanced/history/${enc(id)}`),
+}
+
+export const install = {
+  detect: () => apiClient.get('/install/detect'),
+  plan: (body) => apiClient.post('/install/plan', body),
+  importPlan: (engines) => apiClient.post('/install/import/plan', { engines }),
+  security: () => apiClient.get('/install/security'),
+  securityPlan: (finding_ids) => apiClient.post('/install/security/plan', { finding_ids }),
+}
+
+export const admin = {
+  users: () => apiClient.get('/admin/users'),
+  createUser: (body) => apiClient.post('/admin/users', body),
+  user: (id) => apiClient.get(`/admin/users/${enc(id)}`),
+  updateUser: (id, body) => apiClient.put(`/admin/users/${enc(id)}`, body),
+  deleteUser: (id) => apiClient.delete(`/admin/users/${enc(id)}`),
+  resetPassword: (id, password) => apiClient.post(`/admin/users/${enc(id)}/reset-password`, { password }),
+  clearTotp: (id) => apiClient.delete(`/admin/users/${enc(id)}/totp`),
+  roles: () => apiClient.get('/admin/roles'),
+  createRole: (role) => apiClient.post('/admin/roles', role),
+  updateRole: (name, body) => apiClient.put(`/admin/roles/${enc(name)}`, body),
+  deleteRole: (name) => apiClient.delete(`/admin/roles/${enc(name)}`),
+  permissions: () => apiClient.get('/admin/permissions'),
+  settings: () => apiClient.get('/admin/settings'),
+  updateSettings: (partial) => apiClient.put('/admin/settings', partial),
+  modules: () => apiClient.get('/admin/modules'),
+  updateModules: (partial) => apiClient.put('/admin/modules', partial),
+}
+
+export const api = {
+  meta, auth, account, nodes, dashboard, dns, dhcp, d2, hosts, plans, jobs,
+  alerts, series, audit, advanced, install, admin,
+}
+
+export default api

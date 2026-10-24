@@ -121,7 +121,17 @@ class ZoneFiles:
 
 
 def _read(path: Path) -> str:
-    return path.read_text()
+    # Bytes that are not UTF-8 (latin-1 comments) survive an edit unchanged.
+    return path.read_text("utf-8", "surrogateescape")
+
+
+def encode(text: str) -> bytes:
+    return text.encode("utf-8", "surrogateescape")
+
+
+def printable(text: str) -> str:
+    """The text for display (diffs, messages): undecodable bytes as U+FFFD."""
+    return encode(text).decode("utf-8", "replace")
 
 
 def load(zone: str, main: Path, directory: Path, reader: Callable[[Path], str] | None = None) -> ZoneFiles:
@@ -424,6 +434,26 @@ def record_line(owner: str, ttl: int, rtype: str, rdata: str, origin: str, defau
     return f"{_rel(owner, origin)}\t{ttl_part}IN\t{rtype}\t{_rdata_text(rtype, rdata, origin)}\n"
 
 
+def _head(tokens: list[Token], implicit: bool) -> list[Token]:
+    """The TTL and class tokens after the owner, as _Parser._entry reads them: stops at the type."""
+    idx = 0 if implicit else 1
+    head: list[Token] = []
+    seen_ttl = False
+    while idx < len(tokens) and len(head) < 2:
+        t = tokens[idx]
+        if t.quoted:
+            break
+        if t.text.upper() in CLASSES:
+            head.append(t)
+        elif _is_ttl(t.text) and not seen_ttl:
+            seen_ttl = True
+            head.append(t)
+        else:
+            break
+        idx += 1
+    return head
+
+
 class _Editor:
     def __init__(self, zf: ZoneFiles) -> None:
         self.zf = zf
@@ -493,11 +523,14 @@ class _Editor:
         tokenized again: an earlier rewrite may have moved its tokens."""
         rec = self.recs.get(rec.id, rec)
         i = self._index(rec.file, rec.id)
-        line = self.lines[rec.file][i].text
-        tokens, _, implicit = _tokens([line], 0)
-        head = tokens[:2] if implicit else tokens[1:3]
+        span = [ln.text for ln in self.lines[rec.file][i : i + (rec.end - rec.start)]]
+        line = span[0]
+        tokens, _, implicit = _tokens(span, 0)
+        head = _head(tokens, implicit)
+        if any(t.line != 0 for t in head):
+            raise ZoneFileError(f"{rec.file}:{rec.start + 1}: TTL or class after a '(': edit it by hand")
         if ttl is not None:
-            ttl_tok = next((t for t in head if _is_ttl(t.text) and not t.quoted), None)
+            ttl_tok = next((t for t in head if _is_ttl(t.text)), None)
             if ttl_tok is not None:
                 line = line[: ttl_tok.col] + str(ttl) + line[ttl_tok.end :]
             elif not implicit:
@@ -514,6 +547,27 @@ class _Editor:
             ttl=ttl if ttl is not None else rec.ttl,
             ttl_explicit=rec.ttl_explicit or ttl is not None,
         )
+
+    def commented(self, rec: Rec) -> bool:
+        """A one-line record followed by a comment on its line."""
+        if rec.end - rec.start != 1 or rec.id not in self.recs:
+            return False
+        line = self.lines[rec.file][self._index(rec.file, rec.id)].text
+        tokens, _, _ = _tokens([line], 0)
+        return ";" in line[tokens[-1].end :]
+
+    def replace_rdata(self, rec: Rec, rdata: str) -> None:
+        """New rdata on the record's own line: its position, head and trailing comment stay."""
+        i = self._index(rec.file, rec.id)
+        line = self.lines[rec.file][i].text
+        tokens, _, implicit = _tokens([line], 0)
+        first = (0 if implicit else 1) + len(_head(tokens, implicit)) + 1
+        data = tokens[first:]
+        if not data:
+            raise ZoneFileError(f"{rec.file}:{rec.start + 1}: record without rdata")
+        text = _rdata_text(rec.rtype, rdata, rec.origin)
+        self.lines[rec.file][i].text = line[: data[0].col] + text + line[data[-1].end :]
+        self.recs[rec.id] = replace(self.recs.get(rec.id, rec), rdata=rdata)
 
     def set_serial(self, soa: Rec, serial: int) -> None:
         tok = soa.data[2]
@@ -557,13 +611,25 @@ def edit(zf: ZoneFiles, edits: list[RecordEdit], serial: int | None = None) -> d
         after = {rd for rd in (e.after.rdata if e.after else [])}
         ttl = e.after.ttl if e.after else None
         kept = [r for r in current if r.rdata in after]
-        for r in current:
-            if r.rdata not in after:
-                ed.delete(r)
-            elif r.ttl != ttl and ttl is not None:
-                ed.rewrite_head(r, owner=False, ttl=ttl)
-        anchor = current[-1] if current else _owner_anchor(zf, e.owner)
         placed = {r.rdata for r in kept}
+        # A replaced record with a comment on its line is rewritten in place: the comment stays.
+        added = iter(sorted(after - placed))
+        for r in current:
+            if r.rdata in after or not ed.commented(r):
+                continue
+            rd = next(added, None)
+            if rd is None:
+                break
+            ed.replace_rdata(r, rd)
+            kept.append(r)
+            placed.add(rd)
+        for r in current:
+            if r.rdata in after or r in kept:
+                if ttl is not None and ed.recs[r.id].ttl != ttl:
+                    ed.rewrite_head(r, owner=False, ttl=ttl)
+            else:
+                ed.delete(r)
+        anchor = current[-1] if current else _owner_anchor(zf, e.owner)
         for rd in sorted(after - placed):
             origin, default_ttl = (anchor.origin, anchor.default_ttl) if anchor else zf.end_state[zf.main]
             text = record_line(e.owner, ttl or 0, e.rtype, rd, origin, default_ttl)
@@ -651,5 +717,5 @@ def copy_for_check(zf: ZoneFiles, texts: dict[Path, str], dest: Path) -> Path:
             line = lines[inc.line]
             tok = inc.token
             lines[inc.line] = line[: tok.col] + f'"{names[inc.target]}"' + line[tok.end :]
-        names[path].write_text("".join(lines))
+        names[path].write_bytes(encode("".join(lines)))
     return names[zf.main]

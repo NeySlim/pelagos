@@ -69,7 +69,7 @@ def diff(zf: ZoneFiles, texts: dict[Path, str]) -> str:
                 )
             )
         )
-    return "".join(c if c.endswith("\n") else c + "\n" for c in chunks if c)
+    return zonefile.printable("".join(c if c.endswith("\n") else c + "\n" for c in chunks if c))
 
 
 def _who() -> str:

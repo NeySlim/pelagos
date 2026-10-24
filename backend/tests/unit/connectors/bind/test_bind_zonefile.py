@@ -180,3 +180,83 @@ def test_parse_errors() -> None:
     ]:
         with pytest.raises(ZoneFileError):
             zfm.parse_texts("example.lan", Path("/z"), Path("/"), {Path("/z"): text})
+
+
+CLASSLESS = """$TTL 3600
+$ORIGIN example.lan.
+@\tSOA ns1 hostmaster 1 3600 900 1209600 300
+\tNS ns1
+ns1\tA 192.0.2.1
+mail\tMX 10 mx.example.lan.
+_sip._tcp\tSRV 10 20 5060 sip.example.lan.
+host\tA 192.0.2.5
+\tMX 20 mx.example.lan.
+"""
+
+
+@pytest.mark.parametrize(
+    ("owner", "rtype", "rdata", "line"),
+    [
+        ("mail.example.lan.", "MX", "10 mx.example.lan.", "mail\t600\tMX 10 mx.example.lan."),
+        (
+            "_sip._tcp.example.lan.",
+            "SRV",
+            "10 20 5060 sip.example.lan.",
+            "_sip._tcp\t600\tSRV 10 20 5060 sip.example.lan.",
+        ),
+        ("host.example.lan.", "MX", "20 mx.example.lan.", "\t600\tMX 20 mx.example.lan."),
+    ],
+)
+def test_ttl_change_of_a_classless_record_keeps_its_rdata(
+    tmp_path: Path, owner: str, rtype: str, rdata: str, line: str
+) -> None:
+    (tmp_path / "z.db").write_text(CLASSLESS)
+    zf = zfm.load("example.lan", tmp_path / "z.db", tmp_path)
+    edit = RecordEdit(
+        ChangeOp.REPLACE, owner, rtype, rs(owner, rtype, 3600, rdata), rs(owner, rtype, 600, rdata)
+    )
+    main = zfm.edit(zf, [edit])[tmp_path / "z.db"]
+    assert line in main.splitlines()
+    back = zfm.parse_texts("example.lan", tmp_path / "z.db", tmp_path, {tmp_path / "z.db": main})
+    assert {
+        (r.owner, r.rtype, r.rdata, r.ttl) for r in back.records if r.owner == owner and r.rtype == rtype
+    } == {(owner, rtype, rdata, 600)}
+
+
+def test_deleting_the_owner_line_of_a_multiline_record(tmp_path: Path) -> None:
+    text = CLASSLESS + 'www\tIN A 192.0.2.2\n\tIN TXT ( "a"\n\t\t"b" )\n'
+    (tmp_path / "z.db").write_text(text)
+    zf = zfm.load("example.lan", tmp_path / "z.db", tmp_path)
+    edit = RecordEdit(
+        ChangeOp.DELETE, "www.example.lan.", "A", rs("www.example.lan.", "A", 3600, "192.0.2.2"), None
+    )
+    main = zfm.edit(zf, [edit])[tmp_path / "z.db"]
+    assert main.endswith('www\tIN TXT ( "a"\n\t\t"b" )\n')
+    back = zfm.parse_texts("example.lan", tmp_path / "z.db", tmp_path, {tmp_path / "z.db": main})
+    assert [r.rdata for r in back.find("www.example.lan.", "TXT")] == ['"a" "b"']
+    assert not back.find("www.example.lan.", "A")
+
+
+def test_replace_keeps_the_trailing_comment(files: zfm.ZoneFiles) -> None:
+    edit = RecordEdit(
+        ChangeOp.REPLACE,
+        "ns2.example.lan.",
+        "A",
+        rs("ns2.example.lan.", "A", 3600, "192.0.2.2"),
+        rs("ns2.example.lan.", "A", 3600, "192.0.2.3"),
+    )
+    main = zfm.edit(files, [edit])[files.main]
+    assert "ns2\tIN A 192.0.2.3   ; second server" in main.splitlines()
+    assert "192.0.2.2" not in main
+
+
+def test_bytes_that_are_not_utf8_survive_an_edit(tmp_path: Path) -> None:
+    raw = CLASSLESS.encode() + "; caf\xe9 du coin\n".encode("latin-1")
+    (tmp_path / "z.db").write_bytes(raw)
+    zf = zfm.load("example.lan", tmp_path / "z.db", tmp_path)
+    edit = RecordEdit(
+        ChangeOp.DELETE, "ns1.example.lan.", "A", rs("ns1.example.lan.", "A", 3600, "192.0.2.1"), None
+    )
+    out = zfm.encode(zfm.edit(zf, [edit])[tmp_path / "z.db"])
+    assert out.endswith(b"; caf\xe9 du coin\n") and b"192.0.2.1" not in out
+    assert "�" in zfm.printable(zf.texts[tmp_path / "z.db"])

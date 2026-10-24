@@ -69,11 +69,11 @@ def new_secret(algorithm: str = "hmac-sha256") -> str:
 
 
 def sha256_text(text: str | None) -> str:
-    return ABSENT if text is None else hashlib.sha256(text.encode()).hexdigest()
+    return ABSENT if text is None else hashlib.sha256(text.encode("utf-8", "surrogateescape")).hexdigest()
 
 
 def file_sha256(path: Path) -> str:
-    return sha256_text(path.read_text()) if path.is_file() else ABSENT
+    return sha256_text(path.read_text("utf-8", "surrogateescape")) if path.is_file() else ABSENT
 
 
 @dataclass(slots=True)

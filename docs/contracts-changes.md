@@ -13,6 +13,35 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, WP-COLLECTOR: replication hook, config hash, alert rules
+Replication hook (WP-CORE must react): `pelagos.collector.main.run()` binds
+`collector.sock`, then calls
+`pelagos.core.replication.start_collector_side(ctx: NodeContext, listener:
+SignalListener, store: SeriesStore)` if that function exists. WP-CORE provides
+it: start the `/repl/v1` server on :8444 (its own thread), register the
+`config` and `audit` push handlers with `listener.on(event, fn)` (handlers run
+on the collector loop thread, keep them short), start anti-entropy, and return
+a handle whose optional `close()` the collector calls on shutdown. Raising
+`NotImplementedError` or not defining it disables collector-side replication.
+The listener is also exposed as `Collector.listener`.
+Section 15 deviation, `config_divergence`: the kea4/kea6 `config_hash` snapshot
+is now `{"hash": <raw config-hash-get>, "normalized": <sha256>}`. Peers compare
+`normalized` (sha256 of `config-get` without `interfaces-config`,
+`control-socket(s)`, `loggers`, `hash` and any `this-server-name`), because the
+raw hash always differs between HA peers. `hash` stays the value for
+`GET /dhcp/{family}/servers` `config_hash`. The raw hashes are compared only
+while some node has not published `normalized`.
+`zone_error` (WP-BIND): a zone counts as not loaded when `ZoneStatus.error` is
+set (rndc zonestatus fails on it) or `raw["loaded"]` is `"no"`;
+`last_loaded = None` alone no longer raises it. `serial_divergence` only
+evaluates zones whose kind is `secondary` or `mirror`.
+Alert audit: `alert.raise`/`alert.resolve` entries are written for warning and
+critical alerts only (info alerts flap). Ack replay accepts an `alert.ack`
+whose `ts` is up to 60 s before the alert's `first_seen` (peer clock skew); a
+re-opened alert gets a new `first_seen`. A consistency pass whose lease,
+reservation or primary zone read failed is skipped (no reconcile) and reported
+in the cycle errors.
+
 ## 2026-10-24, WP-COLLECTOR: collector readers, ack entries, snapshots, signals
 Additive, no schema change. `collector.alerts`: `AlertStore.list(...)` and
 `AlertStore.summary()` back `GET /alerts` and `GET /alerts/summary`;

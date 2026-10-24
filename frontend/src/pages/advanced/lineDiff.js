@@ -26,12 +26,12 @@ export function diffLines(before, after) {
       ops.push({ kind: ' ', text: a[i], a: i, b: j })
       i += 1
       j += 1
-    } else if (j < b.length && (i >= a.length || dp[i][j + 1] >= dp[i + 1][j])) {
-      ops.push({ kind: '+', text: b[j], a: i, b: j })
-      j += 1
-    } else {
+    } else if (i < a.length && (j >= b.length || dp[i + 1][j] >= dp[i][j + 1])) {
       ops.push({ kind: '-', text: a[i], a: i, b: j })
       i += 1
+    } else {
+      ops.push({ kind: '+', text: b[j], a: i, b: j })
+      j += 1
     }
   }
   return ops

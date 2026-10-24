@@ -75,8 +75,8 @@ def test_atomic_writes_remove_temps_left_by_a_crash(node_paths, monkeypatch):
     synced: list[str] = []
     real = config_store.fsync_dir
     monkeypatch.setattr(config_store, "fsync_dir", lambda d: (synced.append(str(d)), real(d)))
-    stale = node_paths.cluster_toml.parent / ".cluster.toml.crashed"
-    fresh = node_paths.cluster_toml.parent / ".cluster.toml.inflight"
+    stale = node_paths.cluster_toml.parent / ".cluster.toml.pelagos-tmp.crash_01"
+    fresh = node_paths.cluster_toml.parent / ".cluster.toml.pelagos-tmp.inflight"
     for tmp in (stale, fresh):
         tmp.write_text("partial")
     os.utime(stale, (1, 1))
@@ -86,11 +86,15 @@ def test_atomic_writes_remove_temps_left_by_a_crash(node_paths, monkeypatch):
     assert not stale.exists() and fresh.exists()
     assert synced == [str(node_paths.cluster_toml.parent)]
     engine_file = node_paths.var / "named.conf"
-    orphan = node_paths.var / ".named.conf.x1"
-    orphan.write_text("partial")
-    os.utime(orphan, (1, 1))
+    orphan = node_paths.var / ".named.conf.pelagos-tmp.x1y2z3w4"
+    # Editor swap and backup files of an admin look alike but were never created by Pelagos.
+    admin = [node_paths.var / n for n in (".named.conf.swp", ".named.conf.orig", ".named.conf.x1")]
+    for tmp in (orphan, *admin):
+        tmp.write_text("partial")
+        os.utime(tmp, (1, 1))
     _atomic_write(engine_file, b"options {};\n", None, None)
     assert engine_file.read_bytes() == b"options {};\n" and not orphan.exists()
+    assert all(tmp.exists() for tmp in admin)
 
 
 def test_pre_merge_file_keeps_the_version_rule(node_paths):

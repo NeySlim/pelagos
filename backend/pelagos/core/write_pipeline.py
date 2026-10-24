@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from pelagos.core.config_store import fsync_dir, remove_stale_temps
+from pelagos.core.config_store import fsync_dir, remove_stale_temps, temp_prefix
 from pelagos.domain.common import utcnow
 from pelagos.domain.plan import ValidationResult
 
@@ -55,7 +55,7 @@ def _atomic_write(path: Path, content: bytes, mode: int | None, group: str | Non
     """Temp file next to the target, fsync, rename; keeps owner, group and mode unless overridden."""
     existing = path.stat() if path.exists() else None
     remove_stale_temps(path)
-    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    fd, tmp = tempfile.mkstemp(prefix=temp_prefix(path), dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(content)

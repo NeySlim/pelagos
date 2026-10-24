@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import glob
 import os
+import re
 import tempfile
 import time
 import tomllib
@@ -77,6 +78,7 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
 
 # A temp file of an atomic write older than this was left by a crash: removed on the next write.
 STALE_TEMP_SECONDS = 600
+TEMP_MARK = ".pelagos-tmp."
 
 
 def fsync_dir(directory: Path) -> None:
@@ -93,17 +95,23 @@ def fsync_dir(directory: Path) -> None:
         os.close(fd)
 
 
+def temp_prefix(path: Path) -> str:
+    """mkstemp prefix of atomic writes; distinctive so cleanup never matches an admin's own files."""
+    return f".{path.name}{TEMP_MARK}"
+
+
 def remove_stale_temps(path: Path, older_than: float = STALE_TEMP_SECONDS) -> int:
-    """Temp files `.<name>.*` an interrupted atomic write left next to `path`."""
+    """Temp files `.<name>.pelagos-tmp.<8 chars>` an interrupted atomic write left next to `path`."""
     removed = 0
     now = time.time()
+    pattern = re.compile(re.escape(temp_prefix(path)) + r"[a-z0-9_]{8}")
     try:
-        candidates = list(path.parent.glob(f".{glob.escape(path.name)}.*"))
+        candidates = list(path.parent.glob(glob.escape(temp_prefix(path)) + "*"))
     except OSError:
         return 0
     for tmp in candidates:
         try:
-            if tmp.is_file() and now - tmp.stat().st_mtime > older_than:
+            if pattern.fullmatch(tmp.name) and tmp.is_file() and now - tmp.stat().st_mtime > older_than:
                 tmp.unlink()
                 removed += 1
         except OSError:
@@ -115,7 +123,7 @@ def atomic_write(path: Path, data: bytes, mode: int = 0o640) -> None:
     """Write via a temp file in the same directory, fsync, rename, fsync the directory."""
     path.parent.mkdir(parents=True, exist_ok=True)
     remove_stale_temps(path)
-    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    fd, tmp = tempfile.mkstemp(prefix=temp_prefix(path), dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)

@@ -242,3 +242,17 @@ def test_kea_differences_never_show_secret_values():
     raw = ["/tsig-keys[0]/secret: 'a' in the file, 'b' running", "/valid-lifetime: 1 in the file, 2 running"]
     alert = rules.config_file_divergence("n1", Engine.D2, "/etc/kea/d2.conf", raw)
     assert alert.details["differences"] == ["/tsig-keys[0]/secret: differs", raw[1]]
+
+
+def test_kea_differences_ignore_the_order_of_named_sets():
+    domains = [
+        {"name": "1.99.10.in-addr.arpa.", "key-name": "k"},
+        {"name": "0.99.10.in-addr.arpa.", "key-name": "k"},
+    ]
+    file_cfg = {"DhcpDdns": {"reverse-ddns": {"ddns-domains": domains}}}
+    running = {"DhcpDdns": {"reverse-ddns": {"ddns-domains": [dict(d) for d in reversed(domains)]}}}
+    assert c.kea_config_differences(file_cfg, running) == []
+    running["DhcpDdns"]["reverse-ddns"]["ddns-domains"][0]["key-name"] = "other"
+    assert c.kea_config_differences(file_cfg, running) == [
+        "/reverse-ddns/ddns-domains[0]/key-name: 'k' in the file, 'other' running"
+    ]

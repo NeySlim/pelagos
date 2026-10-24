@@ -348,6 +348,8 @@ KEA_IGNORED_TOP = frozenset({"loggers", "hash"})
 KEA_LOWERCASE = frozenset({"hw-address", "duid", "client-id", "circuit-id", "flex-id"})
 KEA_REDACTED = frozenset({"*****", "****", "***"})
 _RANGE = re.compile(r"\s*-\s*")
+# Lists Kea keeps as maps by name: config-get returns them sorted, whatever the file order.
+KEA_NAMED_SETS = frozenset({"ddns-domains", "tsig-keys"})
 
 
 def _kea_body(config: dict[str, Any]) -> dict[str, Any]:
@@ -427,6 +429,9 @@ def _kea_diff(file_value: Any, running: Any, path: str, key: str) -> Iterator[st
         elif len(file_value) != len(running):
             yield f"{path}: {len(file_value)} item(s) in the file, {len(running)} running"
         else:
+            if key in KEA_NAMED_SETS and all(isinstance(x, dict) for x in file_value + running):
+                file_value = sorted(file_value, key=lambda x: str(x.get("name", "")).lower())
+                running = sorted(running, key=lambda x: str(x.get("name", "")).lower())
             for i, (a, b) in enumerate(zip(file_value, running, strict=True)):
                 yield from _kea_diff(a, b, f"{path}[{i}]", key)
         return

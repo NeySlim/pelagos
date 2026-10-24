@@ -13,6 +13,15 @@
 %global __requires_exclude_from ^%{pelagos_home}/.*$
 %global __provides_exclude_from ^%{pelagos_home}/.*$
 %global _python_bytecompile_extra 0
+# RHEL 9 ships Python 3.9 as python3; Pelagos needs 3.12, packaged there as python3.12.
+%if 0%{?rhel} == 9
+%global pelagos_python /usr/bin/python3.12
+%global pelagos_pypkg python3.12
+%else
+%global pelagos_python /usr/bin/python3
+%global pelagos_pypkg python3
+%endif
+%global pelagos_pyver %(%{pelagos_python} -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo 0)
 
 Name:           pelagos
 Version:        %{?pelagos_version}%{!?pelagos_version:0.0.0}
@@ -22,15 +31,14 @@ License:        Apache-2.0
 URL:            https://github.com/NeySlim/pelagos
 Source0:        %{name}-%{version}.tar.gz
 
-BuildRequires:  python3 >= 3.12
-BuildRequires:  python3-devel
-BuildRequires:  python3-pip
+BuildRequires:  %{pelagos_pypkg} >= 3.12
+BuildRequires:  %{pelagos_pypkg}-pip
 BuildRequires:  systemd-rpm-macros
 BuildRequires:  bash
 BuildRequires:  findutils
 
-Requires:       python3 >= 3.12
-Requires:       python(abi) = %{python3_version}
+Requires:       %{pelagos_pypkg} >= 3.12
+Requires:       python(abi) = %{pelagos_pyver}
 Requires:       openssl
 Requires:       shadow-utils
 Requires(pre):  shadow-utils
@@ -57,7 +65,7 @@ from the distribution, from the ISC Cloudsmith repositories (Kea 3.x), or let
 # Nothing to compile; the venv is assembled in %%install.
 
 %install
-PELAGOS_PYTHON=%{__python3} packaging/build-tree.sh %{buildroot} "$PWD"
+PELAGOS_PYTHON=%{pelagos_python} packaging/build-tree.sh %{buildroot} "$PWD"
 install -D -m 0644 packaging/systemd/pelagos.service %{buildroot}%{_unitdir}/pelagos.service
 install -D -m 0644 packaging/systemd/pelagos-collector.service %{buildroot}%{_unitdir}/pelagos-collector.service
 install -D -m 0640 packaging/pelagos.env %{buildroot}%{_sysconfdir}/pelagos/pelagos.env

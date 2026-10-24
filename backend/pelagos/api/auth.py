@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
-from flask import g, make_response, request
+from flask import make_response, request
 from flask_restx import Namespace, Resource
 
-from pelagos.api.errors import ApiError, not_implemented
-from pelagos.api.security import client_ip, ctx, current_session, require
+from pelagos.api import models as m
+from pelagos.api.common import json_body
+from pelagos.api.errors import ApiError
+from pelagos.api.security import client_ip, ctx, current_session, require, services
 from pelagos.auth import totp as totp_mod
 from pelagos.auth.passwords import verify_password
 from pelagos.auth.rbac import resolve_permissions
@@ -35,6 +37,11 @@ def _audit(action: str, user: str | None, result: AuditResult, message: str | No
 
 @ns.route("/login")
 class Login(Resource):
+    @ns.doc(security=[])
+    @ns.expect(m.LoginRequest)
+    @ns.response(200, "Logged in; the session cookie is set", m.LoginAnswer)
+    @ns.response(401, "invalid_credentials or totp_required", m.Problem)
+    @ns.response(429, "rate_limited", m.Problem)
     def post(self):
         c = ctx()
         body = request.get_json(silent=True) or {}
@@ -56,20 +63,22 @@ class Login(Resource):
             _audit("auth.login_failed", username, AuditResult.DENIED, "invalid credentials")
             raise ApiError("invalid_credentials", "invalid username or password")
 
-        if user.totp_secret or cluster.settings.get("require_totp"):
+        restriction = None
+        if user.totp_secret:
             if not code:
                 raise ApiError("totp_required", "a one-time code is required")
-            secret = (
-                c.secrets.decrypt(f"totp/{user.username}", user.totp_secret)
-                if (user.totp_secret and c.secrets)
-                else None
-            )
+            secret = c.secrets.decrypt(f"totp/{user.username}", user.totp_secret) if c.secrets else None
             if secret is None or not totp_mod.verify(secret, str(code)):
                 _audit("auth.login_failed", username, AuditResult.DENIED, "invalid one-time code")
                 raise ApiError("invalid_credentials", "invalid one-time code")
+        elif cluster.settings.get("require_totp"):
+            # The user may log in only to enroll; every other endpoint answers 403 until then.
+            restriction = "totp_enrollment"
+        if user.must_change_password and restriction is None:
+            restriction = "password_change"
 
         perms = resolve_permissions(user.roles, cluster.roles)
-        session = c.sessions.create(user.id, user.username, perms, client_ip())
+        session = c.sessions.create(user.id, user.username, perms, client_ip(), restriction=restriction)
         c.config_store.update_cluster(
             lambda cfg: _touch_login(cfg, user.username), updated_by=f"user:{user.username}@node:{c.node.id}"
         )
@@ -79,7 +88,8 @@ class Login(Resource):
                 "user": user.public(),
                 "permissions": sorted(perms),
                 "csrf_token": session.csrf_token,
-                "totp_required": False,
+                "totp_required": restriction == "totp_enrollment",
+                "restriction": restriction,
             }
         )
         resp.set_cookie(
@@ -103,6 +113,7 @@ def _touch_login(cfg, username: str) -> None:
 @ns.route("/logout")
 class Logout(Resource):
     @require()
+    @ns.response(204, "Session revoked")
     def post(self):
         c = ctx()
         session = current_session()
@@ -116,6 +127,7 @@ class Logout(Resource):
 @ns.route("/session")
 class SessionInfo(Resource):
     @require()
+    @ns.response(200, "The current session", m.SessionAnswer)
     def get(self):
         c = ctx()
         session = current_session()
@@ -128,35 +140,63 @@ class SessionInfo(Resource):
             "permissions": sorted(session.permissions),
             "csrf_token": session.csrf_token,
             "node": c.self_node().to_dict(),
+            "restriction": session.restriction,
         }
 
 
 @ns.route("/password")
 class Password(Resource):
     @require()
+    @ns.expect(m.PasswordChange)
+    @ns.response(204, "Password changed; other sessions of the user are revoked")
+    @ns.response(400, "validation_error (weak or unchanged password)", m.Problem)
+    @ns.response(401, "invalid_credentials (current password wrong)", m.Problem)
     def post(self):
-        raise not_implemented("WP-API-AUTH")
+        session = current_session()
+        body = json_body()
+        services().account.change_password(
+            session.user_id, body.get("current_password"), body.get("new_password"), client_ip()
+        )
+        sessions = ctx().sessions
+        sessions.revoke_user(session.user_id)
+        # The caller keeps a fresh session with the same CSRF token; others must log in again.
+        sessions.adopt(session)
+        if session.restriction == "password_change":
+            session.restriction = None
+        return "", 204
 
 
 @ns.route("/totp/enroll")
 class TotpEnroll(Resource):
     @require()
+    @ns.response(200, "Pending secret; confirm it with a code within 10 minutes", m.TotpEnrollment)
+    @ns.response(409, "conflict: TOTP already enabled", m.Problem)
     def post(self):
-        raise not_implemented("WP-API-AUTH")
+        return services().account.totp_enroll(current_session().user_id)
 
 
 @ns.route("/totp/confirm")
 class TotpConfirm(Resource):
     @require()
+    @ns.expect(m.TotpCode)
+    @ns.response(204, "TOTP enabled")
+    @ns.response(400, "validation_error: wrong code", m.Problem)
     def post(self):
-        raise not_implemented("WP-API-AUTH")
+        session = current_session()
+        services().account.totp_confirm(session.user_id, json_body().get("code"), client_ip())
+        if session.restriction == "totp_enrollment":
+            user = services().account.user(session.user_id)
+            session.restriction = "password_change" if user.must_change_password else None
+        return "", 204
 
 
 @ns.route("/totp")
 class Totp(Resource):
     @require()
+    @ns.expect(m.PasswordOnly)
+    @ns.response(204, "TOTP disabled")
+    @ns.response(401, "invalid_credentials: wrong password", m.Problem)
+    @ns.response(409, "conflict: not enabled, or required cluster-wide", m.Problem)
     def delete(self):
-        raise not_implemented("WP-API-AUTH")
-
-
-__all__ = ["g", "ns"]
+        services().account.totp_disable(current_session().user_id, json_body().get("password"), client_ip())
+        return "", 204

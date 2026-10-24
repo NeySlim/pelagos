@@ -8,8 +8,8 @@ import platform
 from flask_restx import Namespace, Resource
 
 from pelagos import API_VERSION, __version__
-from pelagos.api.errors import not_implemented
-from pelagos.api.security import ctx, require
+from pelagos.api import models as m
+from pelagos.api.security import ctx, require, services
 from pelagos.domain.common import to_rfc3339, utcnow
 
 ns = Namespace("meta", description="Health, version and capabilities", path="/")
@@ -17,6 +17,8 @@ ns = Namespace("meta", description="Health, version and capabilities", path="/")
 
 @ns.route("/health")
 class Health(Resource):
+    @ns.doc(security=[])
+    @ns.response(200, "Liveness and replication state (anonymous)", m.Health)
     def get(self):
         c = ctx()
         status = "ok" if c.replication_state == "ready" else "degraded"
@@ -30,6 +32,8 @@ class Health(Resource):
 
 @ns.route("/version")
 class Version(Resource):
+    @ns.doc(security=[])
+    @ns.response(200, "Package and API versions (anonymous)", m.Version)
     def get(self):
         return {
             "version": __version__,
@@ -42,24 +46,15 @@ class Version(Resource):
 @ns.route("/capabilities")
 class Capabilities(Resource):
     @require()
+    @ns.response(
+        200, "This node, the cluster modules and the capabilities of the local engines", m.Capabilities
+    )
     def get(self):
         c = ctx()
         cluster = c.cluster()
-        # Engine capability probes are wired by WP-API-AUTH once the connectors land.
         return {
             "node": c.self_node().to_dict(),
-            "modules": cluster.modules,
-            "engines": {"bind": None, "kea4": None, "kea6": None, "d2": None},
+            "modules": {k: cluster.modules.get(k) for k in ("dhcpv6", "advanced_editor")},
+            "engines": services().dashboard.engines(),
             "engines_configured": c.node.modules.to_dict(),
         }
-
-
-@ns.route("/account/preferences")
-class Preferences(Resource):
-    @require()
-    def get(self):
-        raise not_implemented("WP-API-AUTH")
-
-    @require()
-    def put(self):
-        raise not_implemented("WP-API-AUTH")

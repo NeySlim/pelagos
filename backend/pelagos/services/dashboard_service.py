@@ -83,7 +83,7 @@ class DashboardService:
                 "warning": sev.get("warning", 0),
                 "info": sev.get("info", 0),
             }
-        out["engines"] = guarded("engines", self._engines, {})
+        out["engines"] = guarded("engines", self.engines, {})
         return out
 
     def _pools(self, dhcp: DhcpService) -> list[dict[str, Any]]:
@@ -120,7 +120,7 @@ class DashboardService:
                 out.append(snap["stats"])
         return out
 
-    def _engines(self) -> dict[str, Any]:
+    def engines(self) -> dict[str, Any]:
         """Capabilities of the local engines, None when the node does not drive one."""
         out: dict[str, Any] = {"bind": None, "kea4": None, "kea6": None, "d2": None}
         for engine in self.registry.engines():

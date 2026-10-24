@@ -196,6 +196,8 @@ class DnsService:
         zone = normalize_name(zone)
         backend, peer = self._read_node(node_id)
         if backend is not None:
+            if zone not in {z.name for z in backend.list_zones(view)}:
+                raise NotFound(f"zone {zone}")
             rrsets = backend.read_zone(zone, view)
             read_on = self.ctx.node.id
         else:

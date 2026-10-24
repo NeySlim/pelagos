@@ -358,6 +358,56 @@ class AdminService:
         self.ctx.sessions.idle = timedelta(seconds=int(settings["session_idle_seconds"]))
         self.ctx.login_limiter.limit = int(settings["login_rate_limit_per_minute"])
 
+    # Nodes --------------------------------------------------------------
+
+    def enroll_token(self, ttl_seconds: Any, actor: str, client_ip: str | None) -> dict[str, Any]:
+        """The token lives in the collector (it serves /repl/v1/enroll); WP-CORE provides the bridge."""
+        if (
+            not isinstance(ttl_seconds, int)
+            or isinstance(ttl_seconds, bool)
+            or not 60 <= ttl_seconds <= 86400
+        ):
+            raise ValidationError(
+                "ttl_seconds must be an integer between 60 and 86400", [field_error("ttl_seconds", "invalid")]
+            )
+        from pelagos.core import enrollment
+
+        request_token = getattr(enrollment, "request_token", None)
+        if request_token is None:
+            raise NotImplementedError("WP-CORE")
+        out = dict(request_token(self.ctx.paths, created_by=self._by(actor), ttl_seconds=ttl_seconds))
+        out["command"] = (
+            f"pelagos enroll --url {out['url']} --token {out['token']}"
+            f" --ca-fingerprint {out['ca_fingerprint']}"
+        )
+        self._audit(
+            "admin.node.op", "node:enroll-token", actor, {"op": "enroll-token", "ttl": ttl_seconds}, client_ip
+        )
+        return out
+
+    def remove_node(self, node_id: str, actor: str, client_ip: str | None) -> None:
+        """Drop a peer from [[nodes]] and revoke its certificate fingerprint (section 14, step 5)."""
+        if node_id == self.ctx.node.id:
+            raise Conflict("a node cannot remove itself; remove it from another node")
+        cfg = self.ctx.cluster()
+        peer = cfg.peer(node_id)
+        if peer is None:
+            raise NotFound(f"node {node_id}")
+
+        def mutate(c: ClusterConfig) -> None:
+            c.nodes = [n for n in c.nodes if n.id != node_id]
+            if peer.cert_fingerprint and peer.cert_fingerprint not in c.revoked:
+                c.revoked.append(peer.cert_fingerprint)
+
+        self.ctx.config_store.update_cluster(mutate, updated_by=self._by(actor))
+        self._audit(
+            "admin.node.revoke",
+            f"node:{node_id}",
+            actor,
+            {"node_id": node_id, "name": peer.name, "cert_fingerprint": peer.cert_fingerprint},
+            client_ip,
+        )
+
     # Modules ------------------------------------------------------------
 
     def modules(self) -> dict[str, Any]:

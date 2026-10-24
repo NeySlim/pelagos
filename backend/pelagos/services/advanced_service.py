@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.core.context import NodeContext
-from pelagos.domain import BindConfigTree, ConfigEntry, Engine
+from pelagos.domain import BindConfigTree, ConfigEntry, Engine, Family
 from pelagos.services.dns_service import DnsService
 from pelagos.services.errors import NotFound, ValidationError, field_error
 
@@ -19,6 +19,29 @@ class AdvancedService:
     def __init__(self, ctx: NodeContext, dns: DnsService | None) -> None:
         self.ctx = ctx
         self.dns = dns
+
+    # Grammar and schema (provided by WP-BIND and WP-KEA) -----------------
+
+    def bind_grammar(self) -> dict[str, Any]:
+        from pelagos.connectors.bind import namedconf
+
+        return namedconf.grammar()
+
+    def kea_schema(self, family: str, dhcp: Any = None) -> dict[str, Any]:
+        """`pelagos.connectors.kea.schema.describe(family, version)` (contracts-changes.md)."""
+        import importlib
+
+        try:
+            module = importlib.import_module("pelagos.connectors.kea.schema")
+        except ImportError:
+            raise NotImplementedError("WP-KEA") from None
+        version = None
+        if dhcp is not None and dhcp.local is not None:
+            try:
+                version = dhcp.local.capabilities().version
+            except Exception:
+                version = None
+        return module.describe(Family(family), version)
 
     # BIND tree ----------------------------------------------------------
 

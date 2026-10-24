@@ -256,6 +256,52 @@ class HostsService:
                 return host
         raise NotFound(f"host {key}")
 
+    # Consistency --------------------------------------------------------
+
+    def consistency_pass(self) -> dict[str, Any]:
+        """One read-only pass of services.consistency on fresh reads; the collector owns the alert table."""
+        from pelagos.services import consistency
+        from pelagos.services.events import send_event
+
+        leases, reservations = [], []
+        errors: dict[str, str] = {}
+        for dhcp in self._dhcp_services():
+            try:
+                leases += dhcp.leases(None, None, None, None)[0]
+                reservations += dhcp.reservations(None, None)
+            except ServiceError as exc:
+                errors[dhcp.engine.value] = exc.detail
+        forward: dict[str, list[RRset]] = {}
+        reverse: list[RRset] = []
+        if self.dns is not None:
+            try:
+                for item in self.dns.zones():
+                    zone = item["zone"]
+                    if zone["kind"] not in (ZoneKind.PRIMARY.value, ZoneKind.SECONDARY.value):
+                        continue
+                    rrsets, _node = self.dns.records(zone["name"])
+                    if zone["name"].endswith(("in-addr.arpa.", "ip6.arpa.")):
+                        reverse += rrsets
+                    else:
+                        forward[zone["name"]] = rrsets
+            except ServiceError as exc:
+                errors["dns"] = exc.detail
+        alerts = consistency.run_all(
+            leases=leases, reservations=reservations, forward=forward, reverse=reverse
+        )
+        by_kind: dict[str, int] = {}
+        for alert in alerts:
+            by_kind[alert.kind.value] = by_kind.get(alert.kind.value, 0) + 1
+        # Ask the collector to run its own pass now, which is the one that updates the alert table.
+        signalled = send_event(self.ctx.paths.collector_sock, {"event": "consistency"})
+        return {
+            "found": len(alerts),
+            "by_kind": by_kind,
+            "alerts": [a.to_dict() for a in alerts],
+            "errors": errors,
+            "collector_signalled": signalled,
+        }
+
     # Plan ---------------------------------------------------------------
 
     def plan(self, request: dict[str, Any], created_by: str) -> Plan:

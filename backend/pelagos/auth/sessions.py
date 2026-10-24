@@ -25,6 +25,8 @@ class Session:
     created_at: datetime = field(default_factory=utcnow)
     last_seen: datetime = field(default_factory=utcnow)
     client_ip: str | None = None
+    # "password_change" or "totp_enrollment": only /auth/* answers until the user complies.
+    restriction: str | None = None
 
 
 class SessionStore:
@@ -35,7 +37,12 @@ class SessionStore:
         self._lock = threading.Lock()
 
     def create(
-        self, user_id: str, username: str, permissions: set[str], client_ip: str | None = None
+        self,
+        user_id: str,
+        username: str,
+        permissions: set[str],
+        client_ip: str | None = None,
+        restriction: str | None = None,
     ) -> Session:
         session = Session(
             id=secrets.token_urlsafe(32),
@@ -44,6 +51,7 @@ class SessionStore:
             permissions=set(permissions),
             csrf_token=secrets.token_urlsafe(32),
             client_ip=client_ip,
+            restriction=restriction,
         )
         with self._lock:
             self._sessions[session.id] = session
@@ -67,6 +75,11 @@ class SessionStore:
     def revoke(self, session_id: str) -> None:
         with self._lock:
             self._sessions.pop(session_id, None)
+
+    def adopt(self, session: Session) -> None:
+        """Put a session back after revoke_user, so the caller survives its own password change."""
+        with self._lock:
+            self._sessions[session.id] = session
 
     def revoke_user(self, user_id: str) -> int:
         with self._lock:

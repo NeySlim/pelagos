@@ -68,6 +68,7 @@ class ApiError(Exception):
         status: int | None = None,
         errors: list[dict[str, Any]] | None = None,
         headers: dict[str, str] | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         if code not in STATUS_BY_CODE:
             raise ValueError(f"unknown error code {code}")
@@ -77,6 +78,8 @@ class ApiError(Exception):
         self.detail = detail
         self.errors = errors or []
         self.headers = headers or {}
+        # RFC 7807 extension members, for instance the failed plan of a 422.
+        self.extra = extra or {}
 
     def to_problem(self, instance: str | None = None) -> dict[str, Any]:
         doc: dict[str, Any] = {
@@ -89,7 +92,51 @@ class ApiError(Exception):
         }
         if self.errors:
             doc["errors"] = self.errors
+        for key, value in self.extra.items():
+            doc.setdefault(key, value)
         return doc
+
+
+def translate(exc: BaseException) -> ApiError | None:
+    """Map service, plan and connector exceptions to problem documents; None for unknown ones."""
+    from pelagos.services.errors import (
+        ConnectorDenied,
+        ConnectorError,
+        ConnectorTimeout,
+        ConnectorUnavailable,
+        NotSupported,
+        PreconditionFailed,
+        ServiceError,
+        ValidationFailed,
+    )
+    from pelagos.services.plan_service import PlanError
+
+    if isinstance(exc, ApiError):
+        return exc
+    if isinstance(exc, ServiceError | PlanError):
+        code = exc.code if exc.code in STATUS_BY_CODE else "internal_error"
+        return ApiError(code, exc.detail, errors=getattr(exc, "errors", None))
+    if isinstance(exc, ValidationFailed):
+        r = exc.result
+        return ApiError(
+            "engine_validation_failed",
+            f"{r.tool} rejected the change",
+            errors=[{"field": r.tool, "message": r.output, "node_id": r.node_id}],
+        )
+    if isinstance(exc, PreconditionFailed):
+        return ApiError("precondition_failed", str(exc))
+    if isinstance(exc, NotSupported):
+        return ApiError("not_supported", str(exc))
+    if isinstance(exc, ConnectorUnavailable | ConnectorTimeout | ConnectorDenied):
+        return ApiError("engine_unavailable", str(exc))
+    if isinstance(exc, ConnectorError):
+        return ApiError("conflict", str(exc))
+    if isinstance(exc, NotImplementedError):
+        owner = str(exc) or "a later work package"
+        return ApiError("not_implemented", f"This feature is specified but not built yet (owner: {owner})")
+    if isinstance(exc, PermissionError):
+        return ApiError("forbidden", str(exc))
+    return None
 
 
 def not_implemented(package: str = "") -> ApiError:

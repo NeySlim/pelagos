@@ -5,8 +5,10 @@ from __future__ import annotations
 
 from flask_restx import Namespace, Resource
 
-from pelagos.api.errors import ApiError, not_implemented
-from pelagos.api.security import ctx, require
+from pelagos.api import models as m
+from pelagos.api.common import json_body
+from pelagos.api.errors import ApiError
+from pelagos.api.security import client_ip, ctx, require, services, username
 from pelagos.domain.cluster import Node, NodeStatus
 
 ns = Namespace("nodes", description="Cluster nodes and replication", path="/nodes")
@@ -14,19 +16,17 @@ ns = Namespace("nodes", description="Cluster nodes and replication", path="/node
 
 def _nodes() -> list[Node]:
     c = ctx()
+    peers = services().peers
     out = []
     for peer in c.cluster().nodes:
-        if peer.id == c.node.id:
-            out.append(c.self_node())
-        else:
-            # Liveness comes from the collector's peer poll (WP-CORE/WP-COLLECTOR); unknown until then.
-            out.append(Node(peer=peer, is_self=False, status=NodeStatus.UNKNOWN))
+        out.append(c.self_node() if peer.id == c.node.id else peers.node(peer))
     return out
 
 
 @ns.route("")
 class Nodes(Resource):
     @require("read:nodes")
+    @ns.response(200, "Every enrolled node with its liveness", m.NodeList)
     def get(self):
         return {"items": [n.to_dict() for n in _nodes()]}
 
@@ -34,6 +34,7 @@ class Nodes(Resource):
 @ns.route("/self")
 class SelfNode(Resource):
     @require("read:nodes")
+    @ns.response(200, "This node", m.Node)
     def get(self):
         return ctx().self_node().to_dict()
 
@@ -41,6 +42,7 @@ class SelfNode(Resource):
 @ns.route("/replication")
 class Replication(Resource):
     @require("read:nodes")
+    @ns.response(200, "Replication state and per-peer heads", m.Replication)
     def get(self):
         c = ctx()
         peers = [n for n in _nodes() if not n.is_self]
@@ -52,7 +54,7 @@ class Replication(Resource):
                     "reachable": n.status is NodeStatus.ONLINE,
                     "config_version": n.config_version,
                     "audit_count": n.audit_count,
-                    "last_seen": n.last_seen,
+                    "last_seen": n.to_dict()["last_seen"],
                     "error": n.error,
                 }
                 for n in peers
@@ -63,13 +65,19 @@ class Replication(Resource):
 @ns.route("/enroll-token")
 class EnrollToken(Resource):
     @require("admin:nodes")
+    @ns.expect(m.EnrollTokenRequest)
+    @ns.response(200, "One-time enrollment token and the command to run on the new node")
+    @ns.response(501, "not_implemented until WP-CORE lands", m.Problem)
     def post(self):
-        raise not_implemented("WP-CORE")
+        body = json_body(required=False)
+        return services().admin.enroll_token(body.get("ttl_seconds", 900), username(), client_ip())
 
 
 @ns.route("/<string:node_id>")
 class OneNode(Resource):
     @require("read:nodes")
+    @ns.response(200, "One node", m.Node)
+    @ns.response(404, "not_found", m.Problem)
     def get(self, node_id: str):
         node = next((n for n in _nodes() if n.peer.id == node_id), None)
         if node is None:
@@ -77,12 +85,27 @@ class OneNode(Resource):
         return node.to_dict()
 
     @require("admin:nodes")
+    @ns.response(204, "Node removed and its certificate revoked")
+    @ns.response(409, "conflict: a node cannot remove itself", m.Problem)
     def delete(self, node_id: str):
-        raise not_implemented("WP-CORE")
+        services().admin.remove_node(node_id, username(), client_ip())
+        services().peers.forget(node_id)
+        return "", 204
 
 
 @ns.route("/<string:node_id>/sync")
 class SyncNode(Resource):
     @require("admin:nodes")
+    @ns.response(200, "Pulled configuration and audit from the peer", m.SyncAnswer)
+    @ns.response(503, "engine_unavailable: peer unreachable", m.Problem)
     def post(self, node_id: str):
-        raise not_implemented("WP-CORE")
+        peers = services().peers
+        peer = peers.peer(node_id)
+        if peer is None:
+            raise ApiError("not_found", f"node {node_id} (or this node)")
+        from pelagos.services.peers import ReplicationError
+
+        try:
+            return peers.sync(peer)
+        except (ReplicationError, OSError) as exc:
+            raise ApiError("engine_unavailable", f"{peer.name}: {exc}") from None

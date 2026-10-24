@@ -5,6 +5,33 @@ from __future__ import annotations
 
 from typing import Any
 
+# Re-exported so the API maps connector failures without importing connectors (section 2 rules).
+from pelagos.connectors.base import (
+    ConnectorDenied,
+    ConnectorError,
+    ConnectorTimeout,
+    ConnectorUnavailable,
+    NotSupported,
+    PreconditionFailed,
+    ValidationFailed,
+)
+
+__all__ = [
+    "Conflict",
+    "ConnectorDenied",
+    "ConnectorError",
+    "ConnectorTimeout",
+    "ConnectorUnavailable",
+    "EngineUnavailable",
+    "NotFound",
+    "NotSupported",
+    "PreconditionFailed",
+    "ServiceError",
+    "ValidationError",
+    "ValidationFailed",
+    "field_error",
+]
+
 
 class ServiceError(Exception):
     """code is a section 19 error code; errors are the problem document's `errors` list."""

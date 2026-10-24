@@ -9,7 +9,7 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, request
 from werkzeug.exceptions import HTTPException
 
-from pelagos.api.errors import PROBLEM_MIME, PROBLEM_TYPE, ApiError
+from pelagos.api.errors import PROBLEM_MIME, PROBLEM_TYPE, ApiError, translate
 from pelagos.core.context import NodeContext
 from pelagos.core.paths import Paths
 
@@ -40,6 +40,10 @@ def create_app(
     app.config["RESTX_MASK_SWAGGER"] = False
     app.config["ERROR_404_HELP"] = False
     app.extensions["pelagos"] = context
+    from pelagos.services.container import Services
+
+    # Connectors are built once per process from node.toml [engines]; tests inject fakes beforehand.
+    Services.of(context)
 
     from pelagos.api import register_api
 
@@ -70,6 +74,9 @@ def create_app(
 
     @app.errorhandler(Exception)
     def _unexpected(err: Exception) -> Response:
+        mapped = translate(err)
+        if mapped is not None:
+            return _problem(mapped.to_problem(), mapped.status, mapped.headers)
         log.exception("unhandled error")
         return _problem(
             {
@@ -118,5 +125,9 @@ def _problem(doc: dict, status: int, headers: dict | None = None) -> Response:
 
 
 def wsgi_app() -> Flask:
-    """gunicorn entry: `pelagos.app:wsgi_app()`."""
-    return create_app()
+    """gunicorn entry: `pelagos.app:wsgi_app()`; also listens to collector events on events.sock."""
+    app = create_app()
+    from pelagos.services.container import Services
+
+    Services.of(app.extensions["pelagos"]).start_event_listener()
+    return app

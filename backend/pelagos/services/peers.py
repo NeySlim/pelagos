@@ -118,6 +118,28 @@ class PeerGateway:
             log.warning("snapshot %s/%s from %s failed: %s", engine.value, kind, peer.name, exc)
             return None
 
+    # Sync ---------------------------------------------------------------
+
+    def sync(self, peer: Peer) -> dict[str, Any]:
+        """Pull now from one peer: adopt its cluster.toml if it wins, merge audit entries after our head."""
+        from pelagos.domain import AuditEntry
+
+        client = self.client(peer)
+        if client is None:
+            raise ReplicationError("node certificate not available")
+        remote = client.fetch_config()
+        adopted = self.ctx.config_store.merge_remote(remote["toml"])
+        _count, head = self.ctx.audit_log.head()
+        added = 0
+        after = head
+        while True:
+            entries, after = client.fetch_audit(after)
+            added += self.ctx.audit_log.merge([AuditEntry.from_dict(e) for e in entries])
+            if not after or not entries:
+                break
+        self.forget(peer.id)
+        return {"config_adopted": bool(adopted), "audit_added": added}
+
     # Plans --------------------------------------------------------------
 
     def apply_plan(self, peer: Peer, plan: Plan) -> NodeApplyResult:

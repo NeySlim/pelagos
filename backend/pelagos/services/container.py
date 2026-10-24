@@ -16,6 +16,7 @@ from pelagos.services.dhcp_service import DhcpService
 from pelagos.services.dns_service import DnsService
 from pelagos.services.events import EventHub, EventSocketListener
 from pelagos.services.hosts_service import HostsService
+from pelagos.services.install_service import InstallService
 from pelagos.services.jobs import JobStore
 from pelagos.services.peers import PeerGateway
 from pelagos.services.plan_service import PlanService
@@ -47,6 +48,7 @@ class Services:
         self.admin = AdminService(ctx)
         self.account = AccountService(ctx)
         self.advanced = AdvancedService(ctx, self.dns)
+        self.install = InstallService(ctx, self.dns, self.dhcp4)
         self.listener: EventSocketListener | None = None
         ctx.extra["services"] = self
 

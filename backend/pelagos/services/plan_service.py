@@ -97,7 +97,8 @@ class PlanService:
         if backend is None:
             return
         for pre in plan.preconditions:
-            if pre.node_id not in (None, self.ctx.node.id):
+            # The SOA serial is informational (section 5): the UPDATE prerequisites guard the RRsets.
+            if pre.node_id not in (None, self.ctx.node.id) or pre.kind is PreconditionKind.SOA_SERIAL:
                 continue
             observed = self._observe(backend, pre)
             if observed is not None and observed != pre.value:
@@ -239,6 +240,44 @@ class PlanService:
             res.rolled_back = True
             out.append(res)
         return out
+
+    def apply_as_job(
+        self,
+        plan: Plan,
+        user: str,
+        runner: Any,
+        jobs: Any,
+        confirm: bool = False,
+        client_ip: str | None = None,
+    ) -> Any:
+        """Install, import and security plans run in the background; the caller gets a Job (202)."""
+        self.check_applicable(plan, confirm)
+        plan.state = PlanState.APPLYING
+        self.ctx.plan_store.update(plan)
+
+        def run(job: Any, progress: Any) -> Any:
+            try:
+                runner(plan, job, progress)
+                plan.state = PlanState.APPLIED
+            except Exception as exc:
+                plan.state = PlanState.FAILED
+                plan.error = f"{type(exc).__name__}: {exc}"
+                raise
+            finally:
+                self.ctx.plan_store.update(plan)
+                self.ctx.plan_store.touch(plan)
+                self._audit_summary(plan, user, client_ip)
+                ok = plan.state is PlanState.APPLIED
+                self._publish(
+                    ApplyResult(
+                        plan_id=plan.id,
+                        state=plan.state,
+                        results=[NodeApplyResult(node_id=self.ctx.node.id, ok=ok, message=plan.error or "")],
+                    )
+                )
+            return None
+
+        return jobs.submit(run, plan_id=plan.id)
 
     # Rollback -----------------------------------------------------------
 

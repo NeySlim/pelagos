@@ -1627,14 +1627,16 @@ function buildHandlers(state, emit) {
 
     // Install, import, security
     'GET /install/detect': () => ({
-      distro: { id: 'debian', version_id: '13', name: 'Debian GNU/Linux 13 (trixie)', family: 'debian', package_manager: 'apt' },
+      distro: { id: 'debian', like: 'debian', version_id: '13', pretty_name: 'Debian GNU/Linux 13 (trixie)', codename: 'trixie', package_manager: 'apt' },
       engines: {
-        bind: { installed: true, version: '9.20.11', service: 'named.service', running: true, config: '/etc/bind/named.conf', paths: { config_dir: '/etc/bind', data_dir: '/var/cache/bind' } },
-        kea4: { installed: true, version: '3.2.1', service: 'isc-kea-dhcp4-server.service', running: true, config: '/etc/kea/kea-dhcp4.conf', paths: { config_dir: '/etc/kea' } },
-        kea6: { installed: true, version: '3.2.1', service: 'isc-kea-dhcp6-server.service', running: true, config: '/etc/kea/kea-dhcp6.conf', paths: { config_dir: '/etc/kea' } },
-        d2: { installed: true, version: '3.2.1', service: 'isc-kea-dhcp-ddns-server.service', running: true, config: '/etc/kea/kea-dhcp-ddns.conf', paths: { config_dir: '/etc/kea' } },
+        bind: { installed: true, binary: '/usr/sbin/named', version: '9.20.11', service: 'named.service', running: true, enabled: true, config: '/etc/bind/named.conf', config_exists: true, source: 'distro', paths: { zone_dir: '/var/cache/bind', rndc_key: '/etc/bind/rndc.key', include_dir: '/etc/bind/pelagos', user: 'bind', group: 'bind' } },
+        ...Object.fromEntries([['kea4', 'kea-dhcp4', 'isc-kea-dhcp4-server', 'kea4-ctrl-socket'], ['kea6', 'kea-dhcp6', 'isc-kea-dhcp6-server', 'kea6-ctrl-socket'], ['d2', 'kea-dhcp-ddns', 'isc-kea-dhcp-ddns-server', 'kea-ddns-ctrl-socket']].map(([engine, bin, service, socket]) => [engine, {
+          installed: true, binary: `/usr/sbin/${bin}`, version: '3.2.1', service: `${service}.service`, running: true, enabled: true,
+          config: `/etc/kea/${bin}.conf`, config_exists: true, source: 'isc',
+          paths: { socket: `/run/kea/${socket}`, hooks_dir: '/usr/lib/x86_64-linux-gnu/kea/hooks', lease_dir: '/var/lib/kea', user: '_kea', group: '_kea' },
+        }])),
       },
-      pelagos: { include_present: true, sockets_ok: true, keys_present: true },
+      pelagos: { include_present: true, sockets_ok: true, sockets: {}, keys_present: true, node_initialized: true },
     }),
     'POST /install/plan': ({ body, user }) => {
       const engines = body.engines || []

@@ -17,7 +17,7 @@ vi.mock('../../services/api', () => {
 
 const engine = (installed) => ({ installed, version: installed ? '9.20.11' : null, service: installed ? 'named.service' : null, running: installed, config: installed ? '/etc/bind/named.conf' : null })
 const detect = {
-  distro: { id: 'debian', version_id: '13', name: 'Debian GNU/Linux 13', package_manager: 'apt' },
+  distro: { id: 'debian', version_id: '13', pretty_name: 'Debian GNU/Linux 13', package_manager: 'apt' },
   engines: { bind: engine(true), kea4: engine(true), kea6: engine(false), d2: engine(false) },
   pelagos: { include_present: false, sockets_ok: false, keys_present: false },
 }

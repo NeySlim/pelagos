@@ -35,7 +35,7 @@ function DetectCard({ detect }) {
         <h3 className="text-sm font-semibold text-text-primary">{t('detect.title')}</h3>
         {detect.distro && (
           <Badge variant="outline" size="sm">
-            {detect.distro.name || `${detect.distro.id} ${detect.distro.version_id}`}
+            {detect.distro.pretty_name || detect.distro.name || `${detect.distro.id} ${detect.distro.version_id}`}
           </Badge>
         )}
         {detect.distro?.package_manager && <Badge variant="secondary" size="sm" className="font-mono">{detect.distro.package_manager}</Badge>}

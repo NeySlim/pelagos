@@ -13,6 +13,8 @@ import { useApi } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
+import { LiveRatePanel } from '../../components/LiveRatePanel'
+import { dnsTarget } from '../../hooks/useLiveRates'
 import { KeyValue } from './common'
 import { useNodeNames } from './helpers'
 import { formatBytes, formatCount, formatPercent, headlineCounters, topCounters, uptimeSeconds } from './instanceStats'
@@ -23,7 +25,7 @@ function CounterList({ title, items, language, testId }) {
   const { t } = useTranslation('dns')
   return (
     <div className="min-w-0" data-testid={testId}>
-      <h4 className="text-2xs uppercase tracking-wider text-text-tertiary mb-1">{title}</h4>
+      <h4 className="ui-label text-2xs uppercase tracking-wider text-text-tertiary mb-1">{title}</h4>
       {items.length === 0 ? (
         <p className="text-xs text-text-tertiary">{t('instances.noCounters')}</p>
       ) : (
@@ -31,8 +33,8 @@ function CounterList({ title, items, language, testId }) {
           {items.map((c) => (
             <li key={c.name} className="flex items-center gap-2 text-xs">
               <span className="font-mono text-text-primary w-24 shrink-0 truncate">{c.name}</span>
-              <span className="flex-1 h-1.5 rounded bg-bg-tertiary overflow-hidden" aria-hidden="true">
-                <span className="block h-full bg-accent-primary" style={{ width: `${Math.max(2, c.share * 100)}%` }} />
+              <span className="ui-meter flex-1 h-1.5 rounded bg-bg-tertiary overflow-hidden" aria-hidden="true">
+                <span className="ui-meter-fill block h-full bg-accent-primary" style={{ width: `${Math.max(2, c.share * 100)}%` }} />
               </span>
               <span className="font-mono text-text-secondary text-right w-28 shrink-0">
                 {formatCount(c.value, language)} ({formatPercent(c.share, language)})
@@ -56,7 +58,7 @@ function InstanceCard({ item, nameOf }) {
   return (
     <Card className="p-4 space-y-4" hover={false} data-testid="dns-instance">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold text-text-primary">{nameOf(item.node_id)}</h3>
+        <h3 className="ui-card-title ui-title-literal text-sm font-semibold text-text-primary">{nameOf(item.node_id)}</h3>
         <Badge variant={caps.running ? 'success' : 'danger'} size="sm">
           {caps.running ? t('instances.running') : t('instances.stopped')}
         </Badge>
@@ -70,6 +72,7 @@ function InstanceCard({ item, nameOf }) {
         <p className="text-xs status-danger-text" role="alert">{errorMessage(stats.error)}</p>
       ) : (
         <>
+          {caps.statistics_channel !== false && <LiveRatePanel target={dnsTarget(item.node_id)} title={t('instances.liveRate')} testId="dns-instance-live" />}
           <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3" data-testid="dns-instance-counters">
             {HEADLINES.map((key) => (
               <KeyValue key={key} label={t(`instances.counters.${key}`)} mono>
@@ -94,7 +97,7 @@ function InstanceCard({ item, nameOf }) {
 
       {Object.keys(item.status || {}).length > 0 && (
         <div>
-          <h4 className="text-2xs uppercase tracking-wider text-text-tertiary mb-1">{t('instances.rndcStatus')}</h4>
+          <h4 className="ui-label text-2xs uppercase tracking-wider text-text-tertiary mb-1">{t('instances.rndcStatus')}</h4>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 text-xs" data-testid="dns-instance-status">
             {Object.entries(item.status).map(([k, v]) => (
               <div key={k} className="flex gap-2 min-w-0">

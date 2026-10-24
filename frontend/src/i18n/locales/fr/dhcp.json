@@ -323,6 +323,12 @@
       "assigned-nas": "NA attribuées",
       "total-pds": "PD total",
       "assigned-pds": "PD attribués"
-    }
+    },
+    "liveRate": "Baux attribués",
+    "history": "Adresses utilisées, dernières 24 h",
+    "historyLabel": "Adresses utilisées sur la dernière journée, actuellement {{value}}",
+    "dayAgo": "-24 h",
+    "utilization": "Usage",
+    "subnetUse": "Adresses utilisées du sous-réseau {{id}}"
   }
 }

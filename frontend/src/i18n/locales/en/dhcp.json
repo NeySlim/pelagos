@@ -323,6 +323,12 @@
       "assigned-nas": "Assigned NA",
       "total-pds": "Total PD",
       "assigned-pds": "Assigned PD"
-    }
+    },
+    "liveRate": "Leases handed out",
+    "history": "Address use, last 24 h",
+    "historyLabel": "Address use over the last day, now {{value}}",
+    "dayAgo": "-24 h",
+    "utilization": "Use",
+    "subnetUse": "Subnet {{id}} address use"
   }
 }

@@ -382,6 +382,7 @@
       "transfers": "Zone transfers",
       "validated": "DNSSEC validated",
       "validationFailures": "Validation failures"
-    }
+    },
+    "liveRate": "Query rate"
   }
 }

@@ -300,5 +300,13 @@
     "moduleDisabled": "Module disabled",
     "moduleDisabledHelp": "This page belongs to a module that is turned off for the cluster.",
     "backToDashboard": "Back to the dashboard"
+  },
+  "live": {
+    "label": "Live",
+    "collecting": "Collecting live counters",
+    "perSecond": "/s",
+    "chartLabel": "{{title}}, now {{rate}} per second",
+    "ago": "-{{minutes}} min",
+    "now": "now"
   }
 }

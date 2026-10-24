@@ -300,5 +300,13 @@
     "moduleDisabled": "Module désactivé",
     "moduleDisabledHelp": "Cette page appartient à un module désactivé pour le cluster.",
     "backToDashboard": "Retour au tableau de bord"
+  },
+  "live": {
+    "label": "Direct",
+    "collecting": "Collecte des compteurs en cours",
+    "perSecond": "/s",
+    "chartLabel": "{{title}}, actuellement {{rate}} par seconde",
+    "ago": "-{{minutes}} min",
+    "now": "maintenant"
   }
 }

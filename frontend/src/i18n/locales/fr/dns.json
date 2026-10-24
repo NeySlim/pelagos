@@ -382,6 +382,7 @@
       "transfers": "Transferts de zone",
       "validated": "Validées DNSSEC",
       "validationFailures": "Échecs de validation"
-    }
+    },
+    "liveRate": "Débit de requêtes"
   }
 }

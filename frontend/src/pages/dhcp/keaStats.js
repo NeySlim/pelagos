@@ -48,3 +48,33 @@ export function subnetColumns(rows) {
   const seen = new Set(rows.flatMap((r) => Object.keys(r.counters)))
   return SUBNET_COLUMNS.filter((c) => seen.has(c))
 }
+
+// Address use of a subnet row in percent: addresses (v4, v6 NA) or delegated prefixes.
+export function subnetUtilization(row) {
+  const c = row?.counters || {}
+  for (const [assigned, total] of [['assigned-addresses', 'total-addresses'], ['assigned-nas', 'total-nas'], ['assigned-pds', 'total-pds']]) {
+    if (typeof c[total] === 'number' && c[total] > 0 && typeof c[assigned] === 'number') {
+      return { assigned: c[assigned], total: c[total], percent: (c[assigned] / c[total]) * 100 }
+    }
+  }
+  return null
+}
+
+// GET /series/pools summed over the pools: one { t, value } point per timestamp with
+// the percentage of all addresses in use, oldest first.
+export function poolHistory(series) {
+  const byTime = new Map()
+  for (const s of series || []) {
+    for (const [ts, assigned, total] of s.points || []) {
+      const t = Date.parse(ts)
+      if (!Number.isFinite(t)) continue
+      const cur = byTime.get(t) || { assigned: 0, total: 0 }
+      cur.assigned += Number(assigned) || 0
+      cur.total += Number(total) || 0
+      byTime.set(t, cur)
+    }
+  }
+  return [...byTime.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([t, { assigned, total }]) => ({ t, value: total > 0 ? (assigned / total) * 100 : 0 }))
+}

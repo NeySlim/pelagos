@@ -67,6 +67,13 @@ const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v)
 
 // The config may come wrapped in its root key ({Dhcp4: {...}}) or bare: rootPath
 // is [root] or [], the path of the object the schema keys describe.
+// Accepts `keys` as the documented list of {name, ...} or as a map name -> definition.
+export function normalizeSchema(schema) {
+  if (!schema || Array.isArray(schema.keys)) return schema
+  const keys = Object.entries(schema.keys || {}).map(([name, def]) => ({ name, ...(def || {}) }))
+  return { ...schema, keys }
+}
+
 export function schemaRoot(config, schema) {
   const root = schema?.root
   if (root && isObject(config) && root in config) return { body: config[root], rootPath: [root] }

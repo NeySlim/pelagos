@@ -13,7 +13,7 @@ import { errorMessage } from '../../services/apiClient'
 import { cn } from '../../lib/utils'
 import { NodeSelect } from './NodeSelect'
 import { unifiedDiff, jsonText } from './lineDiff'
-import { parsePath, getPath, setPath, deletePath, typeOf, defaultFor, parseScalar, parseJson, checkSchema, schemaKeyAt, isSchemaRoot, schemaRoot } from './keaJson'
+import { parsePath, getPath, setPath, deletePath, typeOf, defaultFor, parseScalar, parseJson, checkSchema, schemaKeyAt, isSchemaRoot, schemaRoot, normalizeSchema } from './keaJson'
 
 const TARGETS = {
   v4: { engine: 'kea4', label: 'Dhcp4', load: (node) => api.dhcp.config('v4', node), schema: () => api.advanced.keaSchema('v4'), plan: (config, nodes) => api.dhcp.configPlan('v4', config, nodes) },
@@ -162,7 +162,7 @@ export default function KeaEditorPage() {
 
   const path = parsePath(selectedPath)
   const selectedValue = draft ? getPath(draft, path) : undefined
-  const schema = schemaQ.data
+  const schema = useMemo(() => normalizeSchema(schemaQ.data), [schemaQ.data])
   const schemaKey = draft ? schemaKeyAt(draft, schema, path) : null
   const rootPath = draft ? schemaRoot(draft, schema ?? { root: target.label }).rootPath : []
   const canDelete = path.length > rootPath.length

@@ -15,9 +15,16 @@ import { NodeSelect } from './NodeSelect'
 import { ValueEditor } from './ValueEditor'
 import {
   grammarIndex, statementsFor, childContext, toForm, fromForm, validateForm, getAt,
-  replaceStatement, removeStatement, addStatement, buildChanges, fileText,
+  replaceStatement, removeStatement, addStatement, buildChanges, fileText, normalizeGrammar, valueText,
 } from './bindGrammar'
 import { unifiedDiff } from './lineDiff'
+
+const textValues = (statements) =>
+  (Array.isArray(statements) ? statements : []).map((s) => ({
+    ...s,
+    value: valueText(s.value),
+    ...(Array.isArray(s.children) ? { children: textValues(s.children) } : {}),
+  }))
 
 const samePath = (a, b) => Boolean(a && b) && a.length === b.length && a.every((v, i) => v === b[i])
 
@@ -174,7 +181,8 @@ export default function BindEditorPage() {
   const [nodeId, setNodeId] = useState('')
   const grammarQ = useApi(() => api.advanced.bindGrammar(), [])
   const treeQ = useApi(() => api.advanced.bindTree(nodeId || undefined), [nodeId])
-  const original = useMemo(() => treeQ.data?.files || [], [treeQ.data])
+  const grammar = useMemo(() => normalizeGrammar(grammarQ.data), [grammarQ.data])
+  const original = useMemo(() => (treeQ.data?.files || []).map((f) => ({ ...f, statements: textValues(f.statements) })), [treeQ.data])
   const [draft, setDraft] = useState([])
   const [selected, setSelected] = useState(null)
   const [adding, setAdding] = useState(null) // { path, context }
@@ -188,7 +196,7 @@ export default function BindEditorPage() {
     setAdding(null)
   }, [original])
 
-  const index = useMemo(() => grammarIndex(grammarQ.data), [grammarQ.data])
+  const index = useMemo(() => grammarIndex(grammar), [grammar])
   const changes = useMemo(() => (draft.length === original.length ? buildChanges(original, draft) : []), [original, draft])
   const localDiff = useMemo(
     () => draft.map((f, i) => (original[i] ? unifiedDiff(fileText(original[i]), fileText(f), f.path) : '')).join(''),
@@ -277,7 +285,7 @@ export default function BindEditorPage() {
             <Card className="p-4" hover={false} data-testid="bind-form">
               {adding ? (
                 <AddStatement
-                  grammar={grammarQ.data}
+                  grammar={grammar}
                   context={adding.context}
                   existing={existingNames}
                   onCancel={() => setAdding(null)}
@@ -307,7 +315,7 @@ export default function BindEditorPage() {
                   />
                 </div>
               ) : (
-                <EmptyState icon={Code} title={t('bind.selectTitle')} description={t('bind.selectBody', { count: grammarQ.data?.statements?.length || 0, version: grammarQ.data?.version || '' })} />
+                <EmptyState icon={Code} title={t('bind.selectTitle')} description={t('bind.selectBody', { count: grammar?.statements?.length || 0, version: grammar?.version || '' })} />
               )}
             </Card>
           </div>

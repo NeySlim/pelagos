@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { argKind, toForm, fromForm, validateForm, parseList, serialize, fileText, buildChanges, replaceStatement, removeStatement, addStatement, getAt, statementsFor } from './bindGrammar'
+import { argKind, toForm, fromForm, validateForm, parseList, serialize, fileText, buildChanges, replaceStatement, removeStatement, addStatement, getAt, statementsFor, normalizeGrammar, valueText } from './bindGrammar'
 import { unifiedDiff, diffLines } from './lineDiff'
-import { parsePath, getPath, setPath, deletePath, parseScalar, parseJson, checkSchema, defaultFor, schemaKeyAt, isSchemaRoot } from './keaJson'
+import { parsePath, getPath, setPath, deletePath, parseScalar, parseJson, checkSchema, defaultFor, schemaKeyAt, isSchemaRoot, normalizeSchema } from './keaJson'
 
 const g = (args) => ({ name: 'x', args })
 
@@ -211,5 +211,45 @@ describe('Kea JSON paths', () => {
     expect(isSchemaRoot(bare, schema, [])).toBe(true)
     expect(isSchemaRoot(config, schema, ['Dhcp4'])).toBe(true)
     expect(isSchemaRoot(config, schema, [])).toBe(false)
+  })
+})
+
+describe('backend shape adapters', () => {
+  it('turns the per-context grammar map into the statement list', () => {
+    const grammar = normalizeGrammar({
+      bind_version: '9.20.30',
+      contexts: {
+        top: { statements: { options: { grammar: '{ ... }', block: 'options', repeatable: false } } },
+        options: { statements: { recursion: { grammar: '<boolean>', block: null, repeatable: false, doc_url: 'https://doc' } } },
+        'zone.primary': { statements: { file: { grammar: '<quoted_string>', block: null } } },
+        zone: { statements: { file: { grammar: '<quoted_string>', block: null } } },
+      },
+    })
+    expect(grammar.version).toBe('9.20.30')
+    const byName = Object.fromEntries(grammar.statements.map((s) => [s.name, s]))
+    expect(byName.options).toMatchObject({ args: 'block', contexts: ['toplevel'] })
+    expect(byName.recursion).toMatchObject({ args: 'boolean', contexts: ['options'], doc: 'https://doc' })
+    expect(byName.file.contexts).toEqual(['zone'])
+    expect(argKind(byName.recursion.args).kind).toBe('boolean')
+    expect(statementsFor(grammar, 'options').map((s) => s.name)).toEqual(['recursion'])
+  })
+
+  it('keeps the list grammar and schema untouched', () => {
+    const grammar = { version: '9.20', statements: [] }
+    expect(normalizeGrammar(grammar)).toBe(grammar)
+    const schema = { root: 'Dhcp4', keys: [] }
+    expect(normalizeSchema(schema)).toBe(schema)
+  })
+
+  it('turns a schema key map into the key list', () => {
+    const schema = normalizeSchema({ root: 'Dhcp4', keys: { 'valid-lifetime': { type: 'integer' } } })
+    expect(schema.keys).toEqual([{ name: 'valid-lifetime', type: 'integer' }])
+    expect(schemaKeyAt({ Dhcp4: {} }, schema, ['Dhcp4', 'valid-lifetime']).type).toBe('integer')
+  })
+
+  it('shows non-text statement values as JSON', () => {
+    expect(valueText('yes')).toBe('yes')
+    expect(valueText(null)).toBe(null)
+    expect(valueText({ a: 1 })).toBe('{"a":1}')
   })
 })

@@ -24,6 +24,31 @@ export function argKind(args) {
   return { kind: 'raw' }
 }
 
+// Accepts the documented list shape ({version, statements: [...]}) and the per-context
+// map the BIND connector generates ({bind_version, contexts: {ctx: {statements: {...}}}}).
+export function normalizeGrammar(grammar) {
+  if (!grammar || Array.isArray(grammar.statements)) return grammar
+  const byName = new Map()
+  for (const [ctxName, ctx] of Object.entries(grammar.contexts || {})) {
+    const context = ctxName === 'top' ? 'toplevel' : ctxName.split('.')[0]
+    for (const [name, def] of Object.entries(ctx?.statements || {})) {
+      const entry = byName.get(name) || {
+        name,
+        contexts: [],
+        args: def?.block ? 'block' : String(def?.grammar || '').replace(/<([\w-]+)>/g, '$1'),
+        multiple: Boolean(def?.repeatable),
+        doc: def?.doc_url || null,
+      }
+      if (!entry.contexts.includes(context)) entry.contexts.push(context)
+      byName.set(name, entry)
+    }
+  }
+  return { version: grammar.bind_version || grammar.version || '', statements: [...byName.values()] }
+}
+
+// Statement values are text; anything else (an object from a newer backend) is shown as JSON.
+export const valueText = (value) => (value == null || typeof value === 'string' ? value : JSON.stringify(value))
+
 export function grammarIndex(grammar) {
   const map = new Map()
   for (const s of grammar?.statements || []) map.set(s.name, s)

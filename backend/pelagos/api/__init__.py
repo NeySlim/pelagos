@@ -17,6 +17,19 @@ API_PREFIX = f"/api/{API_VERSION}"
 log = logging.getLogger(__name__)
 
 
+class PelagosApi(Api):
+    """Known failures (engine down, not built yet) answer their problem document without a traceback
+    in the log; Flask-RESTX would otherwise log every 5xx as an unhandled exception."""
+
+    def handle_error(self, e: Exception):
+        mapped = None if isinstance(e, HTTPException) else translate(e)
+        if mapped is None or mapped.code == "internal_error":
+            return super().handle_error(e)
+        if mapped.status >= 500:
+            log.warning("%s %s: %s %s", request.method, request.path, mapped.code, mapped.detail)
+        return self.make_response(mapped.to_problem(), mapped.status, headers=mapped.headers)
+
+
 def register_api(app: Flask) -> Api:
     from pelagos.api import (
         account,
@@ -39,7 +52,7 @@ def register_api(app: Flask) -> Api:
 
     blueprint = Blueprint("api", __name__, url_prefix=API_PREFIX)
     blueprint.before_request(load_session)
-    api = Api(
+    api = PelagosApi(
         blueprint,
         version=__version__,
         title="Pelagos API",

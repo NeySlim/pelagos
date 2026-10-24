@@ -19,7 +19,7 @@ from typing import Any
 from pelagos.core.keadoc import KeaDocument, patch_text
 from pelagos.core.write_pipeline import FileChange, WritePipeline
 from pelagos.domain import ValidationResult
-from pelagos.installer import keaconf
+from pelagos.installer import keaconf, keaselinux
 
 SOCKET_NAMES: dict[str, str] = {
     "kea4": "kea4-ctrl-socket",
@@ -356,12 +356,13 @@ def ensure_config_writable(env: Any, conf: Path, daemon: str | None = None) -> s
     through the Kea group (root:<kea group> 0660; distro packages ship root:root 0644). Files pulled in
     by `<?include?>` are patched by Pelagos (in the Kea group) instead, so they get the same mode."""
     note = ensure_apparmor_write(env, daemon, conf) if daemon else ""
+    selinux = keaselinux.ensure_config_write(env, conf, daemon) if daemon else ""
     try:
         included = keaconf.included_files(conf)
     except keaconf.KeaConfigError:
         included = []
     modes = [_config_mode(env, p) for p in [conf, *included]]
-    return "\n".join(o for o in (*modes, note) if o)
+    return "\n".join(o for o in (*modes, note, selinux) if o)
 
 
 def _config_mode(env: Any, conf: Path) -> str:

@@ -18,6 +18,7 @@ import json
 import shlex
 import tarfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -385,6 +386,16 @@ class TestRocky:
         zones = client.get("/dns/zones")["items"]
         assert isinstance(zones, list)
 
+    def test_03b_dhcp_write_runs_config_write_under_selinux(self):
+        """A subnet plan through the API ends with Kea's config-write, the daemon rewriting its file."""
+        client = Api(self.host)
+        client.login()
+        dhcp_write(self.host, client, 41)
+
+    def test_03c_adopt_running_keeps_comments_under_selinux(self):
+        """A hand edit blocks writes (409); adopt running rewrites the file as the pelagos user."""
+        adopt_running(self.host)
+
     def test_04_switch_kea_to_isc(self):
         rc, out, err = pelagos(self.host, "install --engines kea4,d2 --source isc --isc-series 3.2 --yes")
         assert rc == 0, out + err
@@ -395,3 +406,85 @@ class TestRocky:
         _, out, _ = pelagos(self.host, "install --detect")
         det = json.loads(out)
         assert det["engines"]["kea4"]["source"] == "isc" and det["pelagos"]["sockets_ok"]
+
+    def test_05_dhcp_write_with_isc_kea(self):
+        ssh(self.host, "sudo systemctl restart pelagos pelagos-collector")
+        client = Api(self.host)
+        wait_for("health after restart", lambda: client.get("/health"), timeout=120)
+        client.login()
+        dhcp_write(self.host, client, 42)
+
+
+KEA4_CONF = "/etc/kea/kea-dhcp4.conf"
+
+
+def avc_denials(host: str) -> str:
+    """AVC denials logged for the Kea daemons and the Pelagos processes since boot ("" when none)."""
+    _rc, out, _ = ssh(
+        host,
+        "sudo ausearch -m AVC,USER_AVC -ts boot 2>/dev/null | grep -E 'kea|pelagos' || true",
+        check=False,
+    )
+    return out.strip()
+
+
+def labelled_as_policy_says(host: str, path: str) -> bool:
+    """The file carries the type the policy gives its path (restorecon would not change it)."""
+    _, actual, _ = ssh(host, f"sudo stat -c %C {path}")
+    _, want, _ = ssh(host, f"matchpathcon -n {path}")
+    return actual.strip().split(":")[2] == want.strip().split(":")[2]
+
+
+def dhcp_write(host: str, client: Api, subnet_id: int) -> None:
+    subnet = {
+        "id": subnet_id,
+        "subnet": f"198.51.{subnet_id}.0/24",
+        "family": "v4",
+        "pools": [{"pool": f"198.51.{subnet_id}.10 - 198.51.{subnet_id}.20"}],
+    }
+    plan = client.post("/dhcp/v4/subnets/plan", {"change": {"op": "add", "target": "", "after": subnet}})
+    assert plan["state"] == "validated", plan
+    result = client.apply(plan)
+    assert result["state"] == "applied", json.dumps(result, indent=2)
+    assert "config-write" in json.dumps(result["results"])
+    cfg = keaconf.loads(sudo_cat(host, KEA4_CONF))["Dhcp4"]
+    assert any(s.get("id") == subnet_id for s in cfg.get("subnet4", [])), cfg
+    assert labelled_as_policy_says(host, KEA4_CONF)
+    assert avc_denials(host) == ""
+
+
+def adopt_running(host: str) -> None:
+    client = Api(host)
+    client.login()
+    text = sudo_cat(host, KEA4_CONF)
+    cfg = keaconf.loads(text)
+    lifetime = cfg["Dhcp4"].get("valid-lifetime", 4000)
+    edited = "// edited by hand on the lab\n" + text.replace(
+        f'"valid-lifetime": {lifetime}', f'"valid-lifetime": {lifetime + 600}', 1
+    )
+    if edited.count(str(lifetime + 600)) == 0:
+        cfg["Dhcp4"]["valid-lifetime"] = lifetime + 600
+        edited = "// edited by hand on the lab\n" + json.dumps(cfg, indent=2)
+    ssh(host, f"sudo tee {KEA4_CONF} >/dev/null", data=edited.encode())
+
+    def diverged() -> Any:
+        items = client.get("/dhcp/v4/config/file")["items"]
+        return items if items[0].get("diverged") else None
+
+    wait_for("divergence seen", diverged, timeout=60)
+    with pytest.raises(labkit.ApiError) as blocked:
+        client.post(
+            "/dhcp/v4/options/plan",
+            {"changes": [{"op": "replace", "target": "renew-timer", "after": 900}]},
+        )
+    assert blocked.value.status == 409 and blocked.value.body["code"] == "config_divergence"
+    plan = client.post("/dhcp/v4/config/adopt/plan", {"source": "running"})
+    assert plan["state"] == "validated" and plan["requires_confirmation"], plan
+    result = client.apply(plan)
+    assert result["state"] == "applied", json.dumps(result, indent=2)
+    text = sudo_cat(host, KEA4_CONF)
+    assert text.startswith("// edited by hand on the lab")
+    assert keaconf.loads(text)["Dhcp4"].get("valid-lifetime", lifetime) == lifetime
+    assert client.get("/dhcp/v4/config/file")["items"][0]["diverged"] is False
+    assert labelled_as_policy_says(host, KEA4_CONF)
+    assert avc_denials(host) == ""

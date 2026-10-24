@@ -1069,8 +1069,9 @@ def files_tree(files: ConfigFiles, include_dir: Path | None = None) -> dict[str,
   files, the shared key switch) goes through the same editor.
 - SELinux: where the policy confines Kea (`dhcpd_exec_t` or `kea_exec_t`
   binaries), the installer adds a CIL module letting the domain write its
-  configuration type (`/etc/pelagos/selinux/pelagos-kea-<domain>.cil`); Kea
-  runs unconfined on RHEL and Rocky 10, where nothing is installed.
+  configuration type (`/var/lib/pelagos-helper/selinux/pelagos-kea-<domain>.cil`,
+  a root-only 0700 directory the service user cannot reach; only Kea-private
+  types are ever granted); Kea runs unconfined on RHEL and Rocky 10, where nothing is installed.
 
 ## 10. Tool configuration files (TOML)
 

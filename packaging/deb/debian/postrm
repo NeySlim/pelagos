@@ -5,7 +5,7 @@ set -e
 
 case "$1" in
   purge)
-    rm -rf /var/lib/pelagos /etc/pelagos /run/pelagos
+    rm -rf /var/lib/pelagos /var/lib/pelagos-helper /etc/pelagos /run/pelagos
     if getent passwd pelagos >/dev/null; then
       deluser --quiet --system pelagos >/dev/null 2>&1 || true
     fi

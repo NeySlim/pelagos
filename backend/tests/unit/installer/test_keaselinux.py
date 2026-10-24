@@ -42,7 +42,7 @@ def test_confined_kea_gets_one_module(tmp_path):
     types = typer({"/usr/sbin/kea-dhcp4": "dhcpd_exec_t", str(CONF): "dhcp_etc_t"})
     out = keaselinux.ensure_config_write(env, CONF, "kea-dhcp4", types)
     assert "dhcpd_t may now write dhcp_etc_t" in out
-    cil = tmp_path / "etc/pelagos/selinux/pelagos-kea-dhcpd_t.cil"
+    cil = tmp_path / "var/lib/pelagos-helper/selinux/pelagos-kea-dhcpd_t.cil"
     assert "(allow dhcpd_t dhcp_etc_t (file (open read write" in cil.read_text()
     assert env.runner.calls == [["semodule", "-i", str(cil)]]
     again = keaselinux.ensure_config_write(env, CONF, "kea-dhcp4", types)
@@ -61,7 +61,7 @@ def test_failed_install_leaves_no_module_file(tmp_path):
     env = env_for(tmp_path, rc=1)
     types = typer({"/usr/sbin/kea-dhcp4": "kea_exec_t", str(CONF): "kea_etc_t"})
     out = keaselinux.ensure_config_write(env, CONF, "kea-dhcp4", types)
-    assert "failed" in out and not (tmp_path / "etc/pelagos/selinux/pelagos-kea-kea_t.cil").exists()
+    assert "failed" in out and not (tmp_path / "var/lib/pelagos-helper/selinux/pelagos-kea-kea_t.cil").exists()
     dry = env_for(tmp_path, dry_run=True)
     assert keaselinux.ensure_config_write(dry, CONF, "kea-dhcp4", types).startswith("dry run")
 
@@ -79,7 +79,7 @@ def test_generic_types_are_refused(tmp_path):
     types = typer({"/usr/sbin/kea-dhcp4": "dhcpd_exec_t", str(CONF): "etc_t"})
     out = keaselinux.ensure_config_write(env, CONF, "kea-dhcp4", types)
     assert "generic type" in out and "semanage fcontext -a -t dhcp_etc_t" in out
-    assert env.runner.calls == [] and not (tmp_path / "etc/pelagos/selinux").exists()
+    assert env.runner.calls == [] and not (tmp_path / "var/lib/pelagos-helper/selinux").exists()
 
 
 def test_included_files_and_the_other_family_are_covered(tmp_path):
@@ -101,7 +101,7 @@ def test_included_files_and_the_other_family_are_covered(tmp_path):
     )
     keaselinux.ensure_config_write(env, conf4, "kea-dhcp4", types)
     out = keaselinux.ensure_config_write(env, conf6, "kea-dhcp6", types)
-    cil = (tmp_path / "etc/pelagos/selinux/pelagos-kea-dhcpd_t.cil").read_text()
+    cil = (tmp_path / "var/lib/pelagos-helper/selinux/pelagos-kea-dhcpd_t.cil").read_text()
     assert "dhcp_etc_t, dhcpd_state_t, kea_etc_t" in out
     for t in ("dhcp_etc_t", "dhcpd_state_t", "kea_etc_t"):
         assert f"(allow dhcpd_t {t} (file" in cil
@@ -112,3 +112,47 @@ def test_included_files_and_the_other_family_are_covered(tmp_path):
     assert f"{part} is labeled usr_t" in keaselinux.ensure_config_write(
         env, conf4, "kea-dhcp4", types_generic
     )
+
+
+def test_service_user_files_are_never_trusted(tmp_path):
+    """A planted .cil under /etc/pelagos or a symlinked module never feeds the root-loaded module."""
+    env = env_for(tmp_path)
+    types = typer({"/usr/sbin/kea-dhcp4": "dhcpd_exec_t", str(CONF): "dhcp_etc_t"})
+    legacy = tmp_path / "etc/pelagos/selinux"
+    legacy.mkdir(parents=True)
+    (legacy / "pelagos-kea-dhcpd_t.cil").write_text("(allow dhcpd_t shadow_t (file (write)))\n")
+    state = tmp_path / "var/lib/pelagos-helper/selinux"
+    state.mkdir(parents=True)
+    victim = tmp_path / "victim"
+    victim.write_text("(allow dhcpd_t shadow_t (file (write)))\n(allow dhcpd_t kea_var_t (file (x)))\n")
+    (state / "pelagos-kea-dhcpd_t.cil").symlink_to(victim)
+    out = keaselinux.ensure_config_write(env, CONF, "kea-dhcp4", types)
+    assert "shadow_t" not in out and "kea_var_t" not in out
+    cil = state / "pelagos-kea-dhcpd_t.cil"
+    assert not cil.is_symlink() and "shadow_t" not in cil.read_text()
+    assert victim.read_text().startswith("(allow dhcpd_t shadow_t")
+    assert cil.stat().st_mode & 0o777 == 0o600 and state.stat().st_mode & 0o777 == 0o700
+
+
+def test_foreign_types_in_the_module_are_dropped(tmp_path):
+    env = env_for(tmp_path)
+    types = typer({"/usr/sbin/kea-dhcp4": "dhcpd_exec_t", str(CONF): "dhcp_etc_t"})
+    state = tmp_path / "var/lib/pelagos-helper/selinux"
+    state.mkdir(parents=True, mode=0o700)
+    (state / "pelagos-kea-dhcpd_t.cil").write_text(
+        "(allow dhcpd_t shadow_t (file (write)))\n(allow dhcpd_t kea_etc_t (file (write)))\n"
+    )
+    out = keaselinux.ensure_config_write(env, CONF, "kea-dhcp4", types)
+    assert "dhcp_etc_t, kea_etc_t" in out
+    assert "shadow_t" not in (state / "pelagos-kea-dhcpd_t.cil").read_text()
+
+
+def test_symlinked_state_dir_is_refused(tmp_path):
+    env = env_for(tmp_path)
+    types = typer({"/usr/sbin/kea-dhcp4": "dhcpd_exec_t", str(CONF): "dhcp_etc_t"})
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (tmp_path / "var/lib").mkdir(parents=True)
+    (tmp_path / "var/lib/pelagos-helper").symlink_to(elsewhere)
+    out = keaselinux.ensure_config_write(env, CONF, "kea-dhcp4", types)
+    assert "unusable" in out and env.runner.calls == [] and not any(elsewhere.iterdir())

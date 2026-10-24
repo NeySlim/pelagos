@@ -23,9 +23,24 @@ from pelagos.core.replication import (
     client_ssl_context,
     node_tls_files,
 )
-from pelagos.domain import Engine, Node, NodeApplyResult, NodeStatus, Peer, Plan, utcnow
+from pelagos.domain import Engine, Node, NodeApplyResult, NodeStatus, Peer, Plan, PlanScope, utcnow
 
 log = logging.getLogger(__name__)
+
+# A peer applies a plan synchronously: engine plans validate and reload (seconds to minutes),
+# installer plans install packages and restart services (many minutes). Settings may override.
+ENGINE_PLAN_TIMEOUT = 300.0
+INSTALLER_PLAN_TIMEOUT = 1800.0
+SYNC_TIMEOUT = 120.0
+INSTALLER_SCOPES = (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY)
+
+
+def plan_timeout(plan: Plan, settings: dict[str, Any] | None = None) -> float:
+    """How long a peer may take to answer a plan apply or rollback before the call fails."""
+    settings = settings or {}
+    if plan.scope in INSTALLER_SCOPES:
+        return float(settings.get("installer_plan_timeout_seconds", INSTALLER_PLAN_TIMEOUT))
+    return float(settings.get("peer_plan_timeout_seconds", ENGINE_PLAN_TIMEOUT))
 
 
 class PeerGateway:
@@ -53,6 +68,12 @@ class PeerGateway:
     def client(self, peer: Peer) -> ReplicationClient | None:
         context = self.client_context()
         return ReplicationClient(peer, context) if context is not None else None
+
+    def _client_with_timeout(self, peer: Peer, timeout: float) -> ReplicationClient | None:
+        client = self.client(peer)
+        if client is not None and hasattr(client, "timeout"):
+            client.timeout = timeout
+        return client
 
     def peers(self) -> list[Peer]:
         return [p for p in self.ctx.cluster().nodes if p.id != self.ctx.node.id]
@@ -138,8 +159,8 @@ class PeerGateway:
         if context is None:
             return None
         c = self.ctx
-        replicator = Replicator(c.config_store, c.audit_log, context, self_id=c.node.id)
-        replicator.client = self.client  # type: ignore[method-assign,assignment]
+        replicator = Replicator(c.config_store, c.audit_log, context, self_id=c.node.id, timeout=SYNC_TIMEOUT)
+        replicator.client = lambda peer: self._client_with_timeout(peer, SYNC_TIMEOUT)  # type: ignore[method-assign,assignment,return-value]
         return replicator
 
     def sync(self, peer: Peer) -> PeerStatus:
@@ -161,7 +182,11 @@ class PeerGateway:
         return self._plan_call(peer, plan, "rollback_plan")
 
     def _plan_call(self, peer: Peer, plan: Plan, method: str) -> NodeApplyResult:
-        client = self.client(peer)
+        try:
+            settings = self.ctx.settings()
+        except Exception:  # an unreadable cluster.toml must not block the call: defaults apply
+            settings = {}
+        client = self._client_with_timeout(peer, plan_timeout(plan, settings))
         if client is None:
             return NodeApplyResult(node_id=peer.id, ok=False, message="node certificate not available")
         try:

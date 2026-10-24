@@ -103,15 +103,9 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--replication-url")
     i.set_defaults(func=cmd_init)
 
-    sub.add_parser("install", help="install BIND and/or Kea (WP-INSTALLER)").set_defaults(
-        func=_placeholder("WP-INSTALLER")
-    )
-    sub.add_parser("import", help="adopt an existing configuration (WP-INSTALLER)").set_defaults(
-        func=_placeholder("WP-INSTALLER")
-    )
-    sub.add_parser("audit", help="security audit of the configuration (WP-INSTALLER)").set_defaults(
-        func=_placeholder("WP-INSTALLER")
-    )
+    from pelagos.installer.cli import add_parsers as add_installer_parsers
+
+    add_installer_parsers(sub)
     e = sub.add_parser("enroll", help="join an existing cluster with a one-time token")
     e.add_argument("--url", help="replication URL of an enrolled node, https://ns1.example.lan:8444")
     e.add_argument("--token", help="one-time token from POST /api/v1/nodes/enroll-token")

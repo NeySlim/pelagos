@@ -294,6 +294,46 @@ events and close codes 4401/4403, every web audit entry on the `audit`
 topic. Additive `node_id` query parameter on DNS/DHCP reads, `errors` in
 the dashboard summary and `meta.errors` in the hosts page. WP-FRONTEND:
 handle `restriction` (route to password change or TOTP enrollment).
+## 2026-10-24, WP-INSTALLER: installer CLI, plan targets, Kea socket access
+- `backend/pelagos/cli.py`: `install`, `import` and `audit` are registered by
+  `pelagos.installer.cli.add_parsers` (flags `--engines`, `--source distro|isc`,
+  `--isc-series`, `--dry-run`, `--yes`, `--json`, `install --detect|--init`,
+  `audit --fix <id>|--fix-all`). Applying needs root; `--dry-run` does not.
+- `docs/architecture.md` section 6: `Change.target` grammar for the `install`,
+  `import` and `security` scopes. Section 3: Kea socket names are written
+  relative, and Kea 2.x gets a systemd drop-in making its socket group-writable
+  (Kea 2.x creates it 0750; connecting needs write permission, so membership in
+  the Kea group alone is not enough). Kea 3.x creates it 0770 and needs nothing.
+- `[engines]` in `node.toml`: TOML cannot hold both `bind = true` and an
+  `[engines.bind]` table. The installer writes `engines.bind` as the table
+  (truthy, so `NodeConfig.modules.bind` stays correct), `kea4`/`kea6`/`d2` as
+  booleans and the Kea sockets and configs in `[engines.kea]`. Readers must
+  accept a table where a boolean was documented.
+- BIND always comes from the distro packages; `source: "isc"` selects the ISC
+  Cloudsmith repository for Kea only (ISC publishes no BIND packages there).
+- `rndc-pelagos.conf` includes the server's rndc key (or carries a copy when the
+  key sits in a larger file); no separate `rndc-pelagos` key is created, so
+  `keys.conf` holds `ddi-read`, `ddi-admin` and, when the installer sets up D2,
+  `kea-ddns`.
+- The statistics channel the installer adds listens on 127.0.0.1 port 8053, or
+  8953 on RHEL (already labelled `rndc_port_t`, so SELinux lets named bind it).
+- Python API for WP-API-AUTH (`/install/*`): `InstallerEnv.detect()`,
+  `installer.detect.detect_env(env)`, `install.build_install_plan(env, engines,
+  source, isc_series, created_by)`, `importer.build_import_plan(env, engines,
+  created_by)`, `importer.verify_import(env, engines, reads)`,
+  `security_audit.run_audit(env)` (findings with `to_dict()` in the section 17
+  shape plus `remediable`), `security_audit.build_security_plan(env,
+  finding_ids, created_by, d2_node_ids)`, and `installer.jobs.apply_plan(plan,
+  env, job, progress)` for `POST /plans/{id}/apply` of these scopes. The old
+  skeleton functions (`plan_install`, `run_install`, `plan_import`,
+  `plan_remediation`) remain as wrappers.
+- Cross-node order of the dual-key switch (step 2 on every D2 node before
+  step 3) is the plan service's job: each change carries its `node_ids`, and a
+  node's Job runs only its own changes.
+- Lab note for WP-LAB-E2E: `scripts/lab/rollback.sh` and `scripts/lab/README.md`
+  list VMIDs off by one (Proxmox has lab-ns1 9111, lab-ns2 9112, lab-rpm 9113,
+  lab-client 9114, lab-dev 9115, pelagos-gw 9110); rolling back by name hits the
+  wrong VM. Use the numeric VMID until the table is fixed.
 
 ## 2026-10-24, foundation: initial contracts
 `docs/architecture.md` sections 1 to 20, `pelagos.domain`, `connectors/base.py`,

@@ -181,7 +181,13 @@ The pelagos system user is `pelagos` with supplementary groups `bind` or
 directory (group-writable, setgid) and connect to Kea sockets. The installer
 sets `socket-name` under `/run/kea/` with the directory mode 0750 owned by
 `<kea user>:<kea group>`, which is the only layout Kea 3.x accepts without
-`-X`.
+`-X`. The name is written relative (`kea4-ctrl-socket`): Kea resolves it
+against its compiled-in socket directory and Kea 3.x refuses an absolute path
+that differs textually from it (`/run/kea` versus `/var/run/kea`). Kea 3.x
+creates the socket 0770; Kea 2.x creates it 0750, which a group member cannot
+connect to, so for Kea 2.x the installer adds a systemd drop-in
+(`<unit>.d/pelagos-socket.conf`) that makes the socket group-writable after
+each start.
 
 Pelagos include layout for BIND (`<include dir>` above):
 
@@ -781,7 +787,16 @@ dhcp.lease     : "lease<4|6>/<ip>"
 dhcp.ha        : "ha/maintenance" (after "start"|"cancel") | "service" (after {"enable": bool})
 d2.config      : "config" | "secret-file/<file name>" (after {"path","sha256"}; the secret never enters a plan)
 host           : "host/<key>"                       expands into dns.rrset and dhcp.reservation changes
+install        : "install/repo/isc-kea-<x>-<y>" | "install/packages" | "install/user/pelagos" | "install/service/<engine>"
+                 | "install/bind/adopt" | "install/<kea engine>/config" | "install/node" | "install/verify"
+import         : "import/read/<engine>" (what was read, no step) | "import/user/pelagos" | "import/bind/adopt"
+                 | "import/bind/update-policy/<view>/<zone>" (proposal, never applied) | "import/<kea engine>/socket"
+                 | "import/node" | "import/verify"
+security       : "security/<finding id>" | "security/<finding id>/<1-bind-add|2-d2-switch|3-bind-remove>"
 ```
+
+Installer plans (`install`, `import`, `security`) apply as a `Job` whose steps follow
+the changes in order; a change runs only on the nodes in its `node_ids`.
 
 ## 7. Write pipeline
 

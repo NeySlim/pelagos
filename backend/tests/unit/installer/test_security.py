@@ -1,0 +1,306 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Security audit findings on the legacy config and their remediation, the dual-key switch included."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from pelagos.domain import JobState, PlanScope, Severity
+from pelagos.installer import bindconf, keaconf
+from pelagos.installer.importer import build_import_plan
+from pelagos.installer.jobs import apply_plan
+from pelagos.installer.security_audit import (
+    BindAuditInput,
+    KeaAuditInput,
+    audit_bind,
+    audit_kea,
+    build_security_plan,
+    run_audit,
+)
+from tests.unit.installer.fakes import DATA, copy_kea, debian_tree, legacy_tree
+
+pytestmark = pytest.mark.unit
+
+LEGACY_IDS = {
+    "bind:weak_rndc_key:rndc-key",
+    "bind:weak_shared_kea_key:kea-ddns",
+    "bind:weak_tsig_key:legacy-xfr",
+    "bind:allow_update_by_address:_default/example.lan.",
+    "bind:allow_update_by_address:_default/2.0.192.in-addr.arpa.",
+    "bind:open_allow_transfer:options",
+    "bind:open_recursion:options",
+    "bind:dnssec_validation_off:options",
+    "bind:rndc_nonlocal:*",
+    "bind:stats_nonlocal:0.0.0.0",
+}
+
+
+def _d2_with_md5(tmp: Path, version_key: str = "secret") -> Path:
+    d = tmp / "etc/kea"
+    d.mkdir(parents=True, exist_ok=True)
+    conf = d / "kea-dhcp-ddns.conf"
+    conf.write_text(
+        json.dumps(
+            {
+                "DhcpDdns": {
+                    "ip-address": "127.0.0.1",
+                    "port": 53001,
+                    "control-socket": {"socket-type": "unix", "socket-name": "kea-ddns-ctrl-socket"},
+                    "tsig-keys": [
+                        {
+                            "name": "kea-ddns",
+                            "algorithm": "HMAC-MD5",
+                            version_key: "bGVnYWN5LWtlYS1kZG5zLXNlY3JldC0wMDAwMDAwMDAwMDA=",
+                        }
+                    ],
+                    "forward-ddns": {"ddns-domains": [{"name": "example.lan.", "key-name": "kea-ddns"}]},
+                    "reverse-ddns": {"ddns-domains": []},
+                }
+            },
+            indent=2,
+        )
+    )
+    return conf
+
+
+def test_legacy_findings(tmp_path):
+    env = legacy_tree(tmp_path)
+    findings = {f.id: f for f in run_audit(env)}
+    assert set(findings) == LEGACY_IDS
+    assert findings["bind:weak_shared_kea_key:kea-ddns"].severity is Severity.CRITICAL
+    assert findings["bind:weak_tsig_key:legacy-xfr"].severity is Severity.WARNING  # sha1
+    assert findings["bind:weak_rndc_key:rndc-key"].details["file"].endswith("rndc.key")
+    upd = findings["bind:allow_update_by_address:_default/example.lan."]
+    assert upd.details["kea_key"] == "kea-ddns"
+    assert "grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX DHCID;" in upd.proposal
+    assert 'grant "kea-ddns" zonesub A AAAA PTR DHCID;' in upd.proposal
+    for f in findings.values():
+        d = f.to_dict()
+        assert set(d) == {
+            "id",
+            "kind",
+            "severity",
+            "engine",
+            "subject",
+            "description",
+            "proposal",
+            "risk",
+            "remediable",
+        }
+        assert d["description"] and d["proposal"] and d["risk"]
+
+
+def test_audit_from_printed_config_matches_user_files(tmp_path):
+    """named-checkconf -p output gives the same BIND findings as the user files (rndc key aside)."""
+    printed = bindconf.parse((DATA / "bind" / "legacy-p.conf").read_text())
+    files = bindconf.ConfigFiles(root=Path("p.conf"), order=["p.conf"])
+    files.statements["p.conf"] = printed
+    files.texts["p.conf"] = (DATA / "bind" / "legacy-p.conf").read_text()
+    kinds = {
+        f.kind for f in audit_bind(BindAuditInput(files=files, rndc_key="rndc-key", kea_keys={"kea-ddns"}))
+    }
+    assert kinds == {k.split(":")[1] for k in LEGACY_IDS}
+
+
+def test_clean_default_has_no_finding(tmp_path):
+    env = debian_tree(tmp_path)
+    assert run_audit(env) == []
+    rocky = bindconf.parse((DATA / "bind" / "rocky-default-p.conf").read_text())
+    files = bindconf.ConfigFiles(root=Path("r"), order=["r"], statements={"r": rocky}, texts={"r": ""})
+    assert audit_bind(BindAuditInput(files=files)) == []
+
+
+def test_kea_findings():
+    agent = keaconf.loads((DATA / "kea" / "rocky-3.0-kea-ctrl-agent.conf").read_text())
+    d2 = {
+        "DhcpDdns": {
+            "tsig-keys": [
+                {"name": "kea-ddns", "algorithm": "HMAC-MD5", "secret": "eA=="},
+                {"name": "other", "algorithm": "HMAC-SHA256", "secret": "eA=="},
+            ]
+        }
+    }
+    d4 = {
+        "Dhcp4": {
+            "control-sockets": [{"socket-type": "http", "socket-address": "192.0.2.1", "socket-port": 8004}]
+        }
+    }
+    found = audit_kea(
+        KeaAuditInput(
+            configs={"d2": d2, "kea4": d4},
+            versions={"d2": "3.0.3"},
+            ctrl_agent=agent,
+            ctrl_agent_unit="kea-ctrl-agent.service",
+            socket_dir="/run/kea",
+            socket_dir_mode=0o755,
+        )
+    )
+    ids = {f.id: f for f in found}
+    assert set(ids) == {
+        "kea:kea_ctrl_agent_http:127.0.0.1:8000",
+        "kea:kea_http_socket_plain:kea4:192.0.2.1",
+        "kea:kea_socket_dir_mode:/run/kea",
+        "kea:weak_shared_kea_key:kea-ddns",
+        "kea:kea_tsig_clear_secret:kea-ddns",
+        "kea:kea_tsig_clear_secret:other",
+    }
+    assert ids["kea:kea_ctrl_agent_http:127.0.0.1:8000"].severity is Severity.WARNING
+    assert ids["kea:kea_http_socket_plain:kea4:192.0.2.1"].to_dict()["remediable"] is False
+
+
+def _apply(env, ids):
+    plan = build_security_plan(env, ids, created_by="admin")
+    assert plan.scope is PlanScope.SECURITY and plan.requires_confirmation
+    job = apply_plan(plan, env)
+    return plan, job
+
+
+def test_remediate_bind_hardening(tmp_path):
+    env = legacy_tree(tmp_path)
+    assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    ids = [
+        "bind:weak_tsig_key:legacy-xfr",
+        "bind:allow_update_by_address:_default/2.0.192.in-addr.arpa.",
+        "bind:open_allow_transfer:options",
+        "bind:open_recursion:options",
+        "bind:dnssec_validation_off:options",
+        "bind:rndc_nonlocal:*",
+        "bind:stats_nonlocal:0.0.0.0",
+    ]
+    _plan, job = _apply(env, ids)
+    assert job.state is JobState.DONE, job.error
+    assert [s["name"] for s in job.steps][1:] == [f"security/{i}" for i in ids]
+    remaining = {f.id for f in run_audit(env)}
+    assert remaining == LEGACY_IDS - set(ids)
+    etc = tmp_path / "etc/bind"
+    local = (etc / "named.conf.local").read_text()
+    assert "algorithm hmac-sha1" not in local
+    files = bindconf.load_files(etc / "named.conf")
+    top = list(files.top_level())
+    xfr = next(k for k in bindconf.keys(top) if k.name == "legacy-xfr")
+    assert xfr.algorithm == "hmac-sha256" and len(xfr.secret) == 44
+    zone = next(z for z in bindconf.zones(top) if z.name == "2.0.192.in-addr.arpa.")
+    assert zone.elements("allow-update") == []
+    assert zone.elements("update-policy") == ["grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX DHCID"]
+    opts = next(s for s in top if s.name == "options")
+    assert bindconf.option_value(opts, "allow-transfer") == ["key ddi-read"]
+    assert bindconf.option_value(opts, "allow-recursion") == ["localhost", "localnets"]
+    assert bindconf.option_value(opts, "dnssec-validation") == ["auto"]
+    named = (etc / "named.conf").read_text()
+    assert 'inet 127.0.0.1 port 953 allow { 127.0.0.1; } keys { "rndc-key"; };' in named
+    assert "inet 127.0.0.1 port 8053 allow { 127.0.0.1; };" in named
+    # Comments in the user files survive the edits.
+    assert "# Keys shared with Kea D2" in local and "/* The forward zone" in local
+
+
+def test_remediation_needs_import_keys(tmp_path):
+    env = legacy_tree(tmp_path)
+    _plan, job = _apply(env, ["bind:open_allow_transfer:options"])
+    assert job.state is JobState.FAILED and "run the import first" in job.error
+
+
+def test_rndc_key_regeneration(tmp_path):
+    env = legacy_tree(tmp_path)
+    env.services.active.add("named.service")
+    _plan, job = _apply(env, ["bind:weak_rndc_key:rndc-key"])
+    assert job.state is JobState.DONE, job.error
+    key = bindconf.keys(bindconf.parse((tmp_path / "etc/bind/rndc.key").read_text()))[0]
+    assert (key.name, key.algorithm) == ("rndc-key", "hmac-sha256")
+    # rndc cannot reconfig across a key change: named is restarted, then rndc status verifies.
+    assert ("restart", "named.service") in env.services.calls
+    assert ("rndc", "status") in env.tools.calls
+
+
+def test_failed_validation_rolls_back(tmp_path):
+    env = legacy_tree(tmp_path)
+    before = (tmp_path / "etc/bind/named.conf.local").read_text()
+    env.tools.checkconf_ok = False
+    _plan, job = _apply(env, ["bind:weak_tsig_key:legacy-xfr"])
+    assert job.state is JobState.FAILED and "rolled back: True" in job.error
+    assert (tmp_path / "etc/bind/named.conf.local").read_text() == before
+
+
+def test_dual_key_switch(tmp_path):
+    env = legacy_tree(tmp_path)
+    conf = _d2_with_md5(tmp_path)
+    assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    fid = "bind:weak_shared_kea_key:kea-ddns"
+    plan = build_security_plan(env, [fid])
+    assert [c.target for c in plan.changes] == [
+        f"security/{fid}/1-bind-add",
+        f"security/{fid}/2-d2-switch",
+        f"security/{fid}/3-bind-remove",
+    ]
+    assert all(c.node_ids == ["node-a"] for c in plan.changes)
+    job = apply_plan(plan, env)
+    assert job.state is JobState.DONE, job.error
+    etc = tmp_path / "etc/bind"
+    files = bindconf.load_files(etc / "named.conf")
+    top = list(files.top_level())
+    keys = {k.name: k for k in bindconf.keys(top)}
+    assert "kea-ddns" not in keys and keys["kea-ddns-sha256"].algorithm == "hmac-sha256"
+    zones = {z.name: z for z in bindconf.zones(top)}
+    assert zones["example.lan."].elements("allow-update") == ["192.0.2.5", "key kea-ddns-sha256"]
+    assert zones["corp.example.lan."].elements("update-policy") == ["grant kea-ddns-sha256 zonesub ANY"]
+    d2 = keaconf.loads(conf.read_text())["DhcpDdns"]
+    assert d2["tsig-keys"] == [
+        {
+            "name": "kea-ddns-sha256",
+            "algorithm": "HMAC-SHA256",
+            "secret-file": str(tmp_path / "etc/kea/kea-ddns-sha256.tsig"),
+        }
+    ]
+    assert d2["forward-ddns"]["ddns-domains"][0]["key-name"] == "kea-ddns-sha256"
+    secret = (tmp_path / "etc/kea/kea-ddns-sha256.tsig").read_text().strip()
+    assert secret == keys["kea-ddns-sha256"].secret
+    assert "bind:weak_shared_kea_key:kea-ddns" not in {f.id for f in run_audit(env)}
+
+
+def test_dual_key_intermediate_state_accepts_both(tmp_path):
+    """After step 1 alone (another node still on the old key), BIND grants both keys."""
+    env = legacy_tree(tmp_path)
+    _d2_with_md5(tmp_path)
+    apply_plan(build_import_plan(env, ["bind"]), env)
+    plan = build_security_plan(env, ["bind:weak_shared_kea_key:kea-ddns"], d2_node_ids=["node-b"])
+    assert plan.changes[1].node_ids == ["node-b"]
+    plan.changes[2].node_ids = ["node-b"]  # keep step 3 off this node to observe the middle state
+    job = apply_plan(plan, env)
+    assert job.state is JobState.DONE, job.error
+    top = list(bindconf.load_files(tmp_path / "etc/bind/named.conf").top_level())
+    zones = {z.name: z for z in bindconf.zones(top)}
+    assert zones["example.lan."].elements("allow-update") == [
+        "key kea-ddns",
+        "192.0.2.5",
+        "key kea-ddns-sha256",
+    ]
+    assert zones["corp.example.lan."].elements("update-policy") == [
+        "grant kea-ddns zonesub ANY",
+        "grant kea-ddns-sha256 zonesub ANY",
+    ]
+
+
+def test_kea_only_remediations(tmp_path):
+    env = debian_tree(tmp_path)
+    conf = _d2_with_md5(tmp_path)
+    (tmp_path / "run/kea").mkdir(parents=True)
+    (tmp_path / "run/kea").chmod(0o755)
+    findings = {f.id for f in run_audit(env)}
+    assert "kea:kea_socket_dir_mode:" + str(tmp_path / "run/kea") in findings
+    assert "kea:kea_tsig_clear_secret:kea-ddns" in findings
+    ids = ["kea:kea_socket_dir_mode:" + str(tmp_path / "run/kea"), "kea:kea_tsig_clear_secret:kea-ddns"]
+    _plan, job = _apply(env, ids)
+    assert job.state is JobState.DONE, job.error
+    assert (tmp_path / "run/kea").stat().st_mode & 0o777 == 0o750
+    key = keaconf.tsig_keys(keaconf.loads(conf.read_text()))[0]
+    assert "secret" not in key and Path(key["secret-file"]).read_text().strip().startswith("bGVnYWN5")
+
+
+def test_unknown_or_manual_findings_are_refused(tmp_path):
+    env = legacy_tree(tmp_path)
+    with pytest.raises(ValueError, match="unknown finding"):
+        build_security_plan(env, ["bind:nope:x"])
+    copy_kea(tmp_path, {})  # no Kea config: only BIND findings
+    assert all(f.engine == "bind" for f in run_audit(env))

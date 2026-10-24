@@ -18,6 +18,8 @@ import { usePermission } from '../../hooks/usePermission'
 import { useWsTopic } from '../../hooks/useWebSocket'
 import { api } from '../../services/api'
 import { formatDate, formatRelativeTime } from '../../lib/utils'
+import { FlowLine, StatusDot } from '../../components/motion'
+import { haTone } from '../dashboard/radarLayout'
 import { AreaPage, SectionError } from './ui'
 import { usePlanFlow, useNodeNames } from './hooks'
 import { HEALTHY_HA_STATES } from './lib'
@@ -95,13 +97,24 @@ export default function HaPage({ family }) {
         )}
         {!ha.loading && !ha.error && items.length === 0 && <EmptyState icon={Heartbeat} title={t('ha.empty')} description={t('ha.emptyHint')} />}
         {items.length > 0 && (
-          <div
-            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${healthy ? 'status-success-bg status-success-border status-success-text' : 'status-warning-bg status-warning-border status-warning-text'}`}
-            data-testid="ha-summary"
-          >
-            {healthy ? <CheckCircle size={16} weight="fill" /> : <Warning size={16} weight="fill" />}
-            {healthy ? t('ha.healthy', { mode: haTerm(items[0].mode) }) : t('ha.degraded')}
-          </div>
+          <Card className="px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-3" hover={false} data-testid="ha-summary">
+            <span className={`flex items-center gap-2 text-sm ${healthy ? 'status-success-text' : 'status-warning-text'}`}>
+              {healthy ? <CheckCircle size={16} weight="fill" /> : <Warning size={16} weight="fill" />}
+              {healthy ? t('ha.healthy', { mode: haTerm(items[0].mode) }) : t('ha.degraded')}
+            </span>
+            <span className="ml-auto flex items-center flex-wrap gap-y-2" data-testid="ha-rail">
+              {items.map((h, i) => (
+                <span key={h.node_id} className="flex items-center">
+                  {i > 0 && <FlowLine tone={h.partner?.in_touch === false || items[i - 1].partner?.in_touch === false ? 'danger' : 'primary'} length="44px" thickness={2} className="mx-1.5 ui-waypoint-joint" />}
+                  <span className={`ui-waypoint fx-tone-${haTone(h)}`} title={haTerm(h.state)}>
+                    <StatusDot tone={haTone(h)} size={6} pulse={haTone(h) === 'danger'} />
+                    {h.server_name || nameOf(h.node_id)}
+                    <span className="ui-waypoint-sub">{haTerm(h.state)}</span>
+                  </span>
+                </span>
+              ))}
+            </span>
+          </Card>
         )}
         <div className="grid gap-4 lg:grid-cols-2">
           {items.map((h) => {
@@ -118,7 +131,7 @@ export default function HaPage({ family }) {
               <Card key={h.node_id} className="p-0 overflow-hidden" hover={false} data-testid="ha-server">
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-border section-header-gradient">
                   <Heartbeat size={16} className="text-accent-pro" />
-                  <span className="text-sm font-semibold text-text-primary">{name}</span>
+                  <span className="ui-card-title ui-title-literal text-sm font-semibold text-text-primary">{name}</span>
                   {h.role && <Badge variant="outline" size="sm">{haTerm(h.role)}</Badge>}
                   <span className="ml-auto">{h.enabled ? <StatusBadge status={h.state} data-testid="ha-state" /> : <Badge variant="gray" size="sm">{t('ha.hookMissing')}</Badge>}</span>
                 </div>

@@ -62,6 +62,13 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_enroll(args: argparse.Namespace) -> int:
+    paths = _paths(args)
+    from pelagos.core.enrollment import enroll_cli
+
+    return enroll_cli(paths, args)
+
+
 def _placeholder(package: str):
     def run(_: argparse.Namespace) -> int:
         print(f"not implemented yet (owner: {package})", file=sys.stderr)
@@ -105,12 +112,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("audit", help="security audit of the configuration (WP-INSTALLER)").set_defaults(
         func=_placeholder("WP-INSTALLER")
     )
-    e = sub.add_parser("enroll", help="join an existing cluster (WP-CORE)")
-    e.add_argument("--url")
-    e.add_argument("--token")
-    e.add_argument("--ca-fingerprint")
-    e.add_argument("--name")
-    e.set_defaults(func=_placeholder("WP-CORE"))
+    e = sub.add_parser("enroll", help="join an existing cluster with a one-time token")
+    e.add_argument("--url", help="replication URL of an enrolled node, https://ns1.example.lan:8444")
+    e.add_argument("--token", help="one-time token from POST /api/v1/nodes/enroll-token")
+    e.add_argument("--ca-fingerprint", help="sha256:... of the cluster CA, shown with the token")
+    e.add_argument("--name", help="this node's name (default: short hostname)")
+    e.add_argument("--replication-url", help="how peers reach this node (default https://<name>:8444)")
+    e.add_argument("--web-url", help="UI URL of this node (default https://<name>:8443)")
+    e.add_argument("--engines", help="comma list among bind,kea4,kea6,d2 that this node drives")
+    e.set_defaults(func=cmd_enroll)
     return p
 
 

@@ -288,3 +288,62 @@ def test_engine_down_is_503_problem(role_client, fake_dns):
     assert inst[0]["error"] == "named is not running"
     summary = dora.get("/api/v1/dashboard/summary").get_json()
     assert summary["zones"] == [] and "zones" in summary["errors"]
+
+
+@pytest.mark.parametrize("given", [True, False])
+def test_key_material_stays_out_of_the_audit_log(role_client, fake_dns, node_ctx, given):
+    dora = role_client("dns-operator")
+    after = {"algorithm": "hmac-sha256", **({"secret": "U0VDUkVUVkFMVUUxMjM="} if given else {})}
+    r = dora.post(
+        "/api/v1/dns/keys/plan", json={"change": {"op": "add", "target": "keys/k2", "after": after}}
+    )
+    assert r.status_code == 200, r.get_json()
+    plan_id = r.get_json()["id"]
+    secret = node_ctx.plan_store.get(plan_id).changes[0].after["secret"]
+    assert dora.post(f"/api/v1/plans/{plan_id}/apply", json={}).get_json()["state"] == "applied"
+    assert fake_dns.keys["k2"][1] == secret
+    assert secret not in node_ctx.paths.audit_log.read_text()
+    export = role_client("viewer").get("/api/v1/audit/export")
+    assert export.status_code == 200 and secret not in export.get_data(as_text=True)
+
+
+def test_concurrent_apply_applies_once(role_client, fake_dns, node_ctx, services):
+    import threading
+    import time
+
+    from pelagos.services.plan_service import PlanError
+
+    dora = role_client("dns-operator")
+    change = {"op": "add", "target": "race/A", "after": {"ttl": 60, "rdata": ["192.0.2.80"]}}
+    plan_id = _plan_records(dora, [change]).get_json()["id"]
+    plan = node_ctx.plan_store.get(plan_id)
+    real_apply = fake_dns.apply
+
+    def slow_apply(p):
+        time.sleep(0.3)
+        return real_apply(p)
+
+    fake_dns.apply = slow_apply
+    outcomes: list = []
+    gate = threading.Barrier(2)
+
+    def worker():
+        gate.wait()
+        try:
+            outcomes.append(services.plans.apply(plan, "dora").state.value)
+        except PlanError as exc:
+            outcomes.append(exc.code)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert sorted(outcomes) == ["applied", "plan_state"]
+    assert fake_dns.applied.count(plan_id) == 1
+    entries = [
+        e
+        for e in role_client("admin").get("/api/v1/audit").get_json()["items"]
+        if e.get("plan_id") == plan_id
+    ]
+    assert len(entries) == 1

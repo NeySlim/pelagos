@@ -31,6 +31,7 @@ from pelagos.domain import (
     utcnow,
 )
 from pelagos.services.events import EventHub
+from pelagos.services.masking import masked, masked_text
 from pelagos.services.peers import PeerGateway
 from pelagos.services.registry import ConnectorRegistry
 
@@ -140,19 +141,21 @@ class PlanService:
     def apply(
         self, plan: Plan, user: str, confirm: bool = False, client_ip: str | None = None
     ) -> ApplyResult:
-        self.check_applicable(plan, confirm)
         parts = self.parts(plan) if plan.scope is PlanScope.HOST else [plan]
-        try:
-            for part in parts:
-                self.recheck_preconditions(part)
-        except PreconditionFailed as exc:
-            plan.state = PlanState.FAILED
-            plan.error = str(exc)
+        # Check and claim under the lock: a concurrent caller then sees APPLYING and gets plan_state.
+        with self._lock:
+            self.check_applicable(plan, confirm)
+            try:
+                for part in parts:
+                    self.recheck_preconditions(part)
+            except PreconditionFailed as exc:
+                plan.state = PlanState.FAILED
+                plan.error = str(exc)
+                self.ctx.plan_store.update(plan)
+                self._audit_summary(plan, user, client_ip)
+                raise PlanError("precondition_failed", str(exc)) from exc
+            plan.state = PlanState.APPLYING
             self.ctx.plan_store.update(plan)
-            self._audit_summary(plan, user, client_ip)
-            raise PlanError("precondition_failed", str(exc)) from exc
-        plan.state = PlanState.APPLYING
-        self.ctx.plan_store.update(plan)
         results: list[NodeApplyResult] = []
         applied: list[tuple[Plan, list[str]]] = []
         failed = False
@@ -251,9 +254,10 @@ class PlanService:
         client_ip: str | None = None,
     ) -> Any:
         """Install, import and security plans run in the background; the caller gets a Job (202)."""
-        self.check_applicable(plan, confirm)
-        plan.state = PlanState.APPLYING
-        self.ctx.plan_store.update(plan)
+        with self._lock:
+            self.check_applicable(plan, confirm)
+            plan.state = PlanState.APPLYING
+            self.ctx.plan_store.update(plan)
 
         def run(job: Any, progress: Any) -> Any:
             try:
@@ -282,8 +286,11 @@ class PlanService:
     # Rollback -----------------------------------------------------------
 
     def rollback(self, plan: Plan, user: str, client_ip: str | None = None) -> ApplyResult:
-        if plan.state is not PlanState.APPLIED:
-            raise PlanError("plan_state", f"only applied plans roll back; plan is {plan.state.value}")
+        with self._lock:
+            if plan.state is not PlanState.APPLIED:
+                raise PlanError("plan_state", f"only applied plans roll back; plan is {plan.state.value}")
+            plan.state = PlanState.APPLYING  # in flight: a second rollback or apply gets plan_state
+            self.ctx.plan_store.update(plan)
         parts = self.parts(plan) if plan.scope is PlanScope.HOST else [plan]
         results: list[NodeApplyResult] = []
         for part in reversed(parts):
@@ -323,13 +330,13 @@ class PlanService:
             plan_id=plan.id,
             request={
                 "summary": plan.summary,
-                "changes": [c.to_dict() for c in plan.changes],
+                "changes": masked([c.to_dict() for c in plan.changes]),
                 "target_node_ids": plan.target_node_ids,
             },
-            response={"state": plan.state.value, "error": plan.error},
-            diff=plan.diff or None,
+            response={"state": plan.state.value, "error": masked_text(plan.error) if plan.error else None},
+            diff=masked_text(plan.diff) if plan.diff else None,
             result=result,
-            message=plan.error,
+            message=masked_text(plan.error) if plan.error else None,
             client_ip=client_ip,
         )
         self.ctx.audit_log.append(entry)

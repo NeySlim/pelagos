@@ -220,6 +220,50 @@ client side, and event `consistency` triggers a consistency pass (used by
 18 messages to `events.sock`, which the web process (WP-API-AUTH) binds.
 node.toml: `[engines] bind` may be a bool or the `[engines.bind]` table (TOML
 forbids both at once); a table counts as enabled.
+## 2026-10-24, WP-API-AUTH: engine snapshot kinds and the shared connector registry
+`docs/architecture.md` section 13: `GET /repl/v1/engines/<engine>/snapshot`
+takes `?kind=` and kind parameters; `ReplicationClient.engine_snapshot(engine,
+kind="summary", params=None)`. Answers are built by
+`pelagos.services.snapshot.engine_snapshot` over
+`pelagos.services.registry.ConnectorRegistry.from_node(ctx)`, which is also
+"the small registry the API uses" for `/repl/v1/plans/apply|rollback`.
+WP-CORE: implement the client method with these arguments and serve the
+endpoint with `engine_snapshot`; until then peer reads report the peer as
+unreachable and remote plan applies fail cleanly (and roll back self).
+
+## 2026-10-24, WP-API-AUTH: entry points the API calls in other packages
+Looked up at call time; until they exist the endpoint answers
+`501 not_implemented` naming the owner. WP-CORE:
+`pelagos.core.enrollment.request_token(paths, created_by: str, ttl_seconds: int)
+-> {"token", "url", "ca_fingerprint", "expires_at"}` (the API adds
+`command`). WP-INSTALLER: `installer.importer.run_import(plan, job, progress)`
+and `installer.security_audit.run_remediation(plan, job, progress)` next to
+the existing `install.run_install`, all called inside a `Job`. WP-KEA:
+`pelagos.connectors.kea.schema.describe(family: Family, version: str | None)
+-> dict` for `GET /advanced/kea/{family}/schema`. WP-BIND: optional
+`DnsBackend.read_key_secret(name) -> str | None`, used by
+`GET /dns/keys/{name}/secret` when `cluster.toml [secrets]` has no
+`tsig/<name>`. WP-COLLECTOR: `/run/pelagos/collector.sock` may receive
+`{"event": "consistency"}` from `POST /alerts/consistency/run`, asking for
+an immediate consistency pass (ignore it if unsupported).
+
+## 2026-10-24, WP-API-AUTH: fakes for every backend ABC
+`backend/tests/unit/services/fakes.py`: `FakeDnsBackend`, `FakeDhcpBackend`,
+`FakeDdnsBackend` (in-memory, plans with before/after, diff, preconditions,
+validations; `backend.failure = ConnectorUnavailable(...)` injects faults)
+and `FakeReplicationClient` (a peer whose engines are a registry of fakes).
+WP-COLLECTOR may import them from `tests.unit.services.fakes`.
+
+## 2026-10-24, WP-API-AUTH: additive API behavior
+`docs/architecture.md` sections 17, 18, 19: restricted sessions
+(`restriction` in login and session answers, 403 with `restriction`),
+`totp_required: true` at login when enrollment is mandatory, 422 problems
+carrying the failed `plan`, key material masked in plans, apply answers
+`200 ApplyResult` for every outcome, WebSocket `subscribed`/`error` system
+events and close codes 4401/4403, every web audit entry on the `audit`
+topic. Additive `node_id` query parameter on DNS/DHCP reads, `errors` in
+the dashboard summary and `meta.errors` in the hosts page. WP-FRONTEND:
+handle `restriction` (route to password change or TOTP enrollment).
 
 ## 2026-10-24, foundation: initial contracts
 `docs/architecture.md` sections 1 to 20, `pelagos.domain`, `connectors/base.py`,

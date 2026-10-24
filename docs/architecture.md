@@ -1124,6 +1124,22 @@ without one, `403 revoked` when its fingerprint is in `[revoked]`, and
 the server certificate carries the node id of the peer they meant to reach.
 Errors are JSON `{"code","detail","status"}`.
 
+Engine snapshots (added by WP-API-AUTH): the snapshot endpoint takes
+`?kind=<kind>` plus kind parameters as query arguments, and the server
+builds its answer with `pelagos.services.snapshot.engine_snapshot(registry,
+engine, kind, params)` over the node's `pelagos.services.registry.ConnectorRegistry`
+(the registry the API uses, built with `ConnectorRegistry.from_node(ctx)`).
+Kinds: `bind`: `summary` (capabilities, rndc status, zones, serials by
+`<view>/<zone>`), `zone` (`zone`, `view`), `records` (`zone`, `view`),
+`stats`, `config`; `kea4`/`kea6`: `summary` (capabilities, status, HA,
+config hash, utilization), `subnets`, `leases` (`subnet_id`, `limit`,
+`from_address`), `lease` (`ip`), `reservations` (`subnet_id`), `stats`,
+`config`; `d2`: `summary`, `stats`, `config`. A failed read is reported in
+the answer's `"error"` member, never as an HTTP error. On the client side,
+`ReplicationClient.engine_snapshot(engine, kind="summary", params=None)`.
+The same registry serves `/repl/v1/plans/apply|rollback`: the plan's
+`engine` selects the backend.
+
 Client behavior (`core.replication.ReplicationClient`, run by the collector):
 
 - Push on write: `ConfigStore.update_cluster` and `AuditLog.append` signal
@@ -1372,6 +1388,15 @@ Until a work package implements an endpoint it answers `501` with
 
 User public fields: `id, username, roles, enabled, has_totp, must_change_password, created_at, updated_at, last_login, preferences`.
 
+Restricted sessions (added by WP-API-AUTH): when `settings.require_totp` is
+true and the user has no TOTP, or when `must_change_password` is set, login
+succeeds with `"restriction": "totp_enrollment" | "password_change"` (and
+`totp_required: true` for the first) and only `/auth/*` and `/account/*`
+answer; every other endpoint returns `403 forbidden` with the extension
+member `"restriction"`. Confirming TOTP or changing the password lifts it.
+`GET /auth/session` carries the same `restriction` member. A password
+change revokes the user's other sessions.
+
 ### Nodes
 
 | Method, path | Permission | Request | Response |
@@ -1571,6 +1596,13 @@ Server to client, one message per event:
 {"topic": "system", "event": "pong" | "replication", "ts", "node_id", "data": {...}}
 ```
 
+Additions (WP-API-AUTH): the server answers `subscribe`/`unsubscribe` with
+`{"topic": "system", "event": "subscribed", "data": {"topics": [...],
+"unknown"?: [...]}}` and malformed frames with `"event": "error"`. A socket
+without a live session is closed with code 4401 (also when the session
+expires or logs out), a foreign `Origin` with 4403. Every audit entry the
+web process appends is published on `audit`; plan outcomes on `plans`.
+
 Events originate in the collector and reach the web process through the
 Unix datagram socket `/run/pelagos/events.sock` (same JSON), which the web
 process fans out to subscribed sockets. Implementation uses
@@ -1596,6 +1628,14 @@ Codes and HTTP statuses: `validation_error` 400, `invalid_credentials` 401,
 (endpoint not built yet), `internal_error` 500. Validation failures from
 engines (`named-checkconf`, `config-test`) are `422 engine_validation_failed`
 with `errors[].message` carrying the tool output.
+
+Extension members (WP-API-AUTH): a `422 engine_validation_failed` returned
+by a `.../plan` endpoint carries the failed plan in `"plan"`; a `403` caused
+by a restricted session carries `"restriction"`. Key material (`secret`,
+`password` members and `secret "..."` in diffs) is replaced by `***` in
+every plan the API returns. `POST /plans/{id}/apply` answers `200` with the
+`ApplyResult` whatever its `state` (`applied`, `failed`, `rolled_back`);
+only refusals before any node is touched are problem documents.
 
 Pagination: query `page` (1-based, default 1) and `per_page` (default 50,
 max 500); response `{"items": [...], "page", "per_page", "total",

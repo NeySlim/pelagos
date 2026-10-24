@@ -36,6 +36,7 @@ from pelagos.connectors.kea.commands import (
 )
 from pelagos.connectors.kea.control_socket import EMPTY, KeaCommandError, KeaControlSocket
 from pelagos.connectors.kea.ha import MAINTENANCE_COMMANDS, ha_state_from_status
+from pelagos.connectors.kea.schema import config_schema
 from pelagos.domain import (
     Change,
     ChangeOp,
@@ -139,6 +140,10 @@ class KeaBackend(DhcpBackend):
 
     def status(self) -> dict[str, Any]:
         return self.socket.status()
+
+    def config_schema(self) -> dict[str, Any]:
+        """Advanced editor description for this server's Kea series (GET /advanced/kea/{family}/schema)."""
+        return config_schema(self.family.value, self.version())
 
     def command(self, command: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
         if command in WRITE_COMMANDS:

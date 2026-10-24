@@ -16,8 +16,10 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBackend, PreconditionFailed
-from pelagos.connectors.kea.config import canonical, config_diff
+from pelagos.connectors.kea.commands import normalize_version
+from pelagos.connectors.kea.config import canonical, config_diff, normalize_root
 from pelagos.connectors.kea.control_socket import KeaControlSocket
+from pelagos.connectors.kea.schema import config_schema
 from pelagos.core.write_pipeline import FileChange
 from pelagos.domain import (
     Change,
@@ -119,6 +121,9 @@ class D2Backend(DdnsBackend):
     def status(self) -> dict[str, Any]:
         return self.socket.status()
 
+    def config_schema(self) -> dict[str, Any]:
+        return config_schema("d2", normalize_version(self.socket.version()))
+
     def config_get(self) -> dict[str, Any]:
         return self.socket.config_get()[ROOT]
 
@@ -144,6 +149,7 @@ class D2Backend(DdnsBackend):
             config = config[ROOT]
         before = self.config_get()
         current_hash = self.config_hash()
+        config = normalize_root(config, normalize_version(self.socket.version()))
         new_cfg, secrets = externalize_secrets(config, self.secret_dir)
         if secrets:
             # The files do not exist yet, so Kea cannot test this configuration before apply.

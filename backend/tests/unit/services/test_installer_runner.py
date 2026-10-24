@@ -12,13 +12,14 @@ from typing import Any
 import pytest
 
 from pelagos.core.replication import PeerStatus
+from pelagos.core.step_seal import seal_steps
 from pelagos.domain import Job, JobState, NodeApplyResult, Plan, PlanScope
 from pelagos.installer import bindconf, keaconf
 from pelagos.installer.importer import build_import_plan
 from pelagos.installer.jobs import apply_plan
 from pelagos.installer.security_audit import build_security_plan
 from pelagos.services.installer_runner import InstallerRunner, phases, run_received
-from tests.unit.installer.fakes import legacy_tree, make_env
+from tests.unit.installer.fakes import join_cluster, legacy_tree, make_env
 
 pytestmark = pytest.mark.unit
 
@@ -57,7 +58,7 @@ class Peers:
 
     def __init__(self, env_a: Any, env_b: Any, log: list[str]) -> None:
         self.env_a, self.env_b, self.log = env_a, env_b, log
-        self.ctx_b = SimpleNamespace(node=SimpleNamespace(id="node-b"), secrets=None)
+        self.ctx_b = SimpleNamespace(node=SimpleNamespace(id="node-b"), secrets=None, paths=env_b.node_paths)
         self.fail = False
 
     def peer(self, node_id: str) -> Any:
@@ -88,7 +89,16 @@ def two_nodes(tmp_path):
     env_b = make_env(tmp_path / "b")
     env_b.node_id = "node-b"
     conf_b = d2_conf(tmp_path / "b")
+    join_cluster(env_a, env_b)
     return env_a, conf_a, env_b, conf_b
+
+
+def ctx_of(env: Any) -> Any:
+    """The web process of `env`'s node: its id, master key and cluster secrets."""
+    from pelagos.core.secrets import SecretBox
+
+    box = SecretBox.from_file(env.node_paths.master_key)
+    return SimpleNamespace(node=SimpleNamespace(id=env.node_id), secrets=box, get_secret=env.stored_secret)
 
 
 def test_phases_order_the_switch_and_skip_manual_steps(two_nodes):
@@ -109,8 +119,7 @@ def test_switch_runs_step_two_on_every_d2_before_step_three(two_nodes):
     plan = build_security_plan(env_a, [FID], "admin", d2_node_ids=["node-a", "node-b"])
     assert plan.changes[1].node_ids == ["node-a", "node-b"]
     log: list[str] = []
-    ctx = SimpleNamespace(node=SimpleNamespace(id="node-a"))
-    runner = InstallerRunner(ctx, Peers(env_a, env_b, log), env_factory=lambda: env_a)  # type: ignore[arg-type]
+    runner = InstallerRunner(ctx_of(env_a), Peers(env_a, env_b, log), env_factory=lambda: env_a)  # type: ignore[arg-type]
 
     def progress(job: Job) -> None:
         last = job.steps[-1]
@@ -142,8 +151,7 @@ def test_failing_peer_stops_before_the_old_key_goes(two_nodes):
     plan = build_security_plan(env_a, [FID], "admin", d2_node_ids=["node-a", "node-b"])
     peers = Peers(env_a, env_b, [])
     peers.fail = True
-    ctx = SimpleNamespace(node=SimpleNamespace(id="node-a"))
-    runner = InstallerRunner(ctx, peers, env_factory=lambda: env_a)  # type: ignore[arg-type]
+    runner = InstallerRunner(ctx_of(env_a), peers, env_factory=lambda: env_a)  # type: ignore[arg-type]
     job = Job(plan_id=plan.id)
     with pytest.raises(RuntimeError, match="D2 refused the key"):
         runner(plan, job, lambda _job: None)
@@ -157,8 +165,12 @@ def test_received_installer_plan_runs_only_this_nodes_changes(two_nodes):
     env_a, _conf_a, env_b, conf_b = two_nodes
     plan = build_security_plan(env_a, [FID], "admin", d2_node_ids=["node-b"])
     assert plan.scope is PlanScope.SECURITY
-    ctx_b = SimpleNamespace(node=SimpleNamespace(id="node-b"))
-    # Without the new key on node B the switch refuses, and says why.
+    ctx_b = SimpleNamespace(node=SimpleNamespace(id="node-b"), paths=env_b.node_paths)
+    # A step that is not sealed by its origin is refused.
+    result = run_received(ctx_b, plan, env=env_b)  # type: ignore[arg-type]
+    assert not result.ok and "not sealed" in result.message
+    # Sealed, but without the new key on node B the switch refuses, and says why.
+    seal_steps(plan, ctx_of(env_a).secrets, origin="node-a", receiver="node-b")
     result = run_received(ctx_b, plan, env=env_b)  # type: ignore[arg-type]
     assert not result.ok and "kea-ddns-sha256" in result.message
     key = keaconf.tsig_keys(keaconf.loads(conf_b.read_text()))[0]

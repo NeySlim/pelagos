@@ -264,3 +264,34 @@ def copy_kea(tmp: Path, mapping: dict[str, str]) -> None:
     d.mkdir(parents=True, exist_ok=True)
     for target, src in mapping.items():
         shutil.copy(DATA / "kea" / src, d / target)
+
+
+def join_cluster(*envs: InstallerEnv) -> Any:
+    """One cluster for these envs' nodes: same master key, every node a member. Returns its SecretBox."""
+    from pelagos.core.config_store import ClusterConfig, ConfigStore, NodeConfig
+    from pelagos.core.secrets import SecretBox, generate_master_key, write_master_key
+    from pelagos.domain import Peer
+
+    key = generate_master_key()
+    cluster = ClusterConfig.new(f"node:{envs[0].node_id}")
+    for env in envs:
+        cluster.nodes.append(
+            Peer(
+                id=env.node_id,
+                name=env.node_id,
+                url="https://ns.example.lan:8444",
+                cert_fingerprint=f"fp-{env.node_id}",
+            )
+        )
+    text = ""
+    for env in envs:
+        env.node_paths.ensure()
+        write_master_key(env.node_paths.master_key, key)
+        store = ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml)
+        store.save_node(NodeConfig(id=env.node_id, name=env.node_id))
+        if not text:
+            store.init_cluster(cluster)
+            text = env.node_paths.cluster_toml.read_text()
+        else:
+            env.node_paths.cluster_toml.write_text(text)
+    return SecretBox.from_b64(key)

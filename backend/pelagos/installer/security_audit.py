@@ -1186,7 +1186,7 @@ DUAL_KEY_STEPS = {
 
 def remediation_steps(plan: Plan, env: Any) -> list[Step]:
     """One step per change for this node, in plan order; each step backs up, validates and rolls back."""
-    ctx: dict[str, Any] = {}
+    ctx: dict[str, Any] = {"secrets": dict(getattr(env, "plan_secrets", None) or {})}
     steps: list[Step] = []
 
     def preconditions() -> str:

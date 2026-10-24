@@ -146,6 +146,8 @@ class InstallerEnv:
     tools: Tools | None = None
     service_manager: Any = None  # ServiceManager or a test double
     package_manager: Any = None  # PackageManager or a test double
+    # Secrets verified for this run (new TSIG key name -> secret), from sealed peer steps.
+    plan_secrets: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.tools is None:

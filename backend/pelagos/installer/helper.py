@@ -7,8 +7,10 @@ the socket-activated `pelagos-helper.socket` (`/run/pelagos-helper.sock`, root:p
 JSON request line per connection, answered by `{"progress": Job}` lines and one final
 `{"result": ...}` or `{"error", "type"}` line. Only the operations below exist; the group that can
 reach the socket can do what `admin:install` allows, nothing more: `apply` runs only changes this
-helper planned itself (recorded under a root-only directory), the dual-key steps a peer sends, and
+helper planned itself (recorded under a root-only directory), the dual-key steps a peer sends
+(sealed by a cluster member with the master key, matching this node's audit, run once), and
 every file path, group and package a change names must be the one this host's layout gives.
+The records live under /run: a reboot drops them, and plans do not outlive a reboot anyway.
 """
 
 from __future__ import annotations
@@ -217,8 +219,176 @@ def authorize(plan: Plan, env: Any) -> None:
             for name in ("key", "new_key"):
                 if name in details and not SAFE_KEY.match(str(details[name])):
                     raise HelperError(f"invalid key name {details[name]!r}", "value")
+        secrets = verify_peer_steps(plan, env)
+        if hasattr(env, "plan_secrets"):
+            env.plan_secrets = secrets
     for change in mine:
         _check_change(change, env.paths)
+
+
+# Dual-key steps sent by a peer ---------------------------------------------------------------------
+
+
+def verify_peer_steps(
+    plan: Plan, env: Any, record: bool = True, consumed_dir: Path | None = None
+) -> dict[str, str]:
+    """Checks the dual-key steps a peer sent for this node; returns {new key: secret} it may use.
+
+    Each step must carry a seal made with the cluster master key by the plan's origin node, a current
+    member of the cluster, for this node; it must not have run before (seal digests are kept with the
+    plan records); and it must be what this node's own security audit gives for that key: same key,
+    same weak algorithm, the `<key>-sha256` successor, BIND files from this host's layout. The new
+    key's secret comes sealed in the step, else from cluster.toml written by a current member.
+    """
+    from pelagos.core import step_seal
+    from pelagos.core.config_store import ConfigStore
+    from pelagos.core.secrets import SecretBox, SecretError
+
+    mine = [c for c in plan.changes if env.node_id in c.node_ids]
+    if not mine:
+        return {}
+    paths = env.node_paths
+    if not (paths.master_key.exists() and paths.cluster_toml.exists()):
+        raise HelperError(
+            "this node has no master key or cluster file: peer steps cannot be verified", "value"
+        )
+    try:
+        box = SecretBox.from_file(paths.master_key)
+        cluster = ConfigStore(paths.node_toml, paths.cluster_toml).load_cluster()
+    except (OSError, ValueError, SecretError) as exc:
+        raise HelperError(f"cannot verify peer steps: {exc}") from None
+    origin = cluster.peer(plan.node_id)
+    if origin is None or origin.cert_fingerprint in cluster.revoked:
+        raise HelperError(f"plan origin {plan.node_id} is not a member of this cluster", "value")
+    findings = _shared_key_findings(env)
+    secrets: dict[str, str] = {}
+    digests: list[str] = []
+    for change in mine:
+        try:
+            step_seal.open_step(plan, change, box, env.node_id)
+            sealed_secret = step_seal.open_step_secret(plan, change, box, env.node_id)
+        except (SecretError, ValueError) as exc:
+            raise HelperError(str(exc), "value") from None
+        step = change.after["step"]
+        details = change.after.get("details") if isinstance(change.after.get("details"), dict) else {}
+        key, new = str(details.get("key") or ""), str(details.get("new_key") or "")
+        _match_audit(change, step, key, new, details, findings, env)
+        if step == "2-d2-switch":
+            secret = sealed_secret or _member_secret(cluster, box, new)
+            if secret is not None:
+                secrets[new] = secret
+        digests.append(step_seal.seal_digest(change))
+    if record:
+        _consume(digests, consumed_dir or plans_dir() / "consumed")
+    return secrets
+
+
+def _shared_key_findings(env: Any) -> dict[str, Any]:
+    from pelagos.installer.security_audit import run_audit
+
+    try:
+        found = run_audit(env)
+    except Exception as exc:  # an unreadable config: nothing can be matched, every step is refused
+        log.warning("security audit for peer steps failed: %s", exc)
+        return {}
+    return {str(f.details.get("key")): f for f in found if f.kind == "weak_shared_kea_key"}
+
+
+def _match_audit(
+    change: Change, step: str, key: str, new: str, details: dict[str, Any], findings: dict[str, Any], env: Any
+) -> None:
+    """The step is the one this node's audit proposes for `key`, or a step this node already did."""
+
+    def refuse(why: str) -> None:
+        raise HelperError(f"change {change.target} from another node refused: {why}", "value")
+
+    parts = change.target.split("/")
+    if len(parts) != 3 or parts[0] != "security" or parts[2] != step:
+        refuse("unexpected target")
+    if parts[1].split(":")[1:] != ["weak_shared_kea_key", key]:
+        refuse("the finding is not the shared Kea key " + key)
+    if new != f"{key}-sha256":
+        refuse(f"{new} is not the successor of {key}")
+    finding = findings.get(key)
+    if finding is None:
+        if not _step_done(step, key, new, env):
+            refuse(f"this node's audit has no weak shared key {key}")
+        return
+    if finding.details.get("new_key") != new:
+        refuse("new key differs from this node's audit")
+    before = change.before if isinstance(change.before, dict) else {}
+    algorithm = str(before.get("algorithm") or details.get("algorithm") or "").lower()
+    if algorithm != str(finding.details.get("algorithm") or "").lower():
+        refuse(f"algorithm {algorithm or 'unknown'} differs from this node's audit")
+    if step != "2-d2-switch" and details.get("file"):
+        from pelagos.installer import bindconf
+
+        try:
+            files = set(bindconf.load_files(env.paths.named_conf).order)
+        except (OSError, bindconf.ParseError):
+            files = set()
+        if str(details["file"]) not in files:
+            refuse(f"file {details['file']} is not part of this node's BIND configuration")
+
+
+def _step_done(step: str, key: str, new: str, env: Any) -> bool:
+    """A retried step whose effect is already there: the audit no longer reports the key."""
+    from pelagos.installer import bindconf, keaconf
+
+    try:
+        if step == "2-d2-switch":
+            conf = env.paths.kea_conf("kea-dhcp-ddns")
+            names = {
+                str(k.get("name")) for k in keaconf.tsig_keys(keaconf.loads(conf.read_text(), str(conf)))
+            }
+            return new in names and key not in names
+        names = {k.name for k in bindconf.keys(list(bindconf.load_files(env.paths.named_conf).top_level()))}
+    except (OSError, ValueError, bindconf.ParseError):
+        return False
+    return new in names and key not in names
+
+
+def _member_secret(cluster: Any, box: Any, new: str) -> str | None:
+    """`tsig/<new>` from cluster.toml, accepted only when its last writer is a current member."""
+    from pelagos.core import cluster_merge as cm
+    from pelagos.core.secrets import SecretError
+
+    name = f"tsig/{new}"
+    token = cluster.secrets.get(name)
+    if not token:
+        return None
+    writer = cluster.state().stamps.get(cm.path_of("secrets", name), cm.ZERO)[1]
+    member = cluster.peer(writer)
+    if member is None or member.cert_fingerprint in cluster.revoked:
+        raise HelperError(
+            f"secret of {new} was written by {writer or 'an unknown node'}, not a member", "value"
+        )
+    try:
+        return box.decrypt(name, token)
+    except SecretError as exc:
+        raise HelperError(f"secret of {new}: {exc}", "value") from None
+
+
+def _consume(digests: list[str], root: Path) -> None:
+    """Remembers the seals run here (private directory, next to the plan records); a replay is refused."""
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    now = time.time()
+    for old in root.iterdir():
+        try:
+            if now - old.stat().st_mtime > PLAN_TTL:
+                old.unlink()
+        except OSError:
+            pass
+    if len(set(digests)) != len(digests) or any((root / d).exists() for d in digests):
+        raise HelperError("this step was already sent and run once: a replay is refused", "value")
+    for digest in digests:
+        try:
+            fd = os.open(root / digest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            raise HelperError(
+                "this step was already sent and run once: a replay is refused", "value"
+            ) from None
+        os.close(fd)
 
 
 def _check_change(change: Change, paths: Any) -> None:

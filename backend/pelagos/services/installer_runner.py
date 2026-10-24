@@ -148,12 +148,29 @@ class InstallerRunner:
         step(job, f"{phase}/{peer.name}/replicate", sync, progress)
 
         def apply() -> str:
+            self._seal(part, node_id)
             result: NodeApplyResult = self.peers.apply_plan(peer, part)
             if not result.ok:
                 raise RuntimeError(result.message or "failed")
             return result.message
 
         step(job, f"{phase}/{peer.name}", apply, progress, weight=2)
+
+    def _seal(self, part: Plan, node_id: str) -> None:
+        """Dual-key steps leave this node sealed for `node_id` with the master key (core.step_seal)."""
+        from pelagos.core.step_seal import seal_steps
+
+        box = getattr(self.ctx, "secrets", None)
+        if part.scope is not PlanScope.SECURITY or box is None:
+            return
+
+        def secret_of(name: str) -> str | None:
+            try:
+                return self.ctx.get_secret(f"tsig/{name}")
+            except Exception:  # the peer falls back to the replicated secret, checked on its side
+                return None
+
+        seal_steps(part, box, origin=self.ctx.node.id, receiver=node_id, secret_of=secret_of)
 
 
 def run_received(ctx: NodeContext, plan: Plan, env: Any = None) -> NodeApplyResult:
@@ -168,7 +185,13 @@ def run_received(ctx: NodeContext, plan: Plan, env: Any = None) -> NodeApplyResu
             remote = helper.HelperClient().apply(plan, job, lambda _job: None)
             job.state, job.error = remote.state, remote.error
         else:
-            job = apply_plan(plan, env if env is not None else installer_env(ctx), Job(plan_id=plan.id))
+            env = env if env is not None else installer_env(ctx)
+            if plan.scope is PlanScope.SECURITY and plan.node_id != ctx.node.id:
+                # Same checks as the helper's: sealed by a member, matching this node's audit, run once.
+                env.plan_secrets = helper.verify_peer_steps(
+                    plan, env, consumed_dir=ctx.paths.run / "peer-steps"
+                )
+            job = apply_plan(plan, env, Job(plan_id=plan.id))
     except Exception as exc:
         log.exception("installer plan %s failed", plan.id)
         return NodeApplyResult(node_id=ctx.node.id, ok=False, message=f"{type(exc).__name__}: {exc}")

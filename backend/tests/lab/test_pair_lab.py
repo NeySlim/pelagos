@@ -178,8 +178,13 @@ class TestReferencePair:
         assert [s["subnet"] for s in subnets] == ["10.99.1.0/24"]
         leases = api(A1).get("/dhcp/v4/leases")["items"]
         assert any(lease["ip_address"].startswith(DHCP_NET) for lease in leases)
-        ha = {h["server_name"]: h for h in api(A1).get("/dhcp/v4/ha")["items"]}
-        assert ha["ns1"]["state"] == "hot-standby" and ha["ns1"]["mode"] == "hot-standby"
+
+        def ha_ns1() -> dict | None:
+            # The import restarted Kea for the socket drop-in: the peers resynchronize first.
+            ha = {h["server_name"]: h for h in api(A1).get("/dhcp/v4/ha")["items"]}
+            return ha["ns1"] if ha.get("ns1", {}).get("state") == "hot-standby" else None
+
+        assert wait_for("HA back in hot-standby", ha_ns1, timeout=180, interval=5)["mode"] == "hot-standby"
         d2 = api(A2).get("/dhcp/d2/servers")["items"]
         assert d2 and d2[0]["capabilities"]["version"].startswith("2.6")
 

@@ -313,29 +313,74 @@ def _grants_key(zone: bindconf.ZoneDef, key: str) -> bool:
 COPY_KINDS = ("secondary", "slave", "mirror")
 
 
-def _dynamic(zone: bindconf.ZoneDef) -> bool:
-    """A primary zone something may update: `allow-update { none; }` is a static zone."""
-    if zone.stmt.sub("update-policy") is not None:
+def _update_key_finding(subject: str, z: bindconf.ZoneDef, key: str, top: list[Statement]) -> Finding:
+    """Pelagos signs its UPDATEs with `key`: add it where the zone's update rules live, keys kept."""
+    if z.stmt.sub("update-policy") is not None:
+        where = "its update-policy"
+    elif z.stmt.sub("allow-update") is not None:
+        where = "its allow-update"
+    else:
+        inherited = zone_audit.inherited_allow_update(top, z.view)
+        where = "the allow-update it inherits" + (
+            f" ({inherited.path}:{inherited.line})" if inherited else ""
+        )
+    return Finding(
+        finding_id("bind", "update_without_admin_key", subject),
+        "update_without_admin_key",
+        Severity.WARNING,
+        "bind",
+        subject,
+        f"Zone {z.name} does not accept updates signed with {key}: Pelagos cannot write its records.",
+        f"Add {key} to {where}",
+        "None: the keys allowed today keep their rights."
+        + (
+            "" if where.startswith("its") else " Every zone inheriting that allow-update accepts the key too."
+        ),
+        {"zone": z.name, "view": z.view, "key": key, **_locator(z.stmt), "remediation": "update_key_add"},
+    )
+
+
+def _grants_effective(z: bindconf.ZoneDef, key: str, top: list[Statement]) -> bool:
+    if _grants_key(z, key):
         return True
-    elements = [e.strip('"') for e in zone.elements("allow-update")]
-    return bool(elements) and elements != ["none"]
+    if z.stmt.sub("update-policy") is not None or z.stmt.sub("allow-update") is not None:
+        return False
+    return f"key {key}" in _unquoted(zone_audit.update_rules(z, top) or [])
 
 
 def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str]) -> list[Finding]:
-    """Once adopted, Pelagos reads zones by AXFR with ddi-read and writes them by UPDATE with ddi-admin:
-    zones whose transfer or update rules leave its key out get a finding that adds it."""
+    """Once adopted, Pelagos reads zones by AXFR with ddi-read and writes them by UPDATE with ddi-admin
+    (with several views, the view's own key does both): zones whose transfer or update rules leave the
+    key out get a finding that adds it."""
     findings: list[Finding] = []
     read_key, admin_key = managed.READ_KEY, managed.ADMIN_KEY
     options_needed = False
     multi_view = len(zone_audit.views(top)) >= 2
     for z in bindconf.zones(top):
         subject = f"{z.view}/{z.name}"
-        dynamic = z.is_primary and _dynamic(z)
+        dynamic = z.is_primary and zone_audit.takes_updates(z, top)
+        static = zone_audit.is_static(z, top) and z.name not in zone_audit.BUILTIN_ZONES
         if multi_view:
-            continue  # each view gets its own key, which reads and writes its zones (finding view_key)
+            # Until the view has its key (finding view_key), nothing reaches its zones reliably.
+            key = zone_audit.view_key_of(top, z.view.strip('"'))
+            if key is None or key not in key_names:
+                continue
+            if dynamic and not _grants_effective(z, key, top):
+                findings.append(_update_key_finding(subject, z, key, top))
+            xfr_stmt = z.stmt.sub("allow-transfer")
+            if (dynamic or static or z.kind in COPY_KINDS) and xfr_stmt is not None:
+                xfr = z.elements("allow-transfer")
+                if not _open(xfr) and f"key {key}" not in _unquoted(xfr):
+                    findings.append(
+                        _transfer_without_key(subject, xfr_stmt, xfr, zone=z.name, view=z.view, key=key)
+                    )
+            continue
         if admin_key in key_names and dynamic:
             by_address = any(_is_address(e) for e in z.elements("allow-update"))
-            if not by_address and not _grants_key(z, admin_key):
+            own_rules = z.stmt.sub("update-policy") is not None or z.stmt.sub("allow-update") is not None
+            if not own_rules and not _grants_effective(z, admin_key, top):
+                findings.append(_update_key_finding(subject, z, admin_key, top))
+            elif own_rules and not by_address and not _grants_key(z, admin_key):
                 au = z.stmt.sub("allow-update") is not None
                 proposal = (
                     "Replace allow-update by "
@@ -364,7 +409,6 @@ def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str
                 )
         # Static primaries are read and edited through their file; the distribution's own zones
         # (localhost and the like) are left alone.
-        static = zone_audit.is_static(z) and z.name not in zone_audit.BUILTIN_ZONES
         if read_key not in key_names or not (dynamic or static or z.kind in COPY_KINDS):
             continue
         xfr_stmt = z.stmt.sub("allow-transfer")
@@ -396,8 +440,8 @@ def _transfer_without_key(
     zone: str | None = None,
     view: str | None = None,
     add: bool = False,
+    key: str = managed.READ_KEY,
 ) -> Finding:
-    key = managed.READ_KEY
     proposal = "allow-transfer { " + " ".join(f"{e};" for e in [f"key {key}", *elements]) + " };"
     where = f"zone {zone}" if zone else "the options"
     return Finding(
@@ -413,6 +457,7 @@ def _transfer_without_key(
             "zone": zone,
             "view": view,
             **_locator(stmt),
+            "key": key,
             "remediation": "allow_transfer_add" if add else "allow_transfer",
         },
     )
@@ -1044,8 +1089,9 @@ def remediate_update_policy(env: Any, d: dict[str, Any], ctx: dict[str, Any]) ->
 
 def remediate_allow_transfer(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
     files = _reload_files(env)
-    if managed.READ_KEY not in bindsetup.all_keys(files):
-        raise RuntimeError(f"key {managed.READ_KEY} is not defined: run the import first")
+    needed = d.get("key") or managed.READ_KEY
+    if needed not in bindsetup.all_keys(files):
+        raise RuntimeError(f"key {needed} is not defined: run the import first")
 
     def select(f: ConfigFiles) -> Statement | None:
         owner = _zone_stmt(f, d["view"], d["zone"]).stmt if d.get("zone") else bindsetup.find_options(f)
@@ -1054,10 +1100,11 @@ def remediate_allow_transfer(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -
     stmt = select(files)
     if stmt is None:
         return "allow-transfer already gone"
+    key = d.get("key") or managed.READ_KEY
     kept = [
-        e for e in bindconf.acl_elements(stmt) if e.strip('"') != "any" and e != f"key {managed.READ_KEY}"
+        e for e in bindconf.acl_elements(stmt) if e.strip('"') != "any" and e.replace('"', "") != f"key {key}"
     ]
-    repl = "allow-transfer { " + " ".join(f"{e};" for e in [f"key {managed.READ_KEY}", *kept]) + " };"
+    repl = "allow-transfer { " + " ".join(f"{e};" for e in [f"key {key}", *kept]) + " };"
     return _replace_stmt(env, d, select, repl, "security-allow-transfer")
 
 
@@ -1076,6 +1123,32 @@ def remediate_update_policy_grant(env: Any, d: dict[str, Any], ctx: dict[str, An
     end = pol.block.end
     return _run_bind(
         env, {str(z.stmt.path): text[:end] + grant + text[end:]}, f"security-update-policy-{d['zone']}"
+    )
+
+
+def remediate_update_key_add(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
+    """Adds the key to the zone's update-policy, its allow-update, or the allow-update it inherits."""
+    files = _reload_files(env)
+    key = d.get("key") or managed.ADMIN_KEY
+    if key not in bindsetup.all_keys(files):
+        raise RuntimeError(f"key {key} is not defined: run the import first")
+    top = list(files.top_level())
+    z = _zone_stmt(files, d["view"], d["zone"])
+    if _grants_effective(z, key, top):
+        return f"{key} already granted"
+    pol = z.stmt.sub("update-policy")
+    if pol is not None:
+        if pol.block is None:
+            raise RuntimeError(f"zone {d['zone']} has update-policy local: grant {key} by hand")
+        stmt, at, insert = pol, pol.block.end, f"grant {key} zonesub {' '.join(UPDATE_TYPES_ADMIN)}; "
+    else:
+        au = z.stmt.sub("allow-update") or zone_audit.inherited_allow_update(top, z.view)
+        if au is None or au.block is None:
+            raise RuntimeError(f"zone {d['zone']} takes no updates any more")
+        stmt, at, insert = au, au.block.start + 1, f" key {key};"
+    text = _file_text(files, str(stmt.path))
+    return _run_bind(
+        env, {str(stmt.path): text[:at] + insert + text[at:]}, f"security-update-key-{d['zone']}"
     )
 
 
@@ -1185,6 +1258,7 @@ REMEDIATIONS = {
     "socket_dir": remediate_socket_dir,
     "secret_file": remediate_secret_file,
     "convert_dynamic": zone_audit.remediate_convert_dynamic,
+    "update_key_add": remediate_update_key_add,
     "view_key": zone_audit.remediate_view_key,
 }
 DUAL_KEY_STEPS = {

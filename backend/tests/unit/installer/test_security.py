@@ -514,3 +514,84 @@ def test_views_get_one_key_each(tmp_path):
     )
     assert {k.name for k in bindconf.keys(top)} >= {"ddi-inside", "ddi-outside"}
     assert run_audit(env) == []
+
+
+def _views_env(tmp_path, options_extra: str = ""):
+    env = debian_tree(tmp_path)
+    (tmp_path / "etc/bind/named.conf.local").write_text(VIEWS)
+    opts = tmp_path / "etc/bind/named.conf.options"
+    opts.write_text(
+        opts.read_text().replace("};", f"\t{options_extra}\n}};") if options_extra else opts.read_text()
+    )
+    conf = tmp_path / "etc/bind/named.conf"
+    conf.write_text(conf.read_text().replace(f'include "{tmp_path}/etc/bind/named.conf.root-hints";', ""))
+    assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    return env, conf
+
+
+def test_view_key_keeps_the_transfer_clients_of_the_options(tmp_path):
+    env, conf = _views_env(tmp_path, "allow-transfer { 192.0.2.12; key ddi-read; };")
+    _plan, job = _apply(env, [f.id for f in run_audit(env)])
+    assert job.state is JobState.DONE, job.error
+    top = list(bindconf.load_files(conf).top_level())
+    views = {v.words[0].strip('"'): v for v in top if v.name == "view"}
+    # The new view-level list overrides the options one: it carries its clients along.
+    assert bindconf.acl_elements(views["inside"].sub("allow-transfer")) == [
+        "key ddi-inside",
+        "192.0.2.12",
+        "key ddi-read",
+    ]
+    assert run_audit(env) == []
+
+
+def test_zone_added_to_a_keyed_view_gets_the_view_key(tmp_path):
+    env, conf = _views_env(tmp_path)
+    _plan, job = _apply(env, [f.id for f in run_audit(env)])
+    assert job.state is JobState.DONE, job.error
+    local = tmp_path / "etc/bind/named.conf.local"
+    local.write_text(
+        local.read_text().replace(
+            'view "inside" {',
+            'view "inside" {\n\tzone "new.example.lan" { type primary; file "new.db"; '
+            "update-policy { grant partner zonesub A; }; allow-transfer { key partner; }; };",
+        )
+    )
+    found = {f.kind: f for f in run_audit(env)}
+    assert set(found) == {"update_without_admin_key", "transfer_without_read_key"}
+    assert "ddi-inside" in found["update_without_admin_key"].description
+    assert found["transfer_without_read_key"].details["key"] == "ddi-inside"
+    _plan, job = _apply(env, [f.id for f in found.values()])
+    assert job.state is JobState.DONE, job.error
+    zones = {(z.view, z.name): z for z in bindconf.zones(list(bindconf.load_files(conf).top_level()))}
+    new = zones[("inside", "new.example.lan.")]
+    assert new.elements("update-policy")[-1].startswith("grant ddi-inside zonesub")
+    assert new.elements("allow-transfer") == ["key ddi-inside", "key partner"]
+    assert run_audit(env) == []
+
+
+def test_inherited_allow_update_makes_a_zone_dynamic(tmp_path):
+    env = debian_tree(tmp_path)
+    opts = tmp_path / "etc/bind/named.conf.options"
+    opts.write_text(
+        opts.read_text().replace("};", "\tallow-update { key partner; };\n\tallow-transfer { any; };\n};")
+    )
+    (tmp_path / "etc/bind/named.conf.local").write_text(
+        'key "partner" { algorithm hmac-sha256; secret "c2VjcmV0LWZvci1wYXJ0bmVy"; };\n'
+        'zone "dyn.example.lan" { type primary; file "dyn.db"; };\n'
+        'zone "none.example.lan" { type primary; file "none.db"; allow-update { none; }; };\n'
+    )
+    assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    found = {f.id: f for f in run_audit(env) if f.kind in ("static_zone", "update_without_admin_key")}
+    assert set(found) == {
+        "bind:static_zone:_default/none.example.lan.",
+        "bind:update_without_admin_key:_default/dyn.example.lan.",
+    }
+    update = found["bind:update_without_admin_key:_default/dyn.example.lan."]
+    assert update.details["remediation"] == "update_key_add" and "inherits" in update.proposal
+    _plan, job = _apply(env, [update.id])
+    assert job.state is JobState.DONE, job.error
+    options = next(
+        s for s in bindconf.load_files(tmp_path / "etc/bind/named.conf").top_level() if s.name == "options"
+    )
+    assert bindconf.acl_elements(options.sub("allow-update")) == ["key ddi-admin", "key partner"]
+    assert not [f for f in run_audit(env) if f.kind == "update_without_admin_key"]

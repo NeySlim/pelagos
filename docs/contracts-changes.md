@@ -149,6 +149,16 @@ environment variable or the prompt is preferred. The unused `_placeholder`
 helper is gone. `pelagos rotate-master-key` moves to the roadmap's post-v1
 list. Nothing to react to.
 
+## 2026-10-24, F-DNS: zone mode follows inherited allow-update
+`pelagos.domain.zone_updates` (new): one rule for the connector (`Zone.dynamic`)
+and the installer audit. `allow-update { none; }` is static; an `allow-update`
+inherited from the view or options makes a zone without its own rules dynamic.
+Security findings: `transfer_without_read_key` details carry `key`; new
+remediation `update_key_add`; with several views the view key is checked per
+zone. `dnssec-policy` statement values may not close the block or add
+statements. `rndc sync` targets the view. Zone files are read and written with
+`surrogateescape` (bytes that are not UTF-8 are kept). No package must react.
+
 ## 2026-10-24, F-DNS: static zones, views, addzone, catalogs, DNSSEC writing
 All additive; `docs/architecture.md` sections 4, 5, 6, 10 and 17 updated.
 - `ZoneSource.ADDZONE = "addzone"` (`pelagos.domain.dns`): zones added with

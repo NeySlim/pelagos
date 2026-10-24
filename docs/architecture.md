@@ -1866,10 +1866,18 @@ or the view's key, in place of `allow-update { none; }`, after checking named ca
 write the journal next to the file) and `view_key` (with two views or more: a key
 `ddi-<view>` per view, `key ddi-<view>;` first in that view's match-clients and
 `!key ddi-<view>;` first in those of the views before it, grants and transfers for
-that key on the view's zones, `settings.dns.view_keys.<view>` stored). Zones in a
-multi-view configuration get no `update_without_admin_key` or
-`transfer_without_read_key` finding: the view key covers them. The distribution's
-own zones (localhost, 127/0/255.in-addr.arpa) are never reported.
+that key on the view's zones, `settings.dns.view_keys.<view>` stored; a view-level
+`allow-transfer` it creates carries the elements of the options one). In a
+multi-view configuration, once a view has its key, its zones get
+`update_without_admin_key` and `transfer_without_read_key` findings naming that
+key (`details.key`). A zone is dynamic when it has an `update-policy`, or when the
+`allow-update` that applies to it (its own, else the view's, else the options')
+permits something (`none` matches nothing, `!any` refuses the rest); a zone
+dynamic by inheritance only gets the remediation `update_key_add`, which adds the
+key to the inherited `allow-update`. The connector uses the same rule
+(`pelagos.domain.zone_updates`) and also treats a zone as dynamic when
+`rndc zonestatus` says so. The distribution's own zones (localhost,
+127/0/255.in-addr.arpa) are never reported.
 
 Records of a zone that this node holds as a secondary (or mirror) are planned
 here and applied on the peer that holds it as primary (`target_node_ids`), so

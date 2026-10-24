@@ -12,7 +12,7 @@ import stat
 from pathlib import Path
 from typing import Any
 
-from pelagos.domain import Severity
+from pelagos.domain import Severity, zone_updates
 from pelagos.installer import bindconf, managed
 from pelagos.installer.bindconf import ConfigFiles, Statement
 
@@ -36,11 +36,28 @@ def view_key_name(view: str) -> str:
     return f"ddi-{safe}"
 
 
-def is_static(zone: bindconf.ZoneDef) -> bool:
-    if not zone.is_primary or zone.stmt.sub("update-policy") is not None:
-        return False
-    elements = [e.strip('"') for e in zone.elements("allow-update")]
-    return not elements or elements == ["none"]
+def inherited_allow_update(top: list[Statement], view: str) -> Statement | None:
+    """The allow-update statement a zone of `view` without its own inherits: the view's, else the options'."""
+    for v in views(top):
+        if _view_name(v) == view.strip('"') and v.sub("allow-update") is not None:
+            return v.sub("allow-update")
+    options = next((s for s in top if s.name == "options"), None)
+    return options.sub("allow-update") if options is not None else None
+
+
+def update_rules(zone: bindconf.ZoneDef, top: list[Statement]) -> list[str] | None:
+    """Elements of the allow-update that applies to the zone, None when nothing sets one."""
+    own = zone.stmt.sub("allow-update")
+    stmt = own if own is not None else inherited_allow_update(top, zone.view)
+    return bindconf.acl_elements(stmt) if stmt is not None else None
+
+
+def takes_updates(zone: bindconf.ZoneDef, top: list[Statement]) -> bool:
+    return zone_updates.takes_updates(zone.stmt.sub("update-policy") is not None, update_rules(zone, top))
+
+
+def is_static(zone: bindconf.ZoneDef, top: list[Statement]) -> bool:
+    return zone.is_primary and not takes_updates(zone, top)
 
 
 def views(top: list[Statement]) -> list[Statement]:
@@ -71,7 +88,7 @@ def findings(files: ConfigFiles, top: list[Statement], key_names: set[str]) -> l
     out: list[Any] = []
     if managed.ADMIN_KEY in key_names:
         for z in bindconf.zones(top):
-            if not is_static(z) or z.name in BUILTIN_ZONES:
+            if not is_static(z, top) or z.name in BUILTIN_ZONES:
                 continue
             subject = f"{z.view}/{z.name}"
             key = view_key_of(top, z.view) or managed.ADMIN_KEY
@@ -223,7 +240,7 @@ def remediate_convert_dynamic(env: Any, d: dict[str, Any], ctx: dict[str, Any]) 
     if managed.ADMIN_KEY not in {k.name for k in bindconf.keys(top)}:
         raise RuntimeError(f"key {managed.ADMIN_KEY} is not defined: run the import first")
     z = _zone_stmt(files, d["view"], d["zone"])
-    if not is_static(z):
+    if not is_static(z, top):
         return f"zone {d['zone']} is already dynamic"
     if not env.dry_run:
         problem = journal_problem(env, files, z)
@@ -289,7 +306,7 @@ def remediate_view_key(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
         if pol is not None and pol.block is not None and z.is_primary:
             add(z.stmt, pol.block.end, pol.block.end, f" grant {key} zonesub {' '.join(UPDATE_TYPES)}; ")
         au = z.stmt.sub("allow-update")
-        if au is not None and au.block is not None and not is_static(z):
+        if au is not None and au.block is not None and not is_static(z, top):
             add(z.stmt, au.block.start + 1, au.block.start + 1, f" key {key};")
         if not (z.is_primary or z.kind in ("secondary", "slave", "mirror")):
             continue
@@ -301,11 +318,16 @@ def remediate_view_key(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
             if vx is not None and vx.block is not None:
                 add(target, vx.block.start + 1, vx.block.start + 1, f" key {key};")
             else:
+                # The view block overrides the options one: carry its elements so nobody loses transfers.
+                options = next((s for s in top if s.name == "options"), None)
+                inherited = bindconf.acl_elements(options.sub("allow-transfer")) if options else []
+                kept = [e for e in inherited if e.replace('"', "") != f"key {key}"]
+                elements = " ".join(f"{e};" for e in [f"key {key}", *kept])
                 add(
                     target,
                     target.block.start + 1,
                     target.block.start + 1,
-                    f"\n\tallow-transfer {{ key {key}; }};",
+                    f"\n\tallow-transfer {{ {elements} }};",
                 )
             view_transfer_done = True
     changed = {p: _edit(texts[p], e) for p, e in edits.items()}

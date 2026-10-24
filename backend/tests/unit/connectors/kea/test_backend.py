@@ -1,0 +1,347 @@
+# SPDX-License-Identifier: Apache-2.0
+"""KeaBackend and D2Backend over an in-memory socket: path selection, Kea 2.6 mode, failures, rollback."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from pelagos.connectors.base import (
+    ConnectorDenied,
+    ConnectorError,
+    NotSupported,
+    PreconditionFailed,
+)
+from pelagos.connectors.kea import backend as kb
+from pelagos.connectors.kea.backend import KeaBackend
+from pelagos.connectors.kea.d2 import D2Backend
+from pelagos.domain import (
+    Change,
+    ChangeOp,
+    Family,
+    PlanScope,
+    PlanState,
+    Pool,
+    Reservation,
+    ReservationIdType,
+    Subnet,
+)
+from tests.unit.connectors.kea.fake import FakeKea, config_of, err, load, make_ctx
+
+pytestmark = pytest.mark.unit
+
+
+def backend_with(
+    tmp: Path, name: str, version: str, family: Family = Family.V4
+) -> tuple[KeaBackend, FakeKea]:
+    backend = KeaBackend(make_ctx(tmp), family)
+    fake = FakeKea("Dhcp4" if family is Family.V4 else "Dhcp6", config_of(name), version)
+    backend.socket = fake
+    return backend, fake
+
+
+@pytest.fixture
+def kea3(tmp_root):
+    return backend_with(tmp_root, "kea32-dhcp4-config-get", "3.2.1")
+
+
+@pytest.fixture
+def kea26(tmp_root):
+    return backend_with(tmp_root, "kea26-dhcp4-config-get", "2.6.3")
+
+
+def test_capabilities(kea3, kea26, tmp_root):
+    caps = kea3[0].capabilities()
+    assert caps.running and caps.version == "3.2.1" and not caps.degraded
+    assert caps.hooks == ["lease_cmds", "host_cmds", "subnet_cmds", "stat_cmds", "class_cmds", "ha"]
+    assert caps.ha and caps.lease_backend == "memfile" and caps.multi_threading is True
+    old = kea26[0].capabilities()
+    assert old.version == "2.6.3" and old.degraded and old.lease_cmds and not old.host_cmds
+    down = KeaBackend(make_ctx(tmp_root, dhcp4_socket="missing"), Family.V4).capabilities()
+    assert not down.running and down.control_socket.endswith("missing")
+
+
+def test_command_passthrough_refuses_writes(kea3):
+    backend, fake = kea3
+    with pytest.raises(ConnectorDenied):
+        backend.command("config-set", {})
+    assert backend.command("status-get")["pid"] == 1
+    fake.overrides["lease4-get"] = err("Lease not found.", 3)
+    assert backend.command("lease4-get", {"ip-address": "192.0.2.1"}) == {}
+
+
+def test_reads(kea3):
+    backend, _fake = kea3
+    assert [s.id for s in backend.list_subnets()] == [1, 2, 10, 11]
+    assert backend.get_subnet(11).shared_network == "office"
+    with pytest.raises(ConnectorError):
+        backend.get_subnet(99)
+    assert [n.name for n in backend.list_shared_networks()] == ["office"]
+    assert {c.name for c in backend.list_client_classes()} == {"voip", "late"}
+    assert {o.name for o in backend.global_options()} == {"domain-name", "domain-name-servers", "vendor-tag"}
+    assert backend.option_defs()[0]["code"] == 224
+    assert backend.config_schema()["series"] == "3"
+    assert len(backend.config_hash()) == 64
+
+
+def test_reservations_through_host_cmds_or_config(kea3, kea26):
+    backend, fake = kea3
+    found = backend.list_reservations()
+    assert "reservation-get-page" in fake.commands()
+    assert {(r.subnet_id, r.identifier) for r in found} == {
+        (None, "aa:bb:cc:dd:ee:ff"),
+        (1, "aa:bb:cc:dd:ee:01"),
+        (2, "010A0B0C0D0E0F"),
+    }
+    assert [r.identifier for r in backend.list_reservations(1)] == ["aa:bb:cc:dd:ee:01"]
+    old, fake26 = kea26
+    assert [r.hostname for r in old.list_reservations()] == ["printer"]
+    assert "reservation-get-page" not in fake26.commands()
+
+
+def test_leases_paging(kea3, monkeypatch):
+    backend, fake = kea3
+    monkeypatch.setattr(kb, "LEASE_PAGE", 2)
+    fake.leases = [
+        {"ip-address": f"192.0.2.{i}", "subnet-id": 1 if i % 2 else 2, "cltt": 1792843949, "valid-lft": 60}
+        for i in range(10, 17)
+    ]
+    assert [x.ip_address for x in backend.leases()] == [f"192.0.2.{i}" for i in range(10, 17)]
+    assert [x.ip_address for x in backend.leases(subnet_id=2, limit=2)] == ["192.0.2.10", "192.0.2.12"]
+    assert [x.ip_address for x in backend.leases(from_address="192.0.2.14")] == ["192.0.2.15", "192.0.2.16"]
+    assert backend.leases(subnet_id=5) == []
+    pages = [a for c, a in fake.sent if c == "lease4-get-page"]
+    assert pages[0] == {"from": "start", "limit": 2}
+
+
+def test_lease_reads_and_delete(kea3):
+    backend, fake = kea3
+    fake.leases = list(load("kea32-dhcp4-lease4-get-page")["arguments"]["leases"])
+    assert backend.lease("192.0.2.150").hostname == "pc2"
+    assert backend.lease("192.0.2.9") is None
+    assert backend.leases_by_hw("aa:bb:cc:dd:ee:04")[0].ip_address == "192.0.2.151"
+    assert backend.leases_by_hostname("nobody") == []
+    with pytest.raises(NotSupported):
+        backend.leases_by_duid("00:01")
+    with pytest.raises(ConnectorError):
+        backend.plan_lease_delete("192.0.2.9")
+    plan = backend.plan_lease_delete("203.0.113.20", "tester")
+    assert plan.requires_confirmation and plan.state is PlanState.VALIDATED
+    assert plan.changes[0].before["state"] == "declined"
+    assert backend.apply(plan).ok
+    assert backend.lease("203.0.113.20") is None
+    assert backend.rollback(plan).ok
+    re_added = next(a for c, a in fake.sent if c == "lease4-add")
+    assert re_added == {
+        "ip-address": "203.0.113.20",
+        "subnet-id": 10,
+        "hw-address": "aa:bb:cc:dd:ee:05",
+        "valid-lft": 3600,
+        "state": 1,
+    }
+
+
+def test_command_path_for_reservation(kea3):
+    backend, fake = kea3
+    res = Reservation(
+        subnet_id=1,
+        id_type=ReservationIdType.HW_ADDRESS,
+        identifier="aa:00:00:00:00:09",
+        ip_address="192.0.2.9",
+    )
+    plan = backend.plan_reservation_change(
+        Change(ChangeOp.ADD, "subnet4/1/reservations/hw-address=aa:00:00:00:00:09", after=res.to_dict()), "u"
+    )
+    assert plan.state is PlanState.VALIDATED and plan.preconditions[0].kind.value == "config_hash"
+    assert '"ip-address": "192.0.2.9"' in plan.diff
+    fake.sent.clear()
+    result = backend.apply(plan)
+    assert result.ok, result.message
+    writes = [
+        c for c in fake.commands() if c in ("reservation-add", "config-set", "config-write", "config-test")
+    ]
+    assert writes == ["reservation-add", "config-write"]
+    assert fake.written[-1]["subnet4"][0]["reservations"][-1]["ip-address"] == "192.0.2.9"
+
+
+def test_kea26_path_writes_26_names(kea26):
+    backend, fake = kea26
+    subnet = Subnet(
+        id=0,
+        subnet="203.0.113.0/26",
+        family=Family.V4,
+        pools=[Pool(pool="203.0.113.10 - 203.0.113.20", client_classes=["voip"])],
+        client_classes=["voip"],
+    )
+    plan = backend.plan_subnet_change(Change(ChangeOp.ADD, "subnet4/new", after=subnet.to_dict()))
+    assert plan.state is PlanState.VALIDATED
+    fake.sent.clear()
+    result = backend.apply(plan)
+    assert result.ok, result.message
+    writes = [
+        c
+        for c in fake.commands()
+        if c in ("config-test", "config-set", "config-write") or c.startswith("subnet4")
+    ]
+    assert writes == ["config-test", "config-set", "config-write"]
+    added = fake.cfg["subnet4"][-1]
+    assert added["client-class"] == "voip" and added["pools"][0]["client-class"] == "voip"
+    assert "client-classes" not in added and "client-classes" not in added["pools"][0]
+
+
+def test_kea26_refuses_3x_only_keys(kea26):
+    backend, _ = kea26
+    two = Subnet(id=0, subnet="203.0.113.0/26", family=Family.V4, client_classes=["a", "b"])
+    with pytest.raises(NotSupported):
+        backend.plan_subnet_change(Change(ChangeOp.ADD, "subnet4/new", after=two.to_dict()))
+    cfg = backend.config_get()
+    cfg["control-sockets"] = [cfg.pop("control-socket")]
+    with pytest.raises(NotSupported):
+        backend.plan_config_replace(cfg)
+    assert backend.config_schema()["series"] == "2.6"
+
+
+def test_failed_config_test_marks_plan_failed(kea3):
+    backend, fake = kea3
+    fake.reject_test = lambda cfg: "bad pool" if any(s["id"] == 7 for s in cfg["subnet4"]) else None
+    subnet = Subnet(id=7, subnet="203.0.113.0/26", family=Family.V4)
+    plan = backend.plan_subnet_change(Change(ChangeOp.ADD, "subnet4/new", after=subnet.to_dict()))
+    assert plan.state is PlanState.FAILED and plan.error == "bad pool"
+
+
+def test_failure_mid_way_restores_running_config(kea3):
+    backend, fake = kea3
+    before = json.dumps(fake.cfg, sort_keys=True)
+    res = Reservation(subnet_id=7, id_type=ReservationIdType.HW_ADDRESS, identifier="aa:00:00:00:00:07")
+    subnet = Subnet(id=7, subnet="203.0.113.0/26", family=Family.V4, reservations=[res])
+    plan = backend.plan_subnet_change(Change(ChangeOp.ADD, "subnet4/new", after=subnet.to_dict()))
+    fake.overrides["reservation-add"] = err("database is down")
+    result = backend.apply(plan)
+    assert not result.ok and result.rolled_back
+    assert "database is down" in result.message and "subnet4-add" in result.message
+    assert json.dumps(fake.cfg, sort_keys=True) == before
+    assert fake.commands()[-2:] == ["config-hash-get", "config-write"]
+
+
+def test_verification_failure_restores(kea3):
+    backend, fake = kea3
+    plan = backend.plan_subnet_change(Change(ChangeOp.DELETE, "subnet4/2"))
+    fake.overrides["subnet4-del"] = {"result": 0, "text": "pretended"}
+    result = backend.apply(plan)
+    assert not result.ok and "subnet4/2 still present" in result.message
+
+
+def test_precondition_and_rollback_of_global_change(kea3):
+    backend, fake = kea3
+    plan = backend.plan_global_change([Change(ChangeOp.REPLACE, "valid-lifetime", after=60)])
+    assert plan.scope is PlanScope.DHCP_OPTIONS and plan.changes[0].before == 3600
+    fake.cfg["valid-lifetime"] = 100
+    with pytest.raises(PreconditionFailed):
+        backend.apply(plan)
+    fake.cfg["valid-lifetime"] = 3600
+    assert backend.apply(plan).ok and fake.cfg["valid-lifetime"] == 60
+    assert backend.rollback(plan).ok and fake.cfg["valid-lifetime"] == 3600
+    assert (
+        backend.plan_global_change([Change(ChangeOp.REPLACE, "hooks-libraries", after=[])]).scope
+        is PlanScope.DHCP_CONFIG
+    )
+    assert (
+        backend.plan_global_change([Change(ChangeOp.REPLACE, "ddns-send-updates", after=False)]).scope
+        is PlanScope.DHCP_DDNS
+    )
+    with pytest.raises(ConnectorError):
+        backend.plan_global_change([])
+
+
+def test_config_replace_and_exact_rollback(kea3):
+    backend, fake = kea3
+    original = backend.config_get()
+    new = backend.config_get()
+    new["valid-lifetime"] = 10
+    del new["option-def"]
+    plan = backend.plan_config_replace({"Dhcp4": new})
+    assert plan.scope is PlanScope.DHCP_CONFIG and plan.changes[0].target == "config"
+    assert backend.apply(plan).ok and "option-def" not in fake.cfg
+    assert backend.rollback(plan).ok
+    assert fake.cfg == original
+
+
+def test_ha_maintenance_and_service_toggle(kea3):
+    backend, fake = kea3
+    fake.status_args = load("kea32-dhcp4-status-get")["arguments"]
+    fake.status_args["high-availability"][0]["ha-servers"]["local"]["state"] = "hot-standby"
+    with pytest.raises(ConnectorError):
+        backend.plan_ha_maintenance("pause")
+    with pytest.raises(ConnectorError):
+        backend.plan_ha_maintenance("cancel")
+    plan = backend.plan_ha_maintenance("start", "u")
+    assert plan.requires_confirmation and "server2 goes in-maintenance" in plan.summary
+    assert backend.apply(plan).ok and "ha-maintenance-start" in fake.commands()
+    with pytest.raises(PreconditionFailed):
+        backend.apply(plan)
+    assert backend.rollback(plan).ok and fake.commands()[-1] == "ha-maintenance-cancel"
+    fake.overrides["ha-maintenance-start"] = err("partner unreachable")
+    result = backend.apply(plan)
+    assert not result.ok and "partner unreachable" in result.message
+
+    plan = backend.plan_service_toggle(False)
+    assert plan.changes[0].before == {"enabled": True}
+    assert backend.apply(plan).ok and fake.status_args["dhcp-state"]["disabled-by-user"] is True
+    assert backend.rollback(plan).ok and fake.status_args["dhcp-state"]["disabled-by-user"] is False
+
+
+def test_ha_absent(kea3):
+    backend, _fake = kea3
+    assert backend.ha_state().enabled is False
+    with pytest.raises(NotSupported):
+        backend.plan_ha_maintenance("start")
+
+
+def test_pool_utilization(kea3):
+    backend, fake = kea3
+    fake.stats = load("kea32-dhcp4-statistic-get-all")["arguments"]
+    rows = backend.pool_utilization()
+    assert {r["subnet_id"] for r in rows} == {1, 2, 10, 11} and all(r["node_id"] == "n1" for r in rows)
+
+
+def test_dhcp6_reads(tmp_root):
+    backend, fake = backend_with(tmp_root, "kea32-dhcp6-config-get", "3.2.1", Family.V6)
+    fake.leases = list(load("kea32-dhcp6-lease6-get-page")["arguments"]["leases"])
+    assert backend.lease("2001:db8:1:1::").lease_type == "IA_PD"
+    assert [a.get("type") for c, a in fake.sent if c == "lease6-get"] == ["IA_NA", "IA_PD"]
+    assert len(backend.leases_by_duid("00:01:00:01:aa:bb")) == 2
+    plan = backend.plan_lease_delete("2001:db8:1:1::")
+    assert backend.apply(plan).ok
+    assert [a for c, a in fake.sent if c == "lease6-del"] == [
+        {"ip-address": "2001:db8:1:1::", "type": "IA_PD"}
+    ]
+    subnet = backend.get_subnet(1)
+    assert subnet.pd_pools[0].delegated_len == 64
+
+
+def test_d2_plan_masks_and_externalizes(tmp_root):
+    d2 = D2Backend(
+        make_ctx(tmp_root, d2_conf=str(tmp_root / "kea-dhcp-ddns.conf"), d2_secret_dir=str(tmp_root))
+    )
+    fake = FakeKea("DhcpDdns", config_of("kea32-d2-config-get"))
+    d2.socket = fake
+    cfg = d2.config_get()
+    cfg["tsig-keys"].append({"name": "extra", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0c2VjcmV0"})
+    plan = d2.plan_config_replace({"DhcpDdns": cfg})
+    assert "c2VjcmV0c2VjcmV0" not in json.dumps(plan.to_dict())
+    assert plan.changes[1].target == "secret-file/extra.secret"
+    result = d2.apply(plan)
+    assert result.ok, result.message
+    assert (tmp_root / "extra.secret").read_text() == "c2VjcmV0c2VjcmV0"
+    assert fake.cfg["tsig-keys"][-1] == {
+        "name": "extra",
+        "algorithm": "HMAC-SHA256",
+        "secret-file": str(tmp_root / "extra.secret"),
+    }
+    assert d2.rollback(plan).ok
+    assert not (tmp_root / "extra.secret").exists()
+    assert [k["name"] for k in fake.cfg["tsig-keys"]] == ["kea-ddns"]
+    assert d2.config_schema()["root"] == "DhcpDdns"
+    assert d2.stats().node_id == "n1"

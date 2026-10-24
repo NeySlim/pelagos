@@ -28,49 +28,54 @@ export function KeaFileBanner({ engine }) {
   )
   const selfId = nodes.find((n) => n.is_self)?.peer?.id
   const diverged = divergedFiles(status.data?.items)
-  if (!diverged.length) return flow.modal
+  // The modal keeps its place whether the banner shows or not: a refetch that clears the
+  // divergence mid-review must not remount it and drop its state.
   return (
-    <div className="flex flex-col gap-2" data-testid={`kea-file-banner-${engine}`}>
-      {diverged.map((item) => {
-        const place = adoptPlace(item, selfId)
-        return (
-          <div
-            key={item.node_id}
-            role="alert"
-            className="flex flex-col gap-2 rounded-lg border status-warning-bg status-warning-border px-3 py-2 text-xs status-warning-text"
-          >
-            <div className="flex items-start gap-2">
-              <FileX size={16} weight="fill" className="shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold">{t('keaFile.title', { path: item.path || '-', node: nameOf(item.node_id) })}</p>
-                <p className="text-text-secondary">{t('keaFile.blocked')}</p>
-                {item.differences?.length > 0 && (
-                  <ul className="mt-1 font-mono text-2xs text-text-secondary list-disc pl-4 break-all" data-testid="kea-file-differences">
-                    {item.differences.slice(0, 5).map((d) => (
-                      <li key={d}>{d}</li>
-                    ))}
-                    {(item.count || item.differences.length) > 5 && <li>{t('keaFile.more', { n: (item.count || item.differences.length) - 5 })}</li>}
-                  </ul>
+    <>
+      {diverged.length > 0 && (
+        <div className="flex flex-col gap-2" data-testid={`kea-file-banner-${engine}`}>
+          {diverged.map((item) => {
+            const place = adoptPlace(item, selfId)
+            return (
+              <div
+                key={item.node_id}
+                role="alert"
+                className="flex flex-col gap-2 rounded-lg border status-warning-bg status-warning-border px-3 py-2 text-xs status-warning-text"
+              >
+                <div className="flex items-start gap-2">
+                  <FileX size={16} weight="fill" className="shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold">{t('keaFile.title', { path: item.path || '-', node: nameOf(item.node_id) })}</p>
+                    <p className="text-text-secondary">{t('keaFile.blocked')}</p>
+                    {item.differences?.length > 0 && (
+                      <ul className="mt-1 font-mono text-2xs text-text-secondary list-disc pl-4 break-all" data-testid="kea-file-differences">
+                        {item.differences.slice(0, 5).map((d) => (
+                          <li key={d}>{d}</li>
+                        ))}
+                        {(item.count || item.differences.length) > 5 && <li>{t('keaFile.more', { n: (item.count || item.differences.length) - 5 })}</li>}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+                {canAdopt && place === 'here' && (
+                  <div className="flex flex-wrap items-center gap-2 pl-6">
+                    <Button size="xs" variant="secondary" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'file'))} data-testid="adopt-file">
+                      {t('keaFile.adoptFile')}
+                    </Button>
+                    <Button size="xs" variant="secondary" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'running'))} data-testid="adopt-running">
+                      {t('keaFile.adoptRunning')}
+                    </Button>
+                    <span className="text-2xs text-text-tertiary">{t('keaFile.hint')}</span>
+                  </div>
                 )}
+                {canAdopt && place === 'other' && <p className="pl-6 text-2xs text-text-tertiary">{t('keaFile.otherNode', { node: nameOf(item.node_id) })}</p>}
               </div>
-            </div>
-            {canAdopt && place === 'here' && (
-              <div className="flex flex-wrap items-center gap-2 pl-6">
-                <Button size="xs" variant="secondary" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'file'))} data-testid="adopt-file">
-                  {t('keaFile.adoptFile')}
-                </Button>
-                <Button size="xs" variant="secondary" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'running'))} data-testid="adopt-running">
-                  {t('keaFile.adoptRunning')}
-                </Button>
-                <span className="text-2xs text-text-tertiary">{t('keaFile.hint')}</span>
-              </div>
-            )}
-            {canAdopt && place === 'other' && <p className="pl-6 text-2xs text-text-tertiary">{t('keaFile.otherNode', { node: nameOf(item.node_id) })}</p>}
-          </div>
-        )
-      })}
+            )
+          })}
+        </div>
+      )}
       {flow.modal}
-    </div>
+    </>
   )
 }
 

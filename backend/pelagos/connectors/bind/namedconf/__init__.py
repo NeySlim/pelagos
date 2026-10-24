@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Lossless named.conf parser and serializer (section 8). WP-BIND implements it.
+"""Lossless named.conf parser and serializer (section 8).
 
 Contract: serialize(parse(text)) == text for anything named-checkconf accepts;
 unknown statements are preserved verbatim; editing keeps surrounding formatting;
@@ -8,53 +8,65 @@ unknown statements are preserved verbatim; editing keeps surrounding formatting;
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from pelagos.connectors.bind.namedconf.grammar import context_for, grammar, statement_info, zone_context
+from pelagos.connectors.bind.namedconf.lexer import ParseError, Token, tokenize
+from pelagos.connectors.bind.namedconf.resolve import (
+    MANAGED_FILES,
+    MANAGED_HEADER,
+    NOTE_PREFIX,
+    ConfigFiles,
+    build_tree,
+    files_tree,
+    key_secret,
+    load_tree,
+    materialize,
+    parse,
+    resolve_include,
+    run_checkconf,
+    serialize,
+    zone_from_node,
+)
+from pelagos.connectors.bind.namedconf.tree import (
+    ConfigDocument,
+    Node,
+    canonical,
+    compact_text,
+    format_statement,
+    parse_statements,
+    quote,
+    unquote,
+    word_or_quoted,
+)
 
-from pelagos.domain.dns import BindConfigTree
-
-
-@dataclass(slots=True)
-class Node:
-    """A token-tree node: statement, block, raw value, comment, whitespace or include."""
-
-    kind: str  # "statement" | "block" | "value" | "comment" | "space" | "include"
-    text: str = ""
-    children: list[Node] = field(default_factory=list)
-    line: int | None = None
-
-
-@dataclass(slots=True)
-class ConfigDocument:
-    path: str | None
-    root: list[Node] = field(default_factory=list)
-
-    def find(self, name: str, context: str | None = None) -> list[Node]:
-        raise NotImplementedError("WP-BIND")
-
-    def add_statement(self, text: str, context: str | None = None) -> Node:
-        raise NotImplementedError("WP-BIND")
-
-    def replace_statement(self, node: Node, text: str) -> Node:
-        raise NotImplementedError("WP-BIND")
-
-    def remove_statement(self, node: Node) -> None:
-        raise NotImplementedError("WP-BIND")
-
-
-def parse(text: str, path: str | None = None) -> ConfigDocument:
-    raise NotImplementedError("WP-BIND")
-
-
-def serialize(doc: ConfigDocument) -> str:
-    raise NotImplementedError("WP-BIND")
-
-
-def load_tree(user_conf: Path, node_id: str, checkconf: str = "named-checkconf") -> BindConfigTree:
-    raise NotImplementedError("WP-BIND")
-
-
-def grammar() -> dict[str, Any]:
-    """Machine-readable BIND 9.20 statement grammar for the advanced editor."""
-    raise NotImplementedError("WP-BIND")
+__all__ = [
+    "MANAGED_FILES",
+    "MANAGED_HEADER",
+    "NOTE_PREFIX",
+    "ConfigDocument",
+    "ConfigFiles",
+    "Node",
+    "ParseError",
+    "Token",
+    "build_tree",
+    "canonical",
+    "compact_text",
+    "context_for",
+    "files_tree",
+    "format_statement",
+    "grammar",
+    "key_secret",
+    "load_tree",
+    "materialize",
+    "parse",
+    "parse_statements",
+    "quote",
+    "resolve_include",
+    "run_checkconf",
+    "serialize",
+    "statement_info",
+    "tokenize",
+    "unquote",
+    "word_or_quoted",
+    "zone_context",
+    "zone_from_node",
+]

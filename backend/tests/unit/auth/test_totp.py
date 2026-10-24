@@ -39,6 +39,16 @@ def test_replay_guard_refuses_same_and_older_steps():
     assert guard.verify("u1", secret, code, NOW)
 
 
+def test_replay_guard_survives_a_restart(tmp_path):
+    secret = totp.new_secret()
+    code = pyotp.TOTP(secret).at(NOW)
+    path = tmp_path / "var" / "totp_steps.json"
+    assert totp.ReplayGuard(path).verify("u1", secret, code, NOW)
+    assert not totp.ReplayGuard(path).verify("u1", secret, code, NOW)
+    path.write_text("not json")
+    assert totp.ReplayGuard(path).verify("u1", secret, code, NOW)  # unreadable file: start empty
+
+
 def test_dummy_hash_is_constant_and_never_matches():
     h = passwords.dummy_hash()
     assert h == passwords.dummy_hash() and h.startswith("$argon2id$")

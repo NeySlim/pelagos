@@ -26,7 +26,7 @@ class AccountService:
         self._pending_totp: dict[str, tuple[str, float]] = {}
         self._lock = threading.Lock()
         # Shared by login and enrollment: a code observed once cannot be replayed within its window.
-        self.totp_guard = totp_mod.ReplayGuard()
+        self.totp_guard = totp_mod.ReplayGuard(ctx.paths.var / "totp_steps.json")
 
     def user(self, user_id: str) -> User:
         user = next((u for u in self.ctx.cluster().users if u.id == user_id), None)

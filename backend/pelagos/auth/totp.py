@@ -4,10 +4,17 @@
 from __future__ import annotations
 
 import hmac
+import json
+import logging
 import threading
 import time
+from pathlib import Path
 
 import pyotp
+
+from pelagos.core.config_store import atomic_write
+
+log = logging.getLogger(__name__)
 
 ISSUER = "Pelagos"
 DRIFT_STEPS = 1
@@ -39,11 +46,38 @@ def verify(secret: str, code: str) -> bool:
 
 
 class ReplayGuard:
-    """Last accepted time step per user: a code is refused once its step, or a later one, was used."""
+    """Last accepted time step per user: a code is refused once its step, or a later one, was used.
 
-    def __init__(self) -> None:
+    With a path the steps survive restarts; they stay per node (a login never replicates).
+    """
+
+    def __init__(self, path: Path | None = None) -> None:
         self._lock = threading.Lock()
-        self._last: dict[str, int] = {}
+        self.path = path
+        self._last: dict[str, int] = self._load()
+
+    def _load(self) -> dict[str, int]:
+        if self.path is None:
+            return {}
+        try:
+            data = json.loads(self.path.read_text())
+        except FileNotFoundError:
+            return {}
+        except (OSError, ValueError) as exc:
+            log.warning("TOTP step file %s unreadable: %s", self.path, exc)
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): v for k, v in data.items() if isinstance(v, int) and not isinstance(v, bool)}
+
+    def _save(self) -> None:
+        if self.path is None:
+            return
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write(self.path, json.dumps(self._last, sort_keys=True).encode(), mode=0o640)
+        except OSError as exc:
+            log.warning("TOTP step file %s not written: %s", self.path, exc)
 
     def verify(self, user_key: str, secret: str, code: str, now: float | None = None) -> bool:
         step = matched_step(secret, code, now)
@@ -53,8 +87,10 @@ class ReplayGuard:
             if step <= self._last.get(user_key, -1):
                 return False
             self._last[user_key] = step
+            self._save()
             return True
 
     def forget(self, user_key: str) -> None:
         with self._lock:
-            self._last.pop(user_key, None)
+            if self._last.pop(user_key, None) is not None:
+                self._save()

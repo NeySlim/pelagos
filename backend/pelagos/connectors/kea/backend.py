@@ -259,13 +259,17 @@ class KeaBackend(DhcpBackend):
         return out
 
     def lease(self, ip_address: str) -> Lease | None:
-        resp = self.socket.send(f"lease{self.n}-get", {"ip-address": ip_address})
-        result = int(resp.get("result", 1))
-        if result == EMPTY:
-            return None
-        if result != 0:
-            raise KeaCommandError(f"lease{self.n}-get", result, str(resp.get("text", "")))
-        return lease_from_kea(resp.get("arguments") or {}, self.family, self.ctx.node_id)
+        # lease6-get looks up IA_NA unless told otherwise; a delegated prefix needs type IA_PD.
+        lookups = [{}] if self.family is Family.V4 else [{"type": "IA_NA"}, {"type": "IA_PD"}]
+        for extra in lookups:
+            resp = self.socket.send(f"lease{self.n}-get", {"ip-address": ip_address, **extra})
+            result = int(resp.get("result", 1))
+            if result == EMPTY:
+                continue
+            if result != 0:
+                raise KeaCommandError(f"lease{self.n}-get", result, str(resp.get("text", "")))
+            return lease_from_kea(resp.get("arguments") or {}, self.family, self.ctx.node_id)
+        return None
 
     def leases_by_hw(self, hw_address: str) -> list[Lease]:
         return self._leases(f"lease{self.n}-get-by-hw-address", {"hw-address": hw_address})
@@ -556,7 +560,10 @@ class KeaBackend(DhcpBackend):
             if t.kind != "lease":
                 raise ConnectorError(f"{change.target} is not a lease change")
             if change.op is ChangeOp.DELETE:
-                resp = self.socket.send(f"lease{self.n}-del", {"ip-address": t.name})
+                args: dict[str, Any] = {"ip-address": t.name}
+                if self.family is Family.V6 and isinstance(change.before, dict):
+                    args["type"] = change.before.get("lease_type") or "IA_NA"
+                resp = self.socket.send(f"lease{self.n}-del", args)
                 if int(resp.get("result", 1)) not in (0, EMPTY):
                     raise KeaCommandError(
                         f"lease{self.n}-del", int(resp["result"]), str(resp.get("text", ""))

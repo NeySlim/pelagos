@@ -66,13 +66,13 @@ def test_admin_endpoints_and_stubs(admin_client):
     assert {r["name"] for r in roles} >= {"viewer", "dns-operator", "dhcp-operator", "admin"}
     perms = admin_client.get("/api/v1/admin/permissions").get_json()["items"]
     assert "write:dns.records" in perms
-    stub = admin_client.get("/api/v1/dns/zones")
-    assert stub.status_code == 501 and stub.get_json()["code"] == "not_implemented"
-    assert admin_client.get("/api/v1/dhcp/v4/subnets").status_code == 501
+    assert admin_client.get("/api/v1/dns/zones").status_code == 200
+    assert admin_client.get("/api/v1/dhcp/v4/subnets").status_code == 200
+    admin_client.put("/api/v1/admin/modules", json={"cluster": {"dhcpv6": False}})
     assert admin_client.get("/api/v1/dhcp/v6/subnets").get_json()["code"] == "module_disabled"
     assert admin_client.get("/api/v1/dhcp/v9/subnets").status_code == 404
     audit = admin_client.get("/api/v1/audit").get_json()
-    assert audit["total"] >= 1 and audit["items"][0]["action"] == "auth.login"
+    assert audit["total"] >= 1 and "auth.login" in {e["action"] for e in audit["items"]}
     assert admin_client.get("/api/v1/plans/nope").status_code == 404
     assert admin_client.get("/api/v1/does-not-exist").status_code == 404
 
@@ -93,4 +93,4 @@ def test_viewer_is_forbidden_from_admin(client, node_ctx):
     assert client.get("/api/v1/nodes").status_code == 200
     forbidden = client.get("/api/v1/admin/users")
     assert forbidden.status_code == 403 and forbidden.get_json()["detail"] == "requires admin:users"
-    assert client.get("/api/v1/dns/zones").status_code == 501  # read:dns allowed, not built yet
+    assert client.get("/api/v1/dns/zones").status_code == 200  # read:dns allowed

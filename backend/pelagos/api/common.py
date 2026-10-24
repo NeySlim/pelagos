@@ -82,8 +82,10 @@ def time_range(default_hours: int = 24) -> tuple[datetime, datetime]:
 
 
 def pagination() -> tuple[int, int]:
-    page = int_arg("page") or 1
-    per_page = int_arg("per_page") or DEFAULT_PER_PAGE
+    page = int_arg("page")
+    per_page = int_arg("per_page")
+    page = 1 if page is None else page
+    per_page = DEFAULT_PER_PAGE if per_page is None else per_page
     if page < 1:
         raise ApiError("validation_error", "page is 1-based", errors=[{"field": "page", "message": ">= 1"}])
     if per_page < 1 or per_page > MAX_PER_PAGE:

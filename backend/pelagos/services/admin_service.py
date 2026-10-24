@@ -465,7 +465,7 @@ class AdminService:
                 else:
                     self.ctx.node.engines[k] = v
             self.ctx.config_store.save_node(self.ctx.node)
-        self._audit("admin.node.replace", "modules", actor, body, client_ip)
+        self._audit("admin.settings.replace", "modules", actor, body, client_ip)
         return self.modules()
 
 

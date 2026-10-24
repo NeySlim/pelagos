@@ -38,7 +38,7 @@ def create_app(
     )
     app.config["JSON_SORT_KEYS"] = False
     app.config["RESTX_MASK_SWAGGER"] = False
-    app.config["ERROR_404_HELP"] = False
+    app.config["RESTX_ERROR_404_HELP"] = False
     app.extensions["pelagos"] = context
     from pelagos.services.container import Services
 

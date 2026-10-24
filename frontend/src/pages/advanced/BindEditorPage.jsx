@@ -219,6 +219,13 @@ export default function BindEditorPage() {
     ? (adding.path.length === 1 ? draft[adding.path[0]].statements : getAt(draft[adding.path[0]].statements, adding.path.slice(1))?.children || []).map((s) => s.name)
     : []
 
+  // The edits as they are now, planned again: the server forgot the old plan (expired or restarted).
+  const recompute = async () => {
+    const fresh = await api.dns.configPlan(changes, nodeId ? [nodeId] : undefined)
+    setPlan(fresh)
+    return fresh
+  }
+
   const buildPlan = async () => {
     setBuilding(true)
     setPlanError(null)
@@ -360,6 +367,7 @@ export default function BindEditorPage() {
       <PlanPreviewModal
         open={Boolean(plan)}
         plan={plan}
+        onRecompute={recompute}
         onClose={() => setPlan(null)}
         onApplied={() => treeQ.refetch()}
         onRolledBack={() => treeQ.refetch()}

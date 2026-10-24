@@ -108,7 +108,9 @@ class NodeContext:
             node=node,
             config_store=store,
             audit_log=audit_log,
-            plan_store=PlanStore(int(settings.get("plan_ttl_seconds", 600))),
+            plan_store=PlanStore(
+                int(settings.get("plan_ttl_seconds", 600)), tombstone_path=paths.plan_tombstones
+            ),
             sessions=SessionStore(
                 int(settings.get("session_ttl_seconds", 43200)),
                 int(settings.get("session_idle_seconds", 1800)),

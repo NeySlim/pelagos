@@ -2,10 +2,13 @@
 // The one plan UX (architecture section 6): summary, changes, preconditions,
 // validations, diff, confirmation checkbox when the plan requires it, apply with
 // per-node result, rollback while the plan is still held in memory, and job
-// progress for install/import/security scopes that answer 202.
+// progress for install/import/security scopes that answer 202. A plan the server
+// no longer holds (410 plan_expired, 404 after a restart, or the TTL ran out)
+// offers "Recompute the plan" when the caller passes `onRecompute`, which builds
+// the plan again from the same inputs and resolves to the new plan.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CheckCircle, XCircle, Warning, ArrowCounterClockwise, Lightning, CaretDown, CaretRight, Clock } from '@phosphor-icons/react'
+import { CheckCircle, XCircle, Warning, ArrowCounterClockwise, ArrowClockwise, Lightning, CaretDown, CaretRight, Clock } from '@phosphor-icons/react'
 import { api } from '../services/api'
 import { errorMessage } from '../services/apiClient'
 import { useWsTopic } from '../hooks/useWebSocket'
@@ -19,6 +22,11 @@ import { cn } from '../lib/utils'
 
 const JOB_SCOPES = ['install', 'import', 'security']
 const OP_VARIANT = { add: 'success', delete: 'danger', replace: 'warning' }
+
+// The server no longer has the plan: expired (410) or forgotten by a restart (404).
+function isPlanGone(err) {
+  return Boolean(err) && (err.code === 'plan_expired' || err.status === 410 || err.status === 404)
+}
 
 function Section({ title, count, defaultOpen = true, children, testId }) {
   const [open, setOpen] = useState(defaultOpen)
@@ -54,6 +62,7 @@ export function PlanPreview({
   onApplied,
   onRolledBack,
   onClose,
+  onRecompute,
   applyFn = (id, confirm) => api.plans.apply(id, confirm),
   rollbackFn = (id) => api.plans.rollback(id),
   jobFn = (id) => api.jobs.get(id),
@@ -105,7 +114,7 @@ export function PlanPreview({
       }
     } catch (err) {
       setError(err)
-      if (err?.code === 'plan_expired') setPlan((p) => ({ ...p, state: 'expired' }))
+      if (isPlanGone(err)) setPlan((p) => ({ ...p, state: 'expired' }))
     } finally {
       setBusy(false)
     }
@@ -125,6 +134,24 @@ export function PlanPreview({
       setBusy(false)
     }
   }, [rollbackFn, plan, onRolledBack])
+
+  const handleRecompute = useCallback(async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const fresh = await onRecompute()
+      if (fresh) {
+        setPlan(fresh)
+        setResult(null)
+        setJob(null)
+        setConfirmed(false)
+      }
+    } catch (err) {
+      setError(err)
+    } finally {
+      setBusy(false)
+    }
+  }, [onRecompute])
 
   // Job progress: WebSocket when connected, polling as the fallback.
   useWsTopic(job && job.state !== 'done' && job.state !== 'failed' ? 'jobs' : null, (msg) => {
@@ -153,6 +180,7 @@ export function PlanPreview({
   }, [job?.state]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const changeRows = useMemo(() => plan?.changes || [], [plan])
+  const gone = !applied && !result && !job && (expired || plan?.state === 'expired' || isPlanGone(error))
 
   if (!plan) return null
 
@@ -333,6 +361,16 @@ export function PlanPreview({
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {gone && onRecompute && (
+        <div className="rounded-lg status-warning-bg border status-warning-border px-3 py-2 text-xs status-warning-text flex flex-wrap items-center gap-2" data-testid="plan-gone">
+          <span className="flex-1">{t('plan.recomputeHint')}</span>
+          <Button type="button" variant="primary" size="sm" onClick={handleRecompute} loading={busy} data-testid="plan-recompute">
+            <ArrowClockwise size={14} />
+            {t('plan.recompute')}
+          </Button>
         </div>
       )}
 

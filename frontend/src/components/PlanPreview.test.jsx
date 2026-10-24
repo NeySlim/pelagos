@@ -104,6 +104,47 @@ describe('PlanPreview', () => {
     await waitFor(() => expect(screen.getByTestId('plan-apply-error')).toHaveTextContent("unknown option 'forwarder'"))
   })
 
+  it('offers to recompute a plan the server answered 410 for', async () => {
+    const err = Object.assign(new Error('plan expired'), { code: 'plan_expired', status: 410 })
+    const fresh = makePlan({ id: '01JBPLAN0000000000000000BB', summary: 'rebuilt' })
+    const onRecompute = vi.fn().mockResolvedValue(fresh)
+    const applyFn = vi.fn().mockRejectedValueOnce(err).mockResolvedValueOnce(applied())
+    render(<PlanPreview plan={makePlan()} applyFn={applyFn} onRecompute={onRecompute} getFn={vi.fn().mockResolvedValue(fresh)} />)
+    expect(screen.queryByTestId('plan-recompute')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('plan-apply'))
+    await waitFor(() => expect(screen.getByTestId('plan-recompute')).toBeInTheDocument())
+    expect(screen.getByTestId('plan-gone')).toHaveTextContent('Recompute it from the same inputs')
+    fireEvent.click(screen.getByTestId('plan-recompute'))
+    await waitFor(() => expect(screen.getByTestId('plan-summary')).toHaveTextContent('rebuilt'))
+    expect(onRecompute).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId('plan-recompute')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('plan-apply-error')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('plan-apply'))
+    await waitFor(() => expect(applyFn).toHaveBeenLastCalledWith('01JBPLAN0000000000000000BB', false))
+  })
+
+  it('offers to recompute after a restart (404) and when the countdown ran out', async () => {
+    const lost = Object.assign(new Error('not found'), { code: 'not_found', status: 404 })
+    const onRecompute = vi.fn().mockResolvedValue(makePlan({ id: 'NEW', summary: 'again' }))
+    const { unmount } = render(<PlanPreview plan={makePlan()} applyFn={vi.fn().mockRejectedValue(lost)} onRecompute={onRecompute} />)
+    fireEvent.click(screen.getByTestId('plan-apply'))
+    await waitFor(() => expect(screen.getByTestId('plan-recompute')).toBeInTheDocument())
+    unmount()
+    render(<PlanPreview plan={makePlan({ expires_at: new Date(Date.now() - 1000).toISOString() })} onRecompute={onRecompute} />)
+    fireEvent.click(screen.getByTestId('plan-recompute'))
+    await waitFor(() => expect(screen.getByTestId('plan-summary')).toHaveTextContent('again'))
+  })
+
+  it('shows no recompute action without a callback, and reports a failed recompute', async () => {
+    const { unmount } = render(<PlanPreview plan={makePlan({ expires_at: new Date(Date.now() - 1000).toISOString() })} />)
+    expect(screen.queryByTestId('plan-recompute')).not.toBeInTheDocument()
+    unmount()
+    const onRecompute = vi.fn().mockRejectedValue(Object.assign(new Error('zone gone'), { code: 'not_found', status: 404 }))
+    render(<PlanPreview plan={makePlan({ expires_at: new Date(Date.now() - 1000).toISOString() })} onRecompute={onRecompute} />)
+    fireEvent.click(screen.getByTestId('plan-recompute'))
+    await waitFor(() => expect(screen.getByTestId('plan-apply-error')).toHaveTextContent('zone gone'))
+  })
+
   it('follows a job for install scopes until done', async () => {
     const job = { id: 'j1', plan_id: 'p', state: 'running', progress: 50, steps: [{ name: 'install bind packages', state: 'running' }], created_at: '', finished_at: null, error: null }
     const jobFn = vi.fn().mockResolvedValue({ ...job, state: 'done', progress: 100, steps: [{ name: 'install bind packages', state: 'done' }] })

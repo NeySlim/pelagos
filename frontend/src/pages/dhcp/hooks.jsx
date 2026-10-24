@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Hooks shared by the DHCP, hosts and nodes areas: the plan flow (build a plan,
 // show PlanPreview, refresh on apply) and node names.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { PlanPreviewModal } from '../../components/PlanPreview'
 import { useNotification } from '../../contexts/NotificationContext'
 import { useWsTopic } from '../../hooks/useWebSocket'
@@ -14,12 +14,15 @@ export function usePlanFlow({ onApplied } = {}) {
   const { showError } = useNotification()
   const [plan, setPlan] = useState(null)
   const [building, setBuilding] = useState(false)
+  // The last builder: "Recompute the plan" calls it again with the same inputs.
+  const lastBuild = useRef(null)
 
   const build = useCallback(
     async (fn, { rethrow = false } = {}) => {
       setBuilding(true)
       try {
         const next = await fn()
+        lastBuild.current = fn
         setPlan(next)
         return next
       } catch (err) {
@@ -33,8 +36,14 @@ export function usePlanFlow({ onApplied } = {}) {
     [showError],
   )
 
+  const recompute = useCallback(async () => {
+    const next = await lastBuild.current()
+    setPlan(next)
+    return next
+  }, [])
+
   const modal = plan ? (
-    <PlanPreviewModal open onClose={() => setPlan(null)} plan={plan} onApplied={onApplied} onRolledBack={onApplied} />
+    <PlanPreviewModal open onClose={() => setPlan(null)} plan={plan} onApplied={onApplied} onRolledBack={onApplied} onRecompute={recompute} />
   ) : null
 
   return { build, building, modal, plan, close: () => setPlan(null) }

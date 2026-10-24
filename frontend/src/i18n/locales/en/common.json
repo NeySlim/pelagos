@@ -128,6 +128,8 @@
     "id": "Plan",
     "invalid": "failed",
     "jobProgress": "{{percent}}% done",
+    "recompute": "Recompute the plan",
+    "recomputeHint": "This plan is no longer held by the server (it expired or the service restarted). Recompute it from the same inputs.",
     "noChanges": "No changes",
     "noPreconditions": "No preconditions",
     "noValidations": "No validation was run",

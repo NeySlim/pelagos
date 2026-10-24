@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Non-visual helpers shared by the DNS screens: node names, zone links, lag
 // detection, the resynchronize action and the "build a plan, then review it" flow.
-import { createElement, useCallback, useState } from 'react'
+import { createElement, useCallback, useRef, useState } from 'react'
 import { PlanPreviewModal } from '../../components/PlanPreview'
 import { useApi } from '../../hooks/useApi'
 import { api } from '../../services/api'
@@ -103,11 +103,14 @@ export async function resynchronizeZone({ zone, kind, view, serials }, dnsApi = 
 export function usePlanFlow({ onDone, onError, onClose } = {}) {
   const [plan, setPlan] = useState(null)
   const [busy, setBusy] = useState(false)
+  // The last builder: "Recompute the plan" calls it again with the same inputs.
+  const lastBuild = useRef(null)
   const run = useCallback(
     async (build) => {
       setBusy(true)
       try {
         const p = await build()
+        lastBuild.current = build
         setPlan(p)
         return p
       } catch (err) {
@@ -123,6 +126,11 @@ export function usePlanFlow({ onDone, onError, onClose } = {}) {
     setPlan(null)
     onClose?.()
   }, [onClose])
-  const modal = createElement(PlanPreviewModal, { open: Boolean(plan), plan, onClose: close, onApplied: onDone, onRolledBack: onDone })
+  const recompute = useCallback(async () => {
+    const p = await lastBuild.current()
+    setPlan(p)
+    return p
+  }, [])
+  const modal = createElement(PlanPreviewModal, { open: Boolean(plan), plan, onClose: close, onApplied: onDone, onRolledBack: onDone, onRecompute: recompute })
   return { run, busy, modal, plan, close }
 }

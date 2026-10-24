@@ -128,6 +128,8 @@
     "id": "Plan",
     "invalid": "échec",
     "jobProgress": "{{percent}} % effectué",
+    "recompute": "Recalculer le plan",
+    "recomputeHint": "Ce plan n'est plus conservé par le serveur (il a expiré ou le service a redémarré). Recalculez-le à partir des mêmes données.",
     "noChanges": "Aucune modification",
     "noPreconditions": "Aucune précondition",
     "noValidations": "Aucune validation exécutée",

@@ -83,6 +83,11 @@ class Paths:
         return self.run / "replication.state"
 
     @property
+    def plan_tombstones(self) -> Path:
+        """Ids of plans this node built and when they expire (0600): 410 plan_expired after restarts."""
+        return self.var / "plan_tombstones.json"
+
+    @property
     def enroll_tokens(self) -> Path:
         return self.var / "enroll_tokens.json"
 

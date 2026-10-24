@@ -2,7 +2,7 @@
 // Record editor: a FormModal with live before/after preview, then the server's
 // plan in PlanPreview (diff, preconditions, apply with the UPDATE response code,
 // rollback). Adding to an existing RRset turns into a replace with merged rdata.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FormModal } from '../../components/FormModal'
 import { Modal } from '../../components/Modal'
@@ -43,6 +43,7 @@ export function RecordEditor({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null)
+  const lastChanges = useRef(null)
 
   useEffect(() => {
     if (open) {
@@ -83,6 +84,7 @@ export function RecordEditor({
         if (before) next = { ...after, rdata: [...new Set([...(before.rdata || []), ...after.rdata])] }
       }
       const changes = buildChanges({ zone: zoneName, mode, before, after: next })
+      lastChanges.current = changes
       setPlan(await planFn(zoneName, changes, view))
     } catch (err) {
       setError(err)
@@ -91,13 +93,20 @@ export function RecordEditor({
     }
   }
 
+  // Same changes, same zone: the server builds a fresh plan when the old one expired.
+  const recompute = async () => {
+    const fresh = await planFn(zoneName, lastChanges.current, view)
+    setPlan(fresh)
+    return fresh
+  }
+
   const title = t(`editor.title.${mode}`)
 
   if (plan) {
     return (
       <Modal open={open} onClose={onClose} title={title} size="lg">
         <div className="p-4" data-testid="record-editor-plan">
-          <PlanPreview plan={plan} onClose={onClose} onApplied={onApplied} onRolledBack={onApplied} />
+          <PlanPreview plan={plan} onClose={onClose} onApplied={onApplied} onRolledBack={onApplied} onRecompute={recompute} />
         </div>
       </Modal>
     )

@@ -70,6 +70,12 @@ export default function SecurityPage() {
       setBuilding(false)
     }
   }
+  // The same findings, planned again: the server forgot the old plan (expired or restarted).
+  const recompute = async () => {
+    const fresh = await api.install.securityPlan(selected)
+    setPlan(fresh)
+    return fresh
+  }
 
   return (
     <PageLayout
@@ -122,6 +128,7 @@ export default function SecurityPage() {
             {plan && (
               <PlanPreview
                 plan={plan}
+                onRecompute={recompute}
                 onApplied={() => findingsQ.refetch()}
                 onClose={() => {
                   setPlan(null)

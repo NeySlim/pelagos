@@ -140,12 +140,22 @@ function Wizard({ detect, onDone }) {
     setBuildError(null)
   }, [state.mode, state.engines, state.source, state.iscSeries])
 
+  const request = () => {
+    const { kind, body } = buildRequest(state)
+    return kind === 'import' ? api.install.importPlan(body.engines) : api.install.plan(body)
+  }
+  // Same wizard answers, planned again: the server forgot the old plan (expired or restarted).
+  const recompute = async () => {
+    const fresh = await request()
+    setPlan(fresh)
+    return fresh
+  }
+
   const build = async () => {
     setBuilding(true)
     setBuildError(null)
     try {
-      const { kind, body } = buildRequest(state)
-      setPlan(kind === 'import' ? await api.install.importPlan(body.engines) : await api.install.plan(body))
+      setPlan(await request())
     } catch (err) {
       setBuildError(err)
     } finally {
@@ -221,7 +231,7 @@ function Wizard({ detect, onDone }) {
             </Button>
           )}
           {buildError && <p className="text-sm status-danger-text" role="alert">{errorMessage(buildError)}</p>}
-          {plan && <PlanPreview plan={plan} onApplied={onDone} closeLabel={t('wizard.review.another')} onClose={() => setPlan(null)} />}
+          {plan && <PlanPreview plan={plan} onRecompute={recompute} onApplied={onDone} closeLabel={t('wizard.review.another')} onClose={() => setPlan(null)} />}
         </div>
       )}
 

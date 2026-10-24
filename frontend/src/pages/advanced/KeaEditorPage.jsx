@@ -170,6 +170,13 @@ export default function KeaEditorPage() {
   const problems = useMemo(() => (draft ? checkSchema(draft, schema) : []), [draft, schema])
   const dirty = Boolean(diff)
 
+  // The draft as it is now, planned again: the server forgot the old plan (expired or restarted).
+  const recompute = async () => {
+    const fresh = await target.plan(draft, nodeId ? [nodeId] : undefined)
+    setPlan(fresh)
+    return fresh
+  }
+
   const buildPlan = async () => {
     setBuilding(true)
     setPlanError(null)
@@ -295,7 +302,7 @@ export default function KeaEditorPage() {
           </Card>
         </div>
       ) : null}
-      <PlanPreviewModal open={Boolean(plan)} plan={plan} onClose={() => setPlan(null)} onApplied={() => configQ.refetch()} onRolledBack={() => configQ.refetch()} />
+      <PlanPreviewModal open={Boolean(plan)} plan={plan} onRecompute={recompute} onClose={() => setPlan(null)} onApplied={() => configQ.refetch()} onRolledBack={() => configQ.refetch()} />
     </PageLayout>
   )
 }

@@ -12,6 +12,7 @@ import grp
 import json
 import os
 import pwd
+import stat
 import time
 from pathlib import Path
 from typing import Any
@@ -311,9 +312,40 @@ def write_config(env: Any, engine: str, conf: Path, text: str, label: str, resta
     return write_files(env, engine, conf, {conf: text}, label, restart)
 
 
+def kea_dirs(env: Any, conf: Path) -> tuple[Path, ...]:
+    """Directories whose files root may rewrite or chmod: the Kea configuration directory and the
+    directory of `conf` itself (both root-owned, so the service user cannot plant links there)."""
+    dirs = [Path(os.path.realpath(conf.parent))]
+    conf_dir = getattr(env.paths, "kea_conf_dir", None)
+    if conf_dir:
+        dirs.append(Path(os.path.realpath(conf_dir)))
+    return tuple(dict.fromkeys(dirs))
+
+
+def confined(env: Any, conf: Path, path: Path) -> str | None:
+    """Why root must not touch `path` (outside the Kea directories, a symlink, not a regular file),
+    None when it may. A missing file is fine: the pipeline creates it."""
+    real = Path(os.path.realpath(path))
+    if not any(real.parent == d or d in real.parents for d in kea_dirs(env, conf)):
+        return f"{path} lies outside the Kea configuration directory"
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    if stat.S_ISLNK(st.st_mode):
+        return f"{path} is a symlink"
+    if not stat.S_ISREG(st.st_mode):
+        return f"{path} is not a regular file"
+    return None
+
+
 def write_files(env: Any, engine: str, conf: Path, files: dict[Path, str], label: str, restart: bool) -> str:
-    """Writes `conf` and the files it includes in one pipeline run (one backup, one validation)."""
+    """Writes `conf` and the files it includes in one pipeline run (one backup, one validation).
+    Every file must pass `confined`: an include elsewhere is refused, never written as root."""
     names = ", ".join(str(p) for p in files)
+    refused = [r for p in files if (r := confined(env, conf, Path(p)))]
+    if refused:
+        raise RuntimeError("; ".join(refused))
     if env.dry_run:
         return f"dry run: would write {names}"
     group = env.file_group(env.paths.kea_group)
@@ -361,24 +393,34 @@ def ensure_config_writable(env: Any, conf: Path, daemon: str | None = None) -> s
         included = keaconf.included_files(conf)
     except keaconf.KeaConfigError:
         included = []
-    modes = [_config_mode(env, p) for p in [conf, *included]]
+    modes = []
+    for p in [conf, *included]:
+        reason = confined(env, conf, p)
+        modes.append(f"{reason}: mode left as is" if reason else _config_mode(env, p))
     return "\n".join(o for o in (*modes, note, selinux) if o)
 
 
 def _config_mode(env: Any, conf: Path) -> str:
+    """Group write for the Kea group, set through a descriptor opened without following links."""
     try:
-        st = conf.stat()
         uid = pwd.getpwnam(env.paths.kea_user).pw_uid
         gid = grp.getgrnam(env.paths.kea_group).gr_gid
+        fd = os.open(conf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except (OSError, KeyError):
-        return f"{conf}: Kea user or file not found; config-write left as is"
-    if (st.st_uid == uid and st.st_mode & 0o200) or (st.st_gid == gid and st.st_mode & 0o020):
-        return f"{conf} writable by Kea (config-write)"
-    mode = (st.st_mode & 0o770) | 0o060
-    if env.dry_run:
-        return f"dry run: would make {conf} {oct(mode)} group {env.paths.kea_group}"
-    os.chown(conf, -1, gid)
-    os.chmod(conf, mode)
+        return f"{conf}: Kea user or file not found (or a symlink); config-write left as is"
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            return f"{conf} is not a regular file: mode left as is"
+        if (st.st_uid == uid and st.st_mode & 0o200) or (st.st_gid == gid and st.st_mode & 0o020):
+            return f"{conf} writable by Kea (config-write)"
+        mode = (st.st_mode & 0o770) | 0o060
+        if env.dry_run:
+            return f"dry run: would make {conf} {oct(mode)} group {env.paths.kea_group}"
+        os.fchown(fd, -1, gid)
+        os.fchmod(fd, mode)
+    finally:
+        os.close(fd)
     env.relabel([conf])
     return f"{conf} is now {oct(mode)[2:]} group {env.paths.kea_group} so config-write works"
 

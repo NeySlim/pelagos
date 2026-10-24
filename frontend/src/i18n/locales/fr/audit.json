@@ -5,7 +5,56 @@
   "pages": {
     "list": {
       "title": "Journal d'audit",
-      "subtitle": "Chaque modification et lecture sensible, de chaque nœud"
+      "subtitle": "Chaque modification et chaque lecture sensible, sur tous les nœuds"
     }
+  },
+  "columns": {
+    "ts": "Date",
+    "user": "Utilisateur",
+    "action": "Action",
+    "target": "Cible",
+    "engine": "Moteur",
+    "node": "Nœud",
+    "result": "Résultat"
+  },
+  "filters": {
+    "user": "Utilisateur",
+    "action": "Action",
+    "target": "Cible contenant",
+    "engine": "Moteur",
+    "node": "Nœud",
+    "result": "Résultat",
+    "from": "Depuis",
+    "to": "Jusqu'à"
+  },
+  "actions": {
+    "dns": "DNS",
+    "dhcp": "DHCP",
+    "d2": "DDNS (D2)",
+    "host": "Hôtes",
+    "install": "Installation",
+    "import": "Import",
+    "security": "Sécurité",
+    "auth": "Connexion",
+    "admin": "Administration",
+    "alert": "Alertes",
+    "node": "Nœuds",
+    "replication": "Réplication"
+  },
+  "anonymous": "anonyme",
+  "empty": "Aucune entrée ne correspond à ces filtres",
+  "export": "Exporter en NDJSON",
+  "newEntries_one": "{{count}} nouvelle entrée, afficher les dernières",
+  "newEntries_other": "{{count}} nouvelles entrées, afficher les dernières",
+  "detail": {
+    "title": "Entrée d'audit",
+    "id": "Entrée",
+    "plan": "Plan",
+    "clientIp": "Adresse du client",
+    "diff": "Diff",
+    "noDiff": "Cette entrée n'a pas de diff",
+    "request": "Requête envoyée",
+    "response": "Réponse reçue",
+    "empty": "Vide"
   }
 }

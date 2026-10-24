@@ -7,5 +7,54 @@
       "title": "Audit log",
       "subtitle": "Every change and sensitive read, from every node"
     }
+  },
+  "columns": {
+    "ts": "Time",
+    "user": "User",
+    "action": "Action",
+    "target": "Target",
+    "engine": "Engine",
+    "node": "Node",
+    "result": "Result"
+  },
+  "filters": {
+    "user": "User",
+    "action": "Action",
+    "target": "Target contains",
+    "engine": "Engine",
+    "node": "Node",
+    "result": "Result",
+    "from": "From",
+    "to": "To"
+  },
+  "actions": {
+    "dns": "DNS",
+    "dhcp": "DHCP",
+    "d2": "DDNS (D2)",
+    "host": "Hosts",
+    "install": "Installation",
+    "import": "Import",
+    "security": "Security",
+    "auth": "Sign-in",
+    "admin": "Administration",
+    "alert": "Alerts",
+    "node": "Nodes",
+    "replication": "Replication"
+  },
+  "anonymous": "anonymous",
+  "empty": "No audit entry matches these filters",
+  "export": "Export NDJSON",
+  "newEntries_one": "{{count}} new entry, show the latest",
+  "newEntries_other": "{{count}} new entries, show the latest",
+  "detail": {
+    "title": "Audit entry",
+    "id": "Entry",
+    "plan": "Plan",
+    "clientIp": "Client address",
+    "diff": "Diff",
+    "noDiff": "This entry carries no diff",
+    "request": "Request sent",
+    "response": "Response received",
+    "empty": "Empty"
   }
 }

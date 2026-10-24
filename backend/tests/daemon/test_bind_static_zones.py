@@ -78,10 +78,10 @@ def test_static_zone_record_edit_keeps_the_file_and_rolls_back(named_server, tmp
     text = path.read_text()
     assert text.startswith("; static.lan: edited by hand, keep this comment\n$TTL 3600\n")
     assert "ns1\tIN A 192.0.2.1   ; the server" in text and '$INCLUDE "static.lan.lab.inc"' in text
-    assert "2026102400 ; serial" in text or "2026102402 ; serial" in text or "; serial" in text
     assert (path.parent / "static.lan.lab.inc").read_text() == "; lab hosts\npc1\tIN\tA\t192.0.2.51\n"
     new_serial = serial(named_server, "static.lan")
     assert new_serial and new_serial > 2026102401
+    assert f"{new_serial} ; serial" in text  # the date-based scheme is kept, in place
     data = {(r.name, r.rtype): r.rdata for r in backend.read_zone("static.lan")}
     assert data[("mail.static.lan.", "A")] == ["192.0.2.25"]
     assert data[("pc1.lab.static.lan.", "A")] == ["192.0.2.51"]

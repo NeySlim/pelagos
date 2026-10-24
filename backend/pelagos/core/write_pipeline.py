@@ -70,6 +70,8 @@ def _atomic_write(path: Path, content: bytes, mode: int | None, group: str | Non
                 os.chown(tmp, existing.st_uid, existing.st_gid)
             except PermissionError:
                 os.chown(tmp, -1, existing.st_gid)
+        if existing is not None:
+            _copy_selinux_label(path, tmp)
         os.replace(tmp, path)
         fsync_dir(path.parent)
     except BaseException:
@@ -78,6 +80,18 @@ def _atomic_write(path: Path, content: bytes, mode: int | None, group: str | Non
         except FileNotFoundError:
             pass
         raise
+
+
+def _copy_selinux_label(source: Path, target: str) -> None:
+    """A replaced file keeps its SELinux context (a temp file gets its directory's default type)."""
+    try:
+        label = os.getxattr(source, "security.selinux")
+    except OSError:
+        return  # no SELinux, or no label
+    try:
+        os.setxattr(target, "security.selinux", label)
+    except OSError:
+        pass  # relabelling needs privileges this process may not have; restorecon fixes it
 
 
 class WritePipeline:

@@ -182,7 +182,7 @@ def parse_dnssec_status(text: str) -> dict[str, Any]:
         if key is None:
             continue
         body = stripped.lstrip("- ").strip()
-        if ":" in body:
+        if ":" in body and not body.lower().startswith(("next rollover", "no rollover")):
             name, _, value = body.partition(":")
             key["states"][name.strip()] = value.strip()
         else:

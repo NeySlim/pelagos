@@ -130,6 +130,8 @@ class FakeDnsBackend(DnsBackend):
         self.applied: list[str] = []
         self.rolled_back: list[str] = []
         self.details: dict[str, dict[str, Any]] = {}
+        self.catalog: list[str] = ["member1.example.lan."]
+        self.policies: dict[str, list[dict[str, str]]] = {}
         if seed:
             self.seed()
 
@@ -591,6 +593,10 @@ class FakeDnsBackend(DnsBackend):
             elif change.target.startswith("raw:"):
                 before, after = None, str(change.after)
                 plan.diff += _diff(before, after, change.target[4:])
+            elif kind == "dnssec-policy":
+                before = self.policies.get(name)
+                after = None if change.op is ChangeOp.DELETE else dict(change.after or {})
+                plan.diff += _diff(before, after, "policies.conf")
             else:
                 return _validated(plan, "named-checkconf", False, f"unknown config target {change.target}")
             plan.changes.append(Change(change.op, change.target, before=before, after=after))
@@ -601,11 +607,76 @@ class FakeDnsBackend(DnsBackend):
 
     def apply(self, plan: Plan) -> NodeApplyResult:
         self._check()
+        if plan.changes and plan.changes[0].target.startswith("op:"):
+            from pelagos.connectors.bind import ops
+
+            name, view, zone = ops.parse_target(plan.changes[0].target)
+            self.applied.append(plan.id)
+            return NodeApplyResult(
+                node_id=self.node_id, ok=True, message=self._op(name, zone, *([view] if view else []))
+            )
         self._recheck(plan)
         self._mutate(plan.changes)
         self.applied.append(plan.id)
         self._record_details(plan, "apply")
         return NodeApplyResult(node_id=self.node_id, ok=True, message="applied")
+
+    # BindExtras shapes ----------------------------------------------------
+
+    def catalog_zones(self) -> list[dict[str, Any]]:
+        self._check()
+        members = [
+            {"zone": z, "label": f"m{i}", "group": None, "coo": None} for i, z in enumerate(self.catalog)
+        ]
+        return [
+            {
+                "zone": "catalog.example.lan.",
+                "view": "_default",
+                "role": "producer",
+                "members": members,
+                "member_count": len(members),
+                "version": "2",
+                "error": None,
+            }
+        ]
+
+    def dnssec_policies(self) -> list[dict[str, Any]]:
+        self._check()
+        return [
+            {
+                "name": n,
+                "statements": s,
+                "source": "pelagos",
+                "config_path": "/etc/bind/pelagos/policies.conf",
+                "used_by": [],
+            }
+            for n, s in self.policies.items()
+        ]
+
+    def plan_operation(
+        self, name: str, zone: str, view: str | None, args: dict[str, Any] | None = None, created_by: str = ""
+    ) -> Plan:
+        from pelagos.connectors.bind import ops
+
+        command = ops.command_text(name, zone, view, dict(args or {}))
+        plan = Plan(
+            scope=PlanScope.DNS_ZONE,
+            node_id=self.node_id,
+            summary=command,
+            created_by=created_by,
+            engine=Engine.BIND,
+            target_node_ids=[self.node_id],
+            changes=[
+                Change(
+                    ChangeOp.REPLACE,
+                    ops.target(name, zone, view),
+                    after=ops.check_args(name, dict(args or {})),
+                )
+            ],
+            diff=f"+{command}",
+            requires_confirmation=name in ops.DNSSEC_OPS,
+        )
+        return _validated(plan, "rndc")
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
         self._check()
@@ -664,6 +735,12 @@ class FakeDnsBackend(DnsBackend):
                 self.ops.append(("raw", change.target, change.after))
                 continue
             head, _, rest = change.target.partition("/")
+            if head == "dnssec-policy":
+                if change.op is ChangeOp.DELETE:
+                    self.policies.pop(rest, None)
+                else:
+                    self.policies[rest] = list(change.after.get("statements") or [])
+                continue
             if head in ("keys", "acls", "options"):
                 self._mutate_config(head, rest, change)
             elif normalize_name(head) in self.zones and "/" in rest:

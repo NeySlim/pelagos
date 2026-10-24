@@ -8,10 +8,16 @@ vi.mock('../../services/api', () => ({
   },
 }))
 
-import { adoptCall, divergedFiles, fileAlertEngine } from './keaFile'
+import { adoptCall, adoptPlace, divergedFiles, fileAlertEngine } from './keaFile'
 import { nextCursor, previousCursor } from './lib'
 
 describe('kea file divergence', () => {
+  it('offers adopt only on the node that holds the file, never before the nodes are known', () => {
+    expect(adoptPlace({ node_id: 'a' }, undefined)).toBe('unknown')
+    expect(adoptPlace({ node_id: 'a' }, 'a')).toBe('here')
+    expect(adoptPlace({ node_id: 'b' }, 'a')).toBe('other')
+  })
+
   it('keeps only the files that disagree', () => {
     expect(divergedFiles([{ node_id: 'a', diverged: true }, { node_id: 'b', diverged: false }, null])).toEqual([{ node_id: 'a', diverged: true }])
     expect(divergedFiles(undefined)).toEqual([])

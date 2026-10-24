@@ -11,7 +11,7 @@ import { useApi } from '../../hooks/useApi'
 import { useWsTopic } from '../../hooks/useWebSocket'
 import { api } from '../../services/api'
 import { useNodeNames, usePlanFlow } from './hooks'
-import { adoptCall, divergedFiles } from './keaFile'
+import { adoptCall, adoptPlace, divergedFiles } from './keaFile'
 
 // `engine` is 'v4', 'v6' or 'd2'.
 export function KeaFileBanner({ engine }) {
@@ -32,7 +32,7 @@ export function KeaFileBanner({ engine }) {
   return (
     <div className="flex flex-col gap-2" data-testid={`kea-file-banner-${engine}`}>
       {diverged.map((item) => {
-        const here = !selfId || item.node_id === selfId
+        const place = adoptPlace(item, selfId)
         return (
           <div
             key={item.node_id}
@@ -54,7 +54,7 @@ export function KeaFileBanner({ engine }) {
                 )}
               </div>
             </div>
-            {canAdopt && here && (
+            {canAdopt && place === 'here' && (
               <div className="flex flex-wrap items-center gap-2 pl-6">
                 <Button size="xs" variant="secondary" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'file'))} data-testid="adopt-file">
                   {t('keaFile.adoptFile')}
@@ -65,7 +65,7 @@ export function KeaFileBanner({ engine }) {
                 <span className="text-2xs text-text-tertiary">{t('keaFile.hint')}</span>
               </div>
             )}
-            {canAdopt && !here && <p className="pl-6 text-2xs text-text-tertiary">{t('keaFile.otherNode', { node: nameOf(item.node_id) })}</p>}
+            {canAdopt && place === 'other' && <p className="pl-6 text-2xs text-text-tertiary">{t('keaFile.otherNode', { node: nameOf(item.node_id) })}</p>}
           </div>
         )
       })}

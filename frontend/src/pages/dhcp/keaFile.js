@@ -20,3 +20,10 @@ export function fileAlertEngine(alert) {
   const match = /^(kea4|kea6|d2):config-file$/.exec(alert.subject || '')
   return match ? ENGINES[match[1]] : null
 }
+
+// Where a diverged file can be adopted: 'here' (this node), 'other', or 'unknown' while the
+// node list has not loaded (no adopt button then: a peer's file answers 400 here).
+export function adoptPlace(item, selfId) {
+  if (!selfId) return 'unknown'
+  return item?.node_id === selfId ? 'here' : 'other'
+}

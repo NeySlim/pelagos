@@ -14,6 +14,7 @@ import { createState, iso, ulid, ALL_PERMISSIONS } from './data.mjs'
 import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, isExpired, auditEntry, configHash, isAdmin } from './plans.mjs'
 import { createWsHub } from './ws.mjs'
 import { opsHandlers } from './ops.mjs'
+import { liveCounters } from './live.mjs'
 
 const API = '/api/v1'
 const ANON = new Set(['GET /health', 'GET /version', 'POST /auth/login'])
@@ -486,8 +487,9 @@ function bindStats(state, nodeId) {
     version: state.dnsCapabilities.version,
     boot_time: iso(Date.now() - 86400000 * 6),
     config_time: iso(Date.now() - 3600000),
-    opcodes: { QUERY: 184233, NOTIFY: 52, UPDATE: 2840 },
-    rcodes: { NOERROR: 170020, NXDOMAIN: 13110, SERVFAIL: 12, REFUSED: 91 },
+    // Traffic grows over time (mock/live.mjs) so the dashboard rates move.
+    opcodes: { ...liveCounters(nodeId, { QUERY: [184233, nodeId === state.selfId ? 420 : 310] }), NOTIFY: 52, UPDATE: 2840 },
+    rcodes: liveCounters(nodeId, { NOERROR: [170020, nodeId === state.selfId ? 380 : 282], NXDOMAIN: [13110, nodeId === state.selfId ? 36 : 25], SERVFAIL: [12, 0.6], REFUSED: [91, 2.4] }),
     qtypes: { A: 98120, AAAA: 61002, PTR: 15020, MX: 410, TXT: 2211, SRV: 3880, SOA: 2540, NS: 50 },
     nsstats: { Requestv4: 150020, Requestv6: 34213, Response: 184233, QryRecursion: 40210, UpdateDone: 2840, UpdateFail: 2 },
     zonestats: { NotifyOutv4: 52, XfrReqDone: 9, XfrSuccess: 9 },
@@ -1459,7 +1461,14 @@ function buildHandlers(state, emit) {
     'GET /dhcp/{family}/utilization': ({ params, query }) => ({ items: utilization(state, params.family, query.get('node_id')) }),
     'GET /dhcp/{family}/stats': ({ params, query }) => {
       const items = utilization(state, params.family, query.get('node_id'))
-      const counters = { 'pkt4-received': 120220, 'pkt4-discover-received': 30110, 'pkt4-request-received': 70210, 'pkt4-ack-sent': 70011, 'pkt4-nak-sent': 12, 'pkt4-receive-drop': 3 }
+      const node = nodeOr(query)
+      const scale = node === state.selfId ? 1 : 0.15
+      const live = params.family === 'v6'
+        ? liveCounters(`${node}/v6`, { 'pkt6-received': [40110, 6 * scale], 'pkt6-solicit-received': [9020, 1.5 * scale], 'pkt6-request-received': [18030, 2.6 * scale], 'pkt6-reply-sent': [26044, 2.6 * scale] })
+        : liveCounters(`${node}/v4`, { 'pkt4-received': [120220, 14 * scale], 'pkt4-discover-received': [30110, 3.2 * scale], 'pkt4-request-received': [70210, 6.5 * scale], 'pkt4-ack-sent': [70011, 6.4 * scale] })
+      const counters = params.family === 'v6'
+        ? { ...live, 'pkt6-receive-drop': 1 }
+        : { ...live, 'pkt4-nak-sent': 12, 'pkt4-receive-drop': 3 }
       items.forEach((r, i) => {
         counters[`subnet[${r.subnet_id}].pool[${i}].total-addresses`] = r.total
         counters[`subnet[${r.subnet_id}].pool[${i}].assigned-addresses`] = r.assigned

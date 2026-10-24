@@ -828,7 +828,10 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
 5. A plan id the node no longer holds answers `410 plan_expired` when the
    node built it: `PlanStore` records every id it stores, with its expiry, in
    `/var/lib/pelagos/plan_tombstones.json` (0600, merged under a file lock,
-   at most 10000 ids, ids expired for more than 7 days pruned). After a
+   at most 10000 ids, ids expired for more than 7 days pruned). Each write
+   appends one line to `plan_tombstones.json.journal` (0600, no fsync); the
+   journal is folded into the file on load, on a sweep that expires plans and
+   past 64 KiB. After a
    restart every recorded id is expired (the plan was only in the previous
    run's memory). An explicit delete forgets the id (`404`). The UI offers
    "Recompute the plan" on `410`, on `404` and when the countdown runs out:
@@ -895,8 +898,10 @@ class WritePipeline:
 
 Rules: backups copy every target file that exists (and record "absent" for
 new files) into `<backup_root>/<utc timestamp>-<label>/` with a `manifest.json`
-(paths, sha256, mode, owner). Writes are atomic (temp file in the same
-directory, fsync, rename) and preserve the existing owner, group and mode
+(paths, sha256, mode, owner). Writes are atomic (temp file
+`.<name>.pelagos-tmp.<random>` in the same directory, fsync, rename; only
+names of that shape older than 10 minutes are removed as crash leftovers, so
+editor swap and backup files are never touched) and preserve the existing owner, group and mode
 unless overridden. `validate` runs before `reload`; if it fails nothing is
 reloaded and the backup is restored (no reload: the engine still runs its old files; the same holds when
 the write itself fails). If `reload` raises or `verify` returns
@@ -1295,7 +1300,11 @@ stamps a tombstone, then the greater canonical JSON value): concurrent writes
 to different entries are all kept, the same entry ends with the same value on
 every node whatever the order of the exchanges. A deleted record wins over a
 concurrent edit of its fields (field entries under a record tombstone are
-dropped), a record created again later is live again; two users created with
+dropped), a record created again later is live again with only its new
+fields: a record's existence entry is stamped at creation, so field entries
+and field tombstones stamped before it (an earlier incarnation of the same key
+still held by a node that missed the deletion) are dropped. Two nodes creating
+the same key concurrently therefore keep the fields of the greater creation; two users created with
 the same username on two nodes keep the one with the greater stamp. The
 merged `version` is the greatest of both (plus one when the result is a state
 neither side had), `updated_at`/`updated_by` the greater pair, so both sides

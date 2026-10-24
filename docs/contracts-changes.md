@@ -52,6 +52,19 @@ wrote cluster.toml by hand to force a tie must write through `update_cluster`.
   integrity, not the origin against a compromised local web process; the
   audit match is the real guard. Signing steps with the origin node's TLS key
   is left for later.
+- Merge: field entries and field tombstones stamped before their record's
+  existence entry are dropped (`cluster_merge._prune`): a role deleted and
+  created again keeps none of the old fields a node that missed the delete
+  still holds. Two nodes creating the same key concurrently keep the fields
+  of the greater creation stamp.
+- Atomic write temp files are named `.<name>.pelagos-tmp.<8 chars>`
+  (`config_store.temp_prefix`); only those are swept as crash leftovers.
+- `PlanStore` writes append to `plan_tombstones.json.journal` without fsync
+  and fold it into the file on load, on a sweep that expired plans and past
+  64 KiB (`PlanStore.compact`).
+- The replication state file is rewritten every 60 s while the initial pull
+  runs (`SYNCING_HEARTBEAT_SECONDS`), so a pull longer than the 300 s stale
+  limit keeps writes refused.
 - Robustness: replication handlers run on OS threads; installer plans skip
   the backend lock (`core.registry.UNLOCKED_SCOPES`); live snapshots answer
   `busy` after 8 s; peer plan calls wait 300 s (engine) or 1800 s

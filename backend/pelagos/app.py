@@ -6,8 +6,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, request
-from werkzeug.exceptions import HTTPException
+from flask import Flask, Response, jsonify, request, send_from_directory
+from werkzeug.exceptions import HTTPException, NotFound
 
 from pelagos.api.errors import PROBLEM_MIME, PROBLEM_TYPE, ApiError, translate
 from pelagos.core.context import NodeContext
@@ -33,9 +33,8 @@ def create_app(
     context = context or NodeContext.build(paths)
     static_dir = static_dir or (paths.opt / "frontend" / "dist")
 
-    app = Flask(
-        "pelagos", static_folder=str(static_dir) if static_dir.exists() else None, static_url_path="/"
-    )
+    # No Flask static route: its `/<path:filename>` rule would shadow the SPA catch-all below.
+    app = Flask("pelagos", static_folder=None)
     app.config["JSON_SORT_KEYS"] = False
     app.config["RESTX_MASK_SWAGGER"] = False
     app.config["RESTX_ERROR_404_HELP"] = False
@@ -101,18 +100,34 @@ def create_app(
             resp.mimetype = PROBLEM_MIME
         return resp
 
-    if app.static_folder:
-
-        @app.route("/", defaults={"path": ""})
-        @app.route("/<path:path>")
-        def _spa(path: str) -> Response:
-            # The SPA owns every non-API path; unknown files fall back to index.html.
-            target = Path(app.static_folder) / path
-            if path and target.is_file():
-                return app.send_static_file(path)
-            return app.send_static_file("index.html")
+    _register_spa(app, static_dir)
 
     return app
+
+
+def _register_spa(app: Flask, static_dir: Path) -> None:
+    """The SPA owns every non-API path: real files are served, anything else gets index.html."""
+    root = static_dir.resolve()
+
+    @app.route("/", defaults={"path": ""})
+    @app.route("/<path:path>")
+    def _spa(path: str) -> Response:
+        if path == "api" or path.startswith("api/"):
+            raise NotFound()
+        if not (root / "index.html").is_file():
+            raise NotFound("the web interface is not installed (frontend/dist is missing)")
+        if path:
+            try:
+                return send_from_directory(root, path)
+            except NotFound:
+                # A missing build asset is a real 404; HTML in its place only confuses the browser.
+                if path.startswith("assets/"):
+                    raise
+
+        resp = send_from_directory(root, "index.html")
+        # The shell must be revalidated so a new release is picked up; hashed assets cache normally.
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
 
 
 def _problem(doc: dict, status: int, headers: dict | None = None) -> Response:

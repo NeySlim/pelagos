@@ -821,9 +821,20 @@ function makeSettings() {
     session_ttl_seconds: 43200,
     login_rate_limit_per_minute: 10,
     plan_ttl_seconds: 600,
-    thresholds: { pool_warn_percent: 80, pool_full_percent: 95, d2_errors_per_hour: 5, secondary_stale_seconds: 7200 },
-    retention: { raw_days: 7, hourly_days: 400, backups_days: 30, audit_days: 730 },
-    collector: { interval_seconds: 30 },
+    // cluster.toml [settings] as GET /admin/settings returns it (architecture section 10).
+    alerts_pool_warning_percent: 80,
+    alerts_pool_critical_percent: 95,
+    alerts_serial_divergence_seconds: 900,
+    alerts_d2_error_rate: 0.05,
+    dns: {
+      read_key: 'ddi-read',
+      admin_key: 'ddi-admin',
+      update_types_admin: ['A', 'AAAA', 'PTR', 'CNAME', 'TXT', 'SRV', 'MX', 'DHCID'],
+      update_types_kea: ['A', 'AAAA', 'PTR', 'DHCID'],
+    },
+    kea: { ddns_key: 'kea-ddns' },
+    collector: { poll_seconds: 60, pool_sample_seconds: 300, peer_poll_seconds: 30, consistency_seconds: 900 },
+    retention: { pool_raw_days: 7, pool_hourly_days: 365, serial_days: 90, ha_transition_days: 365, alerts_resolved_days: 90, backups_days: 90 },
   }
 }
 

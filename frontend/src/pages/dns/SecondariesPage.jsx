@@ -28,10 +28,12 @@ function earliest(status, field) {
   return values.length ? new Date(Math.min(...values)).toISOString() : null
 }
 
-// One zonestatus read per zone: bounded so a large deployment does not flood the nodes.
+// Without bulk status in GET /dns/zones, one zonestatus read per zone: bounded so a large deployment does not flood the nodes.
 const STATUS_CONCURRENCY = 4
 
+// A zone list item that already carries `status` (node id -> ZoneStatus) needs no extra read.
 async function withStatus(it) {
+  if (it.status && typeof it.status === 'object') return it
   try {
     const detail = await api.dns.zone(it.zone.name, it.zone.view)
     return { ...it, status: detail.status }
@@ -50,7 +52,7 @@ async function loadSecondaries() {
 async function reloadSecondary(row) {
   const { items } = await api.dns.zones({ view: row.zone.view, q: row.zone.name })
   const fresh = items.find((it) => it.zone.name === row.zone.name && it.zone.view === row.zone.view)
-  return withStatus(fresh || row)
+  return withStatus(fresh || { ...row, status: undefined })
 }
 
 export default function SecondariesPage() {

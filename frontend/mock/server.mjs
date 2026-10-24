@@ -256,7 +256,12 @@ function utilization(state, family, nodeId) {
       const assigned = inside.filter((l) => l.state === 'default').length
       const declined = inside.filter((l) => l.state === 'declined').length
       const total = poolSize(p.pool, family)
-      items.push({ subnet_id: subnet.id, subnet: subnet.subnet, pool: p.pool, total, assigned, declined, percent: Math.round((assigned / total) * 1000) / 10 })
+      items.push({ subnet_id: subnet.id, subnet: subnet.subnet, pool: p.pool, kind: 'pool', total, assigned, declined, percent: Math.round((assigned / total) * 1000) / 10, node_id: nodeId || state.selfId })
+    }
+    for (const pd of subnet.pd_pools || []) {
+      const delegated = leases.filter((l) => l.subnet_id === subnet.id && l.lease_type === 'IA_PD' && l.state === 'default').length
+      const total = 2 ** (pd.delegated_len - pd.prefix_len)
+      items.push({ subnet_id: subnet.id, subnet: subnet.subnet, pool: `${pd.prefix}/${pd.prefix_len}`, kind: 'pd-pool', total, assigned: delegated, declined: 0, percent: Math.round((delegated / total) * 1000) / 10, node_id: nodeId || state.selfId })
     }
   }
   return items
@@ -265,9 +270,10 @@ function utilization(state, family, nodeId) {
 function subnetUtilization(state, family) {
   const out = {}
   for (const row of utilization(state, family)) {
-    const cur = out[row.subnet_id] || { total: 0, assigned: 0, percent: 0 }
+    const cur = out[row.subnet_id] || { total: 0, assigned: 0, declined: 0, percent: 0 }
     cur.total += row.total
     cur.assigned += row.assigned
+    cur.declined += row.declined
     cur.percent = Math.round((cur.assigned / cur.total) * 1000) / 10
     out[row.subnet_id] = cur
   }
@@ -370,7 +376,7 @@ function summary(state) {
   const pools = []
   for (const family of ['v4', 'v6']) {
     for (const row of utilization(state, family)) {
-      pools.push({ node_id: state.selfId, engine: family === 'v4' ? 'kea4' : 'kea6', subnet_id: row.subnet_id, subnet: row.subnet, pool: row.pool, total: row.total, assigned: row.assigned, percent: row.percent })
+      pools.push({ node_id: state.selfId, engine: family === 'v4' ? 'kea4' : 'kea6', subnet_id: row.subnet_id, subnet: row.subnet, pool: row.pool, kind: row.kind, total: row.total, assigned: row.assigned, declined: row.declined, percent: row.percent })
     }
   }
   const open = state.alerts.filter((a) => a.state === 'open')
@@ -378,7 +384,7 @@ function summary(state) {
     nodes: state.nodes,
     ha: [...state.ha.v4, ...state.ha.v6],
     pools,
-    zones: state.zones.filter((z) => z.kind !== 'forward').map((z) => ({ zone: z.name, view: z.view, ...zoneSerials(state, z) })),
+    zones: state.zones.filter((z) => z.kind !== 'forward').map((z) => ({ zone: z.name, view: z.view, kind: z.kind, ...zoneSerials(state, z) })),
     d2: Object.values(state.d2),
     alerts: {
       open: open.length,
@@ -387,6 +393,12 @@ function summary(state) {
       info: open.filter((a) => a.severity === 'info').length,
     },
     engines: capabilities(state).engines,
+    errors: {},
+    // Additive: the pool alert thresholds of [settings], so the tile needs no admin read.
+    thresholds: {
+      pool_warning_percent: state.settings.alerts_pool_warning_percent,
+      pool_critical_percent: state.settings.alerts_pool_critical_percent,
+    },
   }
 }
 
@@ -939,7 +951,8 @@ function buildHandlers(state, emit) {
           .filter((z) => !query.get('view') || z.view === query.get('view'))
           .filter((z) => !query.get('kind') || z.kind === query.get('kind'))
           .filter((z) => !q || z.name.includes(q))
-          .map((z) => ({ zone: z, ...zoneSerials(state, z) })),
+          // Bulk zone status (additive field, same shape as GET /dns/zones/{zone} status).
+          .map((z) => ({ zone: z, ...zoneSerials(state, z), status: Object.fromEntries(state.nodes.map((n) => [n.peer.id, zoneStatus(state, z, n.peer.id)])) })),
       }
     },
     'GET /dns/zones/{zone}': ({ params, query }) => {

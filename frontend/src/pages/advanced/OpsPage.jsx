@@ -64,7 +64,7 @@ function OpList({ title, ops, selected, onSelect, allowed }) {
   if (!ops.length) return null
   return (
     <div className="space-y-1">
-      <h4 className="text-2xs uppercase tracking-wider text-text-tertiary px-1">{title}</h4>
+      <h4 className="ui-label text-2xs uppercase tracking-wider text-text-tertiary px-1">{title}</h4>
       {ops.map((o) => (
         <button
           key={o.name}

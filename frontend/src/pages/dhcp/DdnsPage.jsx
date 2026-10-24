@@ -111,7 +111,7 @@ export default function DdnsPage({ family }) {
           />
         </div>
         <section className="space-y-2">
-          <h3 className="text-sm font-semibold text-text-primary">{t('ddns.d2Title')}</h3>
+          <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('ddns.d2Title')}</h3>
           <SectionError error={d2.error} onRetry={d2.refetch} />
           {d2.loading && !d2.data && <LoadingSpinner size="sm" />}
           <div className="grid gap-4 lg:grid-cols-2">

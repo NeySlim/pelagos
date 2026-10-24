@@ -85,11 +85,11 @@ export default function SharedNetworksPage({ family }) {
               </div>
               <div className="p-3 space-y-3 text-xs">
                 <div>
-                  <h4 className="text-2xs uppercase tracking-wider text-text-tertiary mb-1">{t('fields.options')}</h4>
+                  <h4 className="ui-label text-2xs uppercase tracking-wider text-text-tertiary mb-1">{t('fields.options')}</h4>
                   <OptionChips options={n.options} empty={t('subnets.noOptions')} />
                 </div>
                 <div>
-                  <h4 className="text-2xs uppercase tracking-wider text-text-tertiary mb-1">{t('sharedNetworks.members', { n: n.subnets.length })}</h4>
+                  <h4 className="ui-label text-2xs uppercase tracking-wider text-text-tertiary mb-1">{t('sharedNetworks.members', { n: n.subnets.length })}</h4>
                   {n.subnets.length === 0 ? (
                     <p className="text-text-tertiary">{t('sharedNetworks.noSubnets')}</p>
                   ) : (

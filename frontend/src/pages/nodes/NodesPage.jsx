@@ -216,7 +216,7 @@ export default function NodesPage() {
         />
         <Card className="p-3 space-y-3" hover={false} data-testid="replication">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-semibold text-text-primary">{t('replication.title')}</h3>
+            <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('replication.title')}</h3>
             {replication.data && <StatusBadge status={replication.data.state} />}
             {replication.data && peers.length > 0 && (
               <Badge variant={inSync ? 'success' : 'warning'} size="sm" icon={inSync ? CheckCircle : Warning} data-testid="replication-sync">

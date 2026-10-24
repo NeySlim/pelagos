@@ -37,7 +37,7 @@ function BackupDetail({ item }) {
   return (
     <div className="space-y-4" data-testid="history-detail">
       <section className="space-y-1">
-        <h4 className="text-xs font-semibold text-text-secondary">{t('history.manifest')}</h4>
+        <h4 className="ui-label text-xs font-semibold text-text-secondary">{t('history.manifest')}</h4>
         <div className="rounded-lg border border-border bg-bg-primary p-2 max-h-48 overflow-auto">
           <JsonTree data={data.manifest} expandedDepth={1} />
         </div>
@@ -61,7 +61,7 @@ function BackupDetail({ item }) {
         </pre>
         {diff !== null && (
           <div className="space-y-1">
-            <h4 className="text-xs font-semibold text-text-secondary">{t('history.sincePrevious', { date: formatDate(previous.ts) })}</h4>
+            <h4 className="ui-label text-xs font-semibold text-text-secondary">{t('history.sincePrevious', { date: formatDate(previous.ts) })}</h4>
             <DiffView diff={diff} maxHeight={240} />
           </div>
         )}

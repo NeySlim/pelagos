@@ -21,7 +21,7 @@ import { TotpQr } from './TotpQr'
 function Section({ icon: Icon, title, children, testId }) {
   return (
     <Card className="p-4 space-y-3" hover={false} data-testid={testId}>
-      <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+      <h3 className="ui-card-title flex items-center gap-2 text-sm font-semibold text-text-primary">
         <Icon size={16} className="text-accent-primary" />
         {title}
       </h3>

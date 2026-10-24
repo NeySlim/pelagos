@@ -127,7 +127,7 @@ function AddKey({ target, schema, config, onAdd }) {
 
   return (
     <div className="space-y-2 border-t border-border pt-3" data-testid="kea-add">
-      <h4 className="text-xs font-semibold text-text-secondary">{isArray ? t('kea.append') : t('kea.addKey')}</h4>
+      <h4 className="ui-label text-xs font-semibold text-text-secondary">{isArray ? t('kea.append') : t('kea.addKey')}</h4>
       {suggestions.length > 0 && (
         <Select label={t('kea.fromSchema')} options={suggestions.map((k) => ({ value: k.name, label: `${k.name} (${k.type})` }))} value={name || undefined} onChange={pick} placeholder={t('bind.choose')} />
       )}
@@ -271,7 +271,7 @@ export default function KeaEditorPage() {
 
           <Card className="p-4 space-y-3" hover={false} data-testid="kea-pending">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-semibold text-text-primary">{t('pending.title')}</h3>
+              <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('pending.title')}</h3>
               <Badge variant={dirty ? 'warning' : 'secondary'} size="sm">{dirty ? t('pending.modified') : t('pending.clean')}</Badge>
               <div className="ml-auto flex gap-2">
                 <Button variant="secondary" size="sm" disabled={!dirty} onClick={() => setDraft(JSON.parse(JSON.stringify(original)))} data-testid="kea-discard">

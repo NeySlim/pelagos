@@ -331,7 +331,7 @@ export default function BindEditorPage() {
 
           <Card className="p-4 space-y-3" hover={false} data-testid="bind-pending">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-semibold text-text-primary">{t('pending.title')}</h3>
+              <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('pending.title')}</h3>
               <Badge variant={changes.length ? 'warning' : 'secondary'} size="sm">{t('pending.count', { count: changes.length })}</Badge>
               <div className="ml-auto flex gap-2">
                 <Button variant="secondary" size="sm" disabled={!changes.length} onClick={() => setDraft(JSON.parse(JSON.stringify(original)))} data-testid="bind-discard">

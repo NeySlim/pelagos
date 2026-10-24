@@ -92,7 +92,7 @@ export default function SettingsPage() {
           {sections.map((section) => (
             <Card key={section.id} className="p-4 space-y-3" hover={false} data-testid={`settings-${section.id}`}>
               <div>
-                <h3 className="text-sm font-semibold text-text-primary">{t(`settings.sections.${section.id}.title`, { defaultValue: humanize(section.id) })}</h3>
+                <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t(`settings.sections.${section.id}.title`, { defaultValue: humanize(section.id) })}</h3>
                 <p className="text-xs text-text-secondary">{t(`settings.sections.${section.id}.help`, { defaultValue: '' })}</p>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

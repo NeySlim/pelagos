@@ -116,7 +116,7 @@ export default function SecurityPage() {
           </div>
           <Card className="p-4 space-y-3" hover={false} data-testid="security-remediation">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-semibold text-text-primary">{t('security.planTitle')}</h3>
+              <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('security.planTitle')}</h3>
               <Badge variant={selected.length ? 'primary' : 'secondary'} size="sm">{t('security.selected', { count: selected.length })}</Badge>
               {!plan && (
                 <Button size="sm" className="ml-auto" onClick={build} disabled={!selected.length} loading={building} data-testid="security-build">

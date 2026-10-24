@@ -67,7 +67,7 @@ export default function ModulesPage() {
       ) : (
         <div className="space-y-4 max-w-4xl">
           <Card className="p-4 space-y-4" hover={false} data-testid="modules-cluster">
-            <h3 className="text-sm font-semibold text-text-primary">{t('modules.cluster')}</h3>
+            <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('modules.cluster')}</h3>
             {CLUSTER.map((key) => (
               <ToggleSwitch
                 key={key}
@@ -80,7 +80,7 @@ export default function ModulesPage() {
           </Card>
           <Card className="p-4 space-y-3" hover={false} data-testid="modules-nodes">
             <div>
-              <h3 className="text-sm font-semibold text-text-primary">{t('modules.nodes')}</h3>
+              <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('modules.nodes')}</h3>
               <p className="text-xs text-text-secondary">{t('modules.nodesHelp')}</p>
             </div>
             <div className="overflow-auto">

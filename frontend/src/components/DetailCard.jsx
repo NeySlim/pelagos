@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import i18n from '../i18n'
 import { cn } from '../lib/utils'
+import { titleCaseClass } from '../lib/displayCase'
 import { 
   Copy, Check, CaretDown,
   // Auto-icon mapping
@@ -68,7 +69,7 @@ export function DetailHeader({
       <div className={cn("flex items-center justify-between gap-4 mb-4", className)}>
         <div className="flex items-center gap-2 min-w-0">
           {Icon && <Icon size={18} className="text-accent-primary shrink-0" weight="duotone" />}
-          <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
+          <h3 className={cn('ui-card-title text-sm font-semibold text-text-primary', titleCaseClass(title))}>{title}</h3>
           {badge}
         </div>
         {actions && actions.length > 0 && (
@@ -643,7 +644,7 @@ export function CompactHeader({
       )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <h3 className="font-semibold text-text-primary truncate">{title}</h3>
+          <h3 className={cn('ui-card-title font-semibold text-text-primary truncate', titleCaseClass(title))}>{title}</h3>
           {badge}
         </div>
         {subtitle && (

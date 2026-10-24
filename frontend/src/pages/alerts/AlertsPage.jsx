@@ -84,7 +84,7 @@ function AlertDetail({ alert, nodeName, canAck, onAck, onClose }) {
             {alert.resolved_at && <Field label={t('detail.resolvedAt')}>{formatDate(alert.resolved_at)}</Field>}
           </dl>
           <div>
-            <h4 className="text-2xs uppercase tracking-wider text-text-tertiary mb-1">{t('detail.details')}</h4>
+            <h4 className="ui-label text-2xs uppercase tracking-wider text-text-tertiary mb-1">{t('detail.details')}</h4>
             {Object.keys(alert.details || {}).length ? (
               <div className="rounded-lg border border-border bg-bg-primary p-2 max-h-64 overflow-auto">
                 <JsonTree data={alert.details} expandedDepth={2} />

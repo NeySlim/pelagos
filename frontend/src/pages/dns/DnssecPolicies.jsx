@@ -73,7 +73,7 @@ export function DnssecPolicies({ onChanged }) {
     <Card className="p-4 space-y-3" hover={false} data-testid="dnssec-policies">
       <div className="flex items-center gap-2">
         <ShieldCheck size={16} className="text-accent-primary" />
-        <h3 className="text-sm font-semibold text-text-primary">{t('dnssec.policies')}</h3>
+        <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('dnssec.policies')}</h3>
         <span className="text-2xs text-text-tertiary">
           {t('common:fieldLabel', { label: t('dnssec.builtin') })} {builtin.join(', ')}
         </span>

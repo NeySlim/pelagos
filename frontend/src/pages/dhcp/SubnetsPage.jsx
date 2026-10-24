@@ -205,7 +205,7 @@ function SubnetDetail({ family, subnet, usage, poolUsage, poolsError, onClose, o
       <div className="p-3 space-y-4 text-xs">
         {usage && <UtilizationBar {...usage} size="lg" />}
         <section>
-          <h4 className="text-2xs uppercase tracking-wider text-text-tertiary mb-1.5">{t('fields.pools')}</h4>
+          <h4 className="ui-label text-2xs uppercase tracking-wider text-text-tertiary mb-1.5">{t('fields.pools')}</h4>
           <SectionError error={poolsError} />
           {subnet.pools.length === 0 && <p className="text-text-tertiary">{t('subnets.noPools')}</p>}
           <ul className="space-y-2" data-testid="pool-list">
@@ -231,7 +231,7 @@ function SubnetDetail({ family, subnet, usage, poolUsage, poolsError, onClose, o
         </section>
         {family === 'v6' && (
           <section>
-            <h4 className="text-2xs uppercase tracking-wider text-text-tertiary mb-1.5">{t('fields.pdPools')}</h4>
+            <h4 className="ui-label text-2xs uppercase tracking-wider text-text-tertiary mb-1.5">{t('fields.pdPools')}</h4>
             {!subnet.pd_pools?.length ? (
               <p className="text-text-tertiary">{t('subnets.noPdPools')}</p>
             ) : (
@@ -248,7 +248,7 @@ function SubnetDetail({ family, subnet, usage, poolUsage, poolsError, onClose, o
           </section>
         )}
         <section>
-          <h4 className="text-2xs uppercase tracking-wider text-text-tertiary mb-1.5">{t('fields.options')}</h4>
+          <h4 className="ui-label text-2xs uppercase tracking-wider text-text-tertiary mb-1.5">{t('fields.options')}</h4>
           <OptionChips options={subnet.options} empty={t('subnets.noOptions')} />
         </section>
         <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1">
@@ -280,7 +280,7 @@ function SubnetDetail({ family, subnet, usage, poolUsage, poolsError, onClose, o
           </dd>
         </dl>
         <section>
-          <h4 className="text-2xs uppercase tracking-wider text-text-tertiary mb-1.5">{t('fields.userContext')}</h4>
+          <h4 className="ui-label text-2xs uppercase tracking-wider text-text-tertiary mb-1.5">{t('fields.userContext')}</h4>
           <UserContextView context={subnet.user_context} />
         </section>
       </div>

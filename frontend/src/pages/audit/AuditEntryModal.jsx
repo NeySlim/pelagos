@@ -23,7 +23,7 @@ function Payload({ title, data, testId }) {
   const empty = !data || (typeof data === 'object' && Object.keys(data).length === 0)
   return (
     <section className="space-y-1" data-testid={testId}>
-      <h4 className="text-xs font-semibold text-text-secondary">{title}</h4>
+      <h4 className="ui-label text-xs font-semibold text-text-secondary">{title}</h4>
       <div className="rounded-lg border border-border bg-bg-primary p-2 max-h-56 overflow-auto">
         {empty ? <p className="text-xs italic text-text-tertiary">{t('detail.empty')}</p> : <JsonTree data={data} expandedDepth={2} />}
       </div>
@@ -61,7 +61,7 @@ export function AuditEntryDetail({ entry, nodeName = (id) => id }) {
         </p>
       )}
       <section className="space-y-1">
-        <h4 className="text-xs font-semibold text-text-secondary">{t('detail.diff')}</h4>
+        <h4 className="ui-label text-xs font-semibold text-text-secondary">{t('detail.diff')}</h4>
         <DiffView diff={entry.diff} maxHeight={280} emptyLabel={t('detail.noDiff')} />
       </section>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

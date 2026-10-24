@@ -30,7 +30,7 @@ function Section({ icon: Icon, title, badge, actions, children, testId }) {
     <section className="rounded-lg border border-border overflow-hidden" data-testid={testId}>
       <header className="flex items-center gap-2 px-3 py-1.5 section-header-gradient border-b border-border-op30">
         <Icon size={13} className="text-text-tertiary" />
-        <h4 className="text-2xs font-semibold uppercase tracking-wider text-text-secondary">{title}</h4>
+        <h4 className="ui-label text-2xs font-semibold uppercase tracking-wider text-text-secondary">{title}</h4>
         {badge}
         <span className="ml-auto flex flex-wrap gap-1">{actions}</span>
       </header>

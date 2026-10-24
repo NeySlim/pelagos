@@ -32,7 +32,7 @@ function DetectCard({ detect }) {
   return (
     <Card className="p-4 space-y-4" hover={false} data-testid="install-detect">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold text-text-primary">{t('detect.title')}</h3>
+        <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('detect.title')}</h3>
         {detect.distro && (
           <Badge variant="outline" size="sm">
             {detect.distro.pretty_name || detect.distro.name || `${detect.distro.id} ${detect.distro.version_id}`}
@@ -166,7 +166,7 @@ function Wizard({ detect, onDone }) {
   return (
     <Card className="p-4 space-y-4" hover={false} data-testid="install-wizard">
       <div className="flex flex-wrap items-center gap-3">
-        <h3 className="text-sm font-semibold text-text-primary mr-2">{t('wizard.title')}</h3>
+        <h3 className="ui-card-title text-sm font-semibold text-text-primary mr-2">{t('wizard.title')}</h3>
         <Stepper steps={steps} current={state.step} />
       </div>
 

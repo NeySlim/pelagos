@@ -17,6 +17,7 @@ import { useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X, ArrowsOutSimple, ArrowsInSimple, CornersOut, CornersIn } from '@phosphor-icons/react'
 import { cn } from '../../lib/utils'
+import { titleCaseClass } from '../../lib/displayCase'
 import {
   useFloatingWindow,
   EDGES,
@@ -122,7 +123,7 @@ export function FloatingWindow({
             </div>
           )}
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-text-primary truncate">{title}</h3>
+            <h3 className={cn('ui-card-title text-sm font-semibold text-text-primary truncate', titleCaseClass(title))}>{title}</h3>
             {!minimized && subtitle && (
               <p className="text-[10px] text-text-tertiary truncate leading-tight">{subtitle}</p>
             )}

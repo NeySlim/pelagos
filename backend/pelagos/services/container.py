@@ -17,6 +17,7 @@ from pelagos.services.dashboard_service import DashboardService
 from pelagos.services.dhcp_service import DhcpService
 from pelagos.services.dns_service import DnsService
 from pelagos.services.events import EventHub, EventSocketListener
+from pelagos.services.group_watch import GroupWatch
 from pelagos.services.hosts_service import HostsService
 from pelagos.services.install_service import InstallService
 from pelagos.services.jobs import JobStore
@@ -58,6 +59,7 @@ class Services:
             ctx.paths.var / "last_login.json", ctx.paths.locks_dir / "last_login.lock"
         )
         self.listener: EventSocketListener | None = None
+        self.groups = GroupWatch(ctx.paths.run)
         self._publish_audit()
         ctx.extra["services"] = self
 
@@ -91,6 +93,7 @@ class Services:
         registry that cannot be built the previous connectors stay in place."""
         if not self._own_registry:
             return False
+        self.groups.check()
         with self._refresh_lock:
             mtime = self._node_stat()
             if mtime == self._node_mtime:
@@ -127,6 +130,7 @@ class Services:
                     except Exception:
                         log.warning("closing a replaced connector failed", exc_info=True)
             log.info("engines reloaded from node.toml")
+            self.groups.check(force=True)
             return True
 
     def dhcp(self, family: Family) -> DhcpService:

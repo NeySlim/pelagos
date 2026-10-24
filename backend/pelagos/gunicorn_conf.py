@@ -43,3 +43,23 @@ def ssl_context(conf, default_ssl_context_factory):  # gunicorn hook
     context = default_ssl_context_factory()
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     return context
+
+
+def on_starting(server):  # gunicorn hook, in the master before workers fork
+    """Workers find their master here to ask for a restart (services.group_watch)."""
+    import os
+
+    from pelagos.services.group_watch import MASTER_ENV
+
+    os.environ[MASTER_ENV] = str(os.getpid())
+
+
+def on_exit(server):  # gunicorn hook, in the master after it stopped the workers
+    """Exit 75 when a worker saw new supplementary groups: systemd (Restart=on-failure) restarts us."""
+    import os
+
+    from pelagos.services.group_watch import exit_status_for_restart
+
+    status = exit_status_for_restart(_paths.run)
+    if status is not None:
+        os._exit(status)

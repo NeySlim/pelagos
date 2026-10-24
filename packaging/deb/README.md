@@ -31,7 +31,12 @@ The package depends on the exact `python3.X` the venv was built with.
 - `postinst`: system user and group `pelagos` (home `/var/lib/pelagos`), added
   to `bind`, `named`, `_kea` and `kea` when those groups exist; directories of
   `docs/architecture.md` section 3 with their modes; prints how to
-  initialize the node.
+  initialize the node. When BIND or Kea is installed later (through the UI,
+  the API or `pelagos install`), the account gains the engine groups while
+  the services run: the collector exits with status 75 and the web process
+  notices the new groups within 30 s and has gunicorn exit with status 75;
+  systemd restarts both with the new groups. It happens once per set of
+  groups.
 - Units `pelagos.service` and `pelagos-collector.service` are enabled. They
   carry `ConditionPathExists=/etc/pelagos/node.toml`, so they stay inactive
   until `pelagos init` (first node) or `pelagos enroll` has run:

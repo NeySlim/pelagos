@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-// Create-host form: POST /hosts/plan with the A record, the PTR in the reverse zone
-// and, when asked, a DHCP reservation; the answer is one `host` plan.
+// Create-host form: POST /hosts/plan with the A or AAAA record, the PTR in the
+// reverse zone and, when asked, a DHCP reservation; the answer is one `host` plan.
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FormModal } from '../../components/FormModal'
 import { Input } from '../../components/Input'
 import { api } from '../../services/api'
 import { Checkbox, NativeSelect } from '../dhcp/ui'
-import { fieldErrors, isIPv4, isMac } from '../dhcp/lib'
+import { fieldErrors, isIPv4, isIPv6, isMac } from '../dhcp/lib'
 import { reverseZoneFor, subnetFor } from './net'
 
-export function CreateHostModal({ subnets, zones, flow, onClose, initial = {} }) {
+export function CreateHostModal({ subnets, subnets6 = [], zones, flow, onClose, initial = {} }) {
   const { t } = useTranslation(['hosts', 'dhcp', 'common'])
   const zoneNames = useMemo(() => zones.map((z) => z.zone?.name).filter(Boolean), [zones])
   const forwardZones = zoneNames.filter((z) => !z.endsWith('.arpa.'))
@@ -28,14 +28,18 @@ export function CreateHostModal({ subnets, zones, flow, onClose, initial = {} })
   const [errors, setErrors] = useState({})
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value?.target ? value.target.value : value }))
 
-  const autoReverse = isIPv4(form.ip) ? reverseZoneFor(form.ip, zoneNames) : null
-  const autoSubnet = isIPv4(form.ip) ? subnetFor(form.ip, subnets) : null
+  const ip = form.ip.trim()
+  const validIp = isIPv4(ip) || isIPv6(ip)
+  // The subnet list follows the family of the address typed.
+  const familySubnets = isIPv6(ip) ? subnets6 : subnets
+  const autoReverse = validIp ? reverseZoneFor(ip, zoneNames) : null
+  const autoSubnet = validIp ? subnetFor(ip, familySubnets) : null
 
   const validate = () => {
     const e = {}
     if (!/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.?$/.test(form.hostname.trim())) e.hostname = t('dhcp:form.badHostname')
     if (!form.zone.trim()) e.zone = t('dhcp:form.required')
-    if (!isIPv4(form.ip.trim())) e.ip = t('dhcp:form.badIp')
+    if (!validIp) e.ip = t('dhcp:form.badIp')
     if (!/^\d+$/.test(form.ttl)) e.ttl = t('dhcp:form.positiveInteger')
     if (form.reservation && !isMac(form.mac.trim())) e.mac = t('dhcp:form.badMac')
     return e
@@ -48,7 +52,7 @@ export function CreateHostModal({ subnets, zones, flow, onClose, initial = {} })
     const subnetId = form.subnet_id || (autoSubnet ? String(autoSubnet.id) : '')
     const body = {
       hostname: form.hostname.trim(),
-      ip: form.ip.trim(),
+      ip,
       zone: form.zone.trim(),
       ttl: Number(form.ttl),
       reservation: form.reservation,
@@ -103,7 +107,7 @@ export function CreateHostModal({ subnets, zones, flow, onClose, initial = {} })
             onChange={set('subnet_id')}
             options={[
               { value: '', label: autoSubnet ? t('create.subnetAuto', { subnet: autoSubnet.subnet }) : t('create.subnetPick') },
-              ...subnets.map((s) => ({ value: String(s.id), label: `${s.id}: ${s.subnet}` })),
+              ...familySubnets.map((s) => ({ value: String(s.id), label: `${s.id}: ${s.subnet}` })),
             ]}
             testId="host-subnet"
           />

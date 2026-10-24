@@ -12,6 +12,7 @@ import { DataTable } from '../../components/DataTable'
 import { Modal } from '../../components/Modal'
 import { StatusBadge } from '../../components/StatusBadge'
 import { useOpenDetail } from '../../components/FloatingDetailWindow'
+import { useAuth } from '../../contexts/AuthContext'
 import { useMobile } from '../../contexts/MobileContext'
 import { useApi, usePaginatedApi } from '../../hooks/useApi'
 import { usePermission } from '../../hooks/usePermission'
@@ -44,6 +45,7 @@ export default function HostsPage() {
   const { t } = useTranslation(['hosts', 'dhcp', 'common'])
   const [params] = useSearchParams()
   const { hasPermission } = usePermission()
+  const { modules } = useAuth()
   const { isMobile } = useMobile()
   const openDetail = useOpenDetail()
   const [q, setQ] = useState(params.get('q') || '')
@@ -58,6 +60,8 @@ export default function HostsPage() {
     filters: { q, subnet_id: subnetId, zone, only_inconsistent: onlyInconsistent || undefined },
   })
   const subnets = useApi(() => api.dhcp.subnets('v4'), [], { enabled: hasPermission('read:dhcp') })
+  // v6 subnets only feed the create-host form; the subnet filter stays on v4 ids.
+  const subnets6 = useApi(() => api.dhcp.subnets('v6'), [], { enabled: hasPermission('read:dhcp') && Boolean(modules?.dhcpv6) })
   const zones = useApi(() => api.dns.zones(), [], { enabled: hasPermission('read:dns') })
   const flow = usePlanFlow({ onApplied: hosts.refetch })
 
@@ -177,6 +181,7 @@ export default function HostsPage() {
       {creating && (
         <CreateHostModal
           subnets={subnets.data?.items || []}
+          subnets6={subnets6.data?.items || []}
           zones={zones.data?.items || []}
           flow={flow}
           onClose={() => setCreating(false)}

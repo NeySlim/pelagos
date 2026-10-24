@@ -105,10 +105,18 @@ def test_record_plan_apply_rollback(role_client, fake_dns, node_ctx):
     assert rrsets[("www.example.lan.", "A")]["rdata"] == ["192.0.2.10"]
     assert dora.post(f"/api/v1/plans/{plan['id']}/rollback").status_code == 409
 
-    audit = role_client("admin").get("/api/v1/audit?action=dns.rrset").get_json()["items"]
+    entries = role_client("admin").get("/api/v1/audit?action=dns.rrset").get_json()["items"]
+    audit = [e for e in entries if e["request"].get("entry") == "summary"]
     assert [e["action"] for e in audit] == ["dns.rrset.rollback", "dns.rrset.apply"]
     assert audit[1]["plan_id"] == plan["id"] and audit[1]["result"] == "ok" and audit[1]["user"] == "dora"
     assert audit[1]["diff"]
+    # One entry per node per plan, carrying what the connector sent (UPDATE text) and got (rcode).
+    node = [e for e in entries if e["request"].get("entry") == "node"]
+    assert [e["request"]["verb"] for e in node] == ["rollback", "apply"]
+    assert node[1]["action"] == "dns.rrset.apply" and node[1]["node_id"] == node_ctx.node.id
+    assert "update add" in node[1]["request"]["update"] and node[1]["response"]["rcode"] == "NOERROR"
+    assert body["results"][0]["audit_ids"] == [node[1]["id"]]
+    assert plan["id"] not in fake_dns.details
 
 
 def test_record_plan_validation_and_preconditions(role_client, fake_dns):
@@ -348,4 +356,5 @@ def test_concurrent_apply_applies_once(role_client, fake_dns, node_ctx, services
         for e in role_client("admin").get("/api/v1/audit").get_json()["items"]
         if e.get("plan_id") == plan_id
     ]
-    assert len(entries) == 1
+    # One summary and one entry for this node: the losing caller wrote nothing.
+    assert sorted(e["request"]["entry"] for e in entries) == ["node", "summary"]

@@ -9,7 +9,7 @@ from typing import Any
 
 from pelagos.connectors.base import ConnectorContext, DdnsBackend, DhcpBackend, DnsBackend
 from pelagos.core.context import NodeContext
-from pelagos.domain import Engine, Family
+from pelagos.domain import Engine, Family, NodeApplyResult, Plan, PlanScope
 
 log = logging.getLogger(__name__)
 
@@ -84,3 +84,64 @@ def connector_context(ctx: NodeContext, engine: str, table: Any) -> ConnectorCon
         get_secret=ctx.get_secret,
         settings=ctx.settings(),
     )
+
+
+# Plans received from peers (section 13, /repl/v1/plans/apply|rollback) ---------------------------
+
+INSTALLER_SCOPES = frozenset({PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY})
+
+
+class PlanRunner:
+    """One engine's entry in the replication registry: the backend, plus what only the receiving node
+    can do. Installer plans (install, import, security) run as a synchronous job; D2 plans open their
+    sealed secrets first; the connector's audit material stays available through `pop_details`."""
+
+    def __init__(self, ctx: NodeContext, engine: Engine, backend: Any) -> None:
+        self.ctx = ctx
+        self.engine = engine
+        self.backend = backend
+
+    def __getattr__(self, name: str) -> Any:
+        # Reads (snapshots, capabilities) go straight to the connector.
+        return getattr(self.backend, name)
+
+    def apply(self, plan: Plan) -> NodeApplyResult:
+        from pelagos.services.installer_runner import run_received
+
+        if plan.scope in INSTALLER_SCOPES:
+            return run_received(self.ctx, plan)
+        if self.engine is Engine.D2:
+            from pelagos.services import d2_secrets
+
+            try:
+                plan, secrets = d2_secrets.open_sealed(self.ctx.secrets, plan)
+                if secrets:
+                    d2_secrets.hold_secrets(self.backend, plan, secrets)
+            except d2_secrets.SecretChannelError as exc:
+                return NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=str(exc))
+        return self.backend.apply(plan)
+
+    def rollback(self, plan: Plan) -> NodeApplyResult:
+        if plan.scope in INSTALLER_SCOPES:
+            return NodeApplyResult(
+                node_id=self.ctx.node.id,
+                ok=False,
+                message="installer steps roll back their own files when they fail; restore from history",
+            )
+        return self.backend.rollback(plan)
+
+    def pop_details(self, plan_id: str) -> dict[str, Any]:
+        pop = getattr(self.backend, "pop_details", None)
+        return pop(plan_id) if callable(pop) else {}
+
+
+def replication_registry(ctx: NodeContext, registry: ConnectorRegistry | None = None) -> Any:
+    """`core.registry.ConnectorRegistry` filled with this node's backends from node.toml, for
+    `ReplicationService(ctx, registry=...)` in the collector (plans sent by peers, snapshots)."""
+    from pelagos.core.registry import ConnectorRegistry as CoreRegistry
+
+    registry = registry if registry is not None else ConnectorRegistry.from_node(ctx)
+    core = CoreRegistry(ctx.node.id)
+    for engine in registry.engines():
+        core.register(engine, PlanRunner(ctx, engine, registry.backend(engine)))
+    return core

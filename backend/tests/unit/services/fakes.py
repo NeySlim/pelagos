@@ -129,6 +129,7 @@ class FakeDnsBackend(DnsBackend):
         self.ops: list[tuple[str, ...]] = []
         self.applied: list[str] = []
         self.rolled_back: list[str] = []
+        self.details: dict[str, dict[str, Any]] = {}
         if seed:
             self.seed()
 
@@ -603,13 +604,36 @@ class FakeDnsBackend(DnsBackend):
         self._recheck(plan)
         self._mutate(plan.changes)
         self.applied.append(plan.id)
+        self._record_details(plan, "apply")
         return NodeApplyResult(node_id=self.node_id, ok=True, message="applied")
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
         self._check()
         self._mutate([c.inverse() for c in reversed(plan.changes)])
         self.rolled_back.append(plan.id)
+        self._record_details(plan, "rollback")
         return NodeApplyResult(node_id=self.node_id, ok=True, message="rolled back", rolled_back=True)
+
+    def _record_details(self, plan: Plan, verb: str) -> None:
+        """Audit material in BindBackend.details' shapes (record plans by verb, file plans flat)."""
+        if plan.scope is PlanScope.DNS_RRSET:
+            update = "\n".join(f"update {c.op.value} {c.target}" for c in plan.changes)
+            entry = {"request": {"update": update, "key": "ddi-admin"}, "response": {"rcode": "NOERROR"}}
+            self.details.setdefault(plan.id, {})[verb] = entry
+        elif verb == "apply":
+            files = sorted({f"/etc/bind/pelagos/{c.target.split('/')[0]}.conf" for c in plan.changes})
+            secrets_ = [
+                c.after["secret"] for c in plan.changes if isinstance(c.after, dict) and c.after.get("secret")
+            ]
+            self.details[plan.id] = {
+                "request": {"files": files, "text": "".join(f'secret "{s}";' for s in secrets_)},
+                "response": {"steps": [{"name": "write", "ok": True}], "backup_dir": "/tmp/backup"},
+            }
+        else:
+            self.details.setdefault(plan.id, {})["rollback"] = {"steps": [], "backup_dir": "/tmp/backup"}
+
+    def pop_details(self, plan_id: str) -> dict[str, Any]:
+        return self.details.pop(plan_id, {})
 
     def _recheck(self, plan: Plan) -> None:
         for pre in plan.preconditions:

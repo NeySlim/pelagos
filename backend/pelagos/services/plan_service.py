@@ -30,6 +30,7 @@ from pelagos.domain import (
     normalize_name,
     utcnow,
 )
+from pelagos.services import d2_secrets
 from pelagos.services.events import EventHub
 from pelagos.services.masking import masked, masked_text
 from pelagos.services.peers import PeerGateway
@@ -142,6 +143,7 @@ class PlanService:
         self, plan: Plan, user: str, confirm: bool = False, client_ip: str | None = None
     ) -> ApplyResult:
         parts = self.parts(plan) if plan.scope is PlanScope.HOST else [plan]
+        who = (user, client_ip)
         # Check and claim under the lock: a concurrent caller then sees APPLYING and gets plan_state.
         with self._lock:
             self.check_applicable(plan, confirm)
@@ -161,7 +163,7 @@ class PlanService:
         failed = False
         for part in parts:
             # A failing part has already rolled back its own nodes; earlier parts are undone below.
-            part_results, ok = self._apply_one(part)
+            part_results, ok = self._apply_one(part, who)
             results.extend(part_results)
             if not ok:
                 failed = True
@@ -170,7 +172,7 @@ class PlanService:
             applied.append((part, [r.node_id for r in part_results if r.ok]))
         if failed:
             for part, node_ids in reversed(applied):
-                results.extend(self._rollback_nodes(part, node_ids))
+                results.extend(self._rollback_nodes(part, node_ids, who))
             rolled = [r for r in results if r.rolled_back]
             plan.state = PlanState.ROLLED_BACK if rolled and all(r.ok for r in rolled) else PlanState.FAILED
             plan.error = plan.error or next((r.message for r in results if not r.ok), "apply failed")
@@ -183,25 +185,39 @@ class PlanService:
         self.ctx.plan_store.update(plan)
         self.ctx.plan_store.touch(plan)
         self._audit_summary(plan, user, client_ip)
-        result = ApplyResult(plan_id=plan.id, state=plan.state, results=results, finished_at=utcnow())
+        result = ApplyResult(
+            plan_id=plan.id, state=plan.state, results=_masked(results), finished_at=utcnow()
+        )
         self._publish(result)
         return result
 
-    def _apply_one(self, plan: Plan) -> tuple[list[NodeApplyResult], bool]:
+    def _apply_one(self, plan: Plan, who: tuple[str, str | None]) -> tuple[list[NodeApplyResult], bool]:
         """Apply one engine plan on self, then on the other targets; roll back its own nodes on failure."""
         results: list[NodeApplyResult] = []
         targets = plan.target_node_ids or [self.ctx.node.id]
+        try:
+            outgoing = self._outgoing(plan, targets)
+        except d2_secrets.SecretChannelError as exc:
+            plan.error = str(exc)
+            return [NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=str(exc))], False
         for node_id in targets:
-            result = self._apply_on(plan, node_id)
+            result = self._apply_on(plan if node_id == self.ctx.node.id else outgoing, node_id, who)
             results.append(result)
             if not result.ok:
                 done = [r.node_id for r in results if r.ok]
-                results.extend(self._rollback_nodes(plan, done))
+                results.extend(self._rollback_nodes(plan, done, who))
                 plan.error = result.message
                 return results, False
         return results, True
 
-    def _apply_on(self, plan: Plan, node_id: str) -> NodeApplyResult:
+    def _outgoing(self, plan: Plan, targets: list[str]) -> Plan:
+        """The copy sent to peers: D2 secrets held by the local connector travel sealed (d2_secrets)."""
+        if not d2_secrets.needs_sealing(plan) or all(n == self.ctx.node.id for n in targets):
+            return plan
+        held = d2_secrets.held_secrets(self._backend(plan), plan.id)
+        return d2_secrets.seal(self.ctx.secrets, plan, held)
+
+    def _apply_on(self, plan: Plan, node_id: str, who: tuple[str, str | None]) -> NodeApplyResult:
         if node_id == self.ctx.node.id:
             backend = self._backend(plan)
             if backend is None:
@@ -209,18 +225,23 @@ class PlanService:
                     node_id=node_id, ok=False, message="engine not configured on this node"
                 )
             try:
-                return backend.apply(plan)
+                result = backend.apply(plan)
             except ConnectorError as exc:
-                return NodeApplyResult(node_id=node_id, ok=False, message=str(exc))
+                result = NodeApplyResult(node_id=node_id, ok=False, message=str(exc))
             except Exception as exc:
                 log.exception("apply of plan %s failed", plan.id)
-                return NodeApplyResult(node_id=node_id, ok=False, message=f"{type(exc).__name__}: {exc}")
+                result = NodeApplyResult(node_id=node_id, ok=False, message=f"{type(exc).__name__}: {exc}")
+            result.node_id = node_id
+            self._audit_node(plan, result, "apply", who, backend)
+            return result
         peer = self.peers.peer(node_id)
         if peer is None:
             return NodeApplyResult(node_id=node_id, ok=False, message="unknown node")
         return self.peers.apply_plan(peer, plan)
 
-    def _rollback_nodes(self, plan: Plan, node_ids: list[str]) -> list[NodeApplyResult]:
+    def _rollback_nodes(
+        self, plan: Plan, node_ids: list[str], who: tuple[str, str | None]
+    ) -> list[NodeApplyResult]:
         out: list[NodeApplyResult] = []
         for node_id in reversed(node_ids):
             if node_id == self.ctx.node.id:
@@ -233,6 +254,8 @@ class PlanService:
                     )
                 except Exception as exc:
                     res = NodeApplyResult(node_id=node_id, ok=False, message=f"rollback failed: {exc}")
+                res.node_id = node_id
+                self._audit_node(plan, res, "rollback", who, backend)
             else:
                 peer = self.peers.peer(node_id)
                 res = (
@@ -294,7 +317,8 @@ class PlanService:
         parts = self.parts(plan) if plan.scope is PlanScope.HOST else [plan]
         results: list[NodeApplyResult] = []
         for part in reversed(parts):
-            results.extend(self._rollback_nodes(part, part.target_node_ids or [self.ctx.node.id]))
+            targets = part.target_node_ids or [self.ctx.node.id]
+            results.extend(self._rollback_nodes(part, targets, (user, client_ip)))
         plan.state = PlanState.ROLLED_BACK if all(r.ok for r in results) else PlanState.FAILED
         if plan.state is PlanState.FAILED:
             plan.error = next((r.message for r in results if not r.ok), "rollback failed")
@@ -302,7 +326,9 @@ class PlanService:
             part.state = plan.state
         self.ctx.plan_store.update(plan)
         self._audit_summary(plan, user, client_ip, verb="rollback")
-        result = ApplyResult(plan_id=plan.id, state=plan.state, results=results, finished_at=utcnow())
+        result = ApplyResult(
+            plan_id=plan.id, state=plan.state, results=_masked(results), finished_at=utcnow()
+        )
         self._publish(result)
         return result
 
@@ -315,6 +341,49 @@ class PlanService:
             result.state, "failed"
         )
         self.events.publish("plans", event, result)
+
+    def _audit_node(
+        self, plan: Plan, result: NodeApplyResult, verb: str, who: tuple[str, str | None], backend: Any
+    ) -> None:
+        """The entry of this node for this plan (section 6): what the connector sent and got back.
+
+        Connector material (BindBackend.details) is copied, masked; it is popped after a rollback
+        only, since a record plan's apply material also locates its backup for the rollback."""
+        request: dict[str, Any] = {}
+        response: dict[str, Any] = {}
+        if backend is not None and isinstance(getattr(backend, "details", None), dict):
+            raw = backend.details.get(plan.id) or {}
+            # Record plans keep {"apply"|"rollback": {request, response}}; file plans keep the apply's
+            # {request, response} at the top and the rollback's {steps, backup_dir} under "rollback".
+            material = raw.get(verb)
+            if material is None and verb == "apply":
+                material = raw
+            material = material if isinstance(material, dict) else {}
+            request = dict(material.get("request") or {})
+            response = dict(material.get("response") or {k: v for k, v in material.items() if k != "request"})
+            if verb == "rollback" and hasattr(backend, "pop_details"):
+                backend.pop_details(plan.id)
+        ops = {c.op.value for c in plan.changes}
+        action_verb = verb if verb == "rollback" or len(ops) != 1 else ops.pop()
+        user, client_ip = who
+        entry = AuditEntry(
+            node_id=self.ctx.node.id,
+            user=user,
+            action=f"{plan.scope.value}.{action_verb}",
+            target=plan.changes[0].target if plan.changes else plan.scope.value,
+            engine=plan.engine,
+            plan_id=plan.id,
+            request=masked({"entry": "node", "verb": verb, **request}),
+            response=masked({"ok": result.ok, "message": result.message or "", **response}),
+            diff=masked_text(plan.diff) if plan.diff and verb == "apply" else None,
+            result=AuditResult.OK if result.ok else AuditResult.ERROR,
+            message=masked_text(result.message) if result.message and not result.ok else None,
+            client_ip=client_ip,
+        )
+        entry.request = _mask_text_values(entry.request)
+        entry.response = _mask_text_values(entry.response)
+        self.ctx.audit_log.append(entry)
+        result.audit_ids = [*result.audit_ids, entry.id]
 
     def _audit_summary(self, plan: Plan, user: str, client_ip: str | None, verb: str = "apply") -> None:
         result = {
@@ -329,6 +398,7 @@ class PlanService:
             engine=plan.engine,
             plan_id=plan.id,
             request={
+                "entry": "summary",
                 "summary": plan.summary,
                 "changes": masked([c.to_dict() for c in plan.changes]),
                 "target_node_ids": plan.target_node_ids,
@@ -340,3 +410,20 @@ class PlanService:
             client_ip=client_ip,
         )
         self.ctx.audit_log.append(entry)
+
+
+def _masked(results: list[NodeApplyResult]) -> list[NodeApplyResult]:
+    """Messages come from engines and peers; key material in them never reaches an answer."""
+    for r in results:
+        r.message = masked_text(r.message or "")
+    return results
+
+
+def _mask_text_values(value: Any) -> Any:
+    if isinstance(value, str):
+        return masked_text(value)
+    if isinstance(value, dict):
+        return {k: _mask_text_values(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_mask_text_values(v) for v in value]
+    return value

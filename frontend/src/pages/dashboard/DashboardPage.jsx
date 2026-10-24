@@ -146,6 +146,8 @@ export default function DashboardPage() {
         )
       }
     >
+      {/* The measured container exists from the first render, so its width is observed before the grid shows. */}
+      <div ref={containerRef} className={editing ? 'dashboard-grid editing' : 'dashboard-grid'} data-testid="dashboard-grid">
       {summary.loading && !summary.data ? (
         <div className="flex justify-center py-12">
           <LoadingSpinner size="md" />
@@ -164,7 +166,7 @@ export default function DashboardPage() {
           })}
         </div>
       ) : (
-        <div ref={containerRef} className={editing ? 'dashboard-grid editing' : 'dashboard-grid'} data-testid="dashboard-grid">
+        <>
           {mounted && (
             <ReactGridLayout
               width={width}
@@ -184,8 +186,9 @@ export default function DashboardPage() {
               })}
             </ReactGridLayout>
           )}
-        </div>
+        </>
       )}
+      </div>
     </PageLayout>
   )
 }

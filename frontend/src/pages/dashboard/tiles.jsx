@@ -15,7 +15,7 @@ import { cn, formatRelativeTime } from '../../lib/utils'
 export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, status, children }) {
   return (
     <div className="h-full flex flex-col card-soft overflow-hidden" data-testid={`tile-${id}`}>
-      <div className={cn('tile-handle flex items-center gap-2 px-3 py-2 border-b border-border-op30 section-header-gradient', editing && 'cursor-move')}>
+      <div className={cn('tile-handle flex items-center gap-2 px-3 py-2 border-b border-border-op30 section-header-gradient', editing && 'cursor-move select-none')}>
         {editing && <DotsSixVertical size={14} className="text-text-tertiary" />}
         {Icon && <Icon size={16} className="text-accent-primary" weight="duotone" />}
         <h3 className="text-sm font-semibold text-text-primary truncate">{title}</h3>

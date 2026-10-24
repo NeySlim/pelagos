@@ -93,36 +93,65 @@ def zone_alerts(node_id: str, status: ZoneStatus, now: datetime) -> list[Alert]:
     return out
 
 
+# Hysteresis of pool alerts: an open alert holds until this many points under its threshold,
+# and a new one opens only after POOL_CONFIRM consecutive polls above it.
+POOL_MARGIN = 5.0
+POOL_CONFIRM = 2
+
+
 def pool_alerts(
     node_id: str,
     engine: str,
     utilization: list[dict[str, Any]],
     warning_percent: float,
     critical_percent: float,
+    open_kinds: dict[str, AlertKind] | None = None,
+    streak: dict[str, int] | None = None,
 ) -> list[Alert]:
-    """One alert per pool at most: pool_full above the critical percent, else pool_near_full above warning."""
+    """One alert per pool at most: pool_full above the critical percent, else pool_near_full above
+    warning. With `open_kinds` (subject -> kind of the pool alerts open now) and `streak` (polls in a
+    row above a threshold, kept by the caller), a pool hovering at a threshold neither flaps nor
+    switches kind every poll."""
     out: list[Alert] = []
+    hysteresis = open_kinds is not None
+    open_kinds = open_kinds or {}
+    streak = streak if streak is not None else {}
+    seen: set[str] = set()
     for row in utilization:
         total = int(row.get("total") or 0)
         assigned = int(row.get("assigned") or 0)
         if total <= 0:
             continue
         percent = 100.0 * assigned / total
-        if percent >= critical_percent:
-            kind, severity = AlertKind.POOL_FULL, Severity.CRITICAL
-        elif percent >= warning_percent:
-            kind, severity = AlertKind.POOL_NEAR_FULL, Severity.WARNING
-        else:
-            continue
         subnet_id = int(row.get("subnet_id") or 0)
         pool = str(row.get("pool") or "")
+        subject = pool_subject(engine, subnet_id, pool)
+        if percent >= critical_percent:
+            kind: AlertKind | None = AlertKind.POOL_FULL
+        elif percent >= warning_percent:
+            kind = AlertKind.POOL_NEAR_FULL
+        else:
+            kind = None
+        held = open_kinds.get(subject)
+        if hysteresis and held is AlertKind.POOL_FULL and percent >= critical_percent - POOL_MARGIN:
+            kind = AlertKind.POOL_FULL
+        elif hysteresis and held is not None and kind is None and percent >= warning_percent - POOL_MARGIN:
+            kind = AlertKind.POOL_NEAR_FULL
+        if kind is None:
+            continue
+        seen.add(subject)
+        if hysteresis and held is None:
+            streak[subject] = streak.get(subject, 0) + 1
+            if streak[subject] < POOL_CONFIRM:
+                continue
+        severity = Severity.CRITICAL if kind is AlertKind.POOL_FULL else Severity.WARNING
         out.append(
             Alert(
                 kind=kind,
                 severity=severity,
                 node_id=node_id,
                 engine=Engine(engine),
-                subject=pool_subject(engine, subnet_id, pool),
+                subject=subject,
                 title=f"pool {pool} of subnet {subnet_id} is {percent:.0f}% used",
                 details={
                     "subnet_id": subnet_id,
@@ -135,6 +164,8 @@ def pool_alerts(
                 },
             )
         )
+    for subject in [k for k in streak if k not in seen]:
+        del streak[subject]
     return out
 
 

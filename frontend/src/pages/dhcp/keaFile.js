@@ -27,3 +27,11 @@ export function adoptPlace(item, selfId) {
   if (!selfId) return 'unknown'
   return item?.node_id === selfId ? 'here' : 'other'
 }
+
+// Whether an `alerts` WebSocket message can change the file status of `engine`: only
+// config_divergence alerts about that engine's file (pool alerts update every poll).
+export function affectsFileStatus(message, engine) {
+  const alert = message?.data
+  if (!alert || typeof alert !== 'object') return false
+  return fileAlertEngine(alert) === engine
+}

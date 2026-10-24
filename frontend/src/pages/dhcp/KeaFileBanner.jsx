@@ -2,7 +2,7 @@
 // Section 9: a Kea configuration file that no longer says what the daemon runs blocks every
 // Kea write until one side is adopted. The banner shows it on the DHCP pages and offers both
 // adopt plans for this node; another node's file is adopted from that node.
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FileX } from '@phosphor-icons/react'
 import { Button } from '../../components/Button'
@@ -11,7 +11,10 @@ import { useApi } from '../../hooks/useApi'
 import { useWsTopic } from '../../hooks/useWebSocket'
 import { api } from '../../services/api'
 import { useNodeNames, usePlanFlow } from './hooks'
-import { adoptCall, adoptPlace, divergedFiles } from './keaFile'
+import { adoptCall, adoptPlace, affectsFileStatus, divergedFiles } from './keaFile'
+
+// The status read runs a config-get plus a parse of the file tree: bursts of alerts read it once.
+const REFETCH_DEBOUNCE_MS = 2000
 
 // `engine` is 'v4', 'v6' or 'd2'.
 export function KeaFileBanner({ engine }) {
@@ -22,9 +25,15 @@ export function KeaFileBanner({ engine }) {
   const status = useApi(() => (engine === 'd2' ? api.d2.configFile() : api.dhcp.configFile(engine)), [engine])
   const refetch = status.refetch
   const flow = usePlanFlow({ onApplied: refetch })
+  const timer = useRef(null)
+  useEffect(() => () => clearTimeout(timer.current), [])
   useWsTopic(
     'alerts',
-    useCallback(() => refetch(), [refetch]),
+    useCallback((message) => {
+      if (!affectsFileStatus(message, engine)) return
+      clearTimeout(timer.current)
+      timer.current = setTimeout(() => refetch(), REFETCH_DEBOUNCE_MS)
+    }, [refetch, engine]),
   )
   const selfId = nodes.find((n) => n.is_self)?.peer?.id
   const diverged = divergedFiles(status.data?.items)

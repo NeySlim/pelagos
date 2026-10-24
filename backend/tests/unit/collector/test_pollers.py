@@ -210,10 +210,13 @@ def test_kea_poller_pools_samples_and_alerts(store):
     kea.utilization[0]["assigned"] = 85
     clock.advance(60)
     out = poller.poll()
+    assert kinds(out) == set()  # hysteresis: a pool alert opens on the second poll in a row
+    assert next(e for e in out.events if e[0] == "leases")[2]["new_since_last"] == 75
+    clock.advance(60)
+    out = poller.poll()
     assert kinds(out) == {AlertKind.POOL_NEAR_FULL} and store.counts()["series_pool"] == 1
     assert out.alerts[0].subject == "kea4:subnet:1:pool:192.0.2.100-192.0.2.199"
     assert out.alerts[0].details["percent"] == 85.0
-    assert next(e for e in out.events if e[0] == "leases")[2]["new_since_last"] == 75
     kea.utilization[0]["assigned"] = 96
     clock.advance(300)
     out = poller.poll()

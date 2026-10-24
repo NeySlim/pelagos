@@ -184,6 +184,22 @@ class KeaPoller:
         self.last_active: int | None = None
         self.last_reclaimed: int | None = None
         self.file_check = FileDivergenceCache(backend, self.engine, node_id)
+        self.pool_streak: dict[str, int] = {}
+
+    def _open_pool_alerts(self) -> dict[str, AlertKind]:
+        """Pool alerts of this engine open (or acked) now, from the alert table the poll reconciles."""
+        conn = getattr(self.store, "conn", None)
+        if conn is None:
+            return {}
+        try:
+            rows = conn.execute(
+                "SELECT subject, kind FROM alerts WHERE state != 'resolved' AND node_id = ? AND engine = ? "
+                "AND kind IN (?, ?)",
+                (self.node_id, self.engine.value, AlertKind.POOL_FULL.value, AlertKind.POOL_NEAR_FULL.value),
+            ).fetchall()
+        except Exception:  # no alerts table yet: no hysteresis on this poll
+            return {}
+        return {r[0]: AlertKind(r[1]) for r in rows}
 
     @property
     def sample_period(self) -> int:
@@ -278,7 +294,17 @@ class KeaPoller:
         self.store.write_snapshot(self.node_id, engine, "utilization", now, utilization)
         warning = float(self.settings.get("alerts_pool_warning_percent", 80))
         critical = float(self.settings.get("alerts_pool_critical_percent", 95))
-        out.alerts.extend(rules.pool_alerts(self.node_id, engine, utilization, warning, critical))
+        out.alerts.extend(
+            rules.pool_alerts(
+                self.node_id,
+                engine,
+                utilization,
+                warning,
+                critical,
+                self._open_pool_alerts(),
+                self.pool_streak,
+            )
+        )
         if self.last_sample_ts is None or now - self.last_sample_ts >= self.sample_period:
             self.store.write_pool_samples(
                 (

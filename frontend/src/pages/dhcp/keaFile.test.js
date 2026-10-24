@@ -8,7 +8,7 @@ vi.mock('../../services/api', () => ({
   },
 }))
 
-import { adoptCall, adoptPlace, divergedFiles, fileAlertEngine } from './keaFile'
+import { adoptCall, adoptPlace, affectsFileStatus, divergedFiles, fileAlertEngine } from './keaFile'
 import { nextCursor, previousCursor } from './lib'
 
 describe('kea file divergence', () => {
@@ -48,5 +48,15 @@ describe('lease cursor', () => {
     stack = previousCursor(previousCursor(stack))
     expect(stack).toEqual([null])
     expect(previousCursor(stack)).toEqual([null])
+  })
+})
+
+describe('affectsFileStatus', () => {
+  it('only reacts to this engine file divergence alerts', () => {
+    const file = { topic: 'alerts', event: 'opened', data: { kind: 'config_divergence', subject: 'kea4:config-file' } }
+    expect(affectsFileStatus(file, 'v4')).toBe(true)
+    expect(affectsFileStatus(file, 'd2')).toBe(false)
+    expect(affectsFileStatus({ data: { kind: 'pool_full', subject: 'kea4:subnet:1:pool:p' } }, 'v4')).toBe(false)
+    expect(affectsFileStatus({}, 'v4')).toBe(false)
   })
 })

@@ -9,6 +9,7 @@ import { House, Gear, SignOut, Check, UserCircle, CaretRight, CaretDown, Globe, 
 import { useTheme } from '../contexts/ThemeContext'
 import { useAuth } from '../contexts/AuthContext'
 import { cn } from '../lib/utils'
+import { permitted } from '../lib/access'
 import { Logo } from './Logo'
 import { WebSocketIndicator } from './WebSocketIndicator'
 import { languages } from '../i18n'
@@ -66,7 +67,7 @@ export function useVisibleNavItems() {
   return useMemo(
     () =>
       allNavItems.filter((item) => {
-        if (item.permission && !hasPermission(item.permission)) return false
+        if (!permitted(item, hasPermission)) return false
         if (item.module && !modules?.[item.module]) return false
         return true
       }),

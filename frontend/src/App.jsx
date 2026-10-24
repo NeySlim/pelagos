@@ -12,6 +12,7 @@ import { DetailWindowLayer } from './components/FloatingDetailWindow'
 import { RouteStatus } from './components/RouteStatus'
 import LoginPage from './pages/auth/LoginPage'
 import { allRoutes } from './pages/routes'
+import { permitted } from './lib/access'
 
 export function PageLoader() {
   return (
@@ -21,12 +22,12 @@ export function PageLoader() {
   )
 }
 
-export function Protected({ permission, module, children }) {
+export function Protected({ permission, anyPermission, module, children }) {
   const { isAuthenticated, loading, hasPermission, modules, capabilities } = useAuth()
   const location = useLocation()
   if (loading) return <PageLoader />
   if (!isAuthenticated) return <Navigate to="/login" replace state={{ from: location.pathname }} />
-  if (permission && !hasPermission(permission)) return <RouteStatus kind="forbidden" />
+  if (!permitted({ permission, anyPermission }, hasPermission)) return <RouteStatus kind="forbidden" />
   if (module && !capabilities) return <PageLoader />
   if (module && !modules?.[module]) return <RouteStatus kind="module_disabled" />
   return children
@@ -39,12 +40,12 @@ export function AppRoutes() {
       <Routes>
         <Route path="/login" element={loading ? <PageLoader /> : isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />} />
         <Route element={<AppShell />}>
-          {allRoutes.map(({ path, component: Page, props, permission, module }) => (
+          {allRoutes.map(({ path, component: Page, props, permission, anyPermission, module }) => (
             <Route
               key={path}
               path={path}
               element={
-                <Protected permission={permission} module={module}>
+                <Protected permission={permission} anyPermission={anyPermission} module={module}>
                   <Suspense fallback={<PageLoader />}>
                     <Page {...props} />
                   </Suspense>

@@ -2,12 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # Roll lab VMs back to their base snapshot through the Proxmox API.
 #
-# Usage: rollback.sh <vmid|name|all> [--list] [--no-start]
-#   all          every target VM (lab-ns1, lab-ns2, lab-rpm, lab-client), never lab-dev
+# Usage: rollback.sh <vmid|name|all> [--list] [--no-start] [--no-wait]
+#   all          every target VM (lab-ns1, lab-ns2, lab-rpm, lab-client, lab-pkg-rpm,
+#                lab-docker), never lab-dev nor the gateway
 #   --list       show the snapshots of the VM(s) and exit
 #   --no-start   leave the VM stopped after the rollback
+#   --no-wait    do not wait for ssh and cloud-init after the start
 #
-# Needs: curl, jq, the API token header value in ~/.config/pelagos-lab/pve-token
+# After the rollback the VM's cloud-init ssh keys get the key of LAB_SSH_PUBKEY (default
+# ~/.ssh/id_ed25519.pub): the new instance id reruns cloud-init, so lab-dev can log in.
+#
+# Needs: curl, jq, python3, the API token header value in ~/.config/pelagos-lab/pve-token
 # (the whole "PVEAPIToken=user@realm!name=uuid" string) and the API base URL in
 # ~/.config/pelagos-lab/pve-api (for instance https://pve.example.lan:8006/api2/json)
 # or in PVE_API. The Proxmox node name comes from PVE_NODE (default pve).
@@ -20,29 +25,31 @@ if [[ -z "${PVE_API:-}" ]]; then
   PVE_API="$(tr -d '\n' < "$CONF_DIR/pve-api")"
 fi
 PVE_NODE="${PVE_NODE:-pve}"
+PUBKEY_FILE="${LAB_SSH_PUBKEY:-$HOME/.ssh/id_ed25519.pub}"
 
-# vmid:name:snapshot
+# vmid:name:snapshot:address
 VMS=(
-  "9111:lab-ns1:clean"
-  "9112:lab-ns2:clean"
-  "9113:lab-rpm:clean"
-  "9114:lab-client:clean"
-  "9115:lab-dev:ready"
-  "9116:lab-pkg-rpm:clean"
-  "9117:lab-docker:clean"
+  "9111:lab-ns1:clean:10.99.0.11"
+  "9112:lab-ns2:clean:10.99.0.12"
+  "9113:lab-rpm:clean:10.99.0.13"
+  "9114:lab-client:clean:10.99.0.14"
+  "9115:lab-dev:ready:10.99.0.15"
+  "9116:lab-pkg-rpm:rpmbuild:10.99.0.16"
+  "9117:lab-docker:docker:10.99.0.17"
 )
 # "all" targets only the disposable test VMs; the gateway (9110) is never rolled back.
-ALL_TARGETS=(9111 9112 9113 9114)
+ALL_TARGETS=(9111 9112 9113 9114 9116 9117)
 
-usage() { sed -n '3,12p' "$0"; exit 2; }
+usage() { sed -n '3,18p' "$0"; exit 2; }
 
 [[ $# -ge 1 ]] || usage
 target="$1"; shift
-list=0; start=1
+list=0; start=1; wait_up=1
 for arg in "$@"; do
   case "$arg" in
     --list) list=1 ;;
     --no-start) start=0 ;;
+    --no-wait) wait_up=0 ;;
     *) usage ;;
   esac
 done
@@ -57,10 +64,10 @@ api() {
 }
 
 resolve() {
-  local entry
+  local entry vmid name
   for entry in "${VMS[@]}"; do
-    IFS=: read -r vmid name snap <<<"$entry"
-    if [[ "$1" == "$vmid" || "$1" == "$name" ]]; then echo "$vmid:$name:$snap"; return 0; fi
+    IFS=: read -r vmid name _ <<<"$entry"
+    if [[ "$1" == "$vmid" || "$1" == "$name" ]]; then echo "$entry"; return 0; fi
   done
   echo "unknown VM $1" >&2; return 1
 }
@@ -78,8 +85,44 @@ wait_task() {
   [[ "$exit_status" == "OK" ]] || { echo "task $upid ended with $exit_status" >&2; return 1; }
 }
 
+ensure_sshkey() {
+  # ensure_sshkey <vmid>: appends our public key to the VM's cloud-init keys when missing.
+  # Proxmox stores sshkeys percent-encoded; curl form-encodes the value once more.
+  local vmid="$1" current encoded
+  [[ -r "$PUBKEY_FILE" ]] || return 0
+  current="$(api GET "/$vmid/config" | jq -r '.data.sshkeys // ""')"
+  encoded="$(python3 -c '
+import sys, urllib.parse
+keys = urllib.parse.unquote(sys.argv[1])
+pub = open(sys.argv[2]).read().strip()
+if pub in keys:
+    sys.exit(0)
+keys = keys.rstrip("\n") + ("\n" if keys.strip() else "") + pub + "\n"
+print(urllib.parse.quote(keys, safe=""))
+' "$current" "$PUBKEY_FILE")"
+  [[ -n "$encoded" ]] || return 0
+  api PUT "/$vmid/config" --data-urlencode "sshkeys=$encoded" >/dev/null
+  echo "   cloud-init ssh key added"
+}
+
+wait_ssh() {
+  # wait_ssh <address>: until ssh answers and cloud-init is done (at most 6 minutes).
+  local addr="$1" i
+  for i in $(seq 1 72); do
+    if ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no \
+      -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "lab@$addr" \
+      'cloud-init status --wait >/dev/null 2>&1 || true' 2>/dev/null; then
+      return 0
+    fi
+    sleep 5
+  done
+  echo "   $addr: ssh did not come up" >&2
+  return 1
+}
+
 rollback_one() {
-  IFS=: read -r vmid name snap <<<"$(resolve "$1")"
+  local vmid name snap addr
+  IFS=: read -r vmid name snap addr <<<"$(resolve "$1")"
   if [[ $list -eq 1 ]]; then
     echo "== $name ($vmid)"
     api GET "/$vmid/snapshot" | jq -r '.data[] | select(.name != "current") | "\(.name)\t\(.snaptime // 0 | todate)\t\(.description // "")"'
@@ -87,13 +130,31 @@ rollback_one() {
   fi
   echo "== $name ($vmid): rollback to '$snap'"
   local upid
-  upid=$(api POST "/$vmid/snapshot/$snap/rollback" --data-urlencode "start=$start" | jq -r '.data')
+  upid=$(api POST "/$vmid/snapshot/$snap/rollback" --data-urlencode "start=0" | jq -r '.data')
   wait_task "$upid"
-  echo "   done (start=$start)"
+  ensure_sshkey "$vmid"
+  ssh-keygen -R "$addr" >/dev/null 2>&1 || true
+  ssh-keygen -R "$name" >/dev/null 2>&1 || true
+  if [[ $start -eq 1 ]]; then
+    if [[ "$(api GET "/$vmid/status/current" | jq -r '.data.status')" != "running" ]]; then
+      upid=$(api POST "/$vmid/status/start" | jq -r '.data')
+      wait_task "$upid"
+    fi
+  fi
+  echo "   rolled back (start=$start)"
 }
 
+targets=()
 if [[ "$target" == "all" ]]; then
-  for vmid in "${ALL_TARGETS[@]}"; do rollback_one "$vmid"; done
+  targets=("${ALL_TARGETS[@]}")
 else
-  rollback_one "$target"
+  targets=("$target")
+fi
+for t in "${targets[@]}"; do rollback_one "$t"; done
+if [[ $list -eq 0 && $start -eq 1 && $wait_up -eq 1 ]]; then
+  for t in "${targets[@]}"; do
+    IFS=: read -r _ name _ addr <<<"$(resolve "$t")"
+    [[ "$name" == lab-dev ]] && continue
+    wait_ssh "$addr" && echo "== $name: ssh up"
+  done
 fi

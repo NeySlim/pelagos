@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * Error Boundary - Catch React errors gracefully
- * Auto-polls /api/health and reloads when service is back.
+ * Auto-polls /api/v1/health and reloads when service is back.
  */
 import { Component } from 'react'
 import { Warning, ArrowClockwise, ArrowsClockwise, Check } from '@phosphor-icons/react'
 import i18n from '../i18n'
+import { API_BASE_URL } from '../services/apiClient'
 
-const HEALTH_URL = '/api/health'
+const HEALTH_URL = `${API_BASE_URL}/health`
 const POLL_INTERVAL = 3000
 
 export class ErrorBoundary extends Component {

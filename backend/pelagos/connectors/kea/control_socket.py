@@ -77,10 +77,22 @@ class KeaCommandError(ConnectorError):
         self.text = text
 
 
+# Commands that rebuild the server (config-set may reload a large lease file): a longer wait, since a
+# timeout leaves their outcome unknown.
+SLOW_COMMANDS = frozenset({"config-set", "config-write", "config-reload", "config-test"})
+DEFAULT_COMMAND_TIMEOUT = 120.0
+
+
 class KeaControlSocket:
-    def __init__(self, path: Path, timeout: float = 15.0) -> None:
+    def __init__(
+        self, path: Path, timeout: float = 15.0, command_timeout: float = DEFAULT_COMMAND_TIMEOUT
+    ) -> None:
         self.path = Path(path)
         self.timeout = timeout
+        self.command_timeout = command_timeout
+
+    def timeout_for(self, command: str) -> float:
+        return max(self.timeout, self.command_timeout) if command in SLOW_COMMANDS else self.timeout
 
     def send(self, command: str, arguments: Any = None, service: list[str] | None = None) -> dict[str, Any]:
         """Raw exchange; returns the response object (result, text, arguments)."""
@@ -90,9 +102,10 @@ class KeaControlSocket:
         if service:
             payload["service"] = service
         data = json.dumps(payload).encode()
+        timeout = self.timeout_for(command)
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-                sock.settimeout(self.timeout)
+                sock.settimeout(timeout)
                 sock.connect(str(self.path))
                 sock.sendall(data)
                 buf = bytearray()
@@ -110,12 +123,15 @@ class KeaControlSocket:
                         except (json.JSONDecodeError, UnicodeDecodeError):
                             continue
         except TimeoutError as exc:
-            raise ConnectorTimeout(f"{command}: Kea did not answer within {self.timeout}s") from exc
+            raise ConnectorTimeout(f"{command}: Kea did not answer within {timeout}s") from exc
         except (FileNotFoundError, ConnectionRefusedError, PermissionError, OSError) as exc:
             raise ConnectorUnavailable(f"control socket {self.path}: {exc}") from exc
         if not buf:
             raise ConnectorUnavailable(f"{command}: empty answer from {self.path}")
-        return _first(json.loads(buf.decode()))
+        try:
+            return _first(json.loads(buf.decode()))
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise ConnectorUnavailable(f"{command}: truncated or invalid answer from {self.path}") from exc
 
     def call(self, command: str, arguments: Any = None, allow_empty: bool = False) -> dict[str, Any]:
         """Send and check result; returns `arguments` of the answer (empty dict when none)."""

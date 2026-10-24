@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import timedelta
@@ -40,7 +41,12 @@ from pelagos.connectors.kea.commands import (
     pool_utilization_from_stats,
 )
 from pelagos.connectors.kea.configfile import ADOPT_FILE, ADOPT_TARGETS, KeaConfigFile
-from pelagos.connectors.kea.control_socket import EMPTY, KeaCommandError, KeaControlSocket
+from pelagos.connectors.kea.control_socket import (
+    DEFAULT_COMMAND_TIMEOUT,
+    EMPTY,
+    KeaCommandError,
+    KeaControlSocket,
+)
 from pelagos.connectors.kea.ha import MAINTENANCE_COMMANDS, ha_state_from_status
 from pelagos.connectors.kea.schema import config_schema
 from pelagos.connectors.kea.secrets import masked_refusal
@@ -85,6 +91,8 @@ READ_COMMANDS = frozenset(
 READ_SUFFIXES = ("-get", "-get-all", "-get-page", "-list")
 KNOWN_HOOKS = ("lease_cmds", "host_cmds", "subnet_cmds", "stat_cmds", "ha", "class_cmds")
 LEASE_PAGE = 1000
+APPLIED_KEPT = 256
+_PLAN_ID = re.compile(r"^[0-9A-Za-z_-]{1,64}$")
 # Target kinds (config.parse_target) each configuration plan scope may touch.
 SCOPE_TARGETS = {
     PlanScope.DHCP_SUBNET: {"subnet"},
@@ -121,7 +129,9 @@ class KeaBackend(DhcpBackend):
         n = 4 if family is Family.V4 else 6
         socket_dir = Path(cfg.get("socket_dir", "/run/kea"))
         name = cfg.get(f"dhcp{n}_socket", f"kea{n}-ctrl-socket")
-        self.socket = KeaControlSocket(socket_dir / name)
+        self.socket = KeaControlSocket(
+            socket_dir / name, command_timeout=float(cfg.get("command_timeout", DEFAULT_COMMAND_TIMEOUT))
+        )
         self.conf_path = Path(cfg.get(f"dhcp{n}_conf", f"/etc/kea/kea-dhcp{n}.conf"))
         self.backup_root = Path(ctx.backup_root) / self.engine_name
         self.plan_ttl = int((ctx.settings or {}).get("plan_ttl_seconds", 600))
@@ -172,6 +182,7 @@ class KeaBackend(DhcpBackend):
         try:
             config = self.config_get()
         except ConnectorError:
+            self._version = None  # the server may come back upgraded
             return DhcpCapabilities(
                 engine=self.family.kea_engine, running=False, control_socket=str(self.socket.path)
             )
@@ -734,15 +745,49 @@ class KeaBackend(DhcpBackend):
         backup = self._last_backup
         self._applied[plan_id] = (after, backup)
         # Bounded: only the plans still inside their rollback window matter.
-        while len(self._applied) > 256:
+        while len(self._applied) > APPLIED_KEPT:
             self._applied.pop(next(iter(self._applied)))
+        self._persist_applied(plan_id, after, backup)
+
+    def _applied_dir(self) -> Path:
+        return self.backup_root / "applied"
+
+    def _persist_applied(self, plan_id: str, after: str, backup: Path | None) -> None:
+        """Kept on disk too, so a restarted process still guards rollbacks against staleness."""
+        try:
+            d = self._applied_dir()
+            d.mkdir(parents=True, exist_ok=True)
+            tmp = d / f".{plan_id}.tmp"
+            tmp.write_text(json.dumps({"after_hash": after, "backup": str(backup) if backup else None}))
+            tmp.replace(d / f"{plan_id}.json")
+            files = sorted(d.glob("*.json"), key=lambda p: p.stat().st_mtime)
+            for old in files[:-APPLIED_KEPT]:
+                old.unlink(missing_ok=True)
+        except OSError:
+            pass  # memory still holds it for this process
+
+    def _recorded(self, plan_id: str) -> tuple[str, Path | None] | None:
+        if plan_id in self._applied:
+            return self._applied[plan_id]
+        if not _PLAN_ID.match(plan_id):
+            return None
+        try:
+            data = json.loads((self._applied_dir() / f"{plan_id}.json").read_text())
+            return str(data["after_hash"]), (Path(data["backup"]) if data.get("backup") else None)
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
+    def _forget(self, plan_id: str) -> None:
+        self._applied.pop(plan_id, None)
+        if _PLAN_ID.match(plan_id):
+            (self._applied_dir() / f"{plan_id}.json").unlink(missing_ok=True)
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
         """Apply the inverse changes through the same path; a config replace restores the exact JSON.
 
         Refused when the running configuration moved since this plan was applied (another plan or a
         hand edit), which a blind inverse would silently undo."""
-        recorded = self._applied.get(plan.id)
+        recorded = self._recorded(plan.id)
         if recorded is not None and plan.scope not in (PlanScope.DHCP_LEASE, PlanScope.DHCP_HA):
             observed = self.config_hash()
             if observed != recorded[0]:
@@ -761,7 +806,7 @@ class KeaBackend(DhcpBackend):
             inverse = [c.inverse() for c in reversed(plan.changes)]
             result = self._run(inverse, f"{plan.id}-rollback", plan.scope)
         if result.ok:
-            self._applied.pop(plan.id, None)
+            self._forget(plan.id)
         return result
 
     def _run(self, changes: list[Change], label: str, scope: PlanScope) -> NodeApplyResult:
@@ -853,8 +898,8 @@ class KeaBackend(DhcpBackend):
                     in_db = hosts_db and _is_reservation(change)
                     undo_cmd = self._host_undo(change) if in_db else None
                     for command, args in object_commands(change, self.family, current, version, hosts_db):
+                        mutated = True  # set first: a timeout leaves the outcome unknown
                         self.socket.call(command, args)
-                        mutated = True
                         steps.append(command)
                     if undo_cmd is not None:
                         undo.append(undo_cmd)
@@ -866,8 +911,8 @@ class KeaBackend(DhcpBackend):
                 if not validation.ok:
                     raise ValidationFailed(validation)
                 steps.append("config-test")
+                mutated = True  # set first: Kea may finish a config-set the client gave up on
                 self.socket.call("config-set", self._wrap(new_cfg))
-                mutated = True
                 steps.append("config-set")
             problems = self._verify(changes, self.config_get(), hosts_db)
             if problems:
@@ -875,12 +920,14 @@ class KeaBackend(DhcpBackend):
             steps.append("verify")
             persisting = True
             steps.append(self.file.persist(doc, before, label, [c.after for c in changes]))
-        except ConnectorError as exc:
+        except Exception as exc:
             rolled_back = False
             if mutated:
                 hosts_back = self._undo_hosts(undo)
                 files = backup_dir if persisting else None
                 rolled_back = self._restore(before, before_hash, files) and hosts_back
+            if not isinstance(exc, ConnectorError):
+                raise  # restored first; the caller records the unexpected error
             path = "commands" if use_commands else "config-set"
             return NodeApplyResult(
                 node_id=self.ctx.node_id,

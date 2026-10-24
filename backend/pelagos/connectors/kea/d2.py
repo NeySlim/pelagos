@@ -20,7 +20,7 @@ from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBacken
 from pelagos.connectors.kea.commands import normalize_version
 from pelagos.connectors.kea.config import canonical, config_diff, normalize_root
 from pelagos.connectors.kea.configfile import ADOPT_FILE, ADOPT_TARGETS, KeaConfigFile
-from pelagos.connectors.kea.control_socket import KeaControlSocket
+from pelagos.connectors.kea.control_socket import DEFAULT_COMMAND_TIMEOUT, KeaControlSocket
 from pelagos.connectors.kea.schema import config_schema
 from pelagos.core.write_pipeline import FileChange
 from pelagos.domain import (
@@ -114,7 +114,8 @@ class D2Backend(DdnsBackend):
         super().__init__(ctx)
         cfg = ctx.engine_config
         self.socket = KeaControlSocket(
-            Path(cfg.get("socket_dir", "/run/kea")) / cfg.get("d2_socket", "kea-ddns-ctrl-socket")
+            Path(cfg.get("socket_dir", "/run/kea")) / cfg.get("d2_socket", "kea-ddns-ctrl-socket"),
+            command_timeout=float(cfg.get("command_timeout", DEFAULT_COMMAND_TIMEOUT)),
         )
         self.conf_path = Path(cfg.get("d2_conf", "/etc/kea/kea-dhcp-ddns.conf"))
         self.secret_dir = Path(cfg.get("d2_secret_dir", str(self.conf_path.parent)))

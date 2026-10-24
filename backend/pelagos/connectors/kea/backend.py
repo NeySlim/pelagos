@@ -29,6 +29,7 @@ from pelagos.connectors.base import (
     ValidationFailed,
 )
 from pelagos.connectors.kea import config as kcfg
+from pelagos.connectors.kea import secrets as kea_secrets
 from pelagos.connectors.kea.commands import (
     Command,
     command_path_available,
@@ -42,6 +43,7 @@ from pelagos.connectors.kea.configfile import ADOPT_FILE, ADOPT_TARGETS, KeaConf
 from pelagos.connectors.kea.control_socket import EMPTY, KeaCommandError, KeaControlSocket
 from pelagos.connectors.kea.ha import MAINTENANCE_COMMANDS, ha_state_from_status
 from pelagos.connectors.kea.schema import config_schema
+from pelagos.connectors.kea.secrets import masked_refusal
 from pelagos.core.keadoc import KeaDocument
 from pelagos.domain import (
     Change,
@@ -617,10 +619,22 @@ class KeaBackend(DhcpBackend):
         """Advanced editor: the whole Dhcp4/Dhcp6 object; the root wrapper is accepted too."""
         if self.root_key in config and len(config) <= 2:
             config = config[self.root_key]
+        config, missing = self.unmask_config(config)
+        if missing:
+            raise ConnectorError(masked_refusal(missing))
         change = Change(ChangeOp.REPLACE, "config", after=config)
         return self._plan_config(
             PlanScope.DHCP_CONFIG, [change], created_by, f"{self.engine_name}: replace configuration"
         )
+
+    def unmask_config(self, config: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+        """The editor's body with every masked secret put back; also the paths left masked."""
+        try:
+            doc = self.file.document()
+        except ConnectorError:
+            doc = None
+        filed = (doc.value.get(self.root_key) if doc else None) or {}
+        return kea_secrets.unmask(config, self.config_get(), filed)
 
     def plan_lease_delete(self, ip_address: str, created_by: str = "") -> Plan:
         lease = self.lease(ip_address)

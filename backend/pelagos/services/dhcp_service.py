@@ -478,6 +478,7 @@ class DhcpService:
                     "a configuration replace is built on the node it replaces; log in on that node",
                     [field_error("node_id", "not this node")],
                 )
+            _only_this_node(body.get("node_ids"), self.ctx.node.id)
             targets = [self.ctx.node.id]
         elif body.get("node_ids"):
             targets = self._target_nodes(body["node_ids"])
@@ -576,6 +577,16 @@ class DhcpService:
         if isinstance(body_cfg, dict) and "hooks-libraries" in body_cfg:
             allowed = hook_dirs(backend.config_get().get("hooks-libraries"))
             check_hook_libraries(body_cfg["hooks-libraries"], allowed, "config.hooks-libraries")
+        unmask = getattr(backend, "unmask_config", None)
+        if unmask is not None and isinstance(body_cfg, dict):
+            # GET .../config masked the secrets: they go back before anything reaches config-set.
+            body_cfg, missing = unmask(body_cfg)
+            if missing:
+                raise ValidationError(
+                    "the configuration holds masked secrets with no known value",
+                    [field_error(f"config{p}", "masked secret: type it again") for p in missing[:10]],
+                )
+            config = body_cfg
         return backend.plan_config_replace(config, created_by)
 
     def _plan_one_node(self, kind: str, body: dict[str, Any], created_by: str) -> Plan:
@@ -850,12 +861,12 @@ class DhcpService:
         if not isinstance(config, dict):
             raise ValidationError("config must be an object", [field_error("config", "object expected")])
         target = body.get("node_id") or self.ctx.node.id
-        others = [n for n in body.get("node_ids") or [] if n != self.ctx.node.id]
-        if target != self.ctx.node.id or others:
+        if target != self.ctx.node.id:
             raise ValidationError(
                 "a D2 configuration replace is built on the node it replaces; log in on that node",
                 [field_error("node_id", "not this node")],
             )
+        _only_this_node(body.get("node_ids"), self.ctx.node.id)
         kea_files.check(
             self.alerts, Engine.D2, [self.ctx.node.id], self.ctx.node.id, self.d2, self._node_names()
         )
@@ -920,6 +931,20 @@ def with_percent(row: dict[str, Any]) -> dict[str, Any]:
         "declined": int(row.get("declined") or 0),
         "percent": round(100.0 * assigned / total, 1) if total else 0.0,
     }
+
+
+def _only_this_node(node_ids: Any, me: str) -> None:
+    """A configuration replace targets this node only: `node_ids` naming another node is a 400."""
+    if node_ids is None:
+        return
+    if not isinstance(node_ids, list):
+        raise ValidationError("node_ids must be a list", [field_error("node_ids", "list expected")])
+    others = [n for n in node_ids if n != me]
+    if others:
+        raise ValidationError(
+            "a configuration replace applies to this node only; log in on the other node",
+            [field_error("node_ids", str(n)) for n in others],
+        )
 
 
 def mask_d2_secrets(config: dict[str, Any]) -> dict[str, Any]:

@@ -61,7 +61,9 @@ def test_failed_install_leaves_no_module_file(tmp_path):
     env = env_for(tmp_path, rc=1)
     types = typer({"/usr/sbin/kea-dhcp4": "kea_exec_t", str(CONF): "kea_etc_t"})
     out = keaselinux.ensure_config_write(env, CONF, "kea-dhcp4", types)
-    assert "failed" in out and not (tmp_path / "var/lib/pelagos-helper/selinux/pelagos-kea-kea_t.cil").exists()
+    assert (
+        "failed" in out and not (tmp_path / "var/lib/pelagos-helper/selinux/pelagos-kea-kea_t.cil").exists()
+    )
     dry = env_for(tmp_path, dry_run=True)
     assert keaselinux.ensure_config_write(dry, CONF, "kea-dhcp4", types).startswith("dry run")
 

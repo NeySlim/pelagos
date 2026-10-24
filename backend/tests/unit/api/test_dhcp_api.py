@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from pelagos.connectors.base import ConnectorUnavailable
@@ -293,3 +295,28 @@ def test_partial_replace_keeps_what_it_does_not_name(role_client, kea4):
     change = {"op": "add", "target": "subnet4/12", "after": {"subnet": "198.51.100.0/24"}}
     assert op.post(D + "/subnets/plan", json={"change": change}).status_code == 200
     assert seen[-1]["pools"] == [] and seen[-1]["id"] == 12
+
+
+def test_ha_basic_auth_password_never_leaves_the_node(role_client, kea4, node_ctx):
+    peer = {"name": "ns1", "url": "http://192.0.2.1:8000/", "basic-auth-password": "hunter2"}
+    hooks = [{"library": "/hooks/libdhcp_ha.so", "parameters": {"high-availability": [{"peers": [peer]}]}}]
+    kea4.config["hooks-libraries"] = hooks
+    viewer = role_client("viewer")
+    assert "hunter2" not in viewer.get(D + "/config").get_data(as_text=True)
+    assert "hunter2" not in viewer.get(D + "/hooks").get_data(as_text=True)
+    op = role_client("dhcp-operator")
+    new = dict(kea4.config, **{"valid-lifetime": 999})
+    r = op.post(D + "/config/plan", json={"config": new})
+    assert r.status_code == 200 and "hunter2" not in r.get_data(as_text=True)
+    assert _apply(op, r.get_json()["id"], True).get_json()["state"] == "applied"
+    entries = node_ctx.audit_log.query(action="dhcp.config.replace")[0]
+    entries += node_ctx.audit_log.query(action="dhcp.config.apply")[0]
+    assert entries and all("hunter2" not in json.dumps(e.to_dict()) for e in entries)
+
+
+def test_config_replace_refuses_other_nodes(role_client):
+    op = role_client("dhcp-operator")
+    r = op.post(D + "/config/plan", json={"config": {"subnet4": []}, "node_ids": ["elsewhere"]})
+    assert r.status_code == 400 and r.get_json()["errors"][0]["field"] == "node_ids"
+    r = op.post("/api/v1/dhcp/d2/config/plan", json={"config": {}, "node_ids": ["elsewhere"]})
+    assert r.status_code == 400

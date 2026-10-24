@@ -65,7 +65,7 @@ def test_write_files_refuses_foreign_paths(tmp_path):
     conf, outside, victim, link = _tree(tmp_path)
     env = _env(conf.parent)
     for target in (outside, link):
-        with pytest.raises(RuntimeError, match="outside|symlink"):
+        with pytest.raises(RuntimeError, match=r"outside|symlink"):
             keasetup.write_files(env, "kea4", conf, {conf: "{}", target: "{}"}, "t", restart=False)
     assert outside.read_text() == '{"a": 1}' and victim.read_text() == '{"b": 2}'
 

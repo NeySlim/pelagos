@@ -220,6 +220,21 @@ client side, and event `consistency` triggers a consistency pass (used by
 18 messages to `events.sock`, which the web process (WP-API-AUTH) binds.
 node.toml: `[engines] bind` may be a bool or the `[engines.bind]` table (TOML
 forbids both at once); a table counts as enabled.
+
+## 2026-10-24, WP-API-AUTH: masked audit, WebSocket topic permissions, engine flags
+Audit entries written by plan apply/rollback and admin actions mask
+`secret`/`password` keys and named.conf/Kea secrets in diffs
+(`pelagos.services.masking`, re-exported by `pelagos.api.common`).
+`docs/architecture.md` section 18: per-topic read permissions,
+`forbidden` in `subscribed`, 4403 for restricted sessions, open sockets no
+longer refresh the idle timer (`SessionStore.peek`). node.toml `[engines]`:
+an engine is on when its entry is truthy, the same rule as
+`NodeConfig.modules`; the `enabled = false` sub-key is no longer read.
+`PUT /admin/modules` turning a table-configured engine off writes `false`
+and parks the table under `[engines.disabled.<engine>]`, restored when the
+engine is turned back on. WP-CORE and WP-INSTALLER: write `false` (not a
+table with `enabled = false`) to disable an engine.
+
 ## 2026-10-24, WP-API-AUTH: engine snapshot kinds and the shared connector registry
 `docs/architecture.md` section 13: `GET /repl/v1/engines/<engine>/snapshot`
 takes `?kind=` and kind parameters; `ReplicationClient.engine_snapshot(engine,

@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from pelagos.domain import Alert, AlertKind, Engine, HAState, Severity, ZoneKind, ZoneStatus
+from pelagos.services.consistency import redact_kea_difference
 
 # Steady states per HA mode: anything else is degraded, except partner-down which has its own alert.
 HA_NORMAL_STATES = frozenset({"hot-standby", "load-balancing", "backup", "passive-backup"})
@@ -295,6 +296,7 @@ def schema_mismatch(peer_id: str, peer_name: str, error: str | None) -> Alert:
 
 def config_file_divergence(node_id: str, engine: Engine, path: str, differences: list[str]) -> Alert:
     """The Kea configuration file no longer matches what the daemon runs (config-get)."""
+    differences = [redact_kea_difference(d) for d in differences]
     return Alert(
         kind=AlertKind.CONFIG_DIVERGENCE,
         severity=Severity.WARNING,

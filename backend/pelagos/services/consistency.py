@@ -364,6 +364,27 @@ def _kea_scalar(key: str, value: Any) -> Any:
     return value
 
 
+def is_sensitive_kea_key(key: str) -> bool:
+    """Keys whose values never appear in a difference (`secret`, `basic-auth-password`, ...)."""
+    key = key.lower()
+    return key.endswith(("password", "secret"))
+
+
+_DIFF_PATH = re.compile(r"^(?P<path>[^:]*): ")
+_LAST_KEY = re.compile(r"/(?P<key>[^/\[]+)(?:\[\d+\])*$")
+
+
+def redact_kea_difference(line: str) -> str:
+    """`<path>: differs` when the path ends on a sensitive key, the line unchanged otherwise."""
+    m = _DIFF_PATH.match(line)
+    if not m:
+        return line
+    last = _LAST_KEY.search(m.group("path"))
+    if last and is_sensitive_kea_key(last.group("key")):
+        return f"{m.group('path')}: differs"
+    return line
+
+
 def _same_scalar(key: str, file_value: Any, running: Any) -> bool:
     a, b = _kea_scalar(key, file_value), _kea_scalar(key, running)
     if a == b:
@@ -410,7 +431,10 @@ def _kea_diff(file_value: Any, running: Any, path: str, key: str) -> Iterator[st
                 yield from _kea_diff(a, b, f"{path}[{i}]", key)
         return
     if not _same_scalar(key, file_value, running):
-        yield f"{path}: {file_value!r} in the file, {running!r} running"
+        if is_sensitive_kea_key(key):
+            yield f"{path}: differs"
+        else:
+            yield f"{path}: {file_value!r} in the file, {running!r} running"
 
 
 def kea_config_differences(file_config: dict[str, Any], running_config: dict[str, Any]) -> list[str]:

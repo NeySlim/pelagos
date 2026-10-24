@@ -212,3 +212,33 @@ def test_kea_config_differences_normalizes_what_kea_rewrites():
         "/subnet6: 2 item(s) in the file, 1 running",
         "/rebind-timer: in the file, absent from the running configuration",
     ]
+
+
+def test_kea_differences_never_show_secret_values():
+    from pelagos.collector import rules
+    from pelagos.domain import Engine
+
+    file_cfg = {
+        "Dhcp4": {
+            "hooks-libraries": [
+                {"library": "ha.so", "parameters": {"basic-auth-password": "newpass", "api-secret": "s1"}}
+            ],
+            "valid-lifetime": 600,
+        }
+    }
+    running = {
+        "Dhcp4": {
+            "hooks-libraries": [
+                {"library": "ha.so", "parameters": {"basic-auth-password": "oldpass", "api-secret": "s2"}}
+            ],
+            "valid-lifetime": 300,
+        }
+    }
+    diffs = c.kea_config_differences(file_cfg, running)
+    assert "/hooks-libraries[0]/parameters/basic-auth-password: differs" in diffs
+    assert "/hooks-libraries[0]/parameters/api-secret: differs" in diffs
+    assert "/valid-lifetime: 600 in the file, 300 running" in diffs
+    assert not any("pass" in d.split(": ", 1)[1] or "s1" in d for d in diffs)
+    raw = ["/tsig-keys[0]/secret: 'a' in the file, 'b' running", "/valid-lifetime: 1 in the file, 2 running"]
+    alert = rules.config_file_divergence("n1", Engine.D2, "/etc/kea/d2.conf", raw)
+    assert alert.details["differences"] == ["/tsig-keys[0]/secret: differs", raw[1]]

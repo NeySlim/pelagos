@@ -259,7 +259,6 @@ def adopt(env: Any, named_conf: Path, opts: AdoptOptions) -> AdoptResult:
     if str(named_conf) not in files.texts:
         raise FileNotFoundError(f"{named_conf} is not readable")
     out: list[str] = []
-    stmts_all = [s for p in files.order for s in files.statements[p]]
     defined = all_keys(files)
     group = env.file_group(paths.bind_group)
 
@@ -336,26 +335,6 @@ def adopt(env: Any, named_conf: Path, opts: AdoptOptions) -> AdoptResult:
     else:
         out.append("rndc: no usable control channel found; see the security audit")
 
-    # The two include lines, the only edits to user files.
-    top_line = managed.include_line(paths.pelagos_conf)
-    opt_line = managed.include_line(paths.options_conf)
-    user_texts: dict[str, str] = {}
-    options = find_options(files)
-    if not bindconf.has_include(stmts_all, str(paths.options_conf)):
-        if options is not None and options.block is not None and options.path:
-            user_texts[options.path] = bindconf.insert_in_block(
-                files.texts[options.path], options.block, opt_line
-            )
-            out.append(f"{options.path}: include of options.conf added inside options {{ }}")
-        else:
-            out.append("no options block: options.conf is not included")
-    if not bindconf.has_include(stmts_all, str(paths.pelagos_conf)):
-        base = user_texts.get(str(named_conf), files.texts[str(named_conf)])
-        user_texts[str(named_conf)] = bindconf.append_top_level(base, top_line)
-        out.append(f"{named_conf}: include of pelagos.conf added")
-    for path, text in user_texts.items():
-        changes[Path(path)] = text.encode()
-
     engine_config = {
         "named_conf": str(named_conf),
         "include_dir": str(include_dir),
@@ -363,12 +342,19 @@ def adopt(env: Any, named_conf: Path, opts: AdoptOptions) -> AdoptResult:
         "statistics_url": stats_url or "",
         "query_address": "127.0.0.1",
         "query_port": 53,
+        "group": paths.bind_group,
     }
-    if not changes:
-        out.append("nothing to write: configuration already adopted")
-        return AdoptResult(out, secrets, engine_config, None)
     if env.dry_run:
-        out.append("dry run: would write " + ", ".join(str(p) for p in changes))
+        if changes:
+            out.append("dry run: would write " + ", ".join(str(p) for p in changes))
+        out.extend(include_setup(env, named_conf, engine_config))
+        return AdoptResult(out, secrets, engine_config, None)
+    if not changes:
+        includes = include_setup(env, named_conf, engine_config)
+        if includes == [INCLUDES_PRESENT]:
+            out.append("nothing to write: configuration already adopted")
+        else:
+            out.extend(includes)
         return AdoptResult(out, secrets, engine_config, None)
 
     pipeline = bind_pipeline(
@@ -391,7 +377,68 @@ def adopt(env: Any, named_conf: Path, opts: AdoptOptions) -> AdoptResult:
     if paths.selinux:
         env.runner.run(["restorecon", "-R", str(include_dir)], privileged=True, check=False)
     out.extend(f"{s['name']}: {s['output']}".strip() for s in result.steps if s["output"])
+    try:
+        out.extend(include_setup(env, named_conf, engine_config))
+    except Exception:
+        # The managed files were not included yet: putting them back needs no reload.
+        if result.backup_dir:
+            pipeline.restore(result.backup_dir, reload=False)
+        raise
     return AdoptResult(out, secrets, engine_config, str(result.backup_dir) if result.backup_dir else None)
+
+
+INCLUDES_PRESENT = "include lines present"
+
+
+def include_setup(env: Any, named_conf: Path, engine_config: dict[str, Any]) -> list[str]:
+    """The include lines (top level, options, one per view) through the BIND connector's
+    `plan_include_setup()`, validated and reloaded with the installer's tools."""
+    from pelagos.connectors.base import ConnectorContext
+    from pelagos.connectors.bind.backend import BindBackend
+
+    cfg = dict(engine_config)
+    cfg["group"] = env.file_group(env.paths.bind_group)
+    checkconf = env.binary("named-checkconf")
+    if checkconf:
+        cfg["checkconf"] = checkconf
+    written: list[Path] = []
+
+    def factory(backup_root: Path, validate: Any, reload: Any, verify: Any = None, label: str = "") -> Any:
+        # named-checkconf, rndc and SELinux labels the installer's way, on the files the plan writes.
+        pipeline = bind_pipeline(env, named_conf, label=f"install-bind-{label}", written=written)
+        run = pipeline.run
+
+        def run_and_track(changes: list[FileChange]) -> Any:
+            written[:] = [c.path for c in changes]
+            return run(changes)
+
+        pipeline.run = run_and_track  # type: ignore[method-assign]
+        return pipeline
+
+    backend = BindBackend(
+        ConnectorContext(
+            node_id=env.node_id,
+            engine_config=cfg,
+            backup_root=env.backup_root / "bind",
+            get_secret=lambda _name: None,
+            settings={},
+            pipeline_factory=factory,
+        )
+    )
+    plan = backend.plan_include_setup(created_by="installer")
+    if plan.error == "no change":
+        return [INCLUDES_PRESENT]
+    lines = [
+        line[1:].strip() for line in plan.diff.splitlines() if line.startswith("+") and "include" in line
+    ]
+    if plan.error:
+        raise RuntimeError(f"include lines refused: {plan.error}")
+    if env.dry_run:
+        return ["dry run: would add " + "; ".join(lines)]
+    applied = backend.apply(plan)
+    if not applied.ok:
+        raise RuntimeError(f"include lines failed and were rolled back: {applied.message}")
+    return [f"include added: {line}" for line in lines]
 
 
 def named_running(env: Any) -> bool:

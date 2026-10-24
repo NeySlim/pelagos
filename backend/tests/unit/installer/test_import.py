@@ -92,9 +92,10 @@ def test_import_apply_adds_only_includes_and_managed_files(tmp_path):
     # Gate 1 passed inside the job; the -p view without our additions equals the original.
     verify = next(s for s in job.steps if s["name"] == "import/verify")
     assert "bind.unchanged=ok" in verify["output"]
-    # Backups of the user files exist.
-    backups = list((env.backup_root / "bind").iterdir())
-    assert len(backups) == 1 and (backups[0] / "manifest.json").exists()
+    # Backups exist: the managed files, then the include lines added by the BIND connector.
+    backups = sorted((env.backup_root / "bind").iterdir())
+    assert len(backups) == 2 and all((b / "manifest.json").exists() for b in backups)
+    assert "named.conf" in (backups[1] / "manifest.json").read_text()
 
 
 def test_import_is_idempotent(tmp_path):
@@ -209,3 +210,16 @@ def test_real_named_checkconf_accepts_the_import(tmp_path):
     printed = bindconf.parse(res.stdout)
     assert {k.name for k in bindconf.keys(printed)} == {"ddi-read", "ddi-admin"}
     assert bindconf.find_first(printed, "statistics-channels") is not None
+
+
+def test_adopt_dry_run_names_the_bind_group_and_the_include_lines(tmp_path):
+    from pelagos.installer import bindsetup
+
+    env = debian_tree(tmp_path)
+    env.dry_run = True
+    etc = tmp_path / "etc/bind"
+    before = _snapshot(etc)
+    result = bindsetup.adopt(env, env.paths.named_conf, bindsetup.AdoptOptions(8053, ["ddi-read"]))
+    assert result.engine_config["group"] == env.paths.bind_group == "bind"
+    assert any(o.startswith("dry run: would add include") and "pelagos.conf" in o for o in result.output)
+    assert _snapshot(etc) == before

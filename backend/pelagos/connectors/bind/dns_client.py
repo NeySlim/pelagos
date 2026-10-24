@@ -54,8 +54,10 @@ class DnsClient:
         self.port = port
         self.timeout = timeout
 
-    def soa_serial(self, zone: str) -> int | None:
+    def soa_serial(self, zone: str, key: TsigKey | None = None) -> int | None:
         q = dns.message.make_query(normalize_name(zone), dns.rdatatype.SOA)
+        if key is not None:
+            q.use_tsig(key.keyring, keyname=key.name, algorithm=key.dns_algorithm)
         try:
             resp = dns.query.udp(q, self.server, port=self.port, timeout=self.timeout)
         except dns.exception.Timeout as exc:

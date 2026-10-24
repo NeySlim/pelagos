@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import json
+import os
+import shutil
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -13,6 +16,7 @@ from pelagos.connectors.base import (
     ConnectorContext,
     ConnectorDenied,
     ConnectorError,
+    ConnectorUnavailable,
     DnsBackend,
     NotSupported,
     PreconditionFailed,
@@ -24,6 +28,7 @@ from pelagos.connectors.bind.configplan import (
     file_sha256,
     reparse_check,
     run_checkconf,
+    sha256_text,
     validate_render,
 )
 from pelagos.connectors.bind.dns_client import DnsClient, TsigKey
@@ -62,6 +67,8 @@ from pelagos.domain.plan import (
 
 DEFAULT_VIEW = "_default"
 RCODE_PREREQ = {"YXDOMAIN", "YXRRSET", "NXDOMAIN", "NXRRSET"}
+WRITTEN_FILE = "pelagos-written.json"  # in the backup directory: sha256 of what the plan wrote
+MAX_DETAILS = 256  # audit material kept per process; callers should pop_details() after copying
 
 
 class _Reloader:
@@ -117,26 +124,41 @@ class BindBackend(DnsBackend):
     def key_name(self, role: str) -> str:
         return self.dns_settings.get(f"{role}_key") or {"read": "ddi-read", "admin": "ddi-admin"}[role]
 
-    def _key(self, role: str) -> TsigKey | None:
-        """TSIG key from the cluster secrets, else from the BIND configuration when readable."""
-        name = self.key_name(role)
-        secret = self.ctx.get_secret(f"tsig/{name}")
-        algorithm = "hmac-sha256"
-        if not secret:
-            try:
-                found = key_secret(ConfigFiles.load(self.named_conf), name)
-            except OSError:
-                found = None
-            if found is None:
-                return None
-            algorithm, secret = found
+    def _key(self, role: str, name: str | None = None) -> TsigKey | None:
+        """TSIG key: managed keys.conf first (what named loads, rotated by key plans), then the
+        cluster secrets, then a key statement of the user configuration."""
+        name = name or self.key_name(role)
+        try:
+            files: ConfigFiles | None = ConfigFiles.load(self.named_conf)
+        except OSError:
+            files = None
+        found = key_secret(files, name, self.include_dir) if files else None
+        if found is None:
+            secret = self.ctx.get_secret(f"tsig/{name}")
+            if secret:
+                return TsigKey(name, secret, "hmac-sha256")
+            found = key_secret(files, name) if files else None
+        if found is None:
+            return None
+        algorithm, secret = found
         return TsigKey(name, secret, algorithm)
 
-    def _require_key(self, role: str) -> TsigKey:
-        key = self._key(role)
+    def _require_key(self, role: str, view: str | None = None) -> TsigKey:
+        name = self._view_key_name(role, view)
+        key = self._key(role, name)
         if key is None:
-            raise ConnectorDenied(f"TSIG key {self.key_name(role)} is not available on this node")
+            raise ConnectorDenied(f"TSIG key {name or self.key_name(role)} is not available on this node")
         return key
+
+    def _view_key_name(self, role: str, view: str | None) -> str | None:
+        """Views are selected by key (`match-clients { key ...; }`): `dns.view_keys.<view>.<role>`."""
+        if view in (None, DEFAULT_VIEW):
+            return None
+        entry = (self.dns_settings.get("view_keys") or {}).get(view)
+        name = entry.get(role) if isinstance(entry, dict) else entry
+        if not name:
+            raise NotSupported(f"no TSIG key configured for view {view} (settings dns.view_keys)")
+        return str(name)
 
     def _plan_ttl(self) -> int:
         return int(self.ctx.settings.get("plan_ttl_seconds", 600))
@@ -183,7 +205,7 @@ class BindBackend(DnsBackend):
             caps.catalog_zones = any(e.name == "catalog-zones" for e in tree.options) or any(
                 "catalog-zones" in z.extra for z in tree.zones
             )
-        except OSError:
+        except (OSError, ConnectorError):
             pass
         caps.tsig_read_key = self.key_name("read") if self._key("read") else None
         caps.tsig_admin_key = self.key_name("admin") if self._key("admin") else None
@@ -193,7 +215,9 @@ class BindBackend(DnsBackend):
         return self.rndc.status()
 
     def _files(self) -> ConfigFiles:
-        return ConfigFiles.load(self.named_conf)
+        files = ConfigFiles.load(self.named_conf)
+        _require_user_conf(files)
+        return files
 
     def read_config(self, check: bool = True) -> BindConfigTree:
         files = self._files()
@@ -226,10 +250,12 @@ class BindBackend(DnsBackend):
         return st
 
     def soa_serial(self, zone: str, view: str | None = None) -> int | None:
-        return self.dns.soa_serial(zone)
+        if view in (None, DEFAULT_VIEW):
+            return self.dns.soa_serial(zone)
+        return self.dns.soa_serial(zone, self._require_key("read", view))
 
     def read_zone(self, zone: str, view: str | None = None) -> list[RRset]:
-        return self.dns.axfr(zone, self._require_key("read"))
+        return self.dns.axfr(zone, self._require_key("read", view))
 
     def instance_stats(self) -> BindInstanceStats:
         return self.stats.instance_stats(self.ctx.node_id)
@@ -246,6 +272,9 @@ class BindBackend(DnsBackend):
         self, zone: str, changes: list[Change], view: str | None = None, created_by: str = ""
     ) -> Plan:
         zone = normalize_name(zone)
+        if view not in (None, DEFAULT_VIEW):
+            # The plan targets carry no view and UPDATE goes through the admin key's view.
+            raise NotSupported("record changes are only supported in the default view")
         plan = self._new_plan(PlanScope.DNS_RRSET, f"{zone}: record changes", created_by)
         current = self.read_zone(zone, view)
         allowed = self.dns_settings.get("update_types_admin")
@@ -282,7 +311,7 @@ class BindBackend(DnsBackend):
         zone = _plan_zone(plan)
         key = self._require_key("admin")
         text = rr.update_text(zone, rcs)
-        details = self.details.setdefault(plan.id, {})
+        details = self._plan_details(plan.id)
         details[label] = {"request": {"update": text, "key": key.name}}
 
         def build(msg: dns.update.Update) -> None:
@@ -301,13 +330,15 @@ class BindBackend(DnsBackend):
     # File plans ------------------------------------------------------------------------
 
     def _planner(self) -> ConfigPlanner:
-        return ConfigPlanner(
+        planner = ConfigPlanner(
             self.named_conf,
             self.include_dir,
             self.ctx.node_id,
             zone_dir=self.zone_dir,
             default_ns=self.dns_settings.get("default_ns"),
         )
+        _require_user_conf(planner.files)
+        return planner
 
     def _render(self, plan_scope: PlanScope, changes: list[Change]) -> tuple[ConfigPlanner, RenderResult]:
         planner = self._planner()
@@ -414,8 +445,17 @@ class BindBackend(DnsBackend):
         file_changes = []
         for path in paths:
             mode, group = self._file_mode(path, result.zone_files)
+            is_zone = path in result.zone_files
+            if is_zone:
+                self._ensure_zone_dir(path.parent)
             file_changes.append(
-                FileChange(path=path, content=result.texts[path].encode(), mode=mode, group=group)
+                FileChange(
+                    path=path,
+                    content=result.texts[path].encode(),
+                    mode=mode,
+                    group=group,
+                    create_dirs=not is_zone,
+                )
             )
         watched = [*paths, self.named_conf]
         pipeline = self.ctx.pipeline_factory(
@@ -426,13 +466,24 @@ class BindBackend(DnsBackend):
             label=plan.id,
         )
         outcome = pipeline.run(file_changes)
-        self.details[plan.id] = {
-            "request": {"files": [str(p) for p in paths]},
-            "response": {
-                "steps": outcome.steps,
-                "backup_dir": str(outcome.backup_dir) if outcome.backup_dir else None,
+        if outcome.ok and outcome.backup_dir:
+            # What this plan wrote: rollback refuses to restore over a later change. Zone files are
+            # left out: named rewrites them with dynamic updates.
+            written = {str(p): sha256_text(result.texts[p]) for p in paths if p not in result.zone_files}
+            try:
+                (Path(outcome.backup_dir) / WRITTEN_FILE).write_text(json.dumps(written, indent=1))
+            except OSError:
+                pass
+        self._set_details(
+            plan.id,
+            {
+                "request": {"files": [str(p) for p in paths]},
+                "response": {
+                    "steps": outcome.steps,
+                    "backup_dir": str(outcome.backup_dir) if outcome.backup_dir else None,
+                },
             },
-        }
+        )
         if outcome.ok:
             return NodeApplyResult(
                 node_id=self.ctx.node_id, ok=True, message=f"{len(paths)} file(s) written, reconfig done"
@@ -443,6 +494,54 @@ class BindBackend(DnsBackend):
             message=outcome.error or "write pipeline failed",
             rolled_back=outcome.rolled_back,
         )
+
+    def _ensure_zone_dir(self, directory: Path) -> None:
+        """Zone directories are setgid and group writable: named creates journals and transferred
+        files there. Created here, not by the pipeline, so the umask does not decide."""
+        missing: list[Path] = []
+        d = directory
+        while not d.exists():
+            missing.append(d)
+            d = d.parent
+        for d in reversed(missing):
+            try:
+                d.mkdir(mode=0o2775)
+                if self.group:
+                    shutil.chown(d, group=self.group)
+                os.chmod(d, 0o2775)  # noqa: S103 (named must write journals in it)
+            except (OSError, LookupError) as exc:
+                raise ConnectorError(f"cannot create zone directory {d}: {exc}") from exc
+
+    def _plan_details(self, plan_id: str) -> dict[str, Any]:
+        if plan_id not in self.details:
+            self._set_details(plan_id, {})
+        return self.details[plan_id]
+
+    def _set_details(self, plan_id: str, value: dict[str, Any]) -> None:
+        self.details.pop(plan_id, None)
+        self.details[plan_id] = value
+        while len(self.details) > MAX_DETAILS:
+            self.details.pop(next(iter(self.details)))
+
+    def pop_details(self, plan_id: str) -> dict[str, Any]:
+        """Audit material of a plan, removed once the caller has copied it into the audit entry."""
+        return self.details.pop(plan_id, {})
+
+    def _check_rollback_safe(self, backup: Path) -> None:
+        """Refuse to restore a backup over files changed after this plan wrote them."""
+        try:
+            written = json.loads((backup / WRITTEN_FILE).read_text())
+        except FileNotFoundError:
+            return  # the apply failed before writing, or an older backup: nothing to compare
+        except (OSError, ValueError) as exc:
+            raise ConnectorError(f"unreadable {backup / WRITTEN_FILE}: {exc}") from exc
+        changed = [p for p, digest in written.items() if file_sha256(Path(p)) != digest]
+        if changed:
+            raise PreconditionFailed(
+                Precondition(PreconditionKind.FILE_SHA256, changed[0], written[changed[0]], self.ctx.node_id),
+                file_sha256(Path(changed[0]))
+                + f" (changed since this plan was applied: {', '.join(changed)}; rollback refused)",
+            )
 
     def _backup_dir(self, plan: Plan) -> Path | None:
         recorded = self.details.get(plan.id, {}).get("response", {}).get("backup_dir")
@@ -477,6 +576,7 @@ class BindBackend(DnsBackend):
                 return NodeApplyResult(
                     node_id=self.ctx.node_id, ok=False, message="no backup found for this plan"
                 )
+            self._check_rollback_safe(backup)
             pipeline = self.ctx.pipeline_factory(
                 backup_root=self.ctx.backup_root,
                 validate=lambda: run_checkconf(self.checkconf, self.named_conf),
@@ -484,7 +584,7 @@ class BindBackend(DnsBackend):
                 label=f"{plan.id}-rollback",
             )
             outcome = pipeline.restore(backup)
-            self.details.setdefault(plan.id, {})["rollback"] = {
+            self._plan_details(plan.id)["rollback"] = {
                 "steps": outcome.steps,
                 "backup_dir": str(backup),
             }
@@ -519,6 +619,13 @@ class BindBackend(DnsBackend):
 
     def sync(self, zone: str | None = None, clean: bool = False) -> str:
         return self.rndc.run("sync", *(["-clean"] if clean else []), *([zone_args(zone)[0]] if zone else []))
+
+
+def _require_user_conf(files: ConfigFiles) -> None:
+    key = str(files.user_conf)
+    if key in files.missing or key in files.unreadable:
+        reason = "missing" if key in files.missing else "not readable"
+        raise ConnectorUnavailable(f"{key} is {reason}")
 
 
 def _plan_zone(plan: Plan) -> str:

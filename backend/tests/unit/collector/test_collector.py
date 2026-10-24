@@ -375,3 +375,21 @@ def test_engines_watch_sees_node_toml_changes(node_ctx):
     node_ctx.config_store.save_node(node)
     os.utime(node_ctx.paths.node_toml, ns=(2, 2))
     assert watch.changed() is True
+
+
+def test_node_publishes_its_own_modules_again(node_ctx):
+    from pelagos.collector.main import publish_own_modules
+    from pelagos.domain import NodeModules
+
+    assert publish_own_modules(node_ctx) is False  # bootstrap wrote what node.toml says
+    version = node_ctx.config_store.cluster_version()[0]
+
+    def lose(cfg):
+        cfg.peer(node_ctx.node.id).modules = NodeModules()
+
+    node_ctx.config_store.update_cluster(lose, updated_by="node:other")
+    assert publish_own_modules(node_ctx) is True
+    cluster = node_ctx.config_store.load_cluster()
+    assert cluster.peer(node_ctx.node.id).modules == node_ctx.node.modules
+    assert cluster.version == version + 2
+    assert publish_own_modules(node_ctx) is False

@@ -463,6 +463,30 @@ class EnginesWatch:
         return engines != self.engines
 
 
+MODULES_CHECK_SECONDS = 30.0
+
+
+def publish_own_modules(ctx: NodeContext) -> bool:
+    """Each node owns its [[nodes]].modules entry: when cluster.toml says something else than
+    node.toml [engines] (a concurrent write won the last-writer-wins merge), publish it again."""
+    try:
+        own = ctx.config_store.load_cluster().peer(ctx.node.id)
+    except Exception:
+        log.exception("cluster.toml not readable")
+        return False
+    if own is None or own.modules == ctx.node.modules:
+        return False
+
+    def mutate(cfg: Any) -> None:
+        peer = cfg.peer(ctx.node.id)
+        if peer is not None:
+            peer.modules = ctx.node.modules
+
+    ctx.config_store.update_cluster(mutate, updated_by=f"node:{ctx.node.id}")
+    log.info("published this node's modules in cluster.toml again")
+    return True
+
+
 def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     ctx = NodeContext.build(paths)
     if rebuild:
@@ -501,11 +525,18 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     if replicator is not None:
         collector.peers.liveness = replicator
     watch = EnginesWatch(ctx)
+    next_modules_check = 0.0
     try:
         while True:
             if watch.changed():
                 log.info("node.toml engines changed: exiting so the service restarts with them")
                 return EXIT_ENGINES_CHANGED
+            if time.monotonic() >= next_modules_check:
+                next_modules_check = time.monotonic() + MODULES_CHECK_SECONDS
+                try:
+                    publish_own_modules(ctx)
+                except Exception:
+                    log.exception("modules not published")
             now = time.monotonic()
             for task in tasks:
                 if task.next_run <= now:

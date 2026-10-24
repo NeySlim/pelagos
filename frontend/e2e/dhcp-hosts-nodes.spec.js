@@ -111,7 +111,8 @@ test('IPv6 hosts: v6 lease joined with AAAA and PTR, and a v6 create-host plan',
 
 test('leases page through the Kea cursor', async ({ page }) => {
   await page.goto('/dhcp/v4/leases')
-  await page.getByTestId('lease-limit').selectOption('25')
+  await page.getByTestId('lease-limit').getByRole('combobox').click()
+  await page.getByRole('option', { name: '25', exact: true }).click()
   await expect(page.getByTestId('lease-total')).toContainText('25 leases on page 1')
   const first = await page.getByTestId('data-table-row').first().textContent()
   await page.getByTestId('lease-next').click()

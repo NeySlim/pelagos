@@ -5,10 +5,11 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
-import { Clock, Lightning } from '@phosphor-icons/react'
+import { CaretLeft, CaretRight, Clock, Lightning } from '@phosphor-icons/react'
 import { DataTable } from '../../components/DataTable'
 import { Button } from '../../components/Button'
 import { Modal } from '../../components/Modal'
+import { Select } from '../../components/ui/Select'
 import { StatusBadge } from '../../components/StatusBadge'
 import { useOpenDetail } from '../../components/FloatingDetailWindow'
 import { useMobile } from '../../contexts/MobileContext'
@@ -20,6 +21,8 @@ import { AreaPage } from './ui'
 import { useNodeNames } from './hooks'
 import { LEASE_STATES, keaEngine, nextCursor, previousCursor, secondsFromNow } from './lib'
 import { LeaseDetail } from './LeaseDetail'
+
+const LIMITS = [25, 50, 100, 250, 500, 1000]
 
 export default function LeasesPage({ family }) {
   const { t } = useTranslation(['dhcp', 'common'])
@@ -104,7 +107,7 @@ export default function LeasesPage({ family }) {
     <AreaPage ns="dhcp" page="leases" icon={Clock} family={family} onRefresh={refresh} loading={leases.loading}>
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2 text-xs text-text-tertiary">
-          <span data-testid="lease-total">{t('leases.pageCount', { n: leases.items.length, page: cursors.length })}</span>
+          <span data-testid="lease-total">{t('leases.pageCount', { count: leases.items.length, page: cursors.length })}</span>
           {readNode && <span>· {t('leases.readFrom', { node: nameOf(readNode) })}</span>}
           {activity > 0 && (
             <Button variant="warning-soft" size="xs" onClick={refresh} className="ml-auto" data-testid="lease-activity">
@@ -133,34 +136,44 @@ export default function LeasesPage({ family }) {
           testId="leases-table"
         />
         <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-text-tertiary" data-testid="lease-pager">
-          <label className="flex items-center gap-1">
-            {t('leases.perPage')}
-            <select
-              value={limit}
-              onChange={(e) => setLimit(Number(e.target.value))}
-              className="h-7 px-1 bg-bg-tertiary border border-border rounded text-text-primary"
-              data-testid="lease-limit"
+          <span className="flex items-center gap-1.5" data-testid="lease-limit">
+            <span>{t('leases.perPage')}</span>
+            <Select
+              value={String(limit)}
+              onChange={(v) => setLimit(Number(v))}
+              options={LIMITS.map((n) => ({ value: String(n), label: String(n) }))}
+              variant="filter"
+              size="sm"
+              ariaLabel={t('leases.perPage')}
+            />
+          </span>
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="px-1.5 py-1"
+              disabled={cursors.length < 2 || leases.loading}
+              onClick={() => setCursors(previousCursor)}
+              aria-label={t('leases.previous')}
+              title={t('leases.previous')}
+              data-testid="lease-prev"
             >
-              {[25, 50, 100, 250, 500, 1000].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button variant="secondary" size="xs" disabled={cursors.length < 2 || leases.loading} onClick={() => setCursors(previousCursor)} data-testid="lease-prev">
-            {t('leases.previous')}
-          </Button>
-          <span>{t('leases.page', { page: cursors.length })}</span>
-          <Button
-            variant="secondary"
-            size="xs"
-            disabled={!leases.meta.next || leases.loading}
-            onClick={() => setCursors((stack) => nextCursor(stack, leases.meta.next))}
-            data-testid="lease-next"
-          >
-            {t('leases.next')}
-          </Button>
+              <CaretLeft size={14} />
+            </Button>
+            <span className="px-1">{t('leases.page', { page: cursors.length })}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="px-1.5 py-1"
+              disabled={!leases.meta.next || leases.loading}
+              onClick={() => setCursors((stack) => nextCursor(stack, leases.meta.next))}
+              aria-label={t('leases.next')}
+              title={t('leases.next')}
+              data-testid="lease-next"
+            >
+              <CaretRight size={14} />
+            </Button>
+          </div>
         </div>
       </div>
       {mobileIp && (

@@ -4,7 +4,7 @@
 // are audited, and the risky ones ask for an explicit confirmation.
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Terminal, Play, MagnifyingGlass, Warning } from '@phosphor-icons/react'
+import { Terminal, Play, MagnifyingGlass, Warning, Globe, TreeStructure, ArrowsClockwise } from '@phosphor-icons/react'
 import { PageLayout, Card, Button, Badge, Input, Select, LoadingSpinner, JsonTree } from '../../components'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import TagsInput from '../../components/ui/TagsInput'
@@ -17,10 +17,10 @@ import { NodeSelect } from './NodeSelect'
 import { paramKind, buildParams, runBlocker, groupOps } from './opsForm'
 
 const TABS = [
-  { id: 'bind', engine: 'bind', permission: 'read:dns' },
-  { id: 'v4', engine: 'kea4', permission: 'read:dhcp' },
-  { id: 'v6', engine: 'kea6', permission: 'read:dhcp', module: 'dhcpv6' },
-  { id: 'd2', engine: 'd2', permission: 'read:dhcp' },
+  { id: 'bind', engine: 'bind', permission: 'read:dns', icon: Globe },
+  { id: 'v4', engine: 'kea4', permission: 'read:dhcp', icon: TreeStructure },
+  { id: 'v6', engine: 'kea6', permission: 'read:dhcp', module: 'dhcpv6', icon: TreeStructure },
+  { id: 'd2', engine: 'd2', permission: 'read:dhcp', icon: ArrowsClockwise },
 ]
 
 function ParamField({ spec, name, value, error, onChange }) {
@@ -70,6 +70,7 @@ function OpList({ title, ops, selected, onSelect, allowed }) {
           key={o.name}
           type="button"
           onClick={() => onSelect(o.name)}
+          aria-pressed={selected === o.name}
           data-op={o.name}
           className={cn(
             'w-full flex items-center gap-2 px-2 py-1 rounded text-left text-xs font-mono',
@@ -156,7 +157,7 @@ export default function OpsPage() {
       icon={Terminal}
       title={t('ops.title')}
       subtitle={t('ops.subtitle')}
-      tabs={tabs.map((x) => ({ id: x.id, label: t(`ops.tabs.${x.id}`) }))}
+      tabs={tabs.map((x) => ({ id: x.id, icon: x.icon, label: t(`ops.tabs.${x.id}`) }))}
       activeTab={tab.id}
       onTabChange={setTabId}
       actions={<NodeSelect engine={tab.engine} value={nodeId} onChange={setNodeId} />}

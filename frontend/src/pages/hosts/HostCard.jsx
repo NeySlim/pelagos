@@ -88,7 +88,7 @@ export function HostCard({ hostKey, onChanged }) {
   const forwardZone = zoneOf(h.hostname, zoneNames) || (h.hostname ? absName(h.hostname).split('.').slice(1).join('.') : null)
   const zonePath = (name) => `/dns/zones/${encodeURIComponent(String(name).replace(/\.$/, ''))}`
 
-  const deleteLease = () => flow.build(() => api.dhcp.leaseDeletePlan(family, lease.ip_address))
+  const deleteLease = () => flow.build(() => api.dhcp.leaseDeletePlan(family, lease.ip_address, lease.node_id))
   const deleteReservation = () =>
     flow.build(() => api.dhcp.reservationPlan(family, { op: 'delete', target: reservationTarget(family, reservation), before: reservation, after: null }))
   const reserveLease = () => {

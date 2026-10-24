@@ -224,13 +224,15 @@ export function UnifiedPageHeader({
             {tabs.map((tab) => {
               const TabIcon = tab.icon
               const isActive = activeTab === tab.id
+              // Only an icon can stand in for the label: an icon-less tab always shows its text.
+              const iconOnly = isMobile && !isActive && Boolean(TabIcon)
               return (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => onTabChange?.(tab.id)}
-                  aria-label={isMobile && !isActive ? tab.label : undefined}
-                  title={isMobile && !isActive ? tab.label : undefined}
+                  aria-label={iconOnly ? tab.label : undefined}
+                  title={iconOnly ? tab.label : undefined}
                   className={cn(
                     "flex items-center gap-1.5 rounded-t-lg text-sm font-medium transition-all",
                     "border-b-2 -mb-px",
@@ -243,7 +245,7 @@ export function UnifiedPageHeader({
                   {TabIcon && (
                     <TabIcon size={isMobile ? 14 : 16} weight={isActive ? "fill" : "regular"} />
                   )}
-                  <span className={isMobile && !isActive ? "hidden" : ""}>
+                  <span className={iconOnly ? "hidden" : ""}>
                     {tab.label}
                   </span>
                   {tab.count !== undefined && (

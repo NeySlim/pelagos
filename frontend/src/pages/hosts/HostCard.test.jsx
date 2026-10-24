@@ -133,7 +133,7 @@ describe('HostCard', () => {
     mocks.api.dhcp.leaseDeletePlan.mockResolvedValue(plan())
     renderCard()
     fireEvent.click(await screen.findByTestId('host-delete-lease'))
-    await waitFor(() => expect(mocks.api.dhcp.leaseDeletePlan).toHaveBeenCalledWith('v4', '192.0.2.106'))
+    await waitFor(() => expect(mocks.api.dhcp.leaseDeletePlan).toHaveBeenCalledWith('v4', '192.0.2.106', NS1))
     expect(await screen.findByTestId('plan-preview')).toBeInTheDocument()
     expect(screen.getByTestId('plan-summary')).toHaveTextContent('delete lease 192.0.2.106')
     expect(screen.getByTestId('plan-apply')).toBeDisabled()
@@ -193,7 +193,7 @@ describe('HostCard', () => {
     mocks.api.dhcp.leaseDeletePlan.mockResolvedValue(plan())
     renderCard()
     fireEvent.click(await screen.findByTestId('host-delete-lease'))
-    await waitFor(() => expect(mocks.api.dhcp.leaseDeletePlan).toHaveBeenCalledWith('v6', '2001:db8::108'))
+    await waitFor(() => expect(mocks.api.dhcp.leaseDeletePlan).toHaveBeenCalledWith('v6', '2001:db8::108', NS1))
     fireEvent.click(within(await screen.findByTestId('plan-preview')).getByText('Cancel'))
     await waitFor(() => expect(screen.queryByTestId('plan-preview')).not.toBeInTheDocument())
 

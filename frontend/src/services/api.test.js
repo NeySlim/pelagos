@@ -99,6 +99,14 @@ describe('api.js', () => {
     expect(JSON.parse(post.body)).toEqual({ confirm: true })
   })
 
+  it('targets the node holding the lease copy on a lease delete', async () => {
+    await api.dhcp.leaseDeletePlan('v4', '192.0.2.10', 'n2')
+    await api.dhcp.leaseDeletePlan('v4', '192.0.2.10')
+    expect(calls[0].url).toBe('/api/v1/dhcp/v4/leases/192.0.2.10/delete/plan')
+    expect(JSON.parse(calls[0].body)).toEqual({ node_id: 'n2' })
+    expect(calls[1].body).toBeUndefined()
+  })
+
   it('strips the trailing dot of zone names in paths', async () => {
     await api.dns.records('example.lan.', { type: 'A', page: 1 })
     expect(calls[0].url).toBe('/api/v1/dns/zones/example.lan/records?type=A&page=1')

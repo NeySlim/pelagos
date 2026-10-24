@@ -58,6 +58,8 @@ export function Pagination({
             variant="ghost"
             size="sm"
             onClick={() => onChange(1)}
+            aria-label={t('table.firstPage')}
+            title={t('table.firstPage')}
             disabled={page === 1}
             className="px-1.5 py-1"
           >
@@ -68,6 +70,8 @@ export function Pagination({
             variant="ghost"
             size="sm"
             onClick={() => onChange(page - 1)}
+            aria-label={t('table.previousPage')}
+            title={t('table.previousPage')}
             disabled={page === 1}
             className="px-1.5 py-1"
           >
@@ -91,6 +95,8 @@ export function Pagination({
                 <button
                   key={pageNum}
                   onClick={() => onChange(pageNum)}
+                  aria-current={page === pageNum ? 'page' : undefined}
+                  aria-label={t('table.pageN', { page: pageNum })}
                   className={cn(
                     "min-w-[28px] h-7 rounded text-xs font-medium transition-all",
                     page === pageNum
@@ -108,6 +114,8 @@ export function Pagination({
             variant="ghost"
             size="sm"
             onClick={() => onChange(page + 1)}
+            aria-label={t('table.nextPage')}
+            title={t('table.nextPage')}
             disabled={page === totalPages}
             className="px-1.5 py-1"
           >
@@ -118,6 +126,8 @@ export function Pagination({
             variant="ghost"
             size="sm"
             onClick={() => onChange(totalPages)}
+            aria-label={t('table.lastPage')}
+            title={t('table.lastPage')}
             disabled={page === totalPages}
             className="px-1.5 py-1"
           >

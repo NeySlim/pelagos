@@ -12,7 +12,9 @@ const sources = import.meta.glob(['../dhcp/*.{js,jsx}', '../hosts/*.{js,jsx}', '
 })
 
 function lookup(lang, ns, key) {
-  return key.split('.').reduce((node, part) => (node && typeof node === 'object' ? node[part] : undefined), resources[lang]?.[ns])
+  const walk = (k) => k.split('.').reduce((node, part) => (node && typeof node === 'object' ? node[part] : undefined), resources[lang]?.[ns])
+  // A plural key resolves through its _other form.
+  return walk(key) ?? walk(`${key}_other`)
 }
 
 function flatKeys(obj, prefix = '') {

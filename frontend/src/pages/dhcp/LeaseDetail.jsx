@@ -58,6 +58,9 @@ export function LeaseDetail({ family, ip, onDeleted, compact = false }) {
     ['fqdn', t('fields.ddnsFlags'), (l) => `${l.fqdn_fwd ? t('leases.fwd') : '-'} / ${l.fqdn_rev ? t('leases.rev') : '-'}`],
   ]
   const nodeColumns = agreement.nodes
+  const canDelete = hasPermission('ops:dhcp.leases')
+  // Each copy is deleted on the node that holds it, so a lease only a peer has is reachable too.
+  const deleteOn = (nodeId) => flow.build(() => api.dhcp.leaseDeletePlan(family, ip, nodeId))
 
   return (
     <div className={cn('space-y-3 text-xs', compact && 'text-2xs')} data-testid="lease-detail">
@@ -79,11 +82,11 @@ export function LeaseDetail({ family, ip, onDeleted, compact = false }) {
               {t('leases.openHost')}
             </Button>
           )}
-          {hasPermission('ops:dhcp.leases') && copies.length > 0 && (
+          {canDelete && copies.length === 1 && (
             <Button
               variant="danger-soft"
               size="xs"
-              onClick={() => flow.build(() => api.dhcp.leaseDeletePlan(family, ip))}
+              onClick={() => deleteOn(copies[0].node_id)}
               loading={flow.building}
               data-testid="lease-delete"
             >
@@ -105,7 +108,22 @@ export function LeaseDetail({ family, ip, onDeleted, compact = false }) {
               <th className="text-left px-2 py-1.5 text-2xs uppercase tracking-wider text-text-tertiary">{t('fields.field')}</th>
               {nodeColumns.map((id) => (
                 <th key={id} className="text-left px-2 py-1.5 text-2xs uppercase tracking-wider text-text-tertiary">
-                  {nameOf(id)}
+                  <span className="inline-flex items-center gap-1">
+                    {nameOf(id)}
+                    {canDelete && copies.length > 1 && agreement.present.includes(id) && (
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => deleteOn(id)}
+                        disabled={flow.building}
+                        aria-label={t('leases.deleteOn', { node: nameOf(id) })}
+                        title={t('leases.deleteOn', { node: nameOf(id) })}
+                        data-testid={`lease-delete-${id}`}
+                      >
+                        <Trash size={12} />
+                      </Button>
+                    )}
+                  </span>
                 </th>
               ))}
             </tr>

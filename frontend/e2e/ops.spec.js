@@ -57,3 +57,21 @@ test('a DNS operator sees Kea changes as not allowed', async ({ page }) => {
   await expect(page.getByTestId('ops-blocked')).toContainText('do not allow')
   await expect(page.getByTestId('ops-run')).toBeDisabled()
 })
+
+test.describe('at 400px', () => {
+  test.use({ viewport: { width: 400, height: 800 } })
+
+  test('every engine tab is visible and opens its operations', async ({ page }) => {
+    await signIn(page)
+    await page.goto('/advanced/ops')
+    const v4 = page.getByRole('button', { name: 'Kea DHCPv4' })
+    await expect(v4).toBeVisible()
+    expect((await v4.boundingBox()).width).toBeGreaterThan(16)
+    await v4.click()
+    const op = page.getByTestId('ops-list').locator('[data-op="status-get"]')
+    await expect(op).toBeVisible()
+    await expect(op).toHaveAttribute('aria-pressed', 'false')
+    await op.click()
+    await expect(op).toHaveAttribute('aria-pressed', 'true')
+  })
+})

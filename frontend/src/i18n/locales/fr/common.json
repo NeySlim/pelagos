@@ -245,7 +245,12 @@
     "search": "Rechercher...",
     "allOf": "{{label}} : tous",
     "filters": "Filtres",
-    "clearSearch": "Effacer la recherche"
+    "clearSearch": "Effacer la recherche",
+    "firstPage": "Première page",
+    "previousPage": "Page précédente",
+    "nextPage": "Page suivante",
+    "lastPage": "Dernière page",
+    "pageN": "Page {{page}}"
   },
   "theme": {
     "family": "Thème",

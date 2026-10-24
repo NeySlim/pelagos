@@ -18,6 +18,12 @@ from pelagos.domain import Alert, AlertKind, Severity
 pytestmark = pytest.mark.unit
 
 
+def test_csp_limits_connections_to_the_origin(client):
+    csp = client.get("/api/v1/swagger.json").headers["Content-Security-Policy"]
+    connect = next(d for d in csp.split(";") if d.strip().startswith("connect-src"))
+    assert connect.split() == ["connect-src", "'self'"]
+
+
 def test_swagger_document(client):
     r = client.get("/api/v1/swagger.json")
     assert r.status_code == 200

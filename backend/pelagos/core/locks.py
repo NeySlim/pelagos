@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import threading
 from pathlib import Path
 from types import TracebackType
 
@@ -14,19 +15,25 @@ class FileLock:
 
     def __init__(self, path: Path) -> None:
         self.path = path
-        self._fd: int | None = None
+        # One descriptor per thread: threads sharing this instance must never close each other's fd.
+        self._local = threading.local()
 
     def acquire(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o640)
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        self._fd = fd
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        except BaseException:
+            os.close(fd)
+            raise
+        self._local.fd = fd
 
     def release(self) -> None:
-        if self._fd is not None:
-            fcntl.flock(self._fd, fcntl.LOCK_UN)
-            os.close(self._fd)
-            self._fd = None
+        fd = getattr(self._local, "fd", None)
+        if fd is not None:
+            self._local.fd = None
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
 
     def __enter__(self) -> FileLock:
         self.acquire()

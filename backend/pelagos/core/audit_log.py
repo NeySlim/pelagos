@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,11 @@ class AuditLog:
         self.path = path
         self.lock = FileLock(lock_path or path.with_suffix(".lock"))
         self._ids: set[str] | None = None
+        self._on_append: list[Callable[[AuditEntry], None]] = []
+
+    def on_append(self, callback: Callable[[AuditEntry], None]) -> None:
+        """Called after a local append (not after a merge): the replication push hook."""
+        self._on_append.append(callback)
 
     def _ensure(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -54,6 +60,8 @@ class AuditLog:
                 return
             self._write([entry])
             known.add(entry.id)
+        for cb in self._on_append:
+            cb(entry)
 
     def merge(self, entries: list[AuditEntry]) -> int:
         with self.lock:

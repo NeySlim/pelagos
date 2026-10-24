@@ -10,12 +10,30 @@ from typing import Any
 from pelagos.auth.rate_limit import RateLimiter
 from pelagos.auth.sessions import SessionStore
 from pelagos.core.audit_log import AuditLog
-from pelagos.core.config_store import ClusterConfig, ConfigStore, NodeConfig
+from pelagos.core.config_store import ClusterConfig, ConfigStore, NodeConfig, atomic_write
 from pelagos.core.paths import Paths
 from pelagos.core.plans import PlanStore
 from pelagos.core.secrets import SecretBox
+from pelagos.core.signals import EVENT_AUDIT, EVENT_CONFIG, signal_collector
 from pelagos.domain.cluster import Node, NodeStatus
 from pelagos.domain.common import utcnow
+
+REPL_READY = "ready"
+REPL_SYNCING = "syncing"
+
+
+def read_replication_state(paths: Paths) -> str:
+    """The collector writes the state file; without one (no collector, tests) the node is writable."""
+    try:
+        state = paths.replication_state_file.read_text().strip()
+    except OSError:
+        return REPL_READY
+    return REPL_SYNCING if state == REPL_SYNCING else REPL_READY
+
+
+def write_replication_state(paths: Paths, state: str) -> None:
+    paths.run.mkdir(parents=True, exist_ok=True, mode=0o750)
+    atomic_write(paths.replication_state_file, (state + "\n").encode(), mode=0o644)
 
 
 @dataclass(slots=True)
@@ -29,8 +47,20 @@ class NodeContext:
     login_limiter: RateLimiter
     secrets: SecretBox | None = None
     started_at: datetime = field(default_factory=utcnow)
-    replication_state: str = "ready"  # "ready" | "syncing"
+    replication_state_override: str | None = None  # tests and single-process runs; None reads the file
     extra: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def replication_state(self) -> str:
+        """`ready` or `syncing` (section 13), as published by the collector."""
+        if self.replication_state_override is not None:
+            return self.replication_state_override
+        return read_replication_state(self.paths)
+
+    @replication_state.setter
+    def replication_state(self, value: str | None) -> None:
+        # Kept assignable so callers written against the former plain field still work.
+        self.replication_state_override = value
 
     @classmethod
     def build(cls, paths: Paths) -> NodeContext:
@@ -39,11 +69,15 @@ class NodeContext:
         cluster = store.load_cluster()
         settings = cluster.settings
         secrets = SecretBox.from_file(paths.master_key) if paths.master_key.exists() else None
+        audit_log = AuditLog(paths.audit_log, paths.locks_dir / "audit.lock")
+        # Push on write: every local write pokes the collector, which replicates within seconds.
+        store.on_change(lambda _cfg: signal_collector(paths.collector_sock, EVENT_CONFIG))
+        audit_log.on_append(lambda _entry: signal_collector(paths.collector_sock, EVENT_AUDIT))
         return cls(
             paths=paths,
             node=node,
             config_store=store,
-            audit_log=AuditLog(paths.audit_log, paths.locks_dir / "audit.lock"),
+            audit_log=audit_log,
             plan_store=PlanStore(int(settings.get("plan_ttl_seconds", 600))),
             sessions=SessionStore(
                 int(settings.get("session_ttl_seconds", 43200)),

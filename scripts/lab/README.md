@@ -90,7 +90,7 @@ confirms the command and key names the Kea connector expects from 2.6
 ## Lab tier
 
 ```sh
-cd ~/pelagos && make test-lab                         # everything, about 40 minutes
+cd ~/pelagos && make test-lab                         # everything, about 15 minutes
 make test-lab LAB_ARGS=tests/lab/test_pair_lab.py     # one scenario
 PELAGOS_LAB_KEEP=1 make test-lab                      # no final rollback
 ```

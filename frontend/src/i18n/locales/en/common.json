@@ -258,10 +258,17 @@
     "dark": "Dark",
     "light": "Light",
     "descriptions": {
+      "mission": "Graphite glass, ember and neon",
       "pelagic": "Ocean Mission Control UI",
       "gray": "Neutral slate",
       "purple": "Deep violet",
       "sunset": "Warm amber"
+    },
+    "animations": "Animations",
+    "animationLevels": {
+      "full": "Full",
+      "reduced": "Reduced",
+      "off": "Off"
     }
   },
   "windows": {

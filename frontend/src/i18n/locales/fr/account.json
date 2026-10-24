@@ -54,6 +54,7 @@
   },
   "preferences": {
     "title": "Préférences",
-    "help": "Enregistrées dans votre compte et appliquées sur chaque nœud."
+    "help": "Enregistrées dans votre compte et appliquées sur chaque nœud.",
+    "animationsHelp": "Réduites garde de courts fondus et arrête les effets en boucle. Le réglage système de réduction des animations s'applique toujours."
   }
 }

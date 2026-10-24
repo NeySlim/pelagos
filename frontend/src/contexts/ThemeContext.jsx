@@ -1,21 +1,121 @@
 // SPDX-License-Identifier: Apache-2.0
-// Theme families of the UCM design system plus Pelagos' own Pelagic family (the default).
-// Each family writes its tokens as CSS variables on documentElement; status colors keep
-// their meaning across families, accent-primary is DNS and actions, accent-pro is DHCP.
+// Theme families: Pelagos' Mission Control (the default) and Pelagic, plus the UCM families.
+// Each family writes its tokens as CSS variables on documentElement and its effects layer
+// as data-effects; status colors keep their meaning, accent-primary is DNS, accent-pro DHCP.
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { subscribePreferences, persistPreference, getPreferences } from '../stores/preferencesStore'
 
-export const DEFAULT_FAMILY = 'pelagic'
+export const DEFAULT_FAMILY = 'mission'
 const STORAGE_FAMILY = 'pelagos-theme-family'
 const STORAGE_MODE = 'pelagos-theme-mode'
 const MODES = ['system', 'dark', 'light']
 
 export const themeFamilies = {
+  mission: {
+    id: 'mission',
+    name: 'Mission Control',
+    description: 'Graphite glass, ember and neon',
+    accent: '#FF6A2B',
+    effects: 'mission',
+    dark: {
+      'logo-gradient-start': '#FF7A3D',
+      'logo-gradient-mid': '#FF5A1F',
+      'logo-gradient-end': '#D9420E',
+      'logo-gradient-accent': '#6CCFF6',
+      'bg-primary': '#141B1D',
+      'bg-secondary': '#1E2729',
+      'bg-tertiary': '#283335',
+      'text-primary': '#EEF3F2',
+      'text-secondary': '#AEBBBA',
+      'text-tertiary': '#93A3A2',
+      'accent-primary': '#FF6A2B',
+      'accent-success': '#3BE36B',
+      'accent-warning': '#F5C518',
+      'accent-danger': '#FF5C76',
+      'accent-pro': '#6CCFF6',
+      'border': '#33403F',
+      'gradient-from': '#FF6A2B',
+      'gradient-to': '#FF8F4D',
+      'gradient-button': 'linear-gradient(135deg, #FF7A3D, #F0581A)',
+      'gradient-accent': 'linear-gradient(135deg, #FF6A2B 0%, #6CCFF6 100%)',
+      'gradient-bg': 'linear-gradient(160deg, #1A2325 0%, #141B1D 55%, #101618 100%)',
+      'detail-header-bg': 'linear-gradient(135deg, rgba(255,106,43,0.10), rgba(108,207,246,0.04), transparent)',
+      'detail-header-border': 'rgba(255,255,255,0.07)',
+      'detail-header-shadow': 'inset 0 1px 0 0 rgba(255,255,255,0.05)',
+      'detail-icon-bg': 'linear-gradient(135deg, #FF7A3D, #E04F12)',
+      'detail-icon-shadow': '0 0 18px rgba(255,106,43,0.35)',
+      'detail-stats-border': 'rgba(255,255,255,0.07)',
+      'detail-section-bg': 'rgba(38,48,51,0.55)',
+      'detail-section-border': 'rgba(255,255,255,0.07)',
+      'detail-field-bg': 'rgba(255,255,255,0.03)',
+      'detail-field-border': 'rgba(255,255,255,0.06)',
+      // Ember is DNS and actions, ice cyan is DHCP: icon tiles follow the same split
+      'icon-orange-bg': 'rgba(255, 106, 43, 0.16)',
+      'icon-orange-text': '#FF8A55',
+      'icon-amber-bg': 'rgba(245, 197, 24, 0.14)',
+      'icon-amber-text': '#F5C518',
+      'icon-emerald-bg': 'rgba(59, 227, 107, 0.14)',
+      'icon-emerald-text': '#3BE36B',
+      'icon-blue-bg': 'rgba(255, 106, 43, 0.16)',
+      'icon-blue-text': '#FF8A55',
+      'icon-violet-bg': 'rgba(108, 207, 246, 0.14)',
+      'icon-violet-text': '#6CCFF6',
+      'icon-teal-bg': 'rgba(108, 207, 246, 0.14)',
+      'icon-teal-text': '#6CCFF6',
+    },
+    light: {
+      'logo-gradient-start': '#E0571C',
+      'logo-gradient-mid': '#C2440F',
+      'logo-gradient-end': '#9C3409',
+      'logo-gradient-accent': '#0A6A8E',
+      'bg-primary': '#E4EAEA',
+      'bg-secondary': '#F8FAFA',
+      'bg-tertiary': '#E9EFEF',
+      'text-primary': '#10181A',
+      'text-secondary': '#3D4B4E',
+      'text-tertiary': '#4F5E61',
+      'accent-primary': '#B23A0A',
+      'accent-success': '#0C7331',
+      'accent-warning': '#7F6200',
+      'accent-danger': '#C01C42',
+      'accent-pro': '#0A6A8E',
+      'border': '#C9D3D3',
+      'gradient-from': '#B23A0A',
+      'gradient-to': '#E0571C',
+      'gradient-button': 'linear-gradient(135deg, #C2440F, #A23408)',
+      'gradient-accent': 'linear-gradient(135deg, #B23A0A 0%, #0A6A8E 100%)',
+      'gradient-bg': 'linear-gradient(160deg, #EEF2F2 0%, #E4EAEA 55%, #DCE3E3 100%)',
+      'detail-header-bg': 'linear-gradient(135deg, rgba(178,58,10,0.08), rgba(10,106,142,0.05), rgba(255,255,255,0.7))',
+      'detail-header-border': 'rgba(16,24,26,0.08)',
+      'detail-header-shadow': 'inset 0 1px 0 0 rgba(255,255,255,0.8)',
+      'detail-icon-bg': 'linear-gradient(135deg, #D24E16, #A23408)',
+      'detail-icon-shadow': '0 4px 14px rgba(178,58,10,0.28)',
+      'detail-stats-border': 'rgba(16,24,26,0.08)',
+      'detail-section-bg': 'rgba(255,255,255,0.55)',
+      'detail-section-border': 'rgba(16,24,26,0.09)',
+      'detail-field-bg': 'rgba(16,24,26,0.03)',
+      'detail-field-border': 'rgba(16,24,26,0.07)',
+      // Deeper icon colors for the light glass
+      'icon-orange-bg': 'rgba(178, 58, 10, 0.10)',
+      'icon-orange-text': '#B23A0A',
+      'icon-amber-bg': 'rgba(127, 98, 0, 0.10)',
+      'icon-amber-text': '#7F6200',
+      'icon-emerald-bg': 'rgba(12, 115, 49, 0.10)',
+      'icon-emerald-text': '#0C7331',
+      'icon-blue-bg': 'rgba(178, 58, 10, 0.10)',
+      'icon-blue-text': '#B23A0A',
+      'icon-violet-bg': 'rgba(10, 106, 142, 0.10)',
+      'icon-violet-text': '#0A6A8E',
+      'icon-teal-bg': 'rgba(10, 106, 142, 0.10)',
+      'icon-teal-text': '#0A6A8E',
+    }
+  },
   pelagic: {
     id: 'pelagic',
     name: 'Pelagic',
     description: 'Ocean Mission Control UI',
     accent: '#2DD4BF',
+    effects: 'none',
     dark: {
       'logo-gradient-start': '#2DD4BF',
       'logo-gradient-mid': '#14B8A6',
@@ -114,6 +214,7 @@ export const themeFamilies = {
     name: 'Gray',
     description: 'Neutral slate',
     accent: '#4F8EF7',
+    effects: 'none',
     dark: {
       'logo-gradient-start': '#fb923c',
       'logo-gradient-mid': '#f97316',
@@ -212,6 +313,7 @@ export const themeFamilies = {
     name: 'Purple Night',
     description: 'Deep violet',
     accent: '#A855F7',
+    effects: 'none',
     dark: {
       'logo-gradient-start': '#fb923c',
       'logo-gradient-mid': '#f97316',
@@ -310,6 +412,7 @@ export const themeFamilies = {
     name: 'Orange Sunset',
     description: 'Warm amber',
     accent: '#F97316',
+    effects: 'none',
     dark: {
       'logo-gradient-start': '#fb923c',
       'logo-gradient-mid': '#f97316',
@@ -445,6 +548,7 @@ export function ThemeProvider({ children }) {
     })
     root.classList.toggle('theme-light', resolvedMode === 'light')
     root.dataset.theme = resolvedMode
+    root.dataset.effects = family.effects || 'none'
     try {
       localStorage.setItem(STORAGE_FAMILY, themeFamily)
       localStorage.setItem(STORAGE_MODE, mode)
@@ -487,6 +591,7 @@ export function ThemeProvider({ children }) {
 
   const themes = Object.values(themeFamilies)
   const isLight = resolvedMode === 'light'
+  const effects = themeFamilies[themeFamily]?.effects || 'none'
 
   return (
     <ThemeContext.Provider value={{
@@ -496,6 +601,7 @@ export function ThemeProvider({ children }) {
       setMode: setModeAndPersist,
       resolvedMode,
       isLight,
+      effects,
       themes,
       themeFamilies,
       currentTheme,

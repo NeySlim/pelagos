@@ -54,6 +54,7 @@
   },
   "preferences": {
     "title": "Preferences",
-    "help": "Saved to your account and applied on every node."
+    "help": "Saved to your account and applied on every node.",
+    "animationsHelp": "Reduced keeps short fades and stops looping effects. Your system's reduced motion setting always applies."
   }
 }

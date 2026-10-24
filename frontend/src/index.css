@@ -63,34 +63,34 @@
 }
 
 /* ============================================
-   THEME: Pelagic dark (default before React mounts; matches ThemeContext)
+   THEME: Mission Control dark (default before React mounts; matches ThemeContext)
    ============================================ */
 :root {
-  --bg-primary: #061420;
-  --bg-secondary: #0B1E2E;
-  --bg-tertiary: #12293C;
-  --text-primary: #E6F3F5;
-  --text-secondary: #9FBFCB;
-  --text-tertiary: #8FADB9;
-  --accent-primary: #2DD4BF;
-  --accent-pro: #93C5FD;
-  --accent-success: #34D399;
-  --accent-warning: #FBBF24;
-  --accent-danger: #F87171;
+  --bg-primary: #141B1D;
+  --bg-secondary: #1E2729;
+  --bg-tertiary: #283335;
+  --text-primary: #EEF3F2;
+  --text-secondary: #AEBBBA;
+  --text-tertiary: #93A3A2;
+  --accent-primary: #FF6A2B;
+  --accent-pro: #6CCFF6;
+  --accent-success: #3BE36B;
+  --accent-warning: #F5C518;
+  --accent-danger: #FF5C76;
   --accent-purple: #A78BFA;
-  --border: #1E3A4C;
-  --gradient-from: #2DD4BF;
-  --gradient-to: #93C5FD;
-  --gradient-accent: linear-gradient(135deg, #2DD4BF 0%, #93C5FD 100%);
-  --gradient-bg: linear-gradient(145deg, #0B1E2E 0%, #0E2438 50%, #0B1E2E 100%);
+  --border: #33403F;
+  --gradient-from: #FF6A2B;
+  --gradient-to: #FF8F4D;
+  --gradient-accent: linear-gradient(135deg, #FF6A2B 0%, #6CCFF6 100%);
+  --gradient-bg: linear-gradient(160deg, #1A2325 0%, #141B1D 55%, #101618 100%);
   --border-subtle: rgba(255, 255, 255, 0.06);
   --border-strong: rgba(255, 255, 255, 0.12);
   
   /* Logo gradient colors */
-  --logo-gradient-start: #2DD4BF;
-  --logo-gradient-mid: #14B8A6;
-  --logo-gradient-end: #0F766E;
-  --logo-gradient-accent: #93C5FD;
+  --logo-gradient-start: #FF7A3D;
+  --logo-gradient-mid: #FF5A1F;
+  --logo-gradient-end: #D9420E;
+  --logo-gradient-accent: #6CCFF6;
   
   /* ===== ENHANCED SHADOW SYSTEM ===== */
   --shadow-color: 220deg 40% 2%;
@@ -186,34 +186,34 @@
 }
 
 /* ============================================
-   THEME: Pelagic light (default before React mounts)
+   THEME: Mission Control light (default before React mounts)
    ============================================ */
 .theme-light {
-  --bg-primary: #EEF5F7;
-  --bg-secondary: #FFFFFF;
-  --bg-tertiary: #DCE9EE;
-  --text-primary: #0B1E2E;
-  --text-secondary: #3C5B68;
-  --text-tertiary: #4A6977;
-  --accent-primary: #0F766E;
-  --accent-pro: #1D4ED8;
-  --accent-success: #059669;
-  --accent-warning: #D97706;
-  --accent-danger: #DC2626;
+  --bg-primary: #E4EAEA;
+  --bg-secondary: #F8FAFA;
+  --bg-tertiary: #E9EFEF;
+  --text-primary: #10181A;
+  --text-secondary: #3D4B4E;
+  --text-tertiary: #4F5E61;
+  --accent-primary: #B23A0A;
+  --accent-pro: #0A6A8E;
+  --accent-success: #0C7331;
+  --accent-warning: #7F6200;
+  --accent-danger: #C01C42;
   --accent-purple: #7C3AED;
-  --border: #BFD3DB;
-  --gradient-from: #0F766E;
-  --gradient-to: #1D4ED8;
-  --gradient-accent: linear-gradient(135deg, #0F766E 0%, #1D4ED8 100%);
-  --gradient-bg: linear-gradient(145deg, #EEF5F7 0%, #E3EFF3 50%, #EEF5F7 100%);
+  --border: #C9D3D3;
+  --gradient-from: #B23A0A;
+  --gradient-to: #E0571C;
+  --gradient-accent: linear-gradient(135deg, #B23A0A 0%, #0A6A8E 100%);
+  --gradient-bg: linear-gradient(160deg, #EEF2F2 0%, #E4EAEA 55%, #DCE3E3 100%);
   --border-subtle: rgba(0, 0, 0, 0.06);
   --border-strong: rgba(0, 0, 0, 0.12);
   
   /* Logo gradient colors - light */
-  --logo-gradient-start: #0F766E;
-  --logo-gradient-mid: #0D9488;
-  --logo-gradient-end: #115E59;
-  --logo-gradient-accent: #1D4ED8;
+  --logo-gradient-start: #E0571C;
+  --logo-gradient-mid: #C2440F;
+  --logo-gradient-end: #9C3409;
+  --logo-gradient-accent: #0A6A8E;
   
   /* Light theme shadow adjustments: stronger, colored */
   --shadow-color: 220deg 30% 50%;

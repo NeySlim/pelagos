@@ -258,10 +258,17 @@
     "dark": "Sombre",
     "light": "Clair",
     "descriptions": {
+      "mission": "Verre graphite, braise et néon",
       "pelagic": "Interface de contrôle océanique",
       "gray": "Ardoise neutre",
       "purple": "Violet profond",
       "sunset": "Ambre chaud"
+    },
+    "animations": "Animations",
+    "animationLevels": {
+      "full": "Complètes",
+      "reduced": "Réduites",
+      "off": "Désactivées"
     }
   },
   "windows": {

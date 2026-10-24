@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// Theme families: same keys everywhere, the default matches index.css, and the
-// text and accent tokens keep WCAG AA contrast (4.5:1) on bg-secondary.
+// Theme families: same keys everywhere, the default (Mission Control) matches index.css,
+// and the text and accent tokens keep WCAG AA contrast (4.5:1) on bg-secondary.
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -20,12 +20,23 @@ function contrast(a, b) {
   return (hi + 0.05) / (lo + 0.05)
 }
 
+function hue(hex) {
+  const [r, g, b] = hex.replace('#', '').match(/../g).map((h) => parseInt(h, 16) / 255)
+  const max = Math.max(r, g, b)
+  const d = max - Math.min(r, g, b)
+  if (d === 0) return 0
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4
+  return (h * 60 + 360) % 360
+}
+
+const hueDistance = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b))
+
 const families = Object.values(themeFamilies)
 const TOKENS = ['text-primary', 'text-secondary', 'text-tertiary', 'accent-primary', 'accent-pro']
 
 describe('theme families', () => {
-  it('Pelagic is the default and every family has the same keys', () => {
-    expect(DEFAULT_FAMILY).toBe('pelagic')
+  it('Mission Control is the default and every family has the same keys', () => {
+    expect(DEFAULT_FAMILY).toBe('mission')
     const shape = (f) => ({ top: Object.keys(f).sort(), dark: Object.keys(f.dark).sort(), light: Object.keys(f.light).sort() })
     const reference = shape(themeFamilies.pelagic)
     for (const family of families) expect(shape(family), family.id).toEqual(reference)
@@ -49,21 +60,45 @@ describe('theme families', () => {
     }
   })
 
-  it.each(['dark', 'light'])('Pelagic %s accents meet AA contrast', (mode) => {
-    const palette = themeFamilies.pelagic[mode]
+  it.each([['pelagic', 'dark'], ['pelagic', 'light'], ['mission', 'dark'], ['mission', 'light']])('%s %s accents meet AA contrast', (id, mode) => {
+    const palette = themeFamilies[id][mode]
     for (const token of TOKENS) {
       const ratio = contrast(palette[token], palette['bg-secondary'])
-      expect(ratio, `pelagic ${mode} ${token} ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5)
+      expect(ratio, `${id} ${mode} ${token} ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5)
     }
   })
 
-  it('index.css defaults match the Pelagic family', () => {
+  // Mission status colors are its own (neon green, yellow, red-pink) and are read as text.
+  it.each(['dark', 'light'])('Mission %s status colors meet AA contrast on panels and the ground', (mode) => {
+    const palette = themeFamilies.mission[mode]
+    for (const token of ['accent-success', 'accent-warning', 'accent-danger']) {
+      for (const bg of ['bg-secondary', 'bg-primary']) {
+        const ratio = contrast(palette[token], palette[bg])
+        expect(ratio, `mission ${mode} ${token} on ${bg} ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  })
+
+  it.each(['dark', 'light'])('Mission %s keeps warning, DNS and DHCP accents apart', (mode) => {
+    const palette = themeFamilies.mission[mode]
+    const pairs = [['accent-warning', 'accent-primary'], ['accent-pro', 'accent-primary'], ['accent-danger', 'accent-primary'], ['accent-success', 'accent-pro']]
+    for (const [a, b] of pairs) {
+      const d = hueDistance(hue(palette[a]), hue(palette[b]))
+      expect(d, `mission ${mode} ${a} vs ${b} ${d.toFixed(0)} deg`).toBeGreaterThanOrEqual(20)
+    }
+  })
+
+  it('only Mission turns the effects layer on', () => {
+    for (const family of families) expect(family.effects, family.id).toBe(family.id === 'mission' ? 'mission' : 'none')
+  })
+
+  it('index.css defaults match the default family', () => {
     const css = readFileSync(resolve(import.meta.dirname, '../index.css'), 'utf8')
     const block = (selector) => css.slice(css.indexOf(`${selector} {`), css.indexOf('}', css.indexOf(`${selector} {`)))
     for (const [selector, mode] of [[':root', 'dark'], ['.theme-light', 'light']]) {
       const text = block(selector)
       for (const token of ['bg-primary', 'bg-secondary', 'bg-tertiary', ...TOKENS, 'border']) {
-        expect(text, `${selector} --${token}`).toContain(`--${token}: ${themeFamilies.pelagic[mode][token]};`)
+        expect(text, `${selector} --${token}`).toContain(`--${token}: ${themeFamilies[DEFAULT_FAMILY][mode][token]};`)
       }
     }
   })

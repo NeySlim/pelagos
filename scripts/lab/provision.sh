@@ -82,7 +82,7 @@ zone_file() {
   cat <<EOF
 \$ORIGIN $1.
 \$TTL 300
-@ IN SOA ns1.example.lan. hostmaster.example.lan. $serial 3600 600 86400 300
+@ IN SOA ns1.example.lan. hostmaster.example.lan. $serial 3600 600 1209600 300
 @ IN NS ns1.example.lan.
 @ IN NS ns2.example.lan.
 EOF

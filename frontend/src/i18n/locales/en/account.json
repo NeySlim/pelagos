@@ -1,0 +1,8 @@
+{
+  "pages": {
+    "account": {
+      "title": "Account",
+      "subtitle": "Password, two-factor authentication and preferences"
+    }
+  }
+}

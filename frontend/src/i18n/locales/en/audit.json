@@ -1,0 +1,11 @@
+{
+  "nav": {
+    "audit": "Audit log"
+  },
+  "pages": {
+    "list": {
+      "title": "Audit log",
+      "subtitle": "Every change and sensitive read, from every node"
+    }
+  }
+}

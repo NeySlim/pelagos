@@ -1,0 +1,11 @@
+{
+  "nav": {
+    "audit": "Journal d'audit"
+  },
+  "pages": {
+    "list": {
+      "title": "Journal d'audit",
+      "subtitle": "Chaque modification et lecture sensible, de chaque nœud"
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "nav": {
+    "subnets": "Subnets and pools",
+    "sharedNetworks": "Shared networks",
+    "options": "Options",
+    "classes": "Client classes",
+    "leases": "Leases",
+    "reservations": "Reservations",
+    "ha": "High availability",
+    "ddns": "DDNS",
+    "hooks": "Hooks"
+  },
+  "pages": {
+    "subnets": {
+      "title": "Subnets and pools",
+      "subtitle": "Subnets, pools and their utilization"
+    },
+    "sharedNetworks": {
+      "title": "Shared networks",
+      "subtitle": "Subnets grouped on one link"
+    },
+    "options": {
+      "title": "Options",
+      "subtitle": "Global option data and definitions"
+    },
+    "classes": {
+      "title": "Client classes",
+      "subtitle": "Classification expressions and class options"
+    },
+    "leases": {
+      "title": "Leases",
+      "subtitle": "Active leases with per-node agreement"
+    },
+    "reservations": {
+      "title": "Reservations",
+      "subtitle": "Host reservations by subnet"
+    },
+    "ha": {
+      "title": "High availability",
+      "subtitle": "HA state, maintenance and transitions"
+    },
+    "ddns": {
+      "title": "DDNS",
+      "subtitle": "DNS update parameters and D2 statistics"
+    },
+    "hooks": {
+      "title": "Hooks",
+      "subtitle": "Loaded hook libraries"
+    }
+  }
+}

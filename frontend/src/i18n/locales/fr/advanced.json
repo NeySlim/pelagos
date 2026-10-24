@@ -1,0 +1,21 @@
+{
+  "nav": {
+    "bind": "Éditeur named.conf",
+    "kea": "Éditeur Kea",
+    "history": "Historique"
+  },
+  "pages": {
+    "bind": {
+      "title": "Éditeur named.conf",
+      "subtitle": "Arbre des statements, formulaire issu de la grammaire, diff et validation"
+    },
+    "kea": {
+      "title": "Éditeur Kea",
+      "subtitle": "Arbre JSON de la configuration active, diff et config-test"
+    },
+    "history": {
+      "title": "Historique",
+      "subtitle": "Sauvegardes prises par la chaîne d'écriture"
+    }
+  }
+}

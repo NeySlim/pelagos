@@ -1,0 +1,11 @@
+{
+  "nav": {
+    "nodes": "Nœuds et réplication"
+  },
+  "pages": {
+    "list": {
+      "title": "Nœuds et réplication",
+      "subtitle": "Membres du cluster, état de la réplication et enrôlement"
+    }
+  }
+}

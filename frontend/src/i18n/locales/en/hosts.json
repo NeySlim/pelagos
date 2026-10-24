@@ -1,0 +1,11 @@
+{
+  "nav": {
+    "hosts": "Hosts"
+  },
+  "pages": {
+    "list": {
+      "title": "Hosts",
+      "subtitle": "Leases, reservations and records joined per host"
+    }
+  }
+}

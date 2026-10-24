@@ -1,0 +1,16 @@
+{
+  "nav": {
+    "install": "Install and import",
+    "security": "Security audit"
+  },
+  "pages": {
+    "detect": {
+      "title": "Install and import",
+      "subtitle": "What is installed, what Pelagos needs, step by step plans"
+    },
+    "security": {
+      "title": "Security audit",
+      "subtitle": "Findings and their remediation plan"
+    }
+  }
+}

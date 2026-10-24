@@ -1,0 +1,11 @@
+{
+  "nav": {
+    "alerts": "Alertes"
+  },
+  "pages": {
+    "list": {
+      "title": "Alertes et incohérences",
+      "subtitle": "Alertes ouvertes, acquittements et écarts DNS/DHCP"
+    }
+  }
+}

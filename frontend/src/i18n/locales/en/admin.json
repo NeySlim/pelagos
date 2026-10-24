@@ -1,0 +1,26 @@
+{
+  "nav": {
+    "users": "Users",
+    "roles": "Roles",
+    "modules": "Modules",
+    "settings": "Settings"
+  },
+  "pages": {
+    "users": {
+      "title": "Users",
+      "subtitle": "Accounts, roles and two-factor authentication"
+    },
+    "roles": {
+      "title": "Roles",
+      "subtitle": "Built-in and custom roles with their permissions"
+    },
+    "modules": {
+      "title": "Modules",
+      "subtitle": "Engines per node and optional features"
+    },
+    "settings": {
+      "title": "Settings",
+      "subtitle": "Cluster-wide settings, thresholds and retention"
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "nav": {
+    "zones": "Zones",
+    "resolver": "Resolver",
+    "aclsKeys": "ACLs and keys",
+    "secondaries": "Secondaries",
+    "dnssec": "DNSSEC",
+    "rpz": "RPZ"
+  },
+  "pages": {
+    "zones": {
+      "title": "Zones",
+      "subtitle": "Zones of every view with per-node serials"
+    },
+    "zoneDetail": {
+      "title": "Zone",
+      "subtitle": "Records, status per node and operations"
+    },
+    "resolver": {
+      "title": "Resolver",
+      "subtitle": "Recursion and forwarders"
+    },
+    "aclsKeys": {
+      "title": "ACLs and keys",
+      "subtitle": "Address match lists and TSIG keys"
+    },
+    "secondaries": {
+      "title": "Secondaries",
+      "subtitle": "Secondary zones, refresh and transfers"
+    },
+    "dnssec": {
+      "title": "DNSSEC",
+      "subtitle": "Signing policies and key states"
+    },
+    "rpz": {
+      "title": "Response policy zones",
+      "subtitle": "RPZ and catalog zones"
+    }
+  }
+}

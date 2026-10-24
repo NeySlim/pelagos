@@ -1,0 +1,11 @@
+{
+  "nav": {
+    "nodes": "Nodes and replication"
+  },
+  "pages": {
+    "list": {
+      "title": "Nodes and replication",
+      "subtitle": "Cluster members, replication state and enrollment"
+    }
+  }
+}

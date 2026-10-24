@@ -1,0 +1,8 @@
+{
+  "pages": {
+    "overview": {
+      "title": "Dashboard",
+      "subtitle": "HA, pools, zone sync, DDNS errors, inconsistencies and nodes"
+    }
+  }
+}

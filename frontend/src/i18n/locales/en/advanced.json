@@ -1,0 +1,21 @@
+{
+  "nav": {
+    "bind": "named.conf editor",
+    "kea": "Kea editor",
+    "history": "History"
+  },
+  "pages": {
+    "bind": {
+      "title": "named.conf editor",
+      "subtitle": "Statement tree, grammar-driven form, diff and validation"
+    },
+    "kea": {
+      "title": "Kea editor",
+      "subtitle": "JSON tree of the running configuration, diff and config-test"
+    },
+    "history": {
+      "title": "History",
+      "subtitle": "Backups taken by the write pipeline"
+    }
+  }
+}

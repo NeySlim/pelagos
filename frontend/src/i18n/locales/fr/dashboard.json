@@ -1,0 +1,8 @@
+{
+  "pages": {
+    "overview": {
+      "title": "Tableau de bord",
+      "subtitle": "HA, pools, synchro des zones, erreurs DDNS, incohérences et nœuds"
+    }
+  }
+}

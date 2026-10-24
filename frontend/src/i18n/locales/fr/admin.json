@@ -1,0 +1,26 @@
+{
+  "nav": {
+    "users": "Utilisateurs",
+    "roles": "Rôles",
+    "modules": "Modules",
+    "settings": "Paramètres"
+  },
+  "pages": {
+    "users": {
+      "title": "Utilisateurs",
+      "subtitle": "Comptes, rôles et authentification à deux facteurs"
+    },
+    "roles": {
+      "title": "Rôles",
+      "subtitle": "Rôles intégrés et personnalisés avec leurs permissions"
+    },
+    "modules": {
+      "title": "Modules",
+      "subtitle": "Moteurs par nœud et fonctions optionnelles"
+    },
+    "settings": {
+      "title": "Paramètres",
+      "subtitle": "Paramètres du cluster, seuils et rétention"
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "nav": {
+    "zones": "Zones",
+    "resolver": "Résolution",
+    "aclsKeys": "ACL et clés",
+    "secondaries": "Secondaires",
+    "dnssec": "DNSSEC",
+    "rpz": "RPZ"
+  },
+  "pages": {
+    "zones": {
+      "title": "Zones",
+      "subtitle": "Zones de chaque vue avec les numéros de série par nœud"
+    },
+    "zoneDetail": {
+      "title": "Zone",
+      "subtitle": "Enregistrements, état par nœud et opérations"
+    },
+    "resolver": {
+      "title": "Résolution",
+      "subtitle": "Récursion et redirecteurs"
+    },
+    "aclsKeys": {
+      "title": "ACL et clés",
+      "subtitle": "Listes d'adresses et clés TSIG"
+    },
+    "secondaries": {
+      "title": "Secondaires",
+      "subtitle": "Zones secondaires, rafraîchissement et transferts"
+    },
+    "dnssec": {
+      "title": "DNSSEC",
+      "subtitle": "Politiques de signature et état des clés"
+    },
+    "rpz": {
+      "title": "Zones de politique de réponse",
+      "subtitle": "RPZ et zones catalogue"
+    }
+  }
+}

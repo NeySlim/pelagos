@@ -1,0 +1,51 @@
+{
+  "nav": {
+    "subnets": "Sous-réseaux et pools",
+    "sharedNetworks": "Réseaux partagés",
+    "options": "Options",
+    "classes": "Classes de clients",
+    "leases": "Baux",
+    "reservations": "Réservations",
+    "ha": "Haute disponibilité",
+    "ddns": "DDNS",
+    "hooks": "Hooks"
+  },
+  "pages": {
+    "subnets": {
+      "title": "Sous-réseaux et pools",
+      "subtitle": "Sous-réseaux, pools et leur taux d'occupation"
+    },
+    "sharedNetworks": {
+      "title": "Réseaux partagés",
+      "subtitle": "Sous-réseaux regroupés sur un même lien"
+    },
+    "options": {
+      "title": "Options",
+      "subtitle": "Options globales et définitions"
+    },
+    "classes": {
+      "title": "Classes de clients",
+      "subtitle": "Expressions de classification et options de classe"
+    },
+    "leases": {
+      "title": "Baux",
+      "subtitle": "Baux actifs et accord entre nœuds"
+    },
+    "reservations": {
+      "title": "Réservations",
+      "subtitle": "Réservations d'hôtes par sous-réseau"
+    },
+    "ha": {
+      "title": "Haute disponibilité",
+      "subtitle": "État HA, maintenance et transitions"
+    },
+    "ddns": {
+      "title": "DDNS",
+      "subtitle": "Paramètres de mise à jour DNS et statistiques D2"
+    },
+    "hooks": {
+      "title": "Hooks",
+      "subtitle": "Bibliothèques de hooks chargées"
+    }
+  }
+}

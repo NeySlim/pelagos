@@ -1,0 +1,11 @@
+{
+  "nav": {
+    "alerts": "Alerts"
+  },
+  "pages": {
+    "list": {
+      "title": "Alerts and inconsistencies",
+      "subtitle": "Open alerts, acknowledgements and DNS/DHCP mismatches"
+    }
+  }
+}

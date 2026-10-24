@@ -1,0 +1,11 @@
+{
+  "nav": {
+    "hosts": "Hôtes"
+  },
+  "pages": {
+    "list": {
+      "title": "Hôtes",
+      "subtitle": "Baux, réservations et enregistrements réunis par hôte"
+    }
+  }
+}

@@ -48,11 +48,7 @@ class LastLoginStore:
         return when
 
     def get(self, user_id: str) -> datetime | None:
-        raw = self._read().get(user_id)
-        try:
-            return from_rfc3339(raw) if raw else None
-        except ValueError:
-            return None
+        return _parse(self._read().get(user_id))
 
     def forget(self, user_id: str) -> None:
         with self._mutex, self.lock:
@@ -62,14 +58,26 @@ class LastLoginStore:
 
     def overlay(self, public: dict[str, Any]) -> dict[str, Any]:
         """A user's public dict with last_login set to the newest known value."""
-        local = self.get(str(public.get("id", "")))
-        if local is None:
-            return public
-        current = public.get("last_login")
-        try:
-            replicated = from_rfc3339(current) if current else None
-        except (TypeError, ValueError):
-            replicated = None
-        if replicated is None or local > replicated:
-            public = {**public, "last_login": to_rfc3339(local)}
+        return self.overlay_all([public])[0]
+
+    def overlay_all(self, publics: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """`overlay` for a list of users, reading the file once."""
+        data = self._read()
+        return [_newest(public, data.get(str(public.get("id", "")))) for public in publics]
+
+
+def _parse(value: Any) -> datetime | None:
+    try:
+        return from_rfc3339(value) if value else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _newest(public: dict[str, Any], raw: str | None) -> dict[str, Any]:
+    local = _parse(raw)
+    if local is None:
         return public
+    replicated = _parse(public.get("last_login"))
+    if replicated is None or local > replicated:
+        public = {**public, "last_login": to_rfc3339(local)}
+    return public

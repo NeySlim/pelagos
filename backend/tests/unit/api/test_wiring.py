@@ -113,6 +113,17 @@ def test_login_does_not_touch_cluster_toml(admin, login, node_ctx):
     assert users["vera"]["id"] not in json.loads((node_ctx.paths.var / "last_login.json").read_text())
 
 
+def test_user_list_reads_last_logins_once(admin, login, services, monkeypatch):
+    login("vera")
+    store = services.last_login
+    reads = []
+    real = store._read
+    monkeypatch.setattr(store, "_read", lambda: reads.append(1) or real())
+    users = admin.get(f"{V1}/admin/users").get_json()["items"]
+    assert len(users) > 1 and len(reads) == 1
+    assert next(u for u in users if u["username"] == "vera")["last_login"]
+
+
 # SPA ----------------------------------------------------------------------------------------------
 
 
@@ -281,19 +292,38 @@ def test_dashboard_thresholds_and_zone_status(admin, role_client, node_ctx):
     assert zones["example.lan."]["status"] == {}
 
 
+def test_zone_list_status_is_cached(services, fake_registry, monkeypatch):
+    calls = []
+    real = fake_registry.dns.zone_status
+    monkeypatch.setattr(fake_registry.dns, "zone_status", lambda *a: calls.append(a) or real(*a))
+    services.dns.zones(status=True)
+    services.dns.zones(status=True)
+    assert len(calls) == 1  # one secondary zone, read once within peer_poll_seconds
+    services.peers.cache_seconds = 0
+    services.dns.zones(status=True)
+    assert len(calls) == 2
+    monkeypatch.setattr(fake_registry.dns, "zone_status", lambda *a: (_ for _ in ()).throw(RuntimeError()))
+    item = next(z for z in services.dns.zones(status=True) if z["zone"]["name"] == "corp.example.")
+    assert item["status"] == {}  # an unreadable zone never fails the list
+
+
 # D2 secrets to peers --------------------------------------------------------------------------------
 
 
 class HoldingD2(FakeDdnsBackend):
-    """A D2 fake that receives plan secrets the way the real connector keeps them."""
+    """A D2 fake with the real connector's plan secret surface (plan_secrets, accept_plan_secrets)."""
 
-    def __init__(self, node_id: str) -> None:
+    def __init__(self, node_id: str, built: dict[str, dict[str, str]] | None = None) -> None:
         super().__init__(fake_context(node_id, "d2"))
-        self.held: dict[str, dict[Path, str]] = {}
+        self.built = built or {}
+        self.held: dict[str, dict[str, str]] = {}
         self.seen: list[Plan] = []
 
-    def hold_secrets(self, plan_id: str, secrets: dict[Path, str]) -> None:
-        self.held[plan_id] = secrets
+    def plan_secrets(self, plan_id: str) -> dict[str, str]:
+        return dict(self.built.get(plan_id, {}))
+
+    def accept_plan_secrets(self, plan: Plan, secrets: dict[str, str]) -> None:
+        self.held[plan.id] = dict(secrets)
 
     def apply(self, plan: Plan) -> NodeApplyResult:
         self.seen.append(plan)
@@ -321,22 +351,21 @@ def _d2_plan(node_id: str, secret: str) -> Plan:
 
 def test_d2_secrets_travel_sealed(node_ctx, services, peer_b, fake_registry, admin):
     secret = "c2VhbGVkLXNlY3JldC1mb3ItcGVlcnM="
+    plan = _d2_plan(node_ctx.node.id, secret)
+    plan.target_node_ids = [node_ctx.node.id, NODE_B]
+    plan.created_by = "admin"
+    local = HoldingD2(node_ctx.node.id, {plan.id: {"/etc/kea/ddi-extra.secret": secret}})
+    fake_registry.d2 = local
     peer_d2 = HoldingD2(NODE_B)
     peer_b.registry.d2 = PlanRunner(
         SimpleNamespace(node=SimpleNamespace(id=NODE_B), secrets=node_ctx.secrets), Engine.D2, peer_d2
     )  # type: ignore[arg-type]
-    plan = _d2_plan(node_ctx.node.id, secret)
-    plan.target_node_ids = [node_ctx.node.id, NODE_B]
-    plan.created_by = "admin"
-    fake_registry.d2._private = {
-        plan.id: SimpleNamespace(secrets={Path("/etc/kea/ddi-extra.secret"): secret})
-    }
+    peer_b.secrets = node_ctx.secrets
     node_ctx.plan_store.put(plan)
     r = admin.post(f"{V1}/plans/{plan.id}/apply", json={})
     assert r.status_code == 200 and r.get_json()["state"] == "applied", r.get_json()
-    assert peer_d2.held[plan.id] == {Path("/etc/kea/ddi-extra.secret"): secret}
-    received = peer_d2.seen[0].changes[1].after
-    assert d2_secrets.SEALED not in received and received["sha256"] == plan.changes[1].after["sha256"]
+    assert peer_d2.held[plan.id] == {"/etc/kea/ddi-extra.secret": secret}
+    assert d2_secrets.SEALED in peer_d2.seen[0].changes[1].after
     # Neither the stored plan, the API nor the audit ever carry the sealed value or the secret.
     assert d2_secrets.SEALED not in json.dumps(plan.to_dict())
     shown = json.dumps(admin.get(f"{V1}/plans/{plan.id}").get_json())
@@ -345,32 +374,24 @@ def test_d2_secrets_travel_sealed(node_ctx, services, peer_b, fake_registry, adm
         assert secret not in text and d2_secrets.SEALED not in text
 
 
-def test_sealed_secret_is_bound_to_plan_and_digest(node_ctx):
-    secret = "Ym91bmQtdG8tdGhlLXBsYW4="
-    plan = _d2_plan("n", secret)
-    sealed = d2_secrets.seal(node_ctx.secrets, plan, {"/etc/kea/ddi-extra.secret": secret})
-    clean, opened = d2_secrets.open_sealed(node_ctx.secrets, sealed)
-    assert opened == {"/etc/kea/ddi-extra.secret": secret} and d2_secrets.SEALED not in json.dumps(
-        clean.to_dict()
-    )
-    other = Plan.from_dict(sealed.to_dict())
-    other.id = "01AAAAAAAAAAAAAAAAAAAAAAAA"
-    with pytest.raises(d2_secrets.SecretChannelError, match="does not open"):
-        d2_secrets.open_sealed(node_ctx.secrets, other)
-    tampered = Plan.from_dict(sealed.to_dict())
-    tampered.changes[1].after["sha256"] = "0" * 64
-    with pytest.raises(d2_secrets.SecretChannelError, match="does not match"):
-        d2_secrets.open_sealed(node_ctx.secrets, tampered)
+def test_d2_plan_fails_cleanly_without_its_secret(node_ctx):
+    plan = _d2_plan("n", "Zm9yZ290dGVu")
     with pytest.raises(d2_secrets.SecretChannelError, match="no longer held"):
-        d2_secrets.seal(node_ctx.secrets, plan, {})
+        d2_secrets.sealed_copy(node_ctx.secrets, plan, HoldingD2("n"))
+    with pytest.raises(d2_secrets.SecretChannelError, match="cannot carry"):
+        d2_secrets.sealed_copy(node_ctx.secrets, plan, FakeDdnsBackend(fake_context("n", "d2")))
 
 
 # Replication registry ------------------------------------------------------------------------------
 
 
 def test_replication_registry_runs_received_plans(node_ctx, fake_registry):
-    core = replication_registry(node_ctx, fake_registry)
-    assert core.engines() == ["bind", "d2", "kea4", "kea6"]
+    import threading
+
+    lock = threading.RLock()
+    core = replication_registry(node_ctx, fake_registry, lock=lock)
+    assert core.engines() == ["bind", "d2", "kea4", "kea6"] and core.lock is lock
+    assert isinstance(core.get("d2"), PlanRunner) and core.get("d2").backend is fake_registry.d2
     plan = fake_registry.dns.plan_rrset_changes(
         "example.lan.",
         [

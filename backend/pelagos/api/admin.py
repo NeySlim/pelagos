@@ -27,7 +27,7 @@ class Users(Resource):
     @require("admin:users")
     @ns.response(200, "Users (public fields only)", m.UserList)
     def get(self):
-        return {"items": [public(u) for u in admin().users()]}
+        return {"items": services().last_login.overlay_all([u.public() for u in admin().users()])}
 
     @require("admin:users")
     @ns.expect(m.UserCreate)

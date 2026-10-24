@@ -10,6 +10,8 @@ connector only: writes need a node that runs the engine.
 from __future__ import annotations
 
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +46,9 @@ class DnsService:
         self.ctx = ctx
         self.local = local
         self.peers = peers
+        # Transfer status per (node, view, zone) for the zone list, kept peer_poll_seconds.
+        self._zone_status: dict[tuple[str, str, str], tuple[float, dict[str, Any]]] = {}
+        self._zone_status_lock = threading.Lock()
 
     # Targets ------------------------------------------------------------
 
@@ -166,9 +171,27 @@ class DnsService:
     def _transfer_status(self, backend: DnsBackend | None, peer: Peer | None, zone: Zone) -> dict[str, Any]:
         if zone.kind not in TRANSFER_KINDS:
             return {}
+        node_id = self.ctx.node.id if backend is not None else peer.id  # type: ignore[union-attr]
+        key = (node_id, zone.view, zone.name)
+        now = time.monotonic()
+        with self._zone_status_lock:
+            hit = self._zone_status.get(key)
+        if hit is not None and now - hit[0] < self.peers.cache_seconds:
+            return hit[1]
+        status = self._read_transfer_status(backend, peer, zone)
+        with self._zone_status_lock:
+            self._zone_status[key] = (now, status)
+        return status
+
+    def _read_transfer_status(
+        self, backend: DnsBackend | None, peer: Peer | None, zone: Zone
+    ) -> dict[str, Any]:
         view = None if zone.view == "_default" else zone.view
         if backend is not None:
-            return {self.ctx.node.id: backend.zone_status(zone.name, view).to_dict()}
+            try:
+                return {self.ctx.node.id: backend.zone_status(zone.name, view).to_dict()}
+            except Exception:
+                return {}  # one unreadable zone never fails the list
         assert peer is not None
         snap = self.peers.snapshot(peer, Engine.BIND, "zone", {"zone": zone.name, "view": view})
         if snap and not snap.get("error") and snap.get("zone_status"):
@@ -514,6 +537,8 @@ class DnsService:
     ) -> str:
         if op not in OPERATIONS:
             raise ValidationError(f"unknown operation {op}")
+        with self._zone_status_lock:
+            self._zone_status.clear()
         if node_id not in (None, self.ctx.node.id):
             raise ServiceError(
                 "not_supported", "operations on a peer node are not available yet; log in on that node"

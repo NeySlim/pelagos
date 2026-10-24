@@ -13,6 +13,30 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, LAB-E2E: what the reference pair needed (helper, access findings, routing)
+Found by `make test-lab` on lab-ns1/lab-ns2 (Debian 13, Kea 2.6 from Debian). All additive.
+- `pelagos helper` (`backend/pelagos/cli.py`, `pelagos.installer.helper`) and the units
+  `pelagos-helper.socket` / `pelagos-helper@.service` (deb, rpm, preset): the web process runs
+  with `NoNewPrivileges` as `pelagos` and could not run any installer step (sudo refused).
+  `InstallService` and `InstallerRunner` (and the peer side `run_received`) delegate to the
+  helper when not root and the socket exists. Anyone in the `pelagos` group can run the
+  installer operations, which is what `admin:install` grants anyway. WP-PACKAGING: the units
+  are installed and enabled; WP-API-AUTH: nothing to change.
+- Both node processes follow `node.toml [engines]` (architecture section 2):
+  `Services.refresh_engines()` before each request, `EXIT_ENGINES_CHANGED = 75` in the
+  collector. Before, an import through the API left both processes on their old connectors.
+- Security audit kinds `update_without_admin_key` and `transfer_without_read_key`, remediations
+  `update_policy_grant` and `allow_transfer_add` (section 17). WP-FRONTEND: kinds are shown as is.
+- Import: shared `ddi-read`/`ddi-admin` secrets from `cluster.toml`, `[[nodes]].modules`
+  published, Kea configuration made writable for `config-write` (`root:<kea group> 0660`,
+  Debian AppArmor local rule), the statistics channel it declares is probed only after the
+  include lines are in (the adoption failed on every server without a statistics channel).
+- The dual-key switch removes the old key statement when only an `include` path names it.
+- `services.consistency.kea_config_differences` compares `ddns-domains` and `tsig-keys` by name:
+  Kea returns them sorted, which raised a false CONFIG_DIVERGENCE.
+- `DnsService.plan_records` and host plans target the primary's node for zones held as
+  secondaries; host reservations target every Kea node (they went to one HA peer only).
+
 ## 2026-10-24, INT-API: wave 2 wiring of the API, answers the frontend reads
 `docs/architecture.md` sections 5, 6, 13, 17, 19 updated. All additive.
 - Advanced editor shapes (answers the WP-FRONTEND guesses below):

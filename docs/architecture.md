@@ -63,6 +63,19 @@ Two long-running processes per node, both from the `pelagos` Python package:
 | web | `pelagos serve` (gunicorn + gevent, 1 worker) | HTTPS UI + REST API + WebSocket on `:8443`. Reads engines on demand through connectors, applies plans, reads the series cache. |
 | collector | `pelagos collector` | Polls local daemons and peers on a schedule, writes the series cache and alerts, runs consistency checks, serves and drives replication on `:8444` (mTLS). |
 
+Installer work (install, import, security remediation) needs root: the
+packages ship `pelagos-helper.socket` (`/run/pelagos-helper.sock`,
+`root:pelagos 0660`, `Accept=yes`), and each connection runs `pelagos helper`
+as root for one request (`pelagos.installer.helper`: `detect`, `audit`,
+`plan_install`, `plan_import`, `plan_security`, `apply`; JSON lines, progress
+then result). The web process and the collector, which run as `pelagos`, go
+through it when they are not root and the socket exists; otherwise they run
+the installer in-process (tests, development, root).
+
+Both processes follow `node.toml [engines]`: the web process rebuilds its
+connectors before the next request when the file changed, and the collector
+exits with status 75 so that systemd restarts it with the new engines.
+
 The two processes share the filesystem (configuration, audit, cache). They do
 not share memory. The web process reads series and alerts from SQLite (WAL
 mode, read-only connection); the collector is the only writer of the cache.
@@ -75,7 +88,7 @@ Python package layout (`backend/pelagos/`):
 ```
 pelagos/
   __init__.py          __version__
-  cli.py               `pelagos` entry point: serve, collector, version, install, import, audit, enroll
+  cli.py               `pelagos` entry point: serve, collector, version, install, import, audit, enroll, helper
   app.py               Flask app factory create_app(config) and gunicorn entry
   gunicorn_conf.py     one gevent-websocket worker, HTTPS from node.toml [tls] (WP-API-AUTH)
   domain/              dataclasses and enums (section 4); no I/O, no Flask
@@ -1627,6 +1640,25 @@ Writes go through `/dns/config/plan` and `/dhcp/{family}/config/plan`.
 | `POST /install/import/plan` | `admin:install` | `{"engines": [...]}` | `Plan` (scope `import`: include lines, sockets, statistics channel, keys to create, what was read) |
 | `GET /install/security` | `admin:install` | | `{"findings": [{"id","kind","severity","engine","subject","description","proposal","risk"}]}` |
 | `POST /install/security/plan` | `admin:install` | `{"finding_ids": [...]}` | `Plan` (scope `security`; the Kea shared key rotation is one finding whose steps are: add new key to BIND `update-policy`, switch D2 on every node, remove old key) |
+
+Every endpoint of this table runs through the privileged helper (section 2)
+on a packaged node. Once the Pelagos keys exist (after an import), the audit
+also reports `update_without_admin_key` (a dynamic primary zone whose
+`allow-update` or `update-policy` leaves `ddi-admin` out: replaced by the
+update-policy proposal, or a grant added) and `transfer_without_read_key`
+(`allow-transfer` of a zone, or of the options when zones have none, without
+`key ddi-read`; BIND's default refuses transfers, so the options get one):
+without them Pelagos cannot read or write the zones it imported. An import
+reuses the replicated `tsig/ddi-read` and `tsig/ddi-admin` secrets, so every
+node of a cluster signs with the same keys, publishes the node's engines in
+`cluster.toml [[nodes]].modules`, and makes each Kea configuration writable
+by `config-write` (Kea user or group, and the Debian AppArmor profile's local
+include).
+
+Records of a zone that this node holds as a secondary (or mirror) are planned
+here and applied on the peer that holds it as primary (`target_node_ids`), so
+the UPDATE reaches the primary's named; host plans do the same for their DNS
+parts and put the reservation on every node that runs the Kea engine.
 
 ### Administration
 

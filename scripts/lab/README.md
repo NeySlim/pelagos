@@ -27,15 +27,21 @@ the VM images authorize and which survives rollbacks).
 ssh lab-ns1 'sudo apt-get install -y bind9'        # anything goes on the targets
 cd ~/pelagos && make test-daemon                     # tests run on lab-dev
 scripts/lab/rollback.sh lab-ns1                      # back to the clean OS
-scripts/lab/rollback.sh all                          # the four targets, never lab-dev
+scripts/lab/rollback.sh all                          # every target, never lab-dev nor the gateway
 scripts/lab/rollback.sh lab-dev                      # back to the toolchain snapshot
 scripts/lab/rollback.sh lab-ns1 --list               # show snapshots
 ```
 
-`rollback.sh` needs `curl`, `jq`, the Proxmox API token header value in
-`~/.config/pelagos-lab/pve-token` and the API base URL in
+`rollback.sh` needs `curl`, `jq`, `python3`, the Proxmox API token header
+value in `~/.config/pelagos-lab/pve-token` and the API base URL in
 `~/.config/pelagos-lab/pve-api` (or `PVE_API`). The real hostnames and the
-token never go into the repository.
+token never go into the repository. `lab-pkg-rpm` goes back to `rpmbuild` and
+`lab-docker` to `docker` (their tool snapshots), the others to `clean`. The
+snapshots only authorize the workstation key: after the rollback the script
+adds `~/.ssh/id_ed25519.pub` of lab-dev (or `LAB_SSH_PUBKEY`) to the VM's
+cloud-init keys, which changes the instance id so cloud-init installs it at
+the next boot; it then starts the VM, drops its stale host keys from
+`known_hosts` and waits for ssh and cloud-init (`--no-wait` skips that).
 
 ## lab-dev specifics
 
@@ -50,17 +56,69 @@ token never go into the repository.
   `sudo ln -s /etc/apparmor.d/usr.sbin.named /etc/apparmor.d/disable/ &&
   sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.named`. The `ready`
   snapshot predates this; redo it after a rollback of lab-dev.
-- Parallel worktrees live under `~/pelagos-wt/<name>`; each has its own
+- Parallel worktrees live under `~/pelagos/.claude/worktrees/<name>`; each has its own
   venv and node_modules. Fixtures pick free ports and private temp dirs so
   runs do not collide.
 
-## Provisioning the reference pair (WP-LAB-E2E)
+## Reference pair
 
-Scripts to write here: `provision-ns.sh <lab-ns1|lab-ns2>` (BIND primary or
-secondary with dynamic `example.lan`, `2.0.192.in-addr.arpa`,
-`8.b.d.0.1.0.0.2.ip6.arpa`, Kea 2.6 from Debian or 3.x from ISC with HA
-hot-standby and `lease_cmds`, D2 with `kea-ddns` towards ns1),
-`provision-client.sh` (DHCP client on the second NIC), `seed-legacy.sh`
-(hmac-md5 keys and `allow-update` by address, for the security audit
-scenario). Idempotent, ssh + sudo, no secrets in the repo (generate on the
-VM).
+`scripts/lab/provision.sh [all|ns1|ns2|client] [--force]` builds, from lab-dev
+and without Pelagos, the legacy setup the lab tier imports. It is idempotent
+and refuses a host Pelagos already manages unless `--force` is given.
+
+| Host | What runs |
+| --- | --- |
+| lab-ns1 | BIND 9.20 (Debian) primary for `example.lan`, `0.99.10.in-addr.arpa` and `1.99.10.in-addr.arpa`, dynamic with `allow-update { key kea-ddns; }` (hmac-md5, generated on ns1, copied to ns2), transfers and notifies to ns2 by address; Kea DHCPv4 2.6 (Debian) HA primary, hot-standby, `lease_cmds`, `stat_cmds`, `ha`; D2 sending every update to ns1 with `kea-ddns` |
+| lab-ns2 | BIND secondary of the three zones; Kea DHCPv4 HA standby; D2 like ns1 |
+| lab-client | systemd-networkd DHCP client on its second NIC (`/etc/netplan/60-lab-dhcp.yaml`, hostname `lab-client`) |
+
+DHCP segment: lab-client's second NIC sits on the lab bridge too, so the Kea
+servers listen on their `eth0` and serve the dedicated subnet `10.99.1.0/24`
+(pool `.100` to `.199`), selected by interface name (`"interface": "eth0"`),
+not by address. The HA peers talk to the dedicated HTTP listener of each
+kea-dhcp4 (`http://10.99.0.11:8001/`, `http://10.99.0.12:8001/`,
+`http-dedicated-listener`), so no control agent runs. Leases get `<host>.example.lan` forward and
+`1.99.10.in-addr.arpa` reverse records through D2.
+
+Debian's Kea 2.6.3 is confined by AppArmor to reading `/etc/kea`, and root
+cannot read `/etc/kea` (`_kea 0750`) without the DAC override the profile
+denies: the script checks the configurations as `_kea`. The real 2.6 run
+confirms the command and key names the Kea connector expects from 2.6
+(`status-get`, `ha-heartbeat`, `lease4-get-all`, `config-get`, `config-set`,
+`config-write`, `config-hash-get`).
+
+## Lab tier
+
+```sh
+cd ~/pelagos && make test-lab                         # everything, about 40 minutes
+make test-lab LAB_ARGS=tests/lab/test_pair_lab.py     # one scenario
+PELAGOS_LAB_KEEP=1 make test-lab                      # no final rollback
+```
+
+`make test-lab` runs `pytest -m lab` with `PELAGOS_LAB=1`, a one hour timeout
+per test and `-x` (the steps of a scenario depend on each other). Each module
+rolls its VMs back first, so a run needs no preparation; the packages are
+built from the checkout (the UI is included when `frontend/node_modules`
+exists).
+
+| Module | VMs | What it checks |
+| --- | --- | --- |
+| `test_docker_lab.py` | lab-docker | the node image built from the checkout, `docker/compose.yaml` with the ISC BIND and Kea images (`packaging/tests/compose-smoke.sh`), `/api/v1/health` reached from lab-dev |
+| `test_installer_lab.py` | lab-ns1, lab-rpm, lab-pkg-rpm | Debian: a legacy server seeded, audited, imported and migrated, Kea 2.6 from Debian then ISC 3.2. Rocky: the rpm built on lab-pkg-rpm and installed, `pelagos install --init` with SELinux enforcing, the API (install endpoints through the root helper), then ISC Kea |
+| `test_pair_lab.py` | lab-ns1, lab-ns2, lab-client | the reference pair above, then: the deb on both, ns1 initialized, ns2 enrolled with a token, both imported through the API, the security plan (md5 to sha256 through the dual-key switch on both D2, Pelagos access to the zones), a record written through ns2 and read on ns1, a host whose reservation (on both Kea) and records join the lease of a real DHCP request, Kea killed on ns1 (`ha_partner_down` on ns2, `daemon_down` on ns1, back to hot-standby), ns2 stopped while ns1 changes settings and records, then caught up |
+
+At the end lab-ns1, lab-ns2 and lab-client stay provisioned with Pelagos for
+the demo; lab-rpm, lab-pkg-rpm and lab-docker are rolled back.
+
+## Demo
+
+The UI of ns1 from the workstation, through lab-dev:
+
+```sh
+ssh -L 8443:10.99.0.11:8443 lab-dev     # then https://localhost:8443 (self-signed certificate)
+```
+
+User `admin`, password `Lab-Admin-Password-1` (lab only, set by the tests;
+`PELAGOS_LAB_ADMIN_PASSWORD` changes it). ns2 answers on `10.99.0.12:8443`
+the same way. `ssh lab-client sudo networkctl renew ens19` asks for a new
+lease, `ssh lab-ns1 sudo systemctl kill kea-dhcp4-server` shows the HA alert.

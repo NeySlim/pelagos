@@ -12,6 +12,7 @@ import { CheckCircle, XCircle, Warning, ArrowCounterClockwise, ArrowClockwise, L
 import { api } from '../services/api'
 import { errorMessage } from '../services/apiClient'
 import { useWsTopic } from '../hooks/useWebSocket'
+import { useNodeNames } from '../hooks/useNodeNames'
 import { Button } from './Button'
 import { Badge } from './Badge'
 import { StatusBadge } from './StatusBadge'
@@ -69,8 +70,13 @@ export function PlanPreview({
   getFn = (id) => api.plans.get(id),
   closeLabel,
   className,
+  // id -> display name; defaults to the names from GET /nodes
+  nodeName: nodeNameProp,
 }) {
   const { t } = useTranslation()
+  const fetchedNodeName = useNodeNames(!nodeNameProp)
+  const nodeName = nodeNameProp || fetchedNodeName
+  const fieldLabel = (key) => t('fieldLabel', { label: t(key) })
   const [plan, setPlan] = useState(initialPlan)
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -214,14 +220,14 @@ export function PlanPreview({
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-text-tertiary">
         <span>
-          {t('plan.id')}: <span className="font-mono text-text-secondary">{plan.id}</span>
+          {fieldLabel('plan.id')} <span className="font-mono text-text-secondary">{plan.id}</span>
         </span>
         <span>
-          {t('plan.createdBy')}: <span className="text-text-secondary">{plan.created_by}</span>
+          {fieldLabel('plan.createdBy')} <span className="text-text-secondary">{plan.created_by}</span>
         </span>
-        <span>
-          {t('plan.targetNodes')}:{' '}
-          <span className="font-mono text-text-secondary">{plan.target_node_ids?.length ? plan.target_node_ids.join(', ') : t('plan.allNodes')}</span>
+        <span data-testid="plan-target-nodes">
+          {fieldLabel('plan.targetNodes')}{' '}
+          <span className="text-text-secondary">{plan.target_node_ids?.length ? plan.target_node_ids.map(nodeName).join(', ') : t('plan.allNodes')}</span>
         </span>
       </div>
 
@@ -243,7 +249,7 @@ export function PlanPreview({
                   {t(`plan.op.${change.op}`, { defaultValue: change.op })}
                 </Badge>
                 <span className="font-mono text-text-primary break-all">{change.target}</span>
-                {change.node_ids?.length > 0 && <span className="text-text-tertiary font-mono">[{change.node_ids.join(', ')}]</span>}
+                {change.node_ids?.length > 0 && <span className="text-text-tertiary">[{change.node_ids.map(nodeName).join(', ')}]</span>}
               </li>
             ))}
           </ul>
@@ -260,7 +266,7 @@ export function PlanPreview({
               {plan.preconditions.map((p, i) => (
                 <tr key={i} className="border-b border-border-op30 last:border-0">
                   <td className="py-1 pr-2 text-text-secondary whitespace-nowrap">{t(`plan.precondition.${p.kind}`, { defaultValue: p.kind })}</td>
-                  <td className="py-1 pr-2 font-mono text-text-tertiary">{p.node_id || t('plan.allNodes')}</td>
+                  <td className="py-1 pr-2 text-text-tertiary">{p.node_id ? nodeName(p.node_id) : t('plan.allNodes')}</td>
                   <td className="py-1 pr-2 font-mono text-text-primary break-all">{p.subject}</td>
                   <td className="py-1 font-mono text-text-secondary break-all">{p.value}</td>
                 </tr>
@@ -281,7 +287,7 @@ export function PlanPreview({
                 <div className="flex items-center gap-2">
                   {v.ok ? <CheckCircle size={14} weight="fill" className="status-success-text" /> : <XCircle size={14} weight="fill" className="status-danger-text" />}
                   <span className="font-mono text-text-primary">{v.tool}</span>
-                  {v.node_id && <span className="font-mono text-text-tertiary">{v.node_id}</span>}
+                  {v.node_id && <span className="text-text-tertiary">{nodeName(v.node_id)}</span>}
                   <span className={v.ok ? 'status-success-text' : 'status-danger-text'}>{v.ok ? t('plan.valid') : t('plan.invalid')}</span>
                 </div>
                 {v.output && (
@@ -334,7 +340,7 @@ export function PlanPreview({
             {(result.results || []).map((r) => (
               <li key={r.node_id} className="flex items-start gap-2 text-xs">
                 {r.ok ? <CheckCircle size={14} weight="fill" className="status-success-text mt-0.5" /> : <XCircle size={14} weight="fill" className="status-danger-text mt-0.5" />}
-                <span className="font-mono text-text-primary">{r.node_id}</span>
+                <span className="text-text-primary" title={r.node_id}>{nodeName(r.node_id)}</span>
                 <span className="text-text-secondary flex-1">{r.message}</span>
                 {r.rolled_back && (
                   <Badge variant="warning" size="sm">

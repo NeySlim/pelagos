@@ -9,6 +9,7 @@ import { AppShell } from './components/AppShell'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LoadingSpinner } from './components/LoadingSpinner'
 import { DetailWindowLayer } from './components/FloatingDetailWindow'
+import { RouteStatus } from './components/RouteStatus'
 import LoginPage from './pages/auth/LoginPage'
 import { allRoutes } from './pages/routes'
 
@@ -25,9 +26,9 @@ export function Protected({ permission, module, children }) {
   const location = useLocation()
   if (loading) return <PageLoader />
   if (!isAuthenticated) return <Navigate to="/login" replace state={{ from: location.pathname }} />
-  if (permission && !hasPermission(permission)) return <Navigate to="/" replace />
+  if (permission && !hasPermission(permission)) return <RouteStatus kind="forbidden" />
   if (module && !capabilities) return <PageLoader />
-  if (module && !modules?.[module]) return <Navigate to="/" replace />
+  if (module && !modules?.[module]) return <RouteStatus kind="module_disabled" />
   return children
 }
 
@@ -51,8 +52,8 @@ export function AppRoutes() {
               }
             />
           ))}
+          <Route path="*" element={<Protected><RouteStatus kind="not_found" /></Protected>} />
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
   )

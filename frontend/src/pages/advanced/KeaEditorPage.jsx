@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BracketsCurly, ArrowsClockwise, Trash, Plus, Lightning, ArrowCounterClockwise, Warning } from '@phosphor-icons/react'
 import { PageLayout, Card, Button, Badge, DiffView, LoadingSpinner, JsonTree, Input, Select, PlanPreviewModal } from '../../components'
-import { useApi, usePermission } from '../../hooks'
+import { useApi, usePermission, useNodeNames } from '../../hooks'
 import { useAuth } from '../../contexts/AuthContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
@@ -140,6 +140,7 @@ function AddKey({ target, schema, config, onAdd }) {
 
 export default function KeaEditorPage() {
   const { t } = useTranslation(['advanced', 'common'])
+  const nodeName = useNodeNames()
   const { hasPermission } = usePermission()
   const { modules } = useAuth()
   const canWrite = hasPermission('write:dhcp.config')
@@ -223,9 +224,9 @@ export default function KeaEditorPage() {
       ) : draft ? (
         <div className="space-y-4">
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-text-tertiary">
-            {configQ.data?.node_id && <span>{t('kea.readFrom')}: <span className="font-mono text-text-secondary">{configQ.data.node_id}</span></span>}
-            {configQ.data?.hash && <span>{t('kea.hash')}: <span className="font-mono text-text-secondary">{configQ.data.hash}</span></span>}
-            {schema?.version && <span>{t('kea.schemaVersion')}: <span className="font-mono text-text-secondary">{schema.version}</span></span>}
+            {configQ.data?.node_id && <span>{t('common:fieldLabel', { label: t('kea.readFrom') })} <span className="text-text-secondary" title={configQ.data.node_id}>{nodeName(configQ.data.node_id)}</span></span>}
+            {configQ.data?.hash && <span>{t('common:fieldLabel', { label: t('kea.hash') })} <span className="font-mono text-text-secondary">{configQ.data.hash}</span></span>}
+            {schema?.version && <span>{t('common:fieldLabel', { label: t('kea.schemaVersion') })} <span className="font-mono text-text-secondary">{schema.version}</span></span>}
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4">
             <Card className="p-3 max-h-[60vh] overflow-auto" hover={false} data-testid="kea-tree">

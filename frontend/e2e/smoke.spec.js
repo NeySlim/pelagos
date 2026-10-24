@@ -168,5 +168,15 @@ test('a viewer does not see administration', async ({ page }) => {
   await signIn(page, 'viewer', 'viewer')
   await expect(page.locator('[data-nav="admin-users"]')).toHaveCount(0)
   await page.goto('/admin/users')
+  await expect(page.getByTestId('route-forbidden')).toBeVisible()
+  await page.getByTestId('route-forbidden').getByRole('button').click()
+  await expect(page.getByTestId('page-dashboard-overview')).toBeVisible()
+})
+
+test('an unknown path explains itself and leads back to the dashboard', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/no/such/page')
+  await expect(page.getByTestId('route-not_found')).toBeVisible()
+  await page.getByTestId('route-not_found').getByRole('button').click()
   await expect(page.getByTestId('page-dashboard-overview')).toBeVisible()
 })

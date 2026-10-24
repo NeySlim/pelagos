@@ -159,6 +159,7 @@ Additive, no existing symbol changes.
   real before state stays in process memory for the rollback window only.
 - `backend/tests/unit/connectors/__init__.py` is an empty package marker shared with
   WP-BIND (identical content on both sides).
+
 ## 2026-10-24, WP-FRONTEND: HA maintenance node_id and IPv6 hosts
 No change to `architecture.md`; these pin down what section 17 leaves open.
 `POST /dhcp/{family}/ha/maintenance/plan` `{"node_id","action"}`: `node_id` is

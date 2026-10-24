@@ -79,6 +79,19 @@ describe('theme families', () => {
     }
   })
 
+  // Light Mission darkens the warning text for AA; bars and dots keep a bright yellow.
+  it('Mission light warning fill stays a bright yellow distinct from the text token', () => {
+    const light = themeFamilies.mission.light
+    expect(light['accent-warning-fill']).not.toBe(light['accent-warning'])
+    expect(luminance(light['accent-warning-fill'])).toBeGreaterThan(luminance(light['accent-warning']) * 2)
+    const h = hue(light['accent-warning-fill'])
+    expect(h).toBeGreaterThanOrEqual(40)
+    expect(h).toBeLessThanOrEqual(55)
+    for (const family of families) {
+      if (family.id !== 'mission') expect(family.dark['accent-warning-fill'], family.id).toBe(family.dark['accent-warning'])
+    }
+  })
+
   it.each(['dark', 'light'])('Mission %s keeps warning, DNS and DHCP accents apart', (mode) => {
     const palette = themeFamilies.mission[mode]
     const pairs = [['accent-warning', 'accent-primary'], ['accent-pro', 'accent-primary'], ['accent-danger', 'accent-primary'], ['accent-success', 'accent-pro']]

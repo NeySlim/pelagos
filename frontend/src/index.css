@@ -76,6 +76,7 @@
   --accent-pro: #6CCFF6;
   --accent-success: #3BE36B;
   --accent-warning: #F5C518;
+  --accent-warning-fill: #F5C518;
   --accent-danger: #FF5C76;
   --accent-purple: #A78BFA;
   --border: #33403F;
@@ -199,6 +200,7 @@
   --accent-pro: #0A6A8E;
   --accent-success: #0C7331;
   --accent-warning: #7F6200;
+  --accent-warning-fill: #E0B000;
   --accent-danger: #C01C42;
   --accent-purple: #7C3AED;
   --border: #C9D3D3;

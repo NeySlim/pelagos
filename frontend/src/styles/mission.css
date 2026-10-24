@@ -110,11 +110,12 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
+:root[data-effects='mission'] .ui-title-literal { text-transform: none; letter-spacing: 0.02em; }
 :root[data-effects='mission'] .ui-brand { font-size: 13px; letter-spacing: 0.12em; }
 :root[data-effects='mission'] .ui-page-title { font-size: 15px; line-height: 1.5; }
 :root[data-effects='mission'] .ui-card-title,
 :root[data-effects='mission'] .ui-modal-title { font-size: 11.5px; line-height: 1.6; }
-:root[data-effects='mission'] .ui-nav-group { font-family: var(--font-display); font-weight: 400; font-size: 9.5px; letter-spacing: 0.1em; }
+:root[data-effects='mission'] .ui-nav-group { font-family: var(--font-display); font-weight: 400; font-size: 10.5px; letter-spacing: 0.1em; }
 
 /* ============ Glass surfaces ============ */
 :root[data-effects='mission'] .card-soft,
@@ -190,13 +191,14 @@
   box-shadow: inset 0 0 0 1px var(--m-hairline-strong);
 }
 :root[data-effects='mission'] .ui-nav-item.is-active svg { color: var(--accent-primary); }
+/* Active entry: the lighter pill does the work; a short neutral bar, not an ember alert dot. */
 :root[data-effects='mission'] .ui-nav-indicator {
-  left: auto;
-  right: 10px;
-  width: 6px;
-  height: 6px;
+  left: 4px;
+  width: 2px;
+  height: 14px;
   border-radius: 9999px;
-  box-shadow: 0 0 8px var(--accent-primary);
+  background: var(--text-secondary);
+  box-shadow: none;
 }
 :root[data-effects='mission'] .ui-nav-group:hover { background: transparent; }
 
@@ -260,6 +262,7 @@
   border-radius: 9999px;
 }
 .ui-icon-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -297,10 +300,10 @@
   min-width: 0;
 }
 .ui-stat-chip-icon { color: var(--fx-c, var(--text-secondary)); }
-.ui-stat-chip-label { font-size: 9px; line-height: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-tertiary); white-space: nowrap; }
+.ui-stat-chip-label { font-size: 10px; line-height: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-tertiary); white-space: nowrap; }
 .ui-stat-chip-value { font-size: 14px; line-height: 18px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
 :root[data-effects='mission'] .ui-stat-chip { background: var(--m-pill); border-color: var(--m-hairline); }
-:root[data-effects='mission'] .ui-stat-chip-label { font-family: var(--font-display); font-size: 8.5px; }
+:root[data-effects='mission'] .ui-stat-chip-label { font-family: var(--font-display); font-size: 10px; }
 
 /* Inputs */
 :root[data-effects='mission'] .ui-input {
@@ -320,7 +323,7 @@
 /* ============ Table ============ */
 :root[data-effects='mission'] .ui-table thead,
 :root[data-effects='mission'] .ui-table .table-header-gradient { background: var(--m-glass-strong); }
-:root[data-effects='mission'] .ui-table th { border-color: var(--m-hairline); font-size: 9.5px; letter-spacing: 0.09em; }
+:root[data-effects='mission'] .ui-table th { border-color: var(--m-hairline); font-size: 10px; letter-spacing: 0.09em; }
 :root[data-effects='mission'] .ui-table > div { border-color: var(--m-hairline); }
 :root[data-effects='mission'] .ui-row { border-color: var(--m-hairline); }
 :root[data-effects='mission'] .ui-row:hover { background: var(--m-row-hover); }
@@ -391,7 +394,12 @@
   box-shadow: 0 0 8px color-mix(in srgb, currentColor 60%, transparent);
 }
 :root[data-effects='mission'] .ui-progress-fill.status-success-bg-solid { color: var(--accent-success); }
-:root[data-effects='mission'] .ui-progress-fill.status-warning-bg-solid { color: var(--accent-warning); }
+:root[data-effects='mission'] .ui-progress-fill.status-warning-bg-solid {
+  color: var(--accent-warning-fill, var(--accent-warning));
+  background-color: var(--accent-warning-fill, var(--accent-warning));
+}
+/* Non-text warning marks (dots, segments, chart tone) use the brighter fill token. */
+:root[data-effects='mission'] .fx-tone-warning { --fx-c: var(--accent-warning-fill, var(--accent-warning)); }
 :root[data-effects='mission'] .ui-progress-fill.status-danger-bg-solid { color: var(--accent-danger); }
 
 /* ============ Plan preview and detail cards ============ */

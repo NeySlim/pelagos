@@ -480,11 +480,25 @@ class KeaBackend(DhcpBackend):
         )
 
     def plan_ha_maintenance(self, action: str, created_by: str = "") -> Plan:
+        """Kea semantics: this server goes partner-in-maintenance and its partner in-maintenance,
+        after which the partner can be shut down; "cancel" goes to the same server."""
         if action not in MAINTENANCE_COMMANDS:
             raise ConnectorError("action must be 'start' or 'cancel'")
         state = self.ha_state()
         if not state.enabled:
             raise NotSupported("the ha hook is not loaded on this server")
+        remote = ((state.raw.get("ha-servers") or {}).get("remote") or {}).get("server-name") or "the partner"
+        if action == "start" and state.state in ("in-maintenance", "partner-in-maintenance"):
+            raise ConnectorError(f"HA maintenance already active (state {state.state})")
+        if action == "cancel" and state.state != "partner-in-maintenance":
+            raise ConnectorError(
+                f"cancel goes to the server that started the maintenance (this one is {state.state})"
+            )
+        effect = (
+            f"{remote} goes in-maintenance and can be shut down"
+            if action == "start"
+            else "both servers return to normal operation"
+        )
         change = Change(ChangeOp.REPLACE, "ha/maintenance", before=state.state, after=action)
         precondition = Precondition(
             kind=PreconditionKind.HA_STATE,
@@ -494,7 +508,7 @@ class KeaBackend(DhcpBackend):
         )
         return self._new_plan(
             PlanScope.DHCP_HA,
-            f"HA maintenance {action} ({state.server_name or self.engine_name}, state {state.state})",
+            f"HA maintenance {action} on {state.server_name or self.engine_name}: {effect}",
             [change],
             created_by,
             diff=f"-state: {state.state}\n+maintenance: {action}\n",
@@ -586,10 +600,11 @@ class KeaBackend(DhcpBackend):
                 if action not in MAINTENANCE_COMMANDS:
                     # Rolling back "start" means "cancel" and the other way round.
                     action = "cancel" if change.before == "start" else "start"
-                messages.append(str(self.socket.send(MAINTENANCE_COMMANDS[action]).get("text", "")))
-                result = int(self.socket.send("status-get").get("result", 1))
-                if result != 0:
-                    raise ConnectorError("status-get failed after the maintenance command")
+                command = MAINTENANCE_COMMANDS[action]
+                resp = self.socket.send(command)
+                if int(resp.get("result", 1)) != 0:
+                    raise KeaCommandError(command, int(resp.get("result", 1)), str(resp.get("text", "")))
+                messages.append(str(resp.get("text", "")))
             elif t.kind == "service":
                 after = change.after if isinstance(change.after, dict) else {}
                 enable = bool(after.get("enable", after.get("enabled", True)))

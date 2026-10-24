@@ -69,6 +69,7 @@ def rig(tmp_root) -> Iterator[tuple[CollectorNode, LiveNode]]:
     collector = Collector(
         a.ctx, store, backends, build_peer_client(a.ctx), EventSink(a.paths.events_sock, a.id)
     )
+    collector.findings_source = lambda _ctx: []  # never this host's real BIND and Kea files
     listener.on("audit", lambda _msg: collector.apply_acks())
     listener.on("audit_merged", lambda _msg: collector.apply_acks())
     handle = collector_main.start_replication(a.ctx, listener, store, backends)

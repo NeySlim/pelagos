@@ -113,6 +113,12 @@ def build_peer_client(ctx: NodeContext) -> PeerClient | None:
     return ReplicationPeerClient(client_ssl_context(ca, crt, key))
 
 
+def _collect_findings(ctx: NodeContext) -> list[dict[str, Any]] | None:
+    from pelagos.collector.security import collect_findings
+
+    return collect_findings(ctx)
+
+
 @dataclass(slots=True)
 class Task:
     name: str
@@ -159,6 +165,8 @@ class Collector:
             peer_client, self.node_id, lambda: self.ctx.cluster().nodes, store, settings, clock
         )
         self.last_report = CycleReport()
+        # Where security findings come from (the helper or a local audit); tests replace it.
+        self.findings_source: Callable[[NodeContext], list[dict[str, Any]] | None] = _collect_findings
         # Set by run(): the collector.sock listener other components register their handlers on.
         self.listener: SignalListener | None = None
 
@@ -241,6 +249,17 @@ class Collector:
         self.store.set_meta("last_run_consistency", str(int(self.clock())))
         return observed
 
+    def security_audit(self) -> list[Alert]:
+        """Weak keys and listeners off localhost from the security audit, as alerts (section 15)."""
+        from pelagos.collector.security import security_outcome
+
+        findings = self.findings_source(self.ctx)
+        if findings is None:
+            return []
+        outcome = security_outcome(findings, self.node_id)
+        self._finish(outcome)
+        return outcome.alerts
+
     def retention(self) -> dict[str, int]:
         now = int(self.clock())
         retention = self.ctx.settings().get("retention", {})
@@ -260,6 +279,7 @@ class Collector:
             ("poll_peers", self.poll_peers),
             ("apply_acks", self.apply_acks),
             ("consistency", self.consistency),
+            ("security_audit", self.security_audit),
             ("retention", self.retention),
         ):
             try:
@@ -282,6 +302,7 @@ class Collector:
             Task("poll_peers", peer_poll, self.poll_peers),
             Task("apply_acks", poll, self.apply_acks),
             Task("consistency", consistency_period, self.consistency),
+            Task("security_audit", consistency_period, self.security_audit),
             Task("retention", 3600.0, self.retention),
         ]
 

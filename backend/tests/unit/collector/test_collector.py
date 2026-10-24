@@ -66,6 +66,7 @@ def rig(node_ctx):
     collector = Collector(
         node_ctx, store, backends, FakePeerClient(), EventSink(node_ctx.paths.events_sock, node)
     )
+    collector.findings_source = lambda _ctx: []  # never this host's real BIND and Kea files
     yield collector, backends, receiver
     receiver.close()
     conn.close()
@@ -287,6 +288,7 @@ def test_tasks_and_retention(rig):
         "poll_peers": 30.0,
         "apply_acks": 60.0,
         "consistency": 900.0,
+        "security_audit": 900.0,
         "retention": 3600.0,
     }
     counts = collector.retention()
@@ -308,6 +310,7 @@ def test_build_backends_and_run_once(node_ctx, monkeypatch, tmp_root):
     fakes = Backends(dns=FakeDnsBackend(node), kea4=FakeDhcpBackend(Family.V4, node))
     monkeypatch.setattr(collector_main, "build_backends", lambda _ctx: fakes)
     monkeypatch.setattr(collector_main, "build_peer_client", lambda _ctx: FakePeerClient())
+    monkeypatch.setattr(collector_main, "_collect_findings", lambda _ctx: [])
     assert collector_main.run(node_ctx.paths, once=True) == 0
     conn = connect(node_ctx.paths.series_db, readonly=True)
     store = SeriesStore(conn)

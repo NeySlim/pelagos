@@ -95,7 +95,7 @@ Details: [docs/architecture.md](docs/architecture.md) (contracts) and
 | --- | --- |
 | deb package | Debian 13 (trixie), amd64 |
 | rpm package | RHEL, Rocky Linux, AlmaLinux 9 and 10, x86_64 |
-| Container images | `ghcr.io/neyslim/pelagos` (node) and `ghcr.io/neyslim/pelagos-allinone`, amd64 |
+| Container images | node and all-in-one, amd64, built with `make docker` and `make docker-allinone` |
 | BIND | 9.20 |
 | Kea | 3.x (3.2 tested) with the `lease_cmds`, `host_cmds`, `subnet_cmds` and `stat_cmds` hooks; Kea 2.6 in a reduced mode (no `subnet_cmds` or `host_cmds`: subnet changes through `config-set`) |
 | Browsers | current Chromium, Firefox and Safari |
@@ -130,11 +130,12 @@ sudo firewall-cmd --permanent --add-port=8443/tcp --add-port=8444/tcp && sudo fi
 ### Docker compose
 
 The compose file runs the node next to the official ISC images for BIND
-and Kea:
+and Kea. No image is published yet: build the node image first.
 
 ```sh
+make docker
 cd docker
-PELAGOS_IMAGE=ghcr.io/neyslim/pelagos:<version> PELAGOS_ADMIN_PASSWORD='change me' docker compose up -d
+PELAGOS_IMAGE=pelagos:latest PELAGOS_ADMIN_PASSWORD='change me' docker compose up -d
 ```
 
 Kea uses the host network to serve DHCP; add the LAN interface to the
@@ -197,8 +198,8 @@ maintenance, backup and restore, upgrades and troubleshooting.
 - Expose `:8443` to administrators only and `:8444` to the other nodes
   only.
 
-Report vulnerabilities privately to the maintainers rather than in a
-public issue.
+Report vulnerabilities privately, never in a public issue: see
+[SECURITY.md](SECURITY.md).
 
 ## Development
 

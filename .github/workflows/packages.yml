@@ -2,7 +2,8 @@
 # Release artifacts, on version tags and on demand: the deb (Debian 13), the rpms (RHEL 9 and
 # 10), the node and all-in-one images with their smoke tests and, on a tag, the images pushed
 # to ghcr.io/<owner>/pelagos and ghcr.io/<owner>/pelagos-allinone plus a GitHub release
-# carrying the packages.
+# carrying the packages. ghcr packages start private: make them public once (package settings)
+# before documenting a ghcr.io image for users.
 name: packages
 
 on:

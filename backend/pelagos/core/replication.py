@@ -975,6 +975,8 @@ class ReplicationService:
         self._seq = 0  # bumped by every notify, so a push only clears the events it started after
         self._retry_at: float | None = None
         self._attempt = 0
+        # Peers that reached us while a push was in flight: a failure to them retries at once.
+        self._seen_mid_push: set[str] | None = None
         self._next_poll = 0.0
         self._next_renewal = 0.0
         self._next_housekeeping = 0.0
@@ -1089,10 +1091,11 @@ class ReplicationService:
     def _on_peer_seen(self, node_id: str) -> None:
         """A peer that was failing reached us: retry the pending push now instead of after the backoff."""
         status = self.replicator.statuses.get(node_id)
-        if status is None or status.reachable:
-            return
         with self._lock:
-            if not self._pending:
+            if self._seen_mid_push is not None:
+                self._seen_mid_push.add(node_id)
+                return
+            if status is None or status.reachable or not self._pending:
                 return
             self._retry_at = time.monotonic()
         self._wake.set()
@@ -1127,14 +1130,21 @@ class ReplicationService:
             with self._lock:
                 # Pushed back first so an unexpected error cannot turn the loop into a hot retry.
                 self._retry_at = now + PUSH_BACKOFF_SECONDS[0]
+                self._seen_mid_push = set()
+            failed_ids: set[str] = set()
             try:
                 results = self._after_exchange(self.replicator.push_all())
-                failed = sum(1 for r in results if not r.reachable)
+                failed_ids = {r.node_id for r in results if not r.reachable}
+                failed = len(failed_ids)
             except Exception:
                 log.exception("push to peers failed")
                 failed = 1
             with self._lock:
-                if failed:
+                seen, self._seen_mid_push = self._seen_mid_push or set(), None
+                if failed and failed_ids and failed_ids <= seen:
+                    # Every failed peer has reached us since: it is back, retry now without backoff.
+                    self._retry_at = time.monotonic()
+                elif failed:
                     delay = (
                         PUSH_BACKOFF_SECONDS[self._attempt]
                         if self._attempt < len(PUSH_BACKOFF_SECONDS)

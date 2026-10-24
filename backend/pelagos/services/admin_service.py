@@ -11,7 +11,7 @@ from pelagos.auth.rbac import BUILTIN_ROLES, PERMISSIONS
 from pelagos.core.config_store import DEFAULT_SETTINGS, ClusterConfig, deep_merge
 from pelagos.core.context import NodeContext
 from pelagos.domain import AuditEntry, AuditResult, NodeModules, Role, User, new_id, utcnow
-from pelagos.services.errors import Conflict, NotFound, ValidationError, field_error
+from pelagos.services.errors import Conflict, NotFound, ServiceError, ValidationError, field_error
 from pelagos.services.masking import masked
 
 USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,62}$")
@@ -363,8 +363,16 @@ class AdminService:
 
     # Nodes --------------------------------------------------------------
 
-    def enroll_token(self, ttl_seconds: Any, actor: str, client_ip: str | None) -> dict[str, Any]:
-        """The token lives in the collector (it serves /repl/v1/enroll); WP-CORE provides the bridge."""
+    def _enrollment(self) -> Any:
+        from pelagos.core.enrollment import EnrollmentService
+
+        c = self.ctx
+        return EnrollmentService(c.paths, c.config_store, c.audit_log, c.node)
+
+    def enroll_token(
+        self, ttl_seconds: Any, actor: str, client_ip: str | None, ca: Any = False
+    ) -> dict[str, Any]:
+        """EnrollmentService.issue_token: the collector consumes the token through /repl/v1/enroll."""
         if (
             not isinstance(ttl_seconds, int)
             or isinstance(ttl_seconds, bool)
@@ -373,42 +381,53 @@ class AdminService:
             raise ValidationError(
                 "ttl_seconds must be an integer between 60 and 86400", [field_error("ttl_seconds", "invalid")]
             )
-        from pelagos.core import enrollment
+        if not isinstance(ca, bool):
+            raise ValidationError("ca must be a boolean", [field_error("ca", "boolean expected")])
+        from pelagos.core.enrollment import EnrollError
 
-        request_token = getattr(enrollment, "request_token", None)
-        if request_token is None:
-            raise NotImplementedError("WP-CORE")
-        out = dict(request_token(self.ctx.paths, created_by=self._by(actor), ttl_seconds=ttl_seconds))
-        out["command"] = (
-            f"pelagos enroll --url {out['url']} --token {out['token']}"
-            f" --ca-fingerprint {out['ca_fingerprint']}"
-        )
+        try:
+            out = dict(self._enrollment().issue_token(self._by(actor), ttl_seconds, ca=ca))
+        except EnrollError as exc:
+            raise _enroll_error(exc) from None
+        except FileNotFoundError as exc:
+            raise Conflict(f"this node has no cluster CA material ({exc.filename})") from None
         self._audit(
-            "admin.node.op", "node:enroll-token", actor, {"op": "enroll-token", "ttl": ttl_seconds}, client_ip
+            "admin.node.op",
+            "node:enroll-token",
+            actor,
+            {"op": "enroll-token", "ttl": ttl_seconds, "ca": ca, "expires_at": out.get("expires_at")},
+            client_ip,
         )
         return out
 
     def remove_node(self, node_id: str, actor: str, client_ip: str | None) -> None:
-        """Drop a peer from [[nodes]] and revoke its certificate fingerprint (section 14, step 5)."""
+        """EnrollmentService.revoke: drop the peer from [[nodes]] and revoke its certificate (section 14)."""
+        from pelagos.core.enrollment import EnrollError
+
         if node_id == self.ctx.node.id:
             raise Conflict("a node cannot remove itself; remove it from another node")
-        cfg = self.ctx.cluster()
-        peer = cfg.peer(node_id)
-        if peer is None:
-            raise NotFound(f"node {node_id}")
+        try:
+            self._enrollment().revoke(node_id, self._by(actor), client_ip)
+        except EnrollError as exc:
+            raise _enroll_error(exc) from None
 
-        def mutate(c: ClusterConfig) -> None:
-            c.nodes = [n for n in c.nodes if n.id != node_id]
-            if peer.cert_fingerprint and peer.cert_fingerprint not in c.revoked:
-                c.revoked.append(peer.cert_fingerprint)
-
-        self.ctx.config_store.update_cluster(mutate, updated_by=self._by(actor))
-        self._audit(
-            "admin.node.revoke",
-            f"node:{node_id}",
-            actor,
-            {"node_id": node_id, "name": peer.name, "cert_fingerprint": peer.cert_fingerprint},
-            client_ip,
+    def audit_sync(self, peer: Any, status: Any, actor: str, client_ip: str | None) -> None:
+        self.ctx.audit_log.append(
+            AuditEntry(
+                node_id=self.ctx.node.id,
+                user=actor,
+                action="admin.node.sync",
+                target=f"node:{peer.id}",
+                request={"node_id": peer.id, "name": peer.name},
+                response={
+                    "reachable": status.reachable,
+                    "config_adopted": bool(status.config_adopted),
+                    "audit_added": int(status.audit_added),
+                },
+                result=AuditResult.OK if status.reachable else AuditResult.ERROR,
+                message=status.error,
+                client_ip=client_ip,
+            )
         )
 
     # Modules ------------------------------------------------------------
@@ -534,3 +553,8 @@ def _validate_settings(body: dict[str, Any], schema: dict[str, Any], prefix: str
 
 
 __all__ = ["DEFAULT_SETTINGS", "SETTINGS_SCHEMA", "AdminService"]
+
+
+def _enroll_error(exc: Any) -> ServiceError:
+    code = {404: "not_found", 409: "conflict", 400: "validation_error"}.get(int(exc.status), "forbidden")
+    return ServiceError(code, str(exc))

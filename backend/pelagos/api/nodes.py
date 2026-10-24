@@ -67,10 +67,12 @@ class EnrollToken(Resource):
     @require("admin:nodes")
     @ns.expect(m.EnrollTokenRequest)
     @ns.response(200, "One-time enrollment token and the command to run on the new node")
-    @ns.response(501, "not_implemented until WP-CORE lands", m.Problem)
+    @ns.response(409, "conflict: this node does not hold the cluster CA key", m.Problem)
     def post(self):
         body = json_body(required=False)
-        return services().admin.enroll_token(body.get("ttl_seconds", 900), username(), client_ip())
+        return services().admin.enroll_token(
+            body.get("ttl_seconds", 900), username(), client_ip(), body.get("ca", False)
+        )
 
 
 @ns.route("/<string:node_id>")
@@ -99,13 +101,16 @@ class SyncNode(Resource):
     @ns.response(200, "Pulled configuration and audit from the peer", m.SyncAnswer)
     @ns.response(503, "engine_unavailable: peer unreachable", m.Problem)
     def post(self, node_id: str):
-        peers = services().peers
-        peer = peers.peer(node_id)
+        s = services()
+        peer = s.peers.peer(node_id)
         if peer is None:
             raise ApiError("not_found", f"node {node_id} (or this node)")
-        from pelagos.services.peers import ReplicationError
-
-        try:
-            return peers.sync(peer)
-        except (ReplicationError, OSError) as exc:
-            raise ApiError("engine_unavailable", f"{peer.name}: {exc}") from None
+        status = s.peers.sync(peer)
+        s.admin.audit_sync(peer, status, username(), client_ip())
+        if not status.reachable:
+            raise ApiError("engine_unavailable", f"{peer.name}: {status.error or 'unreachable'}")
+        return {
+            "config_adopted": bool(status.config_adopted),
+            "audit_added": int(status.audit_added),
+            "status": status.to_dict(),
+        }

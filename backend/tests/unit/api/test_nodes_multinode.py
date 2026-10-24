@@ -145,33 +145,45 @@ def test_sync_from_peer(admin, peer_b, node_ctx):
         ).to_dict()
         for _ in range(3)
     ]
+    mine = AuditEntry(node_id=node_ctx.node.id, user="al", action="dns.rrset.apply", target="t")
+    node_ctx.audit_log.append(mine)
     r = admin.post(f"/api/v1/nodes/{NODE_B}/sync")
-    assert r.status_code == 200 and r.get_json() == {"config_adopted": True, "audit_added": 3}
+    body = r.get_json()
+    assert r.status_code == 200 and body["config_adopted"] is True and body["audit_added"] == 3
+    assert body["status"]["reachable"] is True and body["status"]["node_id"] == NODE_B
     assert node_ctx.cluster().settings["plan_ttl_seconds"] == 900
-    assert admin.post(f"/api/v1/nodes/{NODE_B}/sync").get_json()["audit_added"] == 0
+    # Both directions: the peer received this node's entries too.
+    assert mine.id in {e["id"] for e in peer_b.audit}
+    again = admin.post(f"/api/v1/nodes/{NODE_B}/sync").get_json()
+    assert again["audit_added"] == 0 and again["config_adopted"] is False
+    assert admin.get("/api/v1/audit?action=admin.node.sync").get_json()["total"] == 2
     peer_b.reachable = False
     r = admin.post(f"/api/v1/nodes/{NODE_B}/sync")
     assert r.status_code == 503 and r.get_json()["code"] == "engine_unavailable"
     assert admin.post("/api/v1/nodes/ghost/sync").status_code == 404
 
 
-def test_enroll_token_waits_for_core(admin, monkeypatch):
-    r = admin.post("/api/v1/nodes/enroll-token", json={})
-    assert r.status_code == 501 and "WP-CORE" in r.get_json()["detail"]
-    from pelagos.core import enrollment
+def test_enroll_token_is_issued_by_the_enrollment_service(admin, node_ctx):
+    import hashlib
+    import json
 
-    def request_token(paths, created_by, ttl_seconds):
-        return {
-            "token": "t" * 43,
-            "url": "https://ns1.example.lan:8444",
-            "ca_fingerprint": "sha256:cc",
-            "expires_at": "2026-10-24T10:15:00Z",
-        }
-
-    monkeypatch.setattr(enrollment, "request_token", request_token, raising=False)
     r = admin.post("/api/v1/nodes/enroll-token", json={"ttl_seconds": 600})
-    assert r.status_code == 200 and r.get_json()["command"].startswith("pelagos enroll --url https://ns1")
+    assert r.status_code == 200, r.get_json()
+    body = r.get_json()
+    assert len(body["token"]) == 43 and body["ca_fingerprint"].startswith("sha256:")
+    assert body["url"] == node_ctx.node.replication_url
+    assert body["command"].startswith(f"pelagos enroll --url {body['url']} --token {body['token']}")
+    # The collector consumes it: the store holds the hash only.
+    stored = node_ctx.paths.enroll_tokens.read_text()
+    assert body["token"] not in stored
+    assert hashlib.sha256(body["token"].encode()).hexdigest() in json.dumps(json.loads(stored))
+    entry = admin.get("/api/v1/audit?action=admin.node.op").get_json()["items"][0]
+    assert entry["request"]["op"] == "enroll-token" and body["token"] not in json.dumps(entry)
     assert admin.post("/api/v1/nodes/enroll-token", json={"ttl_seconds": 5}).status_code == 400
+    assert admin.post("/api/v1/nodes/enroll-token", json={"ca": "yes"}).status_code == 400
+    (node_ctx.paths.pki_dir / "ca.key").unlink()
+    r = admin.post("/api/v1/nodes/enroll-token", json={})
+    assert r.status_code == 409 and r.get_json()["code"] == "conflict"
 
 
 def test_node_without_bind_reads_from_peer(role_client, peer_b, fake_registry, services):

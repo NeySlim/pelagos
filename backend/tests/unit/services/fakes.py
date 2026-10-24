@@ -65,6 +65,7 @@ from pelagos.domain import (
     ZoneSource,
     ZoneStatus,
     normalize_name,
+    to_rfc3339,
     utcnow,
 )
 
@@ -1610,11 +1611,61 @@ class FakeReplicationClient:
         if not self.reachable:
             raise ReplicationError(f"node {self.node_id} unreachable")
 
+    @property
+    def peer(self) -> Any:
+        return type("PeerRef", (), {"id": self.node_id, "name": f"peer-{self.node_id[-4:]}"})()
+
+    def _config_head(self) -> tuple[int, str | None, str | None]:
+        import tomllib
+
+        if not self.config_toml:
+            return 7, None, None
+        data = tomllib.loads(self.config_toml)
+        at = data.get("updated_at")
+        return (
+            int(data.get("version", 0)),
+            (to_rfc3339(at) if hasattr(at, "tzinfo") else at),
+            data.get("updated_by"),
+        )
+
     def status(self) -> Any:
         from pelagos.core.replication import PeerStatus
 
         self._check()
-        return PeerStatus(self.node_id, True, config_version=7, audit_count=len(self.audit), version="0.1.0")
+        version, updated_at, updated_by = self._config_head()
+        return PeerStatus(
+            self.node_id,
+            True,
+            config_version=version,
+            audit_count=len(self.audit),
+            audit_head=max((e["id"] for e in self.audit), default=None),
+            version="0.1.0",
+            config_updated_at=updated_at,
+            config_updated_by=updated_by,
+        )
+
+    def push_config(self, version: int, updated_at: str, updated_by: str, toml_text: str) -> bool:
+        self._check()
+        if version <= self._config_head()[0] and self.config_toml:
+            return False
+        self.config_toml = toml_text
+        return True
+
+    def push_audit(self, entries: list[dict[str, Any]]) -> int:
+        self._check()
+        known = {e["id"] for e in self.audit}
+        fresh = [e for e in entries if e["id"] not in known]
+        self.audit.extend(fresh)
+        return len(fresh)
+
+    def audit_ids(self) -> list[str]:
+        self._check()
+        return sorted(e["id"] for e in self.audit)
+
+    def fetch_audit_ids(self, ids: list[str]) -> list[dict[str, Any]]:
+        self._check()
+        wanted = set(ids)
+        return sorted((e for e in self.audit if e["id"] in wanted), key=lambda e: e["id"])
 
     def engine_snapshot(
         self, engine: str, kind: str = "summary", params: dict[str, Any] | None = None

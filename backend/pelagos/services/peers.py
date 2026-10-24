@@ -9,12 +9,20 @@ Status answers are cached for `peer_poll_seconds` so list pages stay fast.
 from __future__ import annotations
 
 import logging
+import ssl
 import threading
 import time
 from typing import Any
 
 from pelagos.core.context import NodeContext
-from pelagos.core.replication import PeerStatus, ReplicationClient, ReplicationError, client_ssl_context
+from pelagos.core.replication import (
+    PeerStatus,
+    ReplicationClient,
+    ReplicationError,
+    Replicator,
+    client_ssl_context,
+    node_tls_files,
+)
 from pelagos.domain import Engine, Node, NodeApplyResult, NodeStatus, Peer, Plan, utcnow
 
 log = logging.getLogger(__name__)
@@ -30,18 +38,21 @@ class PeerGateway:
         )
         self._status: dict[str, tuple[float, PeerStatus]] = {}
         self._lock = threading.Lock()
-        self._ssl = None
+        self._ssl: ssl.SSLContext | None = None
 
     # Wiring -------------------------------------------------------------
 
-    def client(self, peer: Peer) -> ReplicationClient | None:
-        pki = self.ctx.paths.pki_dir
+    def client_context(self) -> ssl.SSLContext | None:
         if self._ssl is None:
-            ca, crt, key = pki / "ca.crt", pki / "node.crt", pki / "node.key"
+            ca, crt, key = node_tls_files(self.ctx.paths)
             if not (ca.exists() and crt.exists() and key.exists()):
                 return None
             self._ssl = client_ssl_context(ca, crt, key)
-        return ReplicationClient(peer, self._ssl)
+        return self._ssl
+
+    def client(self, peer: Peer) -> ReplicationClient | None:
+        context = self.client_context()
+        return ReplicationClient(peer, context) if context is not None else None
 
     def peers(self) -> list[Peer]:
         return [p for p in self.ctx.cluster().nodes if p.id != self.ctx.node.id]
@@ -120,25 +131,26 @@ class PeerGateway:
 
     # Sync ---------------------------------------------------------------
 
-    def sync(self, peer: Peer) -> dict[str, Any]:
-        """Pull now from one peer: adopt its cluster.toml if it wins, merge audit entries after our head."""
-        from pelagos.domain import AuditEntry
+    def replicator(self) -> Replicator | None:
+        """The collector's Replicator on this node's certificate; None before enrollment. Its clients
+        come from `client()` so every peer call of the web process goes through one place."""
+        context = self.client_context()
+        if context is None:
+            return None
+        c = self.ctx
+        replicator = Replicator(c.config_store, c.audit_log, context, self_id=c.node.id)
+        replicator.client = self.client  # type: ignore[method-assign,assignment]
+        return replicator
 
-        client = self.client(peer)
-        if client is None:
-            raise ReplicationError("node certificate not available")
-        remote = client.fetch_config()
-        adopted = self.ctx.config_store.merge_remote(remote["toml"])
-        _count, head = self.ctx.audit_log.head()
-        added = 0
-        after = head
-        while True:
-            entries, after = client.fetch_audit(after)
-            added += self.ctx.audit_log.merge([AuditEntry.from_dict(e) for e in entries])
-            if not after or not entries:
-                break
-        self.forget(peer.id)
-        return {"config_adopted": bool(adopted), "audit_added": added}
+    def sync(self, peer: Peer) -> PeerStatus:
+        """Replicator.sync_peer: exchange cluster.toml and audit entries both ways with one peer."""
+        replicator = self.replicator()
+        if replicator is None:
+            return PeerStatus(peer.id, False, error="node certificate not available")
+        status = replicator.sync_peer(peer)
+        with self._lock:
+            self._status[peer.id] = (time.monotonic(), status)
+        return status
 
     # Plans --------------------------------------------------------------
 

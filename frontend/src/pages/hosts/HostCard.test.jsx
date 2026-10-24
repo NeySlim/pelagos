@@ -186,6 +186,38 @@ describe('HostCard', () => {
     expect(mocks.openDetail).toHaveBeenCalledWith('lease', 'v4:192.0.2.106', expect.objectContaining({ family: 'v4', ip: '192.0.2.106' }))
   })
 
+  it('sends the actions of a DHCPv6 host to the v6 family', async () => {
+    const DUID = '00:03:00:01:02:00:5e:00:00:08'
+    const v6Lease = lease({ family: 'v6', ip_address: '2001:db8::108', hw_address: null, duid: DUID, iaid: 8, lease_type: 'IA_NA', subnet_id: 10 })
+    mocks.api.hosts.get.mockResolvedValue(host({ ips: ['2001:db8::108'], lease: v6Lease, reservation: null, records: [], alerts: [] }))
+    mocks.api.dhcp.leaseDeletePlan.mockResolvedValue(plan())
+    renderCard()
+    fireEvent.click(await screen.findByTestId('host-delete-lease'))
+    await waitFor(() => expect(mocks.api.dhcp.leaseDeletePlan).toHaveBeenCalledWith('v6', '2001:db8::108'))
+    fireEvent.click(within(await screen.findByTestId('plan-preview')).getByText('Cancel'))
+    await waitFor(() => expect(screen.queryByTestId('plan-preview')).not.toBeInTheDocument())
+
+    mocks.api.dhcp.reservationPlan.mockResolvedValue(plan({ scope: 'dhcp.reservation', requires_confirmation: false }))
+    fireEvent.click(screen.getByTestId('host-reserve'))
+    await waitFor(() => expect(mocks.api.dhcp.reservationPlan).toHaveBeenCalled())
+    const [family, change] = mocks.api.dhcp.reservationPlan.mock.calls[0]
+    expect(family).toBe('v6')
+    expect(change.target).toBe(`subnet6/10/reservations/duid=${DUID}`)
+    expect(change.after).toMatchObject({ id_type: 'duid', identifier: DUID, ip_address: null, ip_addresses: ['2001:db8::108'] })
+    fireEvent.click(within(await screen.findByTestId('plan-preview')).getByText('Cancel'))
+
+    fireEvent.click(screen.getByTestId('host-open-lease'))
+    expect(mocks.openDetail).toHaveBeenCalledWith('lease', 'v6:2001:db8::108', expect.objectContaining({ family: 'v6', ip: '2001:db8::108' }))
+  })
+
+  it('offers no reservation for a v6 lease without a DUID', async () => {
+    const v6Lease = lease({ family: 'v6', ip_address: '2001:db8::109', duid: null })
+    mocks.api.hosts.get.mockResolvedValue(host({ ips: ['2001:db8::109'], lease: v6Lease, reservation: null }))
+    renderCard()
+    expect(await screen.findByTestId('host-reservation')).toHaveTextContent('No reservation')
+    expect(screen.queryByTestId('host-reserve')).not.toBeInTheDocument()
+  })
+
   it('offers no write action to a read-only user', async () => {
     mocks.permissions = new Set(['read:hosts', 'read:dhcp'])
     mocks.api.hosts.get.mockResolvedValue(host({ records: [] }))
@@ -221,5 +253,15 @@ describe('host helpers', () => {
     expect(reverseZoneFor('192.0.2.42', ['2.0.192.in-addr.arpa.'])).toBe('2.0.192.in-addr.arpa.')
     expect(reverseZoneFor('192.0.2.42', ['192.in-addr.arpa.'])).toBe('192.in-addr.arpa.')
     expect(reverseZoneFor('198.51.100.1', ['2.0.192.in-addr.arpa.'])).toBeNull()
+  })
+
+  it('handles IPv6 subnets and ip6.arpa zones', () => {
+    const subnets = [{ id: 10, subnet: '2001:db8::/64' }, { id: 11, subnet: '2001:db8:0:1::/64' }, { id: 1, subnet: '192.0.2.0/24' }]
+    expect(subnetFor('2001:db8::108', subnets).id).toBe(10)
+    expect(subnetFor('2001:db8:0:1::5', subnets).id).toBe(11)
+    expect(subnetFor('2001:db8:1::1', subnets)).toBeNull()
+    expect(reverseZoneFor('2001:db8::108', ['8.b.d.0.1.0.0.2.ip6.arpa.'])).toBe('8.b.d.0.1.0.0.2.ip6.arpa.')
+    expect(reverseZoneFor('2001:db8::108', ['0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.', '8.b.d.0.1.0.0.2.ip6.arpa.'])).toBe('0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.')
+    expect(reverseZoneFor('2001:db9::1', ['8.b.d.0.1.0.0.2.ip6.arpa.'])).toBeNull()
   })
 })

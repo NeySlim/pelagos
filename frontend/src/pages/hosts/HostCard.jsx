@@ -81,20 +81,22 @@ export function HostCard({ hostKey, onChanged }) {
   if (!h) return null
 
   const { lease, reservation } = h
-  const ip = lease?.ip_address || reservation?.ip_address || h.ips[0]
+  const ip = lease?.ip_address || reservation?.ip_address || reservation?.ip_addresses?.[0] || h.ips[0]
+  // The lease carries its family; a reservation alone is v6 when its address is.
+  const family = lease?.family || (ip?.includes(':') ? 'v6' : 'v4')
+  const canReserve = family === 'v6' ? Boolean(lease?.duid) : Boolean(lease?.hw_address)
   const forwardZone = zoneOf(h.hostname, zoneNames) || (h.hostname ? absName(h.hostname).split('.').slice(1).join('.') : null)
   const zonePath = (name) => `/dns/zones/${encodeURIComponent(String(name).replace(/\.$/, ''))}`
 
-  const deleteLease = () => flow.build(() => api.dhcp.leaseDeletePlan('v4', lease.ip_address))
+  const deleteLease = () => flow.build(() => api.dhcp.leaseDeletePlan(family, lease.ip_address))
   const deleteReservation = () =>
-    flow.build(() => api.dhcp.reservationPlan('v4', { op: 'delete', target: reservationTarget('v4', reservation), before: reservation, after: null }))
+    flow.build(() => api.dhcp.reservationPlan(family, { op: 'delete', target: reservationTarget(family, reservation), before: reservation, after: null }))
   const reserveLease = () => {
     const after = {
       subnet_id: lease.subnet_id,
-      id_type: 'hw-address',
-      identifier: lease.hw_address,
-      ip_address: lease.ip_address,
-      ip_addresses: [],
+      ...(family === 'v6'
+        ? { id_type: 'duid', identifier: lease.duid, ip_address: null, ip_addresses: [lease.ip_address] }
+        : { id_type: 'hw-address', identifier: lease.hw_address, ip_address: lease.ip_address, ip_addresses: [] }),
       prefixes: [],
       hostname: lease.hostname || (h.hostname ? h.hostname.replace(/\.$/, '') : null),
       client_classes: [],
@@ -105,7 +107,7 @@ export function HostCard({ hostKey, onChanged }) {
       user_context: {},
       raw: {},
     }
-    return flow.build(() => api.dhcp.reservationPlan('v4', { op: 'add', target: reservationTarget('v4', after), before: null, after }))
+    return flow.build(() => api.dhcp.reservationPlan(family, { op: 'add', target: reservationTarget(family, after), before: null, after }))
   }
   const createRecords = () =>
     flow.build(() =>
@@ -117,8 +119,8 @@ export function HostCard({ hostKey, onChanged }) {
       }),
     )
   const openLease = () => {
-    if (isMobile) navigate(`/dhcp/v4/leases?q=${encodeURIComponent(lease.ip_address)}`)
-    else openDetail('lease', `v4:${lease.ip_address}`, { family: 'v4', ip: lease.ip_address, subtitle: h.hostname || undefined })
+    if (isMobile) navigate(`/dhcp/${family}/leases?q=${encodeURIComponent(lease.ip_address)}`)
+    else openDetail('lease', `${family}:${lease.ip_address}`, { family, ip: lease.ip_address, subtitle: h.hostname || undefined })
   }
 
   return (
@@ -197,7 +199,7 @@ export function HostCard({ hostKey, onChanged }) {
           hasPermission('write:dhcp.reservations') &&
           (reservation ? (
             <>
-              <Button variant="ghost" size="xs" onClick={() => navigate(`/dhcp/v4/reservations?q=${encodeURIComponent(reservation.identifier)}`)} data-testid="host-edit-reservation">
+              <Button variant="ghost" size="xs" onClick={() => navigate(`/dhcp/${family}/reservations?q=${encodeURIComponent(reservation.identifier)}`)} data-testid="host-edit-reservation">
                 <PencilSimple size={12} />
                 {t('hosts:actions.openReservation')}
               </Button>
@@ -207,7 +209,7 @@ export function HostCard({ hostKey, onChanged }) {
               </Button>
             </>
           ) : (
-            lease?.hw_address && (
+            canReserve && (
               <Button variant="secondary" size="xs" onClick={reserveLease} disabled={flow.building} data-testid="host-reserve">
                 <Plus size={12} />
                 {t('hosts:actions.reserve')}
@@ -220,7 +222,7 @@ export function HostCard({ hostKey, onChanged }) {
           <div className="space-y-2">
             <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1">
               <Field label={t('dhcp:fields.identifier')}>{`${reservation.id_type} ${reservation.identifier}`}</Field>
-              <Field label={t('dhcp:fields.ipAddress')}>{reservation.ip_address}</Field>
+              <Field label={t('dhcp:fields.ipAddress')}>{reservation.ip_address || reservation.ip_addresses?.join(', ')}</Field>
               <Field label={t('dhcp:fields.hostname')}>{reservation.hostname}</Field>
               <Field label={t('dhcp:fields.subnetId')}>{reservation.subnet_id}</Field>
             </dl>

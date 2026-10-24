@@ -13,12 +13,20 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 compose_dir="$(cd "$here/../../docker" && pwd)"
 DOCKER="${DOCKER:-docker}"
-export PELAGOS_IMAGE="${1:-pelagos:latest}"
-export PELAGOS_ADMIN_PASSWORD="${PELAGOS_ADMIN_PASSWORD:-compose-smoke-password}"
-export BIND_DNS_PORT="${BIND_DNS_PORT:-5300}"
-export PELAGOS_HTTPS_PORT="${PELAGOS_HTTPS_PORT:-8443}"
+PELAGOS_IMAGE="${1:-pelagos:latest}"
+PELAGOS_ADMIN_PASSWORD="${PELAGOS_ADMIN_PASSWORD:-compose-smoke-password}"
+BIND_DNS_PORT="${BIND_DNS_PORT:-5300}"
+PELAGOS_HTTPS_PORT="${PELAGOS_HTTPS_PORT:-8443}"
 project="pelagos-smoke-$$"
-dc() { $DOCKER compose -p "$project" -f "$compose_dir/compose.yaml" "$@"; }
+# An env file rather than exported variables: DOCKER="sudo docker" resets the environment.
+envfile="$(mktemp)"
+cat >"$envfile" <<EOF
+PELAGOS_IMAGE=$PELAGOS_IMAGE
+PELAGOS_ADMIN_PASSWORD=$PELAGOS_ADMIN_PASSWORD
+BIND_DNS_PORT=$BIND_DNS_PORT
+PELAGOS_HTTPS_PORT=$PELAGOS_HTTPS_PORT
+EOF
+dc() { $DOCKER compose --env-file "$envfile" -p "$project" -f "$compose_dir/compose.yaml" "$@"; }
 failures=0
 ok() { echo "ok:   $*"; }
 fail() { echo "FAIL: $*"; failures=$((failures + 1)); }
@@ -26,6 +34,7 @@ fail() { echo "FAIL: $*"; failures=$((failures + 1)); }
 cleanup() {
   if [[ $failures -gt 0 ]]; then dc ps -a || true; dc logs --tail 40 || true; fi
   [[ "${KEEP:-0}" == 1 ]] || dc down -v --remove-orphans >/dev/null 2>&1 || true
+  rm -f "$envfile"
 }
 trap cleanup EXIT
 
@@ -50,6 +59,11 @@ if "${as_pelagos[@]}" curl -fs http://bind:8053/json/v1/server >/dev/null; then
   ok "statistics channel of the bind service"
 else
   fail "statistics channel of the bind service"
+fi
+if dc exec -T pelagos id -nG pelagos | grep -qw root; then
+  fail "pelagos is a member of the root group"
+else
+  ok "pelagos is not a member of the root group"
 fi
 for sock in kea4-ctrl-socket kea-ddns-ctrl-socket; do
   probe="import json, socket

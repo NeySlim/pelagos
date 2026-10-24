@@ -10,7 +10,7 @@ Kea control sockets, validated include files). Nodes replicate their own
 small state over mutual TLS, so any node can be used to manage the whole
 cluster.
 
-![Dashboard, Pelagic theme](docs/images/dashboard-dark.png)
+![Dashboard, Mission Control theme: cluster radar with live DNS and DHCP rates](docs/images/dashboard-dark.png)
 
 Status: early release (`0.1`). The feature set below is implemented and
 tested against real `named` and Kea daemons; expect rough edges.
@@ -48,9 +48,11 @@ tested against real `named` and Kea daemons; expect rough edges.
 - **Import and install**: adopt an existing BIND and Kea setup with a single
   include line added to `named.conf`, or install BIND and Kea (distribution
   packages or ISC repositories) and configure them.
-- **UI**: themes (Pelagic by default, dark and light), English and French,
-  dashboard with nodes, HA, zone sync, pool usage and DDNS errors, live
-  updates over WebSocket, roles and TOTP.
+- **UI**: themes (Mission Control by default, dark and light, with
+  animations that follow the reduced-motion setting), English and French,
+  dashboard with a live cluster radar, DNS and DHCP rates, nodes, HA, zone
+  sync, pool usage and DDNS errors, live updates over WebSocket, roles and
+  TOTP.
 
 | Zone record with its plan | DHCP subnets |
 | --- | --- |

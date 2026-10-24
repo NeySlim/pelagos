@@ -197,6 +197,31 @@ staggers its fields, `DetailHeader` stats are `StatChip`s and `RichStatsBar`,
 icon-only header actions, the mobile menu toggle and the modal close button
 are `IconButton`s. Dashboard tiles enter in reading order (`fx-stagger-item`).
 
+### Screens in the Mission language
+
+- Dashboard hero (`pages/dashboard/heroTiles.jsx`, `ClusterRadar.jsx`): the
+  cluster radar is one react-grid-layout tile between a DNS tile and a DHCP
+  tile. Its floor is a square scaled on Y (`radarLayout.js` holds the math:
+  node angles, projection, link and HA states, pool segments): nodes are pins
+  with halos colored by health, replication links flow (green ok, yellow and
+  slow when a serial lags, red and still when the peer is offline), zones are
+  blips, alerts are markers, the query rate drives the center beam and the HA
+  servers form a rail of waypoint pills.
+- Live rates (`lib/liveRates.js`, `hooks/useLiveRates.js`, `LiveRatePanel`):
+  counters polled every 4 s while the page is visible become per-second series
+  kept for the session; `StippledAreaChart` takes a `capacity` so a young
+  series fills its window from the right, and `formatValue`/`formatLabel` for
+  a glass tooltip (`fx-chart-tooltip`, also used by the recharts wrappers).
+- `SegmentedProgress` states: `done`, `current`, `next`, plus `warning` and
+  `danger` for thresholds; `value` reports a percentage. In Mission the
+  `UtilizationBar` track and `ui-meter` bars are cut into segments by a mask.
+- Waypoint pills (`ui-waypoint`, `fx-tone-*`) for states on a route (HA).
+- Page headings: card titles carry `ui-card-title` (literal case for node
+  names), tiny section labels `ui-label`; `RichStatsBar` reads label over
+  value as round chips.
+- Sign-in: `LoginScene` lays a radar disc with halos and beams behind an
+  opaque glass card (no backdrop blur over a looping animation).
+
 ## Mission Control effects layer
 
 A family declares `effects: 'mission' | 'none'`; ThemeContext writes it as

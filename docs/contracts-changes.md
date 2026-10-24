@@ -13,6 +13,25 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, W3-UI screens: live rates from counters, dashboard hero tiles
+- No API change. The dashboard and the statistics pages derive queries per second
+  and leases per second in the browser from the cumulative counters of
+  `GET /dns/stats?node_id=` (`opcodes.QUERY`, else `nsstats.Requestv4/v6`, plus
+  `rcodes`) and `GET /dhcp/{family}/stats?node_id=` (`pkt4-ack-sent`,
+  `pkt6-reply-sent`), polled every 4 s while the page is visible
+  (`frontend/src/lib/liveRates.js`, `hooks/useLiveRates.js`). The time base is
+  `collected_at` when present, so a peer snapshot returned twice adds no point;
+  a counter that goes back (restart) rebases. A server-side rate series (or a
+  `stats` WebSocket topic) would save the polling; until then nothing to react to.
+- `PUT /dashboard/layout` stores three more tile ids: `radar`, `dns`, `dhcp`.
+  A layout saved before them gets the hero row on top and the saved tiles below
+  it (`pages/dashboard/layout.js`); unknown ids are still dropped, so an older
+  frontend reading a newer layout keeps working.
+- The DHCP statistics page reads `GET /series/pools` (24 h, step 1800 s) for
+  users with `read:series`.
+- Mock server: BIND and Kea counters now grow with time (`mock/live.mjs`), so
+  rates move in development, e2e and screenshots.
+
 ## 2026-10-24, W3-UI system: Mission Control default family, animations preference
 - `GET/PUT /account/preferences` (`services/account_service.py`, `api/models.py`):
   new key `animations` (`full`, `reduced`, `off`, default `full`); the default

@@ -12,5 +12,110 @@
       "title": "Security audit",
       "subtitle": "Findings and their remediation plan"
     }
+  },
+  "engines": {
+    "bind": "BIND 9 (DNS)",
+    "kea4": "Kea DHCPv4",
+    "kea6": "Kea DHCPv6",
+    "d2": "Kea DHCP-DDNS (D2)"
+  },
+  "detect": {
+    "title": "Detected on this node",
+    "again": "Detect again",
+    "engine": "Engine",
+    "installed": "Installed",
+    "version": "Version",
+    "service": "Service",
+    "running": "Running",
+    "config": "Configuration",
+    "yes": "Running",
+    "no": "Stopped",
+    "include": "Pelagos include lines in named.conf",
+    "sockets": "Control sockets reachable",
+    "keys": "TSIG keys ddi-read and ddi-admin present"
+  },
+  "wizard": {
+    "title": "Plan",
+    "prev": "Back",
+    "next": "Next",
+    "steps": {
+      "mode": "Mode",
+      "engines": "Engines",
+      "source": "Packages",
+      "review": "Review and apply"
+    },
+    "mode": {
+      "import": "Import an existing configuration",
+      "importBody": "Keep the running BIND and Kea. Pelagos reads them, adds one include line, the control sockets, the statistics channel and its TSIG keys. Nothing else is rewritten.",
+      "install": "Install engines",
+      "installBody": "Install BIND and Kea packages that are missing, with minimal configurations, control sockets and the Pelagos include files."
+    },
+    "engines": {
+      "help": {
+        "import": "Engines found on this node that Pelagos will manage.",
+        "install": "Engines to install on this node."
+      },
+      "about": {
+        "bind": "Authoritative and recursive DNS",
+        "kea4": "IPv4 leases, reservations, HA",
+        "kea6": "IPv6 leases and prefix delegation",
+        "d2": "Dynamic DNS updates from Kea"
+      },
+      "reason": {
+        "installed": "Already installed: use import",
+        "notInstalled": "Not installed: use install",
+        "module": "The DHCPv6 module is disabled"
+      }
+    },
+    "source": {
+      "distro": "Distribution packages",
+      "distroBody": "apt or dnf from the distribution repositories. Versions follow the distribution.",
+      "isc": "ISC repositories",
+      "iscBody": "Current BIND and Kea from the ISC Cloudsmith repositories, with all the Kea hooks.",
+      "series": "Kea series"
+    },
+    "review": {
+      "mode": "Mode",
+      "engines": "Engines",
+      "source": "Packages",
+      "build": "Build the plan",
+      "another": "Start over",
+      "help": {
+        "import": "The plan lists what was read and what will be added. Each step is backed up, validated and rolled back if it fails.",
+        "install": "The plan lists the packages and files. Applying it runs a job on this node; progress shows below."
+      }
+    },
+    "errors": {
+      "mode": "Choose a mode",
+      "noEngine": "Choose at least one engine",
+      "notSelectable": "One of the chosen engines is not available in this mode",
+      "d2NeedsKea": "DHCP-DDNS needs Kea DHCPv4 or DHCPv6",
+      "source": "Choose where the packages come from",
+      "series": "Choose a Kea series"
+    }
+  },
+  "security": {
+    "rescan": "Audit again",
+    "clean": "No finding",
+    "cleanBody": "The configuration has nothing to harden.",
+    "selectAll": "Select all",
+    "proposal": "Proposal",
+    "risk": "Risk",
+    "planTitle": "Remediation plan",
+    "planHelp": "Selected findings are fixed one after the other, never at once: backup, write, validation, reload, check, and rollback if a step fails.",
+    "build": "Build the remediation plan",
+    "selected_one": "{{count}} finding selected",
+    "selected_other": "{{count}} findings selected",
+    "kind": {
+      "insecure_key": "Weak key",
+      "insecure_listener": "Exposed listener",
+      "insecure_transfer": "Open transfer",
+      "plain_http": "Clear HTTP"
+    },
+    "dualKey": {
+      "add": "Add the new hmac-sha256 key to the BIND update-policy, next to the old one",
+      "switch": "Switch kea-dhcp-ddns to the new key on every node",
+      "remove": "Remove the old key from BIND and Kea"
+    }
   }
 }

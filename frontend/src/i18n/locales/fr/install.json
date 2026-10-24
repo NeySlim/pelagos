@@ -6,11 +6,116 @@
   "pages": {
     "detect": {
       "title": "Installation et import",
-      "subtitle": "Ce qui est installé, ce dont Pelagos a besoin, plans étape par étape"
+      "subtitle": "Ce qui est installé, ce dont Pelagos a besoin, des plans étape par étape"
     },
     "security": {
       "title": "Audit de sécurité",
       "subtitle": "Constats et plan de correction"
+    }
+  },
+  "engines": {
+    "bind": "BIND 9 (DNS)",
+    "kea4": "Kea DHCPv4",
+    "kea6": "Kea DHCPv6",
+    "d2": "Kea DHCP-DDNS (D2)"
+  },
+  "detect": {
+    "title": "Détecté sur ce nœud",
+    "again": "Détecter à nouveau",
+    "engine": "Moteur",
+    "installed": "Installé",
+    "version": "Version",
+    "service": "Service",
+    "running": "En marche",
+    "config": "Configuration",
+    "yes": "En marche",
+    "no": "Arrêté",
+    "include": "Lignes include de Pelagos dans named.conf",
+    "sockets": "Sockets de contrôle joignables",
+    "keys": "Clés TSIG ddi-read et ddi-admin présentes"
+  },
+  "wizard": {
+    "title": "Plan",
+    "prev": "Retour",
+    "next": "Suivant",
+    "steps": {
+      "mode": "Mode",
+      "engines": "Moteurs",
+      "source": "Paquets",
+      "review": "Vérifier et appliquer"
+    },
+    "mode": {
+      "import": "Importer une configuration existante",
+      "importBody": "Garde BIND et Kea en place. Pelagos les lit, ajoute une ligne include, les sockets de contrôle, le statistics-channel et ses clés TSIG. Rien d'autre n'est réécrit.",
+      "install": "Installer des moteurs",
+      "installBody": "Installe les paquets BIND et Kea manquants, avec des configurations minimales, les sockets de contrôle et les fichiers inclus de Pelagos."
+    },
+    "engines": {
+      "help": {
+        "import": "Moteurs trouvés sur ce nœud que Pelagos va piloter.",
+        "install": "Moteurs à installer sur ce nœud."
+      },
+      "about": {
+        "bind": "DNS faisant autorité et récursif",
+        "kea4": "Baux IPv4, réservations, HA",
+        "kea6": "Baux IPv6 et délégation de préfixes",
+        "d2": "Mises à jour DNS dynamiques depuis Kea"
+      },
+      "reason": {
+        "installed": "Déjà installé : passez par l'import",
+        "notInstalled": "Non installé : passez par l'installation",
+        "module": "Le module DHCPv6 est désactivé"
+      }
+    },
+    "source": {
+      "distro": "Paquets de la distribution",
+      "distroBody": "apt ou dnf depuis les dépôts de la distribution. Les versions suivent la distribution.",
+      "isc": "Dépôts ISC",
+      "iscBody": "BIND et Kea récents depuis les dépôts Cloudsmith d'ISC, avec tous les hooks Kea.",
+      "series": "Série de Kea"
+    },
+    "review": {
+      "mode": "Mode",
+      "engines": "Moteurs",
+      "source": "Paquets",
+      "build": "Construire le plan",
+      "another": "Recommencer",
+      "help": {
+        "import": "Le plan liste ce qui a été lu et ce qui sera ajouté. Chaque étape est sauvegardée, validée et annulée si elle échoue.",
+        "install": "Le plan liste les paquets et les fichiers. L'appliquer lance une tâche sur ce nœud ; la progression s'affiche ci-dessous."
+      }
+    },
+    "errors": {
+      "mode": "Choisissez un mode",
+      "noEngine": "Choisissez au moins un moteur",
+      "notSelectable": "Un des moteurs choisis n'est pas disponible dans ce mode",
+      "d2NeedsKea": "DHCP-DDNS a besoin de Kea DHCPv4 ou DHCPv6",
+      "source": "Choisissez la provenance des paquets",
+      "series": "Choisissez une série de Kea"
+    }
+  },
+  "security": {
+    "rescan": "Auditer à nouveau",
+    "clean": "Aucun constat",
+    "cleanBody": "La configuration n'a rien à durcir.",
+    "selectAll": "Tout sélectionner",
+    "proposal": "Proposition",
+    "risk": "Risque",
+    "planTitle": "Plan de correction",
+    "planHelp": "Les constats choisis sont corrigés l'un après l'autre, jamais d'un bloc : sauvegarde, écriture, validation, rechargement, vérification, et retour arrière si une étape échoue.",
+    "build": "Construire le plan de correction",
+    "selected_one": "{{count}} constat sélectionné",
+    "selected_other": "{{count}} constats sélectionnés",
+    "kind": {
+      "insecure_key": "Clé faible",
+      "insecure_listener": "Écoute exposée",
+      "insecure_transfer": "Transfert ouvert",
+      "plain_http": "HTTP en clair"
+    },
+    "dualKey": {
+      "add": "Ajouter la nouvelle clé hmac-sha256 à l'update-policy de BIND, à côté de l'ancienne",
+      "switch": "Basculer kea-dhcp-ddns sur la nouvelle clé sur chaque nœud",
+      "remove": "Retirer l'ancienne clé de BIND et de Kea"
     }
   }
 }

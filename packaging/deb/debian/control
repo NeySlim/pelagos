@@ -1,0 +1,23 @@
+Source: pelagos
+Section: net
+Priority: optional
+Maintainer: Pelagos maintainers <pelagos@example.org>
+Build-Depends: debhelper-compat (= 13), python3 (>= 3.12), python3-venv, python3-pip
+Standards-Version: 4.7.0
+Homepage: https://github.com/NeySlim/pelagos
+Rules-Requires-Root: no
+
+Package: pelagos
+Architecture: any
+Depends: ${misc:Depends}, ${pelagos:Python}, libc6, adduser, openssl
+Recommends: bind9, bind9-utils, kea-dhcp4-server
+Suggests: kea-dhcp6-server, kea-dhcp-ddns-server
+Description: DNS and DHCP management for BIND 9 and Kea
+ Pelagos manages BIND 9 zones and Kea DHCP subnets, reservations and leases
+ through a web interface and a REST API, with replication between nodes.
+ The engines stay the source of truth: zones are read by AXFR and written by
+ signed dynamic updates, Kea is driven through its control sockets.
+ .
+ This package installs the node (web process and collector) under
+ /opt/pelagos with its own Python environment. BIND and Kea are not pulled in:
+ install them from the distribution or let "pelagos install" do it.

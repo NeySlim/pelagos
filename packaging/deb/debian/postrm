@@ -1,0 +1,20 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Configuration, state and the service user go away on purge only.
+set -e
+
+case "$1" in
+  purge)
+    rm -rf /var/lib/pelagos /etc/pelagos /run/pelagos
+    if getent passwd pelagos >/dev/null; then
+      deluser --quiet --system pelagos >/dev/null 2>&1 || true
+    fi
+    if getent group pelagos >/dev/null; then
+      delgroup --quiet --system pelagos >/dev/null 2>&1 || true
+    fi
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

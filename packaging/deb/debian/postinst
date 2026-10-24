@@ -1,0 +1,36 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Create the pelagos user, its groups and the writable tree of docs/architecture.md section 3.
+set -e
+
+case "$1" in
+  configure)
+    if ! getent passwd pelagos >/dev/null; then
+      adduser --quiet --system --group --home /var/lib/pelagos --no-create-home \
+        --shell /usr/sbin/nologin --gecos "Pelagos DNS/DHCP manager" pelagos
+    fi
+    # Engine groups give access to the rndc key, the include directory and the Kea sockets.
+    for grp in bind named _kea kea; do
+      if getent group "$grp" >/dev/null; then
+        adduser --quiet pelagos "$grp" || true
+      fi
+    done
+
+    install -d -o pelagos -g pelagos -m 0750 /etc/pelagos /etc/pelagos/tls
+    install -d -o pelagos -g pelagos -m 0750 /var/lib/pelagos /var/lib/pelagos/audit \
+      /var/lib/pelagos/pki /var/lib/pelagos/backups /var/lib/pelagos/plans /var/lib/pelagos/locks
+    chown pelagos:pelagos /etc/pelagos/pelagos.env
+    chmod 0640 /etc/pelagos/pelagos.env
+
+    if [ -z "$2" ] && [ ! -f /etc/pelagos/node.toml ]; then
+      echo "pelagos: installed. Initialize the first node with:" >&2
+      echo "    sudo pelagos init --name \$(hostname -s)" >&2
+      echo "or join an existing cluster with 'sudo pelagos enroll', then:" >&2
+      echo "    sudo systemctl start pelagos pelagos-collector" >&2
+    fi
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

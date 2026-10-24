@@ -1,0 +1,12 @@
+# The node ships its own virtualenv under /opt on purpose (payload shared with the rpm and
+# the images); its bytecode is compiled at build time because /opt is read-only at runtime.
+pelagos: dir-or-file-in-opt *
+pelagos: embedded-library *
+pelagos: unstripped-binary-or-object *
+pelagos: python-package-missing-depends-on-python *
+pelagos: package-installs-python-pycache-dir *
+pelagos: package-contains-npm-ignore-file *
+pelagos: script-not-executable *
+pelagos: unusual-interpreter *
+pelagos: no-manual-page [usr/bin/pelagos]
+pelagos: initial-upload-closes-no-bugs *

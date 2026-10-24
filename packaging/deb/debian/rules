@@ -1,0 +1,42 @@
+#!/usr/bin/make -f
+# SPDX-License-Identifier: Apache-2.0
+# Builds the /opt/pelagos venv with packaging/build-tree.sh; dh handles the rest.
+export DH_VERBOSE = 1
+export PYTHONDONTWRITEBYTECODE = 1
+
+PKGDIR := $(CURDIR)/debian/pelagos
+PYVER  := $(shell python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# Nothing to compile; the payload is assembled at install time.
+
+override_dh_auto_install:
+	packaging/build-tree.sh $(PKGDIR) $(CURDIR)
+	install -D -m 0644 packaging/systemd/pelagos.service $(PKGDIR)/usr/lib/systemd/system/pelagos.service
+	install -D -m 0644 packaging/systemd/pelagos-collector.service $(PKGDIR)/usr/lib/systemd/system/pelagos-collector.service
+	install -D -m 0644 packaging/pelagos.env $(PKGDIR)/etc/pelagos/pelagos.env
+	install -D -m 0755 packaging/bin/pelagos $(PKGDIR)/usr/bin/pelagos
+
+override_dh_auto_test:
+	# Unit tests run in CI, not in the package build.
+
+# The venv is a self-contained payload: no stripping, no shlibdeps, no python helper.
+override_dh_strip:
+	dh_strip -X/opt/pelagos
+
+override_dh_shlibdeps:
+	dh_shlibdeps -X/opt/pelagos
+
+override_dh_dwz:
+
+override_dh_strip_nondeterminism:
+	dh_strip_nondeterminism -X/opt/pelagos
+
+override_dh_gencontrol:
+	dh_gencontrol -- -Vpelagos:Python="python$(PYVER)"
+
+override_dh_installsystemd:
+	dh_installsystemd --no-stop-on-upgrade pelagos.service pelagos-collector.service

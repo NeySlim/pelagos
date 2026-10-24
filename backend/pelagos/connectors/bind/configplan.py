@@ -594,7 +594,10 @@ def run_checkzone(binary: str | None, zone: str, text: str, timeout: float = 30.
         except (subprocess.TimeoutExpired, OSError) as exc:
             return ValidationResult(ok=False, tool="named-checkzone", output=str(exc))
     out = (proc.stdout + proc.stderr).strip()
-    return ValidationResult(ok=proc.returncode == 0, tool="named-checkzone", output=out or "ok")
+    ok = proc.returncode == 0
+    return ValidationResult(
+        ok=ok, tool="named-checkzone", output=out or ("ok" if ok else "named-checkzone refused the zone")
+    )
 
 
 def validate_render(

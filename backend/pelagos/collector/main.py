@@ -162,8 +162,9 @@ class Collector:
         self.node_id = ctx.node.id
         settings = ctx.settings()
         self.bind = BindPoller(backends.dns, self.node_id, store, clock) if backends.dns else None
-        self.kea = [KeaPoller(b, self.node_id, store, settings, clock) for b in backends.dhcp]
-        self.d2 = D2Poller(backends.d2, self.node_id, store, settings, clock) if backends.d2 else None
+        locks = ctx.paths.locks_dir
+        self.kea = [KeaPoller(b, self.node_id, store, settings, clock, locks) for b in backends.dhcp]
+        self.d2 = D2Poller(backends.d2, self.node_id, store, settings, clock, locks) if backends.d2 else None
         self.peers = PeersPoller(
             peer_client, self.node_id, lambda: self.ctx.cluster().nodes, store, settings, clock
         )

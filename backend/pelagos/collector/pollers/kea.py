@@ -14,9 +14,11 @@ and under (node_id, "d2", kind): "capabilities", "status", "stats" (D2Stats dict
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import logging
+import os
 import time
 from collections.abc import Callable
 from contextlib import nullcontext
@@ -119,20 +121,46 @@ def file_divergence(
 _RACY_SECONDS = 2.0
 
 
+def engine_write_in_progress(locks_dir: Path | None, engine: str) -> bool:
+    """True while a web or peer apply holds the engine lock (services.engine_lock): between its
+    config-set and its file write, file and running configuration legitimately differ."""
+    if locks_dir is None:
+        return False
+    try:
+        fd = os.open(locks_dir / f"engine-{engine}.lock", os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except OSError:
+        return False
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    finally:
+        os.close(fd)
+
+
 class FileDivergenceCache:
     """Re-runs `file_divergence` only when a file of the tree (mtime, size) or the running config-hash
-    changed. A backend without `config_hash` is compared on every poll.
+    changed. A backend without `config_hash` is compared on every poll. While a write holds the
+    engine lock the previous answer stands: a half-applied change is no divergence.
     """
 
-    def __init__(self, backend: Any, engine: Engine, node_id: str) -> None:
+    def __init__(self, backend: Any, engine: Engine, node_id: str, locks_dir: Path | None = None) -> None:
         self.backend = backend
         self.engine = engine
         self.node_id = node_id
+        self.locks_dir = locks_dir
         self._key: tuple[Any, ...] | None = None
         self._alert: Alert | None = None
         self._files: list[Path] = []
 
     def check(self, running_hash: str | None, running: Callable[[], dict[str, Any]]) -> Alert | None:
+        if engine_write_in_progress(self.locks_dir, self.engine.value):
+            return self._alert
         key = self._file_key(running_hash)
         if key is not None and key == self._key:
             return self._alert
@@ -172,6 +200,7 @@ class KeaPoller:
         store: SeriesStore,
         settings: dict[str, Any],
         clock: Callable[[], float] = time.time,
+        locks_dir: Path | None = None,
     ) -> None:
         self.backend = backend
         self.node_id = node_id
@@ -183,7 +212,7 @@ class KeaPoller:
         self.last_sample_ts: int | None = None
         self.last_active: int | None = None
         self.last_reclaimed: int | None = None
-        self.file_check = FileDivergenceCache(backend, self.engine, node_id)
+        self.file_check = FileDivergenceCache(backend, self.engine, node_id, locks_dir)
         self.pool_streak: dict[str, int] = {}
 
     def _open_pool_alerts(self) -> dict[str, AlertKind]:
@@ -364,6 +393,7 @@ class D2Poller:
         store: SeriesStore,
         settings: dict[str, Any],
         clock: Callable[[], float] = time.time,
+        locks_dir: Path | None = None,
     ) -> None:
         self.backend = backend
         self.node_id = node_id
@@ -371,7 +401,7 @@ class D2Poller:
         self.settings = settings
         self.clock = clock
         self.samples: list[tuple[int, dict[str, int]]] = []
-        self.file_check = FileDivergenceCache(backend, Engine.D2, node_id)
+        self.file_check = FileDivergenceCache(backend, Engine.D2, node_id, locks_dir)
 
     def poll(self) -> PollOutcome:
         out = PollOutcome(kinds=D2_KINDS, where=engine_filter(self.node_id, Engine.D2.value))

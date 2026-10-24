@@ -12,7 +12,7 @@ import { Badge } from '../../components/Badge'
 import { useApi } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { ListValue, SourceBadge } from './common'
-import { zoneHref } from './helpers'
+import { zoneHref, catalogRow } from './helpers'
 
 const POLICY_VARIANT = { given: 'gray', disabled: 'gray', passthru: 'success', drop: 'danger', nxdomain: 'danger', nodata: 'warning', tcp_only: 'warning', cname: 'info' }
 
@@ -84,7 +84,7 @@ export default function RpzPage() {
             { key: 'member_count', label: t('rpz.members'), align: 'right', mono: true },
             { key: 'source', label: t('zones.source'), render: (r) => <SourceBadge source={r.source} /> },
           ]}
-          rows={catalogs.data?.items || []}
+          rows={(catalogs.data?.items || []).map(catalogRow)}
           rowKey="zone"
           loading={catalogs.loading && !catalogs.data}
           error={catalogs.error}

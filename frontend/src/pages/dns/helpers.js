@@ -50,6 +50,21 @@ export async function mapLimit(items, limit, fn) {
 
 export const SECONDARY_KINDS = ['secondary', 'mirror', 'stub']
 
+// GET /dns/catalog-zones item {zone, statement, members} as a table row; default
+// primaries come from the zone's clause of the catalog-zones statement.
+export function catalogRow(item) {
+  const zone = item.zone
+  let primaries = item.default_primaries
+  if (!primaries && item.statement) {
+    const name = stripDot(zone).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const clause = String(item.statement).split(/\bzone\s+/).find((part) => new RegExp(`^"${name}\\.?"`).test(part)) || ''
+    const block = clause.match(/default-(?:primaries|masters)\s*(?:port\s+\d+\s*)?\{([^}]*)\}/)
+    primaries = block ? block[1].split(';').map((s) => s.trim()).filter(Boolean) : []
+  }
+  const members = Array.isArray(item.members) ? item.members : null
+  return { ...item, zone, default_primaries: primaries || [], member_count: item.member_count ?? members?.length ?? 0 }
+}
+
 export const RESOLVER_KEYS = ['recursion', 'allow_recursion', 'forwarders', 'forward', 'dnssec_validation']
 
 export const sameValue = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)

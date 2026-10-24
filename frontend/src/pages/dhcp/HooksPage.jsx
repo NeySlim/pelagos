@@ -28,7 +28,10 @@ export default function HooksPage({ family }) {
   const [expanded, setExpanded] = useState(null)
   const flow = usePlanFlow({ onApplied: hooks.refetch })
   const items = hooks.data?.items || []
-  const available = (hooks.data?.available || []).filter((name) => !items.some((h) => h.name === name))
+  // available: [{name, description}] (older answers: bare names).
+  const available = (hooks.data?.available || [])
+    .map((a) => (typeof a === 'string' ? { name: a, description: '' } : a))
+    .filter((a) => !items.some((h) => h.name === a.name))
 
   const plan = (next) =>
     flow.build(() => api.dhcp.hooksPlan(family, [{ op: 'replace', target: 'hooks-libraries', before: items, after: next.map(({ library, parameters }) => ({ library, parameters })) }]))
@@ -125,10 +128,10 @@ export default function HooksPage({ family }) {
 
 function AddHookForm({ available, building, onClose, onSubmit }) {
   const { t } = useTranslation(['dhcp', 'common'])
-  const [name, setName] = useState(available[0])
+  const [name, setName] = useState(available[0]?.name)
   return (
     <FormModal open onClose={onClose} title={t('hooks.addTitle')} onSubmit={() => onSubmit(name)} submitLabel={t('form.preview')} loading={building} size="sm" testId="hook-form">
-      <NativeSelect label={t('fields.name')} value={name} onChange={setName} options={available.map((n) => ({ value: n, label: n }))} testId="hook-name" />
+      <NativeSelect label={t('fields.name')} value={name} onChange={setName} options={available.map((a) => ({ value: a.name, label: a.description ? `${a.name}: ${a.description}` : a.name }))} testId="hook-name" />
       <p className="text-xs text-text-tertiary">{t('hooks.addHint')}</p>
     </FormModal>
   )

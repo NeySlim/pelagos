@@ -47,6 +47,7 @@ from pelagos.domain import (
     LeaseState,
     NodeApplyResult,
     OptionData,
+    PdPool,
     Plan,
     PlanScope,
     PlanState,
@@ -932,6 +933,15 @@ class FakeDhcpBackend(DhcpBackend):
                     raw=p,
                 )
                 for p in raw.get("pools", [])
+            ],
+            pd_pools=[
+                PdPool(
+                    prefix=p["prefix"],
+                    prefix_len=int(p["prefix-len"]),
+                    delegated_len=int(p["delegated-len"]),
+                    raw=copy.deepcopy(p),
+                )
+                for p in raw.get("pd-pools", [])
             ],
             options=[_option(o, self.family) for o in raw.get("option-data", [])],
             reservations=[self._reservation(r, int(raw["id"])) for r in raw.get("reservations", [])],

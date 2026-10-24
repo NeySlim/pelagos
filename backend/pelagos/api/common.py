@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -135,9 +136,25 @@ def masked(value: Any) -> Any:
     return value
 
 
+_SECRET_TEXT = (
+    re.compile(r'("(?:secret|password)"\s*:\s*")[^"]*(")'),  # JSON (Kea objects in diffs)
+    re.compile(r'(\bsecret\s+")[^"]*(")'),  # named.conf key statements
+)
+
+
+def masked_text(text: str) -> str:
+    for pattern in _SECRET_TEXT:
+        text = pattern.sub(r"\1" + MASK + r"\2", text)
+    return text
+
+
 def plan_dict(plan: Plan) -> dict[str, Any]:
-    """A plan as the API shows it: generated key material never leaves the node."""
-    return masked(plan.to_dict())
+    """A plan as the API shows it: key material, given or generated, never leaves the node."""
+    data = masked(plan.to_dict())
+    data["diff"] = masked_text(data.get("diff") or "")
+    for v in data.get("validations", []):
+        v["output"] = masked_text(v.get("output") or "")
+    return data
 
 
 def plan_answer(plan: Plan) -> tuple[dict[str, Any], int]:

@@ -22,6 +22,7 @@ from pelagos.domain import (
     Plan,
     PlanScope,
     PlanState,
+    Reservation,
     ReservationIdType,
     RRset,
     ZoneKind,
@@ -332,6 +333,9 @@ class HostsService:
             errors.append(field_error("mac", "must be aa:bb:cc:dd:ee:ff"))
         if not isinstance(ttl, int) or ttl < 0:
             errors.append(field_error("ttl", "must be a non-negative integer"))
+        subnet_raw = request.get("subnet_id")
+        if subnet_raw is not None and (not isinstance(subnet_raw, int) or isinstance(subnet_raw, bool)):
+            errors.append(field_error("subnet_id", "must be an integer"))
         if want_reservation and mac is None:
             errors.append(field_error("mac", "required for a reservation"))
         if errors:
@@ -366,15 +370,20 @@ class HostsService:
                 raise ValidationError(
                     "no subnet contains this address; pass subnet_id", [field_error("subnet_id", "required")]
                 )
-            after: dict[str, Any] = {"hw-address": mac, "hostname": hostname}
-            if ip.version == 4:
-                after["ip-address"] = str(ip)
-            else:
-                after["ip-addresses"] = [str(ip)]
+            # `after` is a Reservation dict (section 5); the connector maps it to Kea keys.
+            reservation = Reservation(
+                subnet_id=int(subnet_id),
+                id_type=ReservationIdType.HW_ADDRESS,
+                identifier=mac,
+                ip_address=str(ip) if ip.version == 4 else None,
+                ip_addresses=[str(ip)] if ip.version == 6 else [],
+                hostname=hostname,
+            )
             if request.get("notes"):
-                after["user-context"] = {
+                reservation.user_context = {
                     "pelagos": {"notes": str(request["notes"]), "updated_by": created_by}
                 }
+            after = {k: v for k, v in reservation.to_dict().items() if v not in (None, [], {})}
             target = f"{dhcp.subnet_key}/{int(subnet_id)}/reservations/hw-address={mac}"
             parts.append(
                 dhcp.local.plan_reservation_change(Change(ChangeOp.ADD, target, after=after), created_by)

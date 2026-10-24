@@ -11,7 +11,7 @@ import { useApi, usePaginatedApi, useWsTopic } from '../../hooks'
 import { api } from '../../services/api'
 import { formatDate } from '../../lib/utils'
 import { AuditEntryModal } from './AuditEntryModal'
-import { FILTER_KEYS, ACTION_PREFIXES, RESULTS, ENGINES, filtersFromParams, toQuery } from './filters'
+import { FILTER_KEYS, ACTION_PREFIXES, RESULTS, ENGINES, filtersFromParams, toQuery, toRfc3339 } from './filters'
 
 export default function AuditPage() {
   const { t } = useTranslation(['audit', 'common'])
@@ -68,7 +68,7 @@ export default function AuditPage() {
     { key: 'engine', label: t('filters.engine'), value: filters.engine, onChange: (v) => setFilter('engine', v), options: ENGINES.map((e) => option(e, e)) },
     { key: 'node_id', label: t('filters.node'), value: filters.node_id, onChange: (v) => setFilter('node_id', v), options: nodes.map((n) => option(n.peer.id, n.peer.name)) },
   ]
-  const exportParams = { from: filters.from ? new Date(filters.from).toISOString() : undefined, to: filters.to ? new Date(filters.to).toISOString() : undefined }
+  const exportParams = { from: toRfc3339(filters.from), to: toRfc3339(filters.to) }
 
   return (
     <PageLayout

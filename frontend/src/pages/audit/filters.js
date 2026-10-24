@@ -16,7 +16,8 @@ export function filtersFromParams(params) {
   return Object.fromEntries(FILTER_KEYS.map((k) => [k, params.get(k) || '']))
 }
 
-function toRfc3339(local) {
+export function toRfc3339(local) {
+  if (!local) return undefined
   const d = new Date(local)
   return Number.isNaN(d.getTime()) ? undefined : d.toISOString()
 }

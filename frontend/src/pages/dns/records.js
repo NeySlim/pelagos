@@ -82,7 +82,7 @@ export function validForwarder(value) {
   return word === 'port' && /^\d+$/.test(port || '') && Number(port) <= 65535
 }
 
-const isHost =(v) => v === '.' || /^(\*\.)?([a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?\.)*[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?\.?$/i.test(v)
+const isHost = (v) => v === '.' || /^(\*\.)?([a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?\.)*[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?\.?$/i.test(v)
 const isUint16 = (v) => /^\d+$/.test(v) && Number(v) <= 65535
 
 // Returns null when `rdata` is acceptable for `rtype`, else an i18n key under dns:editor.errors.
@@ -184,11 +184,11 @@ export function buildChange({ zone, mode, before, after }) {
   if (mode === 'edit' && before && (before.name !== after.name || before.rtype !== after.rtype)) {
     return [
       { op: 'delete', target: `${z}/${relativeName(before.name, z)}/${before.rtype}`, before, after: null, node_ids: [] },
-      { op: 'add', target: `${z}/${owner}/${after.rtype}`, before: null, after: { ttl: after.ttl, rdata: after.rdata }, node_ids: [] },
+      { op: 'add', target: `${z}/${owner}/${after.rtype}`, before: null, after: { name: after.name, rtype: after.rtype, ttl: after.ttl, rdata: after.rdata }, node_ids: [] },
     ]
   }
   const op = mode === 'edit' || (before && mode === 'add') ? 'replace' : 'add'
-  return { op, target: `${z}/${owner}/${after.rtype}`, before: before || null, after: { ttl: after.ttl, rdata: after.rdata }, node_ids: [] }
+  return { op, target: `${z}/${owner}/${after.rtype}`, before: before || null, after: { name: after.name, rtype: after.rtype, ttl: after.ttl, rdata: after.rdata }, node_ids: [] }
 }
 
 export function buildChanges(args) {

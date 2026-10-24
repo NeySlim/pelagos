@@ -107,7 +107,7 @@ describe('buildChanges', () => {
 
   it('uses the section 6 target grammar', () => {
     expect(buildChanges({ zone: 'example.lan', mode: 'add', before: null, after })).toEqual([
-      { op: 'add', target: 'example.lan./www/A', before: null, after: { ttl: 600, rdata: ['192.0.2.1', '192.0.2.2'] }, node_ids: [] },
+      { op: 'add', target: 'example.lan./www/A', before: null, after, node_ids: [] },
     ])
     expect(buildChanges({ zone: 'example.lan.', mode: 'edit', before, after })[0]).toMatchObject({ op: 'replace', target: 'example.lan./www/A', before })
     expect(buildChanges({ zone: 'example.lan.', mode: 'delete', before })[0]).toEqual({ op: 'delete', target: 'example.lan./www/A', before, after: null, node_ids: [] })
@@ -124,6 +124,7 @@ describe('buildChanges', () => {
       ['delete', 'example.lan./www/A'],
       ['add', 'example.lan./web/A'],
     ])
+    expect(changes[1].after).toEqual(renamed)
   })
 
   it('marks the apex with @', () => {

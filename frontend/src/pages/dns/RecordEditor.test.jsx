@@ -66,7 +66,7 @@ describe('RecordEditor', () => {
     expect(lookupFn).toHaveBeenCalledWith('example.lan.', { name: 'www.example.lan.', type: 'A' })
     expect(planFn).toHaveBeenCalledWith(
       'example.lan.',
-      [{ op: 'add', target: 'example.lan./www/A', before: null, after: { ttl: 3600, rdata: ['192.0.2.80'] }, node_ids: [] }],
+      [{ op: 'add', target: 'example.lan./www/A', before: null, after: { name: 'www.example.lan.', rtype: 'A', ttl: 3600, rdata: ['192.0.2.80'] }, node_ids: [] }],
       undefined,
     )
     expect(screen.getByTestId('plan-summary')).toHaveTextContent('1 change(s) in example.lan.')
@@ -105,7 +105,7 @@ describe('RecordEditor', () => {
     await waitFor(() => expect(planFn).toHaveBeenCalled())
     const [, changes, view] = planFn.mock.calls[0]
     expect(view).toBe('internal')
-    expect(changes).toEqual([{ op: 'replace', target: 'example.lan./www/A', before: existing, after: { ttl: 300, rdata: ['192.0.2.10', '192.0.2.11'] }, node_ids: [] }])
+    expect(changes).toEqual([{ op: 'replace', target: 'example.lan./www/A', before: existing, after: { name: 'www.example.lan.', rtype: 'A', ttl: 300, rdata: ['192.0.2.10', '192.0.2.11'] }, node_ids: [] }])
   })
 
   it('edits an RRset: nothing to send until a value changes', async () => {
@@ -120,7 +120,7 @@ describe('RecordEditor', () => {
     submit()
     await waitFor(() => expect(planFn).toHaveBeenCalled())
     expect(planFn.mock.calls[0][1]).toEqual([
-      { op: 'replace', target: 'example.lan./@/MX', before: rrset, after: { ttl: 3600, rdata: ['10 mail.example.lan.', '20 backup.example.lan.'] }, node_ids: [] },
+      { op: 'replace', target: 'example.lan./@/MX', before: rrset, after: { name: 'example.lan.', rtype: 'MX', ttl: 3600, rdata: ['10 mail.example.lan.', '20 backup.example.lan.'] }, node_ids: [] },
     ])
   })
 

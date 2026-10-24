@@ -1540,3 +1540,71 @@ class FakeDdnsBackend(DdnsBackend):
         self._check()
         self.config = copy.deepcopy(plan.changes[0].before)
         return NodeApplyResult(node_id=self.node_id, ok=True, message="rolled back", rolled_back=True)
+
+
+# Peers -------------------------------------------------------------------------
+
+
+class FakeReplicationClient:
+    """Stands for core.replication.ReplicationClient talking to a peer whose engines are `registry`.
+
+    Snapshots are built by services.snapshot on the peer side, as WP-CORE's server will do.
+    """
+
+    def __init__(self, node_id: str, registry: Any, reachable: bool = True) -> None:
+        self.node_id = node_id
+        self.registry = registry
+        self.reachable = reachable
+        self.calls: list[tuple[str, Any]] = []
+        self.config_toml: str | None = None
+        self.audit: list[dict[str, Any]] = []
+
+    def _check(self) -> None:
+        from pelagos.core.replication import ReplicationError
+
+        if not self.reachable:
+            raise ReplicationError(f"node {self.node_id} unreachable")
+
+    def status(self) -> Any:
+        from pelagos.core.replication import PeerStatus
+
+        self._check()
+        return PeerStatus(self.node_id, True, config_version=7, audit_count=len(self.audit), version="0.1.0")
+
+    def engine_snapshot(
+        self, engine: str, kind: str = "summary", params: dict[str, Any] | None = None
+    ) -> Any:
+        from pelagos.services.snapshot import engine_snapshot
+
+        self._check()
+        self.calls.append(("snapshot", (engine, kind, params)))
+        return engine_snapshot(self.registry, Engine(engine), kind, params)
+
+    def apply_plan(self, plan: Plan) -> NodeApplyResult:
+        self._check()
+        self.calls.append(("apply", plan.id))
+        try:
+            result = self.registry.backend(plan.engine).apply(Plan.from_dict(plan.to_dict()))
+        except ConnectorError as exc:
+            return NodeApplyResult(node_id=self.node_id, ok=False, message=str(exc))
+        result.node_id = self.node_id
+        return result
+
+    def rollback_plan(self, plan: Plan) -> NodeApplyResult:
+        self._check()
+        self.calls.append(("rollback", plan.id))
+        result = self.registry.backend(plan.engine).rollback(Plan.from_dict(plan.to_dict()))
+        result.node_id = self.node_id
+        return result
+
+    def fetch_config(self) -> dict[str, Any]:
+        self._check()
+        return {"version": 0, "updated_at": None, "updated_by": "", "toml": self.config_toml or ""}
+
+    def fetch_audit(self, after_id: str | None, limit: int = 1000) -> tuple[list[dict[str, Any]], str | None]:
+        self._check()
+        rows = sorted(
+            (e for e in self.audit if after_id is None or e["id"] > after_id), key=lambda e: e["id"]
+        )
+        rows = rows[:limit]
+        return rows, (rows[-1]["id"] if len(rows) == limit else None)

@@ -1,45 +1,47 @@
 // SPDX-License-Identifier: Apache-2.0
 // Smoke test against the mock server: sign in, visit every route of the area
-// registry, switch theme and language, sign out.
+// registry and find each page's own data element, apply and roll back a plan
+// through a real screen, switch theme and language, sign out.
 import { test, expect } from '@playwright/test'
 
-// Concrete paths for the routes of src/pages/*/routes.js (parameters filled in).
+// Concrete paths for the routes of src/pages/*/routes.js (parameters filled in):
+// [path, page test id, test id of an element the page fills from the API].
 const PAGES = [
-  ['/', 'page-dashboard-overview'],
-  ['/dns/zones', 'page-dns-zones'],
-  ['/dns/zones/example.lan', 'page-dns-zoneDetail'],
-  ['/dns/resolver', 'page-dns-resolver'],
-  ['/dns/acls-keys', 'page-dns-aclsKeys'],
-  ['/dns/secondaries', 'page-dns-secondaries'],
-  ['/dns/dnssec', 'page-dns-dnssec'],
-  ['/dns/rpz', 'page-dns-rpz'],
+  ['/', 'page-dashboard-overview', 'tile-node'],
+  ['/dns/zones', 'page-dns-zones', 'zones-table'],
+  ['/dns/zones/example.lan', 'page-dns-zoneDetail', 'records-table'],
+  ['/dns/resolver', 'page-dns-resolver', 'resolver-settings'],
+  ['/dns/acls-keys', 'page-dns-aclsKeys', 'acls-table'],
+  ['/dns/secondaries', 'page-dns-secondaries', 'secondaries-table'],
+  ['/dns/dnssec', 'page-dns-dnssec', 'dnssec-zones'],
+  ['/dns/rpz', 'page-dns-rpz', 'rpz-table'],
   ...['v4', 'v6'].flatMap((family) =>
     [
-      ['subnets', 'subnets'],
-      ['shared-networks', 'sharedNetworks'],
-      ['options', 'options'],
-      ['classes', 'classes'],
-      ['leases', 'leases'],
-      ['reservations', 'reservations'],
-      ['ha', 'ha'],
-      ['ddns', 'ddns'],
-      ['hooks', 'hooks'],
-    ].map(([path, page]) => [`/dhcp/${family}/${path}`, `page-dhcp-${page}`]),
+      ['subnets', 'subnets', 'subnets-table'],
+      ['shared-networks', 'sharedNetworks', family === 'v4' ? 'network-list' : null],
+      ['options', 'options', 'options-table'],
+      ['classes', 'classes', 'classes-table'],
+      ['leases', 'leases', 'leases-table'],
+      ['reservations', 'reservations', 'reservations-table'],
+      ['ha', 'ha', 'ha-summary'],
+      ['ddns', 'ddns', 'ddns-params'],
+      ['hooks', 'hooks', 'hooks-table'],
+    ].map(([path, page, data]) => [`/dhcp/${family}/${path}`, `page-dhcp-${page}`, data]),
   ),
-  ['/hosts', 'page-hosts-list'],
-  ['/alerts', 'page-alerts-list'],
-  ['/nodes', 'page-nodes-list'],
-  ['/audit', 'page-audit-list'],
-  ['/advanced/bind', 'page-advanced-bind'],
-  ['/advanced/kea', 'page-advanced-kea'],
-  ['/advanced/history', 'page-advanced-history'],
-  ['/install', 'page-install-detect'],
-  ['/install/security', 'page-install-security'],
-  ['/admin/users', 'page-admin-users'],
-  ['/admin/roles', 'page-admin-roles'],
-  ['/admin/modules', 'page-admin-modules'],
-  ['/admin/settings', 'page-admin-settings'],
-  ['/account', 'page-account-account'],
+  ['/hosts', 'page-hosts-list', 'hosts-table'],
+  ['/alerts', 'page-alerts-list', 'alerts-table'],
+  ['/nodes', 'page-nodes-list', 'nodes-table'],
+  ['/audit', 'page-audit-list', 'audit-table'],
+  ['/advanced/bind', 'page-advanced-bind', 'bind-tree'],
+  ['/advanced/kea', 'page-advanced-kea', 'kea-tree'],
+  ['/advanced/history', 'page-advanced-history', 'history-table'],
+  ['/install', 'page-install-detect', 'install-detect'],
+  ['/install/security', 'page-install-security', 'security-finding'],
+  ['/admin/users', 'page-admin-users', 'users-table'],
+  ['/admin/roles', 'page-admin-roles', 'roles-list'],
+  ['/admin/modules', 'page-admin-modules', 'modules-cluster'],
+  ['/admin/settings', 'page-admin-settings', 'settings-general'],
+  ['/account', 'page-account-account', 'account-profile'],
 ]
 
 async function signIn(page, username = 'admin', password = 'admin') {
@@ -48,6 +50,20 @@ async function signIn(page, username = 'admin', password = 'admin') {
   await page.getByTestId('login-password').fill(password)
   await page.getByTestId('login-submit').click()
   await expect(page.getByTestId('sidebar')).toBeVisible()
+}
+
+// Page errors and console errors or warnings once signed in (React warnings included).
+function watchConsole(page) {
+  const problems = []
+  let armed = false
+  page.on('pageerror', (err) => problems.push(`pageerror: ${err.message}`))
+  page.on('response', (res) => {
+    if (armed && res.status() >= 400) problems.push(`http ${res.status()}: ${res.request().method()} ${new URL(res.url()).pathname}`)
+  })
+  page.on('console', (msg) => {
+    if (armed && (msg.type() === 'error' || msg.type() === 'warning')) problems.push(`${msg.type()}: ${msg.text()}`)
+  })
+  return { problems, arm: () => { armed = true } }
 }
 
 test('rejects a wrong password', async ({ page }) => {
@@ -69,33 +85,58 @@ test('asks for the TOTP code when the account has one', async ({ page }) => {
   await expect(page.getByTestId('sidebar')).toBeVisible()
 })
 
-// Finished pages: an element filled from the API. Routes not listed still use
-// the AreaPlaceholder, which dumps the API response as a JSON tree.
-const DATA_TEST_IDS = {
-  '/': 'tile-node',
-  '/dns/zones': 'zones-table',
-  '/dns/zones/example.lan': 'records-table',
-  '/dns/resolver': 'resolver-settings',
-  '/dns/acls-keys': 'acls-table',
-  '/dns/secondaries': 'secondaries-table',
-  '/dns/dnssec': 'dnssec-zones',
-  '/dns/rpz': 'rpz-table',
-}
-
-test('every page renders with data from the API', async ({ page }) => {
-  const errors = []
-  page.on('pageerror', (err) => errors.push(err.message))
+test('every page renders its own data from the API, without console errors', async ({ page }) => {
+  const watch = watchConsole(page)
   await signIn(page)
-  for (const [path, testId] of PAGES) {
+  watch.arm()
+  for (const [path, pageId, dataId] of PAGES) {
     await page.goto(path)
-    await expect(page.getByTestId(testId), path).toBeVisible()
-    // Finished pages show their data; placeholders show the raw answer; no page shows a read error.
-    if (DATA_TEST_IDS[path]) await expect(page.getByTestId(DATA_TEST_IDS[path]).first(), path).toBeVisible()
-    else if (await page.getByTestId('placeholder-data').count()) await expect(page.getByTestId('json-tree'), path).toBeVisible()
-    else await expect(page.getByTestId('data-table-loading')).toHaveCount(0)
+    await expect(page.getByTestId(pageId), path).toBeVisible()
+    if (dataId) await expect(page.getByTestId(dataId).first(), path).toBeVisible()
+    await expect(page.getByTestId('data-table-loading'), path).toHaveCount(0)
     await expect(page.getByTestId('data-table-error'), path).toHaveCount(0)
+    await expect(page.getByRole('alert').filter({ hasText: /error|failed/i }), path).toHaveCount(0)
   }
-  expect(errors).toEqual([])
+  expect(watch.problems).toEqual([])
+})
+
+test('a record plan is applied, then rolled back, through the zone screen', async ({ page }) => {
+  const watch = watchConsole(page)
+  await signIn(page)
+  watch.arm()
+  const records = () => page.request.get('/api/v1/dns/zones/example.lan/records?name=smoke&type=A').then((r) => r.json())
+  expect((await records()).total).toBe(0)
+
+  await page.goto('/dns/zones/example.lan')
+  await page.getByTestId('record-add').click()
+  await page.getByTestId('record-owner').fill('smoke')
+  await page.getByTestId('record-rdata').fill('192.0.2.77')
+  await expect(page.getByTestId('record-preview')).toContainText('192.0.2.77')
+  await page.getByTestId('record-editor').getByRole('button', { name: 'Preview the plan' }).click()
+
+  await expect(page.getByTestId('plan-preview')).toBeVisible()
+  await expect(page.getByTestId('plan-diff')).toContainText('smoke.example.lan.')
+  await page.getByTestId('plan-apply').click()
+  await expect(page.getByTestId('plan-result')).toContainText('Applied')
+  expect((await records()).total).toBe(1)
+
+  await page.getByTestId('plan-rollback').click()
+  await expect(page.getByTestId('plan-result')).toContainText('Rolled back')
+  expect((await records()).total).toBe(0)
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('records-table')).not.toContainText('smoke.example.lan.')
+  expect(watch.problems).toEqual([])
+})
+
+test('an alert is acknowledged from the alerts screen', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/alerts')
+  const table = page.getByTestId('alerts-table')
+  await expect(table.getByTestId('data-table-row').first()).toBeVisible()
+  const before = await table.getByTestId('alert-row-ack').count()
+  await table.getByTestId('alert-row-ack').first().click()
+  await page.getByRole('button', { name: 'Acknowledge' }).last().click()
+  await expect(table.getByTestId('alert-row-ack')).toHaveCount(before - 1)
 })
 
 test('navigation, theme and language follow the user menu', async ({ page }) => {

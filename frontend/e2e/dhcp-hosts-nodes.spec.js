@@ -83,6 +83,32 @@ test('host card and create-host plan', async ({ page }) => {
   await expect(page.getByTestId('plan-result')).toBeVisible()
 })
 
+test('IPv6 hosts: v6 lease joined with AAAA and PTR, and a v6 create-host plan', async ({ page }) => {
+  await page.goto('/hosts?q=v6host1')
+  const row = page.getByTestId('data-table-row').filter({ hasText: 'v6host1.example.lan.' })
+  await expect(row).toContainText('2001:db8::1000')
+  await expect(row.getByTestId('host-join')).toContainText('AAAA')
+  await row.click()
+  await expect(page.getByTestId('host-card')).toContainText('2001:db8::1000')
+
+  await page.goto('/hosts')
+  await page.getByTestId('host-create').click()
+  await page.getByTestId('host-hostname').fill('cam6')
+  await page.getByTestId('host-ip').fill('2001:db8::2b')
+  await page.getByTestId('host-reservation-toggle').check()
+  await page.getByTestId('host-mac').fill('02:00:5e:00:09:66')
+  await expect(page.getByTestId('host-subnet')).toContainText('2001:db8::/64')
+  await page.getByTestId('host-form').getByRole('button', { name: 'Preview the plan' }).click()
+  await expect(page.getByTestId('plan-changes')).toContainText('AAAA')
+  await expect(page.getByTestId('plan-changes')).toContainText('ip6.arpa')
+  await expect(page.getByTestId('plan-changes')).toContainText('subnet6/1/reservations/hw-address=02:00:5e:00:09:66')
+  await page.getByTestId('plan-apply').click()
+  await expect(page.getByTestId('plan-result')).toContainText('Applied')
+  await page.keyboard.press('Escape')
+  await page.goto('/hosts?q=cam6')
+  await expect(page.getByTestId('hosts-table')).toContainText('2001:db8::2b')
+})
+
 test('an enrollment token comes with the command to run', async ({ page }) => {
   await page.goto('/nodes')
   await expect(page.getByTestId('replication-sync')).toContainText('in sync')

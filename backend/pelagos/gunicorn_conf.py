@@ -28,10 +28,18 @@ timeout = 120
 keepalive = 5
 certfile = _tls.get("cert", str(_paths.tls_dir / "server.crt"))
 keyfile = _tls.get("key", str(_paths.tls_dir / "server.key"))
-ssl_version = "TLSv1_2"
 limit_request_line = 4094
 limit_request_fields = 100
 limit_request_field_size = 8190
 accesslog = "-"
 errorlog = "-"
 loglevel = "info"
+
+
+def ssl_context(conf, default_ssl_context_factory):  # gunicorn hook
+    """TLS 1.2 or newer (section 16); the default factory loads certfile and keyfile."""
+    import ssl
+
+    context = default_ssl_context_factory()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context

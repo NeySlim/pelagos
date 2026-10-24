@@ -50,7 +50,21 @@ class Services:
         self.advanced = AdvancedService(ctx, self.dns)
         self.install = InstallService(ctx, self.dns, self.dhcp4)
         self.listener: EventSocketListener | None = None
+        self._publish_audit()
         ctx.extra["services"] = self
+
+    def _publish_audit(self) -> None:
+        """Every entry this process appends also goes to the `audit` WebSocket topic (section 18)."""
+        log_ = self.ctx.audit_log
+        append = getattr(log_.append, "__pelagos_inner__", log_.append)
+        events = self.events
+
+        def publishing_append(entry):  # type: ignore[no-untyped-def]
+            append(entry)
+            events.publish("audit", "entry", entry)
+
+        publishing_append.__pelagos_inner__ = append  # type: ignore[attr-defined]
+        log_.append = publishing_append  # type: ignore[method-assign]
 
     @classmethod
     def of(cls, ctx: NodeContext) -> Services:

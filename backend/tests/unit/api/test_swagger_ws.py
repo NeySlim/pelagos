@@ -107,6 +107,7 @@ class ScriptedSocket:
     def close(self, code: int = 1000, message: str = "") -> None:
         self.closed = True
         self.close_code = code
+        assert message.encode()[:2] == code.to_bytes(2, "big")
 
     def wait_for(self, predicate, timeout: float = 5.0) -> None:
         deadline = time.monotonic() + timeout
@@ -118,7 +119,7 @@ class ScriptedSocket:
 
 
 def _open(client, ws, origin="http://localhost", cookie=True):
-    headers = {"Origin": origin}
+    headers = {"Origin": origin, "Upgrade": "websocket", "Connection": "Upgrade"}
     if not cookie:
         client.delete_cookie(COOKIE_NAME)
     return client.get("/api/v1/ws", headers=headers, environ_overrides={"wsgi.websocket": ws})

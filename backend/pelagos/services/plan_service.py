@@ -333,5 +333,3 @@ class PlanService:
             client_ip=client_ip,
         )
         self.ctx.audit_log.append(entry)
-        if self.events is not None:
-            self.events.publish("audit", "entry", entry)

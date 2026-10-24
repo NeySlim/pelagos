@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import struct
 import threading
 from typing import Any
 from urllib.parse import urlsplit
@@ -132,10 +133,16 @@ class SocketSession:
     def close(self, code: int, reason: str) -> None:
         self._stop.set()
         try:
-            if not getattr(self.ws, "closed", False):
-                self.ws.close(code, reason)
+            close_socket(self.ws, code, reason)
         except Exception as exc:
             log.debug("websocket close failed: %s", exc)
+
+
+def close_socket(ws: Any, code: int, reason: str) -> None:
+    """gevent-websocket 0.10 sends `message` (a str, UTF-8 encoded) as the whole close payload, so the
+    code goes in front of it; 4401 and 4403 are two ASCII bytes, which keeps the payload valid UTF-8."""
+    if not getattr(ws, "closed", False):
+        ws.close(code, struct.pack("!H", code).decode("latin-1") + reason)
 
 
 def register_ws(app: Flask, prefix: str) -> None:
@@ -152,12 +159,16 @@ def register_ws(app: Flask, prefix: str) -> None:
             )
         session = ctx.sessions.get(request.cookies.get(COOKIE_NAME))
         if session is None:
-            ws.close(CLOSE_UNAUTHENTICATED, "authentication required")
+            log.warning("websocket refused from %s: no session", request.remote_addr)
+            close_socket(ws, CLOSE_UNAUTHENTICATED, "authentication required")
             return Response(status=204)
         if not origin_allowed(request.headers.get("Origin"), request.host, ctx.node.web_url):
-            ws.close(CLOSE_FORBIDDEN, "origin not allowed")
+            log.warning("websocket refused: origin %s", request.headers.get("Origin"))
+            close_socket(ws, CLOSE_FORBIDDEN, "origin not allowed")
             return Response(status=204)
         SocketSession(ws, Services.of(ctx).events, ctx, session.id).run()
         return Response(status=204)
 
-    app.add_url_rule(f"{prefix}/ws", "pelagos_ws", ws_view, methods=["GET"])
+    # Werkzeug routes Upgrade: websocket requests only to rules flagged websocket=True.
+    app.add_url_rule(f"{prefix}/ws", "pelagos_ws", ws_view, methods=["GET"], websocket=True)
+    app.add_url_rule(f"{prefix}/ws", "pelagos_ws_plain", ws_view, methods=["GET"])

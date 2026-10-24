@@ -13,7 +13,7 @@
   "pages": {
     "subnets": {
       "title": "Sous-réseaux et pools",
-      "subtitle": "Sous-réseaux, pools et leur taux d'occupation"
+      "subtitle": "Sous-réseaux, pools et leur remplissage"
     },
     "sharedNetworks": {
       "title": "Réseaux partagés",
@@ -37,7 +37,7 @@
     },
     "ha": {
       "title": "Haute disponibilité",
-      "subtitle": "État HA, maintenance et transitions"
+      "subtitle": "État HA, maintenance et bascules"
     },
     "ddns": {
       "title": "DDNS",
@@ -47,5 +47,242 @@
       "title": "Hooks",
       "subtitle": "Bibliothèques de hooks chargées"
     }
+  },
+  "fields": {
+    "additionalOnly": "Liste additionnelle seulement",
+    "addressesAndPrefixes": "Adresses et préfixes",
+    "alwaysSend": "Toujours envoyer",
+    "array": "Tableau",
+    "boot": "Démarrage",
+    "bootFileName": "Fichier de démarrage",
+    "clientClasses": "Classes de clients",
+    "clientId": "Client ID",
+    "cltt": "Dernière transaction",
+    "code": "Code",
+    "csvFormat": "Format CSV",
+    "data": "Données",
+    "ddns": "DDNS",
+    "ddnsFlags": "DNS direct / inverse",
+    "duid": "DUID",
+    "expiresAt": "Expire",
+    "field": "Champ",
+    "hostname": "Nom d'hôte",
+    "id": "ID",
+    "identifier": "Identifiant",
+    "idType": "Type d'identifiant",
+    "interface": "Interface",
+    "ipAddress": "Adresse IP",
+    "ipAddresses": "Adresses IP",
+    "leaseType": "Type de bail",
+    "library": "Bibliothèque",
+    "link": "Interface ou relais",
+    "mac": "Adresse MAC",
+    "name": "Nom",
+    "neverSend": "Ne jamais envoyer",
+    "nextServer": "Serveur suivant",
+    "node": "Nœud",
+    "note": "Note",
+    "options": "Options",
+    "parameter": "Paramètre",
+    "parameters": "Paramètres",
+    "pdPools": "Pools de délégation de préfixe",
+    "pools": "Pools",
+    "preferredLifetime": "Durée préférée",
+    "preferredLifetimeSeconds": "Durée préférée (s)",
+    "prefixes": "Préfixes",
+    "recordTypes": "Types d'enregistrement",
+    "relay": "Adresses de relais",
+    "server": "Serveur",
+    "serverHostname": "Nom du serveur",
+    "sharedNetwork": "Réseau partagé",
+    "space": "Espace",
+    "state": "État",
+    "subnet": "Sous-réseau",
+    "subnetId": "Sous-réseau",
+    "test": "Expression de test",
+    "time": "Heure",
+    "type": "Type",
+    "userContext": "Contexte utilisateur",
+    "utilization": "Remplissage",
+    "validLifetime": "Durée de validité",
+    "validLifetimeSeconds": "Durée de validité (s)",
+    "value": "Valeur"
+  },
+  "form": {
+    "badHostname": "Lettres, chiffres, points et tirets seulement",
+    "badIp": "Adresse IP invalide",
+    "badIpValue": "Adresse invalide : {{value}}",
+    "badMac": "Adresse MAC attendue, par exemple 02:00:5e:00:00:01",
+    "badName": "Lettres, chiffres, points, tirets et soulignés seulement",
+    "badPdPool": "Attendu « préfixe/longueur longueur-déléguée » : {{value}}",
+    "badPool": "Pas un pool (plage « a - b » ou préfixe) : {{value}}",
+    "badPrefix": "Préfixe attendu, par exemple 192.0.2.0/24",
+    "badPrefixValue": "Préfixe invalide : {{value}}",
+    "commaSeparated": "Séparer les valeurs par des virgules",
+    "idTaken": "Cet ID est déjà utilisé",
+    "nameOrCode": "Indiquer un nom ou un code",
+    "nameTaken": "Ce nom est déjà utilisé",
+    "noteHint": "Enregistrée dans le user-context de Kea",
+    "onePerLine": "un par ligne",
+    "optionHint": "un « nom = données » par ligne",
+    "pdPoolHint": "« préfixe/longueur longueur-déléguée » par ligne",
+    "positiveInteger": "Nombre entier positif attendu",
+    "preview": "Aperçu du plan",
+    "required": "Obligatoire",
+    "testHint": "Expression de classification Kea"
+  },
+  "userContext": {
+    "empty": "Aucun contexte utilisateur",
+    "note": "Note",
+    "owner": "Propriétaire"
+  },
+  "subnets": {
+    "allNetworks": "Tous les réseaux partagés",
+    "create": "Nouveau sous-réseau",
+    "createTitle": "Nouveau sous-réseau",
+    "declined": "{{n}} refusées",
+    "delegated": "délègue des /{{len}}",
+    "editTitle": "Modifier le sous-réseau {{subnet}}",
+    "empty": "Aucun sous-réseau",
+    "excluded": "exclut {{prefix}}",
+    "idLabel": "ID {{id}}",
+    "noOptions": "Aucune option",
+    "noPdPools": "Aucun pool de délégation de préfixe",
+    "noPools": "Aucun pool : seules les réservations sont servies",
+    "noSharedNetwork": "Aucun",
+    "pdPoolCount": "Pools PD : {{n}}",
+    "poolCount": "Pools : {{n}}",
+    "relay": "relais {{list}}",
+    "search": "Chercher un sous-réseau ou une note..."
+  },
+  "sharedNetworks": {
+    "create": "Nouveau réseau partagé",
+    "createTitle": "Nouveau réseau partagé",
+    "editTitle": "Modifier le réseau partagé {{name}}",
+    "empty": "Aucun réseau partagé",
+    "emptyHint": "Les sous-réseaux qui partagent un même lien sont regroupés dans un réseau partagé.",
+    "members": "Sous-réseaux ({{n}})",
+    "noSubnets": "Aucun sous-réseau dans ce réseau pour l'instant",
+    "openSubnets": "Voir ses sous-réseaux"
+  },
+  "options": {
+    "create": "Nouvelle option",
+    "createTitle": "Nouvelle option globale",
+    "definitions": "Définitions d'options",
+    "editTitle": "Modifier l'option {{name}}",
+    "empty": "Aucune option globale",
+    "global": "Options globales",
+    "noDefinitions": "Aucune définition d'option personnalisée"
+  },
+  "classes": {
+    "create": "Nouvelle classe",
+    "createTitle": "Nouvelle classe de clients",
+    "editTitle": "Modifier la classe {{name}}",
+    "empty": "Aucune classe de clients"
+  },
+  "leases": {
+    "absent": "absent",
+    "activity": "{{n}} changements de baux, actualiser",
+    "agree": "Nœuds d'accord ({{n}})",
+    "allStates": "Tous les états",
+    "allSubnets": "Tous les sous-réseaux",
+    "delete": "Supprimer le bail",
+    "disagree": "Les nœuds divergent",
+    "empty": "Aucun bail ne correspond",
+    "fwd": "direct",
+    "inMinutes": "dans {{minutes}} min",
+    "localNode": "Nœud local",
+    "missingOn": "Absent sur {{nodes}}",
+    "openHost": "Fiche hôte",
+    "readFrom": "lu sur {{node}}",
+    "rev": "inverse",
+    "search": "IP, MAC, nom d'hôte ou client ID...",
+    "total": "{{n}} baux"
+  },
+  "reservations": {
+    "create": "Nouvelle réservation",
+    "createTitle": "Nouvelle réservation",
+    "editTitle": "Modifier la réservation {{identifier}}",
+    "empty": "Aucune réservation",
+    "global": "Globale",
+    "inSubnet": "Doit être dans {{subnet}}",
+    "knownClasses": "Classes connues : {{list}}",
+    "search": "Identifiant, IP ou nom d'hôte..."
+  },
+  "ha": {
+    "buildPlan": "Préparer le plan",
+    "cancelMaintenance": "Terminer la maintenance",
+    "collected": "Lu",
+    "degraded": "La paire HA n'est pas dans un état normal : vérifier les deux serveurs ci-dessous",
+    "disableService": "Désactiver le DHCP",
+    "empty": "Aucune information HA",
+    "emptyHint": "Aucun serveur de cette famille ne répond à status-get avec le hook ha.",
+    "enableService": "Activer le DHCP",
+    "healthy": "Paire HA saine, mode {{mode}}",
+    "hookMissing": "Hook HA non chargé",
+    "inTouch": "en contact",
+    "mode": "Mode",
+    "noScopes": "aucun",
+    "notInTouch": "sans contact",
+    "noTransitions": "Aucune bascule enregistrée",
+    "partnerAge": "vu il y a {{seconds}} s",
+    "partnerRole": "rôle {{role}}",
+    "partnerState": "État du partenaire",
+    "partnerView": "Partenaire vu d'ici",
+    "scopes": "Périmètres servis",
+    "service": "Service DHCP",
+    "startMaintenance": "Lancer la maintenance",
+    "transition": "Bascule",
+    "transitions": "Bascules d'état",
+    "unacked": "{{n}} clients sans réponse",
+    "unsent": "Mises à jour de baux non envoyées",
+    "confirm": {
+      "maintenance": {
+        "start": {
+          "title": "Mettre {{server}} en maintenance ?",
+          "message": "Le partenaire prend tous les clients pendant la maintenance de {{server}}. À utiliser avant une mise à jour ou un redémarrage de {{server}}."
+        },
+        "cancel": {
+          "title": "Terminer la maintenance de {{server}} ?",
+          "message": "{{server}} reprend son rôle HA normal et resynchronise ses baux avec le partenaire."
+        }
+      },
+      "service": {
+        "true": {
+          "title": "Activer le DHCP sur {{server}} ?",
+          "message": "{{server}} recommence à répondre aux clients DHCP."
+        },
+        "false": {
+          "title": "Désactiver le DHCP sur {{server}} ?",
+          "message": "{{server}} cesse de répondre aux clients DHCP (dhcp-disable). Les clients dépendent du partenaire jusqu'à la réactivation."
+        }
+      }
+    }
+  },
+  "ddns": {
+    "add": "Ajouter un paramètre",
+    "addTitle": "Ajouter un paramètre DDNS",
+    "connection": "Connexion à D2",
+    "d2Title": "Statistiques D2 par nœud",
+    "editTitle": "Modifier {{key}}",
+    "error": "Erreur",
+    "key": "Clé TSIG",
+    "noConnection": "Pas de section dhcp-ddns",
+    "noParameters": "Aucun paramètre ddns-* au niveau global",
+    "parameters": "Paramètres DDNS",
+    "sent": "Envoyées",
+    "success": "Réussies",
+    "timeout": "Délai dépassé",
+    "valueHint": "Valeur JSON : true, 25, \"example.lan.\""
+  },
+  "hooks": {
+    "add": "Charger un hook",
+    "addHint": "La bibliothèque est chargée depuis le répertoire des hooks déjà utilisés, sur chaque nœud.",
+    "addTitle": "Charger une bibliothèque de hook",
+    "core": "utilisé par Pelagos",
+    "empty": "Aucune bibliothèque de hook chargée",
+    "parameterCount": "{{n}} paramètres",
+    "remove": "Décharger",
+    "unknown": "inconnu"
   }
 }

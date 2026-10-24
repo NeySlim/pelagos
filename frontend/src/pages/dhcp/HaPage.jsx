@@ -1,18 +1,207 @@
 // SPDX-License-Identifier: Apache-2.0
-import { Heartbeat } from '@phosphor-icons/react'
-import { AreaPlaceholder } from '../../components/AreaPlaceholder'
+// High availability: one card per Kea server (state, role, scopes, partner view),
+// live through the `ha` topic; maintenance and DHCP service toggles go through a
+// confirmation dialog, then a plan that itself requires confirmation.
+import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Heartbeat, Wrench, Power, ArrowRight, CheckCircle, Warning } from '@phosphor-icons/react'
+import { Badge } from '../../components/Badge'
+import { Button } from '../../components/Button'
+import { Card } from '../../components/Card'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { DataTable } from '../../components/DataTable'
+import { EmptyState } from '../../components/EmptyState'
+import { LoadingSpinner } from '../../components/LoadingSpinner'
+import { StatusBadge } from '../../components/StatusBadge'
+import { useApi } from '../../hooks/useApi'
+import { usePermission } from '../../hooks/usePermission'
+import { useWsTopic } from '../../hooks/useWebSocket'
 import { api } from '../../services/api'
+import { formatDate, formatRelativeTime } from '../../lib/utils'
+import { AreaPage, SectionError } from './ui'
+import { usePlanFlow, useNodeNames } from './hooks'
+import { HEALTHY_HA_STATES } from './lib'
 
-// `family` is 'v4' or 'v6', given by the route.
 export default function HaPage({ family }) {
+  const { t } = useTranslation(['dhcp', 'common'])
+  const { hasPermission } = usePermission()
+  const canOperate = hasPermission('ops:dhcp.ha')
+  const { nameOf } = useNodeNames()
+  const ha = useApi(() => api.dhcp.ha(family), [family])
+  const servers = useApi(() => api.dhcp.servers(family), [family])
+  const transitions = useApi(() => api.dhcp.haTransitions(family), [family])
+  const [confirm, setConfirm] = useState(null)
+  const refresh = () => {
+    ha.refetch()
+    servers.refetch()
+    transitions.refetch()
+  }
+  const flow = usePlanFlow({ onApplied: refresh })
+
+  // Live state: replace the matching server's HAState in place.
+  useWsTopic('ha', (msg) => {
+    const next = msg?.data
+    if (!next || next.family !== family) return
+    ha.setData((cur) => {
+      if (!cur?.items) return cur
+      const found = cur.items.some((h) => h.node_id === next.node_id)
+      return { ...cur, items: found ? cur.items.map((h) => (h.node_id === next.node_id ? next : h)) : [...cur.items, next] }
+    })
+  })
+
+  const items = useMemo(() => ha.data?.items || [], [ha.data])
+  const serverOf = (nodeId) => (servers.data?.items || []).find((s) => s.node_id === nodeId)
+  const healthy = items.length > 0 && items.every((h) => h.enabled && HEALTHY_HA_STATES.includes(h.state) && h.partner?.in_touch !== false)
+
+  const runConfirmed = async () => {
+    const { kind, nodeId, value } = confirm
+    setConfirm(null)
+    if (kind === 'maintenance') await flow.build(() => api.dhcp.haMaintenancePlan(family, nodeId, value))
+    else await flow.build(() => api.dhcp.servicePlan(family, nodeId, value))
+  }
+
+  const transitionColumns = [
+    { key: 'ts', label: t('fields.time'), render: (r) => <span title={formatDate(r.ts)}>{formatRelativeTime(r.ts)}</span>, sortable: true },
+    { key: 'server_name', label: t('fields.server'), render: (r) => r.server_name || nameOf(r.node_id) },
+    {
+      key: 'change',
+      label: t('ha.transition'),
+      render: (r) => (
+        <span className="inline-flex items-center gap-1.5">
+          <StatusBadge status={r.from_state} dot={false} />
+          <ArrowRight size={11} className="text-text-tertiary" />
+          <StatusBadge status={r.to_state} dot={false} />
+        </span>
+      ),
+    },
+    { key: 'partner_state', label: t('ha.partnerState'), render: (r) => (r.partner_state ? <StatusBadge status={r.partner_state} dot={false} /> : '-') },
+  ]
+
+  const confirmText = confirm && {
+    title: t(`ha.confirm.${confirm.kind}.${String(confirm.value)}.title`, { server: confirm.name }),
+    message: t(`ha.confirm.${confirm.kind}.${String(confirm.value)}.message`, { server: confirm.name }),
+  }
+
   return (
-    <AreaPlaceholder
-      ns="dhcp"
-      page="ha"
-      icon={Heartbeat}
-      deps={[family]}
-      load={() => Promise.all([api.dhcp.ha(family), api.dhcp.servers(family)]).then(([ha, servers]) => ({ ha, servers }))}
-      endpoint={`GET /dhcp/${family}/ha, GET /dhcp/${family}/servers`}
-    />
+    <AreaPage ns="dhcp" page="ha" icon={Heartbeat} family={family} onRefresh={refresh} loading={ha.loading}>
+      <div className="space-y-4">
+        <SectionError error={ha.error} onRetry={ha.refetch} />
+        {ha.loading && !ha.data && (
+          <div className="flex justify-center py-10">
+            <LoadingSpinner size="md" />
+          </div>
+        )}
+        {!ha.loading && !ha.error && items.length === 0 && <EmptyState icon={Heartbeat} title={t('ha.empty')} description={t('ha.emptyHint')} />}
+        {items.length > 0 && (
+          <div
+            className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${healthy ? 'status-success-bg status-success-border status-success-text' : 'status-warning-bg status-warning-border status-warning-text'}`}
+            data-testid="ha-summary"
+          >
+            {healthy ? <CheckCircle size={16} weight="fill" /> : <Warning size={16} weight="fill" />}
+            {healthy ? t('ha.healthy', { mode: items[0].mode || '-' }) : t('ha.degraded')}
+          </div>
+        )}
+        <div className="grid gap-4 lg:grid-cols-2">
+          {items.map((h) => {
+            const server = serverOf(h.node_id)
+            const serviceEnabled = server?.status?.enabled
+            const name = h.server_name || nameOf(h.node_id)
+            const inMaintenance = h.state === 'in-maintenance'
+            return (
+              <Card key={h.node_id} className="p-0 overflow-hidden" hover={false} data-testid="ha-server">
+                <div className="flex items-center gap-2 px-3 py-2 border-b border-border section-header-gradient">
+                  <Heartbeat size={16} className="text-accent-pro" />
+                  <span className="text-sm font-semibold text-text-primary">{name}</span>
+                  {h.role && <Badge variant="outline" size="sm">{h.role}</Badge>}
+                  <span className="ml-auto">{h.enabled ? <StatusBadge status={h.state} data-testid="ha-state" /> : <Badge variant="gray" size="sm">{t('ha.hookMissing')}</Badge>}</span>
+                </div>
+                <div className="p-3 space-y-3 text-xs">
+                  <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1">
+                    <dt className="text-text-tertiary">{t('fields.node')}</dt>
+                    <dd className="font-mono">{nameOf(h.node_id)}</dd>
+                    <dt className="text-text-tertiary">{t('ha.mode')}</dt>
+                    <dd>{h.mode || '-'}</dd>
+                    <dt className="text-text-tertiary">{t('ha.scopes')}</dt>
+                    <dd className="font-mono">{h.scopes?.length ? h.scopes.join(', ') : t('ha.noScopes')}</dd>
+                    <dt className="text-text-tertiary">{t('ha.unsent')}</dt>
+                    <dd className="font-mono">{h.unsent_update_count ?? '-'}</dd>
+                    <dt className="text-text-tertiary">{t('ha.service')}</dt>
+                    <dd>{serviceEnabled === undefined ? '-' : <StatusBadge status={serviceEnabled ? 'enabled' : 'disabled'} />}</dd>
+                    <dt className="text-text-tertiary">{t('ha.collected')}</dt>
+                    <dd title={formatDate(h.collected_at)}>{formatRelativeTime(h.collected_at)}</dd>
+                  </dl>
+                  {h.partner && (
+                    <div className="rounded-lg border border-border p-2 space-y-1" data-testid="ha-partner">
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xs uppercase tracking-wider text-text-tertiary">{t('ha.partnerView')}</span>
+                        {h.partner.state && <StatusBadge status={h.partner.state} />}
+                        <Badge variant={h.partner.in_touch === false ? 'danger' : 'success'} size="sm">
+                          {h.partner.in_touch === false ? t('ha.notInTouch') : t('ha.inTouch')}
+                        </Badge>
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-text-secondary">
+                        <span>{t('ha.partnerRole', { role: h.partner.role || '-' })}</span>
+                        {h.partner.age !== null && h.partner.age !== undefined && <span>{t('ha.partnerAge', { seconds: h.partner.age })}</span>}
+                        {h.partner.unacked_clients > 0 && <span className="status-warning-text">{t('ha.unacked', { n: h.partner.unacked_clients })}</span>}
+                      </div>
+                    </div>
+                  )}
+                  {canOperate && h.enabled && (
+                    <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
+                      <Button
+                        variant="warning-soft"
+                        size="xs"
+                        onClick={() => setConfirm({ kind: 'maintenance', nodeId: h.node_id, value: inMaintenance ? 'cancel' : 'start', name })}
+                        disabled={flow.building || (!inMaintenance && h.state === 'partner-in-maintenance')}
+                        data-testid={inMaintenance ? 'ha-maintenance-cancel' : 'ha-maintenance-start'}
+                      >
+                        <Wrench size={12} />
+                        {inMaintenance ? t('ha.cancelMaintenance') : t('ha.startMaintenance')}
+                      </Button>
+                      {serviceEnabled !== undefined && (
+                        <Button
+                          variant={serviceEnabled ? 'danger-soft' : 'secondary'}
+                          size="xs"
+                          onClick={() => setConfirm({ kind: 'service', nodeId: h.node_id, value: !serviceEnabled, name })}
+                          disabled={flow.building}
+                          data-testid="ha-service-toggle"
+                        >
+                          <Power size={12} />
+                          {serviceEnabled ? t('ha.disableService') : t('ha.enableService')}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )
+          })}
+        </div>
+        <DataTable
+          title={t('ha.transitions')}
+          columns={transitionColumns}
+          rows={transitions.data?.items || []}
+          rowKey={(r, i) => `${r.ts}-${r.node_id}-${i}`}
+          loading={transitions.loading}
+          error={transitions.error}
+          onRetry={transitions.refetch}
+          clientSort
+          emptyTitle={t('ha.noTransitions')}
+          dense
+          testId="ha-transitions"
+        />
+      </div>
+      <ConfirmDialog
+        open={Boolean(confirm)}
+        onOpenChange={(o) => !o && setConfirm(null)}
+        onConfirm={runConfirmed}
+        title={confirmText?.title}
+        message={confirmText?.message}
+        confirmLabel={t('ha.buildPlan')}
+        variant={confirm?.kind === 'service' && confirm?.value === false ? 'danger' : 'warning'}
+        typeToConfirm={confirm?.kind === 'maintenance' && confirm?.value === 'start' ? confirm.name : undefined}
+      />
+      {flow.modal}
+    </AreaPage>
   )
 }

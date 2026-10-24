@@ -5,6 +5,7 @@ import { lazy } from 'react'
 import {
   Network, TreeStructure, SlidersHorizontal, Tag, Clock, BookmarkSimple, Heartbeat, ArrowsClockwise, PuzzlePiece,
 } from '@phosphor-icons/react'
+import './detailWindows'
 
 const screens = [
   { id: 'subnets', path: 'subnets', icon: Network, component: lazy(() => import('./SubnetsPage')) },

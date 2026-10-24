@@ -624,6 +624,21 @@ function bindConfig(state, nodeId) {
 function keaSchema(family) {
   const root = family === 'v4' ? 'Dhcp4' : 'Dhcp6'
   const k = (name, type, description, extra = {}) => ({ name, type, description, ...extra })
+  if (family === 'd2') {
+    return {
+      root: 'DhcpDdns',
+      version: '3.2.1',
+      keys: [
+        k('ip-address', 'string', 'Address D2 listens on for name change requests'),
+        k('port', 'integer', 'Port D2 listens on', { minimum: 1, maximum: 65535 }),
+        k('control-sockets', 'array', 'Control channels (3.x)', { since: '2.7.2' }),
+        k('tsig-keys', 'array', 'TSIG keys signing the DNS updates'),
+        k('forward-ddns', 'object', 'Forward zones and their DNS servers'),
+        k('reverse-ddns', 'object', 'Reverse zones and their DNS servers'),
+        k('loggers', 'array', 'Logging configuration'),
+      ],
+    }
+  }
   return {
     root,
     version: '3.2.1',

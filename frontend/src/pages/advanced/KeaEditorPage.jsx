@@ -15,10 +15,12 @@ import { NodeSelect } from './NodeSelect'
 import { unifiedDiff, jsonText } from './lineDiff'
 import { parsePath, getPath, setPath, deletePath, typeOf, defaultFor, parseScalar, parseJson, checkSchema, schemaKeyAt, isSchemaRoot, schemaRoot, normalizeSchema } from './keaJson'
 
+// A whole-configuration replace goes to the node it was loaded from, never to the HA partner:
+// interfaces, this-server-name and sockets differ per node.
 const TARGETS = {
-  v4: { engine: 'kea4', label: 'Dhcp4', load: (node) => api.dhcp.config('v4', node), schema: () => api.advanced.keaSchema('v4'), plan: (config, nodes) => api.dhcp.configPlan('v4', config, nodes) },
-  v6: { engine: 'kea6', label: 'Dhcp6', load: (node) => api.dhcp.config('v6', node), schema: () => api.advanced.keaSchema('v6'), plan: (config, nodes) => api.dhcp.configPlan('v6', config, nodes) },
-  d2: { engine: 'd2', label: 'DhcpDdns', load: (node) => api.d2.config(node), schema: null, plan: (config, nodes) => api.d2.configPlan(config, nodes) },
+  v4: { engine: 'kea4', label: 'Dhcp4', load: (node) => api.dhcp.config('v4', node), schema: () => api.advanced.keaSchema('v4'), plan: (config, node) => api.dhcp.configPlan('v4', config, undefined, node) },
+  v6: { engine: 'kea6', label: 'Dhcp6', load: (node) => api.dhcp.config('v6', node), schema: () => api.advanced.keaSchema('v6'), plan: (config, node) => api.dhcp.configPlan('v6', config, undefined, node) },
+  d2: { engine: 'd2', label: 'DhcpDdns', load: (node) => api.d2.config(node), schema: () => api.advanced.keaSchema('d2'), plan: (config, node) => api.d2.configPlan(config, undefined, node) },
 }
 
 function JsonTextarea({ value, onChange, error, testId, readOnly }) {
@@ -182,7 +184,7 @@ export default function KeaEditorPage() {
     setBuilding(true)
     setPlanError(null)
     try {
-      setPlan(await target.plan(draft, nodeId ? [nodeId] : undefined))
+      setPlan(await target.plan(draft, configQ.data?.node_id || nodeId || undefined))
     } catch (err) {
       setPlanError(err)
     } finally {

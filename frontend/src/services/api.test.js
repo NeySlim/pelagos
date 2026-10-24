@@ -54,6 +54,7 @@ const invocations = [
   () => api.dhcp.servicePlan('v4', 'n1', false), () => api.dhcp.ddns('v4'), () => api.dhcp.ddnsPlan('v4', []),
   () => api.dhcp.hooks('v4'), () => api.dhcp.hooksPlan('v4', []), () => api.dhcp.config('v4'), () => api.dhcp.configPlan('v4', {}),
   () => api.d2.servers(), () => api.d2.stats(), () => api.d2.config(), () => api.d2.configPlan({}),
+  () => api.dhcp.configFile('v4'), () => api.dhcp.adoptPlan('v4', 'file'), () => api.d2.configFile(), () => api.d2.adoptPlan('running'),
   () => api.hosts.list({ only_inconsistent: true }), () => api.hosts.get('mac:aa:bb:cc:dd:ee:ff'), () => api.hosts.plan({}),
   () => api.plans.get('p1'), () => api.plans.apply('p1', true), () => api.plans.rollback('p1'), () => api.plans.remove('p1'),
   () => api.jobs.get('j1'),

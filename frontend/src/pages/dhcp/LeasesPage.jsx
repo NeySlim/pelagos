@@ -141,7 +141,7 @@ export default function LeasesPage({ family }) {
               className="h-7 px-1 bg-bg-tertiary border border-border rounded text-text-primary"
               data-testid="lease-limit"
             >
-              {[50, 100, 250, 500, 1000].map((n) => (
+              {[25, 50, 100, 250, 500, 1000].map((n) => (
                 <option key={n} value={n}>
                   {n}
                 </option>

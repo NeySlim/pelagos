@@ -108,8 +108,9 @@ export const dhcp = {
   hooks: (family) => apiClient.get(`/dhcp/${family}/hooks`),
   hooksPlan: (family, changes) => apiClient.post(`/dhcp/${family}/hooks/plan`, { changes }),
   config: (family, node_id) => apiClient.get(`/dhcp/${family}/config${buildQueryString({ node_id })}`),
-  configPlan: (family, config, node_ids) =>
-    apiClient.post(`/dhcp/${family}/config/plan`, node_ids ? { node_ids, config } : { config }),
+  // node_id: the node whose configuration was loaded; the replace targets that node only.
+  configPlan: (family, config, node_ids, node_id) =>
+    apiClient.post(`/dhcp/${family}/config/plan`, { config, ...(node_ids ? { node_ids } : {}), ...(node_id ? { node_id } : {}) }),
   // Section 9: does the file on disk say what Kea runs; adopt one side when it does not.
   configFile: (family) => apiClient.get(`/dhcp/${family}/config/file`),
   adoptPlan: (family, source) => apiClient.post(`/dhcp/${family}/config/adopt/plan`, { source }),
@@ -119,8 +120,8 @@ export const d2 = {
   servers: () => apiClient.get('/dhcp/d2/servers'),
   stats: (node_id) => apiClient.get(`/dhcp/d2/stats${buildQueryString({ node_id })}`),
   config: (node_id) => apiClient.get(`/dhcp/d2/config${buildQueryString({ node_id })}`),
-  configPlan: (config, node_ids) =>
-    apiClient.post('/dhcp/d2/config/plan', node_ids ? { node_ids, config } : { config }),
+  configPlan: (config, node_ids, node_id) =>
+    apiClient.post('/dhcp/d2/config/plan', { config, ...(node_ids ? { node_ids } : {}), ...(node_id ? { node_id } : {}) }),
   configFile: () => apiClient.get('/dhcp/d2/config/file'),
   adoptPlan: (source) => apiClient.post('/dhcp/d2/config/adopt/plan', { source }),
 }

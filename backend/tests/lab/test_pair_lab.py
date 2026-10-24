@@ -160,9 +160,17 @@ class TestReferencePair:
             verify = next(s for s in job["steps"] if s["name"] == "import/verify")["output"]
             assert "bind.unchanged=ok" in verify and "kea4.unchanged=ok" in verify, verify
             assert "d2.unchanged=ok" in verify
-        mods = {n["peer"]["name"]: n["peer"]["modules"] for n in api(A1).get("/nodes")["items"]}
-        for name in ("ns1", "ns2"):
-            assert mods[name] == {"bind": True, "kea4": True, "kea6": False, "d2": True}, mods
+        full = {"bind": True, "kea4": True, "kea6": False, "d2": True}
+
+        def modules_everywhere() -> bool:
+            # Each import publishes its node's engines in cluster.toml; replication brings them over.
+            for address in (A1, A2):
+                mods = {n["peer"]["name"]: n["peer"]["modules"] for n in api(address).get("/nodes")["items"]}
+                if mods.get("ns1") != full or mods.get("ns2") != full:
+                    return False
+            return True
+
+        wait_for("modules replicated", modules_everywhere, timeout=90)
         # Kea 2.6 from Debian answers the reads the API needs (no host_cmds, no subnet_cmds).
         servers = api(A1).get("/dhcp/v4/servers")["items"]
         assert {s["capabilities"]["version"][:3] for s in servers} == {"2.6"}

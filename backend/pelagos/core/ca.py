@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from cryptography import x509
@@ -17,6 +17,7 @@ from pelagos.domain.common import utcnow
 
 ROOT_DAYS = 365 * 20
 NODE_DAYS = 365 * 2
+RENEW_DAYS = 30
 NODE_URI_PREFIX = "urn:pelagos:node:"
 
 
@@ -28,13 +29,35 @@ class KeyPair:
 
 def fingerprint(cert_pem: bytes) -> str:
     cert = x509.load_pem_x509_certificate(cert_pem)
-    return "sha256:" + hashlib.sha256(cert.public_bytes(serialization.Encoding.DER)).hexdigest()
+    return fingerprint_der(cert.public_bytes(serialization.Encoding.DER))
+
+
+def fingerprint_der(cert_der: bytes) -> str:
+    return "sha256:" + hashlib.sha256(cert_der).hexdigest()
+
+
+def same_fingerprint(a: str, b: str) -> bool:
+    """Compare ignoring case and an optional 'sha256:' prefix."""
+    norm = [x.strip().lower().removeprefix("sha256:") for x in (a, b)]
+    return bool(norm[0]) and norm[0] == norm[1]
 
 
 def _key_pem(key: ec.EllipticCurvePrivateKey) -> bytes:
     return key.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
     )
+
+
+def _build_csr(key: ec.EllipticCurvePrivateKey, node_id: str, name: str, dns_names: list[str]) -> bytes:
+    sans: list[x509.GeneralName] = [x509.UniformResourceIdentifier(NODE_URI_PREFIX + node_id)]
+    sans += [x509.DNSName(d) for d in dns_names]
+    csr = (
+        x509.CertificateSigningRequestBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)]))
+        .add_extension(x509.SubjectAlternativeName(sans), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+    return csr.public_bytes(serialization.Encoding.PEM)
 
 
 def create_root(cluster_id: str) -> KeyPair:
@@ -62,15 +85,32 @@ def create_root(cluster_id: str) -> KeyPair:
 def node_csr(node_id: str, name: str, dns_names: list[str]) -> tuple[bytes, bytes]:
     """Returns (key_pem, csr_pem) for a node."""
     key = ec.generate_private_key(ec.SECP256R1())
-    sans: list[x509.GeneralName] = [x509.UniformResourceIdentifier(NODE_URI_PREFIX + node_id)]
-    sans += [x509.DNSName(d) for d in dns_names]
-    csr = (
-        x509.CertificateSigningRequestBuilder()
-        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)]))
-        .add_extension(x509.SubjectAlternativeName(sans), critical=False)
-        .sign(key, hashes.SHA256())
-    )
-    return _key_pem(key), csr.public_bytes(serialization.Encoding.PEM)
+    return _key_pem(key), _build_csr(key, node_id, name, dns_names)
+
+
+def csr_for_key(key_pem: bytes, node_id: str, name: str, dns_names: list[str]) -> bytes:
+    """CSR over an existing node key, used for renewal so peers keep trusting the same key."""
+    key = serialization.load_pem_private_key(key_pem, password=None)
+    if not isinstance(key, ec.EllipticCurvePrivateKey):
+        raise ValueError("node key is not an EC key")
+    return _build_csr(key, node_id, name, dns_names)
+
+
+def csr_node_id(csr_pem: bytes) -> str | None:
+    csr = x509.load_pem_x509_csr(csr_pem)
+    try:
+        san = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    except x509.ExtensionNotFound:
+        return None
+    return _node_id_from_san(san)
+
+
+def cert_not_after(cert_pem: bytes) -> datetime:
+    return x509.load_pem_x509_certificate(cert_pem).not_valid_after_utc
+
+
+def needs_renewal(cert_pem: bytes, within_days: int = RENEW_DAYS) -> bool:
+    return cert_not_after(cert_pem) - utcnow() <= timedelta(days=within_days)
 
 
 def sign_node(ca: KeyPair, csr_pem: bytes, days: int = NODE_DAYS) -> bytes:
@@ -105,16 +145,27 @@ def sign_node(ca: KeyPair, csr_pem: bytes, days: int = NODE_DAYS) -> bytes:
     return cert.public_bytes(serialization.Encoding.PEM)
 
 
-def node_id_from_cert(cert_pem: bytes) -> str | None:
-    cert = x509.load_pem_x509_certificate(cert_pem)
-    try:
-        san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
-    except x509.ExtensionNotFound:
-        return None
+def _node_id_from_san(san: x509.SubjectAlternativeName) -> str | None:
     for uri in san.get_values_for_type(x509.UniformResourceIdentifier):
         if uri.startswith(NODE_URI_PREFIX):
             return uri[len(NODE_URI_PREFIX) :]
     return None
+
+
+def _cert_node_id(cert: x509.Certificate) -> str | None:
+    try:
+        san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    except x509.ExtensionNotFound:
+        return None
+    return _node_id_from_san(san)
+
+
+def node_id_from_cert(cert_pem: bytes) -> str | None:
+    return _cert_node_id(x509.load_pem_x509_certificate(cert_pem))
+
+
+def node_id_from_der(cert_der: bytes) -> str | None:
+    return _cert_node_id(x509.load_der_x509_certificate(cert_der))
 
 
 def write_pair(pair: KeyPair, key_path: Path, cert_path: Path) -> None:

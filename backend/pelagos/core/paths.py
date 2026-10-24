@@ -78,6 +78,14 @@ class Paths:
     def events_sock(self) -> Path:
         return self.run / "events.sock"
 
+    @property
+    def replication_state_file(self) -> Path:
+        return self.run / "replication.state"
+
+    @property
+    def enroll_tokens(self) -> Path:
+        return self.var / "enroll_tokens.json"
+
     def ensure(self) -> None:
         """Create the writable tree with private modes; never touches /opt."""
         for d, mode in ((self.etc, 0o750), (self.var, 0o750), (self.run, 0o750)):

@@ -265,7 +265,7 @@ export default function ZoneDetailPage() {
 
   const deleteZone = () =>
     flow.run(() =>
-      api.dns.zonePlan({ op: 'delete', target: `${zone.view}/${zone.name}`, before: { name: zone.name, view: zone.view }, after: null, node_ids: [] }),
+      api.dns.zonePlan({ op: 'delete', target: `${zone.view}/${zone.name}`, before: zone, after: null, node_ids: [] }),
     )
 
   return (

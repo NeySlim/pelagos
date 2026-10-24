@@ -309,7 +309,15 @@ def _grants_key(zone: bindconf.ZoneDef, key: str) -> bool:
     return any(r.startswith("grant ") and r.split()[1:2] == [key] for r in rules)
 
 
-TRANSFER_KINDS = ("primary", "master", "secondary", "slave", "mirror")
+COPY_KINDS = ("secondary", "slave", "mirror")
+
+
+def _dynamic(zone: bindconf.ZoneDef) -> bool:
+    """A primary zone something may update: `allow-update { none; }` is a static zone."""
+    if zone.stmt.sub("update-policy") is not None:
+        return True
+    elements = [e.strip('"') for e in zone.elements("allow-update")]
+    return bool(elements) and elements != ["none"]
 
 
 def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str]) -> list[Finding]:
@@ -320,11 +328,10 @@ def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str
     options_needed = False
     for z in bindconf.zones(top):
         subject = f"{z.view}/{z.name}"
-        if admin_key in key_names and z.is_primary:
-            allow_update = z.elements("allow-update")
-            dynamic = z.stmt.sub("allow-update") is not None or z.stmt.sub("update-policy") is not None
-            by_address = any(_is_address(e) for e in allow_update)
-            if dynamic and not by_address and not _grants_key(z, admin_key):
+        dynamic = z.is_primary and _dynamic(z)
+        if admin_key in key_names and dynamic:
+            by_address = any(_is_address(e) for e in z.elements("allow-update"))
+            if not by_address and not _grants_key(z, admin_key):
                 au = z.stmt.sub("allow-update") is not None
                 proposal = (
                     "Replace allow-update by "
@@ -351,7 +358,8 @@ def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str
                         },
                     )
                 )
-        if read_key not in key_names or z.kind not in TRANSFER_KINDS:
+        # Static primaries (localhost and the like) are neither written nor read by Pelagos.
+        if read_key not in key_names or not (dynamic or z.kind in COPY_KINDS):
             continue
         xfr_stmt = z.stmt.sub("allow-transfer")
         if xfr_stmt is None:

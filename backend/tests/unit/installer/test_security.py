@@ -410,3 +410,14 @@ def test_dual_key_on_d2_only_node_runs_step_two_only(tmp_path):
     key = keaconf.tsig_keys(keaconf.loads(conf.read_text()))[0]
     assert key["name"] == "kea-ddns-sha256"
     assert not (tmp_path / "etc/bind/named.conf").exists()
+
+
+def test_static_zones_need_no_pelagos_access(tmp_path):
+    env = debian_tree(tmp_path)
+    (tmp_path / "etc/bind/named.conf.local").write_text(
+        'zone "localhost.localdomain" IN {\n\ttype master;\n\tfile "named.localhost";\n'
+        "\tallow-update { none; };\n};\n"
+        'zone "static.example.lan" {\n\ttype primary;\n\tfile "db.static";\n};\n'
+    )
+    assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    assert run_audit(env) == []

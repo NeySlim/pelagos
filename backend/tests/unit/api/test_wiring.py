@@ -489,3 +489,49 @@ def test_install_endpoints_run_the_installer(admin, services, node_ctx, tmp_path
     assert admin.get(f"{V1}/plans/{plan['id']}").get_json()["state"] == "applied"
     bad = admin.post(f"{V1}/install/security/plan", json={"finding_ids": ["bind:nope:x"]})
     assert bad.status_code == 400 and "unknown finding" in bad.get_json()["detail"]
+
+
+# Collector sockets and replication state --------------------------------------------------------------
+
+
+def test_collector_sockets_events_and_consistency_signal(role_client, services, node_ctx):
+    from pelagos.collector.events import EventSink, SignalListener
+
+    listener = SignalListener(node_ctx.paths.collector_sock)
+    listener.open()
+    try:
+        r = role_client("dns-operator").post(f"{V1}/alerts/consistency/run")
+        assert r.status_code == 202
+        deadline = time.monotonic() + 10
+        got: list[dict[str, Any]] = []
+        while not any(m.get("event") == "consistency" for m in got) and time.monotonic() < deadline:
+            got += listener.wait(0.2)
+        assert any(m["event"] == "consistency" for m in got)
+    finally:
+        listener.close()
+
+    services.start_event_listener()
+    try:
+        sub = services.events.subscribe({"alerts"})
+        sink = EventSink(node_ctx.paths.events_sock, node_ctx.node.id)
+        assert sink.emit("alerts", "opened", {"id": "a1", "kind": "daemon_down"})
+        msg = sub.queue.get(timeout=5)
+        assert msg["topic"] == "alerts" and msg["data"]["id"] == "a1"
+    finally:
+        services.listener.stop()
+        services.listener = None
+
+
+def test_syncing_state_file_refuses_writes(role_client, node_ctx):
+    from pelagos.core.context import write_replication_state
+
+    dora = role_client("dns-operator")
+    write_replication_state(node_ctx.paths, "syncing")
+    try:
+        r = dora.post(f"{V1}/dns/zones/example.lan/records/plan", json={"changes": []})
+        assert r.status_code == 503 and r.get_json()["code"] == "replication_syncing"
+        assert dora.get(f"{V1}/dns/zones").status_code == 200
+    finally:
+        write_replication_state(node_ctx.paths, "ready")
+    r = dora.post(f"{V1}/dns/zones/example.lan/records/plan", json={"changes": []})
+    assert r.status_code == 400

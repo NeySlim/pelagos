@@ -52,7 +52,14 @@ class StatsClient:
             zonestats=data.get("zonestats", {}),
             resstats=data.get("resstats", {}),
             sockstats=data.get("sockstats", {}),
-            memory=data.get("memory", {}).get("TotalUse", {}) if isinstance(data.get("memory"), dict) else {},
+            memory=_int_values(data.get("memory")),
             zones=zones,
             raw=data,
         )
+
+
+def _int_values(section: Any) -> dict[str, int]:
+    """Scalar counters of a statistics section (memory has InUse, Malloced and a contexts list)."""
+    if not isinstance(section, dict):
+        return {}
+    return {k: v for k, v in section.items() if isinstance(v, int) and not isinstance(v, bool)}

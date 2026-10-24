@@ -492,6 +492,28 @@ def test_three_nodes_converge_after_concurrent_writes(cluster):
     assert len({n.ctx.cluster().version for n in (a, b, c)}) == 1
 
 
+def test_recreated_record_does_not_revive_fields_from_an_offline_node(cluster):
+    """C is offline while A deletes and re-creates a role: C's old fields must not come back."""
+    a = cluster.first()
+    b = cluster.enroll(a, "ns2")
+    c = cluster.enroll(a, "ns3")
+    _write(a, lambda cfg: cfg.roles.append(Role(name="ops", description="old", permissions=["read:dns"])))
+    for node in (a, b, c):
+        node.service.replicator.pull_all()
+    assert _same_config(a, b, c)
+    c.service.stop()
+    _write(a, lambda cfg: setattr(cfg, "roles", [r for r in cfg.roles if r.name != "ops"]))
+    _write(a, lambda cfg: cfg.roles.append(Role(name="ops", permissions=["read:dhcp"])))
+    b.service.replicator.pull_all()
+    c.restart()
+    for node in (a, b, c):
+        node.service.replicator.pull_all()
+    assert _same_config(a, b, c)
+    for node in (a, b, c):
+        ops = next(r for r in node.ctx.cluster().roles if r.name == "ops")
+        assert ops.description is None and ops.permissions == ["read:dhcp"]
+
+
 def test_revoked_node_is_refused(pair):
     a, b = pair
     client_to_a = ReplicationClient(b.ctx.cluster().peer(a.id), b.service.client_context)

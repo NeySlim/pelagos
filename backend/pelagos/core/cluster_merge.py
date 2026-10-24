@@ -8,7 +8,8 @@ The file is seen as a map of entries, one per leaf: `settings/collector/poll_sec
 the stamp of the deletion. Merging two files keeps, per entry, the greatest stamp (live value or
 tombstone); equal stamps fall back to the canonical value, so every node computes the same result.
 A deleted record wins over a concurrent edit of its fields; a field tombstone under a deleted
-record is dropped, the record tombstone covers it.
+record is dropped, the record tombstone covers it. Field entries stamped before their record's
+creation belong to an earlier incarnation of that key and are dropped too.
 """
 
 from __future__ import annotations
@@ -269,12 +270,22 @@ def _dedupe_usernames(state: State) -> None:
 
 
 def _prune(state: State) -> None:
-    """Drop the fields of records that do not exist, and field tombstones under a record tombstone."""
+    """Drop the fields of records that do not exist and field entries older than their record.
+
+    A record's existence entry is stamped once, at creation, so a field (or field tombstone)
+    stamped before it belongs to an earlier incarnation of the same key and must not come back.
+    """
     for section in RECORDS:
-        live = {p for p in state.values if p.startswith(section + "/") and p.count("/") == 1}
+        live = {
+            p: state.stamps.get(p, ZERO)
+            for p in state.values
+            if p.startswith(section + "/") and p.count("/") == 1
+        }
         for bucket in (state.values, state.tombstones):
             for path in [p for p in bucket if p.startswith(section + "/") and p.count("/") >= 2]:
-                if "/".join(path.split("/")[:2]) not in live:
+                created = live.get("/".join(path.split("/")[:2]))
+                stamp = state.stamps.get(path, ZERO) if bucket is state.values else bucket[path]
+                if created is None or stamp < created:
                     if bucket is state.values:
                         state.stamps.pop(path, None)
                     del bucket[path]

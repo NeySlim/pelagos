@@ -95,6 +95,51 @@ def test_tombstones_delete_wins_and_prunes_fields():
     assert merge_configs(gone, base).secrets == {}
 
 
+def test_recreated_record_does_not_get_fields_of_its_former_incarnation():
+    """Delete then re-create a role on A; C still holds the old role and missed both writes."""
+    base = _base()
+    base = _write(
+        base,
+        "A",
+        lambda c: c.roles.append(Role(name="ops", description="old", permissions=["read:dns"])),
+    )
+    stale = _write(base, "C", lambda c: c.settings.__setitem__("plan_ttl_seconds", 900))
+    deleted = _write(base, "A", lambda c: setattr(c, "roles", []))
+    recreated = _write(deleted, "A", lambda c: c.roles.append(Role(name="ops")))
+    third = _write(recreated, "B", lambda c: c.settings["collector"].__setitem__("poll_seconds", 15))
+    final = merge_configs(merge_configs(stale, recreated), third)
+    other = merge_configs(third, merge_configs(recreated, stale))
+    for cfg in (final, other):
+        assert [r.name for r in cfg.roles] == ["ops"]
+        assert cfg.roles[0].description is None and cfg.roles[0].permissions == []
+        assert cfg.settings["plan_ttl_seconds"] == 900
+        assert cfg.settings["collector"]["poll_seconds"] == 15
+    assert final.state().digest() == other.state().digest()
+    stamps = {**final.stamps, **final.tombstones}
+    created = final.stamps["roles/ops"]
+    assert all(s >= created for p, s in stamps.items() if p.startswith("roles/ops/"))
+
+
+def test_recreated_record_pure_states():
+    """Same scenario on bare states: nested keys absent from the new record stay gone."""
+    before, _ = cm.record_write(
+        cm.State(),
+        {
+            "roles/ops": cm.RECORD,
+            "roles/ops/description": "old",
+            "roles/ops/extra/a": 1,
+            "roles/ops/extra/b": 2,
+        },
+        "A",
+    )
+    gone, _ = cm.record_write(before, {}, "A")
+    again, _ = cm.record_write(gone, {"roles/ops": cm.RECORD, "roles/ops/extra/a": 5}, "A")
+    for merged in (cm.merge_states(before, again), cm.merge_states(again, before)):
+        assert merged.values == {"roles/ops": cm.RECORD, "roles/ops/extra/a": 5}
+        assert cm.unflatten(merged.values, merged.stamps)["roles"] == [{"name": "ops", "extra": {"a": 5}}]
+    assert cm.merge_states(before, again).digest() == cm.merge_states(again, before).digest()
+
+
 def test_concurrent_same_username_keeps_one_record():
     base = _base()
     a = _write(base, "A", lambda c: c.users.append(User(id="U2", username="bob", password_hash="a")))

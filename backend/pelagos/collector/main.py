@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pelagos.collector import series as series_mod
-from pelagos.collector.alerts import ACK_ACTION, ACK_SKEW, AlertStore
+from pelagos.collector.alerts import ACK_ACTION, AlertStore
 from pelagos.collector.events import EventSink, SignalListener
 from pelagos.collector.pollers import PollOutcome
 from pelagos.collector.pollers.bind import BindPoller
@@ -45,6 +45,9 @@ log = logging.getLogger(__name__)
 
 LEASE_PAGE = 500
 META_LAST_ACK = "last_ack_audit_id"
+META_ACK_OFFSET = "ack_scan_offset"
+META_ACK_INODE = "ack_scan_inode"
+ACK_NEEDLE = b'"alert.ack"'
 
 
 @dataclass(slots=True)
@@ -206,27 +209,37 @@ class Collector:
     def apply_acks(self) -> list[Alert]:
         """Replay alert.ack audit entries (local API acks and replicated ones) onto open alerts.
 
-        Replicated entries can arrive with ids older than any cursor, so the scan is bounded by time
-        instead: an ack older than the oldest open alert (minus the skew allowance) cannot apply. Each
-        ack entry is consumed once (recorded in meta), which keeps it off a later re-opening.
+        The log is append-only (merged entries are appended too), so only the bytes past the last
+        scanned offset are read, and only lines naming the ack action are decoded. Acks whose alert
+        is not open here yet are kept (bounded) and retried on the next pass.
         """
-        oldest = self.alerts.oldest_open_first_seen()
-        if oldest is None:
+        try:
+            offset = int(self.store.get_meta(META_ACK_OFFSET) or 0)
+            inode = int(self.store.get_meta(META_ACK_INODE) or 0) or None
+        except ValueError:
+            offset, inode = 0, None
+        fresh, offset, inode = self.ctx.audit_log.scan(offset, inode, needle=ACK_NEEDLE)
+        legacy = self.alerts.consumed_acks()  # markers of the time-window scan, dropped below
+        fresh = [e for e in fresh if e.action == ACK_ACTION and e.id not in legacy]
+        waiting = self.alerts.pending_acks()
+        if not fresh and not waiting and not legacy:
+            self._save_ack_cursor(offset, inode)
             return []
-        entries, _ = self.ctx.audit_log.query(
-            action=ACK_ACTION, since=oldest - ACK_SKEW, page=1, per_page=1_000_000
-        )
-        consumed = self.alerts.consumed_acks()
-        fresh = sorted((e for e in entries if e.id not in consumed), key=lambda e: e.id)
-        if not fresh:
-            return []
-        changed = self.alerts.apply_audit_acks(fresh)
-        self.alerts.mark_acks_consumed([e.id for e in fresh])
-        self.store.set_meta(META_LAST_ACK, fresh[-1].id)
+        held = frozenset(e.id for e in waiting)
+        entries = sorted({e.id: e for e in [*waiting, *fresh]}.values(), key=lambda e: e.id)
+        changed, still = self.alerts.replay_acks(entries, held)
+        self.alerts.set_pending_acks(still)
+        self._save_ack_cursor(offset, inode)
+        if entries:
+            self.store.set_meta(META_LAST_ACK, entries[-1].id)
         for alert in changed:
             self.events.emit("alerts", "acked", alert)
         self.last_report.acked.extend(changed)
         return changed
+
+    def _save_ack_cursor(self, offset: int, inode: int | None) -> None:
+        self.store.set_meta(META_ACK_OFFSET, str(offset))
+        self.store.set_meta(META_ACK_INODE, str(inode or 0))
 
     def consistency(self) -> list[Alert]:
         """Read leases, reservations and primary zones live, run the pure checks, reconcile cross alerts.
@@ -624,8 +637,10 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
 
     tasks = collector.tasks()
     listener = SignalListener(paths.collector_sock)
-    listener.on("audit", lambda _msg: collector.apply_acks())
-    listener.on("audit_merged", lambda _msg: collector.apply_acks())
+    # One replay per batch of datagrams, run by the loop after listener.wait().
+    acks_due = threading.Event()
+    listener.on("audit", lambda _msg: acks_due.set())
+    listener.on("audit_merged", lambda _msg: acks_due.set())
     listener.on("consistency", lambda _msg: collector.consistency())
     collector.listener = listener
     try:
@@ -671,6 +686,13 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
                 listener.wait(min(sleep_for, 5.0))
             else:
                 time.sleep(min(sleep_for, 5.0))
+            if acks_due.is_set():
+                acks_due.clear()
+                try:
+                    with collector.batch():
+                        collector.apply_acks()
+                except Exception:
+                    log.exception("ack replay failed")
     except KeyboardInterrupt:
         return 0
     finally:

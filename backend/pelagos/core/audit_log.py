@@ -260,6 +260,35 @@ class AuditLog:
             rows.extend(e for e in self._load_at(window[i : i + DECODE_CHUNK]) if keep(e))
         return rows[start : start + per_page], len(rows)
 
+    def scan(
+        self, offset: int, inode: int | None, needle: bytes | None = None
+    ) -> tuple[list[AuditEntry], int, int | None]:
+        """Entries appended after byte `offset` of the file whose inode was `inode` (merged entries are
+        appended too, so nothing is missed), the new offset and the inode. A replaced or shrunk file
+        is read from the start. `needle` skips lines without that byte string before decoding them."""
+        try:
+            st = self.path.stat()
+        except FileNotFoundError:
+            return [], 0, None
+        if st.st_ino != inode or st.st_size < offset:
+            offset = 0
+        out: list[AuditEntry] = []
+        pos = offset
+        with self.path.open("rb") as fh:
+            fh.seek(offset)
+            for line in fh:
+                if not line.endswith(b"\n"):
+                    break  # a writer is mid-line: read it next time
+                pos += len(line)
+                if needle is not None and needle not in line:
+                    continue
+                stripped = line.strip()
+                if stripped:
+                    entry = _decode(stripped)
+                    if entry is not None:
+                        out.append(entry)
+        return out, pos, st.st_ino
+
     def get(self, entry_id: str) -> AuditEntry | None:
         found = self.get_many([entry_id])
         return found[0] if found else None

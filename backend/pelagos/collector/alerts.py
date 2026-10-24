@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
@@ -13,10 +14,15 @@ from pelagos.domain.alerts import Alert, AlertState
 from pelagos.domain.audit import AuditEntry
 from pelagos.domain.common import utcnow
 
+log = logging.getLogger(__name__)
+
 ACK_ACTION = "alert.ack"
 ACK_TARGET_PREFIX = "alert:"
 # Clock skew tolerated between the node that wrote an ack and the one that opened the alert.
-ACK_SKEW = timedelta(seconds=60)
+ACK_SKEW = timedelta(seconds=300)
+# An ack whose alert is not open here yet (replicated before this node's poll) waits this long.
+PENDING_ACK_MAX = timedelta(days=1)
+_PENDING = "ackp:"
 
 
 def _ts(dt: datetime | None) -> int | None:
@@ -225,6 +231,58 @@ class AlertStore:
             if acked is not None:
                 changed.append(acked)
         return changed
+
+    def replay_acks(
+        self,
+        entries: Iterable[AuditEntry],
+        pending: frozenset[str] = frozenset(),
+        now: datetime | None = None,
+    ) -> tuple[list[Alert], list[AuditEntry]]:
+        """(alerts acked, entries still waiting). An entry is settled once applied, once its alert is
+        acked or resolved, or when it acks an older occurrence; one whose alert does not exist here
+        yet waits up to PENDING_ACK_MAX. Ids in `pending` already waited: the skew check is lifted
+        for them, since this node opened the alert after the ack was written."""
+        now = now or utcnow()
+        changed: list[Alert] = []
+        waiting: list[AuditEntry] = []
+        for entry in entries:
+            if entry.action != ACK_ACTION or not entry.target.startswith(ACK_TARGET_PREFIX):
+                continue
+            alert_id = entry.target[len(ACK_TARGET_PREFIX) :]
+            current = self.get(alert_id)
+            if current is None:
+                if entry.ts >= now - PENDING_ACK_MAX:
+                    waiting.append(entry)
+                continue
+            if current.state is not AlertState.OPEN:
+                continue
+            older = current.first_seen is not None and entry.ts < current.first_seen - ACK_SKEW
+            if older and entry.id not in pending:
+                log.info("ack %s for %s predates this occurrence: dropped", entry.id, alert_id)
+                continue
+            acked = self.ack(alert_id, entry.user or "system", entry.ts)
+            if acked is not None:
+                changed.append(acked)
+        return changed, waiting
+
+    def pending_acks(self) -> list[AuditEntry]:
+        rows = self.conn.execute("SELECT value FROM meta WHERE key LIKE 'ackp:%'").fetchall()
+        out = []
+        for r in rows:
+            try:
+                out.append(AuditEntry.from_dict(json.loads(r["value"])))
+            except (ValueError, KeyError, TypeError):
+                continue
+        return out
+
+    def set_pending_acks(self, entries: list[AuditEntry]) -> None:
+        """Replaces the waiting acks; also drops the per-entry consumed markers of older versions."""
+        self.conn.execute("DELETE FROM meta WHERE key LIKE 'ackp:%' OR key LIKE 'ack:%'")
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
+            [(_PENDING + e.id, json.dumps(e.to_dict(), default=str)) for e in entries],
+        )
+        self.conn.commit()
 
     def oldest_open_first_seen(self) -> datetime | None:
         """first_seen of the oldest alert still in state open: no older ack can apply to anything."""

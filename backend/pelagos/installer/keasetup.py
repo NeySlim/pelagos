@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from pelagos.core.keadoc import KeaDocument, patch_text
 from pelagos.core.write_pipeline import FileChange, WritePipeline
 from pelagos.domain import ValidationResult
 from pelagos.installer import keaconf
@@ -162,14 +163,29 @@ def ensure_unix_socket(text: str, engine: str, version: str | None) -> tuple[str
     root = ROOT_KEYS[engine]
     body = config[root]
     key = socket_key_for(version)
-    if key == "control-sockets" and isinstance(body.get("control-sockets"), list):
-        # An HTTP-only list exists: rewrite the object (comments are lost, the backup keeps them).
+    if (key == "control-sockets" and isinstance(body.get("control-sockets"), list)) or (
+        key == "control-socket" and "control-socket" in body
+    ):
+        # An HTTP-only list or a socket entry without a Unix name: the lossless editor keeps comments.
         new = keaconf.set_control_socket(config, Path(SOCKET_NAMES[engine]), version)
-        return keaconf.dumps(new), True
-    if key == "control-socket" and "control-socket" in body:
-        new = keaconf.set_control_socket(config, Path(SOCKET_NAMES[engine]), version)
-        return keaconf.dumps(new), True
+        return patch_text(text, new), True
     return insert_top_key(text, root, key, socket_value(engine, version)), True
+
+
+def unix_socket_files(conf: Path, engine: str, version: str | None) -> dict[Path, str]:
+    """Files to rewrite so `conf` (includes resolved) declares a Unix control socket; {} when it does."""
+    doc = KeaDocument(conf)
+    if not doc.has_includes:
+        new_text, changed = ensure_unix_socket(doc.texts[0], engine, version)
+        return {conf: new_text} if changed else {}
+    if keaconf.control_socket_path(doc.value, Path("/")) is not None:
+        return {}
+    return doc.patch(keaconf.set_control_socket(doc.value, Path(SOCKET_NAMES[engine]), version))
+
+
+def edited_files(conf: Path, new_config: dict[str, Any]) -> dict[Path, str]:
+    """Files of the tree at `conf` patched to read `new_config`: comments, layout and includes stay."""
+    return KeaDocument(conf).patch(new_config)
 
 
 # systemd drop-in for Kea before 3.0 ------------------------------------------------------------
@@ -292,14 +308,21 @@ def kea_pipeline(env: Any, engine: str, conf: Path, label: str, restart: bool) -
 
 
 def write_config(env: Any, engine: str, conf: Path, text: str, label: str, restart: bool) -> str:
+    return write_files(env, engine, conf, {conf: text}, label, restart)
+
+
+def write_files(env: Any, engine: str, conf: Path, files: dict[Path, str], label: str, restart: bool) -> str:
+    """Writes `conf` and the files it includes in one pipeline run (one backup, one validation)."""
+    names = ", ".join(str(p) for p in files)
     if env.dry_run:
-        return f"dry run: would write {conf}"
+        return f"dry run: would write {names}"
+    group = env.file_group(env.paths.kea_group)
     result = kea_pipeline(env, engine, conf, label, restart).run(
-        [FileChange(path=conf, content=text.encode(), group=env.file_group(env.paths.kea_group))]
+        [FileChange(path=p, content=t.encode(), group=group) for p, t in files.items()]
     )
     if not result.ok:
-        raise RuntimeError(f"{conf}: {result.error}")
-    return f"{conf} written; " + "; ".join(f"{s['name']} ok" for s in result.steps if s["ok"])
+        raise RuntimeError(f"{names}: {result.error}")
+    return f"{names} written; " + "; ".join(f"{s['name']} ok" for s in result.steps if s["ok"])
 
 
 APPARMOR_MARK = "# pelagos: config-write of the Kea configuration"
@@ -330,9 +353,15 @@ def ensure_apparmor_write(env: Any, daemon: str, conf: Path) -> str:
 
 def ensure_config_writable(env: Any, conf: Path, daemon: str | None = None) -> str:
     """`config-write` runs as the Kea user: the configuration must be writable by it, as its owner or
-    through the Kea group (root:<kea group> 0660; distro packages ship root:root 0644)."""
+    through the Kea group (root:<kea group> 0660; distro packages ship root:root 0644). Files pulled in
+    by `<?include?>` are patched by Pelagos (in the Kea group) instead, so they get the same mode."""
     note = ensure_apparmor_write(env, daemon, conf) if daemon else ""
-    return "\n".join(o for o in (_config_mode(env, conf), note) if o)
+    try:
+        included = keaconf.included_files(conf)
+    except keaconf.KeaConfigError:
+        included = []
+    modes = [_config_mode(env, p) for p in [conf, *included]]
+    return "\n".join(o for o in (*modes, note) if o)
 
 
 def _config_mode(env: Any, conf: Path) -> str:

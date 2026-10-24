@@ -67,9 +67,10 @@ def _canonical(stmt: bindconf.Statement) -> str:
     return " ".join(parts) + ";"
 
 
-def kea_fingerprint(text: str) -> str:
-    """sha256 of the Kea config without its control socket entries (the only thing import may add)."""
-    config = keaconf.loads(text)
+def kea_fingerprint(text: str, path: str | None = None) -> str:
+    """sha256 of the Kea config (includes resolved when `path` is given) without its control socket
+    entries, the only thing import may add."""
+    config = keaconf.loads(text, path)
     root = keaconf.root_key(config)
     body = dict(config[root])
     body.pop("control-socket", None)
@@ -175,7 +176,7 @@ def build_import_plan(env: Any, engines: list[str], created_by: str = "") -> Pla
         body = config[keaconf.root_key(config)]
         read = {
             "conf": str(conf),
-            "fingerprint": kea_fingerprint(text),
+            "fingerprint": kea_fingerprint(text, str(conf)),
             "socket": str(sock) if sock else None,
             "subnets": len(body.get("subnet4" if engine == "kea4" else "subnet6", []) or [])
             + sum(
@@ -186,9 +187,10 @@ def build_import_plan(env: Any, engines: list[str], created_by: str = "") -> Pla
             "tsig_keys": [k.get("name") for k in body.get("tsig-keys", []) or []] if engine == "d2" else [],
         }
         changes.append(_change(f"import/read/{engine}", env, read))
-        preconditions.append(
-            Precondition(PreconditionKind.FILE_SHA256, str(conf), sha256_file(conf), node_id=env.node_id)
-        )
+        for f in [conf, *keaconf.included_files(conf)]:
+            preconditions.append(
+                Precondition(PreconditionKind.FILE_SHA256, str(f), sha256_file(f), node_id=env.node_id)
+            )
         changes.append(
             _change(
                 f"import/{engine}/socket",
@@ -276,9 +278,9 @@ def step_kea_socket(env: Any, engine: str, change: Change, ctx: dict[str, Any]) 
     conf = Path(change.after["conf"])
     version = env.t.kea_version(daemon)
     out = [f"{daemon} {version or 'version unknown'}"]
-    new_text, changed = keasetup.ensure_unix_socket(conf.read_text(), engine, version)
-    if changed:
-        out.append(keasetup.write_config(env, engine, conf, new_text, f"import-{engine}", restart=False))
+    files = keasetup.unix_socket_files(conf, engine, version)
+    if files:
+        out.append(keasetup.write_files(env, engine, conf, files, f"import-{engine}", restart=False))
     else:
         out.append("control socket present")
     out.append(keasetup.ensure_config_writable(env, conf, daemon))
@@ -396,7 +398,9 @@ def verify_import(env: Any, engines: list[str], reads: dict[str, Any] | None = N
     for engine in engines:
         if engine in KEA_DAEMONS and engine in reads:
             conf = Path(reads[engine]["conf"])
-            out[f"{engine}.unchanged"] = kea_fingerprint(conf.read_text()) == reads[engine]["fingerprint"]
+            out[f"{engine}.unchanged"] = (
+                kea_fingerprint(conf.read_text(), str(conf)) == reads[engine]["fingerprint"]
+            )
     return out
 
 

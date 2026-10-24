@@ -293,22 +293,21 @@ def step_kea_config(env: Any, engine: str, change: Change, ctx: InstallContext) 
     version = env.t.kea_version(daemon)
     out = [f"{daemon} {version or 'version unknown'}"]
     if change.after.get("mode") == "keep":
-        text = conf.read_text()
         if engine == "d2" and keaconf.supports_secret_file(version):
             # Kea 3.x refuses clear D2 secrets: move them to secret files before the new daemon starts.
             migrated, secret_files = keasetup.migrate_inline_secrets(
-                keaconf.loads(text), env.paths.kea_conf_dir
+                keaconf.loads(conf.read_text(), str(conf)), env.paths.kea_conf_dir
             )
             for path, secret in secret_files.items():
                 out.append(keasetup.write_secret_file(env, path, secret))
             if secret_files:
-                text = keaconf.dumps(migrated)
+                files = keasetup.edited_files(conf, migrated)
                 out.append(
-                    keasetup.write_config(env, engine, conf, text, f"install-{engine}-secrets", restart=False)
+                    keasetup.write_files(env, engine, conf, files, f"install-{engine}-secrets", restart=False)
                 )
-        new_text, changed = keasetup.ensure_unix_socket(text, engine, version)
-        if changed:
-            out.append(keasetup.write_config(env, engine, conf, new_text, f"install-{engine}", restart=False))
+        files = keasetup.unix_socket_files(conf, engine, version)
+        if files:
+            out.append(keasetup.write_files(env, engine, conf, files, f"install-{engine}", restart=False))
         else:
             out.append("existing configuration kept; control socket present")
     else:

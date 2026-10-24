@@ -542,7 +542,8 @@ def _apply_edits(text: str, edits: list[_Edit], path: Path) -> str:
             if r.start < e.start < r.end or (e.end > e.start and e.start < r.end and r.start < e.end):
                 raise KeaEditError(f"{path}: conflicting edits around offset {e.start}")
     all_edits = merged + others
-    all_edits.sort(key=lambda e: (e.start, e.seq))
+    # At one offset insertions go first: an insertion right before a removed comma is not a conflict.
+    all_edits.sort(key=lambda e: (e.start, e.end > e.start, e.seq))
     for a, b in itertools.pairwise(all_edits):
         if a.end > b.start:
             raise KeaEditError(f"{path}: conflicting edits around offset {b.start}")

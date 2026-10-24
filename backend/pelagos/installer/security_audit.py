@@ -997,9 +997,8 @@ def dual_key_switch_d2(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
     out = [keasetup.write_secret_file(env, secret_file, secret)]
     entry = keasetup.tsig_key_entry(new, NEW_ALGORITHM, secret, secret_file, version)
     new_cfg = keaconf.rename_key(config, old, entry)
-    out.append(
-        keasetup.write_config(env, "d2", conf, keaconf.dumps(new_cfg), f"security-d2-{new}", restart=False)
-    )
+    files = keasetup.edited_files(conf, new_cfg)
+    out.append(keasetup.write_files(env, "d2", conf, files, f"security-d2-{new}", restart=False))
     used = keaconf.domains_using_key(new_cfg, new)
     out.append(f"D2 domains now signed with {new}: {', '.join(n for _, n in used) or 'none'}")
     return "\n".join(out)

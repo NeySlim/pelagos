@@ -126,6 +126,16 @@ def test_comment_after_last_member_stays_on_its_line():
     assert out == '{\n  "Dhcp4": {\n    "a": 1, // one\n    "b": 2\n  }\n}\n'
 
 
+def test_last_member_swapped_for_a_new_one():
+    text = '{\n  "k": {\n    "name": "a",\n    "algorithm": "HMAC-MD5",\n    "secret": "x"\n  }\n}\n'
+    new = {"k": {"name": "b", "algorithm": "HMAC-SHA256", "secret-file": "/x"}}
+    out = patch_text(text, new)
+    assert (
+        out
+        == '{\n  "k": {\n    "name": "b",\n    "algorithm": "HMAC-SHA256",\n    "secret-file": "/x"\n  }\n}\n'
+    )
+
+
 def test_parse_errors():
     with pytest.raises(KeaEditError):
         KeaDocument.from_text('{ "a": }')

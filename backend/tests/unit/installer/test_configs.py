@@ -149,6 +149,38 @@ def test_insert_into_empty_object():
     assert keaconf.loads(new)["DhcpDdns"] == {"control-sockets": [{"a": 1}]}
 
 
+def test_http_only_socket_list_gets_a_unix_socket_with_comments_kept():
+    text = (
+        "// agent-less server\n"
+        '{ "Dhcp4": {\n'
+        '    "control-sockets": [ { "socket-type": "http", "socket-port": 8004 } ], // http only\n'
+        '    "valid-lifetime": 4000\n} }\n'
+    )
+    new, changed = keasetup.ensure_unix_socket(text, "kea4", "3.2.1")
+    assert changed and "// agent-less server" in new and "// http only" in new
+    sockets = keaconf.loads(new)["Dhcp4"]["control-sockets"]
+    assert {s["socket-type"] for s in sockets} == {"http", "unix"}
+
+
+def test_socket_and_edits_through_includes(tmp_path):
+    part = tmp_path / "ddns-keys.json"
+    part.write_text('// keys\n{ "name": "kea-ddns", "algorithm": "HMAC-MD5", "secret": "bGVn" }\n')
+    conf = tmp_path / "kea-dhcp-ddns.conf"
+    conf.write_text(
+        '{ "DhcpDdns": {\n  // keys live apart\n  "tsig-keys": [ <?include "' + str(part) + '"?> ],\n'
+        '  "forward-ddns": { "ddns-domains": [ { "name": "example.lan.", "key-name": "kea-ddns" } ] }\n} }\n'
+    )
+    files = keasetup.unix_socket_files(conf, "d2", "3.2.1")
+    assert set(files) == {conf} and "<?include" in files[conf] and "// keys live apart" in files[conf]
+    conf.write_text(files[conf])
+    assert keasetup.unix_socket_files(conf, "d2", "3.2.1") == {}
+    config = keaconf.loads(conf.read_text(), str(conf))
+    entry = {"name": "pelagos-ddns", "algorithm": "HMAC-SHA256", "secret-file": "/etc/kea/pelagos-ddns.tsig"}
+    files = keasetup.edited_files(conf, keaconf.rename_key(config, "kea-ddns", entry))
+    assert "pelagos-ddns.tsig" in files[part] and files[part].startswith("// keys")
+    assert '"key-name": "pelagos-ddns"' in files[conf]
+
+
 def test_minimal_configs():
     c4 = keasetup.minimal_config("kea4", "3.2.1", Path("/hooks"), ["lease_cmds", "ha", "host_cmds"])
     body = c4["Dhcp4"]

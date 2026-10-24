@@ -19,6 +19,7 @@ from typing import Any
 from pelagos.core.keafile import (  # noqa: F401  (re-exported for the installer)
     KeaConfigError,
     has_include,
+    included_files,
     loads,
     strip_comments,
     strip_trailing_commas,

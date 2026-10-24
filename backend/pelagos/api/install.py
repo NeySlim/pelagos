@@ -25,7 +25,7 @@ class InstallPlan(Resource):
     @require("admin:install")
     @ns.expect(m.InstallBody)
     @ns.response(200, "Plan of scope install; apply returns a Job", m.Plan)
-    @ns.response(501, "not_implemented until WP-INSTALLER lands", m.Problem)
+    @ns.response(400, "validation_error", m.Problem)
     def post(self):
         return plan_answer(services().install.plan_install(json_body(), username()))
 
@@ -35,7 +35,7 @@ class ImportPlan(Resource):
     @require("admin:install")
     @ns.expect(m.InstallBody)
     @ns.response(200, "Plan of scope import", m.Plan)
-    @ns.response(501, "not_implemented until WP-INSTALLER lands", m.Problem)
+    @ns.response(400, "validation_error", m.Problem)
     def post(self):
         return plan_answer(services().install.plan_import(json_body(), username()))
 
@@ -44,7 +44,7 @@ class ImportPlan(Resource):
 class Security(Resource):
     @require("admin:install")
     @ns.response(200, "Security findings of the local configuration")
-    @ns.response(501, "not_implemented until WP-INSTALLER lands", m.Problem)
+    @ns.response(400, "validation_error", m.Problem)
     def get(self):
         return {"findings": services().install.security()}
 
@@ -54,6 +54,6 @@ class SecurityPlan(Resource):
     @require("admin:install")
     @ns.expect(m.FindingIds)
     @ns.response(200, "Plan of scope security", m.Plan)
-    @ns.response(501, "not_implemented until WP-INSTALLER lands", m.Problem)
+    @ns.response(400, "validation_error", m.Problem)
     def post(self):
         return plan_answer(services().install.plan_security(json_body(), username()))

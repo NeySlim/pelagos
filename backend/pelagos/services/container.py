@@ -49,7 +49,7 @@ class Services:
         self.admin = AdminService(ctx)
         self.account = AccountService(ctx)
         self.advanced = AdvancedService(ctx, self.dns)
-        self.install = InstallService(ctx, self.dns, self.dhcp4)
+        self.install = InstallService(ctx, self.dns, self.dhcp4, self.peers)
         self.last_login = LastLoginStore(
             ctx.paths.var / "last_login.json", ctx.paths.locks_dir / "last_login.lock"
         )

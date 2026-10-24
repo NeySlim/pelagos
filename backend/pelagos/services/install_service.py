@@ -1,49 +1,48 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Install, import and security audit as the API serves them; WP-INSTALLER provides the work.
+"""Install, import and security audit as the API serves them, over WP-INSTALLER's Python API.
 
-Plans of scope install, import and security apply as Jobs: the runner named
-in RUNNERS is looked up in the installer package at apply time, so this
-module works unchanged when WP-INSTALLER lands (contracts-changes.md).
+Plans of scope install, import and security apply as Jobs run by
+`services.installer_runner.InstallerRunner`, phase by phase across the nodes
+named in each change (the Kea shared key switch: BIND accepts the new key,
+then every D2 switches, then the old key goes).
 """
 
 from __future__ import annotations
 
-import importlib
 import threading
 from collections.abc import Callable
 from typing import Any
 
 from pelagos.core.context import NodeContext
-from pelagos.domain import Job, Plan, PlanScope
+from pelagos.domain import Job, Plan
 from pelagos.services.errors import ValidationError, field_error
+from pelagos.services.installer_runner import InstallerRunner, installer_env
 
 ENGINES = ("bind", "kea4", "kea6", "d2")
-# scope -> (module, function(plan, job, progress) -> Job)
-RUNNERS: dict[PlanScope, tuple[str, str]] = {
-    PlanScope.INSTALL: ("pelagos.installer.install", "run_install"),
-    PlanScope.IMPORT: ("pelagos.installer.importer", "run_import"),
-    PlanScope.SECURITY: ("pelagos.installer.security_audit", "run_remediation"),
-}
 
 
 class InstallService:
-    def __init__(self, ctx: NodeContext, dns: Any = None, dhcp4: Any = None) -> None:
+    def __init__(
+        self,
+        ctx: NodeContext,
+        dns: Any = None,
+        dhcp4: Any = None,
+        peers: Any = None,
+        env_factory: Callable[[], Any] | None = None,
+    ) -> None:
         self.ctx = ctx
         self.dns = dns
         self.dhcp4 = dhcp4
+        self.peers = peers
+        # Tests swap the factory for an InstallerEnv on a fake host.
+        self.env_factory = env_factory or (lambda: installer_env(ctx))
         self._findings: dict[str, Any] = {}
         self._lock = threading.Lock()
 
-    def _platform(self) -> tuple[Any, Any]:
-        from pelagos.platform import detect_distro, platform_paths
-
-        distro = detect_distro()
-        return distro, platform_paths(distro)
-
     def detect(self) -> dict[str, Any]:
-        from pelagos.installer.detect import detect_all
+        from pelagos.installer.detect import detect_env
 
-        return detect_all()
+        return detect_env(self.env_factory())
 
     def _engines(self, value: Any) -> list[str]:
         if not isinstance(value, list) or not value or any(e not in ENGINES for e in value):
@@ -54,7 +53,7 @@ class InstallService:
         return list(dict.fromkeys(value))
 
     def plan_install(self, body: dict[str, Any], created_by: str) -> Plan:
-        from pelagos.installer.install import plan_install
+        from pelagos.installer.install import build_install_plan
 
         engines = self._engines(body.get("engines"))
         source = body.get("source", "distro")
@@ -65,53 +64,53 @@ class InstallService:
             raise ValidationError(
                 "isc_series must be a string such as 3.2", [field_error("isc_series", "invalid")]
             )
-        distro, paths = self._platform()
-        plan = plan_install(distro, paths, engines, source, series, created_by, self.ctx.node.id)
+        try:
+            plan = build_install_plan(self.env_factory(), engines, source, series, created_by)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from None
         return self.ctx.plan_store.put(plan)
 
     def plan_import(self, body: dict[str, Any], created_by: str) -> Plan:
-        from pelagos.installer.importer import plan_import
+        from pelagos.installer.importer import build_import_plan
 
         engines = self._engines(body.get("engines"))
-        _distro, paths = self._platform()
-        return self.ctx.plan_store.put(plan_import(paths, engines, created_by, self.ctx.node.id))
+        try:
+            plan = build_import_plan(self.env_factory(), engines, created_by)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from None
+        return self.ctx.plan_store.put(plan)
 
     def security(self) -> list[dict[str, Any]]:
-        from pelagos.installer.env import InstallerEnv
         from pelagos.installer.security_audit import run_audit
 
-        env = InstallerEnv.detect(node_paths=self.ctx.paths, node_id=self.ctx.node.id)
-        findings = run_audit(env)
+        findings = run_audit(self.env_factory())
         with self._lock:
             self._findings = {f.id: f for f in findings}
         return [f.to_dict() for f in findings]
 
+    def d2_node_ids(self) -> list[str] | None:
+        """Every enrolled node that runs D2, for step 2 of the shared key switch; None when no node
+        declares D2, so the installer looks at this host's own configuration."""
+        nodes = [n.id for n in self.ctx.cluster().nodes if n.modules.d2]
+        return nodes or None
+
     def plan_security(self, body: dict[str, Any], created_by: str) -> Plan:
-        from pelagos.installer.security_audit import plan_remediation
+        from pelagos.installer.security_audit import build_security_plan
 
         ids = body.get("finding_ids")
         if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
             raise ValidationError(
                 "finding_ids must be a non-empty list", [field_error("finding_ids", "invalid")]
             )
-        if not self._findings:
-            self.security()
-        with self._lock:
-            known = dict(self._findings)
-        unknown = [i for i in ids if i not in known]
-        if unknown:
-            raise ValidationError(
-                f"unknown findings: {', '.join(unknown)}; run GET /install/security again",
-                [field_error("finding_ids", i) for i in unknown],
+        try:
+            plan = build_security_plan(
+                self.env_factory(), list(dict.fromkeys(ids)), created_by, self.d2_node_ids()
             )
-        nodes = [n.id for n in self.ctx.cluster().nodes]
-        plan = plan_remediation([known[i] for i in ids], created_by, nodes)
+        except ValueError as exc:
+            raise ValidationError(
+                f"{exc}; run GET /install/security again", [field_error("finding_ids", "invalid")]
+            ) from None
         return self.ctx.plan_store.put(plan)
 
-    @staticmethod
-    def runner(scope: PlanScope) -> Callable[[Plan, Job, Any], Any]:
-        module_name, func = RUNNERS[scope]
-        fn = getattr(importlib.import_module(module_name), func, None)
-        if fn is None:
-            raise NotImplementedError("WP-INSTALLER")
-        return fn
+    def runner(self, _scope: Any = None) -> Callable[[Plan, Job, Any], Any]:
+        return InstallerRunner(self.ctx, self.peers, self.env_factory)

@@ -15,6 +15,7 @@ from typing import Any
 from pelagos.connectors.base import DdnsBackend, DhcpBackend
 from pelagos.core.context import NodeContext
 from pelagos.domain import (
+    Change,
     ChangeOp,
     ClientClass,
     D2Stats,
@@ -25,12 +26,16 @@ from pelagos.domain import (
     OptionData,
     Peer,
     Plan,
+    PlanScope,
+    PlanState,
+    Precondition,
+    PreconditionKind,
     Reservation,
     SharedNetwork,
     Subnet,
 )
 from pelagos.services.dns_service import parse_change
-from pelagos.services.errors import EngineUnavailable, NotFound, ValidationError, field_error
+from pelagos.services.errors import EngineUnavailable, NotFound, ServiceError, ValidationError, field_error
 from pelagos.services.masking import masked
 from pelagos.services.peers import PeerGateway
 
@@ -375,6 +380,8 @@ class DhcpService:
     ) -> Plan:
         """kind: subnet, shared_network, reservation, class, options, ddns, hooks, config, lease_delete,
         ha_maintenance, service."""
+        if kind == "ha_maintenance":
+            return self.ctx.plan_store.put(self._plan_ha_maintenance(body, created_by))
         backend = self._local()
         if kind == "subnet":
             change = parse_change(body.get("change"), "change")
@@ -445,11 +452,6 @@ class DhcpService:
             plan = backend.plan_config_replace(config, created_by)
         elif kind == "lease_delete":
             plan = backend.plan_lease_delete(canonical_ip(str(body["ip"])), created_by)
-        elif kind == "ha_maintenance":
-            action = body.get("action")
-            if action not in ("start", "cancel"):
-                raise ValidationError("action must be start or cancel", [field_error("action", "invalid")])
-            plan = backend.plan_ha_maintenance(action, created_by)
         elif kind == "service":
             if not isinstance(body.get("enable"), bool):
                 raise ValidationError("enable must be a boolean", [field_error("enable", "boolean expected")])
@@ -457,7 +459,7 @@ class DhcpService:
         else:
             raise ValidationError(f"unknown plan kind {kind}")
         node_ids = body.get("node_ids")
-        if kind in ("ha_maintenance", "service", "lease_delete"):
+        if kind in ("service", "lease_delete"):
             # These act on one Kea only; node_id defaults to this node.
             target = body.get("node_id") or self.ctx.node.id
             if target != self.ctx.node.id:
@@ -471,6 +473,76 @@ class DhcpService:
         elif kind != "lease_delete":
             plan.target_node_ids = self._all_nodes()
         return self.ctx.plan_store.put(plan)
+
+    def _plan_ha_maintenance(self, body: dict[str, Any], created_by: str) -> Plan:
+        """`node_id` is the server that goes in-maintenance (start) or leaves it (cancel).
+
+        Kea semantics: ha-maintenance-start/cancel go to the server that stays up, which becomes
+        partner-in-maintenance while its partner goes in-maintenance and can be shut down. So the
+        plan is applied on the partner of `node_id`: this node when `node_id` is a peer, the peer
+        when `node_id` is this node. Without `node_id`, this node stays up (Kea's own reading)."""
+        action = body.get("action")
+        if action not in ("start", "cancel"):
+            raise ValidationError("action must be start or cancel", [field_error("action", "invalid")])
+        me = self.ctx.node.id
+        down = body.get("node_id")
+        names = {p.id: p.name for p in self.ctx.cluster().nodes}
+        names.setdefault(me, self.ctx.node.name)
+        if down is None or down != me:
+            if down is not None:
+                peer = self.peers.peer(down)
+                if peer is None:
+                    raise ValidationError(f"unknown node {down}", [field_error("node_id", down)])
+                if not getattr(peer.modules, self.engine.value):
+                    raise ValidationError(
+                        f"node {peer.name} does not run {self.engine.value}", [field_error("node_id", down)]
+                    )
+            plan = self._local().plan_ha_maintenance(action, created_by)
+            plan.target_node_ids = [me]
+            if down is not None:
+                plan.summary = _maintenance_label(action, names[down], names[me])
+            return plan
+        partners = self.peers.peers_running(self.engine)
+        if len(partners) != 1:
+            raise ValidationError(
+                "cannot tell which node is the HA partner of this node"
+                f" ({len(partners)} other nodes run {self.engine.value}); log in on the partner",
+                [field_error("node_id", "partner unknown")],
+            )
+        partner = partners[0]
+        snap = self.peers.snapshot(partner, self.engine)
+        ha = (snap or {}).get("ha") or {}
+        state = ha.get("state") if not (snap or {}).get("error") else None
+        if state is not None:
+            if action == "start" and state in ("in-maintenance", "partner-in-maintenance"):
+                raise ServiceError("conflict", f"HA maintenance already active ({partner.name} is {state})")
+            if action == "cancel" and state != "partner-in-maintenance":
+                raise ServiceError(
+                    "conflict", f"{names[me]} is not in maintenance ({partner.name} is {state})"
+                )
+        preconditions = (
+            [Precondition(PreconditionKind.HA_STATE, f"{self.engine.value}:ha", state, partner.id)]
+            if state is not None
+            else []
+        )
+        down_state, up_state = (
+            ("in-maintenance", "partner-in-maintenance") if action == "start" else ("normal", "normal")
+        )
+        return Plan(
+            scope=PlanScope.DHCP_HA,
+            node_id=me,
+            engine=self.engine,
+            summary=_maintenance_label(action, names[me], partner.name),
+            created_by=created_by,
+            changes=[
+                Change(ChangeOp.REPLACE, "ha/maintenance", before=state, after=action, node_ids=[partner.id])
+            ],
+            diff=f"-state: {state or 'unknown'}\n+{names[me]}: {down_state}\n+{partner.name}: {up_state}\n",
+            preconditions=preconditions,
+            target_node_ids=[partner.id],
+            requires_confirmation=True,
+            state=PlanState.VALIDATED,
+        )
 
     def _all_nodes(self) -> list[str]:
         """Kea configuration changes go to every node running this engine (both HA peers)."""
@@ -658,3 +730,12 @@ def _ip_key(value: str) -> tuple[int, int]:
         return addr.version, int(addr)
     except ValueError:
         return 9, 0
+
+
+def _maintenance_label(action: str, down: str, up: str) -> str:
+    if action == "start":
+        return (
+            f"HA maintenance start: {down} goes in-maintenance and can be shut down;"
+            f" {up} keeps serving (partner-in-maintenance)"
+        )
+    return f"HA maintenance cancel: {down} leaves maintenance and both servers return to normal ({up} drives)"

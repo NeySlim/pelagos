@@ -74,6 +74,8 @@ def run_local(
 
     env = env if env is not None else installer_env(ctx)
     for s in steps_for(plan, env):
+        if s.name.endswith("/preconditions") and not plan.preconditions:
+            continue  # later phases: the files were checked before the first one
         step(job, s.name, s.run, progress, weight=max(1, s.weight))
 
 

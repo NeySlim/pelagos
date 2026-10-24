@@ -4,5 +4,86 @@
       "title": "Tableau de bord",
       "subtitle": "HA, pools, synchro des zones, erreurs DDNS, incohérences et nœuds"
     }
+  },
+  "viewAll": "Ouvrir",
+  "layout": {
+    "edit": "Modifier la disposition",
+    "save": "Enregistrer la disposition",
+    "reset": "Disposition par défaut",
+    "saved": "Disposition enregistrée"
+  },
+  "tiles": {
+    "nodes": {
+      "title": "Nœuds",
+      "online": "{{online}}/{{total}} en ligne",
+      "self": "ce nœud",
+      "meta": "v{{version}} · config {{config}} · audit {{audit}}",
+      "empty": "Aucun nœud"
+    },
+    "ha": {
+      "title": "Haute disponibilité DHCP",
+      "server": "Serveur",
+      "state": "État",
+      "partner": "Partenaire",
+      "unsent": "Non envoyés",
+      "notInTouch": "sans contact",
+      "empty": "La HA n'est pas configurée"
+    },
+    "inconsistencies": {
+      "title": "Alertes et incohérences",
+      "open": "{{count}} ouvertes",
+      "none": "Rien d'ouvert"
+    },
+    "zones": {
+      "title": "Synchro des zones",
+      "summary": "{{divergent}} sur {{total}} divergentes",
+      "empty": "Aucune zone"
+    },
+    "pools": {
+      "title": "Occupation des pools",
+      "hot": "{{count}} au-dessus du seuil",
+      "empty": "Aucun pool"
+    },
+    "d2": {
+      "title": "Mises à jour DDNS",
+      "errors": "{{count}} erreurs",
+      "rate": "{{rate}} % d'erreurs",
+      "empty": "kea-dhcp-ddns ne tourne pas",
+      "counters": {
+        "update-success": "Réussies",
+        "update-error": "Erreurs",
+        "update-timeout": "Expirées",
+        "ncr-error": "Requêtes en erreur"
+      }
+    }
+  },
+  "kinds": {
+    "pool_near_full": "pool presque plein",
+    "pool_full": "pool plein",
+    "serial_divergence": "serials divergents",
+    "secondary_stale": "secondaire en retard",
+    "zone_error": "zone en erreur",
+    "ha_degraded": "HA dégradée",
+    "ha_partner_down": "partenaire HA tombé",
+    "ha_transition": "transition HA",
+    "d2_errors": "erreurs DDNS",
+    "daemon_down": "démon arrêté",
+    "peer_offline": "pair hors ligne",
+    "config_divergence": "configs divergentes",
+    "lease_without_record": "bail sans enregistrement",
+    "record_without_lease": "enregistrement sans bail",
+    "reservation_mismatch": "réservation incohérente",
+    "ptr_mismatch": "PTR incohérent",
+    "duplicate_ip": "IP en double",
+    "insecure_key": "clé faible",
+    "insecure_listener": "écoute non sûre"
+  },
+  "time": {
+    "justNow": "à l'instant",
+    "minutesAgo": "il y a {{count}} min",
+    "hoursAgo": "il y a {{count}} h",
+    "hoursMinutesAgo": "il y a {{hours}} h {{minutes}} min",
+    "daysAgo": "il y a {{count}} j",
+    "daysHoursAgo": "il y a {{days}} j {{hours}} h"
   }
 }

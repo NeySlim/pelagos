@@ -1,0 +1,25 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* react-grid-layout placeholder and resize handle in the theme tokens. */
+.dashboard-grid .react-grid-placeholder {
+  background: var(--accent-primary);
+  opacity: 0.15;
+  border-radius: 0.75rem;
+}
+
+.dashboard-grid .react-resizable-handle {
+  display: none;
+}
+
+.dashboard-grid.editing .react-resizable-handle {
+  display: block;
+}
+
+.dashboard-grid.editing .react-resizable-handle::after {
+  border-color: var(--text-tertiary);
+}
+
+.dashboard-grid.editing .react-grid-item > div {
+  outline: 1px dashed var(--border);
+  outline-offset: 2px;
+  border-radius: 0.75rem;
+}

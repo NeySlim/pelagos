@@ -4,5 +4,86 @@
       "title": "Dashboard",
       "subtitle": "HA, pools, zone sync, DDNS errors, inconsistencies and nodes"
     }
+  },
+  "viewAll": "Open",
+  "layout": {
+    "edit": "Edit layout",
+    "save": "Save layout",
+    "reset": "Default layout",
+    "saved": "Layout saved"
+  },
+  "tiles": {
+    "nodes": {
+      "title": "Nodes",
+      "online": "{{online}}/{{total}} online",
+      "self": "this node",
+      "meta": "v{{version}} · config {{config}} · audit {{audit}}",
+      "empty": "No node"
+    },
+    "ha": {
+      "title": "DHCP high availability",
+      "server": "Server",
+      "state": "State",
+      "partner": "Partner",
+      "unsent": "Unsent",
+      "notInTouch": "not in touch",
+      "empty": "HA is not configured"
+    },
+    "inconsistencies": {
+      "title": "Alerts and inconsistencies",
+      "open": "{{count}} open",
+      "none": "Nothing open"
+    },
+    "zones": {
+      "title": "Zone sync",
+      "summary": "{{divergent}} of {{total}} divergent",
+      "empty": "No zone"
+    },
+    "pools": {
+      "title": "Pool usage",
+      "hot": "{{count}} above threshold",
+      "empty": "No pool"
+    },
+    "d2": {
+      "title": "DDNS updates",
+      "errors": "{{count}} errors",
+      "rate": "{{rate}}% errors",
+      "empty": "kea-dhcp-ddns is not running",
+      "counters": {
+        "update-success": "Success",
+        "update-error": "Errors",
+        "update-timeout": "Timeouts",
+        "ncr-error": "Request errors"
+      }
+    }
+  },
+  "kinds": {
+    "pool_near_full": "pool near full",
+    "pool_full": "pool full",
+    "serial_divergence": "serial divergence",
+    "secondary_stale": "stale secondary",
+    "zone_error": "zone error",
+    "ha_degraded": "HA degraded",
+    "ha_partner_down": "HA partner down",
+    "ha_transition": "HA transition",
+    "d2_errors": "DDNS errors",
+    "daemon_down": "daemon down",
+    "peer_offline": "peer offline",
+    "config_divergence": "config divergence",
+    "lease_without_record": "lease without record",
+    "record_without_lease": "record without lease",
+    "reservation_mismatch": "reservation mismatch",
+    "ptr_mismatch": "PTR mismatch",
+    "duplicate_ip": "duplicate IP",
+    "insecure_key": "insecure key",
+    "insecure_listener": "insecure listener"
+  },
+  "time": {
+    "justNow": "just now",
+    "minutesAgo": "{{count}} min ago",
+    "hoursAgo": "{{count}} h ago",
+    "hoursMinutesAgo": "{{hours}} h {{minutes}} min ago",
+    "daysAgo": "{{count}} d ago",
+    "daysHoursAgo": "{{days}} d {{hours}} h ago"
   }
 }

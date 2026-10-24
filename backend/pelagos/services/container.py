@@ -45,8 +45,12 @@ class Services:
         self.alerts = AlertsService(ctx, self.cache, self.events)
         self.series = SeriesService(self.cache)
         self.dns = DnsService(ctx, self.registry.dns, self.peers)
-        self.dhcp4 = DhcpService(ctx, Family.V4, self.registry.kea4, self.peers, self.registry.d2)
-        self.dhcp6 = DhcpService(ctx, Family.V6, self.registry.kea6, self.peers, self.registry.d2)
+        self.dhcp4 = DhcpService(
+            ctx, Family.V4, self.registry.kea4, self.peers, self.registry.d2, self.alerts
+        )
+        self.dhcp6 = DhcpService(
+            ctx, Family.V6, self.registry.kea6, self.peers, self.registry.d2, self.alerts
+        )
         self.plans = PlanService(ctx, self.registry, self.peers, self.events)
         self.hosts = HostsService(ctx, self.dns, self.dhcp4, self.dhcp6, self.alerts, self.plans)
         self.dashboard = DashboardService(

@@ -213,6 +213,10 @@ class DhcpBackend(ABC):
     def plan_ha_maintenance(self, action: str, created_by: str = "") -> Plan: ...
     @abstractmethod
     def plan_service_toggle(self, enable: bool, created_by: str = "") -> Plan: ...
+    def plan_adopt(self, source: str, created_by: str = "") -> Plan:
+        """Section 9: "file" makes the daemon run its file, "running" makes the file say what runs."""
+        raise NotSupported("this backend cannot adopt its configuration file")
+
     @abstractmethod
     def apply(self, plan: Plan) -> NodeApplyResult: ...
     @abstractmethod
@@ -235,6 +239,9 @@ class DdnsBackend(ABC):
     def stats(self) -> D2Stats: ...
     @abstractmethod
     def plan_config_replace(self, config: dict[str, Any], created_by: str = "") -> Plan: ...
+    def plan_adopt(self, source: str, created_by: str = "") -> Plan:
+        raise NotSupported("this backend cannot adopt its configuration file")
+
     @abstractmethod
     def apply(self, plan: Plan) -> NodeApplyResult: ...
     @abstractmethod

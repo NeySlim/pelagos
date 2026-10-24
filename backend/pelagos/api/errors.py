@@ -21,6 +21,7 @@ STATUS_BY_CODE: dict[str, int] = {
     "module_disabled": 404,
     "method_not_allowed": 405,
     "conflict": 409,
+    "config_divergence": 409,
     "precondition_failed": 409,
     "plan_state": 409,
     "plan_expired": 410,
@@ -45,6 +46,7 @@ TITLES: dict[str, str] = {
     "module_disabled": "Module disabled",
     "method_not_allowed": "Method not allowed",
     "conflict": "Conflict",
+    "config_divergence": "Configuration file differs from the running configuration",
     "precondition_failed": "Precondition failed",
     "plan_state": "Plan is not in the expected state",
     "plan_expired": "Plan expired",
@@ -115,7 +117,9 @@ def translate(exc: BaseException) -> ApiError | None:
         return exc
     if isinstance(exc, ServiceError | PlanError):
         code = exc.code if exc.code in STATUS_BY_CODE else "internal_error"
-        return ApiError(code, exc.detail, errors=getattr(exc, "errors", None))
+        return ApiError(
+            code, exc.detail, errors=getattr(exc, "errors", None), extra=getattr(exc, "extra", None)
+        )
     if isinstance(exc, ValidationFailed):
         r = exc.result
         return ApiError(

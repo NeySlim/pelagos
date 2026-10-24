@@ -36,11 +36,19 @@ __all__ = [
 class ServiceError(Exception):
     """code is a section 19 error code; errors are the problem document's `errors` list."""
 
-    def __init__(self, code: str, detail: str, errors: list[dict[str, Any]] | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        detail: str,
+        errors: list[dict[str, Any]] | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(detail)
         self.code = code
         self.detail = detail
         self.errors = errors or []
+        # RFC 7807 extension members of the problem document.
+        self.extra = extra or {}
 
 
 class ValidationError(ServiceError):

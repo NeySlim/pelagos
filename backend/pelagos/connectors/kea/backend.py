@@ -314,6 +314,30 @@ class KeaBackend(DhcpBackend):
             cursor = page[-1].ip_address
         return out
 
+    def lease_page(
+        self,
+        subnet_id: int | None = None,
+        from_address: str | None = None,
+        limit: int = 500,
+        max_pages: int = 10,
+    ) -> tuple[list[Lease], str | None]:
+        """One bounded page: at most `max_pages` Kea pages are read; the cursor resumes after the last
+        lease looked at, None when the table is exhausted."""
+        out: list[Lease] = []
+        cursor = from_address or "start"
+        for _ in range(max(1, max_pages)):
+            want = LEASE_PAGE if subnet_id is not None else min(LEASE_PAGE, limit - len(out))
+            batch = self._leases(f"lease{self.n}-get-page", {"from": cursor, "limit": want})
+            for lease in batch:
+                if subnet_id is None or lease.subnet_id == subnet_id:
+                    out.append(lease)
+                    if len(out) >= limit:
+                        return out, lease.ip_address
+            if len(batch) < want:
+                return out, None
+            cursor = batch[-1].ip_address
+        return out, cursor
+
     def lease(self, ip_address: str) -> Lease | None:
         # lease6-get looks up IA_NA unless told otherwise; a delegated prefix needs type IA_PD.
         lookups = [{}] if self.family is Family.V4 else [{"type": "IA_NA"}, {"type": "IA_PD"}]

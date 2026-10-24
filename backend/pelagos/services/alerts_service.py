@@ -137,6 +137,16 @@ class AlertsService:
         out.setdefault("acked", 0)
         return out
 
+    def open_by_subject(self, kind: str, subject: str) -> list[Alert]:
+        """Open and acknowledged alerts of one kind and subject, every node (empty before the cache)."""
+        conn = self.cache.conn
+        if conn is None:
+            return []
+        rows = conn.execute(
+            "SELECT * FROM alerts WHERE state != 'resolved' AND kind = ? AND subject = ?", [kind, subject]
+        ).fetchall()
+        return [row_to_alert(r) for r in rows]
+
     def open_inconsistencies(self) -> list[Alert]:
         conn = self.cache.conn
         if conn is None:

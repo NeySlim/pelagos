@@ -319,6 +319,13 @@ HAList = items_of(HAState, "HAList")
 Utilization = items_of(fields.Raw, "Utilization")
 DhcpStats = model("DhcpStats", {"node_id": fields.String, "statistics": fields.Raw})
 DhcpConfig = model("DhcpConfig", {"node_id": fields.String, "hash": fields.String, "config": fields.Raw})
+AdoptBody = model(
+    "AdoptBody",
+    {
+        "source": fields.String(required=True, enum=["file", "running"]),
+        "node_id": fields.String(description="must be this node (default)"),
+    },
+)
 ConfigBody = model(
     "ConfigBody", {"config": fields.Raw(required=True), "node_ids": fields.List(fields.String)}
 )

@@ -6,7 +6,7 @@ from __future__ import annotations
 from flask_restx import Namespace, Resource
 
 from pelagos.api import models as m
-from pelagos.api.common import arg, int_arg, items, json_body, page_of, plan_answer, time_range
+from pelagos.api.common import arg, int_arg, items, json_body, page_of, paged, plan_answer, time_range
 from pelagos.api.errors import ApiError
 from pelagos.api.security import require, require_module, services, username
 from pelagos.domain import Family
@@ -85,9 +85,10 @@ class SubnetsPlan(FamilyResource):
 @ns.route("/<string:family>/shared-networks")
 class SharedNetworks(FamilyResource):
     @require("read:dhcp")
+    @ns.doc(params=NODE)
     @ns.response(200, "Shared networks", m.SharedNetworkList)
     def get(self, family: str):
-        return items(dhcp(family).shared_networks())
+        return items(dhcp(family).shared_networks(arg("node_id")))
 
 
 @ns.route("/<string:family>/shared-networks/plan")
@@ -102,9 +103,10 @@ class SharedNetworksPlan(FamilyResource):
 @ns.route("/<string:family>/client-classes")
 class ClientClasses(FamilyResource):
     @require("read:dhcp")
+    @ns.doc(params=NODE)
     @ns.response(200, "Client classes", m.ClientClassList)
     def get(self, family: str):
-        return items(dhcp(family).client_classes())
+        return items(dhcp(family).client_classes(arg("node_id")))
 
 
 @ns.route("/<string:family>/client-classes/plan")
@@ -119,9 +121,10 @@ class ClientClassesPlan(FamilyResource):
 @ns.route("/<string:family>/options")
 class Options(FamilyResource):
     @require("read:dhcp")
+    @ns.doc(params=NODE)
     @ns.response(200, "Global option-data and option definitions", m.OptionList)
     def get(self, family: str):
-        options, defs = dhcp(family).options()
+        options, defs = dhcp(family).options(arg("node_id"))
         return items(options, option_defs=defs)
 
 
@@ -158,16 +161,22 @@ class Leases(FamilyResource):
     @ns.doc(
         params={
             **NODE,
-            **PAGE,
+            "from_address": "cursor: meta.next of the previous page (default: the first lease)",
+            "limit": "leases per page, default 100, max 1000",
             "subnet_id": "subnet id",
-            "q": "ip, mac, hostname or client id",
+            "q": "IP address, MAC address, DUID or exact hostname (Kea lookups, no paging)",
             "state": "default, declined, expired-reclaimed, released, registered",
         }
     )
-    @ns.response(200, "Leases; meta.node_id is the node read", m.LeasePage)
+    @ns.response(200, "Leases; meta.node_id is the node read, meta.next the next cursor", m.LeasePage)
     def get(self, family: str):
-        rows, node_id = dhcp(family).leases(int_arg("subnet_id"), arg("q"), arg("state"), arg("node_id"))
-        return page_of(rows, {"node_id": node_id})
+        limit = int_arg("limit") or 100
+        if limit < 1 or limit > 1000:
+            raise ApiError("validation_error", "limit must be between 1 and 1000")
+        rows, node_id, cursor = dhcp(family).lease_page(
+            int_arg("subnet_id"), arg("q"), arg("state"), arg("node_id"), arg("from_address"), limit
+        )
+        return paged(rows, 1, limit, len(rows), {"node_id": node_id, "next": cursor, "limit": limit})
 
 
 @ns.route("/<string:family>/leases/<string:ip>")
@@ -297,6 +306,40 @@ class ConfigPlan(FamilyResource):
     @ns.response(200, "Plan replacing the whole Dhcp4/Dhcp6 object", m.Plan)
     def post(self, family: str):
         return _plan(family, "config")
+
+
+@ns.route("/<string:family>/config/file")
+class ConfigFile(FamilyResource):
+    @require("read:dhcp")
+    @ns.response(200, "Per node: does the configuration file agree with config-get (section 9)", m.RawList)
+    def get(self, family: str):
+        return {"items": dhcp(family).file_status()}
+
+
+@ns.route("/<string:family>/config/adopt/plan")
+class ConfigAdoptPlan(FamilyResource):
+    @require("write:dhcp.config")
+    @ns.expect(m.AdoptBody)
+    @ns.response(200, "Plan: adopt the file (config-set) or the running configuration (file rewrite)", m.Plan)
+    def post(self, family: str):
+        return plan_answer(dhcp(family).plan_adopt(json_body(), username()))
+
+
+@ns.route("/d2/config/file")
+class D2ConfigFile(Resource):
+    @require("read:dhcp")
+    @ns.response(200, "Per node: does the D2 configuration file agree with config-get", m.RawList)
+    def get(self):
+        return {"items": services().dhcp4.d2_file_status()}
+
+
+@ns.route("/d2/config/adopt/plan")
+class D2ConfigAdoptPlan(Resource):
+    @require("write:dhcp.config")
+    @ns.expect(m.AdoptBody)
+    @ns.response(200, "Plan: adopt the D2 file or the running D2 configuration", m.Plan)
+    def post(self):
+        return plan_answer(services().dhcp4.plan_d2_adopt(json_body(), username()))
 
 
 @ns.route("/d2/servers")

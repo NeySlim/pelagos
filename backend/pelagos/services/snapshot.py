@@ -16,9 +16,35 @@ from pelagos.services.registry import ConnectorRegistry
 
 SNAPSHOT_KINDS = {
     Engine.BIND: ("summary", "zone", "records", "stats", "config", "tree", "op"),
-    Engine.KEA4: ("summary", "subnets", "leases", "lease", "reservations", "stats", "config", "schema", "op"),
-    Engine.KEA6: ("summary", "subnets", "leases", "lease", "reservations", "stats", "config", "schema", "op"),
-    Engine.D2: ("summary", "stats", "config", "schema", "op"),
+    Engine.KEA4: (
+        "summary",
+        "subnets",
+        "leases",
+        "lease",
+        "leases_by",
+        "lease_page",
+        "reservations",
+        "stats",
+        "config",
+        "schema",
+        "file",
+        "op",
+    ),
+    Engine.KEA6: (
+        "summary",
+        "subnets",
+        "leases",
+        "lease",
+        "leases_by",
+        "lease_page",
+        "reservations",
+        "stats",
+        "config",
+        "schema",
+        "file",
+        "op",
+    ),
+    Engine.D2: ("summary", "stats", "config", "schema", "file", "op"),
 }
 
 
@@ -43,7 +69,7 @@ def engine_snapshot(
         elif isinstance(backend, DhcpBackend):
             out.update(_kea(backend, kind, params))
         elif isinstance(backend, DdnsBackend):
-            out.update(_d2(backend, kind))
+            out.update(_file(backend, engine) if kind == "file" else _d2(backend, kind))
     except Exception as exc:  # the peer answers; the caller decides what a failed read means
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
@@ -113,6 +139,21 @@ def _kea(backend: DhcpBackend, kind: str, params: dict[str, Any]) -> dict[str, A
     if kind == "lease":
         lease = backend.lease(str(params.get("ip", "")))
         return {"lease": lease.to_dict() if lease else None}
+    if kind == "leases_by":
+        return {"leases": [lease.to_dict() for lease in lease_lookup(backend, str(params.get("q", "")))]}
+    if kind == "lease_page":
+        from pelagos.services.lease_query import page
+
+        subnet_id = params.get("subnet_id")
+        rows, cursor = page(
+            backend,
+            int(subnet_id) if subnet_id is not None else None,
+            params.get("from_address"),
+            int(params.get("limit", 100)),
+        )
+        return {"leases": [lease.to_dict() for lease in rows], "next": cursor}
+    if kind == "file":
+        return _file(backend, backend.family.kea_engine)
     if kind == "reservations":
         subnet_id = params.get("subnet_id")
         rows = backend.list_reservations(int(subnet_id) if subnet_id is not None else None)
@@ -122,6 +163,20 @@ def _kea(backend: DhcpBackend, kind: str, params: dict[str, Any]) -> dict[str, A
     if kind == "schema":
         return {"schema": backend.config_schema()}  # type: ignore[attr-defined]
     return {"config": backend.config_get(), "config_hash": backend.config_hash()}
+
+
+def _file(backend: Any, engine: Engine) -> dict[str, Any]:
+    from pelagos.services import kea_files
+
+    items = kea_files.status(None, engine, backend.ctx.node_id, backend)
+    return {"file": items[0] if items else None}
+
+
+def lease_lookup(backend: DhcpBackend, q: str) -> list[Any]:
+    """Leases for one search term through Kea's own lookups: address, hardware address, DUID or name."""
+    from pelagos.services.lease_query import lookup
+
+    return lookup(backend, q)
 
 
 def _d2(backend: DdnsBackend, kind: str) -> dict[str, Any]:

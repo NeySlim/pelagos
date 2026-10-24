@@ -1,0 +1,200 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Motion primitives (components/motion). Only transform and opacity are animated.
+   data-motion on <html> (MotionContext) gates them: loops run at "full" only and pause
+   on a hidden page; "reduced" keeps short fades; "off" removes every animation. */
+
+.fx-tone-primary { --fx-c: var(--accent-primary); }
+.fx-tone-pro { --fx-c: var(--accent-pro); }
+.fx-tone-success { --fx-c: var(--accent-success); }
+.fx-tone-warning { --fx-c: var(--accent-warning); }
+.fx-tone-danger { --fx-c: var(--accent-danger); }
+.fx-tone-neutral { --fx-c: var(--text-tertiary); }
+
+/* ---- CountUp: the ghost holds the final width, the live value sits on top ---- */
+.fx-count { display: inline-grid; font-variant-numeric: tabular-nums; }
+.fx-count > .fx-count-ghost,
+.fx-count > .fx-count-live { grid-area: 1 / 1; }
+.fx-count > .fx-count-ghost { visibility: hidden; }
+
+/* ---- Status dot ---- */
+.fx-dot {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+  width: var(--fx-dot, 6px);
+  height: var(--fx-dot, 6px);
+  border-radius: 9999px;
+  background: var(--fx-c, var(--accent-success));
+  box-shadow: 0 0 6px color-mix(in srgb, var(--fx-c, var(--accent-success)) 70%, transparent);
+}
+.fx-dot-pulse::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  animation: fx-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* ---- Pulsing halo ---- */
+.fx-halo {
+  position: relative;
+  display: inline-block;
+  width: var(--fx-halo, 40px);
+  height: var(--fx-halo, 40px);
+}
+.fx-halo-flat { height: calc(var(--fx-halo, 40px) * 0.38); }
+.fx-halo-core,
+.fx-halo-ring {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  border-radius: 50%;
+}
+.fx-halo-core {
+  width: 30%;
+  height: 30%;
+  background: var(--fx-c);
+  box-shadow: 0 0 10px 2px color-mix(in srgb, var(--fx-c) 70%, transparent);
+}
+.fx-halo-ring {
+  border: 1.5px solid var(--fx-c);
+  background: color-mix(in srgb, var(--fx-c) 14%, transparent);
+  opacity: 0;
+  animation: fx-halo 3.2s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+html[data-motion='reduced'] .fx-halo-ring,
+html[data-motion='off'] .fx-halo-ring { opacity: 0.45; transform: scale(0.75); }
+
+/* ---- Flowing dashed line ---- */
+.fx-flow { position: relative; display: block; overflow: hidden; color: var(--fx-c); }
+.fx-flow-strip { position: absolute; display: block; }
+.fx-flow-h .fx-flow-strip {
+  inset: 0 auto 0 -16px;
+  width: calc(100% + 32px);
+  background: repeating-linear-gradient(90deg, currentColor 0 6px, transparent 6px 16px);
+  animation: fx-flow-x 0.9s linear infinite;
+}
+.fx-flow-v .fx-flow-strip {
+  inset: -16px 0 auto 0;
+  height: calc(100% + 32px);
+  background: repeating-linear-gradient(180deg, currentColor 0 6px, transparent 6px 16px);
+  animation: fx-flow-y 0.9s linear infinite;
+}
+.fx-flow-reverse .fx-flow-strip { animation-direction: reverse; }
+
+/* ---- Corner-bracket reticle ---- */
+.fx-reticle { position: relative; }
+.fx-reticle-corners,
+.fx-reticle-corners::before,
+.fx-reticle-corners::after { pointer-events: none; }
+.fx-reticle-corners {
+  position: absolute;
+  inset: 0;
+  --s: var(--fx-reticle, 10px);
+  --w: 1.5px;
+  background:
+    linear-gradient(var(--fx-c), var(--fx-c)) top left / var(--s) var(--w),
+    linear-gradient(var(--fx-c), var(--fx-c)) top left / var(--w) var(--s),
+    linear-gradient(var(--fx-c), var(--fx-c)) top right / var(--s) var(--w),
+    linear-gradient(var(--fx-c), var(--fx-c)) top right / var(--w) var(--s),
+    linear-gradient(var(--fx-c), var(--fx-c)) bottom left / var(--s) var(--w),
+    linear-gradient(var(--fx-c), var(--fx-c)) bottom left / var(--w) var(--s),
+    linear-gradient(var(--fx-c), var(--fx-c)) bottom right / var(--s) var(--w),
+    linear-gradient(var(--fx-c), var(--fx-c)) bottom right / var(--w) var(--s);
+  background-repeat: no-repeat;
+  opacity: 0.9;
+}
+
+/* ---- Radar disc ---- */
+.fx-radar {
+  position: relative;
+  width: var(--fx-radar, 280px);
+  max-width: 100%;
+  aspect-ratio: 1 / 0.62;
+  perspective: 900px;
+}
+.fx-radar-plane {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  aspect-ratio: 1;
+  transform: translateY(-50%) rotateX(var(--fx-tilt, 62deg));
+}
+.fx-radar-disc,
+.fx-radar-sweep,
+.fx-radar-ticks,
+.fx-radar-rings { position: absolute; inset: 0; border-radius: 50%; }
+.fx-radar-disc {
+  inset: 6%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--fx-c) 28%, transparent) 0%, color-mix(in srgb, var(--fx-c) 8%, transparent) 55%, transparent 72%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fx-c) 30%, transparent);
+}
+.fx-radar-sweep {
+  inset: 6%;
+  background: conic-gradient(from 0deg, transparent 0deg, transparent 300deg, color-mix(in srgb, var(--fx-c) 45%, transparent) 360deg);
+  animation: fx-spin 5s linear infinite;
+}
+.fx-radar-rings { width: 100%; height: 100%; fill: none; stroke: color-mix(in srgb, var(--fx-c) 35%, transparent); stroke-width: 0.3; stroke-dasharray: 1 1.5; }
+.fx-radar-ticks { animation: fx-spin 60s linear infinite; }
+.fx-radar-ticks svg { width: 100%; height: 100%; }
+.fx-radar-ticks path { stroke: color-mix(in srgb, var(--text-primary) 55%, transparent); stroke-width: 0.35; fill: none; }
+.fx-radar-content { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+
+/* ---- Charts ---- */
+.fx-histogram .fx-bar {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transition: transform 0.6s var(--ease-out, ease-out);
+}
+.fx-segment { display: block; min-width: 4px; transform-origin: left center; }
+.fx-segment-done { background: var(--accent-success); box-shadow: 0 0 6px color-mix(in srgb, var(--accent-success) 50%, transparent); }
+.fx-segment-current { background: var(--accent-primary); box-shadow: 0 0 6px color-mix(in srgb, var(--accent-primary) 55%, transparent); }
+.fx-segment-next { background: color-mix(in srgb, var(--text-tertiary) 35%, transparent); }
+
+/* ---- Entry animations ---- */
+.fx-enter-fade { animation: fx-fade 0.5s var(--ease-out, ease-out) backwards; }
+.fx-stagger > * {
+  animation: fx-rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  animation-delay: calc(var(--fx-i, 0) * var(--fx-step, 45ms));
+}
+.fx-page { animation: fx-rise-page 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) backwards; }
+
+/* ---- Atmospheric backdrop (styled per family in mission.css) ---- */
+.fx-backdrop { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.fx-backdrop > * { position: absolute; inset: 0; }
+.fx-backdrop-contours { width: 100%; height: 100%; fill: none; }
+
+@keyframes fx-ping { 0% { transform: scale(1); opacity: 0.7; } 80%, 100% { transform: scale(2.6); opacity: 0; } }
+@keyframes fx-halo { 0% { transform: scale(0.35); opacity: 0.9; } 100% { transform: scale(1); opacity: 0; } }
+@keyframes fx-flow-x { from { transform: translateX(0); } to { transform: translateX(16px); } }
+@keyframes fx-flow-y { from { transform: translateY(0); } to { transform: translateY(16px); } }
+@keyframes fx-spin { to { transform: rotate(360deg); } }
+@keyframes fx-fade { from { opacity: 0; } }
+@keyframes fx-rise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes fx-rise-page { from { opacity: 0; transform: translateY(6px); } }
+
+/* ---- Motion levels ---- */
+html[data-page-hidden] .fx-loop,
+html[data-page-hidden] .fx-dot-pulse::after { animation-play-state: paused; }
+
+html[data-motion='reduced'] .fx-loop,
+html[data-motion='reduced'] .fx-dot-pulse::after { animation: none; }
+html[data-motion='reduced'] .fx-stagger > *,
+html[data-motion='reduced'] .fx-page { animation-name: fx-fade; animation-duration: 0.18s; animation-delay: 0s; }
+html[data-motion='reduced'] .fx-histogram .fx-bar { transition: none; }
+
+html[data-motion='off'] *,
+html[data-motion='off'] *::before,
+html[data-motion='off'] *::after {
+  animation: none !important;
+  transition: none !important;
+}
+/* A spinner is feedback, not decoration: it keeps turning at every level. */
+html[data-motion='off'] .animate-spin { animation: spin 1s linear infinite !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-loop,
+  .fx-dot-pulse::after { animation: none !important; }
+}

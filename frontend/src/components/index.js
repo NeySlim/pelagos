@@ -53,3 +53,9 @@ export { DiffView, parseUnifiedDiff } from './DiffView'
 export { PlanPreview, PlanPreviewModal } from './PlanPreview'
 export { FloatingDetailWindow, DetailWindowLayer, registerDetailRenderer, getDetailRenderer, useOpenDetail } from './FloatingDetailWindow'
 // Charts are loaded by the pages that need them: import from './DashboardChart'
+
+// Motion and Mission effects primitives
+export {
+  CountUp, useCountUp, StatusDot, PulsingHalo, FlowLine, Reticle, RadarRing,
+  MiniHistogram, StippledAreaChart, SegmentedProgress, Stagger, PageTransition, StatChip, IconButton, AppBackdrop,
+} from './motion'

@@ -3,7 +3,7 @@
 // each one is gated by the session, its permission and its module flag.
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Suspense } from 'react'
-import { AuthProvider, ThemeProvider, NotificationProvider, MobileProvider, WindowManagerProvider, useAuth } from './contexts'
+import { AuthProvider, ThemeProvider, NotificationProvider, MobileProvider, WindowManagerProvider, MotionProvider, useAuth } from './contexts'
 import { WebSocketProvider } from './hooks/useWebSocket'
 import { AppShell } from './components/AppShell'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -64,20 +64,22 @@ export default function App({ wsClient }) {
   return (
     <ErrorBoundary>
       <ThemeProvider>
-        <BrowserRouter>
-          <AuthProvider>
-            <NotificationProvider>
-              <WebSocketProvider client={wsClient}>
-                <MobileProvider>
-                  <WindowManagerProvider>
-                    <AppRoutes />
-                    <DetailWindowLayer />
-                  </WindowManagerProvider>
-                </MobileProvider>
-              </WebSocketProvider>
-            </NotificationProvider>
-          </AuthProvider>
-        </BrowserRouter>
+        <MotionProvider>
+          <BrowserRouter>
+            <AuthProvider>
+              <NotificationProvider>
+                <WebSocketProvider client={wsClient}>
+                  <MobileProvider>
+                    <WindowManagerProvider>
+                      <AppRoutes />
+                      <DetailWindowLayer />
+                    </WindowManagerProvider>
+                  </MobileProvider>
+                </WebSocketProvider>
+              </NotificationProvider>
+            </AuthProvider>
+          </BrowserRouter>
+        </MotionProvider>
       </ThemeProvider>
     </ErrorBoundary>
   )

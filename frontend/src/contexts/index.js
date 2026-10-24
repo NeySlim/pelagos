@@ -4,3 +4,4 @@ export { ThemeProvider, useTheme, themeFamilies, DEFAULT_FAMILY } from './ThemeC
 export { NotificationProvider, useNotification } from './NotificationContext'
 export { MobileProvider, useMobile } from './MobileContext'
 export { WindowManagerProvider, useWindowManager } from './WindowManagerContext'
+export { MotionProvider, useMotion } from './MotionContext'

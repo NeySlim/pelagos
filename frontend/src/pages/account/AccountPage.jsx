@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Account: profile, password change, TOTP enrollment (QR code of the otpauth URL,
 // manual secret, confirmation code) or removal, and preferences (theme family,
-// mode, language) saved to the server through the preferences store.
+// mode, language, animations) saved to the server through the preferences store.
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { UserCircle, Key, ShieldCheck, Palette } from '@phosphor-icons/react'
 import { PageLayout, Card, Button, Badge, Input, Select } from '../../components'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTheme } from '../../contexts/ThemeContext'
+import { useMotion } from '../../contexts/MotionContext'
 import { useNotification } from '../../contexts/NotificationContext'
 import { languages } from '../../i18n'
 import { persistPreference } from '../../stores/preferencesStore'
@@ -169,6 +170,7 @@ function TotpSection() {
 function PreferencesSection() {
   const { t, i18n } = useTranslation(['account', 'common'])
   const { themeFamily, setThemeFamily, mode, setMode, themes } = useTheme()
+  const { animations, setAnimations, levels } = useMotion()
   const language = i18n.language?.split('-')[0] || 'en'
   const changeLanguage = (code) => {
     i18n.changeLanguage(code)
@@ -177,11 +179,20 @@ function PreferencesSection() {
   return (
     <Section icon={Palette} title={t('preferences.title')} testId="account-preferences">
       <p className="text-xs text-text-secondary">{t('preferences.help')}</p>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-3xl">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 max-w-4xl">
         <Select label={t('common:theme.family')} options={themes.map((th) => ({ value: th.id, label: th.name }))} value={themeFamily} onChange={setThemeFamily} />
         <Select label={t('common:theme.mode')} options={['system', 'dark', 'light'].map((m) => ({ value: m, label: t(`common:theme.${m}`) }))} value={mode} onChange={setMode} />
         <Select label={t('common:language.label')} options={languages.map((l) => ({ value: l.code, label: l.name }))} value={language} onChange={changeLanguage} />
+        <div data-testid="pref-animations">
+          <Select
+            label={t('common:theme.animations')}
+            options={levels.map((l) => ({ value: l, label: t(`common:theme.animationLevels.${l}`) }))}
+            value={animations}
+            onChange={setAnimations}
+          />
+        </div>
       </div>
+      <p className="text-xs text-text-tertiary">{t('preferences.animationsHelp')}</p>
       <div className="flex flex-wrap gap-2" data-testid="theme-swatches">
         {themes.map((th) => (
           <button

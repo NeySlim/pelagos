@@ -30,7 +30,14 @@ All additive; `docs/architecture.md` sections 5, 6, 7, 9, 17 and 19 updated.
   `<?include?>` the connectors patch the files instead of `config-write`. Rollback of a Kea
   plan is refused when `config-hash-get` moved since it was applied there.
 - Global key changes drop the inherited copies of the old value from shared networks and
-  subnets (config-get materializes them, which froze those objects on the old value).
+  subnets (config-get materializes them, which froze those objects on the old value). A value
+  the readable configuration file sets on the object itself stays (objects as config-write
+  prints them, with an empty `relay`, tell nothing and follow the old rule).
+- An included file Pelagos cannot read blocks Kea writes (`cannot read included file`) and
+  keeps a `<engine>:config-file` alert open; only an unreadable top-level file is left to Kea.
+- Secrets `config-get` masks never reach the files: persist and adopt running take the clear
+  value from the plan's values or from the file (matched by key and owner name), otherwise
+  they refuse. Host plans built on a node without BIND pin the primary's SOA serial too.
 - API (section 17): `GET /dhcp/{family}/config/file`, `POST /dhcp/{family}/config/adopt/plan`,
   `GET /dhcp/d2/config/file`, `POST /dhcp/d2/config/adopt/plan`; leases are cursor pages
   (`from_address`, `limit`, `meta.next`; `q` uses Kea lookups); `node_id` on shared networks,
@@ -45,7 +52,10 @@ All additive; `docs/architecture.md` sections 5, 6, 7, 9, 17 and 19 updated.
   `<engine>:config-file` alert; one `config-get` per Kea poll.
 - Installer: Kea file rewrites (socket, D2 secret files, key switch) go through the editor and
   follow includes; included files get the Kea group mode; SELinux CIL module where Kea is
-  confined (none on RHEL/Rocky 10, where Kea runs unconfined; verified on lab-rpm).
+  confined (none on RHEL/Rocky 10, where Kea runs unconfined; verified on Rocky 10 with
+  SELinux enforcing). The module covers the Kea-specific types (`dhcp*_t`, `kea_*_t`) of the
+  file and its includes; a file in a generic type (`etc_t`, `usr_t`...) is refused with the
+  `semanage fcontext` relabel to run instead.
 - Frontend: `api.dhcp.configFile/adoptPlan`, `api.d2.configFile/adoptPlan`, `configPlan`
   takes the loaded `node_id`; DHCP pages show the divergence banner; the alert detail
   offers both adopt plans; the lease list follows the cursor.

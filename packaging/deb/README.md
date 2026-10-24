@@ -41,10 +41,12 @@ The package depends on the exact `python3.X` the venv was built with.
 
 - `ExecStartPre=+/opt/pelagos/bin/pelagos-prestart` (root) gives
   `/etc/pelagos` and `/var/lib/pelagos` back to `pelagos` (init may run as
-  root) and creates a self-signed certificate in `/etc/pelagos/tls/` when
+  root; symbolic links are never followed and `pelagos.env` stays root's) and creates a self-signed certificate in `/etc/pelagos/tls/` when
   none exists.
 - `/usr/bin/pelagos` runs the CLI from the venv with `/etc/pelagos/pelagos.env`
-  (a conffile).
+  (a conffile, `root:root 0644`). The file is parsed as `KEY=value` lines like
+  a systemd `EnvironmentFile`, never sourced, and refused when root does not
+  own it or another user can write it.
 - BIND and Kea are only suggested: install them from the distribution or
   with `pelagos install`. Group membership is added for engines installed
   before Pelagos; the installer handles the other order.

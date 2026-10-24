@@ -1,12 +1,38 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
 # /usr/bin/pelagos: run the CLI from the packaged venv with the unit's environment file.
+# The CLI often runs as root: the file is parsed like a systemd EnvironmentFile (KEY=value
+# lines), never executed, and refused unless root owns it and only root can write it.
 set -eu
 env_file="${PELAGOS_ENV_FILE:-/etc/pelagos/pelagos.env}"
 if [ -r "$env_file" ]; then
-  set -a
-  # shellcheck disable=SC1090
-  . "$env_file"
-  set +a
+  if [ -L "$env_file" ]; then
+    echo "pelagos: refusing $env_file: symbolic link" >&2
+    exit 1
+  fi
+  owner_mode="$(stat -c '%u %a' "$env_file")"
+  case "$owner_mode" in
+    "0 "*[0-7][0145][0145]) ;;
+    *)
+      echo "pelagos: refusing $env_file: must be owned by root and not group or world writable" >&2
+      exit 1
+      ;;
+  esac
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      [A-Za-z_]*=*) ;;
+      *) continue ;;
+    esac
+    key="${line%%=*}"
+    case "$key" in
+      *[!A-Za-z0-9_]*) continue ;;
+    esac
+    value="${line#*=}"
+    case "$value" in
+      \"*\") value="${value#\"}"; value="${value%\"}" ;;
+      \'*\') value="${value#\'}"; value="${value%\'}" ;;
+    esac
+    export "$key=$value"
+  done <"$env_file"
 fi
 exec /opt/pelagos/venv/bin/pelagos "$@"

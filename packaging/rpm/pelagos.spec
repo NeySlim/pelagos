@@ -68,7 +68,7 @@ from the distribution, from the ISC Cloudsmith repositories (Kea 3.x), or let
 PELAGOS_PYTHON=%{pelagos_python} packaging/build-tree.sh %{buildroot} "$PWD"
 install -D -m 0644 packaging/systemd/pelagos.service %{buildroot}%{_unitdir}/pelagos.service
 install -D -m 0644 packaging/systemd/pelagos-collector.service %{buildroot}%{_unitdir}/pelagos-collector.service
-install -D -m 0640 packaging/pelagos.env %{buildroot}%{_sysconfdir}/pelagos/pelagos.env
+install -D -m 0644 packaging/pelagos.env %{buildroot}%{_sysconfdir}/pelagos/pelagos.env
 install -D -m 0755 packaging/bin/pelagos %{buildroot}%{_bindir}/pelagos
 # Enabled like the deb; the units only start once node.toml exists (ConditionPathExists).
 install -D -m 0644 packaging/systemd/80-pelagos.preset %{buildroot}%{_presetdir}/80-pelagos.preset
@@ -102,11 +102,6 @@ fi
 
 %postun
 %systemd_postun_with_restart pelagos.service pelagos-collector.service
-if [ $1 -eq 0 ]; then
-  # Configuration and state stay on upgrade; the user is removed with the last erase.
-  userdel %{pelagos_user} >/dev/null 2>&1 || :
-  groupdel %{pelagos_user} >/dev/null 2>&1 || :
-fi
 
 %files
 %license LICENSE
@@ -118,7 +113,7 @@ fi
 %{_presetdir}/80-pelagos.preset
 %dir %attr(0750,%{pelagos_user},%{pelagos_user}) %{_sysconfdir}/pelagos
 %dir %attr(0750,%{pelagos_user},%{pelagos_user}) %{_sysconfdir}/pelagos/tls
-%config(noreplace) %attr(0640,%{pelagos_user},%{pelagos_user}) %{_sysconfdir}/pelagos/pelagos.env
+%config(noreplace) %attr(0644,root,root) %{_sysconfdir}/pelagos/pelagos.env
 %dir %attr(0750,%{pelagos_user},%{pelagos_user}) %{_sharedstatedir}/pelagos
 %dir %attr(0750,%{pelagos_user},%{pelagos_user}) %{_sharedstatedir}/pelagos/audit
 %dir %attr(0750,%{pelagos_user},%{pelagos_user}) %{_sharedstatedir}/pelagos/pki

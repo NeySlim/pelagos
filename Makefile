@@ -11,7 +11,12 @@ PYTEST    := $(VENV)/bin/pytest
 RUFF      := $(VENV)/bin/ruff
 export PATH := /usr/sbin:/usr/local/sbin:$(PATH)
 
+VERSION   := $(shell packaging/version.sh python)
+IMAGE     ?= pelagos
+DOCKER    ?= docker
+
 .PHONY: dev venv npm lint fmt test test-daemon test-lab build-frontend run run-backend run-frontend clean
+.PHONY: deb rpm docker docker-allinone packages version
 
 dev: venv npm
 
@@ -56,5 +61,25 @@ run:
 	$(MAKE) -j2 run-backend run-frontend
 
 clean:
-	rm -rf $(VENV) $(BACKEND)/.pytest_cache $(BACKEND)/.ruff_cache $(FRONTEND)/dist
+	rm -rf $(VENV) $(BACKEND)/.pytest_cache $(BACKEND)/.ruff_cache $(FRONTEND)/dist build
 	find $(BACKEND) -name __pycache__ -type d -prune -exec rm -rf {} +
+
+# Packaging (WP-PACKAGING). Each target takes frontend/dist when it exists and ships the
+# API-only notice page otherwise: run build-frontend first for a package with the UI.
+version:
+	@echo "python $(VERSION)  deb/rpm $(shell packaging/version.sh deb)  docker $(shell packaging/version.sh docker)"
+
+deb:
+	packaging/deb/build.sh build/deb
+
+rpm:
+	packaging/rpm/build.sh build/rpm
+
+docker:
+	$(DOCKER) build -f docker/Dockerfile -t $(IMAGE):$(shell packaging/version.sh docker) -t $(IMAGE):latest .
+
+docker-allinone:
+	$(DOCKER) build -f docker/allinone/Dockerfile --build-arg KEA_SOURCE=$(or $(KEA_SOURCE),isc) \
+		-t $(IMAGE)-allinone:$(shell packaging/version.sh docker) -t $(IMAGE)-allinone:latest .
+
+packages: deb rpm docker docker-allinone

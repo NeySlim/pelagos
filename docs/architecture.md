@@ -77,6 +77,7 @@ pelagos/
   __init__.py          __version__
   cli.py               `pelagos` entry point: serve, collector, version, install, import, audit, enroll
   app.py               Flask app factory create_app(config) and gunicorn entry
+  gunicorn_conf.py     one gevent-websocket worker, HTTPS from node.toml [tls] (WP-API-AUTH)
   domain/              dataclasses and enums (section 4); no I/O, no Flask
     __init__.py        re-exports everything
     common.py          Engine, Family, ids, serialization helpers

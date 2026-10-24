@@ -54,3 +54,43 @@ def test_query_filters_and_pagination(tmp_root):
     rows, total = log.query(engine="kea4")
     assert total == 0
     assert log.get(rows[0].id) if rows else True
+
+
+def test_index_follows_appends_from_another_instance(tmp_root):
+    # Two processes share the file: each instance indexes what the other appended.
+    path = tmp_root / "shared.jsonl"
+    web, collector = AuditLog(path), AuditLog(path)
+    first = _entry("n1", "a")
+    web.append(first)
+    assert collector.head() == (1, first.id)
+    later = [_entry("n1", f"b{i}") for i in range(5)]
+    for e in later:
+        collector.append(e)
+    assert web.head() == (6, later[-1].id)
+    assert web.merge([first, later[0]]) == 0  # known through the refreshed index
+    assert [e.id for e in web.read(after_id=later[1].id, limit=2)] == [later[2].id, later[3].id]
+    assert [e.id for e in web.get_many([later[4].id, "missing", first.id])] == [first.id, later[4].id]
+    assert web.sorted_ids() == sorted(web.ids())
+    assert web.get(later[2].id).action == "b2"
+
+
+def test_index_ignores_a_partial_last_line_and_rebuilds_after_rotation(tmp_root):
+    path = tmp_root / "audit.jsonl"
+    log = AuditLog(path)
+    e1, e2 = _entry("n1", "x"), _entry("n1", "y")
+    log.append(e1)
+    line = json.dumps(e2.to_dict(), separators=(",", ":")).encode()
+    with path.open("ab") as fh:
+        fh.write(line[:10])
+    assert log.head() == (1, e1.id)
+    with path.open("ab") as fh:
+        fh.write(line[10:] + b"\n")
+    assert log.head() == (2, e2.id)
+    # Merged entries that sort below the head are found by a page read.
+    early = AuditEntry.from_dict({**e1.to_dict(), "id": "0" * 26})
+    assert log.merge([early]) == 1
+    assert [e.id for e in log.read(limit=1)] == ["0" * 26]
+    path.unlink()
+    log2 = AuditLog(path)
+    log2.append(e2)
+    assert log.head() == (1, e2.id)

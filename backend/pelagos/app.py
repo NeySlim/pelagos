@@ -25,12 +25,23 @@ SECURITY_HEADERS = {
 }
 
 
+def _recover_in_place_writes(paths: Paths) -> None:
+    """A crash mid in-place write (Kea include trees) is undone before anything reads the files."""
+    from pelagos.core.write_pipeline import recover_in_place_writes
+
+    try:
+        recover_in_place_writes(paths.backups_dir)
+    except Exception:  # never blocks the start
+        logging.getLogger(__name__).exception("in-place write recovery failed")
+
+
 def create_app(
     paths: Paths | None = None, context: NodeContext | None = None, static_dir: Path | None = None
 ) -> Flask:
     """Build the app around a NodeContext; tests pass a context built on a temp tree."""
     paths = paths or Paths.from_env()
     context = context or NodeContext.build(paths)
+    _recover_in_place_writes(context.paths)
     static_dir = static_dir or (paths.opt / "frontend" / "dist")
 
     # No Flask static route: its `/<path:filename>` rule would shadow the SPA catch-all below.

@@ -615,6 +615,12 @@ def publish_own_modules(ctx: NodeContext) -> bool:
 
 def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     ctx = NodeContext.build(paths)
+    from pelagos.core.write_pipeline import recover_in_place_writes
+
+    try:
+        recover_in_place_writes(paths.backups_dir)
+    except Exception:  # never blocks the start
+        log.exception("in-place write recovery failed")
     if rebuild:
         log.info("rebuilding %s", paths.series_db)
         series_mod.rebuild(paths.series_db)

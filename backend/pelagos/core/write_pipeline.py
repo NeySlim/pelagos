@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import fcntl
 import grp
 import hashlib
 import json
+import logging
 import os
 import shutil
 import stat
@@ -19,6 +21,8 @@ from typing import Any
 from pelagos.core.config_store import fsync_dir, remove_stale_temps, temp_prefix
 from pelagos.domain.common import utcnow
 from pelagos.domain.plan import ValidationResult
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -52,7 +56,9 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _atomic_write(path: Path, content: bytes, mode: int | None, group: str | None) -> None:
+def _atomic_write(
+    path: Path, content: bytes, mode: int | None, group: str | None, journal_dir: Path | None = None
+) -> None:
     """Temp file next to the target, fsync, rename; keeps owner, group and mode unless overridden."""
     existing = path.stat() if path.exists() else None
     if existing is not None and _sticky_foreign(path, existing) and os.access(path, os.W_OK):
@@ -66,7 +72,7 @@ def _atomic_write(path: Path, content: bytes, mode: int | None, group: str | Non
         # A directory we may not write (/etc/kea is root:kea 0750) still has group-writable files.
         if existing is None or not os.access(path, os.W_OK):
             raise
-        _write_in_place(path, content)
+        _write_in_place(path, content, journal_dir)
         return
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -117,13 +123,94 @@ def _copy_selinux_label(source: Path, target: str) -> None:
         pass  # relabelling needs privileges this process may not have; restorecon fixes it
 
 
-def _write_in_place(path: Path, content: bytes) -> None:
-    """Truncate and rewrite an existing file; owner, group, mode and SELinux label stay."""
+JOURNAL_DIR = ".inplace"
+
+
+def _journal_name(path: Path) -> str:
+    return hashlib.sha256(str(path).encode()).hexdigest()[:32]
+
+
+def _write_in_place(path: Path, content: bytes, journal_dir: Path | None = None) -> None:
+    """Rewrite an existing file in place; owner, group, mode and SELinux label stay. The old bytes
+    go to an intent journal first (flock held while writing, so recovery skips a live write), and
+    the new bytes are written before the file is cut to length: a crash never leaves an empty file."""
+    if journal_dir is None:
+        _overwrite(path, content)
+        return
+    journal_dir.mkdir(parents=True, exist_ok=True, mode=0o750)
+    old = path.read_bytes()
+    name = _journal_name(path)
+    copy = journal_dir / f"{name}.old"
+    journal = journal_dir / f"{name}.json"
+    _write_new(copy, old)
+    intent = {
+        "path": str(path),
+        "old": str(copy),
+        "old_sha256": hashlib.sha256(old).hexdigest(),
+        "new_sha256": hashlib.sha256(content).hexdigest(),
+    }
+    fd = os.open(journal, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        os.write(fd, json.dumps(intent).encode())
+        os.fsync(fd)
+        fsync_dir(journal_dir)
+        _overwrite(path, content)
+        journal.unlink(missing_ok=True)
+        copy.unlink(missing_ok=True)
+    finally:
+        os.close(fd)
+
+
+def _overwrite(path: Path, content: bytes) -> None:
     with path.open("r+b") as fh:
-        fh.truncate(0)
+        fh.seek(0)
         fh.write(content)
+        fh.truncate(len(content))
         fh.flush()
         os.fsync(fh.fileno())
+
+
+def _write_new(path: Path, data: bytes) -> None:
+    with path.open("wb") as fh:
+        fh.write(data)
+        fh.flush()
+        os.fsync(fh.fileno())
+
+
+def recover_in_place_writes(backups_dir: Path) -> list[str]:
+    """At startup: a journal left by a crash names a file rewritten in place. A file that reads as
+    neither its old nor its new content is put back to the old bytes. Returns the restored paths."""
+    restored: list[str] = []
+    journals = [*backups_dir.glob(f"{JOURNAL_DIR}/*.json"), *backups_dir.glob(f"*/{JOURNAL_DIR}/*.json")]
+    for journal in journals:
+        try:
+            fd = os.open(journal, os.O_RDONLY)
+        except OSError:
+            continue
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                continue  # a writer is at work on it right now
+            intent = json.loads(journal.read_text())
+            path, copy = Path(intent["path"]), Path(intent["old"])
+            current = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+            if current not in (intent["old_sha256"], intent["new_sha256"]):
+                old = copy.read_bytes()
+                if hashlib.sha256(old).hexdigest() != intent["old_sha256"]:
+                    log.error("in-place write journal %s: saved copy damaged, %s left as is", journal, path)
+                    continue
+                _overwrite(path, old)
+                restored.append(str(path))
+                log.warning("%s was cut by a crash mid-write: previous content restored", path)
+            journal.unlink(missing_ok=True)
+            copy.unlink(missing_ok=True)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            log.error("in-place write journal %s not processed: %s", journal, exc)
+        finally:
+            os.close(fd)
+    return restored
 
 
 class WritePipeline:
@@ -204,7 +291,11 @@ class WritePipeline:
                         path.unlink()
                 else:
                     _atomic_write(
-                        path, (backup_dir / f"{entry['index']}.bak").read_bytes(), entry["mode"], None
+                        path,
+                        (backup_dir / f"{entry['index']}.bak").read_bytes(),
+                        entry["mode"],
+                        None,
+                        self.backup_root / JOURNAL_DIR,
                     )
                     try:
                         os.chown(path, entry["uid"], entry["gid"])
@@ -233,7 +324,7 @@ class WritePipeline:
 
         def write_all() -> str:
             for c in changes:
-                _atomic_write(c.path, c.content, c.mode, c.group)
+                _atomic_write(c.path, c.content, c.mode, c.group, self.backup_root / JOURNAL_DIR)
             return f"{len(changes)} file(s)"
 
         reloaded = False

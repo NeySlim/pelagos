@@ -5,6 +5,7 @@ $TTL and $INCLUDE kept), bump the serial, reload the zone; rollback edits back w
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -163,3 +164,32 @@ def test_allow_update_inherited_from_the_options_takes_updates(named_server, tmp
     data = {(r.name, r.rtype): r.rdata for r in backend.read_zone("inherit.lan")}
     assert data[("mail.inherit.lan.", "A")] == ["192.0.2.25"]
     assert "192.0.2.25" not in path.read_text()  # named keeps the change in its journal
+
+
+def test_large_static_zone_waits_for_the_queued_reload(named_server, tmp_root):
+    """`rndc reload <zone>` only queues the load: a 20k-record zone is verified by polling, never
+    restored to the old serial after named already loaded the new one."""
+    zones = named_server.root / "zones"
+    path = zones / "big.lan.db"
+    hosts = "".join(f"h{i}\tIN A 10.{(i >> 16) & 255}.{(i >> 8) & 255}.{i & 255}\n" for i in range(20000))
+    path.write_text(
+        "$TTL 3600\n@\tIN SOA ns1.big.lan. hostmaster.big.lan. ( 1 3600 900 1209600 300 )\n"
+        "\tIN NS ns1\nns1\tIN A 192.0.2.1\n" + hosts
+    )
+    zone = (
+        'zone "big.lan" { type primary; file "big.lan.db"; allow-transfer { key ddi-read; }; notify no; };\n'
+    )
+    named_server.named_conf.write_text(named_server.named_conf.read_text() + zone)
+    named_server.rndc("reconfig")
+    backend = make_backend(named_server, tmp_root)
+    for _ in range(100):
+        if serial(named_server, "big.lan") == 1:
+            break
+        time.sleep(0.1)
+    change = Change(ChangeOp.ADD, "big.lan/mail/A", after={"rdata": ["192.0.2.25"], "ttl": 3600})
+    plan = backend.plan_rrset_changes("big.lan", [change])
+    assert plan.state is PlanState.VALIDATED, plan.validations
+    result = backend.apply(plan)
+    assert result.ok and not result.rolled_back, result.message
+    assert serial(named_server, "big.lan") == 2
+    assert "mail\tIN\tA\t192.0.2.25" in path.read_text()

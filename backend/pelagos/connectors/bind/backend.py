@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import time
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -74,6 +75,10 @@ WRITTEN_FILE = "pelagos-written.json"  # in the backup directory: sha256 of what
 MAX_DETAILS = 256  # audit material kept per process; callers should pop_details() after copying
 
 
+RELOAD_WAIT = 30.0
+RELOAD_POLL = 0.2
+
+
 def _zone_kind(change: Any) -> str | None:
     side = change.after if isinstance(change.after, dict) else change.before
     return side.get("kind") if isinstance(side, dict) else None
@@ -97,6 +102,8 @@ class BindBackend(BindExtras, DnsBackend):
         self.dns = DnsClient(cfg.get("query_address", "127.0.0.1"), int(cfg.get("query_port", 53)))
         self.checkconf = cfg.get("checkconf") or find_binary("named-checkconf")
         self.checkzone = cfg.get("checkzone") or find_binary("named-checkzone")
+        # `rndc reload <zone>` only queues the load: the new serial shows up later on large zones.
+        self.reload_wait = float(cfg.get("reload_wait_seconds", RELOAD_WAIT))
         # Per plan: UPDATE text and rcode, pipeline steps, backup directory (for the caller's audit entry).
         self.details: dict[str, dict[str, Any]] = {}
 
@@ -235,6 +242,20 @@ class BindBackend(BindExtras, DnsBackend):
         except ConnectorError as exc:
             st.error = f"SOA query failed: {exc}"
         return st
+
+    def wait_for_serial(self, zone: str, view: str | None, serial: int) -> bool | None:
+        """True once named serves `serial` (or the zone is signed: inline signing keeps its own),
+        False when named reports the zone failed to load, None when the deadline passed first."""
+        deadline = time.monotonic() + self.reload_wait
+        while True:
+            st = self.zone_status(zone, view)
+            if st.error is None and (st.config_serial == serial or bool(st.signed)):
+                return True
+            if _load_failed(st):
+                return False
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(RELOAD_POLL)
 
     def soa_serial(self, zone: str, view: str | None = None) -> int | None:
         if view in (None, DEFAULT_VIEW):
@@ -398,9 +419,16 @@ class BindBackend(BindExtras, DnsBackend):
         def validate() -> ValidationResult:
             return staticzone.run_checkzone(self.checkzone, zone.name, zf.main, zf.directory)
 
+        pending: list[bool] = []
+
         def verify() -> bool:
-            st = self.zone_status(zone.name, view)
-            return st.error is None and (st.config_serial == serial or bool(st.signed))
+            # False (restore the file) only when named definitely refused it; once the deadline
+            # passes the load may still finish, so the file stays and the result says so.
+            loaded = self.wait_for_serial(zone.name, view, serial)
+            if loaded is None:
+                pending.append(True)
+                return True
+            return loaded
 
         pipeline = self.ctx.pipeline_factory(
             backup_root=self.ctx.backup_root,
@@ -425,9 +453,9 @@ class BindBackend(BindExtras, DnsBackend):
             },
         }
         if outcome.ok:
-            return NodeApplyResult(
-                node_id=node, ok=True, message=f"zone file edited, serial {serial}, rndc reload done"
-            )
+            done = "reload still in progress" if pending else "rndc reload done"
+            message = f"zone file edited, serial {serial}, {done}"
+            return NodeApplyResult(node_id=node, ok=True, message=message)
         return NodeApplyResult(
             node_id=node,
             ok=False,
@@ -808,3 +836,10 @@ def _plan_zone(plan: Plan) -> tuple[str, str | None]:
         raise NotSupported("plan has no change")
     target = plan.changes[0].target
     return rr.target_zone(target), rr.target_view(target)
+
+
+def _load_failed(st: Any) -> bool:
+    """zonestatus marks a zone whose last load failed (`rndc zonestatus`: "load failed" state)."""
+    raw = st.raw if isinstance(getattr(st, "raw", None), dict) else {}
+    text = " ".join(str(v) for v in raw.values()).lower()
+    return "load failed" in text or "not loaded" in text

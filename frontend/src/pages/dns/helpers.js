@@ -69,10 +69,13 @@ export const RESOLVER_KEYS = ['recursion', 'allow_recursion', 'forwarders', 'for
 
 export const sameValue = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
-// Only the keys that differ go into the POST /dns/resolver/plan body.
+// Only the keys that differ go into the POST /dns/resolver/plan body, named like
+// the named.conf statements (allow-recursion, dnssec-validation), as the API reads them.
+export const resolverStatement = (key) => key.replace(/_/g, '-')
+
 export function resolverChanges(current, next) {
   const out = {}
-  for (const key of RESOLVER_KEYS) if (!sameValue(current?.[key], next[key])) out[key] = next[key]
+  for (const key of RESOLVER_KEYS) if (!sameValue(current?.[key], next[key])) out[resolverStatement(key)] = next[key]
   return out
 }
 

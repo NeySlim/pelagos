@@ -159,6 +159,7 @@ describe('DNS helpers', () => {
     const cur = { recursion: true, allow_recursion: ['internal'], forwarders: [], forward: null, dnssec_validation: 'auto' }
     expect(resolverChanges(cur, { ...cur, forwarders: ['192.0.2.1'] })).toEqual({ forwarders: ['192.0.2.1'] })
     expect(resolverChanges(cur, { ...cur })).toEqual({})
+    expect(resolverChanges(cur, { ...cur, allow_recursion: ['any'], dnssec_validation: 'no' })).toEqual({ 'allow-recursion': ['any'], 'dnssec-validation': 'no' })
   })
 
   it('retransfers lagging secondaries and notifies from primaries', async () => {

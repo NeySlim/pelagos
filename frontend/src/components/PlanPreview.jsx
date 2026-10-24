@@ -57,6 +57,7 @@ export function PlanPreview({
   applyFn = (id, confirm) => api.plans.apply(id, confirm),
   rollbackFn = (id) => api.plans.rollback(id),
   jobFn = (id) => api.jobs.get(id),
+  getFn = (id) => api.plans.get(id),
   closeLabel,
   className,
 }) {
@@ -94,6 +95,13 @@ export function PlanPreview({
         setResult(res)
         setPlan((p) => ({ ...p, state: res?.state || 'applied' }))
         onApplied?.(res)
+        // The server restarts the TTL at apply: the rollback window follows the fresh expires_at.
+        if ((res?.state || 'applied') === 'applied') {
+          Promise.resolve()
+            .then(() => getFn(plan.id))
+            .then((fresh) => fresh?.expires_at && setPlan((p) => ({ ...p, expires_at: fresh.expires_at })))
+            .catch(() => {})
+        }
       }
     } catch (err) {
       setError(err)
@@ -101,7 +109,7 @@ export function PlanPreview({
     } finally {
       setBusy(false)
     }
-  }, [applyFn, plan, confirmed, onApplied])
+  }, [applyFn, getFn, plan, confirmed, onApplied])
 
   const handleRollback = useCallback(async () => {
     setBusy(true)

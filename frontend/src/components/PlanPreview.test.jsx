@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { PlanPreview } from './PlanPreview'
 
 function makePlan(overrides = {}) {
@@ -49,7 +49,7 @@ describe('PlanPreview', () => {
     const applyFn = vi.fn().mockResolvedValue(applied())
     const rollbackFn = vi.fn().mockResolvedValue(applied('rolled_back'))
     const onApplied = vi.fn()
-    render(<PlanPreview plan={makePlan()} applyFn={applyFn} rollbackFn={rollbackFn} onApplied={onApplied} />)
+    render(<PlanPreview plan={makePlan()} applyFn={applyFn} rollbackFn={rollbackFn} onApplied={onApplied} getFn={vi.fn().mockResolvedValue(makePlan({ state: 'applied' }))} />)
     fireEvent.click(screen.getByTestId('plan-apply'))
     await waitFor(() => expect(screen.getByTestId('plan-result')).toBeInTheDocument())
     expect(applyFn).toHaveBeenCalledWith('01JBPLAN0000000000000000AA', false)
@@ -58,6 +58,15 @@ describe('PlanPreview', () => {
     fireEvent.click(screen.getByTestId('plan-rollback'))
     await waitFor(() => expect(rollbackFn).toHaveBeenCalledWith('01JBPLAN0000000000000000AA'))
     await waitFor(() => expect(screen.queryByTestId('plan-rollback')).not.toBeInTheDocument())
+  })
+
+  it('keeps rollback available for the TTL restarted at apply', async () => {
+    const getFn = vi.fn().mockResolvedValue(makePlan({ state: 'applied', expires_at: new Date(Date.now() + 600000).toISOString() }))
+    render(<PlanPreview plan={makePlan({ expires_at: new Date(Date.now() + 1200).toISOString() })} applyFn={vi.fn().mockResolvedValue(applied())} getFn={getFn} />)
+    fireEvent.click(screen.getByTestId('plan-apply'))
+    await waitFor(() => expect(getFn).toHaveBeenCalledWith('01JBPLAN0000000000000000AA'))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 2100)))
+    expect(screen.getByTestId('plan-rollback')).toBeInTheDocument()
   })
 
   it('requires the confirmation checkbox when the plan asks for it', async () => {

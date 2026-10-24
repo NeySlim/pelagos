@@ -20,12 +20,25 @@ concurrency:
 jobs:
   backend:
     name: backend (python ${{ matrix.python }})
+    # The unit tier validates generated configs with named-checkconf, so it runs on Debian 13
+    # (BIND 9.20 tools, the version the parser and grammar target).
     runs-on: ubuntu-24.04
+    container: debian:trixie
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         python: ["3.12", "3.13"]
     steps:
+      - name: BIND tools and the toolchain
+        run: |
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends \
+            ca-certificates curl git make bind9-utils
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
         with:

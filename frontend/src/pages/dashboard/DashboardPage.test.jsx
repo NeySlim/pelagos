@@ -33,6 +33,14 @@ const ALERTS = [
   { id: 'a2', kind: 'ha_partner_down', severity: 'critical', state: 'open', title: 'ns1 partner is down', last_seen: '2026-10-24T09:00:00Z' },
 ]
 
+// Counters advance one second of traffic on each read, so two reads give a rate.
+let reads = 0
+const tick = () => (reads += 1)
+const dnsStats = (id) => {
+  const n = tick()
+  return { node_id: id, collected_at: new Date(Date.UTC(2026, 9, 24, 10, 0, n)).toISOString(), opcodes: { QUERY: 1000 + n * 50 }, rcodes: { NOERROR: 900 + n * 45, NXDOMAIN: 100 + n * 5 } }
+}
+
 let savedLayout = []
 let settings = {}
 let summaryExtra = {}
@@ -48,6 +56,8 @@ vi.mock('../../services/api', () => {
       },
     },
     alerts: { list: async () => ({ items: ALERTS, total: 2, page: 1, per_page: 100 }) },
+    dns: { stats: async (id) => dnsStats(id) },
+    dhcp: { stats: async (family, id) => ({ node_id: id, statistics: { 'pkt4-ack-sent': [[100 + tick() * 4, '2026-10-24 10:00:00.000000']] } }) },
     admin: {
       settings: async () => {
         settingsCalls()

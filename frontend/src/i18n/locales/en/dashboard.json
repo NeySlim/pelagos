@@ -2,7 +2,7 @@
   "pages": {
     "overview": {
       "title": "Dashboard",
-      "subtitle": "HA, pools, zone sync, DDNS errors, inconsistencies and nodes"
+      "subtitle": "Cluster radar, live DNS and DHCP rates, HA, pools, zone sync and alerts"
     }
   },
   "viewAll": "Open",
@@ -21,7 +21,7 @@
       "empty": "No node"
     },
     "ha": {
-      "title": "DHCP high availability",
+      "title": "DHCP HA",
       "server": "Server",
       "state": "State",
       "partner": "Partner",
@@ -30,7 +30,7 @@
       "empty": "HA is not configured"
     },
     "inconsistencies": {
-      "title": "Alerts and inconsistencies",
+      "title": "Alerts",
       "open": "{{count}} open",
       "open_one": "{{count}} open",
       "none": "Nothing open"
@@ -58,6 +58,33 @@
         "update-timeout": "Timeouts",
         "ncr-error": "Request errors"
       }
+    },
+    "radar": {
+      "title": "Cluster radar",
+      "nodes": "Nodes",
+      "online": "{{online}}/{{total}} online",
+      "zones": "Zones",
+      "zonesValue": "{{total}} · {{divergent}} divergent"
+    },
+    "dns": {
+      "title": "DNS",
+      "none": "No DNS server to follow",
+      "rate": "Queries/s",
+      "nxdomain": "NXDOMAIN",
+      "zones": "{{count}} zones",
+      "zones_one": "{{count}} zone",
+      "chart": "Query rate",
+      "chartLabel": "Query rate, now {{rate}} per second",
+      "perSecond": "{{rate}}/s"
+    },
+    "dhcp": {
+      "title": "DHCP",
+      "rate": "Leases/s",
+      "hot": "Hot pools",
+      "chart": "Lease rate",
+      "chartLabel": "Leases handed out, now {{rate}} per second",
+      "pools": "Busiest pools",
+      "ha": "High availability"
     }
   },
   "kinds": {
@@ -80,5 +107,15 @@
     "duplicate_ip": "duplicate IP",
     "insecure_key": "insecure key",
     "insecure_listener": "insecure listener"
+  },
+  "live": {
+    "label": "Live",
+    "collecting": "Collecting live counters",
+    "ago": "-{{minutes}} min",
+    "now": "now"
+  },
+  "radar": {
+    "queries": "Queries/s",
+    "rate": "{{rate}} q/s"
   }
 }

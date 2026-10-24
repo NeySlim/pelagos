@@ -12,15 +12,16 @@ import { Badge } from '../../components/Badge'
 import { UtilizationBar } from '../../components/UtilizationBar'
 import { EmptyState } from '../../components/EmptyState'
 import { cn, formatRelativeTime } from '../../lib/utils'
+import { CountUp, MiniHistogram, StatusDot } from '../../components/motion'
 import { dhcpFamily, poolThresholds, formatErrorRate } from './summary'
 
-export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, status, children }) {
+export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, status, children, bodyClassName, className }) {
   return (
-    <div className="h-full flex flex-col card-soft overflow-hidden" data-testid={`tile-${id}`}>
-      <div className={cn('tile-handle flex items-center gap-2 px-3 py-2 border-b border-border-op30 section-header-gradient', editing && 'cursor-move select-none')}>
+    <div className={cn('h-full flex flex-col card-soft overflow-hidden dash-tile', className)} data-testid={`tile-${id}`}>
+      <div className={cn('tile-handle flex items-center gap-2 px-3.5 py-2.5 border-b border-border-op30 section-header-gradient dash-tile-head', editing && 'cursor-move select-none')}>
         {editing && <DotsSixVertical size={14} className="text-text-tertiary" />}
-        {Icon && <Icon size={16} className="text-accent-primary" weight="duotone" />}
-        <h3 className="text-sm font-semibold text-text-primary truncate">{title}</h3>
+        {Icon && <Icon size={16} className="text-accent-primary shrink-0" weight="duotone" />}
+        <h3 className="ui-card-title text-sm font-semibold text-text-primary truncate">{title}</h3>
         {status}
         {link && !editing && (
           <Link to={link} className="ml-auto inline-flex items-center gap-1 text-2xs text-text-tertiary hover:text-accent-primary">
@@ -29,7 +30,7 @@ export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, sta
           </Link>
         )}
       </div>
-      <div className="flex-1 min-h-0 overflow-auto p-3">{children}</div>
+      <div className={cn('flex-1 min-h-0 overflow-auto p-3', bodyClassName)}>{children}</div>
     </div>
   )
 }
@@ -42,7 +43,7 @@ function Empty({ icon, title }) {
   )
 }
 
-export function NodesTile({ summary, editing }) {
+export function NodesTile({ summary, editing, live }) {
   const { t } = useTranslation(['dashboard', 'common'])
   const nodes = summary?.nodes || []
   const offline = nodes.filter((n) => n.status !== 'online').length
@@ -59,27 +60,34 @@ export function NodesTile({ summary, editing }) {
       {nodes.length === 0 ? (
         <Empty icon={HardDrives} title={t('tiles.nodes.empty')} />
       ) : (
-        <ul className="space-y-2">
-          {nodes.map((n) => (
-            <li key={n.peer.id} className="flex items-start gap-2 text-xs" data-testid="tile-node">
-              <StatusBadge status={n.status} />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-medium text-text-primary">{n.peer.name}</span>
-                  {n.is_self && (
-                    <Badge variant="primary" size="sm">
-                      {t('tiles.nodes.self')}
-                    </Badge>
-                  )}
+        <ul className="space-y-1.5">
+          {nodes.map((n) => {
+            const series = live?.dns.seriesByNode?.[n.peer.id] || []
+            const tone = n.status === 'online' ? (n.error ? 'warning' : 'success') : 'danger'
+            return (
+              <li key={n.peer.id} className="dash-row items-start text-xs" data-testid="tile-node">
+                <StatusDot tone={tone} pulse={tone !== 'success'} className="mt-1.5" label={t(`common:status.${n.status || 'unknown'}`)} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="dash-node-name text-text-primary">{n.peer.name}</span>
+                    {n.is_self && (
+                      <Badge variant="primary" size="sm">
+                        {t('tiles.nodes.self')}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-2xs text-text-tertiary font-mono truncate">
+                    {t('tiles.nodes.meta', { version: n.version || '?', config: n.config_version ?? '?', audit: n.audit_count ?? '?' })}
+                  </div>
+                  {n.error && <div className="text-2xs status-danger-text">{n.error}</div>}
                 </div>
-                <div className="text-2xs text-text-tertiary font-mono">
-                  {t('tiles.nodes.meta', { version: n.version || '?', config: n.config_version ?? '?', audit: n.audit_count ?? '?' })}
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <span className="text-2xs text-text-tertiary whitespace-nowrap">{n.last_seen ? formatRelativeTime(n.last_seen, t) : '-'}</span>
+                  {series.length > 1 && <MiniHistogram data={series.slice(-24).map((p) => p.v)} tone="primary" height={14} />}
                 </div>
-                {n.error && <div className="text-2xs status-danger-text">{n.error}</div>}
-              </div>
-              <span className="text-2xs text-text-tertiary whitespace-nowrap">{n.last_seen ? formatRelativeTime(n.last_seen, t) : '-'}</span>
-            </li>
-          ))}
+              </li>
+            )
+          })}
         </ul>
       )}
     </TileFrame>
@@ -149,6 +157,7 @@ export function HaTile({ summary, editing, nameOf }) {
 }
 
 const SEVERITIES = ['critical', 'warning', 'info']
+const SEVERITY_TONE = { critical: 'danger', warning: 'warning', info: 'neutral' }
 
 export function InconsistenciesTile({ summary, alerts, editing }) {
   const { t } = useTranslation(['dashboard', 'common'])
@@ -166,11 +175,14 @@ export function InconsistenciesTile({ summary, alerts, editing }) {
     >
       <div className="grid grid-cols-3 gap-2 mb-3">
         {SEVERITIES.map((s) => (
-          <Link key={s} to={`/alerts?severity=${s}`} className="rounded-lg border border-border-op50 px-2 py-1.5 hover:bg-tertiary-op40 text-center" data-testid={`tile-alerts-${s}`}>
-            <div className={cn('text-lg font-semibold font-mono', counts[s] ? (s === 'critical' ? 'status-danger-text' : s === 'warning' ? 'status-warning-text' : 'text-accent-primary') : 'text-text-tertiary')}>
-              {counts[s] ?? 0}
-            </div>
-            <div className="text-2xs text-text-tertiary">{t(`common:status.${s}`)}</div>
+          <Link key={s} to={`/alerts?severity=${s}`} className="dash-row flex-col items-start gap-0.5 hover:bg-tertiary-op40" data-testid={`tile-alerts-${s}`}>
+            <span className="dash-label inline-flex items-center gap-1.5">
+              <StatusDot tone={SEVERITY_TONE[s]} pulse={s === 'critical' && Boolean(counts[s])} />
+              {t(`common:status.${s}`)}
+            </span>
+            <span className={cn('text-lg font-semibold tabular-nums', counts[s] ? (s === 'critical' ? 'status-danger-text' : s === 'warning' ? 'status-warning-text' : 'text-accent-primary') : 'text-text-tertiary')}>
+              <CountUp value={counts[s] ?? 0} />
+            </span>
           </Link>
         ))}
       </div>
@@ -211,12 +223,13 @@ export function ZoneSyncTile({ summary, editing, nameOf }) {
       {zones.length === 0 ? (
         <Empty icon={Globe} title={t('tiles.zones.empty')} />
       ) : (
-        <ul className="space-y-1">
+        <ul className="space-y-1.5">
           {sorted.map((z) => {
             const values = Object.values(z.serials || {}).filter((v) => v !== null && v !== undefined)
             const max = values.length ? Math.max(...values) : null
             return (
-              <li key={`${z.view}/${z.zone}`} className="flex items-center gap-2 text-xs py-0.5" data-testid="tile-zone">
+              <li key={`${z.view}/${z.zone}`} className="dash-row text-xs py-1" data-testid="tile-zone">
+                <StatusDot tone={z.divergent ? 'warning' : 'success'} pulse={z.divergent} label={t(`common:status.${z.divergent ? 'divergent' : 'in-sync'}`, { defaultValue: z.divergent ? 'divergent' : 'in sync' })} />
                 <Link to={`/dns/zones/${encodeURIComponent(z.zone.replace(/\.$/, ''))}${z.view && z.view !== '_default' ? `?view=${encodeURIComponent(z.view)}` : ''}`} className="font-mono text-text-primary hover:text-accent-primary truncate flex-1 min-w-0" title={z.zone}>
                   {z.zone}
                 </Link>
@@ -308,9 +321,10 @@ export function D2Tile({ summary, editing, nameOf }) {
             const sent = s.totals?.['update-sent'] || 0
             const rate = formatErrorRate(errors(s), sent, i18n.language)
             return (
-              <div key={s.node_id} className="rounded-lg border border-border-op50 p-2" data-testid="tile-d2-node">
+              <div key={s.node_id} className="dash-subpanel" data-testid="tile-d2-node">
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-xs font-medium text-text-primary">{nameOf(s.node_id)}</span>
+                  <StatusDot tone={errors(s) ? 'warning' : 'success'} />
+                  <span className="dash-node-name text-text-primary">{nameOf(s.node_id)}</span>
                   <span className={cn('ml-auto text-2xs font-mono', errors(s) ? 'status-warning-text' : 'text-text-tertiary')}>{t('tiles.d2.rate', { rate })}</span>
                 </div>
                 <dl className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-2xs">

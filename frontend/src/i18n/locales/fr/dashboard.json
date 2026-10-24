@@ -2,7 +2,7 @@
   "pages": {
     "overview": {
       "title": "Tableau de bord",
-      "subtitle": "HA, pools, synchro des zones, erreurs DDNS, incohérences et nœuds"
+      "subtitle": "Radar du cluster, débits DNS et DHCP en direct, HA, pools, synchro des zones et alertes"
     }
   },
   "viewAll": "Ouvrir",
@@ -21,7 +21,7 @@
       "empty": "Aucun nœud"
     },
     "ha": {
-      "title": "Haute disponibilité DHCP",
+      "title": "HA DHCP",
       "server": "Serveur",
       "state": "État",
       "partner": "Partenaire",
@@ -30,7 +30,7 @@
       "empty": "La HA n'est pas configurée"
     },
     "inconsistencies": {
-      "title": "Alertes et incohérences",
+      "title": "Alertes",
       "open": "{{count}} ouvertes",
       "open_one": "{{count}} ouverte",
       "none": "Rien d'ouvert"
@@ -58,6 +58,33 @@
         "update-timeout": "Expirées",
         "ncr-error": "Requêtes en erreur"
       }
+    },
+    "radar": {
+      "title": "Radar du cluster",
+      "nodes": "Nœuds",
+      "online": "{{online}}/{{total}} en ligne",
+      "zones": "Zones",
+      "zonesValue": "{{total}} · {{divergent}} divergente(s)"
+    },
+    "dns": {
+      "title": "DNS",
+      "none": "Aucun serveur DNS à suivre",
+      "rate": "Requêtes/s",
+      "nxdomain": "NXDOMAIN",
+      "zones": "{{count}} zones",
+      "zones_one": "{{count}} zone",
+      "chart": "Débit de requêtes",
+      "chartLabel": "Débit de requêtes, actuellement {{rate}} par seconde",
+      "perSecond": "{{rate}}/s"
+    },
+    "dhcp": {
+      "title": "DHCP",
+      "rate": "Baux/s",
+      "hot": "Pools chargés",
+      "chart": "Débit de baux",
+      "chartLabel": "Baux attribués, actuellement {{rate}} par seconde",
+      "pools": "Pools les plus remplis",
+      "ha": "Haute disponibilité"
     }
   },
   "kinds": {
@@ -80,5 +107,15 @@
     "duplicate_ip": "IP en double",
     "insecure_key": "clé faible",
     "insecure_listener": "écoute non sûre"
+  },
+  "live": {
+    "label": "Direct",
+    "collecting": "Collecte des compteurs en cours",
+    "ago": "-{{minutes}} min",
+    "now": "maintenant"
+  },
+  "radar": {
+    "queries": "Requêtes/s",
+    "rate": "{{rate}} req/s"
   }
 }

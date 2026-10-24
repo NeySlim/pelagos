@@ -23,3 +23,54 @@
   outline-offset: 2px;
   border-radius: 0.75rem;
 }
+
+/* Tile content in the Mission language: tiny uppercase labels, lighter inner rows,
+   label-over-value chips and waypoint pills. Every family gets the structure; the
+   glass and the display face come from mission.css. */
+.dash-label {
+  font-size: 10px;
+  line-height: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+:root[data-effects='mission'] .dash-label { font-family: var(--font-display); font-size: 9.5px; }
+.dash-subpanel {
+  padding: 8px 10px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+}
+.dash-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: var(--bg-tertiary);
+}
+:root[data-effects='mission'] .dash-subpanel,
+:root[data-effects='mission'] .dash-row {
+  background: var(--m-row);
+  border-color: var(--m-hairline);
+}
+.dash-chip { border-radius: 12px; padding: 6px 10px; }
+.dash-chip .ui-stat-chip-value { font-size: 17px; line-height: 21px; color: var(--fx-c, var(--text-primary)); }
+.dash-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--fx-c) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fx-c) 50%, transparent);
+}
+.dash-pill:hover { background: color-mix(in srgb, var(--fx-c) 26%, transparent); }
+.dash-hero .dash-tile-head { position: relative; z-index: 3; }
+.dash-node-name { font-size: 12px; font-weight: 600; }
+:root[data-effects='mission'] .dash-node-name { font-family: var(--font-display); font-weight: 400; font-size: 11px; letter-spacing: 0.05em; }

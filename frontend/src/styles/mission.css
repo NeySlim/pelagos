@@ -401,6 +401,15 @@
 /* Non-text warning marks (dots, segments, chart tone) use the brighter fill token. */
 :root[data-effects='mission'] .fx-tone-warning { --fx-c: var(--accent-warning-fill, var(--accent-warning)); }
 :root[data-effects='mission'] .ui-progress-fill.status-danger-bg-solid { color: var(--accent-danger); }
+/* Utilization bars read as segments: the track is cut into short dashes by a mask. */
+:root[data-effects='mission'] .ui-progress-track {
+  height: 5px;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--text-tertiary) 28%, transparent);
+  -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 8px, transparent 8px 11px);
+  mask-image: repeating-linear-gradient(90deg, #000 0 8px, transparent 8px 11px);
+}
+:root[data-effects='mission'] .ui-progress-track .ui-progress-fill { border-radius: 0; }
 
 /* ============ Plan preview and detail cards ============ */
 :root[data-effects='mission'] .ui-subpanel {

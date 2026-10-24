@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// Dashboard: react-grid-layout tiles (nodes, HA, inconsistencies, zone sync,
-// pools, DDNS errors) over GET /dashboard/summary. The layout is per user,
-// read from and saved to /dashboard/layout; live events refresh the data.
+// Dashboard: react-grid-layout tiles over GET /dashboard/summary: the hero row (cluster
+// radar, live DNS and DHCP rates) then nodes, HA, inconsistencies, zone sync, pools and
+// DDNS errors. The layout is per user, read from and saved to /dashboard/layout; live
+// events refresh the data and the rate counters are polled while the page is visible.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactGridLayout, { useContainerWidth } from 'react-grid-layout'
@@ -21,8 +22,14 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { COLS, ROW_HEIGHT, DEFAULT_LAYOUT, normalizeLayout, serializeLayout, sameLayout } from './layout'
 import { NodesTile, HaTile, InconsistenciesTile, ZoneSyncTile, PoolsTile, D2Tile } from './tiles'
+import { RadarTile, DnsTile, DhcpTile } from './heroTiles'
+import { liveTargets, useLiveRates } from './useLiveRates'
+import { summarizeLive } from './live'
 
-const TILE_COMPONENTS = { nodes: NodesTile, ha: HaTile, inconsistencies: InconsistenciesTile, zones: ZoneSyncTile, pools: PoolsTile, d2: D2Tile }
+const TILE_COMPONENTS = {
+  radar: RadarTile, dns: DnsTile, dhcp: DhcpTile,
+  nodes: NodesTile, ha: HaTile, inconsistencies: InconsistenciesTile, zones: ZoneSyncTile, pools: PoolsTile, d2: D2Tile,
+}
 const REFRESH_MS = 30000
 const SEVERITY_RANK = { critical: 0, warning: 1, info: 2 }
 
@@ -33,6 +40,8 @@ export default function DashboardPage() {
   const { showSuccess, showError } = useNotification()
   const canAlerts = hasPermission('read:alerts')
   const canSettings = hasPermission('admin:settings')
+  const canDns = hasPermission('read:dns')
+  const canDhcp = hasPermission('read:dhcp')
 
   const summary = useApi(() => api.dashboard.summary(), [])
   const alerts = useApi(() => (canAlerts ? api.alerts.list({ state: 'open', per_page: 100 }) : Promise.resolve(null)), [canAlerts])
@@ -45,6 +54,9 @@ export default function DashboardPage() {
   const settings = useApi(() => (needSettings ? api.admin.settings().catch(() => null) : Promise.resolve(null)), [needSettings])
   const saved = useApi(() => api.dashboard.getLayout().catch(() => ({ layout: [] })), [])
   const nodes = summary.data?.nodes
+  const targets = useMemo(() => liveTargets(nodes, { dns: canDns, dhcp: canDhcp }), [nodes, canDns, canDhcp])
+  const sources = useLiveRates(targets)
+  const live = useMemo(() => summarizeLive(targets, sources), [targets, sources])
   const nameOf = useCallback((id) => (nodes || []).find((n) => n.peer.id === id)?.peer.name || String(id || '').slice(-6), [nodes])
 
   const [layout, setLayout] = useState(DEFAULT_LAYOUT)
@@ -109,7 +121,8 @@ export default function DashboardPage() {
     setEditing(false)
   }
 
-  const tileProps = { summary: summary.data, alerts: canAlerts ? topAlerts : null, editing, nameOf, thresholds: settings.data }
+  const openAlerts = canAlerts ? alerts.data?.items || [] : []
+  const tileProps = { summary: summary.data, alerts: canAlerts ? topAlerts : null, openAlerts, editing, nameOf, thresholds: settings.data, live }
   const ordered = useMemo(() => [...layout].sort((a, b) => a.y - b.y || a.x - b.x), [layout])
   // Tiles enter in reading order (top-left first), whatever the layout array order.
   const entryIndex = useMemo(() => Object.fromEntries(ordered.map((item, i) => [item.i, i])), [ordered])

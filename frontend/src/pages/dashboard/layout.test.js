@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_LAYOUT, TILE_IDS, COLS, normalizeLayout, serializeLayout, sameLayout } from './layout'
+import { DEFAULT_LAYOUT, TILE_IDS, TILES, COLS, HERO_HEIGHT, normalizeLayout, serializeLayout, sameLayout } from './layout'
 
 describe('dashboard layout', () => {
   it('falls back to the default layout when nothing is saved', () => {
@@ -17,14 +17,24 @@ describe('dashboard layout', () => {
     ]
     const out = normalizeLayout(saved)
     expect(out.map((it) => it.i).sort()).toEqual([...TILE_IDS].sort())
-    expect(out.find((it) => it.i === 'zones')).toMatchObject({ x: 6, y: 0, w: 6, h: 8 })
+    expect(out.find((it) => it.i === 'zones')).toMatchObject({ x: 6, y: HERO_HEIGHT, w: 6, h: 8 })
   })
 
   it('appends missing tiles below the saved ones', () => {
-    const out = normalizeLayout([{ i: 'pools', x: 0, y: 0, w: 12, h: 5 }])
-    const others = out.filter((it) => it.i !== 'pools')
-    expect(Math.min(...others.map((it) => it.y))).toBe(5)
+    const out = normalizeLayout([{ i: 'radar', x: 0, y: 0, w: 12, h: 8 }, { i: 'pools', x: 0, y: 8, w: 12, h: 5 }])
+    expect(out.find((it) => it.i === 'radar')).toMatchObject({ y: 0, h: 8 })
+    const others = out.filter((it) => !['pools', 'radar'].includes(it.i))
+    expect(Math.min(...others.map((it) => it.y))).toBe(13)
     for (const a of others) for (const b of others) if (a !== b) expect(a.y + a.h <= b.y || b.y + b.h <= a.y).toBe(true)
+  })
+
+  it('puts the hero row on top of a layout saved before it', () => {
+    const out = normalizeLayout([{ i: 'pools', x: 0, y: 0, w: 12, h: 5 }])
+    const hero = TILES.filter((tile) => tile.hero).map((tile) => out.find((it) => it.i === tile.i))
+    expect(hero.every((it) => it.y === 0 && it.h === HERO_HEIGHT)).toBe(true)
+    expect(out.find((it) => it.i === 'pools')).toMatchObject({ x: 0, y: HERO_HEIGHT, w: 12, h: 5 })
+    const rest = out.filter((it) => !TILES.find((tile) => tile.i === it.i).hero && it.i !== 'pools')
+    expect(Math.min(...rest.map((it) => it.y))).toBe(HERO_HEIGHT + 5)
   })
 
   it('clamps sizes and positions into the grid', () => {
@@ -32,13 +42,13 @@ describe('dashboard layout', () => {
     const d2 = out.find((it) => it.i === 'd2')
     expect(d2.w).toBeGreaterThanOrEqual(4)
     expect(d2.x + d2.w).toBeLessThanOrEqual(COLS)
-    expect(d2.y).toBe(0)
+    expect(d2.y).toBe(HERO_HEIGHT)
     expect(d2.h).toBeGreaterThanOrEqual(4)
   })
 
   it('ignores items with non numeric coordinates', () => {
     const out = normalizeLayout([{ i: 'ha', x: 'a', y: 0, w: 4, h: 4 }, { i: 'nodes', x: 0, y: 0, w: 4, h: 6 }])
-    expect(out.find((it) => it.i === 'ha').y).toBe(6)
+    expect(out.find((it) => it.i === 'ha').y).toBe(HERO_HEIGHT + 6)
   })
 
   it('serializes only placement keys and compares regardless of order', () => {

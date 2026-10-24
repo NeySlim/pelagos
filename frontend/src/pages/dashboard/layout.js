@@ -7,6 +7,9 @@ export const COLS = 12
 export const ROW_HEIGHT = 40
 
 export const TILES = [
+  { i: 'radar', minW: 4, minH: 7, hero: true },
+  { i: 'dns', minW: 3, minH: 7, hero: true },
+  { i: 'dhcp', minW: 3, minH: 7, hero: true },
   { i: 'nodes', minW: 3, minH: 4 },
   { i: 'ha', minW: 3, minH: 4 },
   { i: 'inconsistencies', minW: 3, minH: 4 },
@@ -17,13 +20,18 @@ export const TILES = [
 
 export const TILE_IDS = TILES.map((tile) => tile.i)
 
+export const HERO_HEIGHT = 11
+
 export const DEFAULT_LAYOUT = [
-  { i: 'nodes', x: 0, y: 0, w: 4, h: 6 },
-  { i: 'ha', x: 4, y: 0, w: 4, h: 6 },
-  { i: 'inconsistencies', x: 8, y: 0, w: 4, h: 6 },
-  { i: 'zones', x: 0, y: 6, w: 6, h: 8 },
-  { i: 'pools', x: 6, y: 6, w: 6, h: 8 },
-  { i: 'd2', x: 0, y: 14, w: 12, h: 6 },
+  { i: 'radar', x: 3, y: 0, w: 6, h: HERO_HEIGHT },
+  { i: 'dns', x: 0, y: 0, w: 3, h: HERO_HEIGHT },
+  { i: 'dhcp', x: 9, y: 0, w: 3, h: HERO_HEIGHT },
+  { i: 'nodes', x: 0, y: 11, w: 4, h: 6 },
+  { i: 'ha', x: 4, y: 11, w: 4, h: 6 },
+  { i: 'inconsistencies', x: 8, y: 11, w: 4, h: 6 },
+  { i: 'zones', x: 0, y: 17, w: 6, h: 8 },
+  { i: 'pools', x: 6, y: 17, w: 6, h: 8 },
+  { i: 'd2', x: 0, y: 25, w: 12, h: 6 },
 ]
 
 const int = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : null)
@@ -44,10 +52,14 @@ export function normalizeLayout(saved) {
       h: Math.max(tile.minH, h),
     })
   }
+  // No hero tile saved: the layout predates the hero row, which goes on top.
+  const heroRow = byId.size > 0 && !TILES.some((tile) => tile.hero && byId.has(tile.i))
+  if (heroRow) for (const item of byId.values()) item.y += HERO_HEIGHT
   let bottom = Math.max(0, ...[...byId.values()].map((it) => it.y + it.h))
   const out = []
   for (const tile of TILES) {
     if (byId.has(tile.i)) out.push(byId.get(tile.i))
+    else if (heroRow && tile.hero) out.push({ ...DEFAULT_LAYOUT.find((d) => d.i === tile.i) })
     else if (byId.size === 0) out.push({ ...DEFAULT_LAYOUT.find((d) => d.i === tile.i) })
     else {
       const def = DEFAULT_LAYOUT.find((d) => d.i === tile.i)

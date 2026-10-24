@@ -106,7 +106,12 @@ export default function HaPage({ family }) {
             const server = serverOf(h.node_id)
             const serviceEnabled = server?.status?.enabled
             const name = h.server_name || nameOf(h.node_id)
+            // node_id in a maintenance plan is the server that enters (or leaves)
+            // maintenance; the partner card cancels on that same server.
             const inMaintenance = h.state === 'in-maintenance'
+            const maintained = h.state === 'partner-in-maintenance' ? items.find((x) => x !== h && x.state === 'in-maintenance') : null
+            const cancelOn = inMaintenance ? h : maintained
+            const cancelName = cancelOn && (cancelOn.server_name || nameOf(cancelOn.node_id))
             return (
               <Card key={h.node_id} className="p-0 overflow-hidden" hover={false} data-testid="ha-server">
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-border section-header-gradient">
@@ -151,12 +156,18 @@ export default function HaPage({ family }) {
                       <Button
                         variant="warning-soft"
                         size="xs"
-                        onClick={() => setConfirm({ kind: 'maintenance', nodeId: h.node_id, value: inMaintenance ? 'cancel' : 'start', name })}
-                        disabled={flow.building || (!inMaintenance && h.state === 'partner-in-maintenance')}
-                        data-testid={inMaintenance ? 'ha-maintenance-cancel' : 'ha-maintenance-start'}
+                        onClick={() =>
+                          setConfirm(
+                            cancelOn
+                              ? { kind: 'maintenance', nodeId: cancelOn.node_id, value: 'cancel', name: cancelName }
+                              : { kind: 'maintenance', nodeId: h.node_id, value: 'start', name },
+                          )
+                        }
+                        disabled={flow.building || (!cancelOn && h.state === 'partner-in-maintenance')}
+                        data-testid={cancelOn ? 'ha-maintenance-cancel' : 'ha-maintenance-start'}
                       >
                         <Wrench size={12} />
-                        {inMaintenance ? t('ha.cancelMaintenance') : t('ha.startMaintenance')}
+                        {cancelOn ? t('ha.cancelMaintenance') : t('ha.startMaintenance')}
                       </Button>
                       {serviceEnabled !== undefined && (
                         <Button

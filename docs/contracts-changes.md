@@ -159,6 +159,16 @@ Additive, no existing symbol changes.
   real before state stays in process memory for the rollback window only.
 - `backend/tests/unit/connectors/__init__.py` is an empty package marker shared with
   WP-BIND (identical content on both sides).
+## 2026-10-24, WP-FRONTEND: HA maintenance node_id and IPv6 hosts
+No change to `architecture.md`; these pin down what section 17 leaves open.
+`POST /dhcp/{family}/ha/maintenance/plan` `{"node_id","action"}`: `node_id` is
+the server that enters (`start`) or leaves (`cancel`) maintenance. Kea wants
+`ha-maintenance-start` and `ha-maintenance-cancel` on the partner that takes
+over the load, so the backend sends both commands to the partner of `node_id`.
+The UI sends `cancel` with the `in-maintenance` node, from either card of the
+pair. `POST /hosts/plan` may carry an IPv6 `ip`: the backend then emits an
+AAAA record and an ip6.arpa PTR, and `subnet_id` names a `subnet6`. WP-KEA and
+WP-API-AUTH: implement these meanings, or log another one here.
 
 ## 2026-10-24, WP-FRONTEND: payload shapes the spec leaves open
 No change to `architecture.md`. The mock (`frontend/mock/server.mjs`) and the

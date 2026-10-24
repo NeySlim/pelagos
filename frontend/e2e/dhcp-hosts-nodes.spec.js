@@ -60,7 +60,8 @@ test('HA maintenance needs the server name and the plan confirmation', async ({ 
   await page.getByTestId('plan-apply').click()
   await expect(page.getByTestId('plan-result')).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(page.getByTestId('ha-maintenance-cancel')).toBeVisible()
+  // Both cards of the pair offer the cancel, on the server in maintenance.
+  await expect(page.getByTestId('ha-maintenance-cancel')).toHaveCount(2)
 })
 
 test('host card and create-host plan', async ({ page }) => {

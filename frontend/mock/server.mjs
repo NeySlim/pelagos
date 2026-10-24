@@ -1159,7 +1159,7 @@ function buildHandlers(state, emit) {
         changes: [{ op: 'replace', target: `ha/${nodeName(state, body.node_id)}`, before: target.state, after: body.action === 'start' ? 'in-maintenance' : 'hot-standby', node_ids: [body.node_id] }],
         diff: unifiedDiff(`state: ${target.state}`, `state: ${body.action === 'start' ? 'in-maintenance' : 'hot-standby'}`, `ha ${nodeName(state, body.node_id)}`),
         targets: [body.node_id],
-        tool: 'ha-maintenance-start',
+        tool: body.action === 'start' ? 'ha-maintenance-start' : 'ha-maintenance-cancel',
         requires_confirmation: true,
         preconditions: [{ kind: 'ha_state', node_id: body.node_id, subject: 'ha', value: target.state }],
         apply() {

@@ -35,7 +35,7 @@ describe('i18n resources', () => {
         const get = (l) => JSON.parse(key).reduce((o, k) => o[k], resources[l][ns])
         expect(placeholders(get(lang)), `${lang}/${ns}.json ${key}`).toEqual(placeholders(get('en')))
         expect(String(get(lang)).trim(), `${lang}/${ns}.json ${key} is empty`).not.toBe('')
-        expect(String(get(lang)), `${lang}/${ns}.json ${key} has an em dash`).not.toContain('—')
+        expect(String(get(lang)), `${lang}/${ns}.json ${key} has an em dash`).not.toContain(String.fromCharCode(0x2014))
       }
     }
   })

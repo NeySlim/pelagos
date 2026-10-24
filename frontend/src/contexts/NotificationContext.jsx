@@ -131,10 +131,13 @@ export function NotificationProvider({ children }) {
               <Toast.Description className="flex-1 min-w-0 text-sm text-text-primary break-words whitespace-pre-line">
                 {toast.message}
               </Toast.Description>
-              <Toast.Close className="flex-shrink-0">
-                <button className="text-text-secondary hover:text-text-primary transition-colors">
-                  <X size={16} />
-                </button>
+              {/* Toast.Close renders the button itself: no nested <button>. */}
+              <Toast.Close
+                className="flex-shrink-0 text-text-secondary hover:text-text-primary transition-colors"
+                aria-label={i18n.t('actions.close')}
+                data-testid="toast-close"
+              >
+                <X size={16} />
               </Toast.Close>
             </div>
           </Toast.Root>

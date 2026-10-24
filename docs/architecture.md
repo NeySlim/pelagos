@@ -814,15 +814,30 @@ Semantics for `DhcpBackend`:
     JSON in memory (section 9), `config-test`, `config-set`, `config-write`.
     Same precondition.
   - `plan_global_change` and `plan_config_replace` always use the second path.
-- `apply` on one node applies to that node's Kea only. Multi-node
+- `apply` on one node applies to that node's Kea only, file included: the
+  running change (object commands or `config-set`) is verified, then the file
+  is persisted on that node before `apply` returns (`config-write`, or the
+  lossless patch of section 9 when the file uses `<?include?>`). Multi-node
   transactions (both HA peers) are orchestrated by `services.plan_service`:
   apply on self, then ask each other target node to apply the same plan over
   the replication channel (`POST /repl/v1/plans/apply`, section 13); on any
-  failure, roll back the nodes already applied. `config-write` on every
-  node is the last step after all nodes accepted `config-set`.
+  failure, roll back the nodes already applied, which puts their running
+  configuration and their file back.
 - `rollback` re-applies the `before` state through the same path; for
   `plan_config_replace` it restores the exact JSON captured at plan time with
-  `config-set` + `config-write`.
+  `config-set` and persists it. It is refused with `PreconditionFailed` when
+  the node's `config-hash-get` moved since this plan was applied there (a
+  later plan or a hand edit would otherwise be undone silently).
+- While the configuration file disagrees with the running configuration
+  (section 9), every configuration plan and apply on that node is refused
+  (`FileDiverged`, a `ConnectorError`; the API answers `409
+  config_divergence`) until a `plan_adopt("file"|"running")` plan is applied.
+  `DhcpBackend.plan_adopt` and `DdnsBackend.plan_adopt` default to
+  `NotSupported`.
+- A global key change (`plan_global_change`) also removes the copies of the
+  old global value that `config-get` writes into shared networks and subnets
+  (inherited values, plus the derived `min-`/`max-` lifetime bounds), so the
+  objects that inherited it follow the new value.
 - Leases are never written except `plan_lease_delete` (`lease4-del` /
   `lease6-del`), which `requires_confirmation`.
 - `user_context` of subnets, pools, reservations and classes carries Pelagos
@@ -885,6 +900,7 @@ dhcp.reservation : "subnet<4|6>/<id>/reservations/<id_type>=<identifier>" | "glo
 dhcp.class     : "client-classes/<name>"
 dhcp.options   : "option-data/<space>/<code or name>" | "<top-level key>"   (e.g. "ddns-send-updates", "hooks-libraries")
 dhcp.config    : "config"                           whole object
+               | "adopt/file" | "adopt/running"     section 9 (also d2.config)
 dhcp.lease     : "lease<4|6>/<ip>"
 dhcp.ha        : "ha/maintenance" (after "start"|"cancel") | "service" (after {"enable": bool})
 d2.config      : "config" | "secret-file/<file name>" (after {"path","sha256"}; the secret never enters a plan)
@@ -946,7 +962,10 @@ new files) into `<backup_root>/<utc timestamp>-<label>/` with a `manifest.json`
 `.<name>.pelagos-tmp.<random>` in the same directory, fsync, rename; only
 names of that shape older than 10 minutes are removed as crash leftovers, so
 editor swap and backup files are never touched) and preserve the existing owner, group and mode
-unless overridden. `validate` runs before `reload`; if it fails nothing is
+unless overridden; when the directory refuses a temp file but the existing
+file is writable (the `pelagos` user, in the Kea group, facing `/etc/kea`
+0750), the file is rewritten in place, owner, mode and SELinux label kept.
+`validate` runs before `reload`; if it fails nothing is
 reloaded and the backup is restored (no reload: the engine still runs its old files; the same holds when
 the write itself fails). If `reload` raises or `verify` returns
 `False`, the backup is restored and `reload` is called again; `rolled_back`
@@ -1008,7 +1027,9 @@ def files_tree(files: ConfigFiles, include_dir: Path | None = None) -> dict[str,
   applied to that JSON and written back with `config-set` + `config-write`,
   which makes Kea itself the serializer. After the first `config-write` the
   file is Kea's canonical pretty-print; comments are lost once, which the
-  import plan states explicitly before the first write.
+  import plan states explicitly before the first write. A file tree with
+  `<?include?>` is never handed to `config-write` (it would inline the
+  includes): Pelagos patches it losslessly instead (below).
 - Domain objects (`Subnet`, `Reservation`, ...) are projections. Each keeps
   the original object in `raw`; `to_kea()` starts from `raw` and overlays
   the typed fields, so any key Pelagos does not model survives an edit.
@@ -1021,10 +1042,35 @@ def files_tree(files: ConfigFiles, include_dir: Path | None = None) -> dict[str,
   at plan time.
 - Ordering: subnets keep their position; a new subnet is appended; the
   `id` is mandatory and allocated as `max(id) + 1` when absent.
-- The file on disk is compared to `config-get` at import time
-  (`kea-dhcp4 -t` on the file, then normalized JSON comparison). A
-  divergence is a `CONFIG_DIVERGENCE` alert and blocks writes until the user
-  chooses "adopt file" or "adopt running".
+- The file on disk (includes resolved) is compared to `config-get` by the
+  collector and before every plan (`core.keafile.kea_config_differences`: the
+  file is a subset of the running configuration, values normalized as Kea
+  does). A divergence is a `CONFIG_DIVERGENCE` alert with subject
+  `<engine>:config-file` and blocks writes until the user chooses "adopt file"
+  (`config-test` then `config-set` of what the file says; rollback sets the
+  previous running configuration back) or "adopt running" (the file is
+  patched to say what runs, comments kept; `config-write` when the editor
+  cannot place a change in a file without includes; the files are backed up
+  and rollback restores them). Both are plans with a diff and
+  `requires_confirmation`, built and applied on the node that holds the file.
+  A poller that cannot read its daemon leaves an open file alert as it is.
+- `<?include "file"?>` is supported. Kea opens a relative name against its
+  working directory (`/` under systemd), Pelagos tries that then the folder
+  of the including file. `core.keadoc.KeaDocument` reads the tree losslessly
+  (comments `//`, `#`, `/* */`, trailing commas) and patches only the values
+  that change, in the file that defines the touched element; an edit that
+  would have to cut across two files is refused with a clear message. When
+  the file uses includes, Pelagos persists a change by patching the files
+  (computed from the running configuration before and after the change,
+  inherited and empty default values left out) instead of `config-write`,
+  which would inline every include; the patched tree must read back as the
+  running configuration or the files are restored. Every installer rewrite
+  of a Kea file (control socket added, D2 clear secrets moved to secret
+  files, the shared key switch) goes through the same editor.
+- SELinux: where the policy confines Kea (`dhcpd_exec_t` or `kea_exec_t`
+  binaries), the installer adds a CIL module letting the domain write its
+  configuration type (`/etc/pelagos/selinux/pelagos-kea-<domain>.cil`); Kea
+  runs unconfined on RHEL and Rocky 10, where nothing is installed.
 
 ## 10. Tool configuration files (TOML)
 
@@ -1724,36 +1770,45 @@ the API normalizes to the absolute form.
 | `GET /dhcp/{family}/subnets?shared_network=&q=` | `read:dhcp` | | `{"items": [Subnet], "utilization": {subnet_id: {"total","assigned","percent"}}, "node_id"}` |
 | `GET /dhcp/{family}/subnets/{id}` | `read:dhcp` | | `Subnet` |
 | `POST /dhcp/{family}/subnets/plan` | `write:dhcp.subnets` | `{"change": Change}` (`after` = Subnet; a partial one is completed with defaults on add, over the current subnet on replace) | `Plan` |
-| `GET /dhcp/{family}/shared-networks` | `read:dhcp` | | `{"items": [SharedNetwork]}` |
+| `GET /dhcp/{family}/shared-networks?node_id=` | `read:dhcp` | | `{"items": [SharedNetwork]}` |
 | `POST /dhcp/{family}/shared-networks/plan` | `write:dhcp.subnets` | `{"change": Change}` | `Plan` |
-| `GET /dhcp/{family}/client-classes` | `read:dhcp` | | `{"items": [ClientClass]}` |
+| `GET /dhcp/{family}/client-classes?node_id=` | `read:dhcp` | | `{"items": [ClientClass]}` |
 | `POST /dhcp/{family}/client-classes/plan` | `write:dhcp.classes` | `{"change": Change}` | `Plan` |
-| `GET /dhcp/{family}/options` | `read:dhcp` | | `{"items": [OptionData], "option_defs": [...]}` |
+| `GET /dhcp/{family}/options?node_id=` | `read:dhcp` | | `{"items": [OptionData], "option_defs": [...]}` |
 | `POST /dhcp/{family}/options/plan` | `write:dhcp.options` | `{"changes": [Change]}` | `Plan` |
 | `GET /dhcp/{family}/reservations?subnet_id=&q=&page=&per_page=` | `read:dhcp` | | paginated `Reservation` |
 | `POST /dhcp/{family}/reservations/plan` | `write:dhcp.reservations` | `{"change": Change}` (`after` = Reservation) | `Plan` |
-| `GET /dhcp/{family}/leases?subnet_id=&q=&state=&node_id=&page=&per_page=` | `read:dhcp` | | paginated `Lease`; `q` matches ip, mac, hostname, client id |
+| `GET /dhcp/{family}/leases?subnet_id=&q=&state=&node_id=&from_address=&limit=` | `read:dhcp` | | `{"items": [Lease], "meta": {"node_id","next","limit"}}`: one page of `lease4-get-page`/`lease6-get-page` from `from_address` (`limit` 1 to 1000, default 100; a subnet filter reads at most 10 Kea pages), `meta.next` is the cursor of the next page (null at the end); `q` is an address, MAC, DUID or exact hostname sent to Kea's lookup commands (no cursor) |
 | `GET /dhcp/{family}/leases/{ip}` | `read:dhcp` | | `{"items": [Lease]}` (one per node, to show HA agreement) |
-| `POST /dhcp/{family}/leases/{ip}/delete/plan` | `ops:dhcp.leases` | | `Plan` (`requires_confirmation`) |
+| `POST /dhcp/{family}/leases/{ip}/delete/plan` | `ops:dhcp.leases` | `{"node_id"?}` (default this node; a peer's lease is deleted on that peer) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/utilization?node_id=` | `read:dhcp` | | `{"items": [{"subnet_id","subnet","pool","total","assigned","declined","percent"}]}` |
 | `GET /dhcp/{family}/stats?node_id=` | `read:dhcp` | | `{"node_id", "statistics": {...}}` |
 | `GET /dhcp/{family}/ha` | `read:dhcp` | | `{"items": [HAState]}` |
 | `POST /dhcp/{family}/ha/maintenance/plan` | `ops:dhcp.ha` | `{"node_id","action":"start"|"cancel"}` (`node_id`: the server that goes in-maintenance or leaves it; the plan is applied on its partner, which stays up as `partner-in-maintenance`) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/ha/transitions?from=&to=` | `read:dhcp` | | `{"items": [{"ts","node_id","server_name","from_state","to_state","partner_state"}]}` |
-| `POST /dhcp/{family}/service/plan` | `ops:dhcp.ha` | `{"node_id","enable": bool}` | `Plan` (`requires_confirmation`) |
+| `POST /dhcp/{family}/service/plan` | `ops:dhcp.ha` | `{"node_id","enable": bool}` (applied on `node_id`, this node or a peer) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/ddns` | `read:dhcp` | | `{"dhcp_ddns": {...}, "ddns_params": {...}, "node_id"}` |
 | `POST /dhcp/{family}/ddns/plan` | `write:dhcp.options` | `{"changes": [Change]}` | `Plan` |
 | `GET /dhcp/{family}/hooks` | `read:dhcp` | | `{"items": [{"library","parameters","known": bool,"name"}], "available": [...]}` |
-| `POST /dhcp/{family}/hooks/plan` | `write:dhcp.config` | `{"changes": [Change]}` (target `hooks-libraries`) | `Plan` |
+| `POST /dhcp/{family}/hooks/plan` | `write:dhcp.config` | `{"changes": [Change]}` (target `hooks-libraries`; each `library` is `libdhcp_<name>.so`, bare or in a Kea hooks directory) | `Plan` |
 | `GET /dhcp/{family}/config?node_id=` | `read:dhcp` | | `{"node_id","hash","config": {...}}` |
-| `POST /dhcp/{family}/config/plan` | `write:dhcp.config` | `{"node_ids"?, "config": {...}}` | `Plan` |
+| `POST /dhcp/{family}/config/plan` | `write:dhcp.config` | `{"node_id"?, "config": {...}}` (the node the configuration was loaded from, this node; never fanned out) | `Plan` |
+| `GET /dhcp/{family}/config/file` | `read:dhcp` | | `{"items": [{"node_id","path","files","includes","diverged","differences","count","alert_id"}]}` (section 9; this node compared live, peers through their snapshot) |
+| `POST /dhcp/{family}/config/adopt/plan` | `write:dhcp.config` | `{"source": "file"|"running", "node_id"?}` (this node) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/d2/servers` | `read:dhcp` | | `{"items": [{"node_id","capabilities","status"}]}` |
 | `GET /dhcp/d2/stats?node_id=` | `read:dhcp` | | `D2Stats` |
 | `GET /dhcp/d2/config?node_id=` | `read:dhcp` | | `{"node_id","config"}` (secrets masked) |
-| `POST /dhcp/d2/config/plan` | `write:dhcp.config` | `{"node_ids"?, "config"}` | `Plan` |
+| `POST /dhcp/d2/config/plan` | `write:dhcp.config` | `{"node_id"?, "config"}` (this node only) | `Plan` |
+| `GET /dhcp/d2/config/file` | `read:dhcp` | | as `GET /dhcp/{family}/config/file` |
+| `POST /dhcp/d2/config/adopt/plan` | `write:dhcp.config` | `{"source": "file"|"running"}` | `Plan` (`requires_confirmation`) |
 
 `v6` paths are `v6-module`. Reads default to the local node and fall back
 to the first reachable node that runs the engine; `node_id` selects one.
+Configuration plans (subnets, shared networks, reservations, classes,
+options, ddns, hooks, config, D2 config, host reservations) answer `409
+config_divergence` while a target node's Kea file disagrees with its running
+configuration; the problem document carries `"engine"` and `"divergences":
+[{"node_id","path","differences","alert_id"}]`.
 
 ### Hosts
 
@@ -1761,7 +1816,7 @@ to the first reachable node that runs the engine; `node_id` selects one.
 | --- | --- | --- | --- |
 | `GET /hosts?q=&subnet_id=&zone=&only_inconsistent=&page=&per_page=` | `read:hosts` | | paginated `Host` |
 | `GET /hosts/{key}` | `read:hosts` | | `Host` |
-| `POST /hosts/plan` | `write:hosts` | `{"hostname","ip","mac"?,"zone","reverse_zone"?,"ttl"?,"reservation": bool,"subnet_id"?,"notes"?}` | `Plan` (scope `host`, changes expanded into `dns.rrset` and `dhcp.reservation`) |
+| `POST /hosts/plan` | `write:hosts` | `{"hostname","ip","mac"?,"zone","reverse_zone"?,"ttl"?,"reservation": bool,"subnet_id"?,"notes"?}` | `Plan` (scope `host`, changes expanded into `dns.rrset` and `dhcp.reservation`; on a node without BIND the RRset parts are built from the primary's records and applied on the primary) |
 
 ### Plans and jobs
 
@@ -1962,7 +2017,8 @@ Errors are RFC 7807 problem documents, `Content-Type: application/problem+json`:
 Codes and HTTP statuses: `validation_error` 400, `invalid_credentials` 401,
 `totp_required` 401, `unauthenticated` 401, `forbidden` 403,
 `csrf_failed` 403, `not_found` 404, `module_disabled` 404,
-`method_not_allowed` 405, `conflict` 409, `precondition_failed` 409,
+`method_not_allowed` 405, `conflict` 409, `config_divergence` 409,
+`precondition_failed` 409,
 `plan_expired` 410, `plan_state` 409, `confirmation_required` 428,
 `rate_limited` 429, `engine_unavailable` 503, `replication_syncing` 503,
 `not_supported` 501 (engine lacks the feature), `not_implemented` 501

@@ -13,6 +13,43 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, F-KEA: Kea file divergence, includes, lossless edits, single-node replaces
+All additive; `docs/architecture.md` sections 5, 6, 7, 9, 17 and 19 updated.
+- `connectors/base.py`: `DhcpBackend.plan_adopt(source)` and `DdnsBackend.plan_adopt(source)`,
+  non-abstract, default `NotSupported`. Change targets `adopt/file` and `adopt/running`
+  (scopes `dhcp.config`, `d2.config`). Fakes and other backends need nothing.
+- `core/keadoc.py` (new): lossless Kea-JSON document over a file and its `<?include?>`s;
+  `core/keafile.py`: `loads(text, path)` resolves includes when a path is given (still refused
+  without one), `load`, `included_files`, and the file versus running comparison moved here
+  from `services/consistency.py` (re-exported there, same names), plus `rebase`/`conform`.
+  The pool comparison now treats `a - b` and the equivalent `prefix/len` as equal.
+- `core/write_pipeline.py`: in-place rewrite when the directory refuses a temp file.
+- Kea writes: a configuration file that differs from `config-get` blocks plans and applies
+  (`FileDiverged` from the connectors, `409 config_divergence` from the API with `engine` and
+  `divergences` extension members; `ServiceError` gained an optional `extra`). With
+  `<?include?>` the connectors patch the files instead of `config-write`. Rollback of a Kea
+  plan is refused when `config-hash-get` moved since it was applied there.
+- Global key changes drop the inherited copies of the old value from shared networks and
+  subnets (config-get materializes them, which froze those objects on the old value).
+- API (section 17): `GET /dhcp/{family}/config/file`, `POST /dhcp/{family}/config/adopt/plan`,
+  `GET /dhcp/d2/config/file`, `POST /dhcp/d2/config/adopt/plan`; leases are cursor pages
+  (`from_address`, `limit`, `meta.next`; `q` uses Kea lookups); `node_id` on shared networks,
+  client classes and options; `config/plan` and `d2/config/plan` target only the node the
+  configuration was loaded from (`node_id`, this node; `node_ids` naming another node is a
+  400); service toggle and lease delete accept a peer `node_id`; hook libraries must be
+  `libdhcp_<name>.so` in a Kea hooks directory; v6 reservation `ip_addresses`/`prefixes`
+  are checked. Snapshot kinds `file`, `leases_by`, `lease_page` for Kea engines, `file` for D2.
+- Host plans on a node without BIND build their RRset parts from the primary's records
+  (`services/remote_rrset.py`) and apply them there.
+- Collector: a Kea or D2 poller that cannot read its daemon no longer resolves an open
+  `<engine>:config-file` alert; one `config-get` per Kea poll.
+- Installer: Kea file rewrites (socket, D2 secret files, key switch) go through the editor and
+  follow includes; included files get the Kea group mode; SELinux CIL module where Kea is
+  confined (none on RHEL/Rocky 10, where Kea runs unconfined; verified on lab-rpm).
+- Frontend: `api.dhcp.configFile/adoptPlan`, `api.d2.configFile/adoptPlan`, `configPlan`
+  takes the loaded `node_id`; DHCP pages show the divergence banner; the alert detail
+  offers both adopt plans; the lease list follows the cursor.
+
 ## 2026-10-24, F-CORE: cluster.toml merged entry by entry, no lost write
 `docs/architecture.md` sections 10 and 13. `cluster.toml` gains a
 `[replication]` table (`stamps`, `tombstones`: entry path to

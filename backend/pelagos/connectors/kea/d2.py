@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,7 @@ from pelagos.domain import (
 _KEY_STAT = re.compile(r"^key\[(?P<key>[^\]]+)\]\.(?P<name>.+)$")
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 ROOT = "DhcpDdns"
+MASK = "***"
 
 
 def reduce_d2_stats(node_id: str, stats: dict[str, Any]) -> D2Stats:
@@ -66,24 +68,41 @@ def externalize_secrets(config: dict[str, Any], secret_dir: Path) -> tuple[dict[
     keys = []
     for key in config.get("tsig-keys") or []:
         key = dict(key)
+        # With both set, the secret file wins and the clear secret is dropped.
         secret = key.pop("secret", None)
         if secret and not key.get("secret-file"):
             path = secret_dir / secret_file_name(str(key.get("name", "key")))
             key["secret-file"] = str(path)
             files[path] = str(secret)
-        elif secret:
-            key["secret"] = secret
         keys.append(key)
     if "tsig-keys" in config:
         out["tsig-keys"] = keys
     return out, files
 
 
+def has_clear_secrets(config: dict[str, Any]) -> bool:
+    return any(k.get("secret") for k in config.get("tsig-keys") or [])
+
+
+@dataclass(slots=True)
+class _PlanPrivate:
+    """What a plan needs at apply or rollback but must never carry: secrets, backup path."""
+
+    expires_at: datetime
+    secrets: dict[Path, str]
+    before: dict[str, Any] | None = None  # the real before state when it holds clear secrets
+    backup: Path | None = None
+
+
+def has_masked_secrets(config: Any) -> bool:
+    return isinstance(config, dict) and any(k.get("secret") == MASK for k in config.get("tsig-keys") or [])
+
+
 def mask_secrets(config: dict[str, Any]) -> dict[str, Any]:
     out = dict(config)
     if "tsig-keys" in config:
         out["tsig-keys"] = [
-            {**k, "secret": "***"} if k.get("secret") else dict(k) for k in config["tsig-keys"]
+            {**k, "secret": MASK} if k.get("secret") else dict(k) for k in config["tsig-keys"]
         ]
     return out
 
@@ -100,9 +119,8 @@ class D2Backend(DdnsBackend):
         self.secret_group: str | None = cfg.get("kea_group")
         self.backup_root = Path(ctx.backup_root) / "d2"
         self.plan_ttl = int((ctx.settings or {}).get("plan_ttl_seconds", 600))
-        # Secrets and backup directories of plans built here, keyed by plan id; never serialized.
-        self._pending_secrets: dict[str, dict[Path, str]] = {}
-        self._backups: dict[str, Path] = {}
+        # Per plan id, never serialized; dropped once the plan can no longer be applied or rolled back.
+        self._private: dict[str, _PlanPrivate] = {}
 
     # Observation ----------------------------------------------------------------------
 
@@ -144,7 +162,13 @@ class D2Backend(DdnsBackend):
 
     # Plan ----------------------------------------------------------------------------------
 
+    def _sweep(self) -> None:
+        now = utcnow()
+        for plan_id in [k for k, v in self._private.items() if v.expires_at <= now]:
+            del self._private[plan_id]
+
     def plan_config_replace(self, config: dict[str, Any], created_by: str = "") -> Plan:
+        self._sweep()
         if ROOT in config and len(config) <= 2:
             config = config[ROOT]
         before = self.config_get()
@@ -161,7 +185,8 @@ class D2Backend(DdnsBackend):
             )
         else:
             validation = self.config_test(new_cfg)
-        changes = [Change(ChangeOp.REPLACE, "config", before=before, after=new_cfg)]
+        masked_before = mask_secrets(before)
+        changes = [Change(ChangeOp.REPLACE, "config", before=masked_before, after=new_cfg)]
         for path, secret in secrets.items():
             digest = hashlib.sha256(secret.encode()).hexdigest()
             changes.append(
@@ -175,7 +200,7 @@ class D2Backend(DdnsBackend):
             created_by=created_by,
             engine=Engine.D2,
             changes=changes,
-            diff=config_diff(before, mask_secrets(new_cfg), str(self.conf_path)),
+            diff=config_diff(masked_before, mask_secrets(new_cfg), str(self.conf_path)),
             preconditions=[
                 Precondition(
                     kind=PreconditionKind.CONFIG_HASH,
@@ -190,8 +215,13 @@ class D2Backend(DdnsBackend):
             expires_at=utcnow() + timedelta(seconds=self.plan_ttl),
             error=None if validation.ok else validation.output,
         )
-        if secrets:
-            self._pending_secrets[plan.id] = secrets
+        clear_before = has_clear_secrets(before)
+        if secrets or clear_before:
+            self._private[plan.id] = _PlanPrivate(
+                expires_at=plan.expires_at or utcnow() + timedelta(seconds=self.plan_ttl),
+                secrets=secrets,
+                before=before if clear_before else None,
+            )
         return plan
 
     # Apply and rollback -------------------------------------------------------------------------
@@ -225,16 +255,32 @@ class D2Backend(DdnsBackend):
                 observed = self.config_hash()
                 if observed != p.value:
                     raise PreconditionFailed(p, observed)
+        self._sweep()
         change = self._config_change(plan)
-        return self._write(dict(change.after), plan.id, self._pending_secrets.pop(plan.id, {}))
+        private = self._private.get(plan.id)
+        secrets = private.secrets if private else {}
+        if private:
+            # Secrets are no longer needed; what rollback needs stays for the rollback window.
+            private.secrets = {}
+            private.expires_at = utcnow() + timedelta(seconds=self.plan_ttl)
+        return self._write(dict(change.after), plan.id, secrets)
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
+        self._sweep()
         change = self._config_change(plan)
-        result = self._write(dict(change.before), f"{plan.id}-rollback", {})
-        backup = self._backups.pop(plan.id, None)
+        private = self._private.pop(plan.id, None)
+        before = private.before if private and private.before is not None else change.before
+        if has_masked_secrets(before):
+            return NodeApplyResult(
+                node_id=self.ctx.node_id,
+                ok=False,
+                message="the before state of this plan is no longer held; restore from the backup directory",
+            )
+        result = self._write(dict(before), f"{plan.id}-rollback", {})
+        backup = private.backup if private else None
         if backup is not None and result.ok:
             # Secret files written by the plan go back to what they were (or disappear).
-            self._pipeline(dict(change.before), "", f"{plan.id}-restore").restore(backup)
+            self._pipeline(dict(before), "", f"{plan.id}-restore").restore(backup)
         return result
 
     def _write(self, new_cfg: dict[str, Any], label: str, secrets: dict[Path, str]) -> NodeApplyResult:
@@ -255,7 +301,10 @@ class D2Backend(DdnsBackend):
         except OSError as exc:
             return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=f"backup failed: {exc}")
         if backup_dir is not None and not label.endswith("-rollback"):
-            self._backups[label] = backup_dir
+            private = self._private.setdefault(
+                label, _PlanPrivate(expires_at=utcnow() + timedelta(seconds=self.plan_ttl), secrets={})
+            )
+            private.backup = backup_dir
         try:
             if files:
                 result = pipeline.run(files)

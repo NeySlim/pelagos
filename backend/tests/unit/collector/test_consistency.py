@@ -149,6 +149,22 @@ def test_duplicate_ip():
     )
 
 
+def test_duplicate_ip_compares_the_identifier_of_the_reservation_type():
+    by_client_id = Reservation(
+        subnet_id=1, id_type=ReservationIdType.CLIENT_ID, identifier="01aabbccddee01", ip_address="192.0.2.20"
+    )
+    same_client = lease("192.0.2.20", "aa:bb:cc:dd:ee:01", client_id="01:aa:bb:cc:dd:ee:01")
+    assert c.duplicate_ips([by_client_id], [same_client]) == []
+    other_client = lease("192.0.2.20", "aa:bb:cc:dd:ee:01", client_id="01:aa:bb:cc:dd:ee:09")
+    assert kinds(c.duplicate_ips([by_client_id], [other_client])) == [AlertKind.DUPLICATE_IP]
+    # No client-id on the lease, or a type a lease never carries: nothing to compare.
+    assert c.duplicate_ips([by_client_id], [lease("192.0.2.20", "aa:bb:cc:dd:ee:09")]) == []
+    by_flex = Reservation(
+        subnet_id=1, id_type=ReservationIdType.FLEX_ID, identifier="'host-a'", ip_address="192.0.2.21"
+    )
+    assert c.duplicate_ips([by_flex], [lease("192.0.2.21", "aa:bb:cc:dd:ee:09")]) == []
+
+
 def test_run_all_dedupes_by_id():
     forward = {FWD: forward_zone(rr("pc1.example.lan.", "A", "192.0.2.10"))}
     reverse = reverse_zone()

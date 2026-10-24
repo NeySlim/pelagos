@@ -12,7 +12,16 @@ from __future__ import annotations
 import ipaddress
 from collections.abc import Iterable
 
-from pelagos.domain import Alert, AlertKind, Lease, LeaseState, Reservation, RRset, Severity
+from pelagos.domain import (
+    Alert,
+    AlertKind,
+    Lease,
+    LeaseState,
+    Reservation,
+    ReservationIdType,
+    RRset,
+    Severity,
+)
 from pelagos.domain.dns import normalize_name
 
 ADDRESS_TYPES = ("A", "AAAA")
@@ -249,6 +258,23 @@ def _ptr_to_ip(rname: str) -> str:
     raise ValueError(rname)
 
 
+def _lease_identifier(lease: Lease, id_type: ReservationIdType) -> str | None:
+    """The lease field comparable with a reservation of this identifier type; None when the lease
+    does not carry one (circuit-id and flex-id never appear in a lease)."""
+    if id_type is ReservationIdType.HW_ADDRESS:
+        return lease.hw_address
+    if id_type is ReservationIdType.DUID:
+        return lease.duid
+    if id_type is ReservationIdType.CLIENT_ID:
+        return lease.client_id
+    return None
+
+
+def _hex(identifier: str) -> str:
+    """Identifier without separators, lowercased: Kea writes aa:bb, configs often aabb or aa-bb."""
+    return identifier.lower().replace(":", "").replace("-", "")
+
+
 def duplicate_ips(reservations: Iterable[Reservation], leases: Iterable[Lease]) -> list[Alert]:
     """Same IP in two reservations, or in a reservation and a lease of another client."""
     seen: dict[str, Reservation] = {}
@@ -275,8 +301,8 @@ def duplicate_ips(reservations: Iterable[Reservation], leases: Iterable[Lease]) 
         res = seen.get(ip)
         if res is None:
             continue
-        lease_key = (lease.hw_address or lease.duid or lease.client_id or "").lower()
-        if lease_key and lease_key != res.identifier.lower():
+        lease_key = (_lease_identifier(lease, res.id_type) or "").lower()
+        if lease_key and _hex(lease_key) != _hex(res.identifier):
             alerts.append(
                 Alert(
                     kind=AlertKind.DUPLICATE_IP,

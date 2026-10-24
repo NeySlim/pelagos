@@ -36,8 +36,19 @@ Additive, no existing symbol changes.
 - `pool_utilization()` rows also carry `kind` (`pool`, `pd-pool` or `subnet`) and
   `node_id`. Kea counts pools by `pool-id` (default 0), so pools of a subnet without
   explicit ids share one row whose `pool` joins their ranges with `, `.
-- `KeaBackend.command()` raises `ConnectorDenied` for `config-set`, `config-write`,
-  `config-reload` and `shutdown`.
+- `KeaBackend.command()` is a read-only passthrough: it accepts `list-commands`,
+  `status-get`, `version-get`, `build-report`, `config-get`, `config-hash-get`,
+  `statistic-get`, `statistic-get-all`, `ha-heartbeat` and any command ending in
+  `-get`, `-get-all`, `-get-page`, `-list` or containing `-get-by-`; everything else
+  raises `ConnectorDenied` ("must go through a plan").
+- With a `hosts-database` configured and host_cmds loaded, reservation plans write to
+  the database (no `operation-target`), read their `before` and verify through
+  `reservation-get`, and undo host commands explicitly on failure. Reservations
+  embedded in a subnet or shared network always use `operation-target: memory`.
+- A `key` or `option` change whose `after` is None removes the target: this is the
+  inverse of a change that created it.
+- D2 plans carry the `before` configuration with TSIG secrets masked (`***`); the
+  real before state stays in process memory for the rollback window only.
 - `backend/tests/unit/connectors/__init__.py` is an empty package marker shared with
   WP-BIND (identical content on both sides).
 

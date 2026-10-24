@@ -102,6 +102,11 @@ def register_api(app: Flask) -> Api:
         admin,
     ):
         api.add_namespace(module.ns)
+    from pelagos.api.models import all_models
+
+    # Models are module-level RESTX objects shared by the namespaces; the document needs them all.
+    for name, definition in all_models().items():
+        api.models.setdefault(name, definition)
     app.register_blueprint(blueprint)
     register_ws(app, API_PREFIX)
     return api

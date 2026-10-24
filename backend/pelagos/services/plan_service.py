@@ -157,19 +157,19 @@ class PlanService:
         applied: list[tuple[Plan, list[str]]] = []
         failed = False
         for part in parts:
+            # A failing part has already rolled back its own nodes; earlier parts are undone below.
             part_results, ok = self._apply_one(part)
             results.extend(part_results)
-            applied.append((part, [r.node_id for r in part_results if r.ok and not r.rolled_back]))
             if not ok:
                 failed = True
+                plan.error = plan.error or part.error
                 break
+            applied.append((part, [r.node_id for r in part_results if r.ok]))
         if failed:
-            rolled: list[NodeApplyResult] = []
             for part, node_ids in reversed(applied):
-                rolled.extend(self._rollback_nodes(part, node_ids))
-            results.extend(rolled)
-            all_rolled = all(r.ok for r in rolled)
-            plan.state = PlanState.ROLLED_BACK if rolled and all_rolled else PlanState.FAILED
+                results.extend(self._rollback_nodes(part, node_ids))
+            rolled = [r for r in results if r.rolled_back]
+            plan.state = PlanState.ROLLED_BACK if rolled and all(r.ok for r in rolled) else PlanState.FAILED
             plan.error = plan.error or next((r.message for r in results if not r.ok), "apply failed")
             for part in parts:
                 part.state = plan.state

@@ -3,13 +3,11 @@
 
 from __future__ import annotations
 
-import re
-import subprocess
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 from typing import Any
 
-from pelagos.platform import Distro, PlatformPaths, detect_distro, find_binary, platform_paths
+from pelagos.installer import bindconf, bindsetup, keaconf, keasetup, managed
+from pelagos.platform import Distro, platform_paths
 
 
 @dataclass(slots=True)
@@ -19,40 +17,22 @@ class EngineDetection:
     version: str | None = None
     service: str | None = None
     running: bool | None = None
+    enabled: bool | None = None
     config: str | None = None
     config_exists: bool = False
+    source: str | None = None  # "distro" | "isc" for Kea
     paths: dict[str, str] = field(default_factory=dict)
 
 
-def _version(binary: str, flag: str) -> str | None:
-    try:
-        out = subprocess.run([binary, flag], capture_output=True, text=True, timeout=10, check=False)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    text = (out.stdout or out.stderr).strip()
-    m = re.search(r"(\d+\.\d+\.\d+)", text)
-    return m.group(1) if m else text.splitlines()[0] if text else None
-
-
-def _service_active(unit: str) -> bool | None:
-    systemctl = find_binary("systemctl")
-    if not systemctl:
-        return None
-    try:
-        out = subprocess.run(
-            [systemctl, "is-active", unit], capture_output=True, text=True, timeout=10, check=False
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return out.stdout.strip() == "active"
-
-
-def detect_bind(paths: PlatformPaths) -> EngineDetection:
-    binary = find_binary("named")
-    det = EngineDetection(installed=binary is not None, binary=binary, service=paths.bind_service)
+def detect_bind(env: Any) -> EngineDetection:
+    paths = env.paths
+    binary = env.binary("named")
+    unit = env.bind_unit()
+    det = EngineDetection(installed=binary is not None, binary=binary, service=unit, source="distro")
     if binary:
-        det.version = _version(binary, "-v")
-        det.running = _service_active(paths.bind_service)
+        det.version = env.t.named_version()
+        det.running = env.services.is_active(unit)
+        det.enabled = env.services.is_enabled(unit)
     det.config = str(paths.named_conf)
     det.config_exists = paths.named_conf.exists()
     det.paths = {
@@ -65,20 +45,22 @@ def detect_bind(paths: PlatformPaths) -> EngineDetection:
     return det
 
 
-def detect_kea(paths: PlatformPaths, daemon: str) -> EngineDetection:
-    binary = find_binary(daemon)
-    key = {"kea-dhcp4": "kea4", "kea-dhcp6": "kea6", "kea-dhcp-ddns": "d2"}[daemon]
-    conf = paths.kea_conf_dir / f"{daemon}.conf"
-    isc = Path("/etc/apt/sources.list.d").glob("isc-kea*") if Path("/etc/apt/sources.list.d").exists() else []
-    service = paths.kea_services_isc[key] if any(True for _ in isc) else paths.kea_services_distro[key]
-    det = EngineDetection(installed=binary is not None, binary=binary, service=service)
+def detect_kea(env: Any, engine: str) -> EngineDetection:
+    paths = env.paths
+    daemon = keasetup.DAEMONS[engine]
+    binary = env.binary(daemon)
+    conf = paths.kea_conf(daemon)
+    det = EngineDetection(installed=binary is not None, binary=binary)
     if binary:
-        det.version = _version(binary, "-v")
-        det.running = _service_active(service)
+        det.service = env.kea_unit(engine)
+        det.source = "isc" if det.service.startswith("isc-") else "distro"
+        det.version = env.t.kea_version(daemon)
+        det.running = env.services.is_active(det.service)
+        det.enabled = env.services.is_enabled(det.service)
     det.config = str(conf)
     det.config_exists = conf.exists()
     det.paths = {
-        "socket_dir": str(paths.kea_socket_dir),
+        "socket": str(keasetup.socket_path(env, engine, conf)),
         "hooks_dir": str(paths.kea_hooks_dir),
         "lease_dir": str(paths.kea_lease_dir),
         "user": paths.kea_user,
@@ -87,16 +69,55 @@ def detect_kea(paths: PlatformPaths, daemon: str) -> EngineDetection:
     return det
 
 
-def detect_all(distro: Distro | None = None) -> dict[str, Any]:
-    distro = distro or detect_distro()
-    paths = platform_paths(distro)
+def pelagos_state(env: Any, engines: dict[str, EngineDetection]) -> dict[str, Any]:
+    """Whether the node's prerequisites are in place: include lines, Kea sockets, Pelagos keys."""
+    paths = env.paths
+    include_present: bool | None = None
+    keys_present: bool | None = None
+    if engines["bind"].config_exists:
+        try:
+            files = bindconf.load_files(paths.named_conf)
+            stmts = [s for p in files.order for s in files.statements[p]]
+            include_present = bindconf.has_include(stmts, str(paths.pelagos_conf))
+            defined = bindsetup.all_keys(files)
+            keys_present = managed.READ_KEY in defined and managed.ADMIN_KEY in defined
+        except (OSError, bindconf.ParseError):
+            include_present = None
+    sockets: dict[str, bool] = {}
+    for engine in keasetup.DAEMONS:
+        det = engines[engine]
+        if det.installed and det.config_exists:
+            try:
+                sockets[engine] = env.t.socket_alive(
+                    keasetup.socket_path(env, engine, paths.kea_conf(keasetup.DAEMONS[engine]))
+                )
+            except (OSError, keaconf.KeaConfigError):
+                sockets[engine] = False
     return {
-        "distro": asdict(distro),
-        "engines": {
-            "bind": asdict(detect_bind(paths)),
-            "kea4": asdict(detect_kea(paths, "kea-dhcp4")),
-            "kea6": asdict(detect_kea(paths, "kea-dhcp6")),
-            "d2": asdict(detect_kea(paths, "kea-dhcp-ddns")),
-        },
-        "pelagos": {"include_present": None, "sockets_ok": None, "keys_present": None},  # WP-INSTALLER
+        "include_present": include_present,
+        "sockets_ok": all(sockets.values()) if sockets else None,
+        "sockets": sockets,
+        "keys_present": keys_present,
+        "node_initialized": env.node_initialized(),
     }
+
+
+def detect_env(env: Any) -> dict[str, Any]:
+    engines = {"bind": detect_bind(env)}
+    for engine in keasetup.DAEMONS:
+        engines[engine] = detect_kea(env, engine)
+    return {
+        "distro": {**asdict(env.distro), "package_manager": env.distro.package_manager},
+        "engines": {k: asdict(v) for k, v in engines.items()},
+        "pelagos": pelagos_state(env, engines),
+    }
+
+
+def detect_all(distro: Distro | None = None) -> dict[str, Any]:
+    """GET /install/detect on this host."""
+    from pelagos.installer.env import InstallerEnv
+
+    env = InstallerEnv.detect()
+    if distro is not None:
+        env.distro, env.paths = distro, platform_paths(distro)
+    return detect_env(env)

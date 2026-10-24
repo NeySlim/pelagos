@@ -50,8 +50,12 @@ Notes:
   interface of the Docker host to `kea-dhcp4.conf` before serving DHCP.
 - rndc and the statistics channel reach `bind` over the compose network. The
   BIND connector reads the server from `node.toml [engines.bind]`
-  (`rndc_address = "bind"`, `statistics_url = "http://bind:8053/json/v1"`),
-  which `pelagos import` writes when it adopts the server.
+  (`rndc_address = "bind"`, `statistics_url = "http://bind:8053/json/v1"`,
+  `query_address` = the address of `bind`, `group`), which the entrypoint
+  writes at every start when `PELAGOS_BIND_HOST` is not local and a key is
+  missing. While BIND is off in `node.toml` (`bind = false`, as `pelagos
+  init` leaves it) the table is parked under `[engines.disabled.bind]`;
+  `pelagos import` turns it on and keeps those connection keys.
 
 `packaging/tests/compose-smoke.sh [image]` brings the stack up under a
 throwaway project name and checks `/api/v1/health`, `rndc status` and the

@@ -819,7 +819,7 @@ class WritePipeline:
                  reload: Callable[[], str], verify: Callable[[], bool] | None = None,
                  label: str = "") -> None: ...
     def run(self, changes: list[FileChange]) -> PipelineResult: ...
-    def restore(self, backup_dir: Path) -> PipelineResult: ...   # explicit rollback later
+    def restore(self, backup_dir: Path, reload: bool = True) -> PipelineResult: ...   # explicit rollback later
 ```
 
 Rules: backups copy every target file that exists (and record "absent" for
@@ -827,7 +827,8 @@ new files) into `<backup_root>/<utc timestamp>-<label>/` with a `manifest.json`
 (paths, sha256, mode, owner). Writes are atomic (temp file in the same
 directory, fsync, rename) and preserve the existing owner, group and mode
 unless overridden. `validate` runs before `reload`; if it fails nothing is
-reloaded and the backup is restored. If `reload` raises or `verify` returns
+reloaded and the backup is restored (no reload: the engine still runs its old files; the same holds when
+the write itself fails). If `reload` raises or `verify` returns
 `False`, the backup is restored and `reload` is called again; `rolled_back`
 is `True`. Validator commands run with a 30 s timeout and never through a
 shell. The pipeline never deletes a backup; retention of backups is the
@@ -934,10 +935,12 @@ cert = "/etc/pelagos/tls/server.crt"
 key = "/etc/pelagos/tls/server.key"
 
 [engines]                               # what this node drives; discovered by `pelagos install`/`import`, editable
-bind = true
-kea4 = true
+kea4 = true                             # an engine is on when its entry is truthy: true or a table
 kea6 = false
 d2 = true
+# bind is on through its [engines.bind] table (TOML cannot hold both `bind = true` and the table);
+# `bind = true` alone means every default below, `bind = false` turns it off and parks the table
+# under [engines.disabled.bind] until it is turned back on.
 
 [engines.bind]
 named_conf = "/etc/bind/named.conf"
@@ -946,9 +949,12 @@ rndc_conf = "/etc/bind/pelagos/rndc-pelagos.conf"   # rndc config with our key; 
 statistics_url = "http://127.0.0.1:8053/json/v1"
 query_address = "127.0.0.1"
 query_port = 53
-# optional: rndc_address, rndc_port (953), rndc_key (fallback key file), zone_dir (new primary
-# zone files, default <options directory>/pelagos), group (group of managed files), checkconf,
-# checkzone (binary paths, default from PATH and /usr/sbin)
+group = "bind"                          # group of the managed files: bind (Debian) or named (RHEL)
+# optional: rndc_address (127.0.0.1; "bind" for the compose BIND container), rndc_port (953),
+# rndc_key (fallback key file), zone_dir (new primary zone files, default <options
+# directory>/pelagos), checkconf, checkzone (binary paths, default from PATH and /usr/sbin).
+# rndc_address, rndc_port, statistics_url, query_address and query_port say where named listens:
+# `pelagos import` keeps them when present. query_address is an IP address (DNS queries, UPDATE).
 
 [engines.kea]
 socket_dir = "/run/kea"
@@ -1155,6 +1161,26 @@ the answer's `"error"` member, never as an HTTP error. On the client side,
 The same registry serves `/repl/v1/plans/apply|rollback`: the plan's
 `engine` selects the backend.
 
+The collector serves `/repl/v1` (it runs `ReplicationService` with a
+registry over its own backends) and adds the kind `cache`: the answer is
+`SeriesStore.engine_snapshot(node_id, engine)`, `{"node_id", "engine", "ts",
+"kinds": {kind: {"ts", "payload"}}}`, the node's last polled reads, which the
+peers poller copies into its own cache. The collector's `PEER_OFFLINE` and
+schema-mismatch `CONFIG_DIVERGENCE` come from the replicator's exchanges
+(`Replicator.peer_statuses()`, its failure counts), not from extra status
+calls. When entries from a peer are merged into the audit log, the collector
+gets an `{"event": "audit_merged"}` datagram and replays `alert.ack` entries.
+
+Plan secrets: a `secret-file/<name>` change (D2 TSIG secret files) may carry
+`after.sealed`, the clear secret encrypted with the master key (section 12)
+under the name `plan/<plan id>/<target>`, and checked against
+`after.sha256` when opened. The node that builds the plan seals it with
+`core.plan_secrets.seal_backend_secrets(plan, backend, ctx.secrets)` before
+the plan goes to peers; `POST /repl/v1/plans/apply` opens it
+(`hand_secrets_to_backend`) and gives it to the backend
+(`D2Backend.accept_plan_secrets`). A plan without it applies only on the
+node that built it.
+
 Client behavior (`core.replication.ReplicationClient`, run by the collector):
 
 - Push on write: `ConfigStore.update_cluster` and `AuditLog.append` signal
@@ -1293,6 +1319,16 @@ collector applies `alert.ack` entries from the audit log to its own table
 when it sees them. An `ACKED` alert that resolves and then returns opens
 again as `OPEN`.
 
+Kea file versus running configuration: the file (comments and trailing
+commas allowed, files with `<?include?>` skipped) is compared to `config-get`
+as a subset, because `config-get` adds every default: each key the file sets
+must hold the same value at runtime. Normalized like Kea does: blanks around
+the `-` of pool ranges, lower-case hardware and client identifiers, the
+singular `control-socket` as the one-item `control-sockets` list, `comment`
+moved into `user-context`, secrets masked by `config-get`, relative socket,
+lease, hook and secret file names compared by base name. `loggers` are not
+compared.
+
 Alert kinds and rules (thresholds from `settings`):
 
 | Kind | Severity | Rule |
@@ -1307,7 +1343,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `d2_errors` | warning | `(update-error + update-timeout) / update-sent` over the last hour > `alerts_d2_error_rate` |
 | `daemon_down` | critical | a configured local daemon does not answer |
 | `peer_offline` | warning | peer unreachable for 3 polls |
-| `config_divergence` | warning | Kea `config-hash-get` differs between HA peers, or file differs from running config, or cluster.toml schema mismatch |
+| `config_divergence` | warning | Kea `config-hash-get` differs between HA peers (subject `<engine>:config-hash`), or a Kea file differs from `config-get` (subject `<engine>:config-file`, kea4, kea6, d2), or cluster.toml schema mismatch (subject `schema:<peer id>`) |
 | `lease_without_record` | info | active lease with `fqdn_fwd` true and no A/AAAA for its hostname in the forward zone |
 | `record_without_lease` | info | A/AAAA with a DHCID whose lease no longer exists |
 | `reservation_mismatch` | warning | reservation hostname/IP disagrees with the A/PTR records |

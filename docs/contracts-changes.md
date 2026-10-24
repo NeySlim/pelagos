@@ -13,6 +13,49 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, INT-CORE: collector runs replication, snapshot kind cache, plan secrets, node.toml
+- `docs/architecture.md` section 10: the node.toml example is valid TOML again. `bind` is on through
+  its `[engines.bind]` table (or `bind = true` for defaults); the table gains `group` and the
+  comment says which keys locate named (`rndc_address`, `rndc_port`, `statistics_url`,
+  `query_address`, `query_port`). `pelagos import` keeps those keys when node.toml already has them,
+  takes back a table parked under `[engines.disabled.bind]`, and writes `group` (`bind`/`named`).
+  The docker entrypoint fills them for a BIND container (`PELAGOS_BIND_HOST`), in the parked table
+  while BIND is off. WP-API-AUTH: nothing to change (`[engines.disabled.<engine>]` is your rule).
+- Section 13: the collector runs `ReplicationService` over a core registry filled with its own
+  backends and serves `GET /repl/v1/engines/<engine>/snapshot`: kind `cache` answers
+  `SeriesStore.engine_snapshot()` (what peers' collectors copy), every other kind goes to
+  `services.snapshot.engine_snapshot` (the collector imports `services.snapshot` and
+  `services.registry` for this, in `collector/snapshots.py` and `collector/main.py`).
+  `ReplicationClient.engine_snapshot(engine, kind="summary", params=None)` sends `?kind=` and the
+  parameters (None dropped). `ReplicationApp` and `ReplicationService` take `snapshot=` (a callable
+  `(engine, kind, params) -> dict`), `secrets=` and `on_audit_merged=`; the collector receives
+  `{"event": "audit_merged"}` on `collector.sock` when peer entries were merged and replays acks.
+  `start_collector_side(ctx, listener, store, *, registry, snapshot, on_audit_merged)` keeps its
+  three positional arguments; its handle exposes `replicator`.
+- Section 13, plan secrets: `pelagos.core.plan_secrets.seal_backend_secrets(plan, backend,
+  ctx.secrets) -> int`. WP-API-AUTH (plan service): call it right after a D2 plan is built and
+  before the plan is sent to any peer (`ReplicationClient.apply_plan`); it adds `after.sealed`
+  (AES-256-GCM under the master key, AAD `plan/<plan id>/<target>`) to each `secret-file/<name>`
+  change and returns how many it sealed (0 for every other backend). `POST /repl/v1/plans/apply`
+  unseals it and hands it to `D2Backend.accept_plan_secrets(plan, {path: secret})`, which checks the
+  path and `after.sha256` against the plan. The value is ciphertext; masking it in API answers is
+  optional. Without it a peer still fails cleanly as before. D2Backend also gains
+  `plan_secrets(plan_id)`.
+- Section 7: `WritePipeline.restore(backup_dir, reload=True)`; `run()` restores without reloading
+  when validation (or the write) failed, since nothing was loaded. The BIND connector's reload
+  guard (`_Reloader`) is gone: reload is plain `rndc reconfig` again.
+- Section 15: `config_divergence` alerts gain two subjects: `schema:<peer id>` (node_id the peer,
+  no engine, from `peer_statuses()` with `code == "schema_mismatch"`) and `<engine>:config-file`
+  (kea4, kea6, d2: the file on disk compared to `config-get`, normalization documented in section
+  15; files with `<?include?>` are skipped). The Kea pollers import `installer.keaconf.loads` to
+  read Kea JSON with comments. Writes are not blocked by a file divergence yet (section 9 says they
+  should until the user adopts one side): that is the plan service's decision (WP-API-AUTH).
+- The installer adds the include lines through `BindBackend.plan_include_setup()` (one per view as
+  well) after writing its managed files; `bindsetup.adopt` no longer edits user files itself.
+- `pelagos install`/`import` run as root give `/etc/pelagos` and `/var/lib/pelagos` (except
+  `pelagos.env`) to the `pelagos` user when it exists (`platform.give_tree_to`); the deb postinst
+  and the rpm `%post` do the same for a node initialized before the package was installed.
+
 ## 2026-10-24, WP-FRONTEND: qrcode dependency for TOTP enrollment
 `frontend/package.json` adds `qrcode` (^1.5.4, MIT) to draw the
 `otpauth_url` of `POST /auth/totp/enroll` as an SVG QR code on the Account

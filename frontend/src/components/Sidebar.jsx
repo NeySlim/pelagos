@@ -210,7 +210,10 @@ export function Sidebar({ activeId }) {
               {themes.map((theme) => (
                 <DropdownMenu.Item key={theme.id} onClick={() => setThemeFamily(theme.id)} className="flex items-center gap-3 px-3 py-2 text-sm rounded-md cursor-pointer outline-none hover:bg-bg-tertiary text-text-primary" data-theme-option={theme.id}>
                   <div className="w-3 h-3 rounded-full border border-border" style={{ background: theme.accent }} />
-                  <span className="flex-1">{theme.name}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block">{theme.name}</span>
+                    {theme.description && <span className="block text-3xs text-text-tertiary truncate">{theme.description}</span>}
+                  </span>
                   {themeFamily === theme.id && <Check size={16} weight="bold" className="text-accent-primary" />}
                 </DropdownMenu.Item>
               ))}

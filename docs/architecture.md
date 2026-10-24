@@ -1198,7 +1198,15 @@ Secrets live in `cluster.toml [secrets]` and in `users[].totp_secret`; they
 replicate encrypted. The master key is handed over once at enrollment
 (section 14) and never replicated afterwards. Rotation of the master key
 (`pelagos rotate-master-key`) rewrites every secret and bumps the version;
-it is out of scope for the parallel phase and documented as a gap.
+it is post-v1 (docs/roadmap.md).
+
+Local account recovery: `pelagos user reset-password <name>` (new password
+from the prompt or `PELAGOS_NEW_PASSWORD`, `must_change_password` set, the
+account enabled again) and `pelagos user disable-totp <name>`. Root only:
+root switches to the owner of `cluster.toml` before writing. Both go through
+`AdminService` (cluster.toml version bump, push to peers, audit entry
+`admin.user.replace` by `local-recovery`). Sessions already open stay valid
+until they expire or the web process restarts.
 
 ## 13. Replication protocol
 

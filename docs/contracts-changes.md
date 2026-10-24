@@ -100,6 +100,14 @@ Packaging and CI only; no API or domain change. Everyone should know:
   (`.github/workflows/ci.yml`) calls these targets, and the daemon job fails
   when any daemon test is skipped.
 
+## 2026-10-24, F-FIX: `pelagos user` recovery commands, `_placeholder` removed
+`backend/pelagos/cli.py` gains `pelagos user reset-password|disable-totp
+<name>` (implementation in `pelagos/auth/recovery.py`, architecture section
+12). `--admin-password` of `pelagos init` stays for scripts but warns: the
+environment variable or the prompt is preferred. The unused `_placeholder`
+helper is gone. `pelagos rotate-master-key` moves to the roadmap's post-v1
+list. Nothing to react to.
+
 ## 2026-10-24, LAB-E2E: helper apply runs only plans it can vouch for
 `docs/architecture.md` section 2. `pelagos helper apply` refuses a plan made
 on this node unless the helper built it (`plan_install`, `plan_import`,

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The `pelagos` command: serve, collector, version, init, install, import, audit, enroll, helper."""
+"""The `pelagos` command: serve, collector, version, init, install, import, audit, enroll, helper, user."""
 
 from __future__ import annotations
 
@@ -47,6 +47,12 @@ def cmd_init(args: argparse.Namespace) -> int:
     paths = _paths(args)
     from pelagos.core.bootstrap import bootstrap_first_node
 
+    if args.admin_password:
+        print(
+            "warning: --admin-password is visible in the process list and shell history; "
+            "prefer PELAGOS_ADMIN_PASSWORD or the prompt",
+            file=sys.stderr,
+        )
     password = (
         args.admin_password or os.environ.get("PELAGOS_ADMIN_PASSWORD") or getpass.getpass("admin password: ")
     )
@@ -76,12 +82,10 @@ def cmd_helper(args: argparse.Namespace) -> int:
     return serve_stdio(paths)
 
 
-def _placeholder(package: str):
-    def run(_: argparse.Namespace) -> int:
-        print(f"not implemented yet (owner: {package})", file=sys.stderr)
-        return 2
+def cmd_user(args: argparse.Namespace) -> int:
+    from pelagos.auth.recovery import cmd_user as run
 
-    return run
+    return run(args, _paths(args))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -105,7 +109,10 @@ def build_parser() -> argparse.ArgumentParser:
     i = sub.add_parser("init", help="initialize the first node (CA, master key, admin user)")
     i.add_argument("--name")
     i.add_argument("--admin-user", default="admin")
-    i.add_argument("--admin-password")
+    i.add_argument(
+        "--admin-password",
+        help="deprecated: visible in ps and shell history; use PELAGOS_ADMIN_PASSWORD or the prompt",
+    )
     i.add_argument("--web-url")
     i.add_argument("--replication-url")
     i.set_defaults(func=cmd_init)
@@ -127,6 +134,10 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--web-url", help="UI URL of this node (default https://<name>:8443)")
     e.add_argument("--engines", help="comma list among bind,kea4,kea6,d2 that this node drives")
     e.set_defaults(func=cmd_enroll)
+
+    from pelagos.auth.recovery import add_parser as add_user_parser
+
+    add_user_parser(sub).set_defaults(func=cmd_user)
     return p
 
 

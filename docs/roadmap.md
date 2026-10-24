@@ -281,3 +281,9 @@ are needed by WP-COLLECTOR pollers and by WP-API-AUTH to replace fakes;
 WP-PACKAGING deb is needed by WP-LAB-E2E; WP-INSTALLER is needed by
 WP-LAB-E2E for the import scenario. Every WP keeps `make lint test` green on
 `main` at every push.
+
+## Post-v1
+
+- Master key rotation (`pelagos rotate-master-key`, architecture section 12):
+  re-encrypt every secret in `cluster.toml` with a new key and hand the new
+  key to every enrolled node over the replication channel.

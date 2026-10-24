@@ -387,16 +387,12 @@ def build_registries(
 ) -> tuple[Any, Any]:
     """The same backend objects behind both registries: core's (remote plan apply) and the services'
     one that `services.snapshot.engine_snapshot` reads (live snapshot kinds)."""
-    from pelagos.core.registry import ConnectorRegistry as CoreRegistry
     from pelagos.services.registry import ConnectorRegistry as ServiceRegistry
+    from pelagos.services.registry import replication_registry
 
-    core = CoreRegistry(ctx.node.id, lock=lock)
-    for engine, backend in (("bind", backends.dns), ("kea4", backends.kea4), ("kea6", backends.kea6)):
-        if backend is not None:
-            core.register(engine, backend)
-    if backends.d2 is not None:
-        core.register("d2", backends.d2)
     service = ServiceRegistry(dns=backends.dns, kea4=backends.kea4, kea6=backends.kea6, d2=backends.d2)
+    # Core's entries are PlanRunners: peers' installer sub-plans run here, the rest reach the backend.
+    core = replication_registry(ctx, service, lock=lock)
     return core, service
 
 

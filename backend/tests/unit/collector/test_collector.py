@@ -268,7 +268,12 @@ def test_registries_share_the_backend_objects(rig):
     collector, backends, _ = rig
     core, service = collector_main.build_registries(collector.ctx, backends)
     assert core.engines() == ["bind", "d2", "kea4"]
-    assert core.get("kea4") is backends.kea4 and service.kea4 is backends.kea4 and service.dns is backends.dns
+    assert core.get("kea4").backend is backends.kea4
+    assert service.kea4 is backends.kea4 and service.dns is backends.dns
+    # Peers' installer sub-plans (scope security, step 2 of the D2 key switch) run on this node.
+    from pelagos.services.registry import PlanRunner
+
+    assert all(isinstance(core.get(e), PlanRunner) for e in core.engines())
 
 
 def test_tasks_and_retention(rig):

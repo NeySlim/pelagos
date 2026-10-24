@@ -93,8 +93,8 @@ INSTALLER_SCOPES = frozenset({PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SEC
 
 class PlanRunner:
     """One engine's entry in the replication registry: the backend, plus what only the receiving node
-    can do. Installer plans (install, import, security) run as a synchronous job; D2 plans open their
-    sealed secrets first; the connector's audit material stays available through `pop_details`."""
+    can do. Installer plans (install, import, security) run as a synchronous job; everything else,
+    sealed D2 secrets included (`accept_plan_secrets`), goes to the connector."""
 
     def __init__(self, ctx: NodeContext, engine: Engine, backend: Any) -> None:
         self.ctx = ctx
@@ -110,15 +110,6 @@ class PlanRunner:
 
         if plan.scope in INSTALLER_SCOPES:
             return run_received(self.ctx, plan)
-        if self.engine is Engine.D2:
-            from pelagos.services import d2_secrets
-
-            try:
-                plan, secrets = d2_secrets.open_sealed(self.ctx.secrets, plan)
-                if secrets:
-                    d2_secrets.hold_secrets(self.backend, plan, secrets)
-            except d2_secrets.SecretChannelError as exc:
-                return NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=str(exc))
         return self.backend.apply(plan)
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
@@ -135,13 +126,15 @@ class PlanRunner:
         return pop(plan_id) if callable(pop) else {}
 
 
-def replication_registry(ctx: NodeContext, registry: ConnectorRegistry | None = None) -> Any:
-    """`core.registry.ConnectorRegistry` filled with this node's backends from node.toml, for
-    `ReplicationService(ctx, registry=...)` in the collector (plans sent by peers, snapshots)."""
+def replication_registry(
+    ctx: NodeContext, registry: ConnectorRegistry | None = None, *, lock: Any = None
+) -> Any:
+    """`core.registry.ConnectorRegistry` over this node's backends, each wrapped in PlanRunner, for
+    `ReplicationService` in the collector; `lock` is the collector's backend lock."""
     from pelagos.core.registry import ConnectorRegistry as CoreRegistry
 
     registry = registry if registry is not None else ConnectorRegistry.from_node(ctx)
-    core = CoreRegistry(ctx.node.id)
+    core = CoreRegistry(ctx.node.id, lock=lock)
     for engine in registry.engines():
         core.register(engine, PlanRunner(ctx, engine, registry.backend(engine)))
     return core

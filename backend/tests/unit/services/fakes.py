@@ -1628,6 +1628,8 @@ class FakeReplicationClient:
         self.calls: list[tuple[str, Any]] = []
         self.config_toml: str | None = None
         self.audit: list[dict[str, Any]] = []
+        # The peer's master key: set it to open sealed plan secrets as ReplicationApp does.
+        self.secrets: Any = None
 
     def _check(self) -> None:
         from pelagos.core.replication import ReplicationError
@@ -1703,8 +1705,14 @@ class FakeReplicationClient:
     def apply_plan(self, plan: Plan) -> NodeApplyResult:
         self._check()
         self.calls.append(("apply", plan.id))
+        received = Plan.from_dict(plan.to_dict())
+        backend = self.registry.backend(plan.engine)
         try:
-            result = self.registry.backend(plan.engine).apply(Plan.from_dict(plan.to_dict()))
+            if self.secrets is not None:
+                from pelagos.core.plan_secrets import hand_secrets_to_backend
+
+                hand_secrets_to_backend(received, backend, self.secrets)
+            result = backend.apply(received)
         except ConnectorError as exc:
             return NodeApplyResult(node_id=self.node_id, ok=False, message=str(exc))
         result.node_id = self.node_id

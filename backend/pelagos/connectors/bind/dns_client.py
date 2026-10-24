@@ -84,7 +84,7 @@ class DnsClient:
                 relativize=False,
             )
             z = dns.zone.from_xfr(xfr, relativize=False)
-        except dns.exception.FormError as exc:
+        except (dns.exception.FormError, dns.tsig.PeerError, dns.query.TransferError) as exc:
             raise ConnectorDenied(f"AXFR of {zone} refused: {exc}") from exc
         except dns.exception.Timeout as exc:
             raise ConnectorTimeout(f"AXFR of {zone} timed out") from exc

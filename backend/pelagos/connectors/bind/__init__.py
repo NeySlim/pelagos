@@ -3,7 +3,17 @@
 
 from pelagos.connectors.bind.backend import BindBackend
 from pelagos.connectors.bind.dns_client import DnsClient, TsigKey
+from pelagos.connectors.bind.namedconf import grammar
 from pelagos.connectors.bind.rndc import RndcClient, find_binary, parse_kv
 from pelagos.connectors.bind.stats import StatsClient
 
-__all__ = ["BindBackend", "DnsClient", "RndcClient", "StatsClient", "TsigKey", "find_binary", "parse_kv"]
+__all__ = [
+    "BindBackend",
+    "DnsClient",
+    "RndcClient",
+    "StatsClient",
+    "TsigKey",
+    "find_binary",
+    "grammar",
+    "parse_kv",
+]

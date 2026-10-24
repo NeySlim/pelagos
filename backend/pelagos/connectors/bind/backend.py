@@ -1,15 +1,43 @@
 # SPDX-License-Identifier: Apache-2.0
-"""BindBackend: DnsBackend over rndc, statistics-channel, AXFR and signed UPDATE. WP-BIND fills the bodies."""
+"""BindBackend: DnsBackend over rndc, statistics-channel, AXFR, signed UPDATE and managed include files."""
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-from pelagos.connectors.base import ConnectorContext, DnsBackend
+import dns.update
+
+from pelagos.connectors.base import (
+    ConnectorContext,
+    ConnectorDenied,
+    ConnectorError,
+    DnsBackend,
+    NotSupported,
+    PreconditionFailed,
+)
+from pelagos.connectors.bind import rrset as rr
+from pelagos.connectors.bind.configplan import (
+    ConfigPlanner,
+    RenderResult,
+    file_sha256,
+    reparse_check,
+    run_checkconf,
+    validate_render,
+)
 from pelagos.connectors.bind.dns_client import DnsClient, TsigKey
-from pelagos.connectors.bind.rndc import RndcClient
+from pelagos.connectors.bind.namedconf.resolve import ConfigFiles, build_tree, files_tree, key_secret
+from pelagos.connectors.bind.rndc import (
+    RndcClient,
+    RndcNotFound,
+    find_binary,
+    parse_dnssec_status,
+    zone_args,
+    zone_status_from,
+)
 from pelagos.connectors.bind.stats import StatsClient
+from pelagos.core.write_pipeline import FileChange, sha256_file
 from pelagos.domain import (
     BindConfigTree,
     BindInstanceStats,
@@ -21,92 +49,480 @@ from pelagos.domain import (
     Zone,
     ZoneStatus,
 )
+from pelagos.domain.common import Engine
+from pelagos.domain.dns import normalize_name
+from pelagos.domain.plan import (
+    ChangeOp,
+    PlanScope,
+    PlanState,
+    Precondition,
+    PreconditionKind,
+    ValidationResult,
+)
+
+DEFAULT_VIEW = "_default"
+RCODE_PREREQ = {"YXDOMAIN", "YXRRSET", "NXDOMAIN", "NXRRSET"}
+
+
+class _Reloader:
+    """`rndc reconfig`, skipped while the files still match the state named last loaded.
+
+    The write pipeline calls reload after restoring a backup even when validation failed and
+    nothing was reloaded: skipping keeps named untouched in that case.
+    """
+
+    def __init__(self, backend: BindBackend, paths: list[Path]) -> None:
+        self.backend = backend
+        self.paths = paths
+        self.baseline = self._hashes()
+        self.reloaded = False
+
+    def _hashes(self) -> dict[str, str]:
+        return {str(p): sha256_file(p) if p.is_file() else "absent" for p in self.paths}
+
+    def __call__(self) -> str:
+        if not self.reloaded and self._hashes() == self.baseline:
+            return "files unchanged: reconfig skipped"
+        self.reloaded = True
+        return self.backend.reconfig() or "reconfig done"
 
 
 class BindBackend(DnsBackend):
-    """Wiring of the three local channels; every method body is WP-BIND work."""
-
     def __init__(self, ctx: ConnectorContext) -> None:
         super().__init__(ctx)
         cfg = ctx.engine_config
         self.named_conf = Path(cfg.get("named_conf", "/etc/bind/named.conf"))
         self.include_dir = Path(cfg.get("include_dir", "/etc/bind/pelagos"))
+        self.zone_dir = Path(cfg["zone_dir"]) if cfg.get("zone_dir") else None
+        self.group = cfg.get("group")  # group of the managed files (bind or named), None keeps defaults
         self.rndc = RndcClient(
-            Path(cfg.get("rndc_conf", "/etc/bind/rndc.conf")),
+            Path(cfg.get("rndc_conf", "/etc/bind/pelagos/rndc-pelagos.conf")),
             server=cfg.get("rndc_address", "127.0.0.1"),
             port=int(cfg.get("rndc_port", 953)),
+            key_path=Path(cfg.get("rndc_key", "/etc/bind/rndc.key")),
         )
         self.stats = StatsClient(cfg.get("statistics_url", "http://127.0.0.1:8053/json/v1"))
         self.dns = DnsClient(cfg.get("query_address", "127.0.0.1"), int(cfg.get("query_port", 53)))
+        self.checkconf = cfg.get("checkconf") or find_binary("named-checkconf")
+        self.checkzone = cfg.get("checkzone") or find_binary("named-checkzone")
+        # Per plan: UPDATE text and rcode, pipeline steps, backup directory (for the caller's audit entry).
+        self.details: dict[str, dict[str, Any]] = {}
+
+    # Settings and keys -----------------------------------------------------------
+
+    @property
+    def dns_settings(self) -> dict[str, Any]:
+        return dict(self.ctx.settings.get("dns", {}) or {})
+
+    def key_name(self, role: str) -> str:
+        return self.dns_settings.get(f"{role}_key") or {"read": "ddi-read", "admin": "ddi-admin"}[role]
 
     def _key(self, role: str) -> TsigKey | None:
-        name = self.ctx.settings.get("dns", {}).get(f"{role}_key")
-        secret = self.ctx.get_secret(f"tsig/{name}") if name else None
-        return TsigKey(name, secret) if name and secret else None
+        """TSIG key from the cluster secrets, else from the BIND configuration when readable."""
+        name = self.key_name(role)
+        secret = self.ctx.get_secret(f"tsig/{name}")
+        algorithm = "hmac-sha256"
+        if not secret:
+            try:
+                found = key_secret(ConfigFiles.load(self.named_conf), name)
+            except OSError:
+                found = None
+            if found is None:
+                return None
+            algorithm, secret = found
+        return TsigKey(name, secret, algorithm)
+
+    def _require_key(self, role: str) -> TsigKey:
+        key = self._key(role)
+        if key is None:
+            raise ConnectorDenied(f"TSIG key {self.key_name(role)} is not available on this node")
+        return key
+
+    def _plan_ttl(self) -> int:
+        return int(self.ctx.settings.get("plan_ttl_seconds", 600))
+
+    def _new_plan(self, scope: PlanScope, summary: str, created_by: str) -> Plan:
+        plan = Plan(
+            scope=scope, node_id=self.ctx.node_id, summary=summary, created_by=created_by, engine=Engine.BIND
+        )
+        plan.expires_at = plan.created_at + timedelta(seconds=self._plan_ttl())
+        plan.target_node_ids = [self.ctx.node_id]
+        return plan
+
+    # Observation -------------------------------------------------------------------
 
     def capabilities(self) -> DnsCapabilities:
-        raise NotImplementedError("WP-BIND")
+        caps = DnsCapabilities(engine=Engine.BIND)
+        try:
+            version = self.rndc.status().get("version", "")
+            caps.rndc = caps.running = True
+            caps.version = (
+                version.split()[1].split("-")[0] if version.startswith("BIND ") else version or None
+            )
+        except ConnectorError:
+            pass
+        try:
+            data = self.stats.fetch("/server")
+            caps.statistics_channel = caps.running = True
+            caps.version = caps.version or data.get("version")
+        except ConnectorError:
+            pass
+        if not caps.running:
+            # Any DNS answer (even REFUSED) proves the daemon runs; only transport errors mean it does not.
+            try:
+                self.dns.soa_serial(".")
+                caps.running = True
+            except ConnectorError:
+                caps.running = False
+        try:
+            tree = self.read_config(check=False)
+            caps.views = list(tree.views)
+            caps.dnssec = any(z.dnssec_policy or z.inline_signing for z in tree.zones) or any(
+                e.name == "dnssec-policy" for e in tree.options
+            )
+            caps.catalog_zones = any(e.name == "catalog-zones" for e in tree.options) or any(
+                "catalog-zones" in z.extra for z in tree.zones
+            )
+        except OSError:
+            pass
+        caps.tsig_read_key = self.key_name("read") if self._key("read") else None
+        caps.tsig_admin_key = self.key_name("admin") if self._key("admin") else None
+        return caps
 
     def server_status(self) -> dict[str, str]:
         return self.rndc.status()
 
-    def read_config(self) -> BindConfigTree:
-        raise NotImplementedError("WP-BIND")
+    def _files(self) -> ConfigFiles:
+        return ConfigFiles.load(self.named_conf)
+
+    def read_config(self, check: bool = True) -> BindConfigTree:
+        files = self._files()
+        tree = build_tree(files, self.ctx.node_id, self.include_dir)
+        if check:
+            result = run_checkconf(self.checkconf, self.named_conf)
+            tree.pelagos["checkconf"] = {"ok": result.ok, "output": result.output}
+        return tree
+
+    def config_files_tree(self) -> dict[str, Any]:
+        """`GET /advanced/bind/tree` payload."""
+        return files_tree(self._files(), self.include_dir)
 
     def list_zones(self, view: str | None = None) -> list[Zone]:
-        raise NotImplementedError("WP-BIND")
+        zones = self.read_config(check=False).zones
+        return [z for z in zones if view is None or z.view == view]
 
     def zone_status(self, zone: str, view: str | None = None) -> ZoneStatus:
-        raise NotImplementedError("WP-BIND")
+        try:
+            raw = self.rndc.zonestatus(zone, view)
+        except RndcNotFound as exc:
+            st = zone_status_from(zone, view, self.ctx.node_id, {})
+            st.error = str(exc)
+            return st
+        st = zone_status_from(zone, view, self.ctx.node_id, raw)
+        try:
+            st.serial = self.soa_serial(zone, view)
+        except ConnectorError as exc:
+            st.error = f"SOA query failed: {exc}"
+        return st
 
     def soa_serial(self, zone: str, view: str | None = None) -> int | None:
         return self.dns.soa_serial(zone)
 
     def read_zone(self, zone: str, view: str | None = None) -> list[RRset]:
-        return self.dns.axfr(zone, self._key("read"))
+        return self.dns.axfr(zone, self._require_key("read"))
 
     def instance_stats(self) -> BindInstanceStats:
         return self.stats.instance_stats(self.ctx.node_id)
 
     def dnssec_status(self, zone: str, view: str | None = None) -> dict[str, Any]:
-        raise NotImplementedError("WP-BIND")
+        out = parse_dnssec_status(self.rndc.dnssec_status(zone, view))
+        out["zone"] = normalize_name(zone)
+        out["view"] = view or DEFAULT_VIEW
+        return out
+
+    # RRset plans ---------------------------------------------------------------------
 
     def plan_rrset_changes(
         self, zone: str, changes: list[Change], view: str | None = None, created_by: str = ""
     ) -> Plan:
-        raise NotImplementedError("WP-BIND")
+        zone = normalize_name(zone)
+        plan = self._new_plan(PlanScope.DNS_RRSET, f"{zone}: record changes", created_by)
+        current = self.read_zone(zone, view)
+        allowed = self.dns_settings.get("update_types_admin")
+        resolved, errors = rr.resolve_changes(
+            zone,
+            changes,
+            current,
+            allowed_types=allowed,
+            default_ttl=int(self.dns_settings.get("default_ttl", 3600)),
+        )
+        plan.changes = [rr.to_change(zone, rc) for rc in resolved]
+        plan.diff = rr.diff_text(resolved)
+        plan.summary = rr.summary_text(zone, resolved)
+        plan.preconditions = rr.preconditions(resolved, self.ctx.node_id)
+        soa = next((r for r in current if r.rtype == "SOA" and r.name == zone), None)
+        if soa is not None:
+            serial = soa.rdata[0].split()[2]
+            plan.preconditions.append(
+                Precondition(PreconditionKind.SOA_SERIAL, zone, serial, self.ctx.node_id)
+            )
+        ok = not errors and bool(resolved)
+        if not resolved and not errors:
+            errors.append("no change")
+        plan.validations = [
+            ValidationResult(
+                ok=ok, tool="dnspython", output="\n".join(errors) or "ok", node_id=self.ctx.node_id
+            )
+        ]
+        plan.state = PlanState.VALIDATED if ok else PlanState.FAILED
+        plan.error = None if ok else "; ".join(errors)
+        return plan
+
+    def _send_rrset(self, plan: Plan, rcs: list[rr.RRsetChange], label: str) -> NodeApplyResult:
+        zone = _plan_zone(plan)
+        key = self._require_key("admin")
+        text = rr.update_text(zone, rcs)
+        details = self.details.setdefault(plan.id, {})
+        details[label] = {"request": {"update": text, "key": key.name}}
+
+        def build(msg: dns.update.Update) -> None:
+            rr.build_update(msg, rcs)
+
+        rcode = self.dns.update(zone, key, build)
+        details[label]["response"] = {"rcode": rcode}
+        if rcode == "NOERROR":
+            return NodeApplyResult(node_id=self.ctx.node_id, ok=True, message=f"UPDATE {rcode}")
+        if rcode in RCODE_PREREQ:
+            msg = f"UPDATE prerequisite failed ({rcode}): the records changed since the plan was built"
+        else:
+            msg = f"UPDATE failed: {rcode}"
+        return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=msg)
+
+    # File plans ------------------------------------------------------------------------
+
+    def _planner(self) -> ConfigPlanner:
+        return ConfigPlanner(
+            self.named_conf,
+            self.include_dir,
+            self.ctx.node_id,
+            zone_dir=self.zone_dir,
+            default_ns=self.dns_settings.get("default_ns"),
+        )
+
+    def _render(self, plan_scope: PlanScope, changes: list[Change]) -> tuple[ConfigPlanner, RenderResult]:
+        planner = self._planner()
+        for change in changes:
+            if plan_scope is PlanScope.DNS_ZONE:
+                planner.zone_change(change)
+            else:
+                planner.apply_change(change)
+        result = planner.finish()
+        result.errors.extend(reparse_check(result.texts, result.zone_files))
+        return planner, result
+
+    def _file_plan(self, scope: PlanScope, changes: list[Change], summary: str, created_by: str) -> Plan:
+        plan = self._new_plan(scope, summary, created_by)
+        planner, result = self._render(scope, changes)
+        plan.changes = result.changes
+        plan.diff = result.diff()
+        plan.preconditions = result.preconditions(self.ctx.node_id)
+        plan.requires_confirmation = result.requires_confirmation
+        if result.errors:
+            plan.validations = [
+                ValidationResult(
+                    ok=False, tool="parser", output="\n".join(result.errors), node_id=self.ctx.node_id
+                )
+            ]
+        elif not result.changed_paths():
+            plan.validations = [
+                ValidationResult(ok=False, tool="parser", output="no change", node_id=self.ctx.node_id)
+            ]
+        else:
+            plan.validations = validate_render(planner, self.checkconf, self.checkzone)
+            for v in plan.validations:
+                v.node_id = self.ctx.node_id
+        ok = all(v.ok for v in plan.validations)
+        plan.state = PlanState.VALIDATED if ok else PlanState.FAILED
+        plan.error = None if ok else "; ".join(v.output for v in plan.validations if not v.ok)
+        return plan
 
     def plan_zone_change(self, change: Change, created_by: str = "") -> Plan:
-        raise NotImplementedError("WP-BIND")
+        op = ChangeOp(change.op)
+        return self._file_plan(PlanScope.DNS_ZONE, [change], f"zone {change.target}: {op.value}", created_by)
 
     def plan_config_change(self, changes: list[Change], created_by: str = "") -> Plan:
-        raise NotImplementedError("WP-BIND")
+        kinds = {c.target.split("/", 1)[0] for c in changes}
+        scope = {"keys": PlanScope.DNS_KEY, "acls": PlanScope.DNS_ACL}.get(kinds.pop(), PlanScope.DNS_CONFIG)
+        if len({c.target.split("/", 1)[0] for c in changes}) != 1:
+            scope = PlanScope.DNS_CONFIG
+        targets = ", ".join(f"{ChangeOp(c.op).value} {c.target}" for c in changes)
+        return self._file_plan(scope, changes, f"BIND configuration: {targets}", created_by)
+
+    def plan_include_setup(self, created_by: str = "") -> Plan:
+        """Create the managed files and the include lines in the user files (import step)."""
+        change = Change(ChangeOp.ADD, "pelagos/includes")
+        return self._file_plan(
+            PlanScope.DNS_CONFIG, [change], "Pelagos include files and include lines", created_by
+        )
+
+    def _check_file_preconditions(self, plan: Plan) -> None:
+        for pre in plan.preconditions:
+            if pre.kind is not PreconditionKind.FILE_SHA256:
+                continue
+            if pre.node_id not in (None, self.ctx.node_id):
+                continue
+            observed = file_sha256(Path(pre.subject))
+            if observed != pre.value:
+                raise PreconditionFailed(pre, observed)
+
+    def _file_mode(self, path: Path, zone_files: dict[Path, str]) -> tuple[int | None, str | None]:
+        if path in zone_files:
+            return 0o664, self.group
+        if path.is_relative_to(self.include_dir):
+            return 0o640, self.group
+        return None, None  # user files keep their owner, group and mode
+
+    def _verify(self, plan: Plan) -> Any:
+        if plan.scope is not PlanScope.DNS_ZONE:
+            return lambda: bool(self.rndc.status())
+
+        def verify() -> bool:
+            for change in plan.changes:
+                view, _, name = change.target.partition("/")
+                view = None if view in ("", DEFAULT_VIEW) else view
+                try:
+                    self.rndc.zonestatus(name, view)
+                    present = True
+                except RndcNotFound:
+                    present = False
+                if present == (ChangeOp(change.op) is ChangeOp.DELETE):
+                    return False
+            return True
+
+        return verify
+
+    def _apply_files(self, plan: Plan) -> NodeApplyResult:
+        self._check_file_preconditions(plan)
+        _, result = self._render(plan.scope, plan.changes)
+        if result.errors:
+            return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message="; ".join(result.errors))
+        paths = result.changed_paths()
+        if not paths:
+            return NodeApplyResult(
+                node_id=self.ctx.node_id, ok=True, message="already applied: no file change"
+            )
+        file_changes = []
+        for path in paths:
+            mode, group = self._file_mode(path, result.zone_files)
+            file_changes.append(
+                FileChange(path=path, content=result.texts[path].encode(), mode=mode, group=group)
+            )
+        watched = [*paths, self.named_conf]
+        pipeline = self.ctx.pipeline_factory(
+            backup_root=self.ctx.backup_root,
+            validate=lambda: run_checkconf(self.checkconf, self.named_conf),
+            reload=_Reloader(self, watched),
+            verify=self._verify(plan),
+            label=plan.id,
+        )
+        outcome = pipeline.run(file_changes)
+        self.details[plan.id] = {
+            "request": {"files": [str(p) for p in paths]},
+            "response": {
+                "steps": outcome.steps,
+                "backup_dir": str(outcome.backup_dir) if outcome.backup_dir else None,
+            },
+        }
+        if outcome.ok:
+            return NodeApplyResult(
+                node_id=self.ctx.node_id, ok=True, message=f"{len(paths)} file(s) written, reconfig done"
+            )
+        return NodeApplyResult(
+            node_id=self.ctx.node_id,
+            ok=False,
+            message=outcome.error or "write pipeline failed",
+            rolled_back=outcome.rolled_back,
+        )
+
+    def _backup_dir(self, plan: Plan) -> Path | None:
+        recorded = self.details.get(plan.id, {}).get("response", {}).get("backup_dir")
+        if recorded:
+            return Path(recorded)
+        found = sorted(self.ctx.backup_root.glob(f"*-{plan.id}"))
+        return found[-1] if found else None
+
+    # Apply and rollback ---------------------------------------------------------------
 
     def apply(self, plan: Plan) -> NodeApplyResult:
-        raise NotImplementedError("WP-BIND")
+        try:
+            if plan.scope is PlanScope.DNS_RRSET:
+                rcs = rr.rrset_changes_from_plan(_plan_zone(plan), plan.changes)
+                return self._send_rrset(plan, rcs, "apply")
+            if plan.scope in (PlanScope.DNS_ZONE, PlanScope.DNS_CONFIG, PlanScope.DNS_KEY, PlanScope.DNS_ACL):
+                return self._apply_files(plan)
+            raise NotSupported(f"plan scope {plan.scope} is not a BIND plan")
+        except ConnectorError as exc:
+            return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=str(exc))
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
-        raise NotImplementedError("WP-BIND")
+        try:
+            if plan.scope is PlanScope.DNS_RRSET:
+                zone = _plan_zone(plan)
+                rcs = [rr.inverse(rc) for rc in reversed(rr.rrset_changes_from_plan(zone, plan.changes))]
+                result = self._send_rrset(plan, rcs, "rollback")
+                result.rolled_back = result.ok
+                return result
+            backup = self._backup_dir(plan)
+            if backup is None:
+                return NodeApplyResult(
+                    node_id=self.ctx.node_id, ok=False, message="no backup found for this plan"
+                )
+            pipeline = self.ctx.pipeline_factory(
+                backup_root=self.ctx.backup_root,
+                validate=lambda: run_checkconf(self.checkconf, self.named_conf),
+                reload=lambda: self.reconfig() or "reconfig done",
+                label=f"{plan.id}-rollback",
+            )
+            outcome = pipeline.restore(backup)
+            self.details.setdefault(plan.id, {})["rollback"] = {
+                "steps": outcome.steps,
+                "backup_dir": str(backup),
+            }
+            return NodeApplyResult(
+                node_id=self.ctx.node_id,
+                ok=outcome.ok,
+                message="restored " + str(backup) if outcome.ok else (outcome.error or "rollback failed"),
+                rolled_back=outcome.ok,
+            )
+        except ConnectorError as exc:
+            return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=str(exc))
+
+    # Operations ------------------------------------------------------------------------
 
     def reconfig(self) -> str:
         return self.rndc.run("reconfig")
 
     def reload(self, zone: str | None = None, view: str | None = None) -> str:
-        args = ["reload"] + ([zone] if zone else []) + ([view] if zone and view else [])
-        return self.rndc.run(*args)
+        return self.rndc.run("reload", *(zone_args(zone, view) if zone else []))
 
     def notify(self, zone: str, view: str | None = None) -> str:
-        return self.rndc.run("notify", zone, *([view] if view else []))
+        return self.rndc.run("notify", *zone_args(zone, view))
 
     def retransfer(self, zone: str, view: str | None = None) -> str:
-        return self.rndc.run("retransfer", zone, *([view] if view else []))
+        return self.rndc.run("retransfer", *zone_args(zone, view))
 
     def freeze(self, zone: str, view: str | None = None) -> str:
-        return self.rndc.run("freeze", zone, *([view] if view else []))
+        return self.rndc.run("freeze", *zone_args(zone, view))
 
     def thaw(self, zone: str, view: str | None = None) -> str:
-        return self.rndc.run("thaw", zone, *([view] if view else []))
+        return self.rndc.run("thaw", *zone_args(zone, view))
 
     def sync(self, zone: str | None = None, clean: bool = False) -> str:
-        args = ["sync"] + (["-clean"] if clean else []) + ([zone] if zone else [])
-        return self.rndc.run(*args)
+        return self.rndc.run("sync", *(["-clean"] if clean else []), *([zone_args(zone)[0]] if zone else []))
+
+
+def _plan_zone(plan: Plan) -> str:
+    """The zone of an RRset plan, from the first change target `<zone>/<owner>/<type>`."""
+    if not plan.changes:
+        raise NotSupported("plan has no change")
+    return normalize_name(plan.changes[0].target.split("/", 1)[0])

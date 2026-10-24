@@ -39,10 +39,10 @@ export function useChartColors() {
 function ChartTooltip({ active, payload, label, labelFormatter }) {
   if (!active || !payload?.length) return null
   return (
-    <div className="bg-bg-secondary border border-border rounded-lg px-3 py-2 shadow-lg">
-      <p className="text-xs text-text-secondary mb-1">{labelFormatter ? labelFormatter(label) : label}</p>
+    <div className="fx-chart-tooltip">
+      <p className="fx-chart-tooltip-label mb-0.5">{labelFormatter ? labelFormatter(label) : label}</p>
       {payload.map((entry, i) => (
-        <p key={entry.name || i} className="text-sm font-medium" style={{ color: entry.color }}>
+        <p key={entry.name || i} className="fx-chart-tooltip-value" style={{ color: entry.color }}>
           {entry.name}: {entry.value}
         </p>
       ))}

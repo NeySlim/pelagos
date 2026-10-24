@@ -190,7 +190,12 @@
     "convert": "Convertir en dynamique",
     "staticNote": "Zone statique : les changements d'enregistrements modifient son fichier de zone (commentaires gardés, numéro de série incrémenté, rndc reload avec NOTIFY). La conversion en zone dynamique est une remédiation de l'audit de sécurité : named garde alors les changements dans un journal .jnl et le fichier ne se modifie à la main qu'entre rndc freeze et rndc thaw.",
     "listHelp": "Une entrée par ligne",
-    "notEditable": "Définie dans un fichier utilisateur : à modifier dans named.conf"
+    "notEditable": "Définie dans un fichier utilisateur : à modifier dans named.conf",
+    "more": "Plus d'actions",
+    "deleteTitle": "Supprimer {{zone}}",
+    "deleteMessage": "La zone est retirée de ce nœud par un plan que vous relisez avant son application.",
+    "deletePeers": "Retirer aussi les copies secondaires sur {{nodes}}",
+    "deletePeersHelp": "Laissées en place, elles réessaient sans fin les transferts depuis un primaire qui ne sert plus la zone."
   },
   "resolver": {
     "recursion": "Récursion",

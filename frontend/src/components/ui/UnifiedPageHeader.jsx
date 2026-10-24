@@ -100,11 +100,11 @@ export function UnifiedPageHeader({
       {/* Title row (desktop) */}
       {!isMobile && (
       <div className={cn(
-        'flex items-center justify-between',
+        'flex flex-wrap items-center justify-between gap-x-4 gap-y-2',
         isMobile ? 'px-3 py-2' : 'px-6 py-3'
       )}>
-        {/* Left: Icon + Title */}
-        <div className="flex items-center gap-2 min-w-0">
+        {/* Left: Icon + Title; at least 16rem wide so actions wrap under it rather than hide it */}
+        <div className="flex items-center gap-2 min-w-0 flex-1 basis-64">
           {Icon && (
             <div className={cn(
               "rounded-lg bg-gradient-to-br from-accent-primary to-accent-primary-op70 flex items-center justify-center shrink-0 shadow-sm",
@@ -114,9 +114,9 @@ export function UnifiedPageHeader({
             </div>
           )}
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
               <h1 className={cn(
-                "font-semibold text-text-primary truncate",
+                "font-semibold text-text-primary truncate min-w-0 max-w-full",
                 isMobile ? "text-sm" : "text-lg"
               )}>
                 {title}
@@ -132,7 +132,7 @@ export function UnifiedPageHeader({
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-1.5 ml-auto">
           {/* Desktop: Inline filters */}
           {!isMobile && hasFilters && (
             <div className="flex items-center gap-2">

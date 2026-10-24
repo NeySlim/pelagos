@@ -38,11 +38,11 @@ const TriggerButton = forwardRef(({ children, disabled, size = 'default', varian
 ))
 TriggerButton.displayName = 'TriggerButton'
 
-export function Dropdown({ trigger, items, onSelect, disabled = false, size = 'default', variant = 'default' }) {
+export function Dropdown({ trigger, items, onSelect, disabled = false, size = 'default', variant = 'default', triggerProps = {} }) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <TriggerButton disabled={disabled} size={size} variant={variant}>
+        <TriggerButton disabled={disabled} size={size} variant={variant} {...triggerProps}>
           {trigger}
         </TriggerButton>
       </DropdownMenu.Trigger>
@@ -70,6 +70,7 @@ export function Dropdown({ trigger, items, onSelect, disabled = false, size = 'd
                   onSelect?.(item)
                 }}
                 disabled={item.disabled}
+                data-testid={item.testId}
                 className={cn(
                   "flex items-center gap-2 px-2.5 py-1.5 text-xs rounded cursor-pointer outline-none transition-colors",
                   item.danger 

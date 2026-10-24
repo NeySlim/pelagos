@@ -62,11 +62,17 @@ test.describe('at 400px', () => {
   test.use({ viewport: { width: 400, height: 800 } })
 
   test('every engine tab is visible and opens its operations', async ({ page }) => {
-    await signIn(page)
+    // The sidebar is collapsed at phone width: wait for the redirect away from the login page.
+    await page.goto('/login')
+    await page.getByTestId('login-username').fill('admin')
+    await page.getByTestId('login-password').fill('admin')
+    await page.getByTestId('login-submit').click()
+    await expect(page).not.toHaveURL(/\/login$/)
     await page.goto('/advanced/ops')
     const v4 = page.getByRole('button', { name: 'Kea DHCPv4' })
     await expect(v4).toBeVisible()
-    expect((await v4.boundingBox()).width).toBeGreaterThan(16)
+    // An inactive tab shows its icon or its label, never an empty button.
+    await expect(v4.locator('svg, span:not(.hidden)').first()).toBeVisible()
     await v4.click()
     const op = page.getByTestId('ops-list').locator('[data-op="status-get"]')
     await expect(op).toBeVisible()

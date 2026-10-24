@@ -190,7 +190,12 @@
     "convert": "Convert to dynamic",
     "staticNote": "Static zone: record changes edit its zone file (comments kept, serial bumped, rndc reload with NOTIFY). Converting it to dynamic is a security audit remediation: named then keeps changes in a .jnl journal and the file is edited by hand only between rndc freeze and rndc thaw.",
     "listHelp": "One entry per line",
-    "notEditable": "Defined in a user file: edit it in named.conf"
+    "notEditable": "Defined in a user file: edit it in named.conf",
+    "more": "More actions",
+    "deleteTitle": "Delete {{zone}}",
+    "deleteMessage": "The zone is removed from this node through a plan you review before it applies.",
+    "deletePeers": "Also remove the secondary copies on {{nodes}}",
+    "deletePeersHelp": "Left in place, they keep retrying transfers from a primary that no longer serves the zone."
   },
   "resolver": {
     "recursion": "Recursion",

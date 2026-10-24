@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   zoneMode, staticFindingId, editableZone, splitList, zoneForm, zoneEditChange, zoneEditDiff, zoneViews,
   zoneStats, catalogMemberBody, policyStatements, policyText, policyGrammarNames, policyErrors, dnssecOpBody,
+  secondaryPeers, zoneDeleteRequest,
 } from './zoneTools'
 
 const zone = {
@@ -80,5 +81,23 @@ describe('catalog and dnssec bodies', () => {
   it('builds dnssec operation bodies', () => {
     expect(dnssecOpBody({ action: 'rollover', key_id: '4242' })).toEqual({ action: 'rollover', key_id: 4242 })
     expect(dnssecOpBody({ action: 'checkds', key_id: '', view: 'inside', node_id: 'n2' })).toEqual({ action: 'checkds', state: 'published', view: 'inside', node_id: 'n2' })
+  })
+})
+
+describe('zone deletion across peers', () => {
+  const status = { self: { kind: 'primary' }, ns2: { kind: 'secondary' }, ns3: { kind: 'primary' } }
+
+  it('finds the peers holding the managed primary as a secondary', () => {
+    expect(secondaryPeers({ zone, status }, 'self')).toEqual(['ns2'])
+    expect(secondaryPeers({ zone: { ...zone, source: 'user_conf' }, status }, 'self')).toEqual([])
+    expect(secondaryPeers({ zone: { ...zone, kind: 'secondary' }, status }, 'self')).toEqual([])
+    expect(secondaryPeers(null, 'self')).toEqual([])
+  })
+
+  it('sends those peers as node_ids, and none when the copy is local only', () => {
+    const withPeers = zoneDeleteRequest(zone, ['ns2'])
+    expect(withPeers.node_ids).toEqual(['ns2'])
+    expect(withPeers.change).toEqual({ op: 'delete', target: '_default/lab.example.lan.', before: zone, after: null })
+    expect(zoneDeleteRequest(zone, []).node_ids).toBeUndefined()
   })
 })

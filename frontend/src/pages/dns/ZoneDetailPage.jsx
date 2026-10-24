@@ -5,8 +5,8 @@
 // for a zone present in several views and the conversion of a static zone.
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
-import { Globe, ArrowsClockwise, Plus, PencilSimple, Trash, Bell, ArrowClockwise, ShieldCheck, Table as TableIcon, HardDrives, Gear, DownloadSimple, Lightning, FileText } from '@phosphor-icons/react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Globe, ArrowsClockwise, Plus, PencilSimple, Trash, Bell, ArrowClockwise, ShieldCheck, Table as TableIcon, HardDrives, Gear, DownloadSimple, Lightning, FileText, DotsThree } from '@phosphor-icons/react'
 import { PageLayout } from '../../components/PageLayout'
 import { DataTable } from '../../components/DataTable'
 import { Button } from '../../components/Button'
@@ -15,6 +15,9 @@ import { StatusBadge } from '../../components/StatusBadge'
 import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { EmptyState } from '../../components/EmptyState'
 import { Badge } from '../../components/Badge'
+import { Dropdown } from '../../components/Dropdown'
+import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { useAuth } from '../../contexts/AuthContext'
 import { useApi, usePaginatedApi } from '../../hooks/useApi'
 import { useMobile } from '../../contexts/MobileContext'
 import { Select } from '../../components/ui/Select'
@@ -28,7 +31,7 @@ import { useNodeNames, usePlanFlow, laggingNodes, SECONDARY_KINDS } from './help
 import { RecordEditor } from './RecordEditor'
 import { EDITABLE_TYPES, READ_ONLY_TYPES, absZone, isEditableType, relativeName } from './records'
 import { ZoneEditModal } from './ZoneEditModal'
-import { editableZone, staticFindingId, zoneMode } from './zoneTools'
+import { editableZone, secondaryPeers, staticFindingId, zoneDeleteRequest, zoneMode } from './zoneTools'
 
 function RecordsTab({ zone, view, editable, mode, onChanged }) {
   const { t } = useTranslation(['dns', 'common'])
@@ -261,6 +264,10 @@ export default function ZoneDetailPage() {
   const zone = data?.zone
   const [deleted, setDeleted] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deletePeers, setDeletePeers] = useState(true)
+  const { node: selfNode } = useAuth()
+  const peers = useMemo(() => secondaryPeers(data, selfNode?.id), [data, selfNode])
   const mode = data ? zoneMode(data) : null
   const views = data?.views || []
   const flow = usePlanFlow({
@@ -301,10 +308,17 @@ export default function ZoneDetailPage() {
     [t, data],
   )
 
-  const deleteZone = () =>
-    flow.run(() =>
-      api.dns.zonePlan({ op: 'delete', target: `${zone.view}/${zone.name}`, before: zone, after: null, node_ids: [] }),
-    )
+  // Peers holding the zone as a secondary of this node lose their copy too, unless unticked.
+  const deleteZone = () => {
+    setConfirmDelete(false)
+    const { change, node_ids } = zoneDeleteRequest(zone, deletePeers ? peers : [])
+    flow.run(() => api.dns.zonePlan(change, node_ids))
+  }
+  const askDelete = () => {
+    if (!peers.length) return deleteZone()
+    setDeletePeers(true)
+    setConfirmDelete(true)
+  }
   // The security audit's remediation: a Job that rewrites the zone statement with an update-policy.
   const convertZone = () => flow.run(() => api.install.securityPlan([staticFindingId(zone)]))
   const switchView = (v) => navigate(`/dns/zones/${encodeURIComponent(zoneParam)}${v && v !== '_default' ? `?view=${encodeURIComponent(v)}` : ''}`)
@@ -333,48 +347,38 @@ export default function ZoneDetailPage() {
             {views.length > 1 && (
               <Select size="sm" variant="filter" value={zone.view} onChange={switchView} options={views.map((v) => ({ value: v, label: `${t('common:fieldLabel', { label: t('detail.view') })} ${v}` }))} data-testid="zone-view-select" />
             )}
-            {mode === 'static' && hasPermission('admin:install') && (
-              <Button variant="warning-soft" size="sm" onClick={convertZone} loading={flow.busy} data-testid="zone-convert">
-                <Lightning size={14} />
-                {t('detail.convert')}
-              </Button>
-            )}
             {editableZone(zone) && hasPermission('write:dns.zones') && (
               <Button variant="secondary" size="sm" onClick={() => setEditing(true)} data-testid="zone-edit-open">
                 <PencilSimple size={14} />
                 {t('detail.edit')}
               </Button>
             )}
-            {zone.dnssec_policy && (
-              <Link to={`/dns/dnssec?zone=${encodeURIComponent(zone.name)}`}>
-                <Button variant="secondary" size="sm">
-                  <ShieldCheck size={14} />
-                  {t('nav.dnssec')}
-                </Button>
-              </Link>
-            )}
-            {canOps && zone.kind === 'primary' && (
-              <Button variant="secondary" size="sm" loading={busy === 'notify'} onClick={() => op('notify', () => api.dns.notify(zone.name, viewArg))} data-testid="zone-notify">
-                <Bell size={14} />
-                {t('detail.notify')}
-              </Button>
-            )}
-            {canOps && zone.kind !== 'forward' && (
-              <Button variant="secondary" size="sm" loading={busy === 'reload'} onClick={() => op('reload', () => api.dns.reload(zone.name, viewArg))} data-testid="zone-reload">
-                <ArrowClockwise size={14} />
-                {t('detail.reload')}
-              </Button>
-            )}
-            <Button variant="secondary" size="sm" onClick={refetch} disabled={loading}>
-              <ArrowsClockwise size={14} />
-              {t('common:actions.refresh')}
-            </Button>
             {hasPermission('write:dns.zones') && (
-              <Button variant="danger-soft" size="sm" onClick={deleteZone} loading={flow.busy} data-testid="zone-delete">
+              <Button variant="danger-soft" size="sm" onClick={askDelete} loading={flow.busy} data-testid="zone-delete">
                 <Trash size={14} />
                 {t('detail.deleteZone')}
               </Button>
             )}
+            <Dropdown
+              size="sm"
+              trigger={<DotsThree size={16} weight="bold" />}
+              triggerProps={{ 'aria-label': t('detail.more'), title: t('detail.more'), 'data-testid': 'zone-more' }}
+              items={[
+                ...(mode === 'static' && hasPermission('admin:install')
+                  ? [{ id: 'convert', label: t('detail.convert'), icon: <Lightning size={14} />, onClick: convertZone, disabled: flow.busy, testId: 'zone-convert' }]
+                  : []),
+                ...(zone.dnssec_policy
+                  ? [{ id: 'dnssec', label: t('nav.dnssec'), icon: <ShieldCheck size={14} />, onClick: () => navigate(`/dns/dnssec?zone=${encodeURIComponent(zone.name)}`), testId: 'zone-dnssec' }]
+                  : []),
+                ...(canOps && zone.kind === 'primary'
+                  ? [{ id: 'notify', label: t('detail.notify'), icon: <Bell size={14} />, onClick: () => op('notify', () => api.dns.notify(zone.name, viewArg)), disabled: busy === 'notify', testId: 'zone-notify' }]
+                  : []),
+                ...(canOps && zone.kind !== 'forward'
+                  ? [{ id: 'reload', label: t('detail.reload'), icon: <ArrowClockwise size={14} />, onClick: () => op('reload', () => api.dns.reload(zone.name, viewArg)), disabled: busy === 'reload', testId: 'zone-reload' }]
+                  : []),
+                { id: 'refresh', label: t('common:actions.refresh'), icon: <ArrowsClockwise size={14} />, onClick: refetch, disabled: loading, testId: 'zone-refresh' },
+              ]}
+            />
           </>
         )
       }
@@ -411,6 +415,24 @@ export default function ZoneDetailPage() {
             if (plan) setEditing(false)
           }}
         />
+      )}
+      {confirmDelete && zone && (
+        <ConfirmDialog
+          open
+          onOpenChange={(o) => !o && setConfirmDelete(false)}
+          onConfirm={deleteZone}
+          title={t('detail.deleteTitle', { zone: zone.name })}
+          message={t('detail.deleteMessage')}
+          confirmLabel={t('detail.deleteZone')}
+        >
+          <label className="flex items-start gap-2 text-xs text-text-primary cursor-pointer">
+            <input type="checkbox" className="mt-0.5" checked={deletePeers} onChange={(e) => setDeletePeers(e.target.checked)} data-testid="zone-delete-peers" />
+            <span>
+              {t('detail.deletePeers', { nodes: peers.map(nameOf).join(', ') })}
+              <span className="block text-text-secondary">{t('detail.deletePeersHelp')}</span>
+            </span>
+          </label>
+        </ConfirmDialog>
       )}
       {flow.modal}
     </PageLayout>

@@ -121,3 +121,18 @@ export function dnssecOpBody({ action, key_id, state, when, view, node_id }) {
   if (node_id) body.node_id = node_id
   return body
 }
+
+// Peers holding a Pelagos-managed primary as a secondary of this node (status kind per node).
+export function secondaryPeers(detail, selfId) {
+  const zone = detail?.zone
+  if (!zone || zone.kind !== 'primary' || !editableZone(zone)) return []
+  return Object.entries(detail.status || {})
+    .filter(([id, st]) => id !== selfId && st?.kind === 'secondary')
+    .map(([id]) => id)
+}
+
+// Delete plan request: with peers the plan also removes their secondary copies.
+export function zoneDeleteRequest(zone, peers = []) {
+  const change = { op: 'delete', target: `${zone.view}/${zone.name}`, before: zone, after: null }
+  return { change, node_ids: peers.length ? peers : undefined }
+}

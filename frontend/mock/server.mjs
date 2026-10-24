@@ -261,11 +261,14 @@ function zoneSerials(state, zone) {
 
 function zoneStatus(state, zone, nodeId) {
   const { serials } = zoneSerials(state, zone)
+  // A Pelagos primary is served by the peers as a secondary of this node.
+  const peer = !state.nodes.find((n) => n.peer.id === nodeId)?.is_self
+  const kind = peer && zone.kind === 'primary' && zone.source === 'pelagos' ? 'secondary' : zone.kind
   return {
     zone: zone.name,
     view: zone.view,
     node_id: nodeId,
-    kind: zone.kind,
+    kind,
     serial: serials[nodeId],
     config_serial: serials[nodeId],
     dynamic: zone.dynamic,
@@ -274,7 +277,7 @@ function zoneStatus(state, zone, nodeId) {
     next_refresh: zone.kind === 'secondary' ? iso(Date.now() + 3200000) : null,
     expires: zone.kind === 'secondary' ? iso(Date.now() + 1209600000) : null,
     last_loaded: iso(Date.now() - 3600000),
-    raw: { type: zone.kind, 'files': zone.file || '', 'dynamic': zone.dynamic ? 'yes' : 'no' },
+    raw: { type: kind, 'files': zone.file || '', 'dynamic': zone.dynamic ? 'yes' : 'no' },
     error: null,
     collected_at: iso(Date.now() - 15000),
   }

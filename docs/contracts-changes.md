@@ -13,6 +13,19 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, WP-CORE: audit id exchange, schema mismatch status, renewal revokes
+- `docs/architecture.md` section 13: new `GET /repl/v1/audit/ids` and
+  `POST /repl/v1/audit/fetch`, used instead of a full log walk when audit
+  counts differ. `PeerStatus` gains `code` (`"schema_mismatch"` when the peer
+  is up but its `cluster.toml` schema differs; it stays reachable and does
+  not count toward `PEER_OFFLINE`). Additive.
+- Section 14: a certificate renewal appends the replaced fingerprint to
+  `[revoked]` and is audited as `admin.node.op` with `request.op = "renew"`
+  (no new verb). Invalid anonymous enrollment attempts are logged and
+  audited at most once per client IP every 5 minutes.
+- WP-COLLECTOR: raise `CONFIG_DIVERGENCE` for `peer_statuses()` entries with
+  `code == "schema_mismatch"`.
+
 ## 2026-10-24, WP-CORE: replication, enrollment and registry surface
 - `docs/architecture.md` sections 2, 13, 14: new core modules (`repl_http`,
   `signals`, `registry`, `retention`), endpoints `GET /repl/v1/ca` and

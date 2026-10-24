@@ -1107,6 +1107,8 @@ application/json`. All endpoints under `/repl/v1`.
 | `PUT /repl/v1/config` | `{"version","updated_at","updated_by","toml"}` | `{"adopted": bool, "local_version": int}` | adopt if remote wins by the section 10 rule |
 | `GET /repl/v1/audit?after=<id>&limit=<n>` | | `{"entries":[...], "next": id or null}` | ascending by id |
 | `POST /repl/v1/audit` | `{"entries":[...]}` | `{"added": n}` | merge by id |
+| `GET /repl/v1/audit/ids` | | `{"ids":[...]}` | every entry id, ascending; used when audit counts differ |
+| `POST /repl/v1/audit/fetch` | `{"ids":[...]}` (at most 5000) | `{"entries":[...]}` | the known entries among `ids`, ascending by id |
 | `POST /repl/v1/plans/apply` | `{"plan": Plan}` | `NodeApplyResult` | apply a plan built elsewhere on this node (section 5) |
 | `POST /repl/v1/plans/rollback` | `{"plan": Plan}` | `NodeApplyResult` | |
 | `GET /repl/v1/engines/<engine>/snapshot` | | engine-specific read (zones list, subnets, HA state) | used by `services` to answer "read on both peers" without a second code path |
@@ -1139,9 +1141,12 @@ Client behavior (`core.replication.ReplicationClient`, run by the collector):
 - Periodic anti-entropy every `peer_poll_seconds`: same as pull-on-return.
   A peer unreachable for 3 polls raises `PEER_OFFLINE` (failed pushes do not
   count; `Replicator.offline_peers()` gives the list). Audit exchange goes
-  both ways after each side's head, then walks both logs fully when the
-  counts still differ, so entries whose ULID sorts below the other side's
-  head (clock skew) are never lost.
+  both ways after each side's head, then exchanges id sets
+  (`GET /repl/v1/audit/ids`, `POST /repl/v1/audit/fetch`) when the counts
+  still differ, so entries whose ULID sorts below the other side's head
+  (clock skew, a third node) are never lost. A peer that is up but runs a
+  newer `cluster.toml` schema stays reachable in `peer_statuses()` with
+  `code: "schema_mismatch"` (`CONFIG_DIVERGENCE`, upgrade this node).
 - `core.replication.ReplicationService(ctx, registry)` bundles all of this
   for the collector: `start()` (server, signal listener, pull, state
   `ready`), `stop()`, and a worker that also renews the node certificate and
@@ -1157,7 +1162,9 @@ node certificates valid 2 years and renewed by the collector when 30 days
 remain (`POST /repl/v1/renew` with the current cert as client auth; the
 issuing node is any node holding `ca.key`, which is the first node; a copy of
 `ca.key` is handed to nodes with the `ca` flag at enrollment so the CA
-survives the first node). UCM as external CA is a documented future option,
+survives the first node). A renewal records the new fingerprint in `[[nodes]]`
+and appends the replaced one to `[revoked]`; it is audited as `admin.node.op`
+with `request.op = "renew"`. UCM as external CA is a documented future option,
 not implemented.
 
 Flow:

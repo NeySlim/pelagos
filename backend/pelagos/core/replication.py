@@ -40,6 +40,7 @@ log = logging.getLogger(__name__)
 
 REPL_PREFIX = "/repl/v1"
 AUDIT_PAGE = 500
+AUDIT_FETCH_MAX = 5000
 MAX_BODY = 64 * 1024 * 1024
 PUSH_BACKOFF_SECONDS = (5.0, 30.0, 120.0)
 OFFLINE_AFTER_FAILURES = 3
@@ -57,6 +58,8 @@ class PeerStatus:
     audit_head: str | None = None
     version: str | None = None
     error: str | None = None
+    # "schema_mismatch" when the peer is up but runs a newer cluster.toml schema (CONFIG_DIVERGENCE).
+    code: str | None = None
     name: str | None = None
     config_updated_at: str | None = None
     config_updated_by: str | None = None
@@ -75,6 +78,7 @@ class PeerStatus:
             "version": self.version,
             "last_seen": to_rfc3339(self.last_seen) if self.last_seen else None,
             "error": self.error,
+            "code": self.code,
         }
 
 
@@ -198,6 +202,15 @@ class ReplicationClient:
             return 0
         return int(self._call("POST", "/audit", {"entries": entries}).get("added", 0))
 
+    def audit_ids(self) -> list[str]:
+        ids = self._call("GET", "/audit/ids").get("ids")
+        if not isinstance(ids, list):
+            raise ReplicationError(f"GET /audit/ids on {self.peer.name}: ids must be a list")
+        return [str(i) for i in ids]
+
+    def fetch_audit_ids(self, ids: list[str]) -> list[dict[str, Any]]:
+        return list(self._call("POST", "/audit/fetch", {"ids": ids}).get("entries") or [])
+
     def apply_plan(self, plan: Plan) -> NodeApplyResult:
         return NodeApplyResult.from_dict(self._call("POST", "/plans/apply", {"plan": plan.to_dict()}))
 
@@ -277,10 +290,14 @@ class ReplicationApp:
             return 200, self.config_payload()
         if route == "/config" and method == "PUT":
             return self._put_config(self._body(environ))
-        if route.startswith("/audit") and method == "GET":
+        if route == "/audit" and method == "GET":
             return self._get_audit(environ.get("QUERY_STRING", ""))
         if route == "/audit" and method == "POST":
             return self._post_audit(self._body(environ))
+        if route == "/audit/ids" and method == "GET":
+            return 200, {"ids": self.audit_log.sorted_ids()}
+        if route == "/audit/fetch" and method == "POST":
+            return self._fetch_audit(self._body(environ))
         if route == "/plans/apply" and method == "POST":
             return self._plan(self._body(environ), caller, "apply")
         if route == "/plans/rollback" and method == "POST":
@@ -366,6 +383,13 @@ class ReplicationApp:
         except (KeyError, TypeError, ValueError) as exc:
             raise _Refused(400, "validation_error", f"invalid audit entry: {exc}") from None
         return 200, {"added": self.audit_log.merge(entries)}
+
+    def _fetch_audit(self, body: dict[str, Any]) -> tuple[int, Any]:
+        ids = body.get("ids")
+        if not isinstance(ids, list) or len(ids) > AUDIT_FETCH_MAX:
+            raise _Refused(400, "validation_error", f"ids must be a list of at most {AUDIT_FETCH_MAX}")
+        entries = self.audit_log.get_many([str(i) for i in ids])
+        return 200, {"entries": [e.to_dict() for e in entries]}
 
     def _plan(self, body: dict[str, Any], caller: str, verb: str) -> tuple[int, Any]:
         try:
@@ -472,6 +496,8 @@ class ReplicationServer:
     @property
     def url(self) -> str:
         host, port = self.address or ("127.0.0.1", 0)
+        if ":" in host:
+            host = f"[{host}]"
         return f"https://{host}:{port}"
 
     def start(self, timeout: float = 10.0) -> None:
@@ -496,6 +522,7 @@ class ReplicationServer:
         from gevent import pywsgi
 
         host, _, port = self.listen.rpartition(":")
+        host = host.strip("[]")  # "[::]:8444" binds "::"
         try:
             # An empty host binds every interface, which is the node.toml default.
             self._server = pywsgi.WSGIServer(
@@ -619,14 +646,32 @@ class Replicator:
     def sync_peer(self, peer: Peer) -> PeerStatus:
         """Exchange config and audit with one peer so both end up identical; never raises."""
         client = self.client(peer)
+        status: PeerStatus | None = None
         try:
             status = client.status()
-            status.config_adopted = self._sync_config(client, status)
+            try:
+                status.config_adopted = self._sync_config(client, status)
+            except (ConfigError, ReplicationError) as exc:
+                if not _is_schema_mismatch(exc):
+                    raise
+                self._mark_schema_mismatch(peer, status, exc)
             status.audit_added = self._sync_audit(client, status)
-        except (ReplicationError, ConfigError) as exc:
-            log.warning("sync with %s failed: %s", peer.name, exc)
-            return self._record(peer, None, exc, poll=True)
+        except Exception as exc:
+            return self._failed(peer, exc, poll=True)
         return self._record(peer, status, None)
+
+    def _failed(self, peer: Peer, exc: Exception, poll: bool = False) -> PeerStatus:
+        # A peer answering malformed bodies is treated like an unreachable one, never as a crash.
+        if isinstance(exc, (ReplicationError, ConfigError)):
+            log.warning("replication with %s failed: %s", peer.name, exc)
+        else:
+            log.warning("replication with %s failed: %s: %s", peer.name, type(exc).__name__, exc)
+        return self._record(peer, None, exc, poll=poll)
+
+    @staticmethod
+    def _mark_schema_mismatch(peer: Peer, status: PeerStatus, exc: Exception) -> None:
+        log.warning("config of %s not exchanged, schema mismatch: %s", peer.name, exc)
+        status.error, status.code = str(exc), "schema_mismatch"
 
     def _sync_config(self, client: ReplicationClient, status: PeerStatus) -> bool:
         local = self.config_store.load_cluster()
@@ -652,10 +697,10 @@ class Replicator:
         return client.push_config(cfg.version, to_rfc3339(cfg.updated_at), cfg.updated_by, text)
 
     def _sync_audit(self, client: ReplicationClient, status: PeerStatus) -> int:
-        """Both directions after each side's head, then a full walk when the counts still differ.
+        """Both directions after each side's head, then an id-set exchange when the counts still differ.
 
         Heads alone miss entries whose ULID sorts below the other side's newest one (same
-        millisecond, clock skew); merge is idempotent by id, so the full walk is always safe.
+        millisecond, clock skew, a third node); the id exchange moves exactly the missing ones.
         """
         _count, head = self.audit_log.head()
         added = self._pull_audit_from(client, head)
@@ -663,10 +708,29 @@ class Replicator:
         count, _head = self.audit_log.head()
         fresh = client.status()
         if fresh.audit_count != count:
-            added += self._pull_audit_from(client, None)
-            self._push_audit_to(client, None)
+            added += self._exchange_audit_ids(client)
             fresh = client.status()
         status.audit_count, status.audit_head = fresh.audit_count, fresh.audit_head
+        return added
+
+    def _exchange_audit_ids(self, client: ReplicationClient) -> int:
+        remote = set(client.audit_ids())
+        local = self.audit_log.ids()
+        missing_here = sorted(remote - local)
+        missing_there = sorted(local - remote)
+        log.info(
+            "audit id exchange with %s: pulling %d, pushing %d",
+            client.peer.name,
+            len(missing_here),
+            len(missing_there),
+        )
+        added = 0
+        for i in range(0, len(missing_here), AUDIT_PAGE):
+            raw = client.fetch_audit_ids(missing_here[i : i + AUDIT_PAGE])
+            added += self.audit_log.merge([AuditEntry.from_dict(e) for e in raw])
+        for i in range(0, len(missing_there), AUDIT_PAGE):
+            page = self.audit_log.get_many(missing_there[i : i + AUDIT_PAGE])
+            client.push_audit([e.to_dict() for e in page])
         return added
 
     def _pull_audit_from(self, client: ReplicationClient, after: str | None) -> int:
@@ -701,12 +765,21 @@ class Replicator:
         for peer in self.peers(self_id):
             client = self.client(peer)
             try:
-                adopted = self._push_config_to(client)
+                adopted: bool | None = None
+                mismatch: Exception | None = None
+                try:
+                    adopted = self._push_config_to(client)
+                except ReplicationError as exc:
+                    if not _is_schema_mismatch(exc):
+                        raise
+                    mismatch = exc
                 status = client.status()
-                status.config_adopted = adopted
+                if mismatch is not None:
+                    self._mark_schema_mismatch(peer, status, mismatch)
+                status.config_adopted = bool(adopted)
                 out.append(self._record(peer, status, None))
-            except (ReplicationError, ConfigError) as exc:
-                out.append(self._record(peer, None, exc))
+            except Exception as exc:
+                out.append(self._failed(peer, exc))
         return out
 
     def push_audit(self, self_id: str | None = None, after_id: str | None = None) -> list[PeerStatus]:
@@ -721,8 +794,8 @@ class Replicator:
                 else:
                     self._push_audit_to(client, after_id)
                 out.append(self._record(peer, status, None))
-            except (ReplicationError, ConfigError) as exc:
-                out.append(self._record(peer, None, exc))
+            except Exception as exc:
+                out.append(self._failed(peer, exc))
         return out
 
     def push_all(self, self_id: str | None = None) -> list[PeerStatus]:
@@ -733,13 +806,26 @@ class Replicator:
             try:
                 status = client.status()
                 local = self.config_store.load_cluster()
-                if (status.config_version or -1) < local.version:
-                    status.config_adopted = self._push_config_to(client)
+                remote_version = status.config_version if status.config_version is not None else -1
+                if remote_version < local.version:
+                    try:
+                        status.config_adopted = self._push_config_to(client)
+                    except ReplicationError as exc:
+                        if not _is_schema_mismatch(exc):
+                            raise
+                        self._mark_schema_mismatch(peer, status, exc)
                 status.audit_added = self._sync_audit(client, status)
                 out.append(self._record(peer, status, None))
-            except (ReplicationError, ConfigError) as exc:
-                out.append(self._record(peer, None, exc))
+            except Exception as exc:
+                out.append(self._failed(peer, exc))
         return out
+
+
+def _is_schema_mismatch(exc: Exception) -> bool:
+    """A newer cluster.toml schema on either side: the peer is up, one of the two needs an upgrade."""
+    if isinstance(exc, ConfigError):
+        return True
+    return isinstance(exc, ReplicationError) and exc.code == "schema_mismatch"
 
 
 # Collector-side service -------------------------------------------------------
@@ -797,7 +883,11 @@ class ReplicationService:
         self.server.start()
         self.listener.start()
         if pull:
-            self.replicator.pull_all()
+            try:
+                self.replicator.pull_all()
+            except Exception:
+                # Never left in `syncing` without a worker: anti-entropy retries the pull.
+                log.exception("initial pull failed")
         self._set_state(REPL_READY)
         self._stop.clear()
         self._next_poll = time.monotonic() + self.peer_poll_seconds
@@ -874,8 +964,15 @@ class ReplicationService:
             push_due = bool(self._pending) and self._retry_at is not None and self._retry_at <= now
             seq = self._seq
         if push_due:
-            results = self.replicator.push_all()
-            failed = [r for r in results if not r.reachable]
+            with self._lock:
+                # Pushed back first so an unexpected error cannot turn the loop into a hot retry.
+                self._retry_at = now + PUSH_BACKOFF_SECONDS[0]
+            try:
+                results = self.replicator.push_all()
+                failed = sum(1 for r in results if not r.reachable)
+            except Exception:
+                log.exception("push to peers failed")
+                failed = 1
             with self._lock:
                 if failed:
                     delay = (
@@ -885,7 +982,7 @@ class ReplicationService:
                     )
                     self._attempt += 1
                     self._retry_at = time.monotonic() + delay
-                    log.info("push failed for %d peer(s); retry in %.0fs", len(failed), delay)
+                    log.info("push failed for %d peer(s); retry in %.0fs", failed, delay)
                 elif self._seq != seq:
                     # A write landed during the push and may not be in it: push again now.
                     self._attempt = 0
@@ -895,7 +992,11 @@ class ReplicationService:
                     self._attempt = 0
                     self._retry_at = None
         if now >= self._next_poll:
-            self.replicator.pull_all()
+            self._next_poll = now + self.peer_poll_seconds
+            try:
+                self.replicator.pull_all()
+            except Exception:
+                log.exception("anti-entropy pass failed")
             self._next_poll = time.monotonic() + self.peer_poll_seconds
             if now >= self._next_renewal:
                 self._next_renewal = time.monotonic() + RENEWAL_CHECK_SECONDS

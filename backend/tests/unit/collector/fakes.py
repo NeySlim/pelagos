@@ -75,6 +75,7 @@ class FakeDnsBackend(DnsBackend):
         self.expires: dict[str, datetime] = {}
         self.rrsets: dict[str, list[RRset]] = {"example.lan.": [], "2.0.192.in-addr.arpa.": []}
         self.calls: list[str] = []
+        self.read_errors: set[str] = set()
 
     def _check(self) -> None:
         if self.down:
@@ -123,6 +124,8 @@ class FakeDnsBackend(DnsBackend):
     def read_zone(self, zone: str, view: str | None = None) -> list[RRset]:
         self._check()
         self.calls.append(f"read_zone:{zone}")
+        if zone in self.read_errors:
+            raise ConnectorUnavailable(f"AXFR {zone}: transfer refused")
         return list(self.rrsets.get(zone, []))
 
     def instance_stats(self) -> BindInstanceStats:

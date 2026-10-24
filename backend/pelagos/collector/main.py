@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pelagos.collector import series as series_mod
-from pelagos.collector.alerts import ACK_ACTION, AlertStore
+from pelagos.collector.alerts import ACK_ACTION, ACK_SKEW, AlertStore
 from pelagos.collector.events import EventSink, SignalListener
 from pelagos.collector.pollers import PollOutcome
 from pelagos.collector.pollers.bind import BindPoller
@@ -25,7 +25,17 @@ from pelagos.collector.pollers.peers import PeerClient, PeersPoller, Replication
 from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBackend, DhcpBackend, DnsBackend
 from pelagos.core.context import NodeContext
 from pelagos.core.paths import Paths
-from pelagos.domain import INCONSISTENCY_KINDS, Alert, AuditEntry, Family, Lease, Reservation, RRset, ZoneKind
+from pelagos.domain import (
+    INCONSISTENCY_KINDS,
+    Alert,
+    AuditEntry,
+    Family,
+    Lease,
+    Reservation,
+    RRset,
+    Severity,
+    ZoneKind,
+)
 from pelagos.services import consistency
 
 log = logging.getLogger(__name__)
@@ -142,6 +152,8 @@ class Collector:
             peer_client, self.node_id, lambda: self.ctx.cluster().nodes, store, settings, clock
         )
         self.last_report = CycleReport()
+        # Set by run(): the collector.sock listener other components register their handlers on.
+        self.listener: SignalListener | None = None
 
     # Tasks -----------------------------------------------------------------
 
@@ -168,10 +180,16 @@ class Collector:
     def apply_acks(self) -> list[Alert]:
         """Replay alert.ack audit entries (local API acks and replicated ones) onto open alerts.
 
-        Replicated entries can arrive with ids older than any cursor, so the whole log is scanned and
-        each ack entry is consumed once (recorded in meta), which keeps it off a later re-opening.
+        Replicated entries can arrive with ids older than any cursor, so the scan is bounded by time
+        instead: an ack older than the oldest open alert (minus the skew allowance) cannot apply. Each
+        ack entry is consumed once (recorded in meta), which keeps it off a later re-opening.
         """
-        entries, _ = self.ctx.audit_log.query(action=ACK_ACTION, page=1, per_page=1_000_000)
+        oldest = self.alerts.oldest_open_first_seen()
+        if oldest is None:
+            return []
+        entries, _ = self.ctx.audit_log.query(
+            action=ACK_ACTION, since=oldest - ACK_SKEW, page=1, per_page=1_000_000
+        )
         consumed = self.alerts.consumed_acks()
         fresh = sorted((e for e in entries if e.id not in consumed), key=lambda e: e.id)
         if not fresh:
@@ -185,9 +203,18 @@ class Collector:
         return changed
 
     def consistency(self) -> list[Alert]:
-        """Read leases, reservations and primary zones live, run the pure checks, reconcile cross alerts."""
-        leases, reservations = self._dhcp_data()
-        forward, reverse = self._dns_data()
+        """Read leases, reservations and primary zones live, run the pure checks, reconcile cross alerts.
+
+        A partial read would turn into false alerts (every DHCID record without its lease, every PTR
+        into an unread zone), so any read failure skips the reconcile and keeps the previous state.
+        """
+        leases, reservations, dhcp_errors = self._dhcp_data()
+        forward, reverse, dns_errors = self._dns_data()
+        failures = dhcp_errors + dns_errors
+        if failures:
+            log.warning("consistency pass skipped: %s", "; ".join(failures))
+            self.last_report.errors["consistency"] = "; ".join(failures)
+            return []
         observed = consistency.run_all(
             leases=leases, reservations=reservations, forward=forward, reverse=reverse
         )
@@ -258,6 +285,10 @@ class Collector:
         self.last_report.resolved.extend(resolved)
 
     def _audit(self, alert: Alert, action: str) -> None:
+        # Info alerts (HA transitions, inconsistencies that follow lease churn) flap by nature: the
+        # replicated audit log keeps only warning and critical ones.
+        if alert.severity is Severity.INFO:
+            return
         entry = AuditEntry(
             node_id=self.node_id,
             action=action,
@@ -273,40 +304,43 @@ class Collector:
         except OSError as exc:
             log.warning("audit append failed: %s", exc)
 
-    def _dhcp_data(self) -> tuple[list[Lease], list[Reservation]]:
+    def _dhcp_data(self) -> tuple[list[Lease], list[Reservation], list[str]]:
+        """Leases and reservations of every local DHCP backend, plus one error string per failed read."""
         leases: list[Lease] = []
         reservations: list[Reservation] = []
+        errors: list[str] = []
         for backend in self.backends.dhcp:
             try:
                 reservations.extend(backend.list_reservations())
                 leases.extend(_all_leases(backend, self.node_id))
-            except ConnectorError as exc:
-                log.debug("consistency: %s unavailable (%s)", backend.engine_name, exc)
-        return leases, reservations
+            except (ConnectorError, NotImplementedError) as exc:
+                errors.append(f"{backend.engine_name}: {exc or type(exc).__name__}")
+        return leases, reservations, errors
 
-    def _dns_data(self) -> tuple[dict[str, list[RRset]], list[RRset]]:
+    def _dns_data(self) -> tuple[dict[str, list[RRset]], list[RRset], list[str]]:
+        """Primary zone contents split forward/reverse, plus one error string per failed read."""
         forward: dict[str, list[RRset]] = {}
         reverse: list[RRset] = []
         if self.backends.dns is None:
-            return forward, reverse
+            return forward, reverse, []
         try:
             zones = self.backends.dns.list_zones()
-        except ConnectorError as exc:
-            log.debug("consistency: bind unavailable (%s)", exc)
-            return forward, reverse
+        except (ConnectorError, NotImplementedError) as exc:
+            return forward, reverse, [f"bind: {exc or type(exc).__name__}"]
+        errors: list[str] = []
         for zone in zones:
             if zone.kind is not ZoneKind.PRIMARY:
                 continue
             try:
                 rrsets = self.backends.dns.read_zone(zone.name, zone.view)
-            except ConnectorError as exc:
-                log.debug("consistency: AXFR of %s failed (%s)", zone.name, exc)
+            except (ConnectorError, NotImplementedError) as exc:
+                errors.append(f"AXFR {zone.name}: {exc or type(exc).__name__}")
                 continue
             if zone.name.endswith((".in-addr.arpa.", ".ip6.arpa.")):
                 reverse.extend(rrsets)
             else:
                 forward.setdefault(zone.name, []).extend(rrsets)
-        return forward, reverse
+        return forward, reverse, errors
 
 
 def _all_leases(backend: DhcpBackend, node_id: str) -> list[Lease]:
@@ -331,6 +365,22 @@ def _all_leases(backend: DhcpBackend, node_id: str) -> list[Lease]:
 def build_tasks(ctx: NodeContext, store: series_mod.SeriesStore) -> list[Task]:
     """Kept for callers of the skeleton API: the Collector decides the task list."""
     return Collector(ctx, store, build_backends(ctx), build_peer_client(ctx)).tasks()
+
+
+def start_replication(ctx: NodeContext, listener: SignalListener, store: series_mod.SeriesStore) -> Any:
+    """Hand the collector side of replication (/repl/v1 server, push on signal, anti-entropy) to WP-CORE.
+
+    Calls `pelagos.core.replication.start_collector_side(ctx, listener, store)` when it exists; the
+    value it returns is kept and its `close()` (if any) runs on shutdown. Returns None while WP-CORE
+    has not provided it.
+    """
+    try:
+        from pelagos.core.replication import start_collector_side  # type: ignore[attr-defined]
+
+        return start_collector_side(ctx, listener, store)
+    except (ImportError, NotImplementedError) as exc:
+        log.info("replication not started by the collector: %s", exc or type(exc).__name__)
+        return None
 
 
 def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
@@ -359,10 +409,12 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     listener = SignalListener(paths.collector_sock)
     listener.on("audit", lambda _msg: collector.apply_acks())
     listener.on("consistency", lambda _msg: collector.consistency())
+    collector.listener = listener
     try:
         listener.open()
     except OSError as exc:
         log.warning("signal socket %s unavailable: %s", paths.collector_sock, exc)
+    replication = start_replication(ctx, listener, store)
     try:
         while True:
             now = time.monotonic()
@@ -381,5 +433,8 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     except KeyboardInterrupt:
         return 0
     finally:
+        close = getattr(replication, "close", None)
+        if callable(close):
+            close()
         listener.close()
         conn.close()

@@ -12,10 +12,22 @@ import pytest
 
 from pelagos.collector import main as collector_main
 from pelagos.collector.alerts import ack_entry
-from pelagos.collector.events import EventSink
+from pelagos.collector.events import EventSink, SignalListener
 from pelagos.collector.main import Backends, Collector, build_backends, build_peer_client, connector_context
 from pelagos.collector.series import SeriesStore, connect
-from pelagos.domain import AlertKind, AlertState, Family, Lease, RRset, new_id, utcnow
+from pelagos.core import replication
+from pelagos.domain import (
+    INCONSISTENCY_KINDS,
+    Alert,
+    AlertKind,
+    AlertState,
+    Family,
+    Lease,
+    RRset,
+    Severity,
+    new_id,
+    utcnow,
+)
 from tests.unit.collector.fakes import FakeDdnsBackend, FakeDhcpBackend, FakeDnsBackend, FakePeerClient
 
 pytestmark = pytest.mark.unit
@@ -171,8 +183,8 @@ def test_consistency_task_reads_live_data_and_pages_leases(rig, monkeypatch):
             fqdn_fwd=True,
         )
     )
-    leases, _ = collector._dhcp_data()
-    assert len(leases) == 202 and all(lease.node_id == collector.node_id for lease in leases)
+    leases, _, errors = collector._dhcp_data()
+    assert errors == [] and len(leases) == 202 and all(lease.node_id == collector.node_id for lease in leases)
     observed = collector.consistency()
     assert [a.kind for a in observed] == [AlertKind.LEASE_WITHOUT_RECORD]
     assert [a.kind for a in collector.alerts.open_alerts()] == [AlertKind.LEASE_WITHOUT_RECORD]
@@ -191,6 +203,83 @@ def test_consistency_task_reads_live_data_and_pages_leases(rig, monkeypatch):
     collector.poll_kea()
     assert collector.consistency() == []
     assert [a.kind for a in collector.alerts.open_alerts()] == [AlertKind.DAEMON_DOWN]
+
+
+def test_consistency_is_skipped_when_a_read_fails(rig):
+    collector, backends, _ = rig
+    backends.dns.rrsets["example.lan."] = [
+        RRset(name="pc1.example.lan.", rtype="A", ttl=300, rdata=["192.0.2.10"]),
+        RRset(
+            name="pc1.example.lan.",
+            rtype="DHCID",
+            ttl=300,
+            rdata=["AAIBY2/AuCccgoJbsaxcQc9TUapptP69lOjxfNuVAA2kjEA="],
+        ),
+    ]
+    backends.dns.rrsets["2.0.192.in-addr.arpa."] = [
+        RRset(name="10.2.0.192.in-addr.arpa.", rtype="PTR", ttl=300, rdata=["pc1.example.lan."]),
+    ]
+    backends.kea4.lease_list = [
+        Lease(ip_address="192.0.2.10", subnet_id=1, family=Family.V4, hw_address="aa:bb:cc:dd:ee:10")
+    ]
+    assert collector.consistency() == []
+    # Kea briefly unreachable: no record_without_lease storm, the previous state is kept.
+    backends.kea4.down = True
+    assert collector.consistency() == []
+    assert collector.alerts.open_alerts() == []
+    assert "kea4" in collector.last_report.errors["consistency"]
+    # Same for a failed AXFR of a primary zone.
+    backends.kea4.down = False
+    collector.last_report = collector_main.CycleReport()
+    backends.dns.read_errors.add("example.lan.")
+    assert collector.consistency() == []
+    assert "AXFR example.lan." in collector.last_report.errors["consistency"]
+    assert not any(a.kind in INCONSISTENCY_KINDS for a in collector.alerts.open_alerts())
+
+
+def test_info_alerts_are_not_audited(rig):
+    collector, _, _ = rig
+    info = Alert(
+        kind=AlertKind.HA_TRANSITION, severity=Severity.INFO, node_id="N", subject="ha:kea4", title="t"
+    )
+    collector._audit(info, "alert.raise")
+    assert audit_actions(collector.ctx) == []
+
+
+def test_ack_scan_is_skipped_without_open_alerts(rig, monkeypatch):
+    collector, _, _ = rig
+
+    def boom(**_kw):
+        raise AssertionError("audit log scanned")
+
+    monkeypatch.setattr(collector.ctx.audit_log, "query", boom)
+    assert collector.apply_acks() == []
+
+
+def test_start_replication_hook(node_ctx, monkeypatch):
+    listener = SignalListener(node_ctx.paths.collector_sock)
+    conn = connect(node_ctx.paths.series_db)
+    store = SeriesStore(conn)
+    # WP-CORE has not provided the hook yet: nothing starts, nothing fails.
+    monkeypatch.delattr(replication, "start_collector_side", raising=False)
+    assert collector_main.start_replication(node_ctx, listener, store) is None
+    calls = []
+
+    def start(ctx, lst, st):
+        calls.append((ctx, lst, st))
+        lst.on("config", lambda _msg: None)
+        return "handle"
+
+    monkeypatch.setattr(replication, "start_collector_side", start, raising=False)
+    assert collector_main.start_replication(node_ctx, listener, store) == "handle"
+    assert calls == [(node_ctx, listener, store)] and "config" in listener.handlers
+
+    def not_yet(ctx, lst, st):
+        raise NotImplementedError("WP-CORE")
+
+    monkeypatch.setattr(replication, "start_collector_side", not_yet, raising=False)
+    assert collector_main.start_replication(node_ctx, listener, store) is None
+    conn.close()
 
 
 def test_tasks_and_retention(rig):
@@ -230,7 +319,8 @@ def test_build_backends_and_run_once(node_ctx, monkeypatch, tmp_root):
     assert store.snapshot(node, "bind", "zones") is not None and store.get_meta("last_start") is not None
     conn.close()
     fakes.dns.down = True
-    assert collector_main.run(node_ctx.paths, once=True, rebuild=True) == 0
+    # The consistency pass cannot read the zones: it is skipped and reported, so the cycle fails.
+    assert collector_main.run(node_ctx.paths, once=True, rebuild=True) == 1
     conn = connect(node_ctx.paths.series_db, readonly=True)
     assert SeriesStore(conn).snapshot(node, "bind", "zones") is None  # rebuilt, bind down: no new snapshot
     assert conn.execute("SELECT kind FROM alerts").fetchone()[0] == "daemon_down"

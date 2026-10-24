@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import glob
 import os
 import tempfile
+import time
 import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -73,9 +75,46 @@ def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]
     return out
 
 
+# A temp file of an atomic write older than this was left by a crash: removed on the next write.
+STALE_TEMP_SECONDS = 600
+
+
+def fsync_dir(directory: Path) -> None:
+    """Make a rename in `directory` durable: without it a power loss can bring the old file back."""
+    try:
+        fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass  # some filesystems refuse fsync on directories; the rename is still atomic
+    finally:
+        os.close(fd)
+
+
+def remove_stale_temps(path: Path, older_than: float = STALE_TEMP_SECONDS) -> int:
+    """Temp files `.<name>.*` an interrupted atomic write left next to `path`."""
+    removed = 0
+    now = time.time()
+    try:
+        candidates = list(path.parent.glob(f".{glob.escape(path.name)}.*"))
+    except OSError:
+        return 0
+    for tmp in candidates:
+        try:
+            if tmp.is_file() and now - tmp.stat().st_mtime > older_than:
+                tmp.unlink()
+                removed += 1
+        except OSError:
+            pass
+    return removed
+
+
 def atomic_write(path: Path, data: bytes, mode: int = 0o640) -> None:
-    """Write via a temp file in the same directory, fsync, rename."""
+    """Write via a temp file in the same directory, fsync, rename, fsync the directory."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    remove_stale_temps(path)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -84,6 +123,7 @@ def atomic_write(path: Path, data: bytes, mode: int = 0o640) -> None:
             os.fsync(fh.fileno())
         os.chmod(tmp, mode)
         os.replace(tmp, path)
+        fsync_dir(path.parent)
     except BaseException:
         try:
             os.unlink(tmp)

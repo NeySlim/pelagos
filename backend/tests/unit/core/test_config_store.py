@@ -66,6 +66,31 @@ def test_merge_remote_rule(node_paths, tmp_root):
     assert any(k.endswith("/must_change_password") and v.endswith("@OTHER") for k, v in stamps.items())
 
 
+def test_atomic_writes_remove_temps_left_by_a_crash(node_paths, monkeypatch):
+    import os
+
+    from pelagos.core import config_store
+    from pelagos.core.write_pipeline import _atomic_write
+
+    synced: list[str] = []
+    real = config_store.fsync_dir
+    monkeypatch.setattr(config_store, "fsync_dir", lambda d: (synced.append(str(d)), real(d)))
+    stale = node_paths.cluster_toml.parent / ".cluster.toml.crashed"
+    fresh = node_paths.cluster_toml.parent / ".cluster.toml.inflight"
+    for tmp in (stale, fresh):
+        tmp.write_text("partial")
+    os.utime(stale, (1, 1))
+    ConfigStore(node_paths.node_toml, node_paths.cluster_toml).update_cluster(lambda c: None, updated_by="node:x")
+    assert not stale.exists() and fresh.exists()
+    assert synced == [str(node_paths.cluster_toml.parent)]
+    engine_file = node_paths.var / "named.conf"
+    orphan = node_paths.var / ".named.conf.x1"
+    orphan.write_text("partial")
+    os.utime(orphan, (1, 1))
+    _atomic_write(engine_file, b"options {};\n", None, None)
+    assert engine_file.read_bytes() == b"options {};\n" and not orphan.exists()
+
+
 def test_pre_merge_file_keeps_the_version_rule(node_paths):
     """A file without stamps (older release): its entries carry the file's own (version, writer)."""
     store = ConfigStore(node_paths.node_toml, node_paths.cluster_toml)

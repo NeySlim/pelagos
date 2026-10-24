@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pelagos.core.config_store import fsync_dir, remove_stale_temps
 from pelagos.domain.common import utcnow
 from pelagos.domain.plan import ValidationResult
 
@@ -53,6 +54,7 @@ def sha256_file(path: Path) -> str:
 def _atomic_write(path: Path, content: bytes, mode: int | None, group: str | None) -> None:
     """Temp file next to the target, fsync, rename; keeps owner, group and mode unless overridden."""
     existing = path.stat() if path.exists() else None
+    remove_stale_temps(path)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as fh:
@@ -69,6 +71,7 @@ def _atomic_write(path: Path, content: bytes, mode: int | None, group: str | Non
             except PermissionError:
                 os.chown(tmp, -1, existing.st_gid)
         os.replace(tmp, path)
+        fsync_dir(path.parent)
     except BaseException:
         try:
             os.unlink(tmp)

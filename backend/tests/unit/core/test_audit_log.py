@@ -94,3 +94,50 @@ def test_index_ignores_a_partial_last_line_and_rebuilds_after_rotation(tmp_root)
     log2 = AuditLog(path)
     log2.append(e2)
     assert log.head() == (1, e2.id)
+
+
+def test_truncated_line_after_a_crash_is_skipped_and_the_log_keeps_working(tmp_root, caplog):
+    path = tmp_root / "audit.jsonl"
+    log = AuditLog(path)
+    e1, e2 = _entry("n1", "before"), _entry("n1", "after")
+    log.append(e1)
+    with path.open("ab") as fh:
+        fh.write(b'{"id":"01JBTRUNCATED","ts":')  # the process died here
+    log.append(e2)
+    other = AuditLog(path)  # a fresh reader (restart) indexes the whole file
+    for reader in (log, other):
+        assert reader.head() == (2, e2.id)
+        assert [e.action for e in reader.read()] == ["before", "after"]
+        rows, total = reader.query(action="after")
+        assert total == 1 and rows[0].id == e2.id
+        assert len(list(reader.export_lines())) == 2
+    assert path.read_bytes().count(b"\n") == 3
+    assert "truncated last entry" in caplog.text
+
+
+def test_query_pages_newest_first_by_timestamp_and_time_range(tmp_root):
+    from datetime import timedelta
+
+    from pelagos.domain.common import utcnow
+
+    log = AuditLog(tmp_root / "audit.jsonl")
+    now = utcnow()
+    entries = []
+    for i in range(10):
+        e = _entry("n1", f"a{i}")
+        e.ts = now - timedelta(minutes=10 - i)
+        entries.append(e)
+    # Merged from a peer: an id newer than every other one, with the oldest timestamp.
+    late = _entry("n2", "late")
+    late.ts = now - timedelta(hours=1)
+    log.merge(entries)
+    log.merge([late])
+    rows, total = log.query(page=1, per_page=3)
+    assert total == 11 and [e.action for e in rows] == ["a9", "a8", "a7"]
+    rows, _ = log.query(page=4, per_page=3)
+    assert [e.action for e in rows] == ["a0", "late"]
+    assert log.query(page=5, per_page=3) == ([], 11)
+    rows, total = log.query(since=now - timedelta(minutes=5), until=now - timedelta(minutes=2))
+    assert total == 4 and [e.action for e in rows] == ["a8", "a7", "a6", "a5"]
+    rows, total = log.query(action="a", since=now - timedelta(minutes=3), page=1, per_page=1)
+    assert total == 3 and rows[0].action == "a9"

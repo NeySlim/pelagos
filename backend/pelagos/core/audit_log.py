@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import bisect
 import json
+import logging
 import os
 import threading
 from collections.abc import Callable
@@ -14,13 +15,29 @@ from typing import Any
 
 from pelagos.core.locks import FileLock
 from pelagos.domain.audit import AuditEntry
+from pelagos.domain.common import from_rfc3339
+
+log = logging.getLogger(__name__)
+# Entries decoded per read when a query has filters beyond the time range.
+DECODE_CHUNK = 2000
+
+
+def _decode(line: bytes) -> AuditEntry | None:
+    """One line, or None for a damaged one (a crash mid-write): never fatal to the whole log."""
+    try:
+        return AuditEntry.from_dict(json.loads(line))
+    except (ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
+        log.warning("audit log: skipping a damaged line: %s", exc)
+        return None
 
 
 class AuditLog:
     """Readers keep an (id, byte offset) index refreshed from the file tail, so pages and heads stay cheap.
 
     The file is append-only and shared by several processes: the index is rebuilt when the
-    inode changes or the file shrinks, and extended with the new complete lines otherwise.
+    inode changes or the file shrinks, and extended with the new complete lines otherwise. A second
+    index by (ts, id) serves the API's newest-first pages and time ranges without decoding the file.
+    A damaged line (a crash mid-write) is skipped, and the next write starts on a new line.
     """
 
     def __init__(self, path: Path, lock_path: Path | None = None) -> None:
@@ -30,6 +47,7 @@ class AuditLog:
         self._index_lock = threading.Lock()
         self._index: list[tuple[str, int]] = []  # sorted by id
         self._ids: set[str] = set()
+        self._by_ts: list[tuple[float, str, int]] = []  # (ts epoch seconds, id, offset), sorted
         self._offset = 0
         self._ino: int | None = None
 
@@ -50,10 +68,12 @@ class AuditLog:
                 self._index, self._ids, self._offset, self._ino = [], set(), 0, None
                 return
             if st.st_ino != self._ino or st.st_size < self._offset:
-                self._index, self._ids, self._offset, self._ino = [], set(), 0, st.st_ino
+                self._index, self._ids, self._by_ts = [], set(), []
+                self._offset, self._ino = 0, st.st_ino
             if st.st_size == self._offset:
                 return
             fresh: list[tuple[str, int]] = []
+            fresh_ts: list[tuple[float, str, int]] = []
             with self.path.open("rb") as fh:
                 fh.seek(self._offset)
                 pos = self._offset
@@ -62,19 +82,24 @@ class AuditLog:
                         break  # a writer is mid-line: index it on the next refresh
                     stripped = line.strip()
                     if stripped:
-                        entry_id = str(json.loads(stripped)["id"])
-                        if entry_id not in self._ids:
+                        try:
+                            raw = json.loads(stripped)
+                            entry_id = str(raw["id"])
+                            ts = from_rfc3339(raw["ts"]).timestamp()
+                        except (ValueError, KeyError, TypeError, UnicodeDecodeError) as exc:
+                            log.warning(
+                                "audit log %s: damaged line at byte %d skipped: %s", self.path, pos, exc
+                            )
+                            entry_id = ""
+                        if entry_id and entry_id not in self._ids:
                             self._ids.add(entry_id)
                             fresh.append((entry_id, pos))
+                            fresh_ts.append((ts, entry_id, pos))
                     pos += len(line)
                 self._offset = pos
             if fresh:
-                if self._index and fresh[0][0] < self._index[-1][0]:
-                    self._index.extend(fresh)
-                    self._index.sort()
-                else:
-                    fresh.sort()
-                    self._index.extend(fresh)
+                _merge_sorted(self._index, fresh)
+                _merge_sorted(self._by_ts, fresh_ts)
 
     def ids(self) -> set[str]:
         """A snapshot of every id in the log."""
@@ -98,7 +123,9 @@ class AuditLog:
         with self.path.open("rb") as fh:
             for off in offsets:
                 fh.seek(off)
-                out.append(AuditEntry.from_dict(json.loads(fh.readline())))
+                entry = _decode(fh.readline())
+                if entry is not None:
+                    out.append(entry)
         return out
 
     def _iter(self):
@@ -106,16 +133,29 @@ class AuditLog:
             return
         with self.path.open("rb") as fh:
             for line in fh:
+                if not line.endswith(b"\n"):
+                    return  # a writer is mid-line
                 line = line.strip()
                 if line:
-                    yield AuditEntry.from_dict(json.loads(line))
+                    entry = _decode(line)
+                    if entry is not None:
+                        yield entry
 
     def _write(self, entries: list[AuditEntry]) -> None:
+        """One write per batch, on a fresh line: a fragment left by a crash stays a lone bad line."""
         self._ensure()
-        with self.path.open("ab") as fh:
-            for entry in entries:
-                fh.write(json.dumps(entry.to_dict(), ensure_ascii=False, separators=(",", ":")).encode())
-                fh.write(b"\n")
+        data = b"".join(
+            json.dumps(e.to_dict(), ensure_ascii=False, separators=(",", ":")).encode() + b"\n"
+            for e in entries
+        )
+        with self.path.open("ab+") as fh:
+            end = fh.seek(0, os.SEEK_END)
+            if end > 0:
+                fh.seek(end - 1)
+                if fh.read(1) != b"\n":
+                    log.warning("audit log %s: truncated last entry dropped (crash mid-write)", self.path)
+                    data = b"\n" + data
+            fh.write(data)
             fh.flush()
             os.fsync(fh.fileno())
 
@@ -191,9 +231,33 @@ class AuditLog:
                 and (until is None or e.ts <= until)
             )
 
-        rows = [e for e in self._iter() if keep(e)]
-        rows.sort(key=lambda e: (e.ts, e.id), reverse=True)
-        start = (page - 1) * per_page
+        self._refresh()
+        start = max(0, (page - 1) * per_page)
+        with self._index_lock:
+            lo = (
+                0 if since is None else bisect.bisect_left(self._by_ts, since.timestamp(), key=lambda t: t[0])
+            )
+            hi = (
+                len(self._by_ts)
+                if until is None
+                else bisect.bisect_right(self._by_ts, until.timestamp(), key=lambda t: t[0])
+            )
+            hi = max(lo, hi)
+            if all(f is None for f in (user, action, target, node_id, engine, result)):
+                # Newest first straight from the (ts, id) index: only the page is decoded.
+                end = hi - start
+                offsets = [self._by_ts[i][2] for i in range(end - 1, max(lo, end - per_page) - 1, -1)]
+                total = hi - lo
+                window: list[int] = []
+            else:
+                offsets = []
+                total = 0
+                window = [self._by_ts[i][2] for i in range(hi - 1, lo - 1, -1)]
+        if not window:
+            return self._load_at(offsets), total
+        rows: list[AuditEntry] = []
+        for i in range(0, len(window), DECODE_CHUNK):
+            rows.extend(e for e in self._load_at(window[i : i + DECODE_CHUNK]) if keep(e))
         return rows[start : start + per_page], len(rows)
 
     def get(self, entry_id: str) -> AuditEntry | None:
@@ -204,6 +268,16 @@ class AuditLog:
         for e in self._iter():
             if (since is None or e.ts >= since) and (until is None or e.ts <= until):
                 yield json.dumps(e.to_dict(), ensure_ascii=False, separators=(",", ":")) + "\n"
+
+
+def _merge_sorted(target: list[Any], fresh: list[Any]) -> None:
+    """Extend a sorted list with new items, keeping it sorted (appends in order are the common case)."""
+    fresh.sort()
+    if target and fresh[0] < target[-1]:
+        target.extend(fresh)
+        target.sort()
+    else:
+        target.extend(fresh)
 
 
 def entry_from_json(line: str | bytes | dict[str, Any]) -> AuditEntry:

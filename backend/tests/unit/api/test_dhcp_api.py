@@ -264,3 +264,32 @@ def test_config_masks_database_passwords(role_client, kea4):
     cfg = c.get(D + "/config").get_json()
     assert cfg["config"]["lease-database"]["password"] == "***"
     assert "DBPASS" not in str(cfg) and "DBPASS" not in str(c.get(D + "/ddns").get_json())
+
+
+def test_partial_replace_keeps_what_it_does_not_name(role_client, kea4):
+    op = role_client("dhcp-operator")
+    seen = []
+    for name in ("plan_subnet_change", "plan_reservation_change"):
+        real = getattr(kea4, name)
+
+        def spy(change, created_by="", real=real):
+            seen.append(change.after)
+            return real(change, created_by)
+
+        setattr(kea4, name, spy)
+    subnet = kea4.get_subnet(1)
+    assert subnet.pools
+    change = {"op": "replace", "target": "subnet4/1", "after": {"valid_lifetime": 1200}}
+    assert op.post(D + "/subnets/plan", json={"change": change}).status_code == 200
+    assert seen[-1]["pools"] == [p.to_dict() for p in subnet.pools] and seen[-1]["valid_lifetime"] == 1200
+    assert seen[-1]["subnet"] == subnet.subnet and not seen[-1]["raw"]
+
+    res = kea4.list_reservations(1)[0]
+    target = f"subnet4/1/reservations/{res.id_type.value}={res.identifier}"
+    change = {"op": "replace", "target": target, "after": {"hostname": "renamed"}}
+    assert op.post(D + "/reservations/plan", json={"change": change}).status_code == 200
+    assert seen[-1]["hostname"] == "renamed" and seen[-1]["ip_address"] == res.ip_address
+    # An ADD is completed with the defaults: empty pools, no address.
+    change = {"op": "add", "target": "subnet4/12", "after": {"subnet": "198.51.100.0/24"}}
+    assert op.post(D + "/subnets/plan", json={"change": change}).status_code == 200
+    assert seen[-1]["pools"] == [] and seen[-1]["id"] == 12

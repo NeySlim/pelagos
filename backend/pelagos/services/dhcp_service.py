@@ -395,7 +395,8 @@ class DhcpService:
                 _check_prefix(after["subnet"], self.family)
             sid = change.target.rpartition("/")[2]
             ids = {"id": int(sid)} if sid.isdigit() else {}
-            change.after = _domain_after(change.after, Subnet, family=self.family, **ids)
+            current = _current(change, lambda: backend.get_subnet(int(sid)) if sid.isdigit() else None)
+            change.after = _domain_after(change, Subnet, current, family=self.family, **ids)
             plan = backend.plan_subnet_change(change, created_by)
         elif kind == "shared_network":
             change = parse_change(body.get("change"), "change")
@@ -423,7 +424,8 @@ class DhcpService:
             for field in ("ip_address",):
                 if after.get(field):
                     _check_ip(after[field], self.family, f"change.after.{field}")
-            change.after = _domain_after(change.after, Reservation)
+            current = _current(change, lambda: _find_reservation(backend, change.target))
+            change.after = _domain_after(change, Reservation, current)
             plan = backend.plan_reservation_change(change, created_by)
         elif kind == "class":
             change = parse_change(body.get("change"), "change")
@@ -745,12 +747,48 @@ def _maintenance_label(action: str, down: str, up: str) -> str:
     return f"HA maintenance cancel: {down} leaves maintenance and both servers return to normal ({up} drives)"
 
 
-def _domain_after(after: Any, model: Any, **defaults: Any) -> Any:
-    """A domain object given with only some fields (`{"id", "subnet", "pools"}`) is completed, so the
-    connector sees a domain dict; Kea-style dicts (dashed keys) pass through untouched."""
+def _domain_after(change: Change, model: Any, current: dict[str, Any] | None, **defaults: Any) -> Any:
+    """A domain object given with only some fields (`{"id", "subnet", "pools"}`) is completed: from
+    the defaults on ADD, from the current object on REPLACE (never by defaults, which would drop its
+    pools or address). Kea-style dicts (dashed keys) pass through untouched."""
+    after = change.after
     if not isinstance(after, dict) or any("-" in k for k in after):
         return after
+    if change.op is ChangeOp.REPLACE:
+        if current is None:
+            return after  # the connector reports what is missing
+        base = current
+    elif change.op is ChangeOp.ADD:
+        base = defaults
+    else:
+        return after
     try:
-        return model.from_dict({**defaults, **after}).to_dict()
+        return model.from_dict({**base, **after}).to_dict()
     except (TypeError, ValueError, KeyError):
         return after  # incomplete: the connector reports what is missing
+
+
+def _current(change: Change, read: Any) -> dict[str, Any] | None:
+    """The object a REPLACE edits, as a domain dict; None when it cannot be read."""
+    if change.op is not ChangeOp.REPLACE or not isinstance(change.after, dict):
+        return None
+    try:
+        obj = read()
+    except Exception:
+        return None
+    # Without `raw` the connector takes the object as it is now for the keys the domain does not model.
+    return {k: v for k, v in obj.to_dict().items() if k != "raw"} if obj is not None else None
+
+
+def _find_reservation(backend: DhcpBackend, target: str) -> Reservation | None:
+    """`<subnetN/<id>|global>/reservations/<id_type>=<identifier>` among the backend's reservations."""
+    scope, _, key = target.partition("/reservations/")
+    id_type, _, identifier = key.partition("=")
+    sid = scope.rpartition("/")[2]
+    subnet_id = int(sid) if sid.isdigit() else None
+    for r in backend.list_reservations(subnet_id):
+        if r.id_type.value == id_type and r.identifier.lower() == identifier.lower():
+            if subnet_id is None and r.subnet_id not in (None, 0):
+                continue
+            return r
+    return None

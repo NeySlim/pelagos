@@ -18,6 +18,8 @@ from pelagos.domain import (
     Plan,
     PlanScope,
     PlanState,
+    Precondition,
+    PreconditionKind,
     RRset,
     ValidationResult,
     ZoneKind,
@@ -55,6 +57,13 @@ def plan_on_primary(dns: Any, ctx: Any, zone: str, changes: list[Change], create
     if not resolved and not errors:
         errors.append("no change")
     ok = not errors
+    preconditions = rr.preconditions(resolved, peer.id)
+    soa = next((r for r in current if r.rtype == "SOA" and normalize_name(r.name) == zone), None)
+    if soa is not None and soa.rdata:
+        # Same staleness guard as a plan built on the primary itself.
+        preconditions.append(
+            Precondition(PreconditionKind.SOA_SERIAL, zone, soa.rdata[0].split()[2], peer.id)
+        )
     plan = Plan(
         scope=PlanScope.DNS_RRSET,
         node_id=ctx.node.id,
@@ -63,7 +72,7 @@ def plan_on_primary(dns: Any, ctx: Any, zone: str, changes: list[Change], create
         engine=Engine.BIND,
         changes=[rr.to_change(zone, rc) for rc in resolved],
         diff=rr.diff_text(resolved),
-        preconditions=rr.preconditions(resolved, peer.id),
+        preconditions=preconditions,
         validations=[
             ValidationResult(ok=ok, tool="dnspython", output="\n".join(errors) or "ok", node_id=peer.id)
         ],

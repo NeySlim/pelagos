@@ -54,6 +54,12 @@ def test_host_plan_without_bind_routes_dns_to_the_primary(role_client, peer_b, f
     plan = r.get_json()
     assert set(plan["target_node_ids"]) == {node_ctx.node.id, NODE_B}
     assert "scanner.example.lan." in plan["diff"] and "44.2.0.192.in-addr.arpa." in plan["diff"]
+    # The plan pins the primary's SOA serial, as a plan built on the primary does.
+    soa = next(r for r in peer_b.registry.dns.read_zone("example.lan.") if r.rtype == "SOA")
+    serials = [
+        p for p in plan["preconditions"] if p["kind"] == "soa_serial" and p["subject"] == "example.lan."
+    ]
+    assert serials and serials[0]["value"] == soa.rdata[0].split()[2] and serials[0]["node_id"] == NODE_B
     result = admin.post(f"/api/v1/plans/{plan['id']}/apply", json={}).get_json()
     assert result["state"] == "applied", result
     rrsets = peer_b.registry.dns.read_zone("example.lan.")

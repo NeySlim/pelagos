@@ -274,12 +274,47 @@ def _copy(value: Any) -> Any:
     return json.loads(json.dumps(value))
 
 
-def rebase(file_value: Any, before: Any, after: Any, key: str = "") -> Any:
+def _strip_inherited(value: Any, inherited: dict[str, Any] | None) -> Any:
+    """`value` without the global values config-get copies into nested objects (inherited ones)."""
+    if inherited is None:
+        return _copy(value)
+    if isinstance(value, list):
+        return [_strip_inherited(v, inherited) for v in value]
+    if not isinstance(value, dict):
+        return _copy(value)
+    out = {}
+    for k, v in value.items():
+        if k in inherited and not isinstance(v, dict | list) and inherited[k] == v:
+            continue
+        v = _strip_inherited(v, inherited)
+        if v in ("", [], {}):
+            continue  # Kea's empty defaults (4o6-interface, relay addresses, option-data)
+        out[k] = v
+    return out
+
+
+def _children_stripped(value: Any, inherited: dict[str, Any] | None) -> Any:
+    """A new top-level value (a list of subnets, say) whose items do not repeat global values."""
+    if isinstance(value, list):
+        return [_strip_inherited(v, inherited) for v in value]
+    return _copy(value)
+
+
+def rebase(
+    file_value: Any,
+    before: Any,
+    after: Any,
+    key: str = "",
+    inherited: dict[str, Any] | None = None,
+    nested: bool = False,
+) -> Any:
     """What the file should say once the running configuration went from `before` to `after`.
 
     The file is a subset of `before` (config-get adds defaults): what did not change keeps the file's
     spelling, changed values take `after`, new items and keys come from `after`, and keys that left
     the running configuration leave the file. Lists that do not line up with `before` are replaced.
+    `inherited` holds the global values: below the top level, a value equal to its global one is
+    inherited (config-get writes it everywhere) and is not added to the file.
     """
     if json.dumps(before, sort_keys=True) == json.dumps(after, sort_keys=True):
         return _copy(file_value)
@@ -287,7 +322,7 @@ def rebase(file_value: Any, before: Any, after: Any, key: str = "") -> Any:
         out: dict[str, Any] = {}
         for k, v in file_value.items():
             if k in before and k in after:
-                out[k] = rebase(v, before[k], after[k], k)
+                out[k] = rebase(v, before[k], after[k], k, inherited, True)
             elif k in before:
                 continue  # removed from the running configuration
             elif k == "control-socket" and "control-sockets" in before and "control-sockets" not in after:
@@ -297,12 +332,20 @@ def rebase(file_value: Any, before: Any, after: Any, key: str = "") -> Any:
         for k, v in after.items():
             if k in out or k in file_value:
                 continue
+            if (
+                nested
+                and inherited is not None
+                and k in inherited
+                and not isinstance(v, dict | list)
+                and inherited[k] == v
+            ):
+                continue
             if k not in before or json.dumps(before[k], sort_keys=True) != json.dumps(v, sort_keys=True):
-                out[k] = _copy(v)
+                out[k] = _strip_inherited(v, inherited) if nested else _children_stripped(v, inherited)
         return out
     if isinstance(file_value, list) and isinstance(before, list) and isinstance(after, list):
         if len(file_value) != len(before):
-            return _copy(after)
+            return _strip_inherited(after, inherited)
         if _named_set(key, file_value + before, after):
             files = {str(x.get("name", "")).lower(): x for x in file_value}
             befores = {str(x.get("name", "")).lower(): x for x in before}
@@ -310,7 +353,7 @@ def rebase(file_value: Any, before: Any, after: Any, key: str = "") -> Any:
             for item in after:
                 name = str(item.get("name", "")).lower()
                 if name in files and name in befores:
-                    result.append(rebase(files[name], befores[name], item, key))
+                    result.append(rebase(files[name], befores[name], item, key, inherited, True))
                 else:
                     result.append(_copy(item))
             order = {str(x.get("name", "")).lower(): i for i, x in enumerate(file_value)}
@@ -321,17 +364,18 @@ def rebase(file_value: Any, before: Any, after: Any, key: str = "") -> Any:
         for tag, i1, i2, j1, j2 in SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
             if tag == "equal":
                 result.extend(
-                    rebase(file_value[i], before[i], after[j], key)
+                    rebase(file_value[i], before[i], after[j], key, inherited, True)
                     for i, j in zip(range(i1, i2), range(j1, j2), strict=True)
                 )
             elif tag == "replace":
                 paired = min(i2 - i1, j2 - j1)
                 result.extend(
-                    rebase(file_value[i1 + p], before[i1 + p], after[j1 + p], key) for p in range(paired)
+                    rebase(file_value[i1 + p], before[i1 + p], after[j1 + p], key, inherited, True)
+                    for p in range(paired)
                 )
-                result.extend(_copy(after[j]) for j in range(j1 + paired, j2))
+                result.extend(_strip_inherited(after[j], inherited) for j in range(j1 + paired, j2))
             elif tag == "insert":
-                result.extend(_copy(after[j]) for j in range(j1, j2))
+                result.extend(_strip_inherited(after[j], inherited) for j in range(j1, j2))
         return result
     return _copy(after)
 
@@ -382,5 +426,11 @@ def rebase_root(
     file_config: dict[str, Any], before_body: dict[str, Any], after_body: dict[str, Any], root: str
 ) -> dict[str, Any]:
     out = _copy(file_config)
-    out[root] = rebase(file_config.get(root) or {}, before_body, after_body)
+    globals_ = {k: v for k, v in after_body.items() if not isinstance(v, dict | list)}
+    for lifetime in ("valid-lifetime", "preferred-lifetime"):
+        # Bounds a server does not set are derived from the lifetime and copied down by config-get.
+        for bound in (f"min-{lifetime}", f"max-{lifetime}"):
+            if lifetime in after_body and bound not in after_body:
+                globals_[bound] = after_body[lifetime]
+    out[root] = rebase(file_config.get(root) or {}, before_body, after_body, "", globals_)
     return out

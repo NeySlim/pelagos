@@ -162,7 +162,7 @@ class KeaConfigFile:
             )
 
         changes = [FileChange(path=p, content=t.encode(), create_dirs=False) for p, t in changed.items()]
-        result = self._pipeline(label, validate).run(changes)
+        result = self._pipeline(f"{label}-files", validate).run(changes)
         if not result.ok:
             raise ConnectorError(f"writing {', '.join(str(p) for p in changed)} failed: {result.error}")
         return f"patched {', '.join(p.name for p in changed)}"
@@ -265,7 +265,7 @@ class KeaConfigFile:
             self.socket.call("config-set", {self.root: body})
             return f"config-test, config-set from {self.path}", None
         running = self.socket.config_get()[self.root]
-        backup = self.backup(label, doc)
+        backup = self.backup(f"{label}-adopt", doc)
         mode, changed = self._adopt_running_texts(doc, running)
         if mode == "config-write":
             self.socket.call("config-write")

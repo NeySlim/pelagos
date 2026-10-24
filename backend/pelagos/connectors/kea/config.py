@@ -676,6 +676,7 @@ def apply_change(
             else:
                 items[idx] = obj
     elif t.kind == "key":
+        previous = out.get(t.name or "")
         # A None `after` is the inverse of a change that created the key.
         if op is ChangeOp.DELETE or change.after is None:
             out.pop(t.name or "", None)
@@ -683,9 +684,31 @@ def apply_change(
             check_version_support({t.name: change.after}, version)
             out[t.name or ""] = copy.deepcopy(change.after)
             out = normalize_root(out, version)
+        _drop_inherited(out, t.name or "", previous, family)
     else:
         raise ConnectorError(f"change {change.target} does not edit the configuration")
     return out
+
+
+def _drop_inherited(out: dict[str, Any], key: str, previous: Any, family: Family) -> None:
+    """config-get writes inherited global values into every shared network and subnet; one equal to
+    the old global value was inherited, so it goes and the object follows the new global value."""
+    if previous is None or isinstance(previous, dict | list):
+        return
+    inherited = {key: previous}
+    if key in ("valid-lifetime", "preferred-lifetime"):
+        # Without its own bounds Kea derives min-/max- from the lifetime and copies them down too.
+        for bound in (f"min-{key}", f"max-{key}"):
+            if bound not in out:
+                inherited[bound] = previous
+    sub = subnet_key(family)
+    nested = [*(out.get("shared-networks") or [])]
+    nested += [obj for net in out.get("shared-networks") or [] for obj in net.get(sub) or []]
+    nested += list(out.get(sub) or [])
+    for obj in nested:
+        for name, value in inherited.items():
+            if obj.get(name) == value:
+                obj.pop(name, None)
 
 
 def apply_changes(

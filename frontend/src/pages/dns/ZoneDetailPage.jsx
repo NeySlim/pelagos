@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // One zone: RRset table with the record editor, status on every node (rndc
-// zonestatus + SOA query), the zone statement as configured, and the rndc
-// operations (notify, reload, retransfer) plus the zone deletion plan.
+// zonestatus + SOA query), the zone statement as configured, the rndc operations
+// (notify, reload, retransfer), the zone edit and deletion plans, the view selector
+// for a zone present in several views and the conversion of a static zone.
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom'
-import { Globe, ArrowsClockwise, Plus, PencilSimple, Trash, Bell, ArrowClockwise, ShieldCheck, Table as TableIcon, HardDrives, Gear, DownloadSimple } from '@phosphor-icons/react'
+import { Globe, ArrowsClockwise, Plus, PencilSimple, Trash, Bell, ArrowClockwise, ShieldCheck, Table as TableIcon, HardDrives, Gear, DownloadSimple, Lightning, FileText } from '@phosphor-icons/react'
 import { PageLayout } from '../../components/PageLayout'
 import { DataTable } from '../../components/DataTable'
 import { Button } from '../../components/Button'
@@ -15,18 +16,23 @@ import { LoadingSpinner } from '../../components/LoadingSpinner'
 import { EmptyState } from '../../components/EmptyState'
 import { Badge } from '../../components/Badge'
 import { useApi, usePaginatedApi } from '../../hooks/useApi'
+import { useMobile } from '../../contexts/MobileContext'
+import { Select } from '../../components/ui/Select'
 import { usePermission } from '../../hooks/usePermission'
 import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
-import { KeyValue, ListValue, SourceBadge } from './common'
+import { KeyValue, ListValue, ModeBadge, SourceBadge } from './common'
 import { useNodeNames, usePlanFlow, laggingNodes, SECONDARY_KINDS } from './helpers'
 import { RecordEditor } from './RecordEditor'
 import { EDITABLE_TYPES, READ_ONLY_TYPES, absZone, isEditableType, relativeName } from './records'
+import { ZoneEditModal } from './ZoneEditModal'
+import { editableZone, staticFindingId, zoneMode } from './zoneTools'
 
-function RecordsTab({ zone, view, editable, onChanged }) {
+function RecordsTab({ zone, view, editable, mode, onChanged }) {
   const { t } = useTranslation(['dns', 'common'])
+  const { isMobile } = useMobile()
   const [type, setType] = useState('')
   const [q, setQ] = useState('')
   const [editor, setEditor] = useState(null)
@@ -39,7 +45,44 @@ function RecordsTab({ zone, view, editable, onChanged }) {
     onChanged?.()
   }
 
-  const columns = [
+  const actions = (r) =>
+    editable && isEditableType(r.rtype) ? (
+      <span className="inline-flex gap-1 shrink-0">
+        <Button variant="ghost" size="xs" onClick={() => open('edit', r)} aria-label={t('common:actions.edit')} data-testid="record-edit">
+          <PencilSimple size={13} />
+        </Button>
+        <Button variant="ghost" size="xs" onClick={() => open('delete', r)} aria-label={t('common:actions.delete')} data-testid="record-delete">
+          <Trash size={13} className="status-danger-text" />
+        </Button>
+      </span>
+    ) : null
+
+  // Below md one card per RRset: owner, type and TTL on a line, the rdata under it.
+  const mobileColumns = [
+    {
+      key: 'name',
+      label: t('records.owner'),
+      render: (r) => (
+        <div className="flex items-start gap-2 min-w-0" data-testid="record-card">
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-mono text-xs text-text-primary truncate" title={r.name}>{relativeName(r.name, zone.name)}</span>
+              <Badge variant={isEditableType(r.rtype) ? 'primary' : 'gray'} size="sm">{r.rtype}</Badge>
+              <span className="font-mono text-2xs text-text-tertiary">{r.ttl}</span>
+            </div>
+            <div className="font-mono text-2xs text-text-secondary break-all space-y-0.5">
+              {r.rdata.map((d, i) => (
+                <div key={i}>{d}</div>
+              ))}
+            </div>
+          </div>
+          {actions(r)}
+        </div>
+      ),
+    },
+  ]
+
+  const desktopColumns = [
     { key: 'name', label: t('records.owner'), sortable: true, render: (r) => <span className="font-mono text-xs" title={r.name}>{relativeName(r.name, zone.name)}</span> },
     { key: 'rtype', label: t('records.type'), sortable: true, render: (r) => <Badge variant={isEditableType(r.rtype) ? 'primary' : 'gray'} size="sm">{r.rtype}</Badge> },
     { key: 'ttl', label: t('records.ttl'), sortable: true, mono: true, align: 'right' },
@@ -54,26 +97,18 @@ function RecordsTab({ zone, view, editable, onChanged }) {
         </div>
       ),
     },
-    {
-      key: 'actions',
-      label: '',
-      align: 'right',
-      render: (r) =>
-        editable && isEditableType(r.rtype) ? (
-          <span className="inline-flex gap-1">
-            <Button variant="ghost" size="xs" onClick={() => open('edit', r)} aria-label={t('common:actions.edit')} data-testid="record-edit">
-              <PencilSimple size={13} />
-            </Button>
-            <Button variant="ghost" size="xs" onClick={() => open('delete', r)} aria-label={t('common:actions.delete')} data-testid="record-delete">
-              <Trash size={13} className="status-danger-text" />
-            </Button>
-          </span>
-        ) : null,
-    },
+    { key: 'actions', label: '', align: 'right', render: actions },
   ]
+  const columns = isMobile ? mobileColumns : desktopColumns
 
   return (
     <>
+      {mode === 'static' && (
+        <p className="mb-3 flex items-start gap-2 rounded-lg border border-border-op50 p-3 text-xs text-text-secondary" data-testid="zone-static-note">
+          <FileText size={14} className="shrink-0 mt-0.5 text-accent-primary" />
+          {t('detail.staticNote')}
+        </p>
+      )}
       <DataTable
         columns={columns}
         rows={records.items}
@@ -225,10 +260,13 @@ export default function ZoneDetailPage() {
   const { data, error, loading, refetch } = useApi(() => api.dns.zone(zoneParam, view), [zoneParam, view])
   const zone = data?.zone
   const [deleted, setDeleted] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const mode = data ? zoneMode(data) : null
+  const views = data?.views || []
   const flow = usePlanFlow({
     // After a zone deletion the plan stays on screen for rollback; closing it leaves the page.
     onDone: (res) => {
-      if (flow.plan?.scope === 'dns.zone') setDeleted(res?.state === 'applied')
+      if (flow.plan?.scope === 'dns.zone' && flow.plan?.changes?.[0]?.op === 'delete') setDeleted(res?.state === 'applied')
       else refetch()
     },
     onClose: () => {
@@ -267,13 +305,24 @@ export default function ZoneDetailPage() {
     flow.run(() =>
       api.dns.zonePlan({ op: 'delete', target: `${zone.view}/${zone.name}`, before: zone, after: null, node_ids: [] }),
     )
+  // The security audit's remediation: a Job that rewrites the zone statement with an update-policy.
+  const convertZone = () => flow.run(() => api.install.securityPlan([staticFindingId(zone)]))
+  const switchView = (v) => navigate(`/dns/zones/${encodeURIComponent(zoneParam)}${v && v !== '_default' ? `?view=${encodeURIComponent(v)}` : ''}`)
 
   return (
     <PageLayout
       icon={Globe}
       title={zone?.name || absZone(zoneParam)}
+      mobileTitle
       subtitle={t('pages.zoneDetail.subtitle')}
-      badge={zone && <StatusBadge status={zone.kind} label={t(`kind.${zone.kind}`, { defaultValue: zone.kind })} dot={false} />}
+      badge={
+        zone && (
+          <span className="inline-flex items-center gap-1.5">
+            <StatusBadge status={zone.kind} label={t(`kind.${zone.kind}`, { defaultValue: zone.kind })} dot={false} />
+            <ModeBadge mode={mode} />
+          </span>
+        )
+      }
       tabs={zone ? tabs : undefined}
       activeTab={tab}
       onTabChange={setTab}
@@ -281,6 +330,21 @@ export default function ZoneDetailPage() {
       actions={
         zone && (
           <>
+            {views.length > 1 && (
+              <Select size="sm" variant="filter" value={zone.view} onChange={switchView} options={views.map((v) => ({ value: v, label: `${t('detail.view')}: ${v}` }))} data-testid="zone-view-select" />
+            )}
+            {mode === 'static' && hasPermission('admin:install') && (
+              <Button variant="warning-soft" size="sm" onClick={convertZone} loading={flow.busy} data-testid="zone-convert">
+                <Lightning size={14} />
+                {t('detail.convert')}
+              </Button>
+            )}
+            {editableZone(zone) && hasPermission('write:dns.zones') && (
+              <Button variant="secondary" size="sm" onClick={() => setEditing(true)} data-testid="zone-edit-open">
+                <PencilSimple size={14} />
+                {t('detail.edit')}
+              </Button>
+            )}
             {zone.dnssec_policy && (
               <Link to={`/dns/dnssec?zone=${encodeURIComponent(zone.name)}`}>
                 <Button variant="secondary" size="sm">
@@ -323,7 +387,7 @@ export default function ZoneDetailPage() {
         <EmptyState icon={Globe} title={errorMessage(error)} action={{ label: t('common:actions.retry'), onClick: refetch }} />
       ) : zone ? (
         <>
-          {tab === 'records' && <RecordsTab zone={zone} view={view} editable={editable} onChanged={refetch} />}
+          {tab === 'records' && <RecordsTab zone={zone} view={view} editable={editable} mode={mode} onChanged={refetch} />}
           {tab === 'status' && (
             <StatusTab
               status={data.status}
@@ -337,6 +401,17 @@ export default function ZoneDetailPage() {
           {tab === 'config' && <ConfigTab zone={zone} />}
         </>
       ) : null}
+      {editing && zone && (
+        <ZoneEditModal
+          open
+          zone={zone}
+          onClose={() => setEditing(false)}
+          onPlan={async (change) => {
+            const plan = await flow.run(() => api.dns.zonePlan(change))
+            if (plan) setEditing(false)
+          }}
+        />
+      )}
       {flow.modal}
     </PageLayout>
   )

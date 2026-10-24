@@ -5,7 +5,8 @@
     "aclsKeys": "ACL et clés",
     "secondaries": "Secondaires",
     "dnssec": "DNSSEC",
-    "rpz": "RPZ"
+    "rpz": "RPZ",
+    "catalogs": "Zones catalogue"
   },
   "pages": {
     "zones": {
@@ -35,6 +36,10 @@
     "rpz": {
       "title": "Zones de politique de réponse",
       "subtitle": "RPZ et zones catalogues"
+    },
+    "catalogs": {
+      "title": "Zones catalogue",
+      "subtitle": "Catalogues consommés et produits, avec leurs zones membres"
     }
   },
   "kind": {
@@ -50,7 +55,8 @@
   "source": {
     "user_conf": "Config existante",
     "pelagos": "Pelagos",
-    "catalog": "Catalogue"
+    "catalog": "Catalogue",
+    "addzone": "rndc addzone"
   },
   "zones": {
     "name": "Zone",
@@ -73,7 +79,8 @@
       "total": "Zones",
       "primary": "Primaires",
       "secondary": "Secondaires",
-      "divergent": "Divergentes"
+      "divergent": "Divergentes",
+      "static": "Statiques"
     },
     "new": {
       "title": "Nouvelle zone",
@@ -81,8 +88,14 @@
       "nameError": "Saisir un nom de domaine valide",
       "file": "Fichier de zone",
       "fileHelp": "Relatif au répertoire de BIND ; un nom est proposé s'il est vide",
-      "listError": "Saisir au moins une adresse"
-    }
+      "listError": "Saisir au moins une adresse",
+      "addzone": "Ajouter avec rndc addzone (named.conf n'est pas modifié)",
+      "addzoneHelp": "Demande allow-new-zones yes ; named garde la zone dans sa base NZD",
+      "peers": "Aussi sur ces nœuds, en secondaire",
+      "secondaryPrimaries": "Primaires d'où les secondaires transfèrent",
+      "secondaryPrimariesHelp": "Un par ligne, par exemple 192.0.2.1 key ddi-read ; vide : l'adresse de ce nœud"
+    },
+    "mode": "Mode"
   },
   "records": {
     "owner": "Nom",
@@ -166,7 +179,18 @@
     "allowUpdate": "Mise à jour autorisée",
     "updatePolicy": "Politique de mise à jour",
     "notes": "Notes",
-    "extra": "Autres statements"
+    "extra": "Autres statements",
+    "mode": "Mode",
+    "view": "Vue",
+    "edit": "Modifier la zone",
+    "editTitle": "Modifier {{zone}}",
+    "noChange": "Rien n'a changé",
+    "inlineSigning": "Signature en ligne",
+    "inlineDefault": "Défaut de BIND",
+    "convert": "Convertir en dynamique",
+    "staticNote": "Zone statique : les changements d'enregistrements modifient son fichier de zone (commentaires gardés, numéro de série incrémenté, rndc reload avec NOTIFY). La conversion en zone dynamique est une remédiation de l'audit de sécurité : named garde alors les changements dans un journal .jnl et le fichier ne se modifie à la main qu'entre rndc freeze et rndc thaw.",
+    "listHelp": "Une entrée par ligne",
+    "notEditable": "Définie dans un fichier utilisateur : à modifier dans named.conf"
   },
   "resolver": {
     "recursion": "Récursion",
@@ -237,8 +261,32 @@
     "readOn": "Lu sur",
     "thisNode": "Ce nœud",
     "unsigned": "Cette zone n'est pas signée",
-    "unsignedHelp": "La signature se règle avec dnssec-policy dans l'éditeur avancé",
-    "noZones": "Aucune zone"
+    "unsignedHelp": "Attachez une dnssec-policy à la zone depuis sa page (Modifier la zone)",
+    "noZones": "Aucune zone",
+    "policies": "Politiques",
+    "policy": "Politique",
+    "newPolicy": "Nouvelle politique",
+    "editPolicy": "Modifier la politique {{name}}",
+    "policyName": "Nom",
+    "policyNameError": "Lettres, chiffres, point, tiret ou souligné ; pas un nom prédéfini",
+    "statements": "Instructions",
+    "statementsHelp": "Une instruction par ligne : le nom puis la valeur, comme dans named.conf",
+    "allowed": "Instructions permises : {{names}}",
+    "unknownStatement": "{{name}} n'est pas une instruction de dnssec-policy",
+    "emptyStatement": "{{name}} demande une valeur",
+    "usedBy": "Utilisée par",
+    "builtin": "Prédéfinie",
+    "deletePolicy": "Supprimer la politique",
+    "noPolicies": "Aucune politique définie ici",
+    "attachHelp": "Une politique s'attache à une zone depuis la page de la zone (Modifier la zone)",
+    "rollover": "Roulement",
+    "checkdsPublished": "DS publié",
+    "checkdsWithdrawn": "DS retiré",
+    "dsState": "DS",
+    "guidance": "Zone parente",
+    "publish": "Clé {{key}} : publiez ce DS dans la zone parente, puis confirmez avec DS publié",
+    "withdraw": "Clé {{key}} : retirez ce DS de la zone parente, puis confirmez avec DS retiré",
+    "noGuidance": "Rien à faire dans la zone parente"
   },
   "rpz": {
     "policyZones": "Zones de politique",
@@ -261,5 +309,32 @@
       "tcp_only": "TCP seulement",
       "cname": "CNAME"
     }
+  },
+  "mode": {
+    "dynamic": "Dynamique",
+    "static": "Fichier statique",
+    "dynamicHelp": "Les changements d'enregistrements sont des UPDATE signés",
+    "staticHelp": "Les changements d'enregistrements modifient le fichier de zone sur son primaire ; la zone reste statique"
+  },
+  "catalogs": {
+    "role": "Rôle",
+    "roles": {
+      "consumer": "Consommateur",
+      "producer": "Producteur"
+    },
+    "version": "Schéma",
+    "members": "Membres",
+    "member": "Zone membre",
+    "group": "Groupe",
+    "addMember": "Ajouter un membre",
+    "addTitle": "Ajouter un membre à {{zone}}",
+    "removeMember": "Retirer",
+    "empty": "Aucune zone catalogue",
+    "emptyHelp": "Les catalogues viennent des instructions catalog-zones (consommés) ou des zones primaires avec un enregistrement TXT version (produits)",
+    "consumerHelp": "Les membres d'un catalogue consommé s'ajoutent sur son producteur",
+    "memberError": "Saisissez un nom de zone",
+    "readError": "Illisible ici : {{error}}",
+    "noMembers": "Aucun membre",
+    "open": "Zones catalogue"
   }
 }

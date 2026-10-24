@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
-// DNSSEC, read only (design section 4, phase 1): zones with a dnssec-policy,
-// key states from rndc dnssec -status on the chosen node, DS records to hand
-// to the parent, and the resolver's dnssec-validation setting.
+// DNSSEC: dnssec-policy statements (create, edit, delete through policies.conf,
+// checked against the grammar), zones with a policy, key states from rndc dnssec
+// -status on the chosen node, key rollover and checkds plans, the DS records and
+// what the parent zone must do, and the resolver's dnssec-validation setting.
 import { useEffect, useMemo, useState } from 'react'
+import { usePermission } from '../../hooks/usePermission'
+import { useNotification } from '../../contexts/NotificationContext'
+import { DnssecPolicies } from './DnssecPolicies'
+import { dnssecOpBody } from './zoneTools'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams, Link } from 'react-router-dom'
-import { ShieldCheck, ShieldSlash, ArrowsClockwise, Copy, Check } from '@phosphor-icons/react'
+import { ShieldCheck, ShieldSlash, ArrowsClockwise, Copy, Check, ArrowsCounterClockwise, CheckCircle, XCircle } from '@phosphor-icons/react'
 import { PageLayout } from '../../components/PageLayout'
 import { Card } from '../../components/Card'
 import { Button } from '../../components/Button'
@@ -20,14 +25,19 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate, cn } from '../../lib/utils'
 import { KeyValue } from './common'
-import { useNodeNames, zoneHref } from './helpers'
+import { useNodeNames, usePlanFlow, zoneHref } from './helpers'
 
 const KEY_STATE_VARIANT = { omnipresent: 'success', rumoured: 'warning', unretentive: 'warning', hidden: 'gray' }
 
 function ZoneStatusPanel({ zone, view, nodeId, nameOf }) {
   const { t } = useTranslation(['dns', 'common'])
   const { copy, isCopied } = useClipboard()
+  const { hasPermission } = usePermission()
+  const { showError } = useNotification()
   const { data, error, loading, refetch } = useApi(() => api.dns.dnssec(zone, { view: view || undefined, node_id: nodeId || undefined }), [zone, view, nodeId])
+  const flow = usePlanFlow({ onDone: () => refetch(), onError: showError })
+  const canOperate = hasPermission('write:dns.zones')
+  const operate = (action, key, state) => flow.run(() => api.dns.dnssecPlan(zone, dnssecOpBody({ action, key_id: key?.tag, state, view, node_id: nodeId || undefined })))
   const status = data?.status
   if (loading && !data) {
     return (
@@ -56,12 +66,49 @@ function ZoneStatusPanel({ zone, view, nodeId, nameOf }) {
           { key: 'state', label: t('dnssec.state'), render: (k) => <Badge variant={KEY_STATE_VARIANT[k.state] || 'default'} size="sm" dot>{k.state}</Badge> },
           { key: 'published', label: t('dnssec.published'), render: (k) => formatDate(k.published) },
           { key: 'next_rollover', label: t('dnssec.nextRollover'), render: (k) => (k.next_rollover ? formatDate(k.next_rollover) : t('dnssec.noRollover')) },
+          { key: 'ds_state', label: t('dnssec.dsState'), render: (k) => (k.ds_state ? <Badge variant={KEY_STATE_VARIANT[k.ds_state] || 'default'} size="sm">{k.ds_state}</Badge> : null) },
+          {
+            key: 'actions',
+            label: '',
+            align: 'right',
+            render: (k) =>
+              canOperate ? (
+                <span className="inline-flex gap-1">
+                  <Button variant="ghost" size="xs" onClick={() => operate('rollover', k)} data-testid="dnssec-rollover" title={t('dnssec.rollover')}>
+                    <ArrowsCounterClockwise size={13} />
+                    <span className="hidden md:inline">{t('dnssec.rollover')}</span>
+                  </Button>
+                  {(k.role === 'KSK' || k.role === 'CSK') && (
+                    <>
+                      <Button variant="ghost" size="xs" onClick={() => operate('checkds', k, 'published')} data-testid="dnssec-checkds-published" title={t('dnssec.checkdsPublished')}>
+                        <CheckCircle size={13} className="status-success-text" />
+                      </Button>
+                      <Button variant="ghost" size="xs" onClick={() => operate('checkds', k, 'withdrawn')} data-testid="dnssec-checkds-withdrawn" title={t('dnssec.checkdsWithdrawn')}>
+                        <XCircle size={13} />
+                      </Button>
+                    </>
+                  )}
+                </span>
+              ) : null,
+          },
         ]}
         rows={status.keys || []}
         rowKey="tag"
         dense
         testId="dnssec-keys"
       />
+      <Card className="p-4 space-y-2" hover={false} data-testid="dnssec-guidance">
+        <p className="text-2xs uppercase tracking-wider text-text-tertiary">{t('dnssec.guidance')}</p>
+        {status.ds_guidance?.length ? (
+          <ul className="space-y-1 text-sm text-text-primary">
+            {status.ds_guidance.map((g) => (
+              <li key={`${g.key_id}-${g.action}`}>{t(`dnssec.${g.action}`, { key: g.key_id })}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-text-tertiary">{t('dnssec.noGuidance')}</p>
+        )}
+      </Card>
       {status.ds?.length > 0 && (
         <Card className="p-4 space-y-2" hover={false}>
           <p className="text-2xs uppercase tracking-wider text-text-tertiary">{t('dnssec.ds')}</p>
@@ -77,6 +124,7 @@ function ZoneStatusPanel({ zone, view, nodeId, nameOf }) {
           ))}
         </Card>
       )}
+      {flow.modal}
     </div>
   )
 }
@@ -145,6 +193,7 @@ export default function DnssecPage() {
           </Card>
         </div>
         <div className="space-y-3 min-w-0">
+          <DnssecPolicies onChanged={zones.refetch} />
           {selected ? (
             <>
               <div className="flex flex-wrap items-center gap-2">

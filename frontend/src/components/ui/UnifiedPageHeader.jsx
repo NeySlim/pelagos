@@ -42,6 +42,8 @@ export function UnifiedPageHeader({
   
   // Mobile
   isMobile = false,
+  // Detail pages whose title is not the navbar section (a zone page) still show it on mobile.
+  mobileTitle = false,
   
   // Custom className
   className
@@ -56,6 +58,12 @@ export function UnifiedPageHeader({
       className
     )}>
       {/* Mobile: the title is in the AppShell navbar; page actions stay reachable in a compact row. */}
+      {isMobile && mobileTitle && (
+        <div className="flex flex-wrap items-center gap-2 px-3 pt-2">
+          <h1 className="text-sm font-semibold text-text-primary truncate min-w-0">{title}</h1>
+          {badge}
+        </div>
+      )}
       {isMobile && (actions || hasFilters || (showHelp && onHelpClick)) && (
         <div className="flex flex-wrap items-center justify-end gap-1.5 px-3 py-2" data-testid="page-actions-mobile">
           {hasFilters && (
@@ -219,7 +227,10 @@ export function UnifiedPageHeader({
               return (
                 <button
                   key={tab.id}
+                  type="button"
                   onClick={() => onTabChange?.(tab.id)}
+                  aria-label={isMobile && !isActive ? tab.label : undefined}
+                  title={isMobile && !isActive ? tab.label : undefined}
                   className={cn(
                     "flex items-center gap-1.5 rounded-t-lg text-sm font-medium transition-all",
                     "border-b-2 -mb-px",

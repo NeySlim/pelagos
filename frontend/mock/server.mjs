@@ -33,7 +33,9 @@ const PERMISSIONS = {
   'GET /dns/keys': 'read:dns', 'GET /dns/keys/{name}/secret': 'read:dns.secrets', 'POST /dns/keys/plan': 'write:dns.config',
   'GET /dns/acls': 'read:dns', 'POST /dns/acls/plan': 'write:dns.config', 'GET /dns/resolver': 'read:dns',
   'POST /dns/resolver/plan': 'write:dns.config', 'GET /dns/rpz': 'read:dns', 'GET /dns/catalog-zones': 'read:dns',
-  'GET /dns/stats': 'read:dns',
+  'GET /dns/stats': 'read:dns', 'POST /dns/catalog-zones/{zone}/members/plan': 'write:dns.records',
+  'GET /dns/dnssec/policies': 'read:dns', 'POST /dns/dnssec/policies/plan': 'write:dns.config',
+  'POST /dns/zones/{zone}/dnssec/plan': 'write:dns.zones',
   'POST /dhcp/{family}/subnets/plan': 'write:dhcp.subnets', 'POST /dhcp/{family}/shared-networks/plan': 'write:dhcp.subnets',
   'POST /dhcp/{family}/client-classes/plan': 'write:dhcp.classes', 'POST /dhcp/{family}/options/plan': 'write:dhcp.options',
   'POST /dhcp/{family}/reservations/plan': 'write:dhcp.reservations', 'POST /dhcp/{family}/leases/{ip}/delete/plan': 'ops:dhcp.leases',
@@ -237,6 +239,12 @@ function zoneStatus(state, zone, nodeId) {
     error: null,
     collected_at: iso(Date.now() - 15000),
   }
+}
+
+// How record changes reach a zone (services.dns_extras.zone_mode).
+function zoneMode(zone) {
+  if (zone.kind === 'primary') return zone.dynamic ? 'dynamic' : 'static'
+  return zone.kind
 }
 
 function findZone(state, name, view) {
@@ -971,12 +979,13 @@ function buildHandlers(state, emit) {
           .filter((z) => !query.get('kind') || z.kind === query.get('kind'))
           .filter((z) => !q || z.name.includes(q))
           // Bulk zone status (additive field, same shape as GET /dns/zones/{zone} status).
-          .map((z) => ({ zone: z, ...zoneSerials(state, z), status: Object.fromEntries(state.nodes.map((n) => [n.peer.id, zoneStatus(state, z, n.peer.id)])) })),
+          .map((z) => ({ zone: z, mode: zoneMode(z), ...zoneSerials(state, z), status: Object.fromEntries(state.nodes.map((n) => [n.peer.id, zoneStatus(state, z, n.peer.id)])) })),
       }
     },
     'GET /dns/zones/{zone}': ({ params, query }) => {
       const zone = findZone(state, params.zone, query.get('view'))
-      return { zone, status: Object.fromEntries(state.nodes.map((n) => [n.peer.id, zoneStatus(state, zone, n.peer.id)])) }
+      const views = [...new Set(state.zones.filter((z) => z.name === zone.name).map((z) => z.view))].sort()
+      return { zone, mode: zoneMode(zone), views, status: Object.fromEntries(state.nodes.map((n) => [n.peer.id, zoneStatus(state, zone, n.peer.id)])) }
     },
     'POST /dns/zones/plan': ({ body, user }) => {
       const change = body.change
@@ -1032,7 +1041,8 @@ function buildHandlers(state, emit) {
               keys: [
                 { tag: 48217, role: 'KSK', algorithm: 'ECDSAP256SHA256', state: 'omnipresent', published: iso(Date.now() - 86400000 * 30), next_rollover: null },
                 { tag: 9021, role: 'ZSK', algorithm: 'ECDSAP256SHA256', state: 'omnipresent', published: iso(Date.now() - 86400000 * 30), next_rollover: iso(Date.now() + 86400000 * 60) },
-              ],
+              ].map((k) => ({ ...k, id: k.tag, ds_state: k.role === 'KSK' ? 'hidden' : null, goal: 'omnipresent' })),
+              ds_guidance: [{ key_id: 48217, action: 'publish', ds: '48217 13 2 4C3F2A8E9D0B1C7F6A5E4D3C2B1A0F9E8D7C6B5A4F3E2D1C0B9A8F7E6D5C4B3A', checkds: 'published' }],
               ds: ['48217 13 2 4C3F2A8E9D0B1C7F6A5E4D3C2B1A0F9E8D7C6B5A4F3E2D1C0B9A8F7E6D5C4B3A'],
               next_resign: iso(Date.now() + 3600000 * 5),
             }
@@ -1138,13 +1148,94 @@ function buildHandlers(state, emit) {
         { zone: 'feed.rpz.example.', policy: 'nxdomain', source: 'missing', configured: false },
       ],
     }),
-    'GET /dns/catalog-zones': () => ({
-      items: [{
-        zone: 'catalog.example.lan.',
-        statement: '{ zone "catalog.example.lan" default-primaries { 192.0.2.53; } in-memory no; }',
-        members: ['lab.example.lan.', 'partner.example.', 'upstream.example.', 'rpz.example.lan.'],
-      }],
+    'GET /dns/catalog-zones': () => ({ items: state.catalogs.map((c) => ({ ...c, member_count: c.members.length, error: null })) }),
+    'POST /dns/catalog-zones/{zone}/members/plan': ({ params, body, user }) => {
+      const catalog = state.catalogs.find((c) => c.zone === absName(params.zone) && c.view === (body.view || '_default'))
+      if (!catalog) throw notFound(`catalog zone ${params.zone}`)
+      if (!['add', 'delete'].includes(body.op)) throw invalid('op', 'add or delete')
+      if (!body.member) throw invalid('member', 'required')
+      if (catalog.role !== 'producer') throw invalid('zone', 'members are added on the producer')
+      const member = absName(body.member)
+      const existing = catalog.members.find((m) => m.zone === member)
+      if (body.op === 'add' && existing) throw invalid('member', `${member} is already a member`)
+      if (body.op === 'delete' && !existing) throw invalid('member', `${member} is not a member`)
+      const label = existing?.label || createHash('sha1').update(member).digest('hex')
+      const owner = `${label}.zones.${catalog.zone}`
+      const changes = [{ op: body.op, target: `${catalog.zone}/${owner}/PTR`, before: existing ? { name: owner, rtype: 'PTR', ttl: 0, rdata: [member] } : null, after: body.op === 'add' ? { name: owner, rtype: 'PTR', ttl: 0, rdata: [member] } : null, node_ids: [] }]
+      const before = JSON.parse(JSON.stringify(catalog.members))
+      return createPlan(state, user, {
+        scope: 'dns.rrset',
+        engine: 'bind',
+        summary: `catalog ${catalog.zone}: ${body.op} member ${member}`,
+        changes,
+        diff: body.op === 'add' ? `+${owner} 0 IN PTR ${member}` : `-${owner} 0 IN PTR ${member}`,
+        tool: 'dnspython',
+        apply() {
+          if (body.op === 'add') catalog.members.push({ zone: member, label, group: body.group || null, coo: null })
+          else catalog.members = catalog.members.filter((m) => m.zone !== member)
+          return 'NOERROR'
+        },
+        rollback() {
+          catalog.members = before
+          return 'NOERROR'
+        },
+      })
+    },
+    'GET /dns/dnssec/policies': () => ({
+      builtin: ['default', 'insecure', 'none'],
+      items: state.dnssecPolicies.map((p) => ({ ...p, used_by: state.zones.filter((z) => z.dnssec_policy === p.name).map((z) => `${z.view}/${z.name}`) })),
     }),
+    'POST /dns/dnssec/policies/plan': ({ body, user }) => {
+      const change = body.change || {}
+      const name = String(change.target || '').replace(/^dnssec-policy\//, '') || change.after?.name
+      if (!name) throw invalid('change.target', 'dnssec-policy/<name> is required')
+      if (['default', 'insecure', 'none'].includes(name)) throw invalid('change.target', `${name} is a built-in policy`)
+      const existing = state.dnssecPolicies.find((p) => p.name === name)
+      const statements = change.after?.statements
+      if (change.op !== 'delete' && (!Array.isArray(statements) || !statements.length)) throw invalid('change.after.statements', 'non-empty list of {name, value}')
+      const text = (p) => (p ? `dnssec-policy "${p.name}" {\n${p.statements.map((s) => `\t${s.name} ${s.value};`).join('\n')}\n};` : '')
+      const after = change.op === 'delete' ? null : { name, statements, source: 'pelagos', config_path: '/etc/bind/pelagos/policies.conf', line: 1 }
+      const before = JSON.parse(JSON.stringify(state.dnssecPolicies))
+      return createPlan(state, user, {
+        scope: 'dns.config',
+        engine: 'bind',
+        summary: `BIND configuration: ${change.op} dnssec-policy/${name}`,
+        changes: [{ op: change.op, target: `dnssec-policy/${name}`, before: existing || null, after, node_ids: [] }],
+        diff: unifiedDiff(text(existing), text(after), '/etc/bind/pelagos/policies.conf'),
+        tool: 'named-checkconf',
+        requires_confirmation: change.op === 'delete',
+        apply() {
+          state.dnssecPolicies = state.dnssecPolicies.filter((p) => p.name !== name)
+          if (after) state.dnssecPolicies.push(after)
+          return 'reconfig done'
+        },
+        rollback() {
+          state.dnssecPolicies = before
+          return 'restored'
+        },
+      })
+    },
+    'POST /dns/zones/{zone}/dnssec/plan': ({ params, body, user }) => {
+      const zone = findZone(state, params.zone, body.view)
+      if (!['rollover', 'checkds'].includes(body.action)) throw invalid('action', 'rollover or checkds')
+      if (body.action === 'rollover' && body.key_id === undefined) throw invalid('rollover', 'dnssec-rollover needs key_id')
+      if (body.action === 'checkds' && !['published', 'withdrawn'].includes(body.state)) throw invalid('checkds', 'state must be published or withdrawn')
+      const name = zone.name.replace(/\.$/, '')
+      const command = body.action === 'rollover' ? `rndc dnssec -rollover -key ${body.key_id} ${name}` : `rndc dnssec -checkds ${body.key_id !== undefined ? `-key ${body.key_id} ` : ''}${body.state} ${name}`
+      return createPlan(state, user, {
+        scope: 'dns.zone',
+        engine: 'bind',
+        summary: `${zone.name}: ${command}`,
+        changes: [{ op: 'replace', target: `op:dnssec-${body.action}/${zone.view}/${zone.name}`, before: null, after: { key_id: body.key_id, state: body.state }, node_ids: [] }],
+        diff: `+${command}`,
+        tool: 'rndc',
+        requires_confirmation: true,
+        apply: () => `${command}: done`,
+        rollback() {
+          throw new Error('an rndc operation cannot be rolled back')
+        },
+      })
+    },
     'GET /dns/stats': ({ query }) => bindStats(state, nodeOr(query)),
 
     // DHCP

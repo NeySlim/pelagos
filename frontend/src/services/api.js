@@ -51,7 +51,7 @@ export const dns = {
   instances: () => apiClient.get('/dns/instances'),
   zones: (params) => apiClient.get(`/dns/zones${buildQueryString(params)}`),
   zone: (zone, view) => apiClient.get(`/dns/zones/${zonePath(zone)}${buildQueryString({ view })}`),
-  zonePlan: (change) => apiClient.post('/dns/zones/plan', { change }),
+  zonePlan: (change, node_ids) => apiClient.post('/dns/zones/plan', node_ids?.length ? { change, node_ids } : { change }),
   records: (zone, params) => apiClient.get(`/dns/zones/${zonePath(zone)}/records${buildQueryString(params)}`),
   recordsPlan: (zone, changes, view) =>
     apiClient.post(`/dns/zones/${zonePath(zone)}/records/plan`, view ? { view, changes } : { changes }),
@@ -72,6 +72,10 @@ export const dns = {
   resolverPlan: (settings) => apiClient.post('/dns/resolver/plan', settings),
   rpz: () => apiClient.get('/dns/rpz'),
   catalogZones: () => apiClient.get('/dns/catalog-zones'),
+  catalogMemberPlan: (zone, body) => apiClient.post(`/dns/catalog-zones/${zonePath(zone)}/members/plan`, body),
+  dnssecPolicies: () => apiClient.get('/dns/dnssec/policies'),
+  dnssecPoliciesPlan: (change) => apiClient.post('/dns/dnssec/policies/plan', { change }),
+  dnssecPlan: (zone, body) => apiClient.post(`/dns/zones/${zonePath(zone)}/dnssec/plan`, body),
   stats: (node_id) => apiClient.get(`/dns/stats${buildQueryString({ node_id })}`),
 }
 

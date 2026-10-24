@@ -87,7 +87,8 @@ export default function RpzPage() {
             { key: 'source', label: t('zones.source'), render: (r) => <SourceBadge source={r.source} /> },
           ]}
           rows={(catalogs.data?.items || []).map(catalogRow)}
-          rowKey="zone"
+          rowKey={(r) => `${r.view || '_default'}/${r.zone}/${r.role || 'consumer'}`}
+          onRowClick={() => navigate('/dns/catalogs')}
           loading={catalogs.loading && !catalogs.data}
           error={catalogs.error}
           onRetry={catalogs.refetch}

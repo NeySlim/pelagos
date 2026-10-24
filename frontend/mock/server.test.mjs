@@ -84,6 +84,9 @@ const BODIES = {
   'POST /dns/keys/plan': { change: { op: 'add', after: { name: 'new-key', algorithm: 'hmac-sha256' } } },
   'POST /dns/acls/plan': { change: { op: 'add', after: { name: 'lab', elements: ['192.0.2.0/28'] } } },
   'POST /dns/resolver/plan': { forwarders: ['192.0.2.1'] },
+  'POST /dns/catalog-zones/{zone}/members/plan': { op: 'add', member: 'new.example.lan' },
+  'POST /dns/dnssec/policies/plan': { change: { op: 'add', target: 'dnssec-policy/slow', after: { statements: [{ name: 'keys', value: '{ csk lifetime unlimited algorithm ecdsap256sha256; }' }] } } },
+  'POST /dns/zones/{zone}/dnssec/plan': { action: 'rollover', key_id: 48217 },
   'POST /dhcp/{family}/subnets/plan': { change: { op: 'add', after: { subnet: '192.0.2.224/28' } } },
   'POST /dhcp/{family}/shared-networks/plan': { change: { op: 'add', after: { name: 'lab' } } },
   'POST /dhcp/{family}/client-classes/plan': { change: { op: 'add', after: { name: 'printers', test: "option[60].text == 'printer'" } } },
@@ -116,6 +119,7 @@ const BODIES = {
 // Endpoints whose success status is not 200/201/202/204 with these inputs.
 const EXPECTED = {
   'POST /dns/zones/{zone}/retransfer': 409, // example.lan is a primary zone
+  'POST /dns/catalog-zones/{zone}/members/plan': 404, // example.lan is not a catalog
   'POST /dhcp/{family}/ha/maintenance/plan': 404, // node_id missing on purpose
   'POST /dhcp/{family}/service/plan': 404,
   'GET /plans/{id}': 404,

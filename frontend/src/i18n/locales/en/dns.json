@@ -5,7 +5,8 @@
     "aclsKeys": "ACLs and keys",
     "secondaries": "Secondaries",
     "dnssec": "DNSSEC",
-    "rpz": "RPZ"
+    "rpz": "RPZ",
+    "catalogs": "Catalog zones"
   },
   "pages": {
     "zones": {
@@ -35,6 +36,10 @@
     "rpz": {
       "title": "Response policy zones",
       "subtitle": "RPZ and catalog zones"
+    },
+    "catalogs": {
+      "title": "Catalog zones",
+      "subtitle": "Consumed and produced catalogs and their member zones"
     }
   },
   "kind": {
@@ -50,7 +55,8 @@
   "source": {
     "user_conf": "Existing config",
     "pelagos": "Pelagos",
-    "catalog": "Catalog"
+    "catalog": "Catalog",
+    "addzone": "rndc addzone"
   },
   "zones": {
     "name": "Zone",
@@ -73,7 +79,8 @@
       "total": "Zones",
       "primary": "Primary",
       "secondary": "Secondary",
-      "divergent": "Divergent"
+      "divergent": "Divergent",
+      "static": "Static"
     },
     "new": {
       "title": "New zone",
@@ -81,8 +88,14 @@
       "nameError": "Enter a valid domain name",
       "file": "Zone file",
       "fileHelp": "Relative to the BIND directory; a name is proposed when empty",
-      "listError": "Enter at least one address"
-    }
+      "listError": "Enter at least one address",
+      "addzone": "Add with rndc addzone (named.conf is not edited)",
+      "addzoneHelp": "Needs allow-new-zones yes; named keeps the zone in its NZD database",
+      "peers": "Also on these nodes, as secondaries",
+      "secondaryPrimaries": "Primaries the secondaries transfer from",
+      "secondaryPrimariesHelp": "One per line, for instance 192.0.2.1 key ddi-read; empty: this node's address"
+    },
+    "mode": "Mode"
   },
   "records": {
     "owner": "Name",
@@ -166,7 +179,18 @@
     "allowUpdate": "Allow update",
     "updatePolicy": "Update policy",
     "notes": "Notes",
-    "extra": "Other statements"
+    "extra": "Other statements",
+    "mode": "Mode",
+    "view": "View",
+    "edit": "Edit zone",
+    "editTitle": "Edit {{zone}}",
+    "noChange": "Nothing changed",
+    "inlineSigning": "Inline signing",
+    "inlineDefault": "BIND default",
+    "convert": "Convert to dynamic",
+    "staticNote": "Static zone: record changes edit its zone file (comments kept, serial bumped, rndc reload with NOTIFY). Converting it to dynamic is a security audit remediation: named then keeps changes in a .jnl journal and the file is edited by hand only between rndc freeze and rndc thaw.",
+    "listHelp": "One entry per line",
+    "notEditable": "Defined in a user file: edit it in named.conf"
   },
   "resolver": {
     "recursion": "Recursion",
@@ -237,8 +261,32 @@
     "readOn": "Read on",
     "thisNode": "This node",
     "unsigned": "This zone is not signed",
-    "unsignedHelp": "Signing is set with dnssec-policy in the advanced editor",
-    "noZones": "No zone"
+    "unsignedHelp": "Attach a dnssec-policy to the zone from its page (Edit zone)",
+    "noZones": "No zone",
+    "policies": "Policies",
+    "policy": "Policy",
+    "newPolicy": "New policy",
+    "editPolicy": "Edit policy {{name}}",
+    "policyName": "Name",
+    "policyNameError": "Letters, digits, dot, dash or underscore; not a built-in name",
+    "statements": "Statements",
+    "statementsHelp": "One statement per line: name then value, as in named.conf",
+    "allowed": "Allowed statements: {{names}}",
+    "unknownStatement": "{{name}} is not a dnssec-policy statement",
+    "emptyStatement": "{{name}} needs a value",
+    "usedBy": "Used by",
+    "builtin": "Built in",
+    "deletePolicy": "Delete policy",
+    "noPolicies": "No policy defined here",
+    "attachHelp": "A policy is attached to a zone from the zone page (Edit zone)",
+    "rollover": "Roll over",
+    "checkdsPublished": "DS published",
+    "checkdsWithdrawn": "DS withdrawn",
+    "dsState": "DS",
+    "guidance": "Parent zone",
+    "publish": "Key {{key}}: publish this DS at the parent zone, then confirm with DS published",
+    "withdraw": "Key {{key}}: withdraw this DS from the parent zone, then confirm with DS withdrawn",
+    "noGuidance": "Nothing to do at the parent zone"
   },
   "rpz": {
     "policyZones": "Policy zones",
@@ -261,5 +309,32 @@
       "tcp_only": "TCP only",
       "cname": "CNAME"
     }
+  },
+  "mode": {
+    "dynamic": "Dynamic",
+    "static": "Static file",
+    "dynamicHelp": "Record changes are signed UPDATEs",
+    "staticHelp": "Record changes edit the zone file on its primary; the zone stays static"
+  },
+  "catalogs": {
+    "role": "Role",
+    "roles": {
+      "consumer": "Consumer",
+      "producer": "Producer"
+    },
+    "version": "Schema",
+    "members": "Members",
+    "member": "Member zone",
+    "group": "Group",
+    "addMember": "Add member",
+    "addTitle": "Add a member to {{zone}}",
+    "removeMember": "Remove",
+    "empty": "No catalog zone",
+    "emptyHelp": "Catalogs come from catalog-zones statements (consumed) or primary zones with a version TXT record (produced)",
+    "consumerHelp": "Members of a consumed catalog are added on its producer",
+    "memberError": "Enter a zone name",
+    "readError": "Not readable here: {{error}}",
+    "noMembers": "No member",
+    "open": "Catalog zones"
   }
 }

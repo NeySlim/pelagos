@@ -887,6 +887,13 @@ export function createState() {
     zones,
     records,
     soaSerial,
+    catalogs: [
+      { zone: 'catalog.example.lan.', view: '_default', role: 'producer', version: '2', source: 'pelagos', members: [{ zone: 'lab.example.lan.', label: 'a1b2c3', group: 'lab', coo: null }] },
+      { zone: 'catalog.partner.example.', view: '_default', role: 'consumer', version: '2', statement: '{ zone "catalog.partner.example" default-primaries { 192.0.2.200 key ddi-read; }; }', default_primaries: ['192.0.2.200 key ddi-read'], options: {}, members: [{ zone: 'partner.example.', label: 'd4e5f6', group: null, coo: null }] },
+    ],
+    dnssecPolicies: [
+      { name: 'fast', statements: [{ name: 'keys', value: '{ csk lifetime unlimited algorithm ecdsap256sha256; }' }, { name: 'signatures-validity', value: '14d' }], source: 'pelagos', config_path: '/etc/bind/pelagos/policies.conf', line: 2 },
+    ],
     dnsCapabilities: dnsCapabilities(),
     dhcpCapabilities: { v4: dhcpCapabilities('kea4'), v6: dhcpCapabilities('kea6') },
     keys: [

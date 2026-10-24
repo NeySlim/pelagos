@@ -39,6 +39,17 @@ export function SourceBadge({ source }) {
   )
 }
 
+// How record changes reach a zone: signed UPDATE (dynamic) or a zone file edit (static).
+export function ModeBadge({ mode }) {
+  const { t } = useTranslation('dns')
+  if (mode !== 'dynamic' && mode !== 'static') return null
+  return (
+    <Badge variant={mode === 'static' ? 'warning' : 'secondary'} size="sm" data-testid="zone-mode">
+      <span title={t(`mode.${mode}Help`)}>{t(`mode.${mode}`)}</span>
+    </Badge>
+  )
+}
+
 export function KeyValue({ label, children, mono = false }) {
   return (
     <div className="min-w-0">

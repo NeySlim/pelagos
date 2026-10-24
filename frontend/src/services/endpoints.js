@@ -50,6 +50,10 @@ export const ENDPOINTS = [
   'POST /dns/resolver/plan',
   'GET /dns/rpz',
   'GET /dns/catalog-zones',
+  'POST /dns/catalog-zones/{zone}/members/plan',
+  'GET /dns/dnssec/policies',
+  'POST /dns/dnssec/policies/plan',
+  'POST /dns/zones/{zone}/dnssec/plan',
   'GET /dns/stats',
   // DHCP
   'GET /dhcp/{family}/servers',

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// Zones of every view with the SOA serial seen on each node, divergence flag,
-// resynchronize (retransfer on lagging secondaries, notify from primaries) and
-// the zone creation plan.
+// Zones of every view with the SOA serial seen on each node, divergence flag, the
+// mode (dynamic UPDATE or static file), resynchronize (retransfer on lagging
+// secondaries, notify from primaries) and the zone creation plan (zones.conf or
+// rndc addzone, optionally also as secondaries on other nodes).
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -20,16 +21,19 @@ import { usePermission } from '../../hooks/usePermission'
 import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
-import { SerialCells, SourceBadge } from './common'
+import { ModeBadge, SerialCells, SourceBadge } from './common'
 import { useNodeNames, usePlanFlow, zoneHref, resynchronizeZone, stripDot, SECONDARY_KINDS } from './helpers'
 import { splitRdata, validDomainName } from './records'
+import { splitList, zoneMode, zoneStats } from './zoneTools'
 
 const KINDS = ['primary', 'secondary', 'stub', 'static-stub', 'forward', 'mirror', 'hint', 'redirect']
 const CREATABLE_KINDS = ['primary', 'secondary', 'stub', 'forward']
 
-function NewZoneModal({ open, onClose, onPlan, views }) {
+function NewZoneModal({ open, onClose, onPlan, views, peers }) {
   const { t } = useTranslation(['dns', 'common'])
-  const [form, setForm] = useState({ name: '', kind: 'primary', view: '_default', file: '', primaries: '', forwarders: '' })
+  const [form, setForm] = useState({ name: '', kind: 'primary', view: '_default', file: '', primaries: '', forwarders: '', addzone: false, peers: [], secondaryPrimaries: '' })
+  const togglePeer = (id) => setForm((f) => ({ ...f, peers: f.peers.includes(id) ? f.peers.filter((p) => p !== id) : [...f.peers, id] }))
+  const withPeers = form.kind === 'primary' && !form.addzone && peers.length > 0
   const [touched, setTouched] = useState(false)
   const [busy, setBusy] = useState(false)
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e?.target ? e.target.value : e }))
@@ -50,9 +54,12 @@ function NewZoneModal({ open, onClose, onPlan, views }) {
       after.forwarders = splitRdata(form.forwarders)
       after.forward = 'only'
     }
+    if (form.addzone) after.source = 'addzone'
+    const nodeIds = withPeers ? form.peers : []
+    if (nodeIds.length && splitList(form.secondaryPrimaries).length) after.secondary = { primaries: splitList(form.secondaryPrimaries) }
     setBusy(true)
     try {
-      await onPlan({ op: 'add', target: `${after.view}/${abs}`, before: null, after, node_ids: [] })
+      await onPlan({ op: 'add', target: `${after.view}/${abs}`, before: null, after, node_ids: [] }, nodeIds)
     } finally {
       setBusy(false)
     }
@@ -72,6 +79,29 @@ function NewZoneModal({ open, onClose, onPlan, views }) {
       {form.kind === 'forward' && (
         <Textarea label={t('resolver.forwarders')} value={form.forwarders} onChange={set('forwarders')} rows={3} placeholder="192.0.2.1" error={touched && !forwardersOk ? t('zones.new.listError') : undefined} helperText={t('editor.rdataHelp')} />
       )}
+      <label className="flex items-start gap-2 text-sm text-text-primary cursor-pointer">
+        <input type="checkbox" className="mt-1" checked={form.addzone} onChange={(e) => setForm((f) => ({ ...f, addzone: e.target.checked }))} data-testid="zone-new-addzone" />
+        <span>
+          {t('zones.new.addzone')}
+          <span className="block text-xs text-text-tertiary">{t('zones.new.addzoneHelp')}</span>
+        </span>
+      </label>
+      {withPeers && (
+        <fieldset className="space-y-2" data-testid="zone-new-peers">
+          <legend className="text-xs font-medium text-text-secondary">{t('zones.new.peers')}</legend>
+          <div className="flex flex-wrap gap-3">
+            {peers.map((n) => (
+              <label key={n.peer.id} className="inline-flex items-center gap-1.5 text-sm cursor-pointer">
+                <input type="checkbox" checked={form.peers.includes(n.peer.id)} onChange={() => togglePeer(n.peer.id)} />
+                {n.peer.name}
+              </label>
+            ))}
+          </div>
+          {form.peers.length > 0 && (
+            <Textarea label={t('zones.new.secondaryPrimaries')} value={form.secondaryPrimaries} onChange={set('secondaryPrimaries')} rows={2} placeholder="192.0.2.1 key ddi-read" helperText={t('zones.new.secondaryPrimariesHelp')} />
+          )}
+        </fieldset>
+      )}
     </FormModal>
   )
 }
@@ -81,7 +111,8 @@ export default function ZonesPage() {
   const navigate = useNavigate()
   const { hasPermission } = usePermission()
   const { showSuccess, showError } = useNotification()
-  const { nameOf } = useNodeNames()
+  const { nodes, nameOf } = useNodeNames()
+  const bindPeers = useMemo(() => nodes.filter((n) => !n.is_self && n.peer.modules?.bind), [nodes])
   const [q, setQ] = useState('')
   const [view, setView] = useState('')
   const [kind, setKind] = useState('')
@@ -89,7 +120,7 @@ export default function ZonesPage() {
   const [resyncing, setResyncing] = useState(null)
   const [creating, setCreating] = useState(false)
   const { data, error, loading, refetch } = useApi(() => api.dns.zones({ view: view || undefined, kind: kind || undefined, q: q || undefined }), [view, kind, q])
-  const flow = usePlanFlow({ onDone: refetch, onError: showError })
+  const flow = usePlanFlow({ onDone: () => refetch(), onError: showError })
 
   const items = useMemo(() => data?.items || [], [data])
   const rows = useMemo(() => items.filter((it) => !sync || (sync === 'divergent' ? it.divergent : !it.divergent)), [items, sync])
@@ -112,11 +143,14 @@ export default function ZonesPage() {
     }
   }
 
+  // From the unfiltered list: a search with no match must not read as "no zone on the server".
+  const counts = zoneStats(allZones.data?.items || items, SECONDARY_KINDS)
   const stats = [
-    { icon: Globe, label: t('zones.stats.total'), value: items.length, variant: 'primary' },
-    { icon: Globe, label: t('zones.stats.primary'), value: items.filter((it) => it.zone.kind === 'primary').length },
-    { icon: Globe, label: t('zones.stats.secondary'), value: items.filter((it) => SECONDARY_KINDS.includes(it.zone.kind)).length },
-    { icon: ArrowsClockwise, label: t('zones.stats.divergent'), value: items.filter((it) => it.divergent).length, variant: items.some((it) => it.divergent) ? 'warning' : 'success' },
+    { icon: Globe, label: t('zones.stats.total'), value: counts.total, variant: 'primary' },
+    { icon: Globe, label: t('zones.stats.primary'), value: counts.primary },
+    { icon: Globe, label: t('zones.stats.secondary'), value: counts.secondary },
+    { icon: Globe, label: t('zones.stats.static'), value: counts.static },
+    { icon: ArrowsClockwise, label: t('zones.stats.divergent'), value: counts.divergent, variant: counts.divergent ? 'warning' : 'success' },
   ]
 
   const columns = [
@@ -133,6 +167,7 @@ export default function ZonesPage() {
       ),
     },
     { key: 'zone.kind', label: t('zones.kind'), sortable: true, render: (row) => <StatusBadge status={row.zone.kind} label={t(`kind.${row.zone.kind}`, { defaultValue: row.zone.kind })} dot={false} /> },
+    { key: 'mode', label: t('zones.mode'), render: (row) => <ModeBadge mode={zoneMode(row)} /> },
     { key: 'zone.view', label: t('zones.view'), sortable: true, mono: true },
     { key: 'zone.source', label: t('zones.source'), render: (row) => <SourceBadge source={row.zone.source} /> },
     { key: 'serials', label: t('zones.serials'), render: (row) => (row.zone.kind === 'forward' ? <span className="text-text-tertiary">-</span> : <SerialCells serials={row.serials} nameOf={nameOf} />) },
@@ -174,7 +209,10 @@ export default function ZonesPage() {
       testId="page-dns-zones"
       actions={
         <>
-          <Button variant="secondary" size="sm" onClick={refetch} disabled={loading}>
+          <Button variant="secondary" size="sm" onClick={() => {
+            refetch()
+            allZones.refetch()
+          }} disabled={loading}>
             <ArrowsClockwise size={14} />
             {t('common:actions.refresh')}
           </Button>
@@ -222,8 +260,9 @@ export default function ZonesPage() {
           open={creating}
           onClose={() => setCreating(false)}
           views={views}
-          onPlan={async (change) => {
-            const plan = await flow.run(() => api.dns.zonePlan(change))
+          peers={bindPeers}
+          onPlan={async (change, nodeIds) => {
+            const plan = await flow.run(() => api.dns.zonePlan(change, nodeIds))
             if (plan) setCreating(false)
           }}
         />

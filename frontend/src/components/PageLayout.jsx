@@ -4,7 +4,7 @@ import { UnifiedPageHeader } from './ui/UnifiedPageHeader'
 import { useMobile } from '../contexts/MobileContext'
 import { cn } from '../lib/utils'
 
-export function PageLayout({ icon, title, subtitle, badge, tabs, activeTab, onTabChange, actions, children, bodyClassName, testId }) {
+export function PageLayout({ icon, title, subtitle, badge, tabs, activeTab, onTabChange, actions, mobileTitle, children, bodyClassName, testId }) {
   const { isMobile } = useMobile()
   return (
     <div className="flex flex-col h-full min-h-0 w-full" data-testid={testId}>
@@ -18,6 +18,7 @@ export function PageLayout({ icon, title, subtitle, badge, tabs, activeTab, onTa
         onTabChange={onTabChange}
         actions={actions}
         isMobile={isMobile}
+        mobileTitle={mobileTitle}
       />
       <div className={cn('flex-1 min-h-0 overflow-auto', isMobile ? 'p-3' : 'p-6', bodyClassName)}>{children}</div>
     </div>

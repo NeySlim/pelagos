@@ -155,7 +155,8 @@ html[data-motion='off'] .fx-halo-ring { opacity: 0.45; transform: scale(0.75); }
 
 /* ---- Entry animations ---- */
 .fx-enter-fade { animation: fx-fade 0.5s var(--ease-out, ease-out) backwards; }
-.fx-stagger > * {
+.fx-stagger > *,
+.fx-stagger-item {
   animation: fx-rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
   animation-delay: calc(var(--fx-i, 0) * var(--fx-step, 45ms));
 }
@@ -182,6 +183,7 @@ html[data-page-hidden] .fx-dot-pulse::after { animation-play-state: paused; }
 html[data-motion='reduced'] .fx-loop,
 html[data-motion='reduced'] .fx-dot-pulse::after { animation: none; }
 html[data-motion='reduced'] .fx-stagger > *,
+html[data-motion='reduced'] .fx-stagger-item,
 html[data-motion='reduced'] .fx-page { animation-name: fx-fade; animation-duration: 0.18s; animation-delay: 0s; }
 html[data-motion='reduced'] .fx-histogram .fx-bar { transition: none; }
 

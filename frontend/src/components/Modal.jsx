@@ -6,6 +6,9 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { X } from '@phosphor-icons/react'
 import { cn } from '../lib/utils'
+import { titleCaseClass } from '../lib/displayCase'
+import { IconButton } from './motion/Layout'
+import { useTranslation } from 'react-i18next'
 
 export function Modal({ 
   open, 
@@ -16,6 +19,7 @@ export function Modal({
   size = 'md',
   showClose = true 
 }) {
+  const { t } = useTranslation()
   // Support both onClose and onOpenChange
   const handleOpenChange = onOpenChange || onClose;
   const sizes = {
@@ -49,13 +53,12 @@ export function Modal({
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border-op50 shrink-0 modal-header-gradient">
-            <Dialog.Title className="ui-modal-title text-sm font-semibold text-text-primary">
+            <Dialog.Title className={cn('ui-modal-title text-sm font-semibold text-text-primary', titleCaseClass(title))}>
               {title}
             </Dialog.Title>
             {showClose && (
-              <Dialog.Close className="ui-icon-button ui-icon-button-sm w-8 h-8 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-all focus-ring">
-                <X size={18} className="sm:hidden" />
-                <X size={16} className="hidden sm:block" />
+              <Dialog.Close asChild>
+                <IconButton icon={X} label={t('actions.close')} size="sm" />
               </Dialog.Close>
             )}
           </div>

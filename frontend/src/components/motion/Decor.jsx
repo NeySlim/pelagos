@@ -8,7 +8,7 @@ const TONES = ['primary', 'pro', 'success', 'warning', 'danger', 'neutral']
 const tone = (t) => (TONES.includes(t) ? t : 'neutral')
 
 // Small colored dot next to a state word; `pulse` adds an expanding halo.
-export function StatusDot({ tone: t = 'success', pulse = false, size = 6, className, label }) {
+export function StatusDot({ tone: t = 'success', pulse = false, size = 6, className, label, ...props }) {
   return (
     <span
       className={cn('fx-dot', `fx-tone-${tone(t)}`, pulse && 'fx-dot-pulse', className)}
@@ -17,6 +17,7 @@ export function StatusDot({ tone: t = 'success', pulse = false, size = 6, classN
       aria-label={label}
       aria-hidden={label ? undefined : 'true'}
       data-testid="status-dot"
+      {...props}
     />
   )
 }

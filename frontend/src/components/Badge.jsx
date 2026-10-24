@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { cn } from '../lib/utils'
+import { StatusDot } from './motion/Decor'
 
 export function Badge({ 
   children, 
@@ -35,19 +36,13 @@ export function Badge({
     gray: 'bg-tertiary-op60 text-text-secondary border-transparent',
   }
   
-  const dotColors = {
-    default: 'bg-text-secondary',
-    primary: 'status-primary-bg-solid',
-    success: 'status-success-bg-solid',
-    warning: 'status-warning-bg-solid',
-    danger: 'status-danger-bg-solid',
-    info: 'status-primary-bg-solid',
-    violet: 'bg-accent-pro',
-    purple: 'bg-accent-pro',
-    cyan: 'bg-accent-primary',
-    teal: 'bg-accent-success',
-    orange: 'bg-status-warning',
-    amber: 'bg-status-warning',
+  // Badge variant to StatusDot tone; anything else is neutral.
+  const dotTones = {
+    primary: 'primary', info: 'primary', blue: 'primary', cyan: 'primary',
+    success: 'success', emerald: 'success', teal: 'success',
+    warning: 'warning', yellow: 'warning', amber: 'warning', orange: 'warning',
+    danger: 'danger', red: 'danger',
+    violet: 'pro', purple: 'pro',
   }
   
   // Sizes: sm is pill-shaped, others are rounded
@@ -75,13 +70,7 @@ export function Badge({
       )}
       {...props}
     >
-      {dot && (
-        <span className={cn(
-          'ui-badge-dot w-1.5 h-1.5 rounded-full shrink-0',
-          dotColors[variant] || dotColors.default,
-          pulse && 'relative fx-dot-pulse'
-        )} />
-      )}
+      {dot && <StatusDot tone={dotTones[variant] || 'neutral'} pulse={pulse} className="ui-badge-dot" />}
       {Icon && <Icon size={iconSizes[size]} weight="bold" className="shrink-0" />}
       {children}
     </span>

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { WifiHigh, WifiSlash, CircleNotch } from '@phosphor-icons/react'
 import { useWebSocket, WsState } from '../hooks/useWebSocket'
 import { cn } from '../lib/utils'
+import { StatusDot } from './motion/Decor'
 
 const stateConfig = {
   [WsState.CONNECTED]: { icon: WifiHigh, color: 'status-success-text', labelKey: 'websocket.connected', spin: false },
@@ -20,15 +21,17 @@ export function WebSocketIndicator({ className, showLabel = false, variant = 'de
 
   if (variant === 'dot') {
     return (
-      <span
-        title={t(config.labelKey)}
-        data-testid="ws-dot"
-        className={cn(
-          'w-2.5 h-2.5 rounded-full border-2 border-bg-secondary',
-          isConnected ? 'bg-status-success fx-dot-pulse' : state === WsState.ERROR ? 'bg-status-danger' : 'bg-text-tertiary',
-          className,
-        )}
-      />
+      // The wrapper takes the caller's placement: .fx-dot sets its own position.
+      <span className={cn('inline-flex', className)}>
+        <StatusDot
+          title={t(config.labelKey)}
+          data-testid="ws-dot"
+          size={10}
+          tone={isConnected ? 'success' : state === WsState.ERROR ? 'danger' : 'neutral'}
+          pulse={isConnected}
+          className="border-2 border-bg-secondary"
+        />
+      </span>
     )
   }
 

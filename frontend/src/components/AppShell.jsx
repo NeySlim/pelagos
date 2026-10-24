@@ -8,7 +8,7 @@ import { List, X, House, UserCircle, SignOut } from '@phosphor-icons/react'
 import { Sidebar, useVisibleNavItems } from './Sidebar'
 import { WebSocketIndicator } from './WebSocketIndicator'
 import { Logo } from './Logo'
-import { AppBackdrop, PageTransition } from './motion'
+import { AppBackdrop, IconButton, PageTransition } from './motion'
 import { useTheme } from '../contexts/ThemeContext'
 import { cn } from '../lib/utils'
 import { useAuth } from '../contexts/AuthContext'
@@ -45,14 +45,14 @@ export function AppShell() {
             <Logo variant="icon" withText={false} size="xs" />
             <span className="ml-1 text-xs font-medium text-text-primary truncate flex-1">{activeItem ? t(activeItem.labelKey) : 'Pelagos'}</span>
             <WebSocketIndicator className="scale-90" />
-            <button
-              type="button"
+            <IconButton
+              icon={mobileMenuOpen ? X : List}
+              label={t('nav.menu')}
+              size="sm"
+              active={mobileMenuOpen}
+              aria-expanded={mobileMenuOpen}
               onClick={() => setMobileMenuOpen((o) => !o)}
-              aria-label={t('nav.menu')}
-              className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-bg-tertiary shrink-0"
-            >
-              {mobileMenuOpen ? <X size={18} /> : <List size={18} />}
-            </button>
+            />
           </header>
         )}
 

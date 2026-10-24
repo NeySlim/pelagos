@@ -2,16 +2,17 @@
 // Layout-level motion and chrome: staggered panel entry, page transition, stat chips,
 // round icon buttons and the atmospheric Mission backdrop. Entry animations use
 // opacity and transform with a backwards fill, so nothing stays transformed afterwards.
-import { Children, cloneElement, forwardRef, isValidElement, useMemo } from 'react'
+import { Children, Fragment, cloneElement, forwardRef, isValidElement, useMemo } from 'react'
 import { cn } from '../../lib/utils'
 
-// Each direct child enters after the previous one (index exposed as --fx-i).
+// Each direct child enters after the previous one (index exposed as --fx-i). A
+// fragment cannot take a style: it still animates, without its own delay.
 export function Stagger({ children, as: Tag = 'div', step = 45, className, ...props }) {
   let i = 0
   return (
     <Tag className={cn('fx-stagger', className)} style={{ '--fx-step': `${step}ms` }} {...props}>
       {Children.map(children, (child) => {
-        if (!isValidElement(child)) return child
+        if (!isValidElement(child) || child.type === Fragment) return child
         const index = i
         i += 1
         return cloneElement(child, { style: { ...child.props.style, '--fx-i': index } })
@@ -42,6 +43,7 @@ export function StatChip({ icon: Icon, label, value, tone, className, ...props }
   )
 }
 
+// Round icon-only button; `label` is its accessible name. Children overlay the icon (a count).
 export const IconButton = forwardRef(function IconButton({ icon: Icon, label, size = 'md', active = false, className, type = 'button', children, ...props }, ref) {
   const px = { sm: 14, md: 18, lg: 20 }[size] || 18
   return (
@@ -54,7 +56,8 @@ export const IconButton = forwardRef(function IconButton({ icon: Icon, label, si
       className={cn('ui-icon-button', `ui-icon-button-${size}`, active && 'is-active', className)}
       {...props}
     >
-      {Icon ? <Icon size={px} /> : children}
+      {Icon && <Icon size={px} />}
+      {children}
     </button>
   )
 })

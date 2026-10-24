@@ -20,4 +20,12 @@ export function CountUp({ value, decimals = 0, duration, format, prefix = '', su
   )
 }
 
+// Numbers count up; anything else (text, nodes, '-') renders unchanged.
+export function AnimatedValue({ value, ...props }) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return <CountUp value={value} decimals={Number.isInteger(value) ? 0 : 1} {...props} />
+  }
+  return value ?? null
+}
+
 export default CountUp

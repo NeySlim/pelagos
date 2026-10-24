@@ -6,6 +6,8 @@
  * with gradient icons and hover effects
  */
 import { cn } from '../../lib/utils'
+import { Stagger } from '../motion/Layout'
+import { AnimatedValue } from '../motion/CountUp'
 
 const variantClasses = {
   success: 'rich-stat-icon-success',
@@ -25,7 +27,7 @@ export function RichStatsBar({ stats = [], className }) {
   if (!stats || stats.length === 0) return null
 
   return (
-    <div className={cn('rich-stats-bar', className)}>
+    <Stagger className={cn('rich-stats-bar', className)} data-testid="rich-stats-bar">
       {stats.map((stat, idx) => {
         const Icon = stat.icon
         const variantClass = variantClasses[stat.variant] || variantClasses.neutral
@@ -38,13 +40,13 @@ export function RichStatsBar({ stats = [], className }) {
               </div>
             )}
             <div className="rich-stat-content">
-              <span className="rich-stat-value">{stat.value}</span>
+              <span className="rich-stat-value"><AnimatedValue value={stat.value} /></span>
               <span className="rich-stat-label">{stat.label}</span>
             </div>
           </div>
         )
       })}
-    </div>
+    </Stagger>
   )
 }
 

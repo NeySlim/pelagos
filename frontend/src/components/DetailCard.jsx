@@ -19,6 +19,8 @@ import { useMobile } from '../contexts'
 import { useClipboard } from '../hooks/useClipboard'
 import { Badge } from './Badge'
 import { Button } from './Button'
+import { Stagger, StatChip } from './motion/Layout'
+import { AnimatedValue } from './motion/CountUp'
 
 // Auto-icon mapping by i18n key (language-independent)
 const FIELD_ICONS = {
@@ -182,20 +184,13 @@ export function DetailHeader({
         </div>
       </div>
 
-      {/* Stats row */}
+      {/* Stats row: chips with the label above a counting value */}
       {stats && stats.length > 0 && (
-        <div className={cn(
-          "flex flex-wrap gap-4 md:gap-6 mt-4 pt-4 border-t detail-stats-border",
-        )}>
+        <Stagger className="flex flex-wrap gap-2 md:gap-3 mt-4 pt-4 border-t detail-stats-border" data-testid="detail-stats">
           {stats.map((stat, i) => (
-            <div key={i} className="flex items-center gap-2">
-              {stat.icon && <stat.icon size={16} className="text-accent-primary" />}
-              <span className="text-xs md:text-sm text-text-secondary">
-                {stat.label} <strong className="text-text-primary">{stat.value}</strong>
-              </span>
-            </div>
+            <StatChip key={i} icon={stat.icon} label={stat.label} value={<AnimatedValue value={stat.value} />} tone={stat.tone || 'primary'} />
           ))}
-        </div>
+        </Stagger>
       )}
     </div>
   )
@@ -270,13 +265,13 @@ export function DetailGrid({ children, columns = 2, className }) {
       : "grid-cols-3"
   
   return (
-    <dl className={cn(
+    <Stagger as="dl" step={30} className={cn(
       "grid gap-1.5",
       gridClasses,
       className
     )}>
       {children}
-    </dl>
+    </Stagger>
   )
 }
 
@@ -602,7 +597,7 @@ export function CompactStats({ stats, className }) {
       {stats.map((stat, i) => (
         <div key={i} className="flex items-center gap-1.5">
           {stat.icon && <stat.icon size={14} className={stat.iconClass || "text-text-tertiary"} />}
-          <span className="text-text-secondary">{stat.value}</span>
+          <span className="text-text-secondary"><AnimatedValue value={stat.value} /></span>
           {stat.badge && (
             <Badge variant={stat.badgeVariant || 'secondary'} size="sm">
               {stat.badge}

@@ -111,6 +111,8 @@ export default function DashboardPage() {
 
   const tileProps = { summary: summary.data, alerts: canAlerts ? topAlerts : null, editing, nameOf, thresholds: settings.data }
   const ordered = useMemo(() => [...layout].sort((a, b) => a.y - b.y || a.x - b.x), [layout])
+  // Tiles enter in reading order (top-left first), whatever the layout array order.
+  const entryIndex = useMemo(() => Object.fromEntries(ordered.map((item, i) => [item.i, i])), [ordered])
 
   return (
     <PageLayout
@@ -160,10 +162,10 @@ export default function DashboardPage() {
         <EmptyState icon={Gauge} title={errorMessage(summary.error)} action={{ label: t('common:actions.retry'), onClick: refetchAll }} />
       ) : isMobile ? (
         <div className="space-y-3" data-testid="dashboard-stack">
-          {ordered.map((item) => {
+          {ordered.map((item, i) => {
             const Tile = TILE_COMPONENTS[item.i]
             return (
-              <div key={item.i} style={{ height: item.h * ROW_HEIGHT }}>
+              <div key={item.i} className="fx-stagger-item" style={{ height: item.h * ROW_HEIGHT, '--fx-i': i }}>
                 <Tile {...tileProps} />
               </div>
             )
@@ -184,7 +186,9 @@ export default function DashboardPage() {
                 const Tile = TILE_COMPONENTS[item.i]
                 return (
                   <div key={item.i}>
-                    <Tile {...tileProps} />
+                    <div className="fx-stagger-item h-full" style={{ '--fx-i': entryIndex[item.i] }}>
+                      <Tile {...tileProps} />
+                    </div>
                   </div>
                 )
               })}

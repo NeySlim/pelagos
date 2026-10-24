@@ -7,7 +7,8 @@ hot-standby, D2 signing with hmac-md5, lab-client as DHCP client). Then: the deb
 ns2 enrolled from ns1, both configurations imported, the security plan applied (md5 to sha256
 through the dual-key switch on both D2), a record written through ns2 and read on ns1, a host
 whose reservation and records join a real lease, Kea killed on ns1 (HA alert), ns2 stopped and
-caught up. The VMs are rolled back first; the pair is left running with Pelagos for the demo.
+caught up, a static zone edited through its file then converted to dynamic, hand edits of the Kea
+files adopted. The VMs are rolled back first; the pair is left running with Pelagos for the demo.
 """
 
 from __future__ import annotations

@@ -407,7 +407,29 @@ class DnsService:
             parsed.append(change)
         if not parsed:
             raise ValidationError("changes must not be empty", [field_error("changes", "required")])
-        return self._store(self._local().plan_rrset_changes(zone, parsed, view, created_by))
+        plan = self._local().plan_rrset_changes(zone, parsed, view, created_by)
+        primary = self._primary_node(zone, view)
+        if primary is not None:
+            plan.target_node_ids = [primary]
+        return self._store(plan)
+
+    def _primary_node(self, zone: str, view: str | None) -> str | None:
+        """The peer holding `zone` as primary when this node only has a copy: UPDATEs go to the
+        primary's named, so the plan is applied there. None when this node is the primary."""
+        local = next((z for z in self._local().list_zones(view) if z.name == zone), None)
+        if local is None:
+            raise NotFound(f"zone {zone}")
+        if local.kind is ZoneKind.PRIMARY:
+            return None
+        for peer in self.peers.peers_running(Engine.BIND):
+            snap = self.peers.snapshot(peer, Engine.BIND, "summary", {})
+            for z in (snap or {}).get("zones") or []:
+                if normalize_name(z.get("name", "")) == zone and z.get("kind") == ZoneKind.PRIMARY.value:
+                    if view in (None, z.get("view")):
+                        return peer.id
+        raise EngineUnavailable(
+            f"zone {zone} is {local.kind.value} here and no reachable node is its primary"
+        )
 
     def plan_zone(self, raw: dict[str, Any], created_by: str) -> Plan:
         change = parse_change(raw, "change")

@@ -256,11 +256,15 @@ def check_preconditions(env: Any, plan: Plan) -> list[str]:
 
 def step_bind_adopt(env: Any, change: Change, ctx: dict[str, Any]) -> str:
     a = change.after
+    # Every node of a cluster signs with the same ddi-read and ddi-admin: reuse the replicated secrets.
+    shared = {k: s for k in a["keys"] if (s := env.stored_secret(f"tsig/{k}"))}
     result = bindsetup.adopt(
         env,
         Path(a["named_conf"]),
         bindsetup.AdoptOptions(
-            stats_port=int(a["statistics_port"] or env.paths.bind_stats_port), create_keys=list(a["keys"])
+            stats_port=int(a["statistics_port"] or env.paths.bind_stats_port),
+            create_keys=list(a["keys"]),
+            extra_secrets=shared,
         ),
     )
     ctx.setdefault("engines", {})["bind"] = result.engine_config

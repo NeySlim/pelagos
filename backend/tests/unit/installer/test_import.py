@@ -266,3 +266,46 @@ def test_reimport_of_a_local_named_takes_the_new_connection(tmp_path):
     assert line.endswith("(kept: rndc_address, statistics_url)")
     bind = ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml).load_node().engines["bind"]
     assert bind["statistics_url"] == remote["statistics_url"]
+
+
+def test_import_publishes_modules_and_reuses_cluster_keys(tmp_path):
+    from pelagos.core.bootstrap import bootstrap_first_node
+    from pelagos.core.config_store import ConfigStore
+
+    env = debian_tree(tmp_path)
+    node = bootstrap_first_node(env.node_paths, name="ns2", admin_password="correct-horse").node
+    env.node_id = node.id
+    # Another node imported first: its ddi-admin secret is in the replicated cluster.toml.
+    env.store_secrets({"tsig/ddi-admin": "c2hhcmVkLWFkbWluLXNlY3JldA=="})
+    job = apply_plan(build_import_plan(env, ["bind"]), env)
+    assert job.state is JobState.DONE, job.error
+    keys = {
+        k.name: k
+        for k in bindconf.keys(bindconf.parse((tmp_path / "etc/bind/pelagos/keys.conf").read_text()))
+    }
+    assert keys["ddi-admin"].secret == "c2hhcmVkLWFkbWluLXNlY3JldA=="
+    assert env.stored_secret("tsig/ddi-read") == keys["ddi-read"].secret
+    cluster = ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml).load_cluster()
+    assert cluster.peer(node.id).modules.bind is True
+    node_step = next(s for s in job.steps if s["name"] == "import/node")
+    assert "cluster.toml modules updated" in node_step["output"]
+
+
+def test_import_with_named_running_probes_new_stats_only_once_included(tmp_path):
+    env = debian_tree(tmp_path)
+    env.services.active.add(env.bind_unit())
+    named_conf = tmp_path / "etc/bind/named.conf"
+    probed: list[bool] = []
+
+    def http_get(url: str, timeout: float = 5.0) -> tuple[int, str]:
+        # The channel Pelagos declares in pelagos.conf listens only once named.conf includes it.
+        included = "pelagos/pelagos.conf" in named_conf.read_text()
+        probed.append(included)
+        return (200, "{}") if included else (0, "connection refused")
+
+    env.tools.http_get = http_get  # type: ignore[method-assign]
+    job = apply_plan(build_import_plan(env, ["bind"]), env)
+    assert job.state is JobState.DONE, job.error
+    assert probed and all(probed)
+    verify = next(s for s in job.steps if s["name"] == "import/verify")
+    assert "bind.stats=ok" in verify["output"]

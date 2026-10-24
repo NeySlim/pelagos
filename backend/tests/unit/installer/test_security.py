@@ -174,7 +174,7 @@ def test_remediate_bind_hardening(tmp_path):
     assert job.state is JobState.DONE, job.error
     assert [s["name"] for s in job.steps][1:] == [f"security/{i}" for i in ids]
     remaining = {f.id for f in run_audit(env)}
-    assert remaining == LEGACY_IDS - set(ids)
+    assert remaining == (LEGACY_IDS - set(ids)) | ACCESS_IDS
     etc = tmp_path / "etc/bind"
     local = (etc / "named.conf.local").read_text()
     assert "algorithm hmac-sha1" not in local
@@ -194,6 +194,56 @@ def test_remediate_bind_hardening(tmp_path):
     assert "inet 127.0.0.1 port 8053 allow { 127.0.0.1; };" in named
     # Comments in the user files survive the edits.
     assert "# Keys shared with Kea D2" in local and "/* The forward zone" in local
+
+
+ACCESS_IDS = {
+    "bind:update_without_admin_key:_default/corp.example.lan.",
+    "bind:transfer_without_read_key:_default/corp.example.lan.",
+    "bind:transfer_without_read_key:_default/2.0.192.in-addr.arpa.",
+}
+
+
+def test_pelagos_access_findings_appear_after_import_and_are_fixed(tmp_path):
+    env = legacy_tree(tmp_path)
+    assert not ACCESS_IDS & {f.id for f in run_audit(env)}  # the Pelagos keys do not exist yet
+    assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    findings = {f.id: f for f in run_audit(env)}
+    assert ACCESS_IDS <= set(findings)
+    corp = findings["bind:update_without_admin_key:_default/corp.example.lan."]
+    assert corp.details["remediation"] == "update_policy_grant"
+    _plan, job = _apply(env, sorted(ACCESS_IDS))
+    assert job.state is JobState.DONE, job.error
+    assert not ACCESS_IDS & {f.id for f in run_audit(env)}
+    top = list(bindconf.load_files(tmp_path / "etc/bind/named.conf").top_level())
+    zones = {z.name: z for z in bindconf.zones(top)}
+    assert zones["corp.example.lan."].elements("update-policy") == [
+        "grant kea-ddns zonesub ANY",
+        "grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX DHCID",
+    ]
+    assert zones["corp.example.lan."].elements("allow-transfer") == ["key ddi-read", "key legacy-xfr"]
+    assert zones["2.0.192.in-addr.arpa."].elements("allow-transfer") == [
+        "key ddi-read",
+        "192.0.2.2",
+        "key legacy-xfr",
+    ]
+
+
+def test_secondary_without_transfer_rules_gets_one_in_options(tmp_path):
+    env = debian_tree(tmp_path)
+    local = tmp_path / "etc/bind/named.conf.local"
+    local.write_text(
+        'zone "example.lan" {\n\ttype secondary;\n\tprimaries { 192.0.2.1; };\n\tfile "db.example.lan";\n};\n'
+    )
+    assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    found = [f for f in run_audit(env) if f.kind == "transfer_without_read_key"]
+    assert [f.id for f in found] == ["bind:transfer_without_read_key:options"]
+    assert found[0].details["remediation"] == "allow_transfer_add"
+    _plan, job = _apply(env, [found[0].id])
+    assert job.state is JobState.DONE, job.error
+    top = bindconf.load_files(tmp_path / "etc/bind/named.conf").top_level()
+    opts = next(s for s in top if s.name == "options")
+    assert bindconf.option_value(opts, "allow-transfer") == ["key ddi-read"]
+    assert run_audit(env) == []
 
 
 def test_remediation_needs_import_keys(tmp_path):

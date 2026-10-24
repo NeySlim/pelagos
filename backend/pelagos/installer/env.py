@@ -261,7 +261,44 @@ class InstallerEnv:
         node.engines = deep_merge(node.engines, engines)
         store.save_node(node)
         line = f"node.toml engines: {', '.join(sorted(k for k, v in node.engines.items() if v))}"
+        line += self._publish_modules(node)
         return f"{line} (kept: {', '.join(sorted(kept))})" if kept else line
+
+    def _publish_modules(self, node: Any) -> str:
+        """[[nodes]].modules in cluster.toml mirrors node.toml [engines], so peers know what we run."""
+        if not self.node_paths.cluster_toml.exists():
+            return ""
+        from pelagos.core.config_store import ConfigStore
+
+        store = ConfigStore(
+            self.node_paths.node_toml,
+            self.node_paths.cluster_toml,
+            self.node_paths.locks_dir / "cluster.lock",
+        )
+        peer = store.load_cluster().peer(node.id)
+        if peer is None or peer.modules == node.modules:
+            return ""
+
+        def mutate(cfg: Any) -> None:
+            own = cfg.peer(node.id)
+            if own is not None:
+                own.modules = node.modules
+
+        store.update_cluster(mutate, updated_by=f"node:{node.id}")
+        return "; cluster.toml modules updated"
+
+    def stored_secret(self, name: str) -> str | None:
+        """The clear value of a cluster.toml secret, None when absent or before `pelagos init`."""
+        if not (self.node_initialized() and self.node_paths.master_key.exists()):
+            return None
+        from pelagos.core.config_store import ConfigStore
+        from pelagos.core.secrets import SecretBox
+
+        cluster = ConfigStore(self.node_paths.node_toml, self.node_paths.cluster_toml).load_cluster()
+        token = cluster.secrets.get(name)
+        if not token:
+            return None
+        return SecretBox.from_file(self.node_paths.master_key).decrypt(name, token)
 
     def relabel(self, paths: list[Path]) -> None:
         """SELinux: a file written through a temp file gets its directory's default type; restore it."""

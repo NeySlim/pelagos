@@ -249,6 +249,8 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
                 )
             )
 
+    findings += _pelagos_access(files, top, {k.name for k in key_defs})
+
     for stmt in (s for s in top if s.name == "controls"):
         for lst in bindconf.inet_listeners(stmt):
             if _nonlocal_listener(lst):
@@ -294,6 +296,112 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
                 )
                 break
     return findings
+
+
+def _unquoted(elements: list[str]) -> list[str]:
+    return [e.replace('"', "") for e in elements]
+
+
+def _grants_key(zone: bindconf.ZoneDef, key: str) -> bool:
+    if f"key {key}" in _unquoted(zone.elements("allow-update")):
+        return True
+    rules = _unquoted(zone.elements("update-policy"))
+    return any(r.startswith("grant ") and r.split()[1:2] == [key] for r in rules)
+
+
+TRANSFER_KINDS = ("primary", "master", "secondary", "slave", "mirror")
+
+
+def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str]) -> list[Finding]:
+    """Once adopted, Pelagos reads zones by AXFR with ddi-read and writes them by UPDATE with ddi-admin:
+    zones whose transfer or update rules leave its key out get a finding that adds it."""
+    findings: list[Finding] = []
+    read_key, admin_key = managed.READ_KEY, managed.ADMIN_KEY
+    options_needed = False
+    for z in bindconf.zones(top):
+        subject = f"{z.view}/{z.name}"
+        if admin_key in key_names and z.is_primary:
+            allow_update = z.elements("allow-update")
+            dynamic = z.stmt.sub("allow-update") is not None or z.stmt.sub("update-policy") is not None
+            by_address = any(_is_address(e) for e in allow_update)
+            if dynamic and not by_address and not _grants_key(z, admin_key):
+                au = z.stmt.sub("allow-update") is not None
+                proposal = (
+                    "Replace allow-update by "
+                    + bindsetup.update_policy_proposal(z, bindsetup.kea_key_of_zone(z))
+                    if au
+                    else f"Add grant {admin_key} zonesub {' '.join(UPDATE_TYPES_ADMIN)}; to its update-policy"
+                )
+                findings.append(
+                    Finding(
+                        finding_id("bind", "update_without_admin_key", subject),
+                        "update_without_admin_key",
+                        Severity.WARNING,
+                        "bind",
+                        subject,
+                        f"Zone {z.name} does not accept updates signed with {admin_key}: Pelagos cannot "
+                        "write its records.",
+                        proposal,
+                        "None: the keys allowed today keep their rights.",
+                        {
+                            "zone": z.name,
+                            "view": z.view,
+                            **_locator(z.stmt),
+                            "remediation": "update_policy" if au else "update_policy_grant",
+                        },
+                    )
+                )
+        if read_key not in key_names or z.kind not in TRANSFER_KINDS:
+            continue
+        xfr_stmt = z.stmt.sub("allow-transfer")
+        if xfr_stmt is None:
+            options_needed = True
+            continue
+        xfr = z.elements("allow-transfer")
+        if not _open(xfr) and f"key {read_key}" not in _unquoted(xfr):
+            findings.append(_transfer_without_key(subject, xfr_stmt, xfr, zone=z.name, view=z.view))
+    options = bindsetup.find_options(files)
+    if options_needed and options is not None:
+        xfr_stmt = options.sub("allow-transfer")
+        xfr = bindconf.option_value(options, "allow-transfer") or []
+        if xfr_stmt is None:
+            # BIND refuses transfers by default: the options block gets an allow-transfer for ddi-read.
+            findings.append(_transfer_without_key("options", options, [], add=True))
+        elif not _open(xfr) and f"key {read_key}" not in _unquoted(xfr):
+            findings.append(_transfer_without_key("options", xfr_stmt, xfr))
+    return findings
+
+
+UPDATE_TYPES_ADMIN = ("A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "DHCID")
+
+
+def _transfer_without_key(
+    subject: str,
+    stmt: Statement,
+    elements: list[str],
+    zone: str | None = None,
+    view: str | None = None,
+    add: bool = False,
+) -> Finding:
+    key = managed.READ_KEY
+    proposal = "allow-transfer { " + " ".join(f"{e};" for e in [f"key {key}", *elements]) + " };"
+    where = f"zone {zone}" if zone else "the options"
+    return Finding(
+        finding_id("bind", "transfer_without_read_key", subject),
+        "transfer_without_read_key",
+        Severity.WARNING,
+        "bind",
+        subject,
+        f"Transfers allowed by {where} leave {key} out: Pelagos cannot read the zone records.",
+        proposal if not add else f"Add {proposal} to the options block",
+        "None: the clients allowed today keep their access.",
+        {
+            "zone": zone,
+            "view": view,
+            **_locator(stmt),
+            "remediation": "allow_transfer_add" if add else "allow_transfer",
+        },
+    )
 
 
 def _open_transfer(
@@ -916,6 +1024,41 @@ def remediate_allow_transfer(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -
     return _replace_stmt(env, d, select, repl, "security-allow-transfer")
 
 
+def remediate_update_policy_grant(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
+    files = _reload_files(env)
+    if managed.ADMIN_KEY not in bindsetup.all_keys(files):
+        raise RuntimeError(f"key {managed.ADMIN_KEY} is not defined: run the import first")
+    z = _zone_stmt(files, d["view"], d["zone"])
+    if _grants_key(z, managed.ADMIN_KEY):
+        return f"{managed.ADMIN_KEY} already granted"
+    pol = z.stmt.sub("update-policy")
+    if pol is None or pol.block is None:
+        raise RuntimeError(f"zone {d['zone']} has no update-policy block any more")
+    grant = f"grant {managed.ADMIN_KEY} zonesub {' '.join(UPDATE_TYPES_ADMIN)}; "
+    text = _file_text(files, str(z.stmt.path))
+    end = pol.block.end
+    return _run_bind(
+        env, {str(z.stmt.path): text[:end] + grant + text[end:]}, f"security-update-policy-{d['zone']}"
+    )
+
+
+def remediate_allow_transfer_add(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
+    files = _reload_files(env)
+    if managed.READ_KEY not in bindsetup.all_keys(files):
+        raise RuntimeError(f"key {managed.READ_KEY} is not defined: run the import first")
+    options = bindsetup.find_options(files)
+    if options is None or options.block is None:
+        raise RuntimeError("no options block found any more")
+    if options.sub("allow-transfer") is not None:
+        return remediate_allow_transfer(env, {**d, "zone": None}, ctx)
+    text = _file_text(files, str(options.path))
+    end = options.block.end
+    line = f"\tallow-transfer {{ key {managed.READ_KEY}; }};\n"
+    if not text[:end].endswith("\n"):
+        line = "\n" + line
+    return _run_bind(env, {str(options.path): text[:end] + line + text[end:]}, "security-allow-transfer")
+
+
 def remediate_recursion(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
     name = d.get("statement", "allow-recursion")
     return _replace_stmt(
@@ -995,6 +1138,8 @@ REMEDIATIONS = {
     "rndc_key": remediate_rndc_key,
     "update_policy": remediate_update_policy,
     "allow_transfer": remediate_allow_transfer,
+    "allow_transfer_add": remediate_allow_transfer_add,
+    "update_policy_grant": remediate_update_policy_grant,
     "recursion": remediate_recursion,
     "dnssec_validation": remediate_dnssec,
     "controls": remediate_controls,

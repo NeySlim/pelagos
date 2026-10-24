@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from pelagos.connectors.base import ConnectorUnavailable
-from pelagos.domain import AuditEntry, AuditResult, Family, NodeModules, Peer
+from pelagos.domain import AuditEntry, AuditResult, Family, NodeModules, Peer, ZoneKind
 from pelagos.services.registry import ConnectorRegistry
 from tests.unit.services.fakes import (
     FakeDdnsBackend,
@@ -200,3 +200,22 @@ def test_node_without_bind_reads_from_peer(role_client, peer_b, fake_registry, s
         json={"changes": [{"op": "add", "target": "x/A", "after": {"ttl": 1, "rdata": ["192.0.2.5"]}}]},
     )
     assert r.status_code == 503 and "does not run BIND" in r.get_json()["detail"]
+
+
+def test_record_plan_on_a_secondary_applies_on_the_primary(role_client, peer_b, fake_registry, node_ctx):
+    dora = role_client("dns-operator")
+    change = {"op": "add", "target": "own/A", "after": {"ttl": 60, "rdata": ["192.0.2.62"]}}
+    body = {"changes": [change]}
+    # This node is the primary: the plan stays here.
+    plan = dora.post("/api/v1/dns/zones/example.lan/records/plan", json=body).get_json()
+    assert NODE_B not in plan["target_node_ids"]
+    # This node holds a copy only: the UPDATE goes to the primary's named, through its node.
+    fake_registry.dns.zones["example.lan."].kind = ZoneKind.SECONDARY
+    plan = dora.post("/api/v1/dns/zones/example.lan/records/plan", json=body).get_json()
+    assert plan["target_node_ids"] == [NODE_B]
+    result = dora.post(f"/api/v1/plans/{plan['id']}/apply", json={}).get_json()
+    assert result["state"] == "applied" and [r["node_id"] for r in result["results"]] == [NODE_B]
+    assert plan["id"] in peer_b.registry.dns.applied and plan["id"] not in fake_registry.dns.applied
+    peer_b.registry.dns.zones["example.lan."].kind = ZoneKind.SECONDARY
+    r = dora.post("/api/v1/dns/zones/example.lan/records/plan", json=body)
+    assert r.status_code == 503 and "no reachable node is its primary" in r.get_json()["detail"]

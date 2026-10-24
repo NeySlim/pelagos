@@ -357,8 +357,14 @@ def adopt(env: Any, named_conf: Path, opts: AdoptOptions) -> AdoptResult:
             out.extend(includes)
         return AdoptResult(out, secrets, engine_config, None)
 
+    # A channel declared in pelagos.conf only listens once the include lines are in (import/verify
+    # checks it then); only a reused channel can be probed after writing the managed files.
     pipeline = bind_pipeline(
-        env, named_conf, label="install-bind", verify_stats=stats_url, written=list(changes)
+        env,
+        named_conf,
+        label="install-bind",
+        verify_stats=stats_url if stats_port is None else None,
+        written=list(changes),
     )
     file_changes = [
         FileChange(

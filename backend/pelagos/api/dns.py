@@ -7,17 +7,39 @@ use the absolute lowercase form.
 
 from __future__ import annotations
 
-from flask_restx import Namespace, Resource
+from flask_restx import Namespace, Resource, fields
 
 from pelagos.api import models as m
 from pelagos.api.common import arg, items, json_body, page_of, plan_answer
 from pelagos.api.errors import ApiError
 from pelagos.api.security import client_ip, require, services, username
+from pelagos.services.dns_extras import zone_mode
 
 ns = Namespace("dns", description="Zones, records, BIND configuration", path="/dns")
 
 NODE = {"node_id": "node to read (default: this node, else the first node running BIND)"}
 VIEW = {"view": "BIND view (default: every view, or _default for one zone)"}
+
+CatalogMemberBody = ns.model(
+    "CatalogMemberBody",
+    {
+        "op": fields.String(required=True, enum=["add", "delete"]),
+        "member": fields.String(required=True, description="member zone name"),
+        "group": fields.String(description="catalog group property (add only)"),
+        "view": fields.String,
+    },
+)
+DnssecOpBody = ns.model(
+    "DnssecOpBody",
+    {
+        "action": fields.String(required=True, enum=["rollover", "checkds"]),
+        "key_id": fields.Integer(description="key tag (required for rollover)"),
+        "when": fields.String(description="now or YYYYMMDDHHMMSS"),
+        "state": fields.String(enum=["published", "withdrawn"], description="checkds only"),
+        "view": fields.String,
+        "node_id": fields.String(description="node that runs the command (default: this node)"),
+    },
+)
 
 
 def dns():
@@ -66,7 +88,15 @@ class ZonesPlan(Resource):
     @ns.response(200, "Plan (target <view>/<zone>, after = Zone)", m.Plan)
     @ns.response(422, "engine_validation_failed", m.Problem)
     def post(self):
-        return plan_answer(dns().plan_zone(_change(json_body()), username()))
+        body = json_body()
+        node_ids = body.get("node_ids")
+        if node_ids is not None and not isinstance(node_ids, list):
+            raise ApiError(
+                "validation_error",
+                "node_ids must be a list",
+                errors=[{"field": "node_ids", "message": "list"}],
+            )
+        return plan_answer(dns().plan_zone(_change(body), username(), node_ids or None))
 
 
 @ns.route("/zones/<string:zone>")
@@ -77,7 +107,12 @@ class OneZone(Resource):
     @ns.response(404, "not_found", m.Problem)
     def get(self, zone: str):
         z, statuses = dns().zone(zone, arg("view"))
-        return {"zone": z.to_dict(), "status": {k: v.to_dict() for k, v in statuses.items()}}
+        return {
+            "zone": z.to_dict(),
+            "status": {k: v.to_dict() for k, v in statuses.items()},
+            "mode": zone_mode(z),
+            "views": dns().zone_views(z.name),
+        }
 
 
 @ns.route("/zones/<string:zone>/records")
@@ -244,9 +279,50 @@ class Rpz(Resource):
 @ns.route("/catalog-zones")
 class CatalogZones(Resource):
     @require("read:dns")
-    @ns.response(200, "Catalog zones and their members", m.RawList)
+    @ns.doc(params=NODE)
+    @ns.response(200, "Consumed and produced catalog zones with their members, read now", m.RawList)
     def get(self):
-        return items(dns().catalog_zones(arg("node_id")))
+        return items(dns().catalog_zones_live(arg("node_id")))
+
+
+@ns.route("/catalog-zones/<string:zone>/members/plan")
+class CatalogMembersPlan(Resource):
+    @require("write:dns.records")
+    @ns.expect(CatalogMemberBody)
+    @ns.response(200, "Record plan on the producer catalog zone (PTR, and TXT for the group)", m.Plan)
+    @ns.response(400, "validation_error: consumer catalog, unknown member", m.Problem)
+    def post(self, zone: str):
+        return plan_answer(dns().plan_catalog_member(zone, json_body(), username()))
+
+
+@ns.route("/dnssec/policies")
+class DnssecPolicies(Resource):
+    @require("read:dns")
+    @ns.response(200, "dnssec-policy statements with the zones using them; built-in policy names", m.RawList)
+    def get(self):
+        return dns().dnssec_policies()
+
+
+@ns.route("/dnssec/policies/plan")
+class DnssecPoliciesPlan(Resource):
+    @require("write:dns.config")
+    @ns.expect(m.ChangeBody)
+    @ns.response(
+        200, "Plan over policies.conf (target dnssec-policy/<name>, after {name, statements})", m.Plan
+    )
+    @ns.response(422, "engine_validation_failed", m.Problem)
+    def post(self):
+        return plan_answer(dns().plan_dnssec_policy(_change(json_body()), username()))
+
+
+@ns.route("/zones/<string:zone>/dnssec/plan")
+class DnssecOperationPlan(Resource):
+    @require("write:dns.zones")
+    @ns.expect(DnssecOpBody)
+    @ns.response(200, "Plan of rndc dnssec -rollover or -checkds (confirmation required)", m.Plan)
+    @ns.response(400, "validation_error", m.Problem)
+    def post(self, zone: str):
+        return plan_answer(dns().plan_dnssec_operation(zone, json_body(), username()))
 
 
 @ns.route("/stats")

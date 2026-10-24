@@ -31,6 +31,7 @@ class ZoneSource(enum.StrEnum):
     USER_CONF = "user_conf"
     PELAGOS = "pelagos"
     CATALOG = "catalog"
+    ADDZONE = "addzone"  # added with rndc addzone (named keeps it in <view>.nzd or .nzf)
 
 
 def normalize_name(name: str) -> str:

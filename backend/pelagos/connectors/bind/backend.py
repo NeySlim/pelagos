@@ -21,6 +21,7 @@ from pelagos.connectors.base import (
     NotSupported,
     PreconditionFailed,
 )
+from pelagos.connectors.bind import ops, staticzone
 from pelagos.connectors.bind import rrset as rr
 from pelagos.connectors.bind.configplan import (
     ConfigPlanner,
@@ -32,6 +33,7 @@ from pelagos.connectors.bind.configplan import (
     validate_render,
 )
 from pelagos.connectors.bind.dns_client import DnsClient, TsigKey
+from pelagos.connectors.bind.extras import BindExtras, is_added_zone_change
 from pelagos.connectors.bind.namedconf.resolve import ConfigFiles, build_tree, files_tree, key_secret
 from pelagos.connectors.bind.rndc import (
     RndcClient,
@@ -42,6 +44,7 @@ from pelagos.connectors.bind.rndc import (
     zone_status_from,
 )
 from pelagos.connectors.bind.stats import StatsClient
+from pelagos.connectors.bind.zonefile import ZoneFileError
 from pelagos.core.write_pipeline import FileChange
 from pelagos.domain import (
     BindConfigTree,
@@ -71,7 +74,7 @@ WRITTEN_FILE = "pelagos-written.json"  # in the backup directory: sha256 of what
 MAX_DETAILS = 256  # audit material kept per process; callers should pop_details() after copying
 
 
-class BindBackend(DnsBackend):
+class BindBackend(BindExtras, DnsBackend):
     def __init__(self, ctx: ConnectorContext) -> None:
         super().__init__(ctx)
         cfg = ctx.engine_config
@@ -209,7 +212,9 @@ class BindBackend(DnsBackend):
         return files_tree(self._files(), self.include_dir)
 
     def list_zones(self, view: str | None = None) -> list[Zone]:
-        zones = self.read_config(check=False).zones
+        """Zones of named.conf, then the ones named loaded from elsewhere (addzone, catalogs)."""
+        tree = self.read_config(check=False)
+        zones = tree.zones + self.extra_zones(tree)
         return [z for z in zones if view is None or z.view == view]
 
     def zone_status(self, zone: str, view: str | None = None) -> ZoneStatus:
@@ -232,7 +237,40 @@ class BindBackend(DnsBackend):
         return self.dns.soa_serial(zone, self._require_key("read", view))
 
     def read_zone(self, zone: str, view: str | None = None) -> list[RRset]:
-        return self.dns.axfr(zone, self._require_key("read", view))
+        try:
+            return self.dns.axfr(zone, self._require_key("read", view))
+        except ConnectorDenied:
+            # A static primary refusing the transfer is read from its file, as named loaded it.
+            static = self.static_zone(zone, view)
+            if static is None:
+                raise
+            try:
+                return staticzone.load(static, self._directory()).rrsets()
+            except (ZoneFileError, OSError):
+                raise ConnectorDenied(f"AXFR of {zone} refused and its zone file is not readable") from None
+
+    # Zones as configured on this node --------------------------------------------------
+
+    def config_zone(self, zone: str, view: str | None = None) -> Zone | None:
+        name = normalize_name(zone)
+        want = view or DEFAULT_VIEW
+        try:
+            zones = self.list_zones()
+        except (OSError, ConnectorError):
+            return None
+        found = [z for z in zones if z.name == name and (view is None or z.view == want)]
+        return found[0] if found else None
+
+    def static_zone(self, zone: str, view: str | None = None) -> Zone | None:
+        """The zone when this node holds it as a static primary (its file is edited, no UPDATE)."""
+        found = self.config_zone(zone, view)
+        return found if staticzone.is_static(found) else None
+
+    def _directory(self) -> Path:
+        for entry in self.read_config(check=False).options:
+            if entry.name == "directory" and entry.value.strip():
+                return Path(entry.value.strip().strip('"'))
+        return self.named_conf.parent
 
     def instance_stats(self) -> BindInstanceStats:
         return self.stats.instance_stats(self.ctx.node_id)
@@ -241,7 +279,7 @@ class BindBackend(DnsBackend):
         out = parse_dnssec_status(self.rndc.dnssec_status(zone, view))
         out["zone"] = normalize_name(zone)
         out["view"] = view or DEFAULT_VIEW
-        return out
+        return self.dnssec_details(out["zone"], None if view in (None, DEFAULT_VIEW) else view, out)
 
     # RRset plans ---------------------------------------------------------------------
 
@@ -249,9 +287,9 @@ class BindBackend(DnsBackend):
         self, zone: str, changes: list[Change], view: str | None = None, created_by: str = ""
     ) -> Plan:
         zone = normalize_name(zone)
-        if view not in (None, DEFAULT_VIEW):
-            # The plan targets carry no view and UPDATE goes through the admin key's view.
-            raise NotSupported("record changes are only supported in the default view")
+        view = None if view in (None, DEFAULT_VIEW) else view
+        if view is not None:
+            self._view_key_name("admin", view)  # raises NotSupported without a key for the view
         plan = self._new_plan(PlanScope.DNS_RRSET, f"{zone}: record changes", created_by)
         current = self.read_zone(zone, view)
         allowed = self.dns_settings.get("update_types_admin")
@@ -262,10 +300,10 @@ class BindBackend(DnsBackend):
             allowed_types=allowed,
             default_ttl=int(self.dns_settings.get("default_ttl", 3600)),
         )
-        plan.changes = [rr.to_change(zone, rc) for rc in resolved]
+        plan.changes = [rr.to_change(zone, rc, view) for rc in resolved]
         plan.diff = rr.diff_text(resolved)
         plan.summary = rr.summary_text(zone, resolved)
-        plan.preconditions = rr.preconditions(resolved, self.ctx.node_id)
+        plan.preconditions = rr.preconditions(resolved, self.ctx.node_id, view)
         soa = next((r for r in current if r.rtype == "SOA" and r.name == zone), None)
         if soa is not None:
             serial = soa.rdata[0].split()[2]
@@ -280,13 +318,114 @@ class BindBackend(DnsBackend):
                 ok=ok, tool="dnspython", output="\n".join(errors) or "ok", node_id=self.ctx.node_id
             )
         ]
+        static = self.static_zone(zone, view)
+        if ok and static is not None:
+            plan.summary += f" ({staticzone.FILE_MODE_NOTE})"
+            plan.validations.extend(self._static_preview(plan, static, resolved, soa))
+            ok = all(v.ok for v in plan.validations)
+            errors = [v.output for v in plan.validations if not v.ok]
         plan.state = PlanState.VALIDATED if ok else PlanState.FAILED
         plan.error = None if ok else "; ".join(errors)
         return plan
 
+    def _static_preview(
+        self, plan: Plan, zone: Zone, rcs: list[rr.RRsetChange], soa: RRset | None
+    ) -> list[ValidationResult]:
+        """The zone file diff, its FILE_SHA256 preconditions and the checks of a static zone edit."""
+        node = self.ctx.node_id
+        try:
+            zf = staticzone.load(zone, self._directory())
+            loaded = int(soa.rdata[0].split()[2]) if soa is not None else None
+            texts, serial = staticzone.render(zf, rcs, loaded)
+        except (ZoneFileError, OSError) as exc:
+            return [ValidationResult(ok=False, tool="zonefile", output=str(exc), node_id=node)]
+        plan.diff = staticzone.diff(zf, texts)
+        plan.preconditions.extend(
+            Precondition(PreconditionKind.FILE_SHA256, str(p), sha256_text(zf.texts[p]), node) for p in texts
+        )
+        out = [
+            ValidationResult(
+                ok=True,
+                tool="zonefile",
+                output=f"{staticzone.FILE_MODE_NOTE}: {', '.join(str(p) for p in texts)}, serial {serial}, "
+                "then rndc reload (NOTIFY to the secondaries)",
+                node_id=node,
+            )
+        ]
+        check = staticzone.check_copy(self.checkzone, zf, texts)
+        check.node_id = node
+        out.append(check)
+        problem = staticzone.write_problem(list(texts))
+        if problem:
+            out.append(ValidationResult(ok=False, tool="permissions", output=problem, node_id=node))
+        return out
+
+    def _apply_static(self, plan: Plan, zone: Zone, rcs: list[rr.RRsetChange], label: str) -> NodeApplyResult:
+        """Edit the zone file of a static primary: render, check, write, rndc reload, verify."""
+        node = self.ctx.node_id
+        view = None if zone.view == DEFAULT_VIEW else zone.view
+        details = self._plan_details(plan.id)
+        if label == "apply":
+            self._check_file_preconditions(plan)
+        try:
+            zf = staticzone.load(zone, self._directory())
+            try:
+                loaded = self.soa_serial(zone.name, view)
+            except ConnectorError:
+                loaded = None
+            texts, serial = staticzone.render(zf, rcs, loaded)
+        except (ZoneFileError, OSError) as exc:
+            return NodeApplyResult(node_id=node, ok=False, message=f"zone file: {exc}")
+        problem = staticzone.write_problem(list(texts))
+        if problem:
+            return NodeApplyResult(node_id=node, ok=False, message=problem)
+        check = staticzone.check_copy(self.checkzone, zf, texts)
+        if not check.ok:
+            return NodeApplyResult(node_id=node, ok=False, message=f"named-checkzone: {check.output}")
+
+        def validate() -> ValidationResult:
+            return staticzone.run_checkzone(self.checkzone, zone.name, zf.main, zf.directory)
+
+        def verify() -> bool:
+            st = self.zone_status(zone.name, view)
+            return st.error is None and (st.config_serial == serial or bool(st.signed))
+
+        pipeline = self.ctx.pipeline_factory(
+            backup_root=self.ctx.backup_root,
+            validate=validate,
+            reload=lambda: self.reload(zone.name, view) or "reload done",
+            verify=verify,
+            label=f"{plan.id}-{label}" if label != "apply" else plan.id,
+        )
+        outcome = pipeline.run(
+            [FileChange(path=p, content=t.encode(), create_dirs=False) for p, t in texts.items()]
+        )
+        details[label] = {
+            "request": {
+                "mode": "file",
+                "zone": zone.name,
+                "files": [str(p) for p in texts],
+                "serial": serial,
+            },
+            "response": {
+                "steps": outcome.steps,
+                "backup_dir": str(outcome.backup_dir) if outcome.backup_dir else None,
+            },
+        }
+        if outcome.ok:
+            return NodeApplyResult(
+                node_id=node, ok=True, message=f"zone file edited, serial {serial}, rndc reload done"
+            )
+        return NodeApplyResult(
+            node_id=node,
+            ok=False,
+            message=outcome.error or "zone file write failed",
+            rolled_back=outcome.rolled_back,
+        )
+
     def _send_rrset(self, plan: Plan, rcs: list[rr.RRsetChange], label: str) -> NodeApplyResult:
-        zone = _plan_zone(plan)
-        key = self._require_key("admin")
+        zone, view = _plan_zone(plan)
+        key = self._require_key("admin", view)
         text = rr.update_text(zone, rcs)
         details = self._plan_details(plan.id)
         details[label] = {"request": {"update": text, "key": key.name}}
@@ -356,6 +495,10 @@ class BindBackend(DnsBackend):
 
     def plan_zone_change(self, change: Change, created_by: str = "") -> Plan:
         op = ChangeOp(change.op)
+        view, _, name = change.target.partition("/")
+        existing = self.config_zone(name, view or DEFAULT_VIEW) if name else None
+        if is_added_zone_change(change, existing):
+            return self.plan_added_zone(change, existing, created_by)
         return self._file_plan(PlanScope.DNS_ZONE, [change], f"zone {change.target}: {op.value}", created_by)
 
     def plan_config_change(self, changes: list[Change], created_by: str = "") -> Plan:
@@ -529,9 +672,19 @@ class BindBackend(DnsBackend):
     # Apply and rollback ---------------------------------------------------------------
 
     def apply(self, plan: Plan) -> NodeApplyResult:
+        self.forget_extra_zones()
         try:
+            if plan.scope is PlanScope.DNS_ZONE and plan.changes and ops.is_op(plan.changes[0]):
+                return self._apply_op(plan)
+            if plan.scope is PlanScope.DNS_ZONE and _added_zone_plan(plan):
+                return self._apply_added_zone(plan)
             if plan.scope is PlanScope.DNS_RRSET:
-                rcs = rr.rrset_changes_from_plan(_plan_zone(plan), plan.changes)
+                zone, view = _plan_zone(plan)
+                rcs = rr.rrset_changes_from_plan(zone, plan.changes)
+                # The node holding the file decides: a static primary here is edited in its file.
+                static = self.static_zone(zone, view)
+                if static is not None:
+                    return self._apply_static(plan, static, rcs, "apply")
                 return self._send_rrset(plan, rcs, "apply")
             if plan.scope in (PlanScope.DNS_ZONE, PlanScope.DNS_CONFIG, PlanScope.DNS_KEY, PlanScope.DNS_ACL):
                 return self._apply_files(plan)
@@ -540,11 +693,23 @@ class BindBackend(DnsBackend):
             return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=str(exc))
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
+        self.forget_extra_zones()
         try:
+            if plan.scope is PlanScope.DNS_ZONE and plan.changes and ops.is_op(plan.changes[0]):
+                return NodeApplyResult(
+                    node_id=self.ctx.node_id, ok=False, message="an rndc operation cannot be rolled back"
+                )
+            if plan.scope is PlanScope.DNS_ZONE and _added_zone_plan(plan):
+                return self._apply_added_zone(plan, rollback=True)
             if plan.scope is PlanScope.DNS_RRSET:
-                zone = _plan_zone(plan)
+                zone, view = _plan_zone(plan)
                 rcs = [rr.inverse(rc) for rc in reversed(rr.rrset_changes_from_plan(zone, plan.changes))]
-                result = self._send_rrset(plan, rcs, "rollback")
+                static = self.static_zone(zone, view)
+                if static is not None:
+                    # The inverse edit with a new serial: secondaries transfer the restored records.
+                    result = self._apply_static(plan, static, rcs, "rollback")
+                else:
+                    result = self._send_rrset(plan, rcs, "rollback")
                 result.rolled_back = result.ok
                 return result
             backup = self._backup_dir(plan)
@@ -604,8 +769,17 @@ def _require_user_conf(files: ConfigFiles) -> None:
         raise ConnectorUnavailable(f"{key} is {reason}")
 
 
-def _plan_zone(plan: Plan) -> str:
-    """The zone of an RRset plan, from the first change target `<zone>/<owner>/<type>`."""
+def _added_zone_plan(plan: Plan) -> bool:
+    change = plan.changes[0] if plan.changes else None
+    if change is None:
+        return False
+    sides = [s for s in (change.before, change.after) if isinstance(s, dict)]
+    return any(s.get("source") == "addzone" for s in sides)
+
+
+def _plan_zone(plan: Plan) -> tuple[str, str | None]:
+    """Zone and view of an RRset plan, from the first change target `[<view>/]<zone>/<owner>/<type>`."""
     if not plan.changes:
         raise NotSupported("plan has no change")
-    return normalize_name(plan.changes[0].target.split("/", 1)[0])
+    target = plan.changes[0].target
+    return rr.target_zone(target), rr.target_view(target)

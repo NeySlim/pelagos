@@ -130,6 +130,7 @@ class ConfigPlanner:
         self.zone_dir = Path(zone_dir) if zone_dir else self._default_zone_dir()
         self.default_ns = default_ns or []
         self.result = RenderResult()
+        self.node_id = node_id
         self._docs: dict[Path, ConfigDocument] = {}
 
     # Documents -----------------------------------------------------------------
@@ -167,7 +168,7 @@ class ConfigPlanner:
     def _ensure_pelagos_conf(self) -> None:
         # A managed file that pelagos.conf includes must exist, or named-checkconf fails.
         touched = {p.name for p in self.result.texts if p.parent == self.managed.include_dir}
-        if touched & {"keys.conf", "acls.conf", "zones.conf"}:
+        if touched & {"keys.conf", "acls.conf", "zones.conf", "policies.conf"}:
             for p in (self.managed.keys_conf, self.managed.acls_conf, self.managed.zones_conf):
                 if p not in self.result.texts and not p.is_file():
                     self._set_text(p, MANAGED_HEADER + "\n")
@@ -189,10 +190,62 @@ class ConfigPlanner:
                 self.raw_change(change, target[len("raw:") :])
             elif target == "pelagos/includes":
                 self.include_setup(change)
+            elif target.startswith("dnssec-policy/"):
+                self.policy_change(change, target[len("dnssec-policy/") :])
             else:
                 raise PlanError(f"unknown dns.config target {target!r}")
         except (PlanError, ParseError, ValueError, KeyError) as exc:
             self.result.errors.append(f"{change.target}: {exc}")
+
+    # DNSSEC policies -----------------------------------------------------------------
+
+    def policy_change(self, change: Change, name: str) -> None:
+        """dnssec-policy statements live in policies.conf, which pelagos.conf includes."""
+        from pelagos.connectors.bind import dnssec
+
+        dnssec.check_name(name)
+        for entry in dnssec.policies(self.files, self.managed.include_dir):
+            if entry["name"] == name and entry["source"] != "pelagos":
+                raise PlanError(f"dnssec-policy {name} is defined in a user file; Pelagos never edits it")
+        doc = self.doc(self.managed.policies_conf)
+        existing = self.managed.find(doc, "dnssec-policy", name)
+        before = existing.serialize().strip() if existing is not None else None
+        op = ChangeOp(change.op)
+        used = sorted(z.name for z in self.tree.zones if z.dnssec_policy == name)
+        if op is ChangeOp.DELETE:
+            if existing is None:
+                raise PlanError(f"dnssec-policy {name} is not managed by Pelagos")
+            if used:
+                raise PlanError(f"dnssec-policy {name} is used by {', '.join(used)}")
+            self.managed.remove(doc, "dnssec-policy", name)
+            self.result.requires_confirmation = True
+            self.result.changes.append(Change(op, change.target, before=before, after=None))
+            return
+        if op is ChangeOp.ADD and existing is not None:
+            raise PlanError(f"dnssec-policy {name} already exists; use replace")
+        if op is ChangeOp.REPLACE and existing is None:
+            raise PlanError(f"dnssec-policy {name} is not managed by Pelagos")
+        after = change.after if isinstance(change.after, dict) else {}
+        statement = dnssec.render_policy(name, list(after.get("statements") or []))
+        self.managed.upsert(doc, statement, "dnssec-policy", name, None)
+        self.result.requires_confirmation = self.result.requires_confirmation or bool(used)
+        self.result.changes.append(
+            Change(op, change.target, before=before, after={"name": name, "text": statement.strip(), **after})
+        )
+        self._include_policies()
+
+    def _include_policies(self) -> None:
+        """Add `include ".../policies.conf";` to pelagos.conf, keeping the rest of that file."""
+        path = self.managed.pelagos_conf
+        text = self.result.texts.get(path)
+        if text is None:
+            text = path.read_text() if path.is_file() else self.managed.render_pelagos_conf()
+        doc = parse(text, str(path))
+        target = str(self.managed.policies_conf)
+        if any(n.kind == "include" and n.args and n.args[0] == target for n in doc.statements()):
+            return
+        doc.add_statement(f'include "{target}";')
+        self._set_text(path, doc.serialize())
 
     # Zones -------------------------------------------------------------------------
 
@@ -244,7 +297,17 @@ class ConfigPlanner:
         raw = dict(change.after)
         raw["name"] = name
         raw["view"] = view
-        zone = Zone.from_dict({k: v for k, v in raw.items() if k not in ("ns", "records")})
+        secondary = raw.get("secondary") if isinstance(raw.get("secondary"), dict) else None
+        if secondary and secondary.get("origin") not in (None, self.node_id):
+            # A peer of the node that holds the new primary: the zone is its secondary here.
+            raw = {
+                "name": name,
+                "view": view,
+                "kind": ZoneKind.SECONDARY.value,
+                "primaries": list(secondary.get("primaries") or []),
+                "notes": raw.get("notes"),
+            }
+        zone = Zone.from_dict({k: v for k, v in raw.items() if k not in ("ns", "records", "secondary")})
         zone.source = ZoneSource.PELAGOS
         zone.config_path = str(path)
         if zone.kind in (ZoneKind.SECONDARY, ZoneKind.STUB, ZoneKind.MIRROR) and not zone.primaries:
@@ -266,6 +329,8 @@ class ConfigPlanner:
         after["config_path"] = str(path)
         # Kept so that apply on any node renders the same initial zone file.
         after.update(initial)
+        if secondary:
+            after["secondary"] = secondary  # every node renders its own side of the pair
         self.result.changes.append(
             Change(op, change.target, before=before, after=after, node_ids=change.node_ids)
         )

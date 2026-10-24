@@ -33,7 +33,8 @@ from pelagos.domain import (
     ZoneStatus,
     normalize_name,
 )
-from pelagos.services.errors import EngineUnavailable, NotFound, ServiceError, ValidationError, field_error
+from pelagos.services.dns_extras import DnsExtras, zone_mode
+from pelagos.services.errors import EngineUnavailable, NotFound, ValidationError, field_error
 from pelagos.services.peers import PeerGateway
 
 TRANSFER_KINDS = frozenset({ZoneKind.SECONDARY, ZoneKind.MIRROR, ZoneKind.STUB})
@@ -41,7 +42,7 @@ OPERATIONS = ("retransfer", "notify", "reload", "freeze", "thaw", "sync")
 RESOLVER_KEYS = ("recursion", "allow-recursion", "forwarders", "forward", "dnssec-validation")
 
 
-class DnsService:
+class DnsService(DnsExtras):
     def __init__(self, ctx: NodeContext, local: DnsBackend | None, peers: PeerGateway) -> None:
         self.ctx = ctx
         self.local = local
@@ -162,7 +163,12 @@ class DnsService:
                 continue
             per_node = serials.get(f"{zone.view}/{zone.name}", {})
             known = {s for s in per_node.values() if s is not None}
-            item = {"zone": zone.to_dict(), "serials": per_node, "divergent": len(known) > 1}
+            item = {
+                "zone": zone.to_dict(),
+                "serials": per_node,
+                "divergent": len(known) > 1,
+                "mode": zone_mode(zone),
+            }
             if status:
                 item["status"] = self._transfer_status(backend, peer, zone)
             out.append(item)
@@ -226,6 +232,16 @@ class DnsService:
                     error=(snap or {}).get("error") or "unreachable",
                 )
         return zone, statuses
+
+    def zone_views(self, name: str) -> list[str]:
+        """Views in which a zone of this name exists (the screens offer a view selector)."""
+        name = normalize_name(name)
+        backend, peer = self._read_node(None)
+        if backend is not None:
+            zones = backend.list_zones()
+        else:
+            zones = [Zone.from_dict(z) for z in self._peer_snapshot(peer).get("zones", [])]  # type: ignore[arg-type]
+        return sorted({z.view for z in zones if z.name == name})
 
     def records(
         self,
@@ -375,9 +391,19 @@ class DnsService:
         tree = self._config(node_id)
         statement = next((o.value for o in tree.options if o.name == "catalog-zones"), None)
         items = []
+        # Without a local connector (configuration of a peer): consumed catalogs, members unknown.
         for name in re.findall(r"zone\s+\"([^\"]+)\"", statement or ""):
-            members = [z.name for z in tree.zones if z.source is ZoneSource.CATALOG]
-            items.append({"zone": normalize_name(name), "statement": statement, "members": members})
+            members = [{"zone": z.name} for z in tree.zones if z.source is ZoneSource.CATALOG]
+            items.append(
+                {
+                    "zone": normalize_name(name),
+                    "view": "_default",
+                    "role": "consumer",
+                    "statement": statement,
+                    "members": members,
+                    "member_count": len(members),
+                }
+            )
         return items
 
     # Plans --------------------------------------------------------------
@@ -411,7 +437,18 @@ class DnsService:
         primary = self._primary_node(zone, view)
         if primary is not None:
             plan.target_node_ids = [primary]
+            if self._static_on(primary, zone, view):
+                peer = self.peers.peer(primary)
+                plan.summary += f" (file edit on {peer.name if peer else primary}, the zone stays static)"
         return self._store(plan)
+
+    def _static_on(self, node_id: str, zone: str, view: str | None) -> bool:
+        peer = self.peers.peer(node_id)
+        snap = self.peers.snapshot(peer, Engine.BIND, "summary", {}) if peer else None
+        for z in (snap or {}).get("zones") or []:
+            if normalize_name(z.get("name", "")) == zone and view in (None, z.get("view")):
+                return z.get("kind") == ZoneKind.PRIMARY.value and not z.get("dynamic")
+        return False
 
     def _primary_node(self, zone: str, view: str | None) -> str | None:
         """The peer holding `zone` as primary when this node only has a copy: UPDATEs go to the
@@ -431,11 +468,17 @@ class DnsService:
             f"zone {zone} is {local.kind.value} here and no reachable node is its primary"
         )
 
-    def plan_zone(self, raw: dict[str, Any], created_by: str) -> Plan:
+    def plan_zone(self, raw: dict[str, Any], created_by: str, node_ids: list[str] | None = None) -> Plan:
+        """With `node_ids`, the zone also lands on those peers: as a secondary of this node for a
+        new primary (`after.secondary.primaries` says where they transfer from)."""
         change = parse_change(raw, "change")
         if "/" not in change.target:
             change.target = f"_default/{change.target}"
-        return self._store(self._local().plan_zone_change(change, created_by))
+        targets = self.secondary_for_peers(change, node_ids) if node_ids else None
+        plan = self._local().plan_zone_change(change, created_by)
+        if targets:
+            plan.target_node_ids = targets
+        return self._store(plan)
 
     def plan_config(self, changes: list[dict[str, Any]], node_ids: list[str] | None, created_by: str) -> Plan:
         parsed = [parse_change(raw, f"changes[{i}]") for i, raw in enumerate(changes)]
@@ -562,9 +605,7 @@ class DnsService:
         with self._zone_status_lock:
             self._zone_status.clear()
         if node_id not in (None, self.ctx.node.id):
-            raise ServiceError(
-                "not_supported", "operations on a peer node are not available yet; log in on that node"
-            )
+            return self.peer_operation(op, zone, str(node_id), view, user, client_ip)
         zone = normalize_name(zone)
         backend = self._local()
         try:

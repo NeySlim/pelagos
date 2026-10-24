@@ -436,16 +436,18 @@ def _mask_text_values(value: Any) -> Any:
 def _observe_rrset(backend: DnsBackend, pre: Precondition) -> str | None:
     """The precondition's value as it reads now. Two conventions: "exists"/"absent", or BIND's
     value-dependent one ("" for absent, the rdata one per line for exists, order not significant)."""
-    owner, _, rtype = pre.subject.partition("/")
-    owner = normalize_name(owner)
-    zones = [z.name for z in backend.list_zones() if owner == z.name or owner.endswith("." + z.name)]
+    parts = pre.subject.split("/")
+    # `<owner>/<type>`, or `<view>/<owner>/<type>` outside the default view.
+    view = parts[0] if len(parts) == 3 else None
+    owner, rtype = normalize_name(parts[-2]), parts[-1]
+    zones = [z.name for z in backend.list_zones(view) if owner == z.name or owner.endswith("." + z.name)]
     if not zones:
         return None
     zone = max(zones, key=len)
     rdata = next(
         (
             list(r.rdata)
-            for r in backend.read_zone(zone)
+            for r in backend.read_zone(zone, view)
             if normalize_name(r.name) == owner and r.rtype.upper() == rtype.upper()
         ),
         None,

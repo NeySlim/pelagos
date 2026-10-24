@@ -91,6 +91,11 @@ class ManagedFiles:
         return self.include_dir / "options.conf"
 
     @property
+    def policies_conf(self) -> Path:
+        """dnssec-policy statements; included from pelagos.conf once the first policy is written."""
+        return self.include_dir / "policies.conf"
+
+    @property
     def views_dir(self) -> Path:
         return self.include_dir / "views"
 

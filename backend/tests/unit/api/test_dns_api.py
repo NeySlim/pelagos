@@ -283,7 +283,7 @@ def test_config_plan_and_operations(role_client, fake_dns, node_ctx):
     assert r.status_code == 200 and r.get_json()["output"]
     assert ("notify", "example.lan.") in [tuple(op[:2]) for op in fake_dns.ops]
     r = dora.post("/api/v1/dns/zones/example.lan/retransfer", json={"node_id": "elsewhere"})
-    assert r.status_code == 501 and r.get_json()["code"] == "not_supported"
+    assert r.status_code == 404
     ops = role_client("admin").get("/api/v1/audit?action=dns.zone.op").get_json()["items"]
     assert ops[0]["request"]["op"] == "notify" and ops[0]["user"] == "dora"
 

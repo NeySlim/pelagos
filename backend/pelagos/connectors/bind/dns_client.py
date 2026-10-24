@@ -71,6 +71,22 @@ class DnsClient:
                 return int(rrset[0].serial)
         return None
 
+    def query(self, name: str, rtype: str, key: TsigKey | None = None) -> list[str] | None:
+        """Answer rdata of one question over TCP (DNSKEY sets do not fit UDP); None unless NOERROR."""
+        q = dns.message.make_query(normalize_name(name), dns.rdatatype.from_text(rtype))
+        if key is not None:
+            q.use_tsig(key.keyring, keyname=key.name, algorithm=key.dns_algorithm)
+        try:
+            resp = dns.query.tcp(q, self.server, port=self.port, timeout=self.timeout)
+        except dns.exception.Timeout as exc:
+            raise ConnectorTimeout(f"{rtype} query for {name} timed out") from exc
+        except OSError as exc:
+            raise ConnectorUnavailable(str(exc)) from exc
+        if resp.rcode() != dns.rcode.NOERROR:
+            return None
+        want = dns.rdatatype.from_text(rtype)
+        return [r.to_text() for rrset in resp.answer if rrset.rdtype == want for r in rrset]
+
     def axfr(self, zone: str, key: TsigKey | None = None) -> list[RRset]:
         """Full transfer grouped into RRsets; absolute lowercase owner names."""
         origin = dns.name.from_text(normalize_name(zone))

@@ -17,6 +17,7 @@ from pelagos.domain.dns import RRset, normalize_name
 from pelagos.domain.plan import Change, ChangeOp, Precondition, PreconditionKind
 
 DEFAULT_TTL = 3600
+DEFAULT_VIEW = "_default"
 # Types a dynamic UPDATE must never touch through a record plan.
 FORBIDDEN_TYPES = {"SOA", "AXFR", "IXFR", "ANY", "OPT", "TSIG", "TKEY"}
 
@@ -56,10 +57,13 @@ def owner_name(owner: str, zone: str) -> str:
 
 
 def parse_target(target: str, zone: str) -> tuple[str, str]:
-    """`<zone>/<owner>/<type>` -> (absolute owner, TYPE); the zone part must match the plan zone."""
+    """`[<view>/]<zone>/<owner>/<type>` -> (absolute owner, TYPE); the zone part must match the plan
+    zone. The view prefix is present only for a view other than `_default`."""
     parts = target.split("/")
+    if len(parts) == 4:
+        parts = parts[1:]
     if len(parts) != 3:
-        raise RRsetError(f"target {target!r} is not <zone>/<owner>/<type>")
+        raise RRsetError(f"target {target!r} is not [<view>/]<zone>/<owner>/<type>")
     tzone, owner, rtype = parts
     if tzone and normalize_name(tzone) != normalize_name(zone):
         raise RRsetError(f"target {target!r} is not in zone {zone}")
@@ -179,11 +183,23 @@ def rrset_changes_from_plan(zone: str, changes: list[Change]) -> list[RRsetChang
     return out
 
 
-def to_change(zone: str, rc: RRsetChange) -> Change:
+def target_view(target: str) -> str | None:
+    """The view of an RRset target, None for the default view."""
+    parts = target.split("/")
+    return parts[0] if len(parts) == 4 and parts[0] not in ("", DEFAULT_VIEW) else None
+
+
+def target_zone(target: str) -> str:
+    parts = target.split("/")
+    return normalize_name(parts[1] if len(parts) == 4 else parts[0])
+
+
+def to_change(zone: str, rc: RRsetChange, view: str | None = None) -> Change:
     owner = rc.owner
+    prefix = f"{view}/" if view and view != DEFAULT_VIEW else ""
     return Change(
         op=rc.op,
-        target=f"{normalize_name(zone)}/{owner}/{rc.rtype}",
+        target=f"{prefix}{normalize_name(zone)}/{owner}/{rc.rtype}",
         before=rc.before.to_dict() if rc.before else None,
         after=rc.after.to_dict() if rc.after else None,
     )
@@ -198,16 +214,20 @@ def inverse(rc: RRsetChange) -> RRsetChange:
     return RRsetChange(ChangeOp.REPLACE, rc.owner, rc.rtype, rc.after, rc.before)
 
 
-def preconditions(rcs: list[RRsetChange], node_id: str | None) -> list[Precondition]:
-    """RRSET_EXISTS (value-dependent: the rdata as read) or RRSET_ABSENT, one per change."""
+def preconditions(rcs: list[RRsetChange], node_id: str | None, view: str | None = None) -> list[Precondition]:
+    """RRSET_EXISTS (value-dependent: the rdata as read) or RRSET_ABSENT, one per change. The
+    subject is `<owner>/<type>`, prefixed with `<view>/` outside the default view."""
     out: list[Precondition] = []
+    prefix = f"{view}/" if view and view != DEFAULT_VIEW else ""
     for rc in rcs:
         if rc.op is ChangeOp.ADD:
-            out.append(Precondition(PreconditionKind.RRSET_ABSENT, rc.subject, "", node_id))
+            out.append(Precondition(PreconditionKind.RRSET_ABSENT, prefix + rc.subject, "", node_id))
         else:
             assert rc.before is not None
             out.append(
-                Precondition(PreconditionKind.RRSET_EXISTS, rc.subject, "\n".join(rc.before.rdata), node_id)
+                Precondition(
+                    PreconditionKind.RRSET_EXISTS, prefix + rc.subject, "\n".join(rc.before.rdata), node_id
+                )
             )
     return out
 

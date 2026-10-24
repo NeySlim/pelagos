@@ -372,6 +372,8 @@ def build_tree(files: ConfigFiles, node_id: str, include_dir: Path | None = None
     if include_dir is not None:
         for fname in MANAGED_FILES:
             managed_files[fname] = (include_dir / fname).is_file()
+        if (include_dir / "policies.conf").is_file():
+            managed_files["policies.conf"] = True  # optional: written with the first dnssec-policy
         views_dir = include_dir / VIEWS_DIR
         if views_dir.is_dir():
             views_files = sorted(p.name for p in views_dir.glob("*.conf"))

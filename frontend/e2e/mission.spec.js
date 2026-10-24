@@ -33,6 +33,30 @@ test('Mission Control is the default family, with glass panels over the backdrop
   await expect.poll(() => page.evaluate(() => document.fonts.check('12px Michroma'))).toBe(true)
 })
 
+test('the Mission dashboard tiles enter staggered', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/')
+  await expect(page.getByTestId('tile-nodes')).toBeVisible()
+  const entries = await page.locator('.fx-stagger-item').evaluateAll((els) =>
+    els.map((el) => ({ name: getComputedStyle(el).animationName, delay: parseFloat(getComputedStyle(el).animationDelay) })),
+  )
+  expect(entries.length).toBeGreaterThanOrEqual(3)
+  expect(entries.every((e) => e.name === 'fx-rise')).toBe(true)
+  expect(new Set(entries.map((e) => e.delay)).size).toBe(entries.length)
+  // The active nav entry carries no ember alert dot.
+  const indicator = await page.locator('.ui-nav-indicator').first().evaluate((el) => getComputedStyle(el).boxShadow)
+  expect(indicator).toBe('none')
+})
+
+test('a zone page keeps the DNS name case in the display title', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/dns/zones/lab.example.lan')
+  const title = page.locator('h1.ui-page-title')
+  await expect(title).toHaveText('lab.example.lan.')
+  await expect(title).toHaveClass(/ui-title-literal/)
+  expect(await title.evaluate((el) => getComputedStyle(el).textTransform)).toBe('none')
+})
+
 test('another family turns the effects layer off', async ({ page }) => {
   await signIn(page)
   await page.getByTestId('user-menu').click()

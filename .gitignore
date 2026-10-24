@@ -20,6 +20,7 @@ frontend/coverage/
 # Local state and secrets
 .env
 *.local
+!backend/tests/unit/connectors/bind/data/**/*.local
 /var/
 .pelagos-dev/
 

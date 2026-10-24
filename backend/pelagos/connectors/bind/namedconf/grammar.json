@@ -13181,4 +13181,8306 @@
        "items": [
         {
          "kind": "placeholder",
-         "type": "int
+         "type": "integer"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "obsolete",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-sig-validity-interval"
+    },
+    "sig0key-checks-limit": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-sig0key-checks-limit"
+    },
+    "sig0message-checks-limit": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-sig0message-checks-limit"
+    },
+    "sortlist": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "deprecated",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-sortlist"
+    },
+    "stale-answer-client-timeout": {
+     "grammar": "( disabled | off | <integer> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "disabled"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "off"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "integer"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-stale-answer-client-timeout"
+    },
+    "stale-answer-enable": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-stale-answer-enable"
+    },
+    "stale-answer-ttl": {
+     "grammar": "<duration>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "duration"
+      }
+     ],
+     "types": [
+      "duration"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-stale-answer-ttl"
+    },
+    "stale-cache-enable": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-stale-cache-enable"
+    },
+    "stale-refresh-time": {
+     "grammar": "<duration>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "duration"
+      }
+     ],
+     "types": [
+      "duration"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-stale-refresh-time"
+    },
+    "synth-from-dnssec": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-synth-from-dnssec"
+    },
+    "transfer-format": {
+     "grammar": "( many-answers | one-answer )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "many-answers"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "one-answer"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-transfer-format"
+    },
+    "transfer-source": {
+     "grammar": "( <ipv4_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv4_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv4_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-transfer-source"
+    },
+    "transfer-source-v6": {
+     "grammar": "( <ipv6_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv6_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-transfer-source-v6"
+    },
+    "trust-anchor-telemetry": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-trust-anchor-telemetry"
+    },
+    "trust-anchors": {
+     "grammar": "{ <string> ( static-key | initial-key | static-ds | initial-ds ) <integer> <integer> <integer> <quoted_string>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "string"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "literal",
+            "value": "static-key"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "initial-key"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "static-ds"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "initial-ds"
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        },
+        {
+         "kind": "placeholder",
+         "type": "quoted_string"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "string",
+      "integer",
+      "quoted_string"
+     ],
+     "repeatable": true,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-trust-anchors"
+    },
+    "trusted-keys": {
+     "grammar": "{ <string> <integer> <integer> <integer> <quoted_string>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "string"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        },
+        {
+         "kind": "placeholder",
+         "type": "quoted_string"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "string",
+      "integer",
+      "quoted_string"
+     ],
+     "repeatable": true,
+     "status": "deprecated",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-trusted-keys"
+    },
+    "try-tcp-refresh": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-try-tcp-refresh"
+    },
+    "update-check-ksk": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "obsolete",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-update-check-ksk"
+    },
+    "v6-bias": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-v6-bias"
+    },
+    "validate-except": {
+     "grammar": "{ <string>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "string"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-validate-except"
+    },
+    "zero-no-soa-ttl": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-zero-no-soa-ttl"
+    },
+    "zero-no-soa-ttl-cache": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-zero-no-soa-ttl-cache"
+    },
+    "zone": {
+     "grammar": "<string> [ <class> ]",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "class"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "string",
+      "class"
+     ],
+     "repeatable": true,
+     "status": "current",
+     "block": "zone",
+     "variants": {
+      "primary": "zone.primary",
+      "secondary": "zone.secondary",
+      "mirror": "zone.mirror",
+      "stub": "zone.stub",
+      "static-stub": "zone.static-stub",
+      "forward": "zone.forward",
+      "hint": "zone.hint",
+      "redirect": "zone.redirect",
+      "in-view": "zone.in-view"
+     },
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-zone"
+    },
+    "zone-statistics": {
+     "grammar": "( full | terse | none | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "full"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "terse"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "none"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-zone-statistics"
+    }
+   }
+  },
+  "view.dlz": {
+   "statements": {
+    "database": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-database"
+    },
+    "search": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-search"
+    }
+   }
+  },
+  "view.dns64": {
+   "statements": {
+    "break-dnssec": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-break-dnssec"
+    },
+    "clients": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-clients"
+    },
+    "exclude": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-exclude"
+    },
+    "mapped": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-mapped"
+    },
+    "recursive-only": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-recursive-only"
+    },
+    "suffix": {
+     "grammar": "<ipv6_address>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "ipv6_address"
+      }
+     ],
+     "types": [
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-suffix"
+    }
+   }
+  },
+  "view.key": {
+   "statements": {
+    "algorithm": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-algorithm"
+    },
+    "secret": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-secret"
+    }
+   }
+  },
+  "view.rate-limit": {
+   "statements": {
+    "all-per-second": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-all-per-second"
+    },
+    "errors-per-second": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-errors-per-second"
+    },
+    "exempt-clients": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-exempt-clients"
+    },
+    "ipv4-prefix-length": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-ipv4-prefix-length"
+    },
+    "ipv6-prefix-length": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-ipv6-prefix-length"
+    },
+    "log-only": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-log-only"
+    },
+    "max-table-size": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-table-size"
+    },
+    "min-table-size": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-min-table-size"
+    },
+    "nodata-per-second": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-nodata-per-second"
+    },
+    "nxdomains-per-second": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-nxdomains-per-second"
+    },
+    "qps-scale": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-qps-scale"
+    },
+    "referrals-per-second": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-referrals-per-second"
+    },
+    "responses-per-second": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-responses-per-second"
+    },
+    "slip": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-slip"
+    },
+    "window": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-window"
+    }
+   }
+  },
+  "view.server": {
+   "statements": {
+    "bogus": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-bogus"
+    },
+    "edns": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-edns"
+    },
+    "edns-udp-size": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-edns-udp-size"
+    },
+    "edns-version": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-edns-version"
+    },
+    "keys": {
+     "grammar": "<server_key>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "server_key"
+      }
+     ],
+     "types": [
+      "server_key"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-keys"
+    },
+    "max-udp-size": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-udp-size"
+    },
+    "notify-source": {
+     "grammar": "( <ipv4_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv4_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv4_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-source"
+    },
+    "notify-source-v6": {
+     "grammar": "( <ipv6_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv6_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-source-v6"
+    },
+    "padding": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-padding"
+    },
+    "provide-ixfr": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-provide-ixfr"
+    },
+    "query-source": {
+     "grammar": "[ address ] ( <ipv4_address> | * )",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "address"
+        }
+       ]
+      },
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv4_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv4_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-query-source"
+    },
+    "query-source-v6": {
+     "grammar": "[ address ] ( <ipv6_address> | * )",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "address"
+        }
+       ]
+      },
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv6_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-query-source-v6"
+    },
+    "request-expire": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-request-expire"
+    },
+    "request-ixfr": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-request-ixfr"
+    },
+    "request-nsid": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-request-nsid"
+    },
+    "require-cookie": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-require-cookie"
+    },
+    "send-cookie": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-send-cookie"
+    },
+    "tcp-keepalive": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-tcp-keepalive"
+    },
+    "tcp-only": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-tcp-only"
+    },
+    "transfer-format": {
+     "grammar": "( many-answers | one-answer )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "many-answers"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "one-answer"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-transfer-format"
+    },
+    "transfer-source": {
+     "grammar": "( <ipv4_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv4_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv4_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-transfer-source"
+    },
+    "transfer-source-v6": {
+     "grammar": "( <ipv6_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv6_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-transfer-source-v6"
+    },
+    "transfers": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-transfers"
+    }
+   }
+  },
+  "zone": {
+   "statements": {
+    "in-view": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-in-view"
+    },
+    "type": {
+     "grammar": "( primary | secondary | mirror | stub | static-stub | forward | hint | redirect )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "primary"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "secondary"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "mirror"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "stub"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "static-stub"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "forward"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "hint"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "redirect"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-type"
+    }
+   },
+   "note": "Common to every zone type; the statements allowed depend on `type`, see variants."
+  },
+  "zone.forward": {
+   "statements": {
+    "forward": {
+     "grammar": "( first | only )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "first"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "only"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-forward"
+    },
+    "forwarders": {
+     "grammar": "[ port <integer> ] [ tls <string> ] { ( <ipv4_address> | <ipv6_address> ) [ port <integer> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "tls"
+        },
+        {
+         "kind": "placeholder",
+         "type": "string"
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "port"
+          },
+          {
+           "kind": "placeholder",
+           "type": "integer"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "string",
+      "ipv4_address",
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-forwarders"
+    },
+    "type": {
+     "grammar": "forward",
+     "pattern": [
+      {
+       "kind": "literal",
+       "value": "forward"
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-type"
+    }
+   }
+  },
+  "zone.hint": {
+   "statements": {
+    "check-names": {
+     "grammar": "( fail | warn | ignore )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "fail"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "warn"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "ignore"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-names"
+    },
+    "file": {
+     "grammar": "<quoted_string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "quoted_string"
+      }
+     ],
+     "types": [
+      "quoted_string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-file"
+    },
+    "type": {
+     "grammar": "hint",
+     "pattern": [
+      {
+       "kind": "literal",
+       "value": "hint"
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-type"
+    }
+   }
+  },
+  "zone.in-view": {
+   "statements": {
+    "in-view": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-in-view"
+    }
+   }
+  },
+  "zone.mirror": {
+   "statements": {
+    "allow-notify": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-notify"
+    },
+    "allow-query": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-query"
+    },
+    "allow-query-on": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-query-on"
+    },
+    "allow-transfer": {
+     "grammar": "[ port <integer> ] [ transport <string> ] { <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "transport"
+        },
+        {
+         "kind": "placeholder",
+         "type": "string"
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "string",
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-transfer"
+    },
+    "allow-update-forwarding": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-update-forwarding"
+    },
+    "also-notify": {
+     "grammar": "[ port <integer> ] [ source ( <ipv4_address> | * ) ] [ source-v6 ( <ipv6_address> | * ) ] { ( <server-list> | <ipv4_address> [ port <integer> ] | <ipv6_address> [ port <integer> ] ) [ key <string> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source-v6"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "server-list"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "key"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "ipv4_address",
+      "ipv6_address",
+      "server-list",
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-also-notify"
+    },
+    "check-names": {
+     "grammar": "( fail | warn | ignore )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "fail"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "warn"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "ignore"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-names"
+    },
+    "database": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-database"
+    },
+    "file": {
+     "grammar": "<quoted_string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "quoted_string"
+      }
+     ],
+     "types": [
+      "quoted_string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-file"
+    },
+    "ixfr-from-differences": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-ixfr-from-differences"
+    },
+    "journal": {
+     "grammar": "<quoted_string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "quoted_string"
+      }
+     ],
+     "types": [
+      "quoted_string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-journal"
+    },
+    "masterfile-format": {
+     "grammar": "( raw | text )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "raw"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "text"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-masterfile-format"
+    },
+    "masterfile-style": {
+     "grammar": "( full | relative )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "full"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "relative"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-masterfile-style"
+    },
+    "max-ixfr-ratio": {
+     "grammar": "( unlimited | <percentage> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "unlimited"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "percentage"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "percentage"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-ixfr-ratio"
+    },
+    "max-journal-size": {
+     "grammar": "( default | unlimited | <sizeval> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "default"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "unlimited"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "sizeval"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "sizeval"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-journal-size"
+    },
+    "max-records": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-records"
+    },
+    "max-records-per-type": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-records-per-type"
+    },
+    "max-refresh-time": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-refresh-time"
+    },
+    "max-retry-time": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-retry-time"
+    },
+    "max-transfer-idle-in": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-transfer-idle-in"
+    },
+    "max-transfer-idle-out": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-transfer-idle-out"
+    },
+    "max-transfer-time-in": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-transfer-time-in"
+    },
+    "max-transfer-time-out": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-transfer-time-out"
+    },
+    "max-types-per-name": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-types-per-name"
+    },
+    "min-refresh-time": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-min-refresh-time"
+    },
+    "min-retry-time": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-min-retry-time"
+    },
+    "min-transfer-rate-in": {
+     "grammar": "<integer> <integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      },
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-min-transfer-rate-in"
+    },
+    "multi-master": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-multi-master"
+    },
+    "notify": {
+     "grammar": "( explicit | master-only | primary-only | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "explicit"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "master-only"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "primary-only"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify"
+    },
+    "notify-defer": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-defer"
+    },
+    "notify-delay": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-delay"
+    },
+    "notify-source": {
+     "grammar": "( <ipv4_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv4_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv4_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-source"
+    },
+    "notify-source-v6": {
+     "grammar": "( <ipv6_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv6_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-source-v6"
+    },
+    "primaries": {
+     "grammar": "[ port <integer> ] [ source ( <ipv4_address> | * ) ] [ source-v6 ( <ipv6_address> | * ) ] { ( <server-list> | <ipv4_address> [ port <integer> ] | <ipv6_address> [ port <integer> ] ) [ key <string> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source-v6"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "server-list"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "key"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "ipv4_address",
+      "ipv6_address",
+      "server-list",
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-primaries"
+    },
+    "request-expire": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-request-expire"
+    },
+    "request-ixfr": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-request-ixfr"
+    },
+    "transfer-source": {
+     "grammar": "( <ipv4_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv4_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv4_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-transfer-source"
+    },
+    "transfer-source-v6": {
+     "grammar": "( <ipv6_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv6_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-transfer-source-v6"
+    },
+    "try-tcp-refresh": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-try-tcp-refresh"
+    },
+    "type": {
+     "grammar": "mirror",
+     "pattern": [
+      {
+       "kind": "literal",
+       "value": "mirror"
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-type"
+    },
+    "zero-no-soa-ttl": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-zero-no-soa-ttl"
+    },
+    "zone-statistics": {
+     "grammar": "( full | terse | none | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "full"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "terse"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "none"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-zone-statistics"
+    }
+   }
+  },
+  "zone.primary": {
+   "statements": {
+    "allow-query": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-query"
+    },
+    "allow-query-on": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-query-on"
+    },
+    "allow-transfer": {
+     "grammar": "[ port <integer> ] [ transport <string> ] { <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "transport"
+        },
+        {
+         "kind": "placeholder",
+         "type": "string"
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "string",
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-transfer"
+    },
+    "allow-update": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-update"
+    },
+    "also-notify": {
+     "grammar": "[ port <integer> ] [ source ( <ipv4_address> | * ) ] [ source-v6 ( <ipv6_address> | * ) ] { ( <server-list> | <ipv4_address> [ port <integer> ] | <ipv6_address> [ port <integer> ] ) [ key <string> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source-v6"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "server-list"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "key"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "ipv4_address",
+      "ipv6_address",
+      "server-list",
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-also-notify"
+    },
+    "check-dup-records": {
+     "grammar": "( fail | warn | ignore )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "fail"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "warn"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "ignore"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-dup-records"
+    },
+    "check-integrity": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-integrity"
+    },
+    "check-mx": {
+     "grammar": "( fail | warn | ignore )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "fail"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "warn"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "ignore"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-mx"
+    },
+    "check-mx-cname": {
+     "grammar": "( fail | warn | ignore )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "fail"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "warn"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "ignore"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-mx-cname"
+    },
+    "check-names": {
+     "grammar": "( fail | warn | ignore )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "fail"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "warn"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "ignore"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-names"
+    },
+    "check-sibling": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-sibling"
+    },
+    "check-spf": {
+     "grammar": "( warn | ignore )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "warn"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "ignore"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-spf"
+    },
+    "check-srv-cname": {
+     "grammar": "( fail | warn | ignore )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "fail"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "warn"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "ignore"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-srv-cname"
+    },
+    "check-svcb": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-svcb"
+    },
+    "check-wildcard": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-wildcard"
+    },
+    "checkds": {
+     "grammar": "( explicit | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "explicit"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-checkds"
+    },
+    "database": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-database"
+    },
+    "dialup": {
+     "grammar": "( notify | notify-passive | passive | refresh | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "notify"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "notify-passive"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "passive"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "refresh"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "deprecated",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dialup"
+    },
+    "dlz": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dlz"
+    },
+    "dnskey-sig-validity": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "obsolete",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dnskey-sig-validity"
+    },
+    "dnssec-dnskey-kskonly": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "obsolete",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dnssec-dnskey-kskonly"
+    },
+    "dnssec-loadkeys-interval": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dnssec-loadkeys-interval"
+    },
+    "dnssec-policy": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dnssec-policy"
+    },
+    "dnssec-secure-to-insecure": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "obsolete",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dnssec-secure-to-insecure"
+    },
+    "dnssec-update-mode": {
+     "grammar": "( maintain | no-resign )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "maintain"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "no-resign"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "obsolete",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dnssec-update-mode"
+    },
+    "file": {
+     "grammar": "<quoted_string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "quoted_string"
+      }
+     ],
+     "types": [
+      "quoted_string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-file"
+    },
+    "forward": {
+     "grammar": "( first | only )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "first"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "only"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-forward"
+    },
+    "forwarders": {
+     "grammar": "[ port <integer> ] [ tls <string> ] { ( <ipv4_address> | <ipv6_address> ) [ port <integer> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "tls"
+        },
+        {
+         "kind": "placeholder",
+         "type": "string"
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "port"
+          },
+          {
+           "kind": "placeholder",
+           "type": "integer"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "string",
+      "ipv4_address",
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-forwarders"
+    },
+    "inline-signing": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-inline-signing"
+    },
+    "ixfr-from-differences": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-ixfr-from-differences"
+    },
+    "journal": {
+     "grammar": "<quoted_string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "quoted_string"
+      }
+     ],
+     "types": [
+      "quoted_string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-journal"
+    },
+    "key-directory": {
+     "grammar": "<quoted_string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "quoted_string"
+      }
+     ],
+     "types": [
+      "quoted_string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-key-directory"
+    },
+    "masterfile-format": {
+     "grammar": "( raw | text )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "raw"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "text"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-masterfile-format"
+    },
+    "masterfile-style": {
+     "grammar": "( full | relative )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "full"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "relative"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-masterfile-style"
+    },
+    "max-ixfr-ratio": {
+     "grammar": "( unlimited | <percentage> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "unlimited"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "percentage"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "percentage"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-ixfr-ratio"
+    },
+    "max-journal-size": {
+     "grammar": "( default | unlimited | <sizeval> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "default"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "unlimited"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "sizeval"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "sizeval"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-journal-size"
+    },
+    "max-records": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-records"
+    },
+    "max-records-per-type": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-records-per-type"
+    },
+    "max-transfer-idle-out": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-transfer-idle-out"
+    },
+    "max-transfer-time-out": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-transfer-time-out"
+    },
+    "max-types-per-name": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-types-per-name"
+    },
+    "max-zone-ttl": {
+     "grammar": "( unlimited | <duration> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "unlimited"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "duration"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "duration"
+     ],
+     "repeatable": false,
+     "status": "deprecated",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-zone-ttl"
+    },
+    "notify": {
+     "grammar": "( explicit | master-only | primary-only | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "explicit"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "master-only"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "primary-only"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify"
+    },
+    "notify-defer": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-defer"
+    },
+    "notify-delay": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-delay"
+    },
+    "notify-source": {
+     "grammar": "( <ipv4_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv4_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv4_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-source"
+    },
+    "notify-source-v6": {
+     "grammar": "( <ipv6_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv6_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-source-v6"
+    },
+    "notify-to-soa": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-to-soa"
+    },
+    "nsec3-test-zone": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "test-only",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-nsec3-test-zone"
+    },
+    "parental-agents": {
+     "grammar": "[ port <integer> ] [ source ( <ipv4_address> | * ) ] [ source-v6 ( <ipv6_address> | * ) ] { ( <server-list> | <ipv4_address> [ port <integer> ] | <ipv6_address> [ port <integer> ] ) [ key <string> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source-v6"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "server-list"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "key"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "ipv4_address",
+      "ipv6_address",
+      "server-list",
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-parental-agents"
+    },
+    "parental-source": {
+     "grammar": "( <ipv4_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv4_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv4_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-parental-source"
+    },
+    "parental-source-v6": {
+     "grammar": "( <ipv6_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv6_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-parental-source-v6"
+    },
+    "serial-update-method": {
+     "grammar": "( date | increment | unixtime )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "date"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "increment"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "unixtime"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-serial-update-method"
+    },
+    "sig-signing-nodes": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-sig-signing-nodes"
+    },
+    "sig-signing-signatures": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-sig-signing-signatures"
+    },
+    "sig-signing-type": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-sig-signing-type"
+    },
+    "sig-validity-interval": {
+     "grammar": "<integer> [ <integer> ]",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "obsolete",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-sig-validity-interval"
+    },
+    "type": {
+     "grammar": "primary",
+     "pattern": [
+      {
+       "kind": "literal",
+       "value": "primary"
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-type"
+    },
+    "update-check-ksk": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "obsolete",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-update-check-ksk"
+    },
+    "update-policy": {
+     "grammar": "( local | { ( deny | grant ) <string> ( 6to4-self | external | krb5-self | krb5-selfsub | krb5-subdomain | krb5-subdomain-self-rhs | ms-self | ms-selfsub | ms-subdomain | ms-subdomain-self-rhs | name | self | selfsub | selfwild | subdomain | tcp-self | wildcard | zonesub ) [ <string> ] <rrtypelist>; ... } )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "local"
+         }
+        ],
+        [
+         {
+          "kind": "list",
+          "items": [
+           {
+            "kind": "choice",
+            "alternatives": [
+             [
+              {
+               "kind": "literal",
+               "value": "deny"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "grant"
+              }
+             ]
+            ]
+           },
+           {
+            "kind": "placeholder",
+            "type": "string"
+           },
+           {
+            "kind": "choice",
+            "alternatives": [
+             [
+              {
+               "kind": "literal",
+               "value": "6to4-self"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "external"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "krb5-self"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "krb5-selfsub"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "krb5-subdomain"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "krb5-subdomain-self-rhs"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "ms-self"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "ms-selfsub"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "ms-subdomain"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "ms-subdomain-self-rhs"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "name"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "self"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "selfsub"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "selfwild"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "subdomain"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "tcp-self"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "wildcard"
+              }
+             ],
+             [
+              {
+               "kind": "literal",
+               "value": "zonesub"
+              }
+             ]
+            ]
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "placeholder",
+              "type": "string"
+             }
+            ]
+           },
+           {
+            "kind": "placeholder",
+            "type": "rrtypelist"
+           }
+          ]
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "string",
+      "rrtypelist"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-update-policy"
+    },
+    "zero-no-soa-ttl": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-zero-no-soa-ttl"
+    },
+    "zone-statistics": {
+     "grammar": "( full | terse | none | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "full"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "terse"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "none"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-zone-statistics"
+    }
+   }
+  },
+  "zone.redirect": {
+   "statements": {
+    "allow-query": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-query"
+    },
+    "allow-query-on": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-query-on"
+    },
+    "dlz": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dlz"
+    },
+    "file": {
+     "grammar": "<quoted_string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "quoted_string"
+      }
+     ],
+     "types": [
+      "quoted_string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-file"
+    },
+    "masterfile-format": {
+     "grammar": "( raw | text )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "raw"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "text"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-masterfile-format"
+    },
+    "masterfile-style": {
+     "grammar": "( full | relative )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "full"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "relative"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-masterfile-style"
+    },
+    "max-records": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-records"
+    },
+    "max-records-per-type": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-records-per-type"
+    },
+    "max-types-per-name": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-types-per-name"
+    },
+    "max-zone-ttl": {
+     "grammar": "( unlimited | <duration> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "unlimited"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "duration"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "duration"
+     ],
+     "repeatable": false,
+     "status": "deprecated",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-zone-ttl"
+    },
+    "primaries": {
+     "grammar": "[ port <integer> ] [ source ( <ipv4_address> | * ) ] [ source-v6 ( <ipv6_address> | * ) ] { ( <server-list> | <ipv4_address> [ port <integer> ] | <ipv6_address> [ port <integer> ] ) [ key <string> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source-v6"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "server-list"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "key"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "ipv4_address",
+      "ipv6_address",
+      "server-list",
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-primaries"
+    },
+    "type": {
+     "grammar": "redirect",
+     "pattern": [
+      {
+       "kind": "literal",
+       "value": "redirect"
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-type"
+    },
+    "zone-statistics": {
+     "grammar": "( full | terse | none | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "full"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "terse"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "none"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-zone-statistics"
+    }
+   }
+  },
+  "zone.secondary": {
+   "statements": {
+    "allow-notify": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-notify"
+    },
+    "allow-query": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-query"
+    },
+    "allow-query-on": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-query-on"
+    },
+    "allow-transfer": {
+     "grammar": "[ port <integer> ] [ transport <string> ] { <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "transport"
+        },
+        {
+         "kind": "placeholder",
+         "type": "string"
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "string",
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-transfer"
+    },
+    "allow-update-forwarding": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-update-forwarding"
+    },
+    "also-notify": {
+     "grammar": "[ port <integer> ] [ source ( <ipv4_address> | * ) ] [ source-v6 ( <ipv6_address> | * ) ] { ( <server-list> | <ipv4_address> [ port <integer> ] | <ipv6_address> [ port <integer> ] ) [ key <string> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source-v6"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "server-list"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "key"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "ipv4_address",
+      "ipv6_address",
+      "server-list",
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-also-notify"
+    },
+    "check-names": {
+     "grammar": "( fail | warn | ignore )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "fail"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "warn"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "ignore"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-names"
+    },
+    "checkds": {
+     "grammar": "( explicit | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "explicit"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-checkds"
+    },
+    "database": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-database"
+    },
+    "dialup": {
+     "grammar": "( notify | notify-passive | passive | refresh | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "notify"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "notify-passive"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "passive"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "refresh"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "deprecated",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dialup"
+    },
+    "dlz": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dlz"
+    },
+    "dnskey-sig-validity": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "obsolete",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dnskey-sig-validity"
+    },
+    "dnssec-dnskey-kskonly": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "obsolete",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dnssec-dnskey-kskonly"
+    },
+    "dnssec-loadkeys-interval": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dnssec-loadkeys-interval"
+    },
+    "dnssec-policy": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dnssec-policy"
+    },
+    "dnssec-update-mode": {
+     "grammar": "( maintain | no-resign )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "maintain"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "no-resign"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "obsolete",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dnssec-update-mode"
+    },
+    "file": {
+     "grammar": "<quoted_string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "quoted_string"
+      }
+     ],
+     "types": [
+      "quoted_string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-file"
+    },
+    "forward": {
+     "grammar": "( first | only )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "first"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "only"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-forward"
+    },
+    "forwarders": {
+     "grammar": "[ port <integer> ] [ tls <string> ] { ( <ipv4_address> | <ipv6_address> ) [ port <integer> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "tls"
+        },
+        {
+         "kind": "placeholder",
+         "type": "string"
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "port"
+          },
+          {
+           "kind": "placeholder",
+           "type": "integer"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "string",
+      "ipv4_address",
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-forwarders"
+    },
+    "inline-signing": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-inline-signing"
+    },
+    "ixfr-from-differences": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-ixfr-from-differences"
+    },
+    "journal": {
+     "grammar": "<quoted_string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "quoted_string"
+      }
+     ],
+     "types": [
+      "quoted_string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-journal"
+    },
+    "key-directory": {
+     "grammar": "<quoted_string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "quoted_string"
+      }
+     ],
+     "types": [
+      "quoted_string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-key-directory"
+    },
+    "masterfile-format": {
+     "grammar": "( raw | text )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "raw"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "text"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-masterfile-format"
+    },
+    "masterfile-style": {
+     "grammar": "( full | relative )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "full"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "relative"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-masterfile-style"
+    },
+    "max-ixfr-ratio": {
+     "grammar": "( unlimited | <percentage> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "unlimited"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "percentage"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "percentage"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-ixfr-ratio"
+    },
+    "max-journal-size": {
+     "grammar": "( default | unlimited | <sizeval> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "default"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "unlimited"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "sizeval"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "sizeval"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-journal-size"
+    },
+    "max-records": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-records"
+    },
+    "max-records-per-type": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-records-per-type"
+    },
+    "max-refresh-time": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-refresh-time"
+    },
+    "max-retry-time": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-retry-time"
+    },
+    "max-transfer-idle-in": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-transfer-idle-in"
+    },
+    "max-transfer-idle-out": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-transfer-idle-out"
+    },
+    "max-transfer-time-in": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-transfer-time-in"
+    },
+    "max-transfer-time-out": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-transfer-time-out"
+    },
+    "max-types-per-name": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-types-per-name"
+    },
+    "min-refresh-time": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-min-refresh-time"
+    },
+    "min-retry-time": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-min-retry-time"
+    },
+    "min-transfer-rate-in": {
+     "grammar": "<integer> <integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      },
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-min-transfer-rate-in"
+    },
+    "multi-master": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-multi-master"
+    },
+    "notify": {
+     "grammar": "( explicit | master-only | primary-only | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "explicit"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "master-only"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "primary-only"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify"
+    },
+    "notify-defer": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-defer"
+    },
+    "notify-delay": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-delay"
+    },
+    "notify-source": {
+     "grammar": "( <ipv4_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv4_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv4_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-source"
+    },
+    "notify-source-v6": {
+     "grammar": "( <ipv6_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv6_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-source-v6"
+    },
+    "notify-to-soa": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-notify-to-soa"
+    },
+    "nsec3-test-zone": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "test-only",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-nsec3-test-zone"
+    },
+    "parental-agents": {
+     "grammar": "[ port <integer> ] [ source ( <ipv4_address> | * ) ] [ source-v6 ( <ipv6_address> | * ) ] { ( <server-list> | <ipv4_address> [ port <integer> ] | <ipv6_address> [ port <integer> ] ) [ key <string> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source-v6"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "server-list"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "key"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "ipv4_address",
+      "ipv6_address",
+      "server-list",
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-parental-agents"
+    },
+    "parental-source": {
+     "grammar": "( <ipv4_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv4_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv4_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-parental-source"
+    },
+    "parental-source-v6": {
+     "grammar": "( <ipv6_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv6_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-parental-source-v6"
+    },
+    "primaries": {
+     "grammar": "[ port <integer> ] [ source ( <ipv4_address> | * ) ] [ source-v6 ( <ipv6_address> | * ) ] { ( <server-list> | <ipv4_address> [ port <integer> ] | <ipv6_address> [ port <integer> ] ) [ key <string> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source-v6"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "server-list"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "key"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "ipv4_address",
+      "ipv6_address",
+      "server-list",
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-primaries"
+    },
+    "request-expire": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-request-expire"
+    },
+    "request-ixfr": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-request-ixfr"
+    },
+    "sig-signing-nodes": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-sig-signing-nodes"
+    },
+    "sig-signing-signatures": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-sig-signing-signatures"
+    },
+    "sig-signing-type": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-sig-signing-type"
+    },
+    "sig-validity-interval": {
+     "grammar": "<integer> [ <integer> ]",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "obsolete",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-sig-validity-interval"
+    },
+    "transfer-source": {
+     "grammar": "( <ipv4_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv4_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv4_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-transfer-source"
+    },
+    "transfer-source-v6": {
+     "grammar": "( <ipv6_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv6_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-transfer-source-v6"
+    },
+    "try-tcp-refresh": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-try-tcp-refresh"
+    },
+    "type": {
+     "grammar": "secondary",
+     "pattern": [
+      {
+       "kind": "literal",
+       "value": "secondary"
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-type"
+    },
+    "update-check-ksk": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "obsolete",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-update-check-ksk"
+    },
+    "zero-no-soa-ttl": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-zero-no-soa-ttl"
+    },
+    "zone-statistics": {
+     "grammar": "( full | terse | none | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "full"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "terse"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "none"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-zone-statistics"
+    }
+   }
+  },
+  "zone.static-stub": {
+   "statements": {
+    "allow-query": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-query"
+    },
+    "allow-query-on": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-query-on"
+    },
+    "forward": {
+     "grammar": "( first | only )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "first"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "only"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-forward"
+    },
+    "forwarders": {
+     "grammar": "[ port <integer> ] [ tls <string> ] { ( <ipv4_address> | <ipv6_address> ) [ port <integer> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "tls"
+        },
+        {
+         "kind": "placeholder",
+         "type": "string"
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "port"
+          },
+          {
+           "kind": "placeholder",
+           "type": "integer"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "string",
+      "ipv4_address",
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-forwarders"
+    },
+    "max-records": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-records"
+    },
+    "max-records-per-type": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-records-per-type"
+    },
+    "max-types-per-name": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-types-per-name"
+    },
+    "server-addresses": {
+     "grammar": "{ ( <ipv4_address> | <ipv6_address> ); ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "ipv4_address",
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-server-addresses"
+    },
+    "server-names": {
+     "grammar": "{ <string>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "string"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-server-names"
+    },
+    "type": {
+     "grammar": "static-stub",
+     "pattern": [
+      {
+       "kind": "literal",
+       "value": "static-stub"
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-type"
+    },
+    "zone-statistics": {
+     "grammar": "( full | terse | none | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "full"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "terse"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "none"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-zone-statistics"
+    }
+   }
+  },
+  "zone.stub": {
+   "statements": {
+    "allow-query": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-query"
+    },
+    "allow-query-on": {
+     "grammar": "{ <address_match_element>; ... }",
+     "pattern": [
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "placeholder",
+         "type": "address_match_element"
+        }
+       ]
+      }
+     ],
+     "types": [
+      "address_match_element"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-allow-query-on"
+    },
+    "check-names": {
+     "grammar": "( fail | warn | ignore )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "fail"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "warn"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "ignore"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-check-names"
+    },
+    "database": {
+     "grammar": "<string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "string"
+      }
+     ],
+     "types": [
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-database"
+    },
+    "dialup": {
+     "grammar": "( notify | notify-passive | passive | refresh | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "notify"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "notify-passive"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "passive"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "refresh"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "deprecated",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-dialup"
+    },
+    "file": {
+     "grammar": "<quoted_string>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "quoted_string"
+      }
+     ],
+     "types": [
+      "quoted_string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-file"
+    },
+    "forward": {
+     "grammar": "( first | only )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "first"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "only"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-forward"
+    },
+    "forwarders": {
+     "grammar": "[ port <integer> ] [ tls <string> ] { ( <ipv4_address> | <ipv6_address> ) [ port <integer> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "tls"
+        },
+        {
+         "kind": "placeholder",
+         "type": "string"
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "port"
+          },
+          {
+           "kind": "placeholder",
+           "type": "integer"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "string",
+      "ipv4_address",
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-forwarders"
+    },
+    "masterfile-format": {
+     "grammar": "( raw | text )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "raw"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "text"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-masterfile-format"
+    },
+    "masterfile-style": {
+     "grammar": "( full | relative )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "full"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "relative"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-masterfile-style"
+    },
+    "max-records": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-records"
+    },
+    "max-records-per-type": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-records-per-type"
+    },
+    "max-refresh-time": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-refresh-time"
+    },
+    "max-retry-time": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-retry-time"
+    },
+    "max-transfer-idle-in": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-transfer-idle-in"
+    },
+    "max-transfer-time-in": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-transfer-time-in"
+    },
+    "max-types-per-name": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-max-types-per-name"
+    },
+    "min-refresh-time": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-min-refresh-time"
+    },
+    "min-retry-time": {
+     "grammar": "<integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-min-retry-time"
+    },
+    "min-transfer-rate-in": {
+     "grammar": "<integer> <integer>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      },
+      {
+       "kind": "placeholder",
+       "type": "integer"
+      }
+     ],
+     "types": [
+      "integer"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-min-transfer-rate-in"
+    },
+    "multi-master": {
+     "grammar": "<boolean>",
+     "pattern": [
+      {
+       "kind": "placeholder",
+       "type": "boolean"
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-multi-master"
+    },
+    "primaries": {
+     "grammar": "[ port <integer> ] [ source ( <ipv4_address> | * ) ] [ source-v6 ( <ipv6_address> | * ) ] { ( <server-list> | <ipv4_address> [ port <integer> ] | <ipv6_address> [ port <integer> ] ) [ key <string> ] [ tls <string> ]; ... }",
+     "pattern": [
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "port"
+        },
+        {
+         "kind": "placeholder",
+         "type": "integer"
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "optional",
+       "items": [
+        {
+         "kind": "literal",
+         "value": "source-v6"
+        },
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           }
+          ],
+          [
+           {
+            "kind": "literal",
+            "value": "*"
+           }
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "kind": "list",
+       "items": [
+        {
+         "kind": "choice",
+         "alternatives": [
+          [
+           {
+            "kind": "placeholder",
+            "type": "server-list"
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv4_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ],
+          [
+           {
+            "kind": "placeholder",
+            "type": "ipv6_address"
+           },
+           {
+            "kind": "optional",
+            "items": [
+             {
+              "kind": "literal",
+              "value": "port"
+             },
+             {
+              "kind": "placeholder",
+              "type": "integer"
+             }
+            ]
+           }
+          ]
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "key"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        },
+        {
+         "kind": "optional",
+         "items": [
+          {
+           "kind": "literal",
+           "value": "tls"
+          },
+          {
+           "kind": "placeholder",
+           "type": "string"
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "types": [
+      "integer",
+      "ipv4_address",
+      "ipv6_address",
+      "server-list",
+      "string"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-primaries"
+    },
+    "transfer-source": {
+     "grammar": "( <ipv4_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv4_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv4_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-transfer-source"
+    },
+    "transfer-source-v6": {
+     "grammar": "( <ipv6_address> | * )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "placeholder",
+          "type": "ipv6_address"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "*"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "ipv6_address"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-transfer-source-v6"
+    },
+    "type": {
+     "grammar": "stub",
+     "pattern": [
+      {
+       "kind": "literal",
+       "value": "stub"
+      }
+     ],
+     "types": [],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-type"
+    },
+    "zone-statistics": {
+     "grammar": "( full | terse | none | <boolean> )",
+     "pattern": [
+      {
+       "kind": "choice",
+       "alternatives": [
+        [
+         {
+          "kind": "literal",
+          "value": "full"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "terse"
+         }
+        ],
+        [
+         {
+          "kind": "literal",
+          "value": "none"
+         }
+        ],
+        [
+         {
+          "kind": "placeholder",
+          "type": "boolean"
+         }
+        ]
+       ]
+      }
+     ],
+     "types": [
+      "boolean"
+     ],
+     "repeatable": false,
+     "status": "current",
+     "block": null,
+     "doc_url": "https://bind9.readthedocs.io/en/v9.20.30/reference.html#namedconf-statement-zone-statistics"
+    }
+   }
+  }
+ }
+}

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.connectors.bind.namedconf.lexer import ParseError
-from pelagos.connectors.bind.namedconf.tree import ConfigDocument, Node, compact_text, parse_nodes, unquote
+from pelagos.connectors.bind.namedconf.tree import ConfigDocument, Node, parse_nodes, unquote
 from pelagos.domain.dns import BindConfigTree, ConfigEntry, Zone, ZoneKind, ZoneSource, normalize_name
 
 MANAGED_HEADER = "# pelagos:managed v1"
@@ -58,12 +58,18 @@ class ConfigFiles:
     order: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    directory: Path | None = None  # options `directory` once seen; named resolves relative includes there
+    targets: dict[int, list[Path]] = field(default_factory=dict)  # id(include node) -> files
 
     @classmethod
     def load(cls, user_conf: Path, reader: Callable[[Path], str] | None = None) -> ConfigFiles:
-        files = cls(user_conf=user_conf)
-        files._load(user_conf, reader or _read_text)
+        files = cls(user_conf=Path(user_conf))
+        files._load(Path(user_conf), reader or _read_text)
         return files
+
+    def base_dir(self) -> Path:
+        """Where a relative include points: `directory` when set, else the folder of named.conf."""
+        return self.directory if self.directory is not None else self.user_conf.parent
 
     def _load(self, path: Path, reader: Callable[[Path], str]) -> None:
         key = str(path)
@@ -79,15 +85,28 @@ class ConfigFiles:
             return
         self.docs[key] = doc
         self.order.append(key)
-        for node in _walk_includes(doc.root):
-            for target in resolve_include(node, path):
+        # Statements are processed in file order, as named does: a `directory` changes the base of
+        # the relative includes that follow it.
+        for node, is_include in _walk_ordered(doc.root, ()):
+            if not is_include:
+                value = node.args[0] if node.args else ""
+                if value:
+                    self.directory = Path(value) if os.path.isabs(value) else self.base_dir() / value
+                continue
+            found = resolve_include(node, self.base_dir())
+            self.targets[id(node)] = found
+            for target in found:
                 self._load(target, reader)
+
+    def include_targets(self, node: Node) -> list[Path]:
+        found = self.targets.get(id(node))
+        return found if found is not None else resolve_include(node, self.base_dir())
 
     def expanded(self, children: list[Node], path: str) -> Iterator[tuple[Node, str]]:
         """Children with include statements replaced by the statements of the included files."""
         for node in children:
             if node.kind == "include":
-                for target in resolve_include(node, Path(path)):
+                for target in self.include_targets(node):
                     sub = self.docs.get(str(target))
                     if sub is not None:
                         yield from self.expanded(sub.root, str(target))
@@ -136,12 +155,24 @@ def raw_includes(files: ConfigFiles) -> Iterator[tuple[Node, str, tuple[Node, ..
         yield from walk(files.docs[path].root, path, ())
 
 
-def resolve_include(node: Node, from_path: Path) -> list[Path]:
-    """Paths named by an include statement; relative to the including file, globs expanded (BIND 9.18+)."""
+def _walk_ordered(children: list[Node], parents: tuple[str, ...]) -> Iterator[tuple[Node, bool]]:
+    """Include statements and `options { directory }` statements in file order."""
+    for node in children:
+        if node.kind == "include":
+            yield node, True
+        elif node.is_statement:
+            if node.name == "directory" and parents == ("options",):
+                yield node, False
+            if node.block is not None:
+                yield from _walk_ordered(node.block.children, (*parents, node.name))
+
+
+def resolve_include(node: Node, base_dir: Path) -> list[Path]:
+    """Paths named by an include statement, relative ones under base_dir; globs expanded (BIND 9.18+)."""
     if not node.args:
         return []
     target = node.args[0]
-    base = Path(target) if os.path.isabs(target) else from_path.parent / target
+    base = Path(target) if os.path.isabs(target) else base_dir / target
     if any(ch in target for ch in "*?["):
         return [Path(p) for p in sorted(glob.glob(str(base)))]
     return [base]
@@ -261,10 +292,9 @@ def build_tree(files: ConfigFiles, node_id: str, include_dir: Path | None = None
     view_includes: dict[str, bool] = {}
 
     # Include lines are looked up in the raw files: expansion hides them.
-    for node, path, parents in raw_includes(files):
-        target = node.args[0] if node.args else ""
-        if not os.path.isabs(target):
-            target = str(Path(path).parent / target)
+    for node, _path, parents in raw_includes(files):
+        found = files.include_targets(node)
+        target = str(found[0]) if len(found) == 1 else (node.args[0] if node.args else "")
         depth = len(parents)
         if depth == 0 and pelagos_conf and same_path(target, pelagos_conf):
             include_line = True
@@ -289,7 +319,7 @@ def build_tree(files: ConfigFiles, node_id: str, include_dir: Path | None = None
                 tree.acls.append(
                     ConfigEntry(
                         name=node.args[0] if node.args else "",
-                        value=compact_text(node.block) if node.block else "",
+                        value="{ " + " ".join(f"{e};" for e in node.elements()) + " }",
                         path=path,
                         line=node.line,
                         managed=managed(path),
@@ -431,7 +461,7 @@ def materialize(files: ConfigFiles, dest: Path, overrides: dict[Path, str]) -> P
             doc = files.docs[original]
             doc = parse(doc.serialize(), original)  # a fresh copy; include rewriting mutates nodes
         for inc in list(_walk_includes(doc.root)):
-            targets = resolve_include(inc, Path(original))
+            targets = resolve_include(inc, files.base_dir())
             rewritten = [str(mapping.get(str(t), t)) for t in targets]
             if len(rewritten) == 1:
                 _set_include_target(inc, rewritten[0])
@@ -453,7 +483,7 @@ def statement_dict(node: Node) -> dict[str, Any]:
     """JSON view of a statement for the advanced editor; key secrets are masked."""
     out: dict[str, Any] = {
         "name": node.name,
-        "args": node.args,
+        "args": ["****"] * len(node.args) if node.name == "secret" else node.args,
         "line": node.line,
         "include": node.kind == "include",
     }

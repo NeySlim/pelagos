@@ -356,13 +356,11 @@ def _views(files: ConfigFiles) -> dict[str, str]:
 def _has_include(
     files: ConfigFiles, target: Path, depth: int, parent: str | None = None, parent_arg: str | None = None
 ) -> bool:
-    for node, path, parents in raw_includes(files):
+    for node, _path, parents in raw_includes(files):
         if len(parents) != depth or not node.args:
             continue
         if parent and (parents[-1].name != parent or (parent_arg and parents[-1].args[:1] != [parent_arg])):
             continue
-        written = node.args[0]
-        resolved = written if written.startswith("/") else str(Path(path).parent / written)
-        if same_path(resolved, target):
+        if any(same_path(found, target) for found in files.include_targets(node)):
             return True
     return False

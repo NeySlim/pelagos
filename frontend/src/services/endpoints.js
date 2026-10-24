@@ -111,6 +111,13 @@ export const ENDPOINTS = [
   'GET /advanced/kea/{family}/schema',
   'GET /advanced/history',
   'GET /advanced/history/{id}',
+  // Runtime operations (allow-listed rndc and Kea commands)
+  'GET /dns/ops',
+  'POST /dns/ops',
+  'GET /dhcp/{family}/ops',
+  'POST /dhcp/{family}/ops',
+  'GET /dhcp/d2/ops',
+  'POST /dhcp/d2/ops',
   // Install, import, security
   'GET /install/detect',
   'POST /install/plan',

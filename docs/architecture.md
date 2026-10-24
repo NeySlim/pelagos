@@ -1270,7 +1270,9 @@ Kinds: `bind`: `summary` (capabilities, rndc status, zones, serials by
 `stats`, `config`; `kea4`/`kea6`: `summary` (capabilities, status, HA,
 config hash, utilization), `subnets`, `leases` (`subnet_id`, `limit`,
 `from_address`), `lease` (`ip`), `reservations` (`subnet_id`), `stats`,
-`config`; `d2`: `summary`, `stats`, `config`. A failed read is reported in
+`config`; `d2`: `summary`, `stats`, `config`; every engine: `op` (`op` or
+`command`, and `params` as one JSON text: a read-only runtime operation of
+`services.ops_service`, answer `{"output"}`). A failed read is reported in
 the answer's `"error"` member, never as an HTTP error. On the client side,
 `ReplicationClient.engine_snapshot(engine, kind="summary", params=None)`.
 The same registry serves `/repl/v1/plans/apply|rollback`: the plan's
@@ -1763,6 +1765,25 @@ picks raw or hourly data accordingly.
 | `GET /advanced/history/{id}` | `read:advanced` | `{"manifest", "files": {path: content}}` |
 
 Writes go through `/dns/config/plan` and `/dhcp/{family}/config/plan`.
+
+### Runtime operations
+
+Allow-listed rndc and Kea control commands (`services.ops_service`). Each
+operation names its permission (reads: `read:dns` / `read:dhcp`; changes:
+`ops:dns`, `ops:dhcp.leases` for lease commands, `ops:dhcp.ha` for `ha-*`,
+`write:dhcp.config` otherwise) and its typed parameters; the server builds
+the rndc words or the Kea arguments itself. Changes run on this node under
+the engine lock (section 6) and are audited as `dns.ops` / `dhcp.ops`; reads
+may name a peer (engine snapshot kind `op`), a change on a peer answers
+`501 not_supported`. Operations marked `confirm` answer `428
+confirmation_required` without `"confirm": true`.
+
+| Method, path | Permission | Request | Response |
+| --- | --- | --- | --- |
+| `GET /dns/ops` | `read:dns` | | `{"node_id","operations": [{"name","permission","write","params","required","confirm","choices"}]}` |
+| `POST /dns/ops` | the operation's | `{"op","params"?,"node_id"?,"confirm"?}` | `{"op","node_id","output"}` |
+| `GET /dhcp/{family}/ops?node_id=` | `read:dhcp` | | as above plus `"available"` per operation (the daemon's `list-commands`), `"family"`, `"error"`; `{family}` is `v4`, `v6` or `d2` |
+| `POST /dhcp/{family}/ops` | the operation's | `{"command","params"?,"node_id"?,"confirm"?}` | `{"command","family","node_id","result"}` (the answer's `arguments`) |
 
 ### Install, import, security audit
 

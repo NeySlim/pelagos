@@ -45,6 +45,7 @@ def register_api(app: Flask) -> Api:
         install,
         meta,
         nodes,
+        ops,
         plans,
         series,
     )
@@ -113,6 +114,7 @@ def register_api(app: Flask) -> Api:
         advanced,
         install,
         admin,
+        ops,
     ):
         api.add_namespace(module.ns)
     from pelagos.api.models import all_models

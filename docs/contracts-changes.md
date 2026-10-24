@@ -100,6 +100,22 @@ Packaging and CI only; no API or domain change. Everyone should know:
   (`.github/workflows/ci.yml`) calls these targets, and the daemon job fails
   when any daemon test is skipped.
 
+## 2026-10-24, F-FIX: runtime operations endpoints, snapshot kind `op`
+`docs/architecture.md` section 13 (snapshot kind `op`) and section 17
+(Runtime operations): `GET|POST /dns/ops`, `GET|POST /dhcp/{family}/ops`
+(`v4`, `v6`, `d2`), from the allow-list in `services/ops_service.py`. No
+connector change: the service uses `BindBackend.rndc.run` and the Kea
+connectors' `socket.call` behind its own allow-list. Peers answer read
+operations through the engine snapshot; changes on a peer are refused until
+a write channel for them exists. Frontend: Advanced, Operations.
+
+## 2026-10-24, F-FIX: known gap, server texts in English
+Plan summaries (`Plan.summary`), alert titles (collector, consistency checks)
+and security finding texts are composed in English by the backend and shown
+as they are in every UI language. A later contract adds `summary_key` /
+`title_key` with parameters next to the English text so the UI can translate
+them; until then only UI strings are translated.
+
 ## 2026-10-24, F-FIX: per-engine write lock across processes
 `docs/architecture.md` section 6. Connector `apply`/`rollback` calls hold
 `<locks_dir>/engine-<engine>.lock` in both the web process and the collector

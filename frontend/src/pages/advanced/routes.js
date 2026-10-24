@@ -2,11 +2,12 @@
 // Advanced configuration area: grammar-driven named.conf editor, Kea JSON editor,
 // history of write pipeline backups. Gated by the `advanced_editor` module.
 import { lazy } from 'react'
-import { Code, BracketsCurly, ClockCounterClockwise } from '@phosphor-icons/react'
+import { Code, BracketsCurly, ClockCounterClockwise, Terminal } from '@phosphor-icons/react'
 
 const BindEditorPage = lazy(() => import('./BindEditorPage'))
 const KeaEditorPage = lazy(() => import('./KeaEditorPage'))
 const HistoryPage = lazy(() => import('./HistoryPage'))
+const OpsPage = lazy(() => import('./OpsPage'))
 
 const read = 'read:advanced'
 const module = 'advanced_editor'
@@ -17,10 +18,13 @@ export default {
     { path: '/advanced/bind', component: BindEditorPage, permission: read, module },
     { path: '/advanced/kea', component: KeaEditorPage, permission: read, module },
     { path: '/advanced/history', component: HistoryPage, permission: read, module },
+    // Runtime operations carry their own permissions (read:dns, read:dhcp, ops:*): no module gate.
+    { path: '/advanced/ops', component: OpsPage },
   ],
   nav: [
     { id: 'advanced-bind', group: 'advanced', path: '/advanced/bind', labelKey: 'advanced:nav.bind', icon: Code, permission: read, module, order: 70 },
     { id: 'advanced-kea', group: 'advanced', path: '/advanced/kea', labelKey: 'advanced:nav.kea', icon: BracketsCurly, permission: read, module, order: 71 },
     { id: 'advanced-history', group: 'advanced', path: '/advanced/history', labelKey: 'advanced:nav.history', icon: ClockCounterClockwise, permission: read, module, order: 72 },
+    { id: 'advanced-ops', group: 'advanced', path: '/advanced/ops', labelKey: 'advanced:nav.ops', icon: Terminal, order: 73 },
   ],
 }

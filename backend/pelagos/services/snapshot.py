@@ -15,10 +15,10 @@ from pelagos.domain import Engine, normalize_name
 from pelagos.services.registry import ConnectorRegistry
 
 SNAPSHOT_KINDS = {
-    Engine.BIND: ("summary", "zone", "records", "stats", "config", "tree"),
-    Engine.KEA4: ("summary", "subnets", "leases", "lease", "reservations", "stats", "config", "schema"),
-    Engine.KEA6: ("summary", "subnets", "leases", "lease", "reservations", "stats", "config", "schema"),
-    Engine.D2: ("summary", "stats", "config", "schema"),
+    Engine.BIND: ("summary", "zone", "records", "stats", "config", "tree", "op"),
+    Engine.KEA4: ("summary", "subnets", "leases", "lease", "reservations", "stats", "config", "schema", "op"),
+    Engine.KEA6: ("summary", "subnets", "leases", "lease", "reservations", "stats", "config", "schema", "op"),
+    Engine.D2: ("summary", "stats", "config", "schema", "op"),
 }
 
 
@@ -33,7 +33,12 @@ def engine_snapshot(
         return {"engine": engine.value, "kind": kind, "configured": True, "error": f"unknown kind {kind}"}
     out: dict[str, Any] = {"engine": engine.value, "kind": kind, "configured": True, "error": None}
     try:
-        if isinstance(backend, DnsBackend):
+        if kind == "op":
+            # Read-only runtime operations (services.ops_service allow-list).
+            from pelagos.services.ops_service import snapshot_op
+
+            out.update(snapshot_op(registry, engine, params))
+        elif isinstance(backend, DnsBackend):
             out.update(_bind(backend, kind, params))
         elif isinstance(backend, DhcpBackend):
             out.update(_kea(backend, kind, params))

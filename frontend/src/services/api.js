@@ -162,6 +162,15 @@ export const advanced = {
   historyEntry: (id) => apiClient.get(`/advanced/history/${enc(id)}`),
 }
 
+// Runtime operations: family is v4, v6 or d2; params are the operation's typed parameters.
+export const ops = {
+  bindCatalog: () => apiClient.get('/dns/ops'),
+  bindRun: ({ op, params, node_id, confirm }) => apiClient.post('/dns/ops', { op, params, node_id, confirm }),
+  keaCatalog: (family, node_id) => apiClient.get(`/dhcp/${family}/ops${buildQueryString({ node_id })}`),
+  keaRun: (family, { command, params, node_id, confirm }) =>
+    apiClient.post(`/dhcp/${family}/ops`, { command, params, node_id, confirm }),
+}
+
 export const install = {
   detect: () => apiClient.get('/install/detect'),
   plan: (body) => apiClient.post('/install/plan', body),
@@ -191,7 +200,7 @@ export const admin = {
 
 export const api = {
   meta, auth, account, nodes, dashboard, dns, dhcp, d2, hosts, plans, jobs,
-  alerts, series, audit, advanced, install, admin,
+  alerts, series, audit, advanced, install, admin, ops,
 }
 
 export default api

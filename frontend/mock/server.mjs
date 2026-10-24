@@ -13,6 +13,7 @@ import { passwordProblem } from '../src/lib/password.js'
 import { createState, iso, ulid, ALL_PERMISSIONS } from './data.mjs'
 import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, isExpired, auditEntry, configHash, isAdmin } from './plans.mjs'
 import { createWsHub } from './ws.mjs'
+import { opsHandlers } from './ops.mjs'
 
 const API = '/api/v1'
 const ANON = new Set(['GET /health', 'GET /version', 'POST /auth/login'])
@@ -56,6 +57,7 @@ const PERMISSIONS = {
   'DELETE /admin/roles/{name}': 'admin:roles', 'GET /admin/permissions': 'admin:roles',
   'GET /admin/settings': 'admin:settings', 'PUT /admin/settings': 'admin:settings',
   'GET /admin/modules': 'admin:modules', 'PUT /admin/modules': 'admin:modules',
+  'GET /dns/ops': 'read:dns',
 }
 for (const spec of ENDPOINTS) {
   if (spec.includes(' /dhcp/') && spec.startsWith('GET ') && !PERMISSIONS[spec]) PERMISSIONS[spec] = 'read:dhcp'
@@ -1828,6 +1830,7 @@ function buildHandlers(state, emit) {
       }
       return { cluster: { ...state.modules.cluster }, nodes: Object.fromEntries(state.nodes.map((n) => [n.peer.id, n.peer.modules])) }
     },
+    ...opsHandlers(state, { Problem, invalid, hasPermission, auditEntry }),
   }
 }
 

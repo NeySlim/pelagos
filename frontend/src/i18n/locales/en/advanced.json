@@ -2,7 +2,8 @@
   "nav": {
     "bind": "named.conf editor",
     "kea": "Kea editor",
-    "history": "History"
+    "history": "History",
+    "ops": "Operations"
   },
   "pages": {
     "bind": {
@@ -105,6 +106,73 @@
       "label": "Label",
       "files": "Files",
       "plan": "Plan"
+    }
+  },
+  "ops": {
+    "title": "Operations",
+    "subtitle": "Runtime commands of BIND and Kea, from an allow-list",
+    "tabs": {
+      "bind": "BIND",
+      "v4": "Kea DHCPv4",
+      "v6": "Kea DHCPv6",
+      "d2": "Kea DDNS"
+    },
+    "filter": "Filter operations",
+    "reads": "Reads",
+    "changes": "Changes",
+    "read": "Read",
+    "change": "Change",
+    "pick": "Pick an operation in the list.",
+    "run": "Run",
+    "noOutput": "Done, no output.",
+    "needsConfirm": "Needs a confirmation",
+    "confirm": "I understand what {{name}} does and want to run it",
+    "listPlaceholder": "Type a value and press Enter",
+    "helpDefault": "Runs the command as the daemon documents it.",
+    "noAccess": "Your roles give no access to BIND or Kea operations.",
+    "blocked": {
+      "none": "Pick an operation.",
+      "permission": "Your roles do not allow this operation.",
+      "unavailable": "The daemon does not offer this command (hook not loaded).",
+      "remote": "Changes run on this node only: sign in on that node to run it there.",
+      "confirm": "Tick the confirmation first."
+    },
+    "errors": {
+      "required": "Required",
+      "int": "A whole number"
+    },
+    "params": {
+      "zone": "Zone",
+      "view": "View",
+      "name": "Name",
+      "lifetime": "Lifetime",
+      "mode": "Mode",
+      "clean": "Clean the journal",
+      "level": "Level",
+      "server-name": "Server",
+      "max-period": "Maximum period (s)",
+      "scopes": "Scopes",
+      "remove": "Remove",
+      "ip-address": "IP address",
+      "subnet-id": "Subnet ID",
+      "count": "Count"
+    },
+    "help": {
+      "status": "Server status: version, zones, uptime.",
+      "zonestatus": "State of one zone: type, files, serial, dynamic, next refresh.",
+      "flush": "Empty the resolver cache (of one view when given).",
+      "flushname": "Remove one name from the cache.",
+      "flushtree": "Remove a name and everything below it from the cache.",
+      "freeze": "Suspend dynamic updates and write the journal into the zone file, to edit it by hand.",
+      "thaw": "Reload a frozen zone and accept dynamic updates again.",
+      "sync": "Write the journal of dynamic zones into their files.",
+      "nta-add": "Add a negative trust anchor: validation is skipped for the name until it expires.",
+      "ha-sync": "Fetch every lease from the partner (server-name) into this server.",
+      "ha-reset": "Put the HA state machine back to waiting: the servers synchronize again.",
+      "statistic-reset-all": "Reset every statistic counter of the server.",
+      "config-reload": "Load the configuration file again, dropping changes not written to it.",
+      "leases-reclaim": "Reclaim expired leases now; remove deletes them instead of keeping them expired.",
+      "dhcp-disable": "Stop answering clients (for max-period seconds when given)."
     }
   }
 }

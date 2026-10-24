@@ -2,7 +2,8 @@
   "nav": {
     "bind": "Éditeur named.conf",
     "kea": "Éditeur Kea",
-    "history": "Historique"
+    "history": "Historique",
+    "ops": "Opérations"
   },
   "pages": {
     "bind": {
@@ -105,6 +106,73 @@
       "label": "Libellé",
       "files": "Fichiers",
       "plan": "Plan"
+    }
+  },
+  "ops": {
+    "title": "Opérations",
+    "subtitle": "Commandes à chaud de BIND et Kea, depuis une liste autorisée",
+    "tabs": {
+      "bind": "BIND",
+      "v4": "Kea DHCPv4",
+      "v6": "Kea DHCPv6",
+      "d2": "Kea DDNS"
+    },
+    "filter": "Filtrer les opérations",
+    "reads": "Lectures",
+    "changes": "Modifications",
+    "read": "Lecture",
+    "change": "Modification",
+    "pick": "Choisissez une opération dans la liste.",
+    "run": "Exécuter",
+    "noOutput": "Terminé, sans sortie.",
+    "needsConfirm": "Demande une confirmation",
+    "confirm": "Je comprends ce que fait {{name}} et je veux l'exécuter",
+    "listPlaceholder": "Saisir une valeur puis Entrée",
+    "helpDefault": "Exécute la commande telle que le démon la documente.",
+    "noAccess": "Vos rôles ne donnent accès à aucune opération BIND ou Kea.",
+    "blocked": {
+      "none": "Choisissez une opération.",
+      "permission": "Vos rôles n'autorisent pas cette opération.",
+      "unavailable": "Le démon ne propose pas cette commande (hook non chargé).",
+      "remote": "Les modifications s'exécutent sur ce nœud seulement : connectez-vous sur ce nœud pour l'y lancer.",
+      "confirm": "Cochez d'abord la confirmation."
+    },
+    "errors": {
+      "required": "Obligatoire",
+      "int": "Un nombre entier"
+    },
+    "params": {
+      "zone": "Zone",
+      "view": "Vue",
+      "name": "Nom",
+      "lifetime": "Durée",
+      "mode": "Mode",
+      "clean": "Nettoyer le journal",
+      "level": "Niveau",
+      "server-name": "Serveur",
+      "max-period": "Durée maximale (s)",
+      "scopes": "Portées",
+      "remove": "Supprimer",
+      "ip-address": "Adresse IP",
+      "subnet-id": "ID du sous-réseau",
+      "count": "Nombre"
+    },
+    "help": {
+      "status": "État du serveur : version, zones, temps de fonctionnement.",
+      "zonestatus": "État d'une zone : type, fichiers, serial, dynamique, prochain rafraîchissement.",
+      "flush": "Vider le cache du résolveur (d'une vue si elle est donnée).",
+      "flushname": "Retirer un nom du cache.",
+      "flushtree": "Retirer un nom et tout ce qui est en dessous du cache.",
+      "freeze": "Suspendre les mises à jour dynamiques et écrire le journal dans le fichier de zone, pour le modifier à la main.",
+      "thaw": "Recharger une zone gelée et accepter de nouveau les mises à jour dynamiques.",
+      "sync": "Écrire le journal des zones dynamiques dans leurs fichiers.",
+      "nta-add": "Ajouter une ancre de confiance négative : la validation est ignorée pour ce nom jusqu'à son expiration.",
+      "ha-sync": "Récupérer tous les baux du partenaire (server-name) sur ce serveur.",
+      "ha-reset": "Remettre l'automate HA en attente : les serveurs se resynchronisent.",
+      "statistic-reset-all": "Remettre à zéro tous les compteurs du serveur.",
+      "config-reload": "Relire le fichier de configuration, en perdant les changements qui n'y sont pas écrits.",
+      "leases-reclaim": "Récupérer les baux expirés maintenant ; remove les supprime au lieu de les garder expirés.",
+      "dhcp-disable": "Ne plus répondre aux clients (pendant max-period secondes si donné)."
     }
   }
 }

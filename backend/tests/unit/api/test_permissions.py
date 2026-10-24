@@ -189,6 +189,10 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("PUT", "/admin/settings", "/admin/settings", {"plan_ttl_seconds": 600}, "admin:settings"),
     ("GET", "/admin/modules", "/admin/modules", None, "admin:modules"),
     ("PUT", "/admin/modules", "/admin/modules", {"cluster": {"dhcpv6": True}}, "admin:modules"),
+    ("GET", "/dns/ops", "/dns/ops", None, "read:dns"),
+    ("POST", "/dns/ops", "/dns/ops", {"op": "flush"}, "ops:dns"),
+    ("GET", "/dhcp/<string:family>/ops", "/dhcp/v4/ops", None, "read:dhcp"),
+    ("POST", "/dhcp/<string:family>/ops", "/dhcp/v4/ops", {"command": "ha-sync"}, "ops:dhcp.ha"),
     # Endpoints that end or reshape the session run last.
     ("POST", "/auth/totp/enroll", "/auth/totp/enroll", None, ANY),
     ("POST", "/auth/login", "/auth/login", {"username": "nobody", "password": "x"}, ANON),

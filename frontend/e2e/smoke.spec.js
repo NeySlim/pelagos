@@ -35,6 +35,7 @@ const PAGES = [
   ['/advanced/bind', 'page-advanced-bind', 'bind-tree'],
   ['/advanced/kea', 'page-advanced-kea', 'kea-tree'],
   ['/advanced/history', 'page-advanced-history', 'history-table'],
+  ['/advanced/ops', 'page-advanced-ops', 'ops-list'],
   ['/install', 'page-install-detect', 'install-detect'],
   ['/install/security', 'page-install-security', 'security-finding'],
   ['/admin/users', 'page-admin-users', 'users-table'],

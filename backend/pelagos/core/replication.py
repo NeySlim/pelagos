@@ -26,6 +26,7 @@ from pelagos import __version__
 from pelagos.core import ca as ca_mod
 from pelagos.core.audit_log import AuditLog
 from pelagos.core.config_store import ConfigError, ConfigStore, NodeConfig
+from pelagos.core import context as context_mod
 from pelagos.core.context import REPL_READY, REPL_SYNCING, NodeContext, write_replication_state
 from pelagos.core.enrollment import EnrollError, EnrollmentService, EnrollRequest, install_certificate
 from pelagos.core.paths import Paths
@@ -1001,6 +1002,9 @@ class ReplicationService:
             self._set_state(REPL_READY)
             raise
         if pull:
+            done = threading.Event()
+            beat = threading.Thread(target=self._syncing_heartbeat, args=(done,), daemon=True)
+            beat.start()
             try:
                 results = self._after_exchange(self.replicator.pull_all())
                 if any(not r.reachable for r in results):
@@ -1011,6 +1015,9 @@ class ReplicationService:
             except Exception:
                 # Never left in `syncing` without a worker: anti-entropy retries the pull.
                 log.exception("initial pull failed")
+            finally:
+                done.set()
+                beat.join(timeout=5)
         self._set_state(REPL_READY)
         self._stop.clear()
         self._next_poll = time.monotonic() + self.peer_poll_seconds
@@ -1039,6 +1046,14 @@ class ReplicationService:
         self.peer_poll_seconds = seconds
         self._next_poll = min(self._next_poll, time.monotonic() + seconds)
         self._wake.set()
+
+    def _syncing_heartbeat(self, done: threading.Event) -> None:
+        """Rewrites `syncing` until `done`, so readers never take a long initial pull for a crash."""
+        while not done.wait(context_mod.SYNCING_HEARTBEAT_SECONDS):
+            try:
+                write_replication_state(self.paths, REPL_SYNCING)
+            except OSError:
+                log.warning("cannot refresh the replication state file", exc_info=True)
 
     def _set_state(self, state: str) -> None:
         self.state = state

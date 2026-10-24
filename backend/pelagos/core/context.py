@@ -27,6 +27,8 @@ REPL_SYNCING = "syncing"
 
 # A `syncing` state older than this is stale (a collector killed mid-pull): the node is writable again.
 SYNCING_STALE_SECONDS = 300
+# A live writer refreshes the file this often while it stays `syncing`, so long pulls never look stale.
+SYNCING_HEARTBEAT_SECONDS = 60
 
 
 def read_replication_state(paths: Paths) -> str:

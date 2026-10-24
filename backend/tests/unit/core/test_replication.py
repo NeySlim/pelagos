@@ -860,6 +860,32 @@ def test_stale_or_orphan_syncing_state_is_ready(tmp_root):
     assert read_replication_state(paths) == "ready"
 
 
+def test_long_initial_pull_keeps_the_syncing_state_fresh(pair, monkeypatch):
+    """A pull longer than the stale limit still reads `syncing`: the writer refreshes the file."""
+    from pelagos.core import context as context_mod
+
+    a, _b = pair
+    a.service.stop()
+    monkeypatch.setattr(context_mod, "SYNCING_STALE_SECONDS", 0.6)
+    monkeypatch.setattr(context_mod, "SYNCING_HEARTBEAT_SECONDS", 0.1)
+    seen: list[str] = []
+    svc = ReplicationService(a.ctx, peer_poll_seconds=300)
+
+    def slow_pull():
+        for _ in range(15):
+            time.sleep(0.1)
+            seen.append(read_replication_state(a.paths))
+        return []
+
+    monkeypatch.setattr(svc.replicator, "pull_all", slow_pull)
+    svc.start()
+    try:
+        assert seen and all(s == "syncing" for s in seen)
+        assert read_replication_state(a.paths) == "ready"
+    finally:
+        svc.stop()
+
+
 def test_start_failure_leaves_the_node_writable(pair):
     a, _b = pair
     a.service.stop()

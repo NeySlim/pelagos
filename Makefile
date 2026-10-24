@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Run these on lab-dev (see AGENTS.md). The workstation only edits and runs git.
+# Development, test and packaging targets. Toolchain and test tiers: see AGENTS.md.
 
 UV        ?= $(shell command -v uv 2>/dev/null || echo $(HOME)/.local/bin/uv)
 PYTHON    ?= 3.12
@@ -15,8 +15,9 @@ VERSION   := $(shell packaging/version.sh python)
 IMAGE     ?= pelagos
 DOCKER    ?= docker
 
-.PHONY: dev venv npm lint fmt test test-daemon test-lab build-frontend run run-backend run-frontend clean
-.PHONY: deb rpm docker docker-allinone packages version
+.PHONY: dev venv npm lint lint-backend lint-frontend fmt test test-unit test-vitest test-daemon test-lab test-e2e
+.PHONY: screenshots build-frontend run run-backend run-frontend clean
+.PHONY: deb rpm docker docker-allinone packages version lock wheels test-packaging
 
 dev: venv npm
 
@@ -27,9 +28,13 @@ venv:
 npm:
 	cd $(FRONTEND) && npm install --no-fund --no-audit
 
-lint:
+lint: lint-backend lint-frontend
+
+lint-backend:
 	cd $(BACKEND) && .venv/bin/ruff check pelagos tests
 	cd $(BACKEND) && .venv/bin/ruff format --check pelagos tests
+
+lint-frontend:
 	cd $(FRONTEND) && npm run lint
 
 fmt:
@@ -37,12 +42,24 @@ fmt:
 	cd $(BACKEND) && .venv/bin/ruff format pelagos tests
 	cd $(FRONTEND) && npm run lint:fix
 
-test:
-	cd $(BACKEND) && .venv/bin/pytest -m unit
+test: test-unit test-vitest
+
+test-unit:
+	cd $(BACKEND) && .venv/bin/pytest -m unit $(PYTEST_ARGS)
+
+test-vitest:
 	cd $(FRONTEND) && npx vitest run
 
 test-daemon:
-	cd $(BACKEND) && .venv/bin/pytest -m daemon
+	cd $(BACKEND) && .venv/bin/pytest -m daemon $(PYTEST_ARGS)
+
+# Playwright against the mock server (npx playwright install chromium once).
+test-e2e:
+	cd $(FRONTEND) && npx playwright test
+
+# README and guide screenshots from the mock server, Pelagic theme, dark and light.
+screenshots:
+	cd $(FRONTEND) && node e2e/screenshots.mjs ../docs/images
 
 test-lab:
 	cd $(BACKEND) && PELAGOS_LAB=1 .venv/bin/pytest -m lab --timeout 3600 -x $(LAB_ARGS)
@@ -83,3 +100,21 @@ docker-allinone:
 		-t $(IMAGE)-allinone:$(shell packaging/version.sh docker) -t $(IMAGE)-allinone:latest .
 
 packages: deb rpm docker docker-allinone
+
+# Pinned runtime dependencies (with hashes) installed by packaging/build-tree.sh.
+lock:
+	printf '# SPDX-License-Identifier: Apache-2.0\n# Pinned runtime dependencies of the packages and images. Regenerate with: make lock\n' \
+		> packaging/requirements.lock
+	$(UV) pip compile $(BACKEND)/pyproject.toml --universal --python-version 3.12 --generate-hashes \
+		--no-header --annotation-style line --quiet >> packaging/requirements.lock
+
+# Wheels for an offline build with the same interpreter and platform as the package build:
+# make wheels && PELAGOS_WHEELS=$(CURDIR)/build/wheels make deb
+wheels:
+	mkdir -p build/wheels
+	$(or $(PELAGOS_PYTHON),python3) -m pip download --quiet --dest build/wheels --require-hashes -r packaging/requirements.lock
+	$(or $(PELAGOS_PYTHON),python3) -m pip download --quiet --dest build/wheels hatchling
+
+# Shell helpers of the packages (needs root or passwordless sudo).
+test-packaging:
+	packaging/tests/scripts-test.sh

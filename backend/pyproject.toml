@@ -45,7 +45,7 @@ addopts = "-q -p no:cacheprovider --strict-markers"
 timeout = 120
 markers = [
   "unit: no network, no daemons",
-  "daemon: starts real named and kea processes (run on lab-dev)",
+  "daemon: starts real named and kea processes (needs BIND 9.20 and Kea binaries)",
   "lab: needs the lab VMs, skipped unless PELAGOS_LAB=1",
 ]
 

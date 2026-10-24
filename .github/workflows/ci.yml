@@ -1,0 +1,129 @@
+# SPDX-License-Identifier: Apache-2.0
+# Tests on every push and pull request: backend lint and unit tier (Python 3.12 and 3.13),
+# frontend lint, vitest and build, the daemon tier against real BIND 9.20 and ISC Kea 3.2,
+# and the Playwright end-to-end suite against the mock server.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  backend:
+    name: backend (python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/pyproject.toml
+      - name: Virtualenv
+        run: make venv PYTHON=${{ matrix.python }} UV=uv
+      - name: Lint
+        run: make lint-backend
+      - name: Unit tier
+        run: make test-unit
+
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        working-directory: frontend
+        run: npm ci --no-fund --no-audit
+      - name: Lint
+        run: make lint-frontend
+      - name: Vitest
+        run: make test-vitest
+      - name: Build
+        run: make build-frontend
+
+  daemon:
+    # Debian 13 ships BIND 9.20; Kea 3.2 comes from the ISC Cloudsmith repository. Inside the
+    # container named runs under Docker's default AppArmor profile, not the distribution one
+    # that confines /usr/sbin/named to /etc/bind (the fixtures use a temporary directory).
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: BIND 9.20, ISC Kea 3.2 and the toolchain
+        run: |
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends \
+            ca-certificates curl gnupg git make python3 python3-venv util-linux \
+            bind9 bind9-utils bind9-dnsutils
+          curl -1sLf https://dl.cloudsmith.io/public/isc/kea-3-2/setup.deb.sh \
+            | distro=debian codename=trixie bash
+          apt-get install -y -q --no-install-recommends \
+            isc-kea-dhcp4 isc-kea-dhcp6 isc-kea-dhcp-ddns isc-kea-hooks
+          named -V | head -n 1
+          kea-dhcp4 -V | head -n 1
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
+        with:
+          # uv runs under runuser with its own cache dir; the action's cache path never exists.
+          enable-cache: false
+      - name: Unprivileged test user
+        # The fixtures run the daemons as the current user, like a developer would; the Kea
+        # binaries are executable by group _kea only.
+        run: |
+          useradd -m -G bind,_kea ci
+          chown -R ci:ci "$GITHUB_WORKSPACE"
+      - name: Virtualenv
+        run: |
+          runuser -u ci -- env HOME=/home/ci UV_CACHE_DIR=/home/ci/.cache/uv \
+            make venv PYTHON=3.13 UV="$(command -v uv)"
+      - name: Daemon tier
+        run: |
+          runuser -u ci -- env HOME=/home/ci make test-daemon PYTEST_ARGS="-rs" | tee daemon.log
+          # Missing binaries skip the tier silently: here every test must really run.
+          if grep -q '^SKIPPED' daemon.log; then echo "daemon tests were skipped" >&2; exit 1; fi
+          grep -Eq '[0-9]+ passed' daemon.log
+
+  e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        working-directory: frontend
+        run: |
+          npm ci --no-fund --no-audit
+          npx playwright install --with-deps chromium
+      - name: Playwright against the mock server
+        run: make test-e2e
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            frontend/test-results
+            frontend/playwright-report
+          if-no-files-found: ignore

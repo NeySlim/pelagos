@@ -1,21 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
-# Builds the deb, the rpms (RHEL 9 and 10), the node image and the all-in-one image, and
-# smoke tests the compose stack. The frontend is built first when it exists; without it the
-# packages ship the API-only notice page.
+# Release artifacts, on version tags and on demand: the deb (Debian 13), the rpms (RHEL 9 and
+# 10), the node and all-in-one images with their smoke tests and, on a tag, the images pushed
+# to ghcr.io/<owner>/pelagos and ghcr.io/<owner>/pelagos-allinone plus a GitHub release
+# carrying the packages.
 name: packages
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
-  pull_request:
-    paths:
-      - "backend/**"
-      - "frontend/**"
-      - "packaging/**"
-      - "docker/**"
-      - "Makefile"
-      - ".github/workflows/packages.yml"
   workflow_dispatch:
 
 permissions:
@@ -24,29 +16,38 @@ permissions:
 jobs:
   frontend:
     runs-on: ubuntu-24.04
+    outputs:
+      image_tag: ${{ steps.version.outputs.image_tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Detect frontend
-        id: detect
-        run: echo "present=$([ -f frontend/package.json ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-node@v4
-        if: steps.detect.outputs.present == 'true'
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Version (a tag must match backend/pelagos/__init__.py)
+        id: version
+        run: |
+          version="$(packaging/version.sh python)"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "tag $GITHUB_REF_NAME does not match the project version $version" >&2
+            exit 1
+          fi
+          image_tag="$(packaging/version.sh docker)"
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+          # PEP 440 pre-releases (dev, a, b, rc) carry a dash in the image tag.
+          case "$image_tag" in *-*) echo "prerelease=true" ;; *) echo "prerelease=false" ;; esac >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - name: Build frontend
-        if: steps.detect.outputs.present == 'true'
+        working-directory: frontend
         run: |
-          cd frontend
           npm ci --no-fund --no-audit
           npm run build
-      - name: Placeholder when there is no frontend
-        if: steps.detect.outputs.present != 'true'
-        run: mkdir -p frontend/dist && touch frontend/dist/.none
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: frontend-dist
           path: frontend/dist
-          include-hidden-files: true
+          if-no-files-found: error
 
   deb:
     needs: frontend
@@ -57,20 +58,20 @@ jobs:
         run: |
           apt-get update -q
           apt-get install -y -q --no-install-recommends \
-            ca-certificates git make dpkg-dev debhelper fakeroot lintian python3 python3-venv python3-pip
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+            ca-certificates git make build-essential dpkg-dev debhelper fakeroot lintian \
+            python3 python3-venv python3-pip
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: frontend-dist
           path: frontend/dist
-      - name: Drop the placeholder
-        run: rm -f frontend/dist/.none && rmdir --ignore-fail-on-non-empty frontend/dist
       - name: make deb
         run: make deb
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: deb
           path: build/deb/*.deb
+          if-no-files-found: error
 
   rpm:
     needs: frontend
@@ -87,44 +88,116 @@ jobs:
     steps:
       - name: Build dependencies
         run: dnf install -y -q git make findutils rpm-build systemd-rpm-macros ${{ matrix.python }}
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: frontend-dist
           path: frontend/dist
-      - name: Drop the placeholder
-        run: rm -f frontend/dist/.none && rmdir --ignore-fail-on-non-empty frontend/dist
       - name: make rpm
         run: make rpm
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: rpm-el${{ matrix.el }}
           path: build/rpm/*.rpm
+          if-no-files-found: error
 
   docker:
     needs: frontend
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: frontend-dist
           path: frontend/dist
-      - name: Drop the placeholder
-        run: rm -f frontend/dist/.none && rmdir --ignore-fail-on-non-empty frontend/dist
       - name: make docker
         run: make docker
       - name: Compose smoke test
+        # The runner's resolver holds port 53: the smoke test publishes DNS on 5300.
         run: packaging/tests/compose-smoke.sh pelagos:latest
       - name: make docker-allinone
         run: make docker-allinone
       - name: All-in-one smoke test
         run: |
           docker run -d --name aio -e PELAGOS_ADMIN_PASSWORD=ci-smoke-password -p 9443:8443 pelagos-allinone:latest
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if curl -fsk https://127.0.0.1:9443/api/v1/health; then ok=1; break; fi
             sleep 2
           done
-          docker exec aio supervisorctl status
+          # Exit status 3 while a program is still STARTING: informational only.
+          docker exec aio supervisorctl status || true
           [ "${ok:-0}" = 1 ] || { docker logs aio; exit 1; }
           docker rm -f aio
+
+  publish:
+    # Only a tag publishes; the images are rebuilt by buildx from the tested sources.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [frontend, deb, rpm, docker]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - image: pelagos
+            dockerfile: docker/Dockerfile
+          - image: pelagos-allinone
+            dockerfile: docker/allinone/Dockerfile
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - name: Image name
+        id: name
+        # ghcr.io wants a lowercase repository path.
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        id: meta
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=raw,value=${{ needs.frontend.outputs.image_tag }}
+            type=raw,value=latest,enable=${{ needs.frontend.outputs.prerelease == 'false' }}
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [frontend, deb, rpm, docker]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          pattern: "{deb,rpm-*}"
+          merge-multiple: true
+      - name: GitHub release with the packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IS_PRERELEASE: ${{ needs.frontend.outputs.prerelease }}
+        run: |
+          prerelease=""
+          [ "$IS_PRERELEASE" = true ] && prerelease="--prerelease"
+          # Idempotent: a re-run after a partial failure replaces the assets.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm \
+              --repo "$GITHUB_REPOSITORY" --title "Pelagos ${GITHUB_REF_NAME#v}" --generate-notes $prerelease
+          fi

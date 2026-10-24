@@ -6,7 +6,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-SECRET_KEYS = frozenset({"secret", "password", "password_hash", "totp_secret", "master_key"})
+SECRET_KEYS = frozenset(
+    {"secret", "password", "password_hash", "totp_secret", "master_key", "sealed", "sealed_secret"}
+)
 MASK = "***"
 
 _SECRET_TEXT = (

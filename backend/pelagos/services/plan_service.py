@@ -202,11 +202,10 @@ class PlanService:
         return results, True
 
     def _outgoing(self, plan: Plan, targets: list[str]) -> Plan:
-        """The copy sent to peers: D2 secrets held by the local connector travel sealed (d2_secrets)."""
+        """The copy sent to peers: D2 secrets held by the local connector travel sealed."""
         if not d2_secrets.needs_sealing(plan) or all(n == self.ctx.node.id for n in targets):
             return plan
-        held = d2_secrets.held_secrets(self._backend(plan), plan.id)
-        return d2_secrets.seal(self.ctx.secrets, plan, held)
+        return d2_secrets.sealed_copy(self.ctx.secrets, plan, self._backend(plan))
 
     def _apply_on(self, plan: Plan, node_id: str, who: tuple[str, str | None]) -> NodeApplyResult:
         if node_id == self.ctx.node.id:

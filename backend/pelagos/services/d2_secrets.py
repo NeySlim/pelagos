@@ -46,8 +46,30 @@ def held_secrets(backend: Any, plan_id: str) -> dict[str, str]:
     return {str(k): v for k, v in secrets.items()}
 
 
+def sealed_copy(box: Any, plan: Plan, backend: Any) -> Plan:
+    """The plan as sent to peers. Uses core's `plan_secrets.seal_backend_secrets` (INT-CORE, change
+    key `sealed`, opened by the replication server) when this build has it, else `seal()` below
+    (key `sealed_secret`, opened by services.registry.PlanRunner)."""
+    sent = Plan.from_dict(plan.to_dict())
+    try:
+        from pelagos.core import plan_secrets  # type: ignore[attr-defined]
+    except ImportError:
+        plan_secrets = None
+    if plan_secrets is not None:
+        try:
+            if plan_secrets.seal_backend_secrets(sent, backend, box):
+                return sent
+        except Exception as exc:
+            raise SecretChannelError(str(exc)) from None
+    return seal(box, plan, held_secrets(backend, plan.id))
+
+
 def hold_secrets(backend: Any, plan: Plan, secrets: dict[str, str]) -> None:
     """Give a received plan's secrets to the local D2Backend, as if it had built the plan."""
+    accept = getattr(backend, "accept_plan_secrets", None)
+    if callable(accept):
+        accept(plan, dict(secrets))
+        return
     paths = {Path(p): s for p, s in secrets.items()}
     public = getattr(backend, "hold_secrets", None)
     if callable(public):

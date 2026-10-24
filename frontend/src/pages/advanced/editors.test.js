@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { argKind, toForm, fromForm, validateForm, parseList, serialize, fileText, buildChanges, replaceStatement, removeStatement, addStatement, getAt, statementsFor } from './bindGrammar'
 import { unifiedDiff, diffLines } from './lineDiff'
-import { parsePath, getPath, setPath, deletePath, parseScalar, parseJson, checkSchema, defaultFor } from './keaJson'
+import { parsePath, getPath, setPath, deletePath, parseScalar, parseJson, checkSchema, defaultFor, schemaKeyAt, isSchemaRoot } from './keaJson'
 
 const g = (args) => ({ name: 'x', args })
 
@@ -32,6 +32,9 @@ describe('BIND grammar kinds', () => {
     expect(toForm(g('( first | only )'), 'sometimes').kind).toBe('raw')
     expect(toForm(g('address_match_list'), '{ !{ 192.0.2.1; }; any; }').kind).toBe('raw')
     expect(fromForm({ kind: 'quoted', value: 'a"b' })).toBe('"a\\"b"')
+    const escaped = '"a\\"b\\\\c"'
+    expect(toForm(g('quoted_string'), escaped).value).toBe('a"b\\c')
+    expect(fromForm(toForm(g('quoted_string'), fromForm(toForm(g('quoted_string'), escaped))))).toBe(escaped)
   })
 
   it('parses lists and validates forms', () => {
@@ -97,14 +100,29 @@ describe('statement trees', () => {
     ])
   })
 
-  it('turns any other edit into one raw:<file> change', () => {
+  it('turns any other edit into per-statement raw:<file> changes', () => {
     const original = files()
     const edited = replaceStatement(original, [1, 0, 0], { value: 'secondary' })
-    const changes = buildChanges(original, edited)
-    expect(changes).toHaveLength(1)
-    expect(changes[0].target).toBe('raw:/etc/bind/named.conf.local')
-    expect(changes[0].after).toContain('type secondary;')
+    expect(buildChanges(original, edited)).toEqual([
+      {
+        op: 'replace',
+        target: 'raw:/etc/bind/named.conf.local',
+        before: 'zone "example.lan" {\n\ttype primary;\n};',
+        after: 'zone "example.lan" {\n\ttype secondary;\n};',
+        node_ids: [],
+      },
+    ])
     expect(buildChanges(original, files())).toEqual([])
+  })
+
+  it('emits add and delete raw changes for top-level statements only', () => {
+    const original = files()
+    let edited = addStatement(original, [1], { name: 'acl', value: '"lan"', line: null, children: [{ name: '192.0.2.0/24', value: null, line: null }] })
+    edited = removeStatement(edited, [1, 0])
+    expect(buildChanges(original, edited)).toEqual([
+      { op: 'delete', target: 'raw:/etc/bind/named.conf.local', before: 'zone "example.lan" {\n\ttype primary;\n};', after: null, node_ids: [] },
+      { op: 'add', target: 'raw:/etc/bind/named.conf.local', before: null, after: 'acl "lan" {\n\t192.0.2.0/24;\n};', node_ids: [] },
+    ])
   })
 })
 
@@ -127,6 +145,24 @@ describe('line diff', () => {
   it('handles additions to an empty text', () => {
     expect(unifiedDiff('', 'x\ny', 'new')).toBe('--- a/new\n+++ b/new\n@@ -0,0 +1,2 @@\n+x\n+y\n')
     expect(diffLines('a', '').map((o) => o.kind)).toEqual(['-'])
+  })
+
+  it('stays fast on large texts with one changed line', () => {
+    const before = Array.from({ length: 5000 }, (_, i) => `"line-${i}": ${i},`).join('\n')
+    const after = before.replace('"line-2500": 2500,', '"line-2500": 42,')
+    const started = Date.now()
+    const diff = unifiedDiff(before, after, 'big.json')
+    expect(Date.now() - started).toBeLessThan(1000)
+    expect(diff).toBe('--- a/big.json\n+++ b/big.json\n@@ -2498,7 +2498,7 @@\n "line-2497": 2497,\n "line-2498": 2498,\n "line-2499": 2499,\n-"line-2500": 2500,\n+"line-2500": 42,\n "line-2501": 2501,\n "line-2502": 2502,\n "line-2503": 2503,\n')
+  })
+
+  it('falls back to removed then added above the LCS budget', () => {
+    const before = Array.from({ length: 2500 }, (_, i) => `a${i}`).join('\n')
+    const after = Array.from({ length: 2500 }, (_, i) => `b${i}`).join('\n')
+    const ops = diffLines(before, after)
+    expect(ops).toHaveLength(5000)
+    expect(ops.slice(0, 2500).every((o) => o.kind === '-')).toBe(true)
+    expect(ops.slice(2500).every((o) => o.kind === '+')).toBe(true)
   })
 })
 
@@ -160,7 +196,20 @@ describe('Kea JSON paths', () => {
     expect(checkSchema(config, schema)).toEqual([])
     expect(checkSchema({ Dhcp4: { 'valid-lifetime': '1h' } }, schema)).toEqual([{ path: 'Dhcp4.valid-lifetime', problem: 'type', expected: 'integer', actual: 'string' }])
     expect(checkSchema({ Dhcp4: { 'valid-lifetime': -1 } }, schema)[0].problem).toBe('minimum')
-    expect(checkSchema({}, schema)).toEqual([{ path: 'Dhcp4', problem: 'missingRoot' }])
+    expect(checkSchema([], schema)).toEqual([{ path: 'Dhcp4', problem: 'missingRoot' }])
     expect(checkSchema(config, null)).toEqual([])
+  })
+
+  it('accepts a bare config object as well as a wrapped one', () => {
+    const schema = { root: 'Dhcp4', keys: [{ name: 'valid-lifetime', type: 'integer' }, { name: 'subnet4', type: 'array' }] }
+    const bare = config.Dhcp4
+    expect(checkSchema(bare, schema)).toEqual([])
+    expect(checkSchema({ 'valid-lifetime': 'x' }, schema)).toEqual([{ path: 'valid-lifetime', problem: 'type', expected: 'integer', actual: 'string' }])
+    expect(schemaKeyAt(bare, schema, ['subnet4']).type).toBe('array')
+    expect(schemaKeyAt(config, schema, ['Dhcp4', 'subnet4']).type).toBe('array')
+    expect(schemaKeyAt(config, schema, ['subnet4'])).toBe(null)
+    expect(isSchemaRoot(bare, schema, [])).toBe(true)
+    expect(isSchemaRoot(config, schema, ['Dhcp4'])).toBe(true)
+    expect(isSchemaRoot(config, schema, [])).toBe(false)
   })
 })

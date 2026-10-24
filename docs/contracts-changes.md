@@ -185,9 +185,13 @@ placeholder pages assume these shapes where section 17 says only "JSON":
 = `{"root", "version", "keys": [{"name", "type", "description", ...}]}`;
 `GET /dns/zones/{zone}/dnssec` status = `{"signed", "policy", "keys": [{"tag",
 "role", "algorithm", "state", ...}], "ds", "next_resign"}`; the records list
-`meta` carries `zone` and `serial` besides `node_id`. WP-BIND, WP-KEA and
-WP-API-AUTH: if you pick a different shape, say so here and the frontend
-follows.
+`meta` carries `zone` and `serial` besides `node_id`; `GET /dhcp/{family}/config`
+and `GET /dhcp/d2/config` `config` is the bare object under the root key
+(what `KeaBackend.config_get()` returns, e.g. the content of `Dhcp4`), and
+the Kea editor also accepts it wrapped (`{"Dhcp4": {...}}`); `POST
+/dhcp/{family}/config/plan` sends back the same shape it read. WP-BIND,
+WP-KEA and WP-API-AUTH: if you pick a different shape, say so here and the
+frontend follows.
 
 ## 2026-10-24, WP-FRONTEND: frontend/package.json created
 Dependencies: React 18, react-router-dom 7, Radix (dialog, dropdown-menu,
@@ -364,3 +368,16 @@ handle `restriction` (route to password change or TOTP enrollment).
 ## 2026-10-24, foundation: initial contracts
 `docs/architecture.md` sections 1 to 20, `pelagos.domain`, `connectors/base.py`,
 fixtures. Baseline; nothing to react to.
+
+## 2026-10-24, WP-FRONTEND: raw:<file> changes from the named.conf editor
+No change to `architecture.md`. `POST /dns/config/plan` from the advanced
+BIND editor sends `options/<statement>` changes when only statements inside
+the single `options` block changed, otherwise one `raw:<file>` change per
+added, removed or edited top-level statement of that file: `before` and
+`after` each hold one statement in the canonical `named-checkconf -p` text
+of the tree (tabs, `;` terminated), `null` on the missing side. `replace`
+and `delete` locate the statement by matching `before` against the parser's
+canonical serialization of the file's top-level statements; `add` appends
+`after` at the end of the file. The changes never carry a whole file, so
+comments and formatting outside the edited statements are kept. WP-BIND
+(`plan_config_change`): merge them through the parser, never write bytes.

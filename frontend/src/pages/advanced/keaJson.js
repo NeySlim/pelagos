@@ -63,22 +63,48 @@ export function parseJson(text) {
   }
 }
 
+const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v)
+
+// The config may come wrapped in its root key ({Dhcp4: {...}}) or bare: rootPath
+// is [root] or [], the path of the object the schema keys describe.
+export function schemaRoot(config, schema) {
+  const root = schema?.root
+  if (root && isObject(config) && root in config) return { body: config[root], rootPath: [root] }
+  return { body: config, rootPath: [] }
+}
+
 // Check a draft against the top-level schema keys: types of known keys only.
 export function checkSchema(config, schema) {
   const root = schema?.root
-  const body = root ? config?.[root] : undefined
   if (!root) return []
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return [{ path: root, problem: 'missingRoot' }]
+  const { body, rootPath } = schemaRoot(config, schema)
+  if (!isObject(body)) return [{ path: root, problem: 'missingRoot' }]
+  const at = (name) => [...rootPath, name].join('.')
   const problems = []
   for (const key of schema.keys || []) {
     if (!(key.name in body)) continue
     const actual = typeOf(body[key.name])
     const expected = key.type
     const ok = expected === actual || (expected === 'number' && actual === 'integer')
-    if (!ok) problems.push({ path: `${root}.${key.name}`, problem: 'type', expected, actual })
+    if (!ok) problems.push({ path: at(key.name), problem: 'type', expected, actual })
     else if (key.minimum !== undefined && typeof body[key.name] === 'number' && body[key.name] < key.minimum) {
-      problems.push({ path: `${root}.${key.name}`, problem: 'minimum', expected: key.minimum, actual: body[key.name] })
+      problems.push({ path: at(key.name), problem: 'minimum', expected: key.minimum, actual: body[key.name] })
     }
   }
   return problems
+}
+
+// Schema entry describing the key at `path`, when it is a direct child of the root.
+export function schemaKeyAt(config, schema, path) {
+  if (!schema) return null
+  const { rootPath } = schemaRoot(config, schema)
+  if (path.length !== rootPath.length + 1 || rootPath.some((k, i) => path[i] !== k)) return null
+  return schema.keys?.find((k) => k.name === path[path.length - 1]) || null
+}
+
+// True when `path` designates the object the schema keys describe.
+export function isSchemaRoot(config, schema, path) {
+  if (!schema) return false
+  const { rootPath } = schemaRoot(config, schema)
+  return path.length === rootPath.length && rootPath.every((k, i) => path[i] === k)
 }

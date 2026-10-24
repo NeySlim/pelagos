@@ -13,7 +13,7 @@ import { errorMessage } from '../../services/apiClient'
 import { cn } from '../../lib/utils'
 import { NodeSelect } from './NodeSelect'
 import { unifiedDiff, jsonText } from './lineDiff'
-import { parsePath, getPath, setPath, deletePath, typeOf, defaultFor, parseScalar, parseJson, checkSchema } from './keaJson'
+import { parsePath, getPath, setPath, deletePath, typeOf, defaultFor, parseScalar, parseJson, checkSchema, schemaKeyAt, isSchemaRoot, schemaRoot } from './keaJson'
 
 const TARGETS = {
   v4: { engine: 'kea4', label: 'Dhcp4', load: (node) => api.dhcp.config('v4', node), schema: () => api.advanced.keaSchema('v4'), plan: (config, nodes) => api.dhcp.configPlan('v4', config, nodes) },
@@ -35,10 +35,11 @@ function JsonTextarea({ value, onChange, error, testId, readOnly }) {
   )
 }
 
-function KeyEditor({ path, value, schemaKey, readOnly, onSave, onDelete }) {
+function KeyEditor({ path, value, schemaKey, readOnly, canDelete, onSave, onDelete }) {
   const { t } = useTranslation('advanced')
   const type = typeOf(value)
-  const container = type === 'object' || type === 'array'
+  // null has no scalar type to edit: any JSON value can replace it.
+  const container = type === 'object' || type === 'array' || type === 'null'
   const initial = useMemo(() => (container ? jsonText(value) : String(value)), [value, container])
   const [text, setText] = useState(initial)
   const [error, setError] = useState(null)
@@ -76,14 +77,14 @@ function KeyEditor({ path, value, schemaKey, readOnly, onSave, onDelete }) {
           {error && <p className="text-xs status-danger-text font-mono">{error}</p>}
         </>
       ) : (
-        <Input label={t('kea.value')} value={text} onChange={(e) => setText(e.target.value)} disabled={readOnly || type === 'null'} error={error} data-testid="kea-scalar-input" className="font-mono" />
+        <Input label={t('kea.value')} value={text} onChange={(e) => setText(e.target.value)} disabled={readOnly} error={error} data-testid="kea-scalar-input" className="font-mono" />
       )}
       {!readOnly && (
         <div className="flex gap-2">
           <Button size="sm" onClick={save} disabled={text === initial} data-testid="kea-save">
             {t('bind.updateDraft')}
           </Button>
-          {path.length > 1 && (
+          {canDelete && (
             <Button size="sm" variant="danger-soft" className="ml-auto" onClick={onDelete} data-testid="kea-delete">
               <Trash size={14} />
               {t('bind.remove')}
@@ -95,13 +96,13 @@ function KeyEditor({ path, value, schemaKey, readOnly, onSave, onDelete }) {
   )
 }
 
-function AddKey({ target, schema, onAdd }) {
+function AddKey({ target, schema, config, onAdd }) {
   const { t } = useTranslation('advanced')
   const [name, setName] = useState('')
   const [text, setText] = useState('')
   const [error, setError] = useState(null)
   const isArray = Array.isArray(target.value)
-  const isRoot = schema && target.path.length === 1 && target.path[0] === schema.root
+  const isRoot = isSchemaRoot(config, schema, target.path)
   const suggestions = isRoot ? (schema.keys || []).filter((k) => !(k.name in target.value)) : []
 
   const pick = (key) => {
@@ -162,7 +163,9 @@ export default function KeaEditorPage() {
   const path = parsePath(selectedPath)
   const selectedValue = draft ? getPath(draft, path) : undefined
   const schema = schemaQ.data
-  const schemaKey = schema && path.length === 2 && path[0] === schema.root ? schema.keys?.find((k) => k.name === path[1]) : null
+  const schemaKey = draft ? schemaKeyAt(draft, schema, path) : null
+  const rootPath = draft ? schemaRoot(draft, schema ?? { root: target.label }).rootPath : []
+  const canDelete = path.length > rootPath.length
   const diff = useMemo(() => (original && draft ? unifiedDiff(jsonText(original), jsonText(draft), `${target.label}.json`) : ''), [original, draft, target.label])
   const problems = useMemo(() => (draft ? checkSchema(draft, schema) : []), [draft, schema])
   const dirty = Boolean(diff)
@@ -231,16 +234,18 @@ export default function KeaEditorPage() {
                     value={selectedValue}
                     schemaKey={schemaKey}
                     readOnly={!canWrite || path.length === 0}
+                    canDelete={canDelete}
                     onSave={(value) => setDraft((d) => setPath(d, path, value))}
                     onDelete={() => {
                       setDraft((d) => deletePath(d, path))
                       setSelectedPath(path.slice(0, -1).join('.'))
                     }}
                   />
-                  {canWrite && path.length > 0 && selectedValue && typeof selectedValue === 'object' && (
+                  {canWrite && path.length >= rootPath.length && selectedValue && typeof selectedValue === 'object' && (
                     <AddKey
                       target={{ path, value: selectedValue }}
                       schema={schema}
+                      config={draft}
                       onAdd={(newPath, value) => {
                         setDraft((d) => setPath(d, newPath, value))
                         setSelectedPath(newPath.join('.'))

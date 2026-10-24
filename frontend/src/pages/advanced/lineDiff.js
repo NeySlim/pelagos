@@ -3,6 +3,9 @@
 // builds the plan (whose own diff is authoritative). LCS on lines, 3 lines of
 // context per hunk; empty string when both texts are equal.
 
+// Above this many cells, the changed window is shown as removed then added.
+export const LCS_MAX_CELLS = 2000 * 2000
+
 function lcsTable(a, b) {
   const dp = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1))
   for (let i = a.length - 1; i >= 0; i -= 1) {
@@ -14,26 +17,44 @@ function lcsTable(a, b) {
 }
 
 // Edit script: [{ kind: ' ' | '-' | '+', text, a, b }] with 0-based line numbers.
+// The common prefix and suffix are matched directly; LCS runs on the middle only.
 export function diffLines(before, after) {
   const a = before === '' ? [] : before.split('\n')
   const b = after === '' ? [] : after.split('\n')
-  const dp = lcsTable(a, b)
+  let start = 0
+  while (start < a.length && start < b.length && a[start] === b[start]) start += 1
+  let endA = a.length
+  let endB = b.length
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA -= 1
+    endB -= 1
+  }
   const ops = []
-  let i = 0
-  let j = 0
-  while (i < a.length || j < b.length) {
-    if (i < a.length && j < b.length && a[i] === b[j]) {
-      ops.push({ kind: ' ', text: a[i], a: i, b: j })
-      i += 1
-      j += 1
-    } else if (i < a.length && (j >= b.length || dp[i + 1][j] >= dp[i][j + 1])) {
-      ops.push({ kind: '-', text: a[i], a: i, b: j })
-      i += 1
-    } else {
-      ops.push({ kind: '+', text: b[j], a: i, b: j })
-      j += 1
+  for (let k = 0; k < start; k += 1) ops.push({ kind: ' ', text: a[k], a: k, b: k })
+  const midA = a.slice(start, endA)
+  const midB = b.slice(start, endB)
+  if ((midA.length + 1) * (midB.length + 1) > LCS_MAX_CELLS) {
+    midA.forEach((text, k) => ops.push({ kind: '-', text, a: start + k, b: start }))
+    midB.forEach((text, k) => ops.push({ kind: '+', text, a: endA, b: start + k }))
+  } else {
+    const dp = lcsTable(midA, midB)
+    let i = 0
+    let j = 0
+    while (i < midA.length || j < midB.length) {
+      if (i < midA.length && j < midB.length && midA[i] === midB[j]) {
+        ops.push({ kind: ' ', text: midA[i], a: start + i, b: start + j })
+        i += 1
+        j += 1
+      } else if (i < midA.length && (j >= midB.length || dp[i + 1][j] >= dp[i][j + 1])) {
+        ops.push({ kind: '-', text: midA[i], a: start + i, b: start + j })
+        i += 1
+      } else {
+        ops.push({ kind: '+', text: midB[j], a: start + i, b: start + j })
+        j += 1
+      }
     }
   }
+  for (let k = 0; k < a.length - endA; k += 1) ops.push({ kind: ' ', text: a[endA + k], a: endA + k, b: endB + k })
   return ops
 }
 

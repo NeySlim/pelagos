@@ -38,7 +38,8 @@ export function statementsFor(grammar, context) {
 // Context of the children of a statement, or of the top level of a file.
 export const childContext = (parentName) => parentName || 'toplevel'
 
-const unquote = (v) => String(v ?? '').replace(/^"(.*)"$/s, '$1')
+// Inverse of the quoting in fromForm(): strip the quotes, then the escapes.
+const unquote = (v) => String(v ?? '').replace(/^"(.*)"$/s, '$1').replace(/\\(["\\])/g, '$1')
 
 // Split "[prefix] { a; b; }" into its prefix and top-level elements; null when nested.
 export function parseList(value) {
@@ -158,9 +159,29 @@ export function addStatement(files, path, statement) {
 
 const optionsBlock = (file) => (file.statements || []).filter((s) => s.name === 'options')
 
+// raw:<file> Changes for top-level statements, matched on their provenance line:
+// before/after are one canonical statement each (null for add/delete), never the file.
+function rawChanges(path, before, after) {
+  const target = `raw:${path}`
+  const changes = []
+  const lines = new Set(before.map((s) => s.line).filter((l) => l != null))
+  const byLine = new Map(after.filter((s) => s.line != null && lines.has(s.line)).map((s) => [s.line, s]))
+  for (const b of before) {
+    const a = b.line != null ? byLine.get(b.line) : undefined
+    const bText = serialize([b])
+    if (!a) changes.push({ op: 'delete', target, before: bText, after: null, node_ids: [] })
+    else if (serialize([a]) !== bText) changes.push({ op: 'replace', target, before: bText, after: serialize([a]), node_ids: [] })
+  }
+  for (const a of after) {
+    if (a.line == null || !lines.has(a.line)) changes.push({ op: 'add', target, before: null, after: serialize([a]), node_ids: [] })
+  }
+  return changes
+}
+
 // dns.config Changes turning `original` files into `edited` ones. A file whose only
 // edits are statements directly inside its single options block yields one
-// options/<statement> change per statement; any other edit yields raw:<file>.
+// options/<statement> change per statement; any other edit yields one raw:<file>
+// change per added, removed or edited top-level statement.
 export function buildChanges(original, edited) {
   const changes = []
   edited.forEach((file, idx) => {
@@ -194,7 +215,7 @@ export function buildChanges(original, edited) {
         return
       }
     }
-    changes.push({ op: 'replace', target: `raw:${file.path}`, before: beforeText, after: afterText, node_ids: [] })
+    changes.push(...rawChanges(file.path, before.statements || [], file.statements || []))
   })
   return changes
 }

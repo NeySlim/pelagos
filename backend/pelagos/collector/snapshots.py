@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -21,19 +22,26 @@ CACHE_KIND = "cache"
 
 
 class SnapshotProvider:
-    """Called on the replication server thread: opens its own read-only cache connection per call."""
+    """Called on the replication server thread: opens its own read-only cache connection per call.
 
-    def __init__(self, node_id: str, series_db: Path, registry: Any) -> None:
+    Live kinds run under `lock`, the one the collector holds while it polls the same backends.
+    """
+
+    def __init__(
+        self, node_id: str, series_db: Path, registry: Any, lock: threading.RLock | None = None
+    ) -> None:
         self.node_id = node_id
         self.series_db = series_db
         self.registry = registry
+        self.lock = lock if lock is not None else threading.RLock()
 
     def __call__(self, engine: str, kind: str, params: dict[str, str]) -> dict[str, Any]:
         if kind == CACHE_KIND:
             return self.cache(engine)
         from pelagos.services.snapshot import engine_snapshot
 
-        return engine_snapshot(self.registry, Engine(engine), kind, dict(params))
+        with self.lock:
+            return engine_snapshot(self.registry, Engine(engine), kind, dict(params))
 
     def cache(self, engine: str) -> dict[str, Any]:
         try:

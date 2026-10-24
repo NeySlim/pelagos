@@ -43,6 +43,11 @@ What changed (file, symbol). Why. Which packages must react, and how.
   make a node write any other file. The value is ciphertext; masking it in API answers is
   optional. Without it a peer still fails cleanly as before. D2Backend also gains
   `plan_secrets(plan_id)`.
+- Section 13, concurrency: `core.registry.ConnectorRegistry(node_id, lock=None)` exposes `lock`
+  (an `RLock`) held around apply, rollback and snapshot; `ReplicationApp` holds it while it hands
+  plan secrets over and applies. The collector passes its own `backend_lock` (held while it polls
+  or reads for the consistency pass) to that registry and to `SnapshotProvider`, so a remote plan
+  or a live snapshot never drives a backend while the collector does. Kind `cache` takes no lock.
 - Section 7: `WritePipeline.restore(backup_dir, reload=True)`; `run()` restores without reloading
   when validation (or the write) failed, since nothing was loaded. The BIND connector's reload
   guard (`_Reloader`) is gone: reload is plain `rndc reconfig` again.

@@ -314,3 +314,42 @@ def test_build_backends_and_run_once(node_ctx, monkeypatch, tmp_root):
     assert SeriesStore(conn).snapshot(node, "bind", "zones") is None  # rebuilt, bind down: no new snapshot
     assert conn.execute("SELECT kind FROM alerts").fetchone()[0] == "daemon_down"
     conn.close()
+
+
+def test_polls_and_replication_share_one_backend_lock(rig, monkeypatch):
+    import threading
+
+    from pelagos.collector.snapshots import SnapshotProvider
+    from pelagos.domain import Engine, NodeApplyResult, Plan, PlanScope
+
+    collector, backends, _ = rig
+    core, service = collector_main.build_registries(collector.ctx, backends, collector.backend_lock)
+    provider = SnapshotProvider(collector.node_id, collector.ctx.paths.series_db, service, core.lock)
+    assert core.lock is collector.backend_lock and provider.lock is collector.backend_lock
+    monkeypatch.setattr("pelagos.services.snapshot.engine_snapshot", lambda *a: {"live": True})
+    backends.kea4.apply = lambda plan: NodeApplyResult(node_id="x", ok=True)  # type: ignore[method-assign]
+    plan = Plan(scope=PlanScope.DHCP_SUBNET, node_id="n", summary="s", engine=Engine.KEA4)
+    calls = {
+        "poll": collector.poll_kea,
+        "apply": lambda: core.apply(plan),
+        "snapshot": lambda: provider("kea4", "subnets", {}),
+    }
+    for name, call in calls.items():
+        done = threading.Event()
+
+        def run(call=call, done=done):
+            call()
+            done.set()
+
+        with collector.backend_lock:
+            worker = threading.Thread(target=run)
+            worker.start()
+            assert not done.wait(0.2), f"{name} ran while another thread held the backend lock"
+        assert done.wait(5), name
+        worker.join()
+    # The cache kind reads SQLite only and never waits for the backends.
+    with collector.backend_lock:
+        worker = threading.Thread(target=lambda: provider("kea4", "cache", {}))
+        worker.start()
+        worker.join(5)
+        assert not worker.is_alive()

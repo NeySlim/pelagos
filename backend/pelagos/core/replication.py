@@ -428,9 +428,11 @@ class ReplicationApp:
             plan = Plan.from_dict(body["plan"])
         except (KeyError, TypeError, ValueError) as exc:
             raise _Refused(400, "validation_error", f"invalid plan: {exc}") from None
-        result = self._unseal(plan) if verb == "apply" else None
-        if result is None:
-            result = self.registry.apply(plan) if verb == "apply" else self.registry.rollback(plan)
+        # Secrets handed over and the apply run as one step against the collector's polls.
+        with self.registry.lock:
+            result = self._unseal(plan) if verb == "apply" else None
+            if result is None:
+                result = self.registry.apply(plan) if verb == "apply" else self.registry.rollback(plan)
         result.node_id = self.node.id
         entry = AuditEntry(
             node_id=self.node.id,

@@ -9,6 +9,7 @@ real node (connectors from node.toml, mTLS peer client) and loops; tests drive t
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -137,9 +138,13 @@ class Collector:
         peer_client: PeerClient | None = None,
         events: EventSink | None = None,
         clock: Callable[[], float] = time.time,
+        backend_lock: threading.RLock | None = None,
     ) -> None:
         self.ctx = ctx
         self.store = store
+        # Every backend call runs under it, shared with the replication server (remote plans, live
+        # snapshots) which drives the same backend objects from its own thread.
+        self.backend_lock = backend_lock if backend_lock is not None else threading.RLock()
         self.alerts = AlertStore(store.conn)
         self.backends = backends
         self.events = events or EventSink(ctx.paths.events_sock, ctx.node.id)
@@ -160,19 +165,25 @@ class Collector:
 
     def poll_bind(self) -> None:
         if self.bind is not None:
-            self._finish(self.bind.poll())
+            with self.backend_lock:
+                outcome = self.bind.poll()
+            self._finish(outcome)
 
     def poll_kea(self) -> None:
         # Thresholds live in the replicated settings: re-read them every pass.
         settings = self.ctx.settings()
         for poller in self.kea:
             poller.settings = settings
-            self._finish(poller.poll())
+            with self.backend_lock:
+                outcome = poller.poll()
+            self._finish(outcome)
 
     def poll_d2(self) -> None:
         if self.d2 is not None:
             self.d2.settings = self.ctx.settings()
-            self._finish(self.d2.poll())
+            with self.backend_lock:
+                outcome = self.d2.poll()
+            self._finish(outcome)
 
     def poll_peers(self) -> None:
         self.peers.settings = self.ctx.settings()
@@ -312,8 +323,9 @@ class Collector:
         errors: list[str] = []
         for backend in self.backends.dhcp:
             try:
-                reservations.extend(backend.list_reservations())
-                leases.extend(_all_leases(backend, self.node_id))
+                with self.backend_lock:
+                    reservations.extend(backend.list_reservations())
+                    leases.extend(_all_leases(backend, self.node_id))
             except (ConnectorError, NotImplementedError) as exc:
                 errors.append(f"{backend.engine_name}: {exc or type(exc).__name__}")
         return leases, reservations, errors
@@ -325,7 +337,8 @@ class Collector:
         if self.backends.dns is None:
             return forward, reverse, []
         try:
-            zones = self.backends.dns.list_zones()
+            with self.backend_lock:
+                zones = self.backends.dns.list_zones()
         except (ConnectorError, NotImplementedError) as exc:
             return forward, reverse, [f"bind: {exc or type(exc).__name__}"]
         errors: list[str] = []
@@ -333,7 +346,8 @@ class Collector:
             if zone.kind is not ZoneKind.PRIMARY:
                 continue
             try:
-                rrsets = self.backends.dns.read_zone(zone.name, zone.view)
+                with self.backend_lock:
+                    rrsets = self.backends.dns.read_zone(zone.name, zone.view)
             except (ConnectorError, NotImplementedError) as exc:
                 errors.append(f"AXFR {zone.name}: {exc or type(exc).__name__}")
                 continue
@@ -368,13 +382,15 @@ def build_tasks(ctx: NodeContext, store: series_mod.SeriesStore) -> list[Task]:
     return Collector(ctx, store, build_backends(ctx), build_peer_client(ctx)).tasks()
 
 
-def build_registries(ctx: NodeContext, backends: Backends) -> tuple[Any, Any]:
+def build_registries(
+    ctx: NodeContext, backends: Backends, lock: threading.RLock | None = None
+) -> tuple[Any, Any]:
     """The same backend objects behind both registries: core's (remote plan apply) and the services'
     one that `services.snapshot.engine_snapshot` reads (live snapshot kinds)."""
     from pelagos.core.registry import ConnectorRegistry as CoreRegistry
     from pelagos.services.registry import ConnectorRegistry as ServiceRegistry
 
-    core = CoreRegistry(ctx.node.id)
+    core = CoreRegistry(ctx.node.id, lock=lock)
     for engine, backend in (("bind", backends.dns), ("kea4", backends.kea4), ("kea6", backends.kea6)):
         if backend is not None:
             core.register(engine, backend)
@@ -389,6 +405,7 @@ def start_replication(
     listener: SignalListener,
     store: series_mod.SeriesStore,
     backends: Backends | None = None,
+    backend_lock: threading.RLock | None = None,
 ) -> Any:
     """Start ReplicationService on the collector's listener: /repl/v1 server, pushes, anti-entropy.
 
@@ -398,8 +415,8 @@ def start_replication(
     from pelagos.core.signals import signal_collector
 
     backends = backends if backends is not None else Backends()
-    core_registry, service_registry = build_registries(ctx, backends)
-    provider = SnapshotProvider(ctx.node.id, ctx.paths.series_db, service_registry)
+    core_registry, service_registry = build_registries(ctx, backends, backend_lock)
+    provider = SnapshotProvider(ctx.node.id, ctx.paths.series_db, service_registry, core_registry.lock)
     sock = ctx.paths.collector_sock
     try:
         return start_collector_side(
@@ -452,7 +469,7 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
         listener.open()
     except OSError as exc:
         log.warning("signal socket %s unavailable: %s", paths.collector_sock, exc)
-    replication = start_replication(ctx, listener, store, backends)
+    replication = start_replication(ctx, listener, store, backends, collector.backend_lock)
     replicator = getattr(replication, "replicator", None)
     if replicator is not None:
         collector.peers.liveness = replicator

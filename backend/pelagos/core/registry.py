@@ -8,6 +8,7 @@ with apply(plan) and rollback(plan) qualifies, which keeps tests free of daemons
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -28,9 +29,11 @@ def _engine_key(engine: Engine | str | None) -> str | None:
 
 
 class ConnectorRegistry:
-    def __init__(self, node_id: str) -> None:
+    def __init__(self, node_id: str, lock: threading.RLock | None = None) -> None:
         self.node_id = node_id
         self._backends: dict[str, Any] = {}
+        # Held around every backend call: the collector polls the same backend objects under it.
+        self.lock = lock if lock is not None else threading.RLock()
 
     def register(self, engine: Engine | str, backend: Any) -> None:
         key = _engine_key(engine)
@@ -58,7 +61,8 @@ class ConnectorRegistry:
         except EngineNotConfigured as exc:
             return NodeApplyResult(node_id=self.node_id, ok=False, message=str(exc))
         try:
-            result: NodeApplyResult = getattr(backend, verb)(plan)
+            with self.lock:
+                result: NodeApplyResult = getattr(backend, verb)(plan)
         except Exception as exc:
             log.exception("%s of plan %s failed", verb, plan.id)
             return NodeApplyResult(node_id=self.node_id, ok=False, message=f"{verb} failed: {exc}")
@@ -74,6 +78,10 @@ class ConnectorRegistry:
 
     def snapshot(self, engine: Engine | str) -> dict[str, Any]:
         """Engine read for `GET /repl/v1/engines/<engine>/snapshot`; probe failures are data, not errors."""
+        with self.lock:
+            return self._snapshot(engine)
+
+    def _snapshot(self, engine: Engine | str) -> dict[str, Any]:
         backend = self.get(engine)
         key = _engine_key(engine)
         out: dict[str, Any] = {"engine": key, "node_id": self.node_id, "collected_at": to_rfc3339(utcnow())}

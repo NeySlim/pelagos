@@ -24,7 +24,7 @@
   "bind": {
     "managed": "Pelagos",
     "userFile": "User file",
-    "managedHelp": "This file is written by Pelagos. Change it from its dedicated screen (zones, keys, ACLs, resolver).",
+    "managedHelp": "Zones, keys and ACLs of this file have their own screens; pelagos.conf is generated.",
     "addTop": "Add a statement to this file",
     "addInside": "Add a statement inside this block",
     "addIn": "New statement in context {{context}}",
@@ -55,7 +55,8 @@
       "integer": "A number is expected",
       "required": "A value is required",
       "semicolon": "Leave out the final semicolon"
-    }
+    },
+    "userFileHelp": "User files are never rewritten: only the statements of the options block change here. Add other statements to a managed file."
   },
   "kea": {
     "root": "(root)",

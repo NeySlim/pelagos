@@ -74,11 +74,11 @@ describe('BindEditorPage', () => {
     expect(screen.getByTestId('statement-add')).toHaveTextContent('New statement in context options')
   })
 
-  it('keeps Pelagos managed files read-only', async () => {
+  it('keeps zones, keys and ACLs of managed files on their own screens', async () => {
     render(<BindEditorPage />)
     await waitFor(() => expect(statement('key')).toBeTruthy())
     fireEvent.click(statement('key'))
-    expect(screen.getByTestId('bind-form')).toHaveTextContent('This file is written by Pelagos')
+    expect(screen.getByTestId('bind-form')).toHaveTextContent('have their own screens')
     expect(screen.queryByTestId('statement-save')).not.toBeInTheDocument()
   })
 

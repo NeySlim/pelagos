@@ -2,7 +2,8 @@
 // named.conf editor: statement tree of every file with provenance on the left,
 // a form generated from the BIND grammar on the right, then the pending diff and
 // a dns.config plan validated by named-checkconf before anything is applied.
-// Files managed by Pelagos are read-only here: their dedicated screens own them.
+// Managed files take any statement without a dedicated screen (zones, keys and ACLs
+// keep theirs); user files only take changes inside their options block.
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Code, ArrowsClockwise, CaretDown, CaretRight, Plus, Trash, FileText, LockSimple, ArrowSquareOut, Lightning, ArrowCounterClockwise } from '@phosphor-icons/react'
@@ -16,6 +17,7 @@ import { ValueEditor } from './ValueEditor'
 import {
   grammarIndex, statementsFor, childContext, toForm, fromForm, validateForm, getAt,
   replaceStatement, removeStatement, addStatement, buildChanges, fileText, normalizeGrammar, valueText,
+  editableAt, canAddTop, canAddInside, topContext,
 } from './bindGrammar'
 import { unifiedDiff } from './lineDiff'
 
@@ -28,14 +30,14 @@ const textValues = (statements) =>
 
 const samePath = (a, b) => Boolean(a && b) && a.length === b.length && a.every((v, i) => v === b[i])
 
-function StatementRows({ statements, fileIndex, prefix, depth, selected, onSelect, readOnly, onAdd, t }) {
+function StatementRows({ statements, fileIndex, prefix, depth, selected, onSelect, canAdd, onAdd, t }) {
   return statements.map((s, i) => {
     const path = [fileIndex, ...prefix, i]
-    return <StatementRow key={`${s.name}-${i}`} statement={s} path={path} depth={depth} selected={selected} onSelect={onSelect} readOnly={readOnly} onAdd={onAdd} t={t} />
+    return <StatementRow key={`${s.name}-${i}`} statement={s} path={path} depth={depth} selected={selected} onSelect={onSelect} canAdd={canAdd} onAdd={onAdd} t={t} />
   })
 }
 
-function StatementRow({ statement, path, depth, selected, onSelect, readOnly, onAdd, t }) {
+function StatementRow({ statement, path, depth, selected, onSelect, canAdd, onAdd, t }) {
   const [open, setOpen] = useState(depth < 1)
   const hasChildren = Array.isArray(statement.children)
   const isSelected = samePath(selected, path)
@@ -58,7 +60,7 @@ function StatementRow({ statement, path, depth, selected, onSelect, readOnly, on
         <span className="font-mono text-text-primary">{statement.name}</span>
         {statement.value && <span className="font-mono text-text-secondary truncate min-w-0 flex-1">{statement.value}</span>}
         {!statement.value && <span className="flex-1" />}
-        {hasChildren && !readOnly && (
+        {hasChildren && canAdd(path) && (
           <button type="button" className="opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-accent-primary" title={t('bind.addInside')} onClick={(e) => { e.stopPropagation(); onAdd(path, statement.name) }}>
             <Plus size={12} />
           </button>
@@ -66,7 +68,7 @@ function StatementRow({ statement, path, depth, selected, onSelect, readOnly, on
         {statement.line ? <span className="text-2xs text-text-tertiary font-mono">{statement.line}</span> : <Badge variant="warning" size="sm">{t('bind.new')}</Badge>}
       </div>
       {hasChildren && open && (
-        <StatementRows statements={statement.children} fileIndex={path[0]} prefix={path.slice(1)} depth={depth + 1} selected={selected} onSelect={onSelect} readOnly={readOnly} onAdd={onAdd} t={t} />
+        <StatementRows statements={statement.children} fileIndex={path[0]} prefix={path.slice(1)} depth={depth + 1} selected={selected} onSelect={onSelect} canAdd={canAdd} onAdd={onAdd} t={t} />
       )}
     </div>
   )
@@ -205,7 +207,7 @@ export default function BindEditorPage() {
 
   const selectedFile = selected ? draft[selected[0]] : null
   const selectedStatement = selected && selectedFile ? getAt(selectedFile.statements, selected.slice(1)) : null
-  const readOnly = !canWrite || Boolean(selectedFile?.managed)
+  const readOnly = !editableAt(selectedFile, selected?.slice(1), canWrite)
 
   const select = (path) => {
     setAdding(null)
@@ -213,7 +215,7 @@ export default function BindEditorPage() {
   }
   const startAdd = (path, parentName) => {
     setSelected(null)
-    setAdding({ path, context: childContext(parentName) })
+    setAdding({ path, context: childContext(parentName || (path.length === 1 ? topContext(draft[path[0]]) : null)) })
   }
   const existingNames = adding
     ? (adding.path.length === 1 ? draft[adding.path[0]].statements : getAt(draft[adding.path[0]].statements, adding.path.slice(1))?.children || []).map((s) => s.name)
@@ -279,13 +281,13 @@ export default function BindEditorPage() {
                     ) : (
                       <Badge variant="outline" size="sm">{t('bind.userFile')}</Badge>
                     )}
-                    {!file.managed && canWrite && (
+                    {canAddTop(file, canWrite) && (
                       <button type="button" className="text-text-tertiary hover:text-accent-primary" title={t('bind.addTop')} onClick={() => startAdd([fi], null)} data-testid="bind-add-top">
                         <Plus size={12} />
                       </button>
                     )}
                   </div>
-                  <StatementRows statements={file.statements} fileIndex={fi} prefix={[]} depth={0} selected={selected} onSelect={select} readOnly={file.managed || !canWrite} onAdd={startAdd} t={t} />
+                  <StatementRows statements={file.statements} fileIndex={fi} prefix={[]} depth={0} selected={selected} onSelect={select} canAdd={(path) => canAddInside(file, path.slice(1), canWrite)} onAdd={startAdd} t={t} />
                 </div>
               ))}
             </Card>
@@ -308,7 +310,7 @@ export default function BindEditorPage() {
                     <p className="text-2xs text-text-tertiary font-mono">
                       {selectedStatement.line ? t('bind.definedAt', { file: selectedFile.path, line: selectedStatement.line }) : t('bind.pendingIn', { file: selectedFile.path })}
                     </p>
-                    {selectedFile.managed && <p className="text-xs text-text-secondary mt-1">{t('bind.managedHelp')}</p>}
+                    {readOnly && canWrite && <p className="text-xs text-text-secondary mt-1">{t(selectedFile.managed ? 'bind.managedHelp' : 'bind.userFileHelp')}</p>}
                   </div>
                   <StatementEditor
                     statement={selectedStatement}

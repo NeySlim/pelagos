@@ -24,7 +24,7 @@
   "bind": {
     "managed": "Pelagos",
     "userFile": "Fichier utilisateur",
-    "managedHelp": "Ce fichier est écrit par Pelagos. Modifiez-le depuis son écran dédié (zones, clés, ACL, résolveur).",
+    "managedHelp": "Les zones, clés et ACL de ce fichier ont leurs propres écrans ; pelagos.conf est généré.",
     "addTop": "Ajouter un statement à ce fichier",
     "addInside": "Ajouter un statement dans ce bloc",
     "addIn": "Nouveau statement dans le contexte {{context}}",
@@ -55,7 +55,8 @@
       "integer": "Un nombre est attendu",
       "required": "Une valeur est requise",
       "semicolon": "Retirez le point-virgule final"
-    }
+    },
+    "userFileHelp": "Les fichiers utilisateur ne sont jamais réécrits : seules les instructions du bloc options se modifient ici. Ajoutez les autres instructions dans un fichier géré."
   },
   "kea": {
     "root": "(racine)",

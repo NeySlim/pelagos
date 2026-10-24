@@ -43,7 +43,7 @@ function PolicyModal({ policy, builtin, allowed, onClose, onPlan }) {
   const errorText = errors.map((e) => t(e.error === 'unknown' ? 'dnssec.unknownStatement' : 'dnssec.emptyStatement', { name: e.name })).join(', ')
   return (
     <FormModal open onClose={onClose} title={policy ? t('dnssec.editPolicy', { name }) : t('dnssec.newPolicy')} onSubmit={submit} loading={busy} submitLabel={t('editor.buildPlan')} size="lg" testId="dnssec-policy-modal">
-      <Input label={t('dnssec.policyName')} value={name} onChange={(e) => setName(e.target.value)} disabled={Boolean(policy)} error={touched && !nameOk ? t('dnssec.policyNameError') : undefined} autoFocus={!policy} />
+      <Input data-testid="dnssec-policy-name" label={t('dnssec.policyName')} value={name} onChange={(e) => setName(e.target.value)} disabled={Boolean(policy)} error={touched && !nameOk ? t('dnssec.policyNameError') : undefined} autoFocus={!policy} />
       <Textarea label={t('dnssec.statements')} value={text} onChange={(e) => setText(e.target.value)} rows={6} className="font-mono" helperText={t('dnssec.statementsHelp')} error={touched && errorText ? errorText : undefined} data-testid="dnssec-policy-text" />
       {allowed.length > 0 && <p className="text-2xs text-text-tertiary break-words">{t('dnssec.allowed', { names: allowed.join(', ') })}</p>}
     </FormModal>

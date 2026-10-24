@@ -149,6 +149,49 @@ environment variable or the prompt is preferred. The unused `_placeholder`
 helper is gone. `pelagos rotate-master-key` moves to the roadmap's post-v1
 list. Nothing to react to.
 
+## 2026-10-24, F-DNS: static zones, views, addzone, catalogs, DNSSEC writing
+All additive; `docs/architecture.md` sections 4, 5, 6, 10 and 17 updated.
+- `ZoneSource.ADDZONE = "addzone"` (`pelagos.domain.dns`): zones added with
+  `rndc addzone`; `list_zones` also returns catalog members (source `catalog`,
+  `extra["catalog"]`). Readers that switch on the source: treat unknown values
+  like `user_conf`.
+- `dns.rrset` targets take a view prefix outside `_default`:
+  `<view>/<zone>/<owner>/<type>` (RRSET preconditions `<view>/<owner>/<type>`).
+  Three-part targets are unchanged. `plan_service._observe_rrset` reads both.
+  Record plans in a view sign with `settings.dns.view_keys.<view>` (new setting,
+  section 10); without it they raise `NotSupported` as before.
+- Static primary zones: a record plan edits the zone file on the node that holds
+  it (`connectors/bind/zonefile.py`, `staticzone.py`) instead of failing with
+  REFUSED; same scope `dns.rrset`, same targets, so hosts and the routing to the
+  primary's node work unchanged. `read_zone` falls back to the file when a static
+  primary refuses the transfer.
+- `dns.zone` plans may carry `op:<operation>/<view>/<zone>` targets (rndc zone
+  operations and `dnssec-rollover`/`dnssec-checkds`); `DnsService.operation` on a
+  peer `node_id` sends one over `/repl/v1/plans/apply` instead of answering 501.
+  WP-CORE: nothing to change (the peer's registry applies it like any plan).
+- `dns.config` target `dnssec-policy/<name>` writes `policies.conf` in the include
+  directory and adds `include ".../policies.conf";` to `pelagos.conf` (kept
+  otherwise). `managed_files["policies.conf"]` appears in the tree once it exists.
+- `POST /dns/zones/plan` accepts `node_ids` (peers get the new primary as a
+  secondary of this node; `after.secondary.primaries`, default this node's
+  replication address with `key <read key>`) and `after.source: "addzone"`.
+  New endpoints: `POST /dns/catalog-zones/{zone}/members/plan`,
+  `GET /dns/dnssec/policies`, `POST /dns/dnssec/policies/plan`,
+  `POST /dns/zones/{zone}/dnssec/plan`. `GET /dns/zones` items and
+  `GET /dns/zones/{zone}` carry `mode`; the latter also `views`.
+  `GET /dns/catalog-zones` items gain `view`, `role`, `version`, `error`, and
+  members become objects `{zone, label, group, coo}`.
+- Security audit (WP-INSTALLER): findings `static_zone` (info; remediation
+  `convert_dynamic`) and `view_key` (remediation `view_key`, also stores
+  `settings.dns.view_keys`); static non-builtin primaries now get
+  `transfer_without_read_key`; zones of a multi-view configuration no longer get
+  `update_without_admin_key`/`transfer_without_read_key` (the view key covers
+  them). `build_security_plan` runs `view_key` changes first.
+- `core.write_pipeline`: a replaced file keeps its `security.selinux` label when
+  the process may set it (WP-CORE: no API change).
+- WP-FRONTEND: the BIND editor writes `raw:<managed file>` for any top-level
+  statement without a dedicated screen; user files only take `options/<name>`.
+
 ## 2026-10-24, LAB-E2E: helper apply runs only plans it can vouch for
 `docs/architecture.md` section 2. `pelagos helper apply` refuses a plan made
 on this node unless the helper built it (`plan_install`, `plan_import`,

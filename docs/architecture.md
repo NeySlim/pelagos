@@ -281,7 +281,7 @@ DNS (`domain/dns.py`):
 
 ```python
 class ZoneKind(str, Enum): PRIMARY, SECONDARY, STUB, STATIC_STUB, FORWARD, MIRROR, HINT, REDIRECT
-class ZoneSource(str, Enum): USER_CONF = "user_conf"; PELAGOS = "pelagos"; CATALOG = "catalog"
+class ZoneSource(str, Enum): USER_CONF = "user_conf"; PELAGOS = "pelagos"; CATALOG = "catalog"; ADDZONE = "addzone"
 
 @dataclass(slots=True)
 class Zone(Model):
@@ -699,6 +699,36 @@ Semantics for `DnsBackend`:
   `settings.dns.read_key`), AXFR over TCP to `127.0.0.1:<port>`; records are
   grouped into RRsets with owner names absolute and lowercase, TTL as read,
   rdata in dnspython presentation format. SOA and NS at apex are included.
+- `list_zones` returns the zones of `named.conf`, then the zones named loaded
+  from elsewhere: the statistics channel lists every loaded zone, those not in
+  the configuration are catalog members (source `catalog`, `extra["catalog"]`
+  names the catalog, members read from the consumed catalog's content) or zones
+  added with `rndc addzone` (source `addzone`, statement from `rndc showzone`,
+  `config_path` the view's NZD or NZF file). Without the statistics channel the
+  `<view>.nzf` files are read.
+- Views: reads (`soa_serial`, `read_zone`) and record plans of a view other than
+  `_default` sign with the view's key, `settings.dns.view_keys.<view>` (a key
+  name for both roles, or `{"read": ..., "admin": ...}`); the key decides which
+  view answers, through `match-clients { key <name>; ... }`. Without a key for
+  the view the call raises `NotSupported`.
+- Static primary zones (type primary without `allow-update` or `update-policy`,
+  or `allow-update { none; }`): a record plan edits the zone file on the node
+  that holds it instead of sending an UPDATE. The plan says so in its summary
+  ("file edit, the zone stays static"), its diff is the unified diff of the zone
+  file(s), it carries `FILE_SHA256` preconditions on them and the validations of
+  `named-checkzone` on a copy (includes rewritten to the copies) and of the write
+  permissions (the plan fails, saying why, when this process cannot replace the
+  file and its directory). Apply re-reads the file, checks the RRsets still
+  match `before`, edits only the record lines involved (comments, blank lines,
+  `$ORIGIN`, `$TTL` and `$INCLUDE` kept; a record is edited in the file that holds
+  it; an owner or TTL inherited from a removed line is written out), bumps the
+  SOA serial in its own scheme (`YYYYMMDDnn` moves to today or counts up, other
+  serials increment, above both the file and the served serial), writes through
+  the pipeline (owner, mode and SELinux label kept), runs `rndc reload <zone>`
+  (named sends NOTIFY) and verifies the loaded serial. Rollback applies the
+  inverse edit with a new serial, so secondaries transfer it. The node that
+  applies decides: a plan built on a secondary node and routed to the primary's
+  node becomes a file edit there when the zone is static there.
 - `plan_rrset_changes`: `Change.target` is `"<zone>/<owner>/<type>"`, owner
   relative to the zone or absolute; `before`/`after` are `RRset` dicts
   (`after` with `ttl` and `rdata`). The plan carries `RRSET_EXISTS` /
@@ -841,9 +871,14 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
 `Change.target` grammar (one line each):
 
 ```
-dns.rrset      : "<zone>/<owner>/<type>"            owner relative or absolute
+dns.rrset      : "[<view>/]<zone>/<owner>/<type>"   owner relative or absolute; the view prefix only
+                 outside "_default" (preconditions: "[<view>/]<owner>/<type>")
 dns.zone       : "<view>/<zone>"                    view "_default" when none
+                 | "op:<operation>/<view>/<zone>"   rndc retransfer|notify|reload|freeze|thaw|sync|
+                                                    dnssec-rollover|dnssec-checkds, `after` = typed arguments
+                                                    ({"key_id", "when", "state", "clean"}); never rolled back
 dns.config     : "keys/<name>" | "acls/<name>" | "options/<statement>" | "raw:<file>" | "pelagos/includes"
+                 | "dnssec-policy/<name>"           after {"name", "statements": [{"name", "value"}]}, in policies.conf
 dhcp.subnet    : "subnet<4|6>/<id>"
 dhcp.shared_network : "shared-networks/<name>"
 dhcp.reservation : "subnet<4|6>/<id>/reservations/<id_type>=<identifier>" | "global/reservations/<id_type>=<identifier>"
@@ -1112,6 +1147,7 @@ read_key = "ddi-read"
 admin_key = "ddi-admin"
 update_types_admin = ["A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "DHCID"]
 update_types_kea = ["A", "AAAA", "PTR", "DHCID"]
+view_keys = { inside = "ddi-inside" }    # per view: key name, or { read = "...", admin = "..." }
 
 [settings.kea]
 ddns_key = "kea-ddns"
@@ -1652,8 +1688,8 @@ change revokes the user's other sessions.
 | --- | --- | --- | --- |
 | `GET /dns/instances` | `read:dns` | | `{"items": [{"node_id", "capabilities": DnsCapabilities, "status": {rndc status fields}}]}` |
 | `GET /dns/zones?view=&kind=&q=` | `read:dns` | | `{"items": [{"zone": Zone, "serials": {node_id: int|null}, "divergent": bool, "status": {node_id: ZoneStatus}}]}` (`status` filled for secondary, mirror and stub zones with the read node's status, kept `peer_poll_seconds`, else `{}`) |
-| `GET /dns/zones/{zone}?view=` | `read:dns` | | `{"zone": Zone, "status": {node_id: ZoneStatus}}` |
-| `POST /dns/zones/plan` | `write:dns.zones` | `{"change": Change}` (target `<view>/<zone>`, `after` = Zone) | `Plan` |
+| `GET /dns/zones/{zone}?view=` | `read:dns` | | `{"zone": Zone, "status": {node_id: ZoneStatus}, "mode": "dynamic"|"static"|<kind>, "views": [view names holding this zone]}` |
+| `POST /dns/zones/plan` | `write:dns.zones` | `{"change": Change, "node_ids"?: [...]}` (target `<view>/<zone>`, `after` = Zone; `after.source: "addzone"` adds it with `rndc addzone`, and a zone whose source is `addzone` is changed with `rndc modzone`/`delzone`; with `node_ids` a new primary also lands on those peers as a secondary of this node, `after.secondary.primaries` saying where they transfer from) | `Plan` |
 | `GET /dns/zones/{zone}/records?view=&type=&name=&q=&page=&per_page=` | `read:dns` | | paginated `RRset` (`node_id` of the node read in `meta`) |
 | `POST /dns/zones/{zone}/records/plan` | `write:dns.records` | `{"view"?, "changes": [Change]}` | `Plan` |
 | `POST /dns/zones/{zone}/retransfer` | `ops:dns` | `{"node_id", "view"?}` | `{"output"}` |
@@ -1670,7 +1706,11 @@ change revokes the user's other sessions.
 | `GET /dns/resolver` | `read:dns` | | `{"recursion", "allow_recursion", "forwarders", "forward", "dnssec_validation", "per_node": {...}}` |
 | `POST /dns/resolver/plan` | `write:dns.config` | the keys to change, named like the `named.conf` statements: `{"recursion"?, "allow-recursion"?, "forwarders"?, "forward"?, "dnssec-validation"?}`; `null` removes the statement | `Plan` |
 | `GET /dns/rpz` | `read:dns` | | `{"items": [{"zone","policy","source"}]}` |
-| `GET /dns/catalog-zones` | `read:dns` | | `{"items": [...]}` |
+| `GET /dns/catalog-zones?node_id=` | `read:dns` | | `{"items": [{"zone", "view", "role": "consumer"|"producer", "members": [{"zone", "label", "group", "coo"}], "member_count", "version", "default_primaries"?, "statement"?, "options"?, "error"}]}` (members read from the catalog zone now) |
+| `POST /dns/catalog-zones/{zone}/members/plan` | `write:dns.records` | `{"op": "add"|"delete", "member", "group"?, "view"?}` | `Plan` (scope `dns.rrset` on the producer catalog: PTR `<sha1 label>.zones.<catalog>`, TXT `group.<label>...`; 400 on a consumer) |
+| `GET /dns/dnssec/policies` | `read:dns` | | `{"items": [{"name", "statements": [{"name","value"}], "text", "source", "config_path", "line", "used_by": ["<view>/<zone>"]}], "builtin": ["default","insecure","none"]}` |
+| `POST /dns/dnssec/policies/plan` | `write:dns.config` | `{"change": Change}` (target `dnssec-policy/<name>`, `after` `{"statements"}`; statement names checked against the dnssec-policy grammar) | `Plan` |
+| `POST /dns/zones/{zone}/dnssec/plan` | `write:dns.zones` | `{"action": "rollover"|"checkds", "key_id"?, "when"?, "state"? ("published"|"withdrawn"), "view"?, "node_id"?}` | `Plan` (requires confirmation; `rndc dnssec -rollover`/`-checkds`) |
 | `GET /dns/stats?node_id=` | `read:dns` | | `BindInstanceStats` |
 
 `{zone}` in paths is the zone name without the trailing dot, URL encoded;
@@ -1810,6 +1850,26 @@ node of a cluster signs with the same keys, publishes the node's engines in
 `cluster.toml [[nodes]].modules`, and makes each Kea configuration writable
 by `config-write` (Kea user or group, and the Debian AppArmor profile's local
 include).
+
+`GET /dns/zones` items carry `mode` too. `POST /dns/zones/{zone}/retransfer`
+(notify, reload) with the `node_id` of a peer runs there: the operation travels as
+an `op:` plan over `/repl/v1/plans/apply`, the peer audits it as
+`dns.zone.apply`, this node as `dns.zone.op` with the peer's `node_id`.
+`GET /dns/zones/{zone}/dnssec` adds to each key `tag`, `role`, `state`, `goal`,
+`ds_state`, `published`, `next_rollover` and `ds` (the DS of a KSK/CSK, SHA-256,
+from the zone's DNSKEY set), and to the status `ds`, `cds` and `ds_guidance`
+(`[{"key_id", "action": "publish"|"withdraw", "ds", "checkds"}]`).
+
+The security audit also reports `static_zone` (info: a static primary, edited
+through its file; the remediation adds an `update-policy` granting the admin key,
+or the view's key, in place of `allow-update { none; }`, after checking named can
+write the journal next to the file) and `view_key` (with two views or more: a key
+`ddi-<view>` per view, `key ddi-<view>;` first in that view's match-clients and
+`!key ddi-<view>;` first in those of the views before it, grants and transfers for
+that key on the view's zones, `settings.dns.view_keys.<view>` stored). Zones in a
+multi-view configuration get no `update_without_admin_key` or
+`transfer_without_read_key` finding: the view key covers them. The distribution's
+own zones (localhost, 127/0/255.in-addr.arpa) are never reported.
 
 Records of a zone that this node holds as a secondary (or mirror) are planned
 here and applied on the peer that holds it as primary (`target_node_ids`), so

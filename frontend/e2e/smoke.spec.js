@@ -15,6 +15,7 @@ const PAGES = [
   ['/dns/secondaries', 'page-dns-secondaries', 'secondaries-table'],
   ['/dns/dnssec', 'page-dns-dnssec', 'dnssec-zones'],
   ['/dns/rpz', 'page-dns-rpz', 'rpz-table'],
+  ['/dns/catalogs', 'page-dns-catalogs', 'catalog-card'],
   ...['v4', 'v6'].flatMap((family) =>
     [
       ['subnets', 'subnets', 'subnets-table'],

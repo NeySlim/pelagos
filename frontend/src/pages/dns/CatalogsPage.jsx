@@ -44,7 +44,7 @@ function AddMemberModal({ catalog, onClose, onPlan }) {
   }
   return (
     <FormModal open onClose={onClose} title={t('catalogs.addTitle', { zone: catalog.zone })} onSubmit={submit} loading={busy} submitLabel={t('editor.buildPlan')} testId="catalog-add">
-      <Input label={t('catalogs.member')} value={member} onChange={(e) => setMember(e.target.value)} placeholder="new.example.lan" error={touched && !ok ? t('catalogs.memberError') : undefined} autoFocus />
+      <Input data-testid="catalog-member-input" label={t('catalogs.member')} value={member} onChange={(e) => setMember(e.target.value)} placeholder="new.example.lan" error={touched && !ok ? t('catalogs.memberError') : undefined} autoFocus />
       <Input label={t('catalogs.group')} value={group} onChange={(e) => setGroup(e.target.value)} />
     </FormModal>
   )

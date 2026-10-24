@@ -184,6 +184,43 @@ export function addStatement(files, path, statement) {
 
 const optionsBlock = (file) => (file.statements || []).filter((s) => s.name === 'options')
 
+// Statements with their own screen (zones, keys, ACLs) and includes stay read-only here.
+export const DEDICATED_STATEMENTS = ['zone', 'key', 'acl', 'include']
+const baseName = (path) => String(path || '').split('/').pop()
+const generated = (file) => file.managed && baseName(file.path) === 'pelagos.conf'
+
+// What the editor may change, mirroring what POST /dns/config/plan accepts: in a managed
+// file (raw:<file>) any top-level statement without a dedicated screen, pelagos.conf
+// excepted; in a user file only the statements of its single options block
+// (options/<statement>), since user files are never rewritten.
+export function editableAt(file, rest, canWrite) {
+  if (!canWrite || !file || !rest?.length) return false
+  const top = (file.statements || [])[rest[0]]
+  if (!top) return false
+  if (file.managed) return !generated(file) && !DEDICATED_STATEMENTS.includes(top.name)
+  return rest.length >= 2 && top.name === 'options' && optionsBlock(file).length === 1
+}
+
+// A new top-level statement goes to a managed file (not the generated pelagos.conf).
+export const canAddTop = (file, canWrite) => Boolean(canWrite && file?.managed && !generated(file))
+
+// Grammar context of a managed file's top level: options.conf is inside options,
+// views/<name>.conf inside a view.
+export function topContext(file) {
+  const path = String(file?.path || '')
+  if (baseName(path) === 'options.conf') return 'options'
+  if (/\/views\/[^/]+\.conf$/.test(path)) return 'view'
+  return null
+}
+
+// Adding inside a block: in a user file only inside its options block.
+export function canAddInside(file, rest, canWrite) {
+  if (!canWrite || !file) return false
+  const top = (file.statements || [])[rest[0]]
+  if (file.managed) return editableAt(file, rest, canWrite)
+  return rest.length === 1 && top?.name === 'options' && optionsBlock(file).length === 1
+}
+
 // raw:<file> Changes for top-level statements, matched on their provenance line:
 // before/after are one canonical statement each (null for add/delete), never the file.
 function rawChanges(path, before, after) {

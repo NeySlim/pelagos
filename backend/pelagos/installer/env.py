@@ -24,6 +24,7 @@ from pelagos.platform import (
     detect_distro,
     find_binary,
     platform_paths,
+    user_exists,
 )
 
 
@@ -60,9 +61,12 @@ class Tools:
         return res.stdout
 
     def kea_test(self, daemon: str, conf: Path) -> tuple[bool, str]:
-        res = self.env.runner.run(
-            [self._bin(daemon), "-t", str(conf)], privileged=True, check=False, mutates=False, timeout=60
-        )
+        """Checked as the Kea user, like the service runs: AppArmor denies root DAC override to Kea."""
+        argv = [self._bin(daemon), "-t", str(conf)]
+        runuser = self.env.binary("runuser")
+        if runuser and user_exists(self.env.paths.kea_user):
+            argv = [runuser, "-u", self.env.paths.kea_user, "--", *argv]
+        res = self.env.runner.run(argv, privileged=True, check=False, mutates=False, timeout=60)
         return res.ok, res.output
 
     def kea_version(self, daemon: str) -> str | None:

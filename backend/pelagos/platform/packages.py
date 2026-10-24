@@ -90,7 +90,8 @@ class PackageManager:
         if self.kind == "apt":
             return self.runner.run(["apt-get", "update", "-q"], privileged=True, timeout=600).output
         if self.kind == "dnf":
-            return self.runner.run(["dnf", "-q", "makecache"], privileged=True, timeout=600).output
+            # -y accepts the repository signing key declared in the .repo file (gpgkey=).
+            return self.runner.run(["dnf", "-y", "-q", "makecache"], privileged=True, timeout=600).output
         raise RuntimeError(f"no package manager for {self.distro.id}")
 
     def install(self, packages: list[str], replace: bool = False) -> str:

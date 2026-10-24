@@ -8,6 +8,7 @@ Nothing in the user's files changes except the two include lines.
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -423,9 +424,12 @@ def bind_pipeline(
     def verify() -> bool:
         if not named_running(env):
             return True
-        ok, _ = env.t.rndc(None, "status")
-        if not ok:
-            return False
+        # After a restart named needs a moment before its control channel answers.
+        deadline = time.monotonic() + (20 if restart else 0)
+        while not env.t.rndc(None, "status")[0]:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.5)
         if verify_stats:
             status, _ = env.t.http_get(verify_stats)
             return status == 200

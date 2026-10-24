@@ -180,7 +180,7 @@ def test_package_manager_dnf():
     assert pm.installed_version("kea") == "3.0.3-1.el10_2"
     pm.refresh()
     pm.install(["bind", "bind-utils"])
-    assert runner.commands("dnf") == ["dnf -q makecache", "dnf install -y -q bind bind-utils"]
+    assert runner.commands("dnf") == ["dnf -y -q makecache", "dnf install -y -q bind bind-utils"]
 
 
 def test_service_manager_queries():

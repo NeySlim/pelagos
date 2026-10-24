@@ -144,6 +144,9 @@ def test_switch_from_distro_kea_to_isc_keeps_configs(tmp_path):
     (kea / "kea-dhcp4.conf").write_text(d4)
     secret_key = {"name": "kea-ddns", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0"}
     (kea / "kea-dhcp-ddns.conf").write_text(json.dumps({"DhcpDdns": {"tsig-keys": [secret_key]}}))
+    profile = tmp_path / "etc/apparmor.d/usr.sbin.kea-dhcp4"
+    profile.parent.mkdir(parents=True)
+    profile.write_text("profile kea-dhcp4 {}\n")  # left behind by the removed Debian package
     plan = build_install_plan(env, ["kea4", "d2"], "isc", "3.2")
     pkgs = next(c for c in plan.changes if c.target == "install/packages").after
     assert pkgs["replaces"] == ["kea-dhcp4-server", "kea-dhcp-ddns-server"]
@@ -151,6 +154,8 @@ def test_switch_from_distro_kea_to_isc_keeps_configs(tmp_path):
     job = apply_plan(plan, env)
     assert job.state is JobState.DONE, job.error
     assert env.packages.calls[-1][0] == "install-replace"
+    assert (tmp_path / "etc/apparmor.d/disable/usr.sbin.kea-dhcp4").is_symlink()
+    assert "apparmor_parser -R " + str(profile) in env.runner.commands("apparmor_parser")
     assert ("fetch", "https://dl.cloudsmith.io/public/isc/kea-3-2/gpg.key") in env.tools.calls
     sources = (tmp_path / "etc/apt/sources.list.d/isc-kea-3-2.list").read_text()
     assert "kea-3-2/deb/debian trixie main" in sources

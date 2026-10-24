@@ -53,7 +53,9 @@ def detect_kea(env: Any, engine: str) -> EngineDetection:
     det = EngineDetection(installed=binary is not None, binary=binary)
     if binary:
         det.service = env.kea_unit(engine)
-        det.source = "isc" if det.service.startswith("isc-") else "distro"
+        # The ISC rpm units share the distro unit names: the package tells the source.
+        isc_pkg = paths.kea_packages_for([engine], isc=True)[0]
+        det.source = "isc" if env.packages.is_installed(isc_pkg) else "distro"
         det.version = env.t.kea_version(daemon)
         det.running = env.services.is_active(det.service)
         det.enabled = env.services.is_enabled(det.service)
@@ -86,7 +88,8 @@ def pelagos_state(env: Any, engines: dict[str, EngineDetection]) -> dict[str, An
     sockets: dict[str, bool] = {}
     for engine in keasetup.DAEMONS:
         det = engines[engine]
-        if det.installed and det.config_exists:
+        # Only daemons that run: an installed but stopped kea-dhcp6 is not a broken socket.
+        if det.installed and det.config_exists and det.running:
             try:
                 sockets[engine] = env.t.socket_alive(
                     keasetup.socket_path(env, engine, paths.kea_conf(keasetup.DAEMONS[engine]))

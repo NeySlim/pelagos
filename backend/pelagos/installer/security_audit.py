@@ -846,14 +846,19 @@ def dual_key_remove(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
     return _run_bind(env, by_file, f"security-dualkey-remove-{old}") + note
 
 
-def _replace_stmt(env: Any, d: dict[str, Any], select: Any, replacement: str, label: str) -> str:
+def _replace_stmt(
+    env: Any, d: dict[str, Any], select: Any, replacement: str, label: str, restart: bool = False
+) -> str:
     files = _reload_files(env)
     stmt = select(files)
     if stmt is None:
         raise RuntimeError(f"{label}: statement not found any more")
     text = _file_text(files, str(stmt.path))
     return _run_bind(
-        env, {str(stmt.path): bindconf.replace_span(text, stmt.start, stmt.end, replacement)}, label
+        env,
+        {str(stmt.path): bindconf.replace_span(text, stmt.start, stmt.end, replacement)},
+        label,
+        restart=restart,
     )
 
 
@@ -928,7 +933,8 @@ def remediate_controls(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
     repl = (
         f"controls {{\n\tinet 127.0.0.1 port {d.get('port', 953)} allow {{ 127.0.0.1; }}{keys_clause};\n}};"
     )
-    return _replace_stmt(env, d, _top_stmt("controls"), repl, "security-controls")
+    # `rndc reconfig` would drop its own connection when the channel moves: restart instead.
+    return _replace_stmt(env, d, _top_stmt("controls"), repl, "security-controls", restart=True)
 
 
 def remediate_stats(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:

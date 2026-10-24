@@ -221,9 +221,27 @@ def step_packages(env: Any, change: Change) -> str:
         if missing:
             # Older RHEL releases ship Kea in EPEL only.
             env.packages.install(["epel-release"])
-    if change.after.get("replaces"):
-        return env.packages.install(pkgs, replace=True)
-    return env.packages.install(pkgs)
+    if not change.after.get("replaces"):
+        return env.packages.install(pkgs)
+    return env.packages.install(pkgs, replace=True)
+
+
+def disable_stale_apparmor(env: Any) -> list[str]:
+    """Debian keeps the AppArmor profiles of removed Kea packages (conffiles) and they confine the ISC
+    binaries at the same paths, denying their lock files: unload and disable those profiles."""
+    apparmor = env.paths.root / "etc/apparmor.d"
+    out: list[str] = []
+    for profile in sorted(apparmor.glob("usr.sbin.kea-*")) if apparmor.is_dir() else []:
+        if env.dry_run:
+            out.append(f"dry run: would disable AppArmor profile {profile.name}")
+            continue
+        disabled = apparmor / "disable" / profile.name
+        disabled.parent.mkdir(parents=True, exist_ok=True)
+        if not disabled.exists():
+            disabled.symlink_to(profile)
+        env.runner.run(["apparmor_parser", "-R", str(profile)], privileged=True, check=False, timeout=60)
+        out.append(f"AppArmor profile {profile.name} of the replaced distro package disabled")
+    return out
 
 
 def step_user(env: Any, change: Change) -> str:
@@ -236,7 +254,12 @@ def step_user(env: Any, change: Change) -> str:
 
 def step_service(env: Any, engine: str) -> str:
     unit = env.bind_unit() if engine == "bind" else env.kea_unit(engine)
-    out = env.services.enable_now(unit)
+    notes: list[str] = []
+    if engine != "bind" and env.packages.is_installed(env.paths.kea_packages_for([engine], isc=True)[0]):
+        notes = disable_stale_apparmor(env)
+    # A unit that hit its start limit (a failed earlier start) refuses to start until reset.
+    env.runner.run(["systemctl", "reset-failed", unit], privileged=True, check=False, timeout=30)
+    out = "\n".join([*notes, env.services.enable_now(unit)]).strip()
     if not env.dry_run and engine == "bind":
         # First start of named on RHEL generates rndc.key (named-setup-rndc).
         keasetup._wait(lambda: env.services.is_active(unit), seconds=20)

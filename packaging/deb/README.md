@@ -1,26 +1,59 @@
-# Debian / Ubuntu package (WP-PACKAGING)
+# Debian / Ubuntu package
 
-Target: Debian 13 and Ubuntu 24.04+, package `pelagos`.
+Package `pelagos` for Debian 13 and Ubuntu 24.04 or later, built with
+`make deb` (output in `build/deb/`). Build dependencies: `dpkg-dev`,
+`debhelper` (>= 13), `fakeroot`, `python3-venv`, `python3-pip`, and
+`lintian` for the report printed at the end.
 
-Plan:
+## What the build does
 
-- `debian/control`: `Depends: python3 (>= 3.12), adduser`, `Recommends:
-  bind9, kea-dhcp4-server` (the installer can add them later; nothing is
-  pulled in by default), `Suggests: kea-dhcp6-server, kea-dhcp-ddns-server`.
-- Build: `python3 -m venv /opt/pelagos/venv` at build time is not allowed by
-  policy, so the package ships a relocatable venv built with `uv` in the
-  build chroot plus `frontend/dist`, installed under `/opt/pelagos/`
-  (`venv/`, `frontend/`). Wheels of the dependencies are vendored in the
-  source package for reproducibility.
-- `postinst`: `adduser --system --group --home /var/lib/pelagos pelagos`;
-  add supplementary groups `bind` and `_kea` when they exist; create
-  `/etc/pelagos`, `/var/lib/pelagos`, `/run/pelagos` with the modes of
-  `docs/architecture.md` section 3; install and enable `pelagos.service`
-  and `pelagos-collector.service` from `../systemd/` without starting them
-  until `pelagos init` or `pelagos enroll` has run (the unit fails fast with
-  a clear message when `node.toml` is absent).
-- `postrm purge`: remove the user and `/var/lib/pelagos` only on purge.
-- `conffiles`: `/etc/pelagos/pelagos.env`.
+`build.sh` stages a clean source tree (`backend/`, `packaging/`, the
+frontend `dist` when it exists), writes `debian/changelog` from
+`backend/pelagos/__init__.py` (`0.1.0.dev0` becomes `0.1.0~dev0-1`) and runs
+`dpkg-buildpackage -b`. `debian/rules` calls `packaging/build-tree.sh`,
+shared with the rpm and the images, which:
 
-Build target: `make deb` (to be added here, runs `dpkg-buildpackage -us -uc`
-in a container or on lab-ns1). Install test: `scripts/lab/` and the lab tier.
+- creates the venv `/opt/pelagos/venv` with the build host's `python3.X`
+  (uv when it is on `PATH`, `venv` + `pip` otherwise) and installs the
+  backend and its dependencies; `PELAGOS_WHEELS=<dir>` makes it offline;
+- rewrites every reference to the staging path, then byte-compiles with the
+  final path so the service user never writes to `/opt`;
+- copies `frontend/dist` when `frontend/dist/index.html` exists, otherwise
+  ships `packaging/notice/index.html`, an API-only page linking to
+  `/api/v1/health`, `/api/v1/version` and `/api/v1/docs`.
+
+The package depends on the exact `python3.X` the venv was built with.
+
+## What the install does
+
+- `postinst`: system user and group `pelagos` (home `/var/lib/pelagos`), added
+  to `bind`, `named`, `_kea` and `kea` when those groups exist; directories of
+  `docs/architecture.md` section 3 with their modes; prints how to
+  initialize the node.
+- Units `pelagos.service` and `pelagos-collector.service` are enabled. They
+  carry `ConditionPathExists=/etc/pelagos/node.toml`, so they stay inactive
+  until `pelagos init` (first node) or `pelagos enroll` has run:
+
+  ```sh
+  sudo pelagos init --name "$(hostname -s)"
+  sudo systemctl start pelagos pelagos-collector
+  ```
+
+- `ExecStartPre=+/opt/pelagos/bin/pelagos-prestart` (root) gives
+  `/etc/pelagos` and `/var/lib/pelagos` back to `pelagos` (init may run as
+  root) and creates a self-signed certificate in `/etc/pelagos/tls/` when
+  none exists.
+- `/usr/bin/pelagos` runs the CLI from the venv with `/etc/pelagos/pelagos.env`
+  (a conffile).
+- BIND and Kea are only suggested: install them from the distribution or
+  with `pelagos install`. Group membership is added for engines installed
+  before Pelagos; the installer handles the other order.
+- `remove` keeps configuration and state; `purge` deletes `/etc/pelagos`,
+  `/var/lib/pelagos` and the user.
+
+## Tests
+
+`packaging/tests/install-smoke.sh <deb>` on a fresh Debian host installs the
+package, checks user, modes, enabled but inactive units, runs `pelagos init`,
+checks both units, `/api/v1/health` over HTTPS and `/`, restarts and removes
+the package.

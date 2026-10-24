@@ -1,26 +1,30 @@
-# RHEL / Rocky / Fedora package (WP-PACKAGING)
+# RPM package
 
-Target: Rocky 10, RHEL 10, Fedora current. Package `pelagos`, spec file
-`pelagos.spec` to be written here.
+`pelagos.spec` targets RHEL 9 and 10 and their rebuilds (Rocky, AlmaLinux),
+and Fedora. Build with `make rpm` on the target release (output in
+`build/rpm/`). Build dependencies: `rpm-build`, `systemd-rpm-macros`,
+`make`, `findutils`, and `python3` + `python3-pip` (RHEL 10, Fedora) or
+`python3.12` + `python3.12-pip` (RHEL 9, where `python3` is 3.9).
 
-Plan:
+`build.sh` makes the source tarball from the working tree (with the frontend
+`dist` when it exists) and runs `rpmbuild -ba` with the version passed as
+macros (`0.1.0.dev0` becomes `0.1.0~dev0`). `%install` runs the same
+`packaging/build-tree.sh` as the deb, so the payload is identical: venv in
+`/opt/pelagos/venv`, frontend `dist` or the API-only notice page, helpers in
+`/opt/pelagos/bin`. The rpm Python helpers (shebang mangling, bytecompile,
+dependency generators) are turned off for `/opt/pelagos`; the package
+requires `python(abi)` of the interpreter it was built with.
 
-- `Requires: python3 >= 3.12, shadow-utils`, `Recommends: bind, kea`
-  (EPEL) with the ISC Cloudsmith repository documented as the way to get
-  Kea 3.x; the installer handles both.
-- Payload under `/opt/pelagos/` (venv built with `uv` in the mock chroot
-  from vendored wheels, plus `frontend/dist`), units from `../systemd/`
-  under `/usr/lib/systemd/system/`.
-- `%pre`: create the `pelagos` system user and group; `%post`: supplementary
-  groups `named` and `kea` when present, directories of
-  `docs/architecture.md` section 3, `systemctl preset`; units are enabled but
-  not started before `pelagos init` or `pelagos enroll`.
-- SELinux: the node writes to `/etc/named/pelagos` and `/etc/kea` and
-  connects to `/run/kea/*` sockets. Ship a small policy module
-  (`pelagos.te`) allowing `pelagos_t` to write `named_conf_t` under the
-  include directory, connect to `dhcpd_var_run_t` sockets and read
-  `named_conf_t` keys; until it exists, document `semanage fcontext` for the
-  include directory and test with `setenforce 1` on lab-rpm.
+Install behaviour matches the deb:
 
-Build target: `make rpm` (to be added, `rpmbuild -ba` or `mock` on lab-rpm).
-Install test: lab tier on lab-rpm.
+- `%pre` creates the `pelagos` system user; `%post` adds it to `named`,
+  `bind`, `kea` and `_kea` when they exist.
+- `80-pelagos.preset` enables both units through `%systemd_post`; they stay
+  inactive until `/etc/pelagos/node.toml` exists (`pelagos init` or
+  `pelagos enroll`).
+- `/etc/pelagos/pelagos.env` is `%config(noreplace)`; state and
+  configuration stay after `dnf remove`; the user goes with the last erase.
+- `bind`, `bind-utils` and `kea` are `Suggests`, never pulled in.
+
+Tests: `packaging/tests/install-smoke.sh <rpm>` on a fresh host (SELinux
+enforcing is fine: the units run as `unconfined_service_t`).

@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { PlanPreviewModal } from '../../components/PlanPreview'
 import { useNotification } from '../../contexts/NotificationContext'
+import { useWsTopic } from '../../hooks/useWebSocket'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 
@@ -39,22 +40,43 @@ export function usePlanFlow({ onApplied } = {}) {
   return { build, building, modal, plan, close: () => setPlan(null) }
 }
 
-// Node id to name, from GET /nodes, cached for the page lifetime.
+// Node id to name, from GET /nodes. The list is cached for NODES_TTL_MS, a failed
+// fetch is never cached, and a `nodes` WebSocket event drops the cache.
+const NODES_TTL_MS = 60_000
 let nodesPromise = null
+let nodesFetchedAt = 0
 export function resetNodeNameCache() {
   nodesPromise = null
+  nodesFetchedAt = 0
+}
+function loadNodes() {
+  if (!nodesPromise || Date.now() - nodesFetchedAt > NODES_TTL_MS) {
+    nodesFetchedAt = Date.now()
+    const p = api.nodes
+      .list()
+      .then((r) => r?.items || [])
+      .catch(() => {
+        if (nodesPromise === p) resetNodeNameCache()
+        return []
+      })
+    nodesPromise = p
+  }
+  return nodesPromise
 }
 export function useNodeNames() {
   const [nodes, setNodes] = useState([])
+  const [generation, setGeneration] = useState(0)
+  useWsTopic('nodes', () => {
+    resetNodeNameCache()
+    setGeneration((g) => g + 1)
+  })
   useEffect(() => {
     let alive = true
-    if (!nodesPromise) nodesPromise = api.nodes.list().then((r) => r?.items || []).catch(() => [])
-    nodesPromise.then((list) => alive && setNodes(list))
+    loadNodes().then((list) => alive && setNodes(list))
     return () => {
       alive = false
     }
-  }, [])
+  }, [generation])
   const nameOf = useCallback((id) => nodes.find((n) => n.peer?.id === id)?.peer?.name || id || '-', [nodes])
   return { nodes, nameOf }
 }
-

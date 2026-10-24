@@ -76,7 +76,26 @@ helper built it (change digests kept in `/run/pelagos-helper/plans`, root
 only, 7 days), a plan made on a peer may only carry the dual-key switch
 steps, and every path, group, package and include line a change names must
 be the host's own. A plan built in-process and applied through the helper is
-refused: plan it again. The request line must arrive within 30 s.
+refused: plan it again. The request line must arrive within 30 s. The records
+live under `/run`: a reboot drops them, which is fine since plans do not
+survive a restart of the web process either.
+
+Dual-key steps sent by a peer (`helper.verify_peer_steps`, also run by
+`services.installer_runner.run_received` when no helper is used) are checked
+beyond the key name: each step carries `after.seal` (`core.step_seal`), made
+by the sending node with the master key for this receiving node, and must
+open with this node's copy of the key, match the change byte for byte, name
+the plan's origin node as sender, be less than one hour old, and come from a
+current, non-revoked member of `[[nodes]]`; a seal already run is refused
+(digests kept next to the plan records, or under `/run/pelagos/peer-steps`
+without helper). The step must be what this node's own security audit gives
+for that key (a `weak_shared_kea_key` finding on the same key and algorithm,
+successor `<key>-sha256`, `security/<finding>/<step>` target, BIND files from
+this host's configuration), or already be done (a retry). The new key's
+secret comes sealed in step 2 (`after.sealed_secret` and `after.secret_sha256`,
+added by `InstallerRunner` from `cluster.toml [secrets]`), otherwise from
+`tsig/<new key>` in `cluster.toml`, accepted only when the entry's last
+writer (its replication stamp, section 13) is a current member.
 
 Both processes follow `node.toml [engines]`: the web process rebuilds its
 connectors before the next request when the file changed, and the collector
@@ -170,6 +189,7 @@ Pelagos paths (identical on every distro, overridable in `node.toml`
 | `/var/lib/pelagos/pki/` | `ca.crt`, `ca.key` (first node only), `node.crt`, `node.key` | pelagos, 0600 |
 | `/var/lib/pelagos/backups/<engine>/<timestamp>-<plan id>/` | write pipeline backups | pelagos, 0750 |
 | `/var/lib/pelagos/plans/` | reserved (plans are in memory in v1) | |
+| `/var/lib/pelagos/plan_tombstones.json` | ids of plans built here and when they expire (section 6) | pelagos, 0600 |
 | `/run/pelagos/` | pid files, Unix socket of the web process when used behind a proxy | pelagos, 0750 |
 
 Engine paths are resolved by `pelagos.platform` and exposed as a
@@ -800,6 +820,15 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
    expires from memory (`settings.plan_ttl_seconds` after apply). After that,
    the backup directories and the audit `before` state remain for manual or
    future "restore from history" use.
+5. A plan id the node no longer holds answers `410 plan_expired` when the
+   node built it: `PlanStore` records every id it stores, with its expiry, in
+   `/var/lib/pelagos/plan_tombstones.json` (0600, merged under a file lock,
+   at most 10000 ids, ids expired for more than 7 days pruned). After a
+   restart every recorded id is expired (the plan was only in the previous
+   run's memory). An explicit delete forgets the id (`404`). The UI offers
+   "Recompute the plan" on `410`, on `404` and when the countdown runs out:
+   `PlanPreview` takes an `onRecompute` callback that builds the plan again
+   from the same inputs and resolves to the new plan.
 
 `Change.target` grammar (one line each):
 
@@ -1005,8 +1034,10 @@ d2_secret_dir = "/etc/kea"                # optional; TSIG secret files written 
 kea_group = "_kea"                        # optional; group of those files (mode 0640), unset keeps ours
 ```
 
-`/var/lib/pelagos/cluster.toml` (replicated whole; highest `version` wins,
-ties broken by `updated_at`, then by the lexically greater `updated_by`):
+`/var/lib/pelagos/cluster.toml` (replicated, merged entry by entry with
+per-entry stamps and tombstones, section 13; settings under
+`[settings.collector]` and `[settings.retention]` apply live in the collector,
+section 15):
 
 ```toml
 schema_version = 1
@@ -1085,6 +1116,10 @@ backups_days = 90
 "tsig/ddi-admin" = "enc:v1:..."
 "rndc/pelagos" = "enc:v1:..."
 "totp/admin" = "enc:v1:..."
+
+[replication]                            # written by ConfigStore, never by hand (section 13)
+stamps = { "settings/plan_ttl_seconds" = "43@01JB0ZK4Q9X3M5N7P8R2T4V6W8", "users/01JB.../roles" = "40@01JB..." }
+tombstones = { "roles/old-role" = "41@01JB0ZK4Q9X3M5N7P8R2T4V6W8" }
 ```
 
 `core.config_store.ConfigStore` API:
@@ -1095,8 +1130,10 @@ class ConfigStore:
     def load_node(self) -> NodeConfig; def save_node(self, cfg: NodeConfig) -> None
     def load_cluster(self) -> ClusterConfig
     def update_cluster(self, mutate: Callable[[ClusterConfig], None], updated_by: str) -> ClusterConfig
-        # lock, load, mutate, version = version + 1, updated_at = now, atomic write, notify replication hook
-    def merge_remote(self, toml_text: str) -> bool           # apply the section 13 rule; True if adopted
+        # lock, load, mutate, stamp changed entries and tombstone removed ones with (version + 1, node),
+        # updated_at = now, atomic write (fsync, rename, fsync of the directory), notify replication hook
+    def merge_remote(self, toml_text: str) -> bool           # section 13 merge; True if the local file changed
+    def digest(self) -> str                                  # "sha256:..." of entries, stamps and tombstones
     def cluster_version(self) -> tuple[int, str, str]        # (version, updated_at, updated_by)
 ```
 
@@ -1134,7 +1171,11 @@ class AuditLog:
 ```
 
 Merge is idempotent by `id`. The log is never purged by Pelagos. Reads for
-the API sort by `(ts, id)` descending.
+the API sort by `(ts, id)` descending, served from an in-memory `(ts, id,
+offset)` index: a page without filters decodes only its entries, a time
+range only the entries in it. A line damaged by a crash mid-write is skipped
+with a warning, and the next write first ends it with a newline, so one
+broken entry never makes the log unreadable.
 
 ## 12. Secrets at rest
 
@@ -1160,9 +1201,9 @@ application/json`. All endpoints under `/repl/v1`.
 
 | Method, path | Request | Response | Notes |
 | --- | --- | --- | --- |
-| `GET /repl/v1/status` | | `{"node_id","name","version","config_version","config_updated_at","config_updated_by","audit_count","audit_head","time","modules"}` | liveness and heads |
+| `GET /repl/v1/status` | | `{"node_id","name","version","config_version","config_updated_at","config_updated_by","config_digest","audit_count","audit_head","time","modules"}` | liveness and heads; `config_digest` from `ConfigStore.digest()` |
 | `GET /repl/v1/config` | | `{"version","updated_at","updated_by","toml"}` | full `cluster.toml` text |
-| `PUT /repl/v1/config` | `{"version","updated_at","updated_by","toml"}` | `{"adopted": bool, "local_version": int}` | adopt if remote wins by the section 10 rule |
+| `PUT /repl/v1/config` | `{"version","updated_at","updated_by","toml"}` | `{"adopted": bool, "local_version": int, "digest": str}` | merge entry by entry (below); `adopted` when the local file changed |
 | `GET /repl/v1/audit?after=<id>&limit=<n>` | | `{"entries":[...], "next": id or null}` | ascending by id |
 | `POST /repl/v1/audit` | `{"entries":[...]}` | `{"added": n}` | merge by id |
 | `GET /repl/v1/audit/ids` | | `{"ids":[...]}` | every entry id, ascending; used when audit counts differ |
@@ -1180,7 +1221,17 @@ reachable; every other endpoint answers `401 client_certificate_required`
 without one, `403 revoked` when its fingerprint is in `[revoked]`, and
 `403 unknown_node` when its node id is not in `[[nodes]]`. Clients check that
 the server certificate carries the node id of the peer they meant to reach.
-Errors are JSON `{"code","detail","status"}`.
+Errors are JSON `{"code","detail","status"}`; an unexpected failure answers
+`500 internal_error` with a generic detail (the cause stays in the node's
+log). The gevent server accepts and answers on its hub, and runs each
+handler on an OS thread of the hub's pool (16): a plan apply or a handler
+waiting for the collector's backend lock never stalls `/status`, `/audit` or
+the other peers. Live snapshot kinds wait at most 8 s for that lock, then
+answer `{"error": "busy: ..."}`; installer plans (`install`, `import`,
+`security`) run without it (`core.registry.UNLOCKED_SCOPES`). The web
+process's plan calls to peers (`services.peers.PeerGateway`) wait 300 s for
+engine plans and 1800 s for installer plans (`settings.peer_plan_timeout_seconds`,
+`settings.installer_plan_timeout_seconds` override), 120 s for a sync.
 
 Engine snapshots (added by WP-API-AUTH): the snapshot endpoint takes
 `?kind=<kind>` plus kind parameters as query arguments, and the server
@@ -1225,6 +1276,35 @@ the plan goes to peers; `POST /repl/v1/plans/apply` opens it
 (`D2Backend.accept_plan_secrets`). A plan without it applies only on the
 node that built it.
 
+Merge of `cluster.toml` (`core.cluster_merge`, `config_store.merge_configs`):
+the file is a map of entries, one per leaf: `settings/<key>/...`,
+`modules/<key>`, `secrets/<name>`, `revoked/<fingerprint>`, and for the record
+lists `nodes/<id>`, `users/<id>`, `roles/<name>` (the record exists) plus
+`<section>/<record>/<field>/...` (path parts percent-encoded). Every entry
+carries a stamp `<counter>@<node id>` in `[replication] stamps`: a Lamport
+counter shared with `version` (a write uses max(version, every stamp) + 1 and
+sets `version` to it), so one stamp names one write of one node. A removed
+entry keeps `<counter>@<node>` in `[replication] tombstones`. Merging two
+files keeps, per entry, the greatest stamp (live value or tombstone; on equal
+stamps a tombstone, then the greater canonical JSON value): concurrent writes
+to different entries are all kept, the same entry ends with the same value on
+every node whatever the order of the exchanges. A deleted record wins over a
+concurrent edit of its fields (field entries under a record tombstone are
+dropped), a record created again later is live again; two users created with
+the same username on two nodes keep the one with the greater stamp. The
+merged `version` is the greatest of both (plus one when the result is a state
+neither side had), `updated_at`/`updated_by` the greater pair, so both sides
+compute the same file. A file without `[replication]` (written by an older
+release) gets `(version, updated_by node)` as the stamp of every entry, so it
+merges by the former last-writer-wins rule once. Entries without a stamp in a
+stamped file (a default added by a release) have stamp `0@`. Tombstones of
+records stay for the life of the cluster (one line per deleted record).
+Exchanges compare `config_digest`: equal digests mean nothing to do;
+otherwise the caller fetches and merges the peer's file, then pushes its own
+when the digests still differ, and the peer merges it: one exchange makes both
+sides equal, and every merge that changes a file signals a push to the other
+peers, so three nodes converge too.
+
 Client behavior (`core.replication.ReplicationClient`, run by the collector):
 
 - Push on write: `ConfigStore.update_cluster` and `AuditLog.append` signal
@@ -1233,13 +1313,18 @@ Client behavior (`core.replication.ReplicationClient`, run by the collector):
   config (`PUT /repl/v1/config`) and new audit entries
   (`POST /repl/v1/audit`) to every peer within 2 seconds, retrying with
   backoff (5 s, 30 s, 2 min, then every `peer_poll_seconds`).
-- Pull on start and on return: before the web process marks itself ready
-  (`GET /health` reports `"replication": "syncing"` meanwhile), the collector
-  calls `GET /repl/v1/status` on every peer; if any peer has a higher config
-  version it fetches and adopts it; it then fetches audit entries after its
-  own head from every peer and merges. The web process serves read-only
-  pages during `syncing` and refuses writes with `503 replication_syncing`.
-- Periodic anti-entropy every `peer_poll_seconds`: same as pull-on-return.
+- Pull and push on start and on return: before the web process marks itself
+  ready (`GET /health` reports `"replication": "syncing"` meanwhile), the
+  collector exchanges with every peer both ways (config merge as above, then
+  audit entries after each side's head); peers it could not reach get a
+  pending push, retried with the backoff below. The web process serves
+  read-only pages during `syncing` and refuses writes with
+  `503 replication_syncing`. The state file holds `syncing <pid> <host>`: a
+  `syncing` whose writer is gone (same host, dead pid) or older than 5 minutes
+  reads as `ready`, and a server that cannot start (port taken, unreadable
+  TLS files) writes `ready` before failing, so the node never stays read-only.
+- Periodic anti-entropy every `peer_poll_seconds` (re-read live when
+  `cluster.toml` changes): same as pull-on-return.
   A peer unreachable for 3 polls raises `PEER_OFFLINE` (failed pushes do not
   count; `Replicator.offline_peers()` gives the list). Audit exchange goes
   both ways after each side's head, then exchanges id sets
@@ -1310,8 +1395,19 @@ from `settings.collector`:
 | Poll local D2 | `poll_seconds` | `D2_ERRORS` when error rate over window exceeds `alerts_d2_error_rate` |
 | Poll peers (`GET /repl/v1/status`, engine snapshots) | `peer_poll_seconds` | `PEER_OFFLINE`, `SERIAL_DIVERGENCE`, `SECONDARY_STALE`, `CONFIG_DIVERGENCE` |
 | Consistency pass (`services.consistency.run`) | `consistency_seconds` | cross alerts |
+| Security audit (`installer.security_audit.run_audit`, read-only, through the helper when not root; `collector/security.py`) | `consistency_seconds` | `INSECURE_KEY`, `INSECURE_LISTENER` (subject `<engine>:<finding subject>`, resolved when the finding goes; an audit that cannot run keeps the current ones) |
 | Retention and downsampling | hourly | purges per table below |
 | Replication push and anti-entropy | event driven, `peer_poll_seconds` | |
+
+Periods and thresholds follow `cluster.toml` live: when the file changes
+(a local write or a merge from a peer) the collector re-reads
+`settings.collector` (a shorter period applies at once, a longer one after
+the run already scheduled), hands the thresholds to its pollers and the new
+`peer_poll_seconds` to the replication worker; no restart is needed. Each
+task's series writes are one SQLite transaction, with `synchronous=NORMAL`
+(the cache is derived). The consistency pass reads leases page by page under
+the backend lock, keeping only the fields the checks use (no `raw`, no
+`user_context`).
 
 SQLite schema (`collector/series.py`, file `series.sqlite`, WAL):
 

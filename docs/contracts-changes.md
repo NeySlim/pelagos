@@ -13,6 +13,47 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, F-CORE: cluster.toml merged entry by entry, no lost write
+`docs/architecture.md` sections 10 and 13. `cluster.toml` gains a
+`[replication]` table (`stamps`, `tombstones`: entry path to
+`<counter>@<node id>`), written by `ConfigStore.update_cluster` from a diff of
+the file before and after `mutate`; callers keep mutating `ClusterConfig` as
+before. `merge_remote` merges per entry (`core.cluster_merge`) instead of
+adopting the winning file, and returns True when the local file changed.
+`GET /repl/v1/status` adds `config_digest`, `PUT /repl/v1/config` answers
+`digest`; the replicator exchanges when digests differ (merge, then push).
+`ClusterConfig.wins_over` stays but no longer decides anything. Files from an
+older release merge by the old rule once. Why: two writes on two nodes within
+the push window lost one. Affected: nobody needs to change code; tests that
+wrote cluster.toml by hand to force a tie must write through `update_cluster`.
+
+## 2026-10-24, F-CORE: live collector settings, plan tombstones on disk, sealed peer steps
+- Collector: `settings.collector` periods, thresholds and `peer_poll_seconds`
+  apply when `cluster.toml` changes (`collector.main.SettingsWatch`,
+  `reload_settings`, `ReplicationService.set_peer_poll_seconds`); the lab
+  test no longer restarts the collectors after a settings change. New task
+  `security_audit` (period `consistency_seconds`) raises `insecure_key` and
+  `insecure_listener` alerts.
+- `PlanStore(tombstone_path=...)`, `Paths.plan_tombstones`
+  (`/var/lib/pelagos/plan_tombstones.json`, 0600): `410 plan_expired`
+  survives a restart. `PlanPreview` takes `onRecompute` (resolves to the new
+  plan); the plan flows of the DNS, DHCP, hosts, install, security and
+  advanced editor pages pass one.
+- Dual-key steps sent to a peer are sealed (`core.step_seal.seal_steps`,
+  called by `InstallerRunner._remote`; `after.seal`, `after.sealed_secret`,
+  `after.secret_sha256`) and verified by `helper.verify_peer_steps` (helper
+  `apply` and `run_received`). `InstallerEnv.plan_secrets` hands the verified
+  secret to the D2 step. A peer that sends unsealed steps (older release) is
+  refused: upgrade both nodes before a dual-key switch.
+- Robustness: replication handlers run on OS threads; installer plans skip
+  the backend lock (`core.registry.UNLOCKED_SCOPES`); live snapshots answer
+  `busy` after 8 s; peer plan calls wait 300 s (engine) or 1800 s
+  (installer); a replication start failure or a dead collector never leaves
+  the node in `syncing`; the replication state file is `<state> <pid> <host>`;
+  atomic writes fsync the directory and remove temp files left by a crash;
+  the audit log survives a truncated line and pages from a `(ts, id)` index;
+  series writes are one transaction per task with `synchronous=NORMAL`.
+
 ## 2026-10-24, LAB-E2E: helper apply runs only plans it can vouch for
 `docs/architecture.md` section 2. `pelagos helper apply` refuses a plan made
 on this node unless the helper built it (`plan_install`, `plan_import`,

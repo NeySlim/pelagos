@@ -188,6 +188,36 @@ def test_import_kea_adds_socket_and_dropin_logic(tmp_path):
     assert any(c[0] == "kea_test" for c in env.tools.calls)
 
 
+def test_import_accepts_kea_includes(tmp_path):
+    import dataclasses
+    import grp
+
+    env = debian_tree(tmp_path)
+    env.tools.version = "3.2.1"
+    env.paths = dataclasses.replace(env.paths, kea_user="root", kea_group=grp.getgrgid(os.getgid()).gr_name)
+    d = tmp_path / "etc/kea"
+    d.mkdir(parents=True, exist_ok=True)
+    part = d / "subnets4.json"
+    part.write_text('// subnets\n{ "id": 1, "subnet": "192.0.2.0/24" }\n')
+    part.chmod(0o640)
+    conf = d / "kea-dhcp4.conf"
+    conf.write_text(
+        '// main\n{ "Dhcp4": {\n  "interfaces-config": { "interfaces": [] },\n'
+        f'  "subnet4": [ <?include "{part}"?> ]\n}} }}\n'
+    )
+    plan = build_import_plan(env, ["kea4"])
+    assert plan.state is PlanState.VALIDATED
+    assert plan.changes[1].after["subnets"] == 1
+    assert {p.subject for p in plan.preconditions} == {str(conf), str(part)}
+    job = apply_plan(plan, env)
+    assert job.state is JobState.DONE, job.error
+    text = conf.read_text()
+    assert text.startswith("// main") and "<?include" in text and "kea4-ctrl-socket" in text
+    assert part.read_text().startswith("// subnets")
+    # Included files are patched by Pelagos through the Kea group.
+    assert part.stat().st_mode & 0o060 == 0o060
+
+
 def test_import_makes_the_kea_config_writable_by_kea(tmp_path):
     import dataclasses
     import grp

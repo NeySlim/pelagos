@@ -97,7 +97,7 @@ class FakeTools:
     def kea_test(self, daemon: str, conf: Path) -> tuple[bool, str]:
         self.calls.append(("kea_test", daemon, str(conf)))
         try:
-            keaconf.loads(conf.read_text())
+            keaconf.loads(conf.read_text(), str(conf))
         except keaconf.KeaConfigError as exc:
             return False, str(exc)
         return True, "Configuration check successful"

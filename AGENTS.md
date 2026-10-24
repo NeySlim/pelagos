@@ -15,9 +15,8 @@ literally.
   colon, a comma or a full stop.
 - Never put internal infrastructure details in the repository: no real
   hostnames, LAN addresses or domains. Use `ns1`, `ns2`, `example.lan`,
-  `192.0.2.0/24`, `2001:db8::/64`. The lab network `10.99.0.0/24` and
-  `fd99:99::/64` may appear only under `scripts/lab/` and
-  `backend/tests/lab/`.
+  `192.0.2.0/24`, `2001:db8::/64`. Lab hostnames and addresses may
+  appear only under `scripts/lab/` and `backend/tests/lab/`.
 - Every source file starts with `SPDX-License-Identifier: Apache-2.0` in a
   comment (`#` for Python, shell, TOML, Makefile; `//` for JS/JSX; `/* */`
   for CSS; `<!-- -->` is not needed for Markdown or JSON, which carry no
@@ -68,11 +67,14 @@ change on their side.
 
 Shared files change only through `docs/contracts-changes.md`. Adding a
 dependency to `backend/pyproject.toml` or `frontend/package.json` counts as
-a contract change (one line in the log is enough).
+a contract change (one line in the log is enough); a backend dependency
+also needs `make lock` (the packages install only from
+`packaging/requirements.lock`).
 
 ## Where things run
 
-Everything runs on the `lab-dev` VM: the checkout is `~/pelagos`, parallel
+Everything runs on the development host of the lab (see
+`scripts/lab/README.md`): the checkout is `~/pelagos`, parallel
 worktrees live under `~/pelagos/.claude/worktrees/<name>`, and every command
 (`uv`, `pytest`, `ruff`, `npm`, `vite`, `named`, `kea-*`) runs locally in
 the worktree you work in:
@@ -83,11 +85,11 @@ cd ~/pelagos/.claude/worktrees/<name> && make test-daemon
 ```
 
 Each worktree has its own `.venv/` and `frontend/node_modules/` (gitignored;
-create them with `make dev`). lab-dev is Debian 13 with BIND 9.20 (`/usr/sbin`), ISC Kea 3.2 from Cloudsmith
+create them with `make dev`). The development host is Debian 13 with BIND 9.20 (`/usr/sbin`), ISC Kea 3.2 from Cloudsmith
 (`/usr/sbin`, hooks in `/usr/lib/x86_64-linux-gnu/kea/hooks`, binaries
 executable by group `_kea`, which the `lab` user is in), Python 3.13 system
 and 3.12 through `uv`, Node 22. The Makefile prepends `/usr/sbin` to `PATH`.
-Several agents share lab-dev at the same time, so fixtures use free ports
+Several agents share the development host at the same time, so fixtures use free ports
 and per-process temporary directories, never fixed paths under `/tmp`.
 
 ## Tests
@@ -97,7 +99,7 @@ Three tiers, selected by pytest markers (declared in `backend/pyproject.toml`):
 - `unit`: no network, no daemons. `make test`.
 - `daemon`: starts a real `named` and real Kea daemons as the current user
   in a temporary directory, on free high ports and Unix sockets.
-  `make test-daemon` (on lab-dev). Skipped automatically when the binaries
+  `make test-daemon`. Skipped automatically when the binaries
   are missing.
 - `lab`: needs the lab VMs (below). Skipped unless `PELAGOS_LAB=1`.
   `make test-lab`.
@@ -136,7 +138,7 @@ what any code that spawns the daemons must do too:
   `/usr/local/sbin`; ports come from `tests/fixtures/ports.py`
   (`free_port()`, bound then released) so parallel runs never collide.
 - Debian confines `/usr/sbin/named` with AppArmor, which denies a config in
-  a temp dir. lab-dev has that profile disabled (see `scripts/lab/README.md`);
+  a temp dir. The development host has that profile disabled (see `scripts/lab/README.md`);
   if `named` logs "loading configuration: permission denied", that is the
   cause.
 - `kea-dhcp-ddns`: TSIG keys must use `secret-file` (a clear `secret` is
@@ -145,18 +147,12 @@ what any code that spawns the daemons must do too:
 
 ## Lab
 
-Isolated VMs reachable over ssh from lab-dev (ssh aliases `lab-ns1`,
-`lab-ns2`, `lab-rpm`, `lab-client`, `lab-pkg-rpm`, `lab-docker`, user
-`lab`, passwordless sudo). `lab-ns1`/`lab-ns2` are Debian 13, `lab-rpm`
-is Rocky 10, `lab-client` has a second NIC for DHCP tests,
-`lab-pkg-rpm` (Rocky) builds rpms, `lab-docker` runs the compose tests and
-`lab-dev` is the development and test runner (above). Network `10.99.0.0/24` and
-`fd99:99::/64`, NAT to the internet, LAN blocked. The target VMs have a
-snapshot named `clean` (fresh OS) and lab-dev has `ready` (toolchain
-installed); `scripts/lab/rollback.sh <vmid|all>` restores them through the
-Proxmox API (`all` never touches lab-dev). Details in `scripts/lab/README.md`.
-The lab is the only place where destructive tests run; never target any
-other host.
+Disposable VMs reachable over ssh from the development host: two Debian
+DNS/DHCP nodes, a Rocky node for the rpm, a DHCP client, an rpm build host
+and a Docker host, all with a `clean` snapshot that
+`scripts/lab/rollback.sh <vm|all>` restores. Names, addresses and snapshot
+details live in `scripts/lab/README.md` only. The lab is the only place
+where destructive tests run; never target any other host.
 
 ## Adding a theme
 
@@ -173,7 +169,7 @@ the defaults used before React mounts; they match the default family
 
 ## Daily commands
 
-All of these run on lab-dev, in the checkout or worktree:
+All of these run on the development host, in the checkout or worktree:
 
 ```sh
 make dev            # venv + npm install

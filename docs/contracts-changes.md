@@ -74,6 +74,32 @@ wrote cluster.toml by hand to force a tie must write through `update_cluster`.
   the audit log survives a truncated line and pages from a `(ts, id)` index;
   series writes are one transaction per task with `synchronous=NORMAL`.
 
+## 2026-10-24, F-OPS: pinned dependencies, hardened units, CI
+Packaging and CI only; no API or domain change. Everyone should know:
+- `packaging/requirements.lock` pins the runtime dependencies with hashes and
+  `packaging/build-tree.sh` installs only from it (then the backend with
+  `--no-deps`, then `pip check`). Adding or bumping a dependency in
+  `backend/pyproject.toml` now also needs `make lock`, or the package build fails.
+- `pelagos.service` and `pelagos-collector.service` run with no capabilities,
+  `SystemCallFilter=@system-service`, `PrivateDevices`, `ProtectKernel*`,
+  `RestrictNamespaces` and friends. Anything the node spawns (`rndc`,
+  `named-checkconf`, `named-checkzone`, Kea tools) must work unprivileged inside
+  that sandbox; privileged work goes through `pelagos-helper.socket`.
+- `pelagos-prestart` does everything inside the service user's tree (TLS key
+  and certificate, `tls/` modes) as that user through `setpriv`; root only
+  touches `/etc/pelagos` and `/var/lib/pelagos` themselves. The rpm requires
+  `/usr/bin/setpriv`.
+- The deb restarts the running units on upgrade (`--restart-after-upgrade`), like
+  the rpm.
+- `docker/compose.yaml` publishes the replication port `:8444` on the collector
+  container (it serves `/repl/v1`), and only `pelagos-init` receives
+  `PELAGOS_ADMIN_PASSWORD`; the entrypoint also reads `PELAGOS_ADMIN_PASSWORD_FILE`.
+- Makefile: `lint` = `lint-backend` + `lint-frontend`, `test` = `test-unit` +
+  `test-vitest`, new `test-e2e`, `screenshots`, `lock`, `wheels`,
+  `test-packaging`; `PYTEST_ARGS` passes through to pytest. CI
+  (`.github/workflows/ci.yml`) calls these targets, and the daemon job fails
+  when any daemon test is skipped.
+
 ## 2026-10-24, LAB-E2E: helper apply runs only plans it can vouch for
 `docs/architecture.md` section 2. `pelagos helper apply` refuses a plan made
 on this node unless the helper built it (`plan_install`, `plan_import`,
@@ -84,7 +110,7 @@ groups, packages and include lines must match the host layout. Callers:
 plan through the helper when you apply through it.
 
 ## 2026-10-24, LAB-E2E: what the reference pair needed (helper, access findings, routing)
-Found by `make test-lab` on lab-ns1/lab-ns2 (Debian 13, Kea 2.6 from Debian). All additive.
+Found by `make test-lab` on the two Debian lab nodes (Debian 13, Kea 2.6 from Debian). All additive.
 - `pelagos helper` (`backend/pelagos/cli.py`, `pelagos.installer.helper`) and the units
   `pelagos-helper.socket` / `pelagos-helper@.service` (deb, rpm, preset): the web process runs
   with `NoNewPrivileges` as `pelagos` and could not run any installer step (sudo refused).
@@ -629,10 +655,8 @@ handle `restriction` (route to password change or TOTP enrollment).
   next import or install adoption. Kea reloads of a running daemon use the
   `config-reload` command; a non-zero result rolls the file back (SIGHUP only
   when the daemon has no control socket yet).
-- Lab note for WP-LAB-E2E: `scripts/lab/rollback.sh` and `scripts/lab/README.md`
-  list VMIDs off by one (Proxmox has lab-ns1 9111, lab-ns2 9112, lab-rpm 9113,
-  lab-client 9114, lab-dev 9115, pelagos-gw 9110); rolling back by name hits the
-  wrong VM. Use the numeric VMID until the table is fixed.
+- Lab note for WP-LAB-E2E (resolved): the VM table of `scripts/lab/` was
+  off by one; `rollback.sh` and its README now match the hypervisor.
 
 ## 2026-10-24, foundation: initial contracts
 `docs/architecture.md` sections 1 to 20, `pelagos.domain`, `connectors/base.py`,

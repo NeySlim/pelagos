@@ -2,7 +2,7 @@
 
 Each work package (WP) owns the paths listed in `AGENTS.md`, consumes and
 provides the contracts of `architecture.md`, and is done when its acceptance
-tests pass on lab-dev. Packages run in parallel in separate worktrees; the
+tests pass on the development host. Packages run in parallel in separate worktrees; the
 only shared edits are additive contract changes logged in
 `contracts-changes.md`.
 
@@ -108,7 +108,7 @@ Acceptance: unit tests with two `NodeContext`s on two temp trees and a real
 TLS listener on localhost: enroll node B from node A, write on A, B adopts
 the higher version, audit merges both ways, B offline then back pulls the
 diff, tie-break rule, revoked node refused, token single use and expiry.
-Lab: WP-LAB-E2E runs the same across lab-ns1/lab-ns2.
+Lab: WP-LAB-E2E runs the same across the two Debian lab nodes.
 
 ## WP-COLLECTOR: series cache, retention, alerts, consistency
 
@@ -229,7 +229,7 @@ Deliverables:
 
 Acceptance: unit tests on captured `os-release`, `named-checkconf -p` and
 Kea configs; lab tier (WP-LAB-E2E provides the harness) installs on
-lab-ns1 (Debian, distro Kea 2.6 then ISC 3.x), lab-rpm (Rocky, EPEL and
+a Debian lab node (Debian, distro Kea 2.6 then ISC 3.x), a Rocky lab node (Rocky, EPEL and
 ISC), imports a pre-seeded configuration with hmac-md5 keys and migrates it.
 
 ## WP-PACKAGING: deb, rpm, docker
@@ -250,9 +250,9 @@ the BIND connector must accept a non-local rndc address: already allowed by
 and Kea from distro or ISC, supervisord); CI workflow building all three.
 
 Acceptance: `make deb rpm` produce installable packages (tested in the lab
-tier on lab-ns1 and lab-rpm by WP-LAB-E2E); `docker compose up` on a
+tier on the Debian and Rocky lab nodes by WP-LAB-E2E); `docker compose up` on a
 Docker host serves `/api/v1/health` (not testable on the workstation; use
-lab-dev if Docker is installed there, else document the manual check).
+the development host if Docker is installed there, else document the manual check).
 
 ## WP-LAB-E2E: lab provisioning and end-to-end tests
 
@@ -261,16 +261,16 @@ Owns `scripts/lab/`, `backend/tests/lab/`.
 Consumes: everything. Provides: a reproducible lab and the lab tier.
 
 Deliverables: provisioning scripts (ssh + sudo, idempotent) that turn
-lab-ns1/lab-ns2 into the design's reference pair (BIND primary/secondary
+the two Debian lab nodes into the design's reference pair (BIND primary/secondary
 with dynamic `example.lan` and reverses, Kea HA hot-standby with `lease_cmds`
-and `ha`, D2 towards the primary with `kea-ddns`) and lab-client into a DHCP
+and `ha`, D2 towards the primary with `kea-ddns`) and the lab DHCP client into a DHCP
 client on its second NIC; `rollback.sh`; pytest `lab` tier: install Pelagos
 on both nodes from the deb, enroll ns2 from ns1, import both configurations,
 apply the security plan, add a record on ns2 and read it on ns1, create a
 host and see the lease/record join after a client DHCP request, kill Kea on
 ns1 and see the HA alert, stop ns2 and see the replication catch up.
 
-Acceptance: `make test-lab` green from lab-dev after `rollback.sh all`.
+Acceptance: `make test-lab` green from the development host after `rollback.sh all`.
 
 ## Order of landing
 

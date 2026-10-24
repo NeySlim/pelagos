@@ -455,4 +455,4 @@ Deux décisions bloquent la phase 0 : le parseur de `named.conf` et l'autorité 
 * qu'il puisse fonctionner simplement pour un element tout seul, bind ou kea ou les 2
 * Rétention par défaut des séries dérivées (baux, serials, états HA). -> oui
 * `update-policy` : tu choisis le mieux
-* pour les themes garder les existant, ajouter des nouveaux dont un style PELAGIC — Ocean Mission Control UI
+* pour les themes garder les existant, ajouter des nouveaux dont un style PELAGIC : Ocean Mission Control UI

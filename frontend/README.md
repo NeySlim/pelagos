@@ -2,7 +2,7 @@
 
 React 18, Vite, Tailwind, Radix primitives, i18next, recharts and
 react-grid-layout, on the design system copied from UCM
-(`src/DESIGN_SYSTEM.md`). Everything runs on lab-dev (see `AGENTS.md`).
+(`src/DESIGN_SYSTEM.md`). Toolchain and conventions: `AGENTS.md`.
 
 ```sh
 npm install
@@ -16,7 +16,7 @@ npm run build                      # dist/
 ```
 
 Ports come from `MOCK_PORT`, `VITE_PORT` and `VITE_API_TARGET`, so parallel
-runs on lab-dev pick free ports instead of the defaults.
+runs on a shared host pick free ports instead of the defaults.
 
 Mock users: `admin`/`admin`, `alice`/`alice` (dns-operator), `bob`/`bob` with
 TOTP code `123456` (dhcp-operator), `viewer`/`viewer`.

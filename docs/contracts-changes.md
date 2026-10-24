@@ -49,6 +49,10 @@ What changed (file, symbol). Why. Which packages must react, and how.
   `DELETE /nodes/{id}` is `.revoke(id, by)`; remote plan steps use
   `ReplicationClient(peer, client_ssl_context(...)).apply_plan(plan)`;
   `POST /nodes/{id}/sync` is `Replicator.sync_peer(peer)`.
+- `core.replication.start_collector_side(ctx, listener, store)` implements the
+  WP-COLLECTOR hook: `ReplicationService(ctx, listener=...)` registers its
+  `config`/`audit` handlers on the collector listener instead of binding
+  `collector.sock`; raises `NotImplementedError` on a node without PKI files.
 
 ## 2026-10-24, WP-BIND: namedconf API, BIND plan details, include setup
 - `namedconf.load_tree(user_conf, node_id, checkconf=str|None, include_dir=None, reader=None)`

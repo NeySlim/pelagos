@@ -842,6 +842,7 @@ class ReplicationService:
         listen: str | None = None,
         peer_poll_seconds: float | None = None,
         timeout: float = 10.0,
+        listener: Any = None,
     ) -> None:
         self.ctx = ctx
         self.paths = ctx.paths
@@ -858,7 +859,13 @@ class ReplicationService:
         )
         collector = ctx.settings().get("collector", {})
         self.peer_poll_seconds = float(peer_poll_seconds or collector.get("peer_poll_seconds", 30))
-        self.listener = SignalListener(self.paths.collector_sock, self._on_signal)
+        # An external listener (the collector's, already bound) gets handlers; otherwise bind our own.
+        self.listener: SignalListener | None = None
+        if listener is not None:
+            listener.on(EVENT_CONFIG, self._on_signal)
+            listener.on(EVENT_AUDIT, self._on_signal)
+        else:
+            self.listener = SignalListener(self.paths.collector_sock, self._on_signal)
         self._wake = threading.Event()
         self._stop = threading.Event()
         self._worker: threading.Thread | None = None
@@ -881,7 +888,8 @@ class ReplicationService:
     def start(self, pull: bool = True) -> None:
         self._set_state(REPL_SYNCING)
         self.server.start()
-        self.listener.start()
+        if self.listener is not None:
+            self.listener.start()
         if pull:
             try:
                 self.replicator.pull_all()
@@ -900,7 +908,8 @@ class ReplicationService:
         if self._worker is not None:
             self._worker.join(timeout=10)
             self._worker = None
-        self.listener.stop()
+        if self.listener is not None:
+            self.listener.stop()
         self.server.stop()
         try:
             self.paths.replication_state_file.unlink()
@@ -1051,3 +1060,20 @@ class ReplicationService:
         _ca, node_cert, node_key = node_tls_files(self.paths)
         self.client_context.load_cert_chain(str(node_cert), str(node_key))
         self.server_context.load_cert_chain(str(node_cert), str(node_key))
+
+
+class _CollectorHandle:
+    def __init__(self, service: ReplicationService) -> None:
+        self.service = service
+
+    def close(self) -> None:
+        self.service.stop()
+
+
+def start_collector_side(ctx: NodeContext, listener: Any, store: Any = None) -> _CollectorHandle:
+    """Collector hook: serve /repl/v1 and push on the collector's `collector.sock` signals."""
+    if not all(p.exists() for p in node_tls_files(ctx.paths)):
+        raise NotImplementedError("node is not enrolled (no PKI files)")
+    service = ReplicationService(ctx, listener=listener)
+    service.start()
+    return _CollectorHandle(service)

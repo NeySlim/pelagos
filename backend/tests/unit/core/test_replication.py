@@ -10,9 +10,11 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from pelagos.collector.events import SignalListener
 from pelagos.core import ca as ca_mod
 from pelagos.core.bootstrap import bootstrap_first_node, dev_paths
 from pelagos.core.config_store import ConfigStore, NodeConfig
@@ -26,6 +28,7 @@ from pelagos.core.replication import (
     ReplicationServer,
     ReplicationService,
     client_ssl_context,
+    start_collector_side,
 )
 from pelagos.domain import AuditEntry, Change, ChangeOp, Engine, NodeApplyResult, Plan, PlanScope, Role, User
 from pelagos.domain.common import new_id, utcnow
@@ -304,6 +307,32 @@ def test_push_on_write_through_collector_socket(pair):
     a.ctx.audit_log.append(_entry(a, "dns.rrset.delete"))
     wait_for(lambda: _same_audit(a, b), timeout=10, what="audit push both ways")
     assert {e.action for e in a.ctx.audit_log.read()} >= {"dns.rrset.add", "dns.rrset.delete"}
+
+
+def test_collector_hook_shares_the_collector_listener(cluster, tmp_root):
+    a = cluster.first()
+    b = cluster.enroll(a)
+    a.service.stop()
+    listener = SignalListener(a.paths.collector_sock)
+    listener.open()
+    handle = start_collector_side(a.ctx, listener, None)
+    try:
+        assert handle.service.listener is None
+        a.service = handle.service
+        a.ctx.config_store.update_cluster(
+            lambda c: c.users.append(User(id="u3", username="carol", password_hash="x", roles=["viewer"])),
+            updated_by=f"user:admin@node:{a.id}",
+        )
+        wait_for(
+            lambda: listener.wait(0.2) is not None and b.ctx.cluster().version == a.ctx.cluster().version,
+            timeout=10,
+            what="config push via collector listener",
+        )
+    finally:
+        handle.close()
+        listener.close()
+    with pytest.raises(NotImplementedError):
+        start_collector_side(SimpleNamespace(paths=dev_paths(tmp_root / "bare")), listener, None)
 
 
 def test_offline_peer_pulls_the_diff_on_return(pair):

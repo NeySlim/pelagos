@@ -19,6 +19,7 @@ from pelagos.connectors.kea.config import (
     is_domain_dict,
     is_v3,
     parse_target,
+    reservation_key,
     reservation_to_kea,
     shared_network_to_kea,
     subnet_key,
@@ -58,6 +59,8 @@ def command_path_available(changes: list[Change], caps: DhcpCapabilities) -> boo
         return False
     for change in changes:
         kind = parse_target(change.target).kind
+        if kind == "shared_network" and change.op is ChangeOp.REPLACE:
+            return False
         hook = HOOK_FOR_KIND.get(kind)
         if hook is None or not hook_loaded(caps, hook):
             return False
@@ -75,9 +78,9 @@ def object_commands(
     t = parse_target(change.target)
     n = _n(family)
     if t.kind == "subnet":
-        return _subnet_commands(t, change, family, cfg, version, n)
+        return _subnet_commands(t, change, family, cfg, version, n, hosts_db)
     if t.kind == "shared_network":
-        return _network_commands(t, change, family, version, n)
+        return _network_commands(t, change, family, version, n, hosts_db)
     if t.kind == "reservation":
         return _reservation_commands(t, change, hosts_db)
     if t.kind == "client_class":
@@ -85,9 +88,40 @@ def object_commands(
     raise ConnectorError(f"{change.target} has no object command")
 
 
-def _subnet_commands(
-    t: Target, change: Change, family: Family, cfg: dict[str, Any], version: str | None, n: str
+def _host_target(hosts_db: bool) -> dict[str, Any]:
+    return {} if hosts_db else {"operation-target": "memory"}
+
+
+def _reservation_sync(
+    subnet_id: int, current: list[dict[str, Any]], wanted: list[dict[str, Any]], hosts_db: bool
 ) -> list[Command]:
+    """host_cmds commands turning the reservations of one subnet from `current` into `wanted`."""
+    target = _host_target(hosts_db)
+    have = {reservation_key(r): r for r in current}
+    want = {reservation_key(r): r for r in wanted}
+    cmds: list[Command] = []
+    for key in have.keys() - want.keys():
+        id_type, identifier = key.split("=", 1)
+        args = {"subnet-id": subnet_id, "identifier-type": id_type, "identifier": identifier, **target}
+        cmds.append(("reservation-del", args))
+    for key, obj in want.items():
+        if have.get(key) == obj:
+            continue
+        cmd = "reservation-update" if key in have else "reservation-add"
+        cmds.append((cmd, {"reservation": {**obj, "subnet-id": subnet_id}, **target}))
+    return cmds
+
+
+def _subnet_commands(
+    t: Target,
+    change: Change,
+    family: Family,
+    cfg: dict[str, Any],
+    version: str | None,
+    n: str,
+    hosts_db: bool,
+) -> list[Command]:
+    # subnet_cmds refuses embedded reservations: they go through host_cmds after the subnet command.
     key = subnet_key(family)
     if change.op is ChangeOp.DELETE:
         return [(f"subnet{n}-del", {"id": t.subnet_id})]
@@ -100,37 +134,42 @@ def _subnet_commands(
         if subnet.id == 0 and t.subnet_id:
             subnet = subnet.replace(id=t.subnet_id)
         obj = subnet_to_kea(subnet, version)
+        wanted = obj.pop("reservations", None) or []
         cmds.append((f"subnet{n}-add", {key: [obj]}))
         if subnet.shared_network:
             cmds.append((f"network{n}-subnet-add", {"name": subnet.shared_network, "id": subnet.id}))
-        return cmds
+        return cmds + _reservation_sync(subnet.id, [], wanted, hosts_db)
     if found is None:
         raise ConnectorError(f"subnet {t.subnet_id} not found")
     container, idx, current_net = found
     subnet = subnet.replace(id=t.subnet_id or subnet.id, raw=subnet.raw or dict(container[idx]))
     obj = subnet_to_kea(subnet, version)
+    wanted = obj.pop("reservations", None) or []
     if current_net and current_net != subnet.shared_network:
         cmds.append((f"network{n}-subnet-del", {"name": current_net, "id": subnet.id}))
     cmds.append((f"subnet{n}-update", {key: [obj]}))
     if subnet.shared_network and current_net != subnet.shared_network:
         cmds.append((f"network{n}-subnet-add", {"name": subnet.shared_network, "id": subnet.id}))
-    return cmds
+    current = container[idx].get("reservations") or []
+    return cmds + _reservation_sync(subnet.id, current, wanted, hosts_db)
 
 
 def _network_commands(
-    t: Target, change: Change, family: Family, version: str | None, n: str
+    t: Target, change: Change, family: Family, version: str | None, n: str, hosts_db: bool
 ) -> list[Command]:
     if change.op is ChangeOp.DELETE:
         return [(f"network{n}-del", {"name": t.name, "subnets-action": "delete"})]
+    if change.op is ChangeOp.REPLACE:
+        # No network update command exists; command_path_available routes these to config-set.
+        raise ConnectorError("shared network replace goes through config-set")
     if not is_domain_dict(change.after):
         raise ConnectorError("shared network change needs a SharedNetwork in `after`")
     obj = shared_network_to_kea(SharedNetwork.from_dict(change.after), version)
-    cmds: list[Command] = []
-    if change.op is ChangeOp.REPLACE:
-        # There is no network-update: recreate it with its subnets in one transaction.
-        cmds.append((f"network{n}-del", {"name": t.name, "subnets-action": "delete"}))
-    cmds.append((f"network{n}-add", {"shared-networks": [obj]}))
-    return cmds
+    reservations: list[Command] = []
+    for sub in obj.get(subnet_key(family)) or []:
+        wanted = sub.pop("reservations", None) or []
+        reservations += _reservation_sync(int(sub["id"]), [], wanted, hosts_db)
+    return [(f"network{n}-add", {"shared-networks": [obj]}), *reservations]
 
 
 def _reservation_commands(t: Target, change: Change, hosts_db: bool) -> list[Command]:

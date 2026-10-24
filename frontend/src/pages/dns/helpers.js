@@ -34,6 +34,20 @@ export function laggingNodes(serials = {}) {
     .map(([id]) => id)
 }
 
+// Maps fn over items with at most `limit` calls in flight; keeps the input order.
+export async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length)
+  let next = 0
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i], i)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
+
 export const SECONDARY_KINDS = ['secondary', 'mirror', 'stub']
 
 export const RESOLVER_KEYS = ['recursion', 'allow_recursion', 'forwarders', 'forward', 'dnssec_validation']

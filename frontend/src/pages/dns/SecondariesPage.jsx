@@ -17,7 +17,7 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { ListValue, SerialCells } from './common'
-import { useNodeNames, zoneHref, resynchronizeZone, SECONDARY_KINDS } from './helpers'
+import { useNodeNames, zoneHref, resynchronizeZone, mapLimit, SECONDARY_KINDS } from './helpers'
 
 // Earliest timestamp of a ZoneStatus field over the nodes, or null.
 function earliest(status, field) {
@@ -28,19 +28,29 @@ function earliest(status, field) {
   return values.length ? new Date(Math.min(...values)).toISOString() : null
 }
 
+// One zonestatus read per zone: bounded so a large deployment does not flood the nodes.
+const STATUS_CONCURRENCY = 4
+
+async function withStatus(it) {
+  try {
+    const detail = await api.dns.zone(it.zone.name, it.zone.view)
+    return { ...it, status: detail.status }
+  } catch (err) {
+    return { ...it, status: {}, error: errorMessage(err) }
+  }
+}
+
 async function loadSecondaries() {
   const { items } = await api.dns.zones()
   const zones = items.filter((it) => SECONDARY_KINDS.includes(it.zone.kind))
-  return Promise.all(
-    zones.map(async (it) => {
-      try {
-        const detail = await api.dns.zone(it.zone.name, it.zone.view)
-        return { ...it, status: detail.status }
-      } catch (err) {
-        return { ...it, status: {}, error: errorMessage(err) }
-      }
-    }),
-  )
+  return mapLimit(zones, STATUS_CONCURRENCY, withStatus)
+}
+
+// Reloads a single row (serials from the zone list, status from the zone detail).
+async function reloadSecondary(row) {
+  const { items } = await api.dns.zones({ view: row.zone.view, q: row.zone.name })
+  const fresh = items.find((it) => it.zone.name === row.zone.name && it.zone.view === row.zone.view)
+  return withStatus(fresh || row)
 }
 
 export default function SecondariesPage() {
@@ -50,7 +60,7 @@ export default function SecondariesPage() {
   const { showSuccess, showError } = useNotification()
   const { nameOf } = useNodeNames()
   const [busy, setBusy] = useState(null)
-  const { data, error, loading, refetch } = useApi(loadSecondaries, [])
+  const { data, error, loading, refetch, setData } = useApi(loadSecondaries, [])
   const rows = useMemo(() => data || [], [data])
   const canOps = hasPermission('ops:dns')
 
@@ -59,7 +69,8 @@ export default function SecondariesPage() {
     try {
       const outputs = await resynchronizeZone({ zone: row.zone.name, kind: row.zone.kind, view: row.zone.view, serials: row.serials })
       showSuccess(outputs.join('\n') || t('zones.resyncDone', { zone: row.zone.name }))
-      refetch()
+      const fresh = await reloadSecondary(row)
+      setData((prev) => (prev || []).map((r) => (r.zone.name === row.zone.name && r.zone.view === row.zone.view ? fresh : r)))
     } catch (err) {
       showError(errorMessage(err))
     } finally {

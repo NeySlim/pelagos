@@ -104,3 +104,32 @@ def test_reload_failure_restores_and_removes_new_files(tmp_root):
     assert not result.ok and result.rolled_back
     assert not fresh.exists()
     assert "reconfig failed" in result.error
+
+
+def test_sticky_directory_rewrites_another_owners_file_in_place(tmp_root, monkeypatch):
+    """/var/named is root:named 1770: renaming over root's zone file is refused, writing it is not."""
+    import os
+
+    from pelagos.core import write_pipeline
+
+    zones = tmp_root / "named"
+    zones.mkdir()
+    target = zones / "db.example.lan"
+    target.write_text("old\n")
+    inode = target.stat().st_ino
+    zones.chmod(0o1770)
+    monkeypatch.setattr(write_pipeline.os, "geteuid", lambda: os.getuid() + 1)
+
+    def no_rename(*args):  # type: ignore[no-untyped-def]
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(write_pipeline.os, "replace", no_rename)
+    pipe = WritePipeline(
+        tmp_root / "backups",
+        validate=lambda: ValidationResult(ok=True, tool="named-checkzone"),
+        reload=lambda: "ok",
+    )
+    result = pipe.run([FileChange(target, b"new\n")])
+    assert result.ok, result.error
+    assert target.read_text() == "new\n" and target.stat().st_ino == inode
+    assert [p.name for p in zones.iterdir()] == ["db.example.lan"]

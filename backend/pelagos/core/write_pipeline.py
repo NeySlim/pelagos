@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import tempfile
 import time
 from collections.abc import Callable
@@ -54,6 +55,10 @@ def sha256_file(path: Path) -> str:
 def _atomic_write(path: Path, content: bytes, mode: int | None, group: str | None) -> None:
     """Temp file next to the target, fsync, rename; keeps owner, group and mode unless overridden."""
     existing = path.stat() if path.exists() else None
+    if existing is not None and _sticky_foreign(path, existing) and os.access(path, os.W_OK):
+        # A sticky directory (/var/named is root:named 1770) refuses renaming over another owner's file.
+        _write_in_place(path, content)
+        return
     remove_stale_temps(path)
     try:
         fd, tmp = tempfile.mkstemp(prefix=temp_prefix(path), dir=path.parent)
@@ -87,6 +92,17 @@ def _atomic_write(path: Path, content: bytes, mode: int | None, group: str | Non
         except FileNotFoundError:
             pass
         raise
+
+
+def _sticky_foreign(path: Path, existing: os.stat_result) -> bool:
+    euid = os.geteuid()
+    if euid == 0 or existing.st_uid == euid:
+        return False
+    try:
+        parent = path.parent.stat()
+    except OSError:
+        return False
+    return bool(parent.st_mode & stat.S_ISVTX) and parent.st_uid != euid
 
 
 def _copy_selinux_label(source: Path, target: str) -> None:

@@ -21,11 +21,12 @@ const TARGETS = {
   d2: { engine: 'd2', label: 'DhcpDdns', load: (node) => api.d2.config(node), schema: null, plan: (config, nodes) => api.d2.configPlan(config, nodes) },
 }
 
-function JsonTextarea({ value, onChange, error, testId }) {
+function JsonTextarea({ value, onChange, error, testId, readOnly }) {
   return (
     <textarea
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      readOnly={readOnly}
       rows={14}
       spellCheck={false}
       className={cn('w-full px-2.5 py-1.5 bg-bg-tertiary border rounded-md text-xs font-mono text-text-primary', error ? 'border-accent-danger' : 'border-border')}
@@ -71,7 +72,7 @@ function KeyEditor({ path, value, schemaKey, readOnly, onSave, onDelete }) {
         <Select label={t('kea.value')} options={[{ value: 'true', label: 'true' }, { value: 'false', label: 'false' }]} value={text} onChange={setText} disabled={readOnly} />
       ) : container ? (
         <>
-          <JsonTextarea value={text} onChange={setText} error={error} testId="kea-json-input" />
+          <JsonTextarea value={text} onChange={setText} error={error} readOnly={readOnly} testId="kea-json-input" />
           {error && <p className="text-xs status-danger-text font-mono">{error}</p>}
         </>
       ) : (
@@ -155,7 +156,7 @@ export default function KeaEditorPage() {
 
   useEffect(() => {
     setDraft(original ? JSON.parse(JSON.stringify(original)) : null)
-    setSelectedPath('')
+    setSelectedPath(original ? Object.keys(original)[0] || '' : '')
   }, [original])
 
   const path = parsePath(selectedPath)

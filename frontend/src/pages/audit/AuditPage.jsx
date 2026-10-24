@@ -51,7 +51,7 @@ export default function AuditPage() {
     { key: 'ts', label: t('columns.ts'), render: (row) => <span className="whitespace-nowrap text-xs">{formatDate(row.ts)}</span>, width: 150 },
     { key: 'user', label: t('columns.user'), render: (row) => row.user || <span className="text-text-tertiary">{t('anonymous')}</span> },
     { key: 'action', label: t('columns.action'), mono: true },
-    { key: 'target', label: t('columns.target'), mono: true, truncate: true },
+    { key: 'target', label: t('columns.target'), mono: true, truncate: true, width: '28%' },
     {
       key: 'engine',
       label: t('columns.engine'),

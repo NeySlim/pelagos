@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from pelagos.connectors.base import ConnectorContext
+from pelagos.connectors.base import ConnectorContext, ConnectorDenied
 from pelagos.connectors.kea.backend import KeaBackend
 from pelagos.connectors.kea.control_socket import KeaCommandError, KeaControlSocket
 from pelagos.connectors.kea.d2 import reduce_d2_stats
@@ -68,7 +68,7 @@ def test_backend_capabilities_and_passthrough(kea_dhcp4, tmp_root):
     assert not caps.degraded and caps.lease_backend == "memfile"
     assert len(backend.config_hash()) == 64
     assert backend.option_defs() == []
-    with pytest.raises(PermissionError):
+    with pytest.raises(ConnectorDenied):
         backend.command("config-write")
     with pytest.raises(KeaCommandError):
         KeaControlSocket(kea_dhcp4.socket_path).call("no-such-command")

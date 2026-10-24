@@ -13,6 +13,11 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, WP-FRONTEND: qrcode dependency for TOTP enrollment
+`frontend/package.json` adds `qrcode` (^1.5.4, MIT) to draw the
+`otpauth_url` of `POST /auth/totp/enroll` as an SVG QR code on the Account
+page. Frontend only; nothing to react to.
+
 ## 2026-10-24, WP-PACKAGING: pelagos.env owned by root, Kea group in compose
 `/etc/pelagos/pelagos.env` is `root:root 0644` (deb postinst, rpm `%attr`) and
 `/usr/bin/pelagos` parses it as `KEY=value` lines, refusing it unless root owns

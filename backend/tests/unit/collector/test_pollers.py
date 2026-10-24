@@ -340,9 +340,7 @@ def test_kea_file_divergence(store, tmp_root):
     # Includes are resolved as Kea does; a difference inside an included file is found too.
     part = tmp_root / "lifetime.json"
     part.write_text('"valid-lifetime": 3600,')
-    backend.conf_path.write_text(
-        FILE_V4.replace('"valid-lifetime": 3600,', f'<?include "{part}"?>')
-    )
+    backend.conf_path.write_text(FILE_V4.replace('"valid-lifetime": 3600,', f'<?include "{part}"?>'))
     assert [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE] == []
     part.write_text('"valid-lifetime": 60,')
     alerts = [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE]

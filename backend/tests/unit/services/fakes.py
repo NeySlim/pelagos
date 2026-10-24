@@ -1499,7 +1499,13 @@ class FakeDhcpBackend(DhcpBackend):
                     else (self.ha.mode.value if self.ha.mode else "hot-standby")
                 )
             elif target == "service":
-                self.enabled = bool(change.after)
+                after = change.after
+                # The real connector takes {"enable": bool}; older fakes passed a bare bool.
+                self.enabled = (
+                    bool(after.get("enable", after.get("enabled")))
+                    if isinstance(after, dict)
+                    else bool(after)
+                )
             elif "/reservations/" in target:
                 container, ident = self._reservation_target(target)
                 container[:] = [r for r in container if r.get(ident[0]) != ident[1]]

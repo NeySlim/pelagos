@@ -170,7 +170,8 @@ class Leases(FamilyResource):
     )
     @ns.response(200, "Leases; meta.node_id is the node read, meta.next the next cursor", m.LeasePage)
     def get(self, family: str):
-        limit = int_arg("limit") or 100
+        limit = int_arg("limit")
+        limit = 100 if limit is None else limit
         if limit < 1 or limit > 1000:
             raise ApiError("validation_error", "limit must be between 1 and 1000")
         rows, node_id, cursor = dhcp(family).lease_page(

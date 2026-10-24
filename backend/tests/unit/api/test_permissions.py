@@ -158,7 +158,13 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
         "write:dhcp.config",
     ),
     ("GET", "/dhcp/d2/config/file", "/dhcp/d2/config/file", None, "read:dhcp"),
-    ("POST", "/dhcp/d2/config/adopt/plan", "/dhcp/d2/config/adopt/plan", {"source": "file"}, "write:dhcp.config"),
+    (
+        "POST",
+        "/dhcp/d2/config/adopt/plan",
+        "/dhcp/d2/config/adopt/plan",
+        {"source": "file"},
+        "write:dhcp.config",
+    ),
     ("GET", "/hosts", "/hosts", None, "read:hosts"),
     ("GET", "/hosts/<path:key>", "/hosts/mac:aa:bb:cc:dd:ee:01", None, "read:hosts"),
     (

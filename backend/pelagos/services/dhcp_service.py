@@ -599,7 +599,8 @@ class DhcpService:
         n = "4" if self.family is Family.V4 else "6"
         if kind == "service":
             status = self._peer_snapshot(peer).get("status") or {}
-            currently = not bool((status.get("dhcp-state") or {}).get("disabled-by-user", False))
+            dhcp_state = status.get("dhcp-state") if isinstance(status.get("dhcp-state"), dict) else {}
+            currently = not bool(dhcp_state.get("disabled-by-user", False))
             enable = body["enable"]
             verb = "enable" if enable else "disable"
             change = Change(

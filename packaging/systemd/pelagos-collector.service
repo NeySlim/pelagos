@@ -5,6 +5,7 @@ Documentation=https://github.com/NeySlim/pelagos
 After=network-online.target
 Wants=network-online.target
 PartOf=pelagos.service
+ConditionPathExists=/etc/pelagos/node.toml
 
 [Service]
 Type=simple
@@ -12,6 +13,8 @@ User=pelagos
 Group=pelagos
 EnvironmentFile=-/etc/pelagos/pelagos.env
 WorkingDirectory=/opt/pelagos
+# Runs as root: ownership of /etc and /var when pelagos init ran as root (idempotent).
+ExecStartPre=+/opt/pelagos/bin/pelagos-prestart collector
 ExecStart=/opt/pelagos/venv/bin/pelagos collector
 Restart=on-failure
 RestartSec=5

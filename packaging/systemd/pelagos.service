@@ -4,6 +4,8 @@ Description=Pelagos web node (API and UI)
 Documentation=https://github.com/NeySlim/pelagos
 After=network-online.target
 Wants=network-online.target pelagos-collector.service
+# The package enables the unit; it only starts once pelagos init or enroll has run.
+ConditionPathExists=/etc/pelagos/node.toml
 
 [Service]
 Type=simple
@@ -12,6 +14,8 @@ Group=pelagos
 # Supplementary groups are set by the package postinst (bind or named, _kea or kea).
 EnvironmentFile=-/etc/pelagos/pelagos.env
 WorkingDirectory=/opt/pelagos
+# Runs as root: self-signed HTTPS certificate on first start, ownership of /etc and /var.
+ExecStartPre=+/opt/pelagos/bin/pelagos-prestart
 ExecStart=/opt/pelagos/venv/bin/gunicorn -c /opt/pelagos/gunicorn_conf.py 'pelagos.app:wsgi_app()'
 Restart=on-failure
 RestartSec=3

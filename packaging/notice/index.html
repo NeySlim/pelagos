@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pelagos API node</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #0f1a24; --fg: #e6edf3; --muted: #9fb0c0; --accent: #4cc3ff; }
+    @media (prefers-color-scheme: light) { :root { --bg: #f5f8fa; --fg: #16222c; --muted: #5a6b7a; --accent: #0b78b3; } }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg);
+           font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 16px; box-sizing: border-box; }
+    main { max-width: 36rem; }
+    h1 { font-size: 1.6rem; margin: 0 0 0.5rem; }
+    p { margin: 0.5rem 0; color: var(--muted); }
+    code { color: var(--fg); background: rgba(127, 127, 127, 0.15); padding: 0 0.3em; border-radius: 3px; }
+    a { color: var(--accent); }
+    ul { padding-left: 1.2rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Pelagos: API-only build</h1>
+    <p>This package was built without the web interface. The node is running and the REST API is available.</p>
+    <ul>
+      <li>Health: <a href="/api/v1/health"><code>/api/v1/health</code></a></li>
+      <li>Version: <a href="/api/v1/version"><code>/api/v1/version</code></a></li>
+      <li>Interactive documentation: <a href="/api/v1/docs"><code>/api/v1/docs</code></a></li>
+    </ul>
+    <p>To get the interface, rebuild the package with <code>frontend/dist</code> present (<code>make build-frontend</code> before <code>make deb</code>, <code>make rpm</code> or <code>make docker</code>).</p>
+  </main>
+</body>
+</html>

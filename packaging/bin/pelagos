@@ -1,0 +1,12 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# /usr/bin/pelagos: run the CLI from the packaged venv with the unit's environment file.
+set -eu
+env_file="${PELAGOS_ENV_FILE:-/etc/pelagos/pelagos.env}"
+if [ -r "$env_file" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$env_file"
+  set +a
+fi
+exec /opt/pelagos/venv/bin/pelagos "$@"

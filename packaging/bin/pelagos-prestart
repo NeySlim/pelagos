@@ -1,0 +1,38 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# ExecStartPre of the pelagos units, run as root (the units use the "+" prefix).
+# Usage: pelagos-prestart [web|collector]   (default web)
+# Fails fast when the node is not initialized, gives the service user its configuration
+# and state back (pelagos init may have run as root) and, for the web process only, creates
+# a self-signed HTTPS certificate when none exists.
+set -eu
+
+mode="${1:-web}"
+etc="${PELAGOS_ETC:-/etc/pelagos}"
+var="${PELAGOS_VAR:-/var/lib/pelagos}"
+user="${PELAGOS_USER:-pelagos}"
+group="${PELAGOS_GROUP:-$user}"
+
+if [ ! -f "$etc/node.toml" ]; then
+  echo "pelagos: $etc/node.toml not found; run 'pelagos init' (first node) or 'pelagos enroll' (join a cluster)" >&2
+  exit 78
+fi
+
+mkdir -p "$etc/tls" "$var"
+if [ "$mode" = web ] && { [ ! -s "$etc/tls/server.crt" ] || [ ! -s "$etc/tls/server.key" ]; }; then
+  host="$(hostname -f 2>/dev/null || hostname)"
+  echo "pelagos: creating a self-signed certificate for $host in $etc/tls" >&2
+  umask 077
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+    -subj "/CN=$host" -addext "subjectAltName=DNS:$host,DNS:localhost,IP:127.0.0.1" \
+    -keyout "$etc/tls/server.key.new" -out "$etc/tls/server.crt.new" >/dev/null 2>&1
+  mv -f "$etc/tls/server.key.new" "$etc/tls/server.key"
+  mv -f "$etc/tls/server.crt.new" "$etc/tls/server.crt"
+  umask 022
+fi
+
+# Only touch what is not already right so large backup trees stay cheap.
+find "$etc" "$var" \( ! -user "$user" -o ! -group "$group" \) -exec chown "$user:$group" {} + 2>/dev/null || true
+chmod 0750 "$etc" "$var" "$etc/tls"
+[ ! -f "$etc/tls/server.key" ] || chmod 0600 "$etc/tls/server.key"
+exit 0

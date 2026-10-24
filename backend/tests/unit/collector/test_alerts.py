@@ -7,7 +7,8 @@ from datetime import timedelta
 
 import pytest
 
-from pelagos.collector.alerts import AlertStore, ack_entry
+from pelagos.collector import alerts as alerts_mod
+from pelagos.collector.alerts import ACK_SKEW, AlertStore, ack_entry
 from pelagos.collector.series import SeriesStore, connect
 from pelagos.domain import Alert, AlertKind, AlertState, AuditEntry, Engine, Severity, utcnow
 
@@ -36,7 +37,7 @@ def down(engine: Engine = Engine.KEA4, error: str = "refused") -> Alert:
     )
 
 
-def test_lifecycle_open_update_resolve_reopen_after_ack(alerts):
+def test_lifecycle_open_update_resolve_reopen_after_ack(alerts, monkeypatch):
     opened, updated, resolved = alerts.reconcile([down()], KINDS)
     assert [a.kind for a in opened] == [AlertKind.DAEMON_DOWN] and not updated and not resolved
     alert_id = opened[0].id
@@ -59,10 +60,14 @@ def test_lifecycle_open_update_resolve_reopen_after_ack(alerts):
     assert alerts.get(alert_id).state is AlertState.RESOLVED
     assert alerts.get(alert_id).resolved_at is not None
 
+    original_first_seen = alerts.get(alert_id).first_seen
+    later = utcnow() + timedelta(minutes=5)
+    monkeypatch.setattr(alerts_mod, "utcnow", lambda: later)
     opened, updated, resolved = alerts.reconcile([down()], KINDS)
     assert [a.id for a in opened] == [alert_id]
     reopened = alerts.get(alert_id)
     assert reopened.state is AlertState.OPEN and reopened.acked_by is None and reopened.resolved_at is None
+    assert reopened.first_seen > original_first_seen
 
 
 def test_scope_and_where_leave_other_alerts_alone(alerts):
@@ -100,9 +105,11 @@ def test_ack_replay_from_audit(alerts):
     stale.ts = utcnow() - timedelta(days=1)
     assert alerts.apply_audit_acks([stale]) == []
     assert alerts.get(alert.id).state is AlertState.OPEN
-    fresh = ack_entry("N2", alert, "carol")
-    fresh.ts = utcnow() + timedelta(seconds=1)
-    assert [a.acked_by for a in alerts.apply_audit_acks([fresh])] == ["carol"]
+    # A peer whose clock lags a few seconds behind still acks the current occurrence.
+    lagging = ack_entry("N2", alert, "carol")
+    lagging.ts = alerts.get(alert.id).first_seen - ACK_SKEW / 2
+    assert [a.acked_by for a in alerts.apply_audit_acks([lagging])] == ["carol"]
+    assert alerts.oldest_open_first_seen() is None  # acked alerts no longer bound the ack scan
 
 
 def test_list_and_summary(alerts):

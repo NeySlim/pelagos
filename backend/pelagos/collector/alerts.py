@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Callable, Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pelagos.domain.alerts import Alert, AlertState
@@ -15,6 +15,8 @@ from pelagos.domain.common import utcnow
 
 ACK_ACTION = "alert.ack"
 ACK_TARGET_PREFIX = "alert:"
+# Clock skew tolerated between the node that wrote an ack and the one that opened the alert.
+ACK_SKEW = timedelta(seconds=60)
 
 
 def _ts(dt: datetime | None) -> int | None:
@@ -68,7 +70,7 @@ class AlertStore:
         self.conn.execute(
             """INSERT INTO alerts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(id) DO UPDATE SET severity=excluded.severity, state=excluded.state,
-               title=excluded.title,
+               title=excluded.title, first_seen=excluded.first_seen,
                details=excluded.details, last_seen=excluded.last_seen, acked_by=excluded.acked_by,
                acked_at=excluded.acked_at, resolved_at=excluded.resolved_at""",
             (
@@ -217,12 +219,17 @@ class AlertStore:
             if current is None or current.state is not AlertState.OPEN:
                 continue
             # An ack older than the current occurrence does not apply to a re-opened alert.
-            if entry.ts < current.first_seen:
+            if current.first_seen is not None and entry.ts < current.first_seen - ACK_SKEW:
                 continue
             acked = self.ack(alert_id, entry.user or "system", entry.ts)
             if acked is not None:
                 changed.append(acked)
         return changed
+
+    def oldest_open_first_seen(self) -> datetime | None:
+        """first_seen of the oldest alert still in state open: no older ack can apply to anything."""
+        row = self.conn.execute("SELECT MIN(first_seen) AS t FROM alerts WHERE state = 'open'").fetchone()
+        return _dt(row["t"]) if row and row["t"] is not None else None
 
     def consumed_acks(self) -> set[str]:
         """Ids of alert.ack audit entries already replayed (meta keys "ack:<entry id>")."""

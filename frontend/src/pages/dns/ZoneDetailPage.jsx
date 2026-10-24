@@ -331,7 +331,7 @@ export default function ZoneDetailPage() {
         zone && (
           <>
             {views.length > 1 && (
-              <Select size="sm" variant="filter" value={zone.view} onChange={switchView} options={views.map((v) => ({ value: v, label: `${t('detail.view')}: ${v}` }))} data-testid="zone-view-select" />
+              <Select size="sm" variant="filter" value={zone.view} onChange={switchView} options={views.map((v) => ({ value: v, label: `${t('common:fieldLabel', { label: t('detail.view') })} ${v}` }))} data-testid="zone-view-select" />
             )}
             {mode === 'static' && hasPermission('admin:install') && (
               <Button variant="warning-soft" size="sm" onClick={convertZone} loading={flow.busy} data-testid="zone-convert">

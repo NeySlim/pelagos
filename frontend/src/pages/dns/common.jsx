@@ -21,7 +21,7 @@ export function SerialCells({ serials = {}, nameOf, className }) {
             lag.has(id) ? 'status-warning-bg status-warning-text border-transparent' : 'border-border-op50 text-text-secondary',
           )}
         >
-          <span className="text-text-tertiary">{nameOf(id)}</span>
+          <span className={lag.has(id) ? 'text-text-secondary' : 'text-text-tertiary'}>{nameOf(id)}</span>
           <span>{serial ?? t('zones.noSerial')}</span>
         </span>
       ))}

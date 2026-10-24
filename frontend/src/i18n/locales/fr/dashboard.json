@@ -63,7 +63,7 @@
   "kinds": {
     "pool_near_full": "pool presque plein",
     "pool_full": "pool plein",
-    "serial_divergence": "serials divergents",
+    "serial_divergence": "numéros de série divergents",
     "secondary_stale": "secondaire en retard",
     "zone_error": "zone en erreur",
     "ha_degraded": "HA dégradée",

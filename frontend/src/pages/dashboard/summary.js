@@ -20,3 +20,9 @@ export function poolThresholds(summary, settings) {
     full: pick(fromSummary.pool_critical_percent, fromSummary.alerts_pool_critical_percent, settings?.alerts_pool_critical_percent) ?? 95,
   }
 }
+
+// Error share of sent updates as a percentage, one decimal, in the UI language's number format.
+export function formatErrorRate(errors, sent, language) {
+  const rate = sent ? (errors / sent) * 100 : 0
+  return new Intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(rate)
+}

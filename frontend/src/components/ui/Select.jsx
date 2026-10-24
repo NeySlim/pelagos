@@ -115,7 +115,7 @@ export function Select({
   return (
     <div className={cn(label && "space-y-1.5", className)}>
       {label && (
-        <label id={labelId} htmlFor={triggerId} className="block text-sm font-medium text-text-primary">
+        <label id={labelId} htmlFor={triggerId} className="block text-xs font-medium text-text-secondary leading-[20px]">
           {label}
         </label>
       )}

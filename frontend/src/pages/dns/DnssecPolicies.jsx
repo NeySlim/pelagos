@@ -75,7 +75,7 @@ export function DnssecPolicies({ onChanged }) {
         <ShieldCheck size={16} className="text-accent-primary" />
         <h3 className="text-sm font-semibold text-text-primary">{t('dnssec.policies')}</h3>
         <span className="text-2xs text-text-tertiary">
-          {t('dnssec.builtin')}: {builtin.join(', ')}
+          {t('common:fieldLabel', { label: t('dnssec.builtin') })} {builtin.join(', ')}
         </span>
         {canWrite && (
           <Button size="xs" className="ml-auto" onClick={() => setEditing('new')} data-testid="dnssec-policy-add">
@@ -103,7 +103,7 @@ export function DnssecPolicies({ onChanged }) {
                       variant="ghost"
                       size="xs"
                       disabled={(p.used_by || []).length > 0}
-                      title={(p.used_by || []).length ? `${t('dnssec.usedBy')}: ${p.used_by.join(', ')}` : t('dnssec.deletePolicy')}
+                      title={(p.used_by || []).length ? `${t('common:fieldLabel', { label: t('dnssec.usedBy') })} ${p.used_by.join(', ')}` : t('dnssec.deletePolicy')}
                       onClick={() => flow.run(() => api.dns.dnssecPoliciesPlan({ op: 'delete', target: `dnssec-policy/${p.name}`, before: p, after: null }))}
                       aria-label={t('dnssec.deletePolicy')}
                     >

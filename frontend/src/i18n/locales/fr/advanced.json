@@ -8,7 +8,7 @@
   "pages": {
     "bind": {
       "title": "Éditeur named.conf",
-      "subtitle": "Arbre des statements, formulaire piloté par la grammaire, diff et validation"
+      "subtitle": "Arbre des instructions, formulaire piloté par la grammaire, diff et validation"
     },
     "kea": {
       "title": "Éditeur Kea",
@@ -25,10 +25,10 @@
     "managed": "Pelagos",
     "userFile": "Fichier utilisateur",
     "managedHelp": "Les zones, clés et ACL de ce fichier ont leurs propres écrans ; pelagos.conf est généré.",
-    "addTop": "Ajouter un statement à ce fichier",
-    "addInside": "Ajouter un statement dans ce bloc",
-    "addIn": "Nouveau statement dans le contexte {{context}}",
-    "statement": "Statement",
+    "addTop": "Ajouter une instruction à ce fichier",
+    "addInside": "Ajouter une instruction dans ce bloc",
+    "addIn": "Nouvelle instruction dans le contexte {{context}}",
+    "statement": "Instruction",
     "choose": "Choisir...",
     "new": "nouveau",
     "definedAt": "Défini dans {{file}}, ligne {{line}}",
@@ -44,12 +44,12 @@
     "elementsPlaceholder": "Ajouter un élément puis Entrée",
     "elementsHelp": "Un élément de correspondance d'adresse, une clé ou un serveur par entrée",
     "blockName": "Nom",
-    "blockHelp": "Les statements de ce bloc se modifient un par un dans l'arbre.",
+    "blockHelp": "Les instructions de ce bloc se modifient une par une dans l'arbre.",
     "updateDraft": "Mettre à jour le brouillon",
     "addToDraft": "Ajouter au brouillon",
     "remove": "Supprimer",
-    "selectTitle": "Choisissez un statement",
-    "selectBody": "Choisissez un statement dans l'arbre pour le modifier, ou + pour en ajouter un. La grammaire connaît {{count}} statements de BIND {{version}}.",
+    "selectTitle": "Choisissez une instruction",
+    "selectBody": "Choisissez une instruction dans l'arbre pour la modifier, ou + pour en ajouter une. La grammaire connaît {{count}} instructions de BIND {{version}}.",
     "selectBody_one": "Choisissez une instruction dans l'arbre pour la modifier, ou + pour en ajouter une. La grammaire connaît {{count}} instruction de BIND {{version}}.",
     "errors": {
       "integer": "Un nombre est attendu",

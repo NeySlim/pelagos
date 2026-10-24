@@ -155,7 +155,7 @@
       "plan_ttl_seconds": "Durée de vie d'un plan (secondes)",
       "alerts_pool_warning_percent": "Pool en alerte (%)",
       "alerts_pool_critical_percent": "Pool critique (%)",
-      "alerts_serial_divergence_seconds": "Écart de serial toléré (secondes)",
+      "alerts_serial_divergence_seconds": "Écart de numéro de série toléré (secondes)",
       "alerts_d2_error_rate": "Taux d'erreur DDNS",
       "dns": {
         "read_key": "Clé de transfert",
@@ -186,7 +186,7 @@
         "audit_days": "Fenêtre d'export d'audit (jours)",
         "pool_raw_days": "Séries brutes des pools (jours)",
         "pool_hourly_days": "Séries horaires des pools (jours)",
-        "serial_days": "Séries des serials (jours)",
+        "serial_days": "Historique des numéros de série (jours)",
         "ha_transition_days": "Transitions HA (jours)",
         "alerts_resolved_days": "Alertes résolues (jours)"
       }

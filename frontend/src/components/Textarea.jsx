@@ -12,6 +12,7 @@ export function Textarea({
   maxLength,
   showCount = false,
   className,
+  wrapperClassName,
   value = '',
   ...props
 }) {
@@ -20,10 +21,10 @@ export function Textarea({
   const errorId = `${fieldId}-error`
   const helperId = `${fieldId}-helper`
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div className={cn("space-y-1.5", wrapperClassName)}>
       {label && (
         <div className="flex items-center justify-between">
-          <label htmlFor={fieldId} className="block text-sm font-medium text-text-primary">
+          <label htmlFor={fieldId} className="block text-xs font-medium text-text-secondary leading-[20px]">
             {label}
             {props.required && <span className="status-danger-text ml-1">*</span>}
           </label>
@@ -43,7 +44,8 @@ export function Textarea({
           "transition-all duration-200 resize-y",
           "hover:border-secondary-op50 hover:bg-bg-tertiary",
           error && "border-accent-danger focus:ring-accent-danger-op50",
-          !error && "border-border"
+          !error && "border-border",
+          className
         )}
         value={value}
         maxLength={maxLength}

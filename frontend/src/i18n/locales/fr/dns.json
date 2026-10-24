@@ -6,12 +6,12 @@
     "secondaries": "Secondaires",
     "dnssec": "DNSSEC",
     "rpz": "RPZ",
-    "catalogs": "Zones catalogue"
+    "catalogs": "Zones catalogues"
   },
   "pages": {
     "zones": {
       "title": "Zones",
-      "subtitle": "Zones de toutes les vues avec le serial de chaque nœud"
+      "subtitle": "Zones de toutes les vues avec le numéro de série de chaque nœud"
     },
     "zoneDetail": {
       "title": "Zone",
@@ -38,7 +38,7 @@
       "subtitle": "RPZ et zones catalogues"
     },
     "catalogs": {
-      "title": "Zones catalogue",
+      "title": "Zones catalogues",
       "subtitle": "Catalogues consommés et produits, avec leurs zones membres"
     }
   },
@@ -63,9 +63,9 @@
     "kind": "Type",
     "view": "Vue",
     "source": "Origine",
-    "serials": "Serial par nœud",
+    "serials": "Numéro de série par nœud",
     "sync": "Synchro",
-    "lagging": "En retard sur le serial le plus haut",
+    "lagging": "En retard sur le numéro de série le plus haut",
     "noSerial": "sans réponse",
     "signed": "Signée",
     "dynamic": "Dynamique",
@@ -103,7 +103,7 @@
     "ttl": "TTL",
     "rdata": "Données",
     "search": "Chercher un enregistrement...",
-    "readFrom": "serial {{serial}}",
+    "readFrom": "n° de série {{serial}}",
     "add": "Ajouter un enregistrement",
     "empty": "Aucun enregistrement ne correspond"
   },
@@ -163,8 +163,8 @@
     "deleteZone": "Supprimer la zone",
     "opDone": "Commande envoyée",
     "noStatus": "Aucun nœud ne remonte cette zone",
-    "serial": "Serial SOA",
-    "configSerial": "Serial chargé",
+    "serial": "N° de série SOA",
+    "configSerial": "N° de série chargé",
     "lastLoaded": "Dernier chargement",
     "nextRefresh": "Prochain rafraîchissement",
     "expires": "Expiration",
@@ -179,7 +179,7 @@
     "allowUpdate": "Mise à jour autorisée",
     "updatePolicy": "Politique de mise à jour",
     "notes": "Notes",
-    "extra": "Autres statements",
+    "extra": "Autres instructions",
     "mode": "Mode",
     "view": "Vue",
     "edit": "Modifier la zone",
@@ -275,7 +275,7 @@
     "unknownStatement": "{{name}} n'est pas une instruction de dnssec-policy",
     "emptyStatement": "{{name}} demande une valeur",
     "usedBy": "Utilisée par",
-    "builtin": "Prédéfinie",
+    "builtin": "Prédéfinies",
     "deletePolicy": "Supprimer la politique",
     "noPolicies": "Aucune politique définie ici",
     "attachHelp": "Une politique s'attache à une zone depuis la page de la zone (Modifier la zone)",
@@ -294,7 +294,7 @@
     "rules": "Règles",
     "remote": "non servie ici",
     "empty": "Aucune zone de politique de réponse",
-    "emptyHelp": "Les RPZ se déclarent avec le statement response-policy",
+    "emptyHelp": "Les RPZ se déclarent avec l'instruction response-policy",
     "catalogZones": "Zones catalogues",
     "defaultPrimaries": "Primaires par défaut",
     "members": "Membres",
@@ -335,6 +335,6 @@
     "memberError": "Saisissez un nom de zone",
     "readError": "Illisible ici : {{error}}",
     "noMembers": "Aucun membre",
-    "open": "Zones catalogue"
+    "open": "Zones catalogues"
   }
 }

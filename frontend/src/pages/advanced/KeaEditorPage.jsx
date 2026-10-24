@@ -23,7 +23,7 @@ const TARGETS = {
   d2: { engine: 'd2', label: 'DhcpDdns', load: (node) => api.d2.config(node), schema: () => api.advanced.keaSchema('d2'), plan: (config, node) => api.d2.configPlan(config, undefined, node) },
 }
 
-function JsonTextarea({ value, onChange, error, testId, readOnly }) {
+function JsonTextarea({ value, onChange, error, testId, readOnly, label }) {
   return (
     <textarea
       value={value}
@@ -31,6 +31,8 @@ function JsonTextarea({ value, onChange, error, testId, readOnly }) {
       readOnly={readOnly}
       rows={14}
       spellCheck={false}
+      aria-label={label}
+      aria-invalid={error ? true : undefined}
       className={cn('w-full px-2.5 py-1.5 bg-bg-tertiary border rounded-md text-xs font-mono text-text-primary', error ? 'border-accent-danger' : 'border-border')}
       data-testid={testId}
     />
@@ -75,7 +77,7 @@ function KeyEditor({ path, value, schemaKey, readOnly, canDelete, onSave, onDele
         <Select label={t('kea.value')} options={[{ value: 'true', label: 'true' }, { value: 'false', label: 'false' }]} value={text} onChange={setText} disabled={readOnly} />
       ) : container ? (
         <>
-          <JsonTextarea value={text} onChange={setText} error={error} readOnly={readOnly} testId="kea-json-input" />
+          <JsonTextarea value={text} onChange={setText} error={error} readOnly={readOnly} testId="kea-json-input" label={t('kea.value')} />
           {error && <p className="text-xs status-danger-text font-mono">{error}</p>}
         </>
       ) : (
@@ -130,7 +132,7 @@ function AddKey({ target, schema, config, onAdd }) {
         <Select label={t('kea.fromSchema')} options={suggestions.map((k) => ({ value: k.name, label: `${k.name} (${k.type})` }))} value={name || undefined} onChange={pick} placeholder={t('bind.choose')} />
       )}
       {!isArray && <Input label={t('kea.key')} value={name} onChange={(e) => setName(e.target.value)} className="font-mono" data-testid="kea-add-name" />}
-      <JsonTextarea value={text} onChange={setText} error={error} testId="kea-add-value" />
+      <JsonTextarea value={text} onChange={setText} error={error} testId="kea-add-value" label={t('kea.value')} />
       {error && <p className="text-xs status-danger-text font-mono">{error}</p>}
       <Button size="sm" variant="secondary" onClick={submit} data-testid="kea-add-submit">
         <Plus size={14} />

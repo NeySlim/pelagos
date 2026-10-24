@@ -65,10 +65,10 @@ export function KeaFileBanner({ engine }) {
                     <Button size="xs" variant="secondary" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'running'))} data-testid="adopt-running">
                       {t('keaFile.adoptRunning')}
                     </Button>
-                    <span className="text-2xs text-text-tertiary">{t('keaFile.hint')}</span>
+                    <span className="text-2xs text-text-secondary">{t('keaFile.hint')}</span>
                   </div>
                 )}
-                {canAdopt && place === 'other' && <p className="pl-6 text-2xs text-text-tertiary">{t('keaFile.otherNode', { node: nameOf(item.node_id) })}</p>}
+                {canAdopt && place === 'other' && <p className="pl-6 text-2xs text-text-secondary">{t('keaFile.otherNode', { node: nameOf(item.node_id) })}</p>}
               </div>
             )
           })}

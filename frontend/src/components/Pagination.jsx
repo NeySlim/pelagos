@@ -96,7 +96,6 @@ export function Pagination({
                   key={pageNum}
                   onClick={() => onChange(pageNum)}
                   aria-current={page === pageNum ? 'page' : undefined}
-                  aria-label={t('table.pageN', { page: pageNum })}
                   className={cn(
                     "min-w-[28px] h-7 rounded text-xs font-medium transition-all",
                     page === pageNum

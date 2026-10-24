@@ -523,6 +523,13 @@ function grammar() {
       s('listen-on-v6', ['options'], '[ port integer ] [ tls string ] { address_match_list }', { multiple: true }),
       s('type', ['zone'], '( primary | secondary | stub | static-stub | forward | mirror | hint | redirect )'),
       s('file', ['zone'], 'quoted_string'),
+      s('keys', ['dnssec-policy'], '{ ( csk | ksk | zsk ) [ key-directory | key-store string ] lifetime duration algorithm string [ tag-range integer integer ] [ integer ]; ... }'),
+      s('signatures-validity', ['dnssec-policy'], 'duration'),
+      s('signatures-refresh', ['dnssec-policy'], 'duration'),
+      s('nsec3param', ['dnssec-policy'], '[ iterations integer ] [ optout boolean ] [ salt-length integer ]'),
+      s('max-zone-ttl', ['dnssec-policy'], 'duration'),
+      s('dnskey-ttl', ['dnssec-policy'], 'duration'),
+      s('inline-signing', ['dnssec-policy'], 'boolean'),
     ],
   }
 }

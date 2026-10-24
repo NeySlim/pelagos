@@ -245,7 +245,7 @@ export function PlanPreview({
           <ul className="space-y-1">
             {changeRows.map((change, i) => (
               <li key={i} className="flex items-center gap-2 text-xs">
-                <Badge variant={OP_VARIANT[change.op] || 'default'} size="sm" className="uppercase w-16 justify-center">
+                <Badge variant={OP_VARIANT[change.op] || 'default'} size="sm" className="uppercase min-w-16 shrink-0 whitespace-nowrap justify-center">
                   {t(`plan.op.${change.op}`, { defaultValue: change.op })}
                 </Badge>
                 <span className="font-mono text-text-primary break-all">{change.target}</span>

@@ -61,7 +61,7 @@ export function SelectComponent({
   return (
     <div className={cn("space-y-1.5", className)}>
       {label && (
-        <label id={`${triggerId}-label`} htmlFor={triggerId} className="block text-sm font-medium text-text-primary">
+        <label id={`${triggerId}-label`} htmlFor={triggerId} className="block text-xs font-medium text-text-secondary leading-[20px]">
           {label}
         </label>
       )}
@@ -199,7 +199,7 @@ function SearchableSelect({ label, options, value, onChange, placeholder, error,
   return (
     <div className={cn("space-y-1.5", className)} ref={containerRef}>
       {label && (
-        <label htmlFor={triggerId} className="block text-sm font-medium text-text-primary">{label}</label>
+        <label htmlFor={triggerId} className="block text-xs font-medium text-text-secondary leading-[20px]">{label}</label>
       )}
 
       {/* Trigger / display */}

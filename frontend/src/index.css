@@ -675,6 +675,8 @@ html, body, #root {
 .theme-light .status-badge-warning { color: color-mix(in srgb, var(--accent-warning) 45%, #000); }
 .theme-light .status-danger-text,
 .theme-light .status-badge-danger { color: color-mix(in srgb, var(--accent-danger) 45%, #000); }
+:root:not(.theme-light) .status-danger-text,
+:root:not(.theme-light) .status-badge-danger { color: color-mix(in srgb, var(--accent-danger) 70%, #fff); }
 .theme-light .status-primary-text { color: color-mix(in srgb, var(--accent-primary) 45%, #000); }
 .theme-light .status-purple-text { color: color-mix(in srgb, var(--accent-purple) 45%, #000); }
 .theme-light .nav-item-active { color: color-mix(in srgb, var(--accent-primary) 65%, #000); }
@@ -1459,7 +1461,7 @@ input:focus, select:focus, textarea:focus {
 
 /* === GRADIENT BUTTON (subtle) === */
 .btn-gradient {
-  background: var(--gradient-primary);
+  background: var(--gradient-button, var(--gradient-primary));
   border: none;
   border-radius: 8px;
   color: white;
@@ -2664,7 +2666,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .help-modal-btn {
-  background: var(--gradient-primary);
+  background: var(--gradient-button, var(--gradient-primary));
   color: white;
   box-shadow: 0 2px 8px color-mix(in srgb, var(--accent-primary) 30%, transparent);
 }

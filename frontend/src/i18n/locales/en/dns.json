@@ -275,7 +275,7 @@
     "unknownStatement": "{{name}} is not a dnssec-policy statement",
     "emptyStatement": "{{name}} needs a value",
     "usedBy": "Used by",
-    "builtin": "Built in",
+    "builtin": "Built-in",
     "deletePolicy": "Delete policy",
     "noPolicies": "No policy defined here",
     "attachHelp": "A policy is attached to a zone from the zone page (Edit zone)",

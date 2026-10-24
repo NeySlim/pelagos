@@ -100,7 +100,7 @@ export default function SecurityPage() {
         <div className="space-y-4 max-w-5xl">
           <div className="flex flex-wrap items-center gap-2">
             {counts.map(([severity, n]) => (
-              <StatusBadge key={severity} status={severity} label={`${t(`common:status.${severity}`)}: ${n}`} />
+              <StatusBadge key={severity} status={severity} label={`${t('common:fieldLabel', { label: t(`common:status.${severity}`) })} ${n}`} />
             ))}
             <label className="ml-auto flex items-center gap-2 text-xs text-text-secondary cursor-pointer">
               <input type="checkbox" checked={allSelected(selected, ids)} onChange={() => setSelected(allSelected(selected, ids) ? [] : ids)} disabled={Boolean(plan)} data-testid="security-select-all" />

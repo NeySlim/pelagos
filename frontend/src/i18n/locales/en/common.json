@@ -249,8 +249,7 @@
     "firstPage": "First page",
     "previousPage": "Previous page",
     "nextPage": "Next page",
-    "lastPage": "Last page",
-    "pageN": "Page {{page}}"
+    "lastPage": "Last page"
   },
   "theme": {
     "family": "Theme",

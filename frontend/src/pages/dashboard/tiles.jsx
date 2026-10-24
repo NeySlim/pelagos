@@ -11,7 +11,7 @@ import { Badge } from '../../components/Badge'
 import { UtilizationBar } from '../../components/UtilizationBar'
 import { EmptyState } from '../../components/EmptyState'
 import { cn, formatRelativeTime } from '../../lib/utils'
-import { dhcpFamily, poolThresholds } from './summary'
+import { dhcpFamily, poolThresholds, formatErrorRate } from './summary'
 
 export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, status, children }) {
   return (
@@ -284,7 +284,7 @@ const D2_COUNTERS = ['update-success', 'update-error', 'update-timeout', 'ncr-er
 
 export function D2Tile({ summary, editing, nameOf }) {
   const family = dhcpFamily(summary)
-  const { t } = useTranslation(['dashboard', 'common'])
+  const { t, i18n } = useTranslation(['dashboard', 'common'])
   const d2 = summary?.d2 || []
   const errors = (s) => (s.totals?.['update-error'] || 0) + (s.totals?.['update-timeout'] || 0) + (s.totals?.['ncr-error'] || 0)
   const total = d2.reduce((acc, s) => acc + errors(s), 0)
@@ -304,7 +304,7 @@ export function D2Tile({ summary, editing, nameOf }) {
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(14rem, 1fr))' }}>
           {d2.map((s) => {
             const sent = s.totals?.['update-sent'] || 0
-            const rate = sent ? Math.round((errors(s) / sent) * 1000) / 10 : 0
+            const rate = formatErrorRate(errors(s), sent, i18n.language)
             return (
               <div key={s.node_id} className="rounded-lg border border-border-op50 p-2" data-testid="tile-d2-node">
                 <div className="flex items-center gap-2 mb-1.5">

@@ -16,7 +16,7 @@ import { api } from '../../services/api'
 import { formatRelativeTime } from '../../lib/utils'
 import { AreaPage, NativeSelect, RowActions, SectionError, Stat } from './ui'
 import { usePlanFlow, useNodeNames } from './hooks'
-import { fieldErrors, parseScalar } from './lib'
+import { fieldErrors, parseDdnsValue } from './lib'
 
 const KNOWN_PARAMS = [
   'ddns-send-updates', 'ddns-override-no-update', 'ddns-override-client-update', 'ddns-replace-client-name',
@@ -181,7 +181,12 @@ function ParamForm({ family, row, existing, flow, onClose }) {
       setErrors({ key: t('form.badName') })
       return
     }
-    const after = parseScalar(value)
+    const parsed = parseDdnsValue(key, value)
+    if (parsed.error) {
+      setErrors({ value: t(parsed.error) })
+      return
+    }
+    const after = parsed.value
     try {
       const plan = await flow.build(
         () => api.dhcp.ddnsPlan(family, [{ op: isNew ? 'add' : 'replace', target: key, before: row?.value ?? null, after }]),
@@ -210,7 +215,7 @@ function ParamForm({ family, row, existing, flow, onClose }) {
         <Input label={t('fields.parameter')} value={key} disabled />
       )}
       {errors.key && <p className="text-xs status-danger-text">{errors.key}</p>}
-      <Input label={t('fields.value')} value={value} onChange={(e) => setValue(e.target.value)} helperText={t('ddns.valueHint')} data-testid="ddns-value" />
+      <Input label={t('fields.value')} value={value} onChange={(e) => setValue(e.target.value)} helperText={t('ddns.valueHint')} error={errors.value} data-testid="ddns-value" />
       {errors._form && <p className="text-xs status-danger-text">{errors._form}</p>}
     </FormModal>
   )

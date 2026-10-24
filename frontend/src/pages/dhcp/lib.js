@@ -137,6 +137,37 @@ export function parseScalar(text) {
   }
 }
 
+// Value types of the known ddns-* parameters (Kea DHCP manual, DDNS section).
+const DDNS_TYPES = {
+  'ddns-send-updates': 'boolean',
+  'ddns-override-no-update': 'boolean',
+  'ddns-override-client-update': 'boolean',
+  'ddns-update-on-renew': 'boolean',
+  'ddns-ttl-percent': 'number',
+  'ddns-ttl': 'integer',
+  'ddns-ttl-min': 'integer',
+  'ddns-ttl-max': 'integer',
+  'ddns-replace-client-name': 'string',
+  'ddns-generated-prefix': 'string',
+  'ddns-qualifying-suffix': 'string',
+  'ddns-conflict-resolution-mode': 'string',
+  'hostname-char-set': 'string',
+  'hostname-char-replacement': 'string',
+}
+
+// Checks the text typed for a ddns-* parameter. Returns `{ value }` or `{ error }`
+// with a dhcp `form.*` i18n key; an empty string must be typed as "".
+export function parseDdnsValue(key, text) {
+  if (String(text ?? '').trim() === '') return { error: 'form.required' }
+  const value = parseScalar(text)
+  const type = DDNS_TYPES[key]
+  if (type === 'boolean' && typeof value !== 'boolean') return { error: 'form.expectBoolean' }
+  if (type === 'number' && (typeof value !== 'number' || value < 0)) return { error: 'form.expectNumber' }
+  if (type === 'integer' && !(Number.isInteger(value) && value >= 0)) return { error: 'form.positiveInteger' }
+  if (type === 'string' && typeof value !== 'string') return { error: 'form.expectString' }
+  return { value }
+}
+
 // Library path for a hook name, in the directory the loaded hooks come from.
 export function hookLibraryPath(loaded, name) {
   const sample = loaded.find((h) => String(h.library).includes('/'))?.library

@@ -13,6 +13,81 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, INT-API: wave 2 wiring of the API, answers the frontend reads
+`docs/architecture.md` sections 5, 6, 13, 17, 19 updated. All additive.
+- Advanced editor shapes (answers the WP-FRONTEND guesses below):
+  - `GET /advanced/bind/grammar` keeps `namedconf.grammar()` and adds `version` (BIND version)
+    and `statements: [{name, contexts, args, multiple, doc, types, status, block}]`, one row per
+    distinct argument grammar. `contexts` are `toplevel`, `options`, `view`, `zone` or the name of
+    the enclosing block (`channel`, `dns64`, `rate-limit`, ...). `args` is the ARM grammar without
+    angle brackets (`boolean`, `( yes | no | auto )`, `{ address_match_element; ... }`); block
+    statements read `block` (no arguments) or `<args> { ... }` (`string [ class ] { ... }`).
+    `include` is listed (quoted_string, every context) although the generated grammar has no row.
+  - `GET /advanced/bind/tree` is `BindBackend.config_files_tree()` plus `node_id`: statements are
+    `{name, args, line, include, value}` for simple statements and `{name, args, line, include,
+    statements, value, children}` for blocks, where `value` is the head arguments as
+    `named-checkconf -p` prints them (`"example.lan"`, null for `options`) and `children` equals
+    `statements`. `missing` and `errors` list unresolved includes. Key secrets read `****`, so a key
+    statement cannot be round-tripped through a raw change (edit keys with `/dns/keys/plan`).
+  - `GET /advanced/kea/{family}/schema` (`v4`, `v6`, `d2`) is the connector's `config_schema()`
+    for the running version (the generic description when the daemon is down) with `keys` turned
+    into a list `[{name, type, category, editor, description, default?, enum?, ...}]`; the
+    original mapping is `keys_by_name`. `root`, `version`, `series`, `objects`, `notes` as WP-KEA.
+- `raw:<file>` on `POST /dns/config/plan`: `<file>` must be a Pelagos-managed file; an absolute
+  path inside the include directory is accepted and normalized (`raw:/etc/bind/pelagos/acls.conf`
+  becomes `raw:acls.conf`). A user file (`raw:/etc/bind/named.conf`) answers `400
+  validation_error` on `changes[i].target`: user files are never rewritten (section 1).
+  WP-BIND's merge is lossless: checked in the daemon tier (a hand comment and a non-canonical
+  statement of acls.conf survive an add and a replace byte for byte, named-checkconf passes).
+  WP-FRONTEND: user-file statements are read-only except the single `options` block (sent as
+  `options/<statement>`); offer new top-level statements in the managed files.
+- `POST /dns/config/plan`, `POST /dhcp/{family}/subnets/plan` and `.../reservations/plan`: a
+  partial domain object in `after` (`{"id","subnet","pools"}`) is completed with the domain
+  defaults before the connector sees it; `subnet<4|6>/<id>` gives the id.
+- `GET /dns/zones` items gain `status: {node_id: ZoneStatus}` for secondary, mirror and stub
+  zones (the read node's `rndc zonestatus`: `next_refresh`, `expires`, ...), `{}` otherwise.
+  `GET /dashboard/summary` gains `thresholds` with the four `alerts_*` settings (same keys as
+  `GET /admin/settings`). WP-FRONTEND: drop the per-zone reads and the settings call.
+- `POST /dhcp/{family}/ha/maintenance/plan`: `node_id` is the server that goes in-maintenance
+  (`start`) or leaves it (`cancel`), as WP-FRONTEND logged. The plan is applied on its partner:
+  this node when `node_id` is a peer, the peer (over `/repl/v1/plans/apply`, `target_node_ids` =
+  the peer) when `node_id` is this node. The summary names both servers (`ns1 goes
+  in-maintenance and can be shut down; ns2 keeps serving (partner-in-maintenance)`). Without
+  `node_id` this node stays up (Kea's reading). Unknown node: `400`; already in maintenance:
+  `409 conflict`.
+- `POST /nodes/enroll-token` is `EnrollmentService.issue_token` (optional `ca: bool` hands a CA
+  key copy at enrollment); `409 conflict` on a node without `ca.key`. `DELETE /nodes/{id}` is
+  `EnrollmentService.revoke`. `POST /nodes/{id}/sync` is `Replicator.sync_peer` (both directions)
+  and adds `status` (PeerStatus) to its answer; it is audited `admin.node.sync`.
+- Plans: an expired plan answers `410 plan_expired` on every `/plans/{id}` call (PlanStore keeps a
+  bounded list of expired ids: `PlanExpired`, a `PlanNotFound` subclass). One audit entry per node
+  per plan (`request.entry = "node"`, connector material such as `BindBackend.details` copied and
+  masked; `pop_details` after a rollback only, since a record plan's apply material locates its
+  backup), plus the summary (`request.entry = "summary"`). `ApplyResult` messages are masked.
+- `last_login` is stored per node in `/var/lib/pelagos/last_login.json` (not replicated): a login
+  no longer writes `cluster.toml`, bumps its version or triggers replication.
+- Installer plans run phase by phase across nodes (`services.installer_runner.InstallerRunner`):
+  step 2 of the shared key switch runs on every D2 node before step 3 on any node. A peer's part
+  is sent over `/repl/v1/plans/apply` after a `sync_peer` with it.
+- Collector side (INT-CORE, INT-COLLECTOR): the core registry given to `ReplicationService` should
+  wrap each backend in `pelagos.services.registry.PlanRunner(ctx, engine, backend)` (or be built by
+  `replication_registry(ctx, registry)`), so peers run installer sub-plans (scope `security`,
+  engine `d2` for step 2) and plans sealed by `services.d2_secrets`. Without it a remote installer
+  phase fails cleanly with "engine not configured" or the backend's refusal.
+- D2 secrets to peers: the plan service seals a copy of a D2 plan for its peers with
+  `pelagos.core.plan_secrets.seal_backend_secrets` when that module exists (INT-CORE, key
+  `sealed`), else with `services.d2_secrets.seal` (key `sealed_secret`, AAD
+  `d2-plan/<plan id>/<file>`, opened by `PlanRunner`, handed to `D2Backend.accept_plan_secrets`
+  or `hold_secrets`). The stored plan, answers and audit never carry either key.
+- gunicorn: `gunicorn_conf.py` already used the `ssl_context` hook (no `ssl_version`); a unit test
+  loads it through gunicorn's Config and checks no deprecation warning and TLS 1.2 minimum.
+- SPA: the Flask static route is gone; `/<path>` serves real files of `frontend/dist`, else
+  `index.html` (`Cache-Control: no-cache`); `/assets/<missing>` and `/api/...` unknown paths stay
+  404 (problem+json for the API).
+- Alerts: `GET /alerts` and `/alerts/summary` read through `collector.alerts.AlertStore`;
+  `POST /alerts/{id}/ack` appends `ack_entry(...)` (plus `request.alert_id`, `client_ip`);
+  `POST /alerts/consistency/run` sends `consistency` with `collector.events.send_signal`.
+
 ## 2026-10-24, INT-CORE: collector runs replication, snapshot kind cache, plan secrets, node.toml
 - `docs/architecture.md` section 10: the node.toml example is valid TOML again. `bind` is on through
   its `[engines.bind]` table (or `bind = true` for defaults); the table gains `group` and the

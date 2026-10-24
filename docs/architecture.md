@@ -671,7 +671,12 @@ Semantics for `DnsBackend`:
   restores the backup set of that plan and reconfigs.
 - A `Change` whose target starts with `"raw:"` carries a verbatim statement
   (`after` = text) for the advanced editor; it still goes through the parser
-  so it is normalized and validated.
+  so it is normalized and validated. `<file>` is a Pelagos-managed file
+  (`zones.conf`, `acls.conf`, `keys.conf`, `views/<name>.conf`); the API turns an
+  absolute path inside the include directory into that relative name and
+  refuses any other path with `400 validation_error` (user files are never
+  rewritten). The statement is merged into the file through the parser: the
+  other statements, comments and formatting of the file are kept byte for byte.
 
 ```python
 class DhcpBackend(ABC):             # one instance per family (kea4 or kea6) per node
@@ -767,7 +772,11 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
    or `FAILED` (with rollback attempted on nodes already applied, result
    `ROLLED_BACK` if all rollbacks succeeded).
 3. One `AuditEntry` per node per plan, plus one summary entry
-   (`action = "<scope>.apply"`) with the full diff.
+   (`action = "<scope>.apply"`) with the full diff. The web process writes the
+   entry of its own node (`request.entry = "node"`, `action = "<scope>.<op>"`,
+   request and response copied from the connector's audit material such as
+   `BindBackend.details`, masked); peers write theirs when they apply a plan
+   received over `/repl/v1/plans/apply`; the summary has `request.entry = "summary"`.
 4. `POST /plans/{id}/rollback` is allowed on `APPLIED` plans until the plan
    expires from memory (`settings.plan_ttl_seconds` after apply). After that,
    the backup directories and the audit `before` state remain for manual or
@@ -798,7 +807,14 @@ security       : "security/<finding id>" | "security/<finding id>/<1-bind-add|2-
 ```
 
 Installer plans (`install`, `import`, `security`) apply as a `Job` whose steps follow
-the changes in order; a change runs only on the nodes in its `node_ids`.
+the changes in order; a change runs only on the nodes in its `node_ids`. The job
+runs in phases (`services.installer_runner`): plain changes first, then each step of
+the Kea shared key switch (`1-bind-add`, `2-d2-switch`, `3-bind-remove`) on every
+node it names before the next step starts; a peer runs its part when the web
+process sends it the phase's sub-plan over `/repl/v1/plans/apply` (after a
+replication sync, so the new key's secret is there). A failure stops the job;
+earlier phases are not undone (each step rolls back its own files). Changes
+without `node_ids` are manual and never run.
 
 ## 7. Write pipeline
 
@@ -1161,7 +1177,11 @@ config hash, utilization), `subnets`, `leases` (`subnet_id`, `limit`,
 the answer's `"error"` member, never as an HTTP error. On the client side,
 `ReplicationClient.engine_snapshot(engine, kind="summary", params=None)`.
 The same registry serves `/repl/v1/plans/apply|rollback`: the plan's
-`engine` selects the backend.
+`engine` selects the backend. `pelagos.services.registry.replication_registry(ctx)`
+builds that core registry from node.toml with each backend wrapped in
+`services.registry.PlanRunner`, which also runs installer sub-plans (scope
+`install`, `import`, `security`, engine `bind` or `d2`) as a synchronous job
+and opens D2 secrets sealed by `services.d2_secrets` (`after.sealed_secret`).
 
 The collector serves `/repl/v1` (it runs `ReplicationService` with a
 registry over its own backends) and adds the kind `cache`: the answer is
@@ -1440,6 +1460,9 @@ Until a work package implements an endpoint it answers `501` with
 | `PUT /account/preferences` | any | same keys, partial | the merged preferences |
 
 User public fields: `id, username, roles, enabled, has_totp, must_change_password, created_at, updated_at, last_login, preferences`.
+`last_login` is recorded on the node that served the login (`/var/lib/pelagos/last_login.json`,
+not replicated: a login never writes `cluster.toml`); the API shows the newest of that
+record and any older replicated value.
 
 Restricted sessions (added by WP-API-AUTH): when `settings.require_totp` is
 true and the user has no TOTP, or when `must_change_password` is set, login
@@ -1457,16 +1480,16 @@ change revokes the user's other sessions.
 | `GET /nodes` | `read:nodes` | | `{"items": [Node]}` |
 | `GET /nodes/self` | `read:nodes` | | `Node` |
 | `GET /nodes/{id}` | `read:nodes` | | `Node` |
-| `POST /nodes/enroll-token` | `admin:nodes` | `{"ttl_seconds"?: 900}` | `{"token","url","ca_fingerprint","expires_at","command"}` |
+| `POST /nodes/enroll-token` | `admin:nodes` | `{"ttl_seconds"?: 900, "ca"?: false}` | `{"token","url","ca_fingerprint","expires_at","command"}` |
 | `DELETE /nodes/{id}` | `admin:nodes` | | `204` |
-| `POST /nodes/{id}/sync` | `admin:nodes` | | `{"config_adopted": bool, "audit_added": n}` |
+| `POST /nodes/{id}/sync` | `admin:nodes` | | `{"config_adopted": bool, "audit_added": n, "status": PeerStatus}` (`503 engine_unavailable` when the peer does not answer) |
 | `GET /nodes/replication` | `read:nodes` | | `{"state":"ready"|"syncing","peers":[{"node_id","reachable","config_version","audit_count","last_seen","error"}]}` |
 
 ### Dashboard
 
 | Method, path | Permission | Response |
 | --- | --- | --- |
-| `GET /dashboard/summary` | any read | `{"nodes": [Node], "ha": [HAState], "pools": [{"node_id","engine","subnet_id","subnet","pool","total","assigned","percent"}], "zones": [{"zone","view","serials": {node_id: serial}, "divergent": bool}], "d2": [D2Stats], "alerts": {"open": n, "critical": n, "warning": n, "info": n}, "engines": {...capabilities summary}}` |
+| `GET /dashboard/summary` | any read | `{"nodes": [Node], "ha": [HAState], "pools": [{"node_id","engine","subnet_id","subnet","pool","total","assigned","percent"}], "zones": [{"zone","view","serials": {node_id: serial}, "divergent": bool}], "d2": [D2Stats], "alerts": {"open": n, "critical": n, "warning": n, "info": n}, "engines": {...capabilities summary}, "errors": {source: message}, "thresholds": {"alerts_pool_warning_percent", "alerts_pool_critical_percent", "alerts_serial_divergence_seconds", "alerts_d2_error_rate"}}` |
 | `GET /dashboard/layout` | any | `{"layout": [...react-grid-layout items]}` (per user, from preferences) |
 | `PUT /dashboard/layout` | any | same |
 
@@ -1475,7 +1498,7 @@ change revokes the user's other sessions.
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
 | `GET /dns/instances` | `read:dns` | | `{"items": [{"node_id", "capabilities": DnsCapabilities, "status": {rndc status fields}}]}` |
-| `GET /dns/zones?view=&kind=&q=` | `read:dns` | | `{"items": [{"zone": Zone, "serials": {node_id: int|null}, "divergent": bool}]}` |
+| `GET /dns/zones?view=&kind=&q=` | `read:dns` | | `{"items": [{"zone": Zone, "serials": {node_id: int|null}, "divergent": bool, "status": {node_id: ZoneStatus}}]}` (`status` filled for secondary, mirror and stub zones with the read node's status, else `{}`) |
 | `GET /dns/zones/{zone}?view=` | `read:dns` | | `{"zone": Zone, "status": {node_id: ZoneStatus}}` |
 | `POST /dns/zones/plan` | `write:dns.zones` | `{"change": Change}` (target `<view>/<zone>`, `after` = Zone) | `Plan` |
 | `GET /dns/zones/{zone}/records?view=&type=&name=&q=&page=&per_page=` | `read:dns` | | paginated `RRset` (`node_id` of the node read in `meta`) |
@@ -1522,7 +1545,7 @@ the API normalizes to the absolute form.
 | `GET /dhcp/{family}/utilization?node_id=` | `read:dhcp` | | `{"items": [{"subnet_id","subnet","pool","total","assigned","declined","percent"}]}` |
 | `GET /dhcp/{family}/stats?node_id=` | `read:dhcp` | | `{"node_id", "statistics": {...}}` |
 | `GET /dhcp/{family}/ha` | `read:dhcp` | | `{"items": [HAState]}` |
-| `POST /dhcp/{family}/ha/maintenance/plan` | `ops:dhcp.ha` | `{"node_id","action":"start"|"cancel"}` | `Plan` (`requires_confirmation`) |
+| `POST /dhcp/{family}/ha/maintenance/plan` | `ops:dhcp.ha` | `{"node_id","action":"start"|"cancel"}` (`node_id`: the server that goes in-maintenance or leaves it; the plan is applied on its partner, which stays up as `partner-in-maintenance`) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/ha/transitions?from=&to=` | `read:dhcp` | | `{"items": [{"ts","node_id","server_name","from_state","to_state","partner_state"}]}` |
 | `POST /dhcp/{family}/service/plan` | `ops:dhcp.ha` | `{"node_id","enable": bool}` | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/ddns` | `read:dhcp` | | `{"dhcp_ddns": {...}, "ddns_params": {...}, "node_id"}` |
@@ -1584,9 +1607,9 @@ picks raw or hourly data accordingly.
 
 | Method, path | Permission | Response |
 | --- | --- | --- |
-| `GET /advanced/bind/grammar` | `read:advanced` | grammar JSON (section 8) |
-| `GET /advanced/bind/tree?node_id=` | `read:advanced` | `{"files": [{"path","managed": bool,"statements": [...tree with provenance]}]}` |
-| `GET /advanced/kea/{family}/schema` | `read:advanced` | JSON schema-like description of the Dhcp4/Dhcp6 object for the server version: `KeaBackend.config_schema()` (`{family}` = `d2`: `D2Backend.config_schema()`), or `pelagos.connectors.kea.schema.config_schema(daemon, version)` without a live server |
+| `GET /advanced/bind/grammar` | `read:advanced` | grammar JSON (section 8) plus `"version"` and `"statements": [{"name","contexts","args","multiple","doc","types","status","block"}]` (one row per distinct argument grammar; contexts `toplevel`, `options`, `view`, `zone`, or the enclosing block name) |
+| `GET /advanced/bind/tree?node_id=` | `read:advanced` | `BindBackend.config_files_tree()`: `{"node_id","files": [{"path","managed": bool,"statements": [{"name","args","line","include","value"?,"statements"?,"children"?}]}],"missing","errors"}`; block statements carry `value` (head arguments, the name quoted as `named-checkconf -p` prints it, null when none) and `children`; key secrets are `****` |
+| `GET /advanced/kea/{family}/schema` | `read:advanced` | JSON schema-like description of the Dhcp4/Dhcp6 object for the server version: `KeaBackend.config_schema()` (`{family}` = `d2`: `D2Backend.config_schema()`), or `pelagos.connectors.kea.schema.config_schema(daemon, version)` without a live server; `keys` is a list of `{"name", "type", "category", "editor", "description", ...}` and the mapping stays in `keys_by_name` |
 | `GET /advanced/history?engine=&node_id=&page=&per_page=` | `read:advanced` | paginated `{"id","engine","node_id","ts","plan_id","label","files":[...]}` (write pipeline backups) |
 | `GET /advanced/history/{id}` | `read:advanced` | `{"manifest", "files": {path: content}}` |
 
@@ -1694,7 +1717,11 @@ by a restricted session carries `"restriction"`. Key material (`secret`,
 `password` members and `secret "..."` in diffs) is replaced by `***` in
 every plan the API returns. `POST /plans/{id}/apply` answers `200` with the
 `ApplyResult` whatever its `state` (`applied`, `failed`, `rolled_back`);
-only refusals before any node is touched are problem documents.
+only refusals before any node is touched are problem documents. Every
+`/plans/{id}...` call on a plan whose TTL ran out answers `410 plan_expired`
+(the node remembers the ids of its expired plans); an id it never had, or a
+plan deleted with `DELETE /plans/{id}`, answers `404 not_found`. Messages in
+an `ApplyResult` and audit entries are masked like plans.
 
 Pagination: query `page` (1-based, default 1) and `per_page` (default 50,
 max 500); response `{"items": [...], "page", "per_page", "total",

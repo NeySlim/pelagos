@@ -1,0 +1,281 @@
+// SPDX-License-Identifier: Apache-2.0
+// @vitest-environment node
+// The mock answers every endpoint of the spec with the documented shapes,
+// enforces sessions, CSRF and RBAC, and runs the plan lifecycle.
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import net from 'node:net'
+import { createHash } from 'node:crypto'
+import { createMockServer } from './server.mjs'
+import { decodeFrames } from './ws.mjs'
+import { ENDPOINTS } from '../src/services/endpoints.js'
+
+let mock
+let base
+let port
+
+async function login(username, password, totp_code) {
+  const res = await fetch(`${base}/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, password, ...(totp_code ? { totp_code } : {}) }),
+  })
+  const body = await res.json()
+  if (res.status !== 200) return { status: res.status, body }
+  const cookie = res.headers.get('set-cookie').split(';')[0]
+  return { status: 200, body, cookie, csrf: body.csrf_token }
+}
+
+function client(session) {
+  return async (method, path, body, { csrf = true } = {}) => {
+    const headers = { cookie: session.cookie, 'content-type': 'application/json' }
+    if (csrf) headers['x-csrf-token'] = session.csrf
+    const res = await fetch(`${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+    const type = res.headers.get('content-type') || ''
+    const data = res.status === 204 ? null : /application\/(problem\+)?json/.test(type) ? await res.json() : await res.text()
+    return { status: res.status, data, type }
+  }
+}
+
+beforeAll(async () => {
+  mock = createMockServer({ quiet: true, jobStepMs: 5 })
+  const addr = await mock.listen(0)
+  port = addr.port
+  base = `http://127.0.0.1:${port}/api/v1`
+})
+
+afterAll(async () => {
+  await mock.close()
+})
+
+// Concrete arguments for each path placeholder and a valid body per write.
+function concrete(spec, state) {
+  const zone = 'example.lan'
+  const userId = state.users.find((u) => u.username === 'viewer')?.id
+  const audit = state.audit[0].id
+  const history = state.history[0].id
+  return spec
+    .split(' ')[1]
+    .replace('{family}', 'v4')
+    .replace('{zone}', zone)
+    .replace('{name}', spec.includes('/keys/') ? 'ddi-admin' : 'helpdesk')
+    .replace('{ip}', '192.0.2.100')
+    .replace('{key}', 'ip:192.0.2.10')
+    .replace(/\{id\}/, () => {
+      if (spec.includes('/nodes/')) return state.nodeIds.ns2
+      if (spec.includes('/admin/users/')) return userId
+      if (spec.includes('/audit/')) return audit
+      if (spec.includes('/advanced/history/')) return history
+      if (spec.includes('/subnets/')) return '1'
+      if (spec.includes('/alerts/')) return state.alerts[0].id
+      return 'unknown'
+    })
+}
+
+const BODIES = {
+  'POST /auth/password': { current_password: 'admin', new_password: 'admin-new-password' },
+  'POST /auth/totp/confirm': { code: '123456' },
+  'DELETE /auth/totp': { password: 'admin-new-password' },
+  'PUT /account/preferences': { language: 'fr' },
+  'PUT /dashboard/layout': { layout: [{ i: 'ha', x: 0, y: 0, w: 4, h: 3 }] },
+  'POST /dns/zones/plan': { change: { op: 'add', target: '_default/new.example.lan.', after: { name: 'new.example.lan.', kind: 'primary', file: 'db.new' } } },
+  'POST /dns/zones/{zone}/records/plan': { changes: [{ op: 'add', target: 'example.lan./api/A', after: { ttl: 300, rdata: ['192.0.2.90'] } }] },
+  'POST /dns/zones/{zone}/retransfer': { node_id: 'x' },
+  'POST /dns/config/plan': { changes: [{ op: 'replace', target: 'options/recursion', after: 'no' }] },
+  'POST /dns/keys/plan': { change: { op: 'add', after: { name: 'new-key', algorithm: 'hmac-sha256' } } },
+  'POST /dns/acls/plan': { change: { op: 'add', after: { name: 'lab', elements: ['192.0.2.0/28'] } } },
+  'POST /dns/resolver/plan': { forwarders: ['192.0.2.1'] },
+  'POST /dhcp/{family}/subnets/plan': { change: { op: 'add', after: { subnet: '192.0.2.224/28' } } },
+  'POST /dhcp/{family}/shared-networks/plan': { change: { op: 'add', after: { name: 'lab' } } },
+  'POST /dhcp/{family}/client-classes/plan': { change: { op: 'add', after: { name: 'printers', test: "option[60].text == 'printer'" } } },
+  'POST /dhcp/{family}/options/plan': { changes: [{ op: 'add', after: { name: 'time-offset', code: 2, data: '3600' } }] },
+  'POST /dhcp/{family}/reservations/plan': { change: { op: 'add', after: { subnet_id: 1, identifier: '02:00:5e:00:99:99', ip_address: '192.0.2.99', hostname: 'new' } } },
+  'POST /dhcp/{family}/ha/maintenance/plan': { action: 'start' },
+  'POST /dhcp/{family}/service/plan': { enable: false },
+  'POST /dhcp/{family}/ddns/plan': { changes: [{ op: 'replace', target: 'ddns-update-on-renew', after: true }] },
+  'POST /dhcp/{family}/hooks/plan': { changes: [{ op: 'replace', target: 'hooks-libraries', after: [] }] },
+  'POST /dhcp/{family}/config/plan': { config: { Dhcp4: {} } },
+  'POST /dhcp/d2/config/plan': { config: { DhcpDdns: {} } },
+  'POST /hosts/plan': { hostname: 'printer2', ip: '192.0.2.43', mac: '02:00:5e:00:aa:01', zone: 'example.lan', reservation: true, subnet_id: 1 },
+  'POST /plans/{id}/apply': { confirm: true },
+  'POST /alerts/{id}/ack': { comment: 'known' },
+  'POST /install/plan': { engines: ['bind'], source: 'distro' },
+  'POST /install/import/plan': { engines: ['bind', 'kea4'] },
+  'POST /install/security/plan': { finding_ids: ['rndc-md5'] },
+  'POST /admin/users': { username: 'carol', password: 'carol-password', roles: ['viewer'] },
+  'PUT /admin/users/{id}': { enabled: false },
+  'POST /admin/users/{id}/reset-password': { password: 'another-password' },
+  'POST /admin/roles': { name: 'auditor', permissions: ['read:audit'] },
+  'PUT /admin/roles/{name}': { description: 'changed' },
+  'PUT /admin/settings': { plan_ttl_seconds: 900 },
+  'PUT /admin/modules': { cluster: { dhcpv6: true } },
+}
+
+// Endpoints whose success status is not 200/201/202/204 with these inputs.
+const EXPECTED = {
+  'POST /dns/zones/{zone}/retransfer': 409, // example.lan is a primary zone
+  'POST /dhcp/{family}/ha/maintenance/plan': 404, // node_id missing on purpose
+  'POST /dhcp/{family}/service/plan': 404,
+  'GET /plans/{id}': 404,
+  'POST /plans/{id}/apply': 404,
+  'POST /plans/{id}/rollback': 404,
+  'DELETE /plans/{id}': 404,
+  'GET /jobs/{id}': 404,
+}
+
+describe('mock server', () => {
+  it('answers anonymous health and refuses the rest without a session', async () => {
+    const health = await fetch(`${base}/health`)
+    expect(health.status).toBe(200)
+    expect((await health.json()).status).toBe('ok')
+    const zones = await fetch(`${base}/dns/zones`)
+    expect(zones.status).toBe(401)
+    expect(zones.headers.get('content-type')).toBe('application/problem+json')
+    expect((await zones.json()).code).toBe('unauthenticated')
+  })
+
+  it('handles bad credentials and the TOTP step', async () => {
+    expect((await login('admin', 'nope')).body.code).toBe('invalid_credentials')
+    expect((await login('bob', 'bob')).body.code).toBe('totp_required')
+    const ok = await login('bob', 'bob', '123456')
+    expect(ok.status).toBe(200)
+    expect(ok.body.permissions).toContain('write:dhcp.subnets')
+  })
+
+  it('enforces CSRF on unsafe methods and RBAC per endpoint', async () => {
+    const viewer = client(await login('viewer', 'viewer'))
+    expect((await viewer('GET', '/dns/zones')).status).toBe(200)
+    const noCsrf = await viewer('POST', '/dns/zones/example.lan/records/plan', BODIES['POST /dns/zones/{zone}/records/plan'], { csrf: false })
+    expect(noCsrf.data.code).toBe('csrf_failed')
+    const forbidden = await viewer('POST', '/dns/zones/example.lan/records/plan', BODIES['POST /dns/zones/{zone}/records/plan'])
+    expect(forbidden.status).toBe(403)
+    expect(forbidden.data.code).toBe('forbidden')
+    expect((await viewer('GET', '/admin/users')).status).toBe(403)
+  })
+
+  it('paginates and filters', async () => {
+    const call = client(await login('admin', 'admin'))
+    const page = await call('GET', '/dhcp/v4/leases?per_page=10&page=2')
+    expect(page.data).toMatchObject({ page: 2, per_page: 10 })
+    expect(page.data.items).toHaveLength(10)
+    expect(page.data.total).toBeGreaterThan(20)
+    const filtered = await call('GET', '/dhcp/v4/leases?q=pc12.')
+    expect(filtered.data.items.map((l) => l.hostname)).toEqual(['pc12.example.lan'])
+    const leases = await call('GET', '/dhcp/v4/leases/192.0.2.157')
+    expect(leases.data.items).toHaveLength(1)
+  })
+
+  it('runs a record plan through validation, apply and rollback', async () => {
+    const call = client(await login('alice', 'alice'))
+    const before = (await call('GET', '/dns/zones/example.lan/records?name=e2e&type=A')).data
+    expect(before.total).toBe(0)
+    const plan = (await call('POST', '/dns/zones/example.lan/records/plan', { changes: [{ op: 'add', target: 'example.lan./e2e/A', after: { ttl: 60, rdata: ['192.0.2.60'] } }] })).data
+    expect(plan.state).toBe('validated')
+    expect(plan.diff).toContain('+e2e.example.lan. 60 IN A 192.0.2.60')
+    expect(plan.preconditions[0].kind).toBe('soa_serial')
+    const applied = await call('POST', `/plans/${plan.id}/apply`, { confirm: false })
+    expect(applied.data.state).toBe('applied')
+    expect((await call('GET', '/dns/zones/example.lan/records?name=e2e&type=A')).data.total).toBe(1)
+    expect((await call('POST', `/plans/${plan.id}/apply`, {})).data.code).toBe('plan_state')
+    const rolled = await call('POST', `/plans/${plan.id}/rollback`)
+    expect(rolled.data.state).toBe('rolled_back')
+    expect((await call('GET', '/dns/zones/example.lan/records?name=e2e&type=A')).data.total).toBe(0)
+  })
+
+  it('rejects invalid rdata at validation and requires confirmation where needed', async () => {
+    const call = client(await login('admin', 'admin'))
+    const bad = (await call('POST', '/dns/zones/example.lan/records/plan', { changes: [{ op: 'add', target: 'example.lan./x/A', after: { rdata: ['invalid'] } }] })).data
+    expect(bad.state).toBe('failed')
+    expect(bad.validations[0].ok).toBe(false)
+    const lease = (await call('POST', '/dhcp/v4/leases/192.0.2.101/delete/plan')).data
+    expect(lease.requires_confirmation).toBe(true)
+    expect((await call('POST', `/plans/${lease.id}/apply`, { confirm: false })).status).toBe(428)
+    expect((await call('POST', `/plans/${lease.id}/apply`, { confirm: true })).data.state).toBe('applied')
+  })
+
+  it('runs install plans as jobs', async () => {
+    const call = client(await login('admin', 'admin'))
+    const plan = (await call('POST', '/install/plan', { engines: ['bind'], source: 'isc', isc_series: '3.2' })).data
+    const accepted = await call('POST', `/plans/${plan.id}/apply`, {})
+    expect(accepted.status).toBe(202)
+    expect(accepted.data.steps.length).toBeGreaterThan(2)
+    let job = accepted.data
+    for (let i = 0; i < 100 && job.state !== 'done'; i += 1) {
+      await new Promise((r) => setTimeout(r, 10))
+      job = (await call('GET', `/jobs/${job.id}`)).data
+    }
+    expect(job.state).toBe('done')
+    expect(job.progress).toBe(100)
+  })
+
+  it('streams the audit export as NDJSON', async () => {
+    const call = client(await login('admin', 'admin'))
+    const res = await call('GET', '/audit/export')
+    expect(res.type).toContain('application/x-ndjson')
+    const lines = res.data.trim().split('\n')
+    expect(JSON.parse(lines[0]).id).toBeTruthy()
+  })
+
+  it('pushes subscribed events over the WebSocket', async () => {
+    const session = await login('admin', 'admin')
+    const call = client(session)
+    const messages = []
+    const socket = net.connect(port, '127.0.0.1')
+    const key = Buffer.from('pelagos-mock-key').toString('base64')
+    await new Promise((resolve) => socket.on('connect', resolve))
+    socket.write(`GET /api/v1/ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\nCookie: ${session.cookie}\r\n\r\n`)
+    let buffer = Buffer.alloc(0)
+    let upgraded = false
+    const accept = createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64')
+    socket.on('data', (chunk) => {
+      buffer = Buffer.concat([buffer, chunk])
+      if (!upgraded) {
+        const end = buffer.indexOf('\r\n\r\n')
+        if (end < 0) return
+        expect(buffer.subarray(0, end).toString()).toContain(accept)
+        buffer = buffer.subarray(end + 4)
+        upgraded = true
+      }
+      const { frames, rest } = decodeFrames(buffer)
+      buffer = rest
+      frames.forEach((f) => messages.push(JSON.parse(f.payload.toString())))
+    })
+    const send = (obj) => {
+      const payload = Buffer.from(JSON.stringify(obj))
+      const mask = Buffer.from([1, 2, 3, 4])
+      const masked = Buffer.from(payload.map((b, i) => b ^ mask[i % 4]))
+      socket.write(Buffer.concat([Buffer.from([0x81, 0x80 | payload.length]), mask, masked]))
+    }
+    await new Promise((r) => setTimeout(r, 50))
+    send({ action: 'subscribe', topics: ['alerts', 'plans'] })
+    send({ action: 'ping' })
+    await new Promise((r) => setTimeout(r, 50))
+    const alert = mock.state.alerts.find((a) => a.state === 'open')
+    await call('POST', `/alerts/${alert.id}/ack`, {})
+    await new Promise((r) => setTimeout(r, 100))
+    socket.destroy()
+    expect(messages.find((m) => m.event === 'pong')).toBeTruthy()
+    expect(messages.find((m) => m.topic === 'alerts' && m.event === 'acked')?.data.id).toBe(alert.id)
+    expect(messages.find((m) => m.topic === 'audit')).toBeUndefined()
+  })
+
+  // Last: it changes the admin password and deletes users and nodes.
+  it('serves every endpoint of the spec', async () => {
+    const session = await login('admin', 'admin')
+    const call = client(session)
+    const failures = []
+    const ordered = [...ENDPOINTS.filter((s) => !s.startsWith('DELETE ')), ...ENDPOINTS.filter((s) => s.startsWith('DELETE ')).reverse()]
+    for (const spec of ordered) {
+      if (spec === 'POST /auth/login' || spec === 'POST /auth/logout') continue
+      const [method] = spec.split(' ')
+      const path = concrete(spec, mock.state)
+      let body = BODIES[spec]
+      if (spec === 'POST /auth/totp/confirm') await call('POST', '/auth/totp/enroll')
+      if (method !== 'GET' && body === undefined) body = {}
+      const res = await call(method, path, method === 'GET' ? undefined : body)
+      const expected = EXPECTED[spec]
+      const okStatus = expected ? res.status === expected : [200, 201, 202, 204].includes(res.status)
+      if (!okStatus || res.status === 501) failures.push(`${spec} -> ${res.status} ${JSON.stringify(res.data).slice(0, 160)}`)
+    }
+    expect(failures).toEqual([])
+  })
+})

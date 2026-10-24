@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import socket
 import threading
 
@@ -41,6 +42,7 @@ def served(tmp_path, monkeypatch):
     thread = threading.Thread(target=loop, daemon=True)
     thread.start()
     monkeypatch.setenv(helper.SOCKET_ENV, str(path))
+    monkeypatch.setenv(helper.PLANS_ENV, str(tmp_path / "plans"))
     monkeypatch.setattr(helper.os, "geteuid", lambda: 1000)
     yield env
     # No thread may outlive the test: a later test monkey-patches with gevent.
@@ -103,3 +105,101 @@ def test_install_service_delegates_when_unprivileged(served, node_ctx, tmp_path)
     assert (tmp_path / "host/etc/bind/pelagos/pelagos.conf").exists()
     # A fake host given by the caller is used in-process, never the helper.
     assert InstallService(node_ctx, env_factory=lambda: served).helper() is None
+
+
+def _shadow(tmp_path):
+    target = tmp_path / "shadow"
+    target.write_text("root:*:1::::::\n")
+    target.chmod(0o640)
+    return target, target.stat()
+
+
+def test_apply_refuses_a_path_outside_the_layout(served, tmp_path):
+    """A plan naming another file is refused before any step runs, recorded or not."""
+    from pelagos.domain import Change, ChangeOp, Plan
+
+    target, before = _shadow(tmp_path)
+    change = Change(
+        op=ChangeOp.ADD,
+        target="import/kea4/socket",
+        after={"conf": str(target), "add": True, "socket": "/run/kea/kea4-ctrl-socket"},
+        node_ids=[served.node_id],
+    )
+    client = helper.HelperClient()
+    for node_id in (served.node_id, "elsewhere"):
+        plan = Plan(scope=PlanScope.IMPORT, node_id=node_id, summary="s", changes=[change])
+        with pytest.raises(helper.HelperError) as exc:
+            client.call("apply", plan=plan.to_dict())
+        assert exc.value.kind == "value"
+    # Even a plan the helper recorded is checked against the host's layout.
+    plan = Plan(scope=PlanScope.IMPORT, node_id=served.node_id, summary="s", changes=[change])
+    helper._record(plan)
+    with pytest.raises(helper.HelperError) as exc:
+        client.call("apply", plan=plan.to_dict())
+    assert "not allowed on this host" in str(exc.value)
+    after = target.stat()
+    assert target.read_text() == "root:*:1::::::\n"
+    assert (after.st_mode, after.st_uid, after.st_gid) == (before.st_mode, before.st_uid, before.st_gid)
+
+
+def test_apply_refuses_a_tampered_change(served):
+    client = helper.HelperClient()
+    plan = client.plan("plan_import", "alice", engines=["bind"])
+    for c in plan.changes:
+        if c.target.startswith("import/user/"):
+            c.after["groups"] = ["shadow"]
+    with pytest.raises(helper.HelperError) as exc:
+        client.call("apply", plan=plan.to_dict())
+    assert "differs from the planned one" in str(exc.value)
+
+
+def test_peer_plans_carry_only_dual_key_steps(served):
+    from pelagos.domain import Change, ChangeOp, Plan
+
+    other = Change(
+        op=ChangeOp.REPLACE,
+        target="security/x",
+        after={"details": {"remediation": "socket_dir", "path": "/etc"}, "summary": "s"},
+        node_ids=[served.node_id],
+    )
+    client = helper.HelperClient()
+    for scope, change in ((PlanScope.SECURITY, other), (PlanScope.INSTALL, other)):
+        plan = Plan(scope=scope, node_id="peer", summary="s", changes=[change])
+        with pytest.raises(helper.HelperError) as exc:
+            client.call("apply", plan=plan.to_dict())
+        assert exc.value.kind == "value"
+    bad_key = Change(
+        op=ChangeOp.REPLACE,
+        target="security/x/2-d2-switch",
+        after={"details": {"key": "a", "new_key": "../../x"}, "step": "2-d2-switch", "summary": "s"},
+        node_ids=[served.node_id],
+    )
+    plan = Plan(scope=PlanScope.SECURITY, node_id="peer", summary="s", changes=[bad_key])
+    with pytest.raises(helper.HelperError) as exc:
+        client.call("apply", plan=plan.to_dict())
+    assert "invalid key name" in str(exc.value)
+
+
+def test_stdio_drops_a_silent_client(monkeypatch):
+    r, w = os.pipe()
+    out = io.BytesIO()
+    try:
+        assert helper.serve_stream(os.fdopen(r, "rb", buffering=0), out, lambda: None, timeout=0.2) == 2
+    finally:
+        os.close(w)
+    assert json.loads(out.getvalue()) == {"error": "no request", "type": "value"}
+
+
+def test_give_back_failure_is_reported(served, monkeypatch, caplog):
+    import pelagos.platform as platform
+
+    served.node_paths.node_toml.parent.mkdir(parents=True, exist_ok=True)
+    served.node_paths.node_toml.touch()
+
+    def fail(*_a, **_k):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(platform, "give_tree_to", fail)
+    with caplog.at_level("WARNING"):
+        assert "not restored" in helper._give_back(served)
+    assert "not restored" in caplog.text

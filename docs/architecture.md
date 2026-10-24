@@ -70,7 +70,13 @@ as root for one request (`pelagos.installer.helper`: `detect`, `audit`,
 `plan_install`, `plan_import`, `plan_security`, `apply`; JSON lines, progress
 then result). The web process and the collector, which run as `pelagos`, go
 through it when they are not root and the socket exists; otherwise they run
-the installer in-process (tests, development, root).
+the installer in-process (tests, development, root). `apply` is not a blank
+cheque for the `pelagos` group: a plan made on this node runs only if this
+helper built it (change digests kept in `/run/pelagos-helper/plans`, root
+only, 7 days), a plan made on a peer may only carry the dual-key switch
+steps, and every path, group, package and include line a change names must
+be the host's own. A plan built in-process and applied through the helper is
+refused: plan it again. The request line must arrive within 30 s.
 
 Both processes follow `node.toml [engines]`: the web process rebuilds its
 connectors before the next request when the file changed, and the collector

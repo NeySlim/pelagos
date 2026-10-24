@@ -13,6 +13,15 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, LAB-E2E: helper apply runs only plans it can vouch for
+`docs/architecture.md` section 2. `pelagos helper apply` refuses a plan made
+on this node unless the helper built it (`plan_install`, `plan_import`,
+`plan_security` record change digests under `/run/pelagos-helper/plans`;
+override with `PELAGOS_HELPER_PLANS`); peer plans may only carry dual-key
+switch steps; paths (`named_conf`, `include_dir`, `conf`, `secret_file`),
+groups, packages and include lines must match the host layout. Callers:
+plan through the helper when you apply through it.
+
 ## 2026-10-24, LAB-E2E: what the reference pair needed (helper, access findings, routing)
 Found by `make test-lab` on lab-ns1/lab-ns2 (Debian 13, Kea 2.6 from Debian). All additive.
 - `pelagos helper` (`backend/pelagos/cli.py`, `pelagos.installer.helper`) and the units

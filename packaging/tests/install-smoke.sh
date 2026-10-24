@@ -63,6 +63,11 @@ check "pelagos-collector.service active" systemctl is-active pelagos-collector.s
 check "web process runs as pelagos" test "$(ps -o user= -p "$(systemctl show -p MainPID --value pelagos.service)")" = pelagos
 check "TLS key is pelagos 0600" test "$($SUDO stat -c '%U %a' /etc/pelagos/tls/server.key)" = "pelagos 600"
 check "state owned by pelagos" test "$($SUDO stat -c %U /var/lib/pelagos/cluster.toml)" = pelagos
+for d in /etc/pelagos /var/lib/pelagos; do
+  check "$d still 0750 with the units running" test "$($SUDO stat -c %a "$d")" = 750
+done
+# Certificates are public; everything else must not be readable by other users.
+check "no world-readable state" test -z "$($SUDO find /etc/pelagos /var/lib/pelagos -perm -o=r ! -name '*.crt')"
 check "/ serves the UI or the API-only notice" bash -c \
   "curl -fsk https://127.0.0.1:8443/ | grep -qiE 'Pelagos|<div id=\"root\"'"
 

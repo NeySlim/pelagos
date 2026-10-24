@@ -17,5 +17,93 @@
       "title": "History",
       "subtitle": "Backups taken by the write pipeline"
     }
+  },
+  "localNode": "Local node",
+  "thisNode": "this node",
+  "bind": {
+    "managed": "Pelagos",
+    "userFile": "User file",
+    "managedHelp": "This file is written by Pelagos. Change it from its dedicated screen (zones, keys, ACLs, resolver).",
+    "addTop": "Add a statement to this file",
+    "addInside": "Add a statement inside this block",
+    "addIn": "New statement in context {{context}}",
+    "statement": "Statement",
+    "choose": "Choose...",
+    "new": "new",
+    "definedAt": "Defined in {{file}}, line {{line}}",
+    "pendingIn": "Pending addition to {{file}}",
+    "notInGrammar": "Not in the grammar of this BIND version: the value is kept and edited as raw text.",
+    "repeatable": "repeatable",
+    "reference": "Reference",
+    "value": "Value",
+    "rawValue": "Raw value",
+    "rawHelp": "Written as is, without the final semicolon. named-checkconf validates it in the plan.",
+    "prefix": "Before the list",
+    "elements": "Elements",
+    "elementsPlaceholder": "Add an element and press Enter",
+    "elementsHelp": "One address match element, key or server per entry",
+    "blockName": "Name",
+    "blockHelp": "The statements of this block are edited one by one in the tree.",
+    "updateDraft": "Update draft",
+    "addToDraft": "Add to draft",
+    "remove": "Remove",
+    "selectTitle": "Select a statement",
+    "selectBody": "Pick a statement in the tree to edit it, or use + to add one. The grammar knows {{count}} statements of BIND {{version}}.",
+    "errors": {
+      "integer": "A number is expected",
+      "required": "A value is required",
+      "semicolon": "Leave out the final semicolon"
+    }
+  },
+  "kea": {
+    "root": "(root)",
+    "value": "Value",
+    "key": "Key",
+    "readFrom": "Read from",
+    "hash": "Config hash",
+    "schemaVersion": "Schema for Kea",
+    "schemaType": "schema: {{type}}",
+    "since": "since {{version}}",
+    "selectHint": "Select a key in the tree to edit it.",
+    "addKey": "Add a key",
+    "append": "Append an element",
+    "fromSchema": "Known key",
+    "errors": {
+      "json": "Invalid JSON",
+      "number": "A number is expected",
+      "name": "A key name is required",
+      "exists": "This key already exists"
+    },
+    "problems": {
+      "missingRoot": "the top-level object is missing",
+      "type": "is {{actual}}, the schema expects {{expected}}",
+      "minimum": "is {{actual}}, the minimum is {{expected}}"
+    }
+  },
+  "pending": {
+    "title": "Pending changes",
+    "count_one": "{{count}} change",
+    "count_other": "{{count}} changes",
+    "modified": "Modified",
+    "clean": "No change",
+    "none": "Nothing changed yet",
+    "discard": "Discard",
+    "validate": "Validate with named-checkconf",
+    "validateKea": "Validate with config-test"
+  },
+  "history": {
+    "title": "Backup: {{label}}",
+    "empty": "No backup yet",
+    "manifest": "Manifest",
+    "emptyFile": "(the file did not exist before this write)",
+    "sincePrevious": "Changes since the previous backup ({{date}})",
+    "columns": {
+      "ts": "Time",
+      "engine": "Engine",
+      "node": "Node",
+      "label": "Label",
+      "files": "Files",
+      "plan": "Plan"
+    }
   }
 }

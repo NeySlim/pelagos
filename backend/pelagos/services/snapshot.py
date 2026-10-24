@@ -15,10 +15,10 @@ from pelagos.domain import Engine, normalize_name
 from pelagos.services.registry import ConnectorRegistry
 
 SNAPSHOT_KINDS = {
-    Engine.BIND: ("summary", "zone", "records", "stats", "config"),
-    Engine.KEA4: ("summary", "subnets", "leases", "lease", "reservations", "stats", "config"),
-    Engine.KEA6: ("summary", "subnets", "leases", "lease", "reservations", "stats", "config"),
-    Engine.D2: ("summary", "stats", "config"),
+    Engine.BIND: ("summary", "zone", "records", "stats", "config", "tree"),
+    Engine.KEA4: ("summary", "subnets", "leases", "lease", "reservations", "stats", "config", "schema"),
+    Engine.KEA6: ("summary", "subnets", "leases", "lease", "reservations", "stats", "config", "schema"),
+    Engine.D2: ("summary", "stats", "config", "schema"),
 }
 
 
@@ -71,6 +71,8 @@ def _bind(backend: DnsBackend, kind: str, params: dict[str, Any]) -> dict[str, A
         return {"records": [r.to_dict() for r in backend.read_zone(zone, view)]}
     if kind == "stats":
         return {"stats": backend.instance_stats().to_dict()}
+    if kind == "tree":
+        return {"tree": backend.config_files_tree()}  # type: ignore[attr-defined]
     return {"config": backend.read_config().to_dict()}
 
 
@@ -112,6 +114,8 @@ def _kea(backend: DhcpBackend, kind: str, params: dict[str, Any]) -> dict[str, A
         return {"reservations": [r.to_dict() for r in rows]}
     if kind == "stats":
         return {"statistics": backend.statistics()}
+    if kind == "schema":
+        return {"schema": backend.config_schema()}  # type: ignore[attr-defined]
     return {"config": backend.config_get(), "config_hash": backend.config_hash()}
 
 
@@ -121,4 +125,6 @@ def _d2(backend: DdnsBackend, kind: str) -> dict[str, Any]:
         return {"capabilities": caps, "status": backend.status() if caps.get("running") else None}
     if kind == "stats":
         return {"stats": backend.stats().to_dict()}
+    if kind == "schema":
+        return {"schema": backend.config_schema()}  # type: ignore[attr-defined]
     return {"config": backend.config_get()}

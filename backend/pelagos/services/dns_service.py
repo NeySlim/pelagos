@@ -10,6 +10,7 @@ connector only: writes need a node that runs the engine.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 from pelagos.connectors.base import DnsBackend
@@ -25,6 +26,7 @@ from pelagos.domain import (
     Plan,
     RRset,
     Zone,
+    ZoneKind,
     ZoneSource,
     ZoneStatus,
     normalize_name,
@@ -32,6 +34,7 @@ from pelagos.domain import (
 from pelagos.services.errors import EngineUnavailable, NotFound, ServiceError, ValidationError, field_error
 from pelagos.services.peers import PeerGateway
 
+TRANSFER_KINDS = frozenset({ZoneKind.SECONDARY, ZoneKind.MIRROR, ZoneKind.STUB})
 OPERATIONS = ("retransfer", "notify", "reload", "freeze", "thaw", "sync")
 RESOLVER_KEYS = ("recursion", "allow-recursion", "forwarders", "forward", "dnssec-validation")
 
@@ -117,8 +120,10 @@ class DnsService:
         return items
 
     def zones(
-        self, view: str | None = None, kind: str | None = None, q: str | None = None
+        self, view: str | None = None, kind: str | None = None, q: str | None = None, status: bool = False
     ) -> list[dict[str, Any]]:
+        """With `status`, transfer-fed zones (secondary, mirror, stub) carry the ZoneStatus of the node
+        read, keyed by node id: next_refresh and expires without one request per zone."""
         backend, peer = self._read_node(None)
         serials: dict[str, dict[str, int | None]] = {}
         if backend is not None:
@@ -152,8 +157,23 @@ class DnsService:
                 continue
             per_node = serials.get(f"{zone.view}/{zone.name}", {})
             known = {s for s in per_node.values() if s is not None}
-            out.append({"zone": zone.to_dict(), "serials": per_node, "divergent": len(known) > 1})
+            item = {"zone": zone.to_dict(), "serials": per_node, "divergent": len(known) > 1}
+            if status:
+                item["status"] = self._transfer_status(backend, peer, zone)
+            out.append(item)
         return out
+
+    def _transfer_status(self, backend: DnsBackend | None, peer: Peer | None, zone: Zone) -> dict[str, Any]:
+        if zone.kind not in TRANSFER_KINDS:
+            return {}
+        view = None if zone.view == "_default" else zone.view
+        if backend is not None:
+            return {self.ctx.node.id: backend.zone_status(zone.name, view).to_dict()}
+        assert peer is not None
+        snap = self.peers.snapshot(peer, Engine.BIND, "zone", {"zone": zone.name, "view": view})
+        if snap and not snap.get("error") and snap.get("zone_status"):
+            return {peer.id: snap["zone_status"]}
+        return {}
 
     def zone(self, name: str, view: str | None = None) -> tuple[Zone, dict[str, ZoneStatus]]:
         name = normalize_name(name)
@@ -376,10 +396,35 @@ class DnsService:
         parsed = [parse_change(raw, f"changes[{i}]") for i, raw in enumerate(changes)]
         if not parsed:
             raise ValidationError("changes must not be empty", [field_error("changes", "required")])
-        plan = self._local().plan_config_change(parsed, created_by)
+        backend = self._local()
+        for i, change in enumerate(parsed):
+            if change.target.startswith("raw:"):
+                change.target = "raw:" + self._raw_file(backend, change.target[4:], f"changes[{i}].target")
+        plan = backend.plan_config_change(parsed, created_by)
         if node_ids:
             plan.target_node_ids = self._target_nodes(node_ids)
         return self._store(plan)
+
+    @staticmethod
+    def _raw_file(backend: DnsBackend, name: str, field: str) -> str:
+        """raw:<file> names a Pelagos-managed file; an absolute path inside the include directory is
+        turned into its relative name. The user's own files are never rewritten (section 1)."""
+        if not name:
+            raise ValidationError("raw:<file> needs a file name", [field_error(field, "missing file")])
+        if not name.startswith("/"):
+            return name
+        include_dir = getattr(backend, "include_dir", None)
+        if include_dir is not None:
+            root = Path(include_dir).resolve()
+            target = Path(name).resolve()
+            if target.is_relative_to(root):
+                return str(target.relative_to(root))
+        raise ValidationError(
+            f"{name} is not a Pelagos-managed file: user configuration files are never rewritten; "
+            "edit options through options/<statement> changes or add the statement to a managed file "
+            "(raw:zones.conf, raw:acls.conf, raw:keys.conf)",
+            [field_error(field, "not a managed file")],
+        )
 
     def plan_key(self, raw: dict[str, Any], created_by: str) -> Plan:
         change = parse_change(raw, "change")

@@ -12,6 +12,7 @@ from pelagos.api import models as m
 from pelagos.api.common import arg, page_of
 from pelagos.api.dhcp import check_family
 from pelagos.api.security import require, require_module, services
+from pelagos.domain import Family
 
 ns = Namespace("advanced", description="Grammar-driven editor support", path="/advanced")
 
@@ -19,7 +20,7 @@ ns = Namespace("advanced", description="Grammar-driven editor support", path="/a
 class AdvancedResource(Resource):
     def dispatch_request(self, *args, **kwargs):
         require_module("advanced_editor")
-        if "family" in kwargs:
+        if "family" in kwargs and kwargs["family"] != "d2":
             check_family(kwargs["family"])
         return super().dispatch_request(*args, **kwargs)
 
@@ -27,8 +28,7 @@ class AdvancedResource(Resource):
 @ns.route("/bind/grammar")
 class BindGrammar(AdvancedResource):
     @require("read:advanced")
-    @ns.response(200, "BIND 9.20 statement grammar (section 8)")
-    @ns.response(501, "not_implemented until WP-BIND lands", m.Problem)
+    @ns.response(200, "BIND 9.20 statement grammar (section 8) plus a flat `statements` list")
     def get(self):
         return services().advanced.bind_grammar()
 
@@ -37,7 +37,7 @@ class BindGrammar(AdvancedResource):
 class BindTree(AdvancedResource):
     @require("read:advanced")
     @ns.doc(params={"node_id": "node to read"})
-    @ns.response(200, "Statements grouped by file, with provenance", m.BindTree)
+    @ns.response(200, "Every file in include order with its statements (config_files_tree)", m.BindTree)
     def get(self):
         return services().advanced.bind_tree(arg("node_id"))
 
@@ -45,11 +45,12 @@ class BindTree(AdvancedResource):
 @ns.route("/kea/<string:family>/schema")
 class KeaSchema(AdvancedResource):
     @require("read:advanced")
-    @ns.response(200, "Description of the Dhcp4/Dhcp6 object for the server version")
-    @ns.response(501, "not_implemented until WP-KEA lands", m.Problem)
+    @ns.doc(params={"family": "v4, v6 or d2"})
+    @ns.response(200, "Description of the Dhcp4, Dhcp6 or DhcpDdns object for the server version")
     def get(self, family: str):
         s = services()
-        return s.advanced.kea_schema(family, s.dhcp4 if family == "v4" else s.dhcp6)
+        dhcp = None if family == "d2" else s.dhcp(Family(family))
+        return s.advanced.kea_schema(family, dhcp, s.registry.d2)
 
 
 @ns.route("/history")

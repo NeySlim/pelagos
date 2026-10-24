@@ -249,6 +249,7 @@ DashboardSummary = model(
         "alerts": fields.Raw,
         "engines": fields.Raw,
         "errors": fields.Raw(description="source -> message for tiles that could not be read"),
+        "thresholds": fields.Raw(description="alerts_pool_warning_percent and the other alert thresholds"),
     },
 )
 
@@ -265,7 +266,12 @@ ChangesBody = model(
 )
 ZoneItem = model(
     "ZoneItem",
-    {"zone": fields.Nested(Zone), "serials": fields.Raw, "divergent": fields.Boolean},
+    {
+        "zone": fields.Nested(Zone),
+        "serials": fields.Raw,
+        "divergent": fields.Boolean,
+        "status": fields.Raw(description="node id -> ZoneStatus, secondary, mirror and stub zones only"),
+    },
 )
 ZoneList = items_of(ZoneItem, "ZoneList")
 ZoneDetail = model("ZoneDetail", {"zone": fields.Nested(Zone), "status": fields.Raw})
@@ -356,7 +362,13 @@ JobRef = model("JobRef", {"job_id": fields.String})
 Series = model("Series", {"series": fields.List(fields.Raw)})
 AuditPage = page_of(AuditEntry, "AuditPage")
 BindTree = model(
-    "BindTree", {"node_id": fields.String, "user_conf": fields.String, "files": fields.List(fields.Raw)}
+    "BindTree",
+    {
+        "node_id": fields.String,
+        "files": fields.List(fields.Raw),
+        "missing": fields.List(fields.String),
+        "errors": fields.List(fields.String),
+    },
 )
 HistoryEntry = model(
     "HistoryEntry",

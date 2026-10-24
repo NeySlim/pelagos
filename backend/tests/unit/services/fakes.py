@@ -284,6 +284,39 @@ class FakeDnsBackend(DnsBackend):
             "server is up and running": "",
         }
 
+    def config_files_tree(self) -> dict[str, Any]:
+        """The shape of namedconf.files_tree(): statements with args, line, value or statements."""
+        self._check()
+
+        def st(name: str, args: list[str], line: int, children: list | None = None) -> dict[str, Any]:
+            out: dict[str, Any] = {"name": name, "args": args, "line": line, "include": name == "include"}
+            if children is None:
+                out["value"] = " ".join(args)
+            else:
+                out["statements"] = children
+            return out
+
+        options = [st(k, [v], i + 2) for i, (k, v) in enumerate(self.options.items())]
+        keys = [
+            st("key", [f'"{name}"'], 2 + i, [st("algorithm", [algo], 3 + i), st("secret", ["****"], 4 + i)])
+            for i, (name, (algo, _secret)) in enumerate(self.keys.items())
+        ]
+        return {
+            "files": [
+                {
+                    "path": "/etc/bind/named.conf",
+                    "managed": False,
+                    "statements": [
+                        st("options", [], 1, options),
+                        st("include", ['"/etc/bind/pelagos/pelagos.conf"'], 20),
+                    ],
+                },
+                {"path": "/etc/bind/pelagos/keys.conf", "managed": True, "statements": keys},
+            ],
+            "missing": [],
+            "errors": [],
+        }
+
     def read_config(self) -> BindConfigTree:
         self._check()
         user = "/etc/bind/named.conf"
@@ -863,6 +896,12 @@ class FakeDhcpBackend(DhcpBackend):
             raise self.failure
 
     # Observation --------------------------------------------------------
+
+    def config_schema(self) -> dict[str, Any]:
+        from pelagos.connectors.kea.schema import config_schema
+
+        self._check()
+        return config_schema(self.family.value, self.version)
 
     def capabilities(self) -> DhcpCapabilities:
         self._check()
@@ -1471,6 +1510,12 @@ class FakeDdnsBackend(DdnsBackend):
     def _check(self) -> None:
         if self.failure is not None:
             raise self.failure
+
+    def config_schema(self) -> dict[str, Any]:
+        from pelagos.connectors.kea.schema import config_schema
+
+        self._check()
+        return config_schema("d2", "3.2.1")
 
     def capabilities(self) -> dict[str, Any]:
         self._check()

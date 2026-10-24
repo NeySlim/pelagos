@@ -54,9 +54,9 @@ class Instances(Resource):
 class Zones(Resource):
     @require("read:dns")
     @ns.doc(params={**VIEW, "kind": "primary, secondary, ...", "q": "substring of the zone name"})
-    @ns.response(200, "Zones with the SOA serial seen on each node", m.ZoneList)
+    @ns.response(200, "Zones with serials per node; transfer-fed zones carry their status", m.ZoneList)
     def get(self):
-        return {"items": dns().zones(arg("view"), arg("kind"), arg("q"))}
+        return {"items": dns().zones(arg("view"), arg("kind"), arg("q"), status=True)}
 
 
 @ns.route("/zones/plan")

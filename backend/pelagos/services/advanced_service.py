@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.core.context import NodeContext
-from pelagos.domain import BindConfigTree, ConfigEntry, Engine
+from pelagos.domain import Engine
 from pelagos.services.dns_service import DnsService
-from pelagos.services.errors import NotFound, ValidationError, field_error
+from pelagos.services.errors import ConnectorError, NotFound, ServiceError, ValidationError, field_error
 
 MAX_FILE_BYTES = 2 * 1024 * 1024
 
@@ -20,40 +20,43 @@ class AdvancedService:
         self.ctx = ctx
         self.dns = dns
 
-    # Grammar and schema (provided by WP-BIND and WP-KEA) -----------------
+    # Grammar, statement tree and Kea schema ---------------------------------
 
     def bind_grammar(self) -> dict[str, Any]:
         from pelagos.connectors.bind import namedconf
 
-        return namedconf.grammar()
-
-    def kea_schema(self, family: str, dhcp: Any = None) -> dict[str, Any]:
-        """`pelagos.connectors.kea.schema.config_schema(daemon, version)`, daemon v4, v6 or d2."""
-        import importlib
-
-        if family not in {"v4", "v6", "d2"}:
-            raise ValidationError(f"unknown Kea family {family}", [field_error("family", "invalid")])
-        try:
-            module = importlib.import_module("pelagos.connectors.kea.schema")
-        except ImportError:
-            raise NotImplementedError("WP-KEA") from None
-        if family == "d2":
-            dhcp = None
-        version = None
-        if dhcp is not None and dhcp.local is not None:
-            try:
-                version = dhcp.local.capabilities().version
-            except Exception:
-                version = None
-        return module.config_schema(family, version)
-
-    # BIND tree ----------------------------------------------------------
+        return grammar_document(namedconf.grammar())
 
     def bind_tree(self, node_id: str | None) -> dict[str, Any]:
+        """`BindBackend.config_files_tree()` of the node, statements shaped for the editor."""
         if self.dns is None:
             raise NotFound("BIND is not configured")
-        tree = self.dns._config(node_id)
-        return {"node_id": tree.node_id, "user_conf": tree.user_conf, "files": bind_files(tree)}
+        backend, peer = self.dns._read_node(node_id)
+        if backend is not None:
+            files_tree = getattr(backend, "config_files_tree", None)
+            if files_tree is None:
+                raise ServiceError("not_supported", "this BIND connector has no statement tree")
+            tree, read_on = files_tree(), self.ctx.node.id
+        else:
+            tree, read_on = self.dns._peer_snapshot(peer, "tree")["tree"], peer.id  # type: ignore[union-attr]
+        return tree_document(tree, read_on)
+
+    def kea_schema(self, family: str, dhcp: Any = None, d2: Any = None) -> dict[str, Any]:
+        """The connector's config_schema() for the local server's version, else the generic one."""
+        if family not in {"v4", "v6", "d2"}:
+            raise ValidationError(f"unknown Kea family {family}", [field_error("family", "invalid")])
+        backend = d2 if family == "d2" else (dhcp.local if dhcp is not None else None)
+        schema = None
+        if backend is not None and hasattr(backend, "config_schema"):
+            try:
+                schema = backend.config_schema()
+            except ConnectorError:
+                schema = None  # daemon down: fall back to the description without a version
+        if schema is None:
+            from pelagos.connectors.kea.schema import config_schema
+
+            schema = config_schema(family, None)
+        return schema_document(schema)
 
     # History ------------------------------------------------------------
 
@@ -121,65 +124,95 @@ class AdvancedService:
         return {"id": history_id, "manifest": data, "files": files}
 
 
-def bind_files(tree: BindConfigTree) -> list[dict[str, Any]]:
-    """Group every statement by the file it came from; managed = under the Pelagos include dir."""
-    include_dir = str(tree.pelagos.get("include_dir") or "")
-    files: dict[str, dict[str, Any]] = {}
-
-    def file_for(path: str | None) -> dict[str, Any]:
-        key = path or tree.user_conf
-        if key not in files:
-            files[key] = {
-                "path": key,
-                "managed": bool(include_dir) and key.startswith(include_dir),
-                "statements": [],
-            }
-        return files[key]
-
-    for path in [tree.user_conf, *tree.includes]:
-        file_for(path)
-
-    def add(kind: str, entry: ConfigEntry) -> None:
-        file_for(entry.path)["statements"].append(
-            {
-                "kind": kind,
-                "name": entry.name,
-                "value": entry.value,
-                "line": entry.line,
-                "managed": entry.managed,
-            }
-        )
-
-    for entry in tree.options:
-        add("options", entry)
-    for entry in tree.keys:
-        add("key", entry)
-    for entry in tree.acls:
-        add("acl", entry)
-    for entry in tree.controls:
-        add("controls", entry)
-    for entry in tree.statistics_channels:
-        add("statistics-channels", entry)
-    if tree.logging:
-        file_for(None)["statements"].append(
-            {"kind": "logging", "name": "logging", "value": tree.logging, "line": None, "managed": False}
-        )
-    for zone in tree.zones:
-        file_for(zone.config_path)["statements"].append(
-            {
-                "kind": "zone",
-                "name": zone.name,
-                "value": zone.to_dict(),
-                "line": None,
-                "managed": zone.source.value != "user_conf",
-                "view": zone.view,
-            }
-        )
-    return list(files.values())
-
-
 def _stamp_to_rfc3339(stamp: str) -> str:
     # Backup directories are named <YYYYmmddTHHMMSSffffffZ>-<label> by the write pipeline.
     if len(stamp) >= 15 and stamp[8] == "T":
         return f"{stamp[0:4]}-{stamp[4:6]}-{stamp[6:8]}T{stamp[9:11]}:{stamp[11:13]}:{stamp[13:15]}Z"
     return stamp
+
+
+# Editor shapes (contracts-changes.md, WP-API-AUTH: advanced editor payloads) ----------------------
+
+_CONTEXT_LABELS = {"top": "toplevel"}
+
+
+def _context_label(name: str) -> str:
+    """Grammar context to the editor's label: the block a statement sits in ("zone.primary" is "zone")."""
+    if name in _CONTEXT_LABELS:
+        return _CONTEXT_LABELS[name]
+    if name.startswith("zone.") or name == "zone":
+        return "zone"
+    return name.rsplit(".", 1)[-1]
+
+
+def _args_text(entry: dict[str, Any], name: str) -> str:
+    grammar = str(entry.get("grammar") or "")
+    text = " ".join(grammar.replace("<", " ").replace(">", " ").split())
+    if name == "include" and not text:
+        return "quoted_string"
+    if entry.get("block"):
+        return f"{text} {{ ... }}" if text else "block"
+    return text
+
+
+def grammar_document(grammar: dict[str, Any]) -> dict[str, Any]:
+    """namedconf.grammar() plus `version` and a flat `statements` list (one row per distinct argument
+    grammar, with every context it is allowed in)."""
+    rows: dict[tuple[str, str], dict[str, Any]] = {}
+    for ctx_name, ctx in (grammar.get("contexts") or {}).items():
+        label = _context_label(ctx_name)
+        for name, entry in (ctx.get("statements") or {}).items():
+            args = _args_text(entry, name)
+            row = rows.get((name, args))
+            if row is None:
+                row = rows[(name, args)] = {
+                    "name": name,
+                    "contexts": [],
+                    "args": args,
+                    "multiple": bool(entry.get("repeatable", name == "include")),
+                    "doc": entry.get("doc_url"),
+                    "types": list(entry.get("types") or []),
+                    "status": entry.get("status", "current"),
+                    "block": entry.get("block"),
+                }
+            if label not in row["contexts"]:
+                row["contexts"].append(label)
+    return {
+        **grammar,
+        "version": grammar.get("bind_version"),
+        "statements": sorted(rows.values(), key=lambda r: (r["name"], r["args"])),
+    }
+
+
+def _editor_statement(stmt: dict[str, Any]) -> dict[str, Any]:
+    out = dict(stmt)
+    children = stmt.get("statements")
+    if children is not None:
+        args = stmt.get("args") or []
+        out["value"] = " ".join(str(a) for a in args) or None
+        out["children"] = [_editor_statement(c) for c in children]
+    return out
+
+
+def tree_document(tree: dict[str, Any], node_id: str) -> dict[str, Any]:
+    """files_tree() with `value` (block head arguments) and `children` on block statements."""
+    return {
+        **tree,
+        "node_id": node_id,
+        "files": [
+            {**f, "statements": [_editor_statement(s) for s in f.get("statements") or []]}
+            for f in tree.get("files") or []
+        ],
+    }
+
+
+def schema_document(schema: dict[str, Any]) -> dict[str, Any]:
+    """config_schema() with `keys` as a list of {name, ...}; the mapping stays in `keys_by_name`."""
+    keys = schema.get("keys") or {}
+    if isinstance(keys, list):
+        return schema
+    return {
+        **schema,
+        "keys": [{"name": name, **spec} for name, spec in keys.items()],
+        "keys_by_name": keys,
+    }

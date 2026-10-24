@@ -261,8 +261,8 @@ class HostsService:
 
     def consistency_pass(self) -> dict[str, Any]:
         """One read-only pass of services.consistency on fresh reads; the collector owns the alert table."""
+        from pelagos.collector.events import send_signal
         from pelagos.services import consistency
-        from pelagos.services.events import send_event
 
         leases, reservations = [], []
         errors: dict[str, str] = {}
@@ -294,7 +294,7 @@ class HostsService:
         for alert in alerts:
             by_kind[alert.kind.value] = by_kind.get(alert.kind.value, 0) + 1
         # Ask the collector to run its own pass now, which is the one that updates the alert table.
-        signalled = send_event(self.ctx.paths.collector_sock, {"event": "consistency"})
+        signalled = send_signal(self.ctx.paths.collector_sock, "consistency")
         return {
             "found": len(alerts),
             "by_kind": by_kind,

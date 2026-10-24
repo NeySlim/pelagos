@@ -13,6 +13,14 @@ from pelagos.services.dns_service import DnsService
 from pelagos.services.peers import PeerGateway
 from pelagos.services.registry import ConnectorRegistry
 
+# Same defaults as the collector's alert rules (section 10 [settings]).
+THRESHOLDS: dict[str, Any] = {
+    "alerts_pool_warning_percent": 80,
+    "alerts_pool_critical_percent": 95,
+    "alerts_serial_divergence_seconds": 900,
+    "alerts_d2_error_rate": 0.05,
+}
+
 
 class DashboardService:
     def __init__(
@@ -50,6 +58,7 @@ class DashboardService:
             "alerts": {},
             "engines": {},
             "errors": errors,
+            "thresholds": {},
         }
 
         def guarded(name: str, fn: Any, default: Any) -> Any:
@@ -84,7 +93,13 @@ class DashboardService:
                 "info": sev.get("info", 0),
             }
         out["engines"] = guarded("engines", self.engines, {})
+        out["thresholds"] = guarded("thresholds", self.thresholds, {})
         return out
+
+    def thresholds(self) -> dict[str, Any]:
+        """The alert thresholds of [settings], so tiles color like the alerts without admin:settings."""
+        settings = self.ctx.settings()
+        return {key: settings.get(key, default) for key, default in THRESHOLDS.items()}
 
     def _pools(self, dhcp: DhcpService) -> list[dict[str, Any]]:
         rows = []

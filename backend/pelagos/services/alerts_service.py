@@ -15,18 +15,18 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.collector import series as series_mod
-from pelagos.collector.alerts import row_to_alert
+from pelagos.collector.alerts import AlertStore, ack_entry, row_to_alert
 from pelagos.core.context import NodeContext
 from pelagos.domain import (
     INCONSISTENCY_KINDS,
     Alert,
     AlertKind,
     AlertState,
-    AuditEntry,
     AuditResult,
     Engine,
     Severity,
     from_rfc3339,
+    to_rfc3339,
     utcnow,
 )
 from pelagos.services.errors import NotFound, ServiceError, ValidationError, field_error
@@ -51,6 +51,11 @@ class SeriesCache:
                 log.warning("series cache %s not readable: %s", self.path, exc)
                 return None
         return self._conn
+
+    @property
+    def alerts(self) -> AlertStore | None:
+        conn = self.conn
+        return AlertStore(conn) if conn is not None else None
 
     @property
     def store(self) -> series_mod.SeriesStore | None:
@@ -88,57 +93,34 @@ class AlertsService:
         ):
             if value is not None and value not in allowed:
                 raise ValidationError(f"unknown {name} {value!r}", [field_error(name, "invalid")])
-        conn = self.cache.conn
-        if conn is None:
+        store = self.cache.alerts
+        if store is None:
             return [], 0
-        where, args = ["1=1"], []
-        for column, value in (
-            ("kind", kind),
-            ("severity", severity),
-            ("state", state),
-            ("node_id", node_id),
-            ("engine", engine),
-        ):
-            if value is not None:
-                where.append(f"{column} = ?")
-                args.append(value)
-        clause = " AND ".join(where)
-        total = conn.execute(f"SELECT COUNT(*) FROM alerts WHERE {clause}", args).fetchone()[0]  # noqa: S608
-        rows = conn.execute(
-            f"SELECT * FROM alerts WHERE {clause} ORDER BY last_seen DESC, id LIMIT ? OFFSET ?",  # noqa: S608
-            [*args, per_page, (page - 1) * per_page],
-        ).fetchall()
-        return [row_to_alert(r) for r in rows], int(total)
+        return store.list(
+            kind=kind,
+            severity=severity,
+            state=state,
+            node_id=node_id,
+            engine=engine,
+            page=page,
+            per_page=per_page,
+        )
 
     def get(self, alert_id: str) -> Alert:
-        conn = self.cache.conn
-        row = (
-            conn.execute("SELECT * FROM alerts WHERE id = ?", (alert_id,)).fetchone()
-            if conn is not None
-            else None
-        )
-        if row is None:
+        store = self.cache.alerts
+        alert = store.get(alert_id) if store is not None else None
+        if alert is None:
             raise NotFound(f"alert {alert_id}")
-        return row_to_alert(row)
+        return alert
 
     def summary(self) -> dict[str, Any]:
-        conn = self.cache.conn
-        out: dict[str, Any] = {
-            "open": 0,
-            "acked": 0,
-            "by_severity": {s.value: 0 for s in Severity},
-            "by_kind": {},
-        }
-        if conn is None:
-            return out
-        for row in conn.execute(
-            "SELECT state, severity, kind, COUNT(*) AS n FROM alerts"
-            " WHERE state != 'resolved' GROUP BY state, severity, kind"
-        ):
-            n = int(row["n"])
-            out[row["state"]] = out.get(row["state"], 0) + n
-            out["by_severity"][row["severity"]] = out["by_severity"].get(row["severity"], 0) + n
-            out["by_kind"][row["kind"]] = out["by_kind"].get(row["kind"], 0) + n
+        """AlertStore.summary(), with every severity present (zero when none)."""
+        store = self.cache.alerts
+        empty = {"open": 0, "acked": 0, "by_severity": {}, "by_kind": {}}
+        out: dict[str, Any] = store.summary() if store is not None else empty
+        out["by_severity"] = {**{s.value: 0 for s in Severity}, **out.get("by_severity", {})}
+        out.setdefault("open", 0)
+        out.setdefault("acked", 0)
         return out
 
     def open_inconsistencies(self) -> list[Alert]:
@@ -157,25 +139,12 @@ class AlertsService:
         if alert.state is AlertState.RESOLVED:
             raise ServiceError("conflict", "a resolved alert cannot be acknowledged")
         now = utcnow()
-        self.ctx.audit_log.append(
-            AuditEntry(
-                node_id=self.ctx.node.id,
-                user=user,
-                action="alert.ack",
-                target=f"alert:{alert.id}",
-                engine=alert.engine,
-                request={
-                    "alert_id": alert.id,
-                    "kind": alert.kind.value,
-                    "subject": alert.subject,
-                    "comment": comment,
-                },
-                response={"state": AlertState.ACKED.value, "acked_at": now.isoformat()},
-                result=AuditResult.OK,
-                message=comment,
-                client_ip=client_ip,
-            )
-        )
+        entry = ack_entry(self.ctx.node.id, alert, user, comment)
+        entry.client_ip = client_ip
+        entry.request = {"alert_id": alert.id, **(entry.request or {})}
+        entry.result = AuditResult.OK
+        entry.response = {"state": AlertState.ACKED.value, "acked_at": to_rfc3339(now)}
+        self.ctx.audit_log.append(entry)
         # The table belongs to the collector; it applies this entry on its next pass.
         alert.state = AlertState.ACKED
         alert.acked_by = user

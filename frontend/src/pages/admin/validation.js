@@ -3,15 +3,7 @@
 
 export const USERNAME_RE = /^[a-z0-9._-]{2,64}$/
 export const ROLE_NAME_RE = /^[a-z0-9-]{2,64}$/
-export const PASSWORD_MIN = 12
-
-// Password policy of section 16: 12 characters, three character classes.
-export function passwordProblem(password) {
-  const value = String(password || '')
-  if (value.length < PASSWORD_MIN) return 'passwordShort'
-  const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(value)).length
-  return classes < 3 ? 'passwordClasses' : null
-}
+export { PASSWORD_MIN, passwordProblem } from '../../lib/password'
 
 // RFC 7807 `errors[]` of a validation_error as { field: message }.
 export function fieldErrors(err) {

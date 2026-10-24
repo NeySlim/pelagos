@@ -14,7 +14,7 @@ import { persistPreference } from '../../stores/preferencesStore'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
-import { passwordProblem } from './password'
+import { passwordProblem } from '../../lib/password'
 import { TotpQr } from './TotpQr'
 
 function Section({ icon: Icon, title, children, testId }) {

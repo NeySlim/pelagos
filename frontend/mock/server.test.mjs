@@ -72,9 +72,9 @@ function concrete(spec, state) {
 }
 
 const BODIES = {
-  'POST /auth/password': { current_password: 'admin', new_password: 'admin-new-password' },
+  'POST /auth/password': { current_password: 'admin', new_password: 'Admin-new-password-1' },
   'POST /auth/totp/confirm': { code: '123456' },
-  'DELETE /auth/totp': { password: 'admin-new-password' },
+  'DELETE /auth/totp': { password: 'Admin-new-password-1' },
   'PUT /account/preferences': { language: 'fr' },
   'PUT /dashboard/layout': { layout: [{ i: 'ha', x: 0, y: 0, w: 4, h: 3 }] },
   'POST /dns/zones/plan': { change: { op: 'add', target: '_default/new.example.lan.', after: { name: 'new.example.lan.', kind: 'primary', file: 'db.new' } } },
@@ -101,9 +101,9 @@ const BODIES = {
   'POST /install/plan': { engines: ['bind'], source: 'distro' },
   'POST /install/import/plan': { engines: ['bind', 'kea4'] },
   'POST /install/security/plan': { finding_ids: ['rndc-md5'] },
-  'POST /admin/users': { username: 'carol', password: 'carol-password', roles: ['viewer'] },
+  'POST /admin/users': { username: 'carol', password: 'Carol-password-1', roles: ['viewer'] },
   'PUT /admin/users/{id}': { enabled: false },
-  'POST /admin/users/{id}/reset-password': { password: 'another-password' },
+  'POST /admin/users/{id}/reset-password': { password: 'Another-password-1' },
   'POST /admin/roles': { name: 'auditor', permissions: ['read:audit'] },
   'PUT /admin/roles/{name}': { description: 'changed' },
   'PUT /admin/settings': { plan_ttl_seconds: 900 },
@@ -139,6 +139,14 @@ describe('mock server', () => {
     const ok = await login('bob', 'bob', '123456')
     expect(ok.status).toBe(200)
     expect(ok.body.permissions).toContain('write:dhcp.subnets')
+  })
+
+  it('applies the server password policy', async () => {
+    const admin = client(await login('admin', 'admin'))
+    const short = await admin('POST', '/admin/users', { username: 'weak', password: 'Short-pw1', roles: ['viewer'] })
+    expect(short.status).toBe(400)
+    const classes = await admin('POST', '/admin/users', { username: 'weak', password: 'onlylowercaseletters', roles: ['viewer'] })
+    expect(classes.status).toBe(400)
   })
 
   it('enforces CSRF on unsafe methods and RBAC per endpoint', async () => {

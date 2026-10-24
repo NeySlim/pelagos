@@ -9,6 +9,7 @@ import http from 'node:http'
 import { randomBytes, createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { ENDPOINTS } from '../src/services/endpoints.js'
+import { passwordProblem } from '../src/lib/password.js'
 import { createState, iso, ulid, ALL_PERMISSIONS } from './data.mjs'
 import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, isExpired, auditEntry, configHash, isAdmin } from './plans.mjs'
 import { createWsHub } from './ws.mjs'
@@ -70,6 +71,18 @@ class Problem extends Error {
 }
 const notFound = (what) => new Problem(404, 'not_found', `${what} not found`)
 const invalid = (field, message) => new Problem(400, 'validation_error', 'Invalid request', [{ field, message }])
+// Finding ids carry no fixed vocabulary: the dual-key rotation is keyed on kind and engine.
+const SECURITY_FINDINGS = [
+  { id: 'rndc-md5', kind: 'insecure_key', severity: 'critical', engine: 'bind', subject: 'key:rndc-key', description: 'The rndc key uses hmac-md5.', proposal: 'Regenerate the rndc key with hmac-sha256.', risk: 'rndc restarts briefly; no query impact.' },
+  { id: 'd2-key-md5', kind: 'insecure_key', severity: 'warning', engine: 'd2', subject: 'key:kea-ddns', description: 'All nodes share one DDNS key created with hmac-md5.', proposal: 'Add a new hmac-sha256 key to the BIND update-policy, switch D2 on every node, then remove the old key.', risk: 'Updates in flight during the switch are retried.' },
+  { id: 'stats-public', kind: 'insecure_listener', severity: 'warning', engine: 'bind', subject: 'statistics-channels', description: 'statistics-channels listens on 0.0.0.0.', proposal: 'Bind it to 127.0.0.1 only.', risk: 'External scrapers lose access.' },
+  { id: 'transfer-any', kind: 'insecure_listener', severity: 'info', engine: 'bind', subject: 'zone:partner.example.', description: 'allow-transfer is not restricted on one zone.', proposal: 'Restrict to key ddi-read.', risk: 'None.' },
+]
+const isDualKey = (finding) => finding?.kind === 'insecure_key' && finding?.engine === 'd2'
+const PASSWORD_RULE ='must have at least 12 characters and three of: lowercase, uppercase, digits, symbols'
+const checkPassword = (field, value) => {
+  if (passwordProblem(value)) throw invalid(field, PASSWORD_RULE)
+}
 
 const TITLES = {
   validation_error: 'Validation error', invalid_credentials: 'Invalid credentials', totp_required: 'TOTP code required',
@@ -533,6 +546,10 @@ function keaConfig(state, family) {
   }
 }
 
+// GET /dhcp/{family}/config returns the bare object under the root key, as
+// KeaBackend.config_get() does; the editor accepts both shapes.
+const bareKea = (wrapped) => Object.values(wrapped)[0]
+
 function d2Config() {
   return {
     DhcpDdns: {
@@ -765,7 +782,7 @@ function buildHandlers(state, emit) {
     'POST /auth/password': ({ user, body }) => {
       const record = state.users.find((u) => u.id === user.id)
       if (record.password !== body.current_password) throw new Problem(401, 'invalid_credentials', 'Current password is wrong')
-      if (!body.new_password || body.new_password.length < 8) throw invalid('new_password', 'must be at least 8 characters')
+      checkPassword('new_password', body.new_password)
       record.password = body.new_password
       record.must_change_password = false
       return null
@@ -1255,13 +1272,14 @@ function buildHandlers(state, emit) {
     'GET /dhcp/{family}/config': ({ params, query }) => ({
       node_id: nodeOr(query),
       hash: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2',
-      config: keaConfig(state, params.family),
+      config: bareKea(keaConfig(state, params.family)),
     }),
     'POST /dhcp/{family}/config/plan': ({ params, body, user }) => {
       if (!body.config || typeof body.config !== 'object') throw invalid('config', 'required')
-      const current = keaConfig(state, params.family)
+      const current = bareKea(keaConfig(state, params.family))
       const root = params.family === 'v4' ? 'Dhcp4' : 'Dhcp6'
-      const ok = Boolean(body.config[root])
+      const sent = body.config[root] ?? body.config
+      const ok = Boolean(sent) && typeof sent === 'object' && !Array.isArray(sent)
       const plan = createPlan(state, user, {
         scope: 'dhcp.config',
         engine: kea(params.family),
@@ -1285,15 +1303,15 @@ function buildHandlers(state, emit) {
       items: state.nodes.map((n) => ({ node_id: n.peer.id, capabilities: capabilities(state).engines.d2, status: { pid: 1300, uptime: 512000 } })),
     }),
     'GET /dhcp/d2/stats': ({ query }) => state.d2[nodeOr(query)] || (() => { throw notFound('D2 on this node') })(),
-    'GET /dhcp/d2/config': ({ query }) => ({ node_id: nodeOr(query), config: d2Config() }),
+    'GET /dhcp/d2/config': ({ query }) => ({ node_id: nodeOr(query), config: bareKea(d2Config()) }),
     'POST /dhcp/d2/config/plan': ({ body, user }) => {
       if (!body.config || typeof body.config !== 'object') throw invalid('config', 'required')
       return createPlan(state, user, {
         scope: 'd2.config',
         engine: 'd2',
         summary: 'replace the D2 configuration',
-        changes: [{ op: 'replace', target: 'config', before: d2Config(), after: body.config, node_ids: body.node_ids || [] }],
-        diff: unifiedDiff(jsonText(d2Config()), jsonText(body.config), 'kea-dhcp-ddns.conf'),
+        changes: [{ op: 'replace', target: 'config', before: bareKea(d2Config()), after: body.config, node_ids: body.node_ids || [] }],
+        diff: unifiedDiff(jsonText(bareKea(d2Config())), jsonText(body.config), 'kea-dhcp-ddns.conf'),
         targets: body.node_ids || state.nodes.map((n) => n.peer.id),
         tool: 'config-test',
         apply: () => 'applied',
@@ -1566,19 +1584,12 @@ function buildHandlers(state, emit) {
         targets: [state.selfId], tool: 'named-checkconf', job: steps,
       })
     },
-    'GET /install/security': () => ({
-      findings: [
-        { id: 'rndc-md5', kind: 'insecure_key', severity: 'critical', engine: 'bind', subject: 'key:rndc-key', description: 'The rndc key uses hmac-md5.', proposal: 'Regenerate the rndc key with hmac-sha256.', risk: 'rndc restarts briefly; no query impact.' },
-        { id: 'kea-shared-key', kind: 'insecure_key', severity: 'warning', engine: 'd2', subject: 'key:kea-ddns', description: 'All nodes share one DDNS key created with hmac-md5.', proposal: 'Add a new hmac-sha256 key to the BIND update-policy, switch D2 on every node, then remove the old key.', risk: 'Updates in flight during the switch are retried.' },
-        { id: 'stats-public', kind: 'insecure_listener', severity: 'warning', engine: 'bind', subject: 'statistics-channels', description: 'statistics-channels listens on 0.0.0.0.', proposal: 'Bind it to 127.0.0.1 only.', risk: 'External scrapers lose access.' },
-        { id: 'transfer-any', kind: 'insecure_listener', severity: 'info', engine: 'bind', subject: 'zone:partner.example.', description: 'allow-transfer is not restricted on one zone.', proposal: 'Restrict to key ddi-read.', risk: 'None.' },
-      ],
-    }),
+    'GET /install/security': () => ({ findings: SECURITY_FINDINGS }),
     'POST /install/security/plan': ({ body, user }) => {
       const ids = body.finding_ids || []
       if (!ids.length) throw invalid('finding_ids', 'choose at least one finding')
       const steps = ids.flatMap((id) =>
-        id === 'kea-shared-key'
+        isDualKey(SECURITY_FINDINGS.find((f) => f.id === id))
           ? ['add the new key to BIND update-policy', 'switch D2 to the new key on every node', 'remove the old key']
           : [`remediate ${id}`],
       )
@@ -1595,7 +1606,7 @@ function buildHandlers(state, emit) {
     'GET /admin/users': () => ({ items: state.users.map((u) => publicUser(u, state)) }),
     'POST /admin/users': ({ body, user, res }) => {
       if (!body.username || !/^[a-z0-9._-]{2,64}$/.test(body.username)) throw invalid('username', 'lowercase letters, digits, dot, dash and underscore')
-      if (!body.password || body.password.length < 8) throw invalid('password', 'must be at least 8 characters')
+      checkPassword('password', body.password)
       if (state.users.some((u) => u.username === body.username)) throw new Problem(409, 'conflict', 'username already exists')
       const roles = body.roles || ['viewer']
       const known = [...state.builtinRoles, ...state.customRoles].map((r) => r.name)
@@ -1632,7 +1643,7 @@ function buildHandlers(state, emit) {
     'POST /admin/users/{id}/reset-password': ({ params, body }) => {
       const found = state.users.find((u) => u.id === params.id)
       if (!found) throw notFound(`user ${params.id}`)
-      if (!body.password || body.password.length < 8) throw invalid('password', 'must be at least 8 characters')
+      checkPassword('password', body.password)
       found.password = body.password
       found.must_change_password = true
       return null

@@ -38,8 +38,8 @@ test('import wizard builds a plan and applies it as a job', async ({ page }) => 
 test('security findings build a confirmed remediation plan', async ({ page }) => {
   await signIn(page)
   await page.goto('/install/security')
-  await page.locator('[data-finding="kea-shared-key"]').click()
-  await expect(page.locator('[data-finding="kea-shared-key"]').getByTestId('security-dual-key')).toBeVisible()
+  await page.locator('[data-finding="d2-key-md5"]').click()
+  await expect(page.locator('[data-finding="d2-key-md5"]').getByTestId('security-dual-key')).toBeVisible()
   await page.getByTestId('security-build').click()
   const apply = page.getByTestId('plan-apply')
   await expect(apply).toBeDisabled()

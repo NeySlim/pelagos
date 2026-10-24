@@ -36,7 +36,7 @@ function Finding({ finding, checked, onToggle, disabled }) {
             <dd className="text-text-secondary">{finding.risk}</dd>
           </div>
         </dl>
-        {finding.id === 'kea-shared-key' || (finding.kind === 'insecure_key' && finding.engine === 'd2') ? (
+        {finding.details?.steps || (finding.kind === 'insecure_key' && finding.engine === 'd2') ? (
           <ol className="list-decimal ml-5 text-xs text-text-secondary space-y-0.5" data-testid="security-dual-key">
             <li>{t('security.dualKey.add')}</li>
             <li>{t('security.dualKey.switch')}</li>

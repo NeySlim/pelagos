@@ -39,6 +39,7 @@ from pelagos.connectors.bind.namedconf.resolve import (
     zone_from_node,
 )
 from pelagos.connectors.bind.namedconf.tree import ConfigDocument, parse_statements, unquote
+from pelagos.connectors.bind.rrset import owner_name
 from pelagos.domain.dns import BindConfigTree, RRset, Zone, ZoneKind, ZoneSource, normalize_name
 from pelagos.domain.plan import Change, ChangeOp, Precondition, PreconditionKind, ValidationResult
 
@@ -254,8 +255,11 @@ class ConfigPlanner:
         initial: dict[str, Any] = {}
         if op is ChangeOp.ADD and zone.kind is ZoneKind.PRIMARY:
             initial = self._new_zone_file(zone, raw)
-        if zone.kind in (ZoneKind.SECONDARY, ZoneKind.MIRROR) and not zone.file:
-            zone.file = str(self.zone_dir / f"{name.rstrip('.')}.db")
+        if zone.kind in (ZoneKind.SECONDARY, ZoneKind.MIRROR):
+            # named writes the transferred zone there, so it must stay in a Pelagos directory.
+            previous = before.get("file") if before else None
+            if not zone.file or zone.file != previous:
+                zone.file = str(self._zone_file_path(zone))
         statement = self.managed.zone_statement(zone)
         self.managed.upsert(doc, statement, "zone", name.rstrip(".") or ".", note_comment(zone.notes))
         after = zone.to_dict()
@@ -279,14 +283,22 @@ class ConfigPlanner:
             if not pel.get("view_includes_present", {}).get(view):
                 raise PlanError(f"view {view!r} does not include {self.managed.view_conf(view)}")
 
+    def _directory(self) -> Path:
+        directory = self.option("directory")
+        return Path(unquote(directory)) if directory else self.user_conf.parent
+
     def _zone_file_path(self, zone: Zone) -> Path:
+        """Absolute path of a zone file Pelagos or named writes: under zone_dir or `directory` only."""
         if zone.file:
             p = Path(zone.file)
-            if p.is_absolute():
+            p = p if p.is_absolute() else self._directory() / p
+        else:
+            p = self.zone_dir / f"{zone.name.rstrip('.') or 'root'}.db"
+        resolved = p.resolve()
+        for root in (self.zone_dir, self._directory()):
+            if resolved.is_relative_to(root.resolve()):
                 return p
-            directory = self.option("directory")
-            return (Path(unquote(directory)) if directory else self.user_conf.parent) / p
-        return self.zone_dir / f"{zone.name.rstrip('.')}.db"
+        raise PlanError(f"zone file {p} is outside {self.zone_dir} and the options directory")
 
     def _new_zone_file(self, zone: Zone, raw: dict[str, Any]) -> dict[str, Any]:
         """A primary zone gets an initial zone file (SOA, NS, optional records) unless one exists."""
@@ -296,6 +308,9 @@ class ConfigPlanner:
             return {}
         ns = [normalize_name(n) for n in (raw.get("ns") or self.default_ns or ["localhost."])]
         records = [RRset.from_dict(r) if isinstance(r, dict) else r for r in raw.get("records") or []]
+        for record in records:
+            # Relative owners hang off the zone; anything outside the zone is refused.
+            record.name = owner_name(record.name, zone.name)
         self._set_text(path, zone_file_text(zone.name, ns, records))
         self.result.zone_files[path] = self.result.texts[path]
         return {"ns": ns, "records": [r.to_dict() for r in records]}
@@ -477,7 +492,7 @@ def zone_file_text(zone: str, ns: list[str], records: list[RRset], serial: int |
     ]
     lines.extend(f"{zone} IN NS {n}" for n in ns)
     for rr in records:
-        lines.extend(f"{normalize_name(rr.name)} {rr.ttl} IN {rr.rtype} {rd}" for rd in rr.rdata)
+        lines.extend(f"{owner_name(rr.name, zone)} {rr.ttl} IN {rr.rtype} {rd}" for rd in rr.rdata)
     return "\n".join(lines) + "\n"
 
 

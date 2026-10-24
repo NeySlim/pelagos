@@ -8,8 +8,8 @@
 #   PELAGOS_ADMIN_PASSWORD  when set and node.toml is absent, runs "pelagos init" on first start
 #   PELAGOS_NODE_NAME       node name for init (default: pelagos)
 #   PELAGOS_WEB_URL, PELAGOS_REPLICATION_URL  advertised URLs for init (optional)
-#   PELAGOS_KEA_GID         group allowed to use the Kea sockets in /run/kea (default 0: the ISC
-#                           images run the daemons as root and create sockets with umask 007)
+#   PELAGOS_KEA_GID         group allowed to use the Kea sockets in /run/kea (default 8443, the
+#                           primary group compose gives the root Kea daemons; umask 007)
 #   PELAGOS_BIND_GID        group of the BIND container (default 53, the ISC image)
 #   PELAGOS_BIND_UID        user of named, owner of its working directory (default 53)
 #   PELAGOS_BIND_HOST      address of named for rndc (default 127.0.0.1; "bind" in compose)
@@ -21,7 +21,7 @@ ETC="${PELAGOS_ETC:-/etc/pelagos}"
 VAR="${PELAGOS_VAR:-/var/lib/pelagos}"
 RUN="${PELAGOS_RUN:-/run/pelagos}"
 SEED=/usr/share/pelagos/seed
-KEA_GID="${PELAGOS_KEA_GID:-0}"
+KEA_GID="${PELAGOS_KEA_GID:-8443}"
 BIND_GID="${PELAGOS_BIND_GID:-53}"
 BIND_HOST="${PELAGOS_BIND_HOST:-127.0.0.1}"
 BIND_UID="${PELAGOS_BIND_UID:-53}"

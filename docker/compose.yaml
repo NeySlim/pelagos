@@ -13,19 +13,19 @@
 #                      control sockets are shared with the node through the kea-run volume
 #
 # Variables (.env file next to this compose.yaml or the environment):
-#   PELAGOS_IMAGE (default ghcr.io/neyslim/pelagos:latest), PELAGOS_ADMIN_PASSWORD, PELAGOS_NODE_NAME,
+#   PELAGOS_IMAGE (default pelagos:latest, built by make docker), PELAGOS_ADMIN_PASSWORD, PELAGOS_NODE_NAME,
 #   PELAGOS_WEB_URL, PELAGOS_HTTPS_PORT (8443), PELAGOS_REPL_PORT (8444), BIND_IMAGE, KEA_VERSION.
 
 name: pelagos
 
 x-pelagos-common: &pelagos-common
-  image: ${PELAGOS_IMAGE:-ghcr.io/neyslim/pelagos:latest}
+  image: ${PELAGOS_IMAGE:-pelagos:latest}
   environment:
     PELAGOS_ADMIN_PASSWORD: ${PELAGOS_ADMIN_PASSWORD:-}
     PELAGOS_NODE_NAME: ${PELAGOS_NODE_NAME:-pelagos}
     PELAGOS_WEB_URL: ${PELAGOS_WEB_URL:-}
     PELAGOS_REPLICATION_URL: ${PELAGOS_REPLICATION_URL:-}
-    PELAGOS_KEA_GID: ${PELAGOS_KEA_GID:-0}
+    PELAGOS_KEA_GID: ${PELAGOS_KEA_GID:-8443}
     PELAGOS_BIND_HOST: bind
   volumes:
     - pelagos-etc:/etc/pelagos
@@ -38,6 +38,9 @@ x-pelagos-common: &pelagos-common
 
 x-kea-common: &kea-common
   network_mode: host
+  # Root user (the ISC images need it) with a dedicated primary group: the sockets are
+  # root:PELAGOS_KEA_GID, so the node never joins the root group.
+  user: "0:${PELAGOS_KEA_GID:-8443}"
   restart: unless-stopped
   environment:
     # Kea 3.x only accepts sockets under this directory; it is the volume shared with the node.
@@ -105,7 +108,7 @@ services:
   kea-dhcp4:
     <<: *kea-common
     image: docker.cloudsmith.io/isc/docker/kea-dhcp4:${KEA_VERSION:-3.2.1}
-    # The ISC image runs as root; umask 007 lets the group of /run/kea (the node) use the socket.
+    # umask 007 lets the group of /run/kea (PELAGOS_KEA_GID, joined by the node) use the socket.
     command: ["/bin/sh", "-c", "umask 007 && exec /usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4.conf"]
 
   kea-dhcp-ddns:

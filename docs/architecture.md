@@ -1492,7 +1492,7 @@ change revokes the user's other sessions.
 | `GET /dns/acls` | `read:dns` | | `{"items": [{"name","elements":[..],"source","config_path"}]}` |
 | `POST /dns/acls/plan` | `write:dns.config` | `{"change": Change}` | `Plan` |
 | `GET /dns/resolver` | `read:dns` | | `{"recursion", "allow_recursion", "forwarders", "forward", "dnssec_validation", "per_node": {...}}` |
-| `POST /dns/resolver/plan` | `write:dns.config` | the same keys as changes | `Plan` |
+| `POST /dns/resolver/plan` | `write:dns.config` | the keys to change, named like the `named.conf` statements: `{"recursion"?, "allow-recursion"?, "forwarders"?, "forward"?, "dnssec-validation"?}`; `null` removes the statement | `Plan` |
 | `GET /dns/rpz` | `read:dns` | | `{"items": [{"zone","policy","source"}]}` |
 | `GET /dns/catalog-zones` | `read:dns` | | `{"items": [...]}` |
 | `GET /dns/stats?node_id=` | `read:dns` | | `BindInstanceStats` |

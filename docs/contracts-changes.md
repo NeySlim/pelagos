@@ -64,6 +64,49 @@ What changed (file, symbol). Why. Which packages must react, and how.
   `pelagos.env`) to the `pelagos` user when it exists (`platform.give_tree_to`); the deb postinst
   and the rpm `%post` do the same for a node initialized before the package was installed.
 
+## 2026-10-24, INT-FRONTEND: UI wired to the real API, shapes it relies on
+Checked every screen against a backend driving real `named`, `kea-dhcp4`,
+`kea-dhcp6` and `kea-dhcp-ddns` (the daemon fixtures). The frontend and its
+mock now follow what the backend serves; where the backend adds fields, the
+frontend reads these names (INT-API: keep them or log different ones here):
+- `architecture.md` section 17, `POST /dns/resolver/plan`: the body keys are
+  the `named.conf` statement names (`allow-recursion`, `dnssec-validation`),
+  as the backend and its Swagger `ResolverBody` already read them; `GET
+  /dns/resolver` keeps the underscore names. Was "the same keys", which the
+  UI read as the GET names and the backend ignored.
+- `dhcp.options` targets are `option-data/<space>/<name or code>` as section
+  6 says; the UI sent `option-data/<name>`, which the Kea connector refused.
+- Kea `user-context`: the UI reads and writes notes and owner under
+  `"pelagos": {"notes", "owner", "tags"}` (section 5); the flat
+  `pelagos:note` / `pelagos:owner` keys of the wave 1 mock are still read.
+- `GET /dashboard/summary` additive `"thresholds": {"pool_warning_percent",
+  "pool_critical_percent"}` (the `[settings]` alert values); the UI also
+  accepts the `alerts_pool_*` names and falls back to `GET /admin/settings`
+  for admins, then to 80 / 95.
+- `GET /dns/zones` items additive `"status": {node_id: ZoneStatus}` (the
+  shape of `GET /dns/zones/{zone}`); Secondaries uses it and makes one
+  zone read per zone only when it is absent.
+- Read as served (no change asked): `GET /dhcp/{family}/hooks` `available`
+  is `[{"name", "description"}]`; `GET /dns/catalog-zones` items are
+  `{"zone", "statement", "members"}` (default primaries come from the
+  statement); `GET /dns/rpz` items carry `configured` and the UI does not
+  read records of an undeclared policy zone; `GET /install/detect` `distro`
+  has `pretty_name`; Kea statistics values are `[[value, timestamp]]`.
+- `GET /advanced/bind/grammar` and `GET /advanced/kea/{family}/schema`: the
+  UI keeps the shapes logged by WP-FRONTEND below and also accepts the
+  connector shapes (grammar `{"bind_version", "contexts": {ctx:
+  {"statements": {name: {...}}}}}`, schema `keys` as a name -> definition
+  map). A `/advanced/bind/tree` statement `value` that is not text is shown
+  as JSON.
+- WebSocket: the Vite dev proxy rewrites `Origin` to the target on upgrades,
+  so the backend's same-origin check passes. `pelagos serve` (Flask) has no
+  WebSocket worker; live updates need gunicorn with `gunicorn_conf.py`.
+- Found for WP-API-AUTH / INT-API (backend, not changed here):
+  `PlanService.recheck_preconditions` compares `rrset_absent` (value `""`)
+  and `rrset_exists` (value the rdata) with the observed `"absent"` /
+  `"exists"`, so every record and host plan apply answers `409
+  precondition_failed` on a real node.
+
 ## 2026-10-24, WP-FRONTEND: qrcode dependency for TOTP enrollment
 `frontend/package.json` adds `qrcode` (^1.5.4, MIT) to draw the
 `otpauth_url` of `POST /auth/totp/enroll` as an SVG QR code on the Account

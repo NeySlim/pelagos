@@ -13,6 +13,24 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, W3-UI system: Mission Control default family, animations preference
+- `GET/PUT /account/preferences` (`services/account_service.py`, `api/models.py`):
+  new key `animations` (`full`, `reduced`, `off`, default `full`); the default
+  `theme_family` is now `mission` (architecture sections 4, 10 and 17). Additive:
+  older clients ignore the key, a stored `pelagic` choice is kept. WP-API-AUTH
+  owns the files; the change is a few lines plus its test.
+- `frontend/`: the theme family registry gains a top-level `effects` key on every
+  family (`'mission'` or `'none'`), written as `data-effects` on `<html>`; the
+  motion level is written as `data-motion` (`full`, `reduced`, `off`). Mission
+  Control has its own status hues (neon green, yellow, red-pink) with unchanged
+  meaning; the UCM families and Pelagic keep theirs.
+- No new dependency: motion is pure CSS (transform and opacity keyframes, gated by
+  `data-motion`) plus one `requestAnimationFrame` counter. `motion`/framer-motion
+  was not added: every requested primitive is an enter or loop animation that CSS
+  runs on the compositor, exit animations are not needed, and the bundle stays
+  smaller. The Michroma font (SIL OFL 1.1) is self-hosted under
+  `frontend/public/fonts/`.
+
 ## 2026-10-24, final review (backend): security and robustness fixes
 All additive; `docs/architecture.md` sections 5, 9, 15 and the Kea SELinux note updated.
 - `domain/plan.py`: `NodeApplyResult.outcome_unknown` (default False). `PeerGateway` sets it when a

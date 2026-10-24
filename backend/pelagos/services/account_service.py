@@ -17,7 +17,8 @@ from pelagos.services.errors import Conflict, NotFound, ServiceError, Validation
 PENDING_TOTP_SECONDS = 600
 THEME_MODES = ("system", "dark", "light")
 LANGUAGES = ("en", "fr")
-PREFERENCE_KEYS = ("theme_family", "theme_mode", "language", "dashboard_layout")
+ANIMATIONS = ("full", "reduced", "off")
+PREFERENCE_KEYS = ("theme_family", "theme_mode", "language", "animations", "dashboard_layout")
 
 
 class AccountService:
@@ -160,9 +161,10 @@ class AccountService:
     def preferences(self, user_id: str) -> dict[str, Any]:
         prefs = self.user(user_id).preferences
         return {
-            "theme_family": prefs.get("theme_family", "pelagic"),
+            "theme_family": prefs.get("theme_family", "mission"),
             "theme_mode": prefs.get("theme_mode", "system"),
             "language": prefs.get("language", "en"),
+            "animations": prefs.get("animations", "full"),
             "dashboard_layout": prefs.get("dashboard_layout", []),
         }
 
@@ -175,6 +177,8 @@ class AccountService:
                 errors.append(field_error(key, "unknown preference"))
             elif key == "theme_mode" and value not in THEME_MODES:
                 errors.append(field_error(key, f"one of {', '.join(THEME_MODES)}"))
+            elif key == "animations" and value not in ANIMATIONS:
+                errors.append(field_error(key, f"one of {', '.join(ANIMATIONS)}"))
             elif key == "language" and value not in LANGUAGES:
                 errors.append(field_error(key, f"one of {', '.join(LANGUAGES)}"))
             elif key == "theme_family" and (

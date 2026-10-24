@@ -523,7 +523,7 @@ class User(Model):
     enabled: bool = True
     totp_secret: str | None = None # encrypted ("enc:v1:..."), never returned by the API
     must_change_password: bool = False
-    preferences: dict[str, Any] = {}   # theme_family, theme_mode, language, dashboard_layout
+    preferences: dict[str, Any] = {}   # theme_family, theme_mode, language, animations, dashboard_layout
     created_at: datetime; updated_at: datetime
     last_login: datetime | None = None
 ```
@@ -1173,7 +1173,7 @@ totp_secret = "enc:v1:..."              # optional
 must_change_password = false
 created_at = "2026-10-24T09:00:00Z"
 updated_at = "2026-10-24T09:00:00Z"
-preferences = { theme_family = "pelagic", theme_mode = "system", language = "en" }
+preferences = { theme_family = "mission", theme_mode = "system", language = "en", animations = "full" }
 
 [[roles]]                               # custom roles only; builtin roles are code (section 16)
 name = "dns-readonly-plus"
@@ -1699,7 +1699,7 @@ Until a work package implements an endpoint it answers `501` with
 | `POST /auth/totp/enroll` | any | | `{"secret","otpauth_url"}` (pending until confirmed) |
 | `POST /auth/totp/confirm` | any | `{"code"}` | `204` |
 | `DELETE /auth/totp` | any | `{"password"}` | `204` |
-| `GET /account/preferences` | any | | `{"theme_family","theme_mode","language","dashboard_layout"}` |
+| `GET /account/preferences` | any | | `{"theme_family","theme_mode","language","animations","dashboard_layout"}`; defaults `mission`, `system`, `en`, `full`, `[]`; `animations` is one of `full`, `reduced`, `off` |
 | `PUT /account/preferences` | any | same keys, partial | the merged preferences |
 
 User public fields: `id, username, roles, enabled, has_totp, must_change_password, created_at, updated_at, last_login, preferences`.

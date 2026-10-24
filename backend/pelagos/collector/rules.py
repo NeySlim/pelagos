@@ -12,6 +12,8 @@ on every pass:
   d2_errors          node, d2                "d2:updates"
   peer_offline       peer node, no engine    "peer:<peer id>"
   config_divergence  cluster-wide, engine    "<engine>:config-hash"
+  config_divergence  peer node, no engine    "schema:<peer id>" (cluster.toml schema mismatch)
+  config_divergence  node, kea4|kea6|d2      "<engine>:config-file" (file on disk vs config-get)
 """
 
 from __future__ import annotations
@@ -275,4 +277,30 @@ def config_divergence(engine: str, hashes: dict[str, str | None]) -> Alert:
         subject=f"{engine}:config-hash",
         title=f"{engine} configuration differs between nodes",
         details={"hashes": hashes},
+    )
+
+
+def schema_mismatch(peer_id: str, peer_name: str, error: str | None) -> Alert:
+    """The peer is up but the two nodes run different cluster.toml schemas: one needs an upgrade."""
+    return Alert(
+        kind=AlertKind.CONFIG_DIVERGENCE,
+        severity=Severity.WARNING,
+        node_id=peer_id,
+        engine=None,
+        subject=f"schema:{peer_id}",
+        title=f"cluster.toml schema differs with node {peer_name}: upgrade the older node",
+        details={"error": error, "cause": "schema_mismatch"},
+    )
+
+
+def config_file_divergence(node_id: str, engine: Engine, path: str, differences: list[str]) -> Alert:
+    """The Kea configuration file no longer matches what the daemon runs (config-get)."""
+    return Alert(
+        kind=AlertKind.CONFIG_DIVERGENCE,
+        severity=Severity.WARNING,
+        node_id=node_id,
+        engine=engine,
+        subject=f"{engine.value}:config-file",
+        title=f"{path} differs from the running {engine.value} configuration",
+        details={"path": path, "differences": differences[:20], "count": len(differences), "cause": "file"},
     )

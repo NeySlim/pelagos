@@ -8,7 +8,7 @@ import pytest
 from pelagos.collector.alerts import AlertStore
 from pelagos.collector.pollers.peers import PeersPoller, ReplicationPeerClient, peer_engines
 from pelagos.collector.series import SeriesStore, connect
-from pelagos.core.replication import ReplicationError
+from pelagos.core.replication import PeerStatus, ReplicationError
 from pelagos.domain import AlertKind, NodeModules, NodeStatus, Peer
 from tests.unit.collector.fakes import NODE, PEER, FakePeerClient, snapshot_payload
 
@@ -207,3 +207,46 @@ def connect_memory():
     conn.executescript(SCHEMA)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+class FakeLiveness:
+    def __init__(self) -> None:
+        self.failures: dict[str, int] = {}
+        self.statuses: list[PeerStatus] = []
+
+    def peer_statuses(self) -> list[PeerStatus]:
+        return list(self.statuses)
+
+
+def test_liveness_from_the_replicator_and_schema_mismatch(store):
+    clock = Clock()
+    client = FakePeerClient()
+    liveness = FakeLiveness()
+    poller = PeersPoller(client, NODE, lambda: [peer()], store, SETTINGS, clock, liveness=liveness)
+    # Not exchanged with yet: nothing is known, nothing is called.
+    assert poller.poll().alerts == [] and ("status", PEER) not in client.calls
+    liveness.statuses = [PeerStatus(node_id=PEER, reachable=True, config_version=4)]
+    assert poller.poll().alerts == [] and ("status", PEER) not in client.calls
+    assert store.snapshot(PEER, "node", "status")[1]["config_version"] == 4
+    liveness.statuses[0].code, liveness.statuses[0].error = "schema_mismatch", "schema 2 > 1"
+    out = poller.poll()
+    assert [a.kind for a in out.alerts] == [AlertKind.CONFIG_DIVERGENCE]
+    assert out.alerts[0].subject == f"schema:{PEER}" and out.alerts[0].details["error"] == "schema 2 > 1"
+    liveness.statuses = [PeerStatus(node_id=PEER, reachable=False, error="refused")]
+    liveness.failures[PEER] = 2
+    assert poller.poll().alerts == []
+    liveness.failures[PEER] = 3
+    assert [a.kind for a in poller.poll().alerts] == [AlertKind.PEER_OFFLINE]
+
+
+def test_peers_reconcile_leaves_kea_file_divergence_alone(store):
+    from pelagos.collector import rules
+    from pelagos.domain import Engine
+
+    alerts = AlertStore(store.conn)
+    file_alert = rules.config_file_divergence(NODE, Engine.KEA4, "/etc/kea/kea-dhcp4.conf", ["x"])
+    alerts.reconcile([file_alert], {AlertKind.CONFIG_DIVERGENCE.value})
+    poller = make(store, FakePeerClient(), Clock(), [peer()])
+    out = poller.poll()
+    _, _, resolved = alerts.reconcile(out.alerts, set(out.kinds), out.where)
+    assert resolved == []

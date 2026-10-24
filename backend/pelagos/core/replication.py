@@ -14,6 +14,7 @@ import re
 import ssl
 import threading
 import time
+import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -47,6 +48,11 @@ OFFLINE_AFTER_FAILURES = 3
 RENEWAL_CHECK_SECONDS = 6 * 3600
 HOUSEKEEPING_SECONDS = 3600
 _ENGINE_RE = re.compile(r"^/engines/([a-z0-9]+)/snapshot$")
+SNAPSHOT_ENGINES = frozenset({"bind", "kea4", "kea6", "d2"})
+# Event the collector receives when entries from a peer were merged into the local audit log.
+EVENT_AUDIT_MERGED = "audit_merged"
+
+SnapshotProvider = Callable[[str, str, dict[str, str]], dict[str, Any]]
 
 
 @dataclass(slots=True)
@@ -217,8 +223,12 @@ class ReplicationClient:
     def rollback_plan(self, plan: Plan) -> NodeApplyResult:
         return NodeApplyResult.from_dict(self._call("POST", "/plans/rollback", {"plan": plan.to_dict()}))
 
-    def engine_snapshot(self, engine: str) -> dict[str, Any]:
-        return self._call("GET", f"/engines/{engine}/snapshot")
+    def engine_snapshot(
+        self, engine: str, kind: str = "summary", params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Section 13 engine read; kind parameters travel as query arguments, None values dropped."""
+        query = {"kind": kind, **{k: str(v) for k, v in (params or {}).items() if v is not None}}
+        return self._call("GET", f"/engines/{engine}/snapshot?{urllib.parse.urlencode(query)}")
 
     def renew(self, csr_pem: bytes) -> bytes:
         return str(self._call("POST", "/renew", {"csr_pem": csr_pem.decode()})["cert_pem"]).encode()
@@ -245,14 +255,19 @@ class ReplicationApp:
         audit_log: AuditLog,
         registry: ConnectorRegistry | None = None,
         enrollment: EnrollmentService | None = None,
+        snapshot: SnapshotProvider | None = None,
     ) -> None:
         self.node = node
         self.config_store = config_store
         self.audit_log = audit_log
         self.registry = registry or ConnectorRegistry(node.id)
         self.enrollment = enrollment
+        # (engine, kind, params) -> answer of GET /engines/<engine>/snapshot; the collector provides it.
+        self.snapshot = snapshot
         # Called with the node id of every authenticated caller: a peer that talks to us is back.
         self.on_peer_seen: Callable[[str], None] | None = None
+        # Called after a peer pushed entries this node did not have (alert acks to replay, ...).
+        self.on_audit_merged: Callable[[], None] | None = None
 
     # WSGI entry
     def __call__(self, environ: dict[str, Any], start_response: Callable[..., Any]) -> list[bytes]:
@@ -306,11 +321,20 @@ class ReplicationApp:
             return self._renew(self._body(environ), caller)
         m = _ENGINE_RE.match(route)
         if m and method == "GET":
-            try:
-                return 200, self.registry.snapshot(m.group(1))
-            except EngineNotConfigured as exc:
-                raise _Refused(404, "not_found", str(exc)) from None
+            return self._snapshot(m.group(1), environ.get("QUERY_STRING", ""))
         raise _Refused(404, "not_found", f"{method} {route}")
+
+    def _snapshot(self, engine: str, query: str) -> tuple[int, Any]:
+        params = dict(urllib.parse.parse_qsl(query, keep_blank_values=True))
+        kind = params.pop("kind", None) or "summary"
+        if engine not in SNAPSHOT_ENGINES:
+            raise _Refused(404, "not_found", f"unknown engine {engine}")
+        if self.snapshot is not None:
+            return 200, self.snapshot(engine, kind, params)
+        try:
+            return 200, self.registry.snapshot(engine)
+        except EngineNotConfigured as exc:
+            raise _Refused(404, "not_found", str(exc)) from None
 
     # Authentication: the client certificate must name an enrolled, non-revoked node.
     def authenticate(self, cert_der: bytes | None) -> str:
@@ -382,7 +406,10 @@ class ReplicationApp:
             entries = [AuditEntry.from_dict(e) for e in raw]
         except (KeyError, TypeError, ValueError) as exc:
             raise _Refused(400, "validation_error", f"invalid audit entry: {exc}") from None
-        return 200, {"added": self.audit_log.merge(entries)}
+        added = self.audit_log.merge(entries)
+        if added and self.on_audit_merged is not None:
+            self.on_audit_merged()
+        return 200, {"added": added}
 
     def _fetch_audit(self, body: dict[str, Any]) -> tuple[int, Any]:
         ids = body.get("ids")
@@ -843,6 +870,8 @@ class ReplicationService:
         peer_poll_seconds: float | None = None,
         timeout: float = 10.0,
         listener: Any = None,
+        snapshot: SnapshotProvider | None = None,
+        on_audit_merged: Callable[[], None] | None = None,
     ) -> None:
         self.ctx = ctx
         self.paths = ctx.paths
@@ -851,8 +880,12 @@ class ReplicationService:
         self.server_context = server_ssl_context(ca_cert, node_cert, node_key, cooperative=True)
         self.registry = registry or ConnectorRegistry(ctx.node.id)
         self.enrollment = EnrollmentService(self.paths, ctx.config_store, ctx.audit_log, ctx.node)
-        self.app = ReplicationApp(ctx.node, ctx.config_store, ctx.audit_log, self.registry, self.enrollment)
+        self.app = ReplicationApp(
+            ctx.node, ctx.config_store, ctx.audit_log, self.registry, self.enrollment, snapshot=snapshot
+        )
         self.app.on_peer_seen = self._on_peer_seen
+        self.on_audit_merged = on_audit_merged
+        self.app.on_audit_merged = self._audit_merged
         self.server = ReplicationServer(self.app, listen or ctx.node.replication_listen, self.server_context)
         self.replicator = Replicator(
             ctx.config_store, ctx.audit_log, self.client_context, ctx.node.id, timeout=timeout
@@ -892,7 +925,7 @@ class ReplicationService:
             self.listener.start()
         if pull:
             try:
-                self.replicator.pull_all()
+                self._after_exchange(self.replicator.pull_all())
             except Exception:
                 # Never left in `syncing` without a worker: anti-entropy retries the pull.
                 log.exception("initial pull failed")
@@ -934,6 +967,18 @@ class ReplicationService:
             self._seq += 1
             self._retry_at = time.monotonic()
         self._wake.set()
+
+    def _audit_merged(self) -> None:
+        if self.on_audit_merged is not None:
+            try:
+                self.on_audit_merged()
+            except Exception:
+                log.exception("audit merge hook failed")
+
+    def _after_exchange(self, results: list[PeerStatus]) -> list[PeerStatus]:
+        if any(r.audit_added for r in results):
+            self._audit_merged()
+        return results
 
     def _on_peer_seen(self, node_id: str) -> None:
         """A peer that was failing reached us: retry the pending push now instead of after the backoff."""
@@ -977,7 +1022,7 @@ class ReplicationService:
                 # Pushed back first so an unexpected error cannot turn the loop into a hot retry.
                 self._retry_at = now + PUSH_BACKOFF_SECONDS[0]
             try:
-                results = self.replicator.push_all()
+                results = self._after_exchange(self.replicator.push_all())
                 failed = sum(1 for r in results if not r.reachable)
             except Exception:
                 log.exception("push to peers failed")
@@ -1003,7 +1048,7 @@ class ReplicationService:
         if now >= self._next_poll:
             self._next_poll = now + self.peer_poll_seconds
             try:
-                self.replicator.pull_all()
+                self._after_exchange(self.replicator.pull_all())
             except Exception:
                 log.exception("anti-entropy pass failed")
             self._next_poll = time.monotonic() + self.peer_poll_seconds
@@ -1065,15 +1110,31 @@ class ReplicationService:
 class _CollectorHandle:
     def __init__(self, service: ReplicationService) -> None:
         self.service = service
+        self.replicator = service.replicator
 
     def close(self) -> None:
         self.service.stop()
 
 
-def start_collector_side(ctx: NodeContext, listener: Any, store: Any = None) -> _CollectorHandle:
+def node_enrolled(paths: Paths) -> bool:
+    """The node has its PKI files: it can serve /repl/v1 and talk to peers."""
+    return all(p.exists() for p in node_tls_files(paths))
+
+
+def start_collector_side(
+    ctx: NodeContext,
+    listener: Any,
+    store: Any = None,
+    *,
+    registry: ConnectorRegistry | None = None,
+    snapshot: SnapshotProvider | None = None,
+    on_audit_merged: Callable[[], None] | None = None,
+) -> _CollectorHandle:
     """Collector hook: serve /repl/v1 and push on the collector's `collector.sock` signals."""
-    if not all(p.exists() for p in node_tls_files(ctx.paths)):
+    if not node_enrolled(ctx.paths):
         raise NotImplementedError("node is not enrolled (no PKI files)")
-    service = ReplicationService(ctx, listener=listener)
+    service = ReplicationService(
+        ctx, registry, listener=listener, snapshot=snapshot, on_audit_merged=on_audit_merged
+    )
     service.start()
     return _CollectorHandle(service)

@@ -15,7 +15,6 @@ from pelagos.collector.alerts import ack_entry
 from pelagos.collector.events import EventSink, SignalListener
 from pelagos.collector.main import Backends, Collector, build_backends, build_peer_client, connector_context
 from pelagos.collector.series import SeriesStore, connect
-from pelagos.core import replication
 from pelagos.domain import (
     INCONSISTENCY_KINDS,
     Alert,
@@ -256,30 +255,20 @@ def test_ack_scan_is_skipped_without_open_alerts(rig, monkeypatch):
     assert collector.apply_acks() == []
 
 
-def test_start_replication_hook(node_ctx, monkeypatch):
+def test_start_replication_without_pki_is_a_no_op(node_ctx):
+    (node_ctx.paths.pki_dir / "node.crt").unlink()
     listener = SignalListener(node_ctx.paths.collector_sock)
     conn = connect(node_ctx.paths.series_db)
     store = SeriesStore(conn)
-    # WP-CORE has not provided the hook yet: nothing starts, nothing fails.
-    monkeypatch.delattr(replication, "start_collector_side", raising=False)
-    assert collector_main.start_replication(node_ctx, listener, store) is None
-    calls = []
-
-    def start(ctx, lst, st):
-        calls.append((ctx, lst, st))
-        lst.on("config", lambda _msg: None)
-        return "handle"
-
-    monkeypatch.setattr(replication, "start_collector_side", start, raising=False)
-    assert collector_main.start_replication(node_ctx, listener, store) == "handle"
-    assert calls == [(node_ctx, listener, store)] and "config" in listener.handlers
-
-    def not_yet(ctx, lst, st):
-        raise NotImplementedError("WP-CORE")
-
-    monkeypatch.setattr(replication, "start_collector_side", not_yet, raising=False)
     assert collector_main.start_replication(node_ctx, listener, store) is None
     conn.close()
+
+
+def test_registries_share_the_backend_objects(rig):
+    collector, backends, _ = rig
+    core, service = collector_main.build_registries(collector.ctx, backends)
+    assert core.engines() == ["bind", "d2", "kea4"]
+    assert core.get("kea4") is backends.kea4 and service.kea4 is backends.kea4 and service.dns is backends.dns
 
 
 def test_tasks_and_retention(rig):

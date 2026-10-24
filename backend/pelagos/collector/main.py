@@ -22,6 +22,7 @@ from pelagos.collector.pollers import PollOutcome
 from pelagos.collector.pollers.bind import BindPoller
 from pelagos.collector.pollers.kea import D2Poller, KeaPoller
 from pelagos.collector.pollers.peers import PeerClient, PeersPoller, ReplicationPeerClient
+from pelagos.collector.snapshots import SnapshotProvider
 from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBackend, DhcpBackend, DnsBackend
 from pelagos.core.context import NodeContext
 from pelagos.core.paths import Paths
@@ -367,19 +368,54 @@ def build_tasks(ctx: NodeContext, store: series_mod.SeriesStore) -> list[Task]:
     return Collector(ctx, store, build_backends(ctx), build_peer_client(ctx)).tasks()
 
 
-def start_replication(ctx: NodeContext, listener: SignalListener, store: series_mod.SeriesStore) -> Any:
-    """Hand the collector side of replication (/repl/v1 server, push on signal, anti-entropy) to WP-CORE.
+def build_registries(ctx: NodeContext, backends: Backends) -> tuple[Any, Any]:
+    """The same backend objects behind both registries: core's (remote plan apply) and the services'
+    one that `services.snapshot.engine_snapshot` reads (live snapshot kinds)."""
+    from pelagos.core.registry import ConnectorRegistry as CoreRegistry
+    from pelagos.services.registry import ConnectorRegistry as ServiceRegistry
 
-    Calls `pelagos.core.replication.start_collector_side(ctx, listener, store)` when it exists; the
-    value it returns is kept and its `close()` (if any) runs on shutdown. Returns None while WP-CORE
-    has not provided it.
+    core = CoreRegistry(ctx.node.id)
+    for engine, backend in (("bind", backends.dns), ("kea4", backends.kea4), ("kea6", backends.kea6)):
+        if backend is not None:
+            core.register(engine, backend)
+    if backends.d2 is not None:
+        core.register("d2", backends.d2)
+    service = ServiceRegistry(dns=backends.dns, kea4=backends.kea4, kea6=backends.kea6, d2=backends.d2)
+    return core, service
+
+
+def start_replication(
+    ctx: NodeContext,
+    listener: SignalListener,
+    store: series_mod.SeriesStore,
+    backends: Backends | None = None,
+) -> Any:
+    """Start ReplicationService on the collector's listener: /repl/v1 server, pushes, anti-entropy.
+
+    Returns its handle (with `close()` and `replicator`), or None on a node without PKI files.
     """
-    try:
-        from pelagos.core.replication import start_collector_side  # type: ignore[attr-defined]
+    from pelagos.core.replication import EVENT_AUDIT_MERGED, start_collector_side
+    from pelagos.core.signals import signal_collector
 
-        return start_collector_side(ctx, listener, store)
-    except (ImportError, NotImplementedError) as exc:
-        log.info("replication not started by the collector: %s", exc or type(exc).__name__)
+    backends = backends if backends is not None else Backends()
+    core_registry, service_registry = build_registries(ctx, backends)
+    provider = SnapshotProvider(ctx.node.id, ctx.paths.series_db, service_registry)
+    sock = ctx.paths.collector_sock
+    try:
+        return start_collector_side(
+            ctx,
+            listener,
+            store,
+            registry=core_registry,
+            snapshot=provider,
+            # Runs on replication threads: the collector loop replays acks when the datagram arrives.
+            on_audit_merged=lambda: signal_collector(sock, EVENT_AUDIT_MERGED),
+        )
+    except NotImplementedError as exc:
+        log.info("replication not started by the collector: %s", exc)
+        return None
+    except Exception:
+        log.exception("replication service failed to start")
         return None
 
 
@@ -391,7 +427,8 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     conn = series_mod.connect(paths.series_db)
     store = series_mod.SeriesStore(conn)
     store.set_meta("last_start", datetime.now(UTC).isoformat())
-    collector = Collector(ctx, store, build_backends(ctx), build_peer_client(ctx))
+    backends = build_backends(ctx)
+    collector = Collector(ctx, store, backends, build_peer_client(ctx))
     log.info("collector started for node %s (%s)", ctx.node.name, ctx.node.id)
     if once:
         report = collector.cycle()
@@ -408,13 +445,17 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     tasks = collector.tasks()
     listener = SignalListener(paths.collector_sock)
     listener.on("audit", lambda _msg: collector.apply_acks())
+    listener.on("audit_merged", lambda _msg: collector.apply_acks())
     listener.on("consistency", lambda _msg: collector.consistency())
     collector.listener = listener
     try:
         listener.open()
     except OSError as exc:
         log.warning("signal socket %s unavailable: %s", paths.collector_sock, exc)
-    replication = start_replication(ctx, listener, store)
+    replication = start_replication(ctx, listener, store, backends)
+    replicator = getattr(replication, "replicator", None)
+    if replicator is not None:
+        collector.peers.liveness = replicator
     try:
         while True:
             now = time.monotonic()

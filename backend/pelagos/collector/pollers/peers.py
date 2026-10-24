@@ -18,8 +18,9 @@ from typing import Any, Protocol
 from pelagos.collector import rules
 from pelagos.collector.pollers import PollOutcome
 from pelagos.collector.series import SeriesStore
+from pelagos.collector.snapshots import CACHE_KIND
 from pelagos.core.replication import PeerStatus, ReplicationClient, ReplicationError
-from pelagos.domain import AlertKind, Engine, Node, NodeStatus, Peer
+from pelagos.domain import Alert, AlertKind, Engine, Node, NodeStatus, Peer
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,19 @@ TRANSFERRED_KINDS = frozenset({"secondary", "mirror"})
 class PeerClient(Protocol):
     def status(self, peer: Peer) -> PeerStatus: ...
     def engine_snapshot(self, peer: Peer, engine: str) -> dict[str, Any]: ...
+
+
+class Liveness(Protocol):
+    """What the replicator knows from its own exchanges (core.replication.Replicator)."""
+
+    failures: dict[str, int]
+
+    def peer_statuses(self) -> list[PeerStatus]: ...
+
+
+def owned(alert: Alert) -> bool:
+    """Alerts this poller reconciles: Kea file divergence belongs to the local Kea pollers."""
+    return not (alert.kind is AlertKind.CONFIG_DIVERGENCE and alert.subject.endswith(":config-file"))
 
 
 class ReplicationPeerClient:
@@ -55,7 +69,7 @@ class ReplicationPeerClient:
         return self._client(peer).status()
 
     def engine_snapshot(self, peer: Peer, engine: str) -> dict[str, Any]:
-        return self._client(peer).engine_snapshot(engine)
+        return self._client(peer).engine_snapshot(engine, kind=CACHE_KIND)
 
 
 def peer_engines(peer: Peer) -> list[str]:
@@ -81,8 +95,11 @@ class PeersPoller:
         store: SeriesStore,
         settings: dict[str, Any],
         clock: Callable[[], float] = time.time,
+        liveness: Liveness | None = None,
     ) -> None:
         self.client = client
+        # With a replicator, liveness and failure counts come from its exchanges (no extra status call).
+        self.liveness = liveness
         self.self_id = self_id
         self.peers = peers
         self.store = store
@@ -93,7 +110,7 @@ class PeersPoller:
         self._unimplemented_logged = False
 
     def poll(self) -> PollOutcome:
-        out = PollOutcome(kinds=KINDS)
+        out = PollOutcome(kinds=KINDS, where=owned)
         now = int(self.clock())
         peers = [p for p in self.peers() if p.id != self.self_id]
         known_nodes = {self.self_id, *(p.id for p in peers)}
@@ -106,21 +123,38 @@ class PeersPoller:
         self._config_divergence(out)
         return out
 
-    def _poll_peer(self, peer: Peer, now: int, out: PollOutcome) -> None:
+    def _status(self, peer: Peer) -> tuple[PeerStatus, int] | None:
+        """(status, consecutive failed polls), or None when liveness is not known yet."""
+        if self.liveness is not None:
+            status = next((s for s in self.liveness.peer_statuses() if s.node_id == peer.id), None)
+            if status is None:
+                return None
+            return status, self.liveness.failures.get(peer.id, 0)
         if self.client is None:
-            return
+            return None
         try:
             status = self.client.status(peer)
         except NotImplementedError:
             if not self._unimplemented_logged:
                 log.info("replication client not available yet; peer liveness is not polled")
                 self._unimplemented_logged = True
-            return
+            return None
         except (ReplicationError, OSError) as exc:
             status = PeerStatus(node_id=peer.id, reachable=False, error=str(exc))
-        if not status.reachable:
+        if status.reachable:
+            self.failures[peer.id] = 0
+        else:
             self.failures[peer.id] = self.failures.get(peer.id, 0) + 1
-            failures = self.failures[peer.id]
+        return status, self.failures[peer.id]
+
+    def _poll_peer(self, peer: Peer, now: int, out: PollOutcome) -> None:
+        known = self._status(peer)
+        if known is None:
+            return
+        status, failures = known
+        if status.code == "schema_mismatch":
+            out.alerts.append(rules.schema_mismatch(peer.id, peer.name, status.error))
+        if not status.reachable:
             if failures >= OFFLINE_AFTER:
                 out.alerts.append(rules.peer_offline(peer.id, peer.name, failures, status.error))
             node = Node(peer=peer, status=NodeStatus.OFFLINE, error=status.error)
@@ -132,7 +166,6 @@ class PeersPoller:
                 node.audit_count = last[1].get("audit_count")
             out.events.append(("nodes", "status", node))
             return
-        self.failures[peer.id] = 0
         self.store.write_snapshot(
             peer.id,
             "node",
@@ -159,6 +192,8 @@ class PeersPoller:
                 ),
             )
         )
+        if self.client is None:
+            return
         for engine in peer_engines(peer):
             try:
                 snapshot = self.client.engine_snapshot(peer, engine)

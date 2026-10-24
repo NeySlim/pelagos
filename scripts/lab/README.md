@@ -28,7 +28,6 @@ ssh lab-ns1 'sudo apt-get install -y bind9'        # anything goes on the target
 cd ~/pelagos && make test-daemon                     # tests run on lab-dev
 scripts/lab/rollback.sh lab-ns1                      # back to the clean OS
 scripts/lab/rollback.sh all                          # every target, never lab-dev nor the gateway
-scripts/lab/rollback.sh lab-dev                      # back to the toolchain snapshot
 scripts/lab/rollback.sh lab-ns1 --list               # show snapshots
 ```
 
@@ -55,7 +54,9 @@ the next boot; it then starts the VM, drops its stale host keys from
   lab-dev the profile is disabled:
   `sudo ln -s /etc/apparmor.d/usr.sbin.named /etc/apparmor.d/disable/ &&
   sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.named`. The `ready`
-  snapshot predates this; redo it after a rollback of lab-dev.
+  snapshot predates this; redo it after a rollback of lab-dev. `rollback.sh`
+  refuses lab-dev (it runs there): restore its `ready` snapshot from the
+  workstation, through the Proxmox UI or API.
 - Parallel worktrees live under `~/pelagos/.claude/worktrees/<name>`; each has its own
   venv and node_modules. Fixtures pick free ports and private temp dirs so
   runs do not collide.

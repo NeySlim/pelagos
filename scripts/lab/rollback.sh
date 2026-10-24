@@ -27,13 +27,13 @@ fi
 PVE_NODE="${PVE_NODE:-pve}"
 PUBKEY_FILE="${LAB_SSH_PUBKEY:-$HOME/.ssh/id_ed25519.pub}"
 
-# vmid:name:snapshot:address
+# vmid:name:snapshot:address. lab-dev (9115) runs this script and the gateway (9110) is shared:
+# neither is listed, so neither resolves; lab-dev is restored from the workstation only.
 VMS=(
   "9111:lab-ns1:clean:10.99.0.11"
   "9112:lab-ns2:clean:10.99.0.12"
   "9113:lab-rpm:clean:10.99.0.13"
   "9114:lab-client:clean:10.99.0.14"
-  "9115:lab-dev:ready:10.99.0.15"
   "9116:lab-pkg-rpm:rpmbuild:10.99.0.16"
   "9117:lab-docker:docker:10.99.0.17"
 )
@@ -154,7 +154,6 @@ for t in "${targets[@]}"; do rollback_one "$t"; done
 if [[ $list -eq 0 && $start -eq 1 && $wait_up -eq 1 ]]; then
   for t in "${targets[@]}"; do
     IFS=: read -r _ name _ addr <<<"$(resolve "$t")"
-    [[ "$name" == lab-dev ]] && continue
     wait_ssh "$addr" && echo "== $name: ssh up"
   done
 fi

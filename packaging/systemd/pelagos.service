@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+[Unit]
+Description=Pelagos web node (API and UI)
+Documentation=https://github.com/NeySlim/pelagos
+After=network-online.target
+Wants=network-online.target pelagos-collector.service
+
+[Service]
+Type=simple
+User=pelagos
+Group=pelagos
+# Supplementary groups are set by the package postinst (bind or named, _kea or kea).
+EnvironmentFile=-/etc/pelagos/pelagos.env
+WorkingDirectory=/opt/pelagos
+ExecStart=/opt/pelagos/venv/bin/gunicorn --config /opt/pelagos/venv/lib/pelagos/gunicorn_conf.py pelagos.app:wsgi_app()
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=pelagos
+RuntimeDirectoryPreserve=yes
+RuntimeDirectoryMode=0750
+StateDirectory=pelagos
+ConfigurationDirectory=pelagos
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/pelagos /run/pelagos /etc/pelagos
+# Include directories of the engines, written through the write pipeline.
+ReadWritePaths=-/etc/bind/pelagos -/etc/named/pelagos -/etc/kea
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

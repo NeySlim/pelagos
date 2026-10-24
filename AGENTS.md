@@ -138,6 +138,10 @@ what any code that spawns the daemons must do too:
 - Binaries are located with `shutil.which` over `PATH` plus `/usr/sbin` and
   `/usr/local/sbin`; ports come from `tests/fixtures/ports.py`
   (`free_port()`, bound then released) so parallel runs never collide.
+- Debian confines `/usr/sbin/named` with AppArmor, which denies a config in
+  a temp dir. lab-dev has that profile disabled (see `scripts/lab/README.md`);
+  if `named` logs "loading configuration: permission denied", that is the
+  cause.
 - `kea-dhcp-ddns`: TSIG keys must use `secret-file` (a clear `secret` is
   refused by Kea 3.x). The fixture writes the shared `ddi-admin` secret to
   a 0600 file in the temp dir.

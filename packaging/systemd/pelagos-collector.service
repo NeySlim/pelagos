@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+[Unit]
+Description=Pelagos collector (polling, series cache, alerts, replication)
+Documentation=https://github.com/NeySlim/pelagos
+After=network-online.target
+Wants=network-online.target
+PartOf=pelagos.service
+
+[Service]
+Type=simple
+User=pelagos
+Group=pelagos
+EnvironmentFile=-/etc/pelagos/pelagos.env
+WorkingDirectory=/opt/pelagos
+ExecStart=/opt/pelagos/venv/bin/pelagos collector
+Restart=on-failure
+RestartSec=5
+RuntimeDirectory=pelagos
+RuntimeDirectoryPreserve=yes
+RuntimeDirectoryMode=0750
+StateDirectory=pelagos
+ConfigurationDirectory=pelagos
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/pelagos /run/pelagos /etc/pelagos
+ReadWritePaths=-/etc/bind/pelagos -/etc/named/pelagos -/etc/kea
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

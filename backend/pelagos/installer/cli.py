@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import sys
+from collections.abc import Callable
 from typing import Any
 
 from pelagos.domain import Job, JobState, Plan
+from pelagos.platform import CommandError
 
 EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_NOT_CONFIRMED = 0, 1, 2, 3
 
@@ -35,7 +38,12 @@ def _print_plan(plan: Plan, as_json: bool) -> None:
         return
     print(f"plan {plan.id}: {plan.summary}")
     for c in plan.changes:
-        nodes = "" if not c.node_ids or c.node_ids == [plan.node_id] else f" (nodes: {', '.join(c.node_ids)})"
+        if not c.node_ids:
+            nodes = " (manual)"
+        elif c.node_ids == [plan.node_id]:
+            nodes = ""
+        else:
+            nodes = f" (nodes: {', '.join(c.node_ids)})"
         print(f"  - {c.target}{nodes}")
     if plan.diff:
         print("\n" + plan.diff)
@@ -72,7 +80,9 @@ def _progress(as_json: bool) -> Any:
     return report
 
 
-def _run(args: argparse.Namespace, env: Any, plan: Plan) -> int:
+def _run(
+    args: argparse.Namespace, env: Any, plan: Plan, before_apply: Callable[[], str | None] | None = None
+) -> int:
     from pelagos.installer.jobs import apply_plan
 
     _print_plan(plan, args.json)
@@ -83,6 +93,20 @@ def _run(args: argparse.Namespace, env: Any, plan: Plan) -> int:
         return EXIT_USAGE
     if not _confirm(args, plan):
         return EXIT_NOT_CONFIRMED
+    if before_apply is not None and not args.dry_run:
+        try:
+            error = before_apply()
+        except (OSError, ValueError) as exc:
+            error = str(exc)
+        if error:
+            print(f"error: {error}", file=sys.stderr)
+            return EXIT_FAILED
+    if not args.dry_run and not env.node_initialized():
+        print(
+            "note: this node is not initialized; run `pelagos init`, then `pelagos import` "
+            "to record the engines and their keys",
+            file=sys.stderr,
+        )
     job = apply_plan(plan, env, progress=_progress(args.json))
     if args.json:
         print(json.dumps(job.to_dict(), indent=2))
@@ -91,6 +115,41 @@ def _run(args: argparse.Namespace, env: Any, plan: Plan) -> int:
     else:
         print(f"failed: {job.error}", file=sys.stderr)
     return EXIT_OK if job.state is JobState.DONE else EXIT_FAILED
+
+
+def _admin_password(args: argparse.Namespace) -> str | None:
+    password = args.admin_password or os.environ.get("PELAGOS_ADMIN_PASSWORD")
+    if not password and sys.stdin.isatty():
+        password = getpass.getpass("first admin password: ")
+    return password or None
+
+
+def _init_node(
+    args: argparse.Namespace, env: Any, plan: Plan, engines: list[str]
+) -> Callable[[], str | None]:
+    """Initializes the node once the plan is confirmed, then moves the plan onto the new node id."""
+
+    def run() -> str | None:
+        from pelagos.core.bootstrap import bootstrap_first_node
+
+        password = _admin_password(args)
+        if not password:
+            return "--init needs PELAGOS_ADMIN_PASSWORD, a terminal to ask for it, or --admin-password"
+        result = bootstrap_first_node(
+            env.node_paths, name=args.name, admin_password=password, engines={e: True for e in engines}
+        )
+        old, env.node_id = env.node_id, result.node.id
+        plan.node_id = env.node_id
+        plan.target_node_ids = [env.node_id if n == old else n for n in plan.target_node_ids]
+        for c in plan.changes:
+            c.node_ids = [env.node_id if n == old else n for n in c.node_ids]
+        for p in plan.preconditions:
+            if p.node_id == old:
+                p.node_id = env.node_id
+        print(f"node {result.node.name} ({result.node.id}) initialized")
+        return None
+
+    return run
 
 
 def cmd_install(args: argparse.Namespace) -> int:
@@ -102,27 +161,16 @@ def cmd_install(args: argparse.Namespace) -> int:
         print(json.dumps(detect_env(env), indent=2, default=str))
         return EXIT_OK
     engines = _engines(args.engines) or ["bind", "kea4", "d2"]
-    if args.init and not env.node_initialized() and not args.dry_run:
-        from pelagos.core.bootstrap import bootstrap_first_node
-
-        password = args.admin_password or os.environ.get("PELAGOS_ADMIN_PASSWORD")
-        if not password:
-            print("--init needs --admin-password or PELAGOS_ADMIN_PASSWORD", file=sys.stderr)
-            return EXIT_USAGE
-        result = bootstrap_first_node(
-            env.node_paths,
-            name=args.name,
-            admin_password=password,
-            engines={e: True for e in engines},
-        )
-        env.node_id = result.node.id
-        print(f"node {result.node.name} ({result.node.id}) initialized")
     try:
         plan = build_install_plan(env, engines, args.source, args.isc_series, created_by="cli")
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
-    return _run(args, env, plan)
+    except (CommandError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FAILED
+    init = _init_node(args, env, plan, engines) if args.init and not env.node_initialized() else None
+    return _run(args, env, plan, before_apply=init)
 
 
 def cmd_import(args: argparse.Namespace) -> int:
@@ -132,7 +180,11 @@ def cmd_import(args: argparse.Namespace) -> int:
     env = _env(args)
     engines = _engines(args.engines)
     if engines is None:
-        found = detect_env(env)["engines"]
+        try:
+            found = detect_env(env)["engines"]
+        except (CommandError, OSError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return EXIT_FAILED
         engines = [e for e, d in found.items() if d["installed"] and d["config_exists"]]
         if not engines:
             print("no installed engine with a configuration found", file=sys.stderr)
@@ -142,6 +194,9 @@ def cmd_import(args: argparse.Namespace) -> int:
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
+    except CommandError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FAILED
     return _run(args, env, plan)
 
 
@@ -149,7 +204,11 @@ def cmd_audit(args: argparse.Namespace) -> int:
     from pelagos.installer.security_audit import build_security_plan, run_audit
 
     env = _env(args)
-    findings = run_audit(env)
+    try:
+        findings = run_audit(env)
+    except (CommandError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FAILED
     if not args.fix and not args.fix_all:
         if args.json:
             print(json.dumps({"findings": [f.to_dict() for f in findings]}, indent=2))
@@ -171,6 +230,9 @@ def cmd_audit(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
+    except (CommandError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_FAILED
     return _run(args, env, plan)
 
 
@@ -186,9 +248,16 @@ def add_parsers(sub: Any) -> None:
     i.add_argument("--source", choices=("distro", "isc"), default="distro", help="where Kea comes from")
     i.add_argument("--isc-series", help="ISC Kea series for --source isc (default 3.2)")
     i.add_argument("--detect", action="store_true", help="print what is installed and exit")
-    i.add_argument("--init", action="store_true", help="also initialize this node when it is not yet")
+    i.add_argument(
+        "--init",
+        action="store_true",
+        help="also initialize this node when it is not yet; the first admin password comes from "
+        "PELAGOS_ADMIN_PASSWORD or is asked on the terminal",
+    )
     i.add_argument("--name", help="node name for --init (default: short hostname)")
-    i.add_argument("--admin-password", help="first admin password for --init")
+    i.add_argument(
+        "--admin-password", help="first admin password for --init (visible in ps: prefer the variable)"
+    )
     _common(i)
     i.set_defaults(func=cmd_install)
 

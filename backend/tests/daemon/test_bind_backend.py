@@ -251,6 +251,10 @@ def test_key_rotation_in_keys_conf(named_server, tmp_root):
     assert client.axfr("rot.example.lan", TsigKey("rot-key", second))
     with pytest.raises(ConnectorDenied):
         client.axfr("rot.example.lan", TsigKey("rot-key", first))
+    # The connector reads the rotated managed key, not a stale cluster secret.
+    reader = make_backend(named_server, tmp_root, settings={"dns": {"read_key": "rot-key"}})
+    reader.ctx.get_secret = {"tsig/rot-key": first}.get
+    assert any(r.rtype == "SOA" for r in reader.read_zone("rot.example.lan"))
 
     # A key defined by the user stays out of reach.
     refused = backend.plan_config_change([Change(ChangeOp.REPLACE, "keys/ddi-admin", after={})])

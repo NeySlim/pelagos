@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from pelagos.connectors.base import ConnectorContext, ConnectorDenied, ConnectorUnavailable
+from pelagos.connectors.base import ConnectorContext, ConnectorDenied, ConnectorUnavailable, NotSupported
 from pelagos.connectors.bind import BindBackend
 from pelagos.connectors.bind.backend import _Reloader
 from pelagos.connectors.bind.rndc import RndcNotFound, parse_dnssec_status, zone_args, zone_status_from
@@ -156,6 +156,8 @@ def test_zone_plan_apply_and_rollback(tmp_root: Path, conf_tree: Path) -> None:
     assert "IN SOA localhost. hostmaster.lab.example.lan." in zone_file.read_text()
     assert oct(zone_file.stat().st_mode & 0o777) == "0o664"
     assert oct(zones_conf.stat().st_mode & 0o777) == "0o640"
+    # named creates the journal next to the zone file: the directory is setgid and group writable.
+    assert oct(zone_file.parent.stat().st_mode & 0o7777) == "0o2775"
     # Re-applying is a precondition failure: zones.conf moved on since the plan.
     again = backend.apply(plan)
     assert not again.ok and "file_sha256" in again.message
@@ -311,3 +313,119 @@ def test_rndc_helpers() -> None:
     assert key["id"] == 46805 and key["algorithm"] == "ECDSAP256SHA256" and key["roles"] == ["CSK"]
     assert key["states"]["goal"] == "omnipresent" and key["notes"] == ["No rollover scheduled"]
     assert parse_dnssec_status("Zone does not have dnssec-policy\n")["signed"] is False
+
+
+def test_zone_files_stay_in_pelagos_directories(tmp_root: Path, conf_tree: Path) -> None:
+    backend, _ = make_backend(tmp_root, conf_tree)
+    planted = tmp_root / "elsewhere" / "deep" / "planted.txt"
+    outside = backend.plan_zone_change(
+        Change(ChangeOp.ADD, "_default/z2.example.lan", after={"kind": "primary", "file": str(planted)})
+    )
+    assert outside.state is PlanState.FAILED and "outside" in outside.error
+    assert not any(str(planted) == p.subject for p in outside.preconditions)
+    escape = backend.plan_zone_change(
+        Change(ChangeOp.ADD, "_default/z3.example.lan", after={"kind": "primary", "file": "../../etc/x.db"})
+    )
+    assert "outside" in escape.error
+    sec = backend.plan_zone_change(
+        Change(
+            ChangeOp.ADD,
+            "_default/s.example.lan",
+            after={"kind": "secondary", "primaries": ["192.0.2.1"], "file": "/tmp/s.db"},
+        )
+    )
+    assert "outside" in sec.error
+    inside = backend.plan_zone_change(
+        Change(ChangeOp.ADD, "_default/z4.example.lan", after={"kind": "primary", "file": "z4.db"})
+    )
+    assert inside.state is PlanState.VALIDATED, inside.error
+    assert inside.changes[0].after["file"] == "z4.db"
+
+
+def test_new_zone_records_relative_owners(tmp_root: Path, conf_tree: Path) -> None:
+    backend, _ = make_backend(tmp_root, conf_tree)
+    after = {
+        "kind": "primary",
+        "ns": ["ns1.example.lan."],
+        "records": [
+            {"name": "www", "rtype": "A", "ttl": 300, "rdata": ["192.0.2.10"]},
+            {"name": "@", "rtype": "TXT", "ttl": 300, "rdata": ['"v=1"']},
+        ],
+    }
+    plan = backend.plan_zone_change(Change(ChangeOp.ADD, "_default/r.example.lan", after=after))
+    assert plan.state is PlanState.VALIDATED, plan.error
+    names = [r["name"] for r in plan.changes[0].after["records"]]
+    assert names == ["www.r.example.lan.", "r.example.lan."]
+    assert "www.r.example.lan. 300 IN A 192.0.2.10" in plan.diff
+    after["records"] = [{"name": "www.other.lan.", "rtype": "A", "ttl": 300, "rdata": ["192.0.2.1"]}]
+    bad = backend.plan_zone_change(Change(ChangeOp.ADD, "_default/r2.example.lan", after=after))
+    assert bad.state is PlanState.FAILED and "outside zone" in bad.error
+
+
+def test_managed_key_wins_over_cluster_secret(tmp_root: Path, conf_tree: Path) -> None:
+    backend, _ = make_backend(tmp_root, conf_tree)
+    assert backend._require_key("read").secret == "c2VjcmV0"  # not in keys.conf: cluster secret
+    plan = backend.plan_config_change(
+        [Change(ChangeOp.ADD, "keys/ddi-read", after={"secret": "cm90YXRlZA=="})]
+    )
+    assert backend.apply(plan).ok
+    key = backend._require_key("read")
+    assert key.secret == "cm90YXRlZA==" and key.algorithm == "hmac-sha256"
+    rotate = backend.plan_config_change(
+        [Change(ChangeOp.REPLACE, "keys/ddi-read", after={"secret": "YWdhaW4="})]
+    )
+    assert backend.apply(rotate).ok
+    assert backend._require_key("read").secret == "YWdhaW4="
+    # A user key is still overridden by the cluster secret.
+    assert backend._require_key("admin").secret == "c2VjcmV0"
+
+
+def test_views_need_a_view_key(tmp_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    backend, _ = make_backend(tmp_root)
+    seen: list[Any] = []
+    monkeypatch.setattr(backend.dns, "axfr", lambda zone, key=None: seen.append(key) or ZONE_DATA)
+    with pytest.raises(NotSupported, match="view_keys"):
+        backend.read_zone("example.lan", "inside")
+    with pytest.raises(NotSupported):
+        backend.plan_rrset_changes("example.lan", [], view="inside")
+    backend.ctx.settings["dns"]["view_keys"] = {"inside": {"read": "ddi-admin"}}
+    backend.read_zone("example.lan", "inside")
+    backend.read_zone("example.lan", "_default")
+    assert [k.name for k in seen] == ["ddi-admin.", "ddi-read."]
+
+
+def test_unreadable_named_conf_is_unavailable(tmp_root: Path, conf_tree: Path) -> None:
+    backend, _ = make_backend(tmp_root, conf_tree)
+    backend.named_conf = conf_tree  # a directory: IsADirectoryError
+    with pytest.raises(ConnectorUnavailable, match="not readable"):
+        backend.read_config()
+    backend.named_conf = conf_tree / "absent.conf"
+    with pytest.raises(ConnectorUnavailable, match="missing"):
+        backend.list_zones()
+    assert backend.capabilities().views == []
+
+
+def test_rollback_refuses_over_a_later_plan(tmp_root: Path, conf_tree: Path) -> None:
+    backend, _ = make_backend(tmp_root, conf_tree)
+    first = backend.plan_config_change([Change(ChangeOp.ADD, "acls/a", after={"elements": ["192.0.2.0/25"]})])
+    assert backend.apply(first).ok
+    second = backend.plan_config_change(
+        [Change(ChangeOp.ADD, "acls/b", after={"elements": ["192.0.2.128/25"]})]
+    )
+    assert backend.apply(second).ok
+    acls = (conf_tree / "pelagos" / "acls.conf").read_text()
+    refused = backend.rollback(first)
+    assert not refused.ok and "rollback refused" in refused.message
+    assert (conf_tree / "pelagos" / "acls.conf").read_text() == acls
+    assert backend.rollback(second).ok and backend.rollback(first).ok
+    assert backend.pop_details(first.id)["rollback"]["backup_dir"]
+    assert first.id not in backend.details
+
+
+def test_details_are_bounded(tmp_root: Path) -> None:
+    from pelagos.connectors.bind.backend import MAX_DETAILS
+
+    backend, _ = make_backend(tmp_root)
+    for i in range(MAX_DETAILS + 10):
+        backend._plan_details(f"p{i}")
+    assert len(backend.details) == MAX_DETAILS and "p0" not in backend.details

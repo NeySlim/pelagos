@@ -298,3 +298,26 @@ def test_files_tree_masks_secrets(tmp_root: Path) -> None:
     }
     assert "c2VjcmV0" not in repr(payload)
     assert payload["files"][0]["managed"] is False
+
+
+def test_quote_matches_named_lexer() -> None:
+    from pelagos.connectors.bind.namedconf.tree import quote, unquote
+
+    # named keeps `\\` as two backslashes and only unescapes `\"`.
+    assert unquote('"a\\\\b"') == "a\\\\b"
+    assert unquote('"a\\"b"') == 'a"b'
+    assert quote("a\\b") == '"a\\b"' and quote('a"b') == '"a\\"b"'
+    for value in ("C:\\dir\\x", 'say "hi"', "plain"):
+        assert unquote(quote(value)) == value
+    for bad in ("ends\\", 'x\\"y'):
+        with pytest.raises(ValueError):
+            quote(bad)
+
+
+def test_unreadable_include_is_recorded(tmp_path: Path) -> None:
+    (tmp_path / "sub").mkdir()
+    conf = tmp_path / "named.conf"
+    conf.write_text(f'include "{tmp_path}/sub";\noptions {{ recursion no; }};\n')
+    files = ConfigFiles.load(conf)
+    assert files.unreadable == [str(tmp_path / "sub")]
+    assert files.errors and str(tmp_path / "sub") in files.errors[0]

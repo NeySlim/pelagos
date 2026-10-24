@@ -103,6 +103,40 @@ def test_no_client_means_no_liveness_but_still_divergence_checks(store):
     assert make(store, None, clock, [peer()]).poll().alerts == []
 
 
+def test_config_divergence_compares_normalized_hashes(store):
+    clock = Clock()
+    # Raw hashes always differ between HA peers; the normalized ones decide.
+    store.write_snapshot(NODE, "kea4", "config_hash", 1, {"hash": "a", "normalized": "n"})
+    store.write_snapshot(PEER, "kea4", "config_hash", 1, {"hash": "b", "normalized": "n"})
+    assert make(store, None, clock, [peer()]).poll().alerts == []
+    store.write_snapshot(PEER, "kea4", "config_hash", 2, {"hash": "b", "normalized": "m"})
+    out = make(store, None, clock, [peer()]).poll()
+    assert out.alerts[0].details["hashes"] == {NODE: "n", PEER: "m"}
+
+
+def test_serial_divergence_only_for_secondaries_and_mirrors(store):
+    clock = Clock()
+    client = FakePeerClient()
+    store.write_snapshot(
+        NODE,
+        "bind",
+        "zones",
+        clock.now,
+        [{"zone": "example.lan.", "view": "_default", "kind": "primary", "serial": 20}],
+    )
+    peer_zones = [{"zone": "example.lan.", "view": "_default", "kind": "stub", "serial": 19}]
+    client.snapshots[(PEER, "bind")] = snapshot_payload(PEER, "bind", {"zones": peer_zones}, ts=clock.now)
+    poller = make(store, client, clock, [peer()])
+    poller.poll()
+    assert store.latest_serial("example.lan.", "_default", PEER) == (clock.now, 19, False)
+    peer_zones[0]["kind"] = "primary"
+    clock.now += 2000
+    assert poller.poll().alerts == [] and poller.divergent_since == {}
+    peer_zones[0]["kind"] = "mirror"
+    poller.poll()
+    assert poller.divergent_since != {}
+
+
 def test_serial_divergence_after_grace_period(store):
     clock = Clock()
     client = FakePeerClient()

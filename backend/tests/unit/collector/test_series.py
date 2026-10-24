@@ -119,7 +119,9 @@ def test_snapshots(store):
     assert snap["ts"] == 11 and set(snap["kinds"]) == {"zones", "status"}
     assert snap["kinds"]["status"] == {"ts": 11, "payload": {"up": True}}
     assert [s["node_id"] for s in store.snapshots(engine="kea4")] == ["N2"]
+    assert store.snapshot_nodes() == {NODE, "N2"}
     assert store.delete_snapshots("N2") == 1
+    assert store.snapshot_nodes() == {NODE}
     assert store.snapshots(node_id="N2") == []
 
 

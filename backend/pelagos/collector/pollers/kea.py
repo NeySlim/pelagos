@@ -7,12 +7,14 @@ Snapshots written under (node_id, "kea4"|"kea6", kind):
   "ha"            HAState dict
   "utilization"   pool_utilization() rows
   "subnets"       [Subnet dict]
-  "config_hash"   {"hash": str}      (peers compare these for config_divergence)
+  "config_hash"   {"hash": raw config-hash-get, "normalized": hash without per-node keys}
+                  (peers compare "normalized" for config_divergence)
 and under (node_id, "d2", kind): "capabilities", "status", "stats" (D2Stats dict without raw).
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -39,6 +41,25 @@ KEA_KINDS = frozenset(
 )
 D2_KINDS = frozenset({AlertKind.DAEMON_DOWN.value, AlertKind.D2_ERRORS.value})
 D2_WINDOW_SECONDS = 3600
+# Keys that legitimately differ between HA peers: dropped before hashing for config_divergence.
+PER_NODE_TOP_KEYS = frozenset({"interfaces-config", "control-socket", "control-sockets", "loggers", "hash"})
+PER_NODE_NESTED_KEYS = frozenset({"this-server-name"})
+
+
+def _strip_per_node(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {k: _strip_per_node(v) for k, v in value.items() if k not in PER_NODE_NESTED_KEYS}
+    if isinstance(value, list):
+        return [_strip_per_node(v) for v in value]
+    return value
+
+
+def normalized_config_hash(config: dict[str, Any]) -> str:
+    """sha256 of the Dhcp4/Dhcp6 body without per-node keys; equal on two peers with the same config."""
+    body = next((config[k] for k in ("Dhcp4", "Dhcp6") if k in config), config)
+    body = {k: v for k, v in body.items() if k not in PER_NODE_TOP_KEYS}
+    text = json.dumps(_strip_per_node(body), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 class KeaPoller:
@@ -88,12 +109,16 @@ class KeaPoller:
         for name, fn in (("config_hash", self._config_hash), ("subnets", self._subnets)):
             try:
                 self.store.write_snapshot(self.node_id, engine, name, now, fn())
-            except ConnectorError as exc:
+            except (ConnectorError, NotImplementedError) as exc:
                 log.debug("%s %s failed: %s", engine, name, exc)
         return out
 
     def _config_hash(self) -> dict[str, Any]:
-        return {"hash": self.backend.config_hash()}
+        """Raw config-hash-get (what /dhcp/{family}/servers shows) and the hash peers compare."""
+        return {
+            "hash": self.backend.config_hash(),
+            "normalized": normalized_config_hash(self.backend.config_get()),
+        }
 
     def _subnets(self) -> list[dict[str, Any]]:
         return [s.to_dict() for s in self.backend.list_subnets()]

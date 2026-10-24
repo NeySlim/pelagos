@@ -219,6 +219,11 @@ class SeriesStore:
             "kinds": {r["kind"]: {"ts": r["ts"], "payload": r["payload"]} for r in rows},
         }
 
+    def snapshot_nodes(self) -> set[str]:
+        """Node ids that have at least one snapshot row, without decoding any payload."""
+        rows = self.conn.execute("SELECT DISTINCT node_id FROM engine_snapshots").fetchall()
+        return {r["node_id"] for r in rows}
+
     def delete_snapshots(self, node_id: str) -> int:
         cur = self.conn.execute("DELETE FROM engine_snapshots WHERE node_id = ?", (node_id,))
         self.conn.commit()

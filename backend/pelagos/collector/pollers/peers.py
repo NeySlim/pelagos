@@ -27,6 +27,8 @@ KINDS = frozenset(
     {AlertKind.PEER_OFFLINE.value, AlertKind.SERIAL_DIVERGENCE.value, AlertKind.CONFIG_DIVERGENCE.value}
 )
 OFFLINE_AFTER = 3
+# Zone kinds whose serial must follow the primary's (section 15, serial_divergence).
+TRANSFERRED_KINDS = frozenset({"secondary", "mirror"})
 
 
 class PeerClient(Protocol):
@@ -95,7 +97,7 @@ class PeersPoller:
         now = int(self.clock())
         peers = [p for p in self.peers() if p.id != self.self_id]
         known_nodes = {self.self_id, *(p.id for p in peers)}
-        for snap_node in {s["node_id"] for s in self.store.snapshots()}:
+        for snap_node in self.store.snapshot_nodes():
             if snap_node not in known_nodes:
                 self.store.delete_snapshots(snap_node)
         for peer in peers:
@@ -172,7 +174,7 @@ class PeersPoller:
                     )
 
     def _serial_divergence(self, now: int, out: PollOutcome) -> None:
-        """Compare every node's view of each zone with the primary's; alert after the grace period."""
+        """Compare secondary and mirror copies of a zone with the primary; alert after the grace period."""
         threshold = int(self.settings.get("alerts_serial_divergence_seconds", 900))
         zones: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
         for snap in self.store.snapshots(engine=Engine.BIND.value):
@@ -189,7 +191,7 @@ class PeersPoller:
                 serial = st.get("serial")
                 divergent = (
                     reference is not None
-                    and node_id != primary
+                    and st.get("kind") in TRANSFERRED_KINDS
                     and serial is not None
                     and serial != reference
                 )
@@ -209,11 +211,18 @@ class PeersPoller:
                 del self.divergent_since[key]
 
     def _config_divergence(self, out: PollOutcome) -> None:
+        """Compare the normalized config hashes (per-node keys removed) of every node running Kea.
+
+        Raw config-hash-get values always differ between HA peers (this-server-name at least), so
+        they are only compared when some node did not publish a normalized hash.
+        """
         for engine in (Engine.KEA4.value, Engine.KEA6.value):
-            hashes: dict[str, str | None] = {}
+            payloads: dict[str, dict[str, Any]] = {}
             for snap in self.store.snapshots(engine=engine):
                 if snap["kind"] == "config_hash":
-                    hashes[snap["node_id"]] = (snap["payload"] or {}).get("hash")
+                    payloads[snap["node_id"]] = snap["payload"] or {}
+            field = "normalized" if all(p.get("normalized") for p in payloads.values()) else "hash"
+            hashes: dict[str, str | None] = {n: p.get(field) for n, p in payloads.items()}
             distinct = {h for h in hashes.values() if h}
             if len(distinct) > 1:
                 out.alerts.append(rules.config_divergence(engine, hashes))

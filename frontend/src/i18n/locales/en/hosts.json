@@ -24,6 +24,7 @@
     "inconsistent": "Inconsistent only",
     "join": "Found in",
     "lease": "lease",
+    "partialSources": "Some sources could not be read completely: {{sources}}",
     "noName": "no name",
     "reservation": "reservation",
     "search": "Name, IP or MAC...",

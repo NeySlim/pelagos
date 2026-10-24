@@ -67,6 +67,10 @@ KNOWN_HOOKS = {
 }
 
 
+# Hosts and the web consistency pass hold every lease in memory: past this they report a partial read.
+ALL_LEASES_CAP = 200_000
+
+
 class DhcpService:
     def __init__(
         self,
@@ -349,6 +353,28 @@ class DhcpService:
         for row in rows:
             row.node_id = row.node_id or read_on
         return rows, read_on, cursor
+
+    def all_leases(
+        self, node_id: str | None = None, cap: int = ALL_LEASES_CAP
+    ) -> tuple[list[Lease], str, bool]:
+        """(leases, node read, partial): every lease through bounded cursor pages, like the collector's
+        walk; projected (raw answer and user context dropped). `partial` is True when `cap` stopped
+        the walk: callers say so instead of silently dropping hosts."""
+        out: list[Lease] = []
+        cursor: str | None = None
+        read_on = self.ctx.node.id
+        while True:
+            rows, read_on, cursor = self.lease_page(
+                None, None, None, node_id, from_address=cursor, limit=lease_query.MAX_PAGE
+            )
+            for row in rows:
+                row.raw = {}
+                row.user_context = {}
+            out.extend(rows)
+            if cursor is None:
+                return out, read_on, False
+            if len(out) >= cap:
+                return out[:cap], read_on, True
 
     def lease_everywhere(self, ip: str) -> list[Lease]:
         ip = canonical_ip(ip)

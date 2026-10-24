@@ -117,7 +117,11 @@ class HostsService:
         errors: dict[str, str] = {}
         for dhcp in self._dhcp_services():
             try:
-                leases, _node = dhcp.leases(None, None, None, None)
+                leases, _node, partial = dhcp.all_leases()
+                if partial:
+                    errors[f"{dhcp.engine.value}.leases"] = (
+                        f"partial: only the first {len(leases)} leases read"
+                    )
             except ServiceError as exc:
                 errors[f"{dhcp.engine.value}.leases"] = exc.detail
                 leases = []
@@ -270,8 +274,13 @@ class HostsService:
         errors: dict[str, str] = {}
         for dhcp in self._dhcp_services():
             try:
-                leases += dhcp.leases(None, None, None, None)[0]
+                rows, _node, partial = dhcp.all_leases()
+                leases += rows
                 reservations += dhcp.reservations(None, None)
+                if partial:
+                    # Missing leases would read as DHCID/PTR records without a lease.
+                    errors[dhcp.engine.value] = f"partial: only the first {len(rows)} leases read"
+
             except ServiceError as exc:
                 errors[dhcp.engine.value] = exc.detail
         forward: dict[str, list[RRset]] = {}

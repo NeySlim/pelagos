@@ -64,6 +64,8 @@ export default function HostsPage() {
   const subnets6 = useApi(() => api.dhcp.subnets('v6'), [], { enabled: hasPermission('read:dhcp') && Boolean(modules?.dhcpv6) })
   const zones = useApi(() => api.dns.zones(), [], { enabled: hasPermission('read:dns') })
   const flow = usePlanFlow({ onApplied: hosts.refetch })
+  // meta.errors: sources not read, or read partially (a very large lease table).
+  const sourceErrors = Object.entries(hosts.meta?.errors || {}).map(([source, detail]) => `${source}: ${detail}`)
 
   const open = (host) => {
     if (isMobile) setMobileKey(host.key)
@@ -151,6 +153,11 @@ export default function HostsPage() {
             {t('list.total', { n: hosts.total })}
           </span>
         </div>
+        {sourceErrors.length > 0 && (
+          <p role="status" className="rounded-lg border status-warning-bg status-warning-border px-3 py-2 text-xs status-warning-text" data-testid="host-source-errors">
+            {t('list.partialSources', { sources: sourceErrors.join('; ') })}
+          </p>
+        )}
         <DataTable
           columns={columns}
           rows={hosts.items}

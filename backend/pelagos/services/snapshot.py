@@ -129,13 +129,22 @@ def _kea(backend: DhcpBackend, kind: str, params: dict[str, Any]) -> dict[str, A
             "utilization": backend.pool_utilization(),
         }
     if kind == "leases":
+        # Bounded like lease_page (the caller holds the collector's backend lock): resume with `next`.
+        from pelagos.services.lease_query import MAX_PAGE, MAX_SCAN_PAGES
+
         subnet_id = params.get("subnet_id")
+        limit = max(1, min(int(params.get("limit", 500)), MAX_PAGE * MAX_SCAN_PAGES))
         leases = backend.leases(
             int(subnet_id) if subnet_id is not None else None,
-            int(params.get("limit", 500)),
+            limit,
             params.get("from_address"),
         )
-        return {"leases": [lease.to_dict() for lease in leases]}
+        cursor = leases[-1].ip_address if len(leases) >= limit else None
+        return {
+            "leases": [lease.to_dict() for lease in leases],
+            "next": cursor,
+            "partial": cursor is not None,
+        }
     if kind == "lease":
         lease = backend.lease(str(params.get("ip", "")))
         return {"lease": lease.to_dict() if lease else None}

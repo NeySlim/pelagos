@@ -10,11 +10,13 @@ import { randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { ENDPOINTS } from '../src/services/endpoints.js'
 import { createState, iso, ulid, ALL_PERMISSIONS } from './data.mjs'
-import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, isExpired, auditEntry } from './plans.mjs'
+import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, isExpired, auditEntry, configHash, isAdmin } from './plans.mjs'
 import { createWsHub } from './ws.mjs'
 
 const API = '/api/v1'
 const ANON = new Set(['GET /health', 'GET /version', 'POST /auth/login'])
+const LOGIN_MAX_FAILURES = 5
+const LOGIN_WINDOW_MS = 60_000
 
 // Permission of each endpoint (section 17); undefined means any authenticated user.
 const PERMISSIONS = {
@@ -99,7 +101,11 @@ function routeOf(method, path) {
           ok = false
           break
         }
-        params[name] = decodeURIComponent(segments[i])
+        try {
+          params[name] = decodeURIComponent(segments[i])
+        } catch {
+          throw new Problem(400, 'validation_error', 'malformed path')
+        }
         placeholders += 1
       } else if (part !== segments[i]) {
         ok = false
@@ -660,7 +666,7 @@ function listPlan(state, user, { scope, engine, list, keyOf, change, label, tool
     targets: state.nodes.map((n) => n.peer.id),
     tool,
     requires_confirmation: confirm,
-    preconditions: state.nodes.map((n) => ({ kind: 'config_hash', node_id: n.peer.id, subject: engine || scope, value: 'a1b2c3d4e5f6' })),
+    preconditions: state.nodes.map((n) => ({ kind: 'config_hash', node_id: n.peer.id, subject: engine || scope, value: configHash(state, engine || scope) })),
     apply() {
       const at = list.findIndex((item) => keyOf(item) === key)
       if (change.op === 'delete') list.splice(at, 1)
@@ -686,7 +692,7 @@ function settingsPlan(state, user, { scope, engine, target, current, next, tool,
     targets: state.nodes.map((n) => n.peer.id),
     tool,
     requires_confirmation: confirm,
-    preconditions: state.nodes.map((n) => ({ kind: 'config_hash', node_id: n.peer.id, subject: engine || scope, value: 'a1b2c3d4e5f6' })),
+    preconditions: state.nodes.map((n) => ({ kind: 'config_hash', node_id: n.peer.id, subject: engine || scope, value: configHash(state, engine || scope) })),
     apply: () => apply(next),
     rollback: () => apply(before),
   })
@@ -698,6 +704,16 @@ function buildHandlers(state, emit) {
   const kea = (family) => (family === 'v4' ? 'kea4' : 'kea6')
   const keaTool = (family) => `kea-dhcp${family === 'v4' ? '4' : '6'} -t`
   const nodeOr = (q) => q.get('node_id') || state.selfId
+  // GET and DELETE /plans/{id}: creator or admin.
+  const ownPlan = (id, user) => {
+    const held = state.plans.get(id)
+    if (!held) throw notFound(`plan ${id}`)
+    if (held.creator !== user.username && !isAdmin(user)) throw new Problem(403, 'forbidden', 'only the creator or an admin can see this plan')
+    return held
+  }
+  // Failed logins per username; 5 within a minute answer 429 until they age out.
+  const loginFailures = new Map()
+  const recentFailures = (name) => (loginFailures.get(name) || []).filter((t) => Date.now() - t < LOGIN_WINDOW_MS)
 
   return {
     // Meta
@@ -707,15 +723,26 @@ function buildHandlers(state, emit) {
 
     // Auth and account
     'POST /auth/login': ({ body, res }) => {
+      const failures = recentFailures(body.username)
+      if (failures.length >= LOGIN_MAX_FAILURES) {
+        res.setHeader('Retry-After', String(Math.ceil((LOGIN_WINDOW_MS - (Date.now() - failures[0])) / 1000)))
+        throw new Problem(429, 'rate_limited', 'Too many failed logins, try again later')
+      }
+      const fail = () => loginFailures.set(body.username, [...failures, Date.now()])
       const user = state.users.find((u) => u.username === body.username)
       if (!user || user.password !== body.password || !user.enabled) {
+        fail()
         auditEntry(state, null, { action: 'auth.login', target: `user:${body.username}`, result: 'denied', message: 'invalid credentials' })
         throw new Problem(401, 'invalid_credentials', 'Invalid username or password')
       }
       if (user.has_totp) {
         if (!body.totp_code) throw new Problem(401, 'totp_required', 'A TOTP code is required')
-        if (body.totp_code !== (user.totp || '123456')) throw new Problem(401, 'invalid_credentials', 'Invalid TOTP code')
+        if (body.totp_code !== (user.totp || '123456')) {
+          fail()
+          throw new Problem(401, 'invalid_credentials', 'Invalid TOTP code')
+        }
       }
+      loginFailures.delete(body.username)
       const sid = randomBytes(32).toString('hex')
       const csrf = randomBytes(24).toString('hex')
       state.sessions.set(sid, { userId: user.id, csrf, created: Date.now() })
@@ -1219,7 +1246,7 @@ function buildHandlers(state, emit) {
           output: ok ? 'Configuration seems sane.' : `missing top-level "${root}" object`,
           node_id,
         })),
-        preconditions: state.nodes.map((n) => ({ kind: 'config_hash', node_id: n.peer.id, subject: kea(params.family), value: 'a1b2c3d4e5f6' })),
+        preconditions: state.nodes.map((n) => ({ kind: 'config_hash', node_id: n.peer.id, subject: kea(params.family), value: configHash(state, kea(params.family)) })),
         apply: () => 'config-set and config-write done',
         rollback: () => {},
       })
@@ -1331,9 +1358,8 @@ function buildHandlers(state, emit) {
     },
 
     // Plans and jobs
-    'GET /plans/{id}': ({ params }) => {
-      const held = state.plans.get(params.id)
-      if (!held) throw notFound(`plan ${params.id}`)
+    'GET /plans/{id}': ({ params, user }) => {
+      const held = ownPlan(params.id, user)
       if (held.plan.state === 'validated' && isExpired(held.plan)) held.plan.state = 'expired'
       return held.plan
     },
@@ -1348,8 +1374,9 @@ function buildHandlers(state, emit) {
       if (out.code) throw new Problem(out.status, out.code, out.detail)
       return out.body
     },
-    'DELETE /plans/{id}': ({ params }) => {
-      if (!state.plans.delete(params.id)) throw notFound(`plan ${params.id}`)
+    'DELETE /plans/{id}': ({ params, user }) => {
+      ownPlan(params.id, user)
+      state.plans.delete(params.id)
       return null
     },
     'GET /jobs/{id}': ({ params }) => state.jobs.get(params.id) || (() => { throw notFound(`job ${params.id}`) })(),

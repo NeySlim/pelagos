@@ -192,6 +192,52 @@ describe('mock server', () => {
     expect((await call('POST', `/plans/${lease.id}/apply`, { confirm: true })).data.state).toBe('applied')
   })
 
+  it('refuses a plan apply once its preconditions moved', async () => {
+    const call = client(await login('admin', 'admin'))
+    const change = (name) => ({ changes: [{ op: 'add', target: `example.lan./${name}/A`, after: { ttl: 60, rdata: ['192.0.2.61'] } }] })
+    const first = (await call('POST', '/dns/zones/example.lan/records/plan', change('pre1'))).data
+    const second = (await call('POST', '/dns/zones/example.lan/records/plan', change('pre2'))).data
+    expect((await call('POST', `/plans/${first.id}/apply`, {})).data.state).toBe('applied')
+    const stale = await call('POST', `/plans/${second.id}/apply`, {})
+    expect(stale.status).toBe(409)
+    expect(stale.data.code).toBe('precondition_failed')
+    const acl = { change: { op: 'add', after: { name: 'pre-acl', elements: ['192.0.2.0/24'] } } }
+    const acl2 = { change: { op: 'add', after: { name: 'pre-acl2', elements: ['192.0.2.0/24'] } } }
+    const a = (await call('POST', '/dns/acls/plan', acl)).data
+    const b = (await call('POST', '/dns/acls/plan', acl2)).data
+    expect((await call('POST', `/plans/${a.id}/apply`, {})).data.state).toBe('applied')
+    expect((await call('POST', `/plans/${b.id}/apply`, {})).data.code).toBe('precondition_failed')
+  })
+
+  it('checks the plan scope permission and the plan owner', async () => {
+    const alice = client(await login('alice', 'alice'))
+    const plan = (await alice('POST', '/dns/zones/example.lan/records/plan', { changes: [{ op: 'add', target: 'example.lan./own/A', after: { ttl: 60, rdata: ['192.0.2.62'] } }] })).data
+    const viewer = client(await login('viewer', 'viewer'))
+    expect((await viewer('GET', `/plans/${plan.id}`)).status).toBe(403)
+    expect((await viewer('DELETE', `/plans/${plan.id}`)).status).toBe(403)
+    const denied = await viewer('POST', `/plans/${plan.id}/apply`, {})
+    expect(denied.status).toBe(403)
+    expect(denied.data.code).toBe('forbidden')
+    const admin = client(await login('admin', 'admin'))
+    expect((await admin('GET', `/plans/${plan.id}`)).status).toBe(200)
+    expect((await alice('DELETE', `/plans/${plan.id}`)).status).toBe(204)
+  })
+
+  it('rate limits failed logins per username', async () => {
+    for (let i = 0; i < 5; i += 1) expect((await login('carol-rl', 'nope')).status).toBe(401)
+    const limited = await login('carol-rl', 'nope')
+    expect(limited.status).toBe(429)
+    expect(limited.body.code).toBe('rate_limited')
+    expect((await login('admin', 'admin')).status).toBe(200)
+  })
+
+  it('answers 400 on a malformed path escape', async () => {
+    const call = client(await login('admin', 'admin'))
+    const res = await call('GET', '/dns/zones/%E0%A4%A')
+    expect(res.status).toBe(400)
+    expect(res.data.code).toBe('validation_error')
+  })
+
   it('runs install plans as jobs', async () => {
     const call = client(await login('admin', 'admin'))
     const plan = (await call('POST', '/install/plan', { engines: ['bind'], source: 'isc', isc_series: '3.2' })).data

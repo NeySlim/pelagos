@@ -115,11 +115,77 @@ export function auditEntry(state, user, { action, target, engine = null, plan_id
   return entry
 }
 
+// Permission needed to apply or roll back a plan, by scope (section 17).
+export const SCOPE_PERMISSIONS = {
+  'dns.rrset': 'write:dns.records',
+  'dns.zone': 'write:dns.zones',
+  'dns.config': 'write:dns.config',
+  'dns.key': 'write:dns.config',
+  'dns.acl': 'write:dns.config',
+  'dhcp.subnet': 'write:dhcp.subnets',
+  'dhcp.shared_network': 'write:dhcp.subnets',
+  'dhcp.class': 'write:dhcp.classes',
+  'dhcp.options': 'write:dhcp.options',
+  'dhcp.ddns': 'write:dhcp.options',
+  'dhcp.reservation': 'write:dhcp.reservations',
+  'dhcp.lease': 'ops:dhcp.leases',
+  'dhcp.ha': 'ops:dhcp.ha',
+  'dhcp.config': 'write:dhcp.config',
+  'd2.config': 'write:dhcp.config',
+  host: 'write:hosts',
+  install: 'admin:install',
+  import: 'admin:install',
+  security: 'admin:install',
+}
+
+function can(user, permission) {
+  const perms = user?.permissions || []
+  return perms.includes('*') || perms.includes(permission)
+}
+
+export function isAdmin(user) {
+  return can(user, '*') || (user?.roles || []).includes('admin')
+}
+
+// Unknown scopes fall back to admin only.
+function scopeDenied(user, plan) {
+  const permission = SCOPE_PERMISSIONS[plan.scope]
+  if (permission ? can(user, permission) : isAdmin(user)) return null
+  return { status: 403, code: 'forbidden', detail: `requires ${permission || 'admin'}` }
+}
+
+const INITIAL_CONFIG_HASH = 'a1b2c3d4e5f6'
+
+// Current config hash of an engine (or scope); every apply touching it moves it.
+export function configHash(state, subject) {
+  state.configHashes ||= {}
+  return state.configHashes[subject] ?? INITIAL_CONFIG_HASH
+}
+
+function bumpConfigHashes(state, plan) {
+  for (const p of plan.preconditions) {
+    if (p.kind !== 'config_hash') continue
+    const next = (parseInt(configHash(state, p.subject), 16) + 1).toString(16).padStart(12, '0')
+    state.configHashes[p.subject] = next
+  }
+}
+
+// First soa_serial or config_hash precondition that no longer holds, if any.
+function movedPrecondition(state, plan) {
+  return plan.preconditions.find((p) => {
+    if (p.kind === 'soa_serial') return String(state.soaSerial(state.records[p.subject])) !== p.value
+    if (p.kind === 'config_hash') return configHash(state, p.subject) !== p.value
+    return false
+  })
+}
+
 // Returns { status, body } for POST /plans/{id}/apply.
 export function applyPlan(state, user, id, confirm, emit) {
   const held = state.plans.get(id)
   if (!held) return { status: 404, code: 'not_found', detail: `plan ${id} not found` }
   const { plan } = held
+  const denied = scopeDenied(user, plan)
+  if (denied) return denied
   if (isExpired(plan) && plan.state !== 'applied') {
     plan.state = 'expired'
     return { status: 410, code: 'plan_expired', detail: 'plan expired' }
@@ -128,8 +194,15 @@ export function applyPlan(state, user, id, confirm, emit) {
   if (plan.requires_confirmation && !confirm) {
     return { status: 428, code: 'confirmation_required', detail: 'this plan requires {"confirm": true}' }
   }
+  const moved = movedPrecondition(state, plan)
+  if (moved) {
+    return { status: 409, code: 'precondition_failed', detail: `${moved.kind} of ${moved.subject} moved since the plan was built` }
+  }
   plan.state = 'applying'
-  if (held.job) return { status: 202, body: startJob(state, user, held, emit) }
+  if (held.job) {
+    bumpConfigHashes(state, plan)
+    return { status: 202, body: startJob(state, user, held, emit) }
+  }
   let message = 'applied'
   try {
     message = held.apply?.() || 'applied'
@@ -141,6 +214,7 @@ export function applyPlan(state, user, id, confirm, emit) {
     emit('plans', 'failed', result)
     return { status: 200, body: result }
   }
+  bumpConfigHashes(state, plan)
   plan.state = 'applied'
   // Rollback stays allowed for the plan TTL after apply.
   plan.expires_at = iso(Date.now() + (state.settings.plan_ttl_seconds || 600) * 1000)
@@ -155,10 +229,13 @@ export function rollbackPlan(state, user, id, emit) {
   const held = state.plans.get(id)
   if (!held) return { status: 404, code: 'not_found', detail: `plan ${id} not found` }
   const { plan } = held
+  const denied = scopeDenied(user, plan)
+  if (denied) return denied
   if (plan.state !== 'applied') return { status: 409, code: 'plan_state', detail: `plan is ${plan.state}` }
   if (isExpired(plan)) return { status: 410, code: 'plan_expired', detail: 'plan expired' }
   if (!held.rollback) return { status: 501, code: 'not_supported', detail: 'this plan cannot be rolled back' }
   held.rollback()
+  bumpConfigHashes(state, plan)
   plan.state = 'rolled_back'
   const entry = auditEntry(state, user, { action: `${plan.scope}.rollback`, target: plan.changes[0]?.target || plan.scope, engine: plan.engine, plan_id: plan.id, diff: plan.diff, result: 'rolled_back' })
   emit('audit', 'entry', entry)

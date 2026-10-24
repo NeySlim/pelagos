@@ -78,4 +78,5 @@ Data read from BIND and Kea is untrusted: render it as text, never as HTML.
 ## Third-party assets
 
 `public/fonts/` holds Inter and Fira Code, both under the SIL Open Font
-License 1.1.
+License 1.1. Their license texts ship next to them in
+`public/fonts/OFL-Inter.txt` and `public/fonts/OFL-FiraCode.txt`.

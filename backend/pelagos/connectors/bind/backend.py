@@ -57,9 +57,11 @@ from pelagos.domain import (
     RRset,
     Zone,
     ZoneStatus,
+    messages,
 )
 from pelagos.domain.common import Engine
 from pelagos.domain.dns import normalize_name
+from pelagos.domain.messages import Message
 from pelagos.domain.plan import (
     ChangeOp,
     PlanScope,
@@ -155,9 +157,14 @@ class BindBackend(BindExtras, DnsBackend):
     def _plan_ttl(self) -> int:
         return int(self.ctx.settings.get("plan_ttl_seconds", 600))
 
-    def _new_plan(self, scope: PlanScope, summary: str, created_by: str) -> Plan:
+    def _new_plan(self, scope: PlanScope, summary: Message, created_by: str) -> Plan:
         plan = Plan(
-            scope=scope, node_id=self.ctx.node_id, summary=summary, created_by=created_by, engine=Engine.BIND
+            scope=scope,
+            node_id=self.ctx.node_id,
+            summary=messages.render(summary),
+            summary_message=summary,
+            created_by=created_by,
+            engine=Engine.BIND,
         )
         plan.expires_at = plan.created_at + timedelta(seconds=self._plan_ttl())
         plan.target_node_ids = [self.ctx.node_id]
@@ -323,7 +330,7 @@ class BindBackend(BindExtras, DnsBackend):
         view = None if view in (None, DEFAULT_VIEW) else view
         if view is not None:
             self._view_key_name("admin", view)  # raises NotSupported without a key for the view
-        plan = self._new_plan(PlanScope.DNS_RRSET, f"{zone}: record changes", created_by)
+        plan = self._new_plan(PlanScope.DNS_RRSET, messages.msg("plan.rrset.changes", zone=zone), created_by)
         current = self.read_zone(zone, view)
         allowed = self.dns_settings.get("update_types_admin")
         resolved, errors = rr.resolve_changes(
@@ -335,7 +342,7 @@ class BindBackend(BindExtras, DnsBackend):
         )
         plan.changes = [rr.to_change(zone, rc, view) for rc in resolved]
         plan.diff = rr.diff_text(resolved)
-        plan.summary = rr.summary_text(zone, resolved)
+        messages.set_text(plan, "summary", rr.summary_message(zone, resolved))
         plan.preconditions = rr.preconditions(resolved, self.ctx.node_id, view)
         soa = next((r for r in current if r.rtype == "SOA" and r.name == zone), None)
         if soa is not None:
@@ -353,7 +360,7 @@ class BindBackend(BindExtras, DnsBackend):
         ]
         static = self.static_zone(zone, view)
         if ok and static is not None:
-            plan.summary += f" ({staticzone.FILE_MODE_NOTE})"
+            messages.add_note(plan, "summary", messages.msg("note.static_file_edit"))
             plan.validations.extend(self._static_preview(plan, static, resolved, soa))
             ok = all(v.ok for v in plan.validations)
             errors = [v.output for v in plan.validations if not v.ok]
@@ -507,7 +514,7 @@ class BindBackend(BindExtras, DnsBackend):
         result.errors.extend(reparse_check(result.texts, result.zone_files))
         return planner, result
 
-    def _file_plan(self, scope: PlanScope, changes: list[Change], summary: str, created_by: str) -> Plan:
+    def _file_plan(self, scope: PlanScope, changes: list[Change], summary: Message, created_by: str) -> Plan:
         plan = self._new_plan(scope, summary, created_by)
         planner, result = self._render(scope, changes)
         plan.changes = result.changes
@@ -539,22 +546,21 @@ class BindBackend(BindExtras, DnsBackend):
         existing = self.config_zone(name, view or DEFAULT_VIEW) if name else None
         if is_added_zone_change(change, existing):
             return self.plan_added_zone(change, existing, created_by)
-        return self._file_plan(PlanScope.DNS_ZONE, [change], f"zone {change.target}: {op.value}", created_by)
+        summary = messages.msg("plan.zone.change", target=change.target, op=messages.op(op))
+        return self._file_plan(PlanScope.DNS_ZONE, [change], summary, created_by)
 
     def plan_config_change(self, changes: list[Change], created_by: str = "") -> Plan:
         kinds = {c.target.split("/", 1)[0] for c in changes}
         scope = PlanScope.DNS_CONFIG
         if len(kinds) == 1:
             scope = {"keys": PlanScope.DNS_KEY, "acls": PlanScope.DNS_ACL}.get(kinds.pop(), scope)
-        targets = ", ".join(f"{ChangeOp(c.op).value} {c.target}" for c in changes)
-        return self._file_plan(scope, changes, f"BIND configuration: {targets}", created_by)
+        targets = [messages.msg("plan.change", op=messages.op(c.op), target=c.target) for c in changes]
+        return self._file_plan(scope, changes, messages.msg("plan.bind.config", changes=targets), created_by)
 
     def plan_include_setup(self, created_by: str = "") -> Plan:
         """Create the managed files and the include lines in the user files (import step)."""
         change = Change(ChangeOp.ADD, "pelagos/includes")
-        return self._file_plan(
-            PlanScope.DNS_CONFIG, [change], "Pelagos include files and include lines", created_by
-        )
+        return self._file_plan(PlanScope.DNS_CONFIG, [change], messages.msg("plan.bind.includes"), created_by)
 
     def _check_file_preconditions(self, plan: Plan) -> None:
         for pre in plan.preconditions:

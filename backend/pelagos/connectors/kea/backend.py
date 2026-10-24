@@ -70,8 +70,10 @@ from pelagos.domain import (
     SharedNetwork,
     Subnet,
     ValidationResult,
+    messages,
     utcnow,
 )
+from pelagos.domain.messages import Message
 
 HOOK_PREFIX = "libdhcp_"
 # Raw passthrough: read-only commands only; everything that changes state goes through a plan.
@@ -409,7 +411,7 @@ class KeaBackend(DhcpBackend):
     def _new_plan(
         self,
         scope: PlanScope,
-        summary: str,
+        summary: Message,
         changes: list[Change],
         created_by: str,
         *,
@@ -423,7 +425,8 @@ class KeaBackend(DhcpBackend):
         return Plan(
             scope=scope,
             node_id=self.ctx.node_id,
-            summary=summary,
+            summary=messages.render(summary),
+            summary_message=summary,
             created_by=created_by,
             engine=self.family.kea_engine,
             changes=changes,
@@ -534,7 +537,9 @@ class KeaBackend(DhcpBackend):
     def _explicit(self, doc: KeaDocument | None) -> dict[str, set[str]] | None:
         return kcfg.explicit_keys(doc.value.get(self.root_key) if doc else None, self.family)
 
-    def _plan_config(self, scope: PlanScope, changes: list[Change], created_by: str, summary: str) -> Plan:
+    def _plan_config(
+        self, scope: PlanScope, changes: list[Change], created_by: str, summary: Message
+    ) -> Plan:
         # The scope decides the permission checked at apply, so every target must belong to it.
         allowed = SCOPE_TARGETS[scope]
         for change in changes:
@@ -594,23 +599,25 @@ class KeaBackend(DhcpBackend):
             else None
         )
         return self._plan_config(
-            PlanScope.DHCP_SUBNET, [change], created_by, f"{change.op.value} subnet {name or change.target}"
+            PlanScope.DHCP_SUBNET,
+            [change],
+            created_by,
+            messages.msg("plan.kea.subnet", op=messages.op(change.op), subnet=name or change.target),
         )
 
     def plan_shared_network_change(self, change: Change, created_by: str = "") -> Plan:
-        return self._plan_config(
-            PlanScope.DHCP_SHARED_NETWORK, [change], created_by, f"{change.op.value} {change.target}"
-        )
+        return self._plan_config(PlanScope.DHCP_SHARED_NETWORK, [change], created_by, _change_summary(change))
 
     def plan_reservation_change(self, change: Change, created_by: str = "") -> Plan:
         return self._plan_config(
-            PlanScope.DHCP_RESERVATION, [change], created_by, f"{change.op.value} reservation {change.target}"
+            PlanScope.DHCP_RESERVATION,
+            [change],
+            created_by,
+            messages.msg("plan.kea.reservation", op=messages.op(change.op), target=change.target),
         )
 
     def plan_class_change(self, change: Change, created_by: str = "") -> Plan:
-        return self._plan_config(
-            PlanScope.DHCP_CLASS, [change], created_by, f"{change.op.value} {change.target}"
-        )
+        return self._plan_config(PlanScope.DHCP_CLASS, [change], created_by, _change_summary(change))
 
     def plan_global_change(self, changes: list[Change], created_by: str = "") -> Plan:
         """Top-level keys and global option-data; scope follows the keys touched."""
@@ -623,7 +630,11 @@ class KeaBackend(DhcpBackend):
             scope = PlanScope.DHCP_CONFIG
         else:
             scope = PlanScope.DHCP_OPTIONS
-        summary = f"{self.engine_name}: {', '.join(targets[:4])}" + (" ..." if len(targets) > 4 else "")
+        summary = messages.msg(
+            "plan.kea.global_more" if len(targets) > 4 else "plan.kea.global",
+            engine=self.engine_name,
+            targets=targets[:4],
+        )
         return self._plan_config(scope, changes, created_by, summary)
 
     def plan_config_replace(self, config: dict[str, Any], created_by: str = "") -> Plan:
@@ -635,7 +646,10 @@ class KeaBackend(DhcpBackend):
             raise ConnectorError(masked_refusal(missing))
         change = Change(ChangeOp.REPLACE, "config", after=config)
         return self._plan_config(
-            PlanScope.DHCP_CONFIG, [change], created_by, f"{self.engine_name}: replace configuration"
+            PlanScope.DHCP_CONFIG,
+            [change],
+            created_by,
+            messages.msg("plan.kea.replace_config", engine=self.engine_name),
         )
 
     def unmask_config(self, config: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
@@ -656,7 +670,7 @@ class KeaBackend(DhcpBackend):
         diff = f"-{ip_address} {who} {lease.hostname or ''} subnet {lease.subnet_id}\n"
         return self._new_plan(
             PlanScope.DHCP_LEASE,
-            f"delete lease {ip_address}",
+            messages.msg("plan.kea.lease_delete", ip=ip_address),
             [change],
             created_by,
             diff=diff,
@@ -671,7 +685,9 @@ class KeaBackend(DhcpBackend):
         state = self.ha_state()
         if not state.enabled:
             raise NotSupported("the ha hook is not loaded on this server")
-        remote = ((state.raw.get("ha-servers") or {}).get("remote") or {}).get("server-name") or "the partner"
+        remote = ((state.raw.get("ha-servers") or {}).get("remote") or {}).get("server-name") or messages.msg(
+            "common.the_partner"
+        )
         if action == "start" and state.state in ("in-maintenance", "partner-in-maintenance"):
             raise ConnectorError(f"HA maintenance already active (state {state.state})")
         if action == "cancel" and state.state != "partner-in-maintenance":
@@ -679,9 +695,9 @@ class KeaBackend(DhcpBackend):
                 f"cancel goes to the server that started the maintenance (this one is {state.state})"
             )
         effect = (
-            f"{remote} goes in-maintenance and can be shut down"
+            messages.msg("plan.kea.ha_effect_start", partner=remote)
             if action == "start"
-            else "both servers return to normal operation"
+            else messages.msg("plan.kea.ha_effect_cancel")
         )
         change = Change(ChangeOp.REPLACE, "ha/maintenance", before=state.state, after=action)
         precondition = Precondition(
@@ -692,7 +708,12 @@ class KeaBackend(DhcpBackend):
         )
         return self._new_plan(
             PlanScope.DHCP_HA,
-            f"HA maintenance {action} on {state.server_name or self.engine_name}: {effect}",
+            messages.msg(
+                "plan.kea.ha_maintenance",
+                action=action,
+                server=state.server_name or self.engine_name,
+                effect=effect,
+            ),
             [change],
             created_by,
             diff=f"-state: {state.state}\n+maintenance: {action}\n",
@@ -705,10 +726,11 @@ class KeaBackend(DhcpBackend):
         dhcp_state = status.get("dhcp-state") or {}
         currently = not bool(dhcp_state.get("disabled-by-user", False))
         change = Change(ChangeOp.REPLACE, "service", before={"enabled": currently}, after={"enable": enable})
-        verb = "enable" if enable else "disable"
         return self._new_plan(
             PlanScope.DHCP_HA,
-            f"{verb} DHCP service ({self.engine_name})",
+            messages.msg(
+                "plan.kea.service_enable" if enable else "plan.kea.service_disable", engine=self.engine_name
+            ),
             [change],
             created_by,
             diff=f"-enabled: {str(currently).lower()}\n+enabled: {str(enable).lower()}\n",
@@ -989,13 +1011,13 @@ class KeaBackend(DhcpBackend):
             validation = ValidationResult(
                 ok=True, tool="lossless-editor", output=change.after["mode"], node_id=self.ctx.node_id
             )
-        summary = (
-            f"{self.engine_name}: adopt {self.conf_path} as the running configuration"
-            if source == "file"
-            else f"{self.engine_name}: write the running configuration to {self.conf_path}"
+        summary = messages.msg(
+            "plan.kea.adopt_file" if source == "file" else "plan.kea.write_running",
+            engine=self.engine_name,
+            path=str(self.conf_path),
         )
         if not differences:
-            summary += " (no difference found)"
+            summary = messages.msg("common.with_note", text=summary, note=messages.msg("note.no_difference"))
         return self._new_plan(
             PlanScope.DHCP_CONFIG,
             summary,
@@ -1061,3 +1083,7 @@ class KeaBackend(DhcpBackend):
 
 def _is_reservation(change: Change) -> bool:
     return kcfg.parse_target(change.target).kind == "reservation"
+
+
+def _change_summary(change: Change) -> Message:
+    return messages.msg("plan.change", op=messages.op(change.op), target=change.target)

@@ -13,7 +13,9 @@ import dns.rdataset
 import dns.rdatatype
 import dns.update
 
+from pelagos.domain import messages
 from pelagos.domain.dns import RRset, normalize_name
+from pelagos.domain.messages import Message
 from pelagos.domain.plan import Change, ChangeOp, Precondition, PreconditionKind
 
 DEFAULT_TTL = 3600
@@ -281,7 +283,13 @@ def diff_text(rcs: list[RRsetChange]) -> str:
     return "\n".join(lines)
 
 
-def summary_text(zone: str, rcs: list[RRsetChange]) -> str:
+def summary_message(zone: str, rcs: list[RRsetChange]) -> Message:
     counts = {op: sum(1 for rc in rcs if rc.op is op) for op in ChangeOp}
-    parts = [f"{n} {op.value}" for op, n in counts.items() if n]
-    return f"{normalize_name(zone)}: " + (", ".join(parts) if parts else "no change")
+    parts = [messages.msg("plan.rrset.count", count=n, op=messages.op(op)) for op, n in counts.items() if n]
+    if not parts:
+        return messages.msg("plan.rrset.no_change", zone=normalize_name(zone))
+    return messages.msg("plan.rrset.counts", zone=normalize_name(zone), counts=parts)
+
+
+def summary_text(zone: str, rcs: list[RRsetChange]) -> str:
+    return messages.render(summary_message(zone, rcs))

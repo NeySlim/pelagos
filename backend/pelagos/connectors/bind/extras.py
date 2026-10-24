@@ -19,7 +19,7 @@ from pelagos.connectors.bind.managed import ManagedFiles
 from pelagos.connectors.bind.namedconf.lexer import ParseError
 from pelagos.connectors.bind.rndc import RndcNotFound, zone_args
 from pelagos.core.write_pipeline import FileChange
-from pelagos.domain import BindConfigTree, Change, NodeApplyResult, Plan, RRset, Zone
+from pelagos.domain import BindConfigTree, Change, NodeApplyResult, Plan, RRset, Zone, messages
 from pelagos.domain.dns import ZoneKind, ZoneSource, normalize_name
 from pelagos.domain.plan import ChangeOp, PlanScope, PlanState, ValidationResult
 
@@ -187,7 +187,8 @@ class BindExtras:
         args = dict(args or {})
         view = None if view in (None, DEFAULT_VIEW) else view
         command = ops.command_text(name, zone, view, args)  # validates name and arguments
-        plan = self._new_plan(PlanScope.DNS_ZONE, f"{normalize_name(zone)}: {command}", created_by)
+        summary = messages.msg("plan.zone.operation", zone=normalize_name(zone), command=command)
+        plan = self._new_plan(PlanScope.DNS_ZONE, summary, created_by)
         plan.changes = [
             Change(ChangeOp.REPLACE, ops.target(name, zone, view), after=ops.check_args(name, args))
         ]
@@ -243,9 +244,8 @@ class BindExtras:
         view = view or DEFAULT_VIEW
         name = normalize_name(name)
         command = {ChangeOp.ADD: "addzone", ChangeOp.REPLACE: "modzone", ChangeOp.DELETE: "delzone"}[op]
-        plan = self._new_plan(
-            PlanScope.DNS_ZONE, f"zone {change.target}: {op.value} (rndc {command})", created_by
-        )
+        summary = messages.msg("plan.zone.added", target=change.target, op=messages.op(op), command=command)
+        plan = self._new_plan(PlanScope.DNS_ZONE, summary, created_by)
         node = self.ctx.node_id
         errors: list[str] = []
         validations: list[ValidationResult] = []

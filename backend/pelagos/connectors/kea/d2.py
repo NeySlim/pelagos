@@ -35,8 +35,10 @@ from pelagos.domain import (
     Precondition,
     PreconditionKind,
     ValidationResult,
+    messages,
     utcnow,
 )
+from pelagos.domain.messages import Message
 
 _KEY_STAT = re.compile(r"^key\[(?P<key>[^\]]+)\]\.(?P<name>.+)$")
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -209,8 +211,10 @@ class D2Backend(DdnsBackend):
         plan = Plan(
             scope=PlanScope.D2_CONFIG,
             node_id=self.ctx.node_id,
-            summary="kea-dhcp-ddns: replace configuration"
-            + (f" ({len(secrets)} secret file(s))" if secrets else ""),
+            **_summary(
+                messages.msg("plan.kea.replace_config", engine="kea-dhcp-ddns"),
+                messages.msg("note.secret_files", count=len(secrets)) if secrets else None,
+            ),
             created_by=created_by,
             engine=Engine.D2,
             changes=changes,
@@ -401,17 +405,15 @@ class D2Backend(DdnsBackend):
             validation = ValidationResult(
                 ok=True, tool="lossless-editor", output=change.after["mode"], node_id=self.ctx.node_id
             )
-        summary = (
-            f"kea-dhcp-ddns: adopt {self.conf_path} as the running configuration"
-            if source == "file"
-            else f"kea-dhcp-ddns: write the running configuration to {self.conf_path}"
+        summary = messages.msg(
+            "plan.kea.adopt_file" if source == "file" else "plan.kea.write_running",
+            engine="kea-dhcp-ddns",
+            path=str(self.conf_path),
         )
-        if not differences:
-            summary += " (no difference found)"
         plan = Plan(
             scope=PlanScope.D2_CONFIG,
             node_id=self.ctx.node_id,
-            summary=summary,
+            **_summary(summary, None if differences else messages.msg("note.no_difference")),
             created_by=created_by,
             engine=Engine.D2,
             changes=[change],
@@ -542,3 +544,9 @@ class D2Backend(DdnsBackend):
             return self.config_hash() == before_hash
         except ConnectorError:
             return False
+
+
+def _summary(base: Message, note: Message | None) -> dict[str, Any]:
+    """Plan summary and summary_message, with an optional "(note)" suffix."""
+    m = base if note is None else messages.msg("common.with_note", text=base, note=note)
+    return {"summary": messages.render(m), "summary_message": m}

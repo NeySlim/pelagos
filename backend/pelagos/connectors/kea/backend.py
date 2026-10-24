@@ -63,6 +63,18 @@ HOOK_PREFIX = "libdhcp_"
 WRITE_COMMANDS = frozenset({"config-set", "config-write", "config-reload", "shutdown"})
 KNOWN_HOOKS = ("lease_cmds", "host_cmds", "subnet_cmds", "stat_cmds", "ha", "class_cmds")
 LEASE_PAGE = 1000
+# Target kinds (config.parse_target) each configuration plan scope may touch.
+SCOPE_TARGETS = {
+    PlanScope.DHCP_SUBNET: {"subnet"},
+    PlanScope.DHCP_SHARED_NETWORK: {"shared_network"},
+    PlanScope.DHCP_RESERVATION: {"reservation"},
+    PlanScope.DHCP_CLASS: {"client_class"},
+    PlanScope.DHCP_OPTIONS: {"option", "key"},
+    PlanScope.DHCP_DDNS: {"key"},
+    PlanScope.DHCP_CONFIG: {"option", "key", "config"},
+}
+# Top-level keys holding objects that have their own plans (and permissions).
+OBJECT_KEYS = frozenset({"subnet4", "subnet6", "shared-networks", "reservations", "client-classes"})
 
 
 def hook_name(library: str) -> str:
@@ -388,6 +400,17 @@ class KeaBackend(DhcpBackend):
         return None
 
     def _plan_config(self, scope: PlanScope, changes: list[Change], created_by: str, summary: str) -> Plan:
+        # The scope decides the permission checked at apply, so every target must belong to it.
+        allowed = SCOPE_TARGETS[scope]
+        for change in changes:
+            t = kcfg.parse_target(change.target)
+            if t.kind not in allowed:
+                raise ConnectorError(f"{change.target} cannot be changed by a {scope.value} plan")
+            if t.kind in ("subnet", "reservation") and change.target.startswith("subnet"):
+                if not change.target.startswith(f"subnet{self.n}/"):
+                    raise ConnectorError(f"{change.target} is not a {self.engine_name} subnet")
+            if t.kind == "key" and t.name in OBJECT_KEYS:
+                raise ConnectorError(f"{t.name} changes go through their own plans or the config replace")
         cfg = self.config_get()
         current_hash = self.config_hash()
         version = self.version()
@@ -397,7 +420,7 @@ class KeaBackend(DhcpBackend):
             t = kcfg.parse_target(change.target)
             if t.kind == "subnet" and change.op is ChangeOp.ADD:
                 after = dict(change.after or {})
-                sid = int(after.get("id") or 0) or kcfg.next_subnet_id(cfg, self.family)
+                sid = int(after.get("id") or 0) or t.subnet_id or kcfg.next_subnet_id(cfg, self.family)
                 if kcfg.find_subnet(cfg, self.family, sid) is not None:
                     raise ConnectorError(f"subnet {sid} already exists")
                 after["id"] = sid

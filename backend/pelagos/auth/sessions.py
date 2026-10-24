@@ -72,6 +72,20 @@ class SessionStore:
             session.last_seen = now
             return session
 
+    def peek(self, session_id: str | None) -> Session | None:
+        """Like get() but leaves the idle timer alone: a background check is not user activity."""
+        if not session_id:
+            return None
+        now = utcnow()
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return None
+            if now - session.created_at > self.ttl or now - session.last_seen > self.idle:
+                del self._sessions[session_id]
+                return None
+            return session
+
     def revoke(self, session_id: str) -> None:
         with self._lock:
             self._sessions.pop(session_id, None)

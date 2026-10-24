@@ -1598,10 +1598,16 @@ Server to client, one message per event:
 
 Additions (WP-API-AUTH): the server answers `subscribe`/`unsubscribe` with
 `{"topic": "system", "event": "subscribed", "data": {"topics": [...],
-"unknown"?: [...]}}` and malformed frames with `"event": "error"`. A socket
-without a live session is closed with code 4401 (also when the session
-expires or logs out), a foreign `Origin` with 4403. Every audit entry the
-web process appends is published on `audit`; plan outcomes on `plans`.
+"unknown"?: [...], "forbidden"?: [...]}}` and malformed frames with
+`"event": "error"`. A topic needs the read permission of its data
+(`audit`: `read:audit`, `alerts`: `read:alerts`, `leases` and `ha`:
+`read:dhcp`, `nodes`: `read:nodes`, `plans` and `jobs`: any session);
+refused topics are listed in `forbidden`. A socket without a live session
+is closed with code 4401 (also when the session expires, goes idle or logs
+out; an open socket does not refresh the idle timer), a foreign `Origin` or
+a restricted session with 4403. Every audit entry the web process appends
+is published on `audit`, with key material and passwords masked as in API
+answers; plan outcomes on `plans`.
 
 Events originate in the collector and reach the web process through the
 Unix datagram socket `/run/pelagos/events.sock` (same JSON), which the web

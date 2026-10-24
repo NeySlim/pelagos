@@ -7,6 +7,7 @@ import json
 import queue
 import threading
 import time
+from datetime import timedelta
 
 import pytest
 
@@ -201,3 +202,51 @@ def test_ws_closes_when_session_ends(role_client, services, node_ctx):
         node_ctx.sessions.revoke(sid)
     runner.join(timeout=10)
     assert not runner.is_alive() and ws.close_code == CLOSE_UNAUTHENTICATED
+
+
+def test_ws_topics_need_their_read_permission(admin, login):
+    r = admin.post("/api/v1/admin/roles", json={"name": "dns-reader", "permissions": ["read:dns"]})
+    assert r.status_code == 201, r.get_json()
+    pw = "Another-Good-Pass-99"
+    r = admin.post("/api/v1/admin/users", json={"username": "rita", "password": pw, "roles": ["dns-reader"]})
+    assert r.status_code == 201, r.get_json()
+    ws = ScriptedSocket(
+        [json.dumps({"action": "subscribe", "topics": ["audit", "alerts", "plans", "leases"]})]
+    )
+    runner = threading.Thread(target=_open, args=(login("rita", pw), ws))
+    runner.start()
+    ws.wait_for(lambda m: m["event"] == "subscribed")
+    ws.frames.put(None)
+    runner.join(timeout=10)
+    first = next(m for m in ws.sent if m["event"] == "subscribed")
+    assert first["data"] == {"topics": ["plans"], "forbidden": ["alerts", "audit", "leases"]}
+
+
+def test_ws_refuses_restricted_session(admin, login):
+    pw = "Another-Good-Pass-99"
+    body = {"username": "nina", "password": pw, "roles": ["viewer"], "must_change_password": True}
+    assert admin.post("/api/v1/admin/users", json=body).status_code == 201
+    client = login("nina", pw)
+    ws = ScriptedSocket([json.dumps({"action": "subscribe", "topics": ["plans"]})])
+    _open(client, ws)
+    assert ws.close_code == CLOSE_FORBIDDEN and ws.sent == []
+
+
+def test_ws_does_not_keep_an_idle_session_alive(role_client, node_ctx):
+    client = role_client("viewer")
+    node_ctx.sessions.idle = timedelta(seconds=1.5)
+    ws = ScriptedSocket([json.dumps({"action": "subscribe", "topics": ["plans"]})])
+    runner = threading.Thread(target=_open, args=(client, ws))
+    runner.start()
+    runner.join(timeout=10)
+    assert not runner.is_alive() and ws.close_code == CLOSE_UNAUTHENTICATED
+
+
+def test_session_peek_leaves_idle_timer_alone(node_ctx):
+    store = node_ctx.sessions
+    session = store.create("u1", "someone", {"read:dns"})
+    session.last_seen -= timedelta(seconds=30)
+    before = session.last_seen
+    assert store.peek(session.id) is session and session.last_seen == before
+    session.last_seen = before - store.idle
+    assert store.peek(session.id) is None and store.get(session.id) is None

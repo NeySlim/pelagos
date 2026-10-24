@@ -5,7 +5,8 @@ gevent-websocket upgrades the connection before the view runs and hands it in
 `environ["wsgi.websocket"]`. The view checks the session cookie and the Origin,
 then runs two loops: this one reads client actions, a sender thread (a
 greenlet under the gevent worker) drains the subscriber queue to the socket.
-A refused socket is closed with 4401 (no session) or 4403 (bad Origin).
+A refused socket is closed with 4401 (no session) or 4403 (bad Origin or a
+restricted session). Each topic needs the read permission of its data.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from urllib.parse import urlsplit
 from flask import Flask, Response, request
 
 from pelagos.api.errors import ApiError, problem_response
+from pelagos.auth.rbac import has_permission
 from pelagos.auth.sessions import COOKIE_NAME
 from pelagos.core.context import NodeContext
 from pelagos.services.events import TOPICS, EventHub, Subscriber
@@ -32,6 +34,16 @@ CLOSE_UNAUTHENTICATED = 4401
 CLOSE_FORBIDDEN = 4403
 SEND_POLL_SECONDS = 1.0
 MAX_MESSAGE = 4096
+# None: any authenticated session (plan and job events carry ids and states only).
+TOPIC_PERMISSIONS: dict[str, str | None] = {
+    "audit": "read:audit",
+    "alerts": "read:alerts",
+    "leases": "read:dhcp",
+    "ha": "read:dhcp",
+    "nodes": "read:nodes",
+    "plans": None,
+    "jobs": None,
+}
 
 
 def origin_allowed(origin: str | None, host: str | None, web_url: str | None = None) -> bool:
@@ -46,17 +58,24 @@ def origin_allowed(origin: str | None, host: str | None, web_url: str | None = N
 class SocketSession:
     """One connected client; `ws` needs receive(), send(text), close(code, message) and `closed`."""
 
-    def __init__(self, ws: Any, hub: EventHub, ctx: NodeContext, session_id: str) -> None:
+    def __init__(
+        self, ws: Any, hub: EventHub, ctx: NodeContext, session_id: str, permissions: set[str]
+    ) -> None:
         self.ws = ws
         self.hub = hub
         self.ctx = ctx
         self.session_id = session_id
+        self.permissions = set(permissions)
         self.sub: Subscriber = hub.subscribe(set())
         self._stop = threading.Event()
         self._send_lock = threading.Lock()
 
     def alive(self) -> bool:
-        return self.ctx.sessions.get(self.session_id) is not None
+        return self.ctx.sessions.peek(self.session_id) is not None
+
+    def allowed(self, topic: str) -> bool:
+        required = TOPIC_PERMISSIONS.get(topic)
+        return required is None or has_permission(self.permissions, required)
 
     def send(self, message: dict[str, Any]) -> None:
         with self._send_lock:
@@ -88,13 +107,17 @@ class SocketSession:
                 return
             unknown = sorted(set(topics) - CLIENT_TOPICS)
             wanted = set(topics) & CLIENT_TOPICS
+            forbidden = sorted(t for t in wanted if action == "subscribe" and not self.allowed(t))
             if action == "subscribe":
-                self.sub.topics |= wanted
+                self.sub.topics |= wanted - set(forbidden)
             else:
                 self.sub.topics -= wanted
-            self.system(
-                "subscribed", {"topics": sorted(self.sub.topics), **({"unknown": unknown} if unknown else {})}
-            )
+            extra: dict[str, Any] = {}
+            if unknown:
+                extra["unknown"] = unknown
+            if forbidden:
+                extra["forbidden"] = forbidden
+            self.system("subscribed", {"topics": sorted(self.sub.topics), **extra})
             return
         self.system("error", {"message": "action must be subscribe, unsubscribe or ping"})
 
@@ -166,7 +189,11 @@ def register_ws(app: Flask, prefix: str) -> None:
             log.warning("websocket refused: origin %s", request.headers.get("Origin"))
             close_socket(ws, CLOSE_FORBIDDEN, "origin not allowed")
             return Response(status=204)
-        SocketSession(ws, Services.of(ctx).events, ctx, session.id).run()
+        if session.restriction:
+            log.warning("websocket refused: session restricted to %s", session.restriction)
+            close_socket(ws, CLOSE_FORBIDDEN, f"session restricted: {session.restriction}")
+            return Response(status=204)
+        SocketSession(ws, Services.of(ctx).events, ctx, session.id, session.permissions).run()
         return Response(status=204)
 
     # Werkzeug routes Upgrade: websocket requests only to rules flagged websocket=True.

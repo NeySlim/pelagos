@@ -104,9 +104,12 @@ def test_collector_polls_bind_and_kea(rig):
     store = collector.store
     kea4.ok("lease4-add", {"ip-address": "192.0.2.150", "hw-address": "aa:bb:cc:dd:ee:10", "subnet-id": 1})
 
+    first = collector.cycle()
+    assert first.errors == {}, first.errors
+    # Pool alerts open on the second poll in a row (hysteresis); everything else on the first.
     report = collector.cycle()
     assert report.errors == {}, report.errors
-    opened = kinds(report.opened)
+    opened = kinds(first.opened) | kinds(report.opened)
     # Every daemon answers, every zone is loaded and the Kea files match what the daemons run.
     assert AlertKind.DAEMON_DOWN not in opened and AlertKind.ZONE_ERROR not in opened
     assert AlertKind.CONFIG_DIVERGENCE not in opened, opened.get(AlertKind.CONFIG_DIVERGENCE)

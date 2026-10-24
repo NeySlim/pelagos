@@ -76,7 +76,10 @@ test('every page renders with data from the API', async ({ page }) => {
   for (const [path, testId] of PAGES) {
     await page.goto(path)
     await expect(page.getByTestId(testId), path).toBeVisible()
-    if (path !== '/account') await expect(page.getByTestId('json-tree'), path).toBeVisible()
+    // Placeholder pages show the raw answer; built pages must not show a read error.
+    if (await page.getByTestId('placeholder-data').count()) await expect(page.getByTestId('json-tree'), path).toBeVisible()
+    else await expect(page.getByTestId('data-table-loading')).toHaveCount(0)
+    await expect(page.getByTestId('data-table-error'), path).toHaveCount(0)
   }
   expect(errors).toEqual([])
 })

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import time
@@ -306,6 +307,36 @@ def test_history_from_write_pipeline_backups(node_ctx):
             services.advanced.history_entry("../leak")
         with pytest.raises(ValidationError):
             services.advanced.history(None, "another-node")
+    finally:
+        services.close()
+
+
+def test_history_masks_secrets(node_ctx):
+    services = Services(node_ctx, registry=ConnectorRegistry())
+    try:
+        etc = node_ctx.paths.var / "managed"
+        etc.mkdir(parents=True)
+        keys = etc / "keys.conf"
+        keys.write_text('key "ddi-admin" {\n  algorithm hmac-sha256;\n  secret "c2VjcmV0LWtleQ==";\n};\n')
+        tsig = etc / "ddi-admin.tsig"
+        tsig.write_text("c2VjcmV0LWtleQ==\n")
+        other = etc / "plain-secret"
+        other.write_text("c2VjcmV0LWtleQ==\n")
+        d2 = etc / "kea-dhcp-ddns.conf"
+        keys_d2 = [{"name": "k", "secret": "c2VjcmV0LWtleQ=="}, {"name": "f", "secret-file": str(other)}]
+        d2.write_text(json.dumps({"DhcpDdns": {"tsig-keys": keys_d2}}))
+        pipeline = WritePipeline(
+            node_ctx.paths.backups_dir / "bind",
+            validate=lambda: ValidationResult(ok=True, tool="named-checkconf"),
+            reload=lambda: "reloaded",
+            label="keys",
+        )
+        assert pipeline.run([FileChange(p, b"x\n") for p in (keys, tsig, other, d2)]).ok
+        detail = services.advanced.history_entry(services.advanced.history(None, None)[0]["id"])
+        assert "c2VjcmV0LWtleQ" not in json.dumps(detail["files"])
+        assert 'secret "***";' in detail["files"][str(keys)]
+        assert detail["files"][str(tsig)] == "***" and detail["files"][str(other)] == "***"
+        assert "algorithm hmac-sha256" in detail["files"][str(keys)]
     finally:
         services.close()
 

@@ -13,6 +13,7 @@ from pelagos.core.context import NodeContext
 from pelagos.domain import Engine
 from pelagos.services.dns_service import DnsService
 from pelagos.services.errors import ConnectorError, NotFound, ServiceError, ValidationError, field_error
+from pelagos.services.masking import MASK, masked_text
 
 MAX_FILE_BYTES = 2 * 1024 * 1024
 
@@ -123,7 +124,26 @@ class AdvancedService:
                 files[entry["path"]] = raw.decode("utf-8", errors="replace")
             except OSError:
                 files[entry["path"]] = None
-        return {"id": history_id, "manifest": data, "files": files}
+        return {"id": history_id, "manifest": data, "files": masked_backup_files(files)}
+
+
+_SECRET_FILE_REF = re.compile(r'"secret-file"\s*:\s*"([^"]+)"')
+SECRET_FILE_SUFFIXES = (".tsig",)
+
+
+def masked_backup_files(files: dict[str, str | None]) -> dict[str, str | None]:
+    """Backup texts as read:advanced may see them: inline secrets masked, whole secret files replaced
+    (`*.tsig` and any path a backed-up config names in `secret-file`)."""
+    secret_paths = {m for text in files.values() if text for m in _SECRET_FILE_REF.findall(text)}
+    out: dict[str, str | None] = {}
+    for path, text in files.items():
+        if text is None:
+            out[path] = None
+        elif path in secret_paths or path.endswith(SECRET_FILE_SUFFIXES):
+            out[path] = MASK
+        else:
+            out[path] = masked_text(text)
+    return out
 
 
 def _stamp_to_rfc3339(stamp: str) -> str:

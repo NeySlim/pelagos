@@ -23,6 +23,23 @@ in place) are no longer on a read-only mount; file permissions decide.
 `<?include?>`) report it with the drop-in to add instead of the group
 advice. Nobody has to react.
 
+## 2026-10-24, WP-FRONTEND: zone kinds from the zone form, per-node lease delete, statistics screens
+No change to `docs/architecture.md`.
+- Zones of kind mirror, static-stub, hint and redirect are created through `POST /dns/zones/plan`
+  like the others. static-stub carries its servers in `Zone.extra` (`server-addresses`,
+  `server-names`, BIND syntax `{ ...; }`), which `ManagedFiles.zone_statement` already renders;
+  hint and redirect are always `.` (BIND requires it for redirect). `Zone` is unchanged.
+- WP-BIND (`BindBackend._verify`, additive): after the reload a hint zone is checked with
+  `rndc status` (rndc zonestatus does not know root hints), a redirect zone is looked up as
+  `-redirect`, and a zone that rndc reports as "not loaded" (a secondary or mirror waiting for
+  its first transfer) counts as present instead of rolling the plan back.
+- `api.dhcp.leaseDeletePlan(family, ip, node_id)` sends the `node_id` of the copy shown in the
+  lease card; the zone delete sends as `node_ids` the peers that hold a Pelagos primary as a
+  secondary (ZoneStatus kind per node), unless the operator unticks it.
+- New screens on existing endpoints: `/dns/instances` (`GET /dns/instances`, `GET /dns/stats`)
+  and `/dhcp/{family}/stats` (`GET /dhcp/{family}/servers`, `GET /dhcp/{family}/stats`).
+- `tests/daemon/bind_custom.start(recursion=...)`: optional, default unchanged.
+
 ## 2026-10-24, F-KEA: Kea file divergence, includes, lossless edits, single-node replaces
 All additive; `docs/architecture.md` sections 5, 6, 7, 9, 17 and 19 updated.
 - `connectors/base.py`: `DhcpBackend.plan_adopt(source)` and `DdnsBackend.plan_adopt(source)`,

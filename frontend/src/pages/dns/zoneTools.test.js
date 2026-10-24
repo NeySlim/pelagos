@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   zoneMode, staticFindingId, editableZone, splitList, zoneForm, zoneEditChange, zoneEditDiff, zoneViews,
   zoneStats, catalogMemberBody, policyStatements, policyText, policyGrammarNames, policyErrors, dnssecOpBody,
-  secondaryPeers, zoneDeleteRequest,
+  secondaryPeers, zoneDeleteRequest, newZoneAfter, CREATABLE_KINDS,
 } from './zoneTools'
 
 const zone = {
@@ -99,5 +99,33 @@ describe('zone deletion across peers', () => {
     expect(withPeers.node_ids).toEqual(['ns2'])
     expect(withPeers.change).toEqual({ op: 'delete', target: '_default/lab.example.lan.', before: zone, after: null })
     expect(zoneDeleteRequest(zone, []).node_ids).toBeUndefined()
+  })
+})
+
+describe('newZoneAfter', () => {
+  const ok = (n) => /^[a-z0-9.-]+$/.test(n)
+  const form = (over) => ({ name: 'example.lan', kind: 'primary', view: '_default', file: '', primaries: '', forwarders: '', serverAddresses: '', serverNames: '', addzone: false, ...over })
+
+  it('builds every kind the form offers', () => {
+    expect(newZoneAfter(form(), ok).after).toEqual({ name: 'example.lan.', kind: 'primary', view: '_default', file: 'db.example.lan' })
+    expect(newZoneAfter(form({ kind: 'mirror', primaries: '192.0.2.53' }), ok).after).toEqual({ name: 'example.lan.', kind: 'mirror', view: '_default', primaries: ['192.0.2.53'] })
+    expect(newZoneAfter(form({ kind: 'static-stub', serverAddresses: '192.0.2.53\n2001:db8::53', serverNames: 'ns1.example.lan.' }), ok).after).toEqual({
+      name: 'example.lan.', kind: 'static-stub', view: '_default',
+      extra: { 'server-addresses': '{ 192.0.2.53; 2001:db8::53; }', 'server-names': '{ "ns1.example.lan"; }' },
+    })
+    expect(newZoneAfter(form({ kind: 'hint', name: 'ignored', file: 'root.hints' }), ok).after).toEqual({ name: '.', kind: 'hint', view: '_default', file: 'root.hints' })
+    expect(newZoneAfter(form({ kind: 'redirect', primaries: '192.0.2.1' }), ok).after).toEqual({ name: '.', kind: 'redirect', view: '_default', primaries: ['192.0.2.1'] })
+    expect(newZoneAfter(form({ kind: 'forward', forwarders: '192.0.2.1', addzone: true }), ok).after).toMatchObject({ forward: 'only', source: 'addzone' })
+    expect(newZoneAfter(form({ kind: 'mirror', name: '.', addzone: true }), ok).after).toEqual({ name: '.', kind: 'mirror', view: '_default' })
+  })
+
+  it('reports what BIND would refuse', () => {
+    expect(newZoneAfter(form({ name: 'bad name' }), ok).errors).toEqual({ name: 'name' })
+    expect(newZoneAfter(form({ kind: 'mirror' }), ok).errors).toEqual({ primaries: 'list' })
+    expect(newZoneAfter(form({ kind: 'static-stub' }), ok).errors).toEqual({ serverAddresses: 'list' })
+    expect(newZoneAfter(form({ kind: 'hint' }), ok).errors).toEqual({ file: 'required' })
+    expect(newZoneAfter(form({ kind: 'redirect' }), ok).errors).toEqual({ file: 'fileOrPrimaries' })
+    expect(newZoneAfter(form({ kind: 'secondary' }), ok).errors).toEqual({ primaries: 'list' })
+    expect(CREATABLE_KINDS).toEqual(expect.arrayContaining(['mirror', 'static-stub', 'hint', 'redirect']))
   })
 })

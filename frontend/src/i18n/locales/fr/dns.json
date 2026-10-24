@@ -98,7 +98,17 @@
       "addzoneHelp": "Demande allow-new-zones yes ; named garde la zone dans sa base NZD",
       "peers": "Aussi sur ces nœuds, en secondaire",
       "secondaryPrimaries": "Primaires d'où les secondaires transfèrent",
-      "secondaryPrimariesHelp": "Un par ligne, par exemple 192.0.2.1 key ddi-read ; vide : l'adresse de ce nœud"
+      "secondaryPrimariesHelp": "Un par ligne, par exemple 192.0.2.1 key ddi-read ; vide : l'adresse de ce nœud",
+      "serverAddresses": "Adresses des serveurs",
+      "serverAddressesHelp": "Une adresse IP par ligne : named y envoie ses requêtes pour la zone",
+      "serverNames": "Noms des serveurs",
+      "serverNamesHelp": "Un nom de serveur de noms par ligne, résolu par named",
+      "staticStubError": "Indiquez au moins une adresse ou un nom de serveur",
+      "fileRequired": "Indiquez le fichier des serveurs racine",
+      "fileOrPrimaries": "Indiquez un fichier de zone ou au moins un primaire",
+      "rootOnly": "Ce type de zone est toujours la zone racine (.)",
+      "hintFileHelp": "Fichier des serveurs racine, par exemple /usr/share/dns/root.hints",
+      "mirrorHelp": "Les primaires ne sont facultatifs que pour la zone racine ; named doit faire la récursion et valider DNSSEC"
     },
     "mode": "Mode"
   },

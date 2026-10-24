@@ -136,3 +136,52 @@ export function zoneDeleteRequest(zone, peers = []) {
   const change = { op: 'delete', target: `${zone.view}/${zone.name}`, before: zone, after: null }
   return { change, node_ids: peers.length ? peers : undefined }
 }
+
+// Zone kinds the creation form offers; mirror, static-stub, hint and redirect have no BIND
+// object form of their own and are created here like the others.
+export const CREATABLE_KINDS = ['primary', 'secondary', 'stub', 'forward', 'mirror', 'static-stub', 'hint', 'redirect']
+// rndc addzone and peer secondaries are offered for these kinds only.
+export const ADDZONE_KINDS = ['primary', 'secondary', 'stub', 'forward']
+// Kinds named after the root: BIND requires "." for redirect, and hints are the root's.
+export const ROOT_KINDS = ['hint', 'redirect']
+
+const lines = (text) => String(text || '').split('\n').map((l) => l.trim()).filter(Boolean)
+const bareName = (name) => String(name).replace(/\.$/, '')
+
+// The Zone of a creation form, or the form fields in error (BIND's own rules per kind).
+export function newZoneAfter(form, validName) {
+  const kind = form.kind
+  const name = ROOT_KINDS.includes(kind) ? '.' : String(form.name || '').trim().toLowerCase()
+  const abs = name === '.' ? '.' : name.endsWith('.') ? name : `${name}.`
+  const primaries = lines(form.primaries)
+  const forwarders = lines(form.forwarders)
+  const addresses = lines(form.serverAddresses)
+  const names = lines(form.serverNames)
+  const file = String(form.file || '').trim()
+  const errors = {}
+  if (name !== '.' && !validName(name)) errors.name = 'name'
+  if (['secondary', 'stub'].includes(kind) && !primaries.length) errors.primaries = 'list'
+  if (kind === 'mirror' && abs !== '.' && !primaries.length) errors.primaries = 'list'
+  if (kind === 'forward' && !forwarders.length) errors.forwarders = 'list'
+  if (kind === 'static-stub' && !addresses.length && !names.length) errors.serverAddresses = 'list'
+  if (kind === 'hint' && !file) errors.file = 'required'
+  if (kind === 'redirect' && !file && !primaries.length) errors.file = 'fileOrPrimaries'
+  if (Object.keys(errors).length) return { errors, after: null }
+
+  const after = { name: abs, kind, view: form.view || '_default' }
+  if (kind === 'primary') after.file = file || `db.${bareName(abs)}`
+  if (['secondary', 'stub'].includes(kind)) after.file = file || `sec/db.${bareName(abs)}`
+  if (['mirror', 'hint', 'redirect'].includes(kind) && file) after.file = file
+  if (['secondary', 'stub', 'mirror', 'redirect'].includes(kind) && primaries.length) after.primaries = primaries
+  if (kind === 'forward') {
+    after.forwarders = forwarders
+    after.forward = 'only'
+  }
+  if (kind === 'static-stub') {
+    after.extra = {}
+    if (addresses.length) after.extra['server-addresses'] = `{ ${addresses.map((a) => `${a};`).join(' ')} }`
+    if (names.length) after.extra['server-names'] = `{ ${names.map((n) => `"${bareName(n)}";`).join(' ')} }`
+  }
+  if (form.addzone && ADDZONE_KINDS.includes(kind)) after.source = 'addzone'
+  return { errors: {}, after }
+}

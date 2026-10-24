@@ -32,6 +32,7 @@ def start(
     extra_keys: tuple[str, ...] = (),
     options: str = "",
     files: dict[str, str] | None = None,
+    recursion: bool = False,
 ) -> named_fx.NamedServer:
     """`body` may use {zones} (the zone directory) and {key:<name>} is not needed: every key of
     `keys` is defined at the top level before it."""
@@ -66,7 +67,7 @@ options {{
 \tmanaged-keys-directory "{run}";
 \tlisten-on port {ports["dns"]} {{ 127.0.0.1; }};
 \tlisten-on-v6 {{ none; }};
-\trecursion no;
+\trecursion {"yes" if recursion else "no"};
 \tdnssec-validation no;
 \tallow-query {{ any; }};
 \tnotify no;

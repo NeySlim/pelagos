@@ -98,7 +98,17 @@
       "addzoneHelp": "Needs allow-new-zones yes; named keeps the zone in its NZD database",
       "peers": "Also on these nodes, as secondaries",
       "secondaryPrimaries": "Primaries the secondaries transfer from",
-      "secondaryPrimariesHelp": "One per line, for instance 192.0.2.1 key ddi-read; empty: this node's address"
+      "secondaryPrimariesHelp": "One per line, for instance 192.0.2.1 key ddi-read; empty: this node's address",
+      "serverAddresses": "Server addresses",
+      "serverAddressesHelp": "One IP address per line: named sends its queries for the zone there",
+      "serverNames": "Server names",
+      "serverNamesHelp": "One name server name per line, resolved by named",
+      "staticStubError": "Enter at least one server address or name",
+      "fileRequired": "Enter the root hints file",
+      "fileOrPrimaries": "Enter a zone file or at least one primary",
+      "rootOnly": "This kind of zone is always the root zone (.)",
+      "hintFileHelp": "Root hints file, for instance /usr/share/dns/root.hints",
+      "mirrorHelp": "Primaries are optional for the root zone only; named needs recursion and DNSSEC validation"
     },
     "mode": "Mode"
   },

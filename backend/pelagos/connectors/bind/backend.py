@@ -74,6 +74,11 @@ WRITTEN_FILE = "pelagos-written.json"  # in the backup directory: sha256 of what
 MAX_DETAILS = 256  # audit material kept per process; callers should pop_details() after copying
 
 
+def _zone_kind(change: Any) -> str | None:
+    side = change.after if isinstance(change.after, dict) else change.before
+    return side.get("kind") if isinstance(side, dict) else None
+
+
 class BindBackend(BindExtras, DnsBackend):
     def __init__(self, ctx: ConnectorContext) -> None:
         super().__init__(ctx)
@@ -548,11 +553,24 @@ class BindBackend(BindExtras, DnsBackend):
             for change in plan.changes:
                 view, _, name = change.target.partition("/")
                 view = None if view in ("", DEFAULT_VIEW) else view
+                # Root hints are not a zone rndc zonestatus knows: the reload itself is the check.
+                if _zone_kind(change) == "hint":
+                    if not self.rndc.status():
+                        return False
+                    continue
+                # rndc names the redirect zone "-redirect", as "." would be the root zone.
+                if _zone_kind(change) == "redirect":
+                    name = "-redirect"
                 try:
                     self.rndc.zonestatus(name, view)
                     present = True
                 except RndcNotFound:
                     present = False
+                except ConnectorError as exc:
+                    # A transferred zone (secondary, mirror) waiting for its primary is configured.
+                    if "not loaded" not in str(exc):
+                        raise
+                    present = True
                 if present == (ChangeOp(change.op) is ChangeOp.DELETE):
                     return False
             return True

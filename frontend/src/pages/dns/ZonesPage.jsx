@@ -22,44 +22,38 @@ import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { ModeBadge, SerialCells, SourceBadge } from './common'
-import { useNodeNames, usePlanFlow, zoneHref, resynchronizeZone, stripDot, SECONDARY_KINDS } from './helpers'
-import { splitRdata, validDomainName } from './records'
-import { splitList, zoneMode, zoneStats } from './zoneTools'
+import { useNodeNames, usePlanFlow, zoneHref, resynchronizeZone, SECONDARY_KINDS } from './helpers'
+import { validDomainName } from './records'
+import { ADDZONE_KINDS, CREATABLE_KINDS, ROOT_KINDS, newZoneAfter, splitList, zoneMode, zoneStats } from './zoneTools'
 
 const KINDS = ['primary', 'secondary', 'stub', 'static-stub', 'forward', 'mirror', 'hint', 'redirect']
-const CREATABLE_KINDS = ['primary', 'secondary', 'stub', 'forward']
+const LIST_ERRORS = { list: 'zones.new.listError', required: 'zones.new.fileRequired', fileOrPrimaries: 'zones.new.fileOrPrimaries' }
 
 function NewZoneModal({ open, onClose, onPlan, views, peers }) {
   const { t } = useTranslation(['dns', 'common'])
-  const [form, setForm] = useState({ name: '', kind: 'primary', view: '_default', file: '', primaries: '', forwarders: '', addzone: false, peers: [], secondaryPrimaries: '' })
+  const [form, setForm] = useState({ name: '', kind: 'primary', view: '_default', file: '', primaries: '', forwarders: '', serverAddresses: '', serverNames: '', addzone: false, peers: [], secondaryPrimaries: '' })
   const togglePeer = (id) => setForm((f) => ({ ...f, peers: f.peers.includes(id) ? f.peers.filter((p) => p !== id) : [...f.peers, id] }))
-  const withPeers = form.kind === 'primary' && !form.addzone && peers.length > 0
+  const kind = form.kind
+  const canAddzone = ADDZONE_KINDS.includes(kind)
+  const withPeers = kind === 'primary' && !form.addzone && peers.length > 0
+  const rootOnly = ROOT_KINDS.includes(kind)
   const [touched, setTouched] = useState(false)
   const [busy, setBusy] = useState(false)
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e?.target ? e.target.value : e }))
-  const name = form.name.trim().toLowerCase()
-  const nameOk = validDomainName(name)
-  const needsPrimaries = ['secondary', 'stub'].includes(form.kind)
-  const primariesOk = !needsPrimaries || splitRdata(form.primaries).length > 0
-  const forwardersOk = form.kind !== 'forward' || splitRdata(form.forwarders).length > 0
+  const { errors, after } = newZoneAfter(form, validDomainName)
+  const errorOf = (field) => (touched && errors[field] ? t(field === 'name' ? 'zones.new.nameError' : field === 'serverAddresses' ? 'zones.new.staticStubError' : LIST_ERRORS[errors[field]]) : undefined)
+  const showPrimaries = ['secondary', 'stub', 'mirror', 'redirect'].includes(kind)
+  const showFile = kind !== 'forward' && kind !== 'static-stub'
 
   const submit = async () => {
     setTouched(true)
-    if (!nameOk || !primariesOk || !forwardersOk) return
-    const abs = name.endsWith('.') ? name : `${name}.`
-    const after = { name: abs, kind: form.kind, view: form.view || '_default' }
-    if (form.kind !== 'forward') after.file = form.file.trim() || (form.kind === 'primary' ? `db.${stripDot(abs)}` : `sec/db.${stripDot(abs)}`)
-    if (needsPrimaries) after.primaries = splitRdata(form.primaries)
-    if (form.kind === 'forward') {
-      after.forwarders = splitRdata(form.forwarders)
-      after.forward = 'only'
-    }
-    if (form.addzone) after.source = 'addzone'
+    if (!after) return
     const nodeIds = withPeers ? form.peers : []
-    if (nodeIds.length && splitList(form.secondaryPrimaries).length) after.secondary = { primaries: splitList(form.secondaryPrimaries) }
+    const body = { ...after }
+    if (nodeIds.length && splitList(form.secondaryPrimaries).length) body.secondary = { primaries: splitList(form.secondaryPrimaries) }
     setBusy(true)
     try {
-      await onPlan({ op: 'add', target: `${after.view}/${abs}`, before: null, after, node_ids: [] }, nodeIds)
+      await onPlan({ op: 'add', target: `${body.view}/${body.name}`, before: null, after: body }, nodeIds)
     } finally {
       setBusy(false)
     }
@@ -67,25 +61,62 @@ function NewZoneModal({ open, onClose, onPlan, views, peers }) {
 
   return (
     <FormModal open={open} onClose={onClose} title={t('zones.new.title')} onSubmit={submit} loading={busy} submitLabel={t('editor.buildPlan')} testId="zone-new">
-      <Input label={t('zones.new.name')} value={form.name} onChange={set('name')} placeholder="example.lan" error={touched && !nameOk ? t('zones.new.nameError') : undefined} autoFocus />
+      <Input
+        label={t('zones.new.name')}
+        value={rootOnly ? '.' : form.name}
+        onChange={set('name')}
+        disabled={rootOnly}
+        placeholder="example.lan"
+        error={errorOf('name')}
+        helperText={rootOnly ? t('zones.new.rootOnly') : undefined}
+        autoFocus
+        data-testid="zone-new-name"
+      />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Select label={t('zones.kind')} value={form.kind} onChange={set('kind')} options={CREATABLE_KINDS.map((k) => ({ value: k, label: t(`kind.${k}`) }))} />
+        <Select label={t('zones.kind')} value={kind} onChange={set('kind')} options={CREATABLE_KINDS.map((k) => ({ value: k, label: t(`kind.${k}`) }))} />
         <Select label={t('zones.view')} value={form.view} onChange={set('view')} options={views.map((v) => ({ value: v, label: v }))} />
       </div>
-      {form.kind !== 'forward' && <Input label={t('zones.new.file')} value={form.file} onChange={set('file')} helperText={t('zones.new.fileHelp')} />}
-      {needsPrimaries && (
-        <Textarea label={t('zones.primaries')} value={form.primaries} onChange={set('primaries')} rows={3} placeholder="192.0.2.53 key ddi-read" error={touched && !primariesOk ? t('zones.new.listError') : undefined} helperText={t('editor.rdataHelp')} />
+      {showFile && (
+        <Input
+          label={t('zones.new.file')}
+          value={form.file}
+          onChange={set('file')}
+          placeholder={kind === 'hint' ? '/usr/share/dns/root.hints' : undefined}
+          helperText={kind === 'hint' ? t('zones.new.hintFileHelp') : t('zones.new.fileHelp')}
+          error={errorOf('file')}
+          data-testid="zone-new-file"
+        />
       )}
-      {form.kind === 'forward' && (
-        <Textarea label={t('resolver.forwarders')} value={form.forwarders} onChange={set('forwarders')} rows={3} placeholder="192.0.2.1" error={touched && !forwardersOk ? t('zones.new.listError') : undefined} helperText={t('editor.rdataHelp')} />
+      {showPrimaries && (
+        <Textarea
+          label={t('zones.primaries')}
+          value={form.primaries}
+          onChange={set('primaries')}
+          rows={3}
+          placeholder="192.0.2.53 key ddi-read"
+          error={errorOf('primaries')}
+          helperText={kind === 'mirror' ? t('zones.new.mirrorHelp') : t('editor.rdataHelp')}
+          data-testid="zone-new-primaries"
+        />
       )}
-      <label className="flex items-start gap-2 text-sm text-text-primary cursor-pointer">
-        <input type="checkbox" className="mt-1" checked={form.addzone} onChange={(e) => setForm((f) => ({ ...f, addzone: e.target.checked }))} data-testid="zone-new-addzone" />
-        <span>
-          {t('zones.new.addzone')}
-          <span className="block text-xs text-text-tertiary">{t('zones.new.addzoneHelp')}</span>
-        </span>
-      </label>
+      {kind === 'forward' && (
+        <Textarea label={t('resolver.forwarders')} value={form.forwarders} onChange={set('forwarders')} rows={3} placeholder="192.0.2.1" error={errorOf('forwarders')} helperText={t('editor.rdataHelp')} />
+      )}
+      {kind === 'static-stub' && (
+        <>
+          <Textarea label={t('zones.new.serverAddresses')} value={form.serverAddresses} onChange={set('serverAddresses')} rows={2} placeholder="192.0.2.53" error={errorOf('serverAddresses')} helperText={t('zones.new.serverAddressesHelp')} data-testid="zone-new-server-addresses" />
+          <Textarea label={t('zones.new.serverNames')} value={form.serverNames} onChange={set('serverNames')} rows={2} placeholder="ns1.example.lan" helperText={t('zones.new.serverNamesHelp')} data-testid="zone-new-server-names" />
+        </>
+      )}
+      {canAddzone && (
+        <label className="flex items-start gap-2 text-sm text-text-primary cursor-pointer">
+          <input type="checkbox" className="mt-1" checked={form.addzone} onChange={(e) => setForm((f) => ({ ...f, addzone: e.target.checked }))} data-testid="zone-new-addzone" />
+          <span>
+            {t('zones.new.addzone')}
+            <span className="block text-xs text-text-secondary">{t('zones.new.addzoneHelp')}</span>
+          </span>
+        </label>
+      )}
       {withPeers && (
         <fieldset className="space-y-2" data-testid="zone-new-peers">
           <legend className="text-xs font-medium text-text-secondary">{t('zones.new.peers')}</legend>

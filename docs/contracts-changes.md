@@ -13,6 +13,15 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, WP-PACKAGING: pelagos.env owned by root, Kea group in compose
+`/etc/pelagos/pelagos.env` is `root:root 0644` (deb postinst, rpm `%attr`) and
+`/usr/bin/pelagos` parses it as `KEY=value` lines, refusing it unless root owns
+it and only root can write it; `pelagos-prestart` never chowns it nor follows
+symbolic links. Both units add `ReadWritePaths=-/var/cache/bind/pelagos
+-/var/named/pelagos` (section 3 zone directories). In compose the Kea daemons
+run as `0:${PELAGOS_KEA_GID}` (default 8450) instead of gid 0. Nobody has to
+react; anything writing to `pelagos.env` must do it as root.
+
 ## 2026-10-24, WP-PACKAGING: `packaging` runtime dependency
 `backend/pyproject.toml` gains `packaging>=24`. gunicorn's gevent worker
 (`gunicorn.workers.ggevent`, used through `geventwebsocket`) imports it

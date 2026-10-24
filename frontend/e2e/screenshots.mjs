@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// Documentation screenshots against the mock server, Pelagic theme, dark and light.
+// Documentation screenshots against the mock server, dark and light. The theme family is
+// Pelagic unless SCREENSHOT_FAMILY names another; SCREENSHOT_VIEWPORT=WxH changes the size.
 // Usage (from frontend/): node e2e/screenshots.mjs [output dir, default ../docs/images]
 // Starts its own mock and Vite servers on free ports, so it runs next to other servers.
 import { spawn } from 'node:child_process'
@@ -9,7 +10,9 @@ import { resolve } from 'node:path'
 import { chromium } from '@playwright/test'
 
 const out = resolve(process.argv[2] || '../docs/images')
-const VIEWPORT = { width: 1440, height: 900 }
+const FAMILY = process.env.SCREENSHOT_FAMILY || 'pelagic'
+const [vw, vh] = (process.env.SCREENSHOT_VIEWPORT || '1440x900').split('x').map(Number)
+const VIEWPORT = { width: vw, height: vh }
 
 function freePort() {
   return new Promise((ok, fail) => {
@@ -114,11 +117,11 @@ async function main() {
         colorScheme: scheme,
         locale: 'en-US',
       })
-      await context.addInitScript(() => {
-        localStorage.setItem('pelagos-theme-family', 'pelagic')
+      await context.addInitScript((family) => {
+        localStorage.setItem('pelagos-theme-family', family)
         localStorage.setItem('pelagos-theme-mode', 'system')
         localStorage.setItem('i18nextLng', 'en')
-      })
+      }, FAMILY)
       const page = await context.newPage()
       await signIn(page)
       for (const [name, steps] of SCENES) {

@@ -1,0 +1,134 @@
+# SPDX-License-Identifier: Apache-2.0
+# Pelagos next to the official ISC images. Start: PELAGOS_ADMIN_PASSWORD=... docker compose up -d
+#
+# Layout (see docker/README.md):
+#   pelagos-init       one shot: seeds the BIND and Kea configuration volumes, generates the rndc
+#                      key, runs "pelagos init" when PELAGOS_ADMIN_PASSWORD is set
+#   pelagos            web process (HTTPS :8443, replication :8444)
+#   pelagos-collector  polling, series cache, alerts
+#   bind               internetsystemsconsortium/bind9; rndc :953 and statistics :8053 stay on the
+#                      compose network, DNS :53 is published
+#   kea-dhcp4, kea-dhcp-ddns, kea-dhcp6 (profile dhcpv6)
+#                      ISC Kea images on the host network (DHCP needs the LAN broadcasts); the
+#                      control sockets are shared with the node through the kea-run volume
+#
+# Variables (.env file next to this compose.yaml or the environment):
+#   PELAGOS_IMAGE (default ghcr.io/neyslim/pelagos:latest), PELAGOS_ADMIN_PASSWORD, PELAGOS_NODE_NAME,
+#   PELAGOS_WEB_URL, PELAGOS_HTTPS_PORT (8443), PELAGOS_REPL_PORT (8444), BIND_IMAGE, KEA_VERSION.
+
+name: pelagos
+
+x-pelagos-common: &pelagos-common
+  image: ${PELAGOS_IMAGE:-ghcr.io/neyslim/pelagos:latest}
+  environment:
+    PELAGOS_ADMIN_PASSWORD: ${PELAGOS_ADMIN_PASSWORD:-}
+    PELAGOS_NODE_NAME: ${PELAGOS_NODE_NAME:-pelagos}
+    PELAGOS_WEB_URL: ${PELAGOS_WEB_URL:-}
+    PELAGOS_REPLICATION_URL: ${PELAGOS_REPLICATION_URL:-}
+    PELAGOS_KEA_GID: ${PELAGOS_KEA_GID:-0}
+    PELAGOS_BIND_HOST: bind
+  volumes:
+    - pelagos-etc:/etc/pelagos
+    - pelagos-var:/var/lib/pelagos
+    - pelagos-run:/run/pelagos
+    - { type: volume, source: bind-etc, target: /etc/bind, volume: { nocopy: true } }
+    - { type: volume, source: bind-cache, target: /var/cache/bind, volume: { nocopy: true } }
+    - { type: volume, source: kea-etc, target: /etc/kea, volume: { nocopy: true } }
+    - kea-run:/run/kea
+
+x-kea-common: &kea-common
+  network_mode: host
+  restart: unless-stopped
+  environment:
+    # Kea 3.x only accepts sockets under this directory; it is the volume shared with the node.
+    KEA_CONTROL_SOCKET_DIR: /run/kea
+  volumes:
+    # nocopy: the image defaults must not land in the volume before pelagos-init seeds it.
+    - { type: volume, source: kea-etc, target: /etc/kea, volume: { nocopy: true } }
+    - kea-leases:/var/lib/kea
+    - kea-run:/run/kea
+  depends_on:
+    pelagos-init:
+      condition: service_completed_successfully
+
+services:
+  pelagos-init:
+    <<: *pelagos-common
+    command: ["init"]
+    restart: "no"
+
+  pelagos:
+    <<: *pelagos-common
+    command: ["serve"]
+    restart: unless-stopped
+    ports:
+      - "${PELAGOS_HTTPS_PORT:-8443}:8443"
+      - "${PELAGOS_REPL_PORT:-8444}:8444"
+    networks:
+      - pelagos
+    depends_on:
+      pelagos-init:
+        condition: service_completed_successfully
+
+  pelagos-collector:
+    <<: *pelagos-common
+    command: ["collector"]
+    restart: unless-stopped
+    # The image healthcheck probes the web process, which this container does not run.
+    healthcheck:
+      disable: true
+    networks:
+      - pelagos
+    depends_on:
+      pelagos-init:
+        condition: service_completed_successfully
+
+  bind:
+    image: ${BIND_IMAGE:-internetsystemsconsortium/bind9:9.20}
+    # -g: foreground, log to stderr; the image entrypoint adds "-u bind".
+    command: ["-g", "-c", "/etc/bind/named.conf"]
+    restart: unless-stopped
+    ports:
+      - "${BIND_DNS_PORT:-53}:53/udp"
+      - "${BIND_DNS_PORT:-53}:53/tcp"
+    volumes:
+      - { type: volume, source: bind-etc, target: /etc/bind, volume: { nocopy: true } }
+      - { type: volume, source: bind-cache, target: /var/cache/bind, volume: { nocopy: true } }
+      - { type: volume, source: bind-lib, target: /var/lib/bind, volume: { nocopy: true } }
+    networks:
+      pelagos:
+        aliases: [bind, ns]
+    depends_on:
+      pelagos-init:
+        condition: service_completed_successfully
+
+  kea-dhcp4:
+    <<: *kea-common
+    image: docker.cloudsmith.io/isc/docker/kea-dhcp4:${KEA_VERSION:-3.2.1}
+    # The ISC image runs as root; umask 007 lets the group of /run/kea (the node) use the socket.
+    command: ["/bin/sh", "-c", "umask 007 && exec /usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4.conf"]
+
+  kea-dhcp-ddns:
+    <<: *kea-common
+    image: docker.cloudsmith.io/isc/docker/kea-dhcp-ddns:${KEA_VERSION:-3.2.1}
+    command: ["/bin/sh", "-c", "umask 007 && exec /usr/sbin/kea-dhcp-ddns -c /etc/kea/kea-dhcp-ddns.conf"]
+
+  kea-dhcp6:
+    <<: *kea-common
+    image: docker.cloudsmith.io/isc/docker/kea-dhcp6:${KEA_VERSION:-3.2.1}
+    command: ["/bin/sh", "-c", "umask 007 && exec /usr/sbin/kea-dhcp6 -c /etc/kea/kea-dhcp6.conf"]
+    profiles: [dhcpv6]
+
+networks:
+  pelagos:
+
+volumes:
+  pelagos-etc:
+  pelagos-var:
+  pelagos-run:
+  bind-etc:
+  bind-cache:
+  bind-lib:
+  kea-etc:
+  kea-leases:
+  kea-run:

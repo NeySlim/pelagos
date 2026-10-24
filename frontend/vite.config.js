@@ -28,6 +28,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         ws: true,
+        // The backend accepts a WebSocket only when Origin matches its own Host, which
+        // changeOrigin sets to the target: present the target origin on upgrades too.
+        configure: (proxy) => {
+          proxy.on('proxyReqWs', (proxyReq) => proxyReq.setHeader('origin', new URL(apiTarget).origin))
+        },
       },
     },
   },

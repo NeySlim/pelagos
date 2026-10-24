@@ -1,7 +1,8 @@
 # Lab
 
-Isolated VMs on a Proxmox host, reached over ssh through the jump host
-`pelagos-gw`. Network `10.99.0.0/24` and `fd99:99::/64`, NAT to the
+Isolated VMs on a Proxmox host. `lab-dev` is inside the lab network and
+reaches the others directly over ssh; it is also where the checkout lives
+and every test runs. Network `10.99.0.0/24` and `fd99:99::/64`, NAT to the
 internet, no access to any other network. Everything here may be broken and
 rolled back at will; nothing outside these VMs is ever a target.
 
@@ -11,19 +12,20 @@ rolled back at will; nothing outside these VMs is ever a target.
 | `lab-ns2` | 9112 | 10.99.0.12 | Debian 13, future BIND secondary + Kea HA peer | `clean` |
 | `lab-rpm` | 9113 | 10.99.0.13 | Rocky 10, rpm install target | `clean` |
 | `lab-client` | 9114 | 10.99.0.14 | Debian 13, second NIC for DHCP client tests | `clean` |
-| `pelagos-gw` | 9110 | 10.99.0.1 | jump host and lab NAT, do not modify or roll back | `configured` |
+| `pelagos-gw` | 9110 | 10.99.0.1 | lab NAT gateway, do not modify or roll back | `configured` |
 | `lab-dev` | 9115 | 10.99.0.15 | Debian 13 dev and test runner: repo checkout, venv, node_modules, BIND 9.20 and ISC Kea 3.2 binaries (services disabled) | `ready` |
 | `lab-pkg-rpm` | 9116 | 10.99.0.16 | Rocky 10, rpm build and install tests | `clean`, `rpmbuild` |
 | `lab-docker` | 9117 | 10.99.0.17 | Debian 13, Docker host for compose tests | `clean`, `docker` |
 
 All VMs: user `lab`, passwordless sudo, key authentication. The ssh aliases
-are configured on the workstation (`~/.ssh/config`, `ProxyJump pelagos-gw`).
+are configured on lab-dev (`~/.ssh/config`, key `~/.ssh/id_ed25519`, which
+the VM images authorize and which survives rollbacks).
 
 ## Usage
 
 ```sh
 ssh lab-ns1 'sudo apt-get install -y bind9'        # anything goes on the targets
-ssh lab-dev 'cd ~/pelagos && make test-daemon'      # tests run here
+cd ~/pelagos && make test-daemon                     # tests run on lab-dev
 scripts/lab/rollback.sh lab-ns1                      # back to the clean OS
 scripts/lab/rollback.sh all                          # the four targets, never lab-dev
 scripts/lab/rollback.sh lab-dev                      # back to the toolchain snapshot

@@ -72,21 +72,18 @@ a contract change (one line in the log is enough).
 
 ## Where things run
 
-The workstation is for editing and git only. The repository checkout lives
-on the `lab-dev` VM (`lab-dev:~/pelagos`, parallel worktrees under
-`lab-dev:~/pelagos-wt/<name>`) and is mounted on the workstation over sshfs
-at the same path you edit. Everything that executes (`uv`, `pytest`,
-`ruff`, `npm`, `vite`, `named`, `kea-*`) runs on lab-dev:
+Everything runs on the `lab-dev` VM: the checkout is `~/pelagos`, parallel
+worktrees live under `~/pelagos/.claude/worktrees/<name>`, and every command
+(`uv`, `pytest`, `ruff`, `npm`, `vite`, `named`, `kea-*`) runs locally in
+the worktree you work in:
 
 ```sh
-ssh lab-dev 'cd ~/pelagos && make test'
-ssh lab-dev 'cd ~/pelagos && make lint'
-ssh lab-dev 'cd ~/pelagos-wt/<name> && make test-daemon'
+cd ~/pelagos && make lint test
+cd ~/pelagos/.claude/worktrees/<name> && make test-daemon
 ```
 
-`.venv/` and `node_modules/` exist only on lab-dev and stay gitignored.
-Never run `npm`, `uv`, `pytest` or a daemon on the workstation. lab-dev is
-Debian 13 with BIND 9.20 (`/usr/sbin`), ISC Kea 3.2 from Cloudsmith
+Each worktree has its own `.venv/` and `frontend/node_modules/` (gitignored;
+create them with `make dev`). lab-dev is Debian 13 with BIND 9.20 (`/usr/sbin`), ISC Kea 3.2 from Cloudsmith
 (`/usr/sbin`, hooks in `/usr/lib/x86_64-linux-gnu/kea/hooks`, binaries
 executable by group `_kea`, which the `lab` user is in), Python 3.13 system
 and 3.12 through `uv`, Node 22. The Makefile prepends `/usr/sbin` to `PATH`.
@@ -148,11 +145,12 @@ what any code that spawns the daemons must do too:
 
 ## Lab
 
-Five isolated VMs reachable over ssh through a jump host (ssh aliases
-`pelagos-gw`, `lab-ns1`, `lab-ns2`, `lab-rpm`, `lab-client`, `lab-dev`,
-user `lab`, passwordless sudo). `lab-ns1`/`lab-ns2` are Debian 13, `lab-rpm`
-is Rocky 10, `lab-client` has a second NIC for DHCP tests, `lab-dev` is the
-development and test runner (above). Network `10.99.0.0/24` and
+Isolated VMs reachable over ssh from lab-dev (ssh aliases `lab-ns1`,
+`lab-ns2`, `lab-rpm`, `lab-client`, `lab-pkg-rpm`, `lab-docker`, user
+`lab`, passwordless sudo). `lab-ns1`/`lab-ns2` are Debian 13, `lab-rpm`
+is Rocky 10, `lab-client` has a second NIC for DHCP tests,
+`lab-pkg-rpm` (Rocky) builds rpms, `lab-docker` runs the compose tests and
+`lab-dev` is the development and test runner (above). Network `10.99.0.0/24` and
 `fd99:99::/64`, NAT to the internet, LAN blocked. The target VMs have a
 snapshot named `clean` (fresh OS) and lab-dev has `ready` (toolchain
 installed); `scripts/lab/rollback.sh <vmid|all>` restores them through the
@@ -175,7 +173,7 @@ the defaults used before React mounts; they match the default family
 
 ## Daily commands
 
-All of these run on lab-dev (`ssh lab-dev 'cd ~/pelagos && make <target>'`):
+All of these run on lab-dev, in the checkout or worktree:
 
 ```sh
 make dev            # venv + npm install

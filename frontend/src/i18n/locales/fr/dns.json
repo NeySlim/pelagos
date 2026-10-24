@@ -10,7 +10,7 @@
   "pages": {
     "zones": {
       "title": "Zones",
-      "subtitle": "Zones de chaque vue avec les numéros de série par nœud"
+      "subtitle": "Zones de toutes les vues avec le serial de chaque nœud"
     },
     "zoneDetail": {
       "title": "Zone",
@@ -34,7 +34,231 @@
     },
     "rpz": {
       "title": "Zones de politique de réponse",
-      "subtitle": "RPZ et zones catalogue"
+      "subtitle": "RPZ et catalog zones"
+    }
+  },
+  "kind": {
+    "primary": "Primaire",
+    "secondary": "Secondaire",
+    "stub": "Stub",
+    "static-stub": "Stub statique",
+    "forward": "Redirection",
+    "mirror": "Miroir",
+    "hint": "Hint",
+    "redirect": "Redirect"
+  },
+  "source": {
+    "user_conf": "Config existante",
+    "pelagos": "Pelagos",
+    "catalog": "Catalogue"
+  },
+  "zones": {
+    "name": "Zone",
+    "kind": "Type",
+    "view": "Vue",
+    "source": "Origine",
+    "serials": "Serial par nœud",
+    "sync": "Synchro",
+    "lagging": "En retard sur le serial le plus haut",
+    "noSerial": "sans réponse",
+    "signed": "Signée",
+    "dynamic": "Dynamique",
+    "primaries": "Primaires",
+    "resync": "Resynchroniser",
+    "resyncDone": "Resynchronisation demandée pour {{zone}}",
+    "add": "Ajouter une zone",
+    "search": "Chercher une zone...",
+    "empty": "Aucune zone ne correspond",
+    "stats": {
+      "total": "Zones",
+      "primary": "Primaires",
+      "secondary": "Secondaires",
+      "divergent": "Divergentes"
+    },
+    "new": {
+      "title": "Nouvelle zone",
+      "name": "Nom de la zone",
+      "nameError": "Saisir un nom de domaine valide",
+      "file": "Fichier de zone",
+      "fileHelp": "Relatif au répertoire de BIND ; un nom est proposé s'il est vide",
+      "listError": "Saisir au moins une adresse"
+    }
+  },
+  "records": {
+    "owner": "Nom",
+    "type": "Type",
+    "ttl": "TTL",
+    "rdata": "Données",
+    "search": "Chercher un enregistrement...",
+    "readFrom": "serial {{serial}}",
+    "add": "Ajouter un enregistrement",
+    "empty": "Aucun enregistrement ne correspond"
+  },
+  "editor": {
+    "title": {
+      "add": "Ajouter un enregistrement",
+      "edit": "Modifier un RRset",
+      "delete": "Supprimer un RRset"
+    },
+    "buildPlan": "Voir le plan",
+    "deleteBody": "Tous les enregistrements {{type}} de {{name}} seront retirés par un UPDATE DNS signé.",
+    "owner": "Nom",
+    "ownerHelp": "Relatif à {{zone}}, @ pour l'apex, ou absolu avec un point final",
+    "type": "Type",
+    "ttl": "TTL (secondes)",
+    "rdata": "Valeurs",
+    "rdataHelp": "Une valeur par ligne",
+    "preview": "Avant et après",
+    "previewPending": "Remplir le formulaire pour voir la modification",
+    "unchanged": "Rien ne change",
+    "placeholder": {
+      "A": "192.0.2.10",
+      "AAAA": "2001:db8::10",
+      "CNAME": "host.example.lan.",
+      "MX": "10 mail.example.lan.",
+      "TXT": "\"v=spf1 -all\"",
+      "SRV": "0 5 5060 sip.example.lan.",
+      "PTR": "host.example.lan.",
+      "NS": "ns1.example.lan.",
+      "CAA": "0 issue \"ca.example.lan\"",
+      "DHCID": "AAIBY2/AuCccgoJbsaxcQc9TUapptP69lOjxfNuVAA2kjEA="
+    },
+    "errors": {
+      "owner": "Nom invalide ou hors de la zone",
+      "type": "Ce type ne se modifie pas ici",
+      "ttl": "Le TTL est un nombre entier de secondes",
+      "rdataEmpty": "Saisir au moins une valeur",
+      "singleton": "Un CNAME n'a qu'une seule valeur",
+      "ipv4": "Chaque valeur doit être une adresse IPv4",
+      "ipv6": "Chaque valeur doit être une adresse IPv6",
+      "hostname": "Chaque valeur doit être un nom d'hôte",
+      "mx": "Attendu : préférence hôte",
+      "srv": "Attendu : priorité poids port cible",
+      "caa": "Attendu : flags tag \"valeur\"",
+      "txt": "Chaînes entre guillemets de 255 caractères au plus"
+    }
+  },
+  "detail": {
+    "tabs": {
+      "records": "Enregistrements",
+      "status": "État par nœud",
+      "config": "Configuration"
+    },
+    "notify": "Notifier",
+    "reload": "Recharger",
+    "retransfer": "Retransférer",
+    "deleteZone": "Supprimer la zone",
+    "opDone": "Commande envoyée",
+    "noStatus": "Aucun nœud ne remonte cette zone",
+    "serial": "Serial SOA",
+    "configSerial": "Serial chargé",
+    "lastLoaded": "Dernier chargement",
+    "nextRefresh": "Prochain rafraîchissement",
+    "expires": "Expiration",
+    "files": "Fichiers",
+    "collectedAt": "Lu à",
+    "class": "Classe",
+    "file": "Fichier",
+    "configPath": "Déclarée dans",
+    "dnssecPolicy": "Politique DNSSEC",
+    "alsoNotify": "Notifier aussi",
+    "allowTransfer": "Transfert autorisé",
+    "allowUpdate": "Mise à jour autorisée",
+    "updatePolicy": "Politique de mise à jour",
+    "notes": "Notes",
+    "extra": "Autres statements"
+  },
+  "resolver": {
+    "recursion": "Récursion",
+    "recursionHelp": "Répondre aux requêtes récursives des clients autorisés",
+    "allowRecursion": "Récursion autorisée",
+    "aclHelp": "Adresses, préfixes, noms d'ACL ou de clés ; Entrée ajoute un élément",
+    "forwarders": "Redirecteurs",
+    "forwardersHelp": "Adresse IPv4 ou IPv6, éventuellement suivie de port N",
+    "forward": "Mode de redirection",
+    "forwardDefault": "Défaut de BIND (first)",
+    "dnssecValidation": "Validation DNSSEC",
+    "noForwarders": "Récursion complète",
+    "editTitle": "Réglages de résolution",
+    "perNode": "Par nœud",
+    "node": "Nœud",
+    "differs": "Diffère",
+    "forwardZones": "Zones de redirection",
+    "noForwardZones": "Aucune zone de redirection"
+  },
+  "acls": {
+    "tab": "ACL",
+    "add": "Ajouter une ACL",
+    "addTitle": "Nouvelle ACL",
+    "editTitle": "Modifier l'ACL",
+    "name": "Nom",
+    "nameError": "Lettres, chiffres, point, tiret ou souligné ; les noms prédéfinis sont réservés",
+    "elements": "Éléments",
+    "elementsError": "Ajouter au moins un élément",
+    "empty": "Aucune ACL définie"
+  },
+  "keys": {
+    "tab": "Clés TSIG",
+    "add": "Ajouter une clé",
+    "addTitle": "Nouvelle clé TSIG",
+    "name": "Nom",
+    "nameError": "Lettres, chiffres, point, tiret ou souligné",
+    "algorithm": "Algorithme",
+    "secret": "Secret",
+    "secretHelp": "Base64 ; laisser vide pour que le serveur en génère un",
+    "secretError": "Le secret doit être en base64",
+    "reveal": "Afficher (journalisé)",
+    "hide": "Masquer",
+    "rotate": "Renouveler le secret",
+    "weak": "Algorithme faible : passer à hmac-sha256",
+    "usedBy": "Utilisée par",
+    "unused": "Inutilisée",
+    "empty": "Aucune clé TSIG"
+  },
+  "secondaries": {
+    "empty": "Aucune zone secondaire",
+    "emptyHelp": "Les zones secondaires, stub et miroir apparaissent ici",
+    "stats": {
+      "total": "Zones secondaires",
+      "errors": "En erreur"
+    }
+  },
+  "dnssec": {
+    "keys": "Clés",
+    "tag": "Tag",
+    "role": "Rôle",
+    "state": "État",
+    "published": "Publiée",
+    "nextRollover": "Prochain roulement",
+    "noRollover": "Aucun prévu",
+    "ds": "Enregistrements DS pour la zone parente",
+    "nextResign": "Prochaine signature",
+    "readOn": "Lu sur",
+    "thisNode": "Ce nœud",
+    "unsigned": "Cette zone n'est pas signée",
+    "unsignedHelp": "La signature se règle avec dnssec-policy dans l'éditeur avancé",
+    "noZones": "Aucune zone"
+  },
+  "rpz": {
+    "policyZones": "Zones de politique",
+    "policy": "Politique",
+    "rules": "Règles",
+    "remote": "non servie ici",
+    "empty": "Aucune zone de politique de réponse",
+    "emptyHelp": "Les RPZ se déclarent avec le statement response-policy",
+    "catalogZones": "Catalog zones",
+    "defaultPrimaries": "Primaires par défaut",
+    "members": "Membres",
+    "noCatalogs": "Aucune catalog zone",
+    "policies": {
+      "given": "Tel qu'écrit dans la zone",
+      "disabled": "Désactivée",
+      "passthru": "Laisser passer",
+      "drop": "Ignorer",
+      "nxdomain": "NXDOMAIN",
+      "nodata": "NODATA",
+      "tcp_only": "TCP seulement",
+      "cname": "CNAME"
     }
   }
 }

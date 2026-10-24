@@ -18,6 +18,9 @@ ExecStartPre=+/opt/pelagos/bin/pelagos-prestart collector
 ExecStart=/opt/pelagos/venv/bin/pelagos collector
 Restart=on-failure
 RestartSec=5
+# 75: the engines changed (import or install), restart cleanly to load the new connectors.
+SuccessExitStatus=75
+RestartForceExitStatus=75
 RuntimeDirectory=pelagos
 RuntimeDirectoryPreserve=yes
 RuntimeDirectoryMode=0750

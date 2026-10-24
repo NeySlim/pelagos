@@ -42,7 +42,13 @@ The package depends on the exact `python3.X` the venv was built with.
 - `pelagos-helper.socket` (enabled and started) listens on
   `/run/pelagos-helper.sock`, `root:pelagos 0660`. The API's install, import
   and security endpoints run their steps as root through it: each connection
-  starts `pelagos-helper@.service`, which runs `pelagos helper` for one request.
+  starts `pelagos-helper@.service`, which runs `pelagos helper` for one request
+  (30 s to send it, one hour at most per instance). `apply` only runs plans
+  this helper built, plus the dual-key switch steps a peer sends.
+- After an import or install changed the engines, `pelagos-collector` exits
+  with status 75 and systemd restarts it to load the new connectors; the unit
+  lists 75 in `SuccessExitStatus` and `RestartForceExitStatus`, so this is not
+  a failure.
 - `ExecStartPre=+/opt/pelagos/bin/pelagos-prestart` (root) gives
   `/etc/pelagos` and `/var/lib/pelagos` back to `pelagos` (init may run as
   root; symbolic links are never followed and `pelagos.env` stays root's) and creates a self-signed certificate in `/etc/pelagos/tls/` when

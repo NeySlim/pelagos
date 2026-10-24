@@ -219,3 +219,23 @@ def test_record_plan_on_a_secondary_applies_on_the_primary(role_client, peer_b, 
     peer_b.registry.dns.zones["example.lan."].kind = ZoneKind.SECONDARY
     r = dora.post("/api/v1/dns/zones/example.lan/records/plan", json=body)
     assert r.status_code == 503 and "no reachable node is its primary" in r.get_json()["detail"]
+
+
+def test_host_reservation_goes_to_every_kea(role_client, peer_b, fake_registry, node_ctx):
+    admin = role_client("admin")
+    body = {
+        "hostname": "printer",
+        "ip": "192.0.2.43",
+        "mac": "aa:bb:cc:dd:ee:43",
+        "zone": "example.lan",
+        "reservation": True,
+    }
+    plan = admin.post("/api/v1/hosts/plan", json=body).get_json()
+    assert plan["target_node_ids"] == [node_ctx.node.id, NODE_B]
+    assert "\n+43.2.0.192.in-addr.arpa." in plan["diff"]
+    result = admin.post(f"/api/v1/plans/{plan['id']}/apply", json={}).get_json()
+    assert result["state"] == "applied", result
+    for backend in (fake_registry.kea4, peer_b.registry.kea4):
+        subnet = next(s for s in backend.config["subnet4"] if s["id"] == 1)
+        assert any(r.get("hw-address") == "aa:bb:cc:dd:ee:43" for r in subnet.get("reservations", []))
+    assert plan["id"] not in peer_b.registry.dns.applied

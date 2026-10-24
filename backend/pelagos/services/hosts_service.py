@@ -347,7 +347,7 @@ class HostsService:
         parts: list[Plan] = []
         rtype = "A" if ip.version == 4 else "AAAA"
         rr_changes = [Change(ChangeOp.ADD, f"{zone}/{fqdn}/{rtype}", after={"ttl": ttl, "rdata": [str(ip)]})]
-        parts.append(self.dns.local.plan_rrset_changes(zone, rr_changes, None, created_by))
+        parts.append(self._dns_part(zone, rr_changes, created_by))
         reverse_zone = request.get("reverse_zone")
         ptr_name = ip.reverse_pointer + "."
         if reverse_zone:
@@ -358,7 +358,7 @@ class HostsService:
             ptr = [
                 Change(ChangeOp.ADD, f"{reverse_zone}/{ptr_name}/PTR", after={"ttl": ttl, "rdata": [fqdn]})
             ]
-            parts.append(self.dns.local.plan_rrset_changes(reverse_zone, ptr, None, created_by))
+            parts.append(self._dns_part(reverse_zone, ptr, created_by))
         if want_reservation:
             dhcp = self.dhcp4 if ip.version == 4 else self.dhcp6
             if dhcp is None or dhcp.local is None:
@@ -385,9 +385,10 @@ class HostsService:
                 }
             after = {k: v for k, v in reservation.to_dict().items() if v not in (None, [], {})}
             target = f"{dhcp.subnet_key}/{int(subnet_id)}/reservations/hw-address={mac}"
-            parts.append(
-                dhcp.local.plan_reservation_change(Change(ChangeOp.ADD, target, after=after), created_by)
-            )
+            part = dhcp.local.plan_reservation_change(Change(ChangeOp.ADD, target, after=after), created_by)
+            # Every Kea of the HA pair carries the reservation, as reservation plans do.
+            part.target_node_ids = dhcp._all_nodes()
+            parts.append(part)
         plan = Plan(
             scope=PlanScope.HOST,
             node_id=self.ctx.node.id,
@@ -398,7 +399,7 @@ class HostsService:
         targets: list[str] = []
         for part in parts:
             plan.changes.extend(part.changes)
-            plan.diff += part.diff
+            plan.diff += part.diff if not plan.diff or plan.diff.endswith("\n") else "\n" + part.diff
             plan.preconditions.extend(part.preconditions)
             plan.validations.extend(part.validations)
             plan.requires_confirmation = plan.requires_confirmation or part.requires_confirmation
@@ -411,6 +412,14 @@ class HostsService:
         plan.error = "; ".join(p.error or "validation failed" for p in failed) or None
         self.plans.register_composite(plan, parts)
         return self.ctx.plan_store.put(plan)
+
+    def _dns_part(self, zone: str, changes: list[Change], created_by: str) -> Plan:
+        """An RRset plan applied where the zone is primary (this node, or the peer holding it)."""
+        part = self.dns.local.plan_rrset_changes(zone, changes, None, created_by)
+        primary = self.dns._primary_node(normalize_name(zone), None)
+        if primary is not None:
+            part.target_node_ids = [primary]
+        return part
 
     def _find_reverse_zone(self, ptr_name: str) -> str | None:
         assert self.dns is not None

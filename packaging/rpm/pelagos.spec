@@ -89,6 +89,12 @@ exit 0
 for grp in named bind kea _kea; do
   getent group "$grp" >/dev/null && usermod -a -G "$grp" %{pelagos_user} || :
 done
+# A node initialized as root (pelagos init, pelagos install --init) gives its files back to the
+# service user; symbolic links are never followed and pelagos.env stays root's.
+install -d -o %{pelagos_user} -g %{pelagos_user} -m 0750 %{_sysconfdir}/pelagos %{_sharedstatedir}/pelagos
+find %{_sysconfdir}/pelagos %{_sharedstatedir}/pelagos ! -type l ! -path %{_sysconfdir}/pelagos/pelagos.env \
+  \( ! -user %{pelagos_user} -o ! -group %{pelagos_user} \) \
+  -exec chown -h %{pelagos_user}:%{pelagos_user} {} + 2>/dev/null || :
 %systemd_post pelagos.service pelagos-collector.service
 if [ $1 -eq 1 ] && [ ! -f %{_sysconfdir}/pelagos/node.toml ]; then
   echo "pelagos: installed. Initialize the first node with:" >&2

@@ -80,6 +80,21 @@ def _progress(as_json: bool) -> Any:
     return report
 
 
+def _give_node_tree(env: Any) -> None:
+    """Root wrote node.toml, keys and state: the service user gets them back (pelagos.env stays root's)."""
+    from pelagos.platform import PELAGOS_USER, give_tree_to
+
+    paths = env.node_paths
+    if not paths.node_toml.exists():
+        return
+    try:
+        give_tree_to(PELAGOS_USER, [paths.etc, paths.var], skip=[paths.etc / "pelagos.env"])
+    except OSError as exc:
+        print(
+            f"warning: could not give {paths.etc} and {paths.var} to {PELAGOS_USER}: {exc}", file=sys.stderr
+        )
+
+
 def _run(
     args: argparse.Namespace, env: Any, plan: Plan, before_apply: Callable[[], str | None] | None = None
 ) -> int:
@@ -108,6 +123,8 @@ def _run(
             file=sys.stderr,
         )
     job = apply_plan(plan, env, progress=_progress(args.json))
+    if not args.dry_run:
+        _give_node_tree(env)
     if args.json:
         print(json.dumps(job.to_dict(), indent=2))
     elif job.state is JobState.DONE:

@@ -190,3 +190,34 @@ def test_service_manager_queries():
     assert not sm.is_active("kea-dhcp4-server.service")
     sm.enable_now("named.service")
     assert "systemctl enable --now named.service" in runner.commands("systemctl")
+
+
+def test_give_tree_to_skips_links_and_listed_files(tmp_path, monkeypatch):
+    import grp
+    import os
+    import pwd
+
+    from pelagos.platform import give_tree_to
+
+    me = pwd.getpwuid(os.getuid())
+    other = next((g for g in os.getgroups() if g != me.pw_gid), None)
+    if other is None:
+        pytest.skip("the test user has no supplementary group to chown to")
+    group = grp.getgrgid(other).gr_name
+    (tmp_path / "etc").mkdir()
+    (tmp_path / "etc" / "node.toml").write_text("x")
+    (tmp_path / "etc" / "pelagos.env").write_text("x")
+    (tmp_path / "var" / "pki").mkdir(parents=True)
+    (tmp_path / "var" / "pki" / "node.key").write_text("k")
+    os.symlink(tmp_path / "etc" / "node.toml", tmp_path / "var" / "link")
+    assert give_tree_to(me.pw_name, [tmp_path / "etc"]) == 0  # not root: nothing happens
+    monkeypatch.setattr(os, "geteuid", lambda: 0)
+    changed = give_tree_to(
+        me.pw_name, [tmp_path / "etc", tmp_path / "var"], skip=[tmp_path / "etc" / "pelagos.env"], group=group
+    )
+    assert changed == 5
+    assert (tmp_path / "var" / "pki" / "node.key").stat().st_gid == other
+    assert (tmp_path / "etc" / "pelagos.env").stat().st_gid == me.pw_gid
+    assert (tmp_path / "var" / "link").lstat().st_gid == me.pw_gid
+    assert give_tree_to(me.pw_name, [tmp_path / "etc"], group=group) == 1  # pelagos.env, not skipped now
+    assert give_tree_to("no-such-user-pelagos", [tmp_path]) == 0

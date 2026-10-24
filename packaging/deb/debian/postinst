@@ -19,6 +19,10 @@ case "$1" in
     install -d -o pelagos -g pelagos -m 0750 /etc/pelagos /etc/pelagos/tls
     install -d -o pelagos -g pelagos -m 0750 /var/lib/pelagos /var/lib/pelagos/audit \
       /var/lib/pelagos/pki /var/lib/pelagos/backups /var/lib/pelagos/plans /var/lib/pelagos/locks
+    # A node initialized as root (pelagos init, pelagos install --init) gives its files back to the
+    # service user; symbolic links are never followed and pelagos.env stays root's.
+    find /etc/pelagos /var/lib/pelagos ! -type l ! -path /etc/pelagos/pelagos.env \
+      \( ! -user pelagos -o ! -group pelagos \) -exec chown -h pelagos:pelagos {} + 2>/dev/null || true
     # Root reads this file in /usr/bin/pelagos: the service user must not be able to write it.
     if [ -f /etc/pelagos/pelagos.env ] && [ ! -L /etc/pelagos/pelagos.env ]; then
       chown root:root /etc/pelagos/pelagos.env

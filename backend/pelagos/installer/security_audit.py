@@ -1234,10 +1234,10 @@ def remediate_secret_file(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> s
     entry = {k: v for k, v in key.items() if k != "secret"}
     entry["secret-file"] = str(path)
     new_cfg = keaconf.rename_key(config, d["key"], entry)
+    # Lossless: comments stay and the key is changed in the file of the tree that defines it.
+    files = keasetup.edited_files(conf, new_cfg)
     out.append(
-        keasetup.write_config(
-            env, "d2", conf, keaconf.dumps(new_cfg), f"security-secret-file-{d['key']}", restart=False
-        )
+        keasetup.write_files(env, "d2", conf, files, f"security-secret-file-{d['key']}", restart=False)
     )
     return "\n".join(out)
 

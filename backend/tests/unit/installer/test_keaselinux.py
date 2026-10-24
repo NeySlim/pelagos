@@ -72,3 +72,43 @@ def test_context_type_reads_the_label(tmp_path):
     # tmpfs and most CI filesystems carry no label: None, never an exception.
     assert keaselinux.context_type(f) in (None,) or isinstance(keaselinux.context_type(f), str)
     assert keaselinux.context_type(tmp_path / "missing") is None
+
+
+def test_generic_types_are_refused(tmp_path):
+    env = env_for(tmp_path)
+    types = typer({"/usr/sbin/kea-dhcp4": "dhcpd_exec_t", str(CONF): "etc_t"})
+    out = keaselinux.ensure_config_write(env, CONF, "kea-dhcp4", types)
+    assert "generic type" in out and "semanage fcontext -a -t dhcp_etc_t" in out
+    assert env.runner.calls == [] and not (tmp_path / "etc/pelagos/selinux").exists()
+
+
+def test_included_files_and_the_other_family_are_covered(tmp_path):
+    env = env_for(tmp_path)
+    part = tmp_path / "subnets.json"
+    part.write_text('"valid-lifetime": 3600,')
+    conf4 = tmp_path / "kea-dhcp4.conf"
+    conf4.write_text(f'{{"Dhcp4": {{ <?include "{part}"?> "subnet4": [] }}}}')
+    conf6 = tmp_path / "kea-dhcp6.conf"
+    conf6.write_text('{"Dhcp6": {}}')
+    types = typer(
+        {
+            "/usr/sbin/kea-dhcp4": "dhcpd_exec_t",
+            "/usr/sbin/kea-dhcp6": "dhcpd_exec_t",
+            str(conf4): "dhcp_etc_t",
+            str(part): "dhcpd_state_t",
+            str(conf6): "kea_etc_t",
+        }
+    )
+    keaselinux.ensure_config_write(env, conf4, "kea-dhcp4", types)
+    out = keaselinux.ensure_config_write(env, conf6, "kea-dhcp6", types)
+    cil = (tmp_path / "etc/pelagos/selinux/pelagos-kea-dhcpd_t.cil").read_text()
+    assert "dhcp_etc_t, dhcpd_state_t, kea_etc_t" in out
+    for t in ("dhcp_etc_t", "dhcpd_state_t", "kea_etc_t"):
+        assert f"(allow dhcpd_t {t} (file" in cil
+    # An included file in a generic type is refused like the main file.
+    types_generic = typer(
+        {"/usr/sbin/kea-dhcp4": "dhcpd_exec_t", str(conf4): "dhcp_etc_t", str(part): "usr_t"}
+    )
+    assert f"{part} is labeled usr_t" in keaselinux.ensure_config_write(
+        env, conf4, "kea-dhcp4", types_generic
+    )

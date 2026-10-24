@@ -595,3 +595,21 @@ def test_inherited_allow_update_makes_a_zone_dynamic(tmp_path):
     )
     assert bindconf.acl_elements(options.sub("allow-update")) == ["key ddi-admin", "key partner"]
     assert not [f for f in run_audit(env) if f.kind == "update_without_admin_key"]
+
+
+def test_secret_file_migration_keeps_comments_and_includes(tmp_path):
+    env = debian_tree(tmp_path)
+    conf = _d2_with_md5(tmp_path)
+    keys = conf.parent / "d2-keys.json"
+    body = json.loads(conf.read_text())["DhcpDdns"]
+    keys.write_text(f'// TSIG keys of the D2 server\n"tsig-keys": {json.dumps(body.pop("tsig-keys"))},\n')
+    rest = json.dumps(body, indent=2)[1:-2]
+    conf.write_text(f'// D2 managed by hand\n{{"DhcpDdns": {{\n  <?include "{keys}"?>\n{rest}\n}}}}\n')
+    _plan, job = _apply(env, ["kea:kea_tsig_clear_secret:kea-ddns"])
+    assert job.state is JobState.DONE, job.error
+    main, part = conf.read_text(), keys.read_text()
+    assert main.startswith("// D2 managed by hand") and f'<?include "{keys}"?>' in main
+    assert "tsig-keys" not in main and "secret-file" in part and '"secret"' not in part
+    assert part.startswith("// TSIG keys of the D2 server")
+    key = keaconf.tsig_keys(keaconf.loads(main, str(conf)))[0]
+    assert Path(key["secret-file"]).read_text().strip().startswith("bGVnYWN5")

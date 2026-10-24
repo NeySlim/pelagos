@@ -34,14 +34,16 @@ pc1\tIN A 192.0.2.50
 """
 
 
-def add_static_zone(server: named_fx.NamedServer, name: str = "static.lan", transfer: bool = True) -> Path:
+def add_static_zone(
+    server: named_fx.NamedServer, name: str = "static.lan", transfer: bool = True, extra: str = ""
+) -> Path:
     zones = server.root / "zones"
     path = zones / f"{name}.db"
     path.write_text(STATIC.replace("static.lan", name))
     (zones / f"{name}.lab.inc").write_text(LAB)
     xfr = "allow-transfer { key ddi-read; };" if transfer else ""
     conf = server.named_conf.read_text()
-    conf += f'zone "{name}" {{ type primary; file "{name}.db"; {xfr} notify no; }};\n'
+    conf += f'zone "{name}" {{ type primary; file "{name}.db"; {xfr} {extra} notify no; }};\n'
     server.named_conf.write_text(conf)
     server.rndc("reconfig")
     return path
@@ -124,3 +126,40 @@ def test_static_zone_bad_edit_and_unwritable_file_are_refused(named_server, tmp_
     finally:
         path.parent.chmod(0o755)
         path.chmod(0o644)
+
+
+def test_allow_update_none_is_a_static_zone(named_server, tmp_root):
+    path = add_static_zone(named_server, "none.lan", extra="allow-update { none; };")
+    backend = make_backend(named_server, tmp_root)
+    assert backend.static_zone("none.lan") is not None
+    plan = backend.plan_rrset_changes(
+        "none.lan", [Change(ChangeOp.ADD, "none.lan/mail/A", after={"rdata": ["192.0.2.25"], "ttl": 3600})]
+    )
+    assert plan.state is PlanState.VALIDATED and "file edit" in plan.summary
+    result = backend.apply(plan)
+    assert result.ok, result.message
+    assert "mail\tIN\tA\t192.0.2.25" in path.read_text()
+    data = {(r.name, r.rtype): r.rdata for r in backend.read_zone("none.lan")}
+    assert data[("mail.none.lan.", "A")] == ["192.0.2.25"]
+
+
+def test_allow_update_inherited_from_the_options_takes_updates(named_server, tmp_root):
+    path = add_static_zone(named_server, "inherit.lan")
+    conf = named_server.named_conf.read_text()
+    named_server.named_conf.write_text(
+        conf.replace("\trecursion no;", "\trecursion no;\n\tallow-update { key ddi-admin; };", 1)
+    )
+    named_server.rndc("reconfig")
+    backend = make_backend(named_server, tmp_root)
+    zone = backend.config_zone("inherit.lan")
+    assert zone is not None and zone.dynamic and backend.static_zone("inherit.lan") is None
+    plan = backend.plan_rrset_changes(
+        "inherit.lan",
+        [Change(ChangeOp.ADD, "inherit.lan/mail/A", after={"rdata": ["192.0.2.25"], "ttl": 3600})],
+    )
+    assert plan.state is PlanState.VALIDATED and "file edit" not in plan.summary
+    result = backend.apply(plan)
+    assert result.ok, result.message
+    data = {(r.name, r.rtype): r.rdata for r in backend.read_zone("inherit.lan")}
+    assert data[("mail.inherit.lan.", "A")] == ["192.0.2.25"]
+    assert "192.0.2.25" not in path.read_text()  # named keeps the change in its journal

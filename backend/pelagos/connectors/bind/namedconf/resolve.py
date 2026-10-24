@@ -15,6 +15,7 @@ from typing import Any
 from pelagos.connectors.bind.namedconf.lexer import ParseError
 from pelagos.connectors.bind.namedconf.tree import ConfigDocument, Node, parse_nodes, unquote
 from pelagos.domain.dns import BindConfigTree, ConfigEntry, Zone, ZoneKind, ZoneSource, normalize_name
+from pelagos.domain.zone_updates import effective_allow_update, takes_updates
 
 MANAGED_HEADER = "# pelagos:managed v1"
 NOTE_PREFIX = "# pelagos:note "
@@ -216,8 +217,11 @@ def zone_from_node(
     path: str | None = None,
     managed: bool = False,
     note: dict[str, Any] | None = None,
+    inherited_allow_update: list[str] | None = None,
 ) -> Zone:
-    """Project a `zone` statement onto the Zone dataclass; unmodelled statements go to `extra`."""
+    """Project a `zone` statement onto the Zone dataclass; unmodelled statements go to `extra`.
+
+    inherited_allow_update is the view or options allow-update, used when the zone sets none."""
     args = node.args
     name = normalize_name(args[0]) if args else "."
     rclass = args[1].upper() if len(args) > 1 else "IN"
@@ -237,8 +241,6 @@ def zone_from_node(
             zone.file = stmt.args[0] if stmt.args else None
         elif sname in ZONE_LIST_FIELDS:
             setattr(zone, ZONE_LIST_FIELDS[sname], stmt.elements())
-            if sname in ("update-policy", "allow-update"):
-                zone.dynamic = True
             if sname in ("primaries", "masters") and stmt.raw_args:
                 # `primaries port 5300 { ... }` carries options before the block; keep them visible.
                 zone.extra[sname + "-options"] = " ".join(stmt.raw_args)
@@ -252,8 +254,9 @@ def zone_from_node(
             zone.extra["in-view"] = stmt.args[0] if stmt.args else ""
         else:
             zone.extra[sname] = stmt.value_text()
-    if zone.update_policy == ["local"]:
-        zone.dynamic = True
+    own = node.first("allow-update")
+    allow_update = effective_allow_update(own.elements() if own else None, inherited_allow_update)
+    zone.dynamic = takes_updates(node.first("update-policy") is not None, allow_update)
     return zone
 
 
@@ -308,6 +311,7 @@ def build_tree(files: ConfigFiles, node_id: str, include_dir: Path | None = None
         elif depth == 1 and parents[0].name == "view" and include_dir and _under(Path(target), include_dir):
             view_includes[parents[0].args[0] if parents[0].args else "_default"] = True
 
+    inherited = inherited_allow_update(files)
     for res in files.statements():
         node, path, parents = res.node, res.path, res.parents
         depth = len(parents)
@@ -344,7 +348,9 @@ def build_tree(files: ConfigFiles, node_id: str, include_dir: Path | None = None
             elif name == "zone":
                 doc = files.docs.get(path)
                 note = _note(doc, node, parents)
-                tree.zones.append(zone_from_node(node, "_default", path, managed(path), note))
+                tree.zones.append(
+                    zone_from_node(node, "_default", path, managed(path), note, inherited.get(None))
+                )
             else:
                 others.append(
                     {
@@ -361,7 +367,9 @@ def build_tree(files: ConfigFiles, node_id: str, include_dir: Path | None = None
             if name == "zone":
                 doc = files.docs.get(path)
                 note = _note(doc, node, parents)
-                zone = zone_from_node(node, view_name, path, managed(path), note)
+                zone = zone_from_node(
+                    node, view_name, path, managed(path), note, inherited.get(view_name, inherited.get(None))
+                )
                 tree.views.setdefault(view_name, []).append(zone)
                 tree.zones.append(zone)
             elif name == "key":
@@ -390,6 +398,24 @@ def build_tree(files: ConfigFiles, node_id: str, include_dir: Path | None = None
         "has_views": bool(tree.views),
     }
     return tree
+
+
+def inherited_allow_update(files: ConfigFiles) -> dict[str | None, list[str] | None]:
+    """allow-update a zone without its own inherits: key None for the options, else per view."""
+    options: list[str] | None = None
+    views: dict[str, list[str] | None] = {}
+    for res in files.statements():
+        node, path, parents = res.node, res.path, res.parents
+        if not parents and node.name == "options":
+            for sub, _where in files.expanded(node.block.children if node.block else [], path):
+                if sub.is_statement and sub.name == "allow-update":
+                    options = sub.elements()
+        elif len(parents) == 1 and parents[0].name == "view" and node.name == "allow-update":
+            views[parents[0].args[0] if parents[0].args else "_default"] = node.elements()
+    out: dict[str | None, list[str] | None] = {None: options}
+    for view, own in views.items():
+        out[view] = effective_allow_update(own, options)
+    return out
 
 
 def _note(doc: ConfigDocument | None, node: Node, parents: tuple[Node, ...]) -> dict[str, Any] | None:

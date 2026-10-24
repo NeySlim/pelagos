@@ -414,3 +414,22 @@ def test_details_are_bounded(tmp_root: Path) -> None:
     for i in range(MAX_DETAILS + 10):
         backend._plan_details(f"p{i}")
     assert len(backend.details) == MAX_DETAILS and "p0" not in backend.details
+
+
+def test_static_zone_follows_named_and_the_default_view(
+    tmp_root: Path, conf_tree: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend, rec = make_backend(tmp_root, conf_tree)
+    assert backend.static_zone("example.lan") is not None  # rndc cannot tell: the config decides
+    rec.zones.add("example.lan")
+    monkeypatch.setattr(rec, "zonestatus", lambda zone, view=None: {"type": "primary", "dynamic": "yes"})
+    assert backend.static_zone("example.lan") is None  # named reports it dynamic: UPDATE it is
+    conf = conf_tree / "named.conf"
+    conf.write_text(
+        conf.read_text().replace(
+            'zone "example.lan" { type primary; file "example.lan.db"; };',
+            'view "inside" { zone "example.lan" { type primary; file "example.lan.db"; }; };',
+        )
+    )
+    assert backend.config_zone("example.lan") is None
+    assert backend.config_zone("example.lan", "inside") is not None

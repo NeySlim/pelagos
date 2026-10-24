@@ -21,7 +21,7 @@ from pelagos.connectors.base import (
     NotSupported,
     PreconditionFailed,
 )
-from pelagos.connectors.bind import ops, staticzone
+from pelagos.connectors.bind import ops, staticzone, zonefile
 from pelagos.connectors.bind import rrset as rr
 from pelagos.connectors.bind.configplan import (
     ConfigPlanner,
@@ -258,13 +258,20 @@ class BindBackend(BindExtras, DnsBackend):
             zones = self.list_zones()
         except (OSError, ConnectorError):
             return None
-        found = [z for z in zones if z.name == name and (view is None or z.view == want)]
+        found = [z for z in zones if z.name == name and z.view == want]
         return found[0] if found else None
 
     def static_zone(self, zone: str, view: str | None = None) -> Zone | None:
         """The zone when this node holds it as a static primary (its file is edited, no UPDATE)."""
         found = self.config_zone(zone, view)
-        return found if staticzone.is_static(found) else None
+        if not staticzone.is_static(found):
+            return None
+        # named has the last word: a zone it reports dynamic (inherited rules, addzone) takes UPDATEs.
+        try:
+            status = self.rndc.zonestatus(zone, None if view in (None, DEFAULT_VIEW) else view)
+        except ConnectorError:
+            return found
+        return None if status.get("dynamic", "").lower() == "yes" else found
 
     def _directory(self) -> Path:
         for entry in self.read_config(check=False).options:
@@ -398,7 +405,7 @@ class BindBackend(BindExtras, DnsBackend):
             label=f"{plan.id}-{label}" if label != "apply" else plan.id,
         )
         outcome = pipeline.run(
-            [FileChange(path=p, content=t.encode(), create_dirs=False) for p, t in texts.items()]
+            [FileChange(path=p, content=zonefile.encode(t), create_dirs=False) for p, t in texts.items()]
         )
         details[label] = {
             "request": {

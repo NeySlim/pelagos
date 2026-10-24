@@ -31,6 +31,22 @@ What changed (file, symbol). Why. Which packages must react, and how.
   smaller. The Michroma font (SIL OFL 1.1) is self-hosted under
   `frontend/public/fonts/`.
 
+## 2026-10-24, W3-I18N: translatable backend messages
+`docs/architecture.md` section 19 "Messages" (shape, where they appear, key catalog), sections 4 and
+15. Additive; the English texts stay as they are.
+- `domain/messages.py` (new): `CATALOG`, `msg()`, `render()`, `step_label()`, `catalog_export()`.
+- `domain/plan.py`: `Plan.summary_message`; `domain/alerts.py`: `Alert.title_message` (both
+  default `None`, so peers on an older release ignore them and plans from them have none).
+- Series cache: column `alerts.title_message` (JSON), added by `ALTER TABLE` when the collector opens
+  an older cache; the read-only web process reads a cache without it as `None`.
+- Finding dicts gain `description_message`, `proposal_message`, `risk_message`; job step records gain
+  `label` and `label_message`; problem documents gain `title_message` and, when the detail is the
+  default one, `detail_message`; summary audit entries gain `request.summary_message`, alert audit
+  entries `request.title_message`.
+- Every producer: a new text the UI shows comes with a catalog key; add the key to `CATALOG`,
+  regenerate `frontend/src/i18n/backendMessageKeys.json` (`python -m pelagos.domain.messages`) and add
+  it to `messages.json` in every language. Closes the "server texts in English" gap below.
+
 ## 2026-10-24, final review (backend): security and robustness fixes
 All additive; `docs/architecture.md` sections 5, 9, 15 and the Kea SELinux note updated.
 - `domain/plan.py`: `NodeApplyResult.outcome_unknown` (default False). `PeerGateway` sets it when a

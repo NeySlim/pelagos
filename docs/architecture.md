@@ -577,6 +577,7 @@ class Alert(Model):
     first_seen: datetime; last_seen: datetime
     acked_by: str | None = None; acked_at: datetime | None = None
     resolved_at: datetime | None = None
+    title_message: dict | None = None   # translatable title, section 19 "Messages"
 ```
 
 `Inconsistency` is not a separate class: it is an `Alert` whose kind is one
@@ -626,6 +627,7 @@ class Plan(Model):
     state: PlanState
     expires_at: datetime           # created_at + settings.plan_ttl_seconds (default 600)
     error: str | None = None
+    summary_message: dict | None = None   # translatable summary, section 19 "Messages"
 
 @dataclass(slots=True)
 class NodeApplyResult(Model):
@@ -640,7 +642,7 @@ class JobState(str, Enum): QUEUED="queued"; RUNNING="running"; DONE="done"; FAIL
 @dataclass(slots=True)
 class Job(Model):                  # long-running apply (install, import, security migration)
     id: str; plan_id: str | None; state: JobState; progress: int   # 0..100
-    steps: list[dict[str, Any]]    # {"name", "state", "output", "started_at", "finished_at"}
+    steps: list[dict[str, Any]]    # {"name", "label", "label_message", "state", "output", "started_at", "finished_at"}
     created_at: datetime; finished_at: datetime | None; error: str | None
 ```
 
@@ -1553,7 +1555,8 @@ CREATE TABLE alerts (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL, severity TEXT NOT NULL, state TEXT NOT NULL,
   node_id TEXT, engine TEXT, subject TEXT NOT NULL, title TEXT NOT NULL, details TEXT NOT NULL,  -- JSON
   first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL,
-  acked_by TEXT, acked_at INTEGER, resolved_at INTEGER);
+  acked_by TEXT, acked_at INTEGER, resolved_at INTEGER,
+  title_message TEXT);                                                  -- JSON message; added in place to older caches
 CREATE INDEX alerts_state ON alerts(state, severity);
 CREATE TABLE engine_snapshots (                                          -- last known read per node per engine, for the UI when a daemon is down
   node_id TEXT NOT NULL, engine TEXT NOT NULL, kind TEXT NOT NULL, ts INTEGER NOT NULL, payload TEXT NOT NULL,
@@ -2045,6 +2048,43 @@ only refusals before any node is touched are problem documents. Every
 (the node remembers the ids of its expired plans); an id it never had, or a
 plan deleted with `DELETE /plans/{id}`, answers `404 not_found`. Messages in
 an `ApplyResult` and audit entries are masked like plans.
+
+Messages (translatable backend texts): every text the backend composes for
+the UI also comes as a message, a stable key with parameters, next to the
+English text, which stays the fallback for older clients, the CLI and the
+audit log:
+
+```json
+{"key": "alert.ha_partner_down", "params": {"engine": "kea4", "state": "partner-down"}}
+```
+
+A parameter value is a string, a number, a list (shown joined with `", "`),
+`{"join": [...], "sep": "; "}` (joined with `sep`) or a nested message, which
+the client renders first. Templates use `{name}` in Python and `{{name}}` in
+the UI catalogs. Where messages appear (field `<text field>_message`, null
+when the producer has none):
+
+| Object | English field | Message field | Producers |
+| --- | --- | --- | --- |
+| `Plan` | `summary` | `summary_message` | BIND and Kea connectors, DNS/DHCP/hosts services, installer (install, import, security) |
+| `Alert` | `title` | `title_message` | collector rules, consistency checks, security audit alerts |
+| finding (`GET /install/security`) | `description`, `proposal`, `risk` | `description_message`, `proposal_message`, `risk_message` | `installer.security_audit`, `installer.zone_audit`; a proposal that is only configuration text has none |
+| `Job.steps[]` | `label` (the `name` when no key fits) | `label_message` | `installer.jobs.JobRunner`, `services.jobs.step` (labels derived from the change target by `messages.step_label`) |
+| problem document | `title`, `detail` | `title_message` (`problem.<code>`), `detail_message` (when the detail is the default title, or the generic internal error) | `api.errors`, `app` |
+| audit entry | `request.summary`, `message` of `alert.*` entries | `request.summary_message`, `request.title_message` | `PlanService`, replication `PlanRunner`, collector |
+
+The catalog is `pelagos.domain.messages.CATALOG` (key to English template):
+keys are grouped by prefix (`plan.`, `alert.`, `finding.`, `job.step.`,
+`job.phase.`, `problem.`, and the shared fragments `op.`, `note.`,
+`common.`). `python -m pelagos.domain.messages` prints every key with its
+parameter names; its output is `frontend/src/i18n/backendMessageKeys.json`,
+and unit tests on both sides check that the file is current and that the
+`messages` namespace (`frontend/src/i18n/locales/<lang>/messages.json`, flat
+keys) holds every key with the same parameters in every language. The UI
+renders a message with `renderMessage(message, englishText)` or the
+`useMessage()` hook (`src/i18n/message.js`) and shows the English text when
+the key, or a nested key, is unknown. A key never changes meaning: a new
+wording with new parameters is a new key.
 
 Pagination: query `page` (1-based, default 1) and `per_page` (default 50,
 max 500); response `{"items": [...], "page", "per_page", "total",

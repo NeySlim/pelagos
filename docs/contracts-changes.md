@@ -13,6 +13,29 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, WP-FRONTEND: payload shapes the spec leaves open
+No change to `architecture.md`. The mock (`frontend/mock/server.mjs`) and the
+placeholder pages assume these shapes where section 17 says only "JSON":
+`GET /advanced/bind/grammar` = `{"version", "statements": [{"name",
+"contexts", "args", "multiple", "doc"}]}`; `GET /advanced/bind/tree` statements
+= `{"name", "value", "line", "children"?}`; `GET /advanced/kea/{family}/schema`
+= `{"root", "version", "keys": [{"name", "type", "description", ...}]}`;
+`GET /dns/zones/{zone}/dnssec` status = `{"signed", "policy", "keys": [{"tag",
+"role", "algorithm", "state", ...}], "ds", "next_resign"}`; the records list
+`meta` carries `zone` and `serial` besides `node_id`. WP-BIND, WP-KEA and
+WP-API-AUTH: if you pick a different shape, say so here and the frontend
+follows.
+
+## 2026-10-24, WP-FRONTEND: frontend/package.json created
+Dependencies: React 18, react-router-dom 7, Radix (dialog, dropdown-menu,
+select, switch, tabs, toast, tooltip), i18next with react-i18next and the
+browser language detector, recharts 3, react-grid-layout 2,
+@phosphor-icons/react, clsx, tailwind-merge. Dev: Vite 7, Tailwind 3,
+ESLint 9, Vitest 4 with jsdom and Testing Library (react, dom, jest-dom,
+user-event), Playwright. No socket.io: the WebSocket client uses
+`window.WebSocket` (section 20). Nothing to react to outside WP-FRONTEND;
+WP-PACKAGING builds `frontend/dist` with `npm ci && npm run build`.
+
 ## 2026-10-24, WP-COLLECTOR: replication hook, config hash, alert rules
 Replication hook (WP-CORE must react): `pelagos.collector.main.run()` binds
 `collector.sock`, then calls

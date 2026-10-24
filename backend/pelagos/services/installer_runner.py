@@ -23,6 +23,7 @@ from typing import Any
 
 from pelagos.core.context import NodeContext
 from pelagos.domain import Change, Engine, Job, JobState, NodeApplyResult, Plan, PlanScope
+from pelagos.installer import helper
 from pelagos.services.jobs import step
 
 log = logging.getLogger(__name__)
@@ -67,10 +68,22 @@ def sub_plan(plan: Plan, changes: list[Change], phase: str, keep_preconditions: 
 
 
 def run_local(
-    ctx: NodeContext, plan: Plan, job: Job, progress: Callable[[Job], None], env: Any = None
+    ctx: NodeContext,
+    plan: Plan,
+    job: Job,
+    progress: Callable[[Job], None],
+    env: Any = None,
+    helper: Any = None,
 ) -> None:
-    """Run this node's steps of `plan`, recording each one on `job`; raises on the first failure."""
+    """Run this node's steps of `plan`, recording each one on `job`; raises on the first failure.
+    With `helper` (unprivileged process) the steps run as root in `pelagos helper`."""
     from pelagos.installer.jobs import steps_for
+
+    if helper is not None:
+        remote = helper.apply(plan, job, progress)
+        if remote.state is not JobState.DONE:
+            raise RuntimeError(remote.error or "failed in the privileged helper")
+        return
 
     env = env if env is not None else installer_env(ctx)
     for s in steps_for(plan, env):
@@ -82,10 +95,17 @@ def run_local(
 class InstallerRunner:
     """`runner(plan, job, progress)` for PlanService.apply_as_job, phase by phase across nodes."""
 
-    def __init__(self, ctx: NodeContext, peers: Any, env_factory: Callable[[], Any] | None = None) -> None:
+    def __init__(
+        self,
+        ctx: NodeContext,
+        peers: Any,
+        env_factory: Callable[[], Any] | None = None,
+        helper: Any = None,
+    ) -> None:
         self.ctx = ctx
         self.peers = peers
         self.env_factory = env_factory or (lambda: installer_env(ctx))
+        self.helper = helper
 
     def __call__(self, plan: Plan, job: Job, progress: Callable[[Job], None]) -> dict[str, Any]:
         me = self.ctx.node.id
@@ -100,7 +120,9 @@ class InstallerRunner:
             for node_id in nodes:
                 mine = [c for c in changes if node_id in c.node_ids]
                 part = sub_plan(plan, mine, name, keep_preconditions=first)
-                if node_id == me:
+                if node_id == me and self.helper is not None:
+                    run_local(self.ctx, part, job, progress, helper=self.helper)
+                elif node_id == me:
                     env = env if env is not None else self.env_factory()
                     run_local(self.ctx, part, job, progress, env)
                 else:
@@ -141,7 +163,12 @@ def run_received(ctx: NodeContext, plan: Plan, env: Any = None) -> NodeApplyResu
     if plan.scope not in (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY):
         return NodeApplyResult(node_id=ctx.node.id, ok=False, message=f"not an installer plan: {plan.scope}")
     try:
-        job = apply_plan(plan, env if env is not None else installer_env(ctx), Job(plan_id=plan.id))
+        if env is None and helper.available():
+            job = Job(plan_id=plan.id)
+            remote = helper.HelperClient().apply(plan, job, lambda _job: None)
+            job.state, job.error = remote.state, remote.error
+        else:
+            job = apply_plan(plan, env if env is not None else installer_env(ctx), Job(plan_id=plan.id))
     except Exception as exc:
         log.exception("installer plan %s failed", plan.id)
         return NodeApplyResult(node_id=ctx.node.id, ok=False, message=f"{type(exc).__name__}: {exc}")

@@ -43,6 +43,9 @@ for unit in pelagos.service pelagos-collector.service; do
   check "$unit inactive before init" test "$(systemctl is-active "$unit" || true)" = inactive
 done
 
+check "helper socket listening" systemctl is-active pelagos-helper.socket
+check "helper socket is root:pelagos 0660" test "$(stat -c '%U:%G %a' /run/pelagos-helper.sock)" = "root:pelagos 660"
+
 # The unit condition keeps the services down until the node is initialized.
 $SUDO systemctl start pelagos.service pelagos-collector.service
 check "start before init is skipped" test "$(systemctl is-active pelagos.service || true)" = inactive

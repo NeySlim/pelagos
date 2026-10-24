@@ -17,6 +17,8 @@ override_dh_auto_install:
 	packaging/build-tree.sh $(PKGDIR) $(CURDIR)
 	install -D -m 0644 packaging/systemd/pelagos.service $(PKGDIR)/usr/lib/systemd/system/pelagos.service
 	install -D -m 0644 packaging/systemd/pelagos-collector.service $(PKGDIR)/usr/lib/systemd/system/pelagos-collector.service
+	install -D -m 0644 packaging/systemd/pelagos-helper.socket $(PKGDIR)/usr/lib/systemd/system/pelagos-helper.socket
+	install -D -m 0644 packaging/systemd/pelagos-helper@.service $(PKGDIR)/usr/lib/systemd/system/pelagos-helper@.service
 	install -D -m 0644 packaging/pelagos.env $(PKGDIR)/etc/pelagos/pelagos.env
 	install -D -m 0755 packaging/bin/pelagos $(PKGDIR)/usr/bin/pelagos
 
@@ -39,4 +41,4 @@ override_dh_gencontrol:
 	dh_gencontrol -- -Vpelagos:Python="python$(PYVER)"
 
 override_dh_installsystemd:
-	dh_installsystemd --no-stop-on-upgrade pelagos.service pelagos-collector.service
+	dh_installsystemd --no-stop-on-upgrade pelagos.service pelagos-collector.service pelagos-helper.socket

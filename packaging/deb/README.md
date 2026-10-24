@@ -39,6 +39,10 @@ The package depends on the exact `python3.X` the venv was built with.
   sudo systemctl start pelagos pelagos-collector
   ```
 
+- `pelagos-helper.socket` (enabled and started) listens on
+  `/run/pelagos-helper.sock`, `root:pelagos 0660`. The API's install, import
+  and security endpoints run their steps as root through it: each connection
+  starts `pelagos-helper@.service`, which runs `pelagos helper` for one request.
 - `ExecStartPre=+/opt/pelagos/bin/pelagos-prestart` (root) gives
   `/etc/pelagos` and `/var/lib/pelagos` back to `pelagos` (init may run as
   root; symbolic links are never followed and `pelagos.env` stays root's) and creates a self-signed certificate in `/etc/pelagos/tls/` when

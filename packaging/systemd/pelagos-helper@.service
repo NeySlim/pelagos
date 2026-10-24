@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+[Unit]
+Description=Pelagos privileged installer helper (one request)
+Documentation=https://github.com/NeySlim/pelagos
+CollectMode=inactive-or-failed
+
+[Service]
+Type=simple
+# Root: the installer edits engine files, installs packages and restarts services.
+ExecStart=/usr/bin/pelagos helper
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+UMask=0027

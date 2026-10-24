@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The `pelagos` command: serve, collector, version, init, install, import, audit, enroll."""
+"""The `pelagos` command: serve, collector, version, init, install, import, audit, enroll, helper."""
 
 from __future__ import annotations
 
@@ -69,6 +69,13 @@ def cmd_enroll(args: argparse.Namespace) -> int:
     return enroll_cli(paths, args)
 
 
+def cmd_helper(args: argparse.Namespace) -> int:
+    paths = _paths(args)
+    from pelagos.installer.helper import serve_stdio
+
+    return serve_stdio(paths)
+
+
 def _placeholder(package: str):
     def run(_: argparse.Namespace) -> int:
         print(f"not implemented yet (owner: {package})", file=sys.stderr)
@@ -106,6 +113,11 @@ def build_parser() -> argparse.ArgumentParser:
     from pelagos.installer.cli import add_parsers as add_installer_parsers
 
     add_installer_parsers(sub)
+    h = sub.add_parser(
+        "helper", help="privileged installer helper on stdin/stdout (run by pelagos-helper.socket)"
+    )
+    h.set_defaults(func=cmd_helper)
+
     e = sub.add_parser("enroll", help="join an existing cluster with a one-time token")
     e.add_argument("--url", help="replication URL of an enrolled node, https://ns1.example.lan:8444")
     e.add_argument("--token", help="one-time token from POST /api/v1/nodes/enroll-token")

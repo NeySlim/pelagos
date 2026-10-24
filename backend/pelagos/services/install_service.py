@@ -15,6 +15,7 @@ from typing import Any
 
 from pelagos.core.context import NodeContext
 from pelagos.domain import Job, Plan
+from pelagos.installer import helper
 from pelagos.services.errors import ValidationError, field_error
 from pelagos.services.installer_runner import InstallerRunner, installer_env
 
@@ -35,13 +36,29 @@ class InstallService:
         self.dhcp4 = dhcp4
         self.peers = peers
         # Tests swap the factory for an InstallerEnv on a fake host.
+        self._own_env = env_factory is None
         self.env_factory = env_factory or (lambda: installer_env(ctx))
         self._findings: dict[str, Any] = {}
         self._lock = threading.Lock()
 
+    def helper(self) -> helper.HelperClient | None:
+        """The root helper when this process runs unprivileged on a packaged node, else None."""
+        return helper.HelperClient() if self._own_env and helper.available() else None
+
+    def _helper_plan(self, client: helper.HelperClient, op: str, created_by: str, **args: Any) -> Plan:
+        try:
+            return client.plan(op, created_by, **args)
+        except helper.HelperError as exc:
+            if exc.kind == "value":
+                raise ValidationError(str(exc)) from None
+            raise
+
     def detect(self) -> dict[str, Any]:
         from pelagos.installer.detect import detect_env
 
+        client = self.helper()
+        if client is not None:
+            return client.detect()
         return detect_env(self.env_factory())
 
     def _engines(self, value: Any) -> list[str]:
@@ -64,6 +81,10 @@ class InstallService:
             raise ValidationError(
                 "isc_series must be a string such as 3.2", [field_error("isc_series", "invalid")]
             )
+        client = self.helper()
+        if client is not None:
+            args = {"engines": engines, "source": source, "isc_series": series}
+            return self.ctx.plan_store.put(self._helper_plan(client, "plan_install", created_by, **args))
         try:
             plan = build_install_plan(self.env_factory(), engines, source, series, created_by)
         except ValueError as exc:
@@ -74,6 +95,11 @@ class InstallService:
         from pelagos.installer.importer import build_import_plan
 
         engines = self._engines(body.get("engines"))
+        client = self.helper()
+        if client is not None:
+            return self.ctx.plan_store.put(
+                self._helper_plan(client, "plan_import", created_by, engines=engines)
+            )
         try:
             plan = build_import_plan(self.env_factory(), engines, created_by)
         except ValueError as exc:
@@ -83,6 +109,12 @@ class InstallService:
     def security(self) -> list[dict[str, Any]]:
         from pelagos.installer.security_audit import run_audit
 
+        client = self.helper()
+        if client is not None:
+            found = client.audit()
+            with self._lock:
+                self._findings = {f["id"]: f for f in found}
+            return found
         findings = run_audit(self.env_factory())
         with self._lock:
             self._findings = {f.id: f for f in findings}
@@ -102,6 +134,17 @@ class InstallService:
             raise ValidationError(
                 "finding_ids must be a non-empty list", [field_error("finding_ids", "invalid")]
             )
+        client = self.helper()
+        if client is not None:
+            args = {"finding_ids": list(dict.fromkeys(ids)), "d2_node_ids": self.d2_node_ids()}
+            try:
+                return self.ctx.plan_store.put(client.plan("plan_security", created_by, **args))
+            except helper.HelperError as exc:
+                if exc.kind != "value":
+                    raise
+                raise ValidationError(
+                    f"{exc}; run GET /install/security again", [field_error("finding_ids", "invalid")]
+                ) from None
         try:
             plan = build_security_plan(
                 self.env_factory(), list(dict.fromkeys(ids)), created_by, self.d2_node_ids()
@@ -113,4 +156,4 @@ class InstallService:
         return self.ctx.plan_store.put(plan)
 
     def runner(self, _scope: Any = None) -> Callable[[Plan, Job, Any], Any]:
-        return InstallerRunner(self.ctx, self.peers, self.env_factory)
+        return InstallerRunner(self.ctx, self.peers, self.env_factory, helper=self.helper())

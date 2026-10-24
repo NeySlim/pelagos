@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+[Unit]
+Description=Pelagos privileged installer helper socket
+Documentation=https://github.com/NeySlim/pelagos
+
+[Socket]
+# Only the pelagos group (the node processes) reaches the helper; one root process per connection.
+ListenStream=/run/pelagos-helper.sock
+SocketUser=root
+SocketGroup=pelagos
+SocketMode=0660
+Accept=yes
+MaxConnections=8
+
+[Install]
+WantedBy=sockets.target

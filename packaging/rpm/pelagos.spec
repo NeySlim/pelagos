@@ -68,6 +68,10 @@ from the distribution, from the ISC Cloudsmith repositories (Kea 3.x), or let
 PELAGOS_PYTHON=%{pelagos_python} packaging/build-tree.sh %{buildroot} "$PWD"
 install -D -m 0644 packaging/systemd/pelagos.service %{buildroot}%{_unitdir}/pelagos.service
 install -D -m 0644 packaging/systemd/pelagos-collector.service %{buildroot}%{_unitdir}/pelagos-collector.service
+%{_unitdir}/pelagos-helper.socket
+%{_unitdir}/pelagos-helper@.service
+install -D -m 0644 packaging/systemd/pelagos-helper.socket %{buildroot}%{_unitdir}/pelagos-helper.socket
+install -D -m 0644 packaging/systemd/pelagos-helper@.service %{buildroot}%{_unitdir}/pelagos-helper@.service
 install -D -m 0644 packaging/pelagos.env %{buildroot}%{_sysconfdir}/pelagos/pelagos.env
 install -D -m 0755 packaging/bin/pelagos %{buildroot}%{_bindir}/pelagos
 # Enabled like the deb; the units only start once node.toml exists (ConditionPathExists).
@@ -95,7 +99,9 @@ install -d -o %{pelagos_user} -g %{pelagos_user} -m 0750 %{_sysconfdir}/pelagos 
 find %{_sysconfdir}/pelagos %{_sharedstatedir}/pelagos ! -type l ! -path %{_sysconfdir}/pelagos/pelagos.env \
   \( ! -user %{pelagos_user} -o ! -group %{pelagos_user} \) \
   -exec chown -h %{pelagos_user}:%{pelagos_user} {} + 2>/dev/null || :
-%systemd_post pelagos.service pelagos-collector.service
+%systemd_post pelagos.service pelagos-collector.service pelagos-helper.socket
+# The helper socket has no start condition: listen now rather than after the next boot.
+if [ -d /run/systemd/system ]; then systemctl start pelagos-helper.socket >/dev/null 2>&1 || :; fi
 if [ $1 -eq 1 ] && [ ! -f %{_sysconfdir}/pelagos/node.toml ]; then
   echo "pelagos: installed. Initialize the first node with:" >&2
   echo "    sudo pelagos init --name \$(hostname -s)" >&2
@@ -104,10 +110,11 @@ if [ $1 -eq 1 ] && [ ! -f %{_sysconfdir}/pelagos/node.toml ]; then
 fi
 
 %preun
-%systemd_preun pelagos.service pelagos-collector.service
+%systemd_preun pelagos.service pelagos-collector.service pelagos-helper.socket
 
 %postun
 %systemd_postun_with_restart pelagos.service pelagos-collector.service
+%systemd_postun pelagos-helper.socket
 
 %files
 %license LICENSE

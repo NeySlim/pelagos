@@ -11,3 +11,6 @@ pelagos: script-not-executable *
 pelagos: unusual-interpreter *
 pelagos: no-manual-page [usr/bin/pelagos]
 pelagos: initial-upload-closes-no-bugs *
+# The node tree belongs to the service user: a node initialized as root before the package gets
+# it back. Symbolic links are skipped (! -type l, chown -h) and pelagos.env stays root's.
+pelagos: recursive-privilege-change *

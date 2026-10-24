@@ -13,6 +13,12 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, WP-PACKAGING: `packaging` runtime dependency
+`backend/pyproject.toml` gains `packaging>=24`. gunicorn's gevent worker
+(`gunicorn.workers.ggevent`, used through `geventwebsocket`) imports it
+without declaring it; dev venvs only had it through pytest, so a production
+venv failed to start the web process. Nobody has to react.
+
 ## 2026-10-24, WP-CORE: audit id exchange, schema mismatch status, renewal revokes
 - `docs/architecture.md` section 13: new `GET /repl/v1/audit/ids` and
   `POST /repl/v1/audit/fetch`, used instead of a full log walk when audit

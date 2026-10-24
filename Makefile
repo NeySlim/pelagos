@@ -45,7 +45,7 @@ test-daemon:
 	cd $(BACKEND) && .venv/bin/pytest -m daemon
 
 test-lab:
-	cd $(BACKEND) && PELAGOS_LAB=1 .venv/bin/pytest -m lab
+	cd $(BACKEND) && PELAGOS_LAB=1 .venv/bin/pytest -m lab --timeout 3600 -x $(LAB_ARGS)
 
 build-frontend:
 	cd $(FRONTEND) && npm run build

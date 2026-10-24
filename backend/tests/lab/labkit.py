@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+import functools
 import http.cookiejar
+import io
 import json
 import os
 import shlex
 import ssl
 import subprocess
+import tarfile
 import time
 import urllib.error
 import urllib.request
@@ -92,6 +95,88 @@ def run_script(name: str, *args: str, timeout: int = 1800) -> str:
     return res.stdout
 
 
+def rollback(*vms: str) -> None:
+    """Restores the VMs to their base snapshot (scripts/lab/rollback.sh), waiting for ssh."""
+    for vm in vms:
+        run_script("rollback.sh", vm, timeout=900)
+
+
+def keep() -> bool:
+    """PELAGOS_LAB_KEEP=1 leaves the VMs as the tests left them (no final rollback)."""
+    return os.environ.get("PELAGOS_LAB_KEEP") == "1"
+
+
+def make(*targets: str, timeout: int = 1800) -> None:
+    res = subprocess.run(
+        ["make", "-C", str(REPO), *targets], capture_output=True, text=True, timeout=timeout, check=False
+    )
+    if res.returncode != 0:
+        raise AssertionError(f"make {' '.join(targets)} failed\n{res.stdout[-4000:]}\n{res.stderr[-4000:]}")
+
+
+def frontend_dist() -> None:
+    """Builds the UI into frontend/dist when the node modules are there, so packages carry it."""
+    if (REPO / "frontend" / "node_modules").is_dir():
+        make("build-frontend")
+
+
+@functools.cache
+def deb_package() -> Path:
+    """The deb built from this checkout on lab-dev (same Debian 13 and Python as the targets)."""
+    frontend_dist()
+    for old in (REPO / "build" / "deb").glob("pelagos_*.deb"):
+        old.unlink()
+    make("deb")
+    (deb,) = (REPO / "build" / "deb").glob("pelagos_*_amd64.deb")
+    return deb
+
+
+def source_tarball() -> bytes:
+    """What the package builds need, without virtualenvs, caches or node modules."""
+    skip = {".venv", "node_modules", "__pycache__", ".pytest_cache", ".ruff_cache", "build", ".pelagos-dev"}
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for item in ("backend", "packaging", "docker", "LICENSE", "NOTICE", "README.md", "Makefile"):
+            tar.add(
+                REPO / item,
+                arcname=f"pelagos/{item}",
+                filter=lambda t: None if set(Path(t.name).parts) & skip else t,
+            )
+        if (REPO / "frontend" / "dist" / "index.html").exists():
+            tar.add(REPO / "frontend" / "dist", arcname="pelagos/frontend/dist")
+    return buf.getvalue()
+
+
+def upload_source(host: str, directory: str = "~/pelagos-src") -> str:
+    ssh(host, f"rm -rf {directory} && mkdir -p {directory} && tar -xz -C {directory}", data=source_tarball())
+    return f"{directory}/pelagos"
+
+
+@functools.cache
+def rpm_package() -> Path:
+    """The rpm built on lab-pkg-rpm (Rocky, rpmbuild snapshot), copied back to build/lab-rpm."""
+    host = PKG_RPM[1]
+    frontend_dist()
+    src = upload_source(host)
+    ssh(
+        host,
+        f"cd {src} && packaging/rpm/build.sh ~/rpm-out >/tmp/rpm-build.log 2>&1 "
+        "|| (tail -40 /tmp/rpm-build.log; exit 1)",
+    )
+    name = ssh(host, "cd ~/rpm-out/rpmbuild/RPMS/x86_64 && ls pelagos-*.x86_64.rpm")[1].split()[0]
+    out = REPO / "build" / "lab-rpm"
+    out.mkdir(parents=True, exist_ok=True)
+    target = out / name
+    res = subprocess.run(
+        [*ssh_argv(host), f"cat ~/rpm-out/rpmbuild/RPMS/x86_64/{name}"],
+        capture_output=True,
+        timeout=600,
+        check=True,
+    )
+    target.write_bytes(res.stdout)
+    return target
+
+
 def wait_for(what: str, probe: Callable[[], Any], timeout: float = 120, interval: float = 3) -> Any:
     """Calls `probe` until it returns a truthy value; the last exception or value ends in the error."""
     deadline = time.monotonic() + timeout
@@ -138,6 +223,16 @@ class Api:
         return f"https://{self.address}:{self.port}/api/v1"
 
     def call(self, method: str, path: str, body: Any = None, timeout: float = 120) -> Any:
+        try:
+            return self._call(method, path, body, timeout)
+        except ApiError as exc:
+            # A restarted node forgot its sessions: log in again once.
+            if exc.status != 401 or not self.csrf or path.startswith("/auth/"):
+                raise
+            self.login()
+            return self._call(method, path, body, timeout)
+
+    def _call(self, method: str, path: str, body: Any, timeout: float) -> Any:
         data = None if body is None else json.dumps(body).encode()
         req = urllib.request.Request(self.base + path, data=data, method=method)  # noqa: S310 - https only
         if data is not None:

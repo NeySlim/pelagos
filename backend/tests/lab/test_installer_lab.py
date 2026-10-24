@@ -1,69 +1,37 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Installer on real lab VMs: Debian 13 (lab-ns1) and Rocky 10 (lab-rpm).
-
-Preconditions (done from the workstation, which holds the Proxmox token):
-  scripts/lab/rollback.sh <vmid of lab-ns1> ; scripts/lab/rollback.sh <vmid of lab-rpm>
-  ssh lab-dev cat ~/.ssh/pelagos_lab.pub | ssh lab-ns1 'cat >> ~/.ssh/authorized_keys'   (same for lab-rpm)
-Then on lab-dev: PELAGOS_LAB=1 .venv/bin/pytest -m lab tests/lab/test_installer_lab.py
+"""Installer on real lab VMs: Debian 13 (lab-ns1) and Rocky 10 (lab-rpm, from the rpm).
 
 Debian: a pre-seeded legacy server (hmac-md5 keys, address-based updates, open listeners) is
 imported, audited and migrated; then Kea is installed from Debian (2.6) and switched to ISC 3.2.
-Rocky: BIND and Kea installed from the distro with `--init`, then Kea switched to ISC 3.2.
-Each class runs in order on a VM in its clean snapshot; the VMs are rolled back afterwards.
+The code runs from a virtualenv of this checkout.
+Rocky: the rpm is built on lab-pkg-rpm and installed; BIND and Kea come from the distro with
+`pelagos install --init`, the node serves the API through the privileged helper, then Kea is
+switched to ISC 3.2. Each class starts by rolling its VM back to the clean snapshot; lab-rpm and
+lab-pkg-rpm are rolled back at the end unless PELAGOS_LAB_KEEP=1.
+Run from lab-dev: make test-lab (or PELAGOS_LAB=1 .venv/bin/pytest -m lab tests/lab/test_installer_lab.py).
 """
 
 from __future__ import annotations
 
 import io
 import json
-import os
 import shlex
-import subprocess
 import tarfile
 from pathlib import Path
 
 import pytest
 
 from pelagos.installer import bindconf, keaconf
+from tests.lab import labkit
+from tests.lab.labkit import ADMIN_PASSWORD, Api, put, ssh, sudo_cat, wait_for
 
 pytestmark = pytest.mark.lab
 
 BACKEND = Path(__file__).resolve().parents[2]
 DATA = BACKEND / "tests" / "unit" / "installer" / "data"
-NS1 = os.environ.get("PELAGOS_LAB_NS1", "lab@10.99.0.11")
-RPM = os.environ.get("PELAGOS_LAB_RPM", "lab@10.99.0.13")
-SSH_KEY = os.path.expanduser(os.environ.get("PELAGOS_LAB_SSH_KEY", "~/.ssh/pelagos_lab"))
+NS1 = labkit.NS1[1]
+RPM = labkit.RPM[1]
 VENV = "/opt/pelagos-lab"
-PELAGOS = f"sudo {VENV}/bin/pelagos"
-ADMIN_PASSWORD = "Lab-Admin-Password-1"
-
-
-def ssh(host: str, command: str, check: bool = True, data: bytes | None = None, timeout: int = 1800):
-    argv = [
-        "ssh",
-        "-i",
-        SSH_KEY,
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "StrictHostKeyChecking=no",
-        "-o",
-        "UserKnownHostsFile=/dev/null",
-        "-o",
-        "LogLevel=ERROR",
-        host,
-        command,
-    ]
-    res = subprocess.run(argv, input=data, capture_output=True, timeout=timeout, check=False)
-    out = res.stdout.decode(errors="replace")
-    err = res.stderr.decode(errors="replace")
-    if check and res.returncode != 0:
-        raise AssertionError(f"{host}: {command!r} exited {res.returncode}\n{out[-4000:]}\n{err[-4000:]}")
-    return res.returncode, out, err
-
-
-def put(host: str, path: str, content: str, mode: str = "0644") -> None:
-    ssh(host, f"sudo install -D -m {mode} /dev/stdin {shlex.quote(path)}", data=content.encode())
 
 
 def deploy(host: str) -> None:
@@ -92,11 +60,8 @@ def deploy(host: str) -> None:
 
 
 def pelagos(host: str, args: str, check: bool = True):
-    return ssh(host, f"{PELAGOS} {args}", check=check, timeout=2400)
-
-
-def sudo_cat(host: str, path: str) -> str:
-    return ssh(host, f"sudo cat {shlex.quote(path)}")[1]
+    binary = f"{VENV}/bin/pelagos" if host == NS1 else "pelagos"
+    return ssh(host, f"sudo {binary} {args}", check=check, timeout=2400)
 
 
 def socket_ok_as_pelagos(host: str, socket_path: str) -> bool:
@@ -161,6 +126,20 @@ LEGACY_D2 = {
 }
 
 
+@pytest.fixture(scope="class")
+def clean_ns1():
+    labkit.rollback("lab-ns1")
+
+
+@pytest.fixture(scope="class")
+def clean_rpm():
+    labkit.rollback("lab-rpm")
+    yield
+    if not labkit.keep():
+        labkit.rollback("lab-rpm", "lab-pkg-rpm")
+
+
+@pytest.mark.usefixtures("clean_ns1")
 class TestDebian:
     """lab-ns1: legacy import and migration, then Kea from Debian (2.6) and from ISC (3.2)."""
 
@@ -330,8 +309,9 @@ class TestDebian:
         assert socket_ok_as_pelagos(self.host, "/run/kea/kea-ddns-ctrl-socket")
 
 
+@pytest.mark.usefixtures("clean_rpm")
 class TestRocky:
-    """lab-rpm: fresh install from Rocky packages with --init, SELinux enforcing, then ISC Kea 3.2."""
+    """lab-rpm: the rpm, then BIND and Kea from Rocky with --init (SELinux enforcing), then ISC Kea."""
 
     host = RPM
 
@@ -341,8 +321,14 @@ class TestRocky:
         )
         assert 'ID="rocky"' in out and "Enforcing" in out and "CLEAN" in out
 
-    def test_01_deploy(self):
-        deploy(self.host)
+    def test_01_install_the_rpm(self):
+        rpm = labkit.rpm_package()
+        labkit.scp(self.host, rpm, "/tmp/pelagos.rpm")
+        ssh(self.host, "sudo dnf install -y -q /tmp/pelagos.rpm", timeout=1800)
+        _, out, _ = pelagos(self.host, "version")
+        assert out.startswith("pelagos ")
+        assert ssh(self.host, "systemctl is-active pelagos-helper.socket")[1].strip() == "active"
+        assert ssh(self.host, "stat -c '%U:%G %a' /run/pelagos-helper.sock")[1].strip() == "root:pelagos 660"
 
     def test_02_install_distro(self):
         rc, out, err = pelagos(
@@ -379,7 +365,27 @@ class TestRocky:
         _, audit, _ = pelagos(self.host, "audit --json")
         assert json.loads(audit)["findings"] == []
 
-    def test_03_switch_kea_to_isc(self):
+    def test_03_node_serves_the_api(self):
+        ssh(self.host, "sudo systemctl start pelagos pelagos-collector")
+        # Rocky ships firewalld in some images: the lab opens the web port when it runs.
+        ssh(
+            self.host,
+            "if systemctl is-active -q firewalld; then sudo firewall-cmd -q --add-port=8443/tcp; fi",
+        )
+        client = Api(self.host)
+        health = wait_for("health over HTTPS from lab-dev", lambda: client.get("/health"), timeout=120)
+        assert health["status"] == "ok"
+        client.login()
+        # Install, import and audit endpoints run as root through the helper, SELinux enforcing.
+        detect = client.get("/install/detect")
+        assert detect["distro"]["id"] == "rocky" and detect["pelagos"]["include_present"]
+        assert client.get("/install/security")["findings"] == []
+        mods = client.get("/nodes/self")["peer"]["modules"]
+        assert mods == {"bind": True, "kea4": True, "kea6": False, "d2": True}
+        zones = client.get("/dns/zones")["items"]
+        assert isinstance(zones, list)
+
+    def test_04_switch_kea_to_isc(self):
         rc, out, err = pelagos(self.host, "install --engines kea4,d2 --source isc --isc-series 3.2 --yes")
         assert rc == 0, out + err
         _, ver, _ = ssh(self.host, "sudo /usr/sbin/kea-dhcp4 -v")

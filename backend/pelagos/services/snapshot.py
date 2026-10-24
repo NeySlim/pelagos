@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Engine snapshots: the JSON a node serves at GET /repl/v1/engines/<engine>/snapshot.
+
+Services read peers through these shapes, and WP-CORE's replication server
+builds its answers with `engine_snapshot()` so both sides share one code path
+(contracts-changes.md, snapshot kinds). Errors are reported in "error", never raised.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pelagos.connectors.base import DdnsBackend, DhcpBackend, DnsBackend
+from pelagos.domain import Engine, normalize_name
+from pelagos.services.registry import ConnectorRegistry
+
+SNAPSHOT_KINDS = {
+    Engine.BIND: ("summary", "zone", "records", "stats", "config"),
+    Engine.KEA4: ("summary", "subnets", "leases", "lease", "reservations", "stats", "config"),
+    Engine.KEA6: ("summary", "subnets", "leases", "lease", "reservations", "stats", "config"),
+    Engine.D2: ("summary", "stats", "config"),
+}
+
+
+def engine_snapshot(
+    registry: ConnectorRegistry, engine: Engine, kind: str = "summary", params: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    params = params or {}
+    backend = registry.backend(engine)
+    if backend is None:
+        return {"engine": engine.value, "kind": kind, "configured": False, "error": "engine not configured"}
+    if kind not in SNAPSHOT_KINDS[engine]:
+        return {"engine": engine.value, "kind": kind, "configured": True, "error": f"unknown kind {kind}"}
+    out: dict[str, Any] = {"engine": engine.value, "kind": kind, "configured": True, "error": None}
+    try:
+        if isinstance(backend, DnsBackend):
+            out.update(_bind(backend, kind, params))
+        elif isinstance(backend, DhcpBackend):
+            out.update(_kea(backend, kind, params))
+        elif isinstance(backend, DdnsBackend):
+            out.update(_d2(backend, kind))
+    except Exception as exc:  # the peer answers; the caller decides what a failed read means
+        out["error"] = f"{type(exc).__name__}: {exc}"
+    return out
+
+
+def _bind(backend: DnsBackend, kind: str, params: dict[str, Any]) -> dict[str, Any]:
+    if kind == "summary":
+        zones = backend.list_zones()
+        serials: dict[str, int | None] = {}
+        for zone in zones:
+            try:
+                serials[f"{zone.view}/{zone.name}"] = backend.soa_serial(zone.name, zone.view)
+            except Exception:
+                serials[f"{zone.view}/{zone.name}"] = None
+        return {
+            "capabilities": backend.capabilities().to_dict(),
+            "status": backend.server_status(),
+            "zones": [z.to_dict() for z in zones],
+            "serials": serials,
+        }
+    zone = normalize_name(params.get("zone", ""))
+    view = params.get("view")
+    if kind == "zone":
+        return {
+            "zone_status": backend.zone_status(zone, view).to_dict(),
+            "serial": backend.soa_serial(zone, view),
+            "dnssec": backend.dnssec_status(zone, view),
+        }
+    if kind == "records":
+        return {"records": [r.to_dict() for r in backend.read_zone(zone, view)]}
+    if kind == "stats":
+        return {"stats": backend.instance_stats().to_dict()}
+    return {"config": backend.read_config().to_dict()}
+
+
+def _kea(backend: DhcpBackend, kind: str, params: dict[str, Any]) -> dict[str, Any]:
+    if kind == "summary":
+        caps = backend.capabilities()
+        out: dict[str, Any] = {
+            "capabilities": caps.to_dict(),
+            "status": None,
+            "ha": None,
+            "config_hash": None,
+        }
+        if caps.running:
+            out["status"] = backend.status()
+            out["config_hash"] = backend.config_hash()
+            out["utilization"] = backend.pool_utilization()
+            if caps.ha:
+                out["ha"] = backend.ha_state().to_dict()
+        return out
+    if kind == "subnets":
+        return {
+            "subnets": [s.to_dict() for s in backend.list_subnets()],
+            "utilization": backend.pool_utilization(),
+        }
+    if kind == "leases":
+        subnet_id = params.get("subnet_id")
+        leases = backend.leases(
+            int(subnet_id) if subnet_id is not None else None,
+            int(params.get("limit", 500)),
+            params.get("from_address"),
+        )
+        return {"leases": [lease.to_dict() for lease in leases]}
+    if kind == "lease":
+        lease = backend.lease(str(params.get("ip", "")))
+        return {"lease": lease.to_dict() if lease else None}
+    if kind == "reservations":
+        subnet_id = params.get("subnet_id")
+        rows = backend.list_reservations(int(subnet_id) if subnet_id is not None else None)
+        return {"reservations": [r.to_dict() for r in rows]}
+    if kind == "stats":
+        return {"statistics": backend.statistics()}
+    return {"config": backend.config_get(), "config_hash": backend.config_hash()}
+
+
+def _d2(backend: DdnsBackend, kind: str) -> dict[str, Any]:
+    if kind == "summary":
+        caps = backend.capabilities()
+        return {"capabilities": caps, "status": backend.status() if caps.get("running") else None}
+    if kind == "stats":
+        return {"stats": backend.stats().to_dict()}
+    return {"config": backend.config_get()}

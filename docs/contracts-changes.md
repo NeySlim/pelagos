@@ -42,6 +42,28 @@ What changed (file, symbol). Why. Which packages must react, and how.
   validation failed and nothing was reloaded, which section 7 forbids. The BIND connector
   guards against it (reconfig skipped while the files match what named loaded); WP-CORE should
   make `run()` skip the reload in that path.
+- TSIG keys: a key found in the managed `keys.conf` wins over the `tsig/<name>` cluster secret
+  (it is what named loads, so rotating `ddi-read`/`ddi-admin` through a key plan needs no
+  manual secret update); user keys still prefer the cluster secret.
+- Views: `read_zone`/`soa_serial` for a non-default view use the key named in
+  `settings.dns.view_keys.<view>.read` (or `view_keys.<view>` as a string) and raise
+  `NotSupported` without one; `plan_rrset_changes` raises `NotSupported` for a non-default view.
+- New `dns.zone` files (primary ADD, secondary and mirror) must resolve under `zone_dir` or
+  `options { directory }`; the plan fails otherwise. Owners in `after.records` are resolved
+  against the zone (`www` becomes `www.<zone>`), names outside the zone are refused.
+- Missing zone directories are created by the connector with mode 2775 and the configured
+  `group`, not by the pipeline. WP-INSTALLER: still create `zone_dir` (group `bind`/`named`).
+- `BindBackend.read_config`, `list_zones` and file plans raise `ConnectorUnavailable` when the
+  user named.conf is missing or unreadable; `ConfigFiles.unreadable` lists files that exist
+  but cannot be read (also reported in `errors`).
+- File plan rollback is refused (`PreconditionFailed`) when a configuration file no longer holds
+  what the plan wrote (`pelagos-written.json` in the backup directory). `BindBackend.details`
+  keeps the last 256 plans; WP-API-AUTH: call `pop_details(plan.id)` once copied into the audit.
+- named.conf strings: only `\"` is an escape (as in named); `quote()` refuses values it cannot
+  represent.
+- The "tested on the BIND test suite configs" claim of section 8 is
+  `tests/unit/connectors/bind/test_bind_corpus.py`: set `PELAGOS_BIND_SRC` to a BIND source
+  tree; all `named*.conf*` under `bin/tests/system` round-trip, `.j2` templates de-templated.
 
 ## 2026-10-24, WP-KEA: Kea connector conventions other packages see
 Additive, no existing symbol changes.

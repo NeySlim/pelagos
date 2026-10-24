@@ -13,6 +13,30 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, WP-CORE: replication, enrollment and registry surface
+- `docs/architecture.md` sections 2, 13, 14: new core modules (`repl_http`,
+  `signals`, `registry`, `retention`), endpoints `GET /repl/v1/ca` and
+  `POST /repl/v1/renew`, client certificate optional at the TLS layer and
+  enforced per endpoint, `ReplicationService`, `replication.state` file,
+  token store file. Additive.
+- `backend/pelagos/cli.py`: `pelagos enroll` calls `core.enrollment.enroll_cli`
+  and gains `--replication-url`, `--web-url`, `--engines`.
+- `NodeContext.replication_state` is now a property reading
+  `/run/pelagos/replication.state`; assigning it still works (sets an
+  override). `NodeContext.build` wires push-on-write (`ConfigStore.on_change`,
+  `AuditLog.on_append` send `collector.sock` datagrams).
+- WP-COLLECTOR: `collector/main.py` should build
+  `ReplicationService(NodeContext.build(paths), registry)` and call
+  `start()`/`stop()`; it then serves `/repl/v1`, pushes, pulls, renews and
+  purges backups. Use `replicator.peer_statuses()` and `offline_peers()` for
+  peer polls and `PEER_OFFLINE`.
+- WP-API-AUTH: build backends into `core.registry.ConnectorRegistry` and
+  pass it to the collector side too; `POST /nodes/enroll-token` is
+  `EnrollmentService(paths, store, audit, node).issue_token(by, ttl)`,
+  `DELETE /nodes/{id}` is `.revoke(id, by)`; remote plan steps use
+  `ReplicationClient(peer, client_ssl_context(...)).apply_plan(plan)`;
+  `POST /nodes/{id}/sync` is `Replicator.sync_peer(peer)`.
+
 ## 2026-10-24, WP-BIND: namedconf API, BIND plan details, include setup
 - `namedconf.load_tree(user_conf, node_id, checkconf=str|None, include_dir=None, reader=None)`
   replaces the section 8 signature (node_id is needed by `BindConfigTree`; `checkconf=None`

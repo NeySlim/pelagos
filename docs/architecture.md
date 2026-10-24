@@ -100,8 +100,12 @@ pelagos/
     secrets.py         AES-256-GCM with the master key
     write_pipeline.py  backup, write, validate, reload, verify, rollback
     plans.py           PlanStore (in-memory, TTL) and plan lifecycle
-    replication.py     client and server (mTLS), pull-on-start, push-on-write
-    enrollment.py      token issue/consume, node join
+    replication.py     client and server (mTLS), pull-on-start, push-on-write, ReplicationService
+    repl_http.py       stdlib HTTPS JSON client used by replication and enrollment
+    signals.py         collector.sock datagrams (push-on-write) and their listener
+    registry.py        ConnectorRegistry: engine -> backend, used by the API and /repl/v1/plans
+    retention.py       purge of write pipeline backups older than settings.retention.backups_days
+    enrollment.py      token issue/consume, node join, renewal, revocation, `pelagos enroll`
     ca.py              internal CA: key, root cert, issue node certs
     locks.py           file locks shared by both processes
   collector/           WP-COLLECTOR
@@ -1106,7 +1110,17 @@ application/json`. All endpoints under `/repl/v1`.
 | `POST /repl/v1/plans/apply` | `{"plan": Plan}` | `NodeApplyResult` | apply a plan built elsewhere on this node (section 5) |
 | `POST /repl/v1/plans/rollback` | `{"plan": Plan}` | `NodeApplyResult` | |
 | `GET /repl/v1/engines/<engine>/snapshot` | | engine-specific read (zones list, subnets, HA state) | used by `services` to answer "read on both peers" without a second code path |
-| `POST /repl/v1/enroll` | section 14 | section 14 | the only endpoint that accepts a connection without a client certificate; protected by the one-time token |
+| `POST /repl/v1/enroll` | section 14 | section 14 | accepts a connection without a client certificate; protected by the one-time token |
+| `GET /repl/v1/ca` | | `{"ca_pem","ca_fingerprint","node_id","name"}` | no client certificate; the enrolling node checks the fingerprint before sending its token |
+| `POST /repl/v1/renew` | `{"csr_pem"}` | `{"cert_pem"}` | section 14; the CSR must carry the caller's own node id |
+
+The TLS layer requests a client certificate (`CERT_OPTIONAL`, chain verified
+against the cluster CA when presented) so that `enroll` and `ca` are
+reachable; every other endpoint answers `401 client_certificate_required`
+without one, `403 revoked` when its fingerprint is in `[revoked]`, and
+`403 unknown_node` when its node id is not in `[[nodes]]`. Clients check that
+the server certificate carries the node id of the peer they meant to reach.
+Errors are JSON `{"code","detail","status"}`.
 
 Client behavior (`core.replication.ReplicationClient`, run by the collector):
 
@@ -1123,7 +1137,17 @@ Client behavior (`core.replication.ReplicationClient`, run by the collector):
   own head from every peer and merges. The web process serves read-only
   pages during `syncing` and refuses writes with `503 replication_syncing`.
 - Periodic anti-entropy every `peer_poll_seconds`: same as pull-on-return.
-  A peer unreachable for 3 polls raises `PEER_OFFLINE`.
+  A peer unreachable for 3 polls raises `PEER_OFFLINE` (failed pushes do not
+  count; `Replicator.offline_peers()` gives the list). Audit exchange goes
+  both ways after each side's head, then walks both logs fully when the
+  counts still differ, so entries whose ULID sorts below the other side's
+  head (clock skew) are never lost.
+- `core.replication.ReplicationService(ctx, registry)` bundles all of this
+  for the collector: `start()` (server, signal listener, pull, state
+  `ready`), `stop()`, and a worker that also renews the node certificate and
+  runs housekeeping (backup retention, expired tokens) hourly. The state is
+  published in `/run/pelagos/replication.state` (`ready` or `syncing`);
+  `NodeContext.replication_state` reads it (`ready` when the file is absent).
 - No election, no quorum. A single node is always writable.
 
 ## 14. Enrollment and internal CA
@@ -1144,8 +1168,10 @@ Flow:
 2. Admin asks for a token: `POST /api/v1/nodes/enroll-token` returns
    `{"token": "<43 chars base64url>", "url": "https://ns1.example.lan:8444",
    "ca_fingerprint": "sha256:...", "expires_at": ...}`. The token is stored
-   hashed (sha256) in memory of the collector with a 15 minute TTL and is
-   single use.
+   hashed (sha256) with a 15 minute TTL (max 24 h) and is single use. The
+   store is `/var/lib/pelagos/enroll_tokens.json` (0600, file lock) so the
+   web process issues (`EnrollmentService.issue_token`) and the collector
+   consumes.
 3. On the new node: `pelagos enroll --url https://ns1.example.lan:8444
    --token <token> --ca-fingerprint sha256:... --name ns2`. The command
    writes `node.toml` if absent, generates `node.key` and a CSR with

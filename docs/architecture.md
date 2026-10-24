@@ -766,7 +766,7 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
 ```
 dns.rrset      : "<zone>/<owner>/<type>"            owner relative or absolute
 dns.zone       : "<view>/<zone>"                    view "_default" when none
-dns.config     : "keys/<name>" | "acls/<name>" | "options/<statement>" | "raw:<file>"
+dns.config     : "keys/<name>" | "acls/<name>" | "options/<statement>" | "raw:<file>" | "pelagos/includes"
 dhcp.subnet    : "subnet<4|6>/<id>"
 dhcp.shared_network : "shared-networks/<name>"
 dhcp.reservation : "subnet<4|6>/<id>/reservations/<id_type>=<identifier>" | "global/reservations/<id_type>=<identifier>"
@@ -821,8 +821,14 @@ collector's job (`settings.retention.backups_days`, default 90).
 ```python
 def parse(text: str, path: str | None = None) -> ConfigDocument
 def serialize(doc: ConfigDocument) -> str
-def load_tree(user_conf: Path, checkconf: Path = Path("named-checkconf")) -> BindConfigTree
+def load_tree(user_conf: Path, node_id: str, checkconf: str | None = "named-checkconf",
+              include_dir: Path | None = None, reader: Callable[[Path], str] | None = None) -> BindConfigTree
+def grammar() -> dict[str, Any]                       # GET /advanced/bind/grammar
+def files_tree(files: ConfigFiles, include_dir: Path | None = None) -> dict[str, Any]   # GET /advanced/bind/tree
 ```
+
+- Relative `include` paths resolve against `options { directory }` once it
+  has been seen (as named does), else against the folder of `named.conf`.
 
 - `ConfigDocument` is a lossless token tree: statements, blocks, raw values,
   comments (`//`, `#`, `/* */`), whitespace and `include` directives are
@@ -921,6 +927,9 @@ rndc_conf = "/etc/bind/pelagos/rndc-pelagos.conf"   # rndc config with our key; 
 statistics_url = "http://127.0.0.1:8053/json/v1"
 query_address = "127.0.0.1"
 query_port = 53
+# optional: rndc_address, rndc_port (953), rndc_key (fallback key file), zone_dir (new primary
+# zone files, default <options directory>/pelagos), group (group of managed files), checkconf,
+# checkzone (binary paths, default from PATH and /usr/sbin)
 
 [engines.kea]
 socket_dir = "/run/kea"

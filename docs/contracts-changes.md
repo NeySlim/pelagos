@@ -13,6 +13,36 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, WP-BIND: namedconf API, BIND plan details, include setup
+- `namedconf.load_tree(user_conf, node_id, checkconf=str|None, include_dir=None, reader=None)`
+  replaces the section 8 signature (node_id is needed by `BindConfigTree`; `checkconf=None`
+  skips the run). Also exported: `grammar()` and `files_tree()` for `GET /advanced/bind/grammar`
+  and `GET /advanced/bind/tree`; `BindBackend.config_files_tree()` returns the latter for the
+  node. WP-API-AUTH: call these from `api/advanced.py`.
+- Relative `include` paths resolve against `options { directory }` (named's behavior), not
+  against the including file.
+- `node.toml [engines.bind]` gains optional keys `rndc_key`, `zone_dir`, `group`, `checkconf`,
+  `checkzone` (section 10 comment). WP-INSTALLER: set `group` to `bind`/`named`.
+- New `dns.config` target `"pelagos/includes"` and `BindBackend.plan_include_setup()`: creates
+  the managed files and adds the two include lines (plus one per view). WP-INSTALLER: use it in
+  the import plan instead of writing the lines itself.
+- `dns.zone` `after` may carry `ns` (list) and `records` (RRset dicts) for the initial zone file
+  of a new primary zone; the normalized plan keeps them so every node renders the same file.
+- Key plans keep the generated secret in `Change.after["secret"]` (every node must write the
+  same key); `before` and the diff are masked. WP-API-AUTH: mask `after.secret` in plan
+  responses and audit entries.
+- `RRSET_EXISTS` preconditions are value-dependent: `value` is the rdata as read, one per line,
+  and the UPDATE carries the matching value-dependent `yxrrset` prerequisite.
+- `BindBackend.apply`/`rollback` return `NodeApplyResult(ok=False)` for connector and engine
+  failures (prerequisite rcodes, `PreconditionFailed`, pipeline errors) instead of raising.
+  The audit material is in `BindBackend.details[plan.id]`: `apply`/`rollback` entries with
+  `request` (UPDATE text and key) and `response` (rcode) for record plans, or `request.files`
+  and `response.steps`/`backup_dir` for file plans. WP-API-AUTH: copy them into the entries.
+- Observed in `core/write_pipeline.py` (WP-CORE): `restore()` calls `reload` even when
+  validation failed and nothing was reloaded, which section 7 forbids. The BIND connector
+  guards against it (reconfig skipped while the files match what named loaded); WP-CORE should
+  make `run()` skip the reload in that path.
+
 ## 2026-10-24, WP-KEA: Kea connector conventions other packages see
 Additive, no existing symbol changes.
 - `architecture.md` section 10, `[engines.kea]`: optional `d2_secret_dir` (where D2

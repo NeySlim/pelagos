@@ -69,6 +69,19 @@ test('asks for the TOTP code when the account has one', async ({ page }) => {
   await expect(page.getByTestId('sidebar')).toBeVisible()
 })
 
+// Finished pages: an element filled from the API. Routes not listed still use
+// the AreaPlaceholder, which dumps the API response as a JSON tree.
+const DATA_TEST_IDS = {
+  '/': 'tile-node',
+  '/dns/zones': 'zones-table',
+  '/dns/zones/example.lan': 'records-table',
+  '/dns/resolver': 'resolver-settings',
+  '/dns/acls-keys': 'acls-table',
+  '/dns/secondaries': 'secondaries-table',
+  '/dns/dnssec': 'dnssec-zones',
+  '/dns/rpz': 'rpz-table',
+}
+
 test('every page renders with data from the API', async ({ page }) => {
   const errors = []
   page.on('pageerror', (err) => errors.push(err.message))
@@ -76,8 +89,9 @@ test('every page renders with data from the API', async ({ page }) => {
   for (const [path, testId] of PAGES) {
     await page.goto(path)
     await expect(page.getByTestId(testId), path).toBeVisible()
-    // Placeholder pages show the raw answer; built pages must not show a read error.
-    if (await page.getByTestId('placeholder-data').count()) await expect(page.getByTestId('json-tree'), path).toBeVisible()
+    // Finished pages show their data; placeholders show the raw answer; no page shows a read error.
+    if (DATA_TEST_IDS[path]) await expect(page.getByTestId(DATA_TEST_IDS[path]).first(), path).toBeVisible()
+    else if (await page.getByTestId('placeholder-data').count()) await expect(page.getByTestId('json-tree'), path).toBeVisible()
     else await expect(page.getByTestId('data-table-loading')).toHaveCount(0)
     await expect(page.getByTestId('data-table-error'), path).toHaveCount(0)
   }

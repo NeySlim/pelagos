@@ -25,6 +25,9 @@ Found by `make test-lab` on lab-ns1/lab-ns2 (Debian 13, Kea 2.6 from Debian). Al
 - Both node processes follow `node.toml [engines]` (architecture section 2):
   `Services.refresh_engines()` before each request, `EXIT_ENGINES_CHANGED = 75` in the
   collector. Before, an import through the API left both processes on their old connectors.
+  The collector also re-publishes its own `[[nodes]].modules` every 30 s when `cluster.toml`
+  disagrees with `node.toml`: two imports on two nodes within the push window both wrote the
+  same version and the last-writer-wins merge dropped the first node's modules.
 - Security audit kinds `update_without_admin_key` and `transfer_without_read_key`, remediations
   `update_policy_grant` and `allow_transfer_add` (section 17). WP-FRONTEND: kinds are shown as is.
 - Import: shared `ddi-read`/`ddi-admin` secrets from `cluster.toml`, `[[nodes]].modules`

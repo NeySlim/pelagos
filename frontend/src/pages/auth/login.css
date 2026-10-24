@@ -1,0 +1,23 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Sign-in scene. The form above it is an opaque glass card (no backdrop blur), so the
+   looping sweep and halos never force a re-blur. */
+.login-scene { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+.login-scene-disc {
+  position: absolute;
+  left: 50%;
+  top: 66%;
+  width: min(1080px, 120vw);
+  transform: translate(-50%, -50%);
+  opacity: 0.65;
+}
+.login-scene-disc .fx-radar { width: 100%; }
+.login-scene-point { position: absolute; width: 0; height: 0; }
+.login-scene-point > .fx-halo { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); }
+.login-scene-point > .login-scene-beam { position: absolute; left: 0; bottom: 0; transform: translateX(-50%); opacity: 0.8; }
+
+:root[data-effects='mission'] .card-soft.login-card {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--m-glass-strong);
+}
+.login-card-title { letter-spacing: 0.04em; }

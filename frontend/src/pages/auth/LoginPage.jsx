@@ -9,7 +9,8 @@ import { useAuth } from '../../contexts/AuthContext'
 import { Button } from '../../components/Button'
 import { Input } from '../../components/Input'
 import { Logo } from '../../components/Logo'
-import { AppBackdrop } from '../../components/motion'
+import { AppBackdrop, Reticle } from '../../components/motion'
+import { LoginScene } from './LoginScene'
 import { useTheme } from '../../contexts/ThemeContext'
 import { errorMessage } from '../../services/apiClient'
 import { languages } from '../../i18n'
@@ -56,13 +57,15 @@ export default function LoginPage() {
   return (
     <div className="relative min-h-full flex items-center justify-center p-4 overflow-hidden" style={{ background: 'var(--gradient-bg)' }}>
       {effects === 'mission' && <AppBackdrop />}
+      {effects === 'mission' && <LoginScene />}
       <div className="relative z-[1] w-full max-w-sm">
         <div className="flex justify-center mb-6">
           <Logo variant="vertical" size="lg" />
         </div>
-        <form onSubmit={handleSubmit} className="card-soft p-6 space-y-4" data-testid="login-form">
+        <Reticle tone="primary" size={14} className="login-reticle">
+        <form onSubmit={handleSubmit} className="card-soft login-card p-6 space-y-4" data-testid="login-form">
           <div>
-            <h1 className="text-lg font-semibold text-text-primary">{t('title')}</h1>
+            <h1 className="ui-card-title login-card-title text-lg font-semibold text-text-primary">{t('title')}</h1>
             <p className="text-xs text-text-secondary mt-0.5">{t('subtitle')}</p>
           </div>
           <Input
@@ -127,6 +130,7 @@ export default function LoginPage() {
             </button>
           )}
         </form>
+        </Reticle>
         <div className="flex justify-center gap-3 mt-4 text-2xs text-text-tertiary">
           {languages.map((lang) => (
             <button

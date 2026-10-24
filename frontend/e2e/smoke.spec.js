@@ -83,8 +83,12 @@ test('every page renders with data from the API', async ({ page }) => {
 
 test('navigation, theme and language follow the user menu', async ({ page }) => {
   await signIn(page)
+  // The event WebSocket goes through the Vite proxy to the mock.
+  await expect(page.getByTestId('ws-dot')).toHaveAttribute('title', 'Live updates on')
   await page.locator('[data-nav="dns-zones"]').click()
   await expect(page.getByTestId('page-dns-zones')).toBeVisible()
+  // Groups other than DNS and DHCP start collapsed.
+  await page.getByRole('button', { name: 'Hosts', exact: true }).click()
   await page.locator('[data-nav="hosts"]').click()
   await expect(page.getByTestId('page-hosts-list')).toBeVisible()
 

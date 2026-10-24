@@ -16,7 +16,7 @@ IMAGE     ?= pelagos
 DOCKER    ?= docker
 
 .PHONY: dev venv npm lint lint-backend lint-frontend fmt test test-unit test-vitest test-daemon test-lab test-e2e
-.PHONY: screenshots build-frontend run run-backend run-frontend clean
+.PHONY: screenshots build-frontend run run-backend run-frontend clean messages-keys
 .PHONY: deb rpm docker docker-allinone packages version lock wheels test-packaging
 
 dev: venv npm
@@ -49,6 +49,10 @@ test-unit:
 
 test-vitest:
 	cd $(FRONTEND) && npx vitest run
+
+# Regenerate the key list the frontend checks its catalogs against (after editing CATALOG).
+messages-keys:
+	cd $(BACKEND) && .venv/bin/python -m pelagos.domain.messages > ../$(FRONTEND)/src/i18n/backendMessageKeys.json
 
 test-daemon:
 	cd $(BACKEND) && .venv/bin/pytest -m daemon $(PYTEST_ARGS)

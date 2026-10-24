@@ -10,7 +10,7 @@ from flask_restx import Api
 from werkzeug.exceptions import HTTPException
 
 from pelagos import API_VERSION, __version__
-from pelagos.api.errors import PROBLEM_TYPE, ApiError, title_message, translate, unexpected_detail
+from pelagos.api.errors import PROBLEM_TYPE, TITLES, ApiError, title_message, translate, unexpected_detail
 from pelagos.api.security import load_session
 
 API_PREFIX = f"/api/{API_VERSION}"
@@ -83,7 +83,7 @@ def register_api(app: Flask) -> Api:
         )
         return {
             "type": PROBLEM_TYPE + code,
-            "title": err.name,
+            "title": TITLES[code],
             "status": err.code or 500,
             "detail": err.description,
             "instance": request.path,

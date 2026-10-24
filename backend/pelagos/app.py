@@ -12,6 +12,7 @@ from werkzeug.exceptions import HTTPException, NotFound
 from pelagos.api.errors import (
     PROBLEM_MIME,
     PROBLEM_TYPE,
+    TITLES,
     ApiError,
     title_message,
     translate,
@@ -85,7 +86,8 @@ def create_app(
         return _problem(
             {
                 "type": PROBLEM_TYPE + code,
-                "title": err.name,
+                # The title follows the mapped code so it matches title_message.
+                "title": TITLES[code],
                 "status": err.code or 500,
                 "detail": err.description,
                 "instance": request.path,

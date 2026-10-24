@@ -172,7 +172,7 @@ CATALOG: dict[str, str] = {
     "finding.transfer_without_read_key.where_options": "the options",
     "finding.transfer_without_read_key.proposal_add": "Add {statement} to the options block",
     "finding.transfer_without_read_key.risk": "None: the clients allowed today keep their access.",
-    "finding.open_allow_transfer.description_zone": "Zone {zone} allow zone transfers to any client.",
+    "finding.open_allow_transfer.description_zone": "Zone {zone} allows zone transfers to any client.",
     "finding.open_allow_transfer.description_options": "The options allow zone transfers to any client.",
     "finding.open_allow_transfer.risk": (
         "Secondaries that transfer by address only must be listed or given a key, or their transfers fail."

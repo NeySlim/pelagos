@@ -203,7 +203,8 @@ class AlertStore:
                     current.details != alert.details
                     or current.severity != alert.severity
                     or current.title != alert.title
-                    or current.title_message != alert.title_message
+                    # A row cached before message keys existed gains one without a change.
+                    or (current.title_message is not None and current.title_message != alert.title_message)
                 )
                 current.last_seen = now
                 current.details = alert.details

@@ -44,8 +44,9 @@ What changed (file, symbol). Why. Which packages must react, and how.
   default one, `detail_message`; summary audit entries gain `request.summary_message`, alert audit
   entries `request.title_message`.
 - Every producer: a new text the UI shows comes with a catalog key; add the key to `CATALOG`,
-  regenerate `frontend/src/i18n/backendMessageKeys.json` (`python -m pelagos.domain.messages`) and add
-  it to `messages.json` in every language. Closes the "server texts in English" gap below.
+  regenerate `frontend/src/i18n/backendMessageKeys.json` (`make messages-keys`) and add
+  it to `messages.json` in every language. A cached alert without `title_message` gains it on the
+  next poll without an "updated" event. Closes the "server texts in English" gap below.
 
 ## 2026-10-24, final review (backend): security and robustness fixes
 All additive; `docs/architecture.md` sections 5, 9, 15 and the Kea SELinux note updated.

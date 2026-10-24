@@ -2077,7 +2077,7 @@ The catalog is `pelagos.domain.messages.CATALOG` (key to English template):
 keys are grouped by prefix (`plan.`, `alert.`, `finding.`, `job.step.`,
 `job.phase.`, `problem.`, and the shared fragments `op.`, `note.`,
 `common.`). `python -m pelagos.domain.messages` prints every key with its
-parameter names; its output is `frontend/src/i18n/backendMessageKeys.json`,
+parameter names (`make messages-keys`); its output is `frontend/src/i18n/backendMessageKeys.json`,
 and unit tests on both sides check that the file is current and that the
 `messages` namespace (`frontend/src/i18n/locales/<lang>/messages.json`, flat
 keys) holds every key with the same parameters in every language. The UI

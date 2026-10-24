@@ -256,3 +256,41 @@ def test_old_cache_gains_the_column_and_reads_without_it(tmp_path):
     )
     assert {a.subject: a.title_message for a in store.open_alerts()}["peer:y"]["key"] == "alert.peer_offline"
     conn.close()
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 405, 413, 429, 503])
+def test_werkzeug_errors_title_matches_title_message(app, status):
+    from werkzeug.exceptions import abort
+
+    @app.get(f"/_test/abort/{status}")
+    def _abort():
+        abort(status)
+
+    body = app.test_client().get(f"/_test/abort/{status}").get_json()
+    assert body["status"] == status
+    assert render(body["title_message"]) == body["title"] == TITLES[body["code"]]
+
+
+def test_api_werkzeug_error_title_matches_title_message(admin_client):
+    body = admin_client.delete("/api/v1/auth/login").get_json()
+    assert body["code"] == "method_not_allowed"
+    assert render(body["title_message"]) == body["title"] == TITLES["method_not_allowed"]
+
+
+def test_legacy_alert_gaining_a_message_is_not_updated(tmp_path):
+    conn = connect(tmp_path / "series.sqlite")
+    store = AlertStore(conn)
+    alert = rules.peer_offline("n2", "ns2", 3, "timeout")
+    store.reconcile([alert], scope={AlertKind.PEER_OFFLINE.value})
+    conn.execute("UPDATE alerts SET title_message = NULL")
+    again = rules.peer_offline("n2", "ns2", 3, "timeout")
+    _, updated, _ = store.reconcile([again], scope={AlertKind.PEER_OFFLINE.value})
+    assert updated == []
+    got = store.get(alert.id)
+    assert got is not None and got.title_message == again.title_message
+    conn.close()
+
+
+def test_open_allow_transfer_wording():
+    text = render(msg("finding.open_allow_transfer.description_zone", zone="example.lan"))
+    assert text == "Zone example.lan allows zone transfers to any client."

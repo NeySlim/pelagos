@@ -713,7 +713,9 @@ class FakeDnsBackend(DnsBackend):
                 zone = next((z for z in self.zones if owner.endswith(z)), None)
                 exists = zone is not None and (owner, rtype) in self.rrsets[zone]
                 observed = "exists" if exists else "absent"
-                if observed != pre.value:
+                # The real connector puts "" (absent) or the rdata (exists) in `value`.
+                want = "absent" if pre.kind is PreconditionKind.RRSET_ABSENT else "exists"
+                if observed != want:
                     raise PreconditionFailed(pre, observed)
             elif pre.kind is PreconditionKind.SOA_SERIAL:
                 observed = str(self.serials.get(pre.subject))

@@ -12,6 +12,7 @@ import re
 from collections.abc import Iterable
 from typing import Any
 
+from pelagos.connectors.kea.configfile import FileDiverged
 from pelagos.core.context import NodeContext
 from pelagos.domain import (
     Alert,
@@ -29,6 +30,7 @@ from pelagos.domain import (
     host_key,
     normalize_name,
 )
+from pelagos.services import kea_files, remote_rrset
 from pelagos.services.alerts_service import AlertsService
 from pelagos.services.dhcp_service import DhcpService
 from pelagos.services.dns_service import DnsService
@@ -342,8 +344,8 @@ class HostsService:
             raise ValidationError("invalid host request", errors)
         assert ip is not None
         fqdn = f"{hostname}.{zone}"
-        if self.dns is None or self.dns.local is None:
-            raise EngineUnavailable("this node does not run BIND; build host plans on a node that does")
+        if self.dns is None:
+            raise EngineUnavailable("DNS is not available on this node")
         parts: list[Plan] = []
         rtype = "A" if ip.version == 4 else "AAAA"
         rr_changes = [Change(ChangeOp.ADD, f"{zone}/{fqdn}/{rtype}", after={"ttl": ttl, "rdata": [str(ip)]})]
@@ -385,9 +387,18 @@ class HostsService:
                 }
             after = {k: v for k, v in reservation.to_dict().items() if v not in (None, [], {})}
             target = f"{dhcp.subnet_key}/{int(subnet_id)}/reservations/hw-address={mac}"
-            part = dhcp.local.plan_reservation_change(Change(ChangeOp.ADD, target, after=after), created_by)
+            targets = dhcp._all_nodes()
+            kea_files.check(
+                dhcp.alerts, dhcp.engine, targets, self.ctx.node.id, dhcp.local, dhcp._node_names()
+            )
+            try:
+                part = dhcp.local.plan_reservation_change(
+                    Change(ChangeOp.ADD, target, after=after), created_by
+                )
+            except FileDiverged as exc:
+                raise kea_files.from_connector(dhcp.engine, exc, self.ctx.node.id) from None
             # Every Kea of the HA pair carries the reservation, as reservation plans do.
-            part.target_node_ids = dhcp._all_nodes()
+            part.target_node_ids = targets
             parts.append(part)
         plan = Plan(
             scope=PlanScope.HOST,
@@ -414,7 +425,11 @@ class HostsService:
         return self.ctx.plan_store.put(plan)
 
     def _dns_part(self, zone: str, changes: list[Change], created_by: str) -> Plan:
-        """An RRset plan applied where the zone is primary (this node, or the peer holding it)."""
+        """An RRset plan applied where the zone is primary (this node, or the peer holding it). Without
+        BIND here, the plan is built from the primary's records and applied there."""
+        assert self.dns is not None
+        if self.dns.local is None:
+            return remote_rrset.plan_on_primary(self.dns, self.ctx, zone, changes, created_by)
         part = self.dns.local.plan_rrset_changes(zone, changes, None, created_by)
         primary = self.dns._primary_node(normalize_name(zone), None)
         if primary is not None:

@@ -36,7 +36,7 @@ COPY docker/kea/ /usr/share/pelagos/seed/kea/
 COPY docker/entrypoint.sh /usr/local/bin/pelagos-entrypoint
 COPY LICENSE NOTICE /usr/share/doc/pelagos/
 RUN chmod 0755 /usr/local/bin/pelagos-entrypoint && ln -s /opt/pelagos/bin/pelagos /usr/bin/pelagos
-ENV PELAGOS_KEA_GID=8443 PELAGOS_BIND_GID=53 PYTHONUNBUFFERED=1
+ENV PELAGOS_KEA_GID=8450 PELAGOS_BIND_GID=53 PYTHONUNBUFFERED=1
 VOLUME ["/etc/pelagos", "/var/lib/pelagos"]
 EXPOSE 8443 8444
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \

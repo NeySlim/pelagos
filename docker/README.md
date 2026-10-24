@@ -43,8 +43,9 @@ Notes:
   ISC images never land in them before `pelagos-init` seeds its own files
   (`bind/named.conf`, `kea/*.conf`). Existing files are never overwritten.
 - The ISC Kea images run as root with the primary group `PELAGOS_KEA_GID`
-  (default 8443, never 0) and create the sockets with `umask 007`; `/run/kea`
-  is `0750` with that group, which the `pelagos` user joins. Kea 3.x accepts no other socket directory.
+  (default 8450, a `kea` group distinct from `root` and `pelagos`) and create
+  the sockets with `umask 007`; `/run/kea` is `0750` with that group, which
+  the `pelagos` user joins. Kea 3.x accepts no other socket directory.
 - The seeded Kea configurations have `"interfaces": []`: add the LAN
   interface of the Docker host to `kea-dhcp4.conf` before serving DHCP.
 - rndc and the statistics channel reach `bind` over the compose network. The

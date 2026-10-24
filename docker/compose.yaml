@@ -25,7 +25,7 @@ x-pelagos-common: &pelagos-common
     PELAGOS_NODE_NAME: ${PELAGOS_NODE_NAME:-pelagos}
     PELAGOS_WEB_URL: ${PELAGOS_WEB_URL:-}
     PELAGOS_REPLICATION_URL: ${PELAGOS_REPLICATION_URL:-}
-    PELAGOS_KEA_GID: ${PELAGOS_KEA_GID:-8443}
+    PELAGOS_KEA_GID: ${PELAGOS_KEA_GID:-8450}
     PELAGOS_BIND_HOST: bind
   volumes:
     - pelagos-etc:/etc/pelagos
@@ -40,7 +40,7 @@ x-kea-common: &kea-common
   network_mode: host
   # Root user (the ISC images need it) with a dedicated primary group: the sockets are
   # root:PELAGOS_KEA_GID, so the node never joins the root group.
-  user: "0:${PELAGOS_KEA_GID:-8443}"
+  user: "0:${PELAGOS_KEA_GID:-8450}"
   restart: unless-stopped
   environment:
     # Kea 3.x only accepts sockets under this directory; it is the volume shared with the node.

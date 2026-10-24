@@ -15,6 +15,7 @@ Third-party components
 This product bundles the following fonts (frontend/public/fonts):
   - Inter, Copyright The Inter Project Authors, SIL Open Font License 1.1
   - Fira Code, Copyright The Fira Code Project Authors, SIL Open Font License 1.1
+  - Michroma, Copyright 2011 The Michroma Project Authors, SIL Open Font License 1.1
 
 Runtime dependencies are declared in backend/pyproject.toml and
 frontend/package.json and keep their own licenses (MIT, BSD, Apache-2.0,

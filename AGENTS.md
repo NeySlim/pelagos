@@ -165,7 +165,14 @@ families. `accent-primary` is DNS and primary actions, `accent-pro` is DHCP.
 Check WCAG AA contrast (4.5:1) of the three text tokens and the two accents
 on `bg-secondary`. `frontend/src/index.css` `:root` and `.theme-light` hold
 the defaults used before React mounts; they match the default family
-(Pelagic).
+(Mission Control). A family's `effects` key selects its effects layer
+(`'mission'` turns on `src/styles/mission.css`: glass panels, backdrop, display
+font; `'none'` keeps the plain look). Mission Control has its own status hues
+(neon green, yellow, red-pink) with the same meaning; the other families keep
+the UCM ones. Animations go through the motion primitives in
+`src/components/motion/` and honor `useMotion()` (preference `animations`:
+full, reduced, off, lowered by `prefers-reduced-motion`): animate transform and
+opacity only, mark loops `fx-loop`.
 
 ## Daily commands
 

@@ -1,7 +1,7 @@
 # Pelagos Design System
 
 Copied from the UCM design system (relicensed Apache-2.0 by its author) with the
-Pelagic family added as the default.
+Pelagos families added: Mission Control (the default) and Pelagic.
 
 > Source of truth: `src/index.css` (tokens, component classes) and
 > `src/contexts/ThemeContext.jsx` (per-theme color values). This document
@@ -10,11 +10,12 @@ Pelagic family added as the default.
 ## Theming model
 
 Colors are **not** hardcoded. `ThemeContext.jsx` writes CSS custom properties on
-`document.documentElement` at runtime. There are **4 theme families** × **2 modes**:
+`document.documentElement` at runtime. There are **5 theme families** × **2 modes**:
 
 | Family | `id` | Accent | Modes |
 |--------|------|--------|-------|
-| Pelagic: Ocean Mission Control UI (default) | `pelagic` | `#2DD4BF` | dark / light |
+| Mission Control: graphite glass, ember and neon (default) | `mission` | `#FF6A2B` | dark / light |
+| Pelagic: Ocean Mission Control UI | `pelagic` | `#2DD4BF` | dark / light |
 | Gray | `gray` | `#4F8EF7` | dark / light |
 | Purple Night | `purple` | `#A855F7` | dark / light |
 | Orange Sunset | `sunset` | `#F97316` | dark / light |
@@ -160,6 +161,58 @@ for floating panels / overlays.
 Keyframe animations (Tailwind): `animate-fade-in`, `animate-slide-up`,
 `animate-slide-in-right`, `animate-pulse-slow`.
 
+### Motion levels and primitives
+
+`MotionContext` resolves the `animations` preference (Account > Preferences:
+`full`, `reduced`, `off`) against `prefers-reduced-motion` (which can only
+lower it) and writes `data-motion` on `<html>`; `data-page-hidden` is set while
+the tab is hidden. `src/styles/effects.css` applies them:
+
+| Level | Loops (`fx-loop`: sweeps, pulses, flowing dashes) | Entries (stagger, page) | `CountUp` |
+|-------|------|------|------|
+| `full` | run, paused on a hidden page | rise and fade | counts |
+| `reduced` | static | short fade | final value |
+| `off` | static | none (no transitions at all) | final value |
+
+Rules: animate `transform` and `opacity` only (no animated blur, size or
+`stroke-dashoffset`), use a `backwards` fill for entries so nothing stays
+transformed, never put a looping animation behind a glass panel (it would
+re-blur every frame), and reserve the final size of changing numbers
+(`CountUp` renders a hidden ghost of the final value).
+
+Primitives (`components/motion/`, also exported from `components/index.js`):
+`CountUp`, `StatusDot`, `PulsingHalo`, `FlowLine` (straight beam, dashes move
+by transform), `Reticle` (corner brackets), `RadarRing` (perspective disc,
+rotating tick ring and sweep), `MiniHistogram`, `StippledAreaChart` (dot
+stipple under a thin line, glowing marker on the current point),
+`SegmentedProgress` (done green, current ember, next gray), `Stagger`,
+`PageTransition`, `StatChip`, `IconButton`, `AppBackdrop`. Tones: `primary`,
+`pro`, `success`, `warning`, `danger`, `neutral`.
+
+## Mission Control effects layer
+
+A family declares `effects: 'mission' | 'none'`; ThemeContext writes it as
+`data-effects` on `<html>`. `src/styles/mission.css` styles the shared
+components through stable hook classes (`ui-sidebar`, `ui-page-header`,
+`ui-page-title`, `ui-tabs`/`ui-tab`, `ui-card-title`, `ui-table`/`ui-row`,
+`ui-modal`, `ui-toast`, `ui-menu`, `ui-input`, `ui-badge-*`, `ui-btn-*`,
+`ui-progress-*`, `ui-subpanel`, `ui-floating`) plus the existing `card-soft`
+classes:
+
+- Ground: generated backdrop (gradient, depth grid, contour lines, vignette),
+  static, CSS and SVG only.
+- Glass: `rgba` graphite (or frosted white in light mode) with
+  `backdrop-filter: blur(16px)`, hairline borders, 18px outer and 10px inner
+  radius; a panel nested in a panel becomes a lighter row with no second blur;
+  solid `bg-secondary` when `backdrop-filter` is unsupported or
+  `prefers-contrast: more`.
+- Type: Michroma (`font-display`, `--font-display`) uppercase for the brand,
+  page, card and modal titles and nav group labels; Inter with tabular numerals
+  everywhere else.
+- Controls: pill nav items and tabs (active = lighter fill), round icon
+  buttons, ember primary buttons with dark text (white in light mode), ember
+  focus glow on inputs, pill badges with glowing dots.
+
 ## Component Patterns
 
 ### Buttons (`components/Button.jsx`)
@@ -239,7 +292,9 @@ not a flat `bg-accent-primary`. Match this when rebuilding buttons elsewhere.
 ## Pelagos color rules
 
 - `accent-primary` is DNS and primary actions, `accent-pro` is DHCP.
-- `accent-success`, `accent-warning`, `accent-danger` carry health meaning and
-  are the same in every family.
+- `accent-success`, `accent-warning`, `accent-danger` carry health meaning in
+  every family. The UCM families and Pelagic share the UCM hues; Mission
+  Control uses neon green, yellow (kept apart from the ember accent) and
+  red-pink, checked for AA contrast in `ThemeContext.test.jsx`.
 - Adding a family: one entry in `themeFamilies` with every key of an existing
-  family (`id`, `name`, `description`, `accent`, `dark`, `light`).
+  family (`id`, `name`, `description`, `accent`, `effects`, `dark`, `light`).

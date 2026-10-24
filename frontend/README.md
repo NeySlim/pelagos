@@ -98,11 +98,18 @@ time without touching the same files:
   `DiffView`, `PageLayout`, and the charts in `DashboardChart.jsx`.
 - `useApi` and `usePaginatedApi` for data fetching, `usePermission` for
   permission checks.
+- Motion primitives in `components/motion/` (`CountUp`, `StatusDot`,
+  `PulsingHalo`, `FlowLine`, `Reticle`, `RadarRing`, `MiniHistogram`,
+  `StippledAreaChart`, `SegmentedProgress`, `Stagger`, `StatChip`,
+  `IconButton`, `AppBackdrop`). They follow `useMotion()` and the
+  `data-motion` level; see `src/DESIGN_SYSTEM.md`.
 
 Data read from BIND and Kea is untrusted: render it as text, never as HTML.
 
 ## Third-party assets
 
-`public/fonts/` holds Inter and Fira Code, both under the SIL Open Font
-License 1.1. Their license texts ship next to them in
-`public/fonts/OFL-Inter.txt` and `public/fonts/OFL-FiraCode.txt`.
+`public/fonts/` holds Inter, Fira Code and Michroma (the wide display face of
+the Mission Control theme, latin and latin-ext subsets), all under the SIL
+Open Font License 1.1. Their license texts ship next to them in
+`public/fonts/OFL-Inter.txt`, `public/fonts/OFL-FiraCode.txt` and
+`public/fonts/OFL-Michroma.txt`. Nothing is loaded from a CDN.

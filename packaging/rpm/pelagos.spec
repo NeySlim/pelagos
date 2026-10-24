@@ -115,6 +115,13 @@ fi
 %postun
 %systemd_postun_with_restart pelagos.service pelagos-collector.service
 %systemd_postun pelagos-helper.socket
+# Erase only: the SELinux modules pelagos install loads for Kea's config-write go with the package.
+if [ $1 -eq 0 ] && command -v semodule >/dev/null 2>&1; then
+  for mod in $(semodule -l 2>/dev/null | awk '/^pelagos-kea-/ {print $1}'); do
+    semodule -r "$mod" >/dev/null 2>&1 || :
+  done
+  rm -f %{_sysconfdir}/pelagos/selinux/pelagos-kea-*.cil
+fi
 
 %files
 %license LICENSE

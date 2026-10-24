@@ -26,6 +26,11 @@ Install behaviour matches the deb:
   configuration stay after `dnf remove`, and so does the `pelagos` user, so a
   reinstall finds its files with the same owner.
 - `bind`, `bind-utils` and `kea` are `Suggests`, never pulled in.
+- Where the SELinux policy confines Kea, `pelagos install` loads a CIL
+  module so that Kea's `config-write` may rewrite its own files:
+  `pelagos-kea-dhcpd_t` (RHEL 9) or `pelagos-kea-kea_t`, source in
+  `/etc/pelagos/selinux/`. `dnf remove pelagos` removes it (`%postun` on
+  erase); by hand: `sudo semodule -r pelagos-kea-dhcpd_t`.
 
 Tests: `packaging/tests/install-smoke.sh <rpm>` on a fresh host (SELinux
 enforcing is fine: the units run as `unconfined_service_t`).

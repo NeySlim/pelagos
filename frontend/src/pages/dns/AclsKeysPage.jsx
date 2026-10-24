@@ -22,8 +22,9 @@ import { errorMessage } from '../../services/apiClient'
 import { ListValue, SourceBadge } from './common'
 import { usePlanFlow } from './helpers'
 
-const KEY_ALGORITHMS =['hmac-sha256', 'hmac-sha384', 'hmac-sha512', 'hmac-sha224', 'hmac-sha1']
+const KEY_ALGORITHMS = ['hmac-sha256', 'hmac-sha384', 'hmac-sha512', 'hmac-sha224', 'hmac-sha1']
 const WEAK_ALGORITHMS = ['hmac-md5', 'hmac-sha1']
+const isWeak = (algorithm) => WEAK_ALGORITHMS.includes(String(algorithm).toLowerCase())
 const NAME_RE = /^[a-z0-9]([a-z0-9._-]{0,62})$/i
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/
 
@@ -192,7 +193,7 @@ export default function AclsKeysPage() {
       label: t('keys.algorithm'),
       sortable: true,
       render: (k) =>
-        WEAK_ALGORITHMS.includes(String(k.algorithm).toLowerCase()) ? (
+        isWeak(k.algorithm) ? (
           <Badge variant="warning" size="sm" icon={Warning} title={t('keys.weak')}>
             {k.algorithm}
           </Badge>
@@ -213,9 +214,9 @@ export default function AclsKeysPage() {
             <Button
               variant="ghost"
               size="xs"
-              onClick={() => flow.run(() => api.dns.keysPlan({ op: 'replace', target: `keys/${k.name}`, before: { name: k.name, algorithm: k.algorithm }, after: { name: k.name, algorithm: WEAK_ALGORITHMS.includes(k.algorithm) ? 'hmac-sha256' : k.algorithm }, node_ids: [] }))}
-              aria-label={t('keys.rotate')}
-              title={t('keys.rotate')}
+              onClick={() => flow.run(() => api.dns.keysPlan({ op: 'replace', target: `keys/${k.name}`, before: { name: k.name, algorithm: k.algorithm }, after: { name: k.name, algorithm: isWeak(k.algorithm) ? 'hmac-sha256' : k.algorithm }, node_ids: [] }))}
+              aria-label={t(isWeak(k.algorithm) ? 'keys.rotateUpgrade' : 'keys.rotate')}
+              title={t(isWeak(k.algorithm) ? 'keys.rotateUpgrade' : 'keys.rotate')}
               data-testid="key-rotate"
             >
               <ArrowsCounterClockwise size={13} />

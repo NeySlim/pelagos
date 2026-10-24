@@ -210,6 +210,7 @@
     "reveal": "Afficher (journalisé)",
     "hide": "Masquer",
     "rotate": "Renouveler le secret",
+    "rotateUpgrade": "Renouveler le secret et passer à hmac-sha256",
     "weak": "Algorithme faible : passer à hmac-sha256",
     "usedBy": "Utilisée par",
     "unused": "Inutilisée",

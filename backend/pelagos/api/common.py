@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -11,11 +10,13 @@ from flask import request
 
 from pelagos.api.errors import ApiError
 from pelagos.domain import Model, Plan, PlanState, from_rfc3339, utcnow
+from pelagos.services.masking import MASK as MASK
+from pelagos.services.masking import SECRET_KEYS as SECRET_KEYS
+from pelagos.services.masking import masked as masked
+from pelagos.services.masking import masked_text as masked_text
 
 MAX_PER_PAGE = 500
 DEFAULT_PER_PAGE = 50
-SECRET_KEYS = frozenset({"secret", "password", "password_hash", "totp_secret", "master_key"})
-MASK = "***"
 
 
 def json_body(required: bool = True) -> dict[str, Any]:
@@ -123,29 +124,6 @@ def items(rows: list[Any], **extra: Any) -> dict[str, Any]:
 
 def _dump(value: Any) -> Any:
     return value.to_dict() if isinstance(value, Model) else value
-
-
-def masked(value: Any) -> Any:
-    """Copy of a JSON value with every secret-looking key replaced by ***."""
-    if isinstance(value, dict):
-        return {
-            k: (MASK if k in SECRET_KEYS and v not in (None, "") else masked(v)) for k, v in value.items()
-        }
-    if isinstance(value, list):
-        return [masked(v) for v in value]
-    return value
-
-
-_SECRET_TEXT = (
-    re.compile(r'("(?:secret|password)"\s*:\s*")[^"]*(")'),  # JSON (Kea objects in diffs)
-    re.compile(r'(\bsecret\s+")[^"]*(")'),  # named.conf key statements
-)
-
-
-def masked_text(text: str) -> str:
-    for pattern in _SECRET_TEXT:
-        text = pattern.sub(r"\1" + MASK + r"\2", text)
-    return text
 
 
 def plan_dict(plan: Plan) -> dict[str, Any]:

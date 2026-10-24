@@ -31,6 +31,7 @@ from pelagos.domain import (
 )
 from pelagos.services.dns_service import parse_change
 from pelagos.services.errors import EngineUnavailable, NotFound, ValidationError, field_error
+from pelagos.services.masking import masked
 from pelagos.services.peers import PeerGateway
 
 MASK = "***"
@@ -355,10 +356,10 @@ class DhcpService:
             return {
                 "node_id": self.ctx.node.id,
                 "hash": backend.config_hash(),
-                "config": backend.config_get(),
+                "config": masked(backend.config_get()),
             }
         snap = self._peer_snapshot(peer, "config")  # type: ignore[arg-type]
-        return {"node_id": peer.id, "hash": snap.get("config_hash"), "config": snap.get("config")}  # type: ignore[union-attr]
+        return {"node_id": peer.id, "hash": snap.get("config_hash"), "config": masked(snap.get("config"))}  # type: ignore[union-attr]
 
     def _config(self, node_id: str | None) -> tuple[dict[str, Any], str]:
         data = self.config(node_id)

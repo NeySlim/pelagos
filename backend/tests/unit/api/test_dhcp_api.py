@@ -255,3 +255,12 @@ def test_kea_down(role_client, kea4):
     assert c.get(D + "/servers").get_json()["items"][0]["error"] == "kea4 control socket refused"
     summary = c.get("/api/v1/dashboard/summary").get_json()
     assert "pools.kea4" in summary["errors"]
+
+
+def test_config_masks_database_passwords(role_client, kea4):
+    kea4.config["lease-database"] = {"type": "mysql", "name": "kea", "password": "DBPASS-1"}
+    kea4.config["hosts-database"] = {"type": "mysql", "name": "kea", "password": "DBPASS-2"}
+    c = role_client("viewer")
+    cfg = c.get(D + "/config").get_json()
+    assert cfg["config"]["lease-database"]["password"] == "***"
+    assert "DBPASS" not in str(cfg) and "DBPASS" not in str(c.get(D + "/ddns").get_json())

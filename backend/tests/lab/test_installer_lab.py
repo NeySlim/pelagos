@@ -414,6 +414,10 @@ class TestRocky:
         client.login()
         dhcp_write(self.host, client, 42)
 
+    def test_06_static_zone_edit_under_the_units(self):
+        """The web unit (ProtectSystem=strict) rewrites a static zone file of /var/named in place."""
+        static_zone_edit(self.host)
+
 
 KEA4_CONF = "/etc/kea/kea-dhcp4.conf"
 
@@ -450,6 +454,47 @@ def dhcp_write(host: str, client: Api, subnet_id: int) -> None:
     cfg = keaconf.loads(sudo_cat(host, KEA4_CONF))["Dhcp4"]
     assert any(s.get("id") == subnet_id for s in cfg.get("subnet4", [])), cfg
     assert labelled_as_policy_says(host, KEA4_CONF)
+    assert avc_denials(host) == ""
+
+
+STATIC_ZONE = "static.example.lan"
+STATIC_FILE = f"/var/named/{STATIC_ZONE}.zone"
+STATIC_TEXT = f"""; {STATIC_ZONE}: written by hand, keep this comment
+$TTL 3600
+@\tIN SOA ns1.{STATIC_ZONE}. hostmaster.{STATIC_ZONE}. ( 2026010101 3600 900 604800 300 )
+\tIN NS ns1
+ns1\tIN A 192.0.2.1
+"""
+
+
+def static_zone_edit(host: str) -> None:
+    """A user zone in /var/named (root:named 0770), file group-writable: the plan validates and the
+    apply writes it from inside the sandboxed unit, named serves the new record."""
+    ssh(host, f"sudo tee {STATIC_FILE} >/dev/null", data=STATIC_TEXT.encode())
+    ssh(host, f"sudo chown root:named {STATIC_FILE} && sudo chmod 0660 {STATIC_FILE}")
+    ssh(host, f"sudo restorecon {STATIC_FILE}")
+    stanza = (
+        f'zone "{STATIC_ZONE}" {{ type primary; file "{STATIC_ZONE}.zone"; '
+        "allow-transfer { key ddi-read; }; };\n"
+    )
+    ssh(host, "sudo tee -a /etc/named.conf >/dev/null", data=stanza.encode())
+    ssh(host, "sudo named-checkconf /etc/named.conf && sudo rndc reconfig")
+    client = Api(host)
+    client.login()
+    change = {"op": "add", "target": "www/A", "after": {"ttl": 300, "rdata": ["192.0.2.80"]}}
+    plan = client.post(f"/dns/zones/{STATIC_ZONE}/records/plan", {"changes": [change]})
+    assert plan["state"] == "validated", json.dumps(plan, indent=2)
+    assert "file edit, the zone stays static" in json.dumps(plan)
+    result = client.apply(plan)
+    assert result["state"] == "applied", json.dumps(result, indent=2)
+    text = sudo_cat(host, STATIC_FILE)
+    assert text.startswith(f"; {STATIC_ZONE}: written by hand") and "192.0.2.80" in text
+    wait_for(
+        "named serves the edit",
+        lambda: ssh(host, f"dig +short @127.0.0.1 www.{STATIC_ZONE} A")[1].strip() == "192.0.2.80",
+        timeout=60,
+    )
+    assert labelled_as_policy_says(host, STATIC_FILE)
     assert avc_denials(host) == ""
 
 

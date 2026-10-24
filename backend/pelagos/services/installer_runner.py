@@ -22,7 +22,7 @@ from collections.abc import Callable
 from typing import Any
 
 from pelagos.core.context import NodeContext
-from pelagos.domain import Change, Engine, Job, JobState, NodeApplyResult, Plan, PlanScope
+from pelagos.domain import Change, Engine, Job, JobState, NodeApplyResult, Plan, PlanScope, messages
 from pelagos.installer import helper
 from pelagos.services.jobs import step
 
@@ -30,6 +30,12 @@ log = logging.getLogger(__name__)
 
 # Dual-key switch steps (security plan), in the order they must complete on every node.
 STEP_ORDER = ("1-bind-add", "2-d2-switch", "3-bind-remove")
+PHASE_KEYS = {
+    "changes": "changes",
+    "1-bind-add": "bind_add",
+    "2-d2-switch": "d2_switch",
+    "3-bind-remove": "bind_remove",
+}
 STEP_ENGINE = {"1-bind-add": Engine.BIND, "2-d2-switch": Engine.D2, "3-bind-remove": Engine.BIND}
 
 
@@ -145,7 +151,13 @@ class InstallerRunner:
                 raise RuntimeError(f"{peer.name} unreachable: {status.error}")
             return f"config adopted: {status.config_adopted}, audit entries pulled: {status.audit_added}"
 
-        step(job, f"{phase}/{peer.name}/replicate", sync, progress)
+        step(
+            job,
+            f"{phase}/{peer.name}/replicate",
+            sync,
+            progress,
+            label=messages.msg("job.step.replicate", node=peer.name),
+        )
 
         def apply() -> str:
             self._seal(part, node_id)
@@ -154,7 +166,10 @@ class InstallerRunner:
                 raise RuntimeError(result.message or "failed")
             return result.message
 
-        step(job, f"{phase}/{peer.name}", apply, progress, weight=2)
+        label = messages.msg(
+            "job.step.remote", phase=messages.msg(f"job.phase.{PHASE_KEYS[phase]}"), node=peer.name
+        )
+        step(job, f"{phase}/{peer.name}", apply, progress, weight=2, label=label)
 
     def _seal(self, part: Plan, node_id: str) -> None:
         """Dual-key steps leave this node sealed for `node_id` with the master key (core.step_seal)."""

@@ -25,6 +25,7 @@ from pelagos.domain import (
     Precondition,
     PreconditionKind,
     ValidationResult,
+    messages,
 )
 from pelagos.installer import bindconf, bindsetup, keaconf, keasetup, managed
 from pelagos.installer.jobs import Step
@@ -208,7 +209,8 @@ def build_import_plan(env: Any, engines: list[str], created_by: str = "") -> Pla
     return Plan(
         scope=PlanScope.IMPORT,
         node_id=env.node_id,
-        summary=f"import {', '.join(engines)}",
+        summary=messages.render(messages.msg("plan.import", engines=list(engines))),
+        summary_message=messages.msg("plan.import", engines=list(engines)),
         created_by=created_by,
         changes=changes,
         diff=render_diff(changes),

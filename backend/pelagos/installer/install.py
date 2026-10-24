@@ -13,7 +13,17 @@ import os
 from pathlib import Path
 from typing import Any
 
-from pelagos.domain import Change, ChangeOp, Engine, Job, Plan, PlanScope, PlanState, ValidationResult
+from pelagos.domain import (
+    Change,
+    ChangeOp,
+    Engine,
+    Job,
+    Plan,
+    PlanScope,
+    PlanState,
+    ValidationResult,
+    messages,
+)
 from pelagos.installer import bindsetup, keaconf, keasetup, managed
 from pelagos.installer.jobs import Step
 from pelagos.platform import (
@@ -145,11 +155,17 @@ def build_install_plan(
     changes.append(_change("install/node", env, {"engines": node_engines}))
     changes.append(_change("install/verify", env, {"engines": engines}))
 
-    summary = f"install {', '.join(engines)} ({'ISC Kea ' + series if isc else 'distro packages'})"
+    source = (
+        messages.msg("plan.install.isc_kea", series=series)
+        if isc
+        else messages.msg("plan.install.distro_packages")
+    )
+    summary, summary_message = messages.text("plan.install", engines=list(engines), source=source)
     return Plan(
         scope=PlanScope.INSTALL,
         node_id=env.node_id,
         summary=summary,
+        summary_message=summary_message,
         created_by=created_by,
         engine=Engine.BIND if engines == ["bind"] else None,
         changes=changes,

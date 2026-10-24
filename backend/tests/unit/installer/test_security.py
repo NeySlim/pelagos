@@ -89,6 +89,9 @@ def test_legacy_findings(tmp_path):
             "proposal",
             "risk",
             "remediable",
+            "description_message",
+            "proposal_message",
+            "risk_message",
         }
         assert d["description"] and d["proposal"] and d["risk"]
 

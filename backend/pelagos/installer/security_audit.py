@@ -28,7 +28,9 @@ from pelagos.domain import (
     Precondition,
     PreconditionKind,
     Severity,
+    messages,
 )
+from pelagos.domain.messages import Message, msg
 from pelagos.installer import bindconf, bindsetup, keaconf, keasetup, managed, zone_audit
 from pelagos.installer.bindconf import ConfigFiles, Statement
 from pelagos.installer.jobs import Step
@@ -49,6 +51,32 @@ class Finding:
     proposal: str
     risk: str
     details: dict[str, Any] = field(default_factory=dict)
+    # Translatable forms of description, proposal and risk (domain.messages), by field name.
+    messages: dict[str, Message] = field(default_factory=dict)
+
+    @classmethod
+    def of(
+        cls,
+        id: str,
+        kind: str,
+        severity: Severity,
+        engine: str,
+        subject: str,
+        description: str | Message,
+        proposal: str | Message,
+        risk: str | Message,
+        details: dict[str, Any] | None = None,
+    ) -> Finding:
+        """A finding whose texts may be messages: each one is rendered and kept for the UI."""
+        texts: dict[str, str] = {}
+        kept: dict[str, Message] = {}
+        for name, value in (("description", description), ("proposal", proposal), ("risk", risk)):
+            if isinstance(value, dict):
+                kept[name] = value
+                texts[name] = messages.render(value)
+            else:
+                texts[name] = value
+        return cls(id, kind, severity, engine, subject, **texts, details=details or {}, messages=kept)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -61,6 +89,9 @@ class Finding:
             "proposal": self.proposal,
             "risk": self.risk,
             "remediable": bool(self.details.get("remediable", True)),
+            "description_message": self.messages.get("description"),
+            "proposal_message": self.messages.get("proposal"),
+            "risk_message": self.messages.get("risk"),
         }
 
 
@@ -123,31 +154,33 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
         loc = _locator(k.stmt)
         if k.name == inp.rndc_key:
             findings.append(
-                Finding(
+                Finding.of(
                     finding_id("bind", "weak_rndc_key", k.name),
                     "weak_rndc_key",
                     sev,
                     "bind",
                     k.name,
-                    f"The rndc key {k.name} uses {k.algorithm}.",
-                    f"Regenerate {k.name} in {NEW_ALGORITHM} with a new secret and restart named.",
-                    "Other tools using this key (scripts, a remote rndc) stop working until they get "
-                    "the new key.",
+                    msg("finding.weak_rndc_key.description", key=k.name, algorithm=k.algorithm),
+                    msg("finding.weak_rndc_key.proposal", key=k.name, new_algorithm=NEW_ALGORITHM),
+                    msg("finding.weak_rndc_key.risk"),
                     {"key": k.name, "algorithm": k.algorithm, **loc, "remediation": "rndc_key"},
                 )
             )
         elif k.name in inp.kea_keys:
             findings.append(
-                Finding(
+                Finding.of(
                     finding_id("bind", "weak_shared_kea_key", k.name),
                     "weak_shared_kea_key",
                     sev,
                     "bind",
                     k.name,
-                    f"The TSIG key {k.name} shared with Kea D2 uses {k.algorithm}.",
-                    f"Dual-key switch: add {k.name}-sha256 ({NEW_ALGORITHM}) to BIND next to the old "
-                    "key, switch D2 on every node, then remove the old key.",
-                    "During the switch both keys are accepted; DDNS updates keep working on every step.",
+                    msg("finding.weak_shared_kea_key.description", key=k.name, algorithm=k.algorithm),
+                    msg(
+                        "finding.weak_shared_kea_key.proposal",
+                        new_key=f"{k.name}-sha256",
+                        new_algorithm=NEW_ALGORITHM,
+                    ),
+                    msg("finding.weak_shared_kea_key.risk"),
                     {
                         "key": k.name,
                         "new_key": f"{k.name}-sha256",
@@ -159,16 +192,15 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
             )
         else:
             findings.append(
-                Finding(
+                Finding.of(
                     finding_id("bind", "weak_tsig_key", k.name),
                     "weak_tsig_key",
                     sev,
                     "bind",
                     k.name,
-                    f"The TSIG key {k.name} uses {k.algorithm}.",
-                    f"Replace {k.name} by {NEW_ALGORITHM} with a new secret.",
-                    "Every peer using this key (secondaries, primaries, update clients) needs the new "
-                    "secret at the same time, or transfers and updates with it fail.",
+                    msg("finding.weak_tsig_key.description", key=k.name, algorithm=k.algorithm),
+                    msg("finding.weak_tsig_key.proposal", key=k.name, new_algorithm=NEW_ALGORITHM),
+                    msg("finding.weak_tsig_key.risk"),
                     {"key": k.name, "algorithm": k.algorithm, **loc, "remediation": "tsig_key"},
                 )
             )
@@ -180,15 +212,18 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
         if addresses:
             kea_key = bindsetup.kea_key_of_zone(z)
             findings.append(
-                Finding(
+                Finding.of(
                     finding_id("bind", "allow_update_by_address", subject),
                     "allow_update_by_address",
                     Severity.CRITICAL,
                     "bind",
                     subject,
-                    f"Zone {z.name} accepts dynamic updates from addresses: {', '.join(addresses)}.",
-                    f"Replace allow-update by {bindsetup.update_policy_proposal(z, kea_key)}",
-                    "Clients updating by address only are refused afterwards; they need a TSIG key.",
+                    msg("finding.allow_update_by_address.description", zone=z.name, addresses=addresses),
+                    msg(
+                        "finding.allow_update_by_address.proposal",
+                        policy=bindsetup.update_policy_proposal(z, kea_key),
+                    ),
+                    msg("finding.allow_update_by_address.risk"),
                     {
                         "zone": z.name,
                         "view": z.view,
@@ -216,15 +251,18 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
         )
         if recursive and open_rec:
             findings.append(
-                Finding(
+                Finding.of(
                     finding_id("bind", "open_recursion", "options"),
                     "open_recursion",
                     Severity.CRITICAL,
                     "bind",
                     "options",
-                    "Recursion is open to any client (open resolver, usable for amplification attacks).",
-                    "Restrict recursion: allow-recursion { localhost; localnets; };",
-                    "Clients outside the local networks lose recursive resolution through this server.",
+                    msg("finding.open_recursion.description"),
+                    msg(
+                        "finding.open_recursion.proposal",
+                        statement="allow-recursion { localhost; localnets; };",
+                    ),
+                    msg("finding.open_recursion.risk"),
                     {
                         **_locator(options),
                         "statement": "allow-recursion" if allow_rec is not None else "allow-query-cache",
@@ -235,16 +273,15 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
         dv = bindconf.option_value(options, "dnssec-validation")
         if dv is not None and dv and dv[0].strip('"') in ("no", "false", "0"):
             findings.append(
-                Finding(
+                Finding.of(
                     finding_id("bind", "dnssec_validation_off", "options"),
                     "dnssec_validation_off",
                     Severity.WARNING,
                     "bind",
                     "options",
-                    "DNSSEC validation is disabled.",
+                    msg("finding.dnssec_validation_off.description"),
                     "dnssec-validation auto;",
-                    "Answers from broken or misconfigured signed zones become SERVFAIL for recursive "
-                    "clients.",
+                    msg("finding.dnssec_validation_off.risk"),
                     {**_locator(options), "remediation": "dnssec_validation"},
                 )
             )
@@ -256,18 +293,21 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
         for lst in bindconf.inet_listeners(stmt):
             if _nonlocal_listener(lst):
                 findings.append(
-                    Finding(
+                    Finding.of(
                         finding_id("bind", "rndc_nonlocal", lst.address),
                         "rndc_nonlocal",
                         Severity.CRITICAL,
                         "bind",
                         f"controls inet {lst.address}",
-                        f"The rndc control channel listens on {lst.address} and allows "
-                        f"{', '.join(lst.allow) or 'nothing'}.",
+                        msg(
+                            "finding.rndc_nonlocal.description",
+                            address=lst.address,
+                            allowed=list(lst.allow) or msg("finding.allowed.nothing"),
+                        ),
                         "controls { inet 127.0.0.1 port "
                         f"{lst.port or 953} allow {{ 127.0.0.1; }} "
                         f"keys {{ {', '.join(lst.keys) or 'rndc-key'}; }}; }};",
-                        "Remote rndc users (monitoring, scripts on other hosts) lose access.",
+                        msg("finding.rndc_nonlocal.risk"),
                         {
                             **_locator(stmt),
                             "port": lst.port or 953,
@@ -281,17 +321,20 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
         for lst in bindconf.inet_listeners(stmt):
             if _nonlocal_listener(lst):
                 findings.append(
-                    Finding(
+                    Finding.of(
                         finding_id("bind", "stats_nonlocal", lst.address),
                         "stats_nonlocal",
                         Severity.WARNING,
                         "bind",
                         f"statistics-channels inet {lst.address}",
-                        f"The statistics channel listens on {lst.address} and allows "
-                        f"{', '.join(lst.allow) or 'all'}.",
+                        msg(
+                            "finding.stats_nonlocal.description",
+                            address=lst.address,
+                            allowed=list(lst.allow) or msg("finding.allowed.all"),
+                        ),
                         f"statistics-channels {{ inet 127.0.0.1 port {lst.port or 80} "
                         "allow { 127.0.0.1; }; };",
-                        "Remote collectors of the BIND statistics lose access; Pelagos reads them locally.",
+                        msg("finding.stats_nonlocal.risk"),
                         {**_locator(stmt), "port": lst.port or 80, "remediation": "stats"},
                     )
                 )
@@ -315,26 +358,34 @@ COPY_KINDS = ("secondary", "slave", "mirror")
 
 def _update_key_finding(subject: str, z: bindconf.ZoneDef, key: str, top: list[Statement]) -> Finding:
     """Pelagos signs its UPDATEs with `key`: add it where the zone's update rules live, keys kept."""
+    inherits = False
     if z.stmt.sub("update-policy") is not None:
-        where = "its update-policy"
+        where = msg("finding.update_without_admin_key.where_policy")
     elif z.stmt.sub("allow-update") is not None:
-        where = "its allow-update"
+        where = msg("finding.update_without_admin_key.where_allow_update")
     else:
+        inherits = True
         inherited = zone_audit.inherited_allow_update(top, z.view)
-        where = "the allow-update it inherits" + (
-            f" ({inherited.path}:{inherited.line})" if inherited else ""
+        where = (
+            msg(
+                "finding.update_without_admin_key.where_inherited_at",
+                location=f"{inherited.path}:{inherited.line}",
+            )
+            if inherited
+            else msg("finding.update_without_admin_key.where_inherited")
         )
-    return Finding(
+    return Finding.of(
         finding_id("bind", "update_without_admin_key", subject),
         "update_without_admin_key",
         Severity.WARNING,
         "bind",
         subject,
-        f"Zone {z.name} does not accept updates signed with {key}: Pelagos cannot write its records.",
-        f"Add {key} to {where}",
-        "None: the keys allowed today keep their rights."
-        + (
-            "" if where.startswith("its") else " Every zone inheriting that allow-update accepts the key too."
+        msg("finding.update_without_admin_key.description", zone=z.name, key=key),
+        msg("finding.update_without_admin_key.proposal", key=key, where=where),
+        msg(
+            "finding.update_without_admin_key.risk_inherited"
+            if inherits
+            else "finding.update_without_admin_key.risk"
         ),
         {"zone": z.name, "view": z.view, "key": key, **_locator(z.stmt), "remediation": "update_key_add"},
     )
@@ -383,22 +434,26 @@ def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str
             elif own_rules and not by_address and not _grants_key(z, admin_key):
                 au = z.stmt.sub("allow-update") is not None
                 proposal = (
-                    "Replace allow-update by "
-                    + bindsetup.update_policy_proposal(z, bindsetup.kea_key_of_zone(z))
+                    msg(
+                        "finding.update_without_admin_key.proposal_replace",
+                        policy=bindsetup.update_policy_proposal(z, bindsetup.kea_key_of_zone(z)),
+                    )
                     if au
-                    else f"Add grant {admin_key} zonesub {' '.join(UPDATE_TYPES_ADMIN)}; to its update-policy"
+                    else msg(
+                        "finding.update_without_admin_key.proposal_grant",
+                        statement=f"grant {admin_key} zonesub {' '.join(UPDATE_TYPES_ADMIN)};",
+                    )
                 )
                 findings.append(
-                    Finding(
+                    Finding.of(
                         finding_id("bind", "update_without_admin_key", subject),
                         "update_without_admin_key",
                         Severity.WARNING,
                         "bind",
                         subject,
-                        f"Zone {z.name} does not accept updates signed with {admin_key}: Pelagos cannot "
-                        "write its records.",
+                        msg("finding.update_without_admin_key.description", zone=z.name, key=admin_key),
                         proposal,
-                        "None: the keys allowed today keep their rights.",
+                        msg("finding.update_without_admin_key.risk"),
                         {
                             "zone": z.name,
                             "view": z.view,
@@ -443,16 +498,20 @@ def _transfer_without_key(
     key: str = managed.READ_KEY,
 ) -> Finding:
     proposal = "allow-transfer { " + " ".join(f"{e};" for e in [f"key {key}", *elements]) + " };"
-    where = f"zone {zone}" if zone else "the options"
-    return Finding(
+    where = (
+        msg("finding.transfer_without_read_key.where_zone", zone=zone)
+        if zone
+        else msg("finding.transfer_without_read_key.where_options")
+    )
+    return Finding.of(
         finding_id("bind", "transfer_without_read_key", subject),
         "transfer_without_read_key",
         Severity.WARNING,
         "bind",
         subject,
-        f"Transfers allowed by {where} leave {key} out: Pelagos cannot read the zone records.",
-        proposal if not add else f"Add {proposal} to the options block",
-        "None: the clients allowed today keep their access.",
+        msg("finding.transfer_without_read_key.description", where=where, key=key),
+        proposal if not add else msg("finding.transfer_without_read_key.proposal_add", statement=proposal),
+        msg("finding.transfer_without_read_key.risk"),
         {
             "zone": zone,
             "view": view,
@@ -468,15 +527,17 @@ def _open_transfer(
 ) -> Finding:
     kept = [e for e in elements if e.strip('"') != "any"]
     proposal = "allow-transfer { " + " ".join(f"{e};" for e in [f"key {managed.READ_KEY}", *kept]) + " };"
-    return Finding(
+    return Finding.of(
         finding_id("bind", "open_allow_transfer", subject),
         "open_allow_transfer",
         Severity.WARNING,
         "bind",
         subject,
-        f"{'Zone ' + zone if zone else 'The options'} allow zone transfers to any client.",
+        msg("finding.open_allow_transfer.description_zone", zone=zone)
+        if zone
+        else msg("finding.open_allow_transfer.description_options"),
         proposal,
-        "Secondaries that transfer by address only must be listed or given a key, or their transfers fail.",
+        msg("finding.open_allow_transfer.risk"),
         {"zone": zone, "view": view, **_locator(stmt), "remediation": "allow_transfer"},
     )
 
@@ -505,18 +566,20 @@ def audit_kea(inp: KeaAuditInput) -> list[Finding]:
             host = str(lst.get("socket-address"))
             local = host in LOOPBACK
             findings.append(
-                Finding(
+                Finding.of(
                     finding_id("kea", "kea_ctrl_agent_http", f"{host}:{lst.get('socket-port')}"),
                     "kea_ctrl_agent_http",
                     Severity.WARNING if local else Severity.CRITICAL,
                     "kea",
                     f"kea-ctrl-agent {host}:{lst.get('socket-port')}",
-                    f"kea-ctrl-agent serves the Kea API in clear HTTP on {host}:{lst.get('socket-port')}"
-                    + ("" if lst.get("authentication") else " without authentication")
-                    + ".",
-                    "Stop and disable kea-ctrl-agent: Pelagos uses the Unix control sockets of each daemon.",
-                    "Tools that talk to the agent over HTTP (Stork, scripts) stop working; give them "
-                    "HTTPS with trust-anchor, cert-file and cert-required instead.",
+                    msg(
+                        "finding.kea_ctrl_agent_http.description"
+                        if lst.get("authentication")
+                        else "finding.kea_ctrl_agent_http.description_noauth",
+                        address=f"{host}:{lst.get('socket-port')}",
+                    ),
+                    msg("finding.kea_ctrl_agent_http.proposal"),
+                    msg("finding.kea_ctrl_agent_http.risk"),
                     {"unit": inp.ctrl_agent_unit, "remediation": "ctrl_agent"},
                 )
             )
@@ -531,31 +594,37 @@ def audit_kea(inp: KeaAuditInput) -> list[Finding]:
                 and str(lst.get("socket-address", "127.0.0.1")) not in LOOPBACK
             ):
                 findings.append(
-                    Finding(
+                    Finding.of(
                         finding_id("kea", "kea_http_socket_plain", f"{engine}:{lst.get('socket-address')}"),
                         "kea_http_socket_plain",
                         Severity.CRITICAL,
                         "kea",
                         f"{engine} http {lst.get('socket-address')}:{lst.get('socket-port')}",
-                        f"{engine} exposes its control channel in clear HTTP on {lst.get('socket-address')}.",
-                        "Switch the socket to https with trust-anchor, cert-file, key-file and "
-                        "cert-required, or bind it to 127.0.0.1.",
-                        "Remote clients of this socket need certificates.",
+                        msg(
+                            "finding.kea_http_socket_plain.description",
+                            engine=engine,
+                            address=str(lst.get("socket-address")),
+                        ),
+                        msg("finding.kea_http_socket_plain.proposal"),
+                        msg("finding.kea_http_socket_plain.risk"),
                         {"engine": engine, "remediable": False},
                     )
                 )
     if inp.socket_dir_mode is not None and inp.socket_dir_mode & 0o027:
         findings.append(
-            Finding(
+            Finding.of(
                 finding_id("kea", "kea_socket_dir_mode", str(inp.socket_dir)),
                 "kea_socket_dir_mode",
                 Severity.WARNING,
                 "kea",
                 str(inp.socket_dir),
-                f"The Kea socket directory {inp.socket_dir} is mode {oct(inp.socket_dir_mode)}: "
-                "other users can reach the control sockets.",
+                msg(
+                    "finding.kea_socket_dir_mode.description",
+                    path=str(inp.socket_dir),
+                    mode=oct(inp.socket_dir_mode),
+                ),
                 f"chmod 0750 {inp.socket_dir}",
-                "Local users outside the Kea group lose access to the sockets (intended).",
+                msg("finding.kea_socket_dir_mode.risk"),
                 {"path": inp.socket_dir, "remediation": "socket_dir"},
             )
         )
@@ -567,16 +636,15 @@ def audit_kea(inp: KeaAuditInput) -> list[Finding]:
             if alg in keaconf.WEAK_TSIG and name not in inp.bind_keys:
                 # The BIND side is not on this node: still a dual-key switch, D2 half only.
                 findings.append(
-                    Finding(
+                    Finding.of(
                         finding_id("kea", "weak_shared_kea_key", name),
                         "weak_shared_kea_key",
                         Severity.CRITICAL if "md5" in alg else Severity.WARNING,
                         "kea",
                         name,
-                        f"D2 signs updates with {name} in {alg}.",
-                        f"Dual-key switch: add {name}-sha256 to the primary's BIND, switch D2, "
-                        "remove the old key.",
-                        "During the switch both keys are accepted; DDNS updates keep working on every step.",
+                        msg("finding.weak_shared_kea_key.d2_description", key=name, algorithm=alg),
+                        msg("finding.weak_shared_kea_key.d2_proposal", new_key=f"{name}-sha256"),
+                        msg("finding.weak_shared_kea_key.risk"),
                         {
                             "key": name,
                             "new_key": f"{name}-sha256",
@@ -587,15 +655,15 @@ def audit_kea(inp: KeaAuditInput) -> list[Finding]:
                 )
             if "secret" in key and keaconf.supports_secret_file(inp.versions.get("d2")):
                 findings.append(
-                    Finding(
+                    Finding.of(
                         finding_id("kea", "kea_tsig_clear_secret", name),
                         "kea_tsig_clear_secret",
                         Severity.INFO,
                         "kea",
                         name,
-                        f"D2 key {name} has its secret in clear in the configuration (Kea 3.x refuses this).",
-                        "Move it to a secret-file (0640, Kea group) under the Kea configuration directory.",
-                        "None for DDNS; the configuration file no longer carries the secret.",
+                        msg("finding.kea_tsig_clear_secret.description", key=name),
+                        msg("finding.kea_tsig_clear_secret.proposal"),
+                        msg("finding.kea_tsig_clear_secret.risk"),
                         {"key": name, "remediation": "secret_file"},
                     )
                 )
@@ -763,7 +831,8 @@ def build_security_plan(
     return Plan(
         scope=PlanScope.SECURITY,
         node_id=env.node_id,
-        summary=f"security remediation: {len(finding_ids)} finding(s)",
+        summary=messages.render(msg("plan.security", count=len(finding_ids))),
+        summary_message=msg("plan.security", count=len(finding_ids)),
         created_by=created_by,
         changes=changes,
         diff=diff,

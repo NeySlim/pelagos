@@ -9,7 +9,7 @@ import traceback
 from collections.abc import Callable
 from typing import Any
 
-from pelagos.domain import Job, JobState, utcnow
+from pelagos.domain import Job, JobState, messages, utcnow
 from pelagos.services.events import EventHub
 
 log = logging.getLogger(__name__)
@@ -65,6 +65,7 @@ class JobStore:
                 job.steps.append(
                     {
                         "name": "result",
+                        **_label("result"),
                         "state": "done",
                         "output": result,
                         "started_at": None,
@@ -79,6 +80,7 @@ class JobStore:
             job.steps.append(
                 {
                     "name": "error",
+                    **_label("error"),
                     "state": "failed",
                     "output": traceback.format_exc(limit=5),
                     "started_at": None,
@@ -95,10 +97,24 @@ class JobStore:
                 log.exception("job %s: finish hook failed", job.id)
 
 
-def step(job: Job, name: str, fn: Callable[[], Any], progress: Callable[[Job], None], weight: int = 0) -> Any:
+def _label(name: str, label: dict[str, Any] | None = None) -> dict[str, Any]:
+    """`label` (English) and `label_message` of a step record; the name stands in when no key fits."""
+    label = label if label is not None else messages.step_label(name)
+    return {"label": messages.render(label) if label else name, "label_message": label}
+
+
+def step(
+    job: Job,
+    name: str,
+    fn: Callable[[], Any],
+    progress: Callable[[Job], None],
+    weight: int = 0,
+    label: dict[str, Any] | None = None,
+) -> Any:
     """Runs one step and records it on the job; exceptions propagate after being recorded."""
     entry: dict[str, Any] = {
         "name": name,
+        **_label(name, label),
         "state": "running",
         "output": None,
         "started_at": utcnow(),

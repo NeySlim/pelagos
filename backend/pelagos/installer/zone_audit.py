@@ -83,6 +83,7 @@ def view_key_of(top: list[Statement], view: str) -> str | None:
 
 
 def findings(files: ConfigFiles, top: list[Statement], key_names: set[str]) -> list[Any]:
+    from pelagos.domain.messages import join, msg
     from pelagos.installer.security_audit import Finding, finding_id
 
     out: list[Any] = []
@@ -94,25 +95,24 @@ def findings(files: ConfigFiles, top: list[Statement], key_names: set[str]) -> l
             key = view_key_of(top, z.view) or managed.ADMIN_KEY
             au = z.stmt.sub("allow-update")
             proposal = (
-                f"Replace allow-update {{ none; }} by {_policy(key)}"
+                msg("finding.static_zone.proposal_replace", policy=_policy(key))
                 if au is not None
-                else f"Add {_policy(key)} to the zone"
+                else msg("finding.static_zone.proposal_add", policy=_policy(key))
             )
             out.append(
-                Finding(
+                Finding.of(
                     finding_id("bind", "static_zone", subject),
                     "static_zone",
                     Severity.INFO,
                     "bind",
                     subject,
-                    f"Zone {z.name} is static (no allow-update, no update-policy): Pelagos edits its zone "
-                    "file on the node that holds it (named-checkzone, serial bump, rndc reload). As a "
-                    "dynamic zone it would take record changes by signed UPDATE like the other zones.",
+                    msg("finding.static_zone.description", zone=z.name),
                     proposal,
-                    f"named then records changes in a journal ({_file(z) or 'the zone file'}.jnl) and "
-                    "rewrites the zone file itself: edit it by hand only between `rndc freeze "
-                    f"{z.name.rstrip('.')}` and `rndc thaw {z.name.rstrip('.')}`, and its directory must be "
-                    "writable by named. Comments and formatting of the file are lost at the first rewrite.",
+                    msg(
+                        "finding.static_zone.risk",
+                        file=_file(z) or msg("finding.static_zone.the_zone_file"),
+                        name=z.name.rstrip("."),
+                    ),
                     {
                         "zone": z.name,
                         "view": z.view,
@@ -133,23 +133,23 @@ def findings(files: ConfigFiles, top: list[Statement], key_names: set[str]) -> l
             mc = v.sub("match-clients")
             current = bindconf.acl_elements(mc) if mc else ["any"]
             out.append(
-                Finding(
+                Finding.of(
                     finding_id("bind", "view_key", name),
                     "view_key",
                     Severity.WARNING,
                     "bind",
                     name,
-                    f"View {name} is selected by match-clients {{ {'; '.join(current)}; }}: requests signed "
-                    f"with {managed.READ_KEY} or {managed.ADMIN_KEY} reach the first view that matches this "
-                    f"node, so Pelagos cannot read or write the zones of {name} reliably.",
-                    f"Create key {key} (hmac-sha256); put `key {key};` first in the match-clients of view "
-                    f"{name}"
-                    + (f" and `!key {key};` first in those of {', '.join(earlier)}" if earlier else "")
-                    + f"; let {key} update and transfer the zones of {name}; use it as the key of view "
-                    f"{name} (settings dns.view_keys.{name}).",
-                    "Clients matched today keep their view: only requests signed with the new key change "
-                    "view. Views selected by match-destinations or match-recursive-only are not rewritten; "
-                    "check them after the change.",
+                    msg(
+                        "finding.view_key.description",
+                        view=name,
+                        clients=join(current, "; "),
+                        read_key=managed.READ_KEY,
+                        admin_key=managed.ADMIN_KEY,
+                    ),
+                    msg("finding.view_key.proposal_earlier", key=key, view=name, earlier=earlier)
+                    if earlier
+                    else msg("finding.view_key.proposal", key=key, view=name),
+                    msg("finding.view_key.risk"),
                     {
                         "view": name,
                         "key": key,

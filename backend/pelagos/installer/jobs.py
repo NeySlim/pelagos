@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from pelagos.domain import Job, JobState, Plan, PlanScope, PlanState, utcnow
+from pelagos.domain import Job, JobState, Plan, PlanScope, PlanState, messages, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -48,8 +48,11 @@ class JobRunner:
         job.progress = 0
         self._emit()
         for step in steps:
+            label = messages.step_label(step.name)
             record: dict[str, Any] = {
                 "name": step.name,
+                "label": messages.render(label) if label else step.name,
+                "label_message": label,
                 "state": "running",
                 "output": "",
                 "started_at": utcnow().isoformat().replace("+00:00", "Z"),

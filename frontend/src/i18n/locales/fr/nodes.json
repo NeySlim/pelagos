@@ -7,5 +7,68 @@
       "title": "Nœuds et réplication",
       "subtitle": "Membres du cluster, état de la réplication et enrôlement"
     }
+  },
+  "fields": {
+    "auditCount": "Entrées d'audit",
+    "configVersion": "Version de config",
+    "error": "Erreur",
+    "lastSeen": "Vu",
+    "modules": "Moteurs",
+    "name": "Nom",
+    "peer": "Pair",
+    "reachable": "Joignable",
+    "status": "État",
+    "url": "Adresse",
+    "version": "Version"
+  },
+  "list": {
+    "empty": "Aucun nœud",
+    "self": "ce nœud"
+  },
+  "modules": {
+    "bind": "BIND",
+    "kea4": "DHCPv4",
+    "kea6": "DHCPv6",
+    "d2": "D2"
+  },
+  "sync": {
+    "adopted": "Sa configuration a été adoptée.",
+    "button": "Synchroniser",
+    "done": "Synchronisé avec {{name}} : {{n}} entrées d'audit ajoutées."
+  },
+  "remove": {
+    "button": "Retirer",
+    "done": "{{name}} retiré du cluster",
+    "message": "Le nœud perd sa confiance : il ne réplique plus et son certificat n'est plus accepté. Son BIND et son Kea continuent de tourner.",
+    "title": "Retirer {{name}} du cluster ?"
+  },
+  "replication": {
+    "alone": "Ce nœud n'a pas encore de pair : enrôler un second serveur pour une interface redondante.",
+    "behind": "Les pairs divergent",
+    "fingerprint": "Certificat {{fp}}",
+    "hint": "La configuration et le journal d'audit se répliquent entre nœuds en TLS mutuel ; la version de configuration la plus haute gagne.",
+    "inSync": "Tous les pairs sont synchronisés",
+    "local": "ici {{v}}",
+    "title": "Réplication"
+  },
+  "enroll": {
+    "another": "Nouveau jeton",
+    "button": "Enrôler un nœud",
+    "caFingerprint": "Empreinte de la CA",
+    "command": "Commande à lancer sur le nouveau serveur",
+    "create": "Créer le jeton",
+    "expired": "Ce jeton a expiré : en créer un autre",
+    "expiresIn": "Valable {{time}} (jusqu'à {{at}})",
+    "intro": "Un jeton permet à un nouveau serveur de rejoindre le cluster. Installer Pelagos dessus, puis lancer la commande ci-dessous en root.",
+    "once": "Le jeton n'est affiché qu'une fois et ne sert qu'à un enrôlement.",
+    "title": "Enrôler un nœud",
+    "token": "Jeton",
+    "ttl": "Validité",
+    "ttlOption": {
+      "900": "15 minutes",
+      "3600": "1 heure",
+      "86400": "24 heures"
+    },
+    "url": "Adresse d'enrôlement"
   }
 }

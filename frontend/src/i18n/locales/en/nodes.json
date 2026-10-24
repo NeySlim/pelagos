@@ -7,5 +7,68 @@
       "title": "Nodes and replication",
       "subtitle": "Cluster members, replication state and enrollment"
     }
+  },
+  "fields": {
+    "auditCount": "Audit entries",
+    "configVersion": "Config version",
+    "error": "Error",
+    "lastSeen": "Last seen",
+    "modules": "Engines",
+    "name": "Name",
+    "peer": "Peer",
+    "reachable": "Reachable",
+    "status": "Status",
+    "url": "Address",
+    "version": "Version"
+  },
+  "list": {
+    "empty": "No node",
+    "self": "this node"
+  },
+  "modules": {
+    "bind": "BIND",
+    "kea4": "DHCPv4",
+    "kea6": "DHCPv6",
+    "d2": "D2"
+  },
+  "sync": {
+    "adopted": "Its configuration was adopted.",
+    "button": "Sync",
+    "done": "Synchronized with {{name}}: {{n}} audit entries added."
+  },
+  "remove": {
+    "button": "Remove",
+    "done": "{{name}} removed from the cluster",
+    "message": "The node loses its trust: it stops replicating and its certificate is no longer accepted. Its BIND and Kea keep running.",
+    "title": "Remove {{name}} from the cluster?"
+  },
+  "replication": {
+    "alone": "This node has no peer yet: enroll a second server for a redundant interface.",
+    "behind": "Peers differ",
+    "fingerprint": "Certificate {{fp}}",
+    "hint": "Configuration and audit log replicate between nodes over mutual TLS; the highest configuration version wins.",
+    "inSync": "All peers in sync",
+    "local": "here {{v}}",
+    "title": "Replication"
+  },
+  "enroll": {
+    "another": "New token",
+    "button": "Enroll a node",
+    "caFingerprint": "CA fingerprint",
+    "command": "Command to run on the new server",
+    "create": "Create the token",
+    "expired": "This token has expired: create another one",
+    "expiresIn": "Valid for {{time}} (until {{at}})",
+    "intro": "A token lets one new server join the cluster. Install Pelagos there, then run the command below as root.",
+    "once": "The token is shown only once and works for one enrollment.",
+    "title": "Enroll a node",
+    "token": "Token",
+    "ttl": "Validity",
+    "ttlOption": {
+      "900": "15 minutes",
+      "3600": "1 hour",
+      "86400": "24 hours"
+    },
+    "url": "Enrollment address"
   }
 }

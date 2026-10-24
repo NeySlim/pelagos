@@ -10,8 +10,8 @@ from pelagos.api.common import json_body, plan_dict
 from pelagos.api.errors import ApiError
 from pelagos.api.security import client_ip, ctx, current_session, require, services
 from pelagos.auth.rbac import has_permission, host_plan_permissions
-from pelagos.core.plans import PlanNotFound
-from pelagos.domain import Plan, PlanScope
+from pelagos.core.plans import PlanExpired, PlanNotFound
+from pelagos.domain import Plan, PlanScope, to_rfc3339
 from pelagos.services.hosts_service import touches
 from pelagos.services.plan_service import JOB_SCOPES
 
@@ -21,8 +21,12 @@ ns = Namespace("plans", description="Previewed writes and long-running jobs", pa
 def _plan(plan_id: str) -> Plan:
     try:
         plan = ctx().plan_store.get(plan_id)
+    except PlanExpired as exc:
+        raise ApiError(
+            "plan_expired", f"plan {plan_id} expired at {to_rfc3339(exc.expired_at)}; build it again"
+        ) from None
     except PlanNotFound:
-        raise ApiError("not_found", f"plan {plan_id} unknown or expired") from None
+        raise ApiError("not_found", f"plan {plan_id} unknown") from None
     session = current_session()
     if plan.created_by != session.username and not has_permission(session.permissions, "*"):
         raise ApiError("forbidden", "only the creator or an admin can use this plan")
@@ -44,7 +48,8 @@ def _check_scope(plan: Plan) -> None:
 class OnePlan(Resource):
     @require()
     @ns.response(200, "The plan (creator or admin)", m.Plan)
-    @ns.response(404, "not_found: unknown or expired", m.Problem)
+    @ns.response(404, "not_found: unknown plan", m.Problem)
+    @ns.response(410, "plan_expired: the plan's TTL ran out", m.Problem)
     def get(self, plan_id: str):
         return plan_dict(_plan(plan_id))
 

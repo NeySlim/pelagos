@@ -145,10 +145,12 @@ def test_plan_ownership_expiry_and_delete(role_client, node_ctx):
     other = role_client("viewer")
     assert other.get(f"/api/v1/plans/{plan['id']}").status_code == 403
     assert role_client("admin").get(f"/api/v1/plans/{plan['id']}").status_code == 200
-    # PlanStore sweeps expired plans on read: the API sees them as gone.
+    # PlanStore sweeps expired plans on read and keeps a tombstone: the API answers 410.
     node_ctx.plan_store.get(plan["id"]).expires_at = utcnow() - timedelta(seconds=1)
     r = dora.post(f"/api/v1/plans/{plan['id']}/apply", json={})
-    assert r.status_code == 404 and "expired" in r.get_json()["detail"]
+    assert r.status_code == 410 and r.get_json()["code"] == "plan_expired"
+    assert dora.get(f"/api/v1/plans/{plan['id']}").status_code == 410
+    assert dora.get("/api/v1/plans/01AAAAAAAAAAAAAAAAAAAAAAAA").status_code == 404
     plan2 = _plan_records(
         dora, [{"op": "add", "target": "own2/A", "after": {"ttl": 60, "rdata": ["192.0.2.63"]}}]
     ).get_json()

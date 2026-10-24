@@ -1,0 +1,11 @@
+{
+  "arguments": {
+    "shared-networks": [
+      {
+        "name": "office"
+      }
+    ]
+  },
+  "result": 0,
+  "text": "1 IPv4 network found"
+}

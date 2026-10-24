@@ -1,0 +1,14 @@
+{
+  "arguments": {
+    "client-classes": [
+      {
+        "name": "voip"
+      },
+      {
+        "name": "late"
+      }
+    ]
+  },
+  "result": 0,
+  "text": "2 classes found"
+}

@@ -1,0 +1,243 @@
+{
+  "arguments": {
+    "Dhcp6": {
+      "allocator": "iterative",
+      "allow-address-registration": true,
+      "cache-threshold": 0.25,
+      "calculate-tee-times": true,
+      "client-classes": [
+        {
+          "name": "cpe",
+          "option-data": [],
+          "test": "option[16].hex == 0x0001"
+        }
+      ],
+      "control-sockets": [
+        {
+          "socket-name": "/var/lib/kea/kea6.sock",
+          "socket-type": "unix"
+        }
+      ],
+      "ddns-conflict-resolution-mode": "check-with-dhcid",
+      "ddns-generated-prefix": "myhost",
+      "ddns-override-client-update": false,
+      "ddns-override-no-update": false,
+      "ddns-qualifying-suffix": "",
+      "ddns-replace-client-name": "never",
+      "ddns-send-updates": true,
+      "ddns-update-on-renew": false,
+      "decline-probation-period": 86400,
+      "dhcp-ddns": {
+        "enable-updates": false,
+        "max-queue-size": 1024,
+        "ncr-format": "JSON",
+        "ncr-protocol": "UDP",
+        "sender-ip": "0.0.0.0",
+        "sender-port": 0,
+        "server-ip": "127.0.0.1",
+        "server-port": 53001
+      },
+      "dhcp-queue-control": {
+        "capacity": 64,
+        "enable-queue": false,
+        "queue-type": "kea-ring6"
+      },
+      "dhcp4o6-port": 0,
+      "early-global-reservations-lookup": false,
+      "expired-leases-processing": {
+        "flush-reclaimed-timer-wait-time": 25,
+        "hold-reclaimed-time": 3600,
+        "max-reclaim-leases": 100,
+        "max-reclaim-time": 250,
+        "reclaim-timer-wait-time": 10,
+        "unwarned-reclaim-cycles": 5
+      },
+      "hooks-libraries": [
+        {
+          "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_lease_cmds.so"
+        },
+        {
+          "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_host_cmds.so"
+        },
+        {
+          "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_subnet_cmds.so"
+        },
+        {
+          "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_stat_cmds.so"
+        }
+      ],
+      "host-reservation-identifiers": [
+        "hw-address",
+        "duid"
+      ],
+      "hostname-char-replacement": "",
+      "hostname-char-set": "[^A-Za-z0-9.-]",
+      "interfaces-config": {
+        "interfaces": [],
+        "re-detect": true
+      },
+      "ip-reservations-unique": true,
+      "lease-database": {
+        "lfc-interval": 0,
+        "name": "/var/lib/kea/kea-leases6.csv",
+        "persist": true,
+        "type": "memfile"
+      },
+      "loggers": [
+        {
+          "debuglevel": 0,
+          "name": "kea-dhcp6",
+          "output-options": [
+            {
+              "flush": true,
+              "maxsize": 10240000,
+              "maxver": 1,
+              "output": "/var/lib/kea/kea-dhcp6.log",
+              "pattern": ""
+            }
+          ],
+          "severity": "INFO"
+        }
+      ],
+      "mac-sources": [
+        "any"
+      ],
+      "multi-threading": {
+        "enable-multi-threading": true,
+        "packet-queue-size": 64,
+        "thread-pool-size": 0
+      },
+      "option-data": [],
+      "option-def": [],
+      "parked-packet-limit": 256,
+      "pd-allocator": "iterative",
+      "relay-supplied-options": [
+        "65"
+      ],
+      "reservations-global": false,
+      "reservations-in-subnet": true,
+      "reservations-lookup-first": false,
+      "reservations-out-of-pool": false,
+      "sanity-checks": {
+        "extended-info-checks": "fix",
+        "lease-checks": "warn"
+      },
+      "server-id": {
+        "enterprise-id": 0,
+        "htype": 0,
+        "identifier": "",
+        "persist": true,
+        "time": 0,
+        "type": "LLT"
+      },
+      "server-tag": "",
+      "shared-networks": [
+        {
+          "allocator": "iterative",
+          "cache-threshold": 0.25,
+          "calculate-tee-times": true,
+          "max-valid-lifetime": 7200,
+          "min-valid-lifetime": 7200,
+          "name": "campus",
+          "option-data": [],
+          "pd-allocator": "iterative",
+          "rapid-commit": false,
+          "relay": {
+            "ip-addresses": []
+          },
+          "store-extended-info": false,
+          "subnet6": [
+            {
+              "allocator": "iterative",
+              "cache-threshold": 0.25,
+              "calculate-tee-times": true,
+              "id": 20,
+              "max-valid-lifetime": 7200,
+              "min-valid-lifetime": 7200,
+              "option-data": [],
+              "pd-allocator": "iterative",
+              "pd-pools": [],
+              "pools": [
+                {
+                  "option-data": [],
+                  "pool": "2001:db8:2::/80"
+                }
+              ],
+              "relay": {
+                "ip-addresses": []
+              },
+              "reservations": [],
+              "store-extended-info": false,
+              "subnet": "2001:db8:2::/64",
+              "t1-percent": 0.5,
+              "t2-percent": 0.8,
+              "valid-lifetime": 7200
+            }
+          ],
+          "t1-percent": 0.5,
+          "t2-percent": 0.8,
+          "valid-lifetime": 7200
+        }
+      ],
+      "statistic-default-sample-age": 0,
+      "statistic-default-sample-count": 20,
+      "store-extended-info": false,
+      "subnet6": [
+        {
+          "allocator": "iterative",
+          "cache-threshold": 0.25,
+          "calculate-tee-times": true,
+          "id": 1,
+          "max-valid-lifetime": 7200,
+          "min-valid-lifetime": 7200,
+          "option-data": [],
+          "pd-allocator": "iterative",
+          "pd-pools": [
+            {
+              "delegated-len": 64,
+              "excluded-prefix": "2001:db8:1:0:ff00::",
+              "excluded-prefix-len": 72,
+              "option-data": [],
+              "prefix": "2001:db8:1::",
+              "prefix-len": 48
+            }
+          ],
+          "pools": [
+            {
+              "option-data": [],
+              "pool": "2001:db8::1000/116"
+            }
+          ],
+          "rapid-commit": false,
+          "relay": {
+            "ip-addresses": []
+          },
+          "reservations": [
+            {
+              "client-classes": [],
+              "duid": "01:02:03:04:05:06",
+              "hostname": "",
+              "ip-addresses": [
+                "2001:db8::100"
+              ],
+              "option-data": [],
+              "prefixes": [
+                "2001:db8:1:100::/64"
+              ]
+            }
+          ],
+          "store-extended-info": false,
+          "subnet": "2001:db8::/64",
+          "t1-percent": 0.5,
+          "t2-percent": 0.8,
+          "valid-lifetime": 7200
+        }
+      ],
+      "t1-percent": 0.5,
+      "t2-percent": 0.8,
+      "valid-lifetime": 7200
+    },
+    "hash": "7080585ADE11CAAB79839DEE5EF7D3C59F1696CF0F1A76F686031E96CD61C3F9"
+  },
+  "result": 0
+}

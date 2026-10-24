@@ -1,0 +1,7 @@
+{
+  "arguments": {
+    "extended": "3.2.1 (isc20260928103142 deb)\npremium: yes (isc20260928103142 deb)\nlinked with:\n- log4cplus 2.0.8\n- OpenSSL 3.5.7 9 Jun 2026\nlease backends:\n- Memfile backend 3.0"
+  },
+  "result": 0,
+  "text": "3.2.1"
+}

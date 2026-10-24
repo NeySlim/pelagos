@@ -1,0 +1,16 @@
+{
+  "arguments": {
+    "client-id": "01:aa:bb:cc:dd:ee:02",
+    "cltt": 1792843949,
+    "fqdn-fwd": false,
+    "fqdn-rev": false,
+    "hostname": "pc2",
+    "hw-address": "aa:bb:cc:dd:ee:02",
+    "ip-address": "192.0.2.150",
+    "state": 0,
+    "subnet-id": 1,
+    "valid-lft": 3600
+  },
+  "result": 0,
+  "text": "IPv4 lease found."
+}

@@ -1,0 +1,26 @@
+{
+  "arguments": {
+    "count": 1,
+    "hosts": [
+      {
+        "client-classes": [],
+        "duid": "01:02:03:04:05:06",
+        "hostname": "",
+        "ip-addresses": [
+          "2001:db8::100"
+        ],
+        "option-data": [],
+        "prefixes": [
+          "2001:db8:1:100::/64"
+        ],
+        "subnet-id": 1
+      }
+    ],
+    "next": {
+      "from": 1,
+      "source-index": 0
+    }
+  },
+  "result": 0,
+  "text": "1 IPv6 host(s) found."
+}

@@ -1,0 +1,50 @@
+{
+  "arguments": {
+    "count": 3,
+    "leases": [
+      {
+        "client-id": "01:aa:bb:cc:dd:ee:02",
+        "cltt": 1792843949,
+        "fqdn-fwd": false,
+        "fqdn-rev": false,
+        "hostname": "pc2",
+        "hw-address": "aa:bb:cc:dd:ee:02",
+        "ip-address": "192.0.2.150",
+        "state": 0,
+        "subnet-id": 1,
+        "valid-lft": 3600
+      },
+      {
+        "cltt": 1792843949,
+        "fqdn-fwd": true,
+        "fqdn-rev": true,
+        "hostname": "pc4.example.lan.",
+        "hw-address": "aa:bb:cc:dd:ee:04",
+        "ip-address": "192.0.2.151",
+        "state": 0,
+        "subnet-id": 1,
+        "user-context": {
+          "ISC": {
+            "relay-agent-info": {
+              "sub-options": "0x0204"
+            }
+          }
+        },
+        "valid-lft": 3600
+      },
+      {
+        "cltt": 1792843949,
+        "fqdn-fwd": false,
+        "fqdn-rev": false,
+        "hostname": "",
+        "hw-address": "aa:bb:cc:dd:ee:05",
+        "ip-address": "203.0.113.20",
+        "state": 1,
+        "subnet-id": 10,
+        "valid-lft": 3600
+      }
+    ]
+  },
+  "result": 0,
+  "text": "3 IPv4 lease(s) found."
+}

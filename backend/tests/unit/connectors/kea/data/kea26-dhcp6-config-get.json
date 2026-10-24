@@ -1,0 +1,147 @@
+{
+  "arguments": {
+    "Dhcp6": {
+      "allocator": "iterative",
+      "calculate-tee-times": true,
+      "client-classes": [
+        {
+          "name": "cpe",
+          "only-if-required": false,
+          "option-data": [],
+          "test": "option[16].hex == 0x0001"
+        }
+      ],
+      "control-socket": {
+        "socket-name": "/run/kea/kea6-ctrl-socket",
+        "socket-type": "unix"
+      },
+      "ddns-send-updates": false,
+      "decline-probation-period": 86400,
+      "dhcp-ddns": {
+        "enable-updates": false
+      },
+      "hooks-libraries": [
+        {
+          "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_lease_cmds.so"
+        }
+      ],
+      "interfaces-config": {
+        "interfaces": [
+          "eth0"
+        ],
+        "re-detect": true
+      },
+      "lease-database": {
+        "lfc-interval": 3600,
+        "name": "/var/lib/kea/kea-leases6.csv",
+        "persist": true,
+        "type": "memfile"
+      },
+      "loggers": [
+        {
+          "debuglevel": 0,
+          "name": "kea-dhcp6",
+          "output_options": [
+            {
+              "output": "/var/log/kea/kea-dhcp6.log"
+            }
+          ],
+          "severity": "INFO"
+        }
+      ],
+      "mac-sources": [
+        "any"
+      ],
+      "option-data": [
+        {
+          "always-send": false,
+          "code": 23,
+          "csv-format": true,
+          "data": "2001:db8::1",
+          "name": "dns-servers",
+          "never-send": false,
+          "space": "dhcp6"
+        }
+      ],
+      "option-def": [],
+      "pd-allocator": "iterative",
+      "preferred-lifetime": 3000,
+      "relay-supplied-options": [
+        "65"
+      ],
+      "renew-timer": 1000,
+      "rebind-timer": 2000,
+      "reservations": [],
+      "reservations-global": false,
+      "reservations-in-subnet": true,
+      "reservations-out-of-pool": false,
+      "server-id": {
+        "enterprise-id": 0,
+        "htype": 0,
+        "identifier": "",
+        "persist": true,
+        "time": 0,
+        "type": "LLT"
+      },
+      "shared-networks": [],
+      "subnet6": [
+        {
+          "calculate-tee-times": true,
+          "id": 1,
+          "interface": "eth0",
+          "max-preferred-lifetime": 3000,
+          "max-valid-lifetime": 4000,
+          "min-preferred-lifetime": 3000,
+          "min-valid-lifetime": 4000,
+          "option-data": [],
+          "pd-pools": [
+            {
+              "client-class": "cpe",
+              "delegated-len": 64,
+              "option-data": [],
+              "prefix": "2001:db8:1::",
+              "prefix-len": 48
+            }
+          ],
+          "pools": [
+            {
+              "option-data": [],
+              "pool": "2001:db8::1000-2001:db8::1fff"
+            }
+          ],
+          "preferred-lifetime": 3000,
+          "rapid-commit": false,
+          "relay": {
+            "ip-addresses": [
+              "2001:db8::fffe"
+            ]
+          },
+          "reservations": [
+            {
+              "client-classes": [],
+              "duid": "01:02:03:04:05:06",
+              "hostname": "cpe1",
+              "ip-addresses": [
+                "2001:db8::100"
+              ],
+              "option-data": [],
+              "prefixes": [
+                "2001:db8:1:100::/64"
+              ]
+            }
+          ],
+          "store-extended-info": false,
+          "subnet": "2001:db8::/64",
+          "t1-percent": 0.5,
+          "t2-percent": 0.8,
+          "valid-lifetime": 4000
+        }
+      ],
+      "t1-percent": 0.5,
+      "t2-percent": 0.8,
+      "valid-lifetime": 4000
+    },
+    "hash": "A2B1C0D9E8F7A6B5C4D3E2F1A0B9C8D7E6F5A4B3C2D1E0F9A8B7C6D5E4F3A2B1"
+  },
+  "result": 0
+}

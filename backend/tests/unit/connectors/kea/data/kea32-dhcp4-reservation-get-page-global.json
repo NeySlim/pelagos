@@ -1,0 +1,23 @@
+{
+  "arguments": {
+    "count": 1,
+    "hosts": [
+      {
+        "boot-file-name": "",
+        "client-classes": [],
+        "hostname": "global-host",
+        "hw-address": "aa:bb:cc:dd:ee:ff",
+        "next-server": "0.0.0.0",
+        "option-data": [],
+        "server-hostname": "",
+        "subnet-id": 0
+      }
+    ],
+    "next": {
+      "from": 3,
+      "source-index": 0
+    }
+  },
+  "result": 0,
+  "text": "1 IPv4 host(s) found."
+}

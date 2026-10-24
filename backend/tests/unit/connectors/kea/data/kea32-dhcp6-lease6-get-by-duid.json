@@ -1,0 +1,37 @@
+{
+  "arguments": {
+    "leases": [
+      {
+        "cltt": 1792843951,
+        "duid": "00:01:00:01:aa:bb",
+        "fqdn-fwd": false,
+        "fqdn-rev": false,
+        "hostname": "pc6",
+        "iaid": 1,
+        "ip-address": "2001:db8::1000",
+        "preferred-lft": 7200,
+        "state": 0,
+        "subnet-id": 1,
+        "type": "IA_NA",
+        "valid-lft": 7200
+      },
+      {
+        "cltt": 1792843951,
+        "duid": "00:01:00:01:aa:bb",
+        "fqdn-fwd": false,
+        "fqdn-rev": false,
+        "hostname": "",
+        "iaid": 2,
+        "ip-address": "2001:db8:1:1::",
+        "preferred-lft": 7200,
+        "prefix-len": 64,
+        "state": 0,
+        "subnet-id": 1,
+        "type": "IA_PD",
+        "valid-lft": 7200
+      }
+    ]
+  },
+  "result": 0,
+  "text": "2 IPv6 lease(s) found."
+}

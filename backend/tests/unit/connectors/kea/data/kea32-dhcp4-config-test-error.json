@@ -1,0 +1,4 @@
+{
+  "result": 1,
+  "text": "subnet configuration failed: Invalid subnet syntax (prefix/len expected):bad (<wire>:0:83)"
+}

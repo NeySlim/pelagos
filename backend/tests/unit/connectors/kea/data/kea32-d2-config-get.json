@@ -1,0 +1,74 @@
+{
+  "arguments": {
+    "DhcpDdns": {
+      "control-sockets": [
+        {
+          "socket-name": "/var/lib/kea/d2.sock",
+          "socket-type": "unix"
+        }
+      ],
+      "dns-server-timeout": 500,
+      "forward-ddns": {
+        "ddns-domains": [
+          {
+            "dns-servers": [
+              {
+                "hostname": "",
+                "ip-address": "127.0.0.1",
+                "port": 43257
+              }
+            ],
+            "key-name": "kea-ddns",
+            "name": "example.lan."
+          }
+        ]
+      },
+      "hooks-libraries": [],
+      "ip-address": "127.0.0.1",
+      "loggers": [
+        {
+          "debuglevel": 0,
+          "name": "kea-dhcp-ddns",
+          "output-options": [
+            {
+              "flush": true,
+              "maxsize": 10240000,
+              "maxver": 1,
+              "output": "/var/lib/kea/kea-dhcp-ddns.log",
+              "pattern": ""
+            }
+          ],
+          "severity": "INFO"
+        }
+      ],
+      "ncr-format": "JSON",
+      "ncr-protocol": "UDP",
+      "port": 41915,
+      "reverse-ddns": {
+        "ddns-domains": [
+          {
+            "dns-servers": [
+              {
+                "hostname": "",
+                "ip-address": "127.0.0.1",
+                "port": 43257
+              }
+            ],
+            "key-name": "kea-ddns",
+            "name": "2.0.192.in-addr.arpa."
+          }
+        ]
+      },
+      "tsig-keys": [
+        {
+          "algorithm": "HMAC-SHA256",
+          "digest-bits": 0,
+          "name": "kea-ddns",
+          "secret-file": "/var/lib/kea/kea-ddns.secret"
+        }
+      ]
+    },
+    "hash": "45BF1B59ECEB18C4FE427EA3E242001C8CF50C64879444B4A086991CD6574286"
+  },
+  "result": 0
+}

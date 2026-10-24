@@ -1,0 +1,28 @@
+{
+  "arguments": {
+    "csv-lease-file": "/var/lib/kea/kea-leases6.csv",
+    "dhcp-state": {
+      "disabled-by-db-connection": [],
+      "disabled-by-local-command": [],
+      "disabled-by-remote-command": [],
+      "disabled-by-user": false,
+      "globally-disabled": false
+    },
+    "extended-info-tables": false,
+    "multi-threading-enabled": true,
+    "packet-queue-size": 64,
+    "packet-queue-statistics": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "pid": 14633,
+    "reload": 1,
+    "sockets": {
+      "status": "ready"
+    },
+    "thread-pool-size": 14,
+    "uptime": 1
+  },
+  "result": 0
+}

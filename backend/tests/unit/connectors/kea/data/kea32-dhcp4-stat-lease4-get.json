@@ -1,0 +1,46 @@
+{
+  "arguments": {
+    "result-set": {
+      "columns": [
+        "subnet-id",
+        "total-addresses",
+        "cumulative-assigned-addresses",
+        "assigned-addresses",
+        "declined-addresses"
+      ],
+      "rows": [
+        [
+          1,
+          121,
+          0,
+          2,
+          0
+        ],
+        [
+          2,
+          128,
+          0,
+          0,
+          0
+        ],
+        [
+          10,
+          91,
+          0,
+          1,
+          1
+        ],
+        [
+          11,
+          71,
+          0,
+          0,
+          0
+        ]
+      ],
+      "timestamp": "2026-10-24 12:12:31.022604"
+    }
+  },
+  "result": 0,
+  "text": "stat-lease4-get[all subnets]: 4 rows found"
+}

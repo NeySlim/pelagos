@@ -1,0 +1,28 @@
+{
+  "arguments": {
+    "subnets": [
+      {
+        "id": 1,
+        "shared-network-name": null,
+        "subnet": "192.0.2.0/24"
+      },
+      {
+        "id": 2,
+        "shared-network-name": null,
+        "subnet": "198.51.100.0/24"
+      },
+      {
+        "id": 10,
+        "shared-network-name": "office",
+        "subnet": "203.0.113.0/25"
+      },
+      {
+        "id": 11,
+        "shared-network-name": "office",
+        "subnet": "203.0.113.128/25"
+      }
+    ]
+  },
+  "result": 0,
+  "text": "4 IPv4 subnets found"
+}

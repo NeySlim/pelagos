@@ -71,7 +71,7 @@ class BindPoller:
 
         try:
             zones = self.backend.list_zones()
-        except ConnectorError as exc:
+        except (ConnectorError, NotImplementedError) as exc:
             log.warning("list_zones failed: %s", exc)
             zones = []
         self.store.write_snapshot(self.node_id, "bind", "zone_list", now, [z.to_dict() for z in zones])
@@ -87,7 +87,7 @@ class BindPoller:
             payload: dict[str, Any] = stats.to_dict()
             payload.pop("raw", None)
             self.store.write_snapshot(self.node_id, "bind", "stats", now, payload)
-        except ConnectorError as exc:
+        except (ConnectorError, NotImplementedError) as exc:
             log.debug("instance_stats failed: %s", exc)
         return out
 
@@ -98,17 +98,20 @@ class BindPoller:
             return ZoneStatus(
                 zone=zone.name, view=zone.view, node_id=self.node_id, kind=zone.kind, error=str(exc)
             )
+        except NotImplementedError:
+            # Connector without zonestatus yet: no status, but the SOA serial is still worth having.
+            st = ZoneStatus(zone=zone.name, view=zone.view, node_id=self.node_id, kind=zone.kind)
         if st.kind is None:
             st.kind = zone.kind
         if st.serial is None and st.error is None:
             try:
                 st.serial = self.backend.soa_serial(zone.name, zone.view)
-            except ConnectorError as exc:
+            except (ConnectorError, NotImplementedError) as exc:
                 log.debug("soa_serial %s failed: %s", zone.name, exc)
         return st
 
     def _record_serial(self, now: int, st: ZoneStatus) -> None:
-        if st.kind is ZoneKind.PRIMARY:
+        if st.kind not in (ZoneKind.SECONDARY, ZoneKind.MIRROR):
             divergent = False
         else:
             ref = primary_serial(self.store, st.zone, st.view, exclude=self.node_id)

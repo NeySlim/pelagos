@@ -51,8 +51,10 @@ def zone_alerts(node_id: str, status: ZoneStatus, now: datetime) -> list[Alert]:
     """zone_error when zonestatus failed or the zone is not loaded; secondary_stale when it expires soon."""
     subject = zone_subject(status.zone, status.view)
     out: list[Alert] = []
-    loaded = status.error is None and status.last_loaded is not None
-    if status.error is not None or not loaded:
+    # `rndc zonestatus` fails on a zone that is not loaded, so `error` is the signal; last_loaded is
+    # optional in the contract and its absence alone means nothing. raw["loaded"] = "no" also counts.
+    loaded = status.error is None and str(status.raw.get("loaded", "yes")).lower() not in ("no", "false")
+    if not loaded:
         out.append(
             Alert(
                 kind=AlertKind.ZONE_ERROR,

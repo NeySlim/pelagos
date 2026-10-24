@@ -7,10 +7,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from pelagos.collector import rules
 from pelagos.collector.pollers.bind import BindPoller
-from pelagos.collector.pollers.kea import D2Poller, KeaPoller
+from pelagos.collector.pollers.kea import D2Poller, KeaPoller, normalized_config_hash
 from pelagos.collector.series import SeriesStore, connect
-from pelagos.domain import AlertKind, Engine, Family, HAPartner, Severity, Zone, ZoneKind
+from pelagos.domain import AlertKind, Engine, Family, HAPartner, Severity, Zone, ZoneKind, ZoneStatus
 from tests.unit.collector.fakes import NODE, PEER, FakeDdnsBackend, FakeDhcpBackend, FakeDnsBackend
 
 pytestmark = pytest.mark.unit
@@ -110,6 +111,56 @@ def test_bind_poller_daemon_down(store):
     assert kinds(out) == {AlertKind.DAEMON_DOWN} and "not running" in out.alerts[0].details["error"]
 
 
+class NoZoneStatus(FakeDnsBackend):
+    """A connector that does not implement zonestatus yet."""
+
+    def zone_status(self, zone, view=None):
+        raise NotImplementedError("WP-BIND")
+
+
+def test_bind_poller_without_zone_status_still_records_serials(store):
+    clock = Clock()
+    dns = NoZoneStatus()
+    out = BindPoller(dns, NODE, store, clock).poll()
+    assert out.ok and out.alerts == []
+    assert store.latest_serial("example.lan.", "_default", NODE) == (clock.now, 2026102401, False)
+
+
+def test_zone_error_comes_from_error_or_explicit_marker_not_last_loaded():
+    now = datetime.now(UTC)
+    st = ZoneStatus(zone="example.lan.", view="_default", node_id=NODE, kind=ZoneKind.PRIMARY)
+    assert rules.zone_alerts(NODE, st, now) == []
+    st.raw = {"loaded": "no"}
+    assert [a.kind for a in rules.zone_alerts(NODE, st, now)] == [AlertKind.ZONE_ERROR]
+
+
+def test_normalized_config_hash_ignores_per_node_keys():
+    def config(name: str, iface: str) -> dict:
+        return {
+            "Dhcp4": {
+                "interfaces-config": {"interfaces": [iface]},
+                "control-socket": {"socket-name": f"/run/kea/{name}.sock"},
+                "loggers": [{"name": name}],
+                "hooks-libraries": [
+                    {
+                        "library": "libdhcp_ha.so",
+                        "parameters": {
+                            "high-availability": [{"this-server-name": name, "mode": "hot-standby"}]
+                        },
+                    }
+                ],
+                "subnet4": [{"id": 1, "subnet": "192.0.2.0/24"}],
+            },
+            "hash": name,
+        }
+
+    a, b = config("server1", "eth0"), config("server2", "ens18")
+    assert normalized_config_hash(a) == normalized_config_hash(b)
+    assert normalized_config_hash(a) == normalized_config_hash(a["Dhcp4"])
+    b["Dhcp4"]["subnet4"][0]["subnet"] = "198.51.100.0/24"
+    assert normalized_config_hash(a) != normalized_config_hash(b)
+
+
 def test_bind_poller_marks_secondary_divergent_against_peer_primary(store):
     clock = Clock()
     dns = FakeDnsBackend()
@@ -140,7 +191,10 @@ def test_kea_poller_pools_samples_and_alerts(store):
     out = poller.poll()
     assert out.ok and out.alerts == []
     assert store.snapshot(NODE, "kea4", "ha")[1]["state"] == "hot-standby"
-    assert store.snapshot(NODE, "kea4", "config_hash")[1] == {"hash": "abc123"}
+    assert store.snapshot(NODE, "kea4", "config_hash")[1] == {
+        "hash": "abc123",
+        "normalized": normalized_config_hash({}),
+    }
     assert store.snapshot(NODE, "kea4", "subnets")[1][0]["subnet"] == "192.0.2.0/24"
     assert store.counts()["series_pool"] == 1
     assert next(e for e in out.events if e[0] == "leases")[2] == {

@@ -31,9 +31,7 @@ class KeaControlSocket:
         self.path = Path(path)
         self.timeout = timeout
 
-    def send(
-        self, command: str, arguments: dict[str, Any] | None = None, service: list[str] | None = None
-    ) -> dict[str, Any]:
+    def send(self, command: str, arguments: Any = None, service: list[str] | None = None) -> dict[str, Any]:
         """Raw exchange; returns the response object (result, text, arguments)."""
         payload: dict[str, Any] = {"command": command}
         if arguments is not None:
@@ -65,9 +63,7 @@ class KeaControlSocket:
             raise ConnectorUnavailable(f"{command}: empty answer from {self.path}")
         return _first(json.loads(buf.decode()))
 
-    def call(
-        self, command: str, arguments: dict[str, Any] | None = None, allow_empty: bool = False
-    ) -> dict[str, Any]:
+    def call(self, command: str, arguments: Any = None, allow_empty: bool = False) -> dict[str, Any]:
         """Send and check result; returns `arguments` of the answer (empty dict when none)."""
         resp = self.send(command, arguments)
         result = int(resp.get("result", ERROR))

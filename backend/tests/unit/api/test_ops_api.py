@@ -65,7 +65,13 @@ class FakeSocket:
         ("flushtree", {"name": "example.lan", "view": "v"}, ["flushtree", "example.lan", "v"]),
         ("querylog", {"mode": "on"}, ["querylog", "on"]),
         ("nta-add", {"name": "bad.example", "lifetime": "1h"}, ["nta", "-lifetime", "1h", "bad.example"]),
-        ("nta-remove", {"name": "bad.example", "view": "v"}, ["nta", "-remove", "-view", "v", "bad.example"]),
+        (
+            "nta-add",
+            {"name": "bad.example", "lifetime": "1h", "view": "v"},
+            ["nta", "-lifetime", "1h", "bad.example", "v"],
+        ),
+        ("nta-remove", {"name": "bad.example", "view": "v"}, ["nta", "-remove", "bad.example", "v"]),
+        ("reload", {"zone": "example.lan", "view": "v"}, ["reload", "example.lan", "IN", "v"]),
         ("nta-dump", {}, ["nta", "-dump"]),
         ("serve-stale", {"mode": "reset", "view": "v"}, ["serve-stale", "reset", "IN", "v"]),
         ("serve-stale-status", {}, ["serve-stale", "status"]),
@@ -98,6 +104,9 @@ def test_rndc_words(op, params, words):
         ("status", {"zone": "example.lan"}),
         ("nta-add", {"name": "x.example", "lifetime": "forever"}),
         ("sync", {"clean": "yes"}),
+        ("reload", {"view": "v"}),
+        ("sync", {"view": "v"}),
+        ("nta-dump", {"view": "v"}),
     ],
 )
 def test_rndc_refuses_what_is_not_allowed(op, params):
@@ -111,6 +120,8 @@ def test_kea_arguments_are_typed():
         "max-period": 30,
     }
     assert ops.kea_arguments("v4", "status-get", {}) is None
+    assert ops.kea_arguments("v4", "cache-flush", {"count": 100}) == 100
+    assert ops.kea_arguments("v6", "cache-flush", {}) is None
     assert ops.kea_arguments("v6", "lease6-resend-ddns", {"ip-address": "2001:db8::10"}) == {
         "ip-address": "2001:db8::10"
     }

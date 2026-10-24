@@ -77,7 +77,7 @@ BIND_OPS: dict[str, OpSpec] = {
         _op("dnssec-status", "read:dns", False, "zone", "view", required=("zone",)),
         _op("serve-stale-status", "read:dns", False, "view"),
         _op("managed-keys-status", "read:dns", False, "view"),
-        _op("nta-dump", "read:dns", False, "view"),
+        _op("nta-dump", "read:dns", False),
         _op("reload", "ops:dns", True, "zone", "view"),
         _op("reconfig", "ops:dns", True),
         _op("notify", "ops:dns", True, "zone", "view", required=("zone",)),
@@ -210,7 +210,9 @@ def rndc_words(op: str, params: dict[str, Any]) -> list[str]:
     name = _text(p, "name", _NAME_RE)
     view_tail = ["IN", view] if view and view != "_default" else []
     zone_words = [zone.rstrip(".") or ".", *view_tail] if zone else []
-    view_opt = ["-view", view] if view else []
+    if view and not zone and "zone" in spec.params:
+        # rndc scopes these by zone; a view alone would silently act on every view.
+        raise _field("view", "needs zone")
     if op in {
         "zonestatus",
         "showzone",
@@ -239,12 +241,14 @@ def rndc_words(op: str, params: dict[str, Any]) -> list[str]:
     if op in {"managed-keys-status", "managed-keys-refresh"}:
         return ["managed-keys", op.rsplit("-", 1)[1], *view_tail]
     if op == "nta-dump":
-        return ["nta", "-dump", *view_opt]
+        return ["nta", "-dump"]  # rndc lists every view and ignores a view argument
     if op == "nta-add":
         lifetime = _text(p, "lifetime", _LIFETIME_RE)
-        return ["nta", *(["-lifetime", lifetime] if lifetime else []), *view_opt, name]  # type: ignore[list-item]
+        # rndc syntax: nta [-lifetime d] domain [view]; there is no -view option.
+        life = ["-lifetime", lifetime] if lifetime else []
+        return ["nta", *life, name, *([view] if view else [])]  # type: ignore[list-item]
     if op == "nta-remove":
-        return ["nta", "-remove", *view_opt, name]  # type: ignore[list-item]
+        return ["nta", "-remove", name, *([view] if view else [])]  # type: ignore[list-item]
     if op == "fetchlimit":
         return ["fetchlimit", *([view] if view else [])]
     if op == "validation-status":
@@ -263,8 +267,8 @@ def rndc_words(op: str, params: dict[str, Any]) -> list[str]:
     return [op]  # status, tcp-timeouts, reconfig, stats, notrace
 
 
-def kea_arguments(family: str, command: str, params: dict[str, Any]) -> dict[str, Any] | None:
-    """Typed arguments of an allow-listed Kea command; None when it takes none."""
+def kea_arguments(family: str, command: str, params: dict[str, Any]) -> Any:
+    """Typed arguments of an allow-listed Kea command (usually an object); None when it takes none."""
     spec = KEA_OPS.get(family, {}).get(command)
     if spec is None:
         raise _field("command", f"{command} is not an allowed operation for {family}")
@@ -292,6 +296,8 @@ def kea_arguments(family: str, command: str, params: dict[str, Any]) -> dict[str
         elif not isinstance(value, str) or not _KEA_NAME_RE.match(value):
             raise _field(name, "invalid value")
         out[name] = value
+    if command == "cache-flush" and out:
+        return out["count"]  # host_cache takes a bare integer, not an object
     return out or None
 
 

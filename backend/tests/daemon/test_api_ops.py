@@ -58,6 +58,13 @@ def test_rndc_operations_on_named(api, named_server):
     ):
         r = _bind(client, op, **params)
         assert r.status_code == 200, (op, r.get_json())
+    added = _bind(client, "nta-add", name="nta.example", lifetime="1h", view="_default")
+    assert added.status_code == 200, added.get_json()
+    assert "nta.example" in _bind(client, "nta-dump").get_json()["output"]
+    assert _bind(client, "nta-remove", name="nta.example", view="_default").status_code == 200
+    assert _bind(client, "nta-add", name="nta2.example").status_code == 200
+    assert _bind(client, "nta-remove", name="nta2.example").status_code == 200
+    assert "nta.example" not in _bind(client, "nta-dump").get_json()["output"]
     entries, _ = ctx.audit_log.query(action="dns.ops")
     assert {e.target for e in entries} >= {"bind:freeze", "bind:flushname", "bind:querylog"}
     missing = _bind(client, "zonestatus", zone="nowhere.example")

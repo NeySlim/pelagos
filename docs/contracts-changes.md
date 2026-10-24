@@ -13,6 +13,34 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-24, WP-KEA: Kea connector conventions other packages see
+Additive, no existing symbol changes.
+- `architecture.md` section 10, `[engines.kea]`: optional `d2_secret_dir` (where D2
+  plans write TSIG secret files, default the directory of `d2_conf`) and `kea_group`
+  (group of those 0640 files). WP-INSTALLER sets `kea_group` to `_kea` or `kea`.
+- Section 6 target grammar: `dhcp.ha` plans use `ha/maintenance` (after `start` or
+  `cancel`) and `service` (after `{"enable": bool}`); `d2.config` plans carry
+  `config` plus one `secret-file/<name>` change per secret moved out of the JSON
+  (after `{"path", "sha256"}`). A clear `secret` submitted for D2 is never kept in
+  a plan; the secret is held in memory by the `D2Backend` that built the plan, so a
+  peer applying the same plan without it fails cleanly (see remaining gaps).
+- HA maintenance follows Kea: the node whose plan is applied goes
+  `partner-in-maintenance` and its partner `in-maintenance` (that partner can then
+  be shut down); `cancel` must go to the same node. The plan summary says which
+  server goes down. WP-API-AUTH and WP-FRONTEND label the action that way.
+- Section 17 `GET /advanced/kea/{family}/schema`: `KeaBackend.config_schema()`,
+  `D2Backend.config_schema()`, or `pelagos.connectors.kea.schema.config_schema(daemon,
+  version)` (daemon `v4`, `v6`, `d2`). Shape: `{root, series, version, applies_to,
+  doc, keys: {key: {type, category, editor, description, default?, enum?, items?,
+  deprecated?}}, objects: {name: {required?, required_one_of?, keys}}, notes}`.
+- `pool_utilization()` rows also carry `kind` (`pool`, `pd-pool` or `subnet`) and
+  `node_id`. Kea counts pools by `pool-id` (default 0), so pools of a subnet without
+  explicit ids share one row whose `pool` joins their ranges with `, `.
+- `KeaBackend.command()` raises `ConnectorDenied` for `config-set`, `config-write`,
+  `config-reload` and `shutdown`.
+- `backend/tests/unit/connectors/__init__.py` is an empty package marker shared with
+  WP-BIND (identical content on both sides).
+
 ## 2026-10-24, WP-FRONTEND: payload shapes the spec leaves open
 No change to `architecture.md`. The mock (`frontend/mock/server.mjs`) and the
 placeholder pages assume these shapes where section 17 says only "JSON":

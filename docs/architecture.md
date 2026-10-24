@@ -774,6 +774,8 @@ dhcp.class     : "client-classes/<name>"
 dhcp.options   : "option-data/<space>/<code or name>" | "<top-level key>"   (e.g. "ddns-send-updates", "hooks-libraries")
 dhcp.config    : "config"                           whole object
 dhcp.lease     : "lease<4|6>/<ip>"
+dhcp.ha        : "ha/maintenance" (after "start"|"cancel") | "service" (after {"enable": bool})
+d2.config      : "config" | "secret-file/<file name>" (after {"path","sha256"}; the secret never enters a plan)
 host           : "host/<key>"                       expands into dns.rrset and dhcp.reservation changes
 ```
 
@@ -928,6 +930,8 @@ d2_socket = "kea-ddns-ctrl-socket"
 dhcp4_conf = "/etc/kea/kea-dhcp4.conf"
 dhcp6_conf = "/etc/kea/kea-dhcp6.conf"
 d2_conf = "/etc/kea/kea-dhcp-ddns.conf"
+d2_secret_dir = "/etc/kea"                # optional; TSIG secret files written by D2 plans (default: dir of d2_conf)
+kea_group = "_kea"                        # optional; group of those files (mode 0640), unset keeps ours
 ```
 
 `/var/lib/pelagos/cluster.toml` (replicated whole; highest `version` wins,
@@ -1462,7 +1466,7 @@ picks raw or hourly data accordingly.
 | --- | --- | --- |
 | `GET /advanced/bind/grammar` | `read:advanced` | grammar JSON (section 8) |
 | `GET /advanced/bind/tree?node_id=` | `read:advanced` | `{"files": [{"path","managed": bool,"statements": [...tree with provenance]}]}` |
-| `GET /advanced/kea/{family}/schema` | `read:advanced` | JSON schema-like description of the Dhcp4/Dhcp6 object for the server version |
+| `GET /advanced/kea/{family}/schema` | `read:advanced` | JSON schema-like description of the Dhcp4/Dhcp6 object for the server version: `KeaBackend.config_schema()` (`{family}` = `d2`: `D2Backend.config_schema()`), or `pelagos.connectors.kea.schema.config_schema(daemon, version)` without a live server |
 | `GET /advanced/history?engine=&node_id=&page=&per_page=` | `read:advanced` | paginated `{"id","engine","node_id","ts","plan_id","label","files":[...]}` (write pipeline backups) |
 | `GET /advanced/history/{id}` | `read:advanced` | `{"manifest", "files": {path: content}}` |
 

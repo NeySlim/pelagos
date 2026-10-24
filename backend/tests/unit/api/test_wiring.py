@@ -358,7 +358,13 @@ def test_d2_secrets_travel_sealed(node_ctx, services, peer_b, fake_registry, adm
     fake_registry.d2 = local
     peer_d2 = HoldingD2(NODE_B)
     peer_b.registry.d2 = PlanRunner(
-        SimpleNamespace(node=SimpleNamespace(id=NODE_B), secrets=node_ctx.secrets), Engine.D2, peer_d2
+        SimpleNamespace(
+            node=SimpleNamespace(id=NODE_B),
+            secrets=node_ctx.secrets,
+            paths=SimpleNamespace(locks_dir=node_ctx.paths.var / "peer-b-locks"),
+        ),
+        Engine.D2,
+        peer_d2,
     )  # type: ignore[arg-type]
     peer_b.secrets = node_ctx.secrets
     node_ctx.plan_store.put(plan)

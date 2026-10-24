@@ -100,6 +100,13 @@ Packaging and CI only; no API or domain change. Everyone should know:
   (`.github/workflows/ci.yml`) calls these targets, and the daemon job fails
   when any daemon test is skipped.
 
+## 2026-10-24, F-FIX: per-engine write lock across processes
+`docs/architecture.md` section 6. Connector `apply`/`rollback` calls hold
+`<locks_dir>/engine-<engine>.lock` in both the web process and the collector
+(`PlanRunner`), so two plans on one daemon never interleave. Connectors need
+no change; code that calls `backend.apply` directly outside these two paths
+must take `services.engine_lock.engine_lock` too.
+
 ## 2026-10-24, F-FIX: `pelagos user` recovery commands, `_placeholder` removed
 `backend/pelagos/cli.py` gains `pelagos user reset-password|disable-totp
 <name>` (implementation in `pelagos/auth/recovery.py`, architecture section

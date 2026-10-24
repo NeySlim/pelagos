@@ -872,6 +872,15 @@ replication sync, so the new key's secret is there). A failure stops the job;
 earlier phases are not undone (each step rolls back its own files). Changes
 without `node_ids` are manual and never run.
 
+One writer per engine per node: every `apply` and `rollback` of a connector,
+whether started by the web process (`PlanService`) or received from a peer by
+the collector (`services.registry.PlanRunner`), runs under
+`services.engine_lock.engine_lock(locks_dir, engine)`
+(`<locks_dir>/engine-<engine>.lock`, a process-local lock then a polled
+non-blocking `flock`, reentrant in the holder). A writer that waits more than
+300 s fails with a connector error instead of interleaving its I/O with the
+other one.
+
 ## 7. Write pipeline
 
 `pelagos/core/write_pipeline.py` is the only code that writes engine files.

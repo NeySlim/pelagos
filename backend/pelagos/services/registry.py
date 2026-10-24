@@ -108,9 +108,10 @@ class PlanRunner:
     def apply(self, plan: Plan) -> NodeApplyResult:
         from pelagos.services.installer_runner import run_received
 
-        if plan.scope in INSTALLER_SCOPES:
-            return run_received(self.ctx, plan)
-        return self.backend.apply(plan)
+        with self._lock():
+            if plan.scope in INSTALLER_SCOPES:
+                return run_received(self.ctx, plan)
+            return self.backend.apply(plan)
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
         if plan.scope in INSTALLER_SCOPES:
@@ -119,7 +120,14 @@ class PlanRunner:
                 ok=False,
                 message="installer steps roll back their own files when they fail; restore from history",
             )
-        return self.backend.rollback(plan)
+        with self._lock():
+            return self.backend.rollback(plan)
+
+    def _lock(self) -> Any:
+        """The same per-engine lock as the web process's PlanService (section 6)."""
+        from pelagos.services.engine_lock import engine_lock
+
+        return engine_lock(self.ctx.paths.locks_dir, self.engine.value)
 
     def pop_details(self, plan_id: str) -> dict[str, Any]:
         pop = getattr(self.backend, "pop_details", None)

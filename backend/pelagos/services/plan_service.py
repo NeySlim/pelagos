@@ -17,6 +17,7 @@ from typing import Any
 
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend, DnsBackend, PreconditionFailed
 from pelagos.core.context import NodeContext
+from pelagos.core.plans import PlanNotFound
 from pelagos.domain import (
     ApplyResult,
     AuditEntry,
@@ -31,6 +32,7 @@ from pelagos.domain import (
     utcnow,
 )
 from pelagos.services import d2_secrets
+from pelagos.services.engine_lock import engine_lock
 from pelagos.services.events import EventHub
 from pelagos.services.masking import masked, masked_text
 from pelagos.services.peers import PeerGateway
@@ -66,6 +68,12 @@ class PlanService:
     # Composites ---------------------------------------------------------
 
     def register_composite(self, plan: Plan, parts: list[Plan]) -> None:
+        # Parts live as long as their plan in the PlanStore: forget those whose plan is gone.
+        for plan_id in list(self._composites):
+            try:
+                self.ctx.plan_store.get(plan_id)
+            except PlanNotFound:
+                self._composites.pop(plan_id, None)
         self._composites[plan.id] = parts
 
     def parts(self, plan: Plan) -> list[Plan]:
@@ -92,6 +100,11 @@ class PlanService:
 
     def _backend(self, plan: Plan) -> DnsBackend | DhcpBackend | DdnsBackend | None:
         return self.registry.backend(plan.engine)
+
+    def _engine_lock(self, plan: Plan) -> Any:
+        """Serializes writes to one engine with the collector applying peer plans (section 6)."""
+        engine = plan.engine.value if plan.engine else "none"
+        return engine_lock(self.ctx.paths.locks_dir, engine)
 
     def recheck_preconditions(self, plan: Plan) -> None:
         """Re-read every local precondition now; connectors re-check again inside apply."""
@@ -215,7 +228,8 @@ class PlanService:
                     node_id=node_id, ok=False, message="engine not configured on this node"
                 )
             try:
-                result = backend.apply(plan)
+                with self._engine_lock(plan):
+                    result = backend.apply(plan)
             except ConnectorError as exc:
                 result = NodeApplyResult(node_id=node_id, ok=False, message=str(exc))
             except Exception as exc:
@@ -237,11 +251,11 @@ class PlanService:
             if node_id == self.ctx.node.id:
                 backend = self._backend(plan)
                 try:
-                    res = (
-                        backend.rollback(plan)
-                        if backend
-                        else NodeApplyResult(node_id=node_id, ok=False, message="no backend")
-                    )
+                    if backend:
+                        with self._engine_lock(plan):
+                            res = backend.rollback(plan)
+                    else:
+                        res = NodeApplyResult(node_id=node_id, ok=False, message="no backend")
                 except Exception as exc:
                     res = NodeApplyResult(node_id=node_id, ok=False, message=f"rollback failed: {exc}")
                 res.node_id = node_id

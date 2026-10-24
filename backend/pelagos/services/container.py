@@ -31,6 +31,8 @@ class Services:
         self, ctx: NodeContext, registry: ConnectorRegistry | None = None, peers: PeerGateway | None = None
     ) -> None:
         self.ctx = ctx
+        self._own_registry = registry is None
+        self._node_mtime = self._node_stat()
         self.registry = registry if registry is not None else ConnectorRegistry.from_node(ctx)
         self.peers = peers if peers is not None else PeerGateway(ctx)
         self.events = EventHub(ctx.node.id)
@@ -74,6 +76,39 @@ class Services:
     def of(cls, ctx: NodeContext) -> Services:
         services = ctx.extra.get("services")
         return services if isinstance(services, Services) else cls(ctx)
+
+    def _node_stat(self) -> int | None:
+        try:
+            return self.ctx.paths.node_toml.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def refresh_engines(self) -> bool:
+        """Rebuilds the connectors when node.toml [engines] changed (an import or install ran as
+        root): the services keep their objects and get the new backends. True when it did."""
+        if not self._own_registry:
+            return False
+        mtime = self._node_stat()
+        if mtime == self._node_mtime:
+            return False
+        self._node_mtime = mtime
+        try:
+            engines = self.ctx.config_store.load_node().engines
+        except Exception:
+            log.exception("node.toml not readable; engines kept")
+            return False
+        if engines == self.ctx.node.engines:
+            return False
+        self.ctx.node.engines = engines
+        fresh = ConnectorRegistry.from_node(self.ctx)
+        for name in ("dns", "kea4", "kea6", "d2"):
+            setattr(self.registry, name, getattr(fresh, name))
+        self.dns.local = self.registry.dns
+        for service, local in ((self.dhcp4, self.registry.kea4), (self.dhcp6, self.registry.kea6)):
+            service.local = local
+            service.d2 = self.registry.d2
+        log.info("engines reloaded from node.toml")
+        return True
 
     def dhcp(self, family: Family) -> DhcpService:
         return self.dhcp4 if family is Family.V4 else self.dhcp6

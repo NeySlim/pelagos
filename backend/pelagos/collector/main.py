@@ -432,6 +432,37 @@ def start_replication(
         return None
 
 
+# Exit status asking the service manager for a restart (Restart=on-failure): the engines changed.
+EXIT_ENGINES_CHANGED = 75
+
+
+class EnginesWatch:
+    """Tells when node.toml [engines] differs from what the connectors were built with."""
+
+    def __init__(self, ctx: NodeContext) -> None:
+        self.ctx = ctx
+        self.engines = dict(ctx.node.engines)
+        self._mtime = self._stat()
+
+    def _stat(self) -> int | None:
+        try:
+            return self.ctx.paths.node_toml.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def changed(self) -> bool:
+        mtime = self._stat()
+        if mtime == self._mtime:
+            return False
+        self._mtime = mtime
+        try:
+            engines = self.ctx.config_store.load_node().engines
+        except Exception:  # a half-written or broken file: keep running on the current connectors
+            log.exception("node.toml not readable")
+            return False
+        return engines != self.engines
+
+
 def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     ctx = NodeContext.build(paths)
     if rebuild:
@@ -469,8 +500,12 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     replicator = getattr(replication, "replicator", None)
     if replicator is not None:
         collector.peers.liveness = replicator
+    watch = EnginesWatch(ctx)
     try:
         while True:
+            if watch.changed():
+                log.info("node.toml engines changed: exiting so the service restarts with them")
+                return EXIT_ENGINES_CHANGED
             now = time.monotonic()
             for task in tasks:
                 if task.next_run <= now:

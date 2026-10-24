@@ -41,8 +41,13 @@ def create_app(
     app.extensions["pelagos"] = context
     from pelagos.services.container import Services
 
-    # Connectors are built once per process from node.toml [engines]; tests inject fakes beforehand.
+    # Connectors are built from node.toml [engines]; tests inject fakes beforehand.
     Services.of(context)
+
+    @app.before_request
+    def _engines_follow_node_toml() -> None:
+        # An import or install (root helper, CLI) changes [engines] under the running process.
+        Services.of(context).refresh_engines()
 
     from pelagos.api import register_api
 

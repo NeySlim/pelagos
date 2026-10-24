@@ -55,6 +55,30 @@ def test_registry_from_node_toml(node_ctx):
     assert ConnectorRegistry.from_node(node_ctx).engines() == []
 
 
+def test_services_follow_engines_written_to_node_toml(node_ctx):
+    services = Services(node_ctx)
+    try:
+        assert services.registry.engines() == [Engine.BIND, Engine.KEA4]  # the fixture's node.toml
+        assert services.refresh_engines() is False
+        old_kea4 = services.registry.kea4
+        node = node_ctx.config_store.load_node()
+        node.engines = {"bind": True, "kea4": True, "d2": True, "kea": {"socket_dir": "/run/kea-test"}}
+        node_ctx.config_store.save_node(node)
+        os.utime(node_ctx.paths.node_toml, ns=(1, 1))  # a new mtime even on coarse clocks
+        assert services.refresh_engines() is True
+        assert services.registry.engines() == [Engine.BIND, Engine.KEA4, Engine.D2]
+        assert services.registry.kea4 is not old_kea4
+        assert services.dhcp4.local is services.registry.kea4 and services.dns.local is services.registry.dns
+        assert services.dhcp4.d2 is services.registry.d2 and services.plans.registry is services.registry
+        assert services.refresh_engines() is False
+        injected = Services(node_ctx, registry=ConnectorRegistry())
+        os.utime(node_ctx.paths.node_toml, ns=(2, 2))
+        assert injected.refresh_engines() is False  # tests keep the fakes they gave
+        injected.close()
+    finally:
+        services.close()
+
+
 def test_services_container_is_built_once(node_ctx):
     a = Services.of(node_ctx)
     assert Services.of(node_ctx) is a and node_ctx.extra["services"] is a

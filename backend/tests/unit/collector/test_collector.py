@@ -358,3 +358,20 @@ def test_polls_and_replication_share_one_backend_lock(rig, monkeypatch):
         worker.start()
         worker.join(5)
         assert not worker.is_alive()
+
+
+def test_engines_watch_sees_node_toml_changes(node_ctx):
+    import os
+
+    from pelagos.collector.main import EnginesWatch
+
+    watch = EnginesWatch(node_ctx)
+    assert watch.changed() is False
+    node = node_ctx.config_store.load_node()
+    node_ctx.config_store.save_node(node)
+    os.utime(node_ctx.paths.node_toml, ns=(1, 1))
+    assert watch.changed() is False  # rewritten, same engines
+    node.engines = {**node.engines, "d2": True}
+    node_ctx.config_store.save_node(node)
+    os.utime(node_ctx.paths.node_toml, ns=(2, 2))
+    assert watch.changed() is True

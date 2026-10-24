@@ -271,7 +271,7 @@ export function PoolsTile({ summary, editing, nameOf, thresholds }) {
                   {p.subnet} · {nameOf(p.node_id)}
                 </span>
               </div>
-              <UtilizationBar assigned={p.assigned} total={p.total} percent={p.percent} warn={warn} full={full} size="sm" />
+              <UtilizationBar assigned={p.assigned} total={p.total} percent={p.percent} warn={warn} full={full} size="sm" label={`${p.pool} (${p.subnet})`} />
             </li>
           ))}
         </ul>

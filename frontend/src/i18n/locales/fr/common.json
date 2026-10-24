@@ -1,7 +1,8 @@
 {
   "app": {
     "name": "Pelagos",
-    "tagline": "DNS et DHCP pour BIND 9 et Kea"
+    "tagline": "DNS et DHCP pour BIND 9 et Kea",
+    "logoTagline": "DNS et DHCP"
   },
   "actions": {
     "apply": "Appliquer",
@@ -17,7 +18,8 @@
     "save": "Enregistrer",
     "saving": "Enregistrement...",
     "export": "Exporter",
-    "copy": "Copier"
+    "copy": "Copier",
+    "removeItem": "Retirer {{item}}"
   },
   "auth": {
     "logout": "Se déconnecter"
@@ -37,7 +39,10 @@
     "yes": "Oui",
     "no": "Non",
     "none": "Aucun",
-    "unknown": "Inconnu"
+    "unknown": "Inconnu",
+    "showPassword": "Afficher le mot de passe",
+    "hidePassword": "Masquer le mot de passe",
+    "utilization": "Utilisation"
   },
   "confirm": {
     "inputRequired": "Saisir la valeur pour confirmer",
@@ -61,7 +66,8 @@
   },
   "diff": {
     "empty": "Aucune différence",
-    "lines": "{{count}} lignes"
+    "lines": "{{count}} lignes",
+    "lines_one": "{{count}} ligne"
   },
   "errorBoundary": {
     "title": "Une erreur est survenue",
@@ -219,7 +225,7 @@
     "primary": "Primaire",
     "secondary": "Secondaire",
     "stub": "Stub",
-    "forward": "Transfert",
+    "forward": "Redirection",
     "mirror": "Miroir",
     "divergent": "Divergent",
     "in-sync": "Synchronisé",
@@ -234,14 +240,23 @@
     "empty": "Rien à afficher",
     "of": "sur",
     "rows": "lignes",
-    "search": "Rechercher..."
+    "search": "Rechercher...",
+    "allOf": "{{label}} : tous",
+    "filters": "Filtres",
+    "clearSearch": "Effacer la recherche"
   },
   "theme": {
     "family": "Thème",
     "mode": "Mode",
     "system": "Système",
     "dark": "Sombre",
-    "light": "Clair"
+    "light": "Clair",
+    "descriptions": {
+      "pelagic": "Interface de contrôle océanique",
+      "gray": "Ardoise neutre",
+      "purple": "Violet profond",
+      "sunset": "Ambre chaud"
+    }
   },
   "windows": {
     "expand": "Agrandir",
@@ -254,5 +269,23 @@
     "connecting": "Connexion...",
     "disconnected": "Mises à jour en direct coupées",
     "error": "Mises à jour en direct indisponibles"
+  },
+  "time": {
+    "justNow": "à l'instant",
+    "minutesAgo": "il y a {{count}} min",
+    "hoursAgo": "il y a {{count}} h",
+    "hoursMinutesAgo": "il y a {{hours}} h {{minutes}} min",
+    "daysAgo": "il y a {{count}} j",
+    "daysHoursAgo": "il y a {{days}} j {{hours}} h"
+  },
+  "fieldLabel": "{{label}} :",
+  "routeStatus": {
+    "notFound": "Cette page n'existe pas",
+    "notFoundHelp": "L'adresse est inconnue ou mal saisie.",
+    "forbidden": "Accès refusé",
+    "forbiddenHelp": "Vos rôles ne donnent pas accès à cette page. Demandez-le à un administrateur si besoin.",
+    "moduleDisabled": "Module désactivé",
+    "moduleDisabledHelp": "Cette page appartient à un module désactivé pour le cluster.",
+    "backToDashboard": "Retour au tableau de bord"
   }
 }

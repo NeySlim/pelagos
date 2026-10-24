@@ -20,7 +20,7 @@ const EXPANDED_KEY = 'pelagos-nav-expanded'
 function itemClass(active) {
   return cn(
     'flex items-center gap-2 px-2 py-[5px] rounded-md text-[13px] transition-all duration-150 relative',
-    active ? 'bg-accent-primary-op15 text-accent-primary font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary',
+    active ? 'nav-item-active bg-accent-primary-op15 text-accent-primary font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-tertiary',
   )
 }
 
@@ -212,7 +212,11 @@ export function Sidebar({ activeId }) {
                   <div className="w-3 h-3 rounded-full border border-border" style={{ background: theme.accent }} />
                   <span className="flex-1 min-w-0">
                     <span className="block">{theme.name}</span>
-                    {theme.description && <span className="block text-3xs text-text-tertiary truncate">{theme.description}</span>}
+                    {theme.description && (
+                      <span className="block text-3xs text-text-tertiary truncate">
+                        {t(`theme.descriptions.${theme.id}`, { defaultValue: theme.description })}
+                      </span>
+                    )}
                   </span>
                   {themeFamily === theme.id && <Check size={16} weight="bold" className="text-accent-primary" />}
                 </DropdownMenu.Item>

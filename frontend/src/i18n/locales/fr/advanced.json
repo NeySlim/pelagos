@@ -49,6 +49,7 @@
     "remove": "Supprimer",
     "selectTitle": "Choisissez un statement",
     "selectBody": "Choisissez un statement dans l'arbre pour le modifier, ou + pour en ajouter un. La grammaire connaît {{count}} statements de BIND {{version}}.",
+    "selectBody_one": "Choisissez une instruction dans l'arbre pour la modifier, ou + pour en ajouter une. La grammaire connaît {{count}} instruction de BIND {{version}}.",
     "errors": {
       "integer": "Un nombre est attendu",
       "required": "Une valeur est requise",

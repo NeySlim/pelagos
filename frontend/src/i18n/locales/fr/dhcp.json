@@ -213,7 +213,7 @@
     "search": "Identifiant, IP ou nom d'hôte..."
   },
   "ha": {
-    "buildPlan": "Préparer le plan",
+    "buildPlan": "Aperçu du plan",
     "cancelMaintenance": "Terminer la maintenance",
     "collected": "Lu",
     "degraded": "La paire HA n'est pas dans un état normal : vérifier les deux serveurs ci-dessous",

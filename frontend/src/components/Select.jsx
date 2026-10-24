@@ -2,7 +2,7 @@
 /**
  * Select Component - Radix Select wrapper with optional searchable mode
  */
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useId } from 'react'
 import * as Select from '@radix-ui/react-select'
 import { CaretDown, Check, MagnifyingGlass, X } from '@phosphor-icons/react'
 import { cn } from '../lib/utils'
@@ -16,17 +16,17 @@ const EMPTY_VALUE = '__empty__'
 const toInternal = (v) => (v === '' ? EMPTY_VALUE : v)
 const fromInternal = (v) => (v === EMPTY_VALUE ? '' : v)
 
-export function SelectComponent({ 
-  label, 
-  options = [], 
-  value, 
-  onChange, 
+export function SelectComponent({
+  label,
+  options = [],
+  value,
+  onChange,
   placeholder = 'Select...',
   error,
   disabled = false,
   searchable = false,
   helperText,
-  className 
+  className
 }) {
   // Radix fires onValueChange when the selected item unmounts, e.g. a caller
   // swaps the options list out from under it (the key type driving the key
@@ -34,6 +34,7 @@ export function SelectComponent({
   // ignore any value that isn't a current option and would silently blank the
   // field. This relies on `options` being the post-swap list at the time Radix
   // fires (it is: the reset runs after that commit) .
+  const triggerId = useId()
   const handleValueChange = onChange
     ? (v) => {
         const next = fromInternal(v)
@@ -60,13 +61,17 @@ export function SelectComponent({
   return (
     <div className={cn("space-y-1.5", className)}>
       {label && (
-        <label className="block text-sm font-medium text-text-primary">
+        <label id={`${triggerId}-label`} htmlFor={triggerId} className="block text-sm font-medium text-text-primary">
           {label}
         </label>
       )}
 
       <Select.Root value={value == null ? value : toInternal(value)} onValueChange={handleValueChange} disabled={disabled}>
         <Select.Trigger
+          id={triggerId}
+          aria-labelledby={label ? `${triggerId}-label ${triggerId}` : undefined}
+          aria-label={label ? undefined : placeholder}
+          aria-invalid={error ? true : undefined}
           className={cn(
             "w-full flex items-center justify-between px-2.5 py-1.5 bg-tertiary-op80 border rounded-md text-sm",
             "focus:outline-none focus:ring-2 focus:ring-accent-primary-op50 focus:border-accent-primary focus:bg-bg-tertiary",
@@ -125,6 +130,7 @@ function SearchableSelect({ label, options, value, onChange, placeholder, error,
   const containerRef = useRef(null)
   const inputRef = useRef(null)
   const listRef = useRef(null)
+  const triggerId = useId()
 
   const selectedOption = options.find(o => o.value === value)
   // Empty-value options are legitimate here (custom dropdown, no Radix
@@ -193,12 +199,16 @@ function SearchableSelect({ label, options, value, onChange, placeholder, error,
   return (
     <div className={cn("space-y-1.5", className)} ref={containerRef}>
       {label && (
-        <label className="block text-sm font-medium text-text-primary">{label}</label>
+        <label htmlFor={triggerId} className="block text-sm font-medium text-text-primary">{label}</label>
       )}
 
       {/* Trigger / display */}
       <button
         type="button"
+        id={triggerId}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={label ? undefined : placeholder}
         disabled={disabled}
         onClick={() => { if (!disabled) { setOpen(prev => !prev); setTimeout(() => inputRef.current?.focus(), 0) } }}
         className={cn(
@@ -227,13 +237,14 @@ function SearchableSelect({ label, options, value, onChange, placeholder, error,
                 type="text"
                 className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-tertiary outline-none"
                 placeholder={i18n.t('table.search')}
+                aria-label={i18n.t('table.search')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={handleKeyDown}
                 autoComplete="off"
               />
               {search && (
-                <button type="button" onClick={() => setSearch('')} className="text-text-tertiary hover:text-text-primary">
+                <button type="button" onClick={() => setSearch('')} aria-label={i18n.t('table.clearSearch')} className="text-text-tertiary hover:text-text-primary">
                   <X size={12} />
                 </button>
               )}

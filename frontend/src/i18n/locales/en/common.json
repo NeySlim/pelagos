@@ -1,7 +1,8 @@
 {
   "app": {
     "name": "Pelagos",
-    "tagline": "DNS and DHCP for BIND 9 and Kea"
+    "tagline": "DNS and DHCP for BIND 9 and Kea",
+    "logoTagline": "DNS and DHCP"
   },
   "actions": {
     "apply": "Apply",
@@ -17,7 +18,8 @@
     "save": "Save",
     "saving": "Saving...",
     "export": "Export",
-    "copy": "Copy"
+    "copy": "Copy",
+    "removeItem": "Remove {{item}}"
   },
   "auth": {
     "logout": "Sign out"
@@ -37,7 +39,10 @@
     "yes": "Yes",
     "no": "No",
     "none": "None",
-    "unknown": "Unknown"
+    "unknown": "Unknown",
+    "showPassword": "Show the password",
+    "hidePassword": "Hide the password",
+    "utilization": "Utilization"
   },
   "confirm": {
     "inputRequired": "Type the value to confirm",
@@ -61,7 +66,8 @@
   },
   "diff": {
     "empty": "No differences",
-    "lines": "{{count}} lines"
+    "lines": "{{count}} lines",
+    "lines_one": "{{count}} line"
   },
   "errorBoundary": {
     "title": "Something went wrong",
@@ -234,14 +240,23 @@
     "empty": "Nothing to show",
     "of": "of",
     "rows": "rows",
-    "search": "Search..."
+    "search": "Search...",
+    "allOf": "All {{label}}",
+    "filters": "Filters",
+    "clearSearch": "Clear the search"
   },
   "theme": {
     "family": "Theme",
     "mode": "Mode",
     "system": "System",
     "dark": "Dark",
-    "light": "Light"
+    "light": "Light",
+    "descriptions": {
+      "pelagic": "Ocean Mission Control UI",
+      "gray": "Neutral slate",
+      "purple": "Deep violet",
+      "sunset": "Warm amber"
+    }
   },
   "windows": {
     "expand": "Expand",
@@ -254,5 +269,23 @@
     "connecting": "Connecting...",
     "disconnected": "Live updates off",
     "error": "Live updates unavailable"
+  },
+  "time": {
+    "justNow": "just now",
+    "minutesAgo": "{{count}} min ago",
+    "hoursAgo": "{{count}} h ago",
+    "hoursMinutesAgo": "{{hours}} h {{minutes}} min ago",
+    "daysAgo": "{{count}} d ago",
+    "daysHoursAgo": "{{days}} d {{hours}} h ago"
+  },
+  "fieldLabel": "{{label}}:",
+  "routeStatus": {
+    "notFound": "This page does not exist",
+    "notFoundHelp": "The address is unknown or mistyped.",
+    "forbidden": "Access denied",
+    "forbiddenHelp": "Your roles do not grant access to this page. Ask an administrator if you need it.",
+    "moduleDisabled": "Module disabled",
+    "moduleDisabledHelp": "This page belongs to a module that is turned off for the cluster.",
+    "backToDashboard": "Back to the dashboard"
   }
 }

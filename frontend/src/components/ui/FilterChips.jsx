@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * FilterChips - Displays active filters as removable pills
- * 
+ *
  * Shows each active filter as a labeled chip with an × button.
  * Includes "Clear all" when multiple filters are active.
- * 
+ *
  * Usage:
  *   <FilterChips
  *     filters={[
@@ -18,10 +18,11 @@
 import { X } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../../lib/utils'
+import i18n from '../../i18n'
 
 export function FilterChips({ filters = [], onRemove, onClearAll, className }) {
   const { t } = useTranslation()
-  
+
   // Only show chips for active filters
   const activeFilters = filters.filter(f => {
     if (Array.isArray(f.value)) return f.value.length > 0
@@ -77,13 +78,13 @@ function Chip({ label, value, onRemove }) {
       'text-2xs font-medium',
       'bg-accent-primary-op10 text-accent-primary border border-accent-primary-op20'
     )}>
-      <span className="text-text-tertiary">{label}:</span>
+      <span className="text-text-tertiary">{i18n.t('fieldLabel', { label })}</span>
       <span>{value}</span>
       <button
         type="button"
         onClick={onRemove}
         className="ml-0.5 hover:bg-accent-primary-op20 rounded-full p-0.5 transition-colors"
-        aria-label={`Remove ${label}: ${value}`}
+        aria-label={i18n.t('actions.removeItem', { item: `${label} ${value}` })}
       >
         <X size={10} weight="bold" />
       </button>

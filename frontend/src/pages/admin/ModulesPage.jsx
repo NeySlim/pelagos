@@ -97,7 +97,7 @@ export default function ModulesPage() {
                       <td className="py-2 pr-3 font-medium">{nodeName(id)}</td>
                       {ENGINES.map((e) => (
                         <td key={e} className="py-2 pr-3">
-                          <ToggleSwitch size="sm" checked={Boolean(mods?.[e])} disabled={e === 'kea6' && !draft.cluster?.dhcpv6} onChange={(v) => setDraft((d) => ({ ...d, nodes: { ...d.nodes, [id]: { ...d.nodes[id], [e]: v } } }))} />
+                          <ToggleSwitch size="sm" ariaLabel={`${t(`modules.engines.${e}`)} ${nodeName(id)}`} checked={Boolean(mods?.[e])} disabled={e === 'kea6' && !draft.cluster?.dhcpv6} onChange={(v) => setDraft((d) => ({ ...d, nodes: { ...d.nodes, [id]: { ...d.nodes[id], [e]: v } } }))} />
                         </td>
                       ))}
                     </tr>

@@ -34,7 +34,7 @@
     },
     "rpz": {
       "title": "Zones de politique de réponse",
-      "subtitle": "RPZ et catalog zones"
+      "subtitle": "RPZ et zones catalogues"
     }
   },
   "kind": {
@@ -44,8 +44,8 @@
     "static-stub": "Stub statique",
     "forward": "Redirection",
     "mirror": "Miroir",
-    "hint": "Hint",
-    "redirect": "Redirect"
+    "hint": "Indices racine",
+    "redirect": "Redirection NXDOMAIN"
   },
   "source": {
     "user_conf": "Config existante",
@@ -100,7 +100,7 @@
       "edit": "Modifier un RRset",
       "delete": "Supprimer un RRset"
     },
-    "buildPlan": "Voir le plan",
+    "buildPlan": "Aperçu du plan",
     "deleteBody": "Tous les enregistrements {{type}} de {{name}} seront retirés par un UPDATE DNS signé.",
     "owner": "Nom",
     "ownerHelp": "Relatif à {{zone}}, @ pour l'apex, ou absolu avec un point final",
@@ -247,10 +247,10 @@
     "remote": "non servie ici",
     "empty": "Aucune zone de politique de réponse",
     "emptyHelp": "Les RPZ se déclarent avec le statement response-policy",
-    "catalogZones": "Catalog zones",
+    "catalogZones": "Zones catalogues",
     "defaultPrimaries": "Primaires par défaut",
     "members": "Membres",
-    "noCatalogs": "Aucune catalog zone",
+    "noCatalogs": "Aucune zone catalogue",
     "policies": {
       "given": "Tel qu'écrit dans la zone",
       "disabled": "Désactivée",

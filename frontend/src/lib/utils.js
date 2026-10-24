@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import i18n from '../i18n'
 
 export function cn(...inputs) {
   return twMerge(clsx(inputs))
@@ -27,7 +28,7 @@ export function extractData(obj, key, fallback = null) {
 }
 
 /**
- * Format a date for display in the browser's local time zone.
+ * Format a date in the browser's time zone and the app language (not the browser locale).
  * fmt: 'short' (default) | 'long' | 'iso'; options override Intl options.
  */
 export function formatDate(date, options = {}) {
@@ -41,7 +42,7 @@ export function formatDate(date, options = {}) {
     const base = fmt === 'long'
       ? { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }
       : { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }
-    return new Intl.DateTimeFormat(undefined, { ...base, ...rest }).format(d)
+    return new Intl.DateTimeFormat(i18n.language || undefined, { ...base, ...rest }).format(d)
   } catch {
     return '-'
   }
@@ -49,7 +50,9 @@ export function formatDate(date, options = {}) {
 
 /**
  * Relative time: just now, Xm ago, Xh Ym ago, Xd Yh ago, else a formatted date.
+ * Strings come from common:time.* in the app language; `t` is accepted for old callers.
  */
+// eslint-disable-next-line no-unused-vars
 export function formatRelativeTime(date, t) {
   if (!date) return '-'
   const then = new Date(date)
@@ -61,7 +64,7 @@ export function formatRelativeTime(date, t) {
   const diffDays = Math.floor(diffHours / 24)
   const remainMins = diffMins % 60
   const remainHours = diffHours % 24
-  const tr = (key, fallback, vars) => (t ? t(key, { ...vars, defaultValue: fallback }) : fallback)
+  const tr = (key, fallback, vars) => i18n.t(`common:${key}`, { ...vars, defaultValue: fallback })
   if (diffSecs < 60) return tr('time.justNow', 'just now')
   if (diffMins < 60) return tr('time.minutesAgo', `${diffMins}m ago`, { count: diffMins })
   if (diffHours < 24) {
@@ -75,6 +78,14 @@ export function formatRelativeTime(date, t) {
       : tr('time.daysAgo', `${diffDays}d ago`, { count: diffDays })
   }
   return formatDate(date)
+}
+
+// A non-empty pool never reads 0%, a pool that is not full never reads 100%.
+export function formatPercent(percent) {
+  const p = Number(percent) || 0
+  if (p > 0 && p < 1) return '<1%'
+  if (p > 99 && p < 100) return '>99%'
+  return `${Math.round(Math.max(0, Math.min(100, p)))}%`
 }
 
 export function exportToCSV(data, columns, filename = 'export') {

@@ -46,6 +46,7 @@
   "consistency": {
     "running": "Vérification de cohérence en cours",
     "done": "Vérification terminée : {{count}} incohérences trouvées",
+    "done_one": "Vérification terminée : {{count}} incohérence trouvée",
     "failed": "Échec de la vérification : {{message}}"
   },
   "detail": {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-import { useState, useRef } from 'react'
+import { useId, useState, useRef } from 'react'
 import { X } from '@phosphor-icons/react'
+import { useTranslation } from 'react-i18next'
 
 /**
  * TagsInput - Modern tag/chip input for multiple values (emails, etc.)
@@ -8,6 +9,8 @@ import { X } from '@phosphor-icons/react'
  * Click the × on a tag to remove it.
  */
 export default function TagsInput({ value = [], onChange, label, placeholder, helperText, validate, className = '' }) {
+  const { t } = useTranslation()
+  const inputId = useId()
   const [input, setInput] = useState('')
   const inputRef = useRef(null)
 
@@ -45,7 +48,7 @@ export default function TagsInput({ value = [], onChange, label, placeholder, he
   return (
     <div className={className}>
       {label && (
-        <label className="block text-xs font-medium text-text-secondary mb-1">{label}</label>
+        <label htmlFor={inputId} className="block text-xs font-medium text-text-secondary mb-1">{label}</label>
       )}
       <div
         className="flex flex-wrap items-center gap-2 min-h-[38px] px-2.5 py-1.5 rounded-lg border border-border bg-bg-secondary cursor-text transition-colors focus-within:border-accent-primary focus-within:ring-1 focus-within:ring-accent-primary"
@@ -60,6 +63,8 @@ export default function TagsInput({ value = [], onChange, label, placeholder, he
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); removeTag(i) }}
+              aria-label={t('actions.removeItem', { item: tag })}
+              title={t('actions.removeItem', { item: tag })}
               className="p-0.5 rounded hover:bg-bg-tertiary hover:text-status-danger transition-colors"
             >
               <X size={12} weight="bold" />
@@ -68,6 +73,8 @@ export default function TagsInput({ value = [], onChange, label, placeholder, he
         ))}
         <input
           ref={inputRef}
+          id={inputId}
+          aria-describedby={helperText ? `${inputId}-helper` : undefined}
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -79,7 +86,7 @@ export default function TagsInput({ value = [], onChange, label, placeholder, he
         />
       </div>
       {helperText && (
-        <p className="text-xs text-text-tertiary mt-1">{helperText}</p>
+        <p id={`${inputId}-helper`} className="text-xs text-text-tertiary mt-1">{helperText}</p>
       )}
     </div>
   )

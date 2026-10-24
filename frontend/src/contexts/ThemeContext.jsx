@@ -26,7 +26,7 @@ export const themeFamilies = {
       'bg-tertiary': '#12293C',
       'text-primary': '#E6F3F5',
       'text-secondary': '#9FBFCB',
-      'text-tertiary': '#6E8F9C',
+      'text-tertiary': '#8FADB9',
       'accent-primary': '#2DD4BF',
       'accent-success': '#34D399',
       'accent-warning': '#FBBF24',
@@ -399,9 +399,21 @@ export const themeFamilies = {
 
 const ThemeContext = createContext()
 
+function readSaved(key, valid) {
+  try {
+    const value = localStorage.getItem(key)
+    return value && valid(value) ? value : null
+  } catch {
+    return null // localStorage unavailable (private browsing)
+  }
+}
+
 export function ThemeProvider({ children }) {
-  const [themeFamily, setThemeFamily] = useState(DEFAULT_FAMILY)
-  const [mode, setMode] = useState('system')
+  // Initial state comes from storage: no effect may write the defaults over a saved choice.
+  const [themeFamily, setThemeFamily] = useState(
+    () => readSaved(STORAGE_FAMILY, (v) => Boolean(themeFamilies[v])) ?? DEFAULT_FAMILY
+  )
+  const [mode, setMode] = useState(() => readSaved(STORAGE_MODE, (v) => MODES.includes(v)) ?? 'system')
   const [resolvedMode, setResolvedMode] = useState('dark')
 
   // Follow the OS preference while mode is "system".
@@ -414,18 +426,6 @@ export function ThemeProvider({ children }) {
     mediaQuery.addEventListener('change', updateResolvedMode)
     return () => mediaQuery.removeEventListener('change', updateResolvedMode)
   }, [mode])
-
-  // Restore the saved choice once.
-  useEffect(() => {
-    try {
-      const savedFamily = localStorage.getItem(STORAGE_FAMILY)
-      const savedMode = localStorage.getItem(STORAGE_MODE)
-      if (savedFamily && themeFamilies[savedFamily]) setThemeFamily(savedFamily)
-      if (savedMode && MODES.includes(savedMode)) setMode(savedMode)
-    } catch {
-      // localStorage unavailable (private browsing)
-    }
-  }, [])
 
   // Apply the tokens and remember the choice.
   useEffect(() => {

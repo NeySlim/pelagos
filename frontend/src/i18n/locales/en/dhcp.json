@@ -213,7 +213,7 @@
     "search": "Identifier, IP or hostname..."
   },
   "ha": {
-    "buildPlan": "Build the plan",
+    "buildPlan": "Preview the plan",
     "cancelMaintenance": "End maintenance",
     "collected": "Read",
     "degraded": "The HA pair is not in a normal state: check both servers below",

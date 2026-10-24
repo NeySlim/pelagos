@@ -4,7 +4,7 @@
  * Supports password fields with show/hide toggle and strength indicator
  * Supports credential fields with "already set" indicator
  */
-import { forwardRef, useEffect, useMemo, useState } from 'react'
+import { forwardRef, useEffect, useId, useMemo, useState } from 'react'
 import { Eye, EyeSlash, CheckCircle } from '@phosphor-icons/react'
 import { cn } from '../lib/utils'
 import { useTranslation } from 'react-i18next'
@@ -36,6 +36,11 @@ export const Input = forwardRef(function Input({
   ...props 
 }, ref) {
   const { t } = useTranslation()
+  const generatedId = useId()
+  const inputId = props.id || generatedId
+  const errorId = `${inputId}-error`
+  const helperId = `${inputId}-helper`
+  const describedBy = error ? errorId : (hasExistingValue || helperText ? helperId : undefined)
   const [showPassword, setShowPassword] = useState(false)
   const [internalValue, setInternalValue] = useState('')
   
@@ -90,7 +95,7 @@ export const Input = forwardRef(function Input({
   return (
     <div className={cn("space-y-1.5", className)}>
       {label && (
-        <label className="block text-xs font-medium text-text-secondary leading-[20px]">
+        <label htmlFor={inputId} className="block text-xs font-medium text-text-secondary leading-[20px]">
           <span className="flex items-center gap-1 h-[20px]">
             {typeof label === 'string' ? label : label}
             {required && !hasExistingValue && <span className="status-danger-text">*</span>}
@@ -137,7 +142,10 @@ export const Input = forwardRef(function Input({
           placeholder={effectivePlaceholder}
           required={required && !hasExistingValue}
           autoComplete={noAutofill ? 'off' : undefined}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
           {...props}
+          id={inputId}
         />
         
         {/* Password toggle -- hidden when there's nothing typed to reveal.
@@ -152,6 +160,7 @@ export const Input = forwardRef(function Input({
             onClick={() => setShowPassword(!showPassword)}
             className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-text-secondary transition-colors"
             tabIndex={-1}
+            aria-label={showPassword ? t('common.hidePassword') : t('common.showPassword')}
           >
             {showPassword ? <EyeSlash size={18} /> : <Eye size={18} />}
           </button>
@@ -179,16 +188,16 @@ export const Input = forwardRef(function Input({
       )}
 
       {error && (
-        <p className="text-xs status-danger-text">{error}</p>
+        <p id={errorId} className="text-xs status-danger-text">{error}</p>
       )}
       
       {/* Helper text - show "enter new to change" for existing values */}
       {hasExistingValue && !error && (
-        <p className="text-xs text-text-tertiary italic">{t('common.enterNewToChange')}</p>
+        <p id={helperId} className="text-xs text-text-tertiary italic">{t('common.enterNewToChange')}</p>
       )}
       
       {helperText && !error && !hasExistingValue && (
-        <p className="text-xs text-text-tertiary">{helperText}</p>
+        <p id={helperId} className="text-xs text-text-tertiary">{helperText}</p>
       )}
     </div>
   )

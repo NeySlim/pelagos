@@ -46,6 +46,7 @@
   "consistency": {
     "running": "Consistency check running",
     "done": "Consistency check done: {{count}} inconsistencies found",
+    "done_one": "Consistency check done: {{count}} inconsistency found",
     "failed": "Consistency check failed: {{message}}"
   },
   "detail": {

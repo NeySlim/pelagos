@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Pelagos mark: two swells and a beacon, colored by the --logo-gradient-* tokens.
 import { useId } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '../lib/utils'
 
 const sizes = { xs: 20, sm: 26, md: 32, lg: 48, xl: 64 }
@@ -31,6 +32,7 @@ function LogoIcon({ size = 32, className }) {
 }
 
 export function Logo({ variant = 'horizontal', withText = true, size = 'md', className }) {
+  const { t } = useTranslation()
   const iconPx = sizes[size] || sizes.md
   if (!withText || variant === 'icon') {
     return (
@@ -50,7 +52,7 @@ export function Logo({ variant = 'horizontal', withText = true, size = 'md', cla
         </div>
         {variant !== 'compact' && (
           <div className="font-semibold uppercase" style={{ fontSize: '9px', letterSpacing: '2px', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-            DNS and DHCP
+            {t('app.logoTagline')}
           </div>
         )}
       </div>

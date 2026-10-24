@@ -49,6 +49,7 @@
     "remove": "Remove",
     "selectTitle": "Select a statement",
     "selectBody": "Pick a statement in the tree to edit it, or use + to add one. The grammar knows {{count}} statements of BIND {{version}}.",
+    "selectBody_one": "Pick a statement in the tree to edit it, or use + to add one. The grammar knows {{count}} statement of BIND {{version}}.",
     "errors": {
       "integer": "A number is expected",
       "required": "A value is required",

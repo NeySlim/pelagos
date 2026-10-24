@@ -4,15 +4,19 @@
  * Uses CSS variables for full theme compatibility (dark, light, etc.)
  */
 
-export function ToggleSwitch({ 
-  checked = false, 
-  onChange, 
+import { useId } from 'react'
+
+export function ToggleSwitch({
+  checked = false,
+  onChange,
   disabled = false,
   size = 'md',
   label,
   description,
-  className = '' 
+  ariaLabel,
+  className = ''
 }) {
+  const labelId = useId()
   const sizes = {
     sm: { track: 'w-8 h-[18px]', thumb: 'w-3.5 h-3.5', translate: 'translate-x-[14px]' },
     md: { track: 'w-10 h-[22px]', thumb: 'w-4 h-4', translate: 'translate-x-[18px]' },
@@ -39,11 +43,13 @@ export function ToggleSwitch({
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={label ? undefined : ariaLabel}
+      aria-labelledby={label ? labelId : undefined}
       disabled={disabled}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       className={`
-        relative inline-flex items-center shrink-0 rounded-full 
+        relative inline-flex items-center shrink-0 rounded-full
         transition-colors duration-200 ease-in-out
         focus:outline-none focus:ring-2 focus:ring-accent-primary-op40 focus:ring-offset-1 focus:ring-offset-bg-primary
         ${s.track}
@@ -67,7 +73,7 @@ export function ToggleSwitch({
   }
 
   return (
-    <label 
+    <label
       className={`flex items-center gap-3 p-2 rounded-lg transition-colors
         ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-tertiary-op50'}
         ${className}
@@ -76,7 +82,7 @@ export function ToggleSwitch({
     >
       {toggle}
       <div className="flex-1" onClick={handleClick}>
-        <p className="text-sm text-text-primary font-medium">{label}</p>
+        <p id={labelId} className="text-sm text-text-primary font-medium">{label}</p>
         {description && <p className="text-xs text-text-secondary">{description}</p>}
       </div>
     </label>

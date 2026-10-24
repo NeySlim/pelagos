@@ -2,23 +2,28 @@
 /**
  * Textarea Component
  */
+import { useId } from 'react'
 import { cn } from '../lib/utils'
 
-export function Textarea({ 
-  label, 
-  error, 
+export function Textarea({
+  label,
+  error,
   helperText,
   maxLength,
   showCount = false,
   className,
   value = '',
-  ...props 
+  ...props
 }) {
+  const generatedId = useId()
+  const fieldId = props.id || generatedId
+  const errorId = `${fieldId}-error`
+  const helperId = `${fieldId}-helper`
   return (
     <div className={cn("space-y-1.5", className)}>
       {label && (
         <div className="flex items-center justify-between">
-          <label className="block text-sm font-medium text-text-primary">
+          <label htmlFor={fieldId} className="block text-sm font-medium text-text-primary">
             {label}
             {props.required && <span className="status-danger-text ml-1">*</span>}
           </label>
@@ -29,7 +34,7 @@ export function Textarea({
           )}
         </div>
       )}
-      
+
       <textarea
         className={cn(
           "w-full px-2.5 py-1.5 bg-tertiary-op80 border rounded-md text-sm text-text-primary placeholder-secondary-op60",
@@ -42,15 +47,18 @@ export function Textarea({
         )}
         value={value}
         maxLength={maxLength}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : (helperText ? helperId : undefined)}
         {...props}
+        id={fieldId}
       />
 
       {error && (
-        <p className="text-xs status-danger-text">{error}</p>
+        <p id={errorId} className="text-xs status-danger-text">{error}</p>
       )}
-      
+
       {helperText && !error && (
-        <p className="text-xs text-text-secondary">{helperText}</p>
+        <p id={helperId} className="text-xs text-text-secondary">{helperText}</p>
       )}
     </div>
   )

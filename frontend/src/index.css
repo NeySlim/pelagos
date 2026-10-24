@@ -71,7 +71,7 @@
   --bg-tertiary: #12293C;
   --text-primary: #E6F3F5;
   --text-secondary: #9FBFCB;
-  --text-tertiary: #6E8F9C;
+  --text-tertiary: #8FADB9;
   --accent-primary: #2DD4BF;
   --accent-pro: #93C5FD;
   --accent-success: #34D399;
@@ -666,6 +666,19 @@ html, body, #root {
 .border-l-accent-purple { border-left-color: var(--accent-purple); }
 
 /* Combined bg+text utility classes */
+/* Light palettes: accent text on tinted badges and on the active nav item is darkened to keep
+   WCAG AA (4.5:1) over every family's tints; the accents themselves stay the shared tokens. */
+.theme-light .status-success-text,
+.theme-light .status-badge-success { color: color-mix(in srgb, var(--accent-success) 45%, #000); }
+.theme-light .status-warning-text,
+.theme-light .status-yellow-text,
+.theme-light .status-badge-warning { color: color-mix(in srgb, var(--accent-warning) 45%, #000); }
+.theme-light .status-danger-text,
+.theme-light .status-badge-danger { color: color-mix(in srgb, var(--accent-danger) 45%, #000); }
+.theme-light .status-primary-text { color: color-mix(in srgb, var(--accent-primary) 45%, #000); }
+.theme-light .status-purple-text { color: color-mix(in srgb, var(--accent-purple) 45%, #000); }
+.theme-light .nav-item-active { color: color-mix(in srgb, var(--accent-primary) 65%, #000); }
+
 .status-success-badge { @apply status-success-bg status-success-text status-success-border border; }
 .status-warning-badge { @apply status-warning-bg status-warning-text status-warning-border border; }
 .status-danger-badge { @apply status-danger-bg status-danger-text status-danger-border border; }

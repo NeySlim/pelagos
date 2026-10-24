@@ -55,7 +55,41 @@ export function UnifiedPageHeader({
       'shrink-0 border-b border-border-op60 bg-bg-secondary shadow-[inset_0_-1px_0_rgba(255,255,255,0.03)]',
       className
     )}>
-      {/* Title row - HIDDEN on mobile (title already in AppShell navbar) */}
+      {/* Mobile: the title is in the AppShell navbar; page actions stay reachable in a compact row. */}
+      {isMobile && (actions || hasFilters || (showHelp && onHelpClick)) && (
+        <div className="flex flex-wrap items-center justify-end gap-1.5 px-3 py-2" data-testid="page-actions-mobile">
+          {hasFilters && (
+            <button
+              type="button"
+              onClick={onOpenFilters}
+              aria-label={t('table.filters')}
+              title={t('table.filters')}
+              className="relative flex items-center justify-center rounded-lg bg-bg-tertiary hover:bg-bg-hover border border-border h-8 w-8 transition-colors"
+            >
+              <Funnel size={16} className="text-text-secondary" />
+              {activeFilters > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-accent-primary text-white text-2xs flex items-center justify-center">
+                  {activeFilters}
+                </span>
+              )}
+            </button>
+          )}
+          {actions}
+          {showHelp && onHelpClick && (
+            <button
+              type="button"
+              onClick={onHelpClick}
+              aria-label={t('common.help')}
+              title={t('common.help')}
+              className="flex items-center justify-center rounded-lg bg-bg-tertiary hover:bg-bg-hover border border-border h-8 w-8 transition-colors"
+            >
+              <Question size={16} className="text-text-secondary" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Title row (desktop) */}
       {!isMobile && (
       <div className={cn(
         'flex items-center justify-between',
@@ -99,17 +133,18 @@ export function UnifiedPageHeader({
                   key={filter.key}
                   value={filter.value || ''}
                   onChange={filter.onChange}
-                  placeholder={filter.placeholder || `All ${filter.label}`}
+                  placeholder={filter.placeholder || t('table.allOf', { label: filter.label })}
                   options={filter.options || []}
                   size="sm"
                 />
               ))}
               {activeFilters > 0 && (
                 <button
+                  type="button"
                   onClick={onClearFilters}
                   className="text-xs text-accent-primary hover:underline"
                 >
-                  Clear
+                  {t('table.clearFilters')}
                 </button>
               )}
             </div>

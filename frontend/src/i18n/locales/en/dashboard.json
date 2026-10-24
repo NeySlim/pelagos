@@ -32,6 +32,7 @@
     "inconsistencies": {
       "title": "Alerts and inconsistencies",
       "open": "{{count}} open",
+      "open_one": "{{count}} open",
       "none": "Nothing open"
     },
     "zones": {
@@ -42,11 +43,13 @@
     "pools": {
       "title": "Pool usage",
       "hot": "{{count}} above threshold",
+      "hot_one": "{{count}} above threshold",
       "empty": "No pool"
     },
     "d2": {
       "title": "DDNS updates",
       "errors": "{{count}} errors",
+      "errors_one": "{{count}} error",
       "rate": "{{rate}}% errors",
       "empty": "kea-dhcp-ddns is not running",
       "counters": {
@@ -77,13 +80,5 @@
     "duplicate_ip": "duplicate IP",
     "insecure_key": "insecure key",
     "insecure_listener": "insecure listener"
-  },
-  "time": {
-    "justNow": "just now",
-    "minutesAgo": "{{count}} min ago",
-    "hoursAgo": "{{count}} h ago",
-    "hoursMinutesAgo": "{{hours}} h {{minutes}} min ago",
-    "daysAgo": "{{count}} d ago",
-    "daysHoursAgo": "{{days}} d {{hours}} h ago"
   }
 }

@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 /**
  * Select Component - Unified Radix Select wrapper
- * 
+ *
  * Variants:
  * - default: Form selects with label
  * - filter: Compact inline filters
  * - minimal: No background, just text
- * 
+ *
  * Sizes:
  * - sm: Compact (filters, pagination)
  * - default: Standard forms
  * - lg: Large forms (mobile)
  */
+import { useId } from 'react'
 import * as SelectPrimitive from '@radix-ui/react-select'
 import { CaretDown, Check } from '@phosphor-icons/react'
 import { cn } from '../../lib/utils'
@@ -56,10 +57,10 @@ const sizes = {
   },
 }
 
-export function Select({ 
+export function Select({
   label,
-  options = [], 
-  value, 
+  options = [],
+  value,
   onChange,
   onValueChange,
   placeholder = 'Select...',
@@ -71,12 +72,18 @@ export function Select({
   triggerClassName,
   // For filters - show "active" state when value is set
   showActiveState = false,
+  // Accessible name when there is no visible label (filters); defaults to the placeholder
+  ariaLabel,
+  id,
 }) {
+  const generatedId = useId()
+  const triggerId = id || generatedId
+  const labelId = `${triggerId}-label`
   const sizeConfig = sizes[size] || sizes.default
   const rawChange = onValueChange || onChange
   const handleChange = rawChange ? (v) => rawChange(fromInternal(v)) : undefined
   const hasValue = value && value !== ''
-  
+
   const triggerStyles = cn(
     // Base styles
     'flex items-center justify-between rounded-md border',
@@ -108,21 +115,27 @@ export function Select({
   return (
     <div className={cn(label && "space-y-1.5", className)}>
       {label && (
-        <label className="block text-sm font-medium text-text-primary">
+        <label id={labelId} htmlFor={triggerId} className="block text-sm font-medium text-text-primary">
           {label}
         </label>
       )}
 
       <SelectPrimitive.Root value={value == null ? value : toInternal(value)} onValueChange={handleChange} disabled={disabled}>
-        <SelectPrimitive.Trigger className={triggerStyles}>
+        <SelectPrimitive.Trigger
+          id={triggerId}
+          className={triggerStyles}
+          aria-labelledby={label ? `${labelId} ${triggerId}` : undefined}
+          aria-label={label ? undefined : (ariaLabel || (typeof placeholder === 'string' ? placeholder : undefined))}
+          aria-invalid={error ? true : undefined}
+        >
           <SelectPrimitive.Value placeholder={placeholder} />
           <SelectPrimitive.Icon>
-            <CaretDown 
-              size={sizeConfig.icon} 
+            <CaretDown
+              size={sizeConfig.icon}
               className={cn(
                 "text-text-tertiary transition-transform duration-200",
                 "group-data-[state=open]:rotate-180"
-              )} 
+              )}
             />
           </SelectPrimitive.Icon>
         </SelectPrimitive.Trigger>
@@ -208,13 +221,13 @@ export function FilterSelect({
   // Add "All" option at the beginning with special value
   const allOption = { value: ALL_VALUE, label: allLabel || placeholder }
   const fullOptions = [allOption, ...options]
-  
+
   // Convert empty/null to ALL_VALUE, and vice versa for onChange
   const internalValue = value || ALL_VALUE
   const handleChange = (newValue) => {
     onChange(newValue === ALL_VALUE ? '' : newValue)
   }
-  
+
   return (
     <Select
       options={fullOptions}

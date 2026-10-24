@@ -40,4 +40,11 @@ i18n
     },
   })
 
+// <html lang> follows the app language: screen reader pronunciation, native date inputs.
+const syncDocumentLang = (lng) => {
+  if (typeof document !== 'undefined' && lng) document.documentElement.lang = lng.split('-')[0]
+}
+syncDocumentLang(i18n.resolvedLanguage || i18n.language)
+i18n.on('languageChanged', syncDocumentLang)
+
 export default i18n

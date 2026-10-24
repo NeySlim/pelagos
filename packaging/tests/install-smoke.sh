@@ -6,7 +6,8 @@
 # Usage: install-smoke.sh <package file>
 # Checks: install, service user and groups, directory modes, units enabled but not started
 # before init, `pelagos init`, both units active, /api/v1/health over HTTPS, the API-only
-# notice or the UI on /, restart survives, removal keeps the state.
+# notice or the UI on /, restart survives, a reinstall restarts both units (upgrade path),
+# removal keeps the state.
 set -euo pipefail
 
 pkg="$(readlink -f "${1:?package file required}")"
@@ -78,6 +79,26 @@ check "/ serves the UI or the API-only notice" bash -c \
 $SUDO systemctl restart pelagos.service
 sleep 3
 check "health after restart" curl -fsk https://127.0.0.1:8443/api/v1/health
+
+# Upgrade path: reinstalling the package must restart both running units on the new payload.
+web_pid="$(systemctl show -p MainPID --value pelagos.service)"
+col_pid="$(systemctl show -p MainPID --value pelagos-collector.service)"
+case "$pkg" in
+  *.deb) $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -q --reinstall "$pkg" ;;
+  *.rpm) $SUDO dnf reinstall -y -q "$pkg" ;;
+esac
+version=""
+for _ in $(seq 1 30); do
+  version="$(curl -fsk https://127.0.0.1:8443/api/v1/version 2>/dev/null || true)"
+  [[ -n "$version" ]] && break
+  sleep 1
+done
+echo "version after upgrade: $version"
+check "web process restarted by the upgrade" \
+  test "$(systemctl show -p MainPID --value pelagos.service)" != "$web_pid"
+check "collector restarted by the upgrade" \
+  test "$(systemctl show -p MainPID --value pelagos-collector.service)" != "$col_pid"
+check "version answers after the upgrade" grep -q '"version"' <<<"$version"
 
 if [[ "${SMOKE_KEEP:-0}" != 1 ]]; then
   case "$pkg" in

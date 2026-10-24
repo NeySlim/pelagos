@@ -6,6 +6,7 @@
 #
 # Environment:
 #   PELAGOS_ADMIN_PASSWORD  when set and node.toml is absent, runs "pelagos init" on first start
+#   PELAGOS_ADMIN_PASSWORD_FILE  file holding that password (a compose or swarm secret)
 #   PELAGOS_NODE_NAME       node name for init (default: pelagos)
 #   PELAGOS_WEB_URL, PELAGOS_REPLICATION_URL  advertised URLs for init (optional)
 #   PELAGOS_KEA_GID         group allowed to use the Kea sockets in /run/kea (default 8450, the
@@ -29,6 +30,12 @@ BIND_HOST="${PELAGOS_BIND_HOST:-127.0.0.1}"
 BIND_UID="${PELAGOS_BIND_UID:-53}"
 
 log() { echo "pelagos-entrypoint: $*" >&2; }
+
+if [ -z "${PELAGOS_ADMIN_PASSWORD:-}" ] && [ -n "${PELAGOS_ADMIN_PASSWORD_FILE:-}" ]; then
+  [ -r "$PELAGOS_ADMIN_PASSWORD_FILE" ] || { log "cannot read $PELAGOS_ADMIN_PASSWORD_FILE"; exit 78; }
+  PELAGOS_ADMIN_PASSWORD="$(cat "$PELAGOS_ADMIN_PASSWORD_FILE")"
+  export PELAGOS_ADMIN_PASSWORD
+fi
 
 group_name() {
   # group_name <gid> <fallback name>: existing name for the gid, created when missing

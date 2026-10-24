@@ -16,7 +16,9 @@
 #
 # Environment:
 #   PELAGOS_PYTHON   interpreter used to create the venv (default: python3 on PATH)
-#   PELAGOS_WHEELS   directory of pre-downloaded wheels; when set the install is offline
+#   PELAGOS_WHEELS   directory of pre-downloaded wheels (make wheels); when set the install
+#                    is offline
+#   PELAGOS_LOCK     pinned, hashed dependencies (default packaging/requirements.lock)
 #   PELAGOS_PREFIX   final install prefix (default /opt/pelagos), only for unusual layouts
 set -euo pipefail
 
@@ -41,7 +43,10 @@ log "python $pyver ($python), prefix $prefix, buildroot $buildroot"
 rm -rf "$dest"
 mkdir -p "$dest/bin" "$dest/frontend"
 
-# Wheels directory makes the build offline and reproducible (make deb / make rpm fill it).
+# Dependencies come from the hashed lock so every package and image ships the same versions;
+# a wheels directory (make wheels) also makes the build offline.
+lock="${PELAGOS_LOCK:-$src/packaging/requirements.lock}"
+[[ -f "$lock" ]] || { log "lock file $lock not found"; exit 1; }
 pip_opts=()
 if [[ -n "${PELAGOS_WHEELS:-}" ]]; then
   [[ -d "$PELAGOS_WHEELS" ]] || { log "PELAGOS_WHEELS=$PELAGOS_WHEELS is not a directory"; exit 1; }
@@ -53,13 +58,20 @@ fi
 if command -v uv >/dev/null 2>&1; then
   log "creating venv with uv"
   uv venv --quiet --python "$python" --relocatable "$venv"
-  uv pip install --quiet --python "$venv/bin/python" "${pip_opts[@]}" "$src/backend"
+  uv pip install --quiet --python "$venv/bin/python" "${pip_opts[@]}" --require-hashes -r "$lock"
+  uv pip install --quiet --python "$venv/bin/python" "${pip_opts[@]}" --no-deps "$src/backend"
+  pip_check=(uv pip check --quiet --python "$venv/bin/python")
 else
   log "creating venv with $python -m venv"
   "$python" -m venv --without-pip "$venv"
   "$python" -m pip --python "$venv/bin/python" install --quiet --no-warn-script-location \
-    "${pip_opts[@]}" "$src/backend"
+    "${pip_opts[@]}" --require-hashes -r "$lock"
+  "$python" -m pip --python "$venv/bin/python" install --quiet --no-warn-script-location \
+    "${pip_opts[@]}" --no-deps "$src/backend"
+  pip_check=("$python" -m pip --python "$venv/bin/python" check)
 fi
+# A dependency missing from the lock fails the build instead of shipping a broken venv.
+"${pip_check[@]}" >&2 || { log "packaging/requirements.lock is stale: run make lock"; exit 1; }
 
 # The venv is built under the staging root but runs from $prefix: every text file in bin/
 # must name $prefix/venv. pip writes a /bin/sh trampoline instead of a shebang when the

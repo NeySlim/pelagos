@@ -14,6 +14,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 bin="$here/../bin"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+# The prestart drops to the service user, which must traverse the work tree.
+chmod 0755 "$work"
 failures=0
 ok() { echo "ok:   $*"; }
 fail() { echo "FAIL: $*"; failures=$((failures + 1)); }
@@ -53,6 +55,31 @@ ln -s "$key_victim" "$etc/tls/server.key"
 PELAGOS_ETC="$etc" PELAGOS_VAR="$var" PELAGOS_USER="$user" PELAGOS_GROUP="$group" \
   "$bin/pelagos-prestart" collector
 check "prestart: symlinked server.key target not chmodded" test "$(stat -c '%U %a' "$key_victim")" = "root 644"
+
+# Certificate creation (web mode) with planted links: root must never write through them.
+cert_victim="$work/cert-victim"
+printf 'precious\n' >"$cert_victim"; chmod 0644 "$cert_victim"
+rm -f "$etc/tls/server.key" "$etc/tls/server.crt"
+ln -s "$cert_victim" "$etc/tls/server.key.new"
+ln -s "$cert_victim" "$etc/tls/server.crt.new"
+chown -h "$user:$group" "$etc/tls/server.key.new" "$etc/tls/server.crt.new"
+PELAGOS_ETC="$etc" PELAGOS_VAR="$var" PELAGOS_USER="$user" PELAGOS_GROUP="$group" \
+  "$bin/pelagos-prestart" web
+check "prestart: planted server.key.new target untouched" grep -qx precious "$cert_victim"
+check "prestart: planted target keeps owner and mode" test "$(stat -c '%U %a' "$cert_victim")" = "root 644"
+check "prestart: new key is a regular file of the user, 0600" \
+  test ! -L "$etc/tls/server.key" -a "$(stat -c '%U %a' "$etc/tls/server.key")" = "$user 600"
+check "prestart: new certificate parses" openssl x509 -noout -in "$etc/tls/server.crt"
+
+# A tls directory swapped for a link to a root directory: nothing is created there.
+rootdir="$work/rootdir"; mkdir -m 0755 "$rootdir"
+rm -rf "$etc/tls"
+ln -s "$rootdir" "$etc/tls"
+chown -h "$user:$group" "$etc/tls"
+PELAGOS_ETC="$etc" PELAGOS_VAR="$var" PELAGOS_USER="$user" PELAGOS_GROUP="$group" \
+  "$bin/pelagos-prestart" web >/dev/null 2>&1 || true
+check "prestart: no key written through a tls symlink" test ! -e "$rootdir/server.key"
+check "prestart: linked root directory keeps its mode" test "$(stat -c '%U %a' "$rootdir")" = "root 755"
 
 # /usr/bin/pelagos, with the venv replaced by env(1)
 wrapper="$work/pelagos"

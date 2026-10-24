@@ -40,6 +40,8 @@ BuildRequires:  findutils
 Requires:       %{pelagos_pypkg} >= 3.12
 Requires:       python(abi) = %{pelagos_pyver}
 Requires:       openssl
+# setpriv: pelagos-prestart drops to the service user inside its own tree.
+Requires:       /usr/bin/setpriv
 Requires:       shadow-utils
 Requires(pre):  shadow-utils
 %{?systemd_requires}
@@ -77,7 +79,7 @@ install -D -m 0644 packaging/systemd/80-pelagos.preset %{buildroot}%{_presetdir}
 install -d -m 0750 %{buildroot}%{_sysconfdir}/pelagos/tls
 install -d -m 0750 %{buildroot}%{_sharedstatedir}/pelagos/{audit,pki,backups,plans,locks}
 install -d -m 0755 %{buildroot}%{_docdir}/%{name}
-install -m 0644 LICENSE NOTICE README.md %{buildroot}%{_docdir}/%{name}/
+install -m 0644 NOTICE README.md %{buildroot}%{_docdir}/%{name}/
 
 %pre
 getent group %{pelagos_user} >/dev/null || groupadd -r %{pelagos_user}
@@ -134,6 +136,5 @@ fi
 %dir %attr(0750,%{pelagos_user},%{pelagos_user}) %{_sharedstatedir}/pelagos/plans
 %dir %attr(0750,%{pelagos_user},%{pelagos_user}) %{_sharedstatedir}/pelagos/locks
 
+# The changelog entry is appended by packaging/rpm/build.sh from the version and the build date.
 %changelog
-* Sat Oct 24 2026 Pelagos maintainers <pelagos@example.org> - 0.1.0~dev0-1
-- Initial packaging: venv under /opt/pelagos, systemd units, pelagos wrapper.

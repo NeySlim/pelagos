@@ -18,28 +18,35 @@ if [ ! -f "$etc/node.toml" ]; then
   exit 78
 fi
 
-mkdir -p "$etc/tls" "$var"
-if [ "$mode" = web ] && { [ ! -s "$etc/tls/server.crt" ] || [ ! -s "$etc/tls/server.key" ]; }; then
-  host="$(hostname -f 2>/dev/null || hostname)"
-  echo "pelagos: creating a self-signed certificate for $host in $etc/tls" >&2
-  umask 077
-  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
-    -subj "/CN=$host" -addext "subjectAltName=DNS:$host,DNS:localhost,IP:127.0.0.1" \
-    -keyout "$etc/tls/server.key.new" -out "$etc/tls/server.crt.new" >/dev/null 2>&1
-  mv -f "$etc/tls/server.key.new" "$etc/tls/server.key"
-  mv -f "$etc/tls/server.crt.new" "$etc/tls/server.crt"
-  umask 022
-fi
-
-# Only touch what is not already right so large backup trees stay cheap. Symlinks are never
-# followed (the service user could plant one) and pelagos.env stays root's: /usr/bin/pelagos
-# reads it as root.
+# Root only touches paths whose parent the service user cannot change ($etc and $var sit
+# in root-owned directories). Symlinks are never followed and pelagos.env stays root's:
+# /usr/bin/pelagos reads it as root. Only what is not already right is touched.
+mkdir -p "$etc" "$var"
 find "$etc" "$var" ! -type l ! -path "$etc/pelagos.env" \( ! -user "$user" -o ! -group "$group" \) \
   -exec chown -h "$user:$group" {} + 2>/dev/null || true
-for d in "$etc" "$var" "$etc/tls"; do
+for d in "$etc" "$var"; do
   [ -L "$d" ] || chmod 0750 "$d"
 done
-if [ -f "$etc/tls/server.key" ] && [ ! -L "$etc/tls/server.key" ]; then
-  chmod 0600 "$etc/tls/server.key"
-fi
+
+# Everything inside the service user's own tree runs with its privileges, so a symlink it
+# planted there can never redirect a root write or chmod.
+setpriv --reuid "$user" --regid "$group" --init-groups env HOME="$var" sh -eu -c '
+  etc="$1"; mode="$2"
+  umask 077
+  mkdir -p "$etc/tls"
+  [ -L "$etc/tls" ] || chmod 0750 "$etc/tls"
+  if [ "$mode" = web ] && { [ ! -s "$etc/tls/server.crt" ] || [ ! -s "$etc/tls/server.key" ]; }; then
+    host="$(hostname -f 2>/dev/null || hostname)"
+    echo "pelagos: creating a self-signed certificate for $host in $etc/tls" >&2
+    rm -f "$etc/tls/server.key.new" "$etc/tls/server.crt.new"
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+      -subj "/CN=$host" -addext "subjectAltName=DNS:$host,DNS:localhost,IP:127.0.0.1" \
+      -keyout "$etc/tls/server.key.new" -out "$etc/tls/server.crt.new" >/dev/null 2>&1
+    mv -f "$etc/tls/server.key.new" "$etc/tls/server.key"
+    mv -f "$etc/tls/server.crt.new" "$etc/tls/server.crt"
+  fi
+  if [ -f "$etc/tls/server.key" ] && [ ! -L "$etc/tls/server.key" ]; then
+    chmod 0600 "$etc/tls/server.key" 2>/dev/null || true
+  fi
+' pelagos-prestart "$etc" "$mode"
 exit 0

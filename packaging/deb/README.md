@@ -15,7 +15,9 @@ shared with the rpm and the images, which:
 
 - creates the venv `/opt/pelagos/venv` with the build host's `python3.X`
   (uv when it is on `PATH`, `venv` + `pip` otherwise) and installs the
-  backend and its dependencies; `PELAGOS_WHEELS=<dir>` makes it offline;
+  the dependencies pinned with hashes in `packaging/requirements.lock`
+  (`make lock` regenerates it), then the backend; `make wheels` followed by
+  `PELAGOS_WHEELS=$PWD/build/wheels` makes the build offline;
 - rewrites every reference to the staging path, then byte-compiles with the
   final path so the service user never writes to `/opt`;
 - copies `frontend/dist` when `frontend/dist/index.html` exists, otherwise

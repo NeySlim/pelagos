@@ -32,12 +32,14 @@ find "$stage" \( -name __pycache__ -o -name .venv -o -name .pytest_cache -o -nam
   -prune -exec rm -rf {} +
 
 cp -a "$here/debian" "$stage/debian"
+# Changelog date from SOURCE_DATE_EPOCH or the commit so rebuilds of one commit are identical.
+epoch="${SOURCE_DATE_EPOCH:-$(git -C "$src" log -1 --format=%ct 2>/dev/null || date +%s)}"
 cat > "$stage/debian/changelog" <<EOF
 pelagos ($version) unstable; urgency=medium
 
   * Build of pelagos $("$src/packaging/version.sh" python "$src").
 
- -- Pelagos maintainers <pelagos@example.org>  $(date -R -u)
+ -- Pelagos maintainers <pelagos@example.org>  $(LC_ALL=C date -R -u -d "@$epoch")
 EOF
 chmod 0755 "$stage/debian/rules"
 

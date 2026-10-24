@@ -41,4 +41,5 @@ override_dh_gencontrol:
 	dh_gencontrol -- -Vpelagos:Python="python$(PYVER)"
 
 override_dh_installsystemd:
-	dh_installsystemd --no-stop-on-upgrade pelagos.service pelagos-collector.service pelagos-helper.socket
+	# Running nodes restart on upgrade, so they never mix old processes with the new venv.
+	dh_installsystemd --restart-after-upgrade pelagos.service pelagos-collector.service pelagos-helper.socket

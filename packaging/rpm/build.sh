@@ -32,6 +32,13 @@ find "$top/stage/$name" \( -name __pycache__ -o -name .venv -o -name .pytest_cac
   -prune -exec rm -rf {} +
 tar -C "$top/stage" -czf "$top/SOURCES/$name.tar.gz" "$name"
 cp "$here/pelagos.spec" "$top/SPECS/pelagos.spec"
+# The changelog entry always matches the built version (the deb does the same); its date
+# comes from SOURCE_DATE_EPOCH or the commit so rebuilds of one commit are identical.
+epoch="${SOURCE_DATE_EPOCH:-$(git -C "$src" log -1 --format=%ct 2>/dev/null || date +%s)}"
+cat >>"$top/SPECS/pelagos.spec" <<EOF
+* $(LC_ALL=C date -u -d "@$epoch" '+%a %b %d %Y') Pelagos maintainers <pelagos@example.org> - $version-$release
+- Build of pelagos $("$src/packaging/version.sh" python "$src").
+EOF
 
 PELAGOS_WHEELS="${PELAGOS_WHEELS:-}" rpmbuild -ba \
   --define "_topdir $top" \

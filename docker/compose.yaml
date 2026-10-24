@@ -4,8 +4,8 @@
 # Layout (see docker/README.md):
 #   pelagos-init       one shot: seeds the BIND and Kea configuration volumes, generates the rndc
 #                      key, runs "pelagos init" when PELAGOS_ADMIN_PASSWORD is set
-#   pelagos            web process (HTTPS :8443, replication :8444)
-#   pelagos-collector  polling, series cache, alerts
+#   pelagos            web process (HTTPS :8443)
+#   pelagos-collector  polling, series cache, alerts, replication and enrollment (:8444)
 #   bind               internetsystemsconsortium/bind9; rndc :953 and statistics :8053 stay on the
 #                      compose network, DNS :53 is published
 #   kea-dhcp4, kea-dhcp-ddns, kea-dhcp6 (profile dhcpv6)
@@ -13,15 +13,16 @@
 #                      control sockets are shared with the node through the kea-run volume
 #
 # Variables (.env file next to this compose.yaml or the environment):
-#   PELAGOS_IMAGE (default pelagos:latest, built by make docker), PELAGOS_ADMIN_PASSWORD, PELAGOS_NODE_NAME,
+#   PELAGOS_IMAGE (default pelagos:latest, built by make docker), PELAGOS_ADMIN_PASSWORD (or
+#   PELAGOS_ADMIN_PASSWORD_FILE, a path inside the container), PELAGOS_NODE_NAME,
 #   PELAGOS_WEB_URL, PELAGOS_HTTPS_PORT (8443), PELAGOS_REPL_PORT (8444), BIND_IMAGE, KEA_VERSION.
 
 name: pelagos
 
 x-pelagos-common: &pelagos-common
   image: ${PELAGOS_IMAGE:-pelagos:latest}
-  environment:
-    PELAGOS_ADMIN_PASSWORD: ${PELAGOS_ADMIN_PASSWORD:-}
+  # The admin password only reaches pelagos-init: long-running containers never carry it.
+  environment: &pelagos-env
     PELAGOS_NODE_NAME: ${PELAGOS_NODE_NAME:-pelagos}
     PELAGOS_WEB_URL: ${PELAGOS_WEB_URL:-}
     PELAGOS_REPLICATION_URL: ${PELAGOS_REPLICATION_URL:-}
@@ -59,6 +60,14 @@ services:
     <<: *pelagos-common
     command: ["init"]
     restart: "no"
+    environment:
+      <<: *pelagos-env
+      PELAGOS_ADMIN_PASSWORD: ${PELAGOS_ADMIN_PASSWORD:-}
+      PELAGOS_ADMIN_PASSWORD_FILE: ${PELAGOS_ADMIN_PASSWORD_FILE:-}
+    # To read the password from a compose secret, uncomment this, the top-level
+    # `secrets:` below and set PELAGOS_ADMIN_PASSWORD_FILE=/run/secrets/pelagos_admin_password.
+    # secrets:
+    #   - pelagos_admin_password
 
   pelagos:
     <<: *pelagos-common
@@ -66,7 +75,6 @@ services:
     restart: unless-stopped
     ports:
       - "${PELAGOS_HTTPS_PORT:-8443}:8443"
-      - "${PELAGOS_REPL_PORT:-8444}:8444"
     networks:
       - pelagos
     depends_on:
@@ -80,6 +88,9 @@ services:
     # The image healthcheck probes the web process, which this container does not run.
     healthcheck:
       disable: true
+    # The replication and enrollment server (mTLS) runs in the collector process.
+    ports:
+      - "${PELAGOS_REPL_PORT:-8444}:8444"
     networks:
       - pelagos
     depends_on:
@@ -135,3 +146,7 @@ volumes:
   kea-etc:
   kea-leases:
   kea-run:
+
+# secrets:
+#   pelagos_admin_password:
+#     file: ./admin-password.txt

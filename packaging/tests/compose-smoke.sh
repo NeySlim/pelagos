@@ -6,8 +6,8 @@
 #
 # Usage: compose-smoke.sh [image]      (default: pelagos:latest, built with make docker)
 # Environment: DOCKER (default docker), BIND_DNS_PORT (default 5300, the host port 53 is
-# often taken by a local resolver), PELAGOS_HTTPS_PORT (default 8443), KEEP=1 leaves the
-# stack running.
+# often taken by a local resolver), PELAGOS_HTTPS_PORT (default 8443), PELAGOS_REPL_PORT
+# (default 8444), KEEP=1 leaves the stack running.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -17,6 +17,7 @@ PELAGOS_IMAGE="${1:-pelagos:latest}"
 PELAGOS_ADMIN_PASSWORD="${PELAGOS_ADMIN_PASSWORD:-compose-smoke-password}"
 BIND_DNS_PORT="${BIND_DNS_PORT:-5300}"
 PELAGOS_HTTPS_PORT="${PELAGOS_HTTPS_PORT:-8443}"
+PELAGOS_REPL_PORT="${PELAGOS_REPL_PORT:-8444}"
 project="pelagos-smoke-$$"
 # An env file rather than exported variables: DOCKER="sudo docker" resets the environment.
 envfile="$(mktemp)"
@@ -25,6 +26,7 @@ PELAGOS_IMAGE=$PELAGOS_IMAGE
 PELAGOS_ADMIN_PASSWORD=$PELAGOS_ADMIN_PASSWORD
 BIND_DNS_PORT=$BIND_DNS_PORT
 PELAGOS_HTTPS_PORT=$PELAGOS_HTTPS_PORT
+PELAGOS_REPL_PORT=$PELAGOS_REPL_PORT
 EOF
 dc() { $DOCKER compose --env-file "$envfile" -p "$project" -f "$compose_dir/compose.yaml" "$@"; }
 failures=0
@@ -48,6 +50,27 @@ for _ in $(seq 1 60); do
 done
 echo "health: $health"
 if grep -q '"status": *"ok"' <<<"$health"; then ok "health answers ok"; else fail "health"; fi
+
+# docker-proxy accepts any TCP connection: only a server certificate proves the listener.
+repl=""
+for _ in $(seq 1 30); do
+  repl="$(openssl s_client -connect "127.0.0.1:$PELAGOS_REPL_PORT" -showcerts </dev/null 2>/dev/null || true)"
+  grep -q 'BEGIN CERTIFICATE' <<<"$repl" && break
+  sleep 2
+done
+if grep -q 'BEGIN CERTIFICATE' <<<"$repl"; then
+  ok "replication listener answers TLS on the published port"
+else
+  fail "replication listener on port $PELAGOS_REPL_PORT"
+fi
+for svc in pelagos pelagos-collector; do
+  if $DOCKER inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$(dc ps -q "$svc")" \
+    | grep -q '^PELAGOS_ADMIN_PASSWORD='; then
+    fail "$svc carries the admin password"
+  else
+    ok "$svc does not carry the admin password"
+  fi
+done
 
 as_pelagos=(dc exec -T pelagos setpriv --reuid pelagos --regid pelagos --init-groups)
 if "${as_pelagos[@]}" rndc -c /etc/bind/pelagos/rndc-pelagos.conf status >/dev/null 2>&1; then

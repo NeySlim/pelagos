@@ -17,8 +17,8 @@ make docker-allinone   # all-in-one image: pelagos-allinone:<version>, KEA_SOURC
 | Service | Image | Role |
 | --- | --- | --- |
 | `pelagos-init` | node image | one shot: seeds the `bind-etc` and `kea-etc` volumes, generates the `rndc-pelagos` key and `/etc/bind/pelagos/rndc-pelagos.conf`, runs `pelagos init` when `PELAGOS_ADMIN_PASSWORD` is set |
-| `pelagos` | node image | web process, HTTPS on `:8443`, replication port `:8444` |
-| `pelagos-collector` | node image | collector |
+| `pelagos` | node image | web process, HTTPS on `:8443` |
+| `pelagos-collector` | node image | collector: polling, series cache, alerts, and the replication and enrollment server (mTLS) on `:8444` |
 | `bind` | `internetsystemsconsortium/bind9:9.20` | DNS on host port `${BIND_DNS_PORT:-53}`; `controls` (`:953`) and `statistics-channels` (`:8053`) listen on the compose network only |
 | `kea-dhcp4`, `kea-dhcp-ddns` | `docker.cloudsmith.io/isc/docker/kea-dhcp4`, `kea-dhcp-ddns` (`${KEA_VERSION:-3.2.1}`) | host network (DHCP needs the LAN broadcasts); control sockets in the shared `kea-run` volume at `/run/kea` |
 | `kea-dhcp6` | `docker.cloudsmith.io/isc/docker/kea-dhcp6` | profile `dhcpv6` |
@@ -33,7 +33,9 @@ Variables (environment or a `.env` file next to `compose.yaml`):
 `PELAGOS_IMAGE` (default `pelagos:latest`, the image `make docker` builds;
 no image is published yet, so build it first or point the variable at your
 registry),
-`PELAGOS_ADMIN_PASSWORD`, `PELAGOS_NODE_NAME`, `PELAGOS_WEB_URL`,
+`PELAGOS_ADMIN_PASSWORD` (given to `pelagos-init` only; `PELAGOS_ADMIN_PASSWORD_FILE`
+reads it from a file inside the container instead; mount that file into `pelagos-init`,
+for example as a compose secret, see the commented example in `compose.yaml`), `PELAGOS_NODE_NAME`, `PELAGOS_WEB_URL`,
 `PELAGOS_REPLICATION_URL`, `PELAGOS_HTTPS_PORT`, `PELAGOS_REPL_PORT`,
 `BIND_IMAGE`, `BIND_DNS_PORT`, `KEA_VERSION`, `PELAGOS_KEA_GID`.
 
@@ -59,7 +61,9 @@ Notes:
 
 `packaging/tests/compose-smoke.sh [image]` brings the stack up under a
 throwaway project name and checks `/api/v1/health`, `rndc status` and the
-statistics channel against `bind`, and `version-get` on both Kea sockets
+statistics channel against `bind`, a TLS handshake with the replication
+listener on the published `:8444`, that no long-running container carries
+the admin password, and `version-get` on both Kea sockets
 from inside the `pelagos` container.
 
 ## All-in-one image

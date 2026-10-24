@@ -55,6 +55,19 @@ def kea26(tmp_root):
     return backend_with(tmp_root, "kea26-dhcp4-config-get", "2.6.3")
 
 
+def test_cached_config_reads_once_and_hands_out_copies(kea3):
+    backend, fake = kea3
+    with backend.cached_config():
+        backend.capabilities()
+        backend.list_subnets()
+        first = backend.config_get()
+        first["valid-lifetime"] = 1
+        assert backend.config_get()["valid-lifetime"] != 1
+    assert fake.commands().count("config-get") == 1
+    backend.config_get()
+    assert fake.commands().count("config-get") == 2
+
+
 def test_capabilities(kea3, kea26, tmp_root):
     caps = kea3[0].capabilities()
     assert caps.running and caps.version == "3.2.1" and not caps.degraded

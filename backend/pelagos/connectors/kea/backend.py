@@ -11,7 +11,10 @@ precondition is checked just before writing.
 
 from __future__ import annotations
 
+import copy
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -133,6 +136,7 @@ class KeaBackend(DhcpBackend):
         # Per applied plan: config-hash right after apply (rollback staleness guard) and file backup.
         self._applied: dict[str, tuple[str, Path | None]] = {}
         self._last_backup: Path | None = None
+        self._config_cache: list[dict[str, Any]] | None = None
 
     # Helpers ----------------------------------------------------------------------
 
@@ -202,7 +206,20 @@ class KeaBackend(DhcpBackend):
         return self.socket.call(command, arguments, allow_empty=True)
 
     def config_get(self) -> dict[str, Any]:
+        if self._config_cache is not None:
+            if not self._config_cache:
+                self._config_cache.append(self.socket.config_get()[self.root_key])
+            return copy.deepcopy(self._config_cache[0])
         return self.socket.config_get()[self.root_key]
+
+    @contextmanager
+    def cached_config(self) -> Iterator[None]:
+        """config-get is read once while the block runs (one collector poll); plans never use it."""
+        self._config_cache = []
+        try:
+            yield
+        finally:
+            self._config_cache = None
 
     def config_hash(self) -> str:
         return self.socket.config_hash()

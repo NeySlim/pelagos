@@ -19,6 +19,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -187,22 +188,25 @@ class KeaPoller:
             out.kinds = KEA_KINDS - UNREAD_KINDS
             return out
 
-        self._poll_ha(now, out)
-        self._poll_pools(now, out)
-        try:
-            running = self.backend.config_get()
-            hashes = self._config_hash(running)
-            self.store.write_snapshot(self.node_id, engine, "config_hash", now, hashes)
-            alert = self.file_check.check(str(hashes["hash"]), lambda: running)
-            if alert is not None:
-                out.alerts.append(alert)
-        except (ConnectorError, NotImplementedError) as exc:
-            log.debug("%s config_hash failed: %s", engine, exc)
-            out.kinds = KEA_KINDS - UNREAD_KINDS
-        try:
-            self.store.write_snapshot(self.node_id, engine, "subnets", now, self._subnets())
-        except (ConnectorError, NotImplementedError) as exc:
-            log.debug("%s subnets failed: %s", engine, exc)
+        # One config-get for the whole poll: capabilities, utilization, hashes and subnets share it.
+        cache = getattr(self.backend, "cached_config", None)
+        with cache() if callable(cache) else nullcontext():
+            self._poll_ha(now, out)
+            self._poll_pools(now, out)
+            try:
+                running = self.backend.config_get()
+                hashes = self._config_hash(running)
+                self.store.write_snapshot(self.node_id, engine, "config_hash", now, hashes)
+                alert = self.file_check.check(str(hashes["hash"]), lambda: running)
+                if alert is not None:
+                    out.alerts.append(alert)
+            except (ConnectorError, NotImplementedError) as exc:
+                log.debug("%s config_hash failed: %s", engine, exc)
+                out.kinds = KEA_KINDS - UNREAD_KINDS
+            try:
+                self.store.write_snapshot(self.node_id, engine, "subnets", now, self._subnets())
+            except (ConnectorError, NotImplementedError) as exc:
+                log.debug("%s subnets failed: %s", engine, exc)
         return out
 
     def _config_hash(self, running: dict[str, Any]) -> dict[str, Any]:

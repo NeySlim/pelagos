@@ -22,5 +22,174 @@
       "title": "Paramètres",
       "subtitle": "Paramètres du cluster, seuils et rétention"
     }
+  },
+  "users": {
+    "create": "Nouvel utilisateur",
+    "editTitle": "Modifier {{name}}",
+    "username": "Identifiant",
+    "password": "Mot de passe initial",
+    "passwordHelp": "Au moins 12 caractères de trois types parmi : minuscules, majuscules, chiffres, symboles",
+    "newPassword": "Nouveau mot de passe",
+    "roles": "Rôles",
+    "state": "État",
+    "totp": "Deux facteurs",
+    "totpOn": "Activé",
+    "totpOff": "Désactivé",
+    "mustChangeShort": "Mot de passe",
+    "pending": "À changer",
+    "lastLogin": "Dernière connexion",
+    "never": "Jamais",
+    "you": "vous",
+    "enabled": "Activé",
+    "enabledHelp": "Un compte désactivé ne peut se connecter sur aucun nœud",
+    "mustChange": "Doit changer le mot de passe",
+    "mustChangeHelp": "Demande un nouveau mot de passe à la prochaine connexion",
+    "reset": "Réinitialiser le mot de passe",
+    "resetTitle": "Réinitialiser le mot de passe de {{name}}",
+    "resetHelp": "L'utilisateur devra choisir un nouveau mot de passe à la prochaine connexion.",
+    "resetDone": "Mot de passe de {{name}} réinitialisé",
+    "clearTotp": "Retirer le second facteur",
+    "clearTotpTitle": "Retirer le second facteur de {{name}} ?",
+    "clearTotpBody": "L'utilisateur se connecte avec son seul mot de passe jusqu'à l'enrôlement d'un nouvel authentificateur.",
+    "totpCleared": "Second facteur retiré pour {{name}}",
+    "deleteTitle": "Supprimer {{name}} ?",
+    "deleteBody": "Le compte est retiré de tous les nœuds. Ses entrées d'audit restent.",
+    "deleted": "{{name}} supprimé",
+    "created": "{{name}} créé",
+    "saved": "{{name}} enregistré",
+    "errors": {
+      "username": "2 à 64 minuscules, chiffres, points, tirets ou soulignés",
+      "passwordShort": "Au moins 12 caractères",
+      "passwordClasses": "Utilisez trois types parmi : minuscules, majuscules, chiffres, symboles",
+      "roles": "Choisissez au moins un rôle"
+    }
+  },
+  "roles": {
+    "create": "Nouveau rôle",
+    "editTitle": "Modifier le rôle {{name}}",
+    "name": "Nom",
+    "description": "Description",
+    "builtin": "Intégré",
+    "builtinHelp": "Défini par Pelagos, non modifiable",
+    "all": "Toutes les permissions",
+    "allPermissions": "Ce rôle détient toutes les permissions (*).",
+    "count_one": "{{count}} permission",
+    "count_other": "{{count}} permissions",
+    "saved": "Rôle {{name}} enregistré",
+    "deleted": "Rôle {{name}} supprimé",
+    "deleteTitle": "Supprimer le rôle {{name}} ?",
+    "deleteBody": "Les utilisateurs qui ont ce rôle perdent ses permissions sur tous les nœuds.",
+    "errors": {
+      "name": "2 à 64 minuscules, chiffres ou tirets",
+      "permissions": "Choisissez au moins une permission"
+    },
+    "families": {
+      "dns": "DNS",
+      "dhcp": "DHCP",
+      "hosts": "Hôtes",
+      "alerts": "Alertes",
+      "series": "Séries",
+      "audit": "Audit",
+      "nodes": "Nœuds",
+      "advanced": "Avancé",
+      "users": "Utilisateurs",
+      "roles": "Rôles",
+      "settings": "Paramètres",
+      "install": "Installation",
+      "modules": "Modules"
+    }
+  },
+  "modules": {
+    "cluster": "Fonctions du cluster",
+    "nodes": "Moteurs par nœud",
+    "nodesHelp": "Les moteurs que pilote chaque nœud. Un nœud ne lit et n'écrit que les moteurs activés ici.",
+    "node": "Nœud",
+    "saved": "Modules enregistrés",
+    "features": {
+      "dhcpv6": "DHCPv6",
+      "dhcpv6Help": "Affiche les écrans DHCPv6 et permet aux nœuds de piloter kea-dhcp6",
+      "advanced_editor": "Éditeur avancé",
+      "advanced_editorHelp": "Éditeur named.conf piloté par la grammaire et éditeur JSON de Kea"
+    },
+    "engines": {
+      "bind": "BIND",
+      "kea4": "Kea DHCPv4",
+      "kea6": "Kea DHCPv6",
+      "d2": "DHCP-DDNS"
+    }
+  },
+  "settings": {
+    "saved": "Paramètres enregistrés",
+    "number": "Un nombre est attendu",
+    "sections": {
+      "general": {
+        "title": "Général",
+        "help": "Sessions, connexion et plans"
+      },
+      "dns": {
+        "title": "DNS",
+        "help": "Clés TSIG de Pelagos et types d'enregistrements qu'elles peuvent modifier"
+      },
+      "kea": {
+        "title": "Kea",
+        "help": "Clé utilisée par kea-dhcp-ddns"
+      },
+      "thresholds": {
+        "title": "Seuils d'alerte",
+        "help": "Quand les pools, le DDNS et les secondaires lèvent des alertes"
+      },
+      "collector": {
+        "title": "Collecteur",
+        "help": "Fréquence d'interrogation des moteurs et des pairs par chaque nœud"
+      },
+      "retention": {
+        "title": "Rétention",
+        "help": "Durée de conservation des séries, des alertes résolues et des sauvegardes"
+      }
+    },
+    "fields": {
+      "require_totp": "Exiger le second facteur pour tous",
+      "session_idle_seconds": "Expiration d'inactivité (secondes)",
+      "session_ttl_seconds": "Durée de session (secondes)",
+      "login_rate_limit_per_minute": "Tentatives de connexion par minute",
+      "plan_ttl_seconds": "Durée de vie d'un plan (secondes)",
+      "alerts_pool_warning_percent": "Pool en alerte (%)",
+      "alerts_pool_critical_percent": "Pool critique (%)",
+      "alerts_serial_divergence_seconds": "Écart de serial toléré (secondes)",
+      "alerts_d2_error_rate": "Taux d'erreur DDNS",
+      "dns": {
+        "read_key": "Clé de transfert",
+        "admin_key": "Clé de mise à jour",
+        "update_types_admin": "Types que Pelagos peut modifier",
+        "update_types_kea": "Types que Kea peut modifier"
+      },
+      "kea": {
+        "ddns_key": "Clé DDNS"
+      },
+      "thresholds": {
+        "pool_warn_percent": "Pool en alerte (%)",
+        "pool_full_percent": "Pool plein (%)",
+        "d2_errors_per_hour": "Erreurs DDNS par heure",
+        "secondary_stale_seconds": "Secondaire en retard après (secondes)"
+      },
+      "collector": {
+        "interval_seconds": "Intervalle d'interrogation (secondes)",
+        "poll_seconds": "Interrogation des moteurs (secondes)",
+        "pool_sample_seconds": "Échantillon des pools (secondes)",
+        "peer_poll_seconds": "Interrogation des pairs (secondes)",
+        "consistency_seconds": "Passe de cohérence (secondes)"
+      },
+      "retention": {
+        "raw_days": "Séries brutes (jours)",
+        "hourly_days": "Séries horaires (jours)",
+        "backups_days": "Sauvegardes (jours)",
+        "audit_days": "Fenêtre d'export d'audit (jours)",
+        "pool_raw_days": "Séries brutes des pools (jours)",
+        "pool_hourly_days": "Séries horaires des pools (jours)",
+        "serial_days": "Séries des serials (jours)",
+        "ha_transition_days": "Transitions HA (jours)",
+        "alerts_resolved_days": "Alertes résolues (jours)"
+      }
+    }
   }
 }

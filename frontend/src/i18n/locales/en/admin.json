@@ -22,5 +22,174 @@
       "title": "Settings",
       "subtitle": "Cluster-wide settings, thresholds and retention"
     }
+  },
+  "users": {
+    "create": "New user",
+    "editTitle": "Edit {{name}}",
+    "username": "Username",
+    "password": "Initial password",
+    "passwordHelp": "At least 12 characters from three of: lowercase, uppercase, digits, symbols",
+    "newPassword": "New password",
+    "roles": "Roles",
+    "state": "State",
+    "totp": "Two-factor",
+    "totpOn": "On",
+    "totpOff": "Off",
+    "mustChangeShort": "Password",
+    "pending": "Must change",
+    "lastLogin": "Last sign-in",
+    "never": "Never",
+    "you": "you",
+    "enabled": "Enabled",
+    "enabledHelp": "A disabled account cannot sign in on any node",
+    "mustChange": "Must change the password",
+    "mustChangeHelp": "Asks for a new password at the next sign-in",
+    "reset": "Reset password",
+    "resetTitle": "Reset the password of {{name}}",
+    "resetHelp": "The user will have to choose a new password at the next sign-in.",
+    "resetDone": "Password of {{name}} reset",
+    "clearTotp": "Clear two-factor",
+    "clearTotpTitle": "Clear two-factor for {{name}}?",
+    "clearTotpBody": "The user signs in with the password only until a new authenticator is enrolled.",
+    "totpCleared": "Two-factor cleared for {{name}}",
+    "deleteTitle": "Delete {{name}}?",
+    "deleteBody": "The account is removed from every node. Its audit entries stay.",
+    "deleted": "{{name}} deleted",
+    "created": "{{name}} created",
+    "saved": "{{name}} saved",
+    "errors": {
+      "username": "2 to 64 lowercase letters, digits, dots, dashes or underscores",
+      "passwordShort": "At least 12 characters",
+      "passwordClasses": "Use three of: lowercase, uppercase, digits, symbols",
+      "roles": "Choose at least one role"
+    }
+  },
+  "roles": {
+    "create": "New role",
+    "editTitle": "Edit role {{name}}",
+    "name": "Name",
+    "description": "Description",
+    "builtin": "Built-in",
+    "builtinHelp": "Defined by Pelagos, cannot be changed",
+    "all": "All permissions",
+    "allPermissions": "This role holds every permission (*).",
+    "count_one": "{{count}} permission",
+    "count_other": "{{count}} permissions",
+    "saved": "Role {{name}} saved",
+    "deleted": "Role {{name}} deleted",
+    "deleteTitle": "Delete role {{name}}?",
+    "deleteBody": "Users holding this role lose its permissions on every node.",
+    "errors": {
+      "name": "2 to 64 lowercase letters, digits or dashes",
+      "permissions": "Choose at least one permission"
+    },
+    "families": {
+      "dns": "DNS",
+      "dhcp": "DHCP",
+      "hosts": "Hosts",
+      "alerts": "Alerts",
+      "series": "Series",
+      "audit": "Audit",
+      "nodes": "Nodes",
+      "advanced": "Advanced",
+      "users": "Users",
+      "roles": "Roles",
+      "settings": "Settings",
+      "install": "Install",
+      "modules": "Modules"
+    }
+  },
+  "modules": {
+    "cluster": "Cluster features",
+    "nodes": "Engines per node",
+    "nodesHelp": "Which engines each node drives. A node only reads and writes the engines switched on here.",
+    "node": "Node",
+    "saved": "Modules saved",
+    "features": {
+      "dhcpv6": "DHCPv6",
+      "dhcpv6Help": "Shows the DHCPv6 screens and lets nodes drive kea-dhcp6",
+      "advanced_editor": "Advanced editor",
+      "advanced_editorHelp": "Grammar-driven named.conf editor and Kea JSON editor"
+    },
+    "engines": {
+      "bind": "BIND",
+      "kea4": "Kea DHCPv4",
+      "kea6": "Kea DHCPv6",
+      "d2": "DHCP-DDNS"
+    }
+  },
+  "settings": {
+    "saved": "Settings saved",
+    "number": "A number is expected",
+    "sections": {
+      "general": {
+        "title": "General",
+        "help": "Sessions, sign-in and plans"
+      },
+      "dns": {
+        "title": "DNS",
+        "help": "TSIG keys used by Pelagos and record types they may update"
+      },
+      "kea": {
+        "title": "Kea",
+        "help": "Key used by kea-dhcp-ddns"
+      },
+      "thresholds": {
+        "title": "Alert thresholds",
+        "help": "When pools, DDNS and secondaries raise alerts"
+      },
+      "collector": {
+        "title": "Collector",
+        "help": "How often each node polls its engines and its peers"
+      },
+      "retention": {
+        "title": "Retention",
+        "help": "How long series, resolved alerts and backups are kept"
+      }
+    },
+    "fields": {
+      "require_totp": "Require two-factor for every user",
+      "session_idle_seconds": "Idle session timeout (seconds)",
+      "session_ttl_seconds": "Session lifetime (seconds)",
+      "login_rate_limit_per_minute": "Sign-in attempts per minute",
+      "plan_ttl_seconds": "Plan lifetime (seconds)",
+      "alerts_pool_warning_percent": "Pool warning (%)",
+      "alerts_pool_critical_percent": "Pool critical (%)",
+      "alerts_serial_divergence_seconds": "Serial divergence tolerated (seconds)",
+      "alerts_d2_error_rate": "DDNS error rate",
+      "dns": {
+        "read_key": "Transfer key",
+        "admin_key": "Update key",
+        "update_types_admin": "Record types Pelagos may update",
+        "update_types_kea": "Record types Kea may update"
+      },
+      "kea": {
+        "ddns_key": "DDNS key"
+      },
+      "thresholds": {
+        "pool_warn_percent": "Pool warning (%)",
+        "pool_full_percent": "Pool full (%)",
+        "d2_errors_per_hour": "DDNS errors per hour",
+        "secondary_stale_seconds": "Secondary stale after (seconds)"
+      },
+      "collector": {
+        "interval_seconds": "Poll interval (seconds)",
+        "poll_seconds": "Engine poll (seconds)",
+        "pool_sample_seconds": "Pool sample (seconds)",
+        "peer_poll_seconds": "Peer poll (seconds)",
+        "consistency_seconds": "Consistency pass (seconds)"
+      },
+      "retention": {
+        "raw_days": "Raw series (days)",
+        "hourly_days": "Hourly series (days)",
+        "backups_days": "Backups (days)",
+        "audit_days": "Audit export window (days)",
+        "pool_raw_days": "Raw pool series (days)",
+        "pool_hourly_days": "Hourly pool series (days)",
+        "serial_days": "Serial series (days)",
+        "ha_transition_days": "HA transitions (days)",
+        "alerts_resolved_days": "Resolved alerts (days)"
+      }
+    }
   }
 }

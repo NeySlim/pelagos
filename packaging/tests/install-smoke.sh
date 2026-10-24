@@ -62,6 +62,7 @@ check "pelagos.service active" systemctl is-active pelagos.service
 check "pelagos-collector.service active" systemctl is-active pelagos-collector.service
 check "web process runs as pelagos" test "$(ps -o user= -p "$(systemctl show -p MainPID --value pelagos.service)")" = pelagos
 check "TLS key is pelagos 0600" test "$($SUDO stat -c '%U %a' /etc/pelagos/tls/server.key)" = "pelagos 600"
+check "pelagos.env stays root 0644" test "$($SUDO stat -c '%U %a' /etc/pelagos/pelagos.env)" = "root 644"
 check "state owned by pelagos" test "$($SUDO stat -c %U /var/lib/pelagos/cluster.toml)" = pelagos
 for d in /etc/pelagos /var/lib/pelagos; do
   check "$d still 0750 with the units running" test "$($SUDO stat -c %a "$d")" = 750

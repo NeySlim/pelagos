@@ -32,8 +32,9 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 ReadWritePaths=/var/lib/pelagos /run/pelagos /etc/pelagos
-# Include directories of the engines, written through the write pipeline.
+# Include and zone file directories of the engines, written through the write pipeline.
 ReadWritePaths=-/etc/bind/pelagos -/etc/named/pelagos -/etc/kea
+ReadWritePaths=-/var/cache/bind/pelagos -/var/named/pelagos
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes

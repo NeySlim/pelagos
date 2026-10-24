@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import timedelta
 from pathlib import Path
@@ -550,3 +551,25 @@ def test_d2_secret_file_wins_over_clear_secret(tmp_root):
     cfg = {"tsig-keys": [{"name": "k", "secret": "c2VjcmV0", "secret-file": "/etc/kea/k.secret"}]}
     out, files = externalize_secrets(cfg, tmp_root)
     assert out["tsig-keys"] == [{"name": "k", "secret-file": "/etc/kea/k.secret"}] and files == {}
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/etc/pelagos/x.secret", "{dir}/../x.secret", "{dir}/x.conf", "{dir}/a b.secret", "x.secret"],
+)
+def test_d2_refuses_peer_secrets_outside_the_secret_dir(tmp_root, path):
+    d2, _fake = d2_with(tmp_root)
+    path = path.format(dir=tmp_root)
+    plan = d2.plan_config_replace({"DhcpDdns": d2.config_get()})
+    digest = hashlib.sha256(b"c2VjcmV0").hexdigest()
+    plan.changes.append(
+        Change(op=ChangeOp.ADD, target="secret-file/x.secret", before=None, after={"path": path, "sha256": digest})
+    )
+    with pytest.raises(ConnectorError, match="outside"):
+        d2.accept_plan_secrets(plan, {path: "c2VjcmV0"})
+    good = str(tmp_root / "x.secret")
+    plan.changes.append(
+        Change(op=ChangeOp.ADD, target="secret-file/x.secret", before=None, after={"path": good, "sha256": digest})
+    )
+    d2.accept_plan_secrets(plan, {good: "c2VjcmV0"})
+    assert d2.plan_secrets(plan.id) == {good: "c2VjcmV0"}

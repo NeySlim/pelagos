@@ -38,7 +38,9 @@ What changed (file, symbol). Why. Which packages must react, and how.
   (AES-256-GCM under the master key, AAD `plan/<plan id>/<target>`) to each `secret-file/<name>`
   change and returns how many it sealed (0 for every other backend). `POST /repl/v1/plans/apply`
   unseals it and hands it to `D2Backend.accept_plan_secrets(plan, {path: secret})`, which checks the
-  path and `after.sha256` against the plan. The value is ciphertext; masking it in API answers is
+  path and `after.sha256` against the plan. The path must be `<d2_secret_dir>/<secret_file_name(key)>`
+  (absolute, no `..`, `.secret` suffix): every node uses the same `d2_secret_dir`, so a peer can never
+  make a node write any other file. The value is ciphertext; masking it in API answers is
   optional. Without it a peer still fails cleanly as before. D2Backend also gains
   `plan_secrets(plan_id)`.
 - Section 7: `WritePipeline.restore(backup_dir, reload=True)`; `run()` restores without reloading

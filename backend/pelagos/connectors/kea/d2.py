@@ -247,12 +247,26 @@ class D2Backend(DdnsBackend):
                 raise ConnectorError(f"secret for {path} is not declared by plan {plan.id}")
             if declared[path] and hashlib.sha256(secret.encode()).hexdigest() != declared[path]:
                 raise ConnectorError(f"secret for {path} does not match the plan digest")
+            if not self._is_secret_path(path):
+                raise ConnectorError(f"secret path {path} is outside {self.secret_dir}")
             accepted[Path(path)] = secret
         if not accepted:
             return
         expires = utcnow() + timedelta(seconds=self.plan_ttl)
         private = self._private.setdefault(plan.id, _PlanPrivate(expires_at=expires, secrets={}))
         private.secrets = accepted
+
+    def _is_secret_path(self, path: str) -> bool:
+        """Peers may only write `<d2_secret_dir>/<secret_file_name(...)>`, never an arbitrary file."""
+        candidate = Path(path)
+        name = candidate.name
+        return (
+            candidate.is_absolute()
+            and ".." not in candidate.parts
+            and candidate.parent.resolve() == self.secret_dir.resolve()
+            and name.endswith(".secret")
+            and name == secret_file_name(name[: -len(".secret")])
+        )
 
     # Apply and rollback -------------------------------------------------------------------------
 

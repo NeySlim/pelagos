@@ -3,6 +3,8 @@
 // Each family writes its tokens as CSS variables on documentElement and its effects layer
 // as data-effects; status colors keep their meaning, accent-primary is DNS, accent-pro DHCP.
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { flushSync } from 'react-dom'
+import { runThemeTransition } from '../lib/viewTransition'
 import { subscribePreferences, persistPreference, getPreferences } from '../stores/preferencesStore'
 
 export const DEFAULT_FAMILY = 'instrument'
@@ -684,6 +686,20 @@ function readSaved(key, valid) {
   }
 }
 
+// Writes a family's tokens on <html>; also called inside the theme view transition, where
+// the new look must exist synchronously.
+function applyTheme(familyId, resolved) {
+  const family = themeFamilies[familyId]
+  if (!family) return
+  const root = document.documentElement
+  Object.entries(family[resolved]).forEach(([key, value]) => {
+    root.style.setProperty(`--${key}`, value)
+  })
+  root.classList.toggle('theme-light', resolved === 'light')
+  root.dataset.theme = resolved
+  root.dataset.effects = family.effects || 'none'
+}
+
 export function ThemeProvider({ children }) {
   // Initial state comes from storage: no effect may write the defaults over a saved choice.
   const [themeFamily, setThemeFamily] = useState(
@@ -705,15 +721,7 @@ export function ThemeProvider({ children }) {
 
   // Apply the tokens and remember the choice.
   useEffect(() => {
-    const family = themeFamilies[themeFamily]
-    if (!family) return
-    const root = document.documentElement
-    Object.entries(family[resolvedMode]).forEach(([key, value]) => {
-      root.style.setProperty(`--${key}`, value)
-    })
-    root.classList.toggle('theme-light', resolvedMode === 'light')
-    root.dataset.theme = resolvedMode
-    root.dataset.effects = family.effects || 'none'
+    applyTheme(themeFamily, resolvedMode)
     try {
       localStorage.setItem(STORAGE_FAMILY, themeFamily)
       localStorage.setItem(STORAGE_MODE, mode)
@@ -736,14 +744,34 @@ export function ThemeProvider({ children }) {
     return subscribePreferences(apply)
   }, [])
 
-  const setThemeFamilyAndPersist = useCallback((value) => {
-    setThemeFamily(value)
-    persistPreference('theme_family', value)
-  }, [])
-  const setModeAndPersist = useCallback((value) => {
-    setMode(value)
-    persistPreference('theme_mode', value)
-  }, [])
+  // A user switch cross-fades the whole document (view transition); the tokens and the
+  // state change together inside it.
+  const setThemeFamilyAndPersist = useCallback(
+    (value) => {
+      persistPreference('theme_family', value)
+      if (!themeFamilies[value]) return setThemeFamily(value)
+      return runThemeTransition(() => {
+        applyTheme(value, resolvedMode)
+        flushSync(() => setThemeFamily(value))
+      })
+    },
+    [resolvedMode],
+  )
+  const setModeAndPersist = useCallback(
+    (value) => {
+      persistPreference('theme_mode', value)
+      const dark = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches
+      const next = value === 'system' ? (dark ? 'dark' : 'light') : value
+      return runThemeTransition(() => {
+        applyTheme(themeFamily, next)
+        flushSync(() => {
+          setMode(value)
+          setResolvedMode(next)
+        })
+      })
+    },
+    [themeFamily],
+  )
 
   const currentTheme = `${themeFamily}-${resolvedMode}`
   const setCurrentTheme = useCallback((themeId) => {

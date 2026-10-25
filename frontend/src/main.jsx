@@ -7,6 +7,7 @@ import './styles/effects.css'
 import './styles/motion.css'
 import './styles/mission.css'
 import './styles/instrument.css'
+import './styles/transitions.css'
 import './i18n'
 
 ReactDOM.createRoot(document.getElementById('root')).render(

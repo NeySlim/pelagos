@@ -46,6 +46,7 @@ export function Button({ children, type = 'button', variant = 'primary', size = 
   return (
     <button
       type={type}
+      data-magnetic={variant === 'primary' ? '' : undefined}
       {...props}
       className={cn(
         'ui-btn inline-flex items-center justify-center rounded-md font-medium',

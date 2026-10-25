@@ -57,6 +57,32 @@ export function poissonGap(rate, random = Math.random) {
   return (-Math.log(1 - random()) / rate) * 1000
 }
 
+// Glides rows from `dy` px away to their place on the spring (the Invert and Play steps
+// of FLIP). `moves` is [[row, dy]]; one forced layout for all of them.
+export function glideRows(moves) {
+  for (const [r, dy] of moves) {
+    r.classList.remove('fx-flip')
+    r.style.transform = `translateY(${dy}px)`
+  }
+  if (moves.length) moves[0][0].getBoundingClientRect()
+  for (const [r] of moves) {
+    r.classList.add('fx-flip')
+    r.style.transform = ''
+    r.addEventListener('transitionend', () => r.classList.remove('fx-flip'), { once: true })
+  }
+  return moves.length
+}
+
+// True when the keys both lists share appear in another order (a sort, a divergence
+// resolved), not when rows merely come or go.
+export function orderChanged(previous, next) {
+  const nextSet = new Set(next)
+  const prevSet = new Set(previous)
+  const a = previous.filter((k) => nextSet.has(k))
+  const b = next.filter((k) => prevSet.has(k))
+  return a.length > 1 && a.some((k, i) => k !== b[i])
+}
+
 // FLIP: measure `rows`, run `mutate` (which must update the DOM synchronously, e.g. through
 // flushSync), then glide every moved row from its old place on the spring. Reads are
 // batched before writes. Below full motion it only mutates. Returns how many rows moved.
@@ -74,15 +100,5 @@ export function flipRows(rows, mutate, level = typeof document !== 'undefined' ?
     const dy = first.get(r) - r.getBoundingClientRect().top
     if (Math.abs(dy) >= 0.5) moves.push([r, dy])
   }
-  for (const [r, dy] of moves) {
-    r.classList.remove('fx-flip')
-    r.style.transform = `translateY(${dy}px)`
-  }
-  if (moves.length) moves[0][0].getBoundingClientRect()
-  for (const [r] of moves) {
-    r.classList.add('fx-flip')
-    r.style.transform = ''
-    r.addEventListener('transitionend', () => r.classList.remove('fx-flip'), { once: true })
-  }
-  return moves.length
+  return glideRows(moves)
 }

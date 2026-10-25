@@ -5,7 +5,7 @@ import { useMobile } from '../contexts/MobileContext'
 import { cn } from '../lib/utils'
 import { Stagger } from './motion/Layout'
 
-export function PageLayout({ icon, title, subtitle, badge, tabs, activeTab, onTabChange, actions, mobileTitle, literalTitle, children, bodyClassName, testId }) {
+export function PageLayout({ icon, title, subtitle, badge, tabs, activeTab, onTabChange, actions, mobileTitle, literalTitle, breadcrumb, sharedTitle, children, bodyClassName, testId }) {
   const { isMobile } = useMobile()
   return (
     <div className="flex flex-col h-full min-h-0 w-full" data-testid={testId}>
@@ -21,6 +21,8 @@ export function PageLayout({ icon, title, subtitle, badge, tabs, activeTab, onTa
         isMobile={isMobile}
         mobileTitle={mobileTitle}
         literalTitle={literalTitle}
+        breadcrumb={breadcrumb}
+        sharedTitle={sharedTitle}
       />
       <div className={cn('flex-1 min-h-0 overflow-auto', isMobile ? 'p-3' : 'p-6', bodyClassName)}>
         {/* display: contents keeps the body's own layout; only the entry is staggered. */}

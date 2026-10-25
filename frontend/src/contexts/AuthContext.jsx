@@ -3,6 +3,7 @@
 // apiClient, permissions, the node answering and GET /capabilities (modules and
 // engines) used to gate navigation. A 401 from any call drops the session.
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react'
+import { clearLists } from '../lib/listCache'
 import { api } from '../services/api'
 import { apiClient } from '../services/apiClient'
 import { resetLiveRates } from '../hooks/useLiveRates'
@@ -112,6 +113,7 @@ export function AuthProvider({ children }) {
     } catch {
       // the local state is cleared regardless
     } finally {
+      clearLists()
       clearSession()
     }
   }, [clearSession])

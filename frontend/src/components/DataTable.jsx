@@ -2,8 +2,7 @@
 // Table for every list screen: columns with renderers, server or client sorting,
 // search box, filter selects with removable chips, pagination, loading, empty and
 // error states, selectable rows and a right-side toolbar. Cells render as text.
-import { useMemo, useRef, useState } from 'react'
-import { flushSync } from 'react-dom'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CaretUp, CaretDown, CaretUpDown, ArrowsClockwise, Table as TableIcon } from '@phosphor-icons/react'
 import { cn } from '../lib/utils'
@@ -15,7 +14,10 @@ import { FilterChips } from './ui/FilterChips'
 import { EmptyState } from './EmptyState'
 import { SkeletonTable } from './motion/Skeleton'
 import { RowEnter } from './motion/Rows'
-import { flipRows } from './motion/primitives'
+import { glideRows, orderChanged } from './motion/primitives'
+import { useMotionLevel } from '../contexts/MotionContext'
+import { useColumnBand } from '../hooks/useColumnBand'
+import { useSharedName } from '../hooks/useSharedName'
 import { Button } from './Button'
 import { errorMessage } from '../services/apiClient'
 
@@ -60,6 +62,8 @@ export function DataTable({
   // Rows whose key appears after the first load unfold into place with a highlight
   // (inserted records, hosts, alerts). Off by default: a refetch is not an insertion.
   animateInserts = false,
+  // { name, to }: the whole table panel travels with a view transition to or from `to`.
+  shared,
   className,
   testId = 'data-table',
 }) {
@@ -67,6 +71,7 @@ export function DataTable({
   const [localSort, setLocalSort] = useState(null)
   const activeSort = sort || localSort
   const bodyRef = useRef(null)
+  const sharedStyle = useSharedName(shared?.name || 'table', shared?.to || '/')
   const known = useRef(null)
   const entering = useRef(new Set())
 
@@ -86,9 +91,38 @@ export function DataTable({
     const next =
       activeSort?.field === field ? { field, order: activeSort.order === 'asc' ? 'desc' : 'asc' } : { field, order: 'asc' }
     if (onSortChange) onSortChange(next)
-    // A local sort reorders rows already on screen: they glide to their new place.
-    else flipRows(bodyRef.current?.rows || [], () => flushSync(() => setLocalSort(next)))
+    else setLocalSort(next)
   }
+
+  // Rows already on screen that change order (a sort, a divergence resolved by a refetch)
+  // glide to their new place: their old tops are read before this render commits.
+  const level = useMotionLevel()
+  const orderRef = useRef([])
+  const firstTops = useRef(null)
+  const liveKeys = loading || error ? [] : sortedRows.map((row, index) => keyOf(row, index))
+  if (level === 'full' && bodyRef.current && liveKeys.length <= 300 && orderChanged(orderRef.current, liveKeys)) {
+    const domRows = bodyRef.current.rows
+    if (domRows.length === orderRef.current.length) {
+      firstTops.current = new Map(orderRef.current.map((k, i) => [k, domRows[i].getBoundingClientRect().top]))
+    }
+  }
+  useLayoutEffect(() => {
+    const first = firstTops.current
+    firstTops.current = null
+    const domRows = bodyRef.current?.rows
+    if (first && domRows?.length === liveKeys.length) {
+      const moves = []
+      liveKeys.forEach((k, i) => {
+        const dy = first.has(k) ? first.get(k) - domRows[i].getBoundingClientRect().top : 0
+        if (Math.abs(dy) >= 0.5) moves.push([domRows[i], dy])
+      })
+      glideRows(moves)
+    }
+    orderRef.current = liveKeys
+  })
+  const wrapRef = useRef(null)
+  const bandRef = useRef(null)
+  useColumnBand(wrapRef, bandRef)
 
   if (animateInserts && !loading) {
     const keys = sortedRows.map((row, index) => keyOf(row, index))
@@ -112,7 +146,7 @@ export function DataTable({
   const cellPad = dense ? 'px-3 py-1.5' : 'px-3 py-2'
 
   return (
-    <div className={cn('ui-table flex flex-col rounded-xl border border-border bg-bg-secondary overflow-hidden', className)} data-testid={testId} style={dense ? { '--fx-cell-py': '6px' } : undefined}>
+    <div className={cn('ui-table flex flex-col rounded-xl border border-border bg-bg-secondary overflow-hidden', className)} data-testid={testId} style={{ ...(dense ? { '--fx-cell-py': '6px' } : null), ...(shared ? sharedStyle : null) }}>
       {hasToolbar && (
         <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border-op60">
           {title && <h3 className={cn('ui-card-title text-sm font-semibold text-text-primary mr-2', titleCaseClass(title))}>{title}</h3>}
@@ -146,6 +180,8 @@ export function DataTable({
       )}
 
       <div className="overflow-auto flex-1 min-h-0">
+        <div ref={wrapRef} className="relative">
+        <span ref={bandRef} className="fx-colband" aria-hidden="true" />
         <table className="w-full text-sm border-collapse">
           <thead className="table-header-gradient sticky top-0 z-10">
             <tr>
@@ -227,6 +263,7 @@ export function DataTable({
               })}
           </tbody>
         </table>
+        </div>
 
         {loading && <SkeletonTable columns={columns.length} testId="data-table-loading" />}
         {!loading && error && (

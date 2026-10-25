@@ -511,3 +511,19 @@ html[data-effects='instrument'][data-motion='reduced'] .ui-icon-button:active { 
   :root[data-effects='instrument'] .ui-page-header:empty { display: none; }
   :root[data-effects='instrument'] .ui-modal { border-radius: 0; }
 }
+
+/* ---- Breadcrumb and tile link: the chevron leans toward where the click goes ---- */
+:root[data-effects='instrument'] .ui-crumb { font-size: 11.5px; gap: 4px; transition: color var(--d-fast) ease; }
+:root[data-effects='instrument'] .ui-crumb svg,
+:root[data-effects='instrument'] .ui-tile-open svg { transition: transform var(--d-spring) var(--spring); }
+:root[data-effects='instrument'] .ui-crumb:hover svg { transform: translateX(-2px); }
+:root[data-effects='instrument'] .ui-tile-open:hover svg { transform: translateX(2px); }
+:root[data-effects='instrument'][data-motion='reduced'] .ui-crumb svg,
+:root[data-effects='instrument'][data-motion='reduced'] .ui-tile-open svg,
+:root[data-effects='instrument'][data-motion='off'] .ui-crumb svg,
+:root[data-effects='instrument'][data-motion='off'] .ui-tile-open svg { transition: none; }
+:root[data-effects='instrument'][data-motion='reduced'] .ui-crumb:hover svg,
+:root[data-effects='instrument'][data-motion='reduced'] .ui-tile-open:hover svg,
+:root[data-effects='instrument'][data-motion='off'] .ui-crumb:hover svg,
+:root[data-effects='instrument'][data-motion='off'] .ui-tile-open:hover svg { transform: none; }
+:root[data-effects='instrument'][data-motion='off'] .ui-crumb { transition: none; }

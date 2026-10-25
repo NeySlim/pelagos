@@ -1,0 +1,85 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Navigation choreography (Instrument): page and theme view transitions, shared elements,
+   the column band and magnetic buttons. lib/viewTransition.js sets data-vt ("nav" or
+   "theme") and data-dir ("fwd" or "back") on <html>; levels come from data-motion.
+   Only opacity and transform animate. */
+
+/* ---- Page change: the sidebar stays, the main region fades 4 px in the travel direction ---- */
+:root[data-effects='instrument'][data-vt='nav'] #main { view-transition-name: main; }
+html[data-vt='nav']::view-transition-old(root) { display: none; }
+html[data-vt='nav']::view-transition-new(root) { animation: none; }
+html[data-vt='nav']::view-transition-old(main) { animation: fx-vt-out var(--d-fast) var(--ease-exit) both; }
+html[data-vt='nav']::view-transition-new(main) { animation: fx-vt-in 180ms var(--ease-out) both; }
+html[data-vt='nav'][data-dir='back']::view-transition-new(main) { animation-name: fx-vt-in-back; }
+
+/* The page entry is part of the transition: it must not play twice. */
+html[data-effects='instrument'][data-vt='nav'] .fx-page { animation: none; }
+/* A history pop has no transition: the entry moves the other way. */
+:root[data-effects='instrument'][data-dir='back'] .fx-page { animation-name: fx-vt-in-back; }
+
+/* ---- Shared elements travel on the spring while the rest fades ---- */
+html[data-vt='nav']::view-transition-group(zone-title),
+html[data-vt='nav']::view-transition-group(zones-panel) {
+  animation-duration: var(--d-spring);
+  animation-timing-function: var(--spring);
+}
+html[data-vt='nav']::view-transition-old(zone-title),
+html[data-vt='nav']::view-transition-new(zone-title) { height: 100%; }
+html[data-vt='nav']::view-transition-old(zones-panel) { animation: fx-vt-out 120ms ease both; }
+html[data-vt='nav']::view-transition-new(zones-panel) { animation: fx-vt-in-fade 160ms ease both; }
+
+/* ---- Theme switch: the whole document cross-fades ---- */
+html[data-vt='theme']::view-transition-old(root),
+html[data-vt='theme']::view-transition-new(root) { animation-duration: 220ms; animation-timing-function: ease; }
+
+/* ---- reduced: a 100 ms cross-fade, nothing travels ---- */
+html[data-motion='reduced'][data-vt='nav'][data-dir]::view-transition-old(main),
+html[data-motion='reduced'][data-vt='nav'][data-dir]::view-transition-new(main) { animation: fx-vt-in-fade 100ms ease both; }
+html[data-motion='reduced'][data-vt='nav'][data-dir]::view-transition-old(main) { animation-name: fx-vt-out; }
+html[data-motion='reduced']::view-transition-group(*) { animation-duration: 100ms; }
+html[data-motion='reduced'][data-vt='theme']::view-transition-old(root),
+html[data-motion='reduced'][data-vt='theme']::view-transition-new(root) { animation-duration: 100ms; }
+html[data-effects='instrument'][data-motion='reduced'][data-dir='back'] .fx-page { animation-name: fx-fade; }
+
+/* ---- off: no transition ever starts; this is the safety net ---- */
+html[data-motion='off']::view-transition-group(*),
+html[data-motion='off']::view-transition-old(*),
+html[data-motion='off']::view-transition-new(*) { animation: none !important; }
+
+@keyframes fx-vt-in { from { opacity: 0; transform: translateY(4px); } }
+@keyframes fx-vt-in-back { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes fx-vt-in-fade { from { opacity: 0; } }
+@keyframes fx-vt-out { to { opacity: 0; } }
+
+/* ---- Column band: the hovered column lights, header included ---- */
+.fx-colband {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 100px;
+  transform-origin: left center;
+  background: var(--fx-hl);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+  transition: transform var(--d-spring) var(--spring), opacity var(--d-fast) ease;
+}
+.fx-colband.is-on { opacity: 1; }
+.fx-colband.is-jump { transition: opacity var(--d-fast) ease; }
+:root:not([data-effects='instrument']) .fx-colband { display: none; }
+th.is-col-hover {
+  color: var(--text-primary);
+  background-image: linear-gradient(var(--fx-hl), var(--fx-hl));
+}
+
+html[data-motion='reduced'] .fx-colband { transition: opacity var(--d-fast) ease; }
+
+/* ---- Magnetic primary buttons: a one pixel lean on the spring ---- */
+:root[data-effects='instrument'] [data-magnetic] {
+  transition: translate var(--d-spring) var(--spring), background-color var(--d-quick) ease, border-color var(--d-quick) ease, color var(--d-quick) ease;
+}
+html[data-motion='reduced'] [data-magnetic] { translate: none !important; }
+
+/* ---- Legacy scale-in of the hand-made select list: no scale below full ---- */
+html[data-motion='reduced'] .animate-scaleIn { animation-name: fx-fade; }

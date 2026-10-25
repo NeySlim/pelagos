@@ -90,7 +90,7 @@ export function SelectComponent({
 
         <Select.Portal>
           <Select.Content
-            className="bg-secondary-op95 backdrop-blur-md border border-border-op50 rounded-lg shadow-xl shadow-black/30 overflow-hidden z-50 animate-scaleIn"
+            className="ui-menu bg-secondary-op95 backdrop-blur-md border border-border-op50 rounded-lg shadow-xl shadow-black/30 overflow-hidden z-50"
             position="popper"
             sideOffset={4}
           >

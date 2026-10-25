@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Application layout: desktop sidebar or mobile header with a grid menu, the routed
 // page in <Outlet/>, and the floating detail windows above everything.
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Outlet, useLocation, Link, useNavigate } from 'react-router-dom'
+import { Outlet, useLocation, useNavigationType, Link, useNavigate } from 'react-router-dom'
 import { List, X, House, UserCircle, SignOut } from '@phosphor-icons/react'
 import { Sidebar, useVisibleNavItems } from './Sidebar'
 import { WebSocketIndicator } from './WebSocketIndicator'
 import { Logo } from './Logo'
 import { AppBackdrop, AmbientScreen, IconButton, PageTransition } from './motion'
 import { useBootSequence } from '../hooks/useBootSequence'
+import { useMagnetic } from '../hooks/useMagnetic'
+import { navDirection } from '../lib/viewTransition'
 import { useTheme } from '../contexts/ThemeContext'
 import { cn } from '../lib/utils'
 import { useAuth } from '../contexts/AuthContext'
@@ -25,6 +27,14 @@ export function AppShell() {
   const { effects } = useTheme()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   useBootSequence()
+  useMagnetic()
+  // data-dir tells the page entry which way to move (a pop has no view transition).
+  const navType = useNavigationType()
+  const lastPath = useRef(location.pathname)
+  useLayoutEffect(() => {
+    document.documentElement.dataset.dir = navDirection(lastPath.current, location.pathname, navType)
+    lastPath.current = location.pathname
+  }, [location.pathname, navType])
   const visibleItems = useVisibleNavItems()
   const activeId = resolveActiveNavId(location.pathname)
 

@@ -5,6 +5,7 @@ import { useContext } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMessage } from '../../i18n/message'
 import { Link } from 'react-router-dom'
+import { useSharedName } from '../../hooks/useSharedName'
 import {
   HardDrives, ArrowsLeftRight, WarningDiamond, Globe, ChartBar, Lightning, DotsSixVertical, ArrowRight, Crown,
 } from '@phosphor-icons/react'
@@ -19,11 +20,13 @@ import { dhcpFamily, poolThresholds, formatErrorRate } from './summary'
 
 // `ambient` is a canvas layer under the body. The marks ping on the tile's domain events
 // and the sweep follows refreshes (TileRefresh); all are absent unless ambient layers are on.
-export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, status, children, bodyClassName, className, ambient }) {
+// With `shared`, the tile travels to its linked list (and back) as one panel.
+export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, status, children, bodyClassName, className, ambient, shared }) {
   const refresh = useContext(TileRefresh)
   const delay = Math.min(refresh?.order?.[id] ?? 0, SWEEP_MAX_STEPS) * SWEEP_STEP_MS
+  const sharedStyle = useSharedName(shared || 'tile', link || '/')
   return (
-    <div className={cn('h-full flex flex-col card-soft overflow-hidden dash-tile relative', className)} data-testid={`tile-${id}`}>
+    <div className={cn('h-full flex flex-col card-soft overflow-hidden dash-tile relative', className)} style={shared ? sharedStyle : undefined} data-testid={`tile-${id}`}>
       <AmbientTile>{ambient}</AmbientTile>
       <RegMarks pulse={refresh?.pulses?.[id]} />
       <Sweep trigger={refresh?.sweeps?.[id]} delay={delay} />
@@ -33,7 +36,7 @@ export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, sta
         <h3 className="ui-card-title text-sm font-semibold text-text-primary truncate">{title}</h3>
         {status}
         {link && !editing && (
-          <Link to={link} className="ml-auto inline-flex items-center gap-1 text-2xs text-text-tertiary hover:text-accent-primary">
+          <Link to={link} className="ui-tile-open ml-auto inline-flex items-center gap-1 text-2xs text-text-tertiary hover:text-accent-primary">
             {linkLabel}
             <ArrowRight size={11} />
           </Link>
@@ -222,6 +225,7 @@ export function ZoneSyncTile({ summary, editing, nameOf }) {
   return (
     <TileFrame
       id="zones"
+      shared="zones-panel"
       icon={Globe}
       title={t('tiles.zones.title')}
       link="/dns/zones"

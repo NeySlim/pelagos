@@ -20,6 +20,9 @@ import { titleCaseClass } from '../../lib/displayCase'
 import { IconButton } from '../motion/Layout'
 import { TabInk } from '../motion/Cursors'
 import { useRef } from 'react'
+import { Link } from 'react-router-dom'
+import { CaretLeft } from '@phosphor-icons/react'
+import { SharedElement } from '../motion/Shared'
 
 export function UnifiedPageHeader({
   // Title section
@@ -50,7 +53,11 @@ export function UnifiedPageHeader({
   mobileTitle = false,
   // True when the title is data (a zone or host name): the display face keeps its case.
   literalTitle,
-  
+  // { label, to }: a way back to the list this detail page was opened from (desktop).
+  breadcrumb,
+  // { name, to }: the title travels with a view transition to or from `to`.
+  sharedTitle,
+
   // Custom className
   className
 }) {
@@ -104,13 +111,19 @@ export function UnifiedPageHeader({
             </div>
           )}
           <div className="min-w-0">
+            {breadcrumb && !isMobile && (
+              <Link to={breadcrumb.to} className="ui-crumb inline-flex items-center gap-0.5 text-2xs text-text-tertiary hover:text-text-primary" data-testid="breadcrumb">
+                <CaretLeft size={10} aria-hidden="true" />
+                {breadcrumb.label}
+              </Link>
+            )}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
               <h1 className={cn(
                 "ui-page-title font-semibold text-text-primary truncate min-w-0 max-w-full",
                 titleCaseClass(title, literalTitle),
                 isMobile ? "text-sm" : "text-lg"
               )}>
-                {title}
+                {sharedTitle ? <SharedElement name={sharedTitle.name} to={sharedTitle.to}>{title}</SharedElement> : title}
               </h1>
               {badge}
             </div>

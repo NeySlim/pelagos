@@ -86,6 +86,20 @@ These primitives are tested in isolation; each gets an e2e check when a page use
   trace, which replaces the Mission radar; under Instrument the radar is a still frame.
 - Hover row actions on tables.
 
+## Navigation choreography
+
+- `lib/viewTransition.js`: `withViewTransitions(router)` wraps `router.navigate` so a page
+  change (another nav entry, or a list and its detail page) runs in a view transition;
+  `runThemeTransition` does the same for the theme switch (root cross-fade). Instrument
+  only: full travels 4 px in the direction of `data-dir`, reduced cross-fades 100 ms, off
+  never starts one. `styles/transitions.css` holds the pseudo-element rules.
+- `SharedElement` / `useSharedName(name, to)`: a node takes its `view-transition-name` only
+  while a transition to or from `to` runs (zone name, zones panel).
+- `DataTable` glides rows whose order changed (any cause) and shows a column band (one
+  delegated listener, `hooks/useColumnBand.js`); `[data-magnetic]` primary buttons lean
+  by at most 1 px (`hooks/useMagnetic.js`).
+- A running view transition swallows pointer events: e2e tests wait for `data-vt` to clear.
+
 ## Choices
 
 - **RollingNumber, not NumberFlow.** The odometer is 60 lines, rolls the unit as a

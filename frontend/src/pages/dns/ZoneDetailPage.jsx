@@ -31,6 +31,7 @@ import { useNodeNames, usePlanFlow, laggingNodes, SECONDARY_KINDS } from './help
 import { RecordEditor } from './RecordEditor'
 import { EDITABLE_TYPES, READ_ONLY_TYPES, absZone, isEditableType, relativeName } from './records'
 import { ZoneEditModal } from './ZoneEditModal'
+import { clearLists } from '../../lib/listCache'
 import { editableZone, secondaryPeers, staticFindingId, zoneDeleteRequest, zoneMode } from './zoneTools'
 
 function RecordsTab({ zone, view, editable, mode, onChanged }) {
@@ -277,7 +278,10 @@ export default function ZoneDetailPage() {
       else refetch()
     },
     onClose: () => {
-      if (deleted) navigate('/dns/zones')
+      if (deleted) {
+        clearLists('zones')
+        navigate('/dns/zones')
+      }
     },
     onError: showError,
   })
@@ -329,6 +333,8 @@ export default function ZoneDetailPage() {
       title={zone?.name || absZone(zoneParam)}
       mobileTitle
       literalTitle
+      breadcrumb={{ label: t('pages.zones.title'), to: '/dns/zones' }}
+      sharedTitle={{ name: 'zone-title', to: '/dns/zones' }}
       subtitle={t('pages.zoneDetail.subtitle')}
       badge={
         zone && (

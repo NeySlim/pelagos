@@ -3,10 +3,12 @@
 // mode (dynamic UPDATE or static file), resynchronize (retransfer on lagging
 // secondaries, notify from primaries) and the zone creation plan (zones.conf or
 // rndc addzone, optionally also as secondaries on other nodes).
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { Globe, ArrowsClockwise, Plus, ShieldCheck, Lightning } from '@phosphor-icons/react'
+import { getList, setList } from '../../lib/listCache'
+import { SharedElement } from '../../components/motion/Shared'
 import { PageLayout } from '../../components/PageLayout'
 import { DataTable } from '../../components/DataTable'
 import { Button } from '../../components/Button'
@@ -154,6 +156,8 @@ function NewZoneModal({ open, onClose, onPlan, views, peers, nodes = [] }) {
   )
 }
 
+// The last unfiltered list stays on screen while the page reopens, so a zone name can
+// travel back into its row (view transition) instead of meeting a skeleton.
 export default function ZonesPage() {
   const { t } = useTranslation(['dns', 'common'])
   const navigate = useNavigate()
@@ -167,7 +171,10 @@ export default function ZonesPage() {
   const [sync, setSync] = useState('')
   const [resyncing, setResyncing] = useState(null)
   const [creating, setCreating] = useState(false)
-  const { data, error, loading, refetch } = useApi(() => api.dns.zones({ view: view || undefined, kind: kind || undefined, q: q || undefined }), [view, kind, q])
+  const { data, error, loading, refetch } = useApi(() => api.dns.zones({ view: view || undefined, kind: kind || undefined, q: q || undefined }), [view, kind, q], { initialData: getList('zones') })
+  useEffect(() => {
+    if (data && !view && !kind && !q) setList('zones', data)
+  }, [data, view, kind, q])
   const flow = usePlanFlow({ onDone: () => refetch(), onError: showError })
 
   const items = useMemo(() => data?.items || [], [data])
@@ -208,7 +215,7 @@ export default function ZonesPage() {
       sortable: true,
       render: (row) => (
         <span className="inline-flex items-center gap-1.5">
-          <span className="font-mono text-xs text-text-primary">{row.zone.name}</span>
+          <SharedElement name="zone-title" to={zoneHref(row.zone.name, row.zone.view)} className="font-mono text-xs text-text-primary">{row.zone.name}</SharedElement>
           {row.zone.dnssec_policy && <ShieldCheck size={13} className="text-accent-primary" title={t('zones.signed')} />}
           {row.zone.dynamic && <Lightning size={13} className="text-text-tertiary" title={t('zones.dynamic')} />}
         </span>
@@ -300,6 +307,7 @@ export default function ZonesPage() {
           ]}
           onRowClick={(row) => navigate(zoneHref(row.zone.name, row.zone.view))}
           emptyTitle={t('zones.empty')}
+          shared={{ name: 'zones-panel', to: '/' }}
           testId="zones-table"
         />
       </div>

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Providers and the router. Routes come from the area registry (pages/routes.js);
 // each one is gated by the session, its permission and its module flag.
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { Suspense } from 'react'
+import { createBrowserRouter, RouterProvider, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Suspense, useState } from 'react'
 import { AuthProvider, ThemeProvider, NotificationProvider, MobileProvider, WindowManagerProvider, MotionProvider, useAuth } from './contexts'
 import { WebSocketProvider } from './hooks/useWebSocket'
 import { AppShell } from './components/AppShell'
@@ -11,7 +11,8 @@ import { LoadingSpinner } from './components/LoadingSpinner'
 import { DetailWindowLayer } from './components/FloatingDetailWindow'
 import { RouteStatus } from './components/RouteStatus'
 import LoginPage from './pages/auth/LoginPage'
-import { allRoutes } from './pages/routes'
+import { allRoutes, resolveActiveNavId } from './pages/routes'
+import { withViewTransitions } from './lib/viewTransition'
 import { permitted } from './lib/access'
 
 export function PageLoader() {
@@ -60,25 +61,33 @@ export function AppRoutes() {
   )
 }
 
+function Providers({ wsClient }) {
+  return (
+    <AuthProvider>
+      <NotificationProvider>
+        <WebSocketProvider client={wsClient}>
+          <MobileProvider>
+            <WindowManagerProvider>
+              <AppRoutes />
+              <DetailWindowLayer />
+            </WindowManagerProvider>
+          </MobileProvider>
+        </WebSocketProvider>
+      </NotificationProvider>
+    </AuthProvider>
+  )
+}
+
+// A data router, so links and navigate() can run inside view transitions.
 export default function App({ wsClient }) {
+  const [router] = useState(() =>
+    withViewTransitions(createBrowserRouter([{ path: '*', element: <Providers wsClient={wsClient} /> }]), { idOf: resolveActiveNavId }),
+  )
   return (
     <ErrorBoundary>
       <ThemeProvider>
         <MotionProvider>
-          <BrowserRouter>
-            <AuthProvider>
-              <NotificationProvider>
-                <WebSocketProvider client={wsClient}>
-                  <MobileProvider>
-                    <WindowManagerProvider>
-                      <AppRoutes />
-                      <DetailWindowLayer />
-                    </WindowManagerProvider>
-                  </MobileProvider>
-                </WebSocketProvider>
-              </NotificationProvider>
-            </AuthProvider>
-          </BrowserRouter>
+          <RouterProvider router={router} />
         </MotionProvider>
       </ThemeProvider>
     </ErrorBoundary>

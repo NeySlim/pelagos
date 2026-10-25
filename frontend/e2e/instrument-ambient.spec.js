@@ -27,10 +27,10 @@ test('tiles carry canvas layers and registration marks, and the loop runs while 
   const dns = page.getByTestId('tile-dns')
   await expect(dns.getByTestId('ambient-wave')).toBeAttached()
   await expect(page.getByTestId('tile-dhcp').getByTestId('ambient-spectrum')).toBeAttached()
-  await expect(page.getByTestId('tile-radar').getByTestId('ambient-dots')).toBeAttached()
+  await expect(page.getByTestId('tile-trace').getByTestId('ambient-dots')).toBeAttached()
   await expect(dns.getByTestId('reg-marks')).toBeAttached()
   await expect.poll(() => painted(dns.getByTestId('ambient-wave'))).toBe(true)
-  await expect.poll(() => painted(page.getByTestId('tile-radar').getByTestId('ambient-dots'))).toBe(true)
+  await expect.poll(() => painted(page.getByTestId('tile-trace').getByTestId('ambient-dots'))).toBe(true)
   // The layers sit under the data and never take the pointer.
   expect(await style(dns.getByTestId('ambient-tile'), 'pointerEvents')).toBe('none')
   const before = await page.evaluate(() => window.__pelagosLoop().frames)
@@ -120,9 +120,9 @@ test.describe('reduced motion and ambient layers', () => {
     await expect(page.locator('.fx-sweep.is-go, .fx-regs.is-ping')).toHaveCount(0)
   })
 
-  test('the wave is visible through the query panel, not hidden under it', async ({ page }) => {
+  test('the wave is visible through the DNS tile, not hidden under it', async ({ page }) => {
     await signIn(page)
-    const panel = page.getByTestId('tile-dns').locator('.dash-subpanel')
+    const panel = page.getByTestId('tile-dns')
     const wave = panel.getByTestId('ambient-wave')
     await expect.poll(() => painted(wave)).toBe(true)
     await page.waitForTimeout(500)

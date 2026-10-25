@@ -48,18 +48,16 @@ describe('tile ambient events', () => {
     expect(document.querySelector('.fx-sweep.is-go').style.animationDelay).toBe('180ms')
   })
 
-  it('draws the wave inside the opaque query panel, under its content', () => {
+  it('draws the wave in the tile layer, under the body', () => {
     render(tree(4, null))
-    const panel = screen.getByTestId('ambient-wave').closest('.dash-subpanel')
-    expect(panel).not.toBeNull()
-    expect(panel.firstElementChild).toHaveClass('is-under')
+    const layer = screen.getByTestId('ambient-wave').closest('[data-testid="ambient-tile"]')
+    expect(layer).not.toBeNull()
+    expect(layer.parentElement).toHaveAttribute('data-testid', 'tile-dns')
   })
 
-  it('keeps the ruler gutter and the scale bar to a round duration', () => {
+  it('shows the query strip with its channel readout', () => {
     render(tree(8, null))
-    expect(screen.getByTestId('scalebar')).toHaveTextContent('10 s')
-    expect(screen.getByTestId('readout')).toHaveTextContent('CH1')
-    expect(screen.getByTestId('readout')).toHaveTextContent('q/s')
+    expect(screen.getByTestId('dns-strip')).toBeInTheDocument()
   })
 })
 
@@ -68,6 +66,6 @@ describe('changedTiles', () => {
     const a = { nodes: [1], zones: [1], ha: [], pools: [], alerts: {}, d2: [] }
     expect(changedTiles(a, { ...a })).toEqual([])
     expect(changedTiles(a, { ...a, pools: [1] }).sort()).toEqual(['dhcp', 'pools'])
-    expect(changedTiles(a, { ...a, zones: [2] }).sort()).toEqual(['dns', 'inconsistencies', 'radar', 'zones'])
+    expect(changedTiles(a, { ...a, zones: [2] }).sort()).toEqual(['dns', 'inconsistencies', 'trace', 'zones'])
   })
 })

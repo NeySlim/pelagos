@@ -343,6 +343,11 @@ def test_ha_heartbeat_window_from_age_and_kea_clock(kea3):
     ha = backend.ha_state()
     hb = ha.heartbeat
     assert hb is not None and hb["age"] == 3 and hb["kea_time"] == "2026-10-25T15:21:25.000Z"
+    # status-get carries no unsent count; ha-heartbeat does.
+    assert ha.unsent_update_count == 0
+    beat = {"date-time": "Sun, 25 Oct 2026 15:21:30 GMT", "unsent-update-count": 7}
+    fake.overrides["ha-heartbeat"] = ok(beat)
+    assert backend.ha_state().unsent_update_count == 7
     assert ("ha-heartbeat", {"server-name": ha.server_name}) in fake.sent
     assert from_rfc3339(hb["lo"]) <= from_rfc3339(hb["hi"])
     # Pure bounds: (T - age - 1, T - age] with T inside the exchange, capped by Kea's clock + 1 s.

@@ -414,8 +414,14 @@ class KeaBackend(DhcpBackend):
             kea_now = None
             try:
                 args = {"server-name": ha.server_name} if ha.server_name else None
-                kea_now = kea_time(self.socket.call("ha-heartbeat", args))
-            except (ConnectorError, OSError, ValueError):
+                beat = self.socket.call("ha-heartbeat", args)
+                kea_now = kea_time(beat)
+                # status-get has no unsent count: only ha-heartbeat reports the queue to the partner.
+                unsent = beat.get("unsent-update-count")
+                counted = isinstance(unsent, int) and not isinstance(unsent, bool)
+                if ha.unsent_update_count is None and counted:
+                    ha.unsent_update_count = unsent
+            except (ConnectorError, OSError, ValueError, AttributeError):
                 kea_now = None
             ha.heartbeat = heartbeat_window(ha.partner.age, sent, received, kea_now)
         return ha

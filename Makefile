@@ -61,7 +61,7 @@ test-daemon:
 test-e2e:
 	cd $(FRONTEND) && npx playwright test
 
-# README and guide screenshots from the mock server, Pelagic theme, dark and light.
+# README and user documentation screenshots from the mock server, Mission Control theme, dark and light.
 screenshots:
 	cd $(FRONTEND) && node e2e/screenshots.mjs ../docs/images
 

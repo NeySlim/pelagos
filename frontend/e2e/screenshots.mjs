@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Documentation screenshots against the mock server, dark and light. The theme family is
 // Mission Control unless SCREENSHOT_FAMILY names another; SCREENSHOT_VIEWPORT=WxH changes the size.
+// SCREENSHOT_SCENES=nodes,dhcp-ha takes only the named scenes.
 // Usage (from frontend/): node e2e/screenshots.mjs [output dir, default ../docs/images]
 // Starts its own mock and Vite servers on free ports, so it runs next to other servers.
 import { spawn } from 'node:child_process'
@@ -95,7 +96,21 @@ const SCENES = [
     await page.goto('/alerts')
     await page.getByTestId('alerts-table').getByTestId('data-table-row').first().waitFor()
   }],
+  ['nodes', async (page) => {
+    await page.goto('/nodes')
+    await page.getByTestId('nodes-table').getByTestId('data-table-row').first().waitFor()
+  }],
+  ['security-audit', async (page) => {
+    await page.goto('/install/security')
+    await page.getByTestId('security-finding').first().waitFor()
+  }],
+  ['dhcp-ha', async (page) => {
+    await page.goto('/dhcp/v4/ha')
+    await page.getByTestId('ha-server').first().waitFor()
+  }],
 ]
+const ONLY = (process.env.SCREENSHOT_SCENES || '').split(',').filter(Boolean)
+const SELECTED = ONLY.length ? SCENES.filter(([name]) => ONLY.includes(name)) : SCENES
 
 async function main() {
   mkdirSync(out, { recursive: true })
@@ -128,7 +143,7 @@ async function main() {
       }, FAMILY)
       const page = await context.newPage()
       await signIn(page)
-      for (const [name, steps] of SCENES) {
+      for (const [name, steps] of SELECTED) {
         await steps(page)
         await settle(page)
         const file = resolve(out, `${name}-${scheme}.png`)

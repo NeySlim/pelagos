@@ -277,8 +277,8 @@ def step_user(env: Any, change: Change) -> str:
     return "; ".join(out)
 
 
-def step_service(env: Any, engine: str, planned: str | None = None) -> str:
-    unit = env.bind_unit() if engine == "bind" else env.kea_unit(engine, fallback=planned)
+def step_service(env: Any, engine: str) -> str:
+    unit = env.bind_unit() if engine == "bind" else env.kea_unit(engine)
     notes: list[str] = []
     if engine != "bind" and env.packages.is_installed(env.paths.kea_packages_for([engine], isc=True)[0]):
         notes = disable_stale_apparmor(env)
@@ -392,6 +392,9 @@ def install_steps(plan: Plan, env: Any) -> list[Step]:
     ctx = InstallContext(env)
     steps: list[Step] = []
     for change in plan.changes:
+        if change.target.startswith("install/service/") and (change.after or {}).get("unit"):
+            env.planned_units[change.target.rsplit("/", 1)[1]] = change.after["unit"]
+    for change in plan.changes:
         if env.node_id not in change.node_ids:
             continue
         t = change.target
@@ -404,8 +407,7 @@ def install_steps(plan: Plan, env: Any) -> list[Step]:
             steps.append(Step(t, lambda c=c: step_user(env, c)))
         elif t.startswith("install/service/"):
             engine = t.rsplit("/", 1)[1]
-            planned = (c.after or {}).get("unit")
-            steps.append(Step(t, lambda e=engine, u=planned: step_service(env, e, u)))
+            steps.append(Step(t, lambda e=engine: step_service(env, e)))
         elif t == "install/bind/adopt":
             steps.append(Step(t, lambda c=c: step_bind_adopt(env, c, ctx), weight=2))
         elif t.endswith("/config") and t.split("/")[1] in KEA_DAEMONS:

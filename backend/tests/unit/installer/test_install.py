@@ -149,6 +149,19 @@ def test_install_dry_run_on_a_fresh_host(tmp_path, distro):
         assert out[f"install/service/{engine}"] == f"dry run: would enable and start {unit}"
         planned = next(c for c in plan.changes if c.target == f"install/service/{engine}")
         assert planned.after["unit"] == unit
+        assert env.kea_unit(engine) == unit
+
+
+def test_socket_dropin_follows_the_planned_unit(tmp_path):
+    """Kea 2.x from ISC on a host with no Kea yet: the drop-in goes to the ISC unit."""
+    env = make_env(tmp_path, kea_version="2.6.3")
+    env.dry_run = True
+    env.binaries.update({"named": None, "kea-dhcp4": None})
+    plan = build_install_plan(env, ["kea4"], "isc")
+    job = apply_plan(plan, env)
+    out = {s["name"]: s["output"] for s in job.steps}
+    unit = env.paths.kea_services_isc["kea4"]
+    assert f"/{unit}.d/" in out["install/kea4/config"], out["install/kea4/config"]
 
 
 def test_job_runner_stops_at_first_failure():

@@ -184,6 +184,8 @@ class InstallerEnv:
     package_manager: Any = None  # PackageManager or a test double
     # Secrets verified for this run (new TSIG key name -> secret), from sealed peer steps.
     plan_secrets: dict[str, str] = field(default_factory=dict)
+    # Kea units an install plan expects (engine -> unit) until the packages bring them.
+    planned_units: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.tools is None:
@@ -265,7 +267,7 @@ class InstallerEnv:
         for unit in self.paths.kea_service_candidates(engine):
             if self.services.exists(unit):
                 return unit
-        return fallback or self.paths.kea_services_distro[engine]
+        return fallback or self.planned_units.get(engine) or self.paths.kea_services_distro[engine]
 
     def bind_unit(self) -> str:
         return self.paths.bind_service

@@ -127,18 +127,26 @@ records in one plan.
 A Kea HA relationship (`libdhcp_ha.so`) is a pair of active servers
 (`primary` and `standby` in hot-standby, `primary` and `secondary` in
 load-balancing, or a lone `primary` in passive-backup) plus any number of
-`backup` servers. The screen shows:
+`backup` servers. With Kea 3 a server may belong to several relationships
+(hub and spoke, below); the screen then has one section per relationship.
+Each section shows:
 
 - the summary and the rail: the pair joined by the HA link, then each backup
   after a dashed line (it receives the lease updates);
 - "Servers of the relationship": every configured server with its role, the
   node that runs it ("not a Pelagos node" for a server outside the
   cluster), its state (for a server outside the cluster, as its partner last
-  saw it), whether its partner is in touch, and its HA listener URL;
-- one card per server Pelagos runs: state, mode, role, scopes served, the
-  partner as seen from here (state, last contact, in touch or not), unsent
-  lease updates, unacked clients, DHCP service enabled or disabled;
-- the history of state transitions.
+  saw it), whether its partner is in touch, its lease count (the time of the
+  newest lease on hover) and its HA listener URL;
+- one card per server Pelagos runs. An active server's card: state, mode,
+  role, scopes served, the partner as seen from here (name, state, last
+  contact, in touch or not), unsent lease updates, unacked clients, lease
+  count, DHCP service enabled or disabled. A backup's card: role Backup,
+  what it receives (lease updates from the active servers), the last lease
+  update it saw, and its lease count against the primary's ("in step"
+  within 2 leases or 1 %, else how far apart, the rule of
+  `ha_backup_out_of_sync`);
+- the history of state transitions (every relationship).
 
 Alerts:
 
@@ -154,10 +162,25 @@ Alerts:
   for 5 minutes: it stopped receiving lease updates.
 - `ha_transition` (info): each state change, also kept as a series.
 
+A hub raises these for each of its relationships (the second one and later
+carry the server name in their subject, `ha:kea4:<server name>`).
+
+`config_divergence` compares the Kea servers of each relationship on what
+they must share: subnets and shared networks (pools, reservations, options,
+lifetimes, classes they name), global reservations, options, option
+definitions and client classes, and the relationship itself (mode, every
+peer's name, URL, role and auto-failover). Keys that differ by nature are
+left out: `this-server-name`, interfaces, control sockets, loggers, lease
+database, hook library paths, the HA hook's timers and multi-threading,
+DDNS settings, and the defaults one Kea version writes and another does not
+(a backup on Kea 3.0 next to a pair on 2.6 is compared fine). Servers that
+belong to no relationship are compared with each other. The alert's details
+name the relationship and the hash of each node.
 ### Set up or edit the relationship
 
-"Set up HA" (no relationship yet) or "Edit relationship"
-(`write:dhcp.config`) opens the relationship form: the mode, then one row
+"Set up HA" (no relationship yet) or "Edit relationship" ("Edit
+relationships" for a hub, `write:dhcp.config`) opens the relationship form:
+per relationship the mode, then one row
 per server with its name (`this-server-name`), the URL of its HA listener,
 its role and the cluster node that runs it ("not a Pelagos node" for a
 server you configure by hand with the same list). "Add a server" adds a
@@ -169,6 +192,26 @@ one part per node: each node writes the `ha` hook under its own name, adds
 a later node refuses. "Remove HA" drops the hook from every node where HA
 is on.
 
+Plans survive a restart of the web process until they expire: a setup
+previewed, then applied or rolled back after `pelagos` restarted, behaves
+as if nothing happened (see [Operations](operations.md#plans-across-restarts)).
+
+### Hub and spoke (Kea 3)
+
+A hub is one Kea 3 server in several relationships, for example the
+standby of two sites that each run their own primary. "Add a relationship"
+in the form adds one: the hub's server comes prefilled under a new name
+(`<name>-2`) and a new port, next to an empty primary. Each relationship has
+its own mode and servers; a server name and a URL are used in one
+relationship only (the hub listens on its own port in each), and a node runs
+one server per relationship. The plan writes on the hub one
+`high-availability` entry per relationship, each with its own
+`this-server-name`, and on each spoke its own relationship. A subnet goes
+to a relationship through `user-context.ha-server-name` (the hub's name in
+that relationship); Pelagos does not set it. Kea 2.6 runs one relationship
+per server: a plan putting a Kea 2.6 node in two is refused with
+"needs Kea 3.0 or later". "Remove this relationship" in the form drops one;
+"Remove HA" drops them all.
 ### Backup servers
 
 A backup receives every lease update from the active servers and answers no
@@ -197,7 +240,11 @@ To reboot or upgrade one server of the pair (`ops:dhcp.ha`):
    which takes over every client (`partner-in-maintenance`) while the
    server enters `in-maintenance`. The partner is found by its server name,
    from any node of the cluster; backups keep receiving lease updates and
-   stay `backup`.
+   stay `backup`. For a hub, the plan goes to its partner in every
+   relationship (each spoke takes over its own clients). Kea applies
+   maintenance to every relationship of the server it is sent to: the
+   maintenance of a spoke, sent to its hub, also puts the hub's other
+   partners `in-maintenance`; the plan's diff says so.
 2. Stop and work on the server. DHCP keeps running on the partner, which
    moves to `partner-down` once the server is gone. Pelagos knows it started
    that maintenance: the partner raises `ha_degraded` (a warning marked

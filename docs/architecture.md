@@ -142,7 +142,7 @@ pelagos/
     audit_log.py       JSONL append, read, merge
     secrets.py         AES-256-GCM with the master key
     write_pipeline.py  backup, write, validate, reload, verify, rollback
-    plans.py           PlanStore (in-memory, TTL) and plan lifecycle
+    plans.py           PlanStore (memory and encrypted files, TTL) and plan lifecycle
     replication.py     client and server (mTLS), pull-on-start, push-on-write, ReplicationService
     relay_events.py    what a node may relay to its peers' UIs (POST /repl/v1/events)
     ha_maintenance.py  HA maintenance windows started from Pelagos (ha_partner_down kept quiet)
@@ -197,7 +197,7 @@ Pelagos paths (identical on every distro, overridable in `node.toml`
 | `/var/lib/pelagos/series.sqlite` | local series cache (section 15) | pelagos, 0640 |
 | `/var/lib/pelagos/pki/` | `ca.crt`, `ca.key` (first node only), `node.crt`, `node.key` | pelagos, 0600 |
 | `/var/lib/pelagos/backups/<engine>/<timestamp>-<plan id>/` | write pipeline backups | pelagos, 0750 |
-| `/var/lib/pelagos/plans/` | reserved (plans are in memory in v1) | |
+| `/var/lib/pelagos/plans/` | one encrypted file per plan built on this node, `<id>.plan` (section 6) | 0700, files 0600 |
 | `/var/lib/pelagos/plan_tombstones.json` | ids of plans built here and when they expire (section 6) | pelagos, 0600 |
 | `/run/pelagos/` | pid files, Unix socket of the web process when used behind a proxy | pelagos, 0750 |
 
@@ -470,6 +470,7 @@ class HAState(Model):           # status-get -> arguments.high-availability[0]
     raw: dict[str, Any] = {}
     heartbeat: dict[str, Any] | None = None
     peers: list[HAPeer] = []         # the relationship as configured (config-get, cached 30 s)
+    other_relationships: list[HAState] = []  # Kea 3 hub: its other relationships, one HAState each
 ```
 
 An HA relationship is one pair of active servers (`primary` with `standby` in
@@ -482,6 +483,21 @@ contact. `validate_setup`, `relationship_entry` and `hooks_with_ha` build the
 `ha` hook entry of each server for `KeaBackend.plan_ha_setup(spec,
 this_server)` (a `hooks-libraries` change on the config path; Kea 2.6 and
 3.x take the same structure).
+
+Kea 3 hub and spoke: one server in several relationships, under its own
+`this-server-name` and listener URL in each (`high-availability` holds one
+entry per relationship). `HAState` describes the first one and carries the
+others in `other_relationships` (each with its peers and heartbeat;
+`ha-heartbeat` is sent with the relationship's `server-name`);
+`connectors.kea.ha.flatten(states)` gives one `HAState` per relationship
+and `relationships()` groups those. `plan_ha_setup(spec, None)` takes
+`spec = {"relationships": [{...relationship, "this_server"}], "hooks_dir"?}`
+and refuses more than one relationship on Kea 2.x. `validate_relationships`
+checks a setup with one or several relationships (names and URLs unique
+across them, one server per node in each). A subnet belongs to a
+relationship through `user-context.ha-server-name` (Kea's own rule, not set
+by Pelagos). Kea applies `ha-maintenance-start/cancel` to every
+relationship of the server that receives it.
 
 ```python
 
@@ -897,7 +913,8 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
    applied before it is rolled back in reverse order. The top plan carries
    the parts' changes tagged with their `node_ids`, their diffs under a
    `# <node>` header, their preconditions and validations
-   (`services.composite.merge_parts`). Parts live in memory with the plan.
+   (`services.composite.merge_parts`). Parts live with the plan in the
+   `PlanStore` (`set_parts`, `parts`) and are saved with it (step 5).
 3. One `AuditEntry` per node per plan, plus one summary entry
    (`action = "<scope>.apply"`) with the full diff. The web process writes the
    entry of its own node (`request.entry = "node"`, `action = "<scope>.<op>"`,
@@ -915,8 +932,18 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
    appends one line to `plan_tombstones.json.journal` (0600, no fsync); the
    journal is folded into the file on load, on a sweep that expires plans and
    past 64 KiB. After a
-   restart every recorded id is expired (the plan was only in the previous
-   run's memory). An explicit delete forgets the id (`404`). The UI offers
+   restart every recorded id whose plan file is gone is expired. An explicit
+   delete forgets the id (`404`).
+   Plans also survive a restart of the web process: with the master key,
+   `PlanStore` writes each plan and its parts to
+   `/var/lib/pelagos/plans/<id>.plan` (0600 in a 0700 directory) on every
+   `put`, `update`, `touch` and `set_parts`, as one token of
+   `SecretBox.encrypt("plan-store/<id>", json)` (the plan's own sealed D2
+   secrets stay sealed inside). On start it loads the files still within
+   their TTL (same TTL, same `410` once expired); the others, and files it
+   cannot decrypt, are removed. A plan found `APPLYING` comes back `FAILED`
+   with "interrupted by a restart of the web process" (never rolled back
+   automatically). Without the master key plans stay in memory only. The UI offers
    "Recompute the plan" on `410`, on `404` and when the countdown runs out:
    `PlanPreview` takes an `onRecompute` callback that builds the plan again
    from the same inputs and resolves to the new plan.
@@ -1426,7 +1453,7 @@ run under the collector's backend lock):
 | `dns.zone.plan` | `{"change": Change, "created_by"}` | `{"plan": Plan}` built by this node's BIND (`plan_zone_change`) |
 | `dhcp.adopt.plan` | `{"engine": "kea4"|"kea6"|"d2", "source": "file"|"running", "created_by"}` | `{"plan": Plan}` (`plan_adopt` of this node's file) |
 | `dhcp.config.plan` | `{"engine", "config", "created_by"}` | `{"plan": Plan}` (whole-configuration replace of this node; D2 secrets sealed in the plan) |
-| `dhcp.ha.plan` | `{"engine": "kea4"|"kea6", "spec": {...} | null, "this_server", "created_by"}` | `{"plan": Plan}` (this node's part of an HA setup: `plan_ha_setup`; `spec` null removes the hook) |
+| `dhcp.ha.plan` | `{"engine": "kea4"|"kea6", "spec": {...} | null, "this_server", "created_by"}` | `{"plan": Plan}` (this node's part of an HA setup: `plan_ha_setup`; `spec` null removes the hook; a hub gets `spec = {"relationships": [{..., "this_server"}]}` and `this_server` null, a node in one relationship the single-relationship form every version takes) |
 | `ops.run` | `{"engine": "bind"|"v4"|"v6"|"d2", "name", "params", "confirm", "user", "client_ip"}` | `{"output"}`: an allow-listed write operation, audited here as `node:<caller>` with `request.requested_by` |
 
 A plan built this way is stored by the caller (`PeerGateway.build_plan`
@@ -1779,10 +1806,37 @@ Alert kinds and rules (thresholds from `settings`):
 | `ha_partner_down` | critical | state `partner-down` or partner `in_touch == false`, outside an HA maintenance window started from Pelagos (then `ha_degraded`); the title names the partner server; a backup has no partner and never raises it |
 | `ha_backup_out_of_sync` | warning | a backup's assigned lease count differs from the primary's (an active server's when the primary is not read) by more than max(2, 1 %) for 5 minutes; raised by the peers poller from the `ha` and `utilization` snapshots, node = the backup, subject `ha-backup:<engine>` |
 | `ha_transition` | info | state changed since the last poll (also a `ha_transitions` row) |
+
+The `ha_*` alerts above have subject `ha:<engine>`; a Kea 3 hub raises them
+for each relationship, the second one and later with subject
+`ha:<engine>:<server name>`. `ha_backup_out_of_sync` compares a backup with
+the primary of its own relationship and never with a hub (whose lease count
+covers several relationships).
+
+Kea config divergence (`collector.kea_shared`): the `config_hash` snapshot
+carries, next to `hash` and `normalized`, `shared` (sha256 of what a server
+hands out) and `relationships` (`[{"this", "servers", "hash"}]`, one per
+relationship the server is in, hashing the relationship's mode and peers
+(name, URL, role, auto-failover) with the shared view of its subnets). The
+shared view keeps subnets and shared networks (id, prefix, pools,
+prefix-delegation pools, reservations, options, relay, lifetimes and
+timers, class names), global reservations, options, option definitions and
+client classes; it drops per-server keys and version defaults (empty
+values, `0.0.0.0`, option flags at their defaults, `name` beside `code`,
+blanks in pool ranges, MAC case). On a hub, a relationship's subnets are
+those whose `user-context.ha-server-name` names one of its servers, plus
+untagged ones. The peers poller joins relationships whose server lists
+share a name (so a peer list that differs is caught), alerts when the
+nodes of one group publish different hashes, and compares nodes in no
+relationship with each other by `shared`. A node that publishes no
+`relationships` (an older version) makes the comparison fall back to
+`normalized`, then `hash`, across every node. Details: `hashes` (node ->
+hash of the divergent nodes) and `relationships` (`[{"servers",
+"hashes"}]`).
 | `d2_errors` | warning | `(update-error + update-timeout) / update-sent` over the last hour > `alerts_d2_error_rate` |
 | `daemon_down` | critical | a configured local daemon does not answer |
 | `peer_offline` | warning | peer unreachable for 3 polls |
-| `config_divergence` | warning | Kea `config-hash-get` differs between HA peers (subject `<engine>:config-hash`), or a Kea file differs from `config-get` (subject `<engine>:config-file`, kea4, kea6, d2), or cluster.toml schema mismatch (subject `schema:<peer id>`) |
+| `config_divergence` | warning | what the Kea servers of an HA relationship must share differs (subject `<engine>:config-hash`, below), or a Kea file differs from `config-get` (subject `<engine>:config-file`, kea4, kea6, d2), or cluster.toml schema mismatch (subject `schema:<peer id>`) |
 | `lease_without_record` | info | active lease with `fqdn_fwd` true and no A/AAAA for its hostname in the forward zone |
 | `record_without_lease` | info | A/AAAA with a DHCID whose lease no longer exists |
 | `reservation_mismatch` | warning | reservation hostname/IP disagrees with the A/PTR records |
@@ -1969,9 +2023,9 @@ the API normalizes to the absolute form.
 | `POST /dhcp/{family}/leases/{ip}/delete/plan` | `ops:dhcp.leases` | `{"node_id"?}` (default every node holding the lease, HA partner and backups alike, since lease commands are not replicated by the ha hook; with `node_id` that node only; `404` when no node holds it) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/utilization?node_id=` | `read:dhcp` | | `{"items": [{"subnet_id","subnet","pool","total","assigned","declined","percent"}]}` |
 | `GET /dhcp/{family}/stats?node_id=` | `read:dhcp` | | `{"node_id", "statistics": {...}}` |
-| `GET /dhcp/{family}/ha` | `read:dhcp` | | `{"items": [HAState], "relationships": [{"family","mode","servers":[{"name","role","url","auto_failover","node_id","node_name","state","scopes","unsent_update_count","partner","in_touch","collected_at","managed"}],"active":[name],"backups":[name]}]}` |
-| `POST /dhcp/{family}/ha/setup/plan` | `write:dhcp.config` | `{"mode","servers":[{"name","url","role","auto_failover"?,"node_id"?}], tunables?, "hooks_dir"?}` or `{"remove": true, "node_ids"?}` (roles checked per mode as Kea does; one part per node with a `node_id`, built there over `dhcp.ha.plan`: its `hooks-libraries` with the `ha` hook under its own `this-server-name`, `lease_cmds` added when missing; `remove` drops the hook from `node_ids`, default every node where HA is on) | `Plan` (scope `dhcp.config`, `requires_confirmation`, applied part by part) |
-| `POST /dhcp/{family}/ha/maintenance/plan` | `ops:dhcp.ha` | `{"node_id","action":"start"|"cancel"}` (`node_id`: the server that goes in-maintenance or leaves it; the plan is applied on its HA partner, found by server name among every node (a server shut down: the only active server left, or the one in `partner-in-maintenance` for a cancel), which stays up as `partner-in-maintenance`; a backup server is refused with `400`) | `Plan` (`requires_confirmation`) |
+| `GET /dhcp/{family}/ha` | `read:dhcp` | | `{"items": [HAState], "relationships": [{"family","mode","servers":[{"name","role","url","auto_failover","node_id","node_name","state","scopes","unsent_update_count","partner","in_touch","collected_at","managed","leases","last_lease_at","receives_from"?,"lease_reference"?}],"active":[name],"backups":[name]}]}`: one relationship per entry (a hub's are separate); `leases` (assigned addresses) and `last_lease_at` (newest client transaction, on a backup the last lease update it received) come from the collector's `utilization` and `recent_leases` snapshots (null when unknown); a backup also has `receives_from` (the active servers) and `lease_reference` (`{"server","leases"}`, the primary of its relationship, never a hub, or null) |
+| `POST /dhcp/{family}/ha/setup/plan` | `write:dhcp.config` | `{"mode","servers":[{"name","url","role","auto_failover"?,"node_id"?}], tunables?, "hooks_dir"?}`, or `{"relationships": [{"mode","servers",tunables?}], "hooks_dir"?}` (Kea 3 hub and spoke: a node may run a server in several, names and URLs unique across them, field errors under `relationships[<i>].`; a Kea 2.x node in two is refused with `400`), or `{"remove": true, "node_ids"?}` (roles checked per mode as Kea does; one part per node with a `node_id`, built there over `dhcp.ha.plan`: its `hooks-libraries` with the `ha` hook under its own `this-server-name`, `lease_cmds` added when missing; `remove` drops the hook from `node_ids`, default every node where HA is on) | `Plan` (scope `dhcp.config`, `requires_confirmation`, applied part by part) |
+| `POST /dhcp/{family}/ha/maintenance/plan` | `ops:dhcp.ha` | `{"node_id","action":"start"|"cancel"}` (`node_id`: the server that goes in-maintenance or leaves it; the plan is applied on its HA partner, found by server name among every node (a server shut down: the only active server left, or the one in `partner-in-maintenance` for a cancel), which stays up as `partner-in-maintenance`; a backup server is refused with `400`; for a hub, the plan goes to its partner in each relationship (`target_node_ids` = those nodes); when the partner is a hub, the diff notes that its other relationships enter maintenance too, Kea applying it server-wide) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/ha/transitions?from=&to=` | `read:dhcp` | | `{"items": [{"ts","node_id","server_name","from_state","to_state","partner_state"}]}` |
 | `POST /dhcp/{family}/service/plan` | `ops:dhcp.ha` | `{"node_id","enable": bool}` (applied on `node_id`, this node or a peer) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/ddns` | `read:dhcp` | | `{"dhcp_ddns": {...}, "ddns_params": {...}, "node_id"}` |

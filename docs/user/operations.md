@@ -98,6 +98,22 @@ another node, reinstall, enroll it again with a new token, run
 log from its peers; BIND transfers its secondary zones and Kea HA
 synchronizes the leases.
 
+### Plans across restarts
+
+A plan lives on the node that built it until it expires
+(`plan_ttl_seconds`, 10 minutes by default; an applied plan stays one more
+period for its rollback). Each one, with its parts for plans that span
+several nodes (HA setup, zone secondaries, hosts), is also kept in
+`/var/lib/pelagos/plans/<id>.plan` (0600, in a 0700 directory, encrypted
+with `master.key`). A restart of `pelagos` therefore keeps previewed plans
+for apply and applied ones for rollback. A plan caught in the middle of an
+apply or a rollback by the restart comes back `failed` with "interrupted
+by a restart of the web process": it cannot be rolled back from Pelagos, as
+some nodes may not have applied it; check what each node did (the audit
+log, **Advanced, History**) before building a new plan. An expired plan
+answers `410 plan_expired` as before. The directory needs no backup; a node
+without `master.key` keeps its plans in memory only.
+
 **Plan backups**: the write pipeline keeps one directory per applied write
 under `/var/lib/pelagos/backups/<engine>/<timestamp>-<label>/` (the
 label is the plan id, or the installer step such as `install-bind`) with a
@@ -116,8 +132,9 @@ curl -k https://127.0.0.1:8443/api/v1/health
 ```
 
 The package manager restarts `pelagos` and `pelagos-collector`, so no old
-code runs over the new environment. Pending plans and sessions are dropped
-(sign in again). Check **Nodes and replication** (versions, "All peers in
+code runs over the new environment. Sessions are dropped (sign in again);
+pending plans stay until they expire, but preview them again after an
+upgrade rather than apply one built by the previous version. Check **Nodes and replication** (versions, "All peers in
 sync") before the next node. A node that sees a peer with a newer
 `cluster.toml` schema raises `config_divergence`: upgrade it too.
 

@@ -13,6 +13,38 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-25, N-NODES follow-ups: backups, divergence, plans on disk, hub and spoke
+- `pelagos.domain.dhcp.HAState.other_relationships` (`list[HAState]`, default
+  empty): a Kea 3 hub's other relationships. Additive. Readers that walk HA
+  states use `connectors.kea.ha.flatten` (one state per relationship).
+- Section 17: `GET /dhcp/{family}/ha` relationship servers gain `leases`,
+  `last_lease_at`, and on a backup `receives_from` and `lease_reference`;
+  there is one relationship per entry for a hub. `POST
+  /dhcp/{family}/ha/setup/plan` also takes `{"relationships": [...]}` (field
+  errors under `relationships[<i>].`; a Kea 2.x node in two relationships is
+  a `400`). HA maintenance of a hub goes to its partner in every
+  relationship.
+- Section 13: `dhcp.ha.plan` takes `spec = {"relationships": [{...,
+  "this_server"}]}` with `this_server` null for a hub; a node in one
+  relationship still gets the single form (older peers keep working).
+- Section 15: `config_divergence` (subject unchanged) compares only what the
+  servers of each HA relationship must share (`collector.kea_shared`): the
+  `config_hash` snapshot gains `shared` and `relationships`; details gain
+  `relationships`. A node without them (older version) keeps the previous
+  comparison. HA alerts of a hub's second relationship and later have
+  subject `ha:<engine>:<server name>`. `ha_backup_out_of_sync` compares a
+  backup with its own relationship's primary, never a hub.
+- Sections 3 and 6: `/var/lib/pelagos/plans/<id>.plan` holds each plan and its
+  parts, encrypted with the master key (`PlanStore(plans_dir=, box=)`,
+  `set_parts`, `parts`; `PlanService.register_composite` stores the parts
+  there). Plans survive a web restart within their TTL; one caught
+  `APPLYING` comes back `FAILED`. `Paths.plans_dir`.
+- `Makefile`: `lab-demo` (`NODES=2|3`).
+- Frontend: HA page by relationship, backup cards, multi-relationship form;
+  the mock gains `--scenario hub`.
+
+
+
 ## 2026-10-25, N-NODES: clusters of more than two nodes
 - `pelagos.domain.dhcp`: `HAPartner.server_name` (status-get's remote
   `server-name`), new `HAPeer` (`name`, `role`, `url`, `auto_failover`) and

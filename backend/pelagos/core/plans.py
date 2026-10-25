@@ -37,7 +37,7 @@ TOMBSTONE_TTL = timedelta(days=7)
 JOURNAL_MAX_BYTES = 64 * 1024
 _PLAN_FILE = re.compile(r"^[0-9A-Za-z]{1,64}\.plan$")
 # A plan found APPLYING after a restart: its apply or rollback died with the previous process.
-INTERRUPTED = "interrupted by a restart of the web process: check the nodes, then roll back or rebuild"
+INTERRUPTED = "interrupted by a restart of the web process: check what each node applied before a new plan"
 
 
 class PlanNotFound(LookupError):

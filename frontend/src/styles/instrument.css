@@ -455,6 +455,16 @@
 :root[data-effects='instrument'] .fx-segment-warning { background: var(--accent-warning-fill); }
 :root[data-effects='instrument'] .ui-waypoint { box-shadow: none; background: transparent; border-color: var(--border-strong); border-radius: var(--r-s); font-weight: 500; }
 
+/* Mission radar under Instrument: a still frame without glow; nothing spins or flows while idle,
+   and the dashboard trace replaces it. */
+:root[data-effects='instrument'] :is(.radar-sweep, .fx-radar-sweep) { display: none; }
+:root[data-effects='instrument'] :is(.radar-ticks, .fx-radar-ticks, .radar-link-strip, .fx-flow-strip, .fx-halo-ring, .radar-blip.is-hot) { animation: none; }
+:root[data-effects='instrument'] .fx-halo-ring { opacity: 0.4; transform: scale(0.7); }
+:root[data-effects='instrument'] :is(.radar-disc, .radar-blip, .radar-readout, .radar-pin-label, .radar-rail-pill, .fx-radar-disc, .fx-halo-core) { box-shadow: none; }
+:root[data-effects='instrument'] .radar-disc { background: radial-gradient(circle, color-mix(in srgb, var(--text-primary) 4%, transparent) 0%, transparent 72%); border: 1px solid var(--border); }
+:root[data-effects='instrument'] .radar-readout { background: var(--bg-secondary); border-color: var(--border-strong); }
+:root[data-effects='instrument'] .radar-readout-value { color: var(--text-primary); }
+
 /* Icons are monochrome: a title's icon is a label, not a signal. */
 :root[data-effects='instrument'] :is(.ui-card-title > svg, svg:has(+ .ui-card-title), .ui-empty-icon) { color: var(--text-tertiary); }
 :root[data-effects='instrument'] .ui-empty-halo { display: none; }
@@ -486,6 +496,9 @@
 html.boot[data-effects='instrument'] .fx-page { animation-delay: 120ms; }
 html[data-effects='instrument'][data-motion='reduced'] :is(.fx-page, .fx-stagger > *, .fx-stagger-item) { animation-name: fx-fade; animation-duration: 100ms; animation-delay: 0s; }
 html[data-effects='instrument'][data-motion='reduced'] [data-ws-state='connecting'] { animation: none; }
+/* The live dot breathes only on a visible page with no dialog over it. */
+html[data-effects='instrument'][data-page-hidden] [data-ws-state='connecting'],
+html[data-effects='instrument']:has(.modal-backdrop[data-state='open']) [data-ws-state='connecting'] { animation-play-state: paused; }
 html[data-effects='instrument'][data-motion='reduced'] .ui-btn:active,
 html[data-effects='instrument'][data-motion='reduced'] .ui-icon-button:active { transform: none; }
 

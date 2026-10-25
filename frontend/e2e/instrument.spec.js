@@ -122,6 +122,36 @@ test('dialogs and menus enter from their origin and leave', async ({ page }) => 
   await expect(modal).toHaveCount(0)
 })
 
+test('the dashboard radar is a still frame and a hidden page pauses every loop', async ({ page }) => {
+  await signIn(page)
+  const radar = page.getByTestId('cluster-radar')
+  await expect(radar).toBeVisible()
+  await expect(radar.locator('.radar-sweep')).toBeHidden()
+  expect(await style(radar.locator('.radar-ticks'), 'animationName')).toBe('none')
+  for (const strip of await radar.locator(':is(.radar-link-strip, .fx-flow-strip, .fx-halo-ring)').all()) {
+    expect(await style(strip, 'animationName')).toBe('none')
+  }
+  // A connecting live dot breathes, and stops with the ambient layers when the tab hides.
+  await page.evaluate(() => {
+    const dot = document.createElement('span')
+    dot.dataset.wsState = 'connecting'
+    dot.id = 'probe-dot'
+    document.body.appendChild(dot)
+  })
+  const dot = page.locator('#probe-dot')
+  expect(await style(dot, 'animationName')).toBe('i-breathe')
+  expect(await style(dot, 'animationPlayState')).toBe('running')
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await expect.poll(() => page.evaluate(() => document.documentElement.hasAttribute('data-page-hidden'))).toBe(true)
+  expect(await style(dot, 'animationPlayState')).toBe('paused')
+  expect(await style(page.locator('.fx-ambient-grid'), 'animationPlayState')).toMatch(/^paused/)
+  const loop = await page.evaluate(() => window.__pelagosLoop?.() ?? { running: false })
+  expect(loop.running).toBe(false)
+})
+
 test('motion off removes every transition, the cursor jumps', async ({ page }) => {
   await signIn(page)
   await page.goto('/account')

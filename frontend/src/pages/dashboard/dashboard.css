@@ -56,7 +56,18 @@
   border-color: var(--m-hairline);
 }
 .dash-chip { border-radius: 12px; padding: 6px 10px; }
-.dash-chip .ui-stat-chip-value { font-size: 17px; line-height: 21px; color: var(--fx-c, var(--text-primary)); }
+.dash-chip .ui-stat-chip-value { font-size: 17px; line-height: 21px; color: var(--fx-text, var(--text-primary)); }
+/* Chip values are text: text-safe tone colors (AA on the chip), --fx-c stays for marks. */
+.dash-chip.fx-tone-primary { --fx-text: color-mix(in srgb, var(--accent-primary) 72%, #fff); }
+.dash-chip.fx-tone-pro { --fx-text: var(--accent-pro); }
+.dash-chip.fx-tone-success { --fx-text: var(--accent-success); }
+.dash-chip.fx-tone-warning { --fx-text: var(--accent-warning); }
+.dash-chip.fx-tone-danger { --fx-text: color-mix(in srgb, var(--accent-danger) 70%, #fff); }
+.theme-light .dash-chip.fx-tone-primary { --fx-text: color-mix(in srgb, var(--accent-primary) 80%, #000); }
+.theme-light .dash-chip.fx-tone-pro { --fx-text: color-mix(in srgb, var(--accent-pro) 75%, #000); }
+.theme-light .dash-chip.fx-tone-success { --fx-text: color-mix(in srgb, var(--accent-success) 75%, #000); }
+.theme-light .dash-chip.fx-tone-warning { --fx-text: color-mix(in srgb, var(--accent-warning) 80%, #000); }
+.theme-light .dash-chip.fx-tone-danger { --fx-text: color-mix(in srgb, var(--accent-danger) 80%, #000); }
 .dash-pill {
   display: inline-flex;
   align-items: center;

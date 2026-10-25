@@ -13,6 +13,13 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-25, open points: enroll command and security findings shape
+`docs/architecture.md` section 14 shows the `command` of
+`POST /nodes/enroll-token` (`enroll_command`: `sudo`, `--name <name>`,
+`--web-url`, `--replication-url`). `GET /install/security` lists
+`remediable` and `description_message`/`proposal_message`/`risk_message`
+per finding, as `Finding.to_dict` already sent. Doc only; nothing to react to.
+
 ## 2026-10-25, open points: English singular of counted messages
 `backend/pelagos/domain/messages.py`: `note.secret_files` and `plan.security`
 read as plurals ("3 findings") and `SINGULAR` holds their English singular,

@@ -1515,13 +1515,19 @@ Flow:
    `cluster.toml` with itself in `[[nodes]]` and the first admin user.
 2. Admin asks for a token: `POST /api/v1/nodes/enroll-token` returns
    `{"token": "<43 chars base64url>", "url": "https://ns1.example.lan:8444",
-   "ca_fingerprint": "sha256:...", "expires_at": ...}`. The token is stored
+   "ca_fingerprint": "sha256:...", "expires_at": ..., "command": "..."}`. The token is stored
    hashed (sha256) with a 15 minute TTL (max 24 h) and is single use. The
    store is `/var/lib/pelagos/enroll_tokens.json` (0600, file lock) so the
    web process issues (`EnrollmentService.issue_token`) and the collector
    consumes.
-3. On the new node: `pelagos enroll --url https://ns1.example.lan:8444
-   --token <token> --ca-fingerprint sha256:... --name ns2`. The command
+3. On the new node, the `command` of the token (`enroll_command`), with
+   `<name>` replaced: `sudo pelagos enroll --url https://ns1.example.lan:8444
+   --token <token> --ca-fingerprint sha256:... --name ns2
+   --web-url https://ns2.example.lan:8443 --replication-url
+   https://ns2.example.lan:8444`. The URLs follow the issuing node's own
+   (same scheme, domain suffix and port, `<name>` as first label); with an
+   address in the issuing URLs they are `https://<name>:<port>` and the
+   operator puts the new node's address there. The command
    writes `node.toml` if absent, generates `node.key` and a CSR with
    SAN URI `urn:pelagos:node:<new id>` and DNS names from `--name`/hostname,
    connects with TLS verifying the server certificate chain against the
@@ -1932,7 +1938,7 @@ confirmation_required` without `"confirm": true`.
 | `GET /install/detect` | `admin:install` | | `{"distro": {...}, "engines": {"bind": {"installed","version","service","running","config","paths"}, "kea4": ..., "kea6": ..., "d2": ...}, "pelagos": {"include_present", "sockets_ok", "keys_present"}}` |
 | `POST /install/plan` | `admin:install` | `{"engines": ["bind","kea4",...], "source": "distro"|"isc", "isc_series"?: "3.2"}` | `Plan` (scope `install`; apply returns a `Job`) |
 | `POST /install/import/plan` | `admin:install` | `{"engines": [...]}` | `Plan` (scope `import`: include lines, sockets, statistics channel, keys to create, what was read) |
-| `GET /install/security` | `admin:install` | | `{"findings": [{"id","kind","severity","engine","subject","description","proposal","risk"}]}` |
+| `GET /install/security` | `admin:install` | | `{"findings": [{"id","kind","severity","engine","subject","description","proposal","risk","remediable","description_message","proposal_message","risk_message"}]}` (`remediable` false: no plan can fix it, `--fix-all` and the UI skip it; `*_message`: section 19) |
 | `POST /install/security/plan` | `admin:install` | `{"finding_ids": [...]}` | `Plan` (scope `security`; the Kea shared key rotation is one finding whose steps are: add new key to BIND `update-policy`, switch D2 on every node, remove old key) |
 
 Every endpoint of this table runs through the privileged helper (section 2)

@@ -89,6 +89,7 @@ export function EnrollTokenDialog({ onClose }) {
               {expired ? t('enroll.expired') : t('enroll.expiresIn', { time: `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`, at: formatDate(token.expires_at) })}
             </div>
             <CopyRow label={t('enroll.command')} value={token.command} copyKey="command" copy={copy} isCopied={isCopied} testId="enroll-command" />
+            <p className="text-2xs text-text-secondary" data-testid="enroll-command-hint">{t('enroll.commandHint')}</p>
             <CopyRow label={t('enroll.token')} value={token.token} copyKey="token" copy={copy} isCopied={isCopied} testId="enroll-token" />
             <div className="grid gap-3 sm:grid-cols-2">
               <CopyRow label={t('enroll.url')} value={token.url} copyKey="url" copy={copy} isCopied={isCopied} />

@@ -83,6 +83,25 @@ test('host card and create-host plan', async ({ page }) => {
   await expect(page.getByTestId('plan-result')).toBeVisible()
 })
 
+test('create-host plan in a view, with the PTR in the default view', async ({ page }) => {
+  await page.goto('/hosts')
+  await page.getByTestId('host-create').click()
+  const form = page.getByTestId('host-form')
+  await page.getByTestId('host-view').selectOption('internal')
+  await expect(page.getByTestId('host-zone')).toHaveValue('corp.example.lan.')
+  await page.getByTestId('host-hostname').fill('kiosk')
+  await page.getByTestId('host-ip').fill('192.0.2.77')
+  // The internal view has no reverse zone for 192.0.2.0/24; the default view has one.
+  await expect(form).toContainText('No known reverse zone')
+  await page.getByTestId('host-reverse-view').selectOption('_default')
+  await expect(form).toContainText('PTR goes to 2.0.192.in-addr.arpa.')
+  const request = page.waitForRequest((r) => r.url().endsWith('/hosts/plan') && r.method() === 'POST')
+  await form.getByRole('button', { name: 'Preview the plan' }).click()
+  expect((await request).postDataJSON()).toMatchObject({ view: 'internal', reverse_view: '_default', zone: 'corp.example.lan.', reverse_zone: '2.0.192.in-addr.arpa.' })
+  await expect(page.getByTestId('plan-changes')).toContainText('kiosk.corp.example.lan.')
+  await expect(page.getByTestId('plan-changes')).toContainText('77.2.0.192.in-addr.arpa.')
+})
+
 test('IPv6 hosts: v6 lease joined with AAAA and PTR, and a v6 create-host plan', async ({ page }) => {
   await page.goto('/hosts?q=v6host1')
   const row = page.getByTestId('data-table-row').filter({ hasText: 'v6host1.example.lan.' })
@@ -149,5 +168,6 @@ test('an enrollment token comes with the command to run', async ({ page }) => {
   await page.getByTestId('enroll-open').click()
   await page.getByTestId('enroll-create').click()
   await expect(page.getByTestId('enroll-command')).toContainText('pelagos enroll')
+  await expect(page.getByTestId('enroll-command-hint')).toContainText('Replace every <name>')
   await expect(page.getByTestId('enroll-expiry')).toContainText('Valid for')
 })

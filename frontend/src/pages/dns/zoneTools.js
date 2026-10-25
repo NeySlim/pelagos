@@ -156,14 +156,25 @@ const urlHost = (url) => {
   }
 }
 
-// Name server lines proposed for a new primary, one per node that runs BIND: the node's
-// domain name when its URL has one, else its name (relative to the zone) and its address.
-export function defaultNameServers(nodes) {
+const isIP = (host) => isIPv4(host) || isIPv6(host)
+const isReverse = (apex) => /(^|\.)(in-addr|ip6)\.arpa$/.test(apex)
+
+// Name server lines proposed for a new primary `zone`, one per node that runs BIND. A name
+// inside the zone carries the node's address (its glue); a reverse zone never gets a name of
+// its own, so a node known only by address is left out there (empty: dns.default_ns applies).
+export function defaultNameServers(nodes, zone = '') {
+  const apex = String(zone || '').trim().toLowerCase().replace(/\.$/, '')
   const withBind = (nodes || []).filter((n) => n.peer?.modules?.bind)
   return (withBind.length ? withBind : nodes || []).map((n) => {
-    const host = urlHost(n.peer?.web_url || n.peer?.url)
-    if (host && !isIPv4(host) && !isIPv6(host) && host.includes('.')) return `${host.toLowerCase()}.`
-    return host && (isIPv4(host) || isIPv6(host)) ? `${n.peer.name} ${host}` : n.peer?.name
+    const hosts = [n.peer?.web_url, n.peer?.url].map(urlHost).filter(Boolean)
+    const fqdn = hosts.find((h) => !isIP(h) && h.includes('.'))?.toLowerCase()
+    const address = hosts.find(isIP)
+    if (fqdn) {
+      const inside = apex && (fqdn === apex || fqdn.endsWith(`.${apex}`))
+      return inside && address ? `${fqdn}. ${address}` : `${fqdn}.`
+    }
+    if (!address || isReverse(apex)) return null
+    return `${n.peer.name} ${address}`
   }).filter(Boolean).join('\n')
 }
 

@@ -56,6 +56,7 @@
     "button": "Enrôler un nœud",
     "caFingerprint": "Empreinte de la CA",
     "command": "Commande à lancer sur le nouveau serveur",
+    "commandHint": "Remplacer chaque <name> par le nom du nouveau serveur, et mettre son adresse dans les URL si les autres nœuds ne résolvent pas ce nom.",
     "create": "Créer le jeton",
     "expired": "Ce jeton a expiré : en créer un autre",
     "expiresIn": "Valable {{time}} (jusqu'à {{at}})",

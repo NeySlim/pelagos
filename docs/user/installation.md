@@ -359,7 +359,7 @@ Node 22 with npm; for the daemon tests BIND 9.20 and Kea 3.x.
 
 ```sh
 make dev            # backend/.venv and frontend/node_modules
-make run            # dev node on http://127.0.0.1:8480 (admin / admin-dev-password) and the UI on :5173
+make run            # dev node on http://127.0.0.1:8480 (admin / Admin-Dev-Password-1) and the UI on :5173
 make lint test      # ruff, eslint, unit tier, vitest
 ```
 

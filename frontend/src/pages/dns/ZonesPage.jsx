@@ -32,9 +32,9 @@ const LIST_ERRORS = {
   nsName: 'zones.new.nsName', nsLocalhost: 'zones.new.nsLocalhost', nsAddress: 'zones.new.nsAddress', nsGlue: 'zones.new.nsGlue',
 }
 
-function NewZoneModal({ open, onClose, onPlan, views, peers, nameServers = '' }) {
+function NewZoneModal({ open, onClose, onPlan, views, peers, nodes = [] }) {
   const { t } = useTranslation(['dns', 'common'])
-  const [form, setForm] = useState({ name: '', kind: 'primary', view: '_default', file: '', primaries: '', forwarders: '', serverAddresses: '', serverNames: '', addzone: false, peers: [], secondaryPrimaries: '', ns: nameServers })
+  const [form, setForm] = useState({ name: '', kind: 'primary', view: '_default', file: '', primaries: '', forwarders: '', serverAddresses: '', serverNames: '', addzone: false, peers: [], secondaryPrimaries: '', ns: null })
   const togglePeer = (id) => setForm((f) => ({ ...f, peers: f.peers.includes(id) ? f.peers.filter((p) => p !== id) : [...f.peers, id] }))
   const kind = form.kind
   const canAddzone = ADDZONE_KINDS.includes(kind)
@@ -43,8 +43,10 @@ function NewZoneModal({ open, onClose, onPlan, views, peers, nameServers = '' })
   const [touched, setTouched] = useState(false)
   const [busy, setBusy] = useState(false)
   const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e?.target ? e.target.value : e }))
-  const { errors, after } = newZoneAfter(form, validDomainName)
-  const errorOf = (field) => (touched && errors[field] ? t(field === 'name' ? 'zones.new.nameError' : field === 'serverAddresses' ? 'zones.new.staticStubError' : LIST_ERRORS[errors[field]]) : undefined)
+  // The NS lines follow the typed zone name until the user edits them.
+  const ns = form.ns ?? defaultNameServers(nodes, form.name)
+  const { errors, after } = newZoneAfter({ ...form, ns }, validDomainName)
+  const errorOf = (field) => ((touched || (field === 'ns' && form.ns === null && form.name)) && errors[field] ? t(field === 'name' ? 'zones.new.nameError' : field === 'serverAddresses' ? 'zones.new.staticStubError' : LIST_ERRORS[errors[field]]) : undefined)
   const showPrimaries = ['secondary', 'stub', 'mirror', 'redirect'].includes(kind)
   const showFile = kind !== 'forward' && kind !== 'static-stub'
 
@@ -93,7 +95,7 @@ function NewZoneModal({ open, onClose, onPlan, views, peers, nameServers = '' })
       {kind === 'primary' && (
         <Textarea
           label={t('zones.new.ns')}
-          value={form.ns}
+          value={ns}
           onChange={set('ns')}
           rows={2}
           placeholder="ns1.example.lan. or ns1 192.0.2.53"
@@ -307,7 +309,7 @@ export default function ZonesPage() {
           onClose={() => setCreating(false)}
           views={views}
           peers={bindPeers}
-          nameServers={defaultNameServers(nodes)}
+          nodes={nodes}
           onPlan={async (change, nodeIds) => {
             const plan = await flow.run(() => api.dns.zonePlan(change, nodeIds))
             if (plan) setCreating(false)

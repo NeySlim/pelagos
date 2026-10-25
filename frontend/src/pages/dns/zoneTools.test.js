@@ -141,6 +141,30 @@ describe('name servers of a new primary', () => {
     expect(defaultNameServers([])).toBe('')
   })
 
+  it('are computed against the zone being created', () => {
+    const named = [
+      { peer: { name: 'ns1', web_url: 'https://ns1.example.lan:8443', url: 'https://192.0.2.11:8444', modules: { bind: true } } },
+      node('ns2', 'https://ns2.example.lan:8443'),
+    ]
+    const proposed = defaultNameServers(named, 'example.lan')
+    expect(proposed).toBe('ns1.example.lan. 192.0.2.11\nns2.example.lan.')
+    // A node without a known address keeps its line and gets the glue hint before submit.
+    expect(nameServers(proposed, 'example.lan.', ok).error).toBe('nsGlue')
+    expect(nameServers(defaultNameServers(named.slice(0, 1), 'example.lan.'), 'example.lan.', ok)).toEqual({
+      ns: ['ns1.example.lan.'],
+      records: [{ name: 'ns1.example.lan.', rtype: 'A', ttl: 3600, rdata: ['192.0.2.11'] }],
+    })
+    expect(defaultNameServers(named, 'other.example.org')).toBe('ns1.example.lan.\nns2.example.lan.')
+  })
+
+  it('never hang an address-only node off a reverse zone', () => {
+    const lab = [node('ns1', 'https://192.0.2.11:8443'), node('ns2', 'https://192.0.2.12:8443')]
+    expect(defaultNameServers(lab, '2.0.192.in-addr.arpa')).toBe('')
+    expect(defaultNameServers(lab, '8.b.d.0.1.0.0.2.ip6.arpa.')).toBe('')
+    expect(defaultNameServers([node('ns1', 'https://ns1.example.lan:8443')], '2.0.192.in-addr.arpa.')).toBe('ns1.example.lan.')
+    expect(defaultNameServers(lab, 'example.lan')).toBe('ns1 192.0.2.11\nns2 192.0.2.12')
+  })
+
   it('hang short names off the zone and add their address records', () => {
     expect(nameServers('ns1 192.0.2.53\nns2.example.net.\nns3 2001:db8::53', 'z.example.lan.', ok)).toEqual({
       ns: ['ns1.z.example.lan.', 'ns2.example.net.', 'ns3.z.example.lan.'],

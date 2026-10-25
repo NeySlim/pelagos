@@ -219,7 +219,7 @@ make test           # unit tier + vitest
 make test-daemon    # real named and Kea in a temporary directory
 make test-e2e       # Playwright against the mock server
 make build-frontend # vite build into frontend/dist
-make run            # dev node on http://127.0.0.1:8480 (admin / admin-dev-password) + UI on :5173
+make run            # dev node on http://127.0.0.1:8480 (admin / Admin-Dev-Password-1) + UI on :5173
 make screenshots    # regenerate docs/images from the mock server
 ```
 

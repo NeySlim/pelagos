@@ -56,6 +56,7 @@
     "button": "Enroll a node",
     "caFingerprint": "CA fingerprint",
     "command": "Command to run on the new server",
+    "commandHint": "Replace every <name> with the new server's name, and use its address in the URLs if the other nodes cannot resolve that name.",
     "create": "Create the token",
     "expired": "This token has expired: create another one",
     "expiresIn": "Valid for {{time}} (until {{at}})",

@@ -1707,9 +1707,15 @@ function buildHandlers(state, emit) {
       const ptrName = v6
         ? `${v6Nibbles(address).split('').reverse().join('.')}.ip6.arpa.`
         : `${address.split('.').reverse().join('.')}.in-addr.arpa.`
+      // As the backend: an absent reverse_view follows view, and the PTR zone is looked up there.
+      const view = body.view || '_default'
+      const reverseView = body.reverse_view || view
       const reverseZone = body.reverse_zone
         ? absName(body.reverse_zone)
-        : Object.keys(state.records).filter((z) => ptrName.endsWith(`.${z}`)).sort((a, b) => b.length - a.length)[0]
+        : state.zones
+            .filter((z) => z.kind === 'primary' && z.view === reverseView && z.name.endsWith('.arpa.') && ptrName.endsWith(`.${z.name}`))
+            .map((z) => z.name)
+            .sort((a, b) => b.length - a.length)[0]
       const reverse = (reverseZone && state.records[reverseZone]) || null
       const subnetId = body.subnet_id ?? state.subnets[family][0]?.id ?? 1
       const reservation = body.reservation
@@ -1741,7 +1747,7 @@ function buildHandlers(state, emit) {
       return createPlan(state, user, {
         scope: 'host',
         engine: null,
-        summary: `host ${fqdn} -> ${address}${reservation ? ` reserved for ${reservation.identifier}` : ''}`,
+        summary: `host ${fqdn} -> ${address}${view !== '_default' || reverseView !== view ? ` (view ${view}, PTR in ${reverseView})` : ''}${reservation ? ` reserved for ${reservation.identifier}` : ''}`,
         changes,
         diff: unifiedDiff('', text, `host ${fqdn}`),
         targets: state.nodes.map((n) => n.peer.id),

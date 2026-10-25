@@ -72,7 +72,7 @@ build-frontend:
 	cd $(FRONTEND) && npm run build
 
 run-backend:
-	cd $(BACKEND) && test -f .pelagos-dev/etc/node.toml || PELAGOS_ADMIN_PASSWORD=admin-dev-password .venv/bin/pelagos --home .pelagos-dev init --name dev
+	cd $(BACKEND) && test -f .pelagos-dev/etc/node.toml || PELAGOS_ADMIN_PASSWORD=Admin-Dev-Password-1 .venv/bin/pelagos --home .pelagos-dev init --name dev
 	cd $(BACKEND) && .venv/bin/pelagos --home .pelagos-dev serve --bind 127.0.0.1:8480
 
 run-frontend:

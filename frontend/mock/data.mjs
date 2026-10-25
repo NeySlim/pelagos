@@ -192,6 +192,31 @@ function makeZones() {
       source: 'pelagos',
       config_path: '/etc/bind/pelagos/zones.conf',
     },
+    // A second view: the host form offers its view pickers only when one exists.
+    {
+      ...common,
+      name: 'corp.example.lan.',
+      view: 'internal',
+      kind: 'primary',
+      file: 'db.corp.example.lan',
+      dynamic: true,
+      allow_transfer: ['key ddi-read'],
+      update_policy: ['grant ddi-admin zonesub ANY'],
+      source: 'pelagos',
+      config_path: '/etc/bind/pelagos/zones.conf',
+    },
+    {
+      ...common,
+      name: '100.51.198.in-addr.arpa.',
+      view: 'internal',
+      kind: 'primary',
+      file: 'db.198.51.100',
+      dynamic: true,
+      allow_transfer: ['key ddi-read'],
+      update_policy: ['grant ddi-admin zonesub ANY'],
+      source: 'pelagos',
+      config_path: '/etc/bind/pelagos/zones.conf',
+    },
     {
       ...common,
       name: 'partner.example.',
@@ -292,6 +317,16 @@ function makeRecords(hosts) {
       rr(lab, 'NS', 3600, `ns1.${z}`),
       rr(lab, 'DNSKEY', 3600, ['257 3 13 mdsswUyr3DPW132mOi8V9xESWE8jTo0dxCjjnopKl+GqJxpVXckHAeF+ KkxLbxILfDLUT0rAK9iUzy1L53eKGQ==']),
       rr(`build.${lab}`, 'A', 300, '192.0.2.150'),
+    ],
+    'corp.example.lan.': [
+      rr('corp.example.lan.', 'SOA', 3600, `ns1.${z} hostmaster.${z} 2026102401 3600 900 1209600 300`),
+      rr('corp.example.lan.', 'NS', 3600, [`ns1.${z}`, `ns2.${z}`]),
+      rr('intranet.corp.example.lan.', 'A', 3600, '198.51.100.10'),
+    ],
+    '100.51.198.in-addr.arpa.': [
+      rr('100.51.198.in-addr.arpa.', 'SOA', 3600, `ns1.${z} hostmaster.${z} 2026102401 3600 900 1209600 300`),
+      rr('100.51.198.in-addr.arpa.', 'NS', 3600, [`ns1.${z}`, `ns2.${z}`]),
+      rr('10.100.51.198.in-addr.arpa.', 'PTR', 3600, 'intranet.corp.example.lan.'),
     ],
     'partner.example.': [
       rr('partner.example.', 'SOA', 3600, 'ns.partner.example. admin.partner.example. 2026101503 7200 900 1209600 300'),

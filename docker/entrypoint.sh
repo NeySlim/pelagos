@@ -189,7 +189,8 @@ prepare() {
 }
 
 as_pelagos() {
-  # gunicorn keeps its control socket under $HOME, which must not stay /root.
+  # gunicorn keeps its control socket under $HOME, which must not stay /root. UMask=0027 like the units.
+  umask 027
   HOME=/var/lib/pelagos exec setpriv --reuid pelagos --regid pelagos --init-groups "$@"
 }
 

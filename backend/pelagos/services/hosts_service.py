@@ -331,7 +331,9 @@ class HostsService:
         ttl = request.get("ttl", 300)
         want_reservation = bool(request.get("reservation", False))
         view = _view(request.get("view"), "view", errors)
-        reverse_view = _view(request.get("reverse_view"), "reverse_view", errors) or view
+        # An absent reverse_view follows `view`; an explicit "_default" puts the PTR in the default view.
+        raw_reverse = request.get("reverse_view")
+        reverse_view = view if raw_reverse in (None, "") else _view(raw_reverse, "reverse_view", errors)
         if not hostname:
             errors.append(field_error("hostname", "required"))
         elif hostname.endswith(zone.rstrip(".")) and "." in hostname:

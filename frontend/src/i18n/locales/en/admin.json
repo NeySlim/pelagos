@@ -178,7 +178,9 @@
         "poll_seconds": "Engine poll (seconds)",
         "pool_sample_seconds": "Pool sample (seconds)",
         "peer_poll_seconds": "Peer poll (seconds)",
-        "consistency_seconds": "Consistency pass (seconds)"
+        "consistency_seconds": "Consistency pass (seconds)",
+        "live_seconds": "Live pass: HA heartbeats and lease watch (seconds)",
+        "lease_watch_max": "Lease watch: largest lease table walked"
       },
       "retention": {
         "raw_days": "Raw series (days)",

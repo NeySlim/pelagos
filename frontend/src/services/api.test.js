@@ -47,7 +47,7 @@ const invocations = [
   () => api.dhcp.servers('v4'), () => api.dhcp.subnets('v4'), () => api.dhcp.subnet('v4', 1), () => api.dhcp.subnetPlan('v4', {}),
   () => api.dhcp.sharedNetworks('v6'), () => api.dhcp.sharedNetworkPlan('v6', {}), () => api.dhcp.clientClasses('v4'),
   () => api.dhcp.clientClassPlan('v4', {}), () => api.dhcp.options('v4'), () => api.dhcp.optionsPlan('v4', []),
-  () => api.dhcp.reservations('v4', { q: 'pc' }), () => api.dhcp.reservationPlan('v4', {}), () => api.dhcp.leases('v4'),
+  () => api.dhcp.reservations('v4', { q: 'pc' }), () => api.dhcp.reservationPlan('v4', {}), () => api.dhcp.leases('v4'), () => api.dhcp.recentLeases('v4', { limit: 1 }),
   () => api.dhcp.lease('v4', '192.0.2.10'), () => api.dhcp.leaseDeletePlan('v4', '192.0.2.10'),
   () => api.dhcp.utilization('v4'), () => api.dhcp.stats('v4'), () => api.dhcp.ha('v4'),
   () => api.dhcp.haMaintenancePlan('v4', 'n1', 'start'), () => api.dhcp.haTransitions('v4', { from: 1 }),

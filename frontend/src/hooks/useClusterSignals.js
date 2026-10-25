@@ -1,15 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
-// Signals of the cluster trace beyond the counter rates. Heartbeats: GET /dhcp/{family}/ha
-// polled at the live cadence; each server's partner `age` places the last heartbeat
-// (lib/trace observeBeat), an out-of-touch partner opens an outage and marks each poll
-// that found it lost. Events: WebSocket alerts, plans, HA transitions and replication
-// (a node whose config version rises). Both live in module stores, so leaving the
-// dashboard and coming back keeps the recent history; sign-out clears them.
+// Signals of the cluster trace beyond the counter rates. Heartbeats: the `ha` topic (every
+// collector sends one `heartbeat` per server and family every few seconds, relayed to the
+// other nodes), with GET /dhcp/{family}/ha as the fallback poll, slower while the socket is
+// up; each server's heartbeat window places the last heartbeat (lib/trace observeBeat), an
+// out-of-touch partner opens an outage and marks each sample that found it lost. Events:
+// WebSocket alerts, plans, HA transitions, zone transfers and replication (a node whose
+// config version rises). Both live in module stores, so leaving the dashboard and coming
+// back keeps the recent history; sign-out clears them.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../services/api'
 import { LIVE_INTERVAL_MS } from '../lib/liveRates'
 import { observeBeat, pushEvent, traceEventOf } from '../lib/trace'
-import { useWsTopic } from './useWebSocket'
+import { useWebSocket, useWsTopic } from './useWebSocket'
+
+// Fallback polls run this many times slower while the WebSocket delivers the events.
+export const LIVE_FALLBACK_FACTOR = 4
 
 const LOST_KEEP = 60
 const BAD_STATES = ['partner-down', 'terminated', 'unavailable']
@@ -46,7 +51,9 @@ export function observeHa(record, h) {
   }
   const closing = Boolean(rec.outage && !rec.outage.to)
   const outage = closing ? { ...rec.outage, to: at } : rec.outage
-  let next = observeBeat(rec.beats, { collectedAt: at, age: h.partner.age })
+  const lo = Date.parse(h.heartbeat?.lo || '')
+  const hi = Date.parse(h.heartbeat?.hi || '')
+  let next = observeBeat(rec.beats, { collectedAt: at, age: h.partner.age, lo, hi })
   // The first beat after an outage starts a new run: the interval across it is no heartbeat.
   let gapPending = Boolean(rec.gapPending || closing)
   const prepended = next !== rec.beats && next.length > 0 && rec.beats.length > 0 && next[1] === rec.beats[0]
@@ -68,10 +75,33 @@ function useStore() {
   return version
 }
 
-// { "<family>:<node_id>": record } for the given families, polled while visible.
+// One HAState (a poll row or an `ha` message) into the store; true when it changed.
+export function recordHa(family, h) {
+  if (!family || !h?.node_id) return false
+  const key = `${family}:${h.node_id}`
+  const next = observeHa(beats[key], h)
+  if (next === beats[key]) return false
+  beats = { ...beats, [key]: next }
+  return true
+}
+
+// Poll period of a fallback: `ms`, or LIVE_FALLBACK_FACTOR times longer while the socket is up.
+export function useFallbackMs(ms) {
+  const { isConnected } = useWebSocket()
+  return isConnected ? ms * LIVE_FALLBACK_FACTOR : ms
+}
+
+// { "<family>:<node_id>": record } for the given families, from the `ha` topic and a poll.
 export function useHaHeartbeats(families, { enabled = true, interval = LIVE_INTERVAL_MS } = {}) {
   const version = useStore()
   const signature = (families || []).join(',')
+  const period = useFallbackMs(interval)
+  useWsTopic(enabled && signature ? 'ha' : null, (message) => {
+    const h = message?.data
+    const family = h?.family === 'v6' ? 'v6' : h?.family === 'v4' ? 'v4' : null
+    if (!family || !signature.split(',').includes(family)) return
+    if (recordHa(family, h)) notify()
+  })
   useEffect(() => {
     if (!enabled || !signature) return undefined
     let alive = true
@@ -86,14 +116,7 @@ export function useHaHeartbeats(families, { enabled = true, interval = LIVE_INTE
         for (const r of results) {
           if (r.status !== 'fulfilled') continue
           const [family, items] = r.value
-          for (const h of items) {
-            const key = `${family}:${h.node_id}`
-            const next = observeHa(beats[key], h)
-            if (next !== beats[key]) {
-              beats = { ...beats, [key]: next }
-              changed = true
-            }
-          }
+          for (const h of items) if (recordHa(family, h)) changed = true
         }
         if (changed) notify()
       } finally {
@@ -101,17 +124,19 @@ export function useHaHeartbeats(families, { enabled = true, interval = LIVE_INTE
       }
     }
     tick()
-    const id = setInterval(tick, interval)
+    const id = setInterval(tick, period)
     return () => {
       alive = false
       clearInterval(id)
     }
-  }, [signature, enabled, interval])
+  }, [signature, enabled, period])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => beats, [version])
 }
 
 export function addTraceEvent(e) {
+  // A transfer is seen twice (the `zones` event and the summary refresh): one mark.
+  if (e?.kind === 'axfr' && e.id && events.some((x) => x.kind === 'axfr' && x.id === e.id)) return
   const next = pushEvent(events, e)
   if (next !== events) {
     events = next
@@ -225,6 +250,7 @@ export function useTraceEvents(onEvent) {
   useWsTopic('alerts', handle)
   useWsTopic('plans', handle)
   useWsTopic('ha', handle)
+  useWsTopic('zones', handle)
   useWsTopic('system', handle)
   useWsTopic('nodes', onNode)
   // eslint-disable-next-line react-hooks/exhaustive-deps

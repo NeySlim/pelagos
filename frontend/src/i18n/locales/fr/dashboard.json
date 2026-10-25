@@ -92,6 +92,8 @@
       "pools": "Pools les plus remplis",
       "ha": "Haute disponibilité",
       "latestLease": "Dernier bail",
+      "leaseTiming": "Kea enregistre la fin de l'échange (cltt), pas l'heure de chacun de ses quatre paquets : le DORA marque l'échange terminé.",
+      "renewed": "renouvelé",
       "latest": "Derniers baux",
       "exchange": "+{{count}} baux",
       "exchange_one": "+{{count}} bail",

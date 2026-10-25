@@ -219,6 +219,7 @@
     "communication-recovery": "Reprise de communication",
     "waiting": "En attente",
     "syncing": "Synchronisation",
+    "isolated": "Isolé",
     "ready": "Prêt",
     "terminated": "Arrêté",
     "backup": "Secours",

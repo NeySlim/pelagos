@@ -128,12 +128,15 @@ export function scaleBar(win, plotW, reference = 60) {
 
 // Heartbeats measured from Kea status-get: the partner `age` (whole seconds since the last
 // heartbeat answer) at `collectedAt` puts the beat in [collectedAt - (age + 1) s,
-// collectedAt - age s]. Observations of the same beat narrow that interval; one that does
-// not overlap the newest beat is a new beat. Beats are newest first: { t, lo, hi }.
-export function observeBeat(beats, { collectedAt, age }, max = MAX_BEATS) {
-  if (!Number.isFinite(collectedAt) || !Number.isFinite(age) || age < 0) return beats
-  const lo = collectedAt - (age + 1) * 1000
-  const hi = collectedAt - age * 1000
+// collectedAt - age s]. The backend's `heartbeat` window ({ lo, hi }: the request and answer
+// times of status-get, capped by Kea's own clock from ha-heartbeat) is tighter and wins when
+// present. Observations of the same beat narrow that interval; one that does not overlap
+// the newest beat is a new beat. Beats are newest first: { t, lo, hi }.
+export function observeBeat(beats, { collectedAt, age, lo: bLo, hi: bHi }, max = MAX_BEATS) {
+  const bounded = Number.isFinite(bLo) && Number.isFinite(bHi) && bLo <= bHi
+  if (!bounded && (!Number.isFinite(collectedAt) || !Number.isFinite(age) || age < 0)) return beats
+  const lo = bounded ? bLo : collectedAt - (age + 1) * 1000
+  const hi = bounded ? bHi : collectedAt - age * 1000
   const head = beats[0]
   if (head && lo <= head.hi && hi >= head.lo) {
     const nlo = Math.max(lo, head.lo)
@@ -195,6 +198,10 @@ export function traceEventOf(message) {
     }
     return null
   }
+  if (topic === 'zones' && event === 'transfer') {
+    const subject = String(data.zone || '').replace(/\.$/, '')
+    return { t, kind: 'axfr', key: 'events.axfr', params: { subject, serial: data.serial }, id: `${data.view || '_default'}|${data.zone}:${data.serial}` }
+  }
   if (topic === 'system' && event === 'replication') return { t, kind: 'repl', key: 'events.repl', params: { version: data.version ?? data.config_version ?? '' }, id }
   if (topic === 'ha' && event === 'state') {
     return { t, kind: 'ha', key: 'events.ha', params: { server: data.server_name || '', state: data.state || '', family: data.family || '' }, id }
@@ -237,7 +244,8 @@ export const poolSubject = (pool) => `${pool.engine}:subnet:${pool.subnet_id}:po
 
 export function alertForPool(alert, pool) {
   if (!alert || !pool || !['pool_near_full', 'pool_full'].includes(alert.kind)) return false
-  return alert.subject === poolSubject(pool) && (!alert.node_id || !pool.node_id || alert.node_id === pool.node_id)
+  const nodes = pool.node_ids || (pool.node_id ? [pool.node_id] : [])
+  return alert.subject === poolSubject(pool) && (!alert.node_id || !nodes.length || nodes.includes(alert.node_id))
 }
 
 // The pool a pressure trace shows: the one of the latest pool alert, open or resolved

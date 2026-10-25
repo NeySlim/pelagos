@@ -39,6 +39,7 @@ vi.mock('../services/api', () => {
       haTransitions: async () => ({ items: [] }),
       configFile: async () => ({}),
       leases: async () => ({ items: db.leases, meta: {} }),
+      recentLeases: async () => ({ items: [...db.leases].sort((a, b) => b.cltt.localeCompare(a.cltt)).slice(0, 1) }),
     },
     d2: { configFile: async () => ({}) },
     nodes: { list: async () => ({ items: db.nodes }), replication: async () => ({ state: 'ready', peers: db.peers }) },
@@ -230,24 +231,27 @@ describe('HA cards', () => {
 const lease = (ip, cltt, state = 'default') => ({ ip_address: ip, cltt, state, hw_address: '02:00:5e:00:00:01', node_id: 'n1', subnet_id: 1 })
 
 describe('DORA', () => {
-  it('a leases summary with new leases plays DORA for a new latest lease', async () => {
+  it('a lease event plays DORA for a new latest lease, with its client', async () => {
     db.leases = [lease('192.0.2.100', '2026-10-25T10:00:00Z')]
     renderAt('full', <LatestLease family="v4" />)
     await screen.findByTestId('latest-lease')
     expect(screen.getByTestId('dora')).not.toHaveClass('is-go')
-    db.leases = [...db.leases, lease('192.0.2.124', '2026-10-25T10:01:00Z')]
-    publish('leases', 'summary', { engine: 'kea6', new_since_last: 1 })
-    publish('leases', 'summary', { engine: 'kea4', new_since_last: 1 })
+    publish('leases', 'lease', { engine: 'kea6', family: 'v6', change: 'new', lease: lease('2001:db8::5', '2026-10-25T10:03:00Z') })
+    publish('leases', 'lease', { engine: 'kea4', family: 'v4', change: 'new', lease: { ...lease('192.0.2.124', '2026-10-25T10:01:00Z'), hostname: 'pc124' } })
     await waitFor(() => expect(screen.getByTestId('latest-lease')).toHaveAttribute('data-lease', '192.0.2.124'))
     expect(screen.getByTestId('dora')).toHaveClass('is-go')
+    expect(screen.getByTestId('latest-lease-client')).toHaveTextContent('pc124')
+    // An older transaction never replaces the newest one.
+    publish('leases', 'lease', { engine: 'kea4', family: 'v4', change: 'renewed', lease: lease('192.0.2.101', '2026-10-25T09:00:00Z') })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(screen.getByTestId('latest-lease')).toHaveAttribute('data-lease', '192.0.2.124')
   })
 
   it('stands still at off', async () => {
     db.leases = [lease('192.0.2.100', '2026-10-25T10:00:00Z')]
     renderAt('off', <LatestLease family="v4" />)
     await screen.findByTestId('latest-lease')
-    db.leases = [...db.leases, lease('192.0.2.125', '2026-10-25T10:02:00Z', 'declined')]
-    publish('leases', 'summary', { engine: 'kea4', new_since_last: 1 })
+    publish('leases', 'lease', { engine: 'kea4', family: 'v4', change: 'new', lease: lease('192.0.2.125', '2026-10-25T10:02:00Z', 'declined') })
     await waitFor(() => expect(screen.getByTestId('latest-lease')).toHaveAttribute('data-lease', '192.0.2.125'))
     expect(screen.getByTestId('dora')).not.toHaveClass('is-go')
     expect(screen.getByTestId('dora')).toHaveClass('is-nak')

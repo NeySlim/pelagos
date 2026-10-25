@@ -43,6 +43,7 @@ const VARIANTS = {
   'communication-recovery': 'warning',
   waiting: 'warning',
   syncing: 'warning',
+  isolated: 'danger',
   ready: 'success',
   terminated: 'danger',
   'backup': 'info',

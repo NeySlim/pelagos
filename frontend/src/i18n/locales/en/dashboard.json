@@ -92,6 +92,8 @@
       "pools": "Busiest pools",
       "ha": "High availability",
       "latestLease": "Latest lease",
+      "leaseTiming": "Kea records when the exchange completed (cltt), not the time of each of its four packets: the DORA marks the completed exchange.",
+      "renewed": "renewed",
       "latest": "Latest leases",
       "exchange": "+{{count}} leases",
       "exchange_one": "+{{count}} lease",

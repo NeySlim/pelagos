@@ -75,7 +75,7 @@ describe('live mock', () => {
   it('applies a plan node by node: the local audit entry first, then the outcome', async () => {
     const session = await login()
     const call = client(session)
-    const ws = await listen(session, ['audit', 'plans'])
+    const ws = await listen(session, ['audit', 'plans', 'zones'])
     const plan = (await call('POST', '/dns/zones/example.lan/records/plan', { changes: [{ op: 'add', target: 'example.lan./paced/A', after: { ttl: 60, rdata: ['192.0.2.61'] } }] })).data
     const started = Date.now()
     const applied = await call('POST', `/plans/${plan.id}/apply`, { confirm: false })
@@ -83,10 +83,14 @@ describe('live mock', () => {
     expect(Date.now() - started).toBeGreaterThanOrEqual(55)
     await sleep(30)
     const audit = ws.messages.find((m) => m.topic === 'audit' && m.data.plan_id === plan.id)
-    const outcome = ws.messages.find((m) => m.topic === 'plans' && m.data.plan_id === plan.id)
+    const outcome = ws.messages.find((m) => m.topic === 'plans' && m.data.plan_id === plan.id && m.event === 'applied')
     expect(audit.data.request).toEqual({ entry: 'node', verb: 'apply' })
-    expect(outcome.event).toBe('applied')
     expect(audit.at).toBeLessThanOrEqual(outcome.at)
+    // The plan's phases and one step per node, as PlanService sends them.
+    const phases = ws.messages.filter((m) => m.topic === 'plans' && m.data.plan_id === plan.id).map((m) => (m.event === 'step' ? `step:${m.data.state}` : m.event))
+    expect(phases).toEqual(['validated', 'applying', 'step:running', 'step:done', 'applied'])
+    // The zone's serial here at once; the secondaries' transfers when they land.
+    expect(ws.messages.find((m) => m.topic === 'zones' && m.event === 'serial')?.data.zone).toBe('example.lan.')
     // The secondaries lag until their transfer lands.
     const lagging = (await call('GET', '/dns/zones/example.lan')).data.status
     const values = Object.values(lagging).map((s) => s.serial)
@@ -94,6 +98,9 @@ describe('live mock', () => {
     await sleep(200)
     const caughtUp = (await call('GET', '/dns/zones/example.lan')).data.status
     expect(new Set(Object.values(caughtUp).map((s) => s.serial)).size).toBe(1)
+    const transfer = ws.messages.find((m) => m.topic === 'zones' && m.event === 'transfer')
+    expect(transfer.node_id).not.toBe(mock.state.selfId)
+    expect(transfer.data).toMatchObject({ zone: 'example.lan.', kind: 'secondary', primary_node_id: mock.state.selfId })
     const appliedSerial = caughtUp[Object.keys(caughtUp)[0]].serial
     const rolled = await call('POST', `/plans/${plan.id}/rollback`)
     expect(rolled.data.state).toBe('rolled_back')
@@ -117,7 +124,14 @@ describe('live mock', () => {
     const opened = await event('alert')
     await sleep(30)
     expect(ws.messages.find((m) => m.topic === 'alerts' && m.event === 'opened')?.data.id).toBe(opened.data.id)
-    expect(ws.messages.find((m) => m.topic === 'leases')?.data.new_since_last).toBe(1)
+    expect(ws.messages.find((m) => m.topic === 'leases' && m.event === 'summary')?.data.new_since_last).toBe(1)
+    const fresh = ws.messages.find((m) => m.topic === 'leases' && m.event === 'lease')
+    expect(fresh.data).toMatchObject({ engine: 'kea4', family: 'v4', change: 'new' })
+    expect(fresh.data.lease.ip_address).toBe(lease.data.ip)
+    expect(Object.keys(fresh.data.lease)).not.toContain('raw')
+    const recent = (await call('GET', '/dhcp/v4/leases/recent?limit=1')).data
+    expect(recent.items).toHaveLength(1)
+    expect(recent.items[0].cltt >= fresh.data.lease.cltt).toBe(true)
     const series = (await call('GET', '/series/pools?engine=kea4&subnet_id=3&step=300')).data.series[0]
     const [, assigned, total] = series.points[series.points.length - 1]
     expect(assigned).toBe(total)
@@ -158,13 +172,16 @@ describe('live mock', () => {
     mock.state.ha.v4[1].collected_at = sample
     await event('heartbeat')
     expect(mock.state.ha.v4[1].collected_at).not.toBe(sample)
-    // State changes go out on `ha`; a heartbeat sample alone does not.
+    // Each sample goes out as `ha`/`heartbeat`, one per server, under the server's node id;
+    // it is no state change.
     await sleep(30)
-    const changes = ws.messages.filter((m) => m.topic === 'ha').length
-    expect(changes).toBeGreaterThan(3)
+    const states = ws.messages.filter((m) => m.topic === 'ha' && m.event === 'state').length
+    const beats = ws.messages.filter((m) => m.topic === 'ha' && m.event === 'heartbeat')
+    expect(beats.map((m) => m.node_id).sort()).toEqual(mock.state.ha.v4.map((h) => h.node_id).concat((mock.state.ha.v6 || []).map((h) => h.node_id)).sort())
+    expect(beats.every((m) => m.node_id === m.data.node_id)).toBe(true)
     await event('heartbeat')
     await sleep(30)
-    expect(ws.messages.filter((m) => m.topic === 'ha').length).toBe(changes)
+    expect(ws.messages.filter((m) => m.topic === 'ha' && m.event === 'state').length).toBe(states)
     ws.close()
   })
 })

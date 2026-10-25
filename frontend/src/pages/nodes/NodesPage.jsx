@@ -20,6 +20,7 @@ import { formatDate, formatRelativeTime } from '../../lib/utils'
 import { StatusBadge } from '../../components/StatusBadge'
 import { HeartbeatTrace, RollingNumber, SignalLink, SwapText } from '../../components/motion'
 import { usePoll } from '../../hooks/usePoll'
+import { useFallbackMs } from '../../hooks/useClusterSignals'
 import { PULSE_MS } from '../../components/motion/primitives'
 import { AreaPage, SectionError } from '../dhcp/ui'
 import { resetNodeNameCache } from '../dhcp/hooks'
@@ -98,7 +99,7 @@ export default function NodesPage() {
     const [n, r] = await Promise.all([api.nodes.list(), api.nodes.replication()])
     nodes.setData(n)
     replication.setData(r)
-  }, NODES_POLL_MS, { enabled: Boolean(nodes.data && replication.data) })
+  }, useFallbackMs(NODES_POLL_MS), { enabled: Boolean(nodes.data && replication.data) })
   // A node seen again (last_seen moved) beats once on its trace.
   const beats = useRef(new Map())
   const beatOf = (n) => {
@@ -311,6 +312,12 @@ export default function NodesPage() {
             )}
           </div>
           <SectionError error={replication.error} onRetry={replication.refetch} />
+          {replication.data?.state === 'isolated' && (
+            <div className="flex items-start gap-2 text-xs text-accent-danger" role="alert" data-testid="replication-isolated">
+              <Warning size={14} className="shrink-0 mt-0.5" />
+              <span>{t('replication.isolated')}</span>
+            </div>
+          )}
           {peers.length > 0 && (
             <div className="flex flex-col gap-2 py-1" data-testid="replication-links">
               {peers.map((p) => (

@@ -77,7 +77,26 @@ export function createPlan(state, user, spec) {
     error: failed ? 'Validation failed' : null,
   }
   state.plans.set(plan.id, { plan, apply: spec.apply, rollback: spec.rollback, job: spec.job, creator: user.username })
+  state.emit?.('plans', 'validated', planPhase(state, plan, plan.state))
   return plan
+}
+
+// Payloads of the `plans` topic beyond the ApplyResult (section 18, as PlanService sends them).
+export function planPhase(state, plan, phase) {
+  return {
+    plan_id: plan.id,
+    scope: plan.scope,
+    state: phase,
+    origin_node_id: plan.node_id || state.selfId,
+    target_node_ids: [...(plan.target_node_ids || [state.selfId])],
+    validations: (plan.validations || []).map((v) => ({ tool: v.tool, node_id: v.node_id ?? null, ok: v.ok })),
+  }
+}
+
+export function planStep(state, plan, nodeId, verb, ok = null, message = null) {
+  const data = { plan_id: plan.id, scope: plan.scope, node_id: nodeId, origin_node_id: state.selfId, verb, state: ok === null ? 'running' : ok ? 'done' : 'failed' }
+  if (ok !== null) Object.assign(data, { ok, outcome_unknown: false, message, duration_ms: state.applyNodeMs || 0 })
+  return data
 }
 
 export function isExpired(plan) {
@@ -200,10 +219,13 @@ export function applyPlan(state, user, id, confirm, emit) {
     return { status: 409, code: 'precondition_failed', detail: `${moved.kind} of ${moved.subject} moved since the plan was built` }
   }
   plan.state = 'applying'
+  emit('plans', 'applying', planPhase(state, plan, 'applying'))
   if (held.job) {
     bumpConfigHashes(state, plan)
     return { status: 202, body: startJob(state, user, held, emit) }
   }
+  const first = plan.target_node_ids[0] || state.selfId
+  emit('plans', 'step', planStep(state, plan, first, 'apply'))
   let message = 'applied'
   try {
     message = held.apply?.() || 'applied'
@@ -211,6 +233,7 @@ export function applyPlan(state, user, id, confirm, emit) {
     plan.state = 'failed'
     plan.error = err.message
     const entry = auditEntry(state, user, { action: `${plan.scope}.apply`, target: plan.changes[0]?.target || plan.scope, engine: plan.engine, plan_id: plan.id, diff: plan.diff, result: 'error', message: err.message })
+    emit('plans', 'step', planStep(state, plan, first, 'apply', false, err.message))
     const result = { plan_id: plan.id, state: 'failed', results: nodeResults(state, plan, false, err.message, [entry.id]), finished_at: iso(Date.now()) }
     emit('plans', 'failed', result)
     return { status: 200, body: result }
@@ -222,6 +245,11 @@ export function applyPlan(state, user, id, confirm, emit) {
   // The node entry of section 6: its request names the entry kind and the verb.
   const entry = auditEntry(state, user, { action: `${plan.scope}.apply`, target: plan.changes[0]?.target || plan.scope, engine: plan.engine, plan_id: plan.id, diff: plan.diff, request: { entry: 'node', verb: 'apply' } })
   emit('audit', 'entry', entry)
+  emit('plans', 'step', planStep(state, plan, first, 'apply', true, message))
+  for (const node of plan.target_node_ids.slice(1)) {
+    emit('plans', 'step', planStep(state, plan, node, 'apply'))
+    emit('plans', 'step', planStep(state, plan, node, 'apply', true, message))
+  }
   const result = { plan_id: plan.id, state: 'applied', results: nodeResults(state, plan, true, message, [entry.id]), finished_at: iso(Date.now()) }
   emit('plans', 'applied', result)
   return { status: 200, body: result }
@@ -236,11 +264,20 @@ export function rollbackPlan(state, user, id, emit) {
   if (plan.state !== 'applied') return { status: 409, code: 'plan_state', detail: `plan is ${plan.state}` }
   if (isExpired(plan)) return { status: 410, code: 'plan_expired', detail: 'plan expired' }
   if (!held.rollback) return { status: 501, code: 'not_supported', detail: 'this plan cannot be rolled back' }
+  emit('plans', 'rolling_back', planPhase(state, plan, 'rolling_back'))
+  const order = [...plan.target_node_ids].reverse()
+  for (const node of order.slice(0, -1)) {
+    emit('plans', 'step', planStep(state, plan, node, 'rollback'))
+    emit('plans', 'step', planStep(state, plan, node, 'rollback', true, 'rolled back'))
+  }
+  const last = order[order.length - 1] || state.selfId
+  emit('plans', 'step', planStep(state, plan, last, 'rollback'))
   held.rollback()
   bumpConfigHashes(state, plan)
   plan.state = 'rolled_back'
   const entry = auditEntry(state, user, { action: `${plan.scope}.rollback`, target: plan.changes[0]?.target || plan.scope, engine: plan.engine, plan_id: plan.id, diff: plan.diff, result: 'rolled_back', request: { entry: 'node', verb: 'rollback' } })
   emit('audit', 'entry', entry)
+  emit('plans', 'step', planStep(state, plan, last, 'rollback', true, 'rolled back'))
   const result = {
     plan_id: plan.id,
     state: 'rolled_back',

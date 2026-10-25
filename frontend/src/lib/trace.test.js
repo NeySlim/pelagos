@@ -108,6 +108,14 @@ describe('ruler and scale bar', () => {
   })
 })
 
+describe('zone events', () => {
+  it('draws a transfer from the zones topic', () => {
+    const e = traceEventOf({ topic: 'zones', event: 'transfer', ts: '2026-10-25T10:00:00Z', data: { zone: 'example.lan.', view: '_default', serial: 7 } })
+    expect(e).toMatchObject({ kind: 'axfr', params: { subject: 'example.lan', serial: 7 }, id: '_default|example.lan.:7' })
+    expect(traceEventOf({ topic: 'zones', event: 'serial', data: { zone: 'example.lan.' } })).toBeNull()
+  })
+})
+
 describe('heartbeats', () => {
   it('measures a beat from the partner age and narrows it with each observation', () => {
     let beats = observeBeat([], { collectedAt: 10_400, age: 3 })
@@ -125,6 +133,16 @@ describe('heartbeats', () => {
     // A stale snapshot of the older beat adds nothing.
     expect(observeBeat(beats, { collectedAt: 9_000, age: 1 })).toBe(beats)
     expect(observeBeat(beats, { collectedAt: 9_000, age: null })).toBe(beats)
+  })
+
+  it('takes the backend heartbeat window when it has one', () => {
+    // status-get sent at 10 200, answered at 10 600, age 3: (7 200, 7 600] beats the 1 s window.
+    let beats = observeBeat([], { collectedAt: 10_600, age: 3, lo: 6_200, hi: 7_600 })
+    expect(beats).toEqual([{ t: 6_900, lo: 6_200, hi: 7_600 }])
+    beats = observeBeat(beats, { collectedAt: 12_000, age: 5, lo: 6_100, hi: 7_000 })
+    expect(beats[0]).toMatchObject({ lo: 6_200, hi: 7_000 })
+    // A broken window falls back to the age at collection time.
+    expect(observeBeat([], { collectedAt: 10_400, age: 3, lo: 9, hi: 2 })[0].lo).toBe(6_400)
   })
 
   it('reports the mean interval and the jitter, ignoring outage gaps', () => {

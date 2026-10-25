@@ -178,7 +178,9 @@
         "poll_seconds": "Interrogation des moteurs (secondes)",
         "pool_sample_seconds": "Échantillon des pools (secondes)",
         "peer_poll_seconds": "Interrogation des pairs (secondes)",
-        "consistency_seconds": "Passe de cohérence (secondes)"
+        "consistency_seconds": "Passe de cohérence (secondes)",
+        "live_seconds": "Passe rapide : battements HA et suivi des baux (secondes)",
+        "lease_watch_max": "Suivi des baux : plus grande table de baux parcourue"
       },
       "retention": {
         "raw_days": "Séries brutes (jours)",

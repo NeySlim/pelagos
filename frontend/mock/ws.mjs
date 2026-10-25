@@ -114,8 +114,9 @@ export function createWsHub({ authenticate, nodeId }) {
     }
   }
 
-  function emit(topic, event, data) {
-    const message = { topic, event, ts: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), node_id: nodeId, data }
+  // `from`: the node the event happened on (a peer's, relayed), this node by default.
+  function emit(topic, event, data, from = nodeId) {
+    const message = { topic, event, ts: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), node_id: from, data }
     for (const client of clients) {
       if (topic === 'system' || client.topics.has(topic)) send(client, message)
     }

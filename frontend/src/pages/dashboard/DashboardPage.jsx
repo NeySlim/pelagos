@@ -16,6 +16,7 @@ import { EmptyState } from '../../components/EmptyState'
 import { useApi } from '../../hooks/useApi'
 import { usePermission } from '../../hooks/usePermission'
 import { useWsTopic } from '../../hooks/useWebSocket'
+import { useFallbackMs } from '../../hooks/useClusterSignals'
 import { useMobile } from '../../contexts/MobileContext'
 import { useAuth } from '../../contexts/AuthContext'
 import { useEffectsLayer } from '../../contexts/ThemeContext'
@@ -102,8 +103,13 @@ export default function DashboardPage() {
     if (topic) setEvents((e) => ({ ...e, [topic]: e[topic] + 1 }))
     refreshSoon()
   }, [refreshSoon])
-  // Only an HA state transition pings the tile; a growing queue only refreshes it.
-  useWsTopic('ha', (msg) => onEvent(msg?.event === 'state' ? 'ha' : null))
+  // Only an HA state transition pings the tile; a growing queue only refreshes it; the
+  // heartbeats every few seconds feed the trace, not the summary.
+  useWsTopic('ha', (msg) => {
+    if (msg?.event === 'state') onEvent('ha')
+    else if (msg?.event === 'unsent') onEvent(null)
+  })
+  useWsTopic('zones', (msg) => onEvent(msg?.event === 'transfer' ? 'plans' : null))
   // Node heartbeats repeat: only a change of status or error is an event.
   const nodeState = useRef({})
   useWsTopic('nodes', (msg) => {
@@ -140,12 +146,13 @@ export default function DashboardPage() {
     sweepTiles(Object.keys(TILE_SLICES))
     refetchAll()
   }, [sweepTiles, refetchAll])
+  const refreshMs = useFallbackMs(REFRESH_MS)
   useEffect(() => {
     const id = setInterval(() => {
       if (document.visibilityState !== 'hidden') refreshSoon()
-    }, REFRESH_MS)
+    }, refreshMs)
     return () => clearInterval(id)
-  }, [refreshSoon])
+  }, [refreshSoon, refreshMs])
 
   const { width, containerRef, mounted } = useContainerWidth({ initialWidth: 1200 })
   const dirty = !sameLayout(layout, stored)

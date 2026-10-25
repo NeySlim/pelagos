@@ -76,6 +76,12 @@ describe('trace lanes', () => {
 describe('measured heartbeats', () => {
   const ha = (at, age, extra = {}) => ({ node_id: 'a', family: 'v4', state: 'hot-standby', collected_at: new Date(at).toISOString(), unsent_update_count: 0, partner: { in_touch: true, age }, ...extra })
 
+  it('uses the backend heartbeat window when the sample carries one', () => {
+    const iso = (t) => new Date(t).toISOString()
+    const rec = observeHa(undefined, ha(10_600, 3, { heartbeat: { lo: iso(6_200), hi: iso(7_600), age: 3 } }))
+    expect(rec.beats[0]).toMatchObject({ lo: 6_200, hi: 7_600, t: 6_900 })
+  })
+
   it('places beats from the partner age and opens an outage when the partner is lost', () => {
     let rec = observeHa(undefined, ha(10_400, 3))
     expect(rec.beats).toHaveLength(1)

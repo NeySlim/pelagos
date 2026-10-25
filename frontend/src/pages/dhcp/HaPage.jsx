@@ -20,6 +20,7 @@ import { api } from '../../services/api'
 import { formatDate, formatRelativeTime } from '../../lib/utils'
 import { FlowLine, HeartbeatTrace, StatusDot, UnsentQueue } from '../../components/motion'
 import { usePoll } from '../../hooks/usePoll'
+import { useFallbackMs } from '../../hooks/useClusterSignals'
 import { haTone } from '../dashboard/radarLayout'
 import { AreaPage, SectionError } from './ui'
 import { usePlanFlow, useNodeNames } from './hooks'
@@ -55,7 +56,7 @@ export default function HaPage({ family }) {
   usePoll(async () => {
     const res = await api.dhcp.ha(family)
     if (res?.items) ha.setData(res)
-  }, HA_POLL_MS, { enabled: Boolean(ha.data) })
+  }, useFallbackMs(HA_POLL_MS), { enabled: Boolean(ha.data) })
 
   // Live state: replace the matching server's HAState in place.
   useWsTopic('ha', (msg) => {

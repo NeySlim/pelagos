@@ -7,8 +7,9 @@
 // offers "Recompute the plan" when the caller passes `onRecompute`, which builds
 // the plan again from the same inputs and resolves to the new plan.
 // Motion: validations tick in order along a hairline; at apply the sections fold and a
-// step rail follows the real sequence (local apply, peers, results) from the audit
-// entries and the ApplyResult; a rollback walks the rail back in amber.
+// step rail follows the real sequence (local apply, peers, results) from the `plans`
+// step events (one per node as it answers), the audit entries and the ApplyResult; a
+// rollback walks the rail back in amber.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Warning, ArrowCounterClockwise, ArrowClockwise, Lightning, CaretRight, Clock } from '@phosphor-icons/react'
@@ -20,7 +21,7 @@ import { useMessage } from '../i18n/message'
 import { useMotionLevel } from '../contexts/MotionContext'
 import { emitPlanEvent, recalledApply, rememberApply } from '../lib/planEvents'
 import {
-  appliedSteps, auditPhase, buildSteps, estimateMs, finishApply, finishRollback, jobSteps, localApplied, localReverted, reverseFillMs, startApply, startRollback,
+  appliedSteps, auditPhase, buildSteps, estimateMs, finishApply, finishRollback, jobSteps, localApplied, localReverted, peerApplied, reverseFillMs, startApply, startRollback,
 } from '../lib/planTrace'
 import { Button } from './Button'
 import { Badge } from './Badge'
@@ -244,6 +245,21 @@ export function PlanPreview({
     const now = performance.now()
     if (phase === 'apply') updateRail((r) => (r.reverse ? r : { ...r, steps: localApplied(r.steps, now), fillMs: estimateMs('peer') }))
     else updateRail((r) => (r.reverse ? { ...r, steps: localReverted(r.steps, now), fillMs: reverseFillMs(r.steps, 'local') } : r))
+  })
+
+  // Each node's step as it ends (`plans`/`step`): the local chip, then every peer's chip
+  // finishes when that peer answered, not when the whole apply returns.
+  useWsTopic(busy && rail ? 'plans' : null, (message) => {
+    const d = message?.data
+    if (message?.event !== 'step' || !d || d.plan_id !== plan?.id || d.verb !== 'apply') return
+    if (d.state !== 'done' && d.state !== 'failed') return
+    const now = performance.now()
+    const self = plan?.node_id
+    updateRail((r) => {
+      if (r.reverse) return r
+      if (d.node_id === self) return { ...r, steps: localApplied(r.steps, now), fillMs: estimateMs('peer') }
+      return { ...r, steps: peerApplied(r.steps, d.node_id, d.state === 'done', now), fillMs: estimateMs('peer') }
+    })
   })
 
   const handleRecompute = useCallback(async () => {

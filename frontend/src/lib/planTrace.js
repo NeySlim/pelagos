@@ -101,6 +101,26 @@ export function localApplied(steps, now) {
   return out
 }
 
+// A peer answered (a `plans`/`step` event for it, done or failed): its chip finishes now, with
+// the measured duration, and the next peer starts. Unknown or already finished nodes change
+// nothing, so a late event after the ApplyResult is harmless.
+export function peerApplied(steps, nodeId, ok, now) {
+  const peers = stepOf(steps, 'peers')
+  const idx = peers ? peers.nodes.findIndex((n) => n.id === nodeId) : -1
+  if (idx < 0 || !['pending', 'running'].includes(peers.nodes[idx].state)) return steps
+  let out = steps
+  if (stepOf(out, 'local').state === 'running') out = localApplied(out, now)
+  else out = clone(out)
+  const step = stepOf(out, 'peers')
+  const n = step.nodes[idx]
+  if (n.state === 'pending') n.startedAt = n.startedAt ?? now
+  finishNode(n, now, ok ? 'done' : 'failed')
+  const next = step.nodes.find((x) => x.state === 'pending')
+  if (next && ok) startNode(next, now)
+  settleStep(step, now)
+  return out
+}
+
 // The ApplyResult: every node gets its outcome. A node rolled back after a failure elsewhere
 // is `reverted`, a failing node `failed`; an untouched peer stays pending.
 export function finishApply(steps, result, now) {

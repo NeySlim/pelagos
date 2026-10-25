@@ -94,6 +94,7 @@ export const dhcp = {
   reservations: (family, params) => apiClient.get(`/dhcp/${family}/reservations${buildQueryString(params)}`),
   reservationPlan: (family, change) => apiClient.post(`/dhcp/${family}/reservations/plan`, { change }),
   leases: (family, params) => apiClient.get(`/dhcp/${family}/leases${buildQueryString(params)}`),
+  recentLeases: (family, params) => apiClient.get(`/dhcp/${family}/leases/recent${buildQueryString(params)}`),
   lease: (family, ip) => apiClient.get(`/dhcp/${family}/leases/${enc(ip)}`),
   // node_id: the node holding the copy to delete (default: this node).
   leaseDeletePlan: (family, ip, node_id) =>

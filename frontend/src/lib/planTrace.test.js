@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
-  appliedSteps, auditPhase, buildSteps, estimateMs, finishApply, finishRollback, jobSteps, localApplied, localReverted, recordDuration, resetEstimates, reverseFillMs, startApply, startRollback,
+  appliedSteps, auditPhase, buildSteps, estimateMs, finishApply, finishRollback, jobSteps, localApplied, localReverted, peerApplied, recordDuration, resetEstimates, reverseFillMs, startApply, startRollback,
 } from './planTrace'
 import { emitPlanEvent, onPlanEvent, planZone, recalledApply, rememberApply } from './planEvents'
 
@@ -25,6 +25,26 @@ describe('plan rail', () => {
     const remote = buildSteps(plan(['n2']))
     expect(remote[0].kind).toBe('recheck')
     expect(remote[1].nodes.map((n) => n.id)).toEqual(['n2'])
+  })
+
+  it('finishes each peer chip when that peer answers (plans step events)', () => {
+    let steps = localApplied(startApply(buildSteps(plan()), 1000), 1300)
+    steps = peerApplied(steps, 'n2', true, 1900)
+    expect(states(steps)[1]).toEqual(['peers', 'running', 'done,running'])
+    expect(steps[1].nodes[0].ms).toBe(600)
+    expect(steps[1].nodes[1].startedAt).toBe(1900)
+    steps = peerApplied(steps, 'n3', true, 2200)
+    expect(states(steps)[1]).toEqual(['peers', 'done', 'done,done'])
+    expect(steps[1].nodes[1].ms).toBe(300)
+    // A repeated or unknown event changes nothing; the ApplyResult keeps the measured times.
+    expect(peerApplied(steps, 'n3', true, 9000)).toBe(steps)
+    expect(peerApplied(steps, 'nX', true, 9000)).toBe(steps)
+    steps = finishApply(steps, ok([['n1'], ['n2'], ['n3']]), 2500)
+    expect(steps[1].nodes.map((n) => n.ms)).toEqual([600, 300])
+    // A failing peer stops the walk: the next one never starts.
+    let failing = localApplied(startApply(buildSteps(plan()), 0), 100)
+    failing = peerApplied(failing, 'n2', false, 400)
+    expect(states(failing)[1]).toEqual(['peers', 'failed', 'failed,pending'])
   })
 
   it('follows the local audit entry, then the result, with measured durations', () => {

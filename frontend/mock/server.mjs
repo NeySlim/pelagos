@@ -15,7 +15,7 @@ import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, 
 import { createWsHub } from './ws.mjs'
 import { opsHandlers } from './ops.mjs'
 import { heartbeatAge, liveCounters } from './live.mjs'
-import { createEvents, poolHistoryKey, stopEventTimers } from './events.mjs'
+import { createEvents, leaseBrief, poolHistoryKey, stopEventTimers, zoneEvents } from './events.mjs'
 
 const API = '/api/v1'
 const ANON = new Set(['GET /health', 'GET /version', 'POST /auth/login'])
@@ -956,6 +956,21 @@ function settingsPlan(state, user, { scope, engine, target, current, next, tool,
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+// Plays the events of an apply or rollback at the pace of a cluster: each node's part takes
+// `pace` ms, ending with its audit entry or its `step` done event.
+async function replayPaced(queued, pace, emit) {
+  let waited = false
+  for (const [topic, event, data] of queued) {
+    const ends = (topic === 'audit' && data?.request?.entry === 'node') || (topic === 'plans' && event === 'step' && data?.state !== 'running')
+    if (ends && !waited) {
+      await sleep(pace)
+      waited = true
+    }
+    if (topic === 'plans' && event === 'step' && data?.state === 'running') waited = false
+    emit(topic, event, data)
+  }
+}
+
 function buildHandlers(state, emit) {
   // A record plan changed the zone on this node: its secondaries lag until the transfer.
   const markTransfer = (planId) => {
@@ -965,6 +980,7 @@ function buildHandlers(state, emit) {
     if (!zone) return
     state.transferLag ||= {}
     state.transferLag[zone] = Date.now() + state.transferMs
+    zoneEvents(state, emit, zone, state.transferMs)
   }
   const kea = (family) => (family === 'v4' ? 'kea4' : 'kea6')
   const keaTool = (family) => `kea-dhcp${family === 'v4' ? '4' : '6'} -t`
@@ -1518,6 +1534,18 @@ function buildHandlers(state, emit) {
       items = items.filter((l) => !stateFilter || l.state === stateFilter)
       return { items, page: 1, per_page: limit, total: items.length, meta: { node_id: query.get('node_id') || state.selfId, next, limit } }
     },
+    // The collectors' lease watch: newest client transaction first, one copy per address.
+    'GET /dhcp/{family}/leases/recent': ({ params, query }) => {
+      const limit = Number(query.get('limit') || 20)
+      if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw invalid('limit', 'between 1 and 50')
+      const best = new Map()
+      for (const l of state.leases[params.family]) {
+        const held = best.get(l.ip_address)
+        if (!held || String(l.cltt) > String(held.cltt)) best.set(l.ip_address, l)
+      }
+      const items = [...best.values()].sort((a, b) => String(b.cltt).localeCompare(String(a.cltt))).slice(0, limit).map(leaseBrief)
+      return { items, as_of: iso(Date.now()), nodes: [...new Set(state.leases[params.family].map((l) => l.node_id))].sort() }
+    },
     'GET /dhcp/{family}/leases/{ip}': ({ params }) => {
       const items = state.leases[params.family].filter((l) => l.ip_address === params.ip)
       if (!items.length) throw notFound(`lease ${params.ip}`)
@@ -1821,11 +1849,7 @@ function buildHandlers(state, emit) {
       const out = applyPlan(state, user, params.id, Boolean(body.confirm), pace && !job ? (...a) => queued.push(a) : emit)
       if (out.code) throw new Problem(out.status, out.code, out.detail)
       if (queued.length) {
-        const peers = (out.body?.results || []).filter((r) => r.node_id !== state.selfId).length
-        await sleep(pace)
-        queued.filter(([topic]) => topic === 'audit').forEach((a) => emit(...a))
-        await sleep(pace * peers)
-        queued.filter(([topic]) => topic !== 'audit').forEach((a) => emit(...a))
+        await replayPaced(queued, pace, emit)
         markTransfer(params.id)
       }
       res.statusCode = out.status
@@ -1837,11 +1861,7 @@ function buildHandlers(state, emit) {
       const out = rollbackPlan(state, user, params.id, pace ? (...a) => queued.push(a) : emit)
       if (out.code) throw new Problem(out.status, out.code, out.detail)
       if (pace) {
-        const peers = (out.body?.results || []).filter((r) => r.node_id !== state.selfId).length
-        await sleep(pace * peers)
-        queued.filter(([topic]) => topic === 'audit').forEach((a) => emit(...a))
-        await sleep(pace)
-        queued.filter(([topic]) => topic !== 'audit').forEach((a) => emit(...a))
+        await replayPaced(queued, pace, emit)
         markTransfer(params.id)
       }
       return out.body
@@ -2183,9 +2203,10 @@ export function createMockServer({ quiet = false, jobStepMs, live = false, apply
   }
 
   const hub = createWsHub({ authenticate: (req) => sessionOf(req).user, nodeId: state.selfId })
+  state.emit = hub.emit
   const handlers = buildHandlers(state, hub.emit)
   const events = createEvents(state, {
-    emit: hub.emit, inPool4, poolRange, ipToInt, utilization, bumpSerial, findZone,
+    emit: hub.emit, inPool4, poolRange, ipToInt, utilization, bumpSerial, findZone, liveHa,
   })
   const missing = ENDPOINTS.filter((spec) => !handlers[spec])
   if (missing.length) throw new Error(`mock server misses handlers for: ${missing.join(', ')}`)
@@ -2288,9 +2309,10 @@ export function createMockServer({ quiet = false, jobStepMs, live = false, apply
   // Lease summaries and node heartbeats keep the WebSocket indicator alive.
   const ticker = setInterval(() => {
     hub.emit('leases', 'summary', { engine: 'kea4', active: leasesFor(state, 'v4').length, new_since_last: 2, expired_since_last: 1 })
+    // Peers only, like the collector (this node is not one of its peers).
     for (const node of state.nodes) {
       node.last_seen = iso(Date.now())
-      hub.emit('nodes', 'status', node)
+      if (!node.is_self) hub.emit('nodes', 'status', node)
     }
   }, 15000)
   ticker.unref?.()

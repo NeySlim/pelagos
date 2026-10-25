@@ -69,6 +69,7 @@ export const ENDPOINTS = [
   'GET /dhcp/{family}/reservations',
   'POST /dhcp/{family}/reservations/plan',
   'GET /dhcp/{family}/leases',
+  'GET /dhcp/{family}/leases/recent',
   'GET /dhcp/{family}/leases/{ip}',
   'POST /dhcp/{family}/leases/{ip}/delete/plan',
   'GET /dhcp/{family}/utilization',

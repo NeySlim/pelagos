@@ -219,6 +219,7 @@
     "communication-recovery": "Communication recovery",
     "waiting": "Waiting",
     "syncing": "Syncing",
+    "isolated": "Isolated",
     "ready": "Ready",
     "terminated": "Terminated",
     "backup": "Backup",

@@ -28,7 +28,30 @@ export function stopEventTimers() {
   timers.clear()
 }
 
-// helpers: { emit, inPool4, poolRange, ipToInt, utilization, bumpSerial, findZone }
+// `zones` events of a change on this node's primary zone, as the collectors send them: the
+// serial here at once, then one transfer per online secondary when its copy follows
+// (relayed: the event carries the secondary's node id).
+export function zoneEvents(state, emit, zoneName, delayMs = 0) {
+  const zone = state.zones?.find?.((z) => z.name === zoneName) || { name: zoneName, view: '_default' }
+  const serial = state.soaSerial?.(state.records?.[zoneName])
+  if (typeof serial !== 'number') return
+  const view = zone.view || '_default'
+  emit('zones', 'serial', { zone: zoneName, view, kind: 'primary', serial, previous: serial - 1 })
+  later(delayMs, () => {
+    for (const n of state.nodes || []) {
+      if (n.is_self || n.status !== 'online' || !n.peer?.modules?.bind) continue
+      emit('zones', 'transfer', { zone: zoneName, view, kind: 'secondary', serial, previous: serial - 1, primary_node_id: state.selfId }, n.peer.id)
+    }
+  })
+}
+
+// The lease the collector's watch reports (collector.pollers.kea.lease_brief).
+export function leaseBrief(l) {
+  const keys = ['ip_address', 'subnet_id', 'family', 'hw_address', 'client_id', 'duid', 'hostname', 'state', 'valid_lft', 'cltt', 'expires_at', 'lease_type', 'prefix_len', 'node_id']
+  return Object.fromEntries(keys.map((k) => [k, l[k] ?? null]))
+}
+
+// helpers: { emit, inPool4, poolRange, ipToInt, utilization, bumpSerial, findZone, liveHa }
 export function createEvents(state, h) {
   const self = () => state.nodes.find((n) => n.is_self)
   const now = () => Date.now()
@@ -68,6 +91,11 @@ export function createEvents(state, h) {
   }
 
   const leasesSummary = (fresh) => h.emit('leases', 'summary', { engine: 'kea4', active: state.leases.v4.filter((l) => l.node_id === state.selfId).length, new_since_last: fresh, expired_since_last: 0 })
+  // The lease watch of this node: one `lease` event per new lease it holds.
+  const leaseEvent = (ip) => {
+    const l = state.leases.v4.find((x) => x.ip_address === ip && x.node_id === state.selfId)
+    if (l) h.emit('leases', 'lease', { engine: 'kea4', family: 'v4', change: 'new', lease: leaseBrief(l) })
+  }
 
   const handlers = {
     lease() {
@@ -79,6 +107,7 @@ export function createEvents(state, h) {
       }
       if (!ip) return { ok: false, detail: 'no free address' }
       addLease(ip, subnetId, `client-${ip.split('.').pop()}`)
+      leaseEvent(ip)
       leasesSummary(1)
       return { ok: true, ip }
     },
@@ -88,7 +117,10 @@ export function createEvents(state, h) {
     alert() {
       poolPoint()
       const ip = freeAddress(POOL.subnetId)
-      if (ip) addLease(ip, POOL.subnetId, `guest-${ip.split('.').pop()}`)
+      if (ip) {
+        addLease(ip, POOL.subnetId, `guest-${ip.split('.').pop()}`)
+        leaseEvent(ip)
+      }
       poolPoint()
       leasesSummary(1)
       for (const a of state.alerts) {
@@ -150,6 +182,7 @@ export function createEvents(state, h) {
       h.bumpSerial(state.records[z.name])
       state.transferLag ||= {}
       state.transferLag[z.name] = now() + delayMs
+      zoneEvents(state, h.emit, z.name, delayMs)
       return { ok: true, zone: z.name, serial: state.soaSerial(state.records[z.name]) }
     },
 
@@ -189,14 +222,17 @@ export function createEvents(state, h) {
       return { ok: true }
     },
 
-    // One HA status sample per server, what the heartbeat traces draw. It is read through
-    // GET /dhcp/{family}/ha; the `ha` topic only carries state changes.
+    // One HA status sample per server, what the heartbeat traces draw: each collector sends
+    // it as `ha`/`heartbeat` (relayed to the other nodes, so it carries the server's node id),
+    // and GET /dhcp/{family}/ha reads the same sample.
     heartbeat() {
       for (const family of ['v4', 'v6']) {
         for (const s of state.ha[family] || []) {
           if (s.state === 'unavailable') continue
           s.collected_at = iso(now())
           if (s.partner?.in_touch) s.partner.age = 0
+          const sample = h.liveHa ? h.liveHa(s) : s
+          h.emit('ha', 'heartbeat', sample, s.node_id)
         }
       }
       return { ok: true }

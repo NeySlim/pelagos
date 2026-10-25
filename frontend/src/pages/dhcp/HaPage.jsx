@@ -24,7 +24,7 @@ import { useFallbackMs } from '../../hooks/useClusterSignals'
 import { haTone } from '../dashboard/radarLayout'
 import { AreaPage, SectionError } from './ui'
 import { usePlanFlow, useNodeNames } from './hooks'
-import { HEALTHY_HA_STATES } from './lib'
+import { HEALTHY_HA_STATES, haTransitionRows } from './lib'
 
 const HA_POLL_MS = 5000
 
@@ -81,7 +81,7 @@ export default function HaPage({ family }) {
   }
 
   const transitionColumns = [
-    { key: 'ts', label: t('fields.time'), render: (r) => <span title={formatDate(r.ts)}>{formatRelativeTime(r.ts)}</span>, sortable: true },
+    { key: 'ts', label: t('fields.time'), render: (r) => <span title={formatDate(r.at)}>{formatRelativeTime(r.at)}</span>, sortable: true },
     { key: 'server_name', label: t('fields.server'), render: (r) => r.server_name || nameOf(r.node_id) },
     {
       key: 'change',
@@ -229,7 +229,7 @@ export default function HaPage({ family }) {
         <DataTable
           title={t('ha.transitions')}
           columns={transitionColumns}
-          rows={[...(transitions.data?.items || [])].sort((a, b) => String(b.ts).localeCompare(String(a.ts)))}
+          rows={haTransitionRows(transitions.data?.items)}
           rowKey={(r, i) => `${r.ts}-${r.node_id}-${i}`}
           loading={transitions.loading}
           error={transitions.error}

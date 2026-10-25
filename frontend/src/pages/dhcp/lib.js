@@ -6,6 +6,13 @@ export const keaEngine = (family) => (family === 'v6' ? 'kea6' : 'kea4')
 export const subnetKey = (family) => (family === 'v6' ? 'subnet6' : 'subnet4')
 export const optionSpace = (family) => (family === 'v6' ? 'dhcp6' : 'dhcp4')
 
+// HA transitions come from the series cache with Unix seconds (`ts`); ISO strings are read too.
+// Newest first, each with `at` in milliseconds for the date helpers.
+export function haTransitionRows(items = []) {
+  const at = (ts) => (typeof ts === 'number' ? ts * 1000 : Date.parse(ts))
+  return (items || []).map((r) => ({ ...r, at: at(r.ts) })).sort((a, b) => (b.at || 0) - (a.at || 0))
+}
+
 export function formatDuration(seconds) {
   if (seconds === null || seconds === undefined || seconds === '') return '-'
   const s = Number(seconds)

@@ -224,6 +224,7 @@ class PeersPoller:
                 "node_id": node.peer.id,
                 "config_version": node.config_version,
                 "audit_count": node.audit_count,
+                "config_changed": node.config_version != before[2],
             }
             out.events.append(("system", "replication", data, {"key": f"system:replication:{node.peer.id}"}))
 

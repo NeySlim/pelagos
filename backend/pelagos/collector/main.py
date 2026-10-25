@@ -40,6 +40,7 @@ from pelagos.domain import (
     ZoneKind,
 )
 from pelagos.services import consistency
+from pelagos.services.masking import masked_text
 
 log = logging.getLogger(__name__)
 
@@ -283,10 +284,15 @@ class Collector:
         seen = (version, count, head)
         if seen == self._replication_seen:
             return
-        first = self._replication_seen is None
+        before = self._replication_seen
         self._replication_seen = seen
-        if not first:
-            data = {"node_id": self.node_id, "config_version": version, "audit_count": count}
+        if before is not None:
+            data = {
+                "node_id": self.node_id,
+                "config_version": version,
+                "audit_count": count,
+                "config_changed": version != before[0],
+            }
             self.events.emit("system", "replication", data, key="system:replication:self")
 
     def on_peer_events(self, caller: str, messages: list[dict[str, Any]]) -> None:
@@ -564,7 +570,8 @@ def plan_step(
     }
     if result is not None:
         data["ok"] = bool(result.ok)
-        data["message"] = result.message or None
+        # Engine and peer messages can quote key material: masked as PlanService does.
+        data["message"] = masked_text(result.message) if result.message else None
     return data
 
 

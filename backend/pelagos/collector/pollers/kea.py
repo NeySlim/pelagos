@@ -53,6 +53,8 @@ D2_WINDOW_SECONDS = 3600
 # Latest leases kept in the "recent_leases" snapshot, and lease events sent per watch pass.
 RECENT_LEASES = 50
 LEASE_EVENTS_MAX = 20
+# Leases per second of interval between two walks: a 50000 lease table is walked at most every 50 s.
+LEASE_WALK_RATE = 1000
 # Counters that move when this server hands out or renews a lease: a lease walk runs only then.
 ACK_COUNTERS = {Family.V4: "pkt4-ack-sent", Family.V6: "pkt6-reply-sent"}
 # A daemon that cannot be read says nothing about its file: its open file alert stays as it is.
@@ -378,15 +380,21 @@ class KeaPoller:
 
     def lease_walk_due(self, acks: int | None, max_leases: int) -> bool:
         """A walk is due on the first pass, whenever the server answered clients since the last one,
-        and once per poll period anyway (leases an HA partner sent, commands); never on a table
-        larger than `max_leases` (the summary still counts it)."""
+        and once per poll period anyway (leases an HA partner sent, commands); never sooner than
+        3 live passes or 1 s per 1000 leases after the last one, never on a table larger than
+        `max_leases` (the summary still counts it)."""
         if self.last_active is not None and self.last_active > max_leases:
             return False
         if self.lease_index is None or self.last_walk is None:
             return True
-        period = float(self.settings.get("collector", {}).get("poll_seconds", 60))
+        settings = self.settings.get("collector", {})
+        since = self.clock() - self.last_walk
+        # A busy server moves its counter on every pass: walks stay apart, more so on a big table.
+        live = float(settings.get("live_seconds", 5))
+        if since < max(3 * live, (self.last_active or 0) / LEASE_WALK_RATE):
+            return False
         moved = acks is not None and acks != self.last_acks
-        return moved or self.clock() - self.last_walk >= period
+        return moved or since >= float(settings.get("poll_seconds", 60))
 
     def lease_diff(self, leases: list[Lease], acks: int | None) -> PollOutcome:
         """New and renewed leases since the previous walk as `leases` events, and the latest ones by

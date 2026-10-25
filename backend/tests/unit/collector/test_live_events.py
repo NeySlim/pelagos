@@ -196,8 +196,10 @@ def test_lease_diff_new_renewed_and_recent(store):
     _ts, recent = store.snapshot(NODE, "kea4", "recent_leases")
     assert [r["ip_address"] for r in recent] == ["192.0.2.11", "192.0.2.10"]
     assert not poller.lease_walk_due(5, 50000)  # nobody served since
+    assert not poller.lease_walk_due(6, 50000)  # served, but the last walk is too recent
+    clock.now += 15
     assert poller.lease_walk_due(6, 50000)
-    clock.now += 61
+    clock.now += 46
     assert poller.lease_walk_due(5, 50000)  # the periodic walk
     after = [
         lease("192.0.2.10", "02:00:00:00:00:10", 2000, "pc10"),  # renewed
@@ -221,6 +223,26 @@ def test_lease_diff_new_renewed_and_recent(store):
     assert len([e for e in out.events if e[1] == "lease"]) == LEASE_EVENTS_MAX
     tail = out.events[-1]
     assert tail[1] == "coalesced" and tail[2]["dropped"] == 40 - LEASE_EVENTS_MAX and tail[2]["new"] == 40
+
+
+def test_lease_walks_stay_apart_on_a_busy_server(store):
+    clock = Clock()
+    settings = {"collector": {"poll_seconds": 60, "live_seconds": 5}}
+    poller = KeaPoller(FakeDhcpBackend(), NODE, store, settings, clock)
+    walks = 0
+    for tick in range(120):  # 10 minutes of live passes, the counter moving on each
+        if poller.lease_walk_due(tick, 50000):
+            walks += 1
+            poller.lease_diff([], tick)
+        clock.now += 5
+    assert walks == 40  # every 15 s, not every 5 s
+    poller.last_active, walks = 40000, 0
+    for tick in range(120, 240):
+        if poller.lease_walk_due(tick, 50000):
+            walks += 1
+            poller.lease_diff([], tick)
+        clock.now += 5
+    assert walks == 15  # a 40000 lease table: every 40 s
 
 
 def test_ack_counter_reads_statistic_get(store):
@@ -280,7 +302,12 @@ def test_peer_events_on_change_only(store):
     )
     events = [e for e in poller.poll().events if e[0] in ("nodes", "system")]
     assert [(e[0], e[1]) for e in events] == [("nodes", "status"), ("system", "replication")]
-    assert events[1][2] == {"node_id": PEER, "config_version": 4, "audit_count": 9}
+    assert events[1][2] == {"node_id": PEER, "config_version": 4, "audit_count": 9, "config_changed": True}
+    client.status = lambda p: __import__("pelagos.core.replication", fromlist=["PeerStatus"]).PeerStatus(
+        node_id=p.id, reachable=True, config_version=4, audit_count=10, version="0.1.0"
+    )
+    events = [e for e in poller.poll().events if e[0] == "system"]
+    assert events[0][2]["config_changed"] is False  # an audit entry alone
 
 
 # Collector wiring -----------------------------------------------------------------------------
@@ -324,7 +351,7 @@ def test_replication_and_security_events(rig):
     collector.replication_events()
     got = receiver.drain()
     assert [(m["topic"], m["event"]) for m in got] == [("system", "replication")]
-    assert got[0]["data"]["node_id"] == collector.node_id
+    assert got[0]["data"]["node_id"] == collector.node_id and got[0]["data"]["config_changed"] is True
     finding = {"id": "f1", "engine": "bind", "subject": "key:k1", "kind": "weak_tsig_key"}
     collector.security_audit()  # first audit: nothing to compare with
     collector.findings_source = lambda _ctx: [finding]
@@ -356,11 +383,17 @@ def test_peer_events_and_plans_reach_this_node(rig):
     plan = Plan(scope=PlanScope.DNS_RRSET, node_id=PEER, summary="s", engine=Engine.BIND)
     collector.on_peer_plan(plan, PEER, "apply", "running", None)
     collector.on_peer_plan(plan, PEER, "apply", "done", NodeApplyResult(node_id=NODE, ok=True))
+    leak = 'reload failed near "secret": "c2VjcmV0"'
+    collector.on_peer_plan(
+        plan, PEER, "apply", "failed", NodeApplyResult(node_id=NODE, ok=False, message=leak)
+    )
     steps = [m["data"] for m in receiver.drain() if m["topic"] == "plans"]
     assert [(s["state"], s["origin_node_id"], s["verb"]) for s in steps] == [
         ("running", PEER, "apply"),
         ("done", PEER, "apply"),
+        ("failed", PEER, "apply"),
     ]
+    assert "c2VjcmV0" not in steps[2]["message"] and "reload failed" in steps[2]["message"]
 
 
 # Relay -----------------------------------------------------------------------------------------

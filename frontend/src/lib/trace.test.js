@@ -176,6 +176,8 @@ describe('events lane', () => {
     expect(traceEventOf({ topic: 'alerts', event: 'acked', ts, data: {} })).toBeNull()
     expect(traceEventOf({ topic: 'ha', event: 'state', ts, data: { state: 'partner-down', server_name: 'ns1' } }).kind).toBe('ha')
     expect(traceEventOf({ topic: 'system', event: 'replication', ts, data: { version: 43 } }).params.version).toBe(43)
+    expect(traceEventOf({ topic: 'system', event: 'replication', ts, data: { config_version: 43, config_changed: true } }).kind).toBe('repl')
+    expect(traceEventOf({ topic: 'system', event: 'replication', ts, data: { config_version: 43, audit_count: 9, config_changed: false } })).toBeNull()
     expect(traceEventOf({ topic: 'leases', event: 'summary', ts, data: {} })).toBeNull()
   })
 

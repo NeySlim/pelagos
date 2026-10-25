@@ -1604,8 +1604,9 @@ on `events.sock`, through `collector.events.EventSink`:
   per full poll. The lease watch walks the lease table (`lease4-get-page` /
   `lease6-get-page`) only when the server answered clients since the last walk
   (`pkt4-ack-sent` / `pkt6-reply-sent` moved) and once per `poll_seconds`
-  anyway (leases an HA partner sent), never on a table larger than
-  `lease_watch_max` (50000); it diffs the table against the previous walk
+  anyway (leases an HA partner sent), never sooner than three live passes
+  or one second per 1000 leases after the previous walk, never on a table
+  larger than `lease_watch_max` (50000); it diffs the table against the previous walk
   (address and client identifier, `cltt`) and keeps the 50 newest
   transactions as the `recent_leases` snapshot (`GET
   /dhcp/{family}/leases/recent`). Kea stores when an exchange completed
@@ -1619,8 +1620,9 @@ on `events.sock`, through `collector.events.EventSink`:
   until it follows, so a transfer shows when it lands.
 - `nodes`: `status` when a peer comes, goes or changes (status, version,
   configuration version, audit count, error); `system`: `replication`
-  (`{"node_id", "config_version", "audit_count"}`) when this node's
-  `cluster.toml` version or audit head moved, or a peer's did;
+  (`{"node_id", "config_version", "audit_count", "config_changed"}`) when
+  this node's `cluster.toml` version or audit head moved, or a peer's did
+  (`config_changed` false when only the audit moved: no trace mark);
   `security` (`{"findings", "opened", "resolved"}`) when the security findings
   changed.
 - `alerts`: `opened`, `updated`, `resolved`, `acked` (reconcile and ack replay).

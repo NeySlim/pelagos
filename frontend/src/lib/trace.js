@@ -202,6 +202,8 @@ export function traceEventOf(message) {
     const subject = String(data.zone || '').replace(/\.$/, '')
     return { t, kind: 'axfr', key: 'events.axfr', params: { subject, serial: data.serial }, id: `${data.view || '_default'}|${data.zone}:${data.serial}` }
   }
+  // An audit entry alone moves no configuration: no mark.
+  if (topic === 'system' && event === 'replication' && data.config_changed === false) return null
   if (topic === 'system' && event === 'replication') return { t, kind: 'repl', key: 'events.repl', params: { version: data.version ?? data.config_version ?? '' }, id }
   if (topic === 'ha' && event === 'state') {
     return { t, kind: 'ha', key: 'events.ha', params: { server: data.server_name || '', state: data.state || '', family: data.family || '' }, id }

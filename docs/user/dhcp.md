@@ -132,9 +132,17 @@ To reboot or upgrade one server of the pair (`ops:dhcp.ha`):
    and confirm the plan. It sends `ha-maintenance-start` to its partner,
    which takes over every client (`partner-in-maintenance`) while the
    server enters `in-maintenance`.
-2. Stop and work on the server. DHCP keeps running on the partner.
-3. Start it again, then "End maintenance": the pair resynchronizes its
-   leases and returns to its normal state.
+2. Stop and work on the server. DHCP keeps running on the partner, which
+   moves to `partner-down` once the server is gone. A poll in that window
+   raises `ha_partner_down`; it resolves when the pair is back.
+3. Start it again: it comes back `waiting`, synchronizes the leases from
+   its partner, and the pair returns to its normal state by itself (about a
+   minute). There is nothing to end.
+
+"End maintenance" (on the card of the server in `in-maintenance`) is for a
+maintenance you started but did not go through: while the server was not
+shut down, it sends `ha-maintenance-cancel` and both return to their normal
+state. Once the partner is `partner-down`, Pelagos refuses it (`409`).
 
 "Disable DHCP" and "Enable DHCP" (`dhcp-disable`, `dhcp-enable`) stop and
 resume answering clients on one server, as confirmed plans. Pelagos never

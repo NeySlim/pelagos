@@ -40,7 +40,11 @@ def test_every_key_is_in_the_ui_catalog_with_its_parameters(lang):
         ui = sorted(set(re.findall(r"\{\{\s*(\w+)\s*\}\}", catalog[key])))
         assert ui == sorted(messages.placeholders(template)), f"{lang}/messages.json {key}"
         assert "\u2014" not in catalog[key]
-    assert set(catalog) == set(CATALOG)
+    # The UI may add i18next plural forms of a counted key; the base key stays the backend's text.
+    plural = re.compile(r"^(.+)_(zero|one|two|few|many|other)$")
+    extra = {k for k in set(catalog) - set(CATALOG) if (m := plural.match(k)) and m.group(1) in CATALOG}
+    assert all("count" in messages.placeholders(CATALOG[plural.match(k).group(1)]) for k in extra)
+    assert set(catalog) - extra == set(CATALOG)
 
 
 def test_english_ui_catalog_matches_the_backend_text():

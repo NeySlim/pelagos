@@ -91,7 +91,7 @@ describe('renderMessage', () => {
     expect(renderMessage({ key: 'note.secret_files', params: { count: 2 } })).toBe('2 fichiers secrets')
     expect(renderMessage({ key: 'note.secret_files', params: { count: 1 } })).toBe('1 fichier secret')
     // A count given as text stays a plain parameter: the base key renders.
-    expect(renderMessage({ key: 'plan.security', params: { count: '4' } })).toBe('correction de sécurité : 4 constats')
+    expect(renderMessage({ key: 'plan.security', params: { count: '4' } })).toBe('correction de sécurité : 4 constat(s)')
   })
 
   it('falls back to the English text for unknown keys, nested ones included', () => {

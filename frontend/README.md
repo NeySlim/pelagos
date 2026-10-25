@@ -113,15 +113,18 @@ time without touching the same files:
 - Motion primitives in `components/motion/` (`CountUp`, `StatusDot`,
   `PulsingHalo`, `FlowLine`, `Reticle`, `RadarRing`, `MiniHistogram`,
   `StippledAreaChart`, `SegmentedProgress`, `Stagger`, `StatChip`,
-  `IconButton`, `AppBackdrop`). They follow `useMotion()` and the
-  `data-motion` level; see `src/DESIGN_SYSTEM.md`.
+  `IconButton`, `AppBackdrop`; for Instrument `ClusterTrace`, `SignalLink`,
+  `StripChart`, `Dora`, `Ambient`). They follow `useMotion()`, the
+  `data-motion` level and `data-ambient`, and draw on the one shared loop
+  (`hooks/useAnimationLoop.js`); see `src/DESIGN_SYSTEM.md`.
 
 Data read from BIND and Kea is untrusted: render it as text, never as HTML.
 
 ## Third-party assets
 
-`public/fonts/` holds Inter, Fira Code and Michroma (the wide display face of
-the Mission Control theme, latin and latin-ext subsets), all under the SIL
-Open Font License 1.1. Their license texts ship next to them in
-`public/fonts/OFL-Inter.txt`, `public/fonts/OFL-FiraCode.txt` and
-`public/fonts/OFL-Michroma.txt`. Nothing is loaded from a CDN.
+`public/fonts/` holds IBM Plex Sans and IBM Plex Mono (the Instrument theme,
+latin and latin-ext subsets), Inter, Fira Code and Michroma (the wide display
+face of the Mission Control theme), all under the SIL Open Font License 1.1.
+Their license texts ship next to them in `public/fonts/OFL-IBMPlexSans.txt`,
+`OFL-IBMPlexMono.txt`, `OFL-Inter.txt`, `OFL-FiraCode.txt` and
+`OFL-Michroma.txt`. Nothing is loaded from a CDN.

@@ -41,8 +41,8 @@ updates on", "Connecting...", "Live updates off", "Live updates unavailable"
   HA heartbeats measured from Kea (interval and jitter, a red line while the
   partner is lost) and events (plans, rollbacks, alerts, replication, HA).
   Point at the trace to read the exact sample under the pointer; near an event
-  the pointer snaps to it and names it. The Mission Control theme keeps the
-  cluster radar here.
+  the pointer snaps to it and names it. The Mission Control theme shows a
+  cluster radar here instead.
 - **DNS**: queries per second (live chart), NXDOMAIN, zone count, answers by
   rcode.
 - **DHCP**: leases handed out per second, hot pools, the latest leases with
@@ -275,4 +275,5 @@ Under Administration:
 Profile (username, roles, last sign-in, node), password change, two-factor
 (set up with a QR code or the secret, confirm with a code; turn off with
 your password, unless required for everyone), and preferences: language,
-theme family, mode, animations.
+theme family, mode, animations (full, reduced, off) and ambient backgrounds
+(on, off).

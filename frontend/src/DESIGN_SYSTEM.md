@@ -186,8 +186,8 @@ hidden. `src/styles/effects.css` and `motion.css` apply them:
 | `reduced` | static | short fade | final value |
 | `off` | static | none (no transitions at all) | final value |
 
-Rules: animate `transform` and `opacity` only (no animated blur, size or
-`stroke-dashoffset`), use a `backwards` fill for entries so nothing stays
+Rules: animate `transform`, `opacity`, `stroke-dashoffset` and canvas only (no
+animated blur, size, layout or filter), use a `backwards` fill for entries so nothing stays
 transformed, never put a looping animation behind a glass panel (it would
 re-blur every frame; loops pause while a dialog backdrop is open), and reserve the final size of changing numbers
 (`CountUp` renders a hidden ghost of the final value).
@@ -234,6 +234,38 @@ are `IconButton`s. Dashboard tiles enter in reading order (`fx-stagger-item`).
   value as round chips.
 - Sign-in: `LoginScene` (loaded under Mission only) lays a radar disc with halos and beams behind an
   opaque glass card (no backdrop blur over a looping animation).
+
+## Instrument palette and budget
+
+Tokens (`ThemeContext.jsx`, `instrument`; the layer's own tokens `--i-*`,
+`--r-*` are in `styles/instrument.css`):
+
+| Token | Dark | Light |
+|-------|------|-------|
+| `bg-primary` / `bg-secondary` / `bg-tertiary` | `#121416` / `#191C1F` / `#1F2327` | `#ECEEF1` / `#FFFFFF` / `#F5F6F8` |
+| `text-primary` / `-secondary` / `-tertiary` | `#E6E9EC` / `#A4ABB3` / `#858D96` | `#15191D` / `#4A535C` / `#616A73` |
+| `accent-primary` (DNS) / `accent-pro` (DHCP) | `#5FC7E6` / `#C08CF5` | `#0A7391` / `#6B3FD1` |
+| `accent-success` / `-warning` / `-danger` | `#5CCC8A` / `#E3B341` / `#F06A6A` | `#1A7A42` / `#8A5A00` / `#C22F45` |
+
+Text is IBM Plex Sans, data is IBM Plex Mono (self-hosted, OFL, listed in
+`NOTICE`). All text, small labels included, uses `text-primary`,
+`-secondary` or `-tertiary` and keeps 4.5:1; `--i-faint` is for hairlines and
+ticks only. `e2e/instrument-motion.spec.js` checks the trace, scale bar,
+readout, DORA ticks, plan rail and alert latches in both schemes.
+
+Motion tokens and springs are in `styles/motion.css` (table above) and
+`lib/motion.js` (`spring()`); levels `full`, `reduced`, `off` come from
+`MotionContext` (`data-motion`), and `prefers-reduced-motion` only lowers
+them. The `ambient` preference (`data-ambient`, `on` or `off`) is separate:
+ambient layers (`components/motion/Ambient.jsx`, `ambientDraw.js`) are drawn
+still below `full` and removed when `off`.
+
+Performance budget: one `requestAnimationFrame` loop for every canvas and
+per-frame animator (`hooks/useAnimationLoop.js`), stopped while the tab is
+hidden or nothing is registered. In dev, `window.__pelagosLoop()` returns
+`{ active, frames, fps, p95 }` (p95 of script time per frame); the budget is
+2 ms, asserted in `e2e/instrument-trace.spec.js` and
+`e2e/instrument-motion.spec.js`. Pages do not scroll sideways at 400px.
 
 ## Instrument effects layer
 

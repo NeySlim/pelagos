@@ -62,8 +62,8 @@ you kept it, and sign in as `admin`.
    scan the QR code, confirm with a 6-digit code). From then on the login
    asks for the code.
 2. **Account, Preferences**: language (English, French), theme family
-   (Mission Control by default), mode (system, dark, light) and animations
-   (full, reduced, off). They are saved to your account and follow you on
+   (Instrument by default), mode (system, dark, light), animations
+   (full, reduced, off) and ambient backgrounds (on, off). They are saved to your account and follow you on
    every node.
 3. **Administration, Settings**: tick "Require two-factor for every user" to
    force every account to enroll an authenticator at its next sign-in.

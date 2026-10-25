@@ -414,13 +414,19 @@ be deleted: remove it from those users first (the error names them).
   saved to the account (`language`) and to the browser. Backend texts
   (plan summaries, alerts, findings, errors) come with message keys, so
   they are translated too; an unknown key shows the English text.
-- **Themes**: Mission Control (default: graphite glass, ember and neon),
-  Pelagic (ocean), and the UCM families Gray, Purple Night and Orange
-  Sunset. Each has a dark and a light variant; the mode is System (follows
+- **Themes**: Instrument (default: calm surfaces, one signal color per
+  protocol, IBM Plex type, measured motion), Mission Control (graphite glass,
+  ember and neon), Pelagic (ocean), and the UCM families Gray, Purple Night
+  and Orange Sunset. Each has a dark and a light variant; the mode is System (follows
   the operating system), Dark or Light.
 - **Animations**: Full, Reduced (short fades, no looping effects) or Off.
-  The operating system's reduced-motion setting always applies on top.
+  The operating system's reduced-motion setting always applies on top: it
+  lowers Full to Reduced and never raises a level. Nothing animates while the
+  browser tab is hidden.
+- **Ambient backgrounds**: On or Off. A faint graticule and live traces sit
+  under the data in Instrument. They move only when animations are Full and
+  stand still at Reduced and Off; Off removes them.
 
-Theme family, mode, language and animations are account preferences
+Theme family, mode, language, animations, ambient backgrounds are account preferences
 (`GET` and `PUT /api/v1/account/preferences`), set from the user menu of the
 sidebar or **Account, Preferences**, and follow the user on every node.

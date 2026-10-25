@@ -6,7 +6,7 @@ line. It does not replace them and keeps no copy of their data: zones stay in
 through their own channels (signed DNS UPDATE, `rndc`, the Kea control
 sockets, validated configuration files).
 
-![Dashboard, Mission Control theme](../images/dashboard-dark.png)
+![Dashboard, Instrument theme](../images/dashboard-dark.png)
 
 ## Concepts
 

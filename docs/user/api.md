@@ -162,7 +162,7 @@ Permissions are those of [Configuration: roles](configuration.md#roles-and-permi
 | `POST /auth/login`, `POST /auth/logout`, `GET /auth/session` | none, any, any | sessions |
 | `POST /auth/password` | any | `{"current_password", "new_password"}` |
 | `POST /auth/totp/enroll`, `POST /auth/totp/confirm`, `DELETE /auth/totp` | any | two-factor enrollment (`{"code"}`), removal (`{"password"}`) |
-| `GET`, `PUT /account/preferences` | any | `theme_family`, `theme_mode`, `language`, `animations`, `dashboard_layout` |
+| `GET`, `PUT /account/preferences` | any | `theme_family`, `theme_mode`, `language`, `animations`, `ambient`, `dashboard_layout` |
 | `GET`, `PUT /dashboard/layout`, `GET /dashboard/summary` | any | dashboard |
 
 ### Nodes

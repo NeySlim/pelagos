@@ -31,8 +31,13 @@
   height: min(34vh, 280px);
   z-index: 0;
   pointer-events: none;
-  opacity: 0.6;
+  /* Lane names and hairlines at about 50 % and 16 % ink: readable, still behind the card.
+     The pen writes at the right edge, so only the old end fades a little. */
+  --fx-faint: color-mix(in srgb, var(--text-primary) 55%, transparent);
+  --fx-hair: color-mix(in srgb, var(--text-primary) 16%, transparent);
+  --fx-hair-3: color-mix(in srgb, var(--text-primary) 30%, transparent);
+  opacity: 0.9;
   border-block: 1px solid var(--fx-hair);
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, rgb(0 0 0 / 0.7), #000 18%);
+  mask-image: linear-gradient(90deg, rgb(0 0 0 / 0.7), #000 18%);
 }

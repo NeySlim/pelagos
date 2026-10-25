@@ -46,7 +46,8 @@ export function LiveRatePanel({ target, title, tone = 'primary', height = 64, cl
           formatLabel={time}
         />
       )}
-      <div className="flex justify-between text-3xs text-text-tertiary mt-1">
+      {/* The time axis belongs to the chart; the collecting state keeps its height. */}
+      <div className={cn('flex justify-between text-3xs text-text-tertiary mt-1', points.length < 2 && 'invisible')} data-testid="live-rate-axis">
         <span>{liveWindowLabel(t, points.length)}</span>
         <span>{t('live.now')}</span>
       </div>

@@ -51,6 +51,26 @@ export function splitRate(v, lang) {
   return { n: rateFormat(lang)(v), u: '/s' }
 }
 
+// Pools as the operator sees them: an HA pair reports each pool once per server, so the
+// rows of one pool (engine, subnet, range) merge into one with the worst utilization of
+// the pair; `node_ids` names every server that reported it, `node_id` the worst one (its
+// pressure series and alerts are the ones shown). Sorted busiest first.
+export function mergePools(pools) {
+  const groups = new Map()
+  for (const p of pools || []) {
+    const key = `${p.engine}|${p.subnet_id}|${String(p.pool || '').replace(/\s+/g, '')}`
+    const held = groups.get(key)
+    if (!held) {
+      groups.set(key, { ...p, node_ids: [p.node_id] })
+      continue
+    }
+    const ids = held.node_ids.includes(p.node_id) ? held.node_ids : [...held.node_ids, p.node_id]
+    const worse = (p.percent ?? 0) > (held.percent ?? 0)
+    groups.set(key, { ...(worse ? p : held), node_ids: ids })
+  }
+  return [...groups.values()].sort((a, b) => b.percent - a.percent)
+}
+
 // Most recent lease by client last transaction time, or null.
 export function latestLease(items) {
   let best = null

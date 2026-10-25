@@ -16,7 +16,7 @@ import { EmptyState } from '../../components/EmptyState'
 import { cn, formatRelativeTime } from '../../lib/utils'
 import { AmbientTile, CountUp, MiniHistogram, RegMarks, RollingNumber, StatusDot, Sweep } from '../../components/motion'
 import { SWEEP_MAX_STEPS, SWEEP_STEP_MS, TileRefresh } from './tileRefresh'
-import { dhcpFamily, poolThresholds, formatErrorRate } from './summary'
+import { dhcpFamily, mergePools, poolThresholds, formatErrorRate } from './summary'
 import { PoolPressure } from './poolPressure'
 
 // `ambient` is a canvas layer under the body. The marks ping on the tile's domain events
@@ -290,7 +290,7 @@ export function ZoneSyncTile({ summary, editing, nameOf }) {
 
 export function PoolsTile({ summary, editing, nameOf, thresholds, openAlerts }) {
   const { t } = useTranslation(['dashboard', 'common'])
-  const pools = [...(summary?.pools || [])].sort((a, b) => b.percent - a.percent)
+  const pools = mergePools(summary?.pools)
   const { warn, full } = poolThresholds(summary, thresholds)
   const family = dhcpFamily(summary)
   const hot = pools.filter((p) => p.percent >= warn).length
@@ -311,7 +311,7 @@ export function PoolsTile({ summary, editing, nameOf, thresholds, openAlerts }) 
         <div className="dash-pressure">
           <ul className="space-y-2 min-w-0">
             {pools.map((p) => (
-              <li key={`${p.node_id}/${p.engine}/${p.subnet_id}/${p.pool}`} className="text-xs" data-testid="tile-pool">
+              <li key={`${p.engine}/${p.subnet_id}/${p.pool}`} className="text-xs" data-testid="tile-pool">
                 <div className="flex items-center gap-2 mb-0.5">
                   <Badge variant={p.engine === 'kea6' ? 'violet' : 'secondary'} size="sm">
                     {p.engine === 'kea6' ? 'v6' : 'v4'}
@@ -320,7 +320,7 @@ export function PoolsTile({ summary, editing, nameOf, thresholds, openAlerts }) 
                     {p.pool}
                   </span>
                   <span className="ml-auto text-2xs text-text-tertiary font-mono whitespace-nowrap">
-                    {p.subnet} · {nameOf(p.node_id)}
+                    {p.subnet} · {p.node_ids.map(nameOf).join(' + ')}
                   </span>
                 </div>
                 <UtilizationBar assigned={p.assigned} total={p.total} percent={p.percent} warn={warn} full={full} size="sm" label={`${p.pool} (${p.subnet})`} />

@@ -16,7 +16,7 @@ import { LIVE_CAPACITY, LIVE_INTERVAL_MS, LIVE_MIN_SLOTS, RCODES, latest, latest
 import { LiveStatus, TileFrame } from './tiles'
 import { TraceTile } from './traceTile'
 import { LatestLease } from './LatestLease'
-import { dhcpFamily, haTone, poolThresholds, rateFormat, splitRate } from './summary'
+import { dhcpFamily, haTone, mergePools, poolThresholds, rateFormat, splitRate } from './summary'
 
 const MissionRadarTile = lazy(() => import('./radarTile'))
 
@@ -184,7 +184,7 @@ export function DhcpTile({ summary, editing, live, thresholds, nameOf, samples }
   const lang = i18n.language
   const family = dhcpFamily(summary)
   const { warn, full } = poolThresholds(summary, thresholds)
-  const pools = [...(summary?.pools || [])].sort((a, b) => b.percent - a.percent)
+  const pools = mergePools(summary?.pools)
   const hot = pools.filter((p) => p.percent >= warn).length
   const ha = (summary?.ha || []).filter((h) => h.enabled !== false)
   const dhcp = live?.dhcp
@@ -246,8 +246,8 @@ export function DhcpTile({ summary, editing, live, thresholds, nameOf, samples }
             <Sub>{t('tiles.dhcp.pools')}</Sub>
             <ul className="dash-pools">
               {pools.slice(0, 3).map((p) => (
-                <li key={`${p.node_id}/${p.engine}/${p.subnet_id}/${p.pool}`} className={cn('dash-pool', p.percent >= full ? 'is-full' : p.percent >= warn && 'is-hot')} data-testid="dhcp-pool">
-                  <span className="dash-pool-name" title={`${p.pool} (${p.subnet}, ${nameOf(p.node_id)})`}>
+                <li key={`${p.engine}/${p.subnet_id}/${p.pool}`} className={cn('dash-pool', p.percent >= full ? 'is-full' : p.percent >= warn && 'is-hot')} data-testid="dhcp-pool">
+                  <span className="dash-pool-name" title={`${p.pool} (${p.subnet}, ${p.node_ids.map(nameOf).join(' + ')})`}>
                     {p.pool}
                   </span>
                   <span className="dash-pool-pct">

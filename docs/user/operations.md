@@ -132,7 +132,8 @@ repository is `sudo pelagos install --engines kea4,d2 --source isc`.
 ## Removing a node, uninstalling
 
 1. On another node, **Nodes and replication**, "Remove" the node: it leaves
-   the cluster and its certificate is revoked.
+   the cluster and its certificate is revoked. The removed node then reports
+   itself isolated until it is uninstalled or enrolled again.
 2. Uninstall the package:
 
    ```sh

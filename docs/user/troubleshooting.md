@@ -191,7 +191,10 @@ sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.named
   must reach a TLS server (it answers `401 client_certificate_required`
   without a certificate, which proves the path works).
 - **`client_certificate_required`, `unknown_node`, `revoked`**: the calling
-  node is not, or no longer, a member. Remove it if it is still listed,
+  node is not, or no longer, a member. When every peer refuses a node, that
+  node reports itself **isolated** (Nodes screen, `GET /api/v1/health`
+  `degraded` with `"replication": "isolated"`): it still serves DNS and DHCP,
+  but nothing written on it reaches the cluster. Remove it if it is still listed,
   then enroll it again with a new token (on that node, move
   `/etc/pelagos` and `/var/lib/pelagos` aside first: `enroll` refuses a
   node that already has a `cluster.toml`).

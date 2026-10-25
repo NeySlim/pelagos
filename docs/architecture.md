@@ -144,6 +144,8 @@ pelagos/
     write_pipeline.py  backup, write, validate, reload, verify, rollback
     plans.py           PlanStore (in-memory, TTL) and plan lifecycle
     replication.py     client and server (mTLS), pull-on-start, push-on-write, ReplicationService
+    relay_events.py    what a node may relay to its peers' UIs (POST /repl/v1/events)
+    ha_maintenance.py  HA maintenance windows started from Pelagos (ha_partner_down kept quiet)
     repl_http.py       stdlib HTTPS JSON client used by replication and enrollment
     signals.py         collector.sock datagrams (push-on-write) and their listener
     registry.py        ConnectorRegistry: engine -> backend, used by the API and /repl/v1/plans
@@ -155,6 +157,8 @@ pelagos/
     main.py            scheduler loop
     series.py          SQLite schema, writers, readers, retention
     alerts.py          alert evaluation and lifecycle
+    events.py          EventSink (events.sock, budget and coalescing), SignalListener (collector.sock)
+    relay.py           PeerEventRelay: live events batched to the peers
     pollers/           bind.py, kea.py, peers.py
   services/            WP-API-AUTH (except consistency.py: WP-COLLECTOR)
     dns_service.py     zones, records, config plans across nodes
@@ -1212,6 +1216,8 @@ poll_seconds = 60
 pool_sample_seconds = 300
 peer_poll_seconds = 30
 consistency_seconds = 900
+live_seconds = 5                         # HA heartbeats, lease watch (section 15)
+lease_watch_max = 50000                  # largest lease table the lease watch walks
 
 [settings.retention]                     # section 15
 pool_raw_days = 7
@@ -1328,6 +1334,7 @@ application/json`. All endpoints under `/repl/v1`.
 | `POST /repl/v1/audit/fetch` | `{"ids":[...]}` (at most 5000) | `{"entries":[...]}` | the known entries among `ids`, ascending by id |
 | `POST /repl/v1/plans/apply` | `{"plan": Plan}` | `NodeApplyResult` | apply a plan built elsewhere on this node (section 5) |
 | `POST /repl/v1/plans/rollback` | `{"plan": Plan}` | `NodeApplyResult` | |
+| `POST /repl/v1/events` | `{"events": [message]}` (at most 100) | `{"accepted": n}` | live events of the caller for this node's UI (section 18); only `ha` (`state`, `unsent`, `heartbeat`) and `zones` (`serial`, `transfer`) are taken (`core.relay_events`), stamped with the caller's node id and `"relayed": true`; `404` from an older node, which the sender then skips |
 | `POST /repl/v1/actions/<name>` | action body (below) | `{"ok": true, "result"}` or `{"ok": false, "code", "detail", "errors"}` | a write another node asks this node to build or run (peer write channel, below); `404` from a node that does not serve actions |
 | `GET /repl/v1/engines/<engine>/snapshot` | | engine-specific read (zones list, subnets, HA state) | used by `services` to answer "read on both peers" without a second code path |
 | `POST /repl/v1/enroll` | section 14 | section 14 | accepts a connection without a client certificate; protected by the one-time token |
@@ -1492,8 +1499,17 @@ Client behavior (`core.replication.ReplicationClient`, run by the collector):
   for the collector: `start()` (server, signal listener, pull, state
   `ready`), `stop()`, and a worker that also renews the node certificate and
   runs housekeeping (backup retention, expired tokens) hourly. The state is
-  published in `/run/pelagos/replication.state` (`ready` or `syncing`);
-  `NodeContext.replication_state` reads it (`ready` when the file is absent).
+  published in `/run/pelagos/replication.state` (`ready`, `syncing` or
+  `isolated`); `NodeContext.replication_state` reads it (`ready` when the file
+  is absent, or when its writer is gone).
+- `isolated`: the node was removed from the cluster. After every exchange the
+  service checks that it is still in its own `[[nodes]]`, that its certificate
+  is not in `[revoked]`, and that not every peer refuses it (`403` with code
+  `revoked` or `unknown_node`, kept as `PeerStatus.code`). An isolated node
+  keeps serving its engines and its UI, but nothing it writes reaches the
+  cluster: `GET /health` says `degraded`, `GET /nodes/replication` and the
+  Nodes screen say `isolated`. It goes back to `ready` by itself when a peer
+  accepts it again (enrolled anew).
 - No election, no quorum. A single node is always writable.
 
 ## 14. Enrollment and internal CA
@@ -1510,7 +1526,7 @@ not implemented.
 
 Flow:
 
-1. On the first node, `pelagos install` (or the UI first-run) creates
+1. On the first node, `pelagos init` (or `pelagos install --init`) creates
    `ca.key`/`ca.crt`, the node key and cert, `master.key`, `node.toml`,
    `cluster.toml` with itself in `[[nodes]]` and the first admin user.
 2. Admin asks for a token: `POST /api/v1/nodes/enroll-token` returns
@@ -1527,7 +1543,10 @@ Flow:
    https://ns2.example.lan:8444`. The URLs follow the issuing node's own
    (same scheme, domain suffix and port, `<name>` as first label); with an
    address in the issuing URLs they are `https://<name>:<port>` and the
-   operator puts the new node's address there. The command
+   operator puts the new node's address there. `--engines` (a comma list of
+   `bind,kea4,kea6,d2`) is optional and usually left to `pelagos import`; on a
+   compose node the same command runs as `docker compose run --rm pelagos-init
+   pelagos enroll ...`. The command
    writes `node.toml` if absent, generates `node.key` and a CSR with
    SAN URI `urn:pelagos:node:<new id>` and DNS names from `--name`/hostname,
    connects with TLS verifying the server certificate chain against the
@@ -1542,7 +1561,15 @@ Flow:
 5. The new node stores everything, starts its collector, pulls audit, and is
    ready. `DELETE /api/v1/nodes/{id}` removes a node from `[[nodes]]`; its
    certificate fingerprint goes to `[revoked]` in `cluster.toml` and peers
-   refuse it.
+   refuse it (`403 revoked`); the removed node reports itself `isolated`
+   (section 13).
+
+The security audit of a node (`GET /install/security`, section 17) answers
+`{"findings": [{"id", "kind", "severity", "engine", "subject", "description",
+"proposal", "risk", "remediable", "description_message", "proposal_message",
+"risk_message"}]}`: `remediable` false means no plan can fix the finding
+(`--fix-all` and the UI skip it), the `*_message` fields are the translatable
+forms of the texts (section 19).
 
 ## 15. Collector, series cache, retention, alerts
 
@@ -1555,10 +1582,79 @@ from `settings.collector`:
 | Poll local Kea 4/6 (`status-get`, HA, `statistic-get-all`, pool utilization) | `poll_seconds`; samples pools every `pool_sample_seconds` | `series_pool`, `ha_transitions`, `HA_*`, `POOL_*`, `DAEMON_DOWN` |
 | Poll local D2 | `poll_seconds` | `D2_ERRORS` when error rate over window exceeds `alerts_d2_error_rate` |
 | Poll peers (`GET /repl/v1/status`, engine snapshots) | `peer_poll_seconds` | `PEER_OFFLINE`, `SERIAL_DIVERGENCE`, `SECONDARY_STALE`, `CONFIG_DIVERGENCE` |
+| Live pass: local Kea HA state (`status-get`, `ha-heartbeat`), lease watch, zone rechecks | `live_seconds` (5) | snapshots `ha` and `recent_leases`, events only (no alert) |
 | Consistency pass (`services.consistency.run`) | `consistency_seconds` | cross alerts |
 | Security audit (`installer.security_audit.run_audit`, read-only, through the helper when not root; `collector/security.py`) | `consistency_seconds` | `INSECURE_KEY`, `INSECURE_LISTENER` (subject `<engine>:<finding subject>`, resolved when the finding goes; an audit that cannot run keeps the current ones) |
 | Retention and downsampling | hourly | purges per table below |
 | Replication push and anti-entropy | event driven, `peer_poll_seconds` | |
+
+Live events (section 18). The collector sends every event the UI listens to
+on `events.sock`, through `collector.events.EventSink`:
+
+- `ha`: `state` when the server's state, its partner's state or the contact
+  between them changed; `unsent` when only the unsent update count moved;
+  `heartbeat` on every read of the live pass (one per server and family). The
+  `HAState` carries `heartbeat`, the window of the partner's last heartbeat
+  (below).
+- `leases`: `lease` per new or renewed lease (`{"engine", "family", "change":
+  "new"|"renewed", "lease": {"ip_address", "subnet_id", "family",
+  "hw_address", "client_id", "duid", "hostname", "state", "valid_lft", "cltt",
+  "expires_at", "lease_type", "prefix_len", "node_id"}}`), at most 20 per pass,
+  then one `coalesced` (`{"engine", "dropped", "new", "renewed"}`); `summary`
+  per full poll. The lease watch walks the lease table (`lease4-get-page` /
+  `lease6-get-page`) only when the server answered clients since the last walk
+  (`pkt4-ack-sent` / `pkt6-reply-sent` moved) and once per `poll_seconds`
+  anyway (leases an HA partner sent), never on a table larger than
+  `lease_watch_max` (50000); it diffs the table against the previous walk
+  (address and client identifier, `cltt`) and keeps the 50 newest
+  transactions as the `recent_leases` snapshot (`GET
+  /dhcp/{family}/leases/recent`). Kea stores when an exchange completed
+  (`cltt`, whole seconds), not when each of its four packets passed: there is
+  no per-step DORA timing to report, the UI shows the completed exchange.
+- `zones`: `serial` when a primary zone's serial moved, `transfer` when a
+  secondary or mirror copy did (`{"zone", "view", "kind", "serial",
+  "previous", "primary_node_id"?}`). A write through the API signals the
+  collector, which polls BIND within a second; a node that receives a peer's
+  `serial` and holds the zone as a copy reads it again after 2, 5, 15 and 30 s
+  until it follows, so a transfer shows when it lands.
+- `nodes`: `status` when a peer comes, goes or changes (status, version,
+  configuration version, audit count, error); `system`: `replication`
+  (`{"node_id", "config_version", "audit_count"}`) when this node's
+  `cluster.toml` version or audit head moved, or a peer's did;
+  `security` (`{"findings", "opened", "resolved"}`) when the security findings
+  changed.
+- `alerts`: `opened`, `updated`, `resolved`, `acked` (reconcile and ack replay).
+- `plans`: `step` for each plan this node runs for a peer (below).
+
+The sink has a budget: 20 messages per second, bursts of 60. A message with a
+key (heartbeats, unsent counts, summaries, node status) goes out at most once
+per second per key, the latest one wins and the loop flushes it; past the
+budget an unkeyed message is dropped, counted per topic, and the next flush
+sends one `{"event": "coalesced", "data": {"dropped": n}}` on that topic,
+which tells clients to read the state again. `ha` and `zones` events are also
+relayed to every peer (`collector.relay.PeerEventRelay`, `POST
+/repl/v1/events`, once per second, the latest heartbeat per server and family
+only, a failing peer skipped for a growing delay), so every node's UI shows
+every server; a node shows relayed messages under the sender's node id.
+
+Heartbeat window: Kea reports the partner's `age` in whole seconds,
+truncated, so the last heartbeat lies in `(T - age - 1, T - age]` where `T`,
+the instant `status-get` ran, is between the request and the answer. The
+connector records both (`sent_at`, `received_at`) and sends `ha-heartbeat`
+right after, whose `date-time` (Kea's clock, whole seconds) caps `T` below
+`kea_time + 1 s`: `HAState.heartbeat = {"lo", "hi", "age", "sent_at",
+"received_at", "kea_time"}`. Successive windows of the same beat intersect, so
+the UI's jitter (standard deviation of the beat intervals) narrows below the
+second as samples arrive; it never claims more precision than these bounds.
+
+HA maintenance started from Pelagos (`POST /dhcp/{family}/ha/maintenance/plan`,
+section 17) opens a window on the server that stays up (the one the plan runs
+on, through the web process or a peer's collector), recorded in
+`/var/lib/pelagos/ha_maintenance.json` (`core.ha_maintenance`). While it is
+open, that server's partner being away is expected: `ha_partner_down` gives
+way to `ha_degraded` (details `maintenance: true`). The window closes with
+`ha-maintenance-cancel` (or a rollback of the start), when the server is back
+in a normal state with its partner in touch, or after 24 hours.
 
 Periods and thresholds follow `cluster.toml` live: when the file changes
 (a local write or a merge from a peer) the collector re-reads
@@ -1641,7 +1737,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `secondary_stale` | critical | secondary `expires` within 24 h, or AXFR refused |
 | `zone_error` | critical | `rndc zonestatus` fails or the zone is not loaded |
 | `ha_degraded` | warning | state not in {`hot-standby`, `load-balancing`, `backup`} for the configured mode |
-| `ha_partner_down` | critical | state `partner-down` or partner `in_touch == false` |
+| `ha_partner_down` | critical | state `partner-down` or partner `in_touch == false`, outside an HA maintenance window started from Pelagos (then `ha_degraded`) |
 | `ha_transition` | info | state changed since the last poll (also a `ha_transitions` row) |
 | `d2_errors` | warning | `(update-error + update-timeout) / update-sent` over the last hour > `alerts_d2_error_rate` |
 | `daemon_down` | critical | a configured local daemon does not answer |
@@ -1827,6 +1923,7 @@ the API normalizes to the absolute form.
 | `GET /dhcp/{family}/reservations?subnet_id=&q=&page=&per_page=` | `read:dhcp` | | paginated `Reservation` |
 | `POST /dhcp/{family}/reservations/plan` | `write:dhcp.reservations` | `{"change": Change}` (`after` = Reservation) | `Plan` |
 | `GET /dhcp/{family}/leases?subnet_id=&q=&state=&node_id=&from_address=&limit=` | `read:dhcp` | | `{"items": [Lease], "meta": {"node_id","next","limit"}}`: one page of `lease4-get-page`/`lease6-get-page` from `from_address` (`limit` 1 to 1000, default 100; a subnet filter reads at most 10 Kea pages), `meta.next` is the cursor of the next page (null at the end); `q` is an address, MAC, DUID or exact hostname sent to Kea's lookup commands (no cursor) |
+| `GET /dhcp/{family}/leases/recent?limit=` | `read:dhcp` | | `{"items": [lease], "as_of", "nodes"}`: the latest client transactions by `cltt` across the nodes (the collectors' `recent_leases` snapshots, read-only; `limit` 1 to 50, default 20), one per address (the newest copy of an HA pair), fields as the `leases`/`lease` event (section 15); `as_of` is the oldest walk read |
 | `GET /dhcp/{family}/leases/{ip}` | `read:dhcp` | | `{"items": [Lease]}` (one per node, to show HA agreement) |
 | `POST /dhcp/{family}/leases/{ip}/delete/plan` | `ops:dhcp.leases` | `{"node_id"?}` (default this node; a peer's lease is deleted on that peer) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/utilization?node_id=` | `read:dhcp` | | `{"items": [{"subnet_id","subnet","pool","total","assigned","declined","percent"}]}` |
@@ -2033,21 +2130,37 @@ Server to client, one message per event:
 
 ```json
 {"topic": "alerts", "event": "opened" | "updated" | "acked" | "resolved", "ts": "...", "node_id": "...", "data": Alert}
-{"topic": "ha", "event": "state", "ts", "node_id", "data": HAState}
+{"topic": "ha", "event": "state" | "unsent" | "heartbeat", "ts", "node_id", "data": HAState}
 {"topic": "nodes", "event": "status", "ts", "node_id", "data": Node}
 {"topic": "jobs", "event": "progress" | "done" | "failed", "ts", "node_id", "data": Job}
 {"topic": "plans", "event": "applied" | "failed" | "rolled_back", "ts", "node_id", "data": ApplyResult}
+{"topic": "plans", "event": "validated" | "applying" | "rolling_back", "ts", "node_id", "data": {"plan_id", "scope", "state", "origin_node_id", "target_node_ids", "validations": [{"tool", "node_id", "ok"}]}}
+{"topic": "plans", "event": "step", "ts", "node_id", "data": {"plan_id", "scope", "node_id", "origin_node_id", "verb": "apply" | "rollback", "state": "running" | "done" | "failed", "ok"?, "outcome_unknown"?, "message"?, "duration_ms"?}}
 {"topic": "audit", "event": "entry", "ts", "node_id", "data": AuditEntry}
 {"topic": "leases", "event": "summary", "ts", "node_id", "data": {"engine", "active", "new_since_last", "expired_since_last"}}
-{"topic": "system", "event": "pong" | "replication", "ts", "node_id", "data": {...}}
+{"topic": "leases", "event": "lease", "ts", "node_id", "data": {"engine", "family", "change": "new" | "renewed", "lease": {...}}}
+{"topic": "zones", "event": "serial" | "transfer", "ts", "node_id", "data": {"zone", "view", "kind", "serial", "previous", "primary_node_id"?}}
+{"topic": "system", "event": "pong" | "replication" | "security", "ts", "node_id", "data": {...}}
+{"topic": "<any>", "event": "coalesced", "ts", "node_id", "data": {"dropped": n, ...}}
 ```
+
+`node_id` is the node the event happened on: a relayed `ha` or `zones`
+message (section 15) carries the peer's id. The web process emits the plan
+events: `validated` when a plan is built (its `state` is `failed` when a check
+refused it), `applying` and `rolling_back` when it starts, then one `step`
+`running` and one `step` `done` or `failed` per target node, in apply order
+(rollback: reverse order), as each node answers, so the UI finishes each
+node's chip when that node does; a node that runs a plan for a peer sends the
+same `step` events on its own topic. `system` messages reach every socket,
+whatever its subscriptions. The UI keeps polling as a fallback, four times
+slower while the socket is connected.
 
 Additions (WP-API-AUTH): the server answers `subscribe`/`unsubscribe` with
 `{"topic": "system", "event": "subscribed", "data": {"topics": [...],
 "unknown"?: [...], "forbidden"?: [...]}}` and malformed frames with
 `"event": "error"`. A topic needs the read permission of its data
 (`audit`: `read:audit`, `alerts`: `read:alerts`, `leases` and `ha`:
-`read:dhcp`, `nodes`: `read:nodes`, `plans` and `jobs`: any session);
+`read:dhcp`, `zones`: `read:dns`, `nodes`: `read:nodes`, `plans` and `jobs`: any session);
 refused topics are listed in `forbidden`. A socket without a live session
 is closed with code 4401 (also when the session expires, goes idle or logs
 out; an open socket does not refresh the idle timer), a foreign `Origin` or
@@ -2057,8 +2170,10 @@ answers; plan outcomes on `plans`.
 
 Events originate in the collector and reach the web process through the
 Unix datagram socket `/run/pelagos/events.sock` (same JSON), which the web
-process fans out to subscribed sockets. Implementation uses
-`gevent-websocket` under gunicorn, one worker, as in UCM.
+process fans out to subscribed sockets; the collector budgets and coalesces
+them (section 15), each socket holds at most 256 queued messages (the oldest
+go first), and the web process never writes the collector's cache.
+Implementation uses `gevent-websocket` under gunicorn, one worker, as in UCM.
 
 ## 19. Errors, pagination, conventions
 

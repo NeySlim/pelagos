@@ -241,6 +241,8 @@ once on the node you changed them on and on the other nodes after
 | `pool_sample_seconds` | `300` | 30 to 86400 | pool utilization sample |
 | `peer_poll_seconds` | `30` | 5 to 3600 | poll of the peers and replication anti-entropy |
 | `consistency_seconds` | `900` | 60 to 604800 | DNS/DHCP consistency pass and security audit |
+| `live_seconds` | `5` | 1 to 300 | live pass: HA heartbeats of the local Kea servers and the lease watch (new and renewed leases) |
+| `lease_watch_max` | `50000` | 0 to 10000000 | largest lease table the lease watch walks; above it only the lease counts move live |
 
 ### Retention (`[settings.retention]`)
 

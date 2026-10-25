@@ -29,7 +29,11 @@ on; opening another node's UI asks you to sign in there.
 
 The indicator in the header shows the live updates (WebSocket): "Live
 updates on", "Connecting...", "Live updates off", "Live updates unavailable"
-(the socket could not be opened).
+(the socket could not be opened). While it is on, the screens move as the
+collectors see things happen (an HA heartbeat every few seconds, a new or
+renewed lease, a zone serial and its transfers, a plan step on each node, a
+peer that comes or goes, alerts) and their fallback polls run four times
+slower; without it they keep polling.
 
 ## Dashboard
 
@@ -39,21 +43,30 @@ updates on", "Connecting...", "Live updates off", "Live updates unavailable"
   HA heartbeats, the link between them (in sync, how far behind, unreachable),
   then a recorder of the last 30 s, 90 s or 5 min: DNS queries, DHCP leases,
   HA heartbeats measured from Kea (interval and jitter, a red line while the
-  partner is lost) and events (plans, rollbacks, alerts, replication, HA).
+  partner is lost) and events (plans, rollbacks, alerts, replication, zone
+  transfers, HA). Kea gives the partner's last contact in whole seconds;
+  Pelagos brackets each heartbeat between the request and the answer of its
+  status read and Kea's own clock, so the jitter narrows as samples come in
+  and never shows more precision than that.
   Point at the trace to read the exact sample under the pointer; near an event
   the pointer snaps to it and names it. The Mission Control theme shows a
   cluster radar here instead.
 - **DNS**: queries per second (live chart), NXDOMAIN, zone count, answers by
   rcode.
-- **DHCP**: leases handed out per second, hot pools, the latest leases with
+- **DHCP**: leases handed out per second, hot pools, the latest exchange with
   the rate of each step (Discover, Offer, Request, Ack; a red last tick when
-  NAKs were sent), busiest pools, HA.
+  NAKs were sent), the latest lease across the nodes (address, host name or
+  MAC/DUID, when; Kea records when the exchange completed, not the time of
+  each of its four packets, so the DORA marks the completed exchange),
+  busiest pools (a pool served by an HA pair shows once, with the busier of
+  the two servers), HA.
 - **Nodes**: online count, version, configuration version and audit count
   of each node.
 - **DHCP HA**: state of each server, its partner, unsent updates.
 - **Alerts**: open alerts by severity.
 - **Zone sync**: zones whose serials diverge between nodes.
-- **Pool usage**: pools above the warning threshold, and the fill of the
+- **Pool usage**: pools above the warning threshold (once per pool of an HA
+  pair, with the busier server's view), and the fill of the
   hottest pool over the last hour against the thresholds; an alert on it
   closes a red latch where it opened and a green one where it resolved.
 - **DDNS updates**: D2 success, errors, timeouts and error rate.

@@ -130,7 +130,8 @@ transitions.
 - `ha_degraded` (warning): a server outside its normal states
   (`hot-standby`, `load-balancing`, `backup`) outside a maintenance.
 - `ha_partner_down` (critical): state `partner-down`, or the partner not in
-  touch.
+  touch. During a maintenance started from Pelagos, the server that stays up
+  raises `ha_degraded` instead (below).
 - `ha_transition` (info): each state change, also kept as a series.
 
 ### Maintenance of one server
@@ -142,8 +143,11 @@ To reboot or upgrade one server of the pair (`ops:dhcp.ha`):
    which takes over every client (`partner-in-maintenance`) while the
    server enters `in-maintenance`.
 2. Stop and work on the server. DHCP keeps running on the partner, which
-   moves to `partner-down` once the server is gone. A poll in that window
-   raises `ha_partner_down`; it resolves when the pair is back.
+   moves to `partner-down` once the server is gone. Pelagos knows it started
+   that maintenance: the partner raises `ha_degraded` (a warning marked
+   maintenance), not `ha_partner_down`, until the pair is back, the
+   maintenance is ended, or 24 hours have passed. A maintenance started
+   outside Pelagos (Kea's own commands) still raises `ha_partner_down`.
 3. Start it again: it comes back `waiting`, synchronizes the leases from
    its partner, and the pair returns to its normal state by itself (about a
    minute). There is nothing to end.

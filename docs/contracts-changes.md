@@ -13,6 +13,46 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-25, live events: the collector publishes what the UI listens to
+- `docs/architecture.md` sections 2, 13, 14, 15, 17, 18. Additive.
+- WebSocket (section 18): new topic `zones` (`serial`, `transfer`, needs
+  `read:dns`); `ha` gains `unsent` and `heartbeat`; `leases` gains `lease` and
+  `coalesced`; `plans` gains `validated`, `applying`, `rolling_back` and `step`
+  (one `running` and one `done`/`failed` per node, as each node answers);
+  `system` gains `security`; any topic may carry `coalesced`. `system` messages
+  now reach every socket (they did not reach any). `nodes`/`status` is sent on
+  change only. Producers: `collector.pollers` (HA, leases, zones, peers),
+  `collector.main` (live task, replication, security, relayed events, peer plan
+  steps), `services.plan_service` (plan phases and steps). The UI reads them
+  (`useClusterSignals`, `LatestLease`, `PlanPreview`, Dashboard, Nodes, HA) and
+  keeps its polls, four times slower while the socket is up. The mock sends the
+  same shapes.
+- `collector.events.EventSink`: budget (20 per second, bursts of 60), keyed
+  coalescing (`emit(..., key=, relay=)`, `flush()`), overflow notices.
+  `PollOutcome.events` items may carry a fourth element, the emit options.
+- Replication (section 13): `POST /repl/v1/events` relays `ha` and `zones`
+  events between nodes (`core.relay_events`, `collector.relay`); an older peer
+  answers 404 and is skipped. `ReplicationApp.on_peer_events` and `on_plan`
+  hooks; `ReplicationClient.push_events`. `PeerStatus.code` also carries the
+  refusal code of a failed exchange (`revoked`, `unknown_node`).
+- Replication state `isolated` (`core.context.REPL_ISOLATED`): every peer
+  refuses this node, or it left its own `[[nodes]]`, or its certificate is
+  revoked. `/health` reports `degraded`, `/nodes/replication` the state, the
+  Nodes screen a banner.
+- `HAState.heartbeat` (`pelagos.domain.dhcp`, optional, default None): the
+  window of the partner's last heartbeat from status-get's request and answer
+  times and `ha-heartbeat`'s `date-time` (`connectors.kea.ha.heartbeat_window`).
+  `KeaBackend.ha_state()` sends `ha-heartbeat` after `status-get` (failure
+  ignored).
+- `GET /dhcp/{family}/leases/recent` (section 17): newest client transactions
+  across the nodes from the collector's `recent_leases` snapshots. Kea exposes
+  no per-step DORA timing (only `cltt`): documented, the UI shows the completed
+  exchange.
+- `[settings.collector] live_seconds` (5) and `lease_watch_max` (50000).
+- `core.ha_maintenance`: a maintenance started from Pelagos keeps
+  `ha_partner_down` quiet (`ha_degraded` instead) on the server that stays up;
+  `collector.rules.ha_alerts(..., maintenance=)`.
+
 ## 2026-10-25, UI Instrument: cluster trace on the dashboard
 - No API change. `PUT /dashboard/layout` stores the tile id `trace` in place of
   `radar`; the frontend renames a saved `radar` item to `trace` in its place

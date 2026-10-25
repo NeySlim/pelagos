@@ -208,6 +208,7 @@ Permissions are those of [Configuration: roles](configuration.md#roles-and-permi
 | `GET /dhcp/{family}/options`, `POST .../plan` | `read:dhcp`, `write:dhcp.options` | global options and definitions |
 | `GET /dhcp/{family}/reservations`, `POST .../plan` | `read:dhcp`, `write:dhcp.reservations` | reservations, paginated |
 | `GET /dhcp/{family}/leases`, `/leases/{ip}` | `read:dhcp` | leases page by page (`from_address`, `limit` up to 1000), one lease per node |
+| `GET /dhcp/{family}/leases/recent` | `read:dhcp` | the latest client transactions across the nodes, newest first (`limit` up to 50), from the collectors' lease watch |
 | `POST /dhcp/{family}/leases/{ip}/delete/plan` | `ops:dhcp.leases` | delete a lease (`node_id`) |
 | `GET /dhcp/{family}/utilization`, `/stats` | `read:dhcp` | pool use, Kea statistics |
 | `GET /dhcp/{family}/ha`, `/ha/transitions` | `read:dhcp` | HA state, history |
@@ -259,8 +260,15 @@ the PTR in the default view.
 
 `GET /api/v1/ws` (same origin, session cookie) pushes events. Send
 `{"action": "subscribe", "topics": [...]}`; topics: `alerts`
-(`read:alerts`), `ha` and `leases` (`read:dhcp`), `nodes` (`read:nodes`),
-`audit` (`read:audit`), `plans` and `jobs` (any session). Each event is
-`{"topic", "event", "ts", "node_id", "data"}`. The socket closes with code
+(`read:alerts`), `ha` and `leases` (`read:dhcp`), `zones` (`read:dns`),
+`nodes` (`read:nodes`), `audit` (`read:audit`), `plans` and `jobs` (any
+session); `system` messages (replication, security, pong) reach every socket.
+Each event is `{"topic", "event", "ts", "node_id", "data"}`; `node_id` is the
+node it happened on (HA heartbeats and zone transfers of a peer are relayed
+to every node). Examples: `ha`/`heartbeat` every few seconds per server,
+`leases`/`lease` per new or renewed lease, `zones`/`transfer` when a
+secondary's copy follows, `plans`/`step` when each node of a plan answers. A
+burst is coalesced: `{"event": "coalesced", "data": {"dropped": n}}` means
+read the state again. Message shapes: architecture section 18. The socket closes with code
 `4401` when the session ends and `4403` for a foreign `Origin` or a
 restricted session.

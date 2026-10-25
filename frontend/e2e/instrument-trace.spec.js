@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // The Instrument dashboard: the cluster trace draws the measured signals on a canvas on
-// the shared loop, the playhead reads the exact sample, the window zooms with its scale
-// bar, Kea heartbeats give an interval and a jitter, a plan lands on the events lane, the
-// latest leases land as DORA ticks, the hottest pool has its pressure trace, and the
-// motion levels hold.
+// the shared loop, the playhead reads the exact sample (pointer or keys), the window
+// zooms with its scale bar, Kea heartbeats give an interval and a jitter, a plan lands on
+// the events lane, the latest leases land as DORA ticks, the hottest pool has its
+// pressure trace, and the motion levels hold.
 import { test, expect } from '@playwright/test'
 import { signIn } from './family'
 
@@ -50,6 +50,21 @@ test('the cluster trace replaces the radar and reads exact samples', async ({ pa
   await expect(readout).toContainText('queries/s')
   await expect(readout).toContainText(/-\d+\.\d s/)
   await page.mouse.move(box.x - 40, box.y - 40)
+  await expect(readout).not.toHaveClass(/is-on/)
+  // The keys: focus reads the newest sample, the arrows step one sample, Home goes oldest.
+  await expect(trace).toHaveAttribute('tabindex', '0')
+  const count = async () => Number(await tile.getByTestId('trace-count').locator('.sr-only').textContent())
+  await expect.poll(count, { timeout: 30000 }).toBeGreaterThanOrEqual(3)
+  await trace.focus()
+  await expect(readout).toHaveClass(/is-on/)
+  await expect(tile.getByTestId('cluster-trace-live')).toContainText('queries/s')
+  const ago = async () => Number(/-(\d+\.\d) s/.exec((await readout.textContent()) || '')?.[1])
+  const newest = await ago()
+  await page.keyboard.press('ArrowLeft')
+  await expect.poll(ago).toBeGreaterThan(newest + 2)
+  await page.keyboard.press('Home')
+  await expect.poll(ago).toBeGreaterThan(newest + 6)
+  await page.keyboard.press('Escape')
   await expect(readout).not.toHaveClass(/is-on/)
   // The loop stays within its budget while the trace draws.
   const stats = await loopStats(page)

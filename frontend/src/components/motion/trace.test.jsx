@@ -129,6 +129,52 @@ describe('cluster trace', () => {
     expect(readout).not.toHaveClass('is-on')
   })
 
+  it('steps the playhead sample by sample with the keys and reads it out', () => {
+    const plan = { t: NOW - 6000, kind: 'plan' }
+    withLevel('reduced', <ClusterTrace lanes={lanes([plan])} ariaLabel="Cluster trace" eventLabel={() => 'plan applied'} labels={{ keys: 'arrows step' }} />)
+    layout()
+    const trace = screen.getByRole('img', { name: 'Cluster trace' })
+    expect(trace).toHaveAttribute('tabindex', '0')
+    expect(trace).toHaveAccessibleDescription('arrows step')
+    const readout = screen.getByTestId('cluster-trace-readout')
+    const live = screen.getByTestId('cluster-trace-live')
+    // A keyboard focus shows the newest sample; a click focus leaves the pointer in charge.
+    act(() => trace.focus())
+    expect(readout).toHaveClass('is-on')
+    expect(readout).toHaveTextContent('-0.0 s')
+    expect(readout).toHaveTextContent(`${samples[19].v} q/s`)
+    expect(live).toHaveTextContent(`queries/s ${samples[19].v} q/s`)
+    // Left: the plan 6 s ago sits between two samples and is a stop of its own.
+    fireEvent.keyDown(trace, { key: 'ArrowLeft' })
+    expect(readout).toHaveTextContent('-4.0 s')
+    fireEvent.keyDown(trace, { key: 'ArrowLeft' })
+    expect(readout).toHaveTextContent('-6.0 s')
+    expect(live).toHaveTextContent('plan applied')
+    fireEvent.keyDown(trace, { key: 'ArrowLeft' })
+    expect(readout).toHaveTextContent('-8.0 s')
+    expect(readout).toHaveTextContent(`${samples[17].v} q/s`)
+    fireEvent.keyDown(trace, { key: 'Home' })
+    expect(readout).toHaveTextContent('-76.0 s')
+    fireEvent.keyDown(trace, { key: 'ArrowLeft' })
+    expect(readout).toHaveTextContent('-76.0 s')
+    fireEvent.keyDown(trace, { key: 'End' })
+    expect(readout).toHaveTextContent('-0.0 s')
+    fireEvent.keyDown(trace, { key: 'Escape' })
+    expect(readout).not.toHaveClass('is-on')
+    fireEvent.keyDown(trace, { key: 'ArrowRight' })
+    expect(readout).toHaveClass('is-on')
+    act(() => trace.blur())
+    expect(readout).not.toHaveClass('is-on')
+    fireEvent.pointerDown(trace)
+    act(() => trace.focus())
+    expect(readout).not.toHaveClass('is-on')
+  })
+
+  it('is not focusable without a label or a readout', () => {
+    withLevel('reduced', <ClusterTrace lanes={lanes()} readout={false} ariaLabel="Trace" />)
+    expect(screen.getByTestId('cluster-trace')).not.toHaveAttribute('tabindex')
+  })
+
   it('applies a new window at once below full motion', () => {
     const { rerender } = withLevel('reduced', <ClusterTrace lanes={lanes()} windowMs={90000} />)
     layout()

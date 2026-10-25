@@ -168,6 +168,7 @@
       "dns": "queries/s",
       "dhcp": "leases/s"
     },
+    "keys": "Left and right arrows step through the samples, Home and End go to the oldest and the newest.",
     "hbInterval": "hb interval",
     "link": {
       "label": "replication · HA",

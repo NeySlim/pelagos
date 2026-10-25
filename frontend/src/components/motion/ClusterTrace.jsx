@@ -2,10 +2,11 @@
 // The strip-chart recorder: a canvas whose paper moves at the real clock (x is a
 // function of time, sub-pixel, no jump), lanes of lines, bars, heartbeat ECG rows,
 // event markers and steps, a time ruler, an animated window, a magnetic playhead with
-// the exact sample under it, and a pen that reveals the history once. At full motion it
+// the exact sample under it (pointer, or arrow keys once focused), and a pen that
+// reveals the history once. At full motion it
 // draws on the shared loop while visible; below full it redraws on data, window or
 // pointer changes only, so the paper jumps one sample at a time.
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useRef, useState } from 'react'
 import { useMotionLevel } from '../../contexts/MotionContext'
 import { useAnimationLoop } from '../../hooks/useAnimationLoop'
 import { useCanvas } from '../../hooks/useCanvas'
@@ -75,6 +76,9 @@ export const ClusterTrace = forwardRef(function ClusterTrace(
   props.current = { lanes, ruler, names, pad, rightPad, readout, clockOffset, locale, labels, eventLabel, full }
   const hostRef = useRef(null)
   const readoutRef = useRef(null)
+  const liveRef = useRef(null)
+  // Keyboard playhead: an instant on a sample or event, held while the trace has focus.
+  const kbd = useRef(null)
   const inks = useRef(null)
   const win = useRef({ from: windowMs, to: windowMs, t0: 0, cur: windowMs })
   const pointer = useRef(null)
@@ -121,6 +125,9 @@ export const ClusterTrace = forwardRef(function ClusterTrace(
     }
     const values = {}
     let pen = null
+    // Instants the arrow keys step through: the first signal's samples and the events.
+    let stops = null
+    let evStops = []
     lanesList.forEach((ln, li) => {
       const y0 = li * laneH
       const y1 = y0 + laneH
@@ -149,6 +156,16 @@ export const ClusterTrace = forwardRef(function ClusterTrace(
         const target = ln.max ?? laneMax(vis)
         const ymax = (scales.current[ln.key] = isFull ? smoothTowards(scales.current[ln.key], target, dt) : target)
         const y = (v) => bot - (bot - top) * clamp((v - mn) / (ymax - mn || 1), 0, 1.05)
+        // A waiting lane shows where its signal will write (alpha given by the lane).
+        if (ln.baseline) {
+          ctx.strokeStyle = ink(col, ln.baseline)
+          ctx.setLineDash([2, 3])
+          ctx.beginPath()
+          ctx.moveTo(p.pad, Math.round(bot) + 0.5)
+          ctx.lineTo(p.pad + plotW, Math.round(bot) + 0.5)
+          ctx.stroke()
+          ctx.setLineDash([])
+        }
         for (const th of ln.thresholds || []) {
           const yy = Math.round(y(th.v)) + 0.5
           ctx.strokeStyle = th.bad ? ink(c.bad, 0.45) : ink(c.hair3)
@@ -237,6 +254,7 @@ export const ClusterTrace = forwardRef(function ClusterTrace(
           })
           if (!pen) pen = x(last.t)
         }
+        if (!stops) stops = vis.filter((sm) => sm.t >= tnow - wa.cur).map((sm) => sm.t)
         values[ln.key] = (t) => {
           const s = nearestSample(vis, t)
           return s && { v: s.v, t: s.t, y: y(s.v) }
@@ -345,6 +363,7 @@ export const ClusterTrace = forwardRef(function ClusterTrace(
           ctx.restore()
         }
         values.events = events
+        evStops = events.filter((e) => e.t >= tnow - wa.cur && e.t <= tnow).map((e) => e.t)
       } else if (ln.type === 'step') {
         const data = ln.data || []
         if (!data.length) return
@@ -440,9 +459,16 @@ export const ClusterTrace = forwardRef(function ClusterTrace(
       ctx.lineTo(rx + 0.5, H)
       ctx.stroke()
     }
-    // Playhead: the pointer, or a programmatic scrub; magnetic to event markers.
-    let tx = scrub.current !== null ? x(scrub.current) : pointer.current
     const d = drawn.current
+    d.stops = [...new Set([...(stops || []), ...evStops])].sort((a, b) => a - b)
+    // A held key instant that the paper carried out of the window moves to the oldest stop.
+    if (kbd.current !== null && kbd.current < tnow - wa.cur) {
+      kbd.current = d.stops[0] ?? null
+      d.announce = true
+    }
+    // Playhead: a programmatic scrub, the keys, or the pointer; magnetic to event markers.
+    const held = scrub.current ?? kbd.current
+    let tx = held !== null ? x(held) : pointer.current
     if (tx !== null && tx !== undefined && tx >= p.pad && tx <= p.pad + plotW) {
       const snap = values.events ? snapToEvent(values.events, tx, tnow, geo) : null
       d.snapped = snap?.event || null
@@ -477,7 +503,7 @@ export const ClusterTrace = forwardRef(function ClusterTrace(
         const iv = values.hb(t)
         if (iv) rows.push([p.labels.hbInterval || 'hb interval', `${(iv / 1000).toFixed(2)} s`, null])
       }
-      writeReadout(readoutRef.current, d, { t, tnow, rows, event: d.snapped, hx, width: w, locale: p.locale, eventLabel: p.eventLabel })
+      writeReadout(readoutRef.current, d, { t, tnow, rows, event: d.snapped, hx, width: w, locale: p.locale, eventLabel: p.eventLabel, live: Math.abs(hx - tx) < 0.5 ? liveRef.current : null })
     } else {
       d.snapped = null
       d.hx = null
@@ -546,10 +572,51 @@ export const ClusterTrace = forwardRef(function ClusterTrace(
   const onMove = (e) => {
     const r = e.currentTarget.getBoundingClientRect()
     pointer.current = e.clientX - r.left
+    kbd.current = null
     if (!running) redraw()
   }
   const onLeave = () => {
     pointer.current = null
+    if (!running) redraw()
+  }
+
+  // Keys: left and right step one sample (or event), Home and End jump to the edges.
+  const keyboard = readout && Boolean(ariaLabel)
+  const hintId = useId()
+  const holdKey = (t) => {
+    kbd.current = t
+    drawn.current.announce = true
+    if (!running) redraw()
+  }
+  const onKeyDown = (e) => {
+    if (e.key === 'Escape' && kbd.current !== null) {
+      kbd.current = null
+      if (!running) redraw()
+      return
+    }
+    const stops = drawn.current.stops || []
+    if (!stops.length || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
+    e.preventDefault()
+    const cur = kbd.current
+    let i = stops.length - 1
+    if (cur !== null) {
+      i = 0
+      for (let k = 0; k < stops.length; k += 1) if (Math.abs(stops[k] - cur) < Math.abs(stops[i] - cur)) i = k
+    }
+    if (e.key === 'Home') i = 0
+    else if (e.key === 'End') i = stops.length - 1
+    else if (cur !== null) i = clamp(i + (e.key === 'ArrowLeft' ? -1 : 1), 0, stops.length - 1)
+    holdKey(stops[i])
+  }
+  // Keyboard focus shows the newest sample at once; a click leaves the pointer in charge.
+  const pressed = useRef(false)
+  const onFocus = () => {
+    const stops = drawn.current.stops || []
+    if (!pressed.current && kbd.current === null && stops.length) holdKey(stops[stops.length - 1])
+    pressed.current = false
+  }
+  const onBlur = () => {
+    kbd.current = null
     if (!running) redraw()
   }
 
@@ -562,23 +629,42 @@ export const ClusterTrace = forwardRef(function ClusterTrace(
       data-running={running ? 'true' : 'false'}
       role={ariaLabel ? 'img' : undefined}
       aria-label={ariaLabel}
+      aria-describedby={keyboard ? hintId : undefined}
+      tabIndex={keyboard ? 0 : undefined}
       onPointerMove={onMove}
       onPointerLeave={onLeave}
+      onPointerDown={keyboard ? () => (pressed.current = true) : undefined}
+      onKeyDown={keyboard ? onKeyDown : undefined}
+      onFocus={keyboard ? onFocus : undefined}
+      onBlur={keyboard ? onBlur : undefined}
     >
       <canvas ref={canvasRef} data-testid={`${testId}-canvas`} aria-hidden="true" />
       {readout && <div ref={readoutRef} className="fx-trace-readout" data-testid={`${testId}-readout`} aria-hidden="true" />}
+      {keyboard && (
+        <>
+          <span id={hintId} className="sr-only">
+            {labels.keys || 'Left and right arrows step through the samples, Home and End go to the edges.'}
+          </span>
+          <span ref={liveRef} className="sr-only" role="status" data-testid={`${testId}-live`} />
+        </>
+      )}
       {children}
     </div>
   )
 })
 
 // The playhead readout: rebuilt only when its text changes, positioned by transform.
-function writeReadout(el, d, { t, tnow, rows, event, hx, width, locale, eventLabel }) {
+function writeReadout(el, d, { t, tnow, rows, event, hx, width, locale, eventLabel, live }) {
   if (!el) return
   const date = new Date(t)
   const time = `${date.toLocaleTimeString(locale || undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}.${Math.floor(date.getMilliseconds() / 100)}`
   const ago = `-${((tnow - t) / 1000).toFixed(1)} s`
   const evText = event ? (eventLabel ? eventLabel(event) : event.kind) : ''
+  // A key step is read out once to assistive tech; the moving "ago" is left out.
+  if (d.announce && live) {
+    d.announce = false
+    live.textContent = [time, ...rows.map(([l, v]) => `${l} ${v}`), evText].filter(Boolean).join(', ')
+  }
   const key = [time, ago, ...rows.map((r) => r.join('|')), evText].join('\n')
   if (key !== d.key) {
     d.key = key

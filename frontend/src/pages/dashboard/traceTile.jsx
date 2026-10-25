@@ -169,7 +169,7 @@ export function TraceTile({ summary, editing, live, samples = 0 }) {
     () => traceLanes({ live, heartbeats, events, families, selfId: self?.peer.id, labels, format }),
     [live, heartbeats, events, families, self?.peer.id, labels, format],
   )
-  const traceLabels = useMemo(() => ({ now: t('live.now'), hbInterval: t('trace.hbInterval') }), [t])
+  const traceLabels = useMemo(() => ({ now: t('live.now'), hbInterval: t('trace.hbInterval'), keys: t('trace.keys') }), [t])
   const eventLabel = useCallback(
     (e) => {
       const p = e.params || {}

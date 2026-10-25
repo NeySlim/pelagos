@@ -81,7 +81,7 @@ export function PoolPressure({ pool, openAlerts, warn, full }) {
   const latches = useLatches(pool, openAlerts, samples)
   const thresholds = useMemo(() => [{ v: warn, label: String(warn) }, { v: full, label: String(full), bad: true }], [warn, full])
   const min = useMemo(() => Math.max(0, Math.min(warn - 20, ...samples.map((s) => s.v - 5))), [samples, warn])
-  const labels = useMemo(() => ({ now: t('live.now') }), [t])
+  const labels = useMemo(() => ({ now: t('live.now'), keys: t('trace.keys') }), [t])
   if (!pool) return null
   return (
     <div className="dash-pressure-trace" data-testid="pool-pressure">

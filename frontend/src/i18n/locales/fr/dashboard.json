@@ -168,6 +168,7 @@
       "dns": "requêtes/s",
       "dhcp": "baux/s"
     },
+    "keys": "Les flèches gauche et droite parcourent les mesures, Début et Fin vont à la plus ancienne et à la plus récente.",
     "hbInterval": "intervalle",
     "link": {
       "label": "réplication · HA",

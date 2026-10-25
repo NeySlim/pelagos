@@ -179,6 +179,8 @@
 
 /* ============ Cluster trace (canvas) and its playhead readout ============ */
 .fx-trace { position: relative; width: 100%; height: 100%; min-height: 0; cursor: crosshair; touch-action: pan-y; }
+/* Inset: the tile body clips anything drawn outside the plot. */
+.fx-trace:focus-visible { outline: 2px solid var(--i-ring, var(--accent-primary)); outline-offset: -2px; box-shadow: none; }
 .fx-trace > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .fx-trace-readout {
   position: absolute;

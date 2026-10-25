@@ -136,7 +136,7 @@
 .fx-step.is-running .fx-step-label,
 .fx-step.is-done .fx-step-label { color: var(--text-primary); }
 .fx-step.is-failed .fx-step-label { color: var(--accent-danger); }
-.fx-step-ms { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--fx-faint); }
+.fx-step-ms { margin-left: auto; flex-shrink: 0; white-space: nowrap; font-family: var(--font-mono); font-size: 11px; color: var(--fx-faint); }
 .fx-step-nodes { display: inline-flex; gap: 4px; margin-left: 6px; }
 .fx-node-chip {
   position: relative;

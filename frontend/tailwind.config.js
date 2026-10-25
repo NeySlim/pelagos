@@ -18,7 +18,10 @@ export default {
         'bg-primary': 'var(--bg-primary)',
         'bg-secondary': 'var(--bg-secondary)',
         'bg-tertiary': 'var(--bg-tertiary)',
+        'bg-inset': 'var(--bg-inset)',
         'bg-hover': 'var(--bg-tertiary)',
+        'contrast-bg': 'var(--contrast-bg)',
+        'contrast-fg': 'var(--contrast-fg)',
         
         // Text colors  
         'text-primary': 'var(--text-primary)',
@@ -43,6 +46,7 @@ export default {
         
         // Border
         'border': 'var(--border)',
+        'border-strong': 'var(--border-strong)',
         'border-hover': 'var(--text-tertiary)',
       },
       fontSize: {
@@ -51,9 +55,10 @@ export default {
         '3xs': ['0.5625rem', { lineHeight: '0.75rem' }],  // 9px
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['Fira Code', 'ui-monospace', 'monospace'],
-        display: ['Michroma', 'Inter', 'system-ui', 'sans-serif'],
+        // Per family: IBM Plex for Instrument, Inter and Fira Code for the others (index.css).
+        sans: 'var(--font-sans)',
+        mono: 'var(--font-mono)',
+        display: 'var(--font-display)',
       },
       animation: {
         'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',

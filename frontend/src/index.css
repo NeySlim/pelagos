@@ -56,6 +56,88 @@
   src: url('/fonts/FiraCode-SemiBold.woff2') format('woff2');
 }
 
+/* IBM Plex Sans and Mono (SIL OFL 1.1): the Instrument faces, latin and latin-ext subsets. */
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSans-Regular-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSans-Regular-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSans-Medium-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSans-Medium-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSans-SemiBold-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSans-SemiBold-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/IBMPlexMono-Regular-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/IBMPlexMono-Regular-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/IBMPlexMono-Medium-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/IBMPlexMono-Medium-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 /* Fira Code size adjustment: slightly wider than SF Mono/JetBrains Mono */
 .font-mono {
   font-size: 0.92em;
@@ -63,35 +145,41 @@
 }
 
 /* ============================================
-   THEME: Mission Control dark (default before React mounts; matches ThemeContext)
+   THEME: Instrument dark (default before React mounts; matches ThemeContext)
    ============================================ */
 :root {
-  --bg-primary: #141B1D;
-  --bg-secondary: #1E2729;
-  --bg-tertiary: #283335;
-  --text-primary: #EEF3F2;
-  --text-secondary: #AEBBBA;
-  --text-tertiary: #93A3A2;
-  --accent-primary: #FF6A2B;
-  --accent-pro: #6CCFF6;
-  --accent-success: #3BE36B;
-  --accent-warning: #F5C518;
-  --accent-warning-fill: #F5C518;
-  --accent-danger: #FF5C76;
-  --accent-purple: #A78BFA;
-  --border: #33403F;
-  --gradient-from: #FF6A2B;
-  --gradient-to: #FF8F4D;
-  --gradient-accent: linear-gradient(135deg, #FF6A2B 0%, #6CCFF6 100%);
-  --gradient-bg: linear-gradient(160deg, #1A2325 0%, #141B1D 55%, #101618 100%);
-  --border-subtle: rgba(255, 255, 255, 0.06);
+  --bg-primary: #121416;
+  --bg-secondary: #191C1F;
+  --bg-tertiary: #1F2327;
+  --bg-inset: #262B30;
+  --text-primary: #E6E9EC;
+  --text-secondary: #A4ABB3;
+  --text-tertiary: #858D96;
+  --accent-primary: #5FC7E6;
+  --accent-pro: #C08CF5;
+  --accent-success: #5CCC8A;
+  --accent-warning: #E3B341;
+  --accent-warning-fill: #E3B341;
+  --accent-danger: #F06A6A;
+  --accent-purple: #C08CF5;
+  --border: rgba(255, 255, 255, 0.07);
   --border-strong: rgba(255, 255, 255, 0.12);
-  
+  --contrast-bg: #E6E9EC;
+  --contrast-fg: #121416;
+  --gradient-from: #E6E9EC;
+  --gradient-to: #E6E9EC;
+  --gradient-accent: linear-gradient(135deg, #5FC7E6 0%, #C08CF5 100%);
+  --gradient-bg: #121416;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  /* Instrument faces; Mission Control and the UCM families keep Inter and Fira Code. */
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
   /* Logo gradient colors */
-  --logo-gradient-start: #FF7A3D;
-  --logo-gradient-mid: #FF5A1F;
-  --logo-gradient-end: #D9420E;
-  --logo-gradient-accent: #6CCFF6;
+  --logo-gradient-start: #E6E9EC;
+  --logo-gradient-mid: #E6E9EC;
+  --logo-gradient-end: #A4ABB3;
+  --logo-gradient-accent: #5FC7E6;
   
   /* ===== ENHANCED SHADOW SYSTEM ===== */
   --shadow-color: 220deg 40% 2%;
@@ -186,36 +274,46 @@
   --icon-teal-text: #93C5FD;
 }
 
+/* Mission Control and the UCM families keep their own faces. */
+:root[data-effects='mission'],
+:root[data-effects='none'] {
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'Fira Code', ui-monospace, monospace;
+}
+
 /* ============================================
-   THEME: Mission Control light (default before React mounts)
+   THEME: Instrument light (default before React mounts)
    ============================================ */
 .theme-light {
-  --bg-primary: #E4EAEA;
-  --bg-secondary: #F8FAFA;
-  --bg-tertiary: #E9EFEF;
-  --text-primary: #10181A;
-  --text-secondary: #3D4B4E;
-  --text-tertiary: #4F5E61;
-  --accent-primary: #B23A0A;
-  --accent-pro: #0A6A8E;
-  --accent-success: #0C7331;
-  --accent-warning: #7F6200;
-  --accent-warning-fill: #E0B000;
-  --accent-danger: #C01C42;
-  --accent-purple: #7C3AED;
-  --border: #C9D3D3;
-  --gradient-from: #B23A0A;
-  --gradient-to: #E0571C;
-  --gradient-accent: linear-gradient(135deg, #B23A0A 0%, #0A6A8E 100%);
-  --gradient-bg: linear-gradient(160deg, #EEF2F2 0%, #E4EAEA 55%, #DCE3E3 100%);
-  --border-subtle: rgba(0, 0, 0, 0.06);
-  --border-strong: rgba(0, 0, 0, 0.12);
-  
+  --bg-primary: #ECEEF1;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #F5F6F8;
+  --bg-inset: #ECEEF1;
+  --text-primary: #15191D;
+  --text-secondary: #4A535C;
+  --text-tertiary: #616A73;
+  --accent-primary: #0A7391;
+  --accent-pro: #6B3FD1;
+  --accent-success: #1A7A42;
+  --accent-warning: #8A5A00;
+  --accent-warning-fill: #D9A300;
+  --accent-danger: #C22F45;
+  --accent-purple: #6B3FD1;
+  --border: rgba(18, 22, 26, 0.08);
+  --border-strong: rgba(18, 22, 26, 0.13);
+  --contrast-bg: #15191D;
+  --contrast-fg: #FFFFFF;
+  --gradient-from: #15191D;
+  --gradient-to: #15191D;
+  --gradient-accent: linear-gradient(135deg, #0A7391 0%, #6B3FD1 100%);
+  --gradient-bg: #ECEEF1;
+  --border-subtle: rgba(18, 22, 26, 0.06);
+
   /* Logo gradient colors - light */
-  --logo-gradient-start: #E0571C;
-  --logo-gradient-mid: #C2440F;
-  --logo-gradient-end: #9C3409;
-  --logo-gradient-accent: #0A6A8E;
+  --logo-gradient-start: #15191D;
+  --logo-gradient-mid: #15191D;
+  --logo-gradient-end: #4A535C;
+  --logo-gradient-accent: #0A7391;
   
   /* Light theme shadow adjustments: stronger, colored */
   --shadow-color: 220deg 30% 50%;
@@ -387,7 +485,7 @@
 
 body {
   margin: 0;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans);
   background-color: var(--bg-primary);
   color: var(--text-primary);
   overflow: hidden;

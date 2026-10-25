@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Theme families: same keys everywhere, the default (Mission Control) matches index.css,
+// Theme families: same keys everywhere, the default (Instrument) matches index.css,
 // and the text and accent tokens keep WCAG AA contrast (4.5:1) on bg-secondary.
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -35,8 +35,10 @@ const families = Object.values(themeFamilies)
 const TOKENS = ['text-primary', 'text-secondary', 'text-tertiary', 'accent-primary', 'accent-pro']
 
 describe('theme families', () => {
-  it('Mission Control is the default and every family has the same keys', () => {
-    expect(DEFAULT_FAMILY).toBe('mission')
+  it('Instrument is the default and every family has the same keys', () => {
+    expect(DEFAULT_FAMILY).toBe('instrument')
+    expect(Object.keys(themeFamilies)[0]).toBe('instrument')
+    for (const key of ['bg-inset', 'border-strong', 'contrast-bg', 'contrast-fg']) expect(themeFamilies.pelagic.dark, key).toHaveProperty(key)
     const shape = (f) => ({ top: Object.keys(f).sort(), dark: Object.keys(f.dark).sort(), light: Object.keys(f.light).sort() })
     const reference = shape(themeFamilies.pelagic)
     for (const family of families) expect(shape(family), family.id).toEqual(reference)
@@ -60,7 +62,7 @@ describe('theme families', () => {
     }
   })
 
-  it.each([['pelagic', 'dark'], ['pelagic', 'light'], ['mission', 'dark'], ['mission', 'light']])('%s %s accents meet AA contrast', (id, mode) => {
+  it.each([['instrument', 'dark'], ['instrument', 'light'], ['pelagic', 'dark'], ['pelagic', 'light'], ['mission', 'dark'], ['mission', 'light']])('%s %s accents meet AA contrast', (id, mode) => {
     const palette = themeFamilies[id][mode]
     for (const token of TOKENS) {
       const ratio = contrast(palette[token], palette['bg-secondary'])
@@ -90,6 +92,7 @@ describe('theme families', () => {
     for (const family of families) {
       if (family.id !== 'mission') expect(family.dark['accent-warning-fill'], family.id).toBe(family.dark['accent-warning'])
     }
+    expect(themeFamilies.instrument.light['accent-warning-fill']).not.toBe(themeFamilies.instrument.light['accent-warning'])
   })
 
   it.each(['dark', 'light'])('Mission %s keeps warning, DNS and DHCP accents apart', (mode) => {
@@ -101,8 +104,38 @@ describe('theme families', () => {
     }
   })
 
-  it('only Mission turns the effects layer on', () => {
-    for (const family of families) expect(family.effects, family.id).toBe(family.id === 'mission' ? 'mission' : 'none')
+  it('Instrument and Mission have their own effects layer, the other families none', () => {
+    const layers = { instrument: 'instrument', mission: 'mission' }
+    for (const family of families) expect(family.effects, family.id).toBe(layers[family.id] || 'none')
+  })
+
+  // Status colors are read as text next to their dot: AA on panels and on the ground.
+  it.each(['dark', 'light'])('Instrument %s status colors and tertiary text meet AA on panels and the ground', (mode) => {
+    const palette = themeFamilies.instrument[mode]
+    for (const token of ['accent-success', 'accent-warning', 'accent-danger', 'accent-primary', 'accent-pro', 'text-tertiary']) {
+      for (const bg of ['bg-secondary', 'bg-primary', 'bg-tertiary']) {
+        const ratio = contrast(palette[token], palette[bg])
+        expect(ratio, `instrument ${mode} ${token} on ${bg} ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  })
+
+  // One signal color per protocol, never confused with a status color.
+  it.each(['dark', 'light'])('Instrument %s keeps DNS, DHCP and status hues apart', (mode) => {
+    const palette = themeFamilies.instrument[mode]
+    const signals = ['accent-primary', 'accent-pro']
+    for (const a of signals) {
+      for (const b of ['accent-success', 'accent-warning', 'accent-danger', ...signals.filter((s) => s !== a)]) {
+        const d = hueDistance(hue(palette[a]), hue(palette[b]))
+        expect(d, `instrument ${mode} ${a} vs ${b} ${d.toFixed(0)} deg`).toBeGreaterThanOrEqual(40)
+      }
+    }
+  })
+
+  it.each(['dark', 'light'])('Instrument %s primary action is neutral and high contrast', (mode) => {
+    const palette = themeFamilies.instrument[mode]
+    expect(contrast(palette['contrast-fg'], palette['contrast-bg'])).toBeGreaterThanOrEqual(12)
+    expect(palette['contrast-bg']).toBe(palette['text-primary'])
   })
 
   it('index.css defaults match the default family', () => {
@@ -110,7 +143,7 @@ describe('theme families', () => {
     const block = (selector) => css.slice(css.indexOf(`${selector} {`), css.indexOf('}', css.indexOf(`${selector} {`)))
     for (const [selector, mode] of [[':root', 'dark'], ['.theme-light', 'light']]) {
       const text = block(selector)
-      for (const token of ['bg-primary', 'bg-secondary', 'bg-tertiary', ...TOKENS, 'border']) {
+      for (const token of ['bg-primary', 'bg-secondary', 'bg-tertiary', 'bg-inset', ...TOKENS, 'accent-success', 'accent-warning', 'accent-warning-fill', 'accent-danger', 'border', 'border-strong', 'contrast-bg', 'contrast-fg']) {
         expect(text, `${selector} --${token}`).toContain(`--${token}: ${themeFamilies[DEFAULT_FAMILY][mode][token]};`)
       }
     }

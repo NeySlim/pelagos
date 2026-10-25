@@ -800,8 +800,8 @@ function seriesPools(state, query) {
       .map((r, idx) => {
         const points = []
         for (let t = from, i = 0; t <= to && i < 2000; t += step, i += 1) {
-          // A daily swell under minute-scale churn; the newest point is the pool as it is now.
-          const wave = Math.sin((t / 3600000 / 24) * Math.PI * 2 + idx) * 0.08 + Math.sin((t / 420000) * Math.PI * 2 + idx) * 0.03 + Math.sin((t / 97000) * Math.PI * 2 + 2 * idx) * 0.015
+          // A daily swell and a 7 min churn; the newest point is the pool as it is now.
+          const wave = Math.sin((t / 3600000 / 24) * Math.PI * 2 + idx) * 0.08 + Math.sin((t / 420000) * Math.PI * 2 + idx) * 0.03
           const assigned = to - t < step ? r.assigned : Math.max(0, Math.min(r.total, Math.round(r.assigned * (0.93 + wave))))
           points.push([Math.floor(t / 1000), assigned, r.total])
         }

@@ -88,6 +88,17 @@ function RangeSegment({ value, onChange, labels }) {
   )
 }
 
+const REVEAL_KEY = 'pelagos-trace-revealed'
+function firstReveal() {
+  try {
+    if (sessionStorage.getItem(REVEAL_KEY) === '1') return false
+    sessionStorage.setItem(REVEAL_KEY, '1')
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function TraceTile({ summary, editing, live, samples = 0 }) {
   const { t, i18n } = useTranslation(['dashboard', 'common'])
   const lang = i18n.language
@@ -103,6 +114,8 @@ export function TraceTile({ summary, editing, live, samples = 0 }) {
   const linkRef = useRef(null)
   const traceRef = useRef(null)
   const [windowMs, setWindowMs] = useState(readWindow)
+  // The pen draws the history once per session: the first time the trace shows.
+  const [reveal] = useState(firstReveal)
   const [sizeRef, size] = useElementSize()
 
   // Link signals for the events that travel between the nodes.
@@ -238,7 +251,7 @@ export function TraceTile({ summary, editing, live, samples = 0 }) {
               ref={traceRef}
               lanes={lanes}
               windowMs={windowMs}
-              reveal
+              reveal={reveal}
               clockOffset={offset}
               locale={lang}
               labels={traceLabels}

@@ -94,8 +94,13 @@ describe('live mock', () => {
     await sleep(200)
     const caughtUp = (await call('GET', '/dns/zones/example.lan')).data.status
     expect(new Set(Object.values(caughtUp).map((s) => s.serial)).size).toBe(1)
+    const appliedSerial = caughtUp[Object.keys(caughtUp)[0]].serial
     const rolled = await call('POST', `/plans/${plan.id}/rollback`)
     expect(rolled.data.state).toBe('rolled_back')
+    // A rollback is a step up: no node ever reports a serial below the applied one.
+    const after = Object.values((await call('GET', '/dns/zones/example.lan')).data.status).map((s) => s.serial)
+    expect(Math.max(...after)).toBeGreaterThan(appliedSerial)
+    expect(Math.min(...after)).toBeGreaterThanOrEqual(appliedSerial)
     await sleep(30)
     expect(ws.messages.find((m) => m.topic === 'audit' && m.data.request?.verb === 'rollback')?.data.plan_id).toBe(plan.id)
     ws.close()
@@ -143,6 +148,9 @@ describe('live mock', () => {
     expect(primary.partner.in_touch).toBe(false)
     await sleep(120)
     expect(primary.unsent_update_count).toBeGreaterThan(1)
+    // The queue grows without a new `state` message: only transitions are states.
+    expect(ws.messages.filter((m) => m.topic === 'ha' && m.event === 'state')).toHaveLength(2)
+    expect(ws.messages.filter((m) => m.event === 'unsent').length).toBeGreaterThan(1)
     await event('ha-failback')
     expect(primary.state).toBe('hot-standby')
     expect(primary.unsent_update_count).toBe(0)

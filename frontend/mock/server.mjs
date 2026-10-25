@@ -877,19 +877,26 @@ function rrsetPlan(state, user, zoneName, body) {
       bumpSerial(records)
       return 'NOERROR'
     },
+    // A rollback is a new change: its serial goes above the applied one, never back.
     rollback() {
-      records.splice(0, records.length, ...snapshot)
-      bumpSerial(records)
+      const current = state.soaSerial(records)
+      records.splice(0, records.length, ...JSON.parse(JSON.stringify(snapshot)))
+      setSerial(records, current + 1)
     },
   })
 }
 
-function bumpSerial(records) {
+function setSerial(records, serial) {
   const soa = records.find((r) => r.rtype === 'SOA')
   if (!soa) return
   const parts = soa.rdata[0].split(/\s+/)
-  parts[2] = String(Number(parts[2]) + 1)
+  parts[2] = String(serial)
   soa.rdata[0] = parts.join(' ')
+}
+
+function bumpSerial(records) {
+  const soa = records.find((r) => r.rtype === 'SOA')
+  if (soa) setSerial(records, Number(soa.rdata[0].split(/\s+/)[2]) + 1)
 }
 
 // Generic plan over a list held in state: add/replace/delete by key.

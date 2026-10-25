@@ -161,12 +161,13 @@ export function createEvents(state, h) {
       standby.partner = { ...standby.partner, in_touch: false }
       state.haOutage ||= {}
       state.haOutage[family] = true
-      // Lease updates that cannot reach the partner pile up at the lease rate.
+      // Lease updates that cannot reach the partner pile up at the lease rate. The state did
+      // not change, so the growth goes out as `unsent`, never as a `state` transition.
       const grow = () => {
         if (!state.haOutage?.[family]) return
         primary.unsent_update_count = Math.min(500, (primary.unsent_update_count || 0) + 1)
         primary.collected_at = iso(now())
-        h.emit('ha', 'state', primary)
+        h.emit('ha', 'unsent', primary)
         later(state.unsentMs ?? 900, grow)
       }
       later(state.unsentMs ?? 900, grow)

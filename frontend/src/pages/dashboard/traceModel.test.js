@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect, beforeEach } from 'vitest'
 import { clockOffset, haFamilies, heartbeatOf, heartbeatReadout, linkOf, nodeEngines, topology, traceLanes } from './traceModel'
-import { observeHa, observeNodeVersion, resetClusterSignals } from '../../hooks/useClusterSignals'
+import { beatStats } from '../../lib/trace'
+import { isHaTransition, observePoolAlerts, poolAlertsSeen, observeHa, observeNodeVersion, observeZoneSerials, resetClusterSignals } from '../../hooks/useClusterSignals'
 
 const node = (id, name, self, extra = {}) => ({ peer: { id, name }, is_self: self, status: 'online', config_version: 42, ...extra })
 const LABELS = { dns: 'DNS queries', dnsUnit: 'queries/s', dhcp: 'DHCP leases', dhcpUnit: 'leases/s', hb: 'HA heartbeat', events: 'Events' }
@@ -92,6 +93,15 @@ describe('measured heartbeats', () => {
     const back = observeHa(again, ha(33_000, 0))
     expect(back.outage).toEqual({ from: 25_000, to: 33_000 })
     expect(back.beats).toHaveLength(3)
+    // The first beat after the outage ends a span that is no heartbeat interval.
+    expect(back.beats[0].afterGap).toBe(true)
+    expect(back.gapPending).toBe(false)
+    const narrowed = observeHa(back, ha(33_400, 0))
+    expect(narrowed.beats[0].afterGap).toBe(true)
+    const steady = observeHa(observeHa(narrowed, ha(43_000, 0)), ha(53_000, 0))
+    // Four intervals between five beats, the one across the outage left out.
+    expect(steady.beats).toHaveLength(5)
+    expect(beatStats(steady.beats).count).toBe(3)
     expect(observeHa(back, { ...ha(34_000, 0), enabled: false })).toBe(back)
   })
 })
@@ -104,5 +114,50 @@ describe('replication events', () => {
     expect(observeNodeVersion(node('a', 'ns1', true, { config_version: 42 }))).toBeNull()
     const e = observeNodeVersion(node('a', 'ns1', true, { config_version: 43 }))
     expect(e).toMatchObject({ kind: 'repl', params: { version: 43, node: 'ns1' } })
+  })
+})
+
+describe('zone transfers and HA transitions', () => {
+  beforeEach(() => resetClusterSignals())
+  const zone = (a, b, name = 'example.lan.') => ({ zone: name, view: '_default', serials: { A: a, B: b } })
+
+  it('sees a transfer when a lagging node catches up, or when all nodes move on', () => {
+    expect(observeZoneSerials([zone(5, 5)], 1000)).toEqual([])
+    expect(observeZoneSerials([zone(6, 5)], 2000)).toEqual([])
+    const [e] = observeZoneSerials([zone(6, 6)], 3000)
+    expect(e).toMatchObject({ t: 3000, kind: 'axfr', key: 'events.axfr', params: { subject: 'example.lan', serial: 6 } })
+    expect(observeZoneSerials([zone(6, 6)], 4000)).toEqual([])
+    // The lag fell between two refreshes: both moved on together.
+    expect(observeZoneSerials([zone(8, 8)], 5000)).toHaveLength(1)
+    // A divergent zone and a missing summary are no transfer.
+    expect(observeZoneSerials([zone(9, 8)], 6000)).toEqual([])
+    expect(observeZoneSerials(undefined)).toEqual([])
+    expect(observeZoneSerials([zone(9, 9)], 7000)).toHaveLength(1)
+  })
+
+  it('takes an ha/state message as a transition only when the state changes', () => {
+    const msg = (state, inTouch = true) => ({ topic: 'ha', event: 'state', data: { server_name: 'ns1', family: 'v4', state, partner: { in_touch: inTouch } } })
+    expect(isHaTransition(msg('partner-down', false))).toBe(true)
+    expect(isHaTransition(msg('partner-down', false))).toBe(false)
+    expect(isHaTransition({ ...msg('partner-down', false), data: { ...msg('partner-down', false).data, family: 'v6' } })).toBe(true)
+    expect(isHaTransition(msg('hot-standby'))).toBe(true)
+    expect(isHaTransition({ topic: 'alerts', event: 'opened', data: {} })).toBe(true)
+  })
+})
+
+describe('pool alerts seen on the dashboard', () => {
+  beforeEach(() => resetClusterSignals())
+  const alert = (id, kind = 'pool_full') => ({ id, kind, subject: 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219', first_seen: '2026-01-01T00:00:00Z' })
+
+  it('keeps an alert that leaves the open list as resolved, and ignores a list still loading', () => {
+    expect(observePoolAlerts([alert('a'), { id: 'k', kind: 'insecure_key' }], 1000)).toBe(true)
+    expect(observePoolAlerts([alert('a')], 1500)).toBe(false)
+    expect(observePoolAlerts(null, 2000)).toBe(false)
+    expect(poolAlertsSeen().resolved).toEqual([])
+    expect(observePoolAlerts([], 3000)).toBe(true)
+    expect(poolAlertsSeen().resolved).toEqual([expect.objectContaining({ id: 'a', t: 3000, resolved_at: new Date(3000).toISOString() })])
+    // Past the window it is forgotten.
+    expect(observePoolAlerts([], 3000 + 3600001)).toBe(true)
+    expect(poolAlertsSeen().resolved).toEqual([])
   })
 })

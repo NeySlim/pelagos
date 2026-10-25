@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
-// Pressure of the hottest pool: its fill over the last hour (GET /series/pools, then the
-// summary refreshes), against the warning and critical thresholds. A pool alert latches
-// where it opened; when it resolves the latch goes hollow and a green one marks the end.
-import { useEffect, useMemo, useRef, useState } from 'react'
+// Pressure of a pool: its fill over the last hour (GET /series/pools, then the summary
+// refreshes), against the warning and critical thresholds. A pool alert latches where it
+// opened; when it resolves the latch goes hollow and a green one marks the end.
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ThresholdTrace } from '../../components/motion'
 import { usePermission } from '../../hooks/usePermission'
 import { api } from '../../services/api'
-import { alertForPool, poolLatches, poolPressure, pushEvent } from '../../lib/trace'
+import { observePoolAlerts, poolAlertsSeen } from '../../hooks/useClusterSignals'
+import { alertForPool, poolLatches, poolPressure, tracedPool } from '../../lib/trace'
 
 export const PRESSURE_WINDOW = 3600000
 const STEP_S = 60
@@ -52,39 +53,31 @@ function usePoolPressure(pool) {
   return samples
 }
 
-// Pool alerts seen open on this page; one that leaves the open list is resolved then.
-function useLatches(pool, openAlerts, samples) {
-  const known = useRef(new Map())
-  const [resolved, setResolved] = useState([])
-  const key = poolKey(pool)
+// Latches of the traced pool: its open alerts, and the ones seen resolving on this page.
+function useTracedPool(pools, openAlerts) {
+  // Observed while rendering, so the trace never shows another pool for a frame when an
+  // alert leaves the list; the store ignores a list it has already seen.
+  const { resolved } = useMemo(() => {
+    observePoolAlerts(openAlerts)
+    return poolAlertsSeen()
+  }, [openAlerts])
+  const pool = tracedPool(pools, openAlerts, resolved, Date.now(), PRESSURE_WINDOW)
   const mine = useMemo(() => (openAlerts || []).filter((a) => alertForPool(a, pool)), [openAlerts, pool])
-  useEffect(() => {
-    known.current = new Map()
-    setResolved([])
-  }, [key])
-  useEffect(() => {
-    const open = new Set(mine.map((a) => a.id))
-    const gone = [...known.current.values()].filter((a) => !open.has(a.id))
-    for (const a of mine) known.current.set(a.id, a)
-    if (gone.length) {
-      for (const a of gone) known.current.delete(a.id)
-      const at = new Date().toISOString()
-      setResolved((cur) => gone.reduce((acc, a) => pushEvent(acc, { ...a, t: Date.now(), kind: 'resolved', resolved_at: a.resolved_at || at }), cur))
-    }
-  }, [mine])
-  return useMemo(() => poolLatches([...resolved, ...mine], samples), [resolved, mine, samples])
+  const gone = useMemo(() => resolved.filter((a) => alertForPool(a, pool) && !mine.some((m) => m.id === a.id)), [resolved, pool, mine])
+  return { pool, alerts: useMemo(() => [...gone, ...mine], [gone, mine]) }
 }
 
-export function PoolPressure({ pool, openAlerts, warn, full }) {
+export function PoolPressure({ pools, openAlerts, warn, full }) {
   const { t, i18n } = useTranslation(['dashboard', 'common'])
+  const { pool, alerts } = useTracedPool(pools, openAlerts)
   const samples = usePoolPressure(pool)
-  const latches = useLatches(pool, openAlerts, samples)
+  const latches = useMemo(() => poolLatches(alerts, samples), [alerts, samples])
   const thresholds = useMemo(() => [{ v: warn, label: String(warn) }, { v: full, label: String(full), bad: true }], [warn, full])
   const min = useMemo(() => Math.max(0, Math.min(warn - 20, ...samples.map((s) => s.v - 5))), [samples, warn])
   const labels = useMemo(() => ({ now: t('live.now'), keys: t('trace.keys') }), [t])
   if (!pool) return null
   return (
-    <div className="dash-pressure-trace" data-testid="pool-pressure">
+    <div className="dash-pressure-trace" data-testid="pool-pressure" data-latches={latches.map((l) => l.state).join(' ')}>
       <div className="dash-sub">
         <span>{t('tiles.pools.pressure')}</span>
         <span className="dash-sub-right font-mono truncate" title={pool.pool}>

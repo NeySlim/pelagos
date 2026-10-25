@@ -102,7 +102,8 @@ export default function DashboardPage() {
     if (topic) setEvents((e) => ({ ...e, [topic]: e[topic] + 1 }))
     refreshSoon()
   }, [refreshSoon])
-  useWsTopic('ha', () => onEvent('ha'))
+  // Only an HA state transition pings the tile; a growing queue only refreshes it.
+  useWsTopic('ha', (msg) => onEvent(msg?.event === 'state' ? 'ha' : null))
   // Node heartbeats repeat: only a change of status or error is an event.
   const nodeState = useRef({})
   useWsTopic('nodes', (msg) => {
@@ -172,7 +173,8 @@ export default function DashboardPage() {
 
   // Mission Control keeps its radar, so its subtitle names the radar.
   const radar = useEffectsLayer() === 'mission'
-  const openAlerts = canAlerts ? alerts.data?.items || [] : []
+  // null until the list is known: an alert missing from a list still loading is not resolved.
+  const openAlerts = canAlerts ? (alerts.data?.items ?? null) : []
   const tileProps = { summary: summary.data, alerts: canAlerts ? topAlerts : null, openAlerts, editing, nameOf, thresholds: settings.data, live, samples }
   const ordered = useMemo(() => [...layout].sort((a, b) => a.y - b.y || a.x - b.x), [layout])
   // Tiles enter in reading order (top-left first), whatever the layout array order.

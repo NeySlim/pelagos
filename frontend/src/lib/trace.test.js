@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
 import {
-  alertForPool, beatIntervalAt, beatStats, followPlayhead, laneMax, nearestSample, observeBeat, poolLatches, poolPressure,
+  alertForPool, beatIntervalAt, beatStats, followPlayhead, formatJitter, laneMax, nearestSample, observeBeat, poolLatches, poolPressure, poolSubject, tracedPool,
   pushEvent, rulerLabel, rulerLevels, scaleBar, smoothTowards, snapToEvent, tAt, traceEventOf, visibleFrom, windowAt, xAt,
 } from './trace'
 
@@ -136,6 +136,12 @@ describe('heartbeats', () => {
     const gap = [{ t: 100_000 }, { t: 30_000 }, { t: 20_000 }, { t: 10_000 }]
     expect(beatStats(gap).mean).toBe(10_000)
     expect(beatStats([{ t: 1 }])).toBeNull()
+    // An outage under twice the median still spans no heartbeat once its end is marked.
+    const failback = [{ t: 50_000 }, { t: 40_000, afterGap: true }, { t: 22_000 }, { t: 12_000 }, { t: 2_000 }]
+    expect(beatStats(failback)).toMatchObject({ mean: 10_000, sd: 0, count: 3 })
+    expect(formatJitter(312.4)).toBe('±312 ms')
+    expect(formatJitter(4715)).toBe('±4.7 s')
+    expect(formatJitter(NaN)).toBe('')
     expect(beatIntervalAt(beats, 25_000)).toBe(10_020)
     expect(beatIntervalAt(beats, -1)).toBeNull()
   })
@@ -183,5 +189,23 @@ describe('pool pressure', () => {
     expect(alertForPool({ kind: 'pool_full', subject: 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219', node_id: 'N1' }, pool)).toBe(true)
     expect(alertForPool({ kind: 'pool_full', subject: 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219', node_id: 'N2' }, pool)).toBe(false)
     expect(alertForPool({ kind: 'ptr_mismatch', subject: 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219' }, pool)).toBe(false)
+  })
+})
+
+describe('traced pool', () => {
+  const pool = (subnet_id, name, percent) => ({ node_id: 'N1', engine: 'kea4', subnet_id, pool: name, percent })
+  const hottest = pool(1, '192.0.2.10 - 192.0.2.19', 95)
+  const guest = pool(3, '192.0.2.200 - 192.0.2.219', 90)
+  const pools = [hottest, guest]
+  const alert = (extra) => ({ id: 'a', kind: 'pool_full', node_id: 'N1', subject: poolSubject(guest), first_seen: new Date(1000).toISOString(), ...extra })
+
+  it('follows the latest pool alert, open or resolved within the window, else the hottest pool', () => {
+    expect(tracedPool(pools, [], [], 5000)).toBe(hottest)
+    expect(tracedPool(pools, [alert()], [], 5000)).toBe(guest)
+    // Resolved: the trace stays on its pool to show the latches.
+    expect(tracedPool(pools, [], [alert({ t: 4000 })], 5000, 3600000)).toBe(guest)
+    expect(tracedPool(pools, [], [alert({ t: 4000 })], 4000 + 3600001, 3600000)).toBe(hottest)
+    expect(tracedPool(pools, [alert({ subject: 'kea4:subnet:9:pool:x' })], [], 5000)).toBe(hottest)
+    expect(tracedPool([], [], [])).toBeNull()
   })
 })

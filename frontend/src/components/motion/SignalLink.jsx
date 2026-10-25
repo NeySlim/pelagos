@@ -32,6 +32,8 @@ export const SignalLink = forwardRef(function SignalLink(
   const nextTick = useRef(0)
   const colors = useRef(null)
   const [busy, setBusy] = useState(0)
+  // Transfers carried so far: what a test can read of the canvas.
+  const [transfers, setTransfers] = useState(0)
   const live = level === 'full'
   const down = state === 'down'
 
@@ -153,6 +155,7 @@ export const SignalLink = forwardRef(function SignalLink(
         if (!live || down) return false
         events.current.push({ kind: 'transfer', tone, dir, label, start: performance.now(), duration: Math.max(TAIL_MS + 300, durationMs) })
         setBusy((n) => n + 1)
+        setTransfers((n) => n + 1)
         return true
       },
     }),
@@ -160,7 +163,7 @@ export const SignalLink = forwardRef(function SignalLink(
   )
 
   return (
-    <div className={cn('fx-link', className)} data-testid={testId} data-state={state} aria-hidden="true">
+    <div className={cn('fx-link', className)} data-testid={testId} data-state={state} data-transfers={transfers} aria-hidden="true">
       <canvas ref={canvasRef} />
       {labelTop && <span className="fx-link-label is-top">{labelTop}</span>}
       {labelBottom && <span className="fx-link-label is-bottom">{labelBottom}</span>}

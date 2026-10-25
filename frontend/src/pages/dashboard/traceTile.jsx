@@ -8,10 +8,10 @@ import { useTranslation } from 'react-i18next'
 import { Pulse } from '@phosphor-icons/react'
 import { AmbientDots, ClusterTrace, HeartbeatTrace, RollingNumber, ScaleBar, SignalLink, SwapText } from '../../components/motion'
 import { useElementSize } from '../../hooks/useElementSize'
-import { useHaHeartbeats, useTraceEvents, observeNodeVersion } from '../../hooks/useClusterSignals'
+import { useHaHeartbeats, useTraceEvents, observeNodeVersion, observeZoneSerials } from '../../hooks/useClusterSignals'
 import { usePermission } from '../../hooks/usePermission'
 import { useAuth } from '../../contexts/AuthContext'
-import { DEFAULT_WINDOW, TRACE_WINDOWS, scaleBar } from '../../lib/trace'
+import { DEFAULT_WINDOW, TRACE_WINDOWS, formatJitter, scaleBar } from '../../lib/trace'
 import { cn, formatRelativeTime } from '../../lib/utils'
 import { LiveStatus, TileFrame } from './tiles'
 import { TileRefresh } from './tileRefresh'
@@ -133,6 +133,10 @@ export function TraceTile({ summary, editing, live, samples = 0 }) {
       if (e) onEvent(e)
     }
   }, [nodes, onEvent])
+  const zones = summary?.zones
+  useEffect(() => {
+    for (const e of observeZoneSerials(zones)) onEvent(e)
+  }, [zones, onEvent])
 
   // A heartbeat answered by the partner crosses the link back to this node.
   const selfBeat = self && families[0] ? heartbeatOf(heartbeats, families[0], self.peer.id)?.beats?.[0]?.t : undefined
@@ -289,7 +293,7 @@ export function TraceTile({ summary, editing, live, samples = 0 }) {
                 ) : (
                   <b className="is-hb">
                     {hb?.mean ? `${(hb.mean / 1000).toFixed(2)} s` : '-'}
-                    {hb?.sd !== null && hb?.sd !== undefined && hb?.mean ? <em> ±{Math.round(hb.sd)} ms</em> : null}
+                    {hb?.sd !== null && hb?.sd !== undefined && hb?.mean ? <em> {formatJitter(hb.sd)}</em> : null}
                     <small>{hb?.state ? t(`common:status.${hb.state}`, { defaultValue: hb.state }) : t('trace.measuring')}</small>
                   </b>
                 )}

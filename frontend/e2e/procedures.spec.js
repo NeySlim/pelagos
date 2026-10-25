@@ -161,6 +161,66 @@ test('replication: a pulse crosses the link and the peer configuration version r
   await expect(link).toContainText('All peers in sync')
 })
 
+test.describe('dashboard', () => {
+  test.use({ viewport: { width: 1440, height: 900 } })
+  const inside = (tile, el) => tile.evaluate((t, e) => {
+    const a = t.getBoundingClientRect()
+    const b = e.getBoundingClientRect()
+    return b.left >= a.left - 0.5 && b.right <= a.right + 0.5 && b.bottom <= a.bottom + 0.5
+  }, el)
+
+  test('the DHCP hero keeps its rows inside the tile, one HA pill per server', async ({ page }) => {
+    await signIn(page)
+    const tile = page.getByTestId('tile-dhcp')
+    await expect(tile.getByTestId('dhcp-latest')).toBeVisible({ timeout: 20000 })
+    await expect(tile.getByTestId('dhcp-ha-pill')).toHaveCount(2)
+    await expect(tile.getByTestId('dhcp-ha-pill').first()).toContainText('v4 · v6')
+    const last = await tile.locator('.dash-hero-body > *').last().elementHandle()
+    expect(await inside(tile, last)).toBe(true)
+  })
+
+  test('during a failover the HA tile keeps its unsent column in view', async ({ page }) => {
+    await signIn(page)
+    const tile = page.getByTestId('tile-ha')
+    await tile.scrollIntoViewIfNeeded()
+    try {
+      await event(page, 'ha-failover')
+      await expect(tile.getByTestId('tile-ha-not-in-touch').first()).toBeVisible({ timeout: 15000 })
+      for (const row of await tile.getByTestId('tile-ha-row').all()) {
+        expect(await inside(tile, await row.locator('td').last().elementHandle())).toBe(true)
+      }
+    } finally {
+      await event(page, 'ha-failback')
+    }
+  })
+
+  test('a zone transfer lands on the events lane and crosses the link', async ({ page }) => {
+    await signIn(page)
+    const tile = page.getByTestId('tile-trace')
+    await expect(tile.getByTestId('trace-link')).toBeVisible()
+    await expect(page.getByTestId('tile-zones').getByTestId('tile-zone').first()).toBeVisible()
+    await event(page, 'transfer', { zone: 'corp.example.lan.', delayMs: 1500 })
+    await page.getByRole('button', { name: 'Refresh' }).click()
+    await page.waitForTimeout(1700)
+    await page.getByRole('button', { name: 'Refresh' }).click()
+    await expect(page.getByTestId('trace-last-event')).toContainText('zone in sync: corp.example.lan', { timeout: 10000 })
+    await expect(tile.getByTestId('trace-link')).not.toHaveAttribute('data-transfers', '0')
+  })
+
+  test('a pool alert keeps its pool on the pressure trace through its resolution', async ({ page }) => {
+    await signIn(page)
+    const pressure = page.getByTestId('pool-pressure')
+    await pressure.scrollIntoViewIfNeeded()
+    await expect(pressure).toBeVisible()
+    await event(page, 'alert')
+    await expect(pressure).toHaveAttribute('data-latches', /open/, { timeout: 15000 })
+    await expect(pressure).toContainText('192.0.2.200 - 192.0.2.219')
+    await event(page, 'alert-resolve')
+    await expect(pressure).toHaveAttribute('data-latches', /held released/, { timeout: 15000 })
+    await expect(pressure).toContainText('192.0.2.200 - 192.0.2.219')
+  })
+})
+
 test.describe('reduced motion', () => {
   test.use({ reducedMotion: 'reduce' })
 

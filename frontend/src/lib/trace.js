@@ -139,7 +139,7 @@ export function observeBeat(beats, { collectedAt, age }, max = MAX_BEATS) {
     const nlo = Math.max(lo, head.lo)
     const nhi = Math.min(hi, head.hi)
     if (nlo === head.lo && nhi === head.hi) return beats
-    return [{ t: (nlo + nhi) / 2, lo: nlo, hi: nhi }, ...beats.slice(1)]
+    return [{ ...head, t: (nlo + nhi) / 2, lo: nlo, hi: nhi }, ...beats.slice(1)]
   }
   // An observation older than the newest beat is a stale snapshot: nothing new.
   if (head && hi < head.lo) return beats
@@ -147,10 +147,11 @@ export function observeBeat(beats, { collectedAt, age }, max = MAX_BEATS) {
 }
 
 // Mean interval and jitter (standard deviation) of the last `n` heartbeat intervals,
-// newest first. Gaps longer than twice the median (a lost partner) are not intervals.
+// newest first. The span of an outage (ending on a beat marked `afterGap`) and gaps longer
+// than twice the median (a lost partner) are not intervals.
 export function beatStats(beats, n = 10) {
   const iv = []
-  for (let i = 0; i < Math.min(n, beats.length - 1); i += 1) iv.push(beats[i].t - beats[i + 1].t)
+  for (let i = 0; i < beats.length - 1 && iv.length < n; i += 1) if (!beats[i].afterGap) iv.push(beats[i].t - beats[i + 1].t)
   if (!iv.length) return null
   const median = [...iv].sort((a, b) => a - b)[Math.floor(iv.length / 2)]
   const kept = iv.filter((d) => d > 0 && d <= median * 2)
@@ -158,6 +159,12 @@ export function beatStats(beats, n = 10) {
   const mean = kept.reduce((a, b) => a + b, 0) / kept.length
   const sd = Math.sqrt(kept.reduce((a, b) => a + (b - mean) ** 2, 0) / kept.length)
   return { mean, sd, count: kept.length }
+}
+
+// Jitter as the readout prints it: milliseconds up to a second, then seconds.
+export function formatJitter(sd) {
+  if (!Number.isFinite(sd)) return ''
+  return sd < 1000 ? `±${Math.round(sd)} ms` : `±${(sd / 1000).toFixed(1)} s`
 }
 
 // Interval between the beat at or before `t` and the one before it (playhead readout).
@@ -231,4 +238,18 @@ export const poolSubject = (pool) => `${pool.engine}:subnet:${pool.subnet_id}:po
 export function alertForPool(alert, pool) {
   if (!alert || !pool || !['pool_near_full', 'pool_full'].includes(alert.kind)) return false
   return alert.subject === poolSubject(pool) && (!alert.node_id || !pool.node_id || alert.node_id === pool.node_id)
+}
+
+// The pool a pressure trace shows: the one of the latest pool alert, open or resolved
+// within `windowMs`, so a resolution keeps its latches in view; else the hottest pool.
+export function tracedPool(pools, openAlerts, resolved, now = Date.now(), windowMs = 3600000) {
+  const moments = [
+    ...(openAlerts || []).map((a) => ({ a, t: Date.parse(a.first_seen || '') || 0 })),
+    ...(resolved || []).filter((a) => now - a.t <= windowMs).map((a) => ({ a, t: a.t })),
+  ].sort((x, y) => y.t - x.t)
+  for (const { a } of moments) {
+    const pool = (pools || []).find((p) => alertForPool(a, p))
+    if (pool) return pool
+  }
+  return pools?.[0] || null
 }

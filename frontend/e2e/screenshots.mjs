@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Documentation screenshots against the mock server, dark and light. The theme family is
-// Mission Control unless SCREENSHOT_FAMILY names another; SCREENSHOT_VIEWPORT=WxH changes the size.
+// Instrument unless SCREENSHOT_FAMILY names another; SCREENSHOT_VIEWPORT=WxH changes the size.
 // SCREENSHOT_SCENES=nodes,dhcp-ha takes only the named scenes.
 // Usage (from frontend/): node e2e/screenshots.mjs [output dir, default ../docs/images]
 // Starts its own mock and Vite servers on free ports, so it runs next to other servers.
@@ -11,7 +11,7 @@ import { resolve } from 'node:path'
 import { chromium } from '@playwright/test'
 
 const out = resolve(process.argv[2] || '../docs/images')
-const FAMILY = process.env.SCREENSHOT_FAMILY || 'mission'
+const FAMILY = process.env.SCREENSHOT_FAMILY || 'instrument'
 // The dashboard rates fill their window from live polls of the mock's growing counters.
 const LIVE_WAIT_MS = Number(process.env.SCREENSHOT_LIVE_WAIT_MS || 60000)
 const [vw, vh] = (process.env.SCREENSHOT_VIEWPORT || '1440x900').split('x').map(Number)
@@ -70,7 +70,7 @@ const SCENES = [
   ['dashboard', async (page) => {
     await page.goto('/')
     await page.getByTestId('tile-node').first().waitFor()
-    await page.getByTestId('tile-dns').getByTestId('stippled-area-chart').waitFor({ timeout: 30000 })
+    await page.locator('[data-testid=dns-strip], [data-testid=stippled-area-chart]').first().waitFor({ timeout: 30000 })
     await page.waitForTimeout(LIVE_WAIT_MS)
   }],
   ['zone-plan', async (page) => {

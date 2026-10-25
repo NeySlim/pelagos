@@ -11,6 +11,8 @@ SocketGroup=pelagos
 SocketMode=0660
 Accept=yes
 MaxConnections=8
+# Stopping the socket (package removal) leaves no stale socket file behind.
+RemoveOnStop=yes
 
 [Install]
 WantedBy=sockets.target

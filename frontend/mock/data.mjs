@@ -750,7 +750,7 @@ function makeAlerts() {
       node_id: NODE_IDS.ns1,
       details: { subnet_id: 3, assigned: 19, total: 20, percent: 95 },
     }),
-    a('ALRT0000000000000000000002', 'record_without_lease', 'info', 'open', 'name:old-nas.example.lan./A', 'A record old-nas.example.lan. (192.0.2.120) has a DHCID but no lease', {
+    a('ALRT0000000000000000000002', 'record_without_lease', 'info', 'open', 'ip:192.0.2.120', 'A record old-nas.example.lan. (192.0.2.120) has a DHCID but no lease', {
       title_message: msg('alert.record_without_lease', { rtype: 'A', name: 'old-nas.example.lan.', addresses: ['192.0.2.120'] }),
       details: { name: 'old-nas.example.lan.', rtype: 'A', addresses: ['192.0.2.120'] },
     }),

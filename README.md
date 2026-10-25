@@ -88,7 +88,8 @@ flowchart LR
   U((browser or API)) --> W1
 ```
 
-Details: [docs/architecture.md](docs/architecture.md) (contracts) and
+Details: [user documentation](docs/user/README.md),
+[docs/architecture.md](docs/architecture.md) (contracts) and
 [docs/design.md](docs/design.md) (design document, in French).
 
 ## Supported platforms
@@ -178,8 +179,9 @@ Packages and images are built from this repository with `make deb`,
    Then import ns2's engines the same way. Both nodes now show the whole
    cluster.
 
-The [operator guide](docs/guide.md) covers plans and rollback, HA
-maintenance, backup and restore, upgrades and troubleshooting.
+The [user documentation](docs/user/README.md) covers installation,
+configuration, every screen, plans and rollback, HA maintenance, backup and
+restore, upgrades, the CLI, the API and troubleshooting.
 
 ## Security notes
 
@@ -224,7 +226,7 @@ make screenshots    # regenerate docs/images from the mock server
 Test tiers are pytest markers: `unit` (no network, no daemons), `daemon`
 (starts `named` and Kea as the current user on free ports; skipped when the
 binaries are missing; on Debian, disable the AppArmor profile of `named`
-first, see the [guide](docs/guide.md#apparmor-and-selinux)), and `lab`
+first, see [AppArmor](docs/user/troubleshooting.md#apparmor)), and `lab`
 (installs packages on disposable VMs, `make test-lab`, see
 [scripts/lab/README.md](scripts/lab/README.md)). CI runs lint, the unit
 tier on Python 3.12 and 3.13, the frontend checks, the daemon tier against

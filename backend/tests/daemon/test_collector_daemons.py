@@ -125,7 +125,9 @@ def test_collector_polls_bind_and_kea(rig):
     utilization = store.snapshot(node, "kea4", "utilization")[1]
     assert utilization[0]["assigned"] == 1 and utilization[0]["total"] == 100
     assert store.latest_pool_samples(node, "kea4")[0]["assigned"] == 1
-    assert set(store.snapshot(node, "kea4", "config_hash")[1]) == {"hash", "normalized"}
+    hashes = store.snapshot(node, "kea4", "config_hash")[1]
+    assert set(hashes) == {"hash", "normalized", "shared", "relationships"}
+    assert hashes["relationships"] == []  # no ha hook: compared with other servers by `shared`
     assert "update-sent" in store.snapshot(node, "d2", "stats")[1]["totals"]
     cache = store.engine_snapshot(node, "kea4")
     assert {"capabilities", "status", "ha", "utilization", "subnets", "config_hash"} <= set(cache["kinds"])

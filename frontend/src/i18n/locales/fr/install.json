@@ -107,15 +107,30 @@
     "selected_one": "{{count}} constat sélectionné",
     "selected_other": "{{count}} constats sélectionnés",
     "kind": {
-      "insecure_key": "Clé faible",
-      "insecure_listener": "Écoute exposée",
-      "insecure_transfer": "Transfert ouvert",
-      "plain_http": "HTTP en clair"
+      "weak_rndc_key": "Clé rndc faible",
+      "weak_tsig_key": "Clé TSIG faible",
+      "weak_shared_kea_key": "Clé DDNS Kea faible",
+      "allow_update_by_address": "Mise à jour par adresse",
+      "open_recursion": "Récursion ouverte",
+      "dnssec_validation_off": "Validation DNSSEC coupée",
+      "rndc_nonlocal": "rndc exposé",
+      "stats_nonlocal": "Statistiques exposées",
+      "update_without_admin_key": "Sans clé d'administration",
+      "transfer_without_read_key": "Sans clé de lecture",
+      "open_allow_transfer": "Transfert ouvert",
+      "kea_ctrl_agent_http": "Agent de contrôle Kea",
+      "kea_http_socket_plain": "Socket HTTP en clair",
+      "kea_socket_dir_mode": "Droits du dossier des sockets",
+      "kea_tsig_clear_secret": "Secret D2 en clair",
+      "static_zone": "Zone statique",
+      "view_key": "Vue sans clé"
     },
     "dualKey": {
       "add": "Ajouter la nouvelle clé hmac-sha256 à l'update-policy de BIND, à côté de l'ancienne",
       "switch": "Basculer kea-dhcp-ddns sur la nouvelle clé sur chaque nœud",
       "remove": "Retirer l'ancienne clé de BIND et de Kea"
-    }
+    },
+    "manual": "Manuel",
+    "manualHelp": "Pas de correction automatique : appliquer la proposition à la main, puis relancer l'audit."
   }
 }

@@ -14,3 +14,11 @@ export function sortFindings(findings) {
 export const toggleId = (selected, id) => (selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id])
 
 export const allSelected = (selected, ids) => ids.length > 0 && ids.every((id) => selected.includes(id))
+
+// The Kea shared TSIG key rotates in three steps (add, switch D2, remove), whichever engine reported it.
+export const isDualKey = (finding) => finding?.kind === 'weak_shared_kea_key'
+
+// The backend refuses a plan that includes a finding without automatic remediation.
+export const isRemediable = (finding) => finding?.remediable !== false
+
+export const remediableIds = (findings) => findings.filter(isRemediable).map((f) => f.id)

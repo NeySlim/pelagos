@@ -12,20 +12,22 @@ import { useApi } from '../../hooks'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { cn } from '../../lib/utils'
-import { SEVERITY_ORDER, sortFindings, toggleId, allSelected } from './findings'
+import { SEVERITY_ORDER, sortFindings, toggleId, allSelected, isDualKey, isRemediable, remediableIds } from './findings'
 
 function Finding({ finding, checked, onToggle, disabled }) {
   const { t } = useTranslation('install')
   const msg = useMessage()
+  const manual = !isRemediable(finding)
   return (
-    <label className={cn('flex items-start gap-3 rounded-lg border p-3 cursor-pointer', checked ? 'border-accent-primary bg-accent-primary-op5' : 'border-border hover:bg-bg-tertiary')} data-testid="security-finding" data-finding={finding.id}>
-      <input type="checkbox" className="mt-1" checked={checked} onChange={onToggle} disabled={disabled} />
+    <label className={cn('flex items-start gap-3 rounded-lg border p-3', manual ? 'border-border cursor-default' : 'cursor-pointer', checked ? 'border-accent-primary bg-accent-primary-op5' : !manual && 'border-border hover:bg-bg-tertiary')} data-testid="security-finding" data-finding={finding.id}>
+      <input type="checkbox" className="mt-1" checked={checked} onChange={onToggle} disabled={disabled || manual} aria-label={finding.subject} />
       <div className="flex-1 min-w-0 space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={finding.severity} />
           {finding.engine && <Badge variant="outline" size="sm" className="font-mono">{finding.engine}</Badge>}
           <Badge variant="secondary" size="sm">{t(`security.kind.${finding.kind}`, { defaultValue: finding.kind })}</Badge>
           <span className="font-mono text-xs text-text-secondary break-all">{finding.subject}</span>
+          {manual && <Badge variant="warning" size="sm" data-testid="security-manual">{t('security.manual')}</Badge>}
         </div>
         <p className="text-sm text-text-primary">{msg(finding.description_message, finding.description)}</p>
         <dl className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
@@ -38,13 +40,14 @@ function Finding({ finding, checked, onToggle, disabled }) {
             <dd className="text-text-secondary">{msg(finding.risk_message, finding.risk)}</dd>
           </div>
         </dl>
-        {finding.details?.steps || (finding.kind === 'insecure_key' && finding.engine === 'd2') ? (
+        {isDualKey(finding) ? (
           <ol className="list-decimal ml-5 text-xs text-text-secondary space-y-0.5" data-testid="security-dual-key">
             <li>{t('security.dualKey.add')}</li>
             <li>{t('security.dualKey.switch')}</li>
             <li>{t('security.dualKey.remove')}</li>
           </ol>
         ) : null}
+        {manual && <p className="text-xs text-text-tertiary">{t('security.manualHelp')}</p>}
       </div>
     </label>
   )
@@ -58,7 +61,7 @@ export default function SecurityPage() {
   const [plan, setPlan] = useState(null)
   const [building, setBuilding] = useState(false)
   const [buildError, setBuildError] = useState(null)
-  const ids = findings.map((f) => f.id)
+  const ids = remediableIds(findings)
   const counts = SEVERITY_ORDER.map((s) => [s, findings.filter((f) => f.severity === s).length]).filter(([, n]) => n)
 
   const build = async () => {

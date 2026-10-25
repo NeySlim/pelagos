@@ -216,6 +216,13 @@ The collector runs the same audit every `consistency_seconds` and raises
 | `view_key` | warning | a key per view and the `match-clients` that select it |
 
 Ids are `<engine>:<kind>:<subject>`, the same as `pelagos audit` prints.
+A `weak_shared_kea_key` finding lists its three steps under the proposal;
+it comes from the `bind` engine when BIND and D2 run on this node, and from
+the `kea` engine when only D2 does (the BIND side is on another node).
+Findings marked "Manual" (`kea_http_socket_plain`, and `rndc_nonlocal` or
+`stats_nonlocal` when Pelagos reaches a remote BIND over the network)
+have no automatic remediation: their checkbox is disabled and "Select all"
+skips them.
 
 ## Audit log
 

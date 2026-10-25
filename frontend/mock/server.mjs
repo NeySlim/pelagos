@@ -116,44 +116,67 @@ function adoptPlan(state, user, engine, body) {
 }
 const invalid = (field, message) => new Problem(400, 'validation_error', 'Invalid request', [{ field, message }])
 // Finding ids carry no fixed vocabulary: the dual-key rotation is keyed on kind and engine.
+// The shape of installer.security_audit.Finding.to_dict(): ids are <engine>:<kind>:<subject>.
+const finding = (engine, kind, subject, severity, texts, remediable = true) => ({
+  id: `${engine}:${kind}:${subject}`, kind, severity, engine, subject: texts.subject || subject, remediable,
+  description: texts.description, proposal: texts.proposal, risk: texts.risk,
+  description_message: texts.description_message || null, proposal_message: texts.proposal_message || null,
+  risk_message: texts.risk_message || null,
+})
 const SECURITY_FINDINGS = [
-  {
-    id: 'rndc-md5', kind: 'insecure_key', severity: 'critical', engine: 'bind', subject: 'key:rndc-key',
+  finding('bind', 'weak_rndc_key', 'rndc-key', 'critical', {
     description: 'The rndc key rndc-key uses hmac-md5.',
     description_message: { key: 'finding.weak_rndc_key.description', params: { key: 'rndc-key', algorithm: 'hmac-md5' } },
     proposal: 'Regenerate rndc-key in hmac-sha256 with a new secret and restart named.',
     proposal_message: { key: 'finding.weak_rndc_key.proposal', params: { key: 'rndc-key', new_algorithm: 'hmac-sha256' } },
     risk: 'Other tools using this key (scripts, a remote rndc) stop working until they get the new key.',
     risk_message: { key: 'finding.weak_rndc_key.risk', params: {} },
-  },
-  {
-    id: 'd2-key-md5', kind: 'insecure_key', severity: 'warning', engine: 'd2', subject: 'key:kea-ddns',
+  }),
+  // BIND and D2 on this node: the audit reports the shared key once, from the BIND side.
+  finding('bind', 'weak_shared_kea_key', 'ddns-legacy', 'critical', {
+    description: 'TSIG key ddns-legacy shared with Kea D2 uses hmac-md5.',
+    description_message: { key: 'finding.weak_shared_kea_key.description', params: { key: 'ddns-legacy', algorithm: 'hmac-md5' } },
+    proposal: 'Dual-key switch: add ddns-legacy-sha256 (hmac-sha256) to BIND next to the old key, switch D2 on every node, then remove the old key.',
+    proposal_message: { key: 'finding.weak_shared_kea_key.proposal', params: { new_key: 'ddns-legacy-sha256', new_algorithm: 'hmac-sha256' } },
+    risk: 'During the switch both keys are accepted; DDNS updates keep working on every step.',
+    risk_message: { key: 'finding.weak_shared_kea_key.risk', params: {} },
+  }),
+  // D2 only (the BIND side is on another node): the same kind, reported by the kea engine.
+  finding('kea', 'weak_shared_kea_key', 'kea-ddns', 'critical', {
     description: 'D2 signs updates with kea-ddns in hmac-md5.',
     description_message: { key: 'finding.weak_shared_kea_key.d2_description', params: { key: 'kea-ddns', algorithm: 'hmac-md5' } },
     proposal: "Dual-key switch: add kea-ddns-sha256 to the primary's BIND, switch D2, remove the old key.",
     proposal_message: { key: 'finding.weak_shared_kea_key.d2_proposal', params: { new_key: 'kea-ddns-sha256' } },
     risk: 'During the switch both keys are accepted; DDNS updates keep working on every step.',
     risk_message: { key: 'finding.weak_shared_kea_key.risk', params: {} },
-  },
-  {
-    id: 'stats-public', kind: 'insecure_listener', severity: 'warning', engine: 'bind', subject: 'statistics-channels',
+  }),
+  finding('bind', 'stats_nonlocal', '0.0.0.0', 'warning', {
+    subject: 'statistics-channels inet 0.0.0.0',
     description: 'The statistics channel listens on 0.0.0.0 and allows all.',
     description_message: { key: 'finding.stats_nonlocal.description', params: { address: '0.0.0.0', allowed: { key: 'finding.allowed.all', params: {} } } },
     proposal: 'statistics-channels { inet 127.0.0.1 port 8053 allow { 127.0.0.1; }; };',
     risk: 'Remote collectors of the BIND statistics lose access; Pelagos reads them locally.',
     risk_message: { key: 'finding.stats_nonlocal.risk', params: {} },
-  },
-  {
-    id: 'transfer-any', kind: 'insecure_listener', severity: 'info', engine: 'bind', subject: 'zone:partner.example.',
+  }),
+  finding('bind', 'open_allow_transfer', '_default/partner.example.', 'warning', {
     description: 'Zone partner.example. allows zone transfers to any client.',
     description_message: { key: 'finding.open_allow_transfer.description_zone', params: { zone: 'partner.example.' } },
     // A configuration snippet: the backend sends no message for it, the UI shows it as is.
     proposal: 'allow-transfer { key ddi-read; };',
     risk: 'Secondaries that transfer by address only must be listed or given a key, or their transfers fail.',
     risk_message: { key: 'finding.open_allow_transfer.risk', params: {} },
-  },
+  }),
+  finding('kea', 'kea_http_socket_plain', 'kea4:192.0.2.1', 'critical', {
+    subject: 'kea4 http 192.0.2.1:8000',
+    description: 'kea4 exposes its control channel in clear HTTP on 192.0.2.1.',
+    description_message: { key: 'finding.kea_http_socket_plain.description', params: { engine: 'kea4', address: '192.0.2.1' } },
+    proposal: 'Switch the socket to https with trust-anchor, cert-file, key-file and cert-required, or bind it to 127.0.0.1.',
+    proposal_message: { key: 'finding.kea_http_socket_plain.proposal', params: {} },
+    risk: 'Remote clients of this socket need certificates.',
+    risk_message: { key: 'finding.kea_http_socket_plain.risk', params: {} },
+  }, false),
 ]
-const isDualKey = (finding) => finding?.kind === 'insecure_key' && finding?.engine === 'd2'
+const isDualKey = (f) => f?.kind === 'weak_shared_kea_key'
 const PASSWORD_RULE ='must have at least 12 characters and three of: lowercase, uppercase, digits, symbols'
 const checkPassword = (field, value) => {
   if (passwordProblem(value)) throw invalid(field, PASSWORD_RULE)
@@ -1929,6 +1952,8 @@ function buildHandlers(state, emit) {
     'POST /install/security/plan': ({ body, user }) => {
       const ids = body.finding_ids || []
       if (!ids.length) throw invalid('finding_ids', 'choose at least one finding')
+      const manual = ids.find((id) => SECURITY_FINDINGS.find((f) => f.id === id)?.remediable === false)
+      if (manual) throw invalid('finding_ids', `${manual} has no automatic remediation; follow its proposal by hand`)
       const preconditions = { name: 'security/preconditions', label: 'Check that the configuration did not change', label_message: { key: 'job.step.preconditions', params: {} } }
       const steps = [preconditions, ...ids.flatMap((id) =>
         isDualKey(SECURITY_FINDINGS.find((f) => f.id === id))

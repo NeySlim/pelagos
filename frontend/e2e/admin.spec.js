@@ -38,8 +38,15 @@ test('import wizard builds a plan and applies it as a job', async ({ page }) => 
 test('security findings build a confirmed remediation plan', async ({ page }) => {
   await signIn(page)
   await page.goto('/install/security')
-  await page.locator('[data-finding="d2-key-md5"]').click()
-  await expect(page.locator('[data-finding="d2-key-md5"]').getByTestId('security-dual-key')).toBeVisible()
+  await page.locator('[data-finding="kea:weak_shared_kea_key:kea-ddns"]').click()
+  await expect(page.locator('[data-finding="kea:weak_shared_kea_key:kea-ddns"]').getByTestId('security-dual-key')).toBeVisible()
+  // The same rotation reported from the BIND side, and nothing like it on a plain rndc key.
+  await expect(page.locator('[data-finding="bind:weak_shared_kea_key:ddns-legacy"]').getByTestId('security-dual-key')).toBeVisible()
+  await expect(page.locator('[data-finding="bind:weak_rndc_key:rndc-key"]').getByTestId('security-dual-key')).toHaveCount(0)
+  // No automatic remediation: shown, but it cannot join a plan.
+  const manual = page.locator('[data-finding="kea:kea_http_socket_plain:kea4:192.0.2.1"]')
+  await expect(manual.getByTestId('security-manual')).toBeVisible()
+  await expect(manual.locator('input[type=checkbox]')).toBeDisabled()
   await page.getByTestId('security-build').click()
   const apply = page.getByTestId('plan-apply')
   await expect(apply).toBeDisabled()

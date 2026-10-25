@@ -107,15 +107,30 @@
     "selected_one": "{{count}} finding selected",
     "selected_other": "{{count}} findings selected",
     "kind": {
-      "insecure_key": "Weak key",
-      "insecure_listener": "Exposed listener",
-      "insecure_transfer": "Open transfer",
-      "plain_http": "Clear HTTP"
+      "weak_rndc_key": "Weak rndc key",
+      "weak_tsig_key": "Weak TSIG key",
+      "weak_shared_kea_key": "Weak Kea DDNS key",
+      "allow_update_by_address": "Update by address",
+      "open_recursion": "Open recursion",
+      "dnssec_validation_off": "DNSSEC validation off",
+      "rndc_nonlocal": "Exposed rndc",
+      "stats_nonlocal": "Exposed statistics",
+      "update_without_admin_key": "No admin key",
+      "transfer_without_read_key": "No read key",
+      "open_allow_transfer": "Open transfer",
+      "kea_ctrl_agent_http": "Kea control agent",
+      "kea_http_socket_plain": "Clear HTTP socket",
+      "kea_socket_dir_mode": "Socket directory mode",
+      "kea_tsig_clear_secret": "Clear D2 secret",
+      "static_zone": "Static zone",
+      "view_key": "View without key"
     },
     "dualKey": {
       "add": "Add the new hmac-sha256 key to the BIND update-policy, next to the old one",
       "switch": "Switch kea-dhcp-ddns to the new key on every node",
       "remove": "Remove the old key from BIND and Kea"
-    }
+    },
+    "manual": "Manual",
+    "manualHelp": "No automatic remediation: follow the proposal by hand, then audit again."
   }
 }

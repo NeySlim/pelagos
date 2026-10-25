@@ -25,8 +25,11 @@ module is on (**Administration, Modules**). Reading needs `read:dhcp`.
   classes, options, DDNS parameters, hooks) apply to **every node running
   that Kea engine**, so both HA partners stay identical. Each node gets the
   change computed against its own configuration, checked with
-  `config-test`, applied, then written to its file with `config-write`
-  (comments and layout kept).
+  `config-test`, applied, then persisted to its file. A file without
+  `<?include?>` is written by Kea's `config-write`: the first write turns
+  it into Kea's own pretty-print with every default spelled out, and its
+  comments are lost. A file tree with includes is patched in place
+  instead, comments and layout kept.
 - With Kea 3.x and the `subnet_cmds` and `host_cmds` hooks, subnets and
   reservations change through those commands. With Kea 2.6 (reduced mode),
   the whole configuration is replaced with `config-set`.

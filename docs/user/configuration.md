@@ -22,7 +22,7 @@
 | `/var/lib/pelagos/cluster.toml` | replicated configuration | `pelagos`, 0640 |
 | `/var/lib/pelagos/audit/audit.jsonl` | replicated audit log, one JSON object per line | `pelagos`, 0640 |
 | `/var/lib/pelagos/series.sqlite` | local cache of time series, alerts and last engine reads (rebuildable) | `pelagos`, 0640 |
-| `/var/lib/pelagos/pki/` | `ca.crt`, `ca.key` (CA nodes only), `node.crt`, `node.key` | `pelagos`, 0600 |
+| `/var/lib/pelagos/pki/` | `ca.crt`, `ca.key` (CA nodes only), `node.crt`, `node.key` | `pelagos`, directory 0750, certificates 0644, keys 0600 |
 | `/var/lib/pelagos/backups/<engine>/<timestamp>-<plan id>/` | write pipeline backups with a `manifest.json` | `pelagos`, 0750 |
 | `/var/lib/pelagos/enroll_tokens.json` | hashes of pending enrollment tokens | `pelagos`, 0600 |
 | `/var/lib/pelagos/plan_tombstones.json` | ids of expired plans (answers `410` instead of `404`) | `pelagos`, 0600 |

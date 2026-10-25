@@ -115,6 +115,10 @@ sudo systemctl start pelagos pelagos-collector
 ```
 
 `init` asks for the first admin password, or reads `PELAGOS_ADMIN_PASSWORD`.
+`sudo` does not pass your environment on: either answer the prompt, or set
+the variable on the `sudo` line (`sudo PELAGOS_ADMIN_PASSWORD='...' pelagos
+init ...`, which leaves the password in the shell history). Without a
+terminal and without the variable, `init` stops at the prompt.
 On a server that joins an existing cluster, run `pelagos enroll` instead
 ([Enroll a second node](getting-started.md#enroll-a-second-node)).
 
@@ -178,10 +182,16 @@ inactive until `/etc/pelagos/node.toml` exists.
 ```sh
 sudo pelagos init --name ns1 \
   --web-url https://ns1.example.lan:8443 --replication-url https://ns1.example.lan:8444
-sudo firewall-cmd --permanent --add-port=8443/tcp --add-port=8444/tcp
+sudo firewall-cmd --permanent --add-port=8443/tcp --add-port=8444/tcp   # when firewalld runs
 sudo firewall-cmd --reload
 sudo systemctl start pelagos pelagos-collector
 ```
+
+`sudo pelagos install --engines bind,kea4,d2 --source isc --init --name ns1`
+also works here, as on Debian. Minimal and cloud images often ship without
+firewalld: skip the two `firewall-cmd` lines there and open the ports in
+the firewall you use. The ISC Kea units on RHEL are `kea-dhcp4.service`,
+`kea-dhcp6.service` and `kea-dhcp-ddns.service`.
 
 Restrict `8443` to the administrators' networks and `8444` to the other
 nodes with firewalld zones or rich rules where you can. DNS (`53`) and DHCP
@@ -241,6 +251,15 @@ PELAGOS_IMAGE=pelagos:latest PELAGOS_ADMIN_PASSWORD='change me' docker compose u
 curl -k https://127.0.0.1:8443/api/v1/health
 ```
 
+`make docker` runs on the Docker host from a checkout of the repository
+(it needs `make`; `docker build -f docker/Dockerfile -t pelagos:latest .`
+does the same). DNS is published on host port 53: where `systemd-resolved`
+holds it with its stub listener (the default on many distributions), the
+`bind` container fails with "address already in use". Set
+`BIND_DNS_PORT=5300` (or another free port) on the `docker compose` line,
+or turn the stub listener off (`DNSStubListener=no` in
+`/etc/systemd/resolved.conf`).
+
 The node starts with every engine off. Adopt the BIND and Kea containers:
 
 ```sh
@@ -251,6 +270,14 @@ docker compose exec pelagos pelagos import --engines bind,kea4,d2 --yes
 Then add the LAN interface of the Docker host to `interfaces-config` of
 `kea-dhcp4.conf` (the seeded file has `"interfaces": []`), from the Kea
 editor or the volume.
+
+The seeded `named.conf` opens rndc and the statistics channel to the
+compose network (`inet 0.0.0.0 ... allow { any; }`), since Pelagos reaches
+BIND there. The security audit reports them (`rndc_nonlocal`,
+`stats_nonlocal`) without an automatic remediation: moving them to
+`127.0.0.1` would cut Pelagos off. Neither port is published on the host;
+to narrow them further, replace `any` with the compose network's prefix in
+`named.conf` of the `bind-etc` volume.
 
 Variables (environment or a `.env` file next to `compose.yaml`):
 

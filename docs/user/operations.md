@@ -71,9 +71,12 @@ A consistent copy of the Pelagos state:
 
 ```sh
 sudo systemctl stop pelagos pelagos-collector
-sudo tar -C / -czf pelagos-ns1-$(date +%F).tar.gz etc/pelagos var/lib/pelagos
+sudo sh -c 'umask 077; tar -C / -czf pelagos-ns1-$(date +%F).tar.gz etc/pelagos var/lib/pelagos'
 sudo systemctl start pelagos pelagos-collector
 ```
+
+The archive holds `master.key`: `umask 077` keeps it readable by root
+only (a plain `sudo tar` writes it world-readable).
 
 For dynamic zones, run `sudo rndc sync -clean` first so the zone files hold
 the journal's changes. With compose, back up the `pelagos-etc` and
@@ -91,7 +94,8 @@ log from its peers; BIND transfers its secondary zones and Kea HA
 synchronizes the leases.
 
 **Plan backups**: the write pipeline keeps one directory per applied write
-under `/var/lib/pelagos/backups/<engine>/<timestamp>-<plan id>/` with a
+under `/var/lib/pelagos/backups/<engine>/<timestamp>-<label>/` (the
+label is the plan id, or the installer step such as `install-bind`) with a
 `manifest.json`, purged after `retention.backups_days` (90 days). Browse
 them in **Advanced, History**.
 

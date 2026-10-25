@@ -82,8 +82,10 @@ Pelagos include directory and reach the Kea sockets.
   read only for Pelagos, and only a security remediation you select (for
   example replacing an `allow-update` by an `update-policy`) edits the
   statement it names, as its plan diff shows.
-- **Kea**: the configuration files are edited in place with their comments
-  and layout kept, then loaded and persisted through the control sockets.
+- **Kea**: changes are loaded through the control sockets, then persisted:
+  by Kea's `config-write` for a single file (Kea's pretty-print: comments
+  are lost at the first write), by an in-place patch that keeps comments
+  and layout for a file tree with `<?include?>`.
   Pelagos metadata (notes) lives in `user-context`.
 - **Records**: dynamic zones get signed DNS UPDATE messages; static zones
   get a minimal edit of their zone file (see [DNS zones](../dns-zones.md)).

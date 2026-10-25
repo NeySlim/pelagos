@@ -245,7 +245,7 @@ Permissions are those of [Configuration: roles](configuration.md#roles-and-permi
 | `GET /advanced/history`, `/advanced/history/{id}` | `read:advanced` | write pipeline backups and their files |
 | `GET /install/detect` | `admin:install` | what is installed |
 | `POST /install/plan`, `/install/import/plan` | `admin:install` | install and import plans |
-| `GET /install/security`, `POST /install/security/plan` | `admin:install` | findings; `{"finding_ids": [...]}` |
+| `GET /install/security`, `POST /install/security/plan` | `admin:install` | `{"findings": [...]}` (not `items`); `{"finding_ids": [...]}` |
 | `GET`, `POST /admin/users`; `GET`, `PUT`, `DELETE /admin/users/{id}` | `admin:users` | accounts |
 | `POST /admin/users/{id}/reset-password`, `DELETE /admin/users/{id}/totp` | `admin:users` | password reset, two-factor removal |
 | `GET`, `POST /admin/roles`; `PUT`, `DELETE /admin/roles/{name}`; `GET /admin/permissions` | `admin:roles` | roles |

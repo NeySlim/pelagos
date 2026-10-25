@@ -35,12 +35,14 @@ sudo systemctl start pelagos pelagos-collector
 - `/var/lib/pelagos/cluster.toml` with this node and the first user `admin`
   (role `admin`). `--admin-user` picks another name.
 
-The password comes from the prompt or from `PELAGOS_ADMIN_PASSWORD`. Use at
+The password comes from the prompt or from `PELAGOS_ADMIN_PASSWORD` (set it
+on the `sudo` line, `sudo PELAGOS_ADMIN_PASSWORD='...' pelagos init ...`:
+`sudo` drops the variables of your shell). Use at
 least 12 characters from three of: lowercase, uppercase, digits, symbols
 (the rule enforced for every later password).
 
-On its first start the web process creates a self-signed certificate in
-`/etc/pelagos/tls/` for the host's full name. Replace it with your own:
+On the first start, `pelagos-prestart` (run by the units) creates a
+self-signed certificate in `/etc/pelagos/tls/` for the host's full name. Replace it with your own:
 [Configuration: TLS](configuration.md#tls-certificates).
 
 Check:
@@ -141,12 +143,20 @@ name its keys), `static_zone`, `weak_tsig_key` and `weak_shared_kea_key`
 (hmac-md5 or hmac-sha1). The full list is in
 [Screens: security audit](screens.md#security-audit).
 
+`pelagos audit` audits and fixes the node it runs on. The switch of the
+Kea DDNS key shared by BIND and every D2 (`weak_shared_kea_key`) spans
+nodes once others run D2: the CLI then refuses it (`--fix-all` skips it)
+and points to **Administration, Security audit**, whose plan switches
+every D2 before it removes the old key from BIND.
+
 ## Enroll a second node
 
 1. On `ns1`, **Administration, Nodes and replication**, "Enroll a node":
    choose the validity (15 minutes, 1 hour, 24 hours), "Create the token".
    The dialog shows the token once, the CA fingerprint and the command to
-   run. The token is single use.
+   run. The token is single use. The command has neither `sudo` nor the
+   URL options: add `--web-url` and `--replication-url` as below when the
+   other nodes cannot reach `ns2` by its short host name.
 2. Install the package on `ns2` (and BIND and Kea, or let `pelagos install`
    do it), then:
 
@@ -163,6 +173,13 @@ name its keys), `static_zone`, `weak_tsig_key` and `weak_shared_kea_key`
 3. Adopt the engines of `ns2`: `sudo pelagos import` on `ns2`. It reuses
    the replicated `ddi-read` and `ddi-admin` secrets, so both nodes sign
    with the same keys.
+4. Audit `ns2` too: `sudo pelagos audit` there lists its own findings. On
+   a secondary, `transfer_without_read_key:options` is common: BIND 9.20
+   refuses zone transfers unless `allow-transfer` says otherwise, so
+   Pelagos cannot read the secondary zones (record plans built on `ns2`
+   answer `engine_unavailable`, "AXFR ... refused") until it is fixed. A
+   D2 still signing with hmac-md5 shows as `kea:weak_shared_kea_key`: fix
+   it from **Administration, Security audit** (see above).
 
 The nodes must reach each other on `8444/tcp`. The Nodes screen shows each
 node's version, configuration version, audit count and last contact; "All

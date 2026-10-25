@@ -70,6 +70,12 @@ class DnsExtras:
             state=PlanState.VALIDATED,
         )
         result = self.peers.apply_plan(peer, plan)
+        message = result.message
+        response: dict[str, Any] = {"output": result.message, "remote": True}
+        if not result.ok and result.outcome_unknown:
+            # The peer may have run it: its own audit tells the outcome.
+            message = f"{message}; outcome unknown, check the audit on {peer.name}"
+            response["outcome_unknown"] = True
         self.ctx.audit_log.append(
             AuditEntry(
                 node_id=self.ctx.node.id,
@@ -78,14 +84,17 @@ class DnsExtras:
                 target=f"zone:{zone}",
                 engine=Engine.BIND,
                 request={"op": op, "zone": zone, "view": view, "node_id": peer.id},
-                response={"output": result.message, "remote": True},
+                response=response,
                 result=AuditResult.OK if result.ok else AuditResult.ERROR,
-                message=None if result.ok else result.message,
+                message=None if result.ok else message,
                 client_ip=client_ip,
             )
         )
         if not result.ok:
-            raise EngineUnavailable(f"rndc {op} on {peer.name} failed: {result.message}")
+            err = EngineUnavailable(f"rndc {op} on {peer.name} failed: {message}")
+            if result.outcome_unknown:
+                err.extra = {"outcome_unknown": True}
+            raise err
         return result.message
 
     # Zone plans reaching the secondaries ----------------------------------------------------

@@ -319,10 +319,46 @@ def test_a_d2_plan_built_on_a_peer_keeps_its_sealed_secret_out_of_answers(pair):
     shown = next(c for c in answer["changes"] if c["target"].startswith("secret-file/"))
     assert "sealed" not in shown["after"] and shown["after"]["path"] == D2_SECRET_PATH
     assert secret_change.after["sealed"] not in str(answer) and D2_SECRET not in str(answer)
-    PlanService(pair.a, ConnectorRegistry(), pair.gateway).apply(plan, "alice", confirm=True)
+    result = PlanService(pair.a, ConnectorRegistry(), pair.gateway).apply(plan, "alice", confirm=True)
+    assert result.state is PlanState.APPLIED, result
+    there = [e for e in pair.b.audit_log.read() if e.plan_id == plan.id and e.action == "d2.config.apply"]
+    assert there and there[-1].result is AuditResult.OK
     for entry in pair.a.audit_log.read():
         assert secret_change.after["sealed"] not in str(entry.to_dict())
         assert "sealed" not in str(entry.request.get("changes", ""))
+
+
+def test_a_peer_without_the_master_key_refuses_a_d2_plan_with_secrets(pair):
+    dhcp = DhcpService(pair.a, Family.V4, None, pair.gateway)
+    pair.b.secrets = None
+    config = pair.registry_b.d2.config_get()
+    with pytest.raises(ServiceError) as err:
+        dhcp.plan_d2_config({"node_id": pair.b.node.id, "config": config}, "alice")
+    assert err.value.code == "precondition_failed" and "master key" in err.value.detail
+    assert "outcome_unknown" not in err.value.extra
+
+
+def test_a_peer_refusing_this_node_is_not_an_engine_failure(pair):
+    fingerprint = pair.b.cluster().peer(pair.a.node.id).cert_fingerprint
+    pair.b.config_store.update_cluster(lambda c: c.revoked.append(fingerprint), updated_by="test")
+    with pytest.raises(ServiceError) as err:
+        pair.gateway.action(pair.peer, "ops.run", {"engine": "bind", "name": "flush", "params": {}})
+    assert err.value.code == "conflict" and "revoked" in err.value.detail
+    assert "outcome_unknown" not in err.value.extra
+
+
+def test_zone_operation_with_no_answer_says_the_outcome_is_unknown(pair, monkeypatch):
+    from pelagos.domain import NodeApplyResult
+
+    unknown = NodeApplyResult(node_id=pair.b.node.id, ok=False, message="ns2: reset", outcome_unknown=True)
+    monkeypatch.setattr(pair.gateway, "apply_plan", lambda peer, plan, *a, **k: unknown)
+    dns = DnsService(pair.a, None, pair.gateway)
+    with pytest.raises(EngineUnavailable) as err:
+        dns.operation("notify", "example.lan", pair.b.node.id, None, "alice")
+    assert err.value.extra == {"outcome_unknown": True}
+    assert err.value.detail.endswith("outcome unknown, check the audit on ns2")
+    here = _audit(pair.a, "dns.zone.op")[-1]
+    assert here.result is AuditResult.ERROR and here.response["outcome_unknown"] is True
 
 
 def test_zone_operation_without_bind_here_runs_on_the_zone_plans_default_node(pair):

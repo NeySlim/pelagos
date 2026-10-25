@@ -27,6 +27,7 @@ from pelagos.connectors.kea.configfile import FileDiverged
 from pelagos.core.context import NodeContext
 from pelagos.core.plan_secrets import seal_backend_secrets
 from pelagos.core.replication import PeerActionError
+from pelagos.core.secrets import SecretError
 from pelagos.domain import Engine, Family, Plan
 from pelagos.services import d2_secrets, kea_files
 from pelagos.services.errors import EngineUnavailable, ServiceError, ValidationError, field_error
@@ -173,7 +174,7 @@ def refusal_of(exc: BaseException) -> PeerActionError | None:
             f"{r.tool} rejected the change",
             [{"field": r.tool, "message": r.output, "node_id": r.node_id}],
         )
-    if isinstance(exc, PreconditionFailed):
+    if isinstance(exc, PreconditionFailed | SecretError):
         return PeerActionError("precondition_failed", str(exc))
     if isinstance(exc, NotSupported):
         return PeerActionError("not_supported", str(exc))

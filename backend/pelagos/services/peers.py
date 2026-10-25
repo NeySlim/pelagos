@@ -261,6 +261,9 @@ class PeerGateway:
                 raise PeerSilent(f"node {peer.name} did not answer {name}: {exc}") from None
             if exc.status >= 500:
                 raise PeerSilent(f"node {peer.name}: {exc}") from None
+            if exc.status in (401, 403):
+                # A cluster trust problem (revoked or unknown node), not an engine one.
+                raise ServiceError("conflict", f"node {peer.name} refused this node: {exc}") from None
             raise EngineUnavailable(f"node {peer.name}: {exc}") from None
         except OSError as exc:
             raise PeerSilent(f"node {peer.name} did not answer {name}: {exc}") from None

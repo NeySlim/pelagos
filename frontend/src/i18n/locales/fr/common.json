@@ -180,6 +180,12 @@
       "import": "Import",
       "security": "Sécurité",
       "admin": "Administration"
+    },
+    "steps": {
+      "apply": "Revérifier les préconditions et appliquer sur {{node}}",
+      "recheck": "Revérifier les préconditions sur {{node}}",
+      "replicate": "Appliquer sur les pairs par la réplication",
+      "result": "Résultat par nœud"
     }
   },
   "status": {
@@ -235,7 +241,8 @@
     "true": "Oui",
     "false": "Non",
     "unavailable": "Indisponible",
-    "standby": "Secours"
+    "standby": "Secours",
+    "rolling_back": "Retour arrière en cours"
   },
   "table": {
     "clearFilters": "Effacer les filtres",
@@ -323,6 +330,7 @@
       "done": "Terminé",
       "failed": "En échec",
       "reverted": "Annulé"
-    }
+    },
+    "dora": "Échange DHCP : discover, offer, request, acknowledge"
   }
 }

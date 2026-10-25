@@ -3,7 +3,7 @@
 // zonestatus + SOA query), the zone statement as configured, the rndc operations
 // (notify, reload, retransfer), the zone edit and deletion plans, the view selector
 // for a zone present in several views and the conversion of a static zone.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Globe, ArrowsClockwise, Plus, PencilSimple, Trash, Bell, ArrowClockwise, ShieldCheck, Table as TableIcon, HardDrives, Gear, DownloadSimple, Lightning, FileText, DotsThree } from '@phosphor-icons/react'
@@ -26,6 +26,13 @@ import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
+import { PlanPreviewModal } from '../../components/PlanPreview'
+import { SerialTrace, TransferSerial } from '../../components/motion'
+import { usePoll } from '../../hooks/usePoll'
+import { useMessage } from '../../i18n/message'
+import { onPlanEvent, planZone } from '../../lib/planEvents'
+import { useSerialHistory } from './serialHistory'
+import { useCatchUps } from './catchUp'
 import { KeyValue, ListValue, ModeBadge, SourceBadge } from './common'
 import { useNodeNames, usePlanFlow, laggingNodes, SECONDARY_KINDS } from './helpers'
 import { RecordEditor } from './RecordEditor'
@@ -34,12 +41,50 @@ import { ZoneEditModal } from './ZoneEditModal'
 import { clearLists } from '../../lib/listCache'
 import { editableZone, secondaryPeers, staticFindingId, zoneDeleteRequest, zoneMode } from './zoneTools'
 
-function RecordsTab({ zone, view, editable, mode, onChanged }) {
+const TRACE_WINDOW_MS = 300000
+const ZONE_POLL_MS = 15000
+const TRANSFER_REREAD_MS = 2500
+const REWIND_LEAD_MS = 400
+const REWIND_HOLD_MS = 350
+
+// Serial per node over the last 5 minutes: a step per new serial, a marker per plan, and a
+// playhead that rewinds to the plan's instant while its rollback runs.
+function ZoneSerialTrace({ zone, view, status, nameOf }) {
   const { t } = useTranslation(['dns', 'common'])
+  const trace = useRef(null)
+  const { lanes, markers } = useSerialHistory({ zone: zone.name, view, status, windowMs: TRACE_WINDOW_MS })
+  useEffect(
+    () =>
+      onPlanEvent((event) => {
+        if (planZone(event.plan) !== zone.name || !trace.current) return
+        if (event.type === 'rollback-start' && event.at) trace.current.scrubTo(event.at - REWIND_LEAD_MS)
+        if (event.type === 'rolled-back') setTimeout(() => trace.current?.release(), REWIND_HOLD_MS)
+      }),
+    [zone.name],
+  )
+  const named = useMemo(() => lanes.map((l) => ({ ...l, label: nameOf(l.id) })), [lanes, nameOf])
+  const labeled = useMemo(() => markers.map((m) => ({ ...m, label: t(m.kind === 'rollback' ? 'trace.rolledBack' : 'trace.planApplied') })), [markers, t])
+  if (!named.length) return null
+  return (
+    <div className="mb-3" data-testid="zone-serial-trace">
+      <div className="fx-trace-head">
+        <b>{t('trace.serials')}</b>
+        <span className="font-mono">{t('trace.window', { minutes: TRACE_WINDOW_MS / 60000 })}</span>
+      </div>
+      <SerialTrace ref={trace} lanes={named} markers={labeled} windowMs={TRACE_WINDOW_MS} />
+    </div>
+  )
+}
+
+function RecordsTab({ zone, view, editable, mode, onChanged, status, nameOf }) {
+  const { t } = useTranslation(['dns', 'common'])
+  const msg = useMessage()
   const { isMobile } = useMobile()
+  const { showToast, showError } = useNotification()
   const [type, setType] = useState('')
   const [q, setQ] = useState('')
   const [editor, setEditor] = useState(null)
+  const [rollbackOf, setRollbackOf] = useState(null)
   const filters = { type: type || undefined, q: q || undefined, view: view || undefined }
   const records = usePaginatedApi((params) => api.dns.records(zone.name, params), { perPage: 50, filters })
 
@@ -47,6 +92,27 @@ function RecordsTab({ zone, view, editable, mode, onChanged }) {
   const done = () => {
     records.refetch()
     onChanged?.()
+  }
+  // The applied plan stays one click away from its rollback while the server holds it.
+  const committed = (plan) => {
+    showToast({
+      type: 'success',
+      message: t('records.applied'),
+      detail: msg(plan.summary_message, plan.summary),
+      action: {
+        label: t('records.rollbackPlan'),
+        testId: 'toast-rollback-plan',
+        onClick: async () => {
+          try {
+            const fresh = await api.plans.get(plan.id)
+            if (fresh?.state !== 'applied') throw new Error(t('records.rollbackGone'))
+            setRollbackOf(fresh)
+          } catch (err) {
+            showError(err?.status === 404 || err?.status === 410 ? t('records.rollbackGone') : errorMessage(err))
+          }
+        },
+      },
+    })
   }
 
   const actions = (r) =>
@@ -93,6 +159,7 @@ function RecordsTab({ zone, view, editable, mode, onChanged }) {
     {
       key: 'rdata',
       label: t('records.rdata'),
+      changeValue: (r) => (r.rdata || []).join('\n'),
       render: (r) => (
         <div className="font-mono text-xs space-y-0.5 break-all">
           {r.rdata.map((d, i) => (
@@ -113,10 +180,14 @@ function RecordsTab({ zone, view, editable, mode, onChanged }) {
           {t('detail.staticNote')}
         </p>
       )}
+      <ZoneSerialTrace zone={zone} view={view} status={status} nameOf={nameOf} />
       <DataTable
         columns={columns}
         rows={records.items}
         rowKey={(r) => `${r.name}/${r.rtype}`}
+        animateInserts
+        animateRemovals
+        highlightChanges={['ttl', 'rdata']}
         loading={records.loading && !records.data}
         error={records.error}
         onRetry={records.refetch}
@@ -154,7 +225,11 @@ function RecordsTab({ zone, view, editable, mode, onChanged }) {
           rrset={editor.rrset}
           onClose={() => setEditor(null)}
           onApplied={done}
+          onCommitted={committed}
         />
+      )}
+      {rollbackOf && (
+        <PlanPreviewModal open plan={rollbackOf} autoRollback onClose={() => setRollbackOf(null)} onRolledBack={done} />
       )}
     </>
   )
@@ -165,6 +240,7 @@ function StatusTab({ status, nameOf, zone, canOps, onRetransfer, busyNode }) {
   const entries = Object.entries(status || {})
   const serials = Object.fromEntries(entries.map(([id, s]) => [id, s.serial]))
   const lag = new Set(laggingNodes(serials))
+  const catching = useCatchUps(serials)
   if (!entries.length) return <EmptyState icon={HardDrives} title={t('detail.noStatus')} />
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-testid="zone-status">
@@ -183,8 +259,12 @@ function StatusTab({ status, nameOf, zone, canOps, onRetransfer, busyNode }) {
           </div>
           {s.error && <p className="text-xs status-danger-text font-mono">{s.error}</p>}
           <dl className="grid grid-cols-2 gap-3">
-            <KeyValue label={t('detail.serial')} mono>{s.serial ?? t('zones.noSerial')}</KeyValue>
-            <KeyValue label={t('detail.configSerial')} mono>{s.config_serial}</KeyValue>
+            <KeyValue label={t('detail.serial')} mono>
+              {s.serial === null || s.serial === undefined ? t('zones.noSerial') : <TransferSerial value={s.serial} transfer={catching.has(id)} testId="zone-status-serial" />}
+            </KeyValue>
+            <KeyValue label={t('detail.configSerial')} mono>
+              {s.config_serial === null || s.config_serial === undefined ? null : <TransferSerial value={s.config_serial} transfer={catching.has(id)} />}
+            </KeyValue>
             <KeyValue label={t('zones.kind')}>{s.kind ? t(`kind.${s.kind}`, { defaultValue: s.kind }) : null}</KeyValue>
             <KeyValue label={t('zones.dynamic')}>{s.dynamic === null || s.dynamic === undefined ? null : t(`common:common.${s.dynamic ? 'yes' : 'no'}`)}</KeyValue>
             <KeyValue label={t('zones.signed')}>{s.signed === null || s.signed === undefined ? null : t(`common:common.${s.signed ? 'yes' : 'no'}`)}</KeyValue>
@@ -261,8 +341,28 @@ export default function ZoneDetailPage() {
   const { nameOf } = useNodeNames()
   const [tab, setTab] = useState('records')
   const [busy, setBusy] = useState(null)
-  const { data, error, loading, refetch } = useApi(() => api.dns.zone(zoneParam, view), [zoneParam, view])
+  const { data, error, loading, refetch, setData } = useApi(() => api.dns.zone(zoneParam, view), [zoneParam, view])
   const zone = data?.zone
+  // Serials move on their own (transfers, other operators): the status is read again quietly.
+  usePoll(async () => setData(await api.dns.zone(zoneParam, view)), ZONE_POLL_MS, { enabled: Boolean(data) })
+  // After a plan here the secondaries catch up within seconds: one more read shows the transfer land.
+  const zoneName = data?.zone?.name
+  useEffect(() => {
+    if (!zoneName) return undefined
+    const timers = new Set()
+    const off = onPlanEvent((event) => {
+      if (planZone(event.plan) !== zoneName || (event.type !== 'applied' && event.type !== 'rolled-back')) return
+      const timer = setTimeout(() => {
+        timers.delete(timer)
+        api.dns.zone(zoneParam, view).then(setData).catch(() => {})
+      }, TRANSFER_REREAD_MS)
+      timers.add(timer)
+    })
+    return () => {
+      off()
+      timers.forEach(clearTimeout)
+    }
+  }, [zoneName, zoneParam, view, setData])
   const [deleted, setDeleted] = useState(false)
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -398,7 +498,7 @@ export default function ZoneDetailPage() {
         <EmptyState icon={Globe} title={errorMessage(error)} action={{ label: t('common:actions.retry'), onClick: refetch }} />
       ) : zone ? (
         <>
-          {tab === 'records' && <RecordsTab zone={zone} view={view} editable={editable} mode={mode} onChanged={refetch} />}
+          {tab === 'records' && <RecordsTab zone={zone} view={view} editable={editable} mode={mode} onChanged={refetch} status={data.status} nameOf={nameOf} />}
           {tab === 'status' && (
             <StatusTab
               status={data.status}

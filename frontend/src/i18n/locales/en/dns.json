@@ -126,7 +126,10 @@
     "search": "Search records...",
     "readFrom": "serial {{serial}}",
     "add": "Add record",
-    "empty": "No record matches"
+    "empty": "No record matches",
+    "applied": "Plan applied",
+    "rollbackPlan": "Roll back plan",
+    "rollbackGone": "The server no longer holds this plan: it cannot be rolled back from here"
   },
   "editor": {
     "title": {
@@ -390,5 +393,11 @@
       "validationFailures": "Validation failures"
     },
     "liveRate": "Query rate"
+  },
+  "trace": {
+    "serials": "Serial per node",
+    "window": "last {{minutes}} min",
+    "planApplied": "plan applied",
+    "rolledBack": "plan rolled back"
   }
 }

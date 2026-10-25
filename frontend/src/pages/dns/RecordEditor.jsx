@@ -33,6 +33,8 @@ export function RecordEditor({
   rrset = null,
   defaults = {},
   onApplied,
+  // Called on close when the plan stayed applied: (plan, result), for the toast that offers its rollback.
+  onCommitted,
   planFn = (z, changes, v) => api.dns.recordsPlan(z, changes, v),
   lookupFn = (z, params) => api.dns.records(z, params),
 }) {
@@ -44,6 +46,7 @@ export function RecordEditor({
   const [error, setError] = useState(null)
   const [plan, setPlan] = useState(null)
   const lastChanges = useRef(null)
+  const outcome = useRef(null)
 
   useEffect(() => {
     if (open) {
@@ -51,6 +54,7 @@ export function RecordEditor({
       setTouched(false)
       setError(null)
       setPlan(null)
+      outcome.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode, rrset, zoneName])
@@ -103,10 +107,24 @@ export function RecordEditor({
   const title = t(`editor.title.${mode}`)
 
   if (plan) {
+    const close = () => {
+      const done = outcome.current
+      outcome.current = null
+      onClose?.()
+      if (done) onCommitted?.(done.plan, done.result)
+    }
+    const applied = (res) => {
+      outcome.current = res?.state === 'applied' ? { plan, result: res } : null
+      onApplied?.(res)
+    }
+    const rolledBack = (res) => {
+      outcome.current = null
+      onApplied?.(res)
+    }
     return (
-      <Modal open={open} onClose={onClose} title={title} size="lg">
+      <Modal open={open} onClose={close} title={title} size="lg">
         <div className="p-4" data-testid="record-editor-plan">
-          <PlanPreview plan={plan} onClose={onClose} onApplied={onApplied} onRolledBack={onApplied} onRecompute={recompute} />
+          <PlanPreview plan={plan} onClose={close} onApplied={applied} onRolledBack={rolledBack} onRecompute={recompute} />
         </div>
       </Modal>
     )

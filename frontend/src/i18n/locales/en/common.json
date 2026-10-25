@@ -180,6 +180,12 @@
       "import": "Import",
       "security": "Security",
       "admin": "Administration"
+    },
+    "steps": {
+      "apply": "Recheck the preconditions and apply on {{node}}",
+      "recheck": "Recheck the preconditions on {{node}}",
+      "replicate": "Apply on the peers through replication",
+      "result": "Results per node"
     }
   },
   "status": {
@@ -235,7 +241,8 @@
     "true": "Yes",
     "false": "No",
     "unavailable": "Unavailable",
-    "standby": "Standby"
+    "standby": "Standby",
+    "rolling_back": "Rolling back"
   },
   "table": {
     "clearFilters": "Clear filters",
@@ -323,6 +330,7 @@
       "done": "Done",
       "failed": "Failed",
       "reverted": "Reverted"
-    }
+    },
+    "dora": "DHCP exchange: discover, offer, request, acknowledge"
   }
 }

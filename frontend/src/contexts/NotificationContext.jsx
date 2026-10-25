@@ -28,11 +28,18 @@ export function NotificationProvider({ children }) {
     setTimeout(() => setToasts(prev => prev.filter(toast => toast.id !== id)), TOAST_EXIT_MS)
   }, [])
 
-  // Radix runs the timer and pauses it while the toast is hovered or focused.
-  const addToast = useCallback((type, message, duration = 5000) => {
+  // Radix runs the timer and pauses it while the toast is hovered or focused; the duration
+  // hairline drains with it. `action` ({ label, onClick, testId }) is a button in the toast.
+  const addToast = useCallback((type, message, duration = 5000, extra = {}) => {
     const id = Date.now() + Math.random() // unique even when called in a tight loop
-    setToasts(prev => [...prev, { id, type, message, duration, open: true }])
+    setToasts(prev => [...prev, { id, type, message, duration, open: true, detail: extra.detail, action: extra.action }])
+    return id
   }, [])
+
+  const showToast = useCallback(
+    ({ type = 'info', message, detail, action, duration = action ? 9000 : 5000 }) => addToast(type, message, duration, { detail, action }),
+    [addToast],
+  )
 
   const showSuccess = useCallback((message) => addToast('success', message), [addToast])
   const showError = useCallback((message) => addToast('error', message), [addToast])
@@ -111,9 +118,10 @@ export function NotificationProvider({ children }) {
     showError,
     showWarning,
     showInfo,
+    showToast,
     showConfirm,
     showPrompt,
-  }), [showSuccess, showError, showWarning, showInfo, showConfirm, showPrompt])
+  }), [showSuccess, showError, showWarning, showInfo, showToast, showConfirm, showPrompt])
 
   return (
     <NotificationContext.Provider value={value}>
@@ -133,9 +141,24 @@ export function NotificationProvider({ children }) {
               <div className="flex-shrink-0 mt-0.5">
                 {getIcon(toast.type)}
               </div>
-              <Toast.Description className="flex-1 min-w-0 text-sm text-text-primary break-words whitespace-pre-line">
-                {toast.message}
-              </Toast.Description>
+              <div className="flex-1 min-w-0">
+                <Toast.Description className="text-sm text-text-primary break-words whitespace-pre-line">
+                  {toast.message}
+                </Toast.Description>
+                {toast.detail && <p className="ui-toast-detail mt-0.5 font-mono text-xs text-text-secondary break-all">{toast.detail}</p>}
+                {toast.action && (
+                  <Toast.Action asChild altText={toast.action.label}>
+                    <button
+                      type="button"
+                      className="ui-toast-action mt-2 inline-flex items-center h-6 px-2 rounded border border-border text-xs text-text-primary hover:bg-bg-tertiary"
+                      onClick={() => toast.action.onClick?.()}
+                      data-testid={toast.action.testId || 'toast-action'}
+                    >
+                      {toast.action.label}
+                    </button>
+                  </Toast.Action>
+                )}
+              </div>
               {/* Toast.Close renders the button itself: no nested <button>. */}
               <Toast.Close
                 className="flex-shrink-0 text-text-secondary hover:text-text-primary transition-colors"

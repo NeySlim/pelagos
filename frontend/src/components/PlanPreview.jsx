@@ -6,44 +6,64 @@
 // no longer holds (410 plan_expired, 404 after a restart, or the TTL ran out)
 // offers "Recompute the plan" when the caller passes `onRecompute`, which builds
 // the plan again from the same inputs and resolves to the new plan.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+// Motion: validations tick in order along a hairline; at apply the sections fold and a
+// step rail follows the real sequence (local apply, peers, results) from the audit
+// entries and the ApplyResult; a rollback walks the rail back in amber.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CheckCircle, XCircle, Warning, ArrowCounterClockwise, ArrowClockwise, Lightning, CaretDown, CaretRight, Clock } from '@phosphor-icons/react'
+import { Warning, ArrowCounterClockwise, ArrowClockwise, Lightning, CaretRight, Clock } from '@phosphor-icons/react'
 import { api } from '../services/api'
 import { errorMessage } from '../services/apiClient'
 import { useWsTopic } from '../hooks/useWebSocket'
 import { useNodeNames } from '../hooks/useNodeNames'
 import { useMessage } from '../i18n/message'
+import { useMotionLevel } from '../contexts/MotionContext'
+import { emitPlanEvent, recalledApply, rememberApply } from '../lib/planEvents'
+import {
+  auditPhase, buildSteps, estimateMs, finishApply, finishRollback, jobSteps, localApplied, localReverted, reverseFillMs, startApply, startRollback,
+} from '../lib/planTrace'
 import { Button } from './Button'
 import { Badge } from './Badge'
 import { StatusBadge } from './StatusBadge'
 import { DiffView } from './DiffView'
 import { Modal } from './Modal'
+import { Checklist, CheckMark, RollingNumber, StepRail, SwapText } from './motion'
 import { formatDate } from '../lib/utils'
 import { cn } from '../lib/utils'
 
 const JOB_SCOPES = ['install', 'import', 'security']
 const OP_VARIANT = { add: 'success', delete: 'danger', replace: 'warning' }
+// Checks tick one after the other: 200 ms per tick, the next 60 ms later.
+const TICK_GAP_MS = 60
 
 // The server no longer has the plan: expired (410) or forgotten by a restart (404).
 function isPlanGone(err) {
   return Boolean(err) && (err.code === 'plan_expired' || err.status === 410 || err.status === 404)
 }
 
-function Section({ title, count, defaultOpen = true, children, testId }) {
+// A section folds through grid rows; `foldSignal` closes it when the apply starts.
+function Section({ title, count, defaultOpen = true, foldSignal = 0, children, testId }) {
   const [open, setOpen] = useState(defaultOpen)
+  useEffect(() => {
+    if (foldSignal > 0) setOpen(false)
+  }, [foldSignal])
   return (
-    <div className="ui-subpanel border border-border rounded-lg overflow-hidden" data-testid={testId}>
+    <div className="ui-subpanel border border-border rounded-lg overflow-hidden" data-testid={testId} data-open={open ? 'true' : 'false'}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
         className="w-full flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-text-secondary bg-tertiary-op40 hover:bg-tertiary-op60"
       >
-        {open ? <CaretDown size={10} weight="bold" /> : <CaretRight size={10} weight="bold" />}
+        <CaretRight size={10} weight="bold" className={cn('fx-chev', open && 'is-open')} />
         <span className="flex-1 text-left">{title}</span>
         {count !== undefined && <span className="text-2xs text-text-tertiary font-mono">{count}</span>}
       </button>
-      {open && <div className="p-2">{children}</div>}
+      <div className={cn('fx-fold', open && 'is-open')}>
+        <div>
+          <div className="p-2">{children}</div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -59,6 +79,30 @@ function useCountdown(expiresAt) {
   return { expired: seconds <= 0, seconds }
 }
 
+// Number of checks drawn so far: they tick in order once the plan is shown (full and
+// reduced), all at once when motion is off. The plan state itself is the server's.
+function useTickReveal(total, key) {
+  const level = useMotionLevel()
+  const [shown, setShown] = useState(level === 'off' ? total : 0)
+  useEffect(() => {
+    if (level === 'off') {
+      setShown(total)
+      return undefined
+    }
+    setShown(0)
+    let i = 0
+    let timer = null
+    const next = () => {
+      i += 1
+      setShown(i)
+      if (i < total) timer = setTimeout(next, 200 + TICK_GAP_MS)
+    }
+    if (total > 0) timer = setTimeout(next, 120)
+    return () => clearTimeout(timer)
+  }, [total, key, level])
+  return shown
+}
+
 export function PlanPreview({
   plan: initialPlan,
   onApplied,
@@ -71,23 +115,36 @@ export function PlanPreview({
   getFn = (id) => api.plans.get(id),
   closeLabel,
   className,
+  // Starts the rollback as soon as it is shown (the "Roll back plan" action of a toast).
+  autoRollback = false,
   // id -> display name; defaults to the names from GET /nodes
   nodeName: nodeNameProp,
 }) {
   const { t } = useTranslation()
   const msg = useMessage()
+  const level = useMotionLevel()
   const fetchedNodeName = useNodeNames(!nodeNameProp)
   const nodeName = nodeNameProp || fetchedNodeName
   const fieldLabel = (key) => t('fieldLabel', { label: t(key) })
+  const recalled = initialPlan ? recalledApply(initialPlan.id) : null
   const [plan, setPlan] = useState(initialPlan)
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
-  const [result, setResult] = useState(null)
+  const [result, setResult] = useState(() => (initialPlan?.state === 'applied' ? recalled?.result || null : null))
   const [job, setJob] = useState(null)
+  // The rail: steps, its direction and how long its current move takes.
+  const [rail, setRail] = useState(() => (initialPlan?.state === 'applied' && recalled?.steps ? { steps: recalled.steps, reverse: false, fillMs: 0 } : null))
+  const [foldSignal, setFoldSignal] = useState(0)
+  const appliedAt = useRef(recalled?.at ?? null)
+  const railRef = useRef(rail)
+  railRef.current = rail
   useEffect(() => {
+    const again = initialPlan ? recalledApply(initialPlan.id) : null
     setPlan(initialPlan)
-    setResult(null)
+    setResult(initialPlan?.state === 'applied' ? again?.result || null : null)
+    setRail(initialPlan?.state === 'applied' && again?.steps ? { steps: again.steps, reverse: false, fillMs: 0 } : null)
+    appliedAt.current = again?.at ?? null
     setJob(null)
     setError(null)
     setConfirmed(false)
@@ -98,22 +155,39 @@ export function PlanPreview({
   const canApply = plan && plan.state === 'validated' && !expired && (!plan.requires_confirmation || confirmed) && !busy
   const applied = (result?.state || plan?.state) === 'applied'
   const canRollback = applied && !expired && !busy && !isJobScope
-  const failedValidation = plan?.validations?.some((v) => !v.ok)
+  const validations = useMemo(() => plan?.validations || [], [plan])
+  const ticked = useTickReveal(validations.length, plan?.id)
+  const ttlMs = plan?.expires_at && plan?.created_at ? Math.max(1, Date.parse(plan.expires_at) - Date.parse(plan.created_at)) : null
+
+  const updateRail = useCallback((fn) => setRail((r) => (r ? fn(r) : r)), [])
 
   const handleApply = useCallback(async () => {
     setBusy(true)
     setError(null)
+    const steps = startApply(buildSteps(plan), performance.now())
+    if (!isJobScope) {
+      setRail({ steps, reverse: false, fillMs: estimateMs('local') })
+      setFoldSignal((n) => n + 1)
+    }
     try {
       const res = await applyFn(plan.id, plan.requires_confirmation ? confirmed : false)
       if (res && res.steps !== undefined) {
+        setRail(null)
+        setFoldSignal((n) => n + 1)
         setJob(res)
         setPlan((p) => ({ ...p, state: 'applying' }))
       } else {
+        const now = performance.now()
+        const done = finishApply(railRef.current?.steps || steps, res, now)
+        setRail({ steps: done, reverse: false, fillMs: estimateMs('peer') })
         setResult(res)
         setPlan((p) => ({ ...p, state: res?.state || 'applied' }))
         onApplied?.(res)
         // The server restarts the TTL at apply: the rollback window follows the fresh expires_at.
         if ((res?.state || 'applied') === 'applied') {
+          appliedAt.current = Date.now()
+          rememberApply(plan.id, { at: appliedAt.current, steps: done, result: res })
+          emitPlanEvent({ type: 'applied', plan, at: appliedAt.current, result: res })
           Promise.resolve()
             .then(() => getFn(plan.id))
             .then((fresh) => fresh?.expires_at && setPlan((p) => ({ ...p, expires_at: fresh.expires_at })))
@@ -122,26 +196,55 @@ export function PlanPreview({
       }
     } catch (err) {
       setError(err)
+      setRail((r) => (r ? { ...r, steps: r.steps.map((s) => (s.state === 'running' ? { ...s, state: 'failed', nodes: s.nodes.map((n) => (n.state === 'running' ? { ...n, state: 'failed' } : n)) } : s)) } : r))
       if (isPlanGone(err)) setPlan((p) => ({ ...p, state: 'expired' }))
     } finally {
       setBusy(false)
     }
-  }, [applyFn, getFn, plan, confirmed, onApplied])
+  }, [applyFn, getFn, plan, confirmed, onApplied, isJobScope])
 
   const handleRollback = useCallback(async () => {
     setBusy(true)
     setError(null)
+    setPlan((p) => ({ ...p, state: 'rolling_back' }))
+    const base = railRef.current?.steps || buildSteps(plan)
+    const walking = startRollback(base, performance.now())
+    setRail({ steps: walking, reverse: true, fillMs: reverseFillMs(base, walking.find((s) => s.state === 'running')?.id) })
+    emitPlanEvent({ type: 'rollback-start', plan, at: appliedAt.current })
     try {
       const res = await rollbackFn(plan.id)
+      const steps = finishRollback(railRef.current?.steps || walking, res, performance.now())
+      setRail({ steps, reverse: true, fillMs: reverseFillMs(base, 'local') })
       setResult(res)
       setPlan((p) => ({ ...p, state: res?.state || 'rolled_back' }))
+      emitPlanEvent({ type: 'rolled-back', plan, at: Date.now(), result: res })
       onRolledBack?.(res)
     } catch (err) {
       setError(err)
+      setPlan((p) => ({ ...p, state: 'applied' }))
+      setRail({ steps: base, reverse: false, fillMs: 0 })
+      emitPlanEvent({ type: 'rolled-back', plan, at: Date.now(), result: null })
     } finally {
       setBusy(false)
     }
   }, [rollbackFn, plan, onRolledBack])
+
+  // A rollback asked from elsewhere (a toast action) starts once, when the plan can.
+  const autoStarted = useRef(false)
+  useEffect(() => {
+    if (!autoRollback || autoStarted.current || !canRollback) return
+    autoStarted.current = true
+    handleRollback()
+  }, [autoRollback, canRollback, handleRollback])
+
+  // The building node's own audit entry: its part is done (apply) or undone (rollback).
+  useWsTopic(busy && rail ? 'audit' : null, (message) => {
+    const phase = auditPhase(message?.data, plan?.id, plan?.node_id)
+    if (!phase) return
+    const now = performance.now()
+    if (phase === 'apply') updateRail((r) => (r.reverse ? r : { ...r, steps: localApplied(r.steps, now), fillMs: estimateMs('peer') }))
+    else updateRail((r) => (r.reverse ? { ...r, steps: localReverted(r.steps, now), fillMs: reverseFillMs(r.steps, 'local') } : r))
+  })
 
   const handleRecompute = useCallback(async () => {
     setBusy(true)
@@ -152,6 +255,7 @@ export function PlanPreview({
         setPlan(fresh)
         setResult(null)
         setJob(null)
+        setRail(null)
         setConfirmed(false)
       }
     } catch (err) {
@@ -162,8 +266,8 @@ export function PlanPreview({
   }, [onRecompute])
 
   // Job progress: WebSocket when connected, polling as the fallback.
-  useWsTopic(job && job.state !== 'done' && job.state !== 'failed' ? 'jobs' : null, (msg) => {
-    if (msg.data?.id === job?.id) setJob(msg.data)
+  useWsTopic(job && job.state !== 'done' && job.state !== 'failed' ? 'jobs' : null, (message) => {
+    if (message.data?.id === job?.id) setJob(message.data)
   })
   useEffect(() => {
     if (!job || job.state === 'done' || job.state === 'failed') return undefined
@@ -192,8 +296,34 @@ export function PlanPreview({
 
   if (!plan) return null
 
+  // A one-line output reads beside its tool; a longer one gets its own block below.
+  const shortOutput = (v) => (v.output && v.output.length <= 60 && !v.output.includes('\n') ? v.output : null)
+  const checkItems = validations.map((v, i) => ({
+    id: `${v.tool}-${v.node_id || ''}-${i}`,
+    label: <span className="font-mono text-text-primary">{v.tool}</span>,
+    detail: [v.node_id ? nodeName(v.node_id) : null, shortOutput(v) || (v.ok ? t('plan.valid') : t('plan.invalid'))].filter(Boolean).join('  '),
+    state: i < ticked ? (v.ok ? 'done' : 'failed') : i === ticked ? 'running' : 'pending',
+  }))
+  const passed = validations.filter((v, i) => v.ok && i < ticked).length
+  const railSteps = rail
+    ? rail.steps.map((s) => ({
+        id: s.id,
+        state: s.state,
+        label: t(`plan.steps.${s.kind}`, { node: nodeName(s.nodes[0]?.id) }),
+        ms: s.state === 'reverted' ? undefined : s.ms ?? undefined,
+        note: s.state === 'reverted' ? t('motion.states.reverted') : undefined,
+        nodes: s.nodes.map((n) => ({
+          name: nodeName(n.id),
+          state: n.state,
+          durationMs: n.state === 'running' ? estimateMs(n.kind) : n.ms ?? undefined,
+        })),
+      }))
+    : null
+  const statusKey = plan.state
+  const live = level === 'full' && !expired && !applied && !result
+
   return (
-    <div className={cn('flex flex-col gap-3', className)} data-testid="plan-preview">
+    <div className={cn('flex flex-col gap-3', className)} data-testid="plan-preview" data-plan-state={statusKey}>
       {/* Header */}
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="primary" size="sm">
@@ -204,15 +334,20 @@ export function PlanPreview({
             {plan.engine}
           </Badge>
         )}
-        <StatusBadge status={plan.state} />
+        <StatusBadge status={statusKey} label={<SwapText text={t(`status.${statusKey}`, { defaultValue: String(statusKey).replace(/[-_]/g, ' ') })} />} data-testid="plan-state" />
         {plan.requires_confirmation && (
           <Badge variant="warning" size="sm" icon={Warning}>
             {t('plan.requiresConfirmation')}
           </Badge>
         )}
-        <span className="ml-auto inline-flex items-center gap-1 text-2xs text-text-tertiary font-mono" title={formatDate(plan.expires_at)}>
+        <span
+          className={cn('fx-expiry ml-auto text-2xs text-text-tertiary font-mono', live && 'is-live')}
+          title={formatDate(plan.expires_at)}
+          data-testid="plan-expiry"
+        >
           <Clock size={11} />
           {expired ? t('plan.expired') : t('plan.expiresIn', { seconds })}
+          {ttlMs && seconds !== null && !expired && <i aria-hidden="true" style={{ transform: `scaleX(${Math.min(1, (seconds * 1000) / ttlMs).toFixed(4)})` }} />}
         </span>
       </div>
 
@@ -259,7 +394,7 @@ export function PlanPreview({
       </Section>
 
       {/* Preconditions */}
-      <Section title={t('plan.preconditions')} count={plan.preconditions?.length || 0} defaultOpen={false} testId="plan-preconditions">
+      <Section title={t('plan.preconditions')} count={plan.preconditions?.length || 0} defaultOpen={false} foldSignal={foldSignal} testId="plan-preconditions">
         {!plan.preconditions?.length ? (
           <p className="text-xs text-text-tertiary italic">{t('plan.noPreconditions')}</p>
         ) : (
@@ -278,35 +413,42 @@ export function PlanPreview({
         )}
       </Section>
 
-      {/* Validations */}
-      <Section title={t('plan.validations')} count={plan.validations?.length || 0} defaultOpen={Boolean(failedValidation)} testId="plan-validations">
-        {!plan.validations?.length ? (
+      {/* Validations: each tool ticks in order along the hairline */}
+      <Section
+        title={t('plan.validations')}
+        count={validations.length ? <RollingNumber value={`${passed}/${validations.length}`} delta={false} data-testid="plan-validations-count" /> : 0}
+        foldSignal={foldSignal}
+        testId="plan-validations"
+      >
+        {!validations.length ? (
           <p className="text-xs text-text-tertiary italic">{t('plan.noValidations')}</p>
         ) : (
-          <ul className="space-y-1.5">
-            {plan.validations.map((v, i) => (
-              <li key={i} className="text-xs">
-                <div className="flex items-center gap-2">
-                  {v.ok ? <CheckCircle size={14} weight="fill" className="status-success-text" /> : <XCircle size={14} weight="fill" className="status-danger-text" />}
-                  <span className="font-mono text-text-primary">{v.tool}</span>
-                  {v.node_id && <span className="text-text-tertiary">{nodeName(v.node_id)}</span>}
-                  <span className={v.ok ? 'status-success-text' : 'status-danger-text'}>{v.ok ? t('plan.valid') : t('plan.invalid')}</span>
-                </div>
-                {v.output && (
-                  <pre className="mt-1 ml-5 p-2 rounded bg-bg-primary border border-border-op50 text-2xs font-mono whitespace-pre-wrap text-text-secondary max-h-40 overflow-auto">
+          <>
+            <Checklist items={checkItems} showCount={false} testId="plan-checklist" />
+            {validations.map(
+              (v, i) =>
+                v.output &&
+                !shortOutput(v) && (
+                  <pre key={i} className="mt-1 ml-5 p-2 rounded bg-bg-primary border border-border-op50 text-2xs font-mono whitespace-pre-wrap text-text-secondary max-h-40 overflow-auto">
                     {v.output}
                   </pre>
-                )}
-              </li>
-            ))}
-          </ul>
+                ),
+            )}
+          </>
         )}
       </Section>
 
       {/* Diff */}
-      <Section title={t('plan.diff')} testId="plan-diff">
+      <Section title={t('plan.diff')} foldSignal={foldSignal} testId="plan-diff">
         <DiffView diff={plan.diff} maxHeight={320} />
       </Section>
+
+      {/* Apply and rollback: the rail follows the real sequence */}
+      {railSteps && (
+        <div className="rounded-lg border border-border px-3 py-1" data-testid="plan-rail" data-direction={rail.reverse ? 'reverse' : 'forward'}>
+          <StepRail steps={railSteps} reverse={rail.reverse} fillMs={rail.fillMs} testId="plan-steps" />
+        </div>
+      )}
 
       {/* Job progress */}
       {job && (
@@ -315,34 +457,32 @@ export function PlanPreview({
             <StatusBadge status={job.state} />
             <span className="text-text-secondary">{t('plan.jobProgress', { percent: job.progress ?? 0 })}</span>
           </div>
-          <div className="h-1.5 rounded-full bg-tertiary-op80 overflow-hidden">
-            <div className="h-full status-primary-bg-solid transition-all" style={{ width: `${job.progress ?? 0}%` }} />
-          </div>
-          <ul className="space-y-0.5 text-2xs">
-            {(job.steps || []).map((step, i) => (
-              <li key={i} className="flex items-center gap-2">
-                <StatusBadge status={step.state} dot={false} size="sm" />
-                <span className="text-text-primary" title={step.name}>{msg(step.label_message, step.label || step.name)}</span>
-                {step.output && <span className="text-text-tertiary font-mono truncate">{step.output}</span>}
-              </li>
-            ))}
-          </ul>
+          <StepRail
+            steps={jobSteps(job).map((s) => ({
+              id: s.id,
+              state: s.state,
+              ms: s.ms,
+              label: <span title={s.step.name}>{msg(s.step.label_message, s.step.label || s.step.name)}</span>,
+              detail: s.output || undefined,
+            }))}
+            testId="plan-job-steps"
+          />
           {job.error && <p className="text-xs status-danger-text">{job.error}</p>}
         </div>
       )}
 
       {/* Apply result */}
       {result && (
-        <div className="rounded-lg border border-border p-3 space-y-1.5" data-testid="plan-result">
+        <div className="fx-rise-in rounded-lg border border-border p-3 space-y-1.5" data-testid="plan-result">
           <div className="flex items-center gap-2 text-xs">
             <StatusBadge status={result.state} />
             <span className="text-text-tertiary">{formatDate(result.finished_at)}</span>
           </div>
           <ul className="space-y-1">
-            {(result.results || []).map((r) => (
-              <li key={r.node_id} className="flex items-start gap-2 text-xs">
-                {r.ok ? <CheckCircle size={14} weight="fill" className="status-success-text mt-0.5" /> : <XCircle size={14} weight="fill" className="status-danger-text mt-0.5" />}
-                <span className="text-text-primary" title={r.node_id}>{nodeName(r.node_id)}</span>
+            {(result.results || []).map((r, i) => (
+              <li key={`${r.node_id}-${i}`} className="flex items-start gap-2 text-xs">
+                <CheckMark state={r.ok ? (r.rolled_back ? 'reverted' : 'done') : 'failed'} className="mt-0.5" />
+                <span className="font-mono text-text-primary" title={r.node_id}>{nodeName(r.node_id)}</span>
                 <span className="text-text-secondary flex-1">{r.message}</span>
                 {r.rolled_back && (
                   <Badge variant="warning" size="sm">
@@ -402,14 +542,14 @@ export function PlanPreview({
               {closeLabel || (applied || result ? t('actions.close') : t('actions.cancel'))}
             </Button>
           )}
-          {canRollback && (
-            <Button type="button" variant="warning-soft" size="sm" onClick={handleRollback} loading={busy} data-testid="plan-rollback">
+          {(canRollback || plan.state === 'rolling_back') && (
+            <Button type="button" variant="warning-soft" size="sm" onClick={handleRollback} loading={busy} loadingText={t('status.rolling_back')} data-testid="plan-rollback">
               <ArrowCounterClockwise size={14} />
               {t('plan.rollback')}
             </Button>
           )}
-          {!applied && !result && (
-            <Button type="button" variant="primary" size="sm" onClick={handleApply} disabled={!canApply} loading={busy} data-testid="plan-apply">
+          {!applied && !result && plan.state !== 'rolling_back' && (
+            <Button type="button" variant="primary" size="sm" onClick={handleApply} disabled={!canApply} loading={busy} loadingText={t('status.applying')} data-testid="plan-apply">
               <Lightning size={14} weight="fill" />
               {t('plan.apply')}
             </Button>

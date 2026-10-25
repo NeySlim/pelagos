@@ -3,11 +3,15 @@
 import { useTranslation } from 'react-i18next'
 import { Badge } from '../../components/Badge'
 import { cn } from '../../lib/utils'
+import { TransferSerial } from '../../components/motion'
 import { laggingNodes } from './helpers'
+import { useCatchUps } from './catchUp'
 
+// A node that was behind and now rises has received a zone transfer: it is drawn as one.
 export function SerialCells({ serials = {}, nameOf, className }) {
   const { t } = useTranslation('dns')
   const lag = new Set(laggingNodes(serials))
+  const catching = useCatchUps(serials)
   const entries = Object.entries(serials)
   if (!entries.length) return <span className="text-text-tertiary">-</span>
   return (
@@ -22,7 +26,7 @@ export function SerialCells({ serials = {}, nameOf, className }) {
           )}
         >
           <span className={lag.has(id) ? 'text-text-secondary' : 'text-text-tertiary'}>{nameOf(id)}</span>
-          <span>{serial ?? t('zones.noSerial')}</span>
+          {serial === null || serial === undefined ? <span>{t('zones.noSerial')}</span> : <TransferSerial value={serial} transfer={catching.has(id)} testId="zone-serial" />}
         </span>
       ))}
     </div>

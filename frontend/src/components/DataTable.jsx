@@ -13,7 +13,7 @@ import { FilterSelect } from './ui/Select'
 import { FilterChips } from './ui/FilterChips'
 import { EmptyState } from './EmptyState'
 import { SkeletonTable } from './motion/Skeleton'
-import { RowEnter } from './motion/Rows'
+import { RowEnter, RowLeave } from './motion/Rows'
 import { glideRows, orderChanged } from './motion/primitives'
 import { useMotionLevel } from '../contexts/MotionContext'
 import { useColumnBand } from '../hooks/useColumnBand'
@@ -25,6 +25,11 @@ function getValue(row, key) {
   if (!key) return undefined
   return key.split('.').reduce((acc, part) => (acc == null ? undefined : acc[part]), row)
 }
+
+// More inserted or removed rows than this at once is a page or filter change, not an event.
+export const MAX_ROW_MOTION = 10
+
+const cellText = (v) => (v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v))
 
 function compare(a, b) {
   if (a === b) return 0
@@ -64,6 +69,13 @@ export function DataTable({
   animateInserts = false,
   // { name, to }: the whole table panel travels with a view transition to or from `to`.
   shared,
+  // Rows that disappear fold away in place (fade below full motion) instead of vanishing.
+  animateRemovals = false,
+  // Time a removed row stays in place before it folds (struck-through rows, for instance).
+  leaveHoldMs = 0,
+  // Column keys whose cells tint once when their value changes for the same row (serials,
+  // counters); `col.changeValue(row)` overrides what is compared.
+  highlightChanges = null,
   className,
   testId = 'data-table',
 }) {
@@ -74,6 +86,11 @@ export function DataTable({
   const sharedStyle = useSharedName(shared?.name || 'table', shared?.to || '/')
   const known = useRef(null)
   const entering = useRef(new Set())
+  const lastRows = useRef(new Map()) // key -> { row, index } of the last settled render
+  const leaving = useRef(new Map())
+  const cellValues = useRef(new Map()) // `${key}|${col}` -> compared value
+  const cellGen = useRef(new Map()) // `${key}|${col}` -> highlight generation
+  const [, setLeft] = useState(0)
 
   const keyOf = (row, index) => (typeof rowKey === 'function' ? rowKey(row, index) : getValue(row, rowKey) ?? index)
 
@@ -124,13 +141,43 @@ export function DataTable({
   const bandRef = useRef(null)
   useColumnBand(wrapRef, bandRef)
 
-  if (animateInserts && !loading) {
+  if ((animateInserts || animateRemovals) && !loading) {
     const keys = sortedRows.map((row, index) => keyOf(row, index))
+    const present = new Set(keys)
     if (known.current) {
-      for (const key of keys) if (!known.current.has(key)) entering.current.add(key)
-      for (const key of entering.current) if (!keys.includes(key)) entering.current.delete(key)
+      const added = keys.filter((key) => !known.current.has(key))
+      const removed = [...known.current].filter((key) => !present.has(key))
+      if (added.length + removed.length <= MAX_ROW_MOTION) {
+        if (animateInserts) for (const key of added) entering.current.add(key)
+        if (animateRemovals) for (const key of removed) if (lastRows.current.has(key)) leaving.current.set(key, lastRows.current.get(key))
+      }
+      for (const key of entering.current) if (!present.has(key)) entering.current.delete(key)
+      for (const key of leaving.current.keys()) if (present.has(key)) leaving.current.delete(key)
     }
-    if (keys.length || known.current) known.current = new Set(keys)
+    if (keys.length || known.current) known.current = present
+    lastRows.current = new Map(sortedRows.map((row, index) => [keys[index], { row, index }]))
+  }
+
+  // A changed value of a known row lights its cell once (after the first load only).
+  const highlighted = new Set(highlightChanges || [])
+  if (highlighted.size && !loading) {
+    sortedRows.forEach((row, index) => {
+      const key = keyOf(row, index)
+      for (const col of columns) {
+        if (!highlighted.has(col.key)) continue
+        const id = `${key}|${col.key}`
+        const value = cellText(col.changeValue ? col.changeValue(row) : getValue(row, col.key))
+        const before = cellValues.current.get(id)
+        if (before !== undefined && before !== value) cellGen.current.set(id, (cellGen.current.get(id) || 0) + 1)
+        cellValues.current.set(id, value)
+      }
+    })
+  }
+
+  // Ghost rows of removed keys keep their last place while they fold.
+  const renderItems = sortedRows.map((row, index) => ({ row, index, key: keyOf(row, index) }))
+  for (const [key, ghost] of leaving.current) {
+    renderItems.splice(Math.min(ghost.index, renderItems.length), 0, { row: ghost.row, index: ghost.index, key, ghost: true })
   }
 
   const chipFilters = filters
@@ -221,25 +268,36 @@ export function DataTable({
           <tbody ref={bodyRef}>
             {!loading &&
               !error &&
-              sortedRows.map((row, index) => {
-                const key = keyOf(row, index)
-                const selected = selectedKey !== undefined && selectedKey === key
-                const Row = entering.current.has(key) ? RowEnter : 'tr'
+              renderItems.map(({ row, key, ghost }) => {
+                const selected = !ghost && selectedKey !== undefined && selectedKey === key
+                const isEntering = entering.current.has(key)
+                const Row = ghost ? RowLeave : isEntering ? RowEnter : 'tr'
+                const ghostProps = ghost
+                  ? {
+                      holdMs: leaveHoldMs,
+                      onLeft: () => {
+                        leaving.current.delete(key)
+                        setLeft((n) => n + 1)
+                      },
+                    }
+                  : {}
                 return (
                   <Row
-                    key={key}
+                    key={ghost ? `leave:${key}` : key}
+                    {...ghostProps}
                     className={cn(
                       'ui-row border-b border-border-op30 last:border-b-0 transition-colors',
                       onRowClick && 'cursor-pointer hover:bg-tertiary-op40',
                       selected && 'bg-accent-primary-op10 is-selected',
                       typeof rowClassName === 'function' ? rowClassName(row) : rowClassName,
                     )}
-                    onClick={onRowClick ? () => onRowClick(row) : undefined}
-                    data-testid="data-table-row"
+                    onClick={onRowClick && !ghost ? () => onRowClick(row) : undefined}
+                    data-testid={ghost ? 'data-table-row-leaving' : 'data-table-row'}
                   >
                     {columns.map((col) => {
                       const raw = getValue(row, col.key)
-                      const content = col.render ? col.render(row, raw) : raw === null || raw === undefined ? '' : String(raw)
+                      const content = col.render ? col.render(row, raw, { entering: isEntering && !ghost }) : raw === null || raw === undefined ? '' : String(raw)
+                      const gen = ghost ? 0 : cellGen.current.get(`${key}|${col.key}`) || 0
                       return (
                         <td
                           key={col.key || col.label}
@@ -250,8 +308,10 @@ export function DataTable({
                             col.align === 'right' && 'text-right',
                             col.align === 'center' && 'text-center',
                             col.truncate && 'max-w-[1px] truncate',
+                            gen > 0 && (gen % 2 ? 'fx-hl-a' : 'fx-hl-b'),
                             col.className,
                           )}
+                          data-changed={gen > 0 ? gen : undefined}
                           title={col.truncate && typeof content === 'string' ? content : undefined}
                         >
                           {content}
@@ -277,7 +337,7 @@ export function DataTable({
             )}
           </div>
         )}
-        {!loading && !error && sortedRows.length === 0 && (
+        {!loading && !error && renderItems.length === 0 && (
           <EmptyState icon={emptyIcon || TableIcon} title={emptyTitle || t('table.empty')} description={emptyDescription} />
         )}
       </div>

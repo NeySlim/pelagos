@@ -126,7 +126,10 @@
     "search": "Chercher un enregistrement...",
     "readFrom": "n° de série {{serial}}",
     "add": "Ajouter un enregistrement",
-    "empty": "Aucun enregistrement ne correspond"
+    "empty": "Aucun enregistrement ne correspond",
+    "applied": "Plan appliqué",
+    "rollbackPlan": "Annuler le plan",
+    "rollbackGone": "Le serveur ne détient plus ce plan : il ne peut plus être annulé d'ici"
   },
   "editor": {
     "title": {
@@ -390,5 +393,11 @@
       "validationFailures": "Échecs de validation"
     },
     "liveRate": "Débit de requêtes"
+  },
+  "trace": {
+    "serials": "Sérial par nœud",
+    "window": "{{minutes}} dernières min",
+    "planApplied": "plan appliqué",
+    "rolledBack": "plan annulé"
   }
 }

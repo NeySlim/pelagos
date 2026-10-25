@@ -11,6 +11,7 @@ import { Button } from '../../components/Button'
 import { StatusBadge } from '../../components/StatusBadge'
 import { RichStatsBar } from '../../components/ui/RichStatsBar'
 import { useApi } from '../../hooks/useApi'
+import { usePoll } from '../../hooks/usePoll'
 import { usePermission } from '../../hooks/usePermission'
 import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
@@ -30,6 +31,7 @@ function earliest(status, field) {
 
 // Without bulk status in GET /dns/zones, one zonestatus read per zone: bounded so a large deployment does not flood the nodes.
 const STATUS_CONCURRENCY = 4
+const SECONDARIES_POLL_MS = 30000
 
 // A zone list item that already carries `status` (node id -> ZoneStatus) needs no extra read.
 async function withStatus(it) {
@@ -65,6 +67,8 @@ export default function SecondariesPage() {
   const { data, error, loading, refetch, setData } = useApi(loadSecondaries, [])
   const rows = useMemo(() => data || [], [data])
   const canOps = hasPermission('ops:dns')
+  // Transfers happen on their own schedule: the serials are read again quietly.
+  usePoll(async () => setData(await loadSecondaries()), SECONDARIES_POLL_MS, { enabled: Boolean(data) })
 
   const resync = async (row) => {
     setBusy(`${row.zone.view}/${row.zone.name}`)

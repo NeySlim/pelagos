@@ -24,6 +24,7 @@ const VARIANTS = {
   applied: 'success',
   failed: 'danger',
   rolled_back: 'warning',
+  rolling_back: 'warning',
   expired: 'gray',
   queued: 'gray',
   running: 'warning',
@@ -76,7 +77,7 @@ export function StatusBadge({ status, label, size = 'sm', dot = true, pulse, cla
   const text = label ?? t(`status.${key}`, { defaultValue: key.replace(/[-_]/g, ' ') })
   const variant = statusVariant(key)
   return (
-    <Badge variant={variant} size={size} dot={dot} pulse={pulse ?? ['applying', 'running', 'syncing'].includes(key)} className={className} {...props}>
+    <Badge variant={variant} size={size} dot={dot} pulse={pulse ?? ['applying', 'rolling_back', 'running', 'syncing'].includes(key)} className={className} {...props}>
       {text}
     </Badge>
   )

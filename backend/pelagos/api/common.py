@@ -9,6 +9,7 @@ from typing import Any
 from flask import request
 
 from pelagos.api.errors import ApiError
+from pelagos.core import plan_secrets
 from pelagos.domain import Model, Plan, PlanState, from_rfc3339, utcnow
 from pelagos.services.masking import MASK as MASK
 from pelagos.services.masking import SECRET_KEYS as SECRET_KEYS
@@ -128,7 +129,9 @@ def _dump(value: Any) -> Any:
 
 def plan_dict(plan: Plan) -> dict[str, Any]:
     """A plan as the API shows it: key material, given or generated, never leaves the node."""
-    data = masked(plan.to_dict())
+    data = plan.to_dict()
+    data["changes"] = plan_secrets.without_sealed(data.get("changes") or [])
+    data = masked(data)
     data["diff"] = masked_text(data.get("diff") or "")
     for v in data.get("validations", []):
         v["output"] = masked_text(v.get("output") or "")

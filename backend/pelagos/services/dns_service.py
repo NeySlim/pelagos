@@ -624,6 +624,9 @@ class DnsService(DnsExtras):
             raise ValidationError(f"unknown operation {op}")
         with self._zone_status_lock:
             self._zone_status.clear()
+        if node_id is None and self.local is None:
+            # Same default node as zone plans: the first peer running BIND.
+            node_id = self.zone_owner(None).id  # type: ignore[union-attr]
         if node_id not in (None, self.ctx.node.id):
             return self.peer_operation(op, zone, str(node_id), view, user, client_ip)
         zone = normalize_name(zone)

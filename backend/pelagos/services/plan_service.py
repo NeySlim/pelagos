@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend, DnsBackend, PreconditionFailed
+from pelagos.core import plan_secrets
 from pelagos.core.context import NodeContext
 from pelagos.core.plans import PlanNotFound
 from pelagos.domain import (
@@ -479,7 +480,7 @@ class PlanService:
                 "entry": "summary",
                 "summary": plan.summary,
                 "summary_message": plan.summary_message,
-                "changes": masked([c.to_dict() for c in plan.changes]),
+                "changes": masked(plan_secrets.without_sealed([c.to_dict() for c in plan.changes])),
                 "target_node_ids": plan.target_node_ids,
             },
             response={"state": plan.state.value, "error": masked_text(plan.error) if plan.error else None},

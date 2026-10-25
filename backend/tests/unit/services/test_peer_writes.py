@@ -4,6 +4,7 @@ through POST /repl/v1/actions/<name>, then applies plans there through /plans/ap
 
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
 from collections.abc import Iterator
@@ -13,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from pelagos.api.common import plan_dict
 from pelagos.core.bootstrap import bootstrap_first_node, dev_paths
 from pelagos.core.config_store import ConfigStore, NodeConfig
 from pelagos.core.context import NodeContext
@@ -40,7 +42,7 @@ from pelagos.services.peers import PeerGateway
 from pelagos.services.plan_service import PlanService
 from pelagos.services.registry import ConnectorRegistry, replication_registry
 from tests.fixtures.ports import free_port
-from tests.unit.services.fakes import FakeDhcpBackend, FakeDnsBackend, fake_context
+from tests.unit.services.fakes import FakeDdnsBackend, FakeDhcpBackend, FakeDnsBackend, fake_context
 
 pytestmark = pytest.mark.unit
 
@@ -83,6 +85,28 @@ class AdoptingKea(FakeDhcpBackend):
             requires_confirmation=True,
             state=PlanState.VALIDATED,
         )
+
+
+D2_SECRET = "c2VjcmV0LW9mLXRoZS1wZWVy"
+D2_SECRET_PATH = "/etc/kea/ddi-extra.secret"
+
+
+class SecretD2(FakeDdnsBackend):
+    """A D2 fake whose replace writes a TSIG secret file, the secret held in memory as the real one."""
+
+    def plan_config_replace(self, config: dict[str, Any], created_by: str = "") -> Plan:
+        plan = super().plan_config_replace(config, created_by)
+        digest = hashlib.sha256(D2_SECRET.encode()).hexdigest()
+        plan.changes.append(
+            Change(
+                ChangeOp.ADD, "secret-file/ddi-extra.secret", after={"path": D2_SECRET_PATH, "sha256": digest}
+            )
+        )
+        self.held = {plan.id: {D2_SECRET_PATH: D2_SECRET}}
+        return plan
+
+    def plan_secrets(self, plan_id: str) -> dict[str, str]:
+        return dict(getattr(self, "held", {}).get(plan_id, {}))
 
 
 @dataclass
@@ -130,7 +154,7 @@ def pair(tmp_root: Path) -> Iterator[Pair]:
             replication_listen=f"127.0.0.1:{port_b}",
             replication_url=f"https://127.0.0.1:{port_b}",
             web_url="https://ns2.example.lan:8443",
-            engines={"bind": True, "kea4": True},
+            engines={"bind": True, "kea4": True, "d2": True},
         )
     )
     token = service_a.enrollment.issue_token(f"user:admin@node:{ctx_a.node.id}")
@@ -142,6 +166,7 @@ def pair(tmp_root: Path) -> Iterator[Pair]:
     registry_b = ConnectorRegistry(
         dns=FakeDnsBackend(fake_context(node_b, "bind", tmp_root / "bk-bind")),
         kea4=AdoptingKea(fake_context(node_b, "kea4", tmp_root / "bk-kea4"), Family.V4),
+        d2=SecretD2(fake_context(node_b, "d2", tmp_root / "bk-d2")),
     )
     registry_b.dns.rndc = Rndc()  # type: ignore[attr-defined]
     registry_b.kea4.socket = Socket()  # type: ignore[attr-defined]
@@ -266,5 +291,43 @@ def test_a_silent_peer_times_out(pair):
         with pytest.raises(EngineUnavailable, match="did not answer"):
             pair.gateway.action(pair.peer, "ops.run", {}, timeout=1)
         assert time.monotonic() - started < 5
+        # An operation the peer may still run: the answer and this node's audit say the outcome is unknown.
+        pair.a.config_store.update_cluster(
+            lambda c: c.settings.__setitem__("peer_action_timeout_seconds", 1), updated_by="test"
+        )
+        ops = OpsService(pair.a, ConnectorRegistry(), pair.gateway)
+        with pytest.raises(EngineUnavailable) as err:
+            ops.run_bind("flush", {}, pair.b.node.id, False, "alice", None)
+        assert err.value.extra == {"outcome_unknown": True}
+        assert err.value.detail.endswith("outcome unknown, check the audit on ns2")
+        here = _audit(pair.a, "dns.ops")[-1]
+        assert here.result is AuditResult.ERROR and here.response["outcome_unknown"] is True
+        assert "outcome unknown" in (here.message or "")
     finally:
         release.set()
+
+
+def test_a_d2_plan_built_on_a_peer_keeps_its_sealed_secret_out_of_answers(pair):
+    """The stored plan keeps the token to send it back; plan answers and the audit never show it."""
+    dhcp = DhcpService(pair.a, Family.V4, None, pair.gateway)
+    config = pair.registry_b.d2.config_get()
+    plan = dhcp.plan_d2_config({"node_id": pair.b.node.id, "config": config}, "alice")
+    stored = pair.a.plan_store.get(plan.id)
+    secret_change = next(c for c in stored.changes if c.target.startswith("secret-file/"))
+    assert secret_change.after.get("sealed")
+    answer = plan_dict(stored)
+    shown = next(c for c in answer["changes"] if c["target"].startswith("secret-file/"))
+    assert "sealed" not in shown["after"] and shown["after"]["path"] == D2_SECRET_PATH
+    assert secret_change.after["sealed"] not in str(answer) and D2_SECRET not in str(answer)
+    PlanService(pair.a, ConnectorRegistry(), pair.gateway).apply(plan, "alice", confirm=True)
+    for entry in pair.a.audit_log.read():
+        assert secret_change.after["sealed"] not in str(entry.to_dict())
+        assert "sealed" not in str(entry.request.get("changes", ""))
+
+
+def test_zone_operation_without_bind_here_runs_on_the_zone_plans_default_node(pair):
+    dns = DnsService(pair.a, None, pair.gateway)
+    out = dns.operation("notify", "example.lan", None, None, "alice")
+    assert isinstance(out, str)
+    there = [e for e in pair.b.audit_log.read() if e.user == f"node:{pair.a.node.id}"]
+    assert there and "notify" in there[-1].target

@@ -37,6 +37,17 @@ def seal_plan_secrets(plan: Plan, secrets: Mapping[str, str], box: SecretBox) ->
     return sealed
 
 
+def without_sealed(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Serialized changes as answers and the audit show them: no `sealed` token, even masked."""
+    out = []
+    for change in changes:
+        after = change.get("after")
+        if str(change.get("target", "")).startswith(SECRET_FILE_PREFIX) and isinstance(after, dict):
+            change = {**change, "after": {k: v for k, v in after.items() if k != SEALED}}
+        out.append(change)
+    return out
+
+
 def unseal_plan_secrets(plan: Plan, box: SecretBox) -> dict[str, str]:
     """{path: clear secret} of every sealed change; raises SecretError on a wrong key or digest."""
     out: dict[str, str] = {}

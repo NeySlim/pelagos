@@ -63,6 +63,14 @@ def plan_timeout(plan: Plan, settings: dict[str, Any] | None = None) -> float:
     return float(settings.get("peer_plan_timeout_seconds", ENGINE_PLAN_TIMEOUT))
 
 
+class PeerSilent(EngineUnavailable):
+    """The peer took the request but gave no usable answer: it may have run the action anyway."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.extra = {"outcome_unknown": True}
+
+
 class PeerGateway:
     def __init__(self, ctx: NodeContext, cache_seconds: float | None = None) -> None:
         self.ctx = ctx
@@ -250,10 +258,12 @@ class PeerGateway:
                     "not_supported", f"node {peer.name} cannot run {name} for another node: upgrade it"
                 ) from None
             if exc.status is None:
-                raise EngineUnavailable(f"node {peer.name} did not answer {name}: {exc}") from None
+                raise PeerSilent(f"node {peer.name} did not answer {name}: {exc}") from None
+            if exc.status >= 500:
+                raise PeerSilent(f"node {peer.name}: {exc}") from None
             raise EngineUnavailable(f"node {peer.name}: {exc}") from None
         except OSError as exc:
-            raise EngineUnavailable(f"node {peer.name} did not answer {name}: {exc}") from None
+            raise PeerSilent(f"node {peer.name} did not answer {name}: {exc}") from None
         if not data.get("ok"):
             code = str(data.get("code") or "engine_unavailable")
             detail = f"{peer.name}: {data.get('detail') or code}"

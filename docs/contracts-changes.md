@@ -40,10 +40,22 @@ What changed (file, symbol). Why. Which packages must react, and how.
   view's keys); `remote_rrset.plan_on_primary` and `primary_peer` take `view`.
 - `d2_secrets.needs_sealing` is false for a plan whose secrets are already
   sealed (a D2 config replace built by a peer).
-- `tests/fixtures/ports.free_port()` hands out ports below the kernel's
-  ephemeral range, each claimed by an flock in
-  `<tempdir>/pelagos-test-ports-<uid>/` for the process's next 256
-  allocations. Cause of the flaky replication tests: a port released by
+- Plan answers (`api.common.plan_dict`) and the summary audit entry drop
+  `after.sealed` from `secret-file/` changes (`plan_secrets.without_sealed`);
+  the plan store keeps it for the apply.
+- A peer action without an answer (timeout, transport error, 5xx) raises
+  `peers.PeerSilent` (`engine_unavailable`, `extra.outcome_unknown: true`);
+  `ops.run` adds "outcome unknown, check the audit on <peer>" to the detail
+  and `outcome_unknown` to the caller's audit `response`.
+- `DnsService.operation` without `node_id` on a node without BIND runs on
+  the first peer running BIND, the default of zone plans.
+- `POST /hosts/plan`: an explicit `reverse_view: "_default"` puts the PTR in
+  the default view; only an absent or empty `reverse_view` follows `view`.
+- `tests/fixtures/ports.free_port()` hands out ports from 20000 up to the
+  kernel's ephemeral floor (hand-picked e2e ports stay below 20000), each
+  claimed by an flock in `<tempdir>/pelagos-test-ports-<uid>/` for the
+  process's next 256 allocations; the lock file is unlinked, flock still held,
+  when the claim is released or the process exits. Cause of the flaky replication tests: a port released by
   `free_port()` (or by a stopped test server) was taken by another test
   process or an outgoing connection before the server bound it again
   (`EADDRINUSE`, or a push reaching another test's server). No caller changes.

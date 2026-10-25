@@ -1396,8 +1396,16 @@ sets `target_node_ids` to the callee) and applied through `/plans/apply`,
 so both nodes audit the apply. A refusal keeps its section 19 code (the
 detail is prefixed with the peer's name); an offline peer is `503
 engine_unavailable` at once, a peer that does not answer within
-`settings.peer_action_timeout_seconds` (default 120) is `503` too, and a peer
-without the endpoint is `501 not_supported`.
+`settings.peer_action_timeout_seconds` (default 120) or answers 5xx is `503`
+with `outcome_unknown: true` in the problem document (the peer may still run
+the action; for `ops.run` the detail and the caller's audit `response` say so,
+the peer's own audit tells the outcome), and a peer without the endpoint is
+`501 not_supported`. A D2 plan built by a peer is stored with its `sealed`
+token (the caller sends it back on apply); plan answers and the summary audit
+entry drop that key. Zone operations (`/dns/zones/{zone}/notify`, `reload`,
+`freeze`, `thaw`...) without `node_id` on a node without BIND run on the same
+default node as zone plans, the first peer running BIND; DNS configuration and
+DNSSEC plans still need a node running BIND (`503` elsewhere).
 
 The collector serves `/repl/v1` (it runs `ReplicationService` with a
 registry over its own backends) and adds the kind `cache`: the answer is

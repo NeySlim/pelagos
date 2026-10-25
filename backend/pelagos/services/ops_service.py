@@ -504,8 +504,13 @@ class OpsService:
         try:
             output = (self.peers.action(peer, "ops.run", body) or {}).get("output")
         except ServiceError as exc:
+            unknown = bool(exc.extra.get("outcome_unknown"))
+            if unknown:
+                # The peer may still run it (no cancellation): its own audit tells the outcome.
+                exc.detail = f"{exc.detail}; outcome unknown, check the audit on {peer.name}"
+                exc.args = (exc.detail,)
             error = AuditResult.ERROR
-            self._audit(engine, spec, audit_params, None, error, exc.detail, user, client_ip, True)
+            self._audit(engine, spec, audit_params, None, error, exc.detail, user, client_ip, True, unknown)
             raise
         self._audit(engine, spec, audit_params, output, AuditResult.OK, None, user, client_ip, True)
         return output
@@ -577,9 +582,12 @@ class OpsService:
         user: str,
         client_ip: str | None,
         remote: bool = False,
+        outcome_unknown: bool = False,
     ) -> None:
         action = "dns.ops" if engine is Engine.BIND else "dhcp.ops"
         response = {"output": output, **({"remote": True} if remote else {})}
+        if outcome_unknown:
+            response["outcome_unknown"] = True
         self.ctx.audit_log.append(
             AuditEntry(
                 node_id=self.ctx.node.id,

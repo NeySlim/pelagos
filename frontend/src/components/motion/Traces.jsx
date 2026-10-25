@@ -112,7 +112,8 @@ export const SerialTrace = forwardRef(function SerialTrace(
       ctx.fillStyle = c.faint
       ctx.textAlign = 'center'
       ctx.globalAlpha = 0.85
-      for (const tick of rulerTicks(now, windowMs)) {
+      // About one labelled tick per 80 px, so a phone keeps a readable ruler.
+      for (const tick of rulerTicks(now, windowMs, Math.max(2, Math.floor((right - left) / 80)))) {
         const x = Math.round(toX(tick.t)) + 0.5
         ctx.fillRect(x, bottom, 1, 3)
         ctx.globalAlpha = 0.12
@@ -373,6 +374,8 @@ export function ThresholdTrace({ points = [], thresholds = [], latches = [], fro
       ctx.textBaseline = 'middle'
       ctx.textAlign = 'left'
 
+      // Labels closer than one line of text to a label already drawn are left out.
+      const labelled = []
       for (const th of thresholds) {
         const y = Math.round(toY(th.value)) + 0.5
         ctx.strokeStyle = c[th.tone] || c.faint
@@ -383,9 +386,12 @@ export function ThresholdTrace({ points = [], thresholds = [], latches = [], fro
         ctx.lineTo(right, y)
         ctx.stroke()
         ctx.setLineDash([])
-        ctx.globalAlpha = 0.9
-        ctx.fillStyle = c.faint
-        ctx.fillText(th.label ?? format(th.value), right + 6, y)
+        if (labelled.every((ly) => Math.abs(ly - y) >= 10)) {
+          ctx.globalAlpha = 0.9
+          ctx.fillStyle = c.faint
+          ctx.fillText(th.label ?? format(th.value), right + 6, y)
+          labelled.push(y)
+        }
       }
       ctx.globalAlpha = 1
 

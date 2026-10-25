@@ -66,7 +66,8 @@ function AlertPressure({ alert }) {
   const { t } = useTranslation(['alerts', 'common'])
   const query = poolSeriesQuery(alert)
   const opened = Date.parse(alert.first_seen)
-  const end = alert.resolved_at ? Date.parse(alert.resolved_at) + PRESSURE_AFTER_MS : null
+  // A resolved incident shows what followed, up to the present at most.
+  const end = alert.resolved_at ? Math.min(Date.now(), Date.parse(alert.resolved_at) + PRESSURE_AFTER_MS) : null
   const series = useApi(
     () =>
       query

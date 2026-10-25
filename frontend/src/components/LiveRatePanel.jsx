@@ -10,7 +10,7 @@ import { CountUp, StatusDot, StippledAreaChart } from './motion'
 export function LiveRatePanel({ target, title, tone = 'primary', height = 64, className, testId = 'live-rate' }) {
   const { t, i18n } = useTranslation('common')
   const sources = useLiveRates(target ? [target] : [])
-  const points = (target && sources[target.key]?.points) || []
+  const points = ((target && sources[target.key]?.points) || []).slice(-LIVE_CAPACITY)
   const current = latest(points)
   const format = (v) => new Intl.NumberFormat(i18n.language, { maximumFractionDigits: v < 10 ? 1 : 0 }).format(v)
   const time = (p) => (p?.t ? new Date(p.t).toLocaleTimeString(i18n.language) : '')

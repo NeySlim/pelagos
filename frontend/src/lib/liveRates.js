@@ -5,6 +5,8 @@
 
 export const LIVE_INTERVAL_MS = 4000
 export const LIVE_CAPACITY = 45
+// Samples kept per source: a 5 min trace window plus a margin (charts show LIVE_CAPACITY).
+export const LIVE_HISTORY = 80
 // Two samples closer than this keep the older one: counter rounding over a few
 // milliseconds would read as a spike.
 export const MIN_SAMPLE_GAP_MS = LIVE_INTERVAL_MS / 2
@@ -31,7 +33,15 @@ export function keaCounter(statistics, name) {
   return num(Array.isArray(first) ? first[0] : first)
 }
 
-// Leases handed out so far: ACKs (v4) or REPLYs (v6), with the received packets beside.
+// The four packets of a lease exchange (DORA in v4, SARR in v6) and the v4 NAK.
+export const DORA_COUNTERS = {
+  v4: { discover: 'pkt4-discover-received', offer: 'pkt4-offer-sent', request: 'pkt4-request-received', ack: 'pkt4-ack-sent', nak: 'pkt4-nak-sent' },
+  v6: { discover: 'pkt6-solicit-received', offer: 'pkt6-advertise-sent', request: 'pkt6-request-received', ack: 'pkt6-reply-sent' },
+}
+export const DORA_STEPS = ['discover', 'offer', 'request', 'ack']
+
+// Leases handed out so far: ACKs (v4) or REPLYs (v6), with the received packets and the
+// exchange steps beside.
 export function dhcpCounters(res, family) {
   const st = res?.statistics
   if (!st || typeof st !== 'object') return null
@@ -39,7 +49,12 @@ export function dhcpCounters(res, family) {
   const total = keaCounter(st, v6 ? 'pkt6-reply-sent' : 'pkt4-ack-sent')
   const received = keaCounter(st, v6 ? 'pkt6-received' : 'pkt4-received')
   if (total === null && received === null) return null
-  return { total: total ?? 0, parts: { received: received ?? 0 } }
+  const parts = { received: received ?? 0 }
+  for (const [step, name] of Object.entries(DORA_COUNTERS[v6 ? 'v6' : 'v4'])) {
+    const v = keaCounter(st, name)
+    if (v !== null) parts[step] = v
+  }
+  return { total: total ?? 0, parts }
 }
 
 // When a sample was taken: the server's collected_at when it parses, else the local clock.
@@ -137,10 +152,23 @@ export function summarizeLive(targets, sources) {
     if (v !== null) byNode[t.node] = v
     seriesByNode[t.node] = src(t)?.points || []
   }
+  const dora = Object.fromEntries([...DORA_STEPS, 'nak'].map((k) => [k, combine(dhcp.map((t) => src(t)?.parts?.[k]))]))
   return {
     dns: { enabled: dns.length > 0, series: dnsSeries, current: latest(dnsSeries), byNode, seriesByNode, rcodes },
-    dhcp: { enabled: dhcp.length > 0, series: dhcpSeries, current: latest(dhcpSeries) },
+    dhcp: { enabled: dhcp.length > 0, series: dhcpSeries, current: latest(dhcpSeries), dora },
   }
+}
+
+// The newest lease exchange of the DHCP series: per step rate, leases counted in the last
+// sample interval, its instant, and whether NAKs were sent in it. Null before two samples.
+export function latestExchange(dhcp) {
+  const series = dhcp?.series || []
+  const last = series[series.length - 1]
+  const prev = series[series.length - 2]
+  if (!last || !prev) return null
+  const rates = Object.fromEntries(DORA_STEPS.map((k) => [k, latest(dhcp.dora?.[k])]))
+  const nak = latest(dhcp.dora?.nak)
+  return { t: last.t, rates, leases: Math.round((last.v * (last.t - prev.t)) / 1000), nak: nak !== null && nak > 0 }
 }
 
 // Drops points older than `maxAgeMs`, so a series restored after a pause does not join

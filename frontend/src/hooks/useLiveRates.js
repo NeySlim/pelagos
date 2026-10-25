@@ -4,10 +4,10 @@
 // dashboard and coming back, or reloading the tab, keeps the recent history.
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../services/api'
-import { LIVE_CAPACITY, LIVE_INTERVAL_MS, advance, dhcpCounters, dnsCounters, emptySource, prune, sampleTime } from '../lib/liveRates'
+import { LIVE_HISTORY, LIVE_INTERVAL_MS, advance, dhcpCounters, dnsCounters, emptySource, prune, sampleTime } from '../lib/liveRates'
 
 const STORAGE_KEY = 'pelagos-live-rates'
-const MAX_AGE_MS = LIVE_CAPACITY * LIVE_INTERVAL_MS * 1.5
+const MAX_AGE_MS = LIVE_HISTORY * LIVE_INTERVAL_MS * 1.5
 
 function load() {
   try {
@@ -90,7 +90,7 @@ async function sampleAll(all) {
     const tg = targets[i]
     const counters = tg.counters(r.value)
     if (!counters) return
-    const next = advance(s[tg.key] || emptySource(), { t: sampleTime(r.value, now), counters })
+    const next = advance(s[tg.key] || emptySource(), { t: sampleTime(r.value, now), counters }, LIVE_HISTORY)
     if (next === s[tg.key]) return
     s[tg.key] = next
     changed = true

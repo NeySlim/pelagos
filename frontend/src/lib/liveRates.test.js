@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { MIN_SAMPLE_GAP_MS, advance, liveWindowLabel, liveWindowSeconds, appendPoint, combine, dhcpCounters, dnsCounters, emptySource, keaCounter, latest, prune, sampleTime, share, summarizeLive } from './liveRates'
+import { MIN_SAMPLE_GAP_MS, advance, latestExchange, liveWindowLabel, liveWindowSeconds, appendPoint, combine, dhcpCounters, dnsCounters, emptySource, keaCounter, latest, prune, sampleTime, share, summarizeLive } from './liveRates'
 import { liveTargets } from '../hooks/useLiveRates'
 
 const sample = (t, total, parts = {}) => ({ t: t * 1000, counters: { total, parts } })
@@ -19,9 +19,19 @@ describe('counter extraction', () => {
     const st = { 'pkt4-ack-sent': [[12, 'b'], [10, 'a']], 'pkt4-received': [[30, 'b']], 'pkt6-reply-sent': [[5, 'x']] }
     expect(keaCounter(st, 'pkt4-ack-sent')).toBe(12)
     expect(keaCounter(st, 'missing')).toBeNull()
-    expect(dhcpCounters({ statistics: st }, 'v4')).toEqual({ total: 12, parts: { received: 30 } })
-    expect(dhcpCounters({ statistics: st }, 'v6')).toEqual({ total: 5, parts: { received: 0 } })
+    expect(dhcpCounters({ statistics: st }, 'v4')).toEqual({ total: 12, parts: { received: 30, ack: 12 } })
+    expect(dhcpCounters({ statistics: st }, 'v6')).toEqual({ total: 5, parts: { received: 0, ack: 5 } })
+    const dora = { 'pkt4-discover-received': [[40, 'b']], 'pkt4-offer-sent': [[39, 'b']], 'pkt4-request-received': [[20, 'b']], 'pkt4-ack-sent': [[19, 'b']], 'pkt4-nak-sent': [[1, 'b']] }
+    expect(dhcpCounters({ statistics: dora }, 'v4').parts).toEqual({ received: 0, discover: 40, offer: 39, request: 20, ack: 19, nak: 1 })
     expect(dhcpCounters({ statistics: {} }, 'v4')).toBeNull()
+  })
+
+  it('reads the newest lease exchange: per step rates, leases counted, NAKs', () => {
+    const pts = (...v) => v.map((x, i) => ({ t: 4000 * (i + 1), v: x }))
+    const dhcp = { series: pts(5, 6), dora: { discover: pts(3, 3.2), offer: pts(3, 3.1), request: pts(6, 6.5), ack: pts(5, 6), nak: pts(0, 0.25) } }
+    expect(latestExchange(dhcp)).toEqual({ t: 8000, rates: { discover: 3.2, offer: 3.1, request: 6.5, ack: 6 }, leases: 24, nak: true })
+    expect(latestExchange({ series: pts(5) })).toBeNull()
+    expect(latestExchange({ series: pts(1, 2), dora: {} }).nak).toBe(false)
   })
 
   it('stamps a sample with collected_at when it parses', () => {

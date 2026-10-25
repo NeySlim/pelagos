@@ -24,12 +24,14 @@ from pelagos.platform import (
     detect_distro,
     find_binary,
     platform_paths,
+    service_manager_for,
     user_exists,
 )
 
 # node.toml [engines.bind] keys that say where named listens; an import never overrides them.
 BIND_CONNECTION_KEYS = ("rndc_address", "rndc_port", "statistics_url", "query_address", "query_port")
 LOCAL_ADDRESSES = frozenset({"", "127.0.0.1", "::1", "localhost"})
+KEA_ENGINES = {"kea-dhcp4": "kea4", "kea-dhcp6": "kea6", "kea-dhcp-ddns": "d2"}
 
 
 class Tools:
@@ -64,8 +66,35 @@ class Tools:
         )
         return res.stdout
 
+    def _remote_socket(self, daemon: str, conf: Path | None = None) -> Path | None:
+        """The control socket of a Kea daemon whose binary is not on this host (a Kea container
+        sharing its socket directory, as in docker/compose.yaml), when it answers."""
+        engine = KEA_ENGINES.get(daemon)
+        if engine is None:
+            return None
+        sock = None
+        conf = conf or self.env.paths.kea_conf(daemon)
+        try:
+            config = keaconf.loads(conf.read_text(), str(conf))
+            sock = keaconf.control_socket_path(config, self.env.paths.kea_socket_dir)
+        except (OSError, ValueError, KeyError):
+            sock = None
+        sock = sock or self.env.paths.kea_socket(engine)
+        return sock if self.socket_alive(sock) else None
+
     def kea_test(self, daemon: str, conf: Path) -> tuple[bool, str]:
-        """Checked as the Kea user, like the service runs: AppArmor denies root DAC override to Kea."""
+        """Checked as the Kea user, like the service runs: AppArmor denies root DAC override to Kea.
+        Without the binary, the running daemon checks the file with config-test over its socket."""
+        if not self.env.binary(daemon):
+            sock = self._remote_socket(daemon, conf)
+            if sock is None:
+                raise FileNotFoundError(f"{daemon} not found and no control socket answers; is it installed?")
+            try:
+                config = keaconf.loads(conf.read_text(), str(conf))
+                answer = self.kea_command(sock, "config-test", config)
+            except (OSError, ValueError) as exc:
+                return False, f"config-test over {sock}: {exc}"
+            return answer.get("result") == 0, f"config-test over {sock}: {answer.get('text', '')}"
         argv = [self._bin(daemon), "-t", str(conf)]
         runuser = self.env.binary("runuser")
         if runuser and user_exists(self.env.paths.kea_user):
@@ -76,7 +105,14 @@ class Tools:
     def kea_version(self, daemon: str) -> str | None:
         binary = self.env.binary(daemon)
         if not binary:
-            return None
+            sock = self._remote_socket(daemon)
+            if sock is None:
+                return None
+            try:
+                answer = self.kea_command(sock, "version-get")
+            except (OSError, ValueError):
+                return None
+            return keaconf.daemon_version_from_text(str(answer.get("text", "")))
         res = self.env.runner.run([binary, "-v"], privileged=True, check=False, mutates=False, timeout=10)
         return keaconf.daemon_version_from_text(res.output)
 
@@ -153,7 +189,7 @@ class InstallerEnv:
         if self.tools is None:
             self.tools = Tools(self)
         if self.service_manager is None:
-            self.service_manager = ServiceManager(self.runner)
+            self.service_manager = service_manager_for(self.runner)
         if self.package_manager is None:
             self.package_manager = PackageManager(self.distro, self.runner)
 

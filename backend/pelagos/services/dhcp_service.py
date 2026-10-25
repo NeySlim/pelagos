@@ -568,13 +568,21 @@ class DhcpService:
         return self.ctx.plan_store.put(plan)
 
     def _ha_nodes(self, node_ids: list[Any], field: str) -> list[str]:
+        """The nodes a setup writes on, each running the engine and answering now; a problem is
+        reported on `field` with the node id (an unreachable server is left without a node)."""
         out = []
         for node_id in node_ids:
             node_id = str(node_id)
-            if node_id == self.ctx.node.id:
-                self._local()
-            else:
-                self._engine_peer(self.engine, node_id)
+            try:
+                if node_id == self.ctx.node.id:
+                    self._local()
+                else:
+                    peer = self._engine_peer(self.engine, node_id)
+                    status = self.peers.status(peer)
+                    if not status.reachable:
+                        raise EngineUnavailable(f"node {peer.name} is unreachable: {status.error}")
+            except (NotFound, EngineUnavailable, ValidationError) as exc:
+                raise ValidationError(str(exc), [field_error(field, node_id)]) from None
             out.append(node_id)
         return out
 

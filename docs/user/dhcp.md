@@ -180,10 +180,13 @@ like any node running the engine.
 To **promote a backup** after an active server is lost: on the backup's card,
 "Promote". The relationship form opens with the backup in the role of the
 lost server (the one not in touch, else the partner of the primary) and that
-server as a backup; review, preview and apply. Every remaining node gets the
-new peer list; when the lost server returns, it rejoins as a backup and
-synchronizes its leases. A server outside the cluster needs the same peer
-list by hand.
+server as a backup, with no node (its node is likely down, and a plan is
+only written on nodes that answer); review, preview and apply. Every
+remaining node gets the new peer list. The lost server still runs the old
+one: when it returns, give it the new peer list (open the relationship form
+and apply it again with its node set, or edit its configuration by hand)
+before it serves clients, then it rejoins as a backup and synchronizes its
+leases. A server outside the cluster needs the same peer list by hand.
 
 ### Maintenance of one server
 

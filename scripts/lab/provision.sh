@@ -362,7 +362,8 @@ if command -v semanage >/dev/null && semanage port -l | grep -q '^kea_port_t'; t
   semanage port -a -t kea_port_t -p tcp 8001 2>/dev/null || semanage port -m -t kea_port_t -p tcp 8001
 fi
 if systemctl is-active -q firewalld; then
-  firewall-cmd -q --add-service=dns --add-port=8001/tcp --add-port=8443/tcp --add-port=8444/tcp
+  firewall-cmd -q --permanent --add-service=dns --add-port=8001/tcp --add-port=8443/tcp --add-port=8444/tcp
+  firewall-cmd -q --reload
 fi
 EOF
   bind_secondary_rpm

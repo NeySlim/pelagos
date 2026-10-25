@@ -177,8 +177,9 @@ class DnsExtras:
         plan.target_node_ids = [owner.id, *others]
         return plan
 
-    def _zone_copies(self, zone: str, view: str) -> dict[str, Zone]:
-        """node id -> the zone as each node running BIND holds it in `view` (reachable nodes only)."""
+    def _zone_copies(self, zone: str, view: str, offline: list[str] | None = None) -> dict[str, Zone]:
+        """node id -> the zone as each node running BIND holds it in `view` (reachable nodes only;
+        the others are appended to `offline`)."""
         out: dict[str, Zone] = {}
         if self.local is not None:
             found = next((z for z in self.local.list_zones(view) if z.name == zone), None)
@@ -187,6 +188,8 @@ class DnsExtras:
         for peer in self.peers.peers_running(Engine.BIND):
             snap = self.peers.snapshot(peer, Engine.BIND, "summary", {})
             if snap is None or snap.get("error"):
+                if offline is not None:
+                    offline.append(peer.id)
                 continue
             for raw in snap.get("zones") or []:
                 if normalize_name(raw.get("name", "")) == zone and raw.get("view", DEFAULT_VIEW) == view:
@@ -223,7 +226,8 @@ class DnsExtras:
             raise ValidationError("node_ids must be a list", [field_error("node_ids", "list expected")])
         zone = normalize_name(zone)
         view = view or DEFAULT_VIEW
-        copies = self._zone_copies(zone, view)
+        offline: list[str] = []
+        copies = self._zone_copies(zone, view, offline)
         primary_id = next((n for n, z in copies.items() if z.kind is ZoneKind.PRIMARY), None)
         if primary_id is None:
             raise NotFound(f"zone {zone}: no reachable node holds it as primary")
@@ -243,6 +247,13 @@ class DnsExtras:
                 )
             if node.id not in wanted:
                 wanted.append(node.id)
+        # A node that does not answer may hold a copy: the plan could neither add nor drop it.
+        for node_id in offline:
+            name = known[node_id].name if node_id in known else node_id
+            raise ValidationError(
+                f"{name} does not answer: cannot tell whether it holds {zone}; retry once it is back",
+                [field_error("node_ids", node_id)],
+            )
         current = [
             n for n, z in copies.items() if z.kind is ZoneKind.SECONDARY and z.source is ZoneSource.PELAGOS
         ]

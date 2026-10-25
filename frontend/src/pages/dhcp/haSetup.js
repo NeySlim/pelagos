@@ -68,18 +68,18 @@ export function withMode(draft, mode) {
 
 // Promote a backup: it takes the role of the active server that is lost (not in touch,
 // else the partner of the primary), which becomes a backup.
+// A lost server keeps no node: its node is likely down, and the plan writes only on nodes that
+// answer (the lost server takes the new peer list by hand when it returns).
 export function promoteDraft(rel, backupName) {
   const draft = draftFromRelationship(rel)
-  const lost =
-    rel.servers.find((s) => s.role !== 'backup' && (s.in_touch === false || ['unavailable', 'terminated'].includes(s.state))) ||
-    rel.servers.find((s) => s.role !== 'backup' && s.role !== 'primary') ||
-    rel.servers.find((s) => s.role === 'primary')
+  const down = rel.servers.find((s) => s.role !== 'backup' && (s.in_touch === false || ['unavailable', 'terminated'].includes(s.state)))
+  const lost = down || rel.servers.find((s) => s.role !== 'backup' && s.role !== 'primary') || rel.servers.find((s) => s.role === 'primary')
   if (!lost) return draft
   return {
     ...draft,
     servers: draft.servers.map((s) => {
       if (s.name === backupName) return { ...s, role: lost.role }
-      if (s.name === lost.name) return { ...s, role: 'backup' }
+      if (s.name === lost.name) return { ...s, role: 'backup', node_id: down ? '' : s.node_id }
       return s
     }),
   }

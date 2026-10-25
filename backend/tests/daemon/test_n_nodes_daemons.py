@@ -435,3 +435,9 @@ def test_primary_with_two_secondaries(dns_cluster):
     assert set(add.target_node_ids) == {n1.id, n3.id} and not add.requires_confirmation
     assert plans.apply(add, "alice").state is PlanState.APPLIED
     wait_for(caught_up(dns_cluster, "multi.lan", [1, 2]), timeout=30, what="ns3 transfers again")
+
+    # ns3 down: it may hold a copy, so no secondaries plan is built until it answers.
+    n3.service.stop()
+    with pytest.raises(ValidationError) as err:
+        dns.plan_secondaries("multi.lan", None, [n2.id], "alice", primaries, notify[:1])
+    assert err.value.errors == [{"field": "node_ids", "message": n3.id}]

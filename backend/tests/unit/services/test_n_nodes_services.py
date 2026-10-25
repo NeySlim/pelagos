@@ -248,3 +248,27 @@ def test_reservation_plan_targets_every_kea_node(four):
     result = plans.apply(plan, "alice")
     assert result.state is PlanState.APPLIED and len(result.results) == 4
     assert all(plan.id in n.kea.applied for n in four.nodes)
+
+
+def test_promote_a_backup_while_the_lost_server_is_down(four):
+    dhcp, plans = four.dhcp(0)
+    ns1, ns2, ns3, ns4 = four.nodes
+    ns2.service.stop()  # the standby is lost: ns4 takes its role
+    roles = ("primary", "backup", "backup", "standby")
+    servers = [
+        {"name": f"server{i + 1}", "url": f"http://192.0.2.{i + 1}:8001/", "role": r, "node_id": n.id}
+        for i, (n, r) in enumerate(zip(four.nodes, roles, strict=True))
+    ]
+    with pytest.raises(ValidationError) as err:
+        dhcp.plan_ha_setup({"mode": "hot-standby", "servers": servers}, "alice")
+    assert err.value.errors == [{"field": "servers[].node_id", "message": ns2.id}]
+    del servers[1]["node_id"]  # what the promote form sends: the lost server keeps no node
+    plan = dhcp.plan_ha_setup({"mode": "hot-standby", "servers": servers}, "alice")
+    assert plan.target_node_ids == [ns1.id, ns3.id, ns4.id]
+    result = plans.apply(plan, "alice", confirm=True)
+    assert result.state is PlanState.APPLIED, result
+    ha = ns4.kea.config["hooks-libraries"][-1]["parameters"]["high-availability"][0]
+    assert ha["this-server-name"] == "server4" and [p["role"] for p in ha["peers"]] == list(roles)
+    with pytest.raises(ValidationError) as err:
+        dhcp.plan_ha_setup({"remove": True, "node_ids": ["no-such-node"]}, "alice")
+    assert err.value.errors == [{"field": "node_ids", "message": "no-such-node"}]

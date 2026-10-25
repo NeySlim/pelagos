@@ -57,6 +57,10 @@ describe('HA relationship form', () => {
       ],
     }
     expect(promoteDraft(rel, 'ns4').servers.map((s) => `${s.name}:${s.role}`)).toEqual(['ns1:primary', 'ns2:backup', 'ns3:backup', 'ns4:standby'])
+    // The lost server keeps its place in the peer list but no node: nothing is written on it.
+    expect(promoteDraft(rel, 'ns4').servers.map((s) => s.node_id)).toEqual(['NS1', '', 'NS3', 'NS4'])
+    const healthy = { ...rel, servers: rel.servers.map((s) => ({ ...s, state: 'backup', in_touch: true })) }
+    expect(promoteDraft(healthy, 'ns3').servers[1]).toMatchObject({ role: 'backup', node_id: 'NS2' })
     expect(draftFromRelationship(rel).servers).toHaveLength(4)
     expect(relationshipHealthy(rel)).toBe(false)
     rel.servers[0].state = rel.servers[1].state = 'hot-standby'

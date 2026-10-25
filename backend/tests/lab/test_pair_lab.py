@@ -8,7 +8,8 @@ ns2 enrolled from ns1, both configurations imported, the security plan applied (
 through the dual-key switch on both D2), a record written through ns2 and read on ns1, a host
 whose reservation and records join a real lease, Kea killed on ns1 (HA alert), ns2 stopped and
 caught up, a static zone edited through its file then converted to dynamic, hand edits of the Kea
-files adopted, ns2's D2 file adopted and an rndc change run on ns2, both from ns1. The VMs are
+files adopted, ns2's D2 file adopted, an rndc change and a zone retransfer run on ns2, all from
+ns1. The VMs are
 rolled back first; the pair is left running with Pelagos for the demo.
 """
 
@@ -521,6 +522,15 @@ class TestReferencePair:
         assert out["node_id"] == ns2
         ops = api(A2).get("/audit?per_page=20&action=dns.ops")["items"]
         assert any(e["user"] == f"node:{ns1}" and e["request"].get("requested_by") for e in ops), ops
+        # A zone operation on ns2's secondary from ns1: retransfer runs on ns2, audited on both.
+        out = api(A1).post("/dns/zones/example.lan/retransfer", {"node_id": ns2})
+        assert out["node_id"] == ns2
+        there = api(A2).get("/audit?per_page=50")["items"]
+        mine = [e for e in there if e["user"] == f"node:{ns1}" and "retransfer" in json.dumps(e)]
+        assert mine and mine[0]["result"] == "ok", there
+        here = api(A1).get("/audit?per_page=20&action=dns.zone.op")["items"]
+        assert any("retransfer" in json.dumps(e) for e in here), here
+        wait_for("ns2 serves the zone again", lambda: dig(A2, "www.example.lan") == "10.99.0.80", timeout=60)
 
     def test_13_demo_state(self):
         api(A1).call(

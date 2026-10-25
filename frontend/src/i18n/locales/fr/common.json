@@ -307,6 +307,7 @@
     "perSecond": "/s",
     "chartLabel": "{{title}}, actuellement {{rate}} par seconde",
     "ago": "-{{minutes}} min",
+    "agoSeconds": "-{{seconds}} s",
     "now": "maintenant"
   }
 }

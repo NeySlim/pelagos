@@ -112,6 +112,7 @@
     "label": "Live",
     "collecting": "Collecting live counters",
     "ago": "-{{minutes}} min",
+    "agoSeconds": "-{{seconds}} s",
     "now": "now"
   },
   "radar": {

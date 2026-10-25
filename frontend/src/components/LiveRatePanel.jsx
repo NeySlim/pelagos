@@ -3,11 +3,9 @@
 // counting up, and the recent window as a stippled area with a glass tooltip.
 import { useTranslation } from 'react-i18next'
 import { useLiveRates } from '../hooks/useLiveRates'
-import { LIVE_CAPACITY, LIVE_INTERVAL_MS, latest } from '../lib/liveRates'
+import { LIVE_CAPACITY, latest, liveWindowLabel } from '../lib/liveRates'
 import { cn } from '../lib/utils'
 import { CountUp, StatusDot, StippledAreaChart } from './motion'
-
-const WINDOW_MINUTES = Math.round((LIVE_CAPACITY * LIVE_INTERVAL_MS) / 60000)
 
 export function LiveRatePanel({ target, title, tone = 'primary', height = 64, className, testId = 'live-rate' }) {
   const { t, i18n } = useTranslation('common')
@@ -49,7 +47,7 @@ export function LiveRatePanel({ target, title, tone = 'primary', height = 64, cl
         />
       )}
       <div className="flex justify-between text-3xs text-text-tertiary mt-1">
-        <span>{t('live.ago', { minutes: WINDOW_MINUTES })}</span>
+        <span>{liveWindowLabel(t, points.length)}</span>
         <span>{t('live.now')}</span>
       </div>
     </div>

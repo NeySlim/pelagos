@@ -50,11 +50,16 @@ describe('charts', () => {
     expect(container.querySelector('.fx-halo')).toBeInTheDocument()
   })
 
-  it('fills a fixed window from the right and shows a glass tooltip on hover', () => {
-    const { container } = render(<StippledAreaChart points={[2, 4]} capacity={11} height={40} formatValue={(v) => `${v}/s`} formatLabel={(_, i) => `#${i}`} />)
-    const line = container.querySelectorAll('path')[1].getAttribute('d')
-    // 300 px fallback width, pad 6: the two points take the last two of eleven slots.
-    expect(line.startsWith('M265.2 ')).toBe(true)
+  it('fills a live window from the right over a dimmed ground, then stretches', () => {
+    const { container, rerender } = render(<StippledAreaChart points={[2, 4]} capacity={45} height={40} formatValue={(v) => `${v}/s`} formatLabel={(_, i) => `#${i}`} />)
+    const line = () => container.querySelector('path[stroke-linejoin]').getAttribute('d')
+    // 300 px fallback width, pad 6: two points take the last two of eight minimum slots.
+    expect(line().startsWith('M252.9 ')).toBe(true)
+    expect(screen.getByTestId('stipple-ground')).toBeInTheDocument()
+    rerender(<StippledAreaChart points={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]} capacity={45} height={40} />)
+    expect(line().startsWith('M6.0 ')).toBe(true)
+    expect(screen.queryByTestId('stipple-ground')).toBeNull()
+    rerender(<StippledAreaChart points={[2, 4]} capacity={45} height={40} formatValue={(v) => `${v}/s`} formatLabel={(_, i) => `#${i}`} />)
     const chart = screen.getByTestId('stippled-area-chart')
     chart.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 40 })
     fireEvent.pointerMove(chart, { clientX: 290 })

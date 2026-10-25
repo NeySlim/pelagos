@@ -112,6 +112,7 @@
     "label": "Direct",
     "collecting": "Collecte des compteurs en cours",
     "ago": "-{{minutes}} min",
+    "agoSeconds": "-{{seconds}} s",
     "now": "maintenant"
   },
   "radar": {

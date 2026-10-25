@@ -9,7 +9,7 @@ import { CountUp, IconButton, MiniHistogram, SegmentedProgress, StatChip, Status
 import { cn } from '../../lib/utils'
 import { TileFrame } from './tiles'
 import { ClusterRadar } from './ClusterRadar'
-import { LIVE_CAPACITY, LIVE_INTERVAL_MS, RCODES, latest, share } from '../../lib/liveRates'
+import { LIVE_CAPACITY, LIVE_MIN_SLOTS, RCODES, latest, liveWindowLabel, share } from '../../lib/liveRates'
 import { haTone, utilizationSegments } from './radarLayout'
 import { dhcpFamily, poolThresholds } from './summary'
 import { useElementSize } from '../../hooks/useElementSize'
@@ -19,7 +19,6 @@ const HISTOGRAM_BARS = 22
 
 const fmt = (lang, digits = 1) => (v) => new Intl.NumberFormat(lang, { maximumFractionDigits: v < 10 ? digits : 0 }).format(v)
 const timeOf = (lang) => (p) => (p?.t ? new Date(p.t).toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '')
-const windowMinutes = Math.round((LIVE_CAPACITY * LIVE_INTERVAL_MS) / 60000)
 
 function LiveStatus({ active }) {
   const { t } = useTranslation('dashboard')
@@ -137,7 +136,7 @@ export function DnsTile({ summary, editing, live }) {
               )}
             </div>
             <div className="flex justify-between text-3xs text-text-tertiary mt-1">
-              <span>{t('live.ago', { minutes: windowMinutes })}</span>
+              <span>{liveWindowLabel(t, series.length)}</span>
               <span>{t('live.now')}</span>
             </div>
           </div>
@@ -175,7 +174,11 @@ export function DhcpTile({ summary, editing, live, thresholds, nameOf }) {
   const current = dhcp?.current
   const format = fmt(i18n.language)
   const [ref, size] = useElementSize()
-  const bars = Math.max(12, Math.min(LIVE_CAPACITY, Math.floor((size.width || 240) / 5)))
+  // Bars widen to fill the panel until the window holds LIVE_CAPACITY points.
+  const width = size.width || 240
+  const bars = Math.max(LIVE_MIN_SLOTS, Math.min(LIVE_CAPACITY, Math.floor(width / 5), series.length))
+  const slot = width / bars
+  const barWidth = Math.max(2, Math.min(10, slot * 0.6))
   return (
     <TileFrame id="dhcp" icon={Network} title={t('tiles.dhcp.title')} link={`/dhcp/${family}/stats`} linkLabel={t('viewAll')} editing={editing} status={<LiveStatus active={current !== null && current !== undefined} />}>
       <div className="flex flex-col gap-3 h-full">
@@ -194,8 +197,8 @@ export function DhcpTile({ summary, editing, live, thresholds, nameOf }) {
               data={[...Array(Math.max(0, bars - series.length)).fill(0), ...series.slice(-bars).map((p) => p.v)]}
               tone="pro"
               height={34}
-              barWidth={3}
-              gap={2}
+              barWidth={barWidth}
+              gap={slot - barWidth}
               className="w-full"
               label={t('tiles.dhcp.chartLabel', { rate: format(current ?? 0) })}
             />

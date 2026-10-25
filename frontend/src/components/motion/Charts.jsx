@@ -58,16 +58,17 @@ export function MiniHistogram({ data = [], tone = 'primary', height = 22, barWid
 }
 
 // points: numbers or { value, label }. The stipple is a grid of dots under the curve.
-// `capacity` fixes the window: fewer points fill it from the right, like a live feed.
+// `capacity` caps a live window: points stretch over at least `minSlots` slots, filled
+// from the right over a dimmed stipple ground, then over all of them up to `capacity`.
 // `formatValue` / `formatLabel` turn on a glass tooltip that follows the pointer.
-export function StippledAreaChart({ points = [], tone = 'primary', height = 140, step = 7, current, labels, className, label, capacity, formatValue, formatLabel }) {
+export function StippledAreaChart({ points = [], tone = 'primary', height = 140, step = 7, current, labels, className, label, capacity, minSlots = 8, formatValue, formatLabel }) {
   const [ref, width] = useElementWidth()
   const [hover, setHover] = useState(null)
   const values = useMemo(() => points.map((p) => (typeof p === 'object' ? Number(p?.value ?? p?.v) || 0 : Number(p) || 0)), [points])
   const geometry = useMemo(() => {
     if (values.length < 2) return null
     const pad = 6
-    const slots = Math.max(values.length, Number(capacity) || 0)
+    const slots = capacity ? Math.max(values.length, Math.min(Number(capacity) || 0, minSlots)) : values.length
     const offset = slots - values.length
     const max = Math.max(...values, 0) || 1
     const min = Math.min(...values, 0)
@@ -85,15 +86,19 @@ export function StippledAreaChart({ points = [], tone = 'primary', height = 140,
       return coords[i][1] + (coords[i + 1][1] - coords[i][1]) * tt
     }
     const dots = []
+    const ground = []
     const first = coords[0][0]
     for (let x = pad; x <= width - pad; x += step) {
-      if (x < first - 0.5) continue
+      if (x < first - 0.5) {
+        for (let y = height - pad; y >= pad; y -= step * 2) ground.push(`M${x.toFixed(1)} ${y.toFixed(1)}h0`)
+        continue
+      }
       const top = curveY(x)
       for (let y = height - pad; y >= top; y -= step) dots.push(`M${x.toFixed(1)} ${y.toFixed(1)}h0`)
     }
     const idx = current === undefined ? values.length - 1 : Math.min(values.length - 1, Math.max(0, current))
-    return { line, dots: dots.join(''), marker: coords[idx], coords, indexAt }
-  }, [values, width, height, step, current, capacity])
+    return { line, dots: dots.join(''), ground: ground.join(''), marker: coords[idx], coords, indexAt }
+  }, [values, width, height, step, current, capacity, minSlots])
 
   const color = toneColor(tone)
   const tooltip = Boolean(formatValue || formatLabel)
@@ -115,6 +120,7 @@ export function StippledAreaChart({ points = [], tone = 'primary', height = 140,
     >
       {geometry && (
         <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : 'true'} className="fx-enter-fade block max-w-full">
+          {geometry.ground && <path d={geometry.ground} stroke={color} strokeWidth="1.6" strokeLinecap="round" opacity="0.14" data-testid="stipple-ground" />}
           <path d={geometry.dots} stroke={color} strokeWidth="2.2" strokeLinecap="round" opacity="0.7" />
           <path d={geometry.line} stroke={color} strokeWidth="1.2" fill="none" strokeLinejoin="round" />
           {hovered && <line x1={hovered[0]} x2={hovered[0]} y1={0} y2={height} stroke={color} strokeWidth="1" strokeDasharray="2 3" opacity="0.8" />}

@@ -60,7 +60,9 @@
     "ackedAt": "Acknowledged at",
     "resolvedAt": "Resolved at",
     "details": "Details",
-    "noDetails": "No details"
+    "noDetails": "No details",
+    "pressure": "Pool use",
+    "full": "full"
   },
   "inconsistency": "Inconsistency",
   "empty": "No alert",

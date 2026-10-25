@@ -2,7 +2,7 @@
 // High availability: one card per Kea server (state, role, scopes, partner view),
 // live through the `ha` topic; maintenance and DHCP service toggles go through a
 // confirmation dialog, then a plan that itself requires confirmation.
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Heartbeat, Wrench, Power, ArrowRight, CheckCircle, Warning } from '@phosphor-icons/react'
 import { Badge } from '../../components/Badge'
@@ -18,11 +18,14 @@ import { usePermission } from '../../hooks/usePermission'
 import { useWsTopic } from '../../hooks/useWebSocket'
 import { api } from '../../services/api'
 import { formatDate, formatRelativeTime } from '../../lib/utils'
-import { FlowLine, StatusDot } from '../../components/motion'
+import { FlowLine, HeartbeatTrace, StatusDot, UnsentQueue } from '../../components/motion'
+import { usePoll } from '../../hooks/usePoll'
 import { haTone } from '../dashboard/radarLayout'
 import { AreaPage, SectionError } from './ui'
 import { usePlanFlow, useNodeNames } from './hooks'
 import { HEALTHY_HA_STATES } from './lib'
+
+const HA_POLL_MS = 5000
 
 export default function HaPage({ family }) {
   const { t } = useTranslation(['dhcp', 'common'])
@@ -41,6 +44,18 @@ export default function HaPage({ family }) {
     transitions.refetch()
   }
   const flow = usePlanFlow({ onApplied: refresh })
+  // Each HA status sample newer than the last one seen is a heartbeat on the card's trace.
+  const beats = useRef(new Map()) // node id -> { at, n }
+  const beatOf = (h) => {
+    const seen = beats.current.get(h.node_id)
+    if (!seen) beats.current.set(h.node_id, { at: h.collected_at, n: 0 })
+    else if (h.collected_at && h.collected_at !== seen.at) beats.current.set(h.node_id, { at: h.collected_at, n: seen.n + 1 })
+    return beats.current.get(h.node_id).n
+  }
+  usePoll(async () => {
+    const res = await api.dhcp.ha(family)
+    if (res?.items) ha.setData(res)
+  }, HA_POLL_MS, { enabled: Boolean(ha.data) })
 
   // Live state: replace the matching server's HAState in place.
   useWsTopic('ha', (msg) => {
@@ -133,7 +148,12 @@ export default function HaPage({ family }) {
                   <Heartbeat size={16} className="text-accent-pro" />
                   <span className="ui-card-title ui-title-literal text-sm font-semibold text-text-primary">{name}</span>
                   {h.role && <Badge variant="outline" size="sm">{haTerm(h.role)}</Badge>}
-                  <span className="ml-auto">{h.enabled ? <StatusBadge status={h.state} data-testid="ha-state" /> : <Badge variant="gray" size="sm">{t('ha.hookMissing')}</Badge>}</span>
+                  {h.enabled && (
+                    <span className="ml-auto inline-flex items-center" title={t('ha.heartbeat')}>
+                      <HeartbeatTrace beat={beatOf(h)} lost={h.partner?.in_touch === false || h.state === 'partner-down'} testId="ha-heartbeat" />
+                    </span>
+                  )}
+                  <span className={h.enabled ? undefined : 'ml-auto'}>{h.enabled ? <StatusBadge status={h.state} data-testid="ha-state" /> : <Badge variant="gray" size="sm">{t('ha.hookMissing')}</Badge>}</span>
                 </div>
                 <div className="p-3 space-y-3 text-xs">
                   <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1">
@@ -144,7 +164,9 @@ export default function HaPage({ family }) {
                     <dt className="text-text-tertiary">{t('ha.scopes')}</dt>
                     <dd className="font-mono">{h.scopes?.length ? h.scopes.join(', ') : t('ha.noScopes')}</dd>
                     <dt className="text-text-tertiary">{t('ha.unsent')}</dt>
-                    <dd className="font-mono">{h.unsent_update_count ?? '-'}</dd>
+                    <dd>
+                      <UnsentQueue count={h.unsent_update_count} />
+                    </dd>
                     <dt className="text-text-tertiary">{t('ha.service')}</dt>
                     <dd>{serviceEnabled === undefined ? '-' : <StatusBadge status={serviceEnabled ? 'enabled' : 'disabled'} />}</dd>
                     <dt className="text-text-tertiary">{t('ha.collected')}</dt>

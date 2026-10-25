@@ -2,7 +2,7 @@
 // Nodes and replication: cluster members with liveness, versions and modules,
 // the replication state seen from this node, sync and removal of a peer, and the
 // enrollment token dialog. Node status is live through the `nodes` topic.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { HardDrives, Key, ArrowsClockwise, CheckCircle, Warning, Trash } from '@phosphor-icons/react'
 import { Badge } from '../../components/Badge'
@@ -18,11 +18,59 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate, formatRelativeTime } from '../../lib/utils'
 import { StatusBadge } from '../../components/StatusBadge'
+import { HeartbeatTrace, RollingNumber, SignalLink, SwapText } from '../../components/motion'
+import { usePoll } from '../../hooks/usePoll'
+import { PULSE_MS } from '../../components/motion/primitives'
 import { AreaPage, SectionError } from '../dhcp/ui'
 import { resetNodeNameCache } from '../dhcp/hooks'
 import { EnrollTokenDialog } from './EnrollTokenDialog'
 
 const MODULES = ['bind', 'kea4', 'kea6', 'd2']
+const NODES_POLL_MS = 10000
+
+// This node and one peer joined by the replication link: when the peer's configuration
+// version catches up, a pulse leaves this node and the peer's version rolls on arrival.
+function ReplicationLink({ self, peer, nameOf }) {
+  const { t } = useTranslation(['nodes', 'common'])
+  const link = useRef(null)
+  const [shown, setShown] = useState(peer.config_version)
+  const last = useRef(peer.config_version)
+  useEffect(() => {
+    const before = last.current
+    last.current = peer.config_version
+    if (before === peer.config_version) return undefined
+    const caughtUp = Number(peer.config_version) > Number(before)
+    const travelled = caughtUp && link.current?.pulse({ tone: 'neutral', dir: 'forward' })
+    if (!travelled) {
+      setShown(peer.config_version)
+      return undefined
+    }
+    const timer = setTimeout(() => setShown(peer.config_version), PULSE_MS)
+    return () => {
+      clearTimeout(timer)
+      setShown(peer.config_version)
+    }
+  }, [peer.config_version])
+  const behind = self && peer.config_version !== null && peer.config_version !== undefined ? Number(self.config_version) - Number(peer.config_version) : null
+  const label = !peer.reachable ? t('replication.unreachable') : behind > 0 ? t('replication.behindBy', { count: behind }) : t('replication.inSync')
+  return (
+    <div className="flex items-center gap-3 min-w-0" data-testid="replication-link" data-peer={peer.node_id}>
+      <span className="flex flex-col items-end text-xs min-w-0">
+        <span className="font-mono text-text-primary truncate">{self ? self.peer.name : '-'}</span>
+        <span className="font-mono text-2xs text-text-tertiary">
+          {t('replication.config')} <RollingNumber value={self?.config_version ?? '-'} data-testid="replication-self-version" />
+        </span>
+      </span>
+      <SignalLink ref={link} state={peer.reachable ? 'ok' : 'down'} labelTop={<SwapText text={label} />} className="flex-1 min-w-[80px] max-w-[320px]" testId="replication-signal" />
+      <span className="flex flex-col text-xs min-w-0">
+        <span className="font-mono text-text-primary truncate">{nameOf(peer.node_id)}</span>
+        <span className="font-mono text-2xs text-text-tertiary">
+          {t('replication.config')} <RollingNumber value={shown ?? '-'} data-testid="replication-peer-version" />
+        </span>
+      </span>
+    </div>
+  )
+}
 
 export default function NodesPage() {
   const { t } = useTranslation(['nodes', 'common'])
@@ -38,6 +86,26 @@ export default function NodesPage() {
     resetNodeNameCache()
     nodes.refetch()
     replication.refetch()
+  }
+
+  // Replication progress: the collector's event when it publishes one, a quiet poll otherwise.
+  useWsTopic('system', (msg) => {
+    if (msg?.event !== 'replication') return
+    nodes.refetch()
+    replication.refetch()
+  })
+  usePoll(async () => {
+    const [n, r] = await Promise.all([api.nodes.list(), api.nodes.replication()])
+    nodes.setData(n)
+    replication.setData(r)
+  }, NODES_POLL_MS, { enabled: Boolean(nodes.data && replication.data) })
+  // A node seen again (last_seen moved) beats once on its trace.
+  const beats = useRef(new Map())
+  const beatOf = (n) => {
+    const seen = beats.current.get(n.peer.id)
+    if (!seen) beats.current.set(n.peer.id, { at: n.last_seen, n: 0 })
+    else if (n.last_seen && n.last_seen !== seen.at) beats.current.set(n.peer.id, { at: n.last_seen, n: seen.n + 1 })
+    return beats.current.get(n.peer.id).n
   }
 
   useWsTopic('nodes', (msg) => {
@@ -116,7 +184,19 @@ export default function NodesPage() {
         </span>
       ),
     },
-    { key: 'last_seen', label: t('fields.lastSeen'), render: (n) => <span title={formatDate(n.last_seen)}>{n.is_self ? '-' : formatRelativeTime(n.last_seen)}</span> },
+    {
+      key: 'last_seen',
+      label: t('fields.lastSeen'),
+      render: (n) =>
+        n.is_self ? (
+          '-'
+        ) : (
+          <span className="inline-flex items-center gap-2" title={formatDate(n.last_seen)}>
+            <HeartbeatTrace beat={beatOf(n)} lost={n.status === 'offline'} testId="node-heartbeat" />
+            {formatRelativeTime(n.last_seen)}
+          </span>
+        ),
+    },
     {
       key: 'url',
       label: t('fields.url'),
@@ -206,7 +286,8 @@ export default function NodesPage() {
           columns={columns}
           rows={items}
           rowKey={(n) => n.peer.id}
-          loading={nodes.loading}
+          loading={nodes.loading && !nodes.data}
+          highlightChanges={['config_version', 'audit_count']}
           error={nodes.error}
           onRetry={nodes.refetch}
           clientSort
@@ -230,6 +311,13 @@ export default function NodesPage() {
             )}
           </div>
           <SectionError error={replication.error} onRetry={replication.refetch} />
+          {peers.length > 0 && (
+            <div className="flex flex-col gap-2 py-1" data-testid="replication-links">
+              {peers.map((p) => (
+                <ReplicationLink key={p.node_id} self={self} peer={p} nameOf={nameOf} />
+              ))}
+            </div>
+          )}
           {replication.data && peers.length === 0 ? (
             <p className="text-xs text-text-tertiary">{t('replication.alone')}</p>
           ) : (
@@ -237,7 +325,8 @@ export default function NodesPage() {
               columns={peerColumns}
               rows={peers}
               rowKey="node_id"
-              loading={replication.loading}
+              loading={replication.loading && !replication.data}
+              highlightChanges={['config_version', 'audit_count']}
               dense
               testId="replication-peers"
             />

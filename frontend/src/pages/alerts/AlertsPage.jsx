@@ -16,8 +16,10 @@ import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
-import { ENGINES, INCONSISTENCY_KINDS, KINDS, SEVERITIES, STATES, jobResult, subjectLink } from './lib'
+import { ENGINES, INCONSISTENCY_KINDS, KINDS, PRESSURE_AFTER_MS, PRESSURE_BEFORE_MS, SEVERITIES, STATES, jobResult, poolSeriesQuery, pressureLatches, subjectLink } from './lib'
 import { adoptCall, fileAlertEngine } from '../dhcp/keaFile'
+import { ThresholdTrace } from '../../components/motion'
+
 import { useNodeNames, usePlanFlow } from '../dhcp/hooks'
 
 const FILTERS = ['state', 'severity', 'kind', 'engine', 'node_id']
@@ -58,6 +60,57 @@ function FileAdoptActions({ alert }) {
   )
 }
 
+const POOL_KINDS = new Set(['pool_near_full', 'pool_full'])
+// The pool's use over the incident against the fixed thresholds, with its latches.
+function AlertPressure({ alert }) {
+  const { t } = useTranslation(['alerts', 'common'])
+  const query = poolSeriesQuery(alert)
+  const opened = Date.parse(alert.first_seen)
+  const end = alert.resolved_at ? Date.parse(alert.resolved_at) + PRESSURE_AFTER_MS : null
+  const series = useApi(
+    () =>
+      query
+        ? Promise.all([
+            api.series.pools({ engine: query.engine, subnet_id: query.subnet_id, node_id: query.node_id, from: new Date(opened - PRESSURE_BEFORE_MS).toISOString(), to: new Date(end ?? Date.now()).toISOString(), step: 300 }),
+            api.dashboard.summary().catch(() => null),
+          ])
+        : Promise.resolve(null),
+    [alert.id, alert.state, alert.last_seen],
+  )
+  if (!query || !series.data) return null
+  const [res, summary] = series.data
+  const match = (res?.series || []).find((s) => [query.pool, query.raw].includes(s.key?.pool)) || res?.series?.[0]
+  const points = (match?.points || []).filter((p) => p[2] > 0).map(([ts, assigned, total]) => [ts * 1000, (assigned / total) * 100])
+  if (points.length < 2) return null
+  const th = summary?.thresholds || {}
+  const warn = Number(th.alerts_pool_warning_percent ?? th.pool_warning_percent ?? 80)
+  const full = Number(th.alerts_pool_critical_percent ?? th.pool_critical_percent ?? 95)
+  const threshold = alert.kind === 'pool_full' ? full : warn
+  const values = points.map((p) => p[1])
+  const min = Math.max(0, Math.floor((Math.min(...values, warn) - 10) / 10) * 10)
+  return (
+    <div data-testid="alert-pressure">
+      <div className="fx-trace-head">
+        <b>{t('detail.pressure')}</b>
+        <span className="font-mono">{query.raw}</span>
+      </div>
+      <ThresholdTrace
+        points={points}
+        from={opened - PRESSURE_BEFORE_MS}
+        to={end ?? undefined}
+        min={min}
+        max={105}
+        thresholds={[
+          { value: warn, label: `${warn}`, tone: 'warning' },
+          { value: full, label: `${full}`, tone: 'danger' },
+          ...(full < 100 ? [{ value: 100, label: t('detail.full'), tone: 'danger' }] : []),
+        ]}
+        latches={pressureLatches(alert, points, threshold)}
+      />
+    </div>
+  )
+}
+
 function AlertDetail({ alert, nodeName, canAck, onAck, onClose }) {
   const { t } = useTranslation(['alerts', 'dashboard', 'common'])
   const msg = useMessage()
@@ -83,6 +136,7 @@ function AlertDetail({ alert, nodeName, canAck, onAck, onClose }) {
             {alert.acked_at && <Field label={t('detail.ackedAt')}>{formatDate(alert.acked_at)}</Field>}
             {alert.resolved_at && <Field label={t('detail.resolvedAt')}>{formatDate(alert.resolved_at)}</Field>}
           </dl>
+          {POOL_KINDS.has(alert.kind) && <AlertPressure alert={alert} />}
           <div>
             <h4 className="ui-label text-2xs uppercase tracking-wider text-text-tertiary mb-1">{t('detail.details')}</h4>
             {Object.keys(alert.details || {}).length ? (
@@ -274,7 +328,12 @@ export default function AlertsPage() {
           columns={columns}
           rows={list.items}
           rowKey="id"
-          loading={list.loading}
+          loading={list.loading && !list.data}
+          animateInserts
+          animateRemovals
+          leaveHoldMs={150}
+          highlightChanges={['severity', 'state', 'last_seen']}
+          className="fx-alerts-table"
           error={list.error}
           onRetry={list.refetch}
           onRowClick={(a) => setSelectedId(a.id)}

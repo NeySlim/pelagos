@@ -49,7 +49,11 @@
     "hint": "La configuration et le journal d'audit se répliquent entre nœuds en TLS mutuel ; la version de configuration la plus haute gagne.",
     "inSync": "Tous les pairs sont synchronisés",
     "local": "ici {{v}}",
-    "title": "Réplication"
+    "title": "Réplication",
+    "unreachable": "injoignable",
+    "behindBy_one": "en retard de {{count}} version",
+    "behindBy_other": "en retard de {{count}} versions",
+    "config": "config"
   },
   "enroll": {
     "another": "Nouveau jeton",

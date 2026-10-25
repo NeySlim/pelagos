@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Alert vocabulary (architecture section 15) and where an alert's subject leads.
+import { crossingTime, valueAt } from '../../components/motion/traceMath'
 
 export const SEVERITIES = ['critical', 'warning', 'info']
 export const STATES = ['open', 'acked', 'resolved']
@@ -37,3 +38,28 @@ export function subjectLink(alert) {
 
 // Final output of a finished job: the "result" step the jobs service appends.
 export const jobResult = (job) => (job?.steps || []).find((s) => s.name === 'result')?.output ?? null
+
+export const PRESSURE_BEFORE_MS = 2 * 3600000
+export const PRESSURE_AFTER_MS = 30 * 60000
+
+// "kea4:subnet:3:pool:192.0.2.200-192.0.2.219" -> the /series/pools query of that pool.
+export function poolSeriesQuery(alert) {
+  const m = /^(kea[46]):subnet:(\d+):pool:(.+)$/.exec(String(alert?.subject || ''))
+  if (!m) return null
+  return { engine: m[1], subnet_id: m[2], pool: m[3].replace(/-/g, ' - '), raw: m[3], node_id: alert.node_id || undefined }
+}
+
+// Latches of a pool alert: closed where the use crossed the alert's threshold, held once
+// resolved, and released where it came back under.
+export function pressureLatches(alert, points, threshold) {
+  const opened = Date.parse(alert.first_seen)
+  const crossed = crossingTime(points, threshold, opened - PRESSURE_BEFORE_MS)
+  const at = crossed !== null && crossed <= opened + 60000 ? crossed : opened
+  const v = crossed !== null && crossed <= opened + 60000 ? threshold : Number(alert.details?.percent ?? valueAt(points, at) ?? threshold)
+  const out = [{ t: at, value: v, state: alert.state === 'resolved' ? 'held' : 'open' }]
+  if (alert.state === 'resolved' && alert.resolved_at) {
+    const rt = Date.parse(alert.resolved_at)
+    out.push({ t: rt, value: Number(valueAt(points, rt) ?? threshold), state: 'released' })
+  }
+  return out
+}

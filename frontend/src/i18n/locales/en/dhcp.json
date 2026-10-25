@@ -271,7 +271,8 @@
           "message": "{{server}} stops answering DHCP clients (dhcp-disable). Clients rely on the partner until it is enabled again."
         }
       }
-    }
+    },
+    "heartbeat": "One trace per HA status sample received"
   },
   "ddns": {
     "add": "Add parameter",

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Hero row of the dashboard: the cluster trace between a DNS panel (query rate strip,
-// rcodes) and a DHCP panel (lease rate strip, the latest exchange as DORA ticks, the
+// rcodes) and a DHCP panel (lease rate strip, the latest exchange and lease as DORA ticks, the
 // busiest pools against their thresholds, HA pills). Mission Control keeps its radar in
 // the center, loaded on demand under its effects only. Live rates come from useLiveRates
 // through DashboardPage.
@@ -15,6 +15,7 @@ import { cn } from '../../lib/utils'
 import { LIVE_CAPACITY, LIVE_INTERVAL_MS, LIVE_MIN_SLOTS, RCODES, latest, latestExchange, share } from '../../lib/liveRates'
 import { LiveStatus, TileFrame } from './tiles'
 import { TraceTile } from './traceTile'
+import { LatestLease } from './LatestLease'
 import { dhcpFamily, haTone, poolThresholds, rateFormat, splitRate } from './summary'
 
 const MissionRadarTile = lazy(() => import('./radarTile'))
@@ -137,7 +138,7 @@ export function DnsTile({ summary, editing, live, samples }) {
   )
 }
 
-function LatestLease({ dhcp, family }) {
+function LatestExchange({ dhcp, family }) {
   const { t, i18n } = useTranslation(['dashboard', 'common'])
   const ex = latestExchange(dhcp)
   const format = (v) => (v === null || v === undefined ? '-' : rateFormat(i18n.language)(v))
@@ -214,9 +215,10 @@ export function DhcpTile({ summary, editing, live, thresholds, nameOf, samples }
               />
             )}
             <Sub right={family === 'v6' ? 'SARR' : 'DORA'}>{t('tiles.dhcp.latest')}</Sub>
-            <LatestLease dhcp={dhcp} family={family} />
+            <LatestExchange dhcp={dhcp} family={family} />
           </>
         )}
+        <LatestLease family={family} />
         {pools.length > 0 && (
           <>
             <Sub>{t('tiles.dhcp.pools')}</Sub>

@@ -49,7 +49,11 @@
     "hint": "Configuration and audit log replicate between nodes over mutual TLS; the highest configuration version wins.",
     "inSync": "All peers in sync",
     "local": "here {{v}}",
-    "title": "Replication"
+    "title": "Replication",
+    "unreachable": "unreachable",
+    "behindBy_one": "behind by {{count}} version",
+    "behindBy_other": "behind by {{count}} versions",
+    "config": "config"
   },
   "enroll": {
     "another": "New token",

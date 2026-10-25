@@ -271,7 +271,8 @@
           "message": "{{server}} cesse de répondre aux clients DHCP (dhcp-disable). Les clients dépendent du partenaire jusqu'à la réactivation."
         }
       }
-    }
+    },
+    "heartbeat": "Une trace par relevé d'état HA reçu"
   },
   "ddns": {
     "add": "Ajouter un paramètre",

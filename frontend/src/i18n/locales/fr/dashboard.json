@@ -91,6 +91,7 @@
       "chartLabel": "Baux attribués, actuellement {{rate}} par seconde",
       "pools": "Pools les plus remplis",
       "ha": "Haute disponibilité",
+      "latestLease": "Dernier bail",
       "latest": "Derniers baux",
       "exchange": "+{{count}} baux",
       "exchange_one": "+{{count}} bail",

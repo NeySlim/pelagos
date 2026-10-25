@@ -91,6 +91,7 @@
       "chartLabel": "Leases handed out, now {{rate}} per second",
       "pools": "Busiest pools",
       "ha": "High availability",
+      "latestLease": "Latest lease",
       "latest": "Latest leases",
       "exchange": "+{{count}} leases",
       "exchange_one": "+{{count}} lease",

@@ -11,6 +11,7 @@ import { Button } from '../../components/Button'
 import { Modal } from '../../components/Modal'
 import { Select } from '../../components/ui/Select'
 import { StatusBadge } from '../../components/StatusBadge'
+import { Dora } from '../../components/motion'
 import { useOpenDetail } from '../../components/FloatingDetailWindow'
 import { useMobile } from '../../contexts/MobileContext'
 import { useApi } from '../../hooks/useApi'
@@ -82,7 +83,17 @@ export default function LeasesPage({ family }) {
     { key: 'hostname', label: t('fields.hostname'), className: 'break-all' },
     { key: 'subnet_id', label: t('fields.subnetId'), mono: true, width: 70 },
     ...(family === 'v6' ? [{ key: 'lease_type', label: t('fields.leaseType'), mono: true }] : []),
-    { key: 'state', label: t('fields.state'), render: (l) => <StatusBadge status={l.state} /> },
+    {
+      key: 'state',
+      label: t('fields.state'),
+      // A lease that just appeared plays its DORA once; a declined one stops on red.
+      render: (l, _raw, meta) => (
+        <span className="inline-flex items-center gap-2">
+          <StatusBadge status={l.state} />
+          {meta?.entering && <Dora transient nak={l.state === 'declined'} />}
+        </span>
+      ),
+    },
     {
       key: 'expires_at',
       label: t('fields.expiresAt'),
@@ -120,7 +131,10 @@ export default function LeasesPage({ family }) {
           columns={columns}
           rows={leases.items}
           rowKey={(l) => `${l.node_id}-${l.ip_address}`}
-          loading={leases.loading}
+          loading={leases.loading && !query.data}
+          animateInserts
+          animateRemovals
+          highlightChanges={['state', 'expires_at', 'hostname']}
           error={leases.error}
           onRetry={leases.refetch}
           search={{ value: q, onChange: setQ, placeholder: t('leases.search') }}

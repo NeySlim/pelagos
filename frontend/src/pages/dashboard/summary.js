@@ -50,3 +50,17 @@ export function splitRate(v, lang) {
   if (v >= 1000) return { n: new Intl.NumberFormat(lang, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v / 1000), u: 'k/s' }
   return { n: rateFormat(lang)(v), u: '/s' }
 }
+
+// Most recent lease by client last transaction time, or null.
+export function latestLease(items) {
+  let best = null
+  let bestAt = -Infinity
+  for (const l of items || []) {
+    const at = l?.cltt ? Date.parse(l.cltt) : NaN
+    if (Number.isFinite(at) && at > bestAt) {
+      best = l
+      bestAt = at
+    }
+  }
+  return best
+}

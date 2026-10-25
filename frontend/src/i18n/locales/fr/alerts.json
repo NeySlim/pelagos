@@ -60,7 +60,9 @@
     "ackedAt": "Acquittée le",
     "resolvedAt": "Résolue le",
     "details": "Détails",
-    "noDetails": "Aucun détail"
+    "noDetails": "Aucun détail",
+    "pressure": "Occupation du pool",
+    "full": "plein"
   },
   "inconsistency": "Incohérence",
   "empty": "Aucune alerte",

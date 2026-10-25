@@ -22,6 +22,7 @@ from pelagos.connectors.kea.config import canonical, config_diff, normalize_root
 from pelagos.connectors.kea.configfile import ADOPT_FILE, ADOPT_TARGETS, KeaConfigFile
 from pelagos.connectors.kea.control_socket import DEFAULT_COMMAND_TIMEOUT, KeaControlSocket
 from pelagos.connectors.kea.schema import config_schema
+from pelagos.connectors.kea.secrets import masked_refusal
 from pelagos.core.write_pipeline import FileChange
 from pelagos.domain import (
     Change,
@@ -96,6 +97,31 @@ class _PlanPrivate:
     before: dict[str, Any] | None = None  # the real before state when it holds clear secrets
     backup: Path | None = None
     after_hash: str | None = None  # config-hash right after the apply: rollback refuses once it moved
+
+
+def unmask_d2_keys(config: dict[str, Any], running: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Masked tsig-key secrets take the running key of the same name: its clear secret, or its
+    secret-file; returns (config, names of keys with no running value)."""
+    if not any(isinstance(k, dict) and k.get("secret") == MASK for k in config.get("tsig-keys") or []):
+        return config, []
+    known = {str(k.get("name")): k for k in running.get("tsig-keys") or [] if isinstance(k, dict)}
+    keys, missing = [], []
+    for key in config.get("tsig-keys") or []:
+        if isinstance(key, dict) and key.get("secret") == MASK:
+            key = dict(key)
+            name = str(key.get("name", ""))
+            run = known.get(name) or {}
+            if run.get("secret-file"):
+                key.pop("secret")
+                key.setdefault("secret-file", run["secret-file"])
+            elif run.get("secret") and run["secret"] != MASK:
+                key["secret"] = run["secret"]
+            elif key.get("secret-file"):
+                key.pop("secret")
+            else:
+                missing.append(f"tsig-keys/{name}")
+        keys.append(key)
+    return {**config, "tsig-keys": keys}, missing
 
 
 def has_masked_secrets(config: Any) -> bool:
@@ -190,6 +216,9 @@ class D2Backend(DdnsBackend):
         self.file.guard(before)
         current_hash = self.config_hash()
         config = normalize_root(config, normalize_version(self.socket.version()))
+        config, missing = unmask_d2_keys(config, before)
+        if missing:
+            raise ConnectorError(masked_refusal(missing))
         new_cfg, secrets = externalize_secrets(config, self.secret_dir)
         if secrets:
             # The files do not exist yet, so Kea cannot test this configuration before apply.

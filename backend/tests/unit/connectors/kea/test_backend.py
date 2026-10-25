@@ -584,6 +584,24 @@ def test_d2_secret_file_wins_over_clear_secret(tmp_root):
     assert out["tsig-keys"] == [{"name": "k", "secret-file": "/etc/kea/k.secret"}] and files == {}
 
 
+def test_d2_masked_secrets_take_the_running_value(tmp_root):
+    from pelagos.services.dhcp_service import mask_d2_secrets
+
+    d2, fake = d2_with(tmp_root)
+    fake.cfg["tsig-keys"].append({"name": "legacy", "algorithm": "HMAC-SHA256", "secret": "bGVnYWN5"})
+    edited = mask_d2_secrets(d2.config_get())
+    plan = d2.plan_config_replace({"DhcpDdns": edited})
+    masked = hashlib.sha256(b"***").hexdigest()
+    files = {c.target: c.after["sha256"] for c in plan.changes if c.target.startswith("secret-file/")}
+    assert masked not in files.values()
+    assert files == {"secret-file/legacy.secret": hashlib.sha256(b"bGVnYWN5").hexdigest()}
+    keys = {k["name"]: k for k in plan.changes[0].after["tsig-keys"]}
+    assert "secret" not in keys["kea-ddns"] and keys["kea-ddns"]["secret-file"]
+    edited["tsig-keys"].append({"name": "new", "algorithm": "HMAC-SHA256", "secret": "***"})
+    with pytest.raises(ConnectorError, match="masked secret"):
+        d2.plan_config_replace({"DhcpDdns": edited})
+
+
 @pytest.mark.parametrize(
     "path",
     ["/etc/pelagos/x.secret", "{dir}/../x.secret", "{dir}/x.conf", "{dir}/a b.secret", "x.secret"],

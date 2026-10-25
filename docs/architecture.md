@@ -496,7 +496,8 @@ and refuses more than one relationship on Kea 2.x. `validate_relationships`
 checks a setup with one or several relationships (names and URLs unique
 across them, one server per node in each). A subnet belongs to a
 relationship through `user-context.ha-server-name` (Kea's own rule, not set
-by Pelagos). Kea applies `ha-maintenance-start/cancel` to every
+by Pelagos); a hub's setup plan carries an `ha-subnets` validation (ok, a
+warning) listing the subnets that set none (`ha.untagged_subnets`). Kea applies `ha-maintenance-start/cancel` to every
 relationship of the server that receives it.
 
 ```python
@@ -922,7 +923,10 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
    `BindBackend.details`, masked); peers write theirs when they apply a plan
    received over `/repl/v1/plans/apply`; the summary has `request.entry = "summary"`.
 4. `POST /plans/{id}/rollback` is allowed on `APPLIED` plans until the plan
-   expires from memory (`settings.plan_ttl_seconds` after apply). After that,
+   expires from memory (`settings.plan_ttl_seconds` after apply), and on a
+   `FAILED` plan with `interrupted` (a restart caught it `APPLYING`): that
+   rollback undoes the parts recorded `APPLIED`, and answers each node of an
+   `interrupted` part with "check this node by hand" (state `FAILED`). After that,
    the backup directories and the audit `before` state remain for manual or
    future "restore from history" use.
 5. A plan id the node no longer holds answers `410 plan_expired` when the
@@ -1820,10 +1824,14 @@ relationship the server is in, hashing the relationship's mode and peers
 (name, URL, role, auto-failover) with the shared view of its subnets). The
 shared view keeps subnets and shared networks (id, prefix, pools,
 prefix-delegation pools, reservations, options, relay, lifetimes and
-timers, class names), global reservations, options, option definitions and
-client classes; it drops per-server keys and version defaults (empty
-values, `0.0.0.0`, option flags at their defaults, `name` beside `code`,
-blanks in pool ranges, MAC case). On a hub, a relationship's subnets are
+timers, `BEHAVIOUR` keys: min/max lifetimes, `match-client-id`,
+`authoritative`, T1/T2, `reservations-*`, `offer-lifetime`, allocators,
+class names), the same lifetimes and `BEHAVIOUR` keys at the global level,
+global reservations, options, option definitions and client classes; it
+drops per-server keys and version defaults (empty values, `0.0.0.0`, option
+flags at their defaults, `name` beside `code`, blanks in pool ranges, MAC
+case, a min or max lifetime equal to the lifetime, an allocator equal to the
+inherited one, which Kea 3 writes into every subnet). On a hub, a relationship's subnets are
 those whose `user-context.ha-server-name` names one of its servers, plus
 untagged ones. The peers poller joins relationships whose server lists
 share a name (so a peer list that differs is caught), alerts when the

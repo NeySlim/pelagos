@@ -2,8 +2,9 @@
 """What must be equal across the servers of a Kea HA relationship, hashed for config_divergence.
 
 Only what the servers hand out to clients and the relationship itself are compared: subnets and
-shared networks (pools, reservations, options, lifetimes, classes they name), global reservations,
-options, option definitions and client classes, and the relationship's mode and peers. Per-server
+shared networks (pools, reservations, options, lifetimes, lease and reservation behaviour, classes
+they name), the same global settings, global reservations, options, option definitions and client
+classes, and the relationship's mode and peers. Per-server
 keys (this-server-name, interfaces, sockets, loggers, lease database, hooks paths, multi-threading,
 ddns settings, timers of the HA hook) and the defaults a Kea version adds are left out, so a pair
 on Kea 2.6 and a backup on Kea 3.0 hash alike when they serve the same thing.
@@ -50,6 +51,27 @@ RESERVATION_KEYS = (
     "boot-file-name",
 )
 LIFETIMES = ("valid-lifetime", "preferred-lifetime", "renew-timer", "rebind-timer")
+# Lease and reservation behaviour; booleans keep `false`, as each level may override its parent.
+BEHAVIOUR = (
+    "min-valid-lifetime",
+    "max-valid-lifetime",
+    "min-preferred-lifetime",
+    "max-preferred-lifetime",
+    "match-client-id",
+    "authoritative",
+    "calculate-tee-times",
+    "t1-percent",
+    "t2-percent",
+    "reservations-global",
+    "reservations-in-subnet",
+    "reservations-out-of-pool",
+    "offer-lifetime",
+    "allocator",
+    "pd-allocator",
+)
+# Kea 3 writes the inherited allocator into every subnet and network, Kea 2.6 does not.
+ALLOCATORS = ("allocator", "pd-allocator")
+DEFAULT_ALLOCATOR = "iterative"
 SUBNET_KEYS = (
     "id",
     "subnet",
@@ -91,6 +113,29 @@ def _pick(obj: Any, keys: tuple[str, ...]) -> dict[str, Any]:
     if not isinstance(obj, dict):
         return {}
     return {k: obj[k] for k in keys if k in obj and not _empty(obj[k])}
+
+
+def _behaviour(obj: Any, inherited: dict[str, Any]) -> dict[str, Any]:
+    """BEHAVIOUR keys of one level, without what Kea derives: a min or max equal to the lifetime
+    itself, an allocator equal to the one inherited."""
+    if not isinstance(obj, dict):
+        return {}
+    out = {k: obj[k] for k in BEHAVIOUR if k in obj and obj[k] not in (None, "")}
+    for kind in ("valid", "preferred"):
+        for bound in ("min", "max"):
+            key = f"{bound}-{kind}-lifetime"
+            if key in out and out[key] == obj.get(f"{kind}-lifetime"):
+                out.pop(key)
+    for key in ALLOCATORS:
+        if out.get(key) == inherited.get(key, DEFAULT_ALLOCATOR):
+            out.pop(key)
+    return out
+
+
+def _allocators(obj: Any, inherited: dict[str, Any]) -> dict[str, Any]:
+    """The allocators a level hands down to the subnets under it."""
+    own = obj if isinstance(obj, dict) else {}
+    return {k: own.get(k) or inherited.get(k, DEFAULT_ALLOCATOR) for k in ALLOCATORS}
 
 
 def _options(items: Any) -> list[dict[str, Any]]:
@@ -137,8 +182,9 @@ def _reservations(items: Any) -> list[dict[str, Any]]:
     return sorted(out, key=lambda o: json.dumps(o, sort_keys=True))
 
 
-def _subnet(subnet: dict[str, Any]) -> dict[str, Any]:
+def _subnet(subnet: dict[str, Any], inherited: dict[str, Any]) -> dict[str, Any]:
     s = _with_options(_pick(subnet, SUBNET_KEYS))
+    s.update(_behaviour(subnet, inherited))
     if "pools" in s:
         pools = [_with_options(_pick(p, POOL_KEYS)) for p in s["pools"]]
         for p in pools:
@@ -209,9 +255,11 @@ def shared_view(body: dict[str, Any], names: frozenset[str] | None = None) -> di
         ),
         "client-classes": [_with_options(_pick(c, CLASS_KEYS)) for c in body.get("client-classes") or []],
         "reservations": _reservations(body.get("reservations")),
+        "global": {**_pick(body, LIFETIMES), **_behaviour(body, {})},
     }
+    top = _allocators(body, {})
     for key in ("subnet4", "subnet6"):
-        subnets = [_subnet(s) for s in body.get(key) or [] if isinstance(s, dict) and _belongs(s, names)]
+        subnets = [_subnet(s, top) for s in body.get(key) or [] if isinstance(s, dict) and _belongs(s, names)]
         if subnets:
             view[key] = sorted(subnets, key=lambda s: (s.get("id") or 0, str(s.get("subnet"))))
     networks = []
@@ -220,9 +268,13 @@ def shared_view(body: dict[str, Any], names: frozenset[str] | None = None) -> di
             continue
         tag = _tag(net)
         n = _with_options(_pick(net, NETWORK_KEYS))
+        n.update(_behaviour(net, top))
+        below = _allocators(net, top)
         for key in ("subnet4", "subnet6"):
             subnets = [
-                _subnet(s) for s in net.get(key) or [] if isinstance(s, dict) and _belongs(s, names, tag)
+                _subnet(s, below)
+                for s in net.get(key) or []
+                if isinstance(s, dict) and _belongs(s, names, tag)
             ]
             if subnets:
                 n[key] = sorted(subnets, key=lambda s: (s.get("id") or 0, str(s.get("subnet"))))

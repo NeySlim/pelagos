@@ -326,6 +326,42 @@ def relationship_entry(spec: dict[str, Any], this_server: str) -> dict[str, Any]
     return entry
 
 
+def _ha_tag(obj: Any) -> str | None:
+    ctx = obj.get("user-context") if isinstance(obj, dict) else None
+    name = ctx.get("ha-server-name") if isinstance(ctx, dict) else None
+    return str(name) if name else None
+
+
+def untagged_subnets(body: dict[str, Any]) -> list[str]:
+    """Subnets of a Dhcp4/Dhcp6 body with no `user-context.ha-server-name`, on themselves or their
+    shared network: a hub serves them in every relationship."""
+    out: list[str] = []
+    for key in ("subnet4", "subnet6"):
+        out += [str(s.get("subnet")) for s in body.get(key) or [] if isinstance(s, dict) and not _ha_tag(s)]
+    for net in body.get("shared-networks") or []:
+        if not isinstance(net, dict) or _ha_tag(net):
+            continue
+        for key in ("subnet4", "subnet6"):
+            out += [
+                str(s.get("subnet")) for s in net.get(key) or [] if isinstance(s, dict) and not _ha_tag(s)
+            ]
+    return out
+
+
+def hub_subnets_warning(body: dict[str, Any], names: list[str]) -> str | None:
+    """The warning a hub plan carries while some of its subnets name no relationship."""
+    untagged = untagged_subnets(body)
+    if not untagged:
+        return None
+    shown = ", ".join(untagged[:10]) + (f" and {len(untagged) - 10} more" if len(untagged) > 10 else "")
+    return (
+        f"warning: {len(untagged)} subnet(s) set no user-context.ha-server-name ({shown}): this hub"
+        f" serves them in each of its relationships ({', '.join(names)}), and the shared configuration"
+        " check expects them on every spoke. Set ha-server-name to the hub's name in the"
+        " relationship each subnet belongs to."
+    )
+
+
 def hooks_dir_of(hooks: list[dict[str, Any]]) -> str | None:
     """Directory of the loaded hook libraries (lease_cmds first), None when none is loaded."""
     paths = [str(h.get("library", "")) for h in hooks if isinstance(h, dict) and h.get("library")]

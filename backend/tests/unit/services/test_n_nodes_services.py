@@ -25,7 +25,7 @@ from pelagos.services.dhcp_service import DhcpService
 from pelagos.services.errors import ValidationError
 from pelagos.services.peer_actions import PeerActions
 from pelagos.services.peers import PeerGateway
-from pelagos.services.plan_service import PlanService
+from pelagos.services.plan_service import PlanError, PlanService
 from pelagos.services.registry import ConnectorRegistry, replication_registry
 from pelagos.services.snapshot import engine_snapshot
 from tests.fixtures.ports import free_port
@@ -310,6 +310,54 @@ def test_ha_setup_plan_applies_and_rolls_back_across_restarts(four):
     back = plans.rollback(plan, "alice")
     assert back.state is PlanState.ROLLED_BACK, back
     assert [n.kea.config["hooks-libraries"] for n in four.nodes] == before
+
+
+class _Killed(BaseException):
+    """The web process dies: no handler of the apply runs."""
+
+
+def test_ha_setup_interrupted_by_a_restart_rolls_back_what_was_applied(four, monkeypatch):
+    dhcp, plans = four.dhcp(0)
+    body = {
+        "mode": "hot-standby",
+        "servers": [
+            {"name": f"server{i + 1}", "url": f"http://192.0.2.{i + 1}:8001/", "role": r, "node_id": n.id}
+            for i, (n, r) in enumerate(zip(four.nodes, ROLES, strict=True))
+        ],
+    }
+    before = [list(n.kea.config["hooks-libraries"]) for n in four.nodes]
+    plan = dhcp.plan_ha_setup(body, "alice")
+    real = plans._apply_one
+    calls = []
+
+    def dying(part, who, progress=None):
+        calls.append(part)
+        if len(calls) == 3:
+            raise _Killed
+        return real(part, who, progress)
+
+    monkeypatch.setattr(plans, "_apply_one", dying)
+    with pytest.raises(_Killed):
+        plans.apply(plan, "alice", confirm=True)
+    assert four.nodes[0].kea.config["hooks-libraries"] != before[0]
+
+    _dhcp, restarted = _restarted(four.nodes[0])
+    again = restarted.ctx.plan_store.get(plan.id)
+    assert again.state is PlanState.FAILED and again.interrupted
+    states = [(p.state, p.interrupted) for p in restarted.parts(again)]
+    assert states == [
+        (PlanState.APPLIED, False),
+        (PlanState.APPLIED, False),
+        (PlanState.FAILED, True),
+        (PlanState.VALIDATED, False),
+    ]
+    back = restarted.rollback(again, "alice")
+    assert back.state is PlanState.FAILED and "by hand" in (again.error or "")
+    hand = [r.node_id for r in back.results if not r.ok and "by hand" in r.message]
+    assert hand == [four.nodes[2].id]
+    assert [n.kea.config["hooks-libraries"] for n in four.nodes] == before
+    with pytest.raises(PlanError):
+        restarted.rollback(again, "alice")
 
 
 def _hub_body(nodes: list[Node]) -> dict:

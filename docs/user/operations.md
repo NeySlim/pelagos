@@ -108,9 +108,13 @@ several nodes (HA setup, zone secondaries, hosts), is also kept in
 with `master.key`). A restart of `pelagos` therefore keeps previewed plans
 for apply and applied ones for rollback. A plan caught in the middle of an
 apply or a rollback by the restart comes back `failed` with "interrupted
-by a restart of the web process": it cannot be rolled back from Pelagos, as
-some nodes may not have applied it; check what each node did (the audit
-log, **Advanced, History**) before building a new plan. An expired plan
+by a restart of the web process" and stays one more period for its
+rollback. Each part of a plan that spans several nodes is recorded as it
+finishes, so the rollback undoes the parts every node applied before the
+restart and skips those not reached. The part the restart caught is not
+rolled back: its nodes answer "check this node by hand", and the rollback
+ends `failed`; check what they did (the audit log, **Advanced, History**)
+before building a new plan. A plan with a single part is that part. An expired plan
 answers `410 plan_expired` as before. The directory needs no backup; a node
 without `master.key` keeps its plans in memory only.
 

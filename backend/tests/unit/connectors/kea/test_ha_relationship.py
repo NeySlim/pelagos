@@ -190,3 +190,26 @@ def test_setup_keeps_what_it_does_not_manage():
     assert entry["trust-anchor"] == "/etc/kea/ca.pem"
     assert entry["peers"][0]["cert-file"] == "/etc/kea/s1.pem"
     assert [p["role"] for p in entry["peers"]] == ["primary", "secondary", "backup"]
+
+
+def test_hub_plan_warns_about_subnets_no_relationship_names():
+    tagged = {"user-context": {"ha-server-name": "hub-a"}}
+    body = {
+        "subnet4": [{"id": 1, "subnet": "192.0.2.0/26", **tagged}, {"id": 2, "subnet": "192.0.2.64/26"}],
+        "shared-networks": [
+            {"name": "a", **tagged, "subnet4": [{"id": 3, "subnet": "192.0.2.128/26"}]},
+            {
+                "name": "b",
+                "subnet4": [
+                    {"id": 4, "subnet": "192.0.2.192/26", **tagged},
+                    {"id": 5, "subnet": "198.51.100.0/24"},
+                ],
+            },
+        ],
+    }
+    assert ha.untagged_subnets(body) == ["192.0.2.64/26", "198.51.100.0/24"]
+    warning = ha.hub_subnets_warning(body, ["hub-a", "hub-b"])
+    assert warning and "2 subnet(s)" in warning and "hub-a, hub-b" in warning
+    body["subnet4"].pop()
+    body["shared-networks"][1]["subnet4"].pop()
+    assert ha.hub_subnets_warning(body, ["hub-a", "hub-b"]) is None

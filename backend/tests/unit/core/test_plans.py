@@ -175,6 +175,7 @@ def test_expired_interrupted_and_foreign_plan_files_on_restart(tmp_root):
     assert not (tmp_root / "plans" / f"{old.id}.plan").exists()
     interrupted = restarted.get(running.id)
     assert interrupted.state is PlanState.FAILED and interrupted.error == INTERRUPTED
+    assert interrupted.interrupted and interrupted.expires_at > utcnow() + timedelta(seconds=590)
     assert not (tmp_root / "plans" / "BOGUS.plan").exists()
     # Another master key reads nothing: the plans are gone, their ids answer 410.
     other = PlanStore(ttl_seconds=600, **{**dirs, "box": _box()})

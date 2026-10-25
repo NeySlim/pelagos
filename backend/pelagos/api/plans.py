@@ -90,7 +90,7 @@ class ApplyPlan(Resource):
 class RollbackPlan(Resource):
     @require()
     @ns.response(200, "Rolled back on every node it was applied to", m.ApplyResult)
-    @ns.response(409, "plan_state: only applied plans roll back", m.Problem)
+    @ns.response(409, "plan_state: only applied plans, or plans a restart interrupted, roll back", m.Problem)
     def post(self, plan_id: str):
         plan = _plan(plan_id)
         _check_scope(plan)

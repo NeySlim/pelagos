@@ -56,6 +56,7 @@ from pelagos.connectors.kea.ha import (
     heartbeat_window,
     hooks_dir_of,
     hooks_with_ha,
+    hub_subnets_warning,
     kea_time,
     relationship_entry,
 )
@@ -837,7 +838,12 @@ class KeaBackend(DhcpBackend):
                 server=", ".join(n for n, _ in served),
                 role=", ".join(r for _, r in served),
             )
-        return self._plan_config(PlanScope.DHCP_CONFIG, [change], created_by, summary)
+        plan = self._plan_config(PlanScope.DHCP_CONFIG, [change], created_by, summary)
+        if entries is not None and len(entries) > 1:
+            warning = hub_subnets_warning(cfg, [n for n, _ in served])
+            if warning:
+                plan.validations.append(ValidationResult(ok=True, tool="ha-subnets", output=warning))
+        return plan
 
     def plan_service_toggle(self, enable: bool, created_by: str = "") -> Plan:
         status = self.status()

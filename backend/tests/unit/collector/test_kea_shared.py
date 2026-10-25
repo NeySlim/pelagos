@@ -125,6 +125,58 @@ def test_real_divergence_on_the_backup_is_caught(edit):
     assert groups[0]["servers"] == ["ns1", "ns2", "ns3"]
 
 
+BEHAVIOUR_EDITS = {
+    "valid-lifetime": 7200,
+    "renew-timer": 1000,
+    "rebind-timer": 2000,
+    "min-valid-lifetime": 600,
+    "max-valid-lifetime": 86400,
+    "match-client-id": False,
+    "authoritative": True,
+    "calculate-tee-times": True,
+    "t1-percent": 0.4,
+    "t2-percent": 0.7,
+    "reservations-global": True,
+    "reservations-in-subnet": False,
+    "reservations-out-of-pool": True,
+    "offer-lifetime": 60,
+    "allocator": "random",
+}
+
+
+def in_network(config: dict[str, Any]) -> dict[str, Any]:
+    body = config["Dhcp4"]
+    body["shared-networks"] = [{"name": "office", "subnet4": body.pop("subnet4")}]
+    return config
+
+
+@pytest.mark.parametrize("level", ["global", "subnet", "network"])
+@pytest.mark.parametrize("key", sorted(BEHAVIOUR_EDITS))
+def test_lease_and_reservation_behaviour_is_compared(level, key):
+    pair = [server("ns1"), server("ns2"), server("ns3", v3=True)]
+    if level == "network":
+        pair = [in_network(c) for c in pair]
+    body = pair[2]["Dhcp4"]
+    targets = {"global": body, "subnet": body.get("subnet4", [{}])[0]}
+    target = body["shared-networks"][0] if level == "network" else targets[level]
+    target[key] = BEHAVIOUR_EDITS[key]
+    hashes, _ = divergent(payloads(ns1=pair[0], ns2=pair[1], ns3=pair[2]))
+    assert hashes and hashes["ns1"] == hashes["ns2"] != hashes["ns3"]
+
+
+def test_what_kea_3_derives_is_not_divergence():
+    v2, v3 = server("ns1"), server("ns3", v3=True)
+    for cfg in (v2, v3):
+        cfg["Dhcp4"]["allocator"] = "random"
+    # Kea 3 writes the inherited allocator and the min and max lifetimes into the subnet.
+    v3["Dhcp4"]["subnet4"][0].update(
+        {"allocator": "random", "min-valid-lifetime": 3600, "max-valid-lifetime": 3600}
+    )
+    assert divergent(payloads(ns1=v2, ns3=v3)) == ({}, [])
+    v3["Dhcp4"]["subnet4"][0]["allocator"] = "iterative"
+    assert divergent(payloads(ns1=v2, ns3=v3))[0]
+
+
 def test_a_peers_list_that_differs_is_caught():
     without_backup = [p for p in PEERS if p["name"] != "ns3"]
     hashes, _ = divergent(

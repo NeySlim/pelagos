@@ -167,8 +167,10 @@ carry the server name in their subject, `ha:kea4:<server name>`).
 
 `config_divergence` compares the Kea servers of each relationship on what
 they must share: subnets and shared networks (pools, reservations, options,
-lifetimes, classes they name), global reservations, options, option
-definitions and client classes, and the relationship itself (mode, every
+lifetimes, lease and reservation settings such as `match-client-id`,
+`authoritative`, `reservations-*`, T1/T2 and the allocator, classes they
+name), the same settings at the global level, global reservations, options,
+option definitions and client classes, and the relationship itself (mode, every
 peer's name, URL, role and auto-failover). Keys that differ by nature are
 left out: `this-server-name`, interfaces, control sockets, loggers, lease
 database, hook library paths, the HA hook's timers and multi-threading,
@@ -208,7 +210,11 @@ one server per relationship. The plan writes on the hub one
 `high-availability` entry per relationship, each with its own
 `this-server-name`, and on each spoke its own relationship. A subnet goes
 to a relationship through `user-context.ha-server-name` (the hub's name in
-that relationship); Pelagos does not set it. Kea 2.6 runs one relationship
+that relationship); Pelagos does not set it, as only you know which site a
+subnet serves. While some of the hub's subnets set none, the plan says so
+under the `ha-subnets` check: the hub serves those subnets in every
+relationship, and the shared configuration check expects them on every
+spoke. Kea 2.6 runs one relationship
 per server: a plan putting a Kea 2.6 node in two is refused with
 "needs Kea 3.0 or later". "Remove this relationship" in the form drops one;
 "Remove HA" drops them all.

@@ -395,6 +395,9 @@ def test_hub_and_spoke_two_relationships_on_one_server(kea_cluster):
     plan = dhcp.plan_ha_setup(body, "alice")
     assert plan.state is PlanState.VALIDATED, plan.error
     assert plan.target_node_ids == [hub.id, spoke1.id, spoke2.id]
+    # The hub's subnets name no relationship yet: the plan says so, on the hub only.
+    warned = [v for v in plan.validations if v.tool == "ha-subnets"]
+    assert len(warned) == 1 and warned[0].ok and "hub-a, hub-b" in warned[0].output
     assert plans.apply(plan, "alice", confirm=True).state is PlanState.APPLIED
     hub_d, s1_d, s2_d = daemons
     entries = hub_d.ok("config-get")["Dhcp4"]["hooks-libraries"][-1]["parameters"]["high-availability"]

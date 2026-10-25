@@ -38,7 +38,18 @@ What changed (file, symbol). Why. Which packages must react, and how.
   parts, encrypted with the master key (`PlanStore(plans_dir=, box=)`,
   `set_parts`, `parts`; `PlanService.register_composite` stores the parts
   there). Plans survive a web restart within their TTL; one caught
-  `APPLYING` comes back `FAILED`. `Paths.plans_dir`.
+  `APPLYING` comes back `FAILED` with `Plan.interrupted` (bool, default
+  false, additive), as does its part caught `APPLYING`, for one more TTL.
+  Parts record `APPLYING`/`APPLIED`/`ROLLED_BACK` as they go; `POST
+  /plans/{id}/rollback` accepts an interrupted plan and rolls back its
+  `APPLIED` parts only. `Paths.plans_dir`.
+- `collector.kea_shared`: the shared view also covers global lifetimes and
+  the lease and reservation settings (`BEHAVIOUR`) at every level, so the
+  `shared` and relationship hashes change; nodes mid-upgrade may raise
+  `config_divergence` until all run this version.
+- `connectors.kea.ha.untagged_subnets`, `hub_subnets_warning`: a hub's
+  `dhcp.ha` setup part carries an `ha-subnets` validation (ok) listing its
+  subnets without `user-context.ha-server-name`.
 - `Makefile`: `lab-demo` (`NODES=2|3`).
 - Frontend: HA page by relationship, backup cards, multi-relationship form;
   the mock gains `--scenario hub`.

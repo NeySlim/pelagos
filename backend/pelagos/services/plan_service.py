@@ -41,6 +41,8 @@ from pelagos.services.registry import ConnectorRegistry
 
 log = logging.getLogger(__name__)
 
+# A part a restart caught mid-apply: which of its nodes applied it is unknown.
+CHECK_BY_HAND = "not rolled back: a restart interrupted this part ({}), check this node by hand"
 JOB_SCOPES = frozenset({PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY})
 
 
@@ -200,6 +202,7 @@ class PlanService:
                 # A failing part has already rolled back its own nodes; earlier parts are undone below.
                 progress.clear()
                 in_flight = part
+                self._mark(plan, part, PlanState.APPLYING)
                 part_results, ok = self._apply_one(part, who, progress)
                 results.extend(part_results)
                 if not ok:
@@ -207,6 +210,7 @@ class PlanService:
                     plan.error = plan.error or part.error
                     break
                 applied.append((part, [r.node_id for r in part_results if r.ok]))
+                self._mark(plan, part, PlanState.APPLIED)
                 in_flight = None
             if failed:
                 for part, node_ids in reversed(applied):
@@ -387,10 +391,22 @@ class PlanService:
         finally:
             self._track(-1)
 
+    def _mark(self, plan: Plan, part: Plan, state: PlanState) -> None:
+        """Record one part's progress on disk, so a restart knows which parts a node finished."""
+        if part is not plan:
+            part.state = state
+            self.ctx.plan_store.update(plan)
+
     def _rollback(self, plan: Plan, user: str, client_ip: str | None) -> ApplyResult:
         with self._lock:
-            if plan.state is not PlanState.APPLIED:
-                raise PlanError("plan_state", f"only applied plans roll back; plan is {plan.state.value}")
+            # A plan a restart interrupted rolls back the parts it finished; the rest is checked by hand.
+            interrupted = plan.state is PlanState.FAILED and plan.interrupted
+            if plan.state is not PlanState.APPLIED and not interrupted:
+                raise PlanError(
+                    "plan_state",
+                    "only applied plans, or plans a restart interrupted, roll back;"
+                    f" plan is {plan.state.value}",
+                )
             plan.state = PlanState.APPLYING  # in flight: a second rollback or apply gets plan_state
             self.ctx.plan_store.update(plan)
         self._phase(plan, "rolling_back")
@@ -399,7 +415,19 @@ class PlanService:
         try:
             for part in reversed(parts):
                 targets = part.target_node_ids or [self.ctx.node.id]
-                results.extend(self._rollback_nodes(part, targets, (user, client_ip)))
+                if interrupted and part.interrupted:
+                    results.extend(
+                        NodeApplyResult(node_id=n, ok=False, message=CHECK_BY_HAND.format(part.summary))
+                        for n in targets
+                    )
+                    continue
+                if interrupted and part.state is not PlanState.APPLIED:
+                    continue  # never reached, or already rolled back before the restart
+                self._mark(plan, part, PlanState.APPLYING)
+                part_results = self._rollback_nodes(part, targets, (user, client_ip))
+                results.extend(part_results)
+                ok = all(r.ok for r in part_results)
+                self._mark(plan, part, PlanState.ROLLED_BACK if ok else PlanState.FAILED)
             plan.state = PlanState.ROLLED_BACK if all(r.ok for r in results) else PlanState.FAILED
             if plan.state is PlanState.FAILED:
                 plan.error = next((r.message for r in results if not r.ok), "rollback failed")
@@ -410,6 +438,8 @@ class PlanService:
             results.append(NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=plan.error))
         for part in parts:
             part.state = plan.state
+            part.interrupted = False
+        plan.interrupted = False
         self.ctx.plan_store.update(plan)
         note = self._audit_summary(plan, user, client_ip, verb="rollback")
         if note:

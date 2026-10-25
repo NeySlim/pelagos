@@ -37,7 +37,10 @@ TOMBSTONE_TTL = timedelta(days=7)
 JOURNAL_MAX_BYTES = 64 * 1024
 _PLAN_FILE = re.compile(r"^[0-9A-Za-z]{1,64}\.plan$")
 # A plan found APPLYING after a restart: its apply or rollback died with the previous process.
-INTERRUPTED = "interrupted by a restart of the web process: check what each node applied before a new plan"
+INTERRUPTED = (
+    "interrupted by a restart of the web process: a rollback undoes the parts every node applied;"
+    " check the interrupted part by hand"
+)
 
 
 class PlanNotFound(LookupError):
@@ -189,7 +192,8 @@ class PlanStore:
 
     def _load_plans(self) -> set[str]:
         """Plans saved by an earlier run and still within their TTL; an expired or unreadable file
-        is removed (its id stays a tombstone). A plan caught APPLYING is FAILED. Returns the ids."""
+        is removed (its id stays a tombstone). A plan caught APPLYING is FAILED and `interrupted`, as
+        is its part caught APPLYING; it stays one more TTL for its rollback. Returns the ids."""
         from pelagos.core.secrets import SecretError
 
         assert self.plans_dir is not None and self.box is not None
@@ -219,8 +223,12 @@ class PlanStore:
             if plan.state is PlanState.APPLYING:
                 plan.state = PlanState.FAILED
                 plan.error = INTERRUPTED
+                plan.interrupted = True
+                plan.expires_at = max(plan.expires_at, now + self.ttl)
                 for part in parts or []:
-                    part.state = PlanState.FAILED
+                    if part.state is PlanState.APPLYING:
+                        part.state = PlanState.FAILED
+                        part.interrupted = True
                 interrupted.append(plan)
             self._plans[pid] = plan
             if parts is not None:
@@ -228,6 +236,8 @@ class PlanStore:
             loaded.add(pid)
         for plan in interrupted:
             self._save(plan)
+        if interrupted:
+            self._append({p.id: p.expires_at for p in interrupted})
         return loaded
 
     # Tombstones ------------------------------------------------------------------------------

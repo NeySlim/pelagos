@@ -143,6 +143,8 @@ class Plan(Model):
     error: str | None = None
     # Translatable form of `summary` (domain.messages); None for plans built before message keys.
     summary_message: dict[str, Any] | None = None
+    # Caught APPLYING by a restart: what it did on its nodes is unknown (check by hand on rollback).
+    interrupted: bool = False
 
     @property
     def permission(self) -> str:

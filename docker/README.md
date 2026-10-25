@@ -29,6 +29,20 @@ PELAGOS_ADMIN_PASSWORD='change me' PELAGOS_IMAGE=pelagos:latest docker compose u
 curl -k https://127.0.0.1:8443/api/v1/health
 ```
 
+The node starts with every engine off. Adopt the BIND and Kea containers
+from the web container:
+
+```sh
+docker compose exec pelagos pelagos import --engines bind,kea4,d2 --dry-run
+docker compose exec pelagos pelagos import --engines bind,kea4,d2 --yes
+```
+
+`PELAGOS_EXTERNAL_ENGINES=1` (set in `compose.yaml`) tells the installer
+that the engines are the other containers: it reloads `named` over rndc,
+checks the Kea files with `config-test` on their control sockets and never
+starts or restarts a daemon. The collector restarts itself to load the new
+engines.
+
 Variables (environment or a `.env` file next to `compose.yaml`):
 `PELAGOS_IMAGE` (default `pelagos:latest`, the image `make docker` builds;
 no image is published yet, so build it first or point the variable at your
@@ -55,7 +69,8 @@ Notes:
   (`rndc_address = "bind"`, `statistics_url = "http://bind:8053/json/v1"`,
   `query_address` = the address of `bind`, `group`), which the entrypoint
   writes at every start when `PELAGOS_BIND_HOST` is not local and a key is
-  missing. While BIND is off in `node.toml` (`bind = false`, as `pelagos
+  missing; `query_address` follows the address of `bind` when the container
+  is recreated. While BIND is off in `node.toml` (`bind = false`, as `pelagos
   init` leaves it) the table is parked under `[engines.disabled.bind]`;
   `pelagos import` turns it on and keeps those connection keys.
 
@@ -64,7 +79,8 @@ throwaway project name and checks `/api/v1/health`, `rndc status` and the
 statistics channel against `bind`, a TLS handshake with the replication
 listener on the published `:8444`, that no long-running container carries
 the admin password, and `version-get` on both Kea sockets
-from inside the `pelagos` container.
+from inside the `pelagos` container, then runs `pelagos import` and lists the
+zones through the API.
 
 ## All-in-one image
 

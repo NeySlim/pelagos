@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Smoke test of docker/compose.yaml on a Docker host: the stack comes up, the node answers
 # /api/v1/health, reaches named over rndc and the statistics channel on the compose
-# network and talks to both Kea control sockets through the shared volume.
+# network, talks to both Kea control sockets through the shared volume, and adopts the engine
+# containers with pelagos import.
 #
 # Usage: compose-smoke.sh [image]      (default: pelagos:latest, built with make docker)
 # Environment: DOCKER (default docker), BIND_DNS_PORT (default 5300, the host port 53 is
@@ -100,6 +101,28 @@ assert json.loads(s.recv(65536))['result'] == 0"
     fail "Kea control socket $sock"
   fi
 done
+
+# The node adopts the engine containers: named reloaded over rndc, Kea checked on its sockets.
+if dc exec -T pelagos pelagos import --engines bind,kea4,d2 --yes >"$envfile.import" 2>&1 \
+  && grep -q '^done: import' "$envfile.import"; then
+  ok "import adopts the bind and Kea containers"
+else
+  fail "import of the engine containers"
+  tail -n 20 "$envfile.import"
+fi
+rm -f "$envfile.import"
+jar="$(mktemp)"
+zones=""
+for _ in $(seq 1 15); do
+  curl -sk -c "$jar" -H 'Content-Type: application/json' \
+    -d "{\"username\":\"admin\",\"password\":\"$PELAGOS_ADMIN_PASSWORD\"}" \
+    "https://127.0.0.1:$PELAGOS_HTTPS_PORT/api/v1/auth/login" >/dev/null
+  zones="$(curl -sk -b "$jar" -o /dev/null -w '%{http_code}' "https://127.0.0.1:$PELAGOS_HTTPS_PORT/api/v1/dns/zones")"
+  [[ "$zones" == 200 ]] && break
+  sleep 2
+done
+rm -f "$jar"
+if [[ "$zones" == 200 ]]; then ok "zones listed through the API after the import"; else fail "dns/zones answered $zones"; fi
 
 if [[ $failures -gt 0 ]]; then echo "$failures check(s) failed"; exit 1; fi
 echo "all checks passed"

@@ -15,8 +15,9 @@ then enroll the others ([Getting started](getting-started.md)).
 ## Before you start
 
 - A server running Debian 13 or a RHEL 9/10 rebuild, with root access.
-- BIND 9.20 and Kea 3.x, already running or to be installed. Pelagos can
-  install them for you (`pelagos install`, below).
+- BIND 9.20 (9.18 from RHEL 10 and its rebuilds works too) and Kea 3.x,
+  already running or to be installed. Pelagos can install them for you
+  (`pelagos install`, below).
 - Ports: `8443/tcp` (UI and API) reachable by administrators, `8444/tcp`
   (replication and enrollment) reachable by the other nodes. See
   [Configuration: ports](configuration.md#ports).

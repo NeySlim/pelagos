@@ -142,8 +142,11 @@ repository is `sudo pelagos install --engines kea4,d2 --source isc`.
    ```
 
    On RHEL, after `dnf remove`, delete what you no longer need by hand:
-   `sudo rm -rf /etc/pelagos /var/lib/pelagos /var/lib/pelagos-helper` and
-   `sudo userdel pelagos`.
+   `sudo rm -rf /etc/pelagos /var/lib/pelagos /var/lib/pelagos-helper`,
+   give the engine files Pelagos wrote back to root first
+   (`sudo chown -R root /etc/named/pelagos`; the Kea files are root's
+   already), then `sudo userdel pelagos`. Otherwise they keep the deleted
+   user's number as owner.
 
 The files Pelagos wrote for the engines stay so BIND and Kea keep running:
 the include directory (`/etc/bind/pelagos` or `/etc/named/pelagos`), zone

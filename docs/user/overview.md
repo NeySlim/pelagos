@@ -97,7 +97,7 @@ Pelagos include directory and reach the Kea sockets.
 | deb package | Debian 13 (trixie), amd64 |
 | rpm package | RHEL, Rocky Linux, AlmaLinux 9 and 10, x86_64 (Fedora builds from the same spec) |
 | Container images | node image and all-in-one image (Debian 13 base), amd64, built from the repository |
-| BIND | 9.20 |
+| BIND | 9.20 (Debian 13, the ISC images); 9.18 as RHEL 10 and Rocky 10 ship it is tested too |
 | Kea | 3.x, 3.2 tested, with the `lease_cmds`, `host_cmds`, `subnet_cmds` and `stat_cmds` hooks. Kea 2.6 runs in a reduced mode: without `subnet_cmds` and `host_cmds`, subnet and reservation changes replace the whole configuration (`config-set`) and some screens offer less |
 | Python | the distribution's 3.12 or 3.13, in a private environment under `/opt/pelagos` |
 | Browsers | current Chromium, Firefox and Safari |

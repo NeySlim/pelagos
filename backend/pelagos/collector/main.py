@@ -760,6 +760,8 @@ def reload_settings(collector: Collector, tasks: list[Task], replication: Any = 
 
 
 MODULES_CHECK_SECONDS = 30.0
+# How often the loop looks for a new cluster.toml version or audit head (`system`/`replication`).
+REPLICATION_CHECK_SECONDS = 2.0
 
 
 def publish_own_modules(ctx: NodeContext) -> bool:
@@ -836,6 +838,7 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     watch = EnginesWatch(ctx)
     settings_watch = SettingsWatch(ctx)
     next_modules_check = 0.0
+    next_replication_check = 0.0
     changed_at: float | None = None
     from pelagos.services.registry import plans_in_flight
 
@@ -848,7 +851,9 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
                 return EXIT_ENGINES_CHANGED
             if settings_watch.changed():
                 reload_settings(collector, tasks, replication)
-            collector.replication_events()
+            if time.monotonic() >= next_replication_check:
+                next_replication_check = time.monotonic() + REPLICATION_CHECK_SECONDS
+                collector.replication_events()
             if time.monotonic() >= next_modules_check:
                 next_modules_check = time.monotonic() + MODULES_CHECK_SECONDS
                 try:

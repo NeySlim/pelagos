@@ -1328,6 +1328,7 @@ application/json`. All endpoints under `/repl/v1`.
 | `POST /repl/v1/audit/fetch` | `{"ids":[...]}` (at most 5000) | `{"entries":[...]}` | the known entries among `ids`, ascending by id |
 | `POST /repl/v1/plans/apply` | `{"plan": Plan}` | `NodeApplyResult` | apply a plan built elsewhere on this node (section 5) |
 | `POST /repl/v1/plans/rollback` | `{"plan": Plan}` | `NodeApplyResult` | |
+| `POST /repl/v1/actions/<name>` | action body (below) | `{"ok": true, "result"}` or `{"ok": false, "code", "detail", "errors"}` | a write another node asks this node to build or run (peer write channel, below); `404` from a node that does not serve actions |
 | `GET /repl/v1/engines/<engine>/snapshot` | | engine-specific read (zones list, subnets, HA state) | used by `services` to answer "read on both peers" without a second code path |
 | `POST /repl/v1/enroll` | section 14 | section 14 | accepts a connection without a client certificate; protected by the one-time token |
 | `GET /repl/v1/ca` | | `{"ca_pem","ca_fingerprint","node_id","name"}` | no client certificate; the enrolling node checks the fingerprint before sending its token |
@@ -1375,6 +1376,28 @@ The same registry serves `/repl/v1/plans/apply|rollback`: the plan's
 and hands every other plan to the backend. D2 secrets travel sealed by
 `core.plan_secrets` (`after.sealed`); `ReplicationApp` opens them and gives
 them to `D2Backend.accept_plan_secrets` before the apply.
+
+Peer write channel: `POST /repl/v1/actions/<name>` lets a node act on a
+resource another node owns. The calling node checks the user's permission
+exactly as for a local request; the callee trusts the authenticated node
+(the same model as `/plans/apply`). Actions (`services.peer_actions.PeerActions`,
+run under the collector's backend lock):
+
+| Action | Body | Result |
+| --- | --- | --- |
+| `dns.zone.plan` | `{"change": Change, "created_by"}` | `{"plan": Plan}` built by this node's BIND (`plan_zone_change`) |
+| `dhcp.adopt.plan` | `{"engine": "kea4"|"kea6"|"d2", "source": "file"|"running", "created_by"}` | `{"plan": Plan}` (`plan_adopt` of this node's file) |
+| `dhcp.config.plan` | `{"engine", "config", "created_by"}` | `{"plan": Plan}` (whole-configuration replace of this node; D2 secrets sealed in the plan) |
+| `ops.run` | `{"engine": "bind"|"v4"|"v6"|"d2", "name", "params", "confirm", "user", "client_ip"}` | `{"output"}`: an allow-listed write operation, audited here as `node:<caller>` with `request.requested_by` |
+
+A plan built this way is stored by the caller (`PeerGateway.build_plan`
+stamps the callee's id on preconditions and validations without one and
+sets `target_node_ids` to the callee) and applied through `/plans/apply`,
+so both nodes audit the apply. A refusal keeps its section 19 code (the
+detail is prefixed with the peer's name); an offline peer is `503
+engine_unavailable` at once, a peer that does not answer within
+`settings.peer_action_timeout_seconds` (default 120) is `503` too, and a peer
+without the endpoint is `501 not_supported`.
 
 The collector serves `/repl/v1` (it runs `ReplicationService` with a
 registry over its own backends) and adds the kind `cache`: the answer is
@@ -1746,7 +1769,7 @@ change revokes the user's other sessions.
 | `GET /dns/instances` | `read:dns` | | `{"items": [{"node_id", "capabilities": DnsCapabilities, "status": {rndc status fields}}]}` |
 | `GET /dns/zones?view=&kind=&q=` | `read:dns` | | `{"items": [{"zone": Zone, "serials": {node_id: int|null}, "divergent": bool, "status": {node_id: ZoneStatus}}]}` (`status` filled for secondary, mirror and stub zones with the read node's status, kept `peer_poll_seconds`, else `{}`) |
 | `GET /dns/zones/{zone}?view=` | `read:dns` | | `{"zone": Zone, "status": {node_id: ZoneStatus}, "mode": "dynamic"|"static"|<kind>, "views": [view names holding this zone]}` |
-| `POST /dns/zones/plan` | `write:dns.zones` | `{"change": Change, "node_ids"?: [...]}` (target `<view>/<zone>`, `after` = Zone; `after.source: "addzone"` adds it with `rndc addzone`, and a zone whose source is `addzone` is changed with `rndc modzone`/`delzone`; with `node_ids` a new primary also lands on those peers as a secondary of this node, `after.secondary.primaries` saying where they transfer from) | `Plan` |
+| `POST /dns/zones/plan` | `write:dns.zones` | `{"change": Change, "node_ids"?: [...], "node_id"?}` (`node_id`: the node that holds the zone and builds the plan, default this node, else the first node running BIND; a peer builds it over `dns.zone.plan`; target `<view>/<zone>`, `after` = Zone; `after.source: "addzone"` adds it with `rndc addzone`, and a zone whose source is `addzone` is changed with `rndc modzone`/`delzone`; with `node_ids` a new primary also lands on those peers as a secondary of this node, `after.secondary.primaries` saying where they transfer from) | `Plan` |
 | `GET /dns/zones/{zone}/records?view=&type=&name=&q=&page=&per_page=` | `read:dns` | | paginated `RRset` (`node_id` of the node read in `meta`) |
 | `POST /dns/zones/{zone}/records/plan` | `write:dns.records` | `{"view"?, "changes": [Change]}` | `Plan` |
 | `POST /dns/zones/{zone}/retransfer` | `ops:dns` | `{"node_id", "view"?}` | `{"output"}` |
@@ -1803,15 +1826,15 @@ the API normalizes to the absolute form.
 | `GET /dhcp/{family}/hooks` | `read:dhcp` | | `{"items": [{"library","parameters","known": bool,"name"}], "available": [...]}` |
 | `POST /dhcp/{family}/hooks/plan` | `write:dhcp.config` | `{"changes": [Change]}` (target `hooks-libraries`; each `library` is `libdhcp_<name>.so`, bare or in a Kea hooks directory) | `Plan` |
 | `GET /dhcp/{family}/config?node_id=` | `read:dhcp` | | `{"node_id","hash","config": {...}}` |
-| `POST /dhcp/{family}/config/plan` | `write:dhcp.config` | `{"node_id"?, "config": {...}}` (the node the configuration was loaded from, this node; never fanned out) | `Plan` |
+| `POST /dhcp/{family}/config/plan` | `write:dhcp.config` | `{"node_id"?, "config": {...}}` (the node the configuration was loaded from, built there when it is a peer; never fanned out) | `Plan` |
 | `GET /dhcp/{family}/config/file` | `read:dhcp` | | `{"items": [{"node_id","path","files","includes","diverged","differences","count","alert_id"}]}` (section 9; this node compared live, peers through their snapshot) |
-| `POST /dhcp/{family}/config/adopt/plan` | `write:dhcp.config` | `{"source": "file"|"running", "node_id"?}` (this node) | `Plan` (`requires_confirmation`) |
+| `POST /dhcp/{family}/config/adopt/plan` | `write:dhcp.config` | `{"source": "file"|"running", "node_id"?}` (the node that holds the file, default this node; a peer builds the plan) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/d2/servers` | `read:dhcp` | | `{"items": [{"node_id","capabilities","status"}]}` |
 | `GET /dhcp/d2/stats?node_id=` | `read:dhcp` | | `D2Stats` |
 | `GET /dhcp/d2/config?node_id=` | `read:dhcp` | | `{"node_id","config"}` (secrets masked) |
-| `POST /dhcp/d2/config/plan` | `write:dhcp.config` | `{"node_id"?, "config"}` (this node only) | `Plan` |
+| `POST /dhcp/d2/config/plan` | `write:dhcp.config` | `{"node_id"?, "config"}` (that node only, built there when it is a peer) | `Plan` |
 | `GET /dhcp/d2/config/file` | `read:dhcp` | | as `GET /dhcp/{family}/config/file` |
-| `POST /dhcp/d2/config/adopt/plan` | `write:dhcp.config` | `{"source": "file"|"running"}` | `Plan` (`requires_confirmation`) |
+| `POST /dhcp/d2/config/adopt/plan` | `write:dhcp.config` | `{"source": "file"|"running", "node_id"?}` | `Plan` (`requires_confirmation`) |
 
 `v6` paths are `v6-module`. Reads default to the local node and fall back
 to the first reachable node that runs the engine; `node_id` selects one.
@@ -1827,7 +1850,7 @@ configuration; the problem document carries `"engine"` and `"divergences":
 | --- | --- | --- | --- |
 | `GET /hosts?q=&subnet_id=&zone=&only_inconsistent=&page=&per_page=` | `read:hosts` | | paginated `Host` |
 | `GET /hosts/{key}` | `read:hosts` | | `Host` |
-| `POST /hosts/plan` | `write:hosts` | `{"hostname","ip","mac"?,"zone","reverse_zone"?,"ttl"?,"reservation": bool,"subnet_id"?,"notes"?}` | `Plan` (scope `host`, changes expanded into `dns.rrset` and `dhcp.reservation`; on a node without BIND the RRset parts are built from the primary's records and applied on the primary) |
+| `POST /hosts/plan` | `write:hosts` | `{"hostname","ip","mac"?,"zone","reverse_zone"?,"view"?,"reverse_view"?,"ttl"?,"reservation": bool,"subnet_id"?,"notes"?}` | `Plan` (scope `host`, changes expanded into `dns.rrset` and `dhcp.reservation`; the RRset parts are written in `view` (`reverse_view`, default `view`) with that view's keys, as record plans; on a node without BIND they are built from the primary's records and applied on the primary, and so are record plans) |
 
 ### Plans and jobs
 
@@ -1882,8 +1905,9 @@ operation names its permission (reads: `read:dns` / `read:dhcp`; changes:
 `write:dhcp.config` otherwise) and its typed parameters; the server builds
 the rndc words or the Kea arguments itself. Changes run on this node under
 the engine lock (section 6) and are audited as `dns.ops` / `dhcp.ops`; reads
-may name a peer (engine snapshot kind `op`), a change on a peer answers
-`501 not_supported`. Operations marked `confirm` answer `428
+may name a peer (engine snapshot kind `op`), and a change on a peer runs there
+through the `ops.run` action (section 13), audited on both nodes (here with
+`request.node_id` and `response.remote`). Operations marked `confirm` answer `428
 confirmation_required` without `"confirm": true`.
 
 | Method, path | Permission | Request | Response |
@@ -1921,6 +1945,11 @@ include).
 (notify, reload) with the `node_id` of a peer runs there: the operation travels as
 an `op:` plan over `/repl/v1/plans/apply`, the peer audits it as
 `dns.zone.apply`, this node as `dns.zone.op` with the peer's `node_id`.
+A new primary zone (`op: add`, kind `primary`) whose `after` has no
+`update_policy` (and no `allow_update`) gets `grant <admin key> zonesub ANY`,
+and without `allow_transfer` gets `key <read key>`: the keys of
+`dns.view_keys.<view>` for a zone in a view, else `dns.admin_key` and
+`dns.read_key` (`services.zone_defaults`). A value given, even empty, is kept.
 `GET /dns/zones/{zone}/dnssec` adds to each key `tag`, `role`, `state`, `goal`,
 `ds_state`, `published`, `next_rollover` and `ds` (the DS of a KSK/CSK, SHA-256,
 from the zone's DNSKEY set), and to the status `ds`, `cds` and `ds_guidance`

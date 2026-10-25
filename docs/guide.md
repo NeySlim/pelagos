@@ -337,7 +337,8 @@ History (every plan with its steps and outputs).
 - Record plans fail with `REFUSED` on AXFR or UPDATE: the zone does not
   allow `key ddi-read` for transfers or `ddi-admin` for updates. Accept the
   import proposal for that zone, or add an `update-policy` and an
-  `allow-transfer` with those keys.
+  `allow-transfer` with those keys. Zones created by Pelagos get both by
+  default unless the request sets them.
 - `named-checkconf` errors in a plan: the plan is refused before anything
   is written. The message names the file and line.
 

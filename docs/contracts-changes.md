@@ -13,6 +13,41 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-25, W3-PEER: peer write channel, zone key defaults, host views
+- `POST /repl/v1/actions/<name>` (`core.replication`: `ReplicationApp(actions=)`,
+  `ReplicationClient.action`, `PeerActionError`; served by
+  `services.peer_actions.PeerActions`, wired in `collector.main.start_replication`).
+  Actions `dns.zone.plan`, `dhcp.adopt.plan`, `dhcp.config.plan`, `ops.run`
+  (architecture section 13). Refusals answer HTTP 200 with `{"ok": false, ...}`
+  so a 404 always means a node without the endpoint. Upgrade order: until every
+  node runs this release, a peer write to an older node answers `501
+  not_supported` (as before), nothing else changes.
+- Requests that answered `400 log in on that node` or `501 not_supported` for
+  a peer now run there: `POST /dhcp/{family}/config/adopt/plan`,
+  `POST /dhcp/d2/config/adopt/plan` and both `config/plan` with a peer's
+  `node_id`, `POST /dns/ops` and `POST /dhcp/{family}/ops` changes with a
+  peer's `node_id`, `POST /dns/zones/plan` with `node_id` (new, optional) or on
+  a node without BIND. Record plans on a node without BIND are built from the
+  primary's records (`services.remote_rrset`, as host plans already were)
+  instead of `503`. Frontend: the ops screen no longer blocks changes on a peer,
+  the Kea file banner and the file alert offer adopt for a peer's file
+  (`adoptCall(engine, source, nodeId)`).
+- New primary zones get `update_policy = ["grant <admin key> zonesub ANY"]`
+  and `allow_transfer = ["key <read key>"]` when the request omits them
+  (`services.zone_defaults`), so record plans work on them. Explicit values,
+  even empty, are kept.
+- `POST /hosts/plan` takes `view` and `reverse_view` (the RRset parts use the
+  view's keys); `remote_rrset.plan_on_primary` and `primary_peer` take `view`.
+- `d2_secrets.needs_sealing` is false for a plan whose secrets are already
+  sealed (a D2 config replace built by a peer).
+- `tests/fixtures/ports.free_port()` hands out ports below the kernel's
+  ephemeral range, each claimed by an flock in
+  `<tempdir>/pelagos-test-ports-<uid>/` for the process's next 256
+  allocations. Cause of the flaky replication tests: a port released by
+  `free_port()` (or by a stopped test server) was taken by another test
+  process or an outgoing connection before the server bound it again
+  (`EADDRINUSE`, or a push reaching another test's server). No caller changes.
+
 ## 2026-10-24, W3-UI screens: live rates from counters, dashboard hero tiles
 - No API change. The dashboard and the statistics pages derive queries per second
   and leases per second in the browser from the cumulative counters of

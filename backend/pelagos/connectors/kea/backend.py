@@ -17,7 +17,7 @@ import re
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +50,7 @@ from pelagos.connectors.kea.control_socket import (
 )
 from pelagos.connectors.kea.ha import (
     MAINTENANCE_COMMANDS,
+    ha_hook_entries,
     ha_peers_from_config,
     ha_state_from_status,
     heartbeat_window,
@@ -164,8 +165,9 @@ class KeaBackend(DhcpBackend):
         self._applied: dict[str, tuple[str, Path | None]] = {}
         self._last_backup: Path | None = None
         self._config_cache: list[dict[str, Any]] | None = None
-        # The configured HA peers (monotonic read time, peers): config-get is too heavy per live pass.
-        self._ha_peers: tuple[float, list[HAPeer]] | None = None
+        # The configured HA relationships (monotonic read time, {this-server-name: peers}, first
+        # relationship's peers): config-get is too heavy per live pass.
+        self._ha_peers: tuple[float, dict[str, list[HAPeer]], list[HAPeer]] | None = None
 
     # Helpers ----------------------------------------------------------------------
 
@@ -418,40 +420,55 @@ class KeaBackend(DhcpBackend):
         return pool_utilization_from_stats(self.statistics(), self.list_subnets(), self.ctx.node_id)
 
     def ha_state(self) -> HAState:
+        """The first HA relationship of this server, any other one (Kea 3 hub and spoke) in
+        `other_relationships`, each with its configured peers and its partner's heartbeat."""
         sent = utcnow()
         status = self.status()
         received = utcnow()
         ha = ha_state_from_status(self.ctx.node_id, self.family, status)
-        ha.collected_at = received
-        if ha.enabled:
-            ha.peers = self._configured_ha_peers()
-        if ha.enabled and ha.partner is not None:
-            # Kea's own clock bounds when status-get ran; an older hook without the command still works.
-            kea_now = None
-            try:
-                args = {"server-name": ha.server_name} if ha.server_name else None
-                beat = self.socket.call("ha-heartbeat", args)
-                kea_now = kea_time(beat)
-                # status-get has no unsent count: only ha-heartbeat reports the queue to the partner.
-                unsent = beat.get("unsent-update-count")
-                counted = isinstance(unsent, int) and not isinstance(unsent, bool)
-                if ha.unsent_update_count is None and counted:
-                    ha.unsent_update_count = unsent
-            except (ConnectorError, OSError, ValueError, AttributeError):
-                kea_now = None
-            ha.heartbeat = heartbeat_window(ha.partner.age, sent, received, kea_now)
+        if not ha.enabled:
+            ha.collected_at = received
+            return ha
+        by_name, first = self._configured_ha_peers()
+        for one in [ha, *ha.other_relationships]:
+            one.collected_at = received
+            one.peers = list(by_name.get(one.server_name or "", first if one is ha else []))
+            if one.partner is not None:
+                self._heartbeat(one, sent, received)
         return ha
 
-    def _configured_ha_peers(self) -> list[HAPeer]:
+    def _heartbeat(self, ha: HAState, sent: datetime, received: datetime) -> None:
+        # Kea's own clock bounds when status-get ran; an older hook without the command still works.
+        assert ha.partner is not None
+        kea_now = None
+        try:
+            args = {"server-name": ha.server_name} if ha.server_name else None
+            beat = self.socket.call("ha-heartbeat", args)
+            kea_now = kea_time(beat)
+            # status-get has no unsent count: only ha-heartbeat reports the queue to the partner.
+            unsent = beat.get("unsent-update-count")
+            counted = isinstance(unsent, int) and not isinstance(unsent, bool)
+            if ha.unsent_update_count is None and counted:
+                ha.unsent_update_count = unsent
+        except (ConnectorError, OSError, ValueError, AttributeError):
+            kea_now = None
+        ha.heartbeat = heartbeat_window(ha.partner.age, sent, received, kea_now)
+
+    def _configured_ha_peers(self) -> tuple[dict[str, list[HAPeer]], list[HAPeer]]:
         now = time.monotonic()
         if self._ha_peers is not None and now - self._ha_peers[0] < HA_PEERS_TTL:
-            return list(self._ha_peers[1])
+            return self._ha_peers[1], self._ha_peers[2]
         try:
-            peers = ha_peers_from_config(self.config_get())
+            cfg = self.config_get()
         except ConnectorError:
-            return list(self._ha_peers[1]) if self._ha_peers else []
-        self._ha_peers = (now, peers)
-        return list(peers)
+            return (self._ha_peers[1], self._ha_peers[2]) if self._ha_peers else ({}, [])
+        by_name = {
+            str(e.get("this-server-name")): ha_peers_from_config(cfg, str(e.get("this-server-name")))
+            for e in ha_hook_entries(cfg) or []
+            if e.get("this-server-name")
+        }
+        self._ha_peers = (now, by_name, ha_peers_from_config(cfg))
+        return by_name, self._ha_peers[2]
 
     # Plans ------------------------------------------------------------------------------------
 
@@ -772,32 +789,54 @@ class KeaBackend(DhcpBackend):
         self, spec: dict[str, Any] | None, this_server: str | None, created_by: str = ""
     ) -> Plan:
         """The ha hook of this server set to the relationship `spec` under the name `this_server`
-        (`spec` None removes the hook). lease_cmds is added when missing; the hook library sits in the
-        directory of the loaded ones unless `spec["hooks_dir"]` says otherwise."""
+        (`spec` None removes the hook). `spec` may instead hold `relationships`, each with its own
+        `this_server` (Kea 3 hub and spoke: one server in several relationships). lease_cmds is
+        added when missing; the hook library sits in the directory of the loaded ones unless
+        `spec["hooks_dir"]` says otherwise."""
         cfg = self.config_get()
         hooks = [h for h in cfg.get("hooks-libraries") or [] if isinstance(h, dict)]
+        entries: list[dict[str, Any]] | None
         if spec is None:
-            entry = None
-            role = None
+            entries = None
         else:
-            if not this_server:
-                raise ConnectorError("this server's name in the relationship is required")
-            role = next((s.get("role") for s in spec["servers"] if s.get("name") == this_server), None)
-            if role is None:
-                raise ConnectorError(f"{this_server} is not one of the relationship's servers")
-            entry = relationship_entry(spec, this_server)
+            wanted = spec.get("relationships")
+            if wanted is None:
+                wanted = [{**spec, "this_server": this_server}]
+            if not wanted:
+                raise ConnectorError("at least one relationship is required")
+            if len(wanted) > 1:
+                major = _major(self.version())
+                if major is not None and major < 3:
+                    raise ConnectorError(
+                        f"Kea {self.version()} runs one HA relationship per server: a server in several"
+                        " relationships (hub and spoke) needs Kea 3.0 or later"
+                    )
+            entries = []
+            served: list[tuple[str, str]] = []
+            for rel in wanted:
+                name = rel.get("this_server")
+                if not name:
+                    raise ConnectorError("this server's name in the relationship is required")
+                role = next((s.get("role") for s in rel["servers"] if s.get("name") == name), None)
+                if role is None:
+                    raise ConnectorError(f"{name} is not one of the relationship's servers")
+                entries.append(relationship_entry(rel, name))
+                served.append((name, str(role)))
         try:
-            new_hooks = hooks_with_ha(hooks, entry, (spec or {}).get("hooks_dir") or hooks_dir_of(hooks))
+            new_hooks = hooks_with_ha(hooks, entries, (spec or {}).get("hooks_dir") or hooks_dir_of(hooks))
         except ValueError as exc:
             raise ConnectorError(str(exc)) from None
         change = Change(ChangeOp.REPLACE, "hooks-libraries", after=new_hooks)
-        summary = (
-            messages.msg("plan.kea.ha_remove", engine=self.engine_name)
-            if spec is None
-            else messages.msg(
-                "plan.kea.ha_setup", engine=self.engine_name, mode=spec["mode"], server=this_server, role=role
+        if entries is None:
+            summary = messages.msg("plan.kea.ha_remove", engine=self.engine_name)
+        else:
+            summary = messages.msg(
+                "plan.kea.ha_setup",
+                engine=self.engine_name,
+                mode=", ".join(dict.fromkeys(str(e["mode"]) for e in entries)),
+                server=", ".join(n for n, _ in served),
+                role=", ".join(r for _, r in served),
             )
-        )
         return self._plan_config(PlanScope.DHCP_CONFIG, [change], created_by, summary)
 
     def plan_service_toggle(self, enable: bool, created_by: str = "") -> Plan:
@@ -1167,3 +1206,10 @@ def _is_reservation(change: Change) -> bool:
 
 def _change_summary(change: Change) -> Message:
     return messages.msg("plan.change", op=messages.op(change.op), target=change.target)
+
+
+def _major(version: str | None) -> int | None:
+    try:
+        return int(str(version).split(".", 1)[0])
+    except (TypeError, ValueError):
+        return None

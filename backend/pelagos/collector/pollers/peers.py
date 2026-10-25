@@ -39,6 +39,28 @@ BACKUP_GRACE_SECONDS = 300
 TRANSFERRED_KINDS = frozenset({"secondary", "mirror"})
 
 
+def backup_reference(
+    backup: dict[str, Any], ha: dict[str, dict[str, Any]], leases: dict[str, int]
+) -> tuple[str, dict[str, Any]] | None:
+    """The server a backup's lease count is compared with: the primary of its relationship (an
+    active server in a normal state stands in for it). A hub, whose count covers several
+    relationships, is never a reference."""
+    order = {"primary": 0, "secondary": 1, "standby": 1}
+    names = {p.get("name") for p in backup.get("peers") or [] if isinstance(p, dict)}
+    candidates = sorted(
+        (
+            n
+            for n, h in ha.items()
+            if h.get("role") in order
+            and n in leases
+            and not h.get("other_relationships")
+            and (not names or h.get("server_name") in names)
+        ),
+        key=lambda n: (order[ha[n]["role"]], ha[n].get("state") not in rules.HA_NORMAL_STATES),
+    )
+    return (candidates[0], ha[candidates[0]]) if candidates else None
+
+
 class PeerClient(Protocol):
     def status(self, peer: Peer) -> PeerStatus: ...
     def engine_snapshot(self, peer: Peer, engine: str) -> dict[str, Any]: ...
@@ -308,19 +330,13 @@ class PeersPoller:
                     ha[snap["node_id"]] = payload
                 elif snap["kind"] == "utilization" and isinstance(payload, list):
                     leases[snap["node_id"]] = sum(int(r.get("assigned") or 0) for r in payload)
-            # The primary is the reference; an active server in a normal state stands in for it.
-            order = {"primary": 0, "secondary": 1, "standby": 1}
-            candidates = sorted(
-                (n for n, h in ha.items() if h.get("role") in order and n in leases),
-                key=lambda n: (order[ha[n]["role"]], ha[n].get("state") not in rules.HA_NORMAL_STATES),
-            )
-            reference = (candidates[0], ha[candidates[0]]) if candidates else None
-            if reference is None:
-                continue
-            ref_node, ref_ha = reference
             for node_id, st in ha.items():
-                if st.get("role") != "backup" or node_id not in leases:
+                if st.get("role") != "backup" or node_id not in leases or st.get("other_relationships"):
                     continue
+                reference = backup_reference(st, ha, leases)
+                if reference is None:
+                    continue
+                ref_node, ref_ha = reference
                 if not rules.backup_diverges(leases[node_id], leases[ref_node]):
                     continue
                 key = (engine.value, node_id)

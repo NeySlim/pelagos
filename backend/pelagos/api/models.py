@@ -332,8 +332,9 @@ HAList = items_of(
     relationships=fields.List(
         fields.Raw,
         description='[{"family","mode","servers":[{"name","role","url","auto_failover","node_id","node_name",'
-        '"state","scopes","unsent_update_count","partner","in_touch","collected_at","managed"}],'
-        '"active":[name],"backups":[name]}]',
+        '"state","scopes","unsent_update_count","partner","in_touch","collected_at","managed","leases",'
+        '"last_lease_at","receives_from" (backup),"lease_reference" (backup: {"server","leases"})}],'
+        '"active":[name],"backups":[name]}]: one per relationship (a Kea 3 hub is in several)',
     ),
 )
 HA_TUNABLES = (
@@ -357,6 +358,11 @@ HASetupBody = model(
             fields.Raw,
             description='[{"name","url","role":"primary"|"secondary"|"standby"|"backup","auto_failover"?,'
             '"node_id"?}]: node_id names the node of this cluster that runs the server',
+        ),
+        "relationships": fields.List(
+            fields.Raw,
+            description="instead of mode and servers: several relationships, each {mode, servers, tunables}"
+            " (Kea 3 hub and spoke: a node runs a server in several, under another name and url in each)",
         ),
         "remove": fields.Boolean(description="drop the ha hook from node_ids instead"),
         "node_ids": fields.List(fields.String, description="with remove: default every node where HA is on"),

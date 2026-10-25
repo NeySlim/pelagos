@@ -327,6 +327,133 @@ def test_ha_setup_refuses_a_bad_relationship(kea_cluster):
         dhcp.plan_ha_setup(same_node, "alice")
 
 
+# Kea 3 hub and spoke: one server in two relationships ---------------------------------------
+
+
+def all_states(daemon: kea_fx.KeaDaemon) -> dict[str, str]:
+    """{server name: state} of every relationship the daemon runs."""
+    return {
+        e["ha-servers"]["local"]["server-name"]: e["ha-servers"]["local"]["state"]
+        for e in daemon.ok("status-get").get("high-availability") or []
+    }
+
+
+def test_hub_and_spoke_two_relationships_on_one_server(kea_cluster):
+    from pelagos.collector.kea_shared import divergent, shared_hashes
+
+    hub, spoke1, spoke2 = kea_cluster.nodes
+    daemons = [n.kea for n in kea_cluster.nodes]
+    assert all(d is not None for d in daemons)
+    ports = [free_port() for _ in range(4)]
+    timing = {
+        "heartbeat_delay": 1000,
+        "max_response_delay": 3000,
+        "max_ack_delay": 1000,
+        "max_unacked_clients": 0,
+    }
+    body = {
+        "relationships": [
+            {
+                "mode": "hot-standby",
+                **timing,
+                "servers": [
+                    {
+                        "name": "hub-a",
+                        "url": f"http://127.0.0.1:{ports[0]}/",
+                        "role": "standby",
+                        "node_id": hub.id,
+                    },
+                    {
+                        "name": "spoke1",
+                        "url": f"http://127.0.0.1:{ports[1]}/",
+                        "role": "primary",
+                        "node_id": spoke1.id,
+                    },
+                ],
+            },
+            {
+                "mode": "hot-standby",
+                **timing,
+                "servers": [
+                    {
+                        "name": "hub-b",
+                        "url": f"http://127.0.0.1:{ports[2]}/",
+                        "role": "standby",
+                        "node_id": hub.id,
+                    },
+                    {
+                        "name": "spoke2",
+                        "url": f"http://127.0.0.1:{ports[3]}/",
+                        "role": "primary",
+                        "node_id": spoke2.id,
+                    },
+                ],
+            },
+        ]
+    }
+    dhcp, plans = dhcp_of(kea_cluster)
+    plan = dhcp.plan_ha_setup(body, "alice")
+    assert plan.state is PlanState.VALIDATED, plan.error
+    assert plan.target_node_ids == [hub.id, spoke1.id, spoke2.id]
+    assert plans.apply(plan, "alice", confirm=True).state is PlanState.APPLIED
+    hub_d, s1_d, s2_d = daemons
+    entries = hub_d.ok("config-get")["Dhcp4"]["hooks-libraries"][-1]["parameters"]["high-availability"]
+    assert [e["this-server-name"] for e in entries] == ["hub-a", "hub-b"]
+    wait_for(
+        lambda: (
+            all_states(hub_d) == {"hub-a": "hot-standby", "hub-b": "hot-standby"}
+            and all_states(s1_d) == {"spoke1": "hot-standby"}
+            and all_states(s2_d) == {"spoke2": "hot-standby"}
+        ),
+        timeout=40,
+        what="both relationships in hot-standby",
+    )
+
+    # One HAState per node, the hub's second relationship nested; two relationships read back.
+    states = dhcp.ha()
+    top = next(s for s in states if s.node_id == hub.id)
+    assert top.server_name == "hub-a" and [o.server_name for o in top.other_relationships] == ["hub-b"]
+    assert [p.name for p in top.other_relationships[0].peers] == ["hub-b", "spoke2"]
+    rels = dhcp.relationships(states)
+    assert sorted(sorted(s["name"] for s in r["servers"]) for r in rels) == [
+        ["hub-a", "spoke1"],
+        ["hub-b", "spoke2"],
+    ]
+    assert all(s["node_id"] for r in rels for s in r["servers"])
+
+    # What must be equal across each relationship is: no config divergence.
+    payloads = {d.config_path.name + str(i): shared_hashes(d.ok("config-get")) for i, d in enumerate(daemons)}
+    assert divergent(payloads) == ({}, [])
+
+    # Maintenance of the hub goes to both spokes, which keep serving.
+    mplan = dhcp.plan("ha_maintenance", {"action": "start", "node_id": hub.id}, "alice")
+    assert sorted(mplan.target_node_ids) == sorted([spoke1.id, spoke2.id])
+    assert plans.apply(mplan, "alice", confirm=True).state is PlanState.APPLIED
+    wait_for(
+        lambda: (
+            all_states(s1_d) == {"spoke1": "partner-in-maintenance"}
+            and all_states(s2_d) == {"spoke2": "partner-in-maintenance"}
+            and set(all_states(hub_d).values()) == {"in-maintenance"}
+        ),
+        timeout=40,
+        what="the hub in maintenance in both relationships",
+    )
+    cancel = dhcp.plan("ha_maintenance", {"action": "cancel", "node_id": hub.id}, "alice")
+    assert plans.apply(cancel, "alice", confirm=True).state is PlanState.APPLIED
+    wait_for(
+        lambda: (
+            set(all_states(hub_d).values()) == {"hot-standby"}
+            and all_states(s1_d) == {"spoke1": "hot-standby"}
+        ),
+        timeout=40,
+        what="back to hot-standby",
+    )
+
+    # Rolling the setup back leaves the three servers without HA.
+    assert plans.rollback(plan, "alice").state is PlanState.ROLLED_BACK
+    assert all(not all_states(d) for d in daemons)
+
+
 # BIND: a primary and two secondaries ---------------------------------------------------------
 
 

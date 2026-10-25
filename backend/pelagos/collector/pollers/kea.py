@@ -219,6 +219,7 @@ class KeaPoller:
         self.clock = clock
         self.engine = backend.family.kea_engine
         self.last_ha_state: str | None = None
+        self.last_other_states: dict[str, str | None] = {}  # a hub's other relationships, by name
         self.last_sample_ts: int | None = None
         self.last_active: int | None = None
         self.last_reclaimed: int | None = None
@@ -229,7 +230,7 @@ class KeaPoller:
         self.maintenance_done: Callable[[str], None] = lambda _engine: None
         # Last HA observation sent as an event: (state, partner state, in touch) and the unsent count.
         self._ha_seen: tuple[Any, ...] | None = None
-        self._unsent_seen: int | None = None
+        self._unsent_seen: tuple[int | None, ...] | None = None
         # Lease watch: ip -> (client identifier, cltt) of the last walk, and the ack counter then.
         self.lease_index: dict[str, tuple[str, int]] | None = None
         self.last_acks: int | None = None
@@ -323,22 +324,27 @@ class KeaPoller:
         if maintenance and ha.state in rules.HA_NORMAL_STATES and ha.partner and ha.partner.in_touch:
             self.maintenance_done(engine)
             maintenance = False
-        alerts, transition = rules.ha_alerts(self.node_id, ha, previous, maintenance)
-        out.alerts.extend(alerts)
-        if transition is not None:
-            self.store.write_ha_transition(
-                now,
-                self.node_id,
-                engine,
-                transition["server_name"],
-                transition["from_state"],
-                transition["to_state"],
-                transition["partner_state"],
-                _json_list(transition["scopes"]),
-                transition["reason"],
-            )
+        # A hub (Kea 3) answers for each of its relationships; each has its own alerts and history.
+        for one in [ha, *ha.other_relationships]:
+            is_first = one is ha
+            before = previous if is_first else self.last_other_states.get(one.server_name or "")
+            alerts, transition = rules.ha_alerts(self.node_id, one, before, maintenance, first=is_first)
+            out.alerts.extend(alerts)
+            if transition is not None:
+                self.store.write_ha_transition(
+                    now,
+                    self.node_id,
+                    engine,
+                    transition["server_name"],
+                    transition["from_state"],
+                    transition["to_state"],
+                    transition["partner_state"],
+                    _json_list(transition["scopes"]),
+                    transition["reason"],
+                )
         self.ha_events(ha, out)
         self.last_ha_state = ha.state
+        self.last_other_states = {o.server_name or "": o.state for o in ha.other_relationships}
 
     def ha_events(self, ha: HAState, out: PollOutcome) -> None:
         """`state` when the server's or its partner's state or contact changed, `unsent` when only the
@@ -347,15 +353,22 @@ class KeaPoller:
         if not ha.enabled:
             return
         engine = self.engine.value
-        partner = ha.partner
-        seen = (ha.state, partner.state if partner else None, partner.in_touch if partner else None)
+        seen = tuple(
+            (
+                one.state,
+                one.partner.state if one.partner else None,
+                one.partner.in_touch if one.partner else None,
+            )
+            for one in [ha, *ha.other_relationships]
+        )
+        unsent = tuple(one.unsent_update_count for one in [ha, *ha.other_relationships])
         if seen != self._ha_seen:
             out.events.append(("ha", "state", ha, {"relay": True}))
-        elif ha.unsent_update_count != self._unsent_seen:
+        elif unsent != self._unsent_seen:
             out.events.append(("ha", "unsent", ha, {"key": f"ha:unsent:{engine}", "relay": True}))
         out.events.append(("ha", "heartbeat", ha, {"key": f"ha:heartbeat:{engine}", "relay": True}))
         self._ha_seen = seen
-        self._unsent_seen = ha.unsent_update_count
+        self._unsent_seen = unsent
 
     def heartbeat(self) -> PollOutcome:
         """Fast HA read between full polls (settings.collector.live_seconds): events only, no alerts."""

@@ -471,15 +471,65 @@ class DhcpService:
         return out
 
     def relationships(self, states: list[HAState] | None = None) -> list[dict[str, Any]]:
-        """The HA relationships across the nodes, every configured server with its role and state."""
-        return ha_mod.relationships(self.ha() if states is None else states, self._node_names())
+        """The HA relationships across the nodes, every configured server with its role and state,
+        and what the collectors last saw of its leases: `leases` (assigned addresses), `last_lease_at`
+        (newest client transaction; on a backup, the last lease update it received). A backup also
+        gets `receives_from` (the active servers sending it lease updates) and `lease_reference`
+        ({"server", "leases"}: the primary it is compared with, None when unknown)."""
+        states = self.ha() if states is None else states
+        rels = ha_mod.relationships(states, self._node_names())
+        marks = self._lease_marks()
+        # A hub's lease count covers several relationships: never a backup's reference.
+        hubs = {st.node_id for st in states if st.other_relationships}
+        for rel in rels:
+            for srv in rel["servers"]:
+                count, last = marks.get(srv["node_id"], (None, None)) if srv["node_id"] else (None, None)
+                srv["leases"], srv["last_lease_at"] = count, last
+            for srv in rel["servers"]:
+                if srv["role"] != "backup":
+                    continue
+                srv["receives_from"] = list(rel["active"])
+                order = {"primary": 0, "secondary": 1, "standby": 1}
+                refs = sorted(
+                    (
+                        o
+                        for o in rel["servers"]
+                        if o["role"] in order and o["leases"] is not None and o["node_id"] not in hubs
+                    ),
+                    key=lambda o: (order[o["role"]], o["state"] not in ha_mod.NORMAL_STATES),
+                )
+                srv["lease_reference"] = (
+                    {"server": refs[0]["name"], "leases": refs[0]["leases"]} if refs else None
+                )
+        return rels
+
+    def _lease_marks(self) -> dict[str, tuple[int | None, str | None]]:
+        """{node: (assigned leases, newest cltt)} from the collector's snapshots of every node."""
+        cache = getattr(self.alerts, "cache", None)
+        store = cache.store if cache is not None else None
+        if store is None:
+            return {}
+        counts: dict[str, int] = {}
+        last: dict[str, str] = {}
+        for snap in store.snapshots(engine=self.engine.value):
+            payload = snap["payload"]
+            if snap["kind"] == "utilization" and isinstance(payload, list):
+                counts[snap["node_id"]] = sum(
+                    int(r.get("assigned") or 0) for r in payload if isinstance(r, dict)
+                )
+            elif snap["kind"] == "recent_leases" and isinstance(payload, list):
+                times = [str(r.get("cltt")) for r in payload if isinstance(r, dict) and r.get("cltt")]
+                if times:
+                    last[snap["node_id"]] = max(times)
+        return {n: (counts.get(n), last.get(n)) for n in {*counts, *last}}
 
     def plan_ha_setup(self, body: dict[str, Any], created_by: str) -> Plan:
         """Write the ha hook on every node of the relationship, each under its own server name, as one
         plan (a part per node, applied in order, all rolled back when one fails). `remove: true` drops
         the hook from `node_ids` (default: every node where HA is on)."""
         me = self.ctx.node.id
-        targets: list[tuple[str, str | None]] = []
+        targets: list[tuple[str, dict[str, Any] | None, str | None]] = []
+        spec: dict[str, Any] | None
         if body.get("remove") is True:
             spec = None
             node_ids = body.get("node_ids")
@@ -487,42 +537,57 @@ class DhcpService:
                 node_ids = [st.node_id for st in self.ha() if st.enabled]
             if not isinstance(node_ids, list) or not node_ids:
                 raise ValidationError("no node runs the ha hook", [field_error("node_ids", "required")])
-            targets = [(n, None) for n in self._ha_nodes(node_ids, "node_ids")]
+            targets = [(n, None, None) for n in self._ha_nodes(node_ids, "node_ids")]
         else:
-            problems = ha_mod.validate_setup(body)
+            problems = ha_mod.validate_relationships(body)
             if problems:
                 raise ValidationError(
                     f"invalid HA setup: {problems[0][0]}: {problems[0][1]}",
                     [field_error(f, m) for f, m in problems],
                 )
-            spec = {k: body[k] for k in ("mode", "servers", "hooks_dir", *ha_mod.TUNABLES) if k in body}
-            spec["servers"] = [
-                {k: v for k, v in srv.items() if k in ("name", "url", "role", "auto_failover")}
-                for srv in body["servers"]
-            ]
-            node_of = {
-                str(srv["name"]).strip(): srv["node_id"] for srv in body["servers"] if srv.get("node_id")
-            }
-            if not node_of:
+            rels, prefix = ha_mod.setup_relationships(body)
+            # Per node, the relationships it takes part in and its server name in each.
+            served: dict[str, list[tuple[dict[str, Any], str]]] = {}
+            for rel in rels:
+                spec_r = {k: rel[k] for k in ("mode", "servers", *ha_mod.TUNABLES) if k in rel}
+                spec_r["servers"] = [
+                    {k: v for k, v in srv.items() if k in ("name", "url", "role", "auto_failover")}
+                    for srv in rel["servers"]
+                ]
+                for srv in rel["servers"]:
+                    if srv.get("node_id"):
+                        served.setdefault(str(srv["node_id"]), []).append((spec_r, str(srv["name"]).strip()))
+            field = f"{prefix}[].servers[].node_id" if prefix else "servers[].node_id"
+            if not served:
                 raise ValidationError(
-                    "at least one server must run on a node of this cluster",
-                    [field_error("servers[].node_id", "required")],
+                    "at least one server must run on a node of this cluster", [field_error(field, "required")]
                 )
-            nodes = self._ha_nodes(list(node_of.values()), "servers[].node_id")
-            if len(set(nodes)) != len(nodes):
-                raise ValidationError(
-                    "a node runs one server of the relationship",
-                    [field_error("servers[].node_id", "duplicate")],
-                )
-            targets = [(node_id, name) for name, node_id in node_of.items()]
+            self._ha_nodes(list(served), field)
+            for node_id, entries in served.items():
+                if len(entries) > 1:
+                    self._check_hub(node_id, field)
+            hooks_dir = body.get("hooks_dir")
+            for node_id, entries in served.items():
+                if len(entries) == 1:
+                    # One relationship: the shape every node version takes.
+                    part_spec = dict(entries[0][0])
+                    if hooks_dir:
+                        part_spec["hooks_dir"] = hooks_dir
+                    targets.append((node_id, part_spec, entries[0][1]))
+                else:
+                    hub: dict[str, Any] = {"relationships": [{**r, "this_server": n} for r, n in entries]}
+                    if hooks_dir:
+                        hub["hooks_dir"] = hooks_dir
+                    targets.append((node_id, hub, None))
             targets.sort(key=lambda t: t[0] != me)
+            spec = {"relationships": [r for r in rels]}
         names = self._node_names()
         kea_files.check(self.alerts, self.engine, [t[0] for t in targets], me, self.local, names, self.peers)
         parts: list[Plan] = []
-        for node_id, server in targets:
+        for node_id, part_spec, server in targets:
             if node_id == me:
                 try:
-                    part = self._local().plan_ha_setup(spec, server, created_by)
+                    part = self._local().plan_ha_setup(part_spec, server, created_by)
                 except FileDiverged as exc:
                     raise kea_files.from_connector(self.engine, exc, me) from None
             else:
@@ -532,7 +597,7 @@ class DhcpService:
                     "dhcp.ha.plan",
                     {
                         "engine": self.engine.value,
-                        "spec": spec,
+                        "spec": part_spec,
                         "this_server": server,
                         "created_by": created_by,
                     },
@@ -546,12 +611,13 @@ class DhcpService:
                 servers=[names.get(t[0], t[0]) for t in targets],
             )
         else:
+            all_servers = [srv for rel in spec["relationships"] for srv in rel["servers"]]
             summary = messages.msg(
                 "plan.kea.ha_setup_cluster",
                 engine=self.engine.value,
-                mode=spec["mode"],
-                count=len(spec["servers"]),
-                servers=[f"{srv['name']} ({srv['role']})" for srv in spec["servers"]],
+                mode=", ".join(dict.fromkeys(str(rel["mode"]) for rel in spec["relationships"])),
+                count=len(all_servers),
+                servers=[f"{srv['name']} ({srv['role']})" for srv in all_servers],
             )
         plan = Plan(
             scope=PlanScope.DHCP_CONFIG,
@@ -566,6 +632,25 @@ class DhcpService:
             raise EngineUnavailable("plans are not wired on this node")
         self.plans.register_composite(plan, parts)
         return self.ctx.plan_store.put(plan)
+
+    def _check_hub(self, node_id: str, field: str) -> None:
+        """A server in several relationships needs Kea 3: Kea 2.6 runs one relationship per server."""
+        if node_id == self.ctx.node.id:
+            version = self._local().capabilities().version
+        else:
+            snap = self.peers.snapshot(self._engine_peer(self.engine, node_id), self.engine) or {}
+            version = ((snap.get("capabilities") or {}) if isinstance(snap, dict) else {}).get("version")
+        try:
+            major = int(str(version).split(".", 1)[0])
+        except ValueError:
+            return  # unknown: the node's own plan refuses it if needed
+        if major < 3:
+            name = self._node_names().get(node_id, node_id)
+            raise ValidationError(
+                f"{name} runs Kea {version}, which takes one HA relationship per server: a server in"
+                " several relationships (hub and spoke) needs Kea 3.0 or later",
+                [field_error(field, node_id)],
+            )
 
     def _ha_nodes(self, node_ids: list[Any], field: str) -> list[str]:
         """The nodes a setup writes on, each running the engine and answering now; a problem is
@@ -910,8 +995,11 @@ class DhcpService:
         Kea semantics: ha-maintenance-start/cancel go to the server that stays up, which becomes
         partner-in-maintenance while its partner goes in-maintenance and can be shut down. So the
         plan is applied on the HA partner of `node_id`, found through the relationship's server
-        names (any node of the cluster). Backup servers take no part. Without `node_id`, this node
-        stays up (Kea's own reading)."""
+        names (any node of the cluster). Backup servers take no part. A hub (Kea 3, a server in
+        several relationships) has one partner per relationship: the plan goes to each of them.
+        Kea applies maintenance to every relationship of the server it is sent to, so a spoke's
+        maintenance sent to its hub also sends the hub's other partners in-maintenance; the plan
+        says so. Without `node_id`, this node stays up (Kea's own reading)."""
         action = body.get("action")
         if action not in ("start", "cancel"):
             raise ValidationError("action must be start or cancel", [field_error("action", "invalid")])
@@ -926,31 +1014,46 @@ class DhcpService:
                 raise ValidationError(
                     f"node {peer.name} does not run {self.engine.value}", [field_error("node_id", down)]
                 )
-        states = {s.node_id: s for s in self.ha() if s.enabled}
+        tops = [s for s in self.ha() if s.enabled]
+        flat = ha_mod.flatten(tops)
+        first = {s.node_id: s for s in tops}
+        by_node: dict[str, list[HAState]] = {}
+        for st in flat:
+            by_node.setdefault(st.node_id, []).append(st)
         if down is None:
-            mine = states.get(me)
-            if mine is not None and mine.role == "backup":
+            mine = by_node.get(me) or []
+            if mine and all(st.role == "backup" for st in mine):
                 raise ValidationError(
                     "a backup server takes no part in HA maintenance", [field_error("node_id", "backup")]
                 )
             plan = self._local().plan_ha_maintenance(action, created_by)
             plan.target_node_ids = [me]
             return plan
-        target = states.get(down)
-        if target is not None and target.role == "backup":
+        held = by_node.get(down) or []
+        if held and all(st.role == "backup" for st in held):
             raise ValidationError(
                 f"{names.get(down, down)} is an HA backup server: it takes no part in HA maintenance,"
                 " stop it directly",
                 [field_error("node_id", "backup")],
             )
-        partner = _ha_partner_of(target, down, action, states)
+        active = [st for st in held if st.role != "backup"]
+        if len(active) > 1:
+            return self._plan_hub_maintenance(action, down, active, flat, first, names, created_by)
+        partner = _ha_partner_of(active[0] if active else None, down, action, flat)
         if partner is None:
             raise ValidationError(
                 f"the HA partner of {names.get(down, down)} runs on no reachable node",
                 [field_error("node_id", "partner unknown")],
             )
         up = partner.node_id
-        if up == me:
+        # The partner's other relationships enter maintenance too (Kea applies it server-wide).
+        also = [
+            ha_mod.partner_name(st) or "?"
+            for st in by_node.get(up, [])
+            if st.server_name != partner.server_name and st.role != "backup"
+        ]
+        note = f"+note: {names[up]} applies maintenance to all its relationships: {', '.join(also)} too\n"
+        if up == me and not also:
             plan = self._local().plan_ha_maintenance(action, created_by)
             plan.target_node_ids = [me]
             messages.set_text(plan, "summary", _maintenance_label(action, names[down], names[me]))
@@ -963,9 +1066,10 @@ class DhcpService:
                 raise ServiceError(
                     "conflict", f"{names[down]} is not in maintenance ({names[up]} is {state})"
                 )
+        observed = first[up].state if up in first else state
         preconditions = (
-            [Precondition(PreconditionKind.HA_STATE, f"{self.engine.value}:ha", state, up)]
-            if state is not None
+            [Precondition(PreconditionKind.HA_STATE, f"{self.engine.value}:ha", observed, up)]
+            if observed is not None
             else []
         )
         down_state, up_state = (
@@ -978,9 +1082,71 @@ class DhcpService:
             **_summary(_maintenance_label(action, names[down], names[up])),
             created_by=created_by,
             changes=[Change(ChangeOp.REPLACE, "ha/maintenance", before=state, after=action, node_ids=[up])],
-            diff=f"-state: {state or 'unknown'}\n+{names[down]}: {down_state}\n+{names[up]}: {up_state}\n",
+            diff=f"-state: {state or 'unknown'}\n+{names[down]}: {down_state}\n+{names[up]}: {up_state}\n"
+            + (note if also else ""),
             preconditions=preconditions,
             target_node_ids=[up],
+            requires_confirmation=True,
+            state=PlanState.VALIDATED,
+        )
+
+    def _plan_hub_maintenance(
+        self,
+        action: str,
+        down: str,
+        active: list[HAState],
+        flat: list[HAState],
+        first: dict[str, HAState],
+        names: dict[str, str],
+        created_by: str,
+    ) -> Plan:
+        """Maintenance of a hub: sent to its partner in each relationship (every spoke stays up and
+        serves its own clients); a cancel goes to the partners in partner-in-maintenance."""
+        ups: list[HAState] = []
+        for st in active:
+            partner = _ha_partner_of(st, down, action, flat)
+            if partner is None:
+                raise ValidationError(
+                    f"the HA partner of {st.server_name or names.get(down, down)} runs on no reachable node",
+                    [field_error("node_id", "partner unknown")],
+                )
+            if action == "cancel" and partner.state not in (None, "partner-in-maintenance"):
+                continue
+            if action == "start" and partner.state in ("in-maintenance", "partner-in-maintenance"):
+                raise ServiceError(
+                    "conflict", f"HA maintenance already active ({partner.server_name} is {partner.state})"
+                )
+            if partner.node_id not in [u.node_id for u in ups]:
+                ups.append(partner)
+        if not ups:
+            raise ServiceError("conflict", f"{names.get(down, down)} is not in maintenance")
+        nodes = [u.node_id for u in ups]
+        preconditions = [
+            Precondition(PreconditionKind.HA_STATE, f"{self.engine.value}:ha", first[n].state or "", n)
+            for n in nodes
+            if n in first and first[n].state is not None
+        ]
+        down_state = "in-maintenance" if action == "start" else "normal"
+        up_state = "partner-in-maintenance" if action == "start" else "normal"
+        diff = f"+{names.get(down, down)}: {down_state}\n" + "".join(
+            f"-{names.get(u.node_id, u.node_id)}: {u.state or 'unknown'}\n"
+            f"+{names.get(u.node_id, u.node_id)}: {up_state}\n"
+            for u in ups
+        )
+        return Plan(
+            scope=PlanScope.DHCP_HA,
+            node_id=self.ctx.node.id,
+            engine=self.engine,
+            **_summary(
+                _maintenance_label(action, names.get(down, down), ", ".join(names.get(n, n) for n in nodes))
+            ),
+            created_by=created_by,
+            changes=[
+                Change(ChangeOp.REPLACE, "ha/maintenance", before=ups[0].state, after=action, node_ids=nodes)
+            ],
+            diff=diff,
+            preconditions=preconditions,
+            target_node_ids=nodes,
             requires_confirmation=True,
             state=PlanState.VALIDATED,
         )
@@ -1251,16 +1417,14 @@ def _ip_key(value: str) -> tuple[int, int]:
         return 9, 0
 
 
-def _ha_partner_of(
-    target: HAState | None, down: str, action: str, states: dict[str, HAState]
-) -> HAState | None:
-    """The HA state of the server that stays up while `down` is in maintenance: its partner by server
-    name; when `down` cannot be read (shut down), the only active server left, or for a cancel the
-    one in partner-in-maintenance."""
+def _ha_partner_of(target: HAState | None, down: str, action: str, states: list[HAState]) -> HAState | None:
+    """The HA state (one per relationship) of the server that stays up while `down` is in
+    maintenance: its partner by server name; when `down` cannot be read (shut down), the only active
+    server left, or for a cancel the one in partner-in-maintenance."""
     if target is not None:
         server = ha_mod.partner_name(target)
-        return next((s for s in states.values() if server and s.server_name == server), None)
-    others = [s for s in states.values() if s.node_id != down and s.role != "backup"]
+        return next((s for s in states if server and s.server_name == server), None)
+    others = [s for s in states if s.node_id != down and s.role != "backup"]
     if action == "cancel":
         waiting = [s for s in others if s.state == "partner-in-maintenance"]
         if len(waiting) == 1:

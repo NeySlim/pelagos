@@ -9,6 +9,8 @@ from typing import Any
 
 from pelagos.domain import Family, HAMode, HAPartner, HAPeer, HAState, to_rfc3339, utcnow
 
+# States in which a server does what its role expects (the pair serving, a backup receiving).
+NORMAL_STATES = frozenset({"hot-standby", "load-balancing", "passive-backup", "backup"})
 MAINTENANCE_COMMANDS = {"start": "ha-maintenance-start", "cancel": "ha-maintenance-cancel"}
 # States in which a peer serves what its mode expects; anything else is degraded (section 15).
 HEALTHY_STATES = {
@@ -18,12 +20,7 @@ HEALTHY_STATES = {
 }
 
 
-def ha_state_from_status(node_id: str, family: Family, status: dict[str, Any]) -> HAState:
-    """status-get -> arguments.high-availability[0]; `enabled` is False when the hook is not loaded."""
-    entries = status.get("high-availability") or []
-    if not entries:
-        return HAState(node_id=node_id, family=family, collected_at=utcnow(), enabled=False, raw={})
-    entry = entries[0]
+def _state_of_entry(node_id: str, family: Family, entry: dict[str, Any]) -> HAState:
     servers = entry.get("ha-servers") or {}
     local = servers.get("local") or {}
     remote = servers.get("remote")
@@ -61,6 +58,26 @@ def ha_state_from_status(node_id: str, family: Family, status: dict[str, Any]) -
         enabled=True,
         raw=dict(entry),
     )
+
+
+def ha_state_from_status(node_id: str, family: Family, status: dict[str, Any]) -> HAState:
+    """status-get -> arguments.high-availability: the first relationship, the others (Kea 3 hub and
+    spoke) in `other_relationships`; `enabled` is False when the hook is not loaded."""
+    entries = [e for e in status.get("high-availability") or [] if isinstance(e, dict)]
+    if not entries:
+        return HAState(node_id=node_id, family=family, collected_at=utcnow(), enabled=False, raw={})
+    first = _state_of_entry(node_id, family, entries[0])
+    first.other_relationships = [_state_of_entry(node_id, family, e) for e in entries[1:]]
+    return first
+
+
+def flatten(states: list[HAState]) -> list[HAState]:
+    """One HAState per relationship a server belongs to: a hub's other relationships follow it."""
+    out: list[HAState] = []
+    for st in states:
+        out.append(st)
+        out.extend(o for o in st.other_relationships if o.enabled)
+    return out
 
 
 def is_healthy(state: HAState) -> bool:
@@ -139,20 +156,30 @@ BOOL_TUNABLES = frozenset({"sync_leases", "send_lease_updates", "wait_backup_ack
 ACTIVE_ROLES = frozenset({"primary", "secondary", "standby"})
 
 
-def ha_hook(cfg: dict[str, Any]) -> dict[str, Any] | None:
-    """The first `high-availability` relationship of a Dhcp4/Dhcp6 object, None without the hook."""
+def ha_hook_entries(cfg: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """Every `high-availability` relationship of a Dhcp4/Dhcp6 object, None without the hook."""
     for lib in cfg.get("hooks-libraries") or []:
         if isinstance(lib, dict) and "libdhcp_ha" in str(lib.get("library", "")):
             entries = (lib.get("parameters") or {}).get("high-availability") or []
-            if entries and isinstance(entries[0], dict):
-                return entries[0]
-            return {}
+            return [e for e in entries if isinstance(e, dict)]
     return None
 
 
-def ha_peers_from_config(cfg: dict[str, Any]) -> list[HAPeer]:
-    """The `peers` list of the relationship this server belongs to, in configuration order."""
-    entry = ha_hook(cfg) or {}
+def ha_hook(cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """The first `high-availability` relationship of a Dhcp4/Dhcp6 object, None without the hook."""
+    entries = ha_hook_entries(cfg)
+    if entries is None:
+        return None
+    return entries[0] if entries else {}
+
+
+def ha_peers_from_config(cfg: dict[str, Any], server_name: str | None = None) -> list[HAPeer]:
+    """The `peers` list of the relationship this server takes part in as `server_name` (the first
+    relationship when None or not found), in configuration order."""
+    entries = ha_hook_entries(cfg) or []
+    entry = next((e for e in entries if server_name and e.get("this-server-name") == server_name), None)
+    if entry is None:
+        entry = entries[0] if entries else {}
     out: list[HAPeer] = []
     for p in entry.get("peers") or []:
         if not isinstance(p, dict) or not p.get("name"):
@@ -235,6 +262,50 @@ def validate_setup(spec: dict[str, Any]) -> list[tuple[str, str]]:
     return problems
 
 
+def setup_relationships(body: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
+    """The relationships of a setup body ({"relationships": [...]} or one relationship) and the
+    field prefix of their problems."""
+    if "relationships" in body:
+        rels = body.get("relationships")
+        return (rels if isinstance(rels, list) else []), "relationships"
+    return [body], ""
+
+
+def validate_relationships(body: dict[str, Any]) -> list[tuple[str, str]]:
+    """(field, message) problems of a setup with one or several relationships (Kea 3 hub and spoke):
+    each relationship on its own, then server names and URLs unique across all of them (a hub
+    listens on its own URL in each relationship) and one server per node in a relationship."""
+    rels, prefix = setup_relationships(body)
+    if prefix and (not rels or not all(isinstance(r, dict) for r in rels)):
+        return [("relationships", "a list of relationships, each with mode and servers")]
+    problems: list[tuple[str, str]] = []
+    names: set[str] = set()
+    urls: set[str] = set()
+    for i, rel in enumerate(rels):
+        at = f"{prefix}[{i}]." if prefix else ""
+        problems.extend((f"{at}{f}", m) for f, m in validate_setup(rel))
+        nodes: set[str] = set()
+        for j, srv in enumerate(rel.get("servers") or []):
+            if not isinstance(srv, dict):
+                continue
+            name = str(srv.get("name") or "").strip()
+            url = str(srv.get("url") or "").strip().rstrip("/")
+            if len(rels) > 1 and name and name in names:
+                problems.append((f"{at}servers[{j}].name", "a server name is used in one relationship only"))
+            if len(rels) > 1 and url and url in urls:
+                problems.append((f"{at}servers[{j}].url", "each relationship needs its own url"))
+            names.add(name)
+            urls.add(url)
+            node = srv.get("node_id")
+            if node:
+                if node in nodes:
+                    problems.append(
+                        (f"{at}servers[{j}].node_id", "a node runs one server of the relationship")
+                    )
+                nodes.add(str(node))
+    return problems
+
+
 def relationship_entry(spec: dict[str, Any], this_server: str) -> dict[str, Any]:
     """The `high-availability[0]` object of one server: the same peers everywhere, its own name."""
     entry: dict[str, Any] = {"this-server-name": this_server, "mode": spec["mode"]}
@@ -266,14 +337,18 @@ def hooks_dir_of(hooks: list[dict[str, Any]]) -> str | None:
 
 
 def hooks_with_ha(
-    hooks: list[dict[str, Any]], entry: dict[str, Any] | None, hooks_dir: str | None
+    hooks: list[dict[str, Any]],
+    entries: dict[str, Any] | list[dict[str, Any]] | None,
+    hooks_dir: str | None,
 ) -> list[dict[str, Any]]:
-    """hooks-libraries with the ha hook set to `entry` (None removes it); lease_cmds is loaded before
-    it, as the ha hook requires. Other libraries and their order are kept."""
+    """hooks-libraries with the ha hook set to `entries` (one relationship or several; None removes
+    it); lease_cmds is loaded before it, as the ha hook requires. Other libraries and their order
+    are kept."""
     previous = next((h for h in hooks if "libdhcp_ha" in str(h.get("library", ""))), None)
     out = [dict(h) for h in hooks if "libdhcp_ha" not in str(h.get("library", ""))]
-    if entry is None:
+    if entries is None:
         return out
+    wanted = [entries] if isinstance(entries, dict) else list(entries)
 
     def located(name: str) -> str:
         if hooks_dir is None:
@@ -284,11 +359,20 @@ def hooks_with_ha(
         out.append({"library": located("libdhcp_lease_cmds.so")})
     library = str(previous["library"]) if previous else located("libdhcp_ha.so")
     params: dict[str, Any] = {}
+    olds: list[dict[str, Any]] = []
     if previous is not None:
-        # Keys the setup does not manage (multi-threading, TLS files, ...) are kept, per peer too.
         params = dict(previous.get("parameters") or {})
-        old = (params.get("high-availability") or [None])[0]
-        if isinstance(old, dict):
+        olds = [e for e in params.get("high-availability") or [] if isinstance(e, dict)]
+    merged_entries = []
+    for i, entry in enumerate(wanted):
+        # Keys the setup does not manage (multi-threading, TLS files, ...) are kept, per peer too:
+        # from the relationship this server had under the same name, else the one at the same place.
+        old = next((o for o in olds if o.get("this-server-name") == entry.get("this-server-name")), None)
+        if old is None and i < len(olds) and len(olds) == len(wanted):
+            old = olds[i]
+        if old is None and len(wanted) == 1 and olds:
+            old = olds[0]
+        if old is not None:
             old_peers = {p.get("name"): p for p in old.get("peers") or [] if isinstance(p, dict)}
             merged = {k: v for k, v in old.items() if k != "peers"}
             merged.update(entry)
@@ -297,7 +381,8 @@ def hooks_with_ha(
                 for p in entry["peers"]
             ]
             entry = merged
-    params["high-availability"] = [entry]
+        merged_entries.append(entry)
+    params["high-availability"] = merged_entries
     out.append({"library": library, "parameters": params})
     return out
 
@@ -307,7 +392,7 @@ def relationships(states: list[HAState], node_names: dict[str, str]) -> list[dic
     that runs it (None when no Pelagos node does) and its state as that node, or its partner,
     reports it. Servers are grouped by the configured peers list."""
     groups: dict[tuple[str, ...], list[HAState]] = {}
-    for st in states:
+    for st in flatten(states):
         if not st.enabled:
             continue
         key = tuple(sorted(p.name for p in st.peers)) or (st.server_name or st.node_id,)

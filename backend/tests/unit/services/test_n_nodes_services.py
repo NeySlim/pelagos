@@ -19,7 +19,7 @@ from pelagos.core.config_store import ConfigStore, NodeConfig
 from pelagos.core.context import NodeContext
 from pelagos.core.enrollment import enroll_node
 from pelagos.core.replication import ReplicationService
-from pelagos.domain import Engine, Family, HAPartner, HAPeer, PlanState
+from pelagos.domain import Engine, Family, HAMode, HAPartner, HAPeer, HAState, PlanState
 from pelagos.domain.common import new_id
 from pelagos.services.dhcp_service import DhcpService
 from pelagos.services.errors import ValidationError
@@ -310,3 +310,139 @@ def test_ha_setup_plan_applies_and_rolls_back_across_restarts(four):
     back = plans.rollback(plan, "alice")
     assert back.state is PlanState.ROLLED_BACK, back
     assert [n.kea.config["hooks-libraries"] for n in four.nodes] == before
+
+
+def _hub_body(nodes: list[Node]) -> dict:
+    hub, s1, s2 = nodes[0].id, nodes[1].id, nodes[2].id
+    return {
+        "relationships": [
+            {
+                "mode": "hot-standby",
+                "servers": [
+                    {"name": "hub-a", "url": "http://192.0.2.1:8001/", "role": "standby", "node_id": hub},
+                    {"name": "spoke1", "url": "http://192.0.2.2:8001/", "role": "primary", "node_id": s1},
+                ],
+            },
+            {
+                "mode": "passive-backup",
+                "servers": [
+                    {"name": "hub-b", "url": "http://192.0.2.1:8002/", "role": "backup", "node_id": hub},
+                    {"name": "spoke2", "url": "http://192.0.2.3:8001/", "role": "primary", "node_id": s2},
+                ],
+            },
+        ]
+    }
+
+
+def test_hub_and_spoke_setup_writes_two_relationships_on_the_hub(four):
+    dhcp, plans = four.dhcp(0)
+    hub, s1, s2, ns4 = four.nodes
+    plan = dhcp.plan_ha_setup(_hub_body(four.nodes), "alice")
+    assert plan.target_node_ids == [hub.id, s1.id, s2.id]
+    assert plans.apply(plan, "alice", confirm=True).state is PlanState.APPLIED
+    entries = hub.kea.config["hooks-libraries"][-1]["parameters"]["high-availability"]
+    assert [(e["this-server-name"], e["mode"]) for e in entries] == [
+        ("hub-a", "hot-standby"),
+        ("hub-b", "passive-backup"),
+    ]
+    [one] = s2.kea.config["hooks-libraries"][-1]["parameters"]["high-availability"]
+    assert one["this-server-name"] == "spoke2" and [p["name"] for p in one["peers"]] == ["hub-b", "spoke2"]
+    assert plan.id not in ns4.kea.applied
+
+
+@pytest.mark.parametrize(
+    ("edit", "match"),
+    [
+        (lambda b: b["relationships"][1]["servers"][0].__setitem__("name", "hub-a"), "one relationship only"),
+        (
+            lambda b: b["relationships"][1]["servers"][0].__setitem__("url", "http://192.0.2.1:8001/"),
+            "own url",
+        ),
+        (
+            lambda b: b["relationships"][0]["servers"][1].__setitem__(
+                "node_id", b["relationships"][0]["servers"][0]["node_id"]
+            ),
+            "one server",
+        ),
+        (lambda b: b.__setitem__("relationships", []), "list of relationships"),
+    ],
+    ids=["name", "url", "node", "empty"],
+)
+def test_hub_and_spoke_validation(four, edit, match):
+    dhcp, _ = four.dhcp(0)
+    body = _hub_body(four.nodes)
+    edit(body)
+    with pytest.raises(ValidationError, match=match):
+        dhcp.plan_ha_setup(body, "alice")
+
+
+def test_kea_26_takes_one_relationship_per_server(four):
+    dhcp, _ = four.dhcp(1)
+    four.nodes[0].kea.version = "2.6.3"
+    for node in four.nodes:
+        node.service.replicator.pull_all()
+    with pytest.raises(ValidationError, match=r"needs Kea 3\.0 or later"):
+        dhcp.plan_ha_setup(_hub_body(four.nodes), "alice")
+    # The connector refuses it too when asked directly.
+    with pytest.raises(ConnectorError, match="one HA relationship"):
+        four.nodes[0].kea.plan_ha_setup(
+            {
+                "relationships": [
+                    {**r, "this_server": r["servers"][0]["name"]}
+                    for r in _hub_body(four.nodes)["relationships"]
+                ]
+            },
+            None,
+        )
+
+
+def _as_hub(four: Four) -> None:
+    """ns1 is the standby of spoke1 (ns2) and of spoke2 (ns3), ns4 runs no HA."""
+    hub, s1, s2, ns4 = four.nodes
+
+    def rel(me: str, partner: str, role: str, other_role: str, state: str = "hot-standby") -> HAState:
+        return HAState(
+            node_id="",
+            family=Family.V4,
+            server_name=me,
+            mode=HAMode.HOT_STANDBY,
+            role=role,
+            state=state,
+            partner=HAPartner(role=other_role, server_name=partner, state="hot-standby", in_touch=True),
+            peers=[HAPeer(name=me, role=role), HAPeer(name=partner, role=other_role)],
+        )
+
+    a = rel("hub-a", "spoke1", "standby", "primary")
+    b = rel("hub-b", "spoke2", "standby", "primary")
+    a.node_id = b.node_id = hub.id
+    a.other_relationships = [b]
+    hub.kea.ha = a
+    for node, me, other in ((s1, "spoke1", "hub-a"), (s2, "spoke2", "hub-b")):
+        st = rel(me, other, "primary", "standby")
+        st.node_id = node.id
+        node.kea.ha = st
+    ns4.kea.ha = HAState(node_id=ns4.id, family=Family.V4, enabled=False)
+
+
+def test_maintenance_of_a_hub_goes_to_each_spoke(four):
+    _as_hub(four)
+    dhcp, plans = four.dhcp(3)
+    hub, s1, s2, _ = four.nodes
+    rels = dhcp.relationships()
+    assert sorted(sorted(s["name"] for s in r["servers"]) for r in rels) == [
+        ["hub-a", "spoke1"],
+        ["hub-b", "spoke2"],
+    ]
+    plan = dhcp.plan("ha_maintenance", {"action": "start", "node_id": hub.id}, "alice")
+    assert sorted(plan.target_node_ids) == sorted([s1.id, s2.id])
+    assert plans.apply(plan, "alice", confirm=True).state is PlanState.APPLIED
+    assert plan.id in s1.kea.applied and plan.id in s2.kea.applied and plan.id not in hub.kea.applied
+
+
+def test_maintenance_of_a_spoke_says_the_hub_takes_all_its_relationships(four):
+    _as_hub(four)
+    dhcp, _ = four.dhcp(1)
+    hub, s1, *_ = four.nodes
+    plan = dhcp.plan("ha_maintenance", {"action": "start", "node_id": s1.id}, "alice")
+    assert plan.target_node_ids == [hub.id]
+    assert "applies maintenance to all its relationships: spoke2" in plan.diff

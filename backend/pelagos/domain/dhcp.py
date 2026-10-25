@@ -220,6 +220,9 @@ class HAState(Model):
     # Every server of the relationship as the ha hook configures it (HAPeer), this one included;
     # status-get alone never lists the backups.
     peers: list[HAPeer] = field(default_factory=list)
+    # The other relationships of this server (Kea 3 hub and spoke), one HAState each, in configuration
+    # order; empty for a server in one relationship. The fields above describe the first one.
+    other_relationships: list[HAState] = field(default_factory=list)
 
 
 @dataclass(slots=True)

@@ -124,8 +124,9 @@ class PeerActions:
         return self._plan(plan)
 
     def ha_plan(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
-        """This node's part of an HA setup: its ha hook under `this_server` (`spec` null removes it)."""
-        from pelagos.connectors.kea.ha import validate_setup
+        """This node's part of an HA setup: its ha hook under `this_server` (`spec` null removes it),
+        or under each relationship's `this_server` when `spec` holds `relationships` (hub and spoke)."""
+        from pelagos.connectors.kea.ha import validate_relationships
 
         engine, backend = self._dhcp_backend(body)
         if engine is Engine.D2:
@@ -134,7 +135,7 @@ class PeerActions:
         if spec is not None:
             if not isinstance(spec, dict):
                 raise ValidationError("spec must be an object", [field_error("spec", "object expected")])
-            problems = validate_setup(spec)
+            problems = validate_relationships(spec)
             if problems:
                 raise ValidationError(
                     f"invalid HA setup: {problems[0][0]}: {problems[0][1]}",

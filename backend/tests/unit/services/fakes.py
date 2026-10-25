@@ -1466,7 +1466,13 @@ class FakeDhcpBackend(DhcpBackend):
         self._check()
         plan = self._plan(PlanScope.DHCP_CONFIG, created_by, f"HA setup {this_server or 'removed'}")
         hooks = list(self.config.get("hooks-libraries") or [])
-        entry = relationship_entry(spec, this_server or "") if spec is not None else None
+        entry: Any = None
+        if spec is not None and spec.get("relationships"):
+            if len(spec["relationships"]) > 1 and int(self.version.split(".")[0]) < 3:
+                raise ConnectorError(f"Kea {self.version} runs one HA relationship per server")
+            entry = [relationship_entry(r, r["this_server"]) for r in spec["relationships"]]
+        elif spec is not None:
+            entry = relationship_entry(spec, this_server or "")
         after = hooks_with_ha(hooks, entry, hooks_dir_of(hooks) or "/usr/lib/kea/hooks")
         plan.changes.append(Change(ChangeOp.REPLACE, "hooks-libraries", before=hooks, after=after))
         plan.diff = _diff(hooks, after, "hooks-libraries")

@@ -8,7 +8,8 @@ on every pass:
   secondary_stale    node, bind              "zone:<zone>[@<view>]"
   serial_divergence  lagging node, bind      "zone:<zone>[@<view>]"
   pool_near_full/pool_full  node, kea4|kea6  "<engine>:subnet:<id>:pool:<pool without spaces>"
-  ha_degraded/ha_partner_down/ha_transition  node, kea4|kea6  "ha:<engine>"
+  ha_degraded/ha_partner_down/ha_transition  node, kea4|kea6  "ha:<engine>" (a hub's other
+                                             relationships: "ha:<engine>:<server name>")
   ha_backup_out_of_sync  backup node, kea4|kea6  "ha-backup:<engine>"
   d2_errors          node, d2                "d2:updates"
   peer_offline       peer node, no engine    "peer:<peer id>"
@@ -176,15 +177,17 @@ def pool_alerts(
 
 
 def ha_alerts(
-    node_id: str, ha: HAState, previous_state: str | None, maintenance: bool = False
+    node_id: str, ha: HAState, previous_state: str | None, maintenance: bool = False, first: bool = True
 ) -> tuple[list[Alert], dict[str, Any] | None]:
-    """HA alerts for one Kea server plus the transition row to record when the state moved.
+    """HA alerts for one relationship of a Kea server plus the transition row to record when the
+    state moved. The first relationship has subject `ha:<engine>`; a hub's other ones (Kea 3)
+    `ha:<engine>:<server name>`, so each is raised and resolved on its own.
 
     `maintenance`: Pelagos started an HA maintenance from this server, so its partner being
     away is expected; ha_partner_down gives way to ha_degraded until the window ends.
     """
     engine = ha.family.kea_engine
-    subject = f"ha:{engine.value}"
+    subject = f"ha:{engine.value}" if first else f"ha:{engine.value}:{ha.server_name}"
     out: list[Alert] = []
     if not ha.enabled or ha.state is None:
         return out, None

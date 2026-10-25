@@ -137,7 +137,10 @@ def _run(
 def _admin_password(args: argparse.Namespace) -> str | None:
     password = args.admin_password or os.environ.get("PELAGOS_ADMIN_PASSWORD")
     if not password and sys.stdin.isatty():
-        password = getpass.getpass("first admin password: ")
+        try:
+            password = getpass.getpass("first admin password: ")
+        except (EOFError, KeyboardInterrupt):
+            return None
     return password or None
 
 
@@ -147,11 +150,16 @@ def _init_node(
     """Initializes the node once the plan is confirmed, then moves the plan onto the new node id."""
 
     def run() -> str | None:
+        from pelagos.auth.passwords import WeakPassword, check_strength
         from pelagos.core.bootstrap import bootstrap_first_node
 
         password = _admin_password(args)
         if not password:
             return "--init needs PELAGOS_ADMIN_PASSWORD, a terminal to ask for it, or --admin-password"
+        try:
+            check_strength(password)
+        except WeakPassword as exc:
+            return f"admin password refused: {exc}"
         result = bootstrap_first_node(
             env.node_paths, name=args.name, admin_password=password, engines={e: True for e in engines}
         )

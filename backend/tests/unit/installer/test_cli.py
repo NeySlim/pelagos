@@ -74,7 +74,7 @@ def test_bad_engine(monkeypatch, tmp_path, capsys):
 def test_init_waits_for_root_and_confirmation(monkeypatch, tmp_path, capsys):
     env = debian_tree(tmp_path)
     _patch_env(monkeypatch, env)
-    monkeypatch.setenv("PELAGOS_ADMIN_PASSWORD", "correct-horse")
+    monkeypatch.setenv("PELAGOS_ADMIN_PASSWORD", "Correct-Horse-Battery-1")
     monkeypatch.setattr(icli.os, "geteuid", lambda: 1000)
     assert cli.main(["install", "--engines", "bind", "--init"]) == icli.EXIT_USAGE
     assert "needs root" in capsys.readouterr().err
@@ -89,12 +89,23 @@ def test_init_moves_the_plan_to_the_new_node(monkeypatch, tmp_path, capsys):
     env.node_id = "local"
     env.packages.installed.update({"bind9", "bind9-utils", "bind9-dnsutils"})
     _patch_env(monkeypatch, env)
-    monkeypatch.setenv("PELAGOS_ADMIN_PASSWORD", "correct-horse")
+    monkeypatch.setenv("PELAGOS_ADMIN_PASSWORD", "Correct-Horse-Battery-1")
     monkeypatch.setattr(icli.os, "geteuid", lambda: 0)
     assert cli.main(["install", "--engines", "bind", "--init", "--name", "ns1", "--yes"]) == icli.EXIT_OK
     assert env.node_initialized() and env.node_id != "local"
     out = capsys.readouterr().out
     assert "install/bind/adopt: ok" in out and "install/node: ok" in out
+
+
+def test_init_refuses_a_weak_password_before_installing(monkeypatch, tmp_path, capsys):
+    env = debian_tree(tmp_path)
+    env.node_id = "local"
+    _patch_env(monkeypatch, env)
+    monkeypatch.setenv("PELAGOS_ADMIN_PASSWORD", "correct-horse")
+    monkeypatch.setattr(icli.os, "geteuid", lambda: 0)
+    assert cli.main(["install", "--engines", "bind", "--init", "--name", "ns1", "--yes"]) == icli.EXIT_FAILED
+    assert "admin password refused" in capsys.readouterr().err
+    assert not env.node_initialized() and not env.tools.calls
 
 
 def test_tool_failure_is_reported(monkeypatch, tmp_path, capsys):

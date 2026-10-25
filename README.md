@@ -138,7 +138,7 @@ and Kea. No image is published yet: build the node image first.
 ```sh
 make docker
 cd docker
-PELAGOS_IMAGE=pelagos:latest PELAGOS_ADMIN_PASSWORD='change me' docker compose up -d
+PELAGOS_IMAGE=pelagos:latest PELAGOS_ADMIN_PASSWORD='Change-Me-Please-1' docker compose up -d
 ```
 
 Kea uses the host network to serve DHCP; add the LAN interface to the

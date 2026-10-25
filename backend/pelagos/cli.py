@@ -43,27 +43,65 @@ def cmd_collector(args: argparse.Namespace) -> int:
     return run(paths, once=args.once, rebuild=args.rebuild)
 
 
-def cmd_init(args: argparse.Namespace) -> int:
-    paths = _paths(args)
-    from pelagos.core.bootstrap import bootstrap_first_node
+class InitError(Exception):
+    def __init__(self, message: str, code: int) -> None:
+        super().__init__(message)
+        self.code = code
 
+
+def _init_password(args: argparse.Namespace) -> str:
+    """Option, then PELAGOS_ADMIN_PASSWORD, then a confirmed prompt on a terminal; InitError otherwise."""
     if args.admin_password:
         print(
             "warning: --admin-password is visible in the process list and shell history; "
             "prefer PELAGOS_ADMIN_PASSWORD or the prompt",
             file=sys.stderr,
         )
-    password = (
-        args.admin_password or os.environ.get("PELAGOS_ADMIN_PASSWORD") or getpass.getpass("admin password: ")
-    )
-    result = bootstrap_first_node(
-        paths,
-        name=args.name,
-        admin_username=args.admin_user,
-        admin_password=password,
-        web_url=args.web_url,
-        replication_url=args.replication_url,
-    )
+    password = args.admin_password or os.environ.get("PELAGOS_ADMIN_PASSWORD")
+    if not password:
+        if not sys.stdin.isatty():
+            raise InitError("no terminal to ask for the admin password: set PELAGOS_ADMIN_PASSWORD", 2)
+        try:
+            password = getpass.getpass("admin password: ")
+            if getpass.getpass("again: ") != password:
+                raise InitError("the two passwords differ", 2)
+        except (EOFError, KeyboardInterrupt):
+            raise InitError("no admin password given", 2) from None
+    from pelagos.auth.passwords import WeakPassword, check_strength
+
+    try:
+        check_strength(password)
+    except WeakPassword as exc:
+        raise InitError(f"admin password refused: {exc}", 2) from None
+    return password
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    """Exit 0 initialized, 1 already initialized or failed, 2 no usable admin password."""
+    paths = _paths(args)
+    from pelagos.core.bootstrap import bootstrap_first_node
+
+    try:
+        if paths.cluster_toml.exists():
+            raise InitError(f"{paths.cluster_toml} exists: this node is already initialized", 1)
+        password = _init_password(args)
+        result = bootstrap_first_node(
+            paths,
+            name=args.name,
+            admin_username=args.admin_user,
+            admin_password=password,
+            web_url=args.web_url,
+            replication_url=args.replication_url,
+        )
+    except InitError as exc:
+        print(f"pelagos init: {exc}", file=sys.stderr)
+        return exc.code
+    except FileExistsError as exc:
+        print(f"pelagos init: {exc}", file=sys.stderr)
+        return 1
+    except PermissionError as exc:
+        print(f"pelagos init: {exc} (run as root or as the pelagos user)", file=sys.stderr)
+        return 1
     print(f"node {result.node.name} ({result.node.id}) initialized in {paths.etc} and {paths.var}")
     return 0
 

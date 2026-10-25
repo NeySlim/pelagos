@@ -13,6 +13,15 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-25, open points: `pelagos init` errors and password rule
+`backend/pelagos/cli.py` `cmd_init`: commands and options unchanged, behavior
+only. It refuses an existing `cluster.toml` before asking for the password
+(exit 1), needs `PELAGOS_ADMIN_PASSWORD` when stdin is not a terminal, asks
+twice on a terminal, and applies `auth.passwords.check_strength` (exit 2, no
+file written). `pelagos install --init` applies the same rule before any
+step runs. Scripts that initialized with a weak password must use a stronger
+one (the packaging smoke tests and the CI were updated). Nothing else to react to.
+
 ## 2026-10-25, final pass: one view key lookup, peer refusals
 - `connectors.bind.viewkeys.view_key_name` is the only reader of
   `settings.dns.view_keys`; `services.zone_defaults.key_names` uses it, so a

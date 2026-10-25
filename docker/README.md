@@ -25,7 +25,7 @@ make docker-allinone   # all-in-one image: pelagos-allinone:<version>, KEA_SOURC
 
 ```sh
 cd docker
-PELAGOS_ADMIN_PASSWORD='change me' PELAGOS_IMAGE=pelagos:latest docker compose up -d
+PELAGOS_ADMIN_PASSWORD='Change-Me-Please-1' PELAGOS_IMAGE=pelagos:latest docker compose up -d
 curl -k https://127.0.0.1:8443/api/v1/health
 ```
 
@@ -93,7 +93,7 @@ loopback. BIND and Kea are MPL-2.0; their license texts are in
 `/usr/share/doc/<package>/copyright`.
 
 ```sh
-docker run -d --name pelagos -e PELAGOS_ADMIN_PASSWORD='change me' \
+docker run -d --name pelagos -e PELAGOS_ADMIN_PASSWORD='Change-Me-Please-1' \
   -p 8443:8443 -p 53:53/udp -p 53:53/tcp pelagos-allinone:latest
 ```
 

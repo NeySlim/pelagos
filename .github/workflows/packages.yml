@@ -139,7 +139,7 @@ jobs:
         run: make docker-allinone
       - name: All-in-one smoke test
         run: |
-          docker run -d --name aio -e PELAGOS_ADMIN_PASSWORD=ci-smoke-password -p 9443:8443 pelagos-allinone:latest
+          docker run -d --name aio -e PELAGOS_ADMIN_PASSWORD=Ci-Smoke-Password-1 -p 9443:8443 pelagos-allinone:latest
           for _ in $(seq 1 60); do
             if curl -fsk https://127.0.0.1:9443/api/v1/health; then ok=1; break; fi
             sleep 2

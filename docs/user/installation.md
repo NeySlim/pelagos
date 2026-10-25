@@ -248,7 +248,7 @@ images:
 ```sh
 make docker
 cd docker
-PELAGOS_IMAGE=pelagos:latest PELAGOS_ADMIN_PASSWORD='change me' docker compose up -d
+PELAGOS_IMAGE=pelagos:latest PELAGOS_ADMIN_PASSWORD='Change-Me-Please-1' docker compose up -d
 curl -k https://127.0.0.1:8443/api/v1/health
 ```
 
@@ -315,7 +315,7 @@ default) or Debian's Kea 2.6 (`KEA_SOURCE=distro`), and supervisord running
 the web process and the collector.
 
 ```sh
-docker run -d --name pelagos -e PELAGOS_ADMIN_PASSWORD='change me' \
+docker run -d --name pelagos -e PELAGOS_ADMIN_PASSWORD='Change-Me-Please-1' \
   -p 8443:8443 -p 8444:8444 -p 53:53/udp -p 53:53/tcp pelagos-allinone:latest
 docker exec pelagos pelagos import --engines bind,kea4,d2 --yes
 ```

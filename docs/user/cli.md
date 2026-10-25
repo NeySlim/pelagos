@@ -54,8 +54,16 @@ sudo pelagos init --name ns1 --web-url https://ns1.example.lan:8443 \
   --replication-url https://ns1.example.lan:8444
 ```
 
-The password is read from `PELAGOS_ADMIN_PASSWORD`, else asked on the
-terminal.
+The password is read from `--admin-password`, else `PELAGOS_ADMIN_PASSWORD`,
+else asked twice on the terminal. Without a terminal (a script, `ssh` with no
+`-t`, a container) the variable is required. The password follows the same
+rule as every later change: at least 12 characters and three of lowercase,
+uppercase, digits, symbols.
+
+Exit status: `0` initialized, `1` already initialized (`cluster.toml`
+exists, checked before asking for the password) or the files could not be
+written, `2` no password, the two entries differ, or the password is too
+weak. Nothing is written in the last case.
 
 ## pelagos enroll
 
@@ -87,7 +95,7 @@ adopts them, as one plan run as a job.
 | `--source distro\|isc` | `distro` | where Kea comes from: the distribution, or the ISC Cloudsmith repository. BIND always comes from the distribution. |
 | `--isc-series X.Y` | `3.2` | ISC Kea series for `--source isc` |
 | `--detect` | | print what is installed (JSON) and exit |
-| `--init` | | also initialize this node when it is not yet (admin password from `PELAGOS_ADMIN_PASSWORD` or the terminal) |
+| `--init` | | also initialize this node when it is not yet (admin password from `PELAGOS_ADMIN_PASSWORD` or the terminal, same rule as `pelagos init`, checked before any step runs) |
 | `--name NAME` | short hostname | node name for `--init` |
 | `--admin-password PASSWORD` | | first admin password for `--init` (visible in `ps`: prefer the variable) |
 | `--dry-run` | | show and walk the plan without changing anything |

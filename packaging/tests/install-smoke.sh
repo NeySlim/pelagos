@@ -51,7 +51,7 @@ check "helper socket is root:pelagos 0660" test "$(stat -c '%U:%G %a' /run/pelag
 $SUDO systemctl start pelagos.service pelagos-collector.service
 check "start before init is skipped" test "$(systemctl is-active pelagos.service || true)" = inactive
 
-$SUDO env PELAGOS_ADMIN_PASSWORD=smoke-test-password pelagos init --name smoke
+$SUDO env PELAGOS_ADMIN_PASSWORD=Smoke-Test-Password-1 pelagos init --name smoke
 $SUDO systemctl start pelagos.service pelagos-collector.service
 
 health=""

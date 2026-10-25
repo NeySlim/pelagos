@@ -138,12 +138,34 @@ export function DnsTile({ summary, editing, live, samples }) {
   )
 }
 
+const TONE_RANK = ['danger', 'warning', 'primary', 'success', 'neutral']
+const famOf = (h) => (h.family === 'v6' ? 'v6' : 'v4')
+
+// One HA pill per server, its families inside and the tone of its worst one, so the row
+// stays on one line whatever the number of families.
+function haServers(ha, nameOf) {
+  const groups = new Map()
+  for (const h of ha) {
+    const key = h.server_name || h.node_id
+    const g = groups.get(key) || { key, name: h.server_name || nameOf(h.node_id), items: [] }
+    g.items.push(h)
+    groups.set(key, g)
+  }
+  return [...groups.values()].map((g) => {
+    const items = [...g.items].sort((a, b) => famOf(a).localeCompare(famOf(b)))
+    const worst = items.reduce((w, h) => (TONE_RANK.indexOf(haTone(h)) < TONE_RANK.indexOf(haTone(w)) ? h : w))
+    return { ...g, items, worst, tone: haTone(worst) }
+  })
+}
+
 function LatestExchange({ dhcp, family }) {
   const { t, i18n } = useTranslation(['dashboard', 'common'])
   const ex = latestExchange(dhcp)
   const format = (v) => (v === null || v === undefined ? '-' : rateFormat(i18n.language)(v))
   const v6 = family === 'v6'
   const keys = ['discover', 'offer', 'request', 'ack']
+  // No row while live counters are collected: a placeholder would read as a broken lease.
+  if (typeof dhcp?.current !== 'number') return null
   const values = keys.map((k, i) => (i === 3 && ex?.nak ? t('tiles.dhcp.nak') : format(ex?.rates?.[k])))
   return (
     <div className="dash-lease" data-testid="dhcp-latest" title={keys.map((k, i) => `${t(`tiles.dhcp.steps.${v6 ? 'v6' : 'v4'}.${k}`)} ${values[i]}/s`).join(', ')}>
@@ -241,17 +263,17 @@ export function DhcpTile({ summary, editing, live, thresholds, nameOf, samples }
           <>
             <Sub>{t('tiles.dhcp.ha')}</Sub>
             <div className="dash-pills">
-              {ha.map((h) => (
+              {haServers(ha, nameOf).map((g) => (
                 <Link
-                  key={`${h.node_id}/${h.family}`}
-                  to={`/dhcp/${h.family === 'v6' ? 'v6' : 'v4'}/ha`}
-                  className={cn('dash-pill', `fx-tone-${haTone(h)}`)}
-                  title={t(`common:status.${h.state}`, { defaultValue: h.state })}
+                  key={g.key}
+                  to={`/dhcp/${g.worst.family === 'v6' ? 'v6' : 'v4'}/ha`}
+                  className={cn('dash-pill', `fx-tone-${g.tone}`)}
+                  title={g.items.map((h) => `${famOf(h)}: ${t(`common:status.${h.state}`, { defaultValue: h.state })}`).join(', ')}
                   data-testid="dhcp-ha-pill"
                 >
-                  <StatusDot tone={haTone(h)} size={5} />
-                  <span className="font-mono">{h.server_name || nameOf(h.node_id)}</span>
-                  <span className="dash-pill-family">{h.family === 'v6' ? 'v6' : 'v4'}</span>
+                  <StatusDot tone={g.tone} size={5} />
+                  <span className="font-mono">{g.name}</span>
+                  <span className="dash-pill-family">{g.items.map(famOf).join(' · ')}</span>
                 </Link>
               ))}
             </div>

@@ -118,6 +118,27 @@ describe('hero tiles', () => {
     expect(pills[1]).toHaveClass('fx-tone-danger')
   })
 
+  it('gives each HA server one pill with its families, in the tone of the worst', () => {
+    const ha = [
+      ...SUMMARY.ha,
+      { node_id: N1, family: 'v6', server_name: 'ns1', role: 'primary', state: 'waiting', partner: { in_touch: true } },
+      { node_id: N2, family: 'v6', server_name: 'ns2', role: 'standby', state: 'hot-standby', partner: { in_touch: true } },
+    ]
+    wrap(<DhcpTile {...props} summary={{ ...SUMMARY, ha }} />)
+    const pills = within(screen.getByTestId('tile-dhcp')).getAllByTestId('dhcp-ha-pill')
+    expect(pills).toHaveLength(2)
+    expect(pills[0]).toHaveTextContent('ns1v4 · v6')
+    expect(pills[0]).toHaveClass('fx-tone-warning')
+    expect(pills[0]).toHaveAttribute('href', '/dhcp/v6/ha')
+    expect(pills[1]).toHaveClass('fx-tone-danger')
+    expect(pills[1]).toHaveAttribute('href', '/dhcp/v4/ha')
+  })
+
+  it('draws no latest exchange row while live counters are collected', () => {
+    wrap(<DhcpTile {...props} live={summarizeLive(TARGETS, {})} />)
+    expect(within(screen.getByTestId('tile-dhcp')).queryByTestId('dhcp-latest')).toBeNull()
+  })
+
   describe('cluster trace', () => {
     beforeEach(() => {
       resetClusterSignals()

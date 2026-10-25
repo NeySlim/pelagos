@@ -239,6 +239,18 @@ def cmd_audit(args: argparse.Namespace) -> int:
                 )
         return EXIT_OK
     ids = [f.id for f in findings if f.to_dict()["remediable"]] if args.fix_all else list(args.fix)
+    shared = [i for i in ids if ":weak_shared_kea_key:" in i]
+    peers = _d2_peers(env) if shared else []
+    if peers:
+        note = (
+            f"{', '.join(shared)}: D2 also runs on {', '.join(peers)}; switch the shared key from "
+            "Administration, Security audit (or POST /api/v1/install/security/plan), which reaches every node"
+        )
+        if not args.fix_all:
+            print(f"error: {note}", file=sys.stderr)
+            return EXIT_USAGE
+        print(f"skipped {note}", file=sys.stderr)
+        ids = [i for i in ids if i not in shared]
     if not ids:
         print("nothing to remediate")
         return EXIT_OK
@@ -251,6 +263,17 @@ def cmd_audit(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_FAILED
     return _run(args, env, plan)
+
+
+def _d2_peers(env: Any) -> list[str]:
+    """Names of the other cluster nodes running D2: this command only runs steps on this node, and
+    removing the old shared key here would break their DDNS updates."""
+    if not env.node_initialized():
+        return []
+    from pelagos.core.config_store import ConfigStore
+
+    cluster = ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml).load_cluster()
+    return [n.name for n in cluster.nodes if n.modules.d2 and n.id != env.node_id]
 
 
 def _common(p: argparse.ArgumentParser) -> None:

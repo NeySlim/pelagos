@@ -8,8 +8,10 @@ import json
 import pytest
 
 from pelagos import cli
+from pelagos.domain import JobState
 from pelagos.installer import cli as icli
-from tests.unit.installer.fakes import debian_tree, legacy_tree
+from pelagos.installer.security_audit import run_audit
+from tests.unit.installer.fakes import debian_tree, join_cluster, legacy_tree, make_env
 
 pytestmark = pytest.mark.unit
 
@@ -107,3 +109,38 @@ def test_tool_failure_is_reported(monkeypatch, tmp_path, capsys):
     env.tools.checkconf_print = denied
     assert cli.main(["import", "--engines", "bind", "--dry-run"]) == icli.EXIT_FAILED
     assert "a password is required" in capsys.readouterr().err
+
+
+def _cluster_with_peer_d2(tmp_path):
+    """Node A (legacy BIND, D2 on hmac-md5) and node B, both declared as running D2."""
+    from pelagos.core.config_store import ConfigStore
+    from pelagos.installer.importer import build_import_plan
+    from pelagos.installer.jobs import apply_plan
+    from tests.unit.installer.test_helper_peer_steps import _d2
+
+    env = legacy_tree(tmp_path / "a")
+    _d2(tmp_path / "a")
+    assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    peer = make_env(tmp_path / "b")
+    peer.node_id = "node-b"
+    join_cluster(env, peer)
+    store = ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml)
+
+    def mutate(cfg):
+        for n in cfg.nodes:
+            n.modules.d2 = True
+
+    store.update_cluster(mutate, updated_by="test")
+    return env
+
+
+def test_audit_leaves_the_shared_kea_key_to_the_cluster(monkeypatch, tmp_path, capsys):
+    env = _cluster_with_peer_d2(tmp_path)
+    _patch_env(monkeypatch, env)
+    monkeypatch.setattr(icli.os, "geteuid", lambda: 0)
+    fid = "bind:weak_shared_kea_key:kea-ddns"
+    assert cli.main(["audit", "--fix", fid, "--yes"]) == icli.EXIT_USAGE
+    assert "D2 also runs on node-b" in capsys.readouterr().err
+    assert cli.main(["audit", "--fix-all", "--yes"]) == icli.EXIT_OK
+    assert "skipped " + fid in capsys.readouterr().err
+    assert fid in {f.id for f in run_audit(env)}  # the old key is still granted on this node

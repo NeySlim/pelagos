@@ -46,11 +46,16 @@ How it behaves:
   is down (until the zone's expiry). Record changes need the primary: plans
   for a zone whose primary is offline fail with `engine_unavailable`.
 - **DHCP**: Kea HA keeps leasing on the surviving partner
-  (`partner-down` after its own timers). Plan maintenance with the HA screen
+  (`partner-down` after its own timers); backup servers keep a copy of every
+  lease and can be promoted ([DHCP: backups](dhcp.md#backup-servers)). Plan
+  maintenance with the HA screen
   ([DHCP: maintenance](dhcp.md#maintenance-of-one-server)). Configuration
-  plans target every Kea node: with one partner offline the plan fails
-  there and the nodes already applied are rolled back, so apply them when
-  both are up.
+  plans target every Kea node, backups included: with one node offline the
+  plan fails there and the nodes already applied are rolled back, so apply
+  them when all are up.
+- **Several nodes**: each node replicates with every other one, so a change
+  made on any node reaches the others as long as one path is up; a node
+  that was down pulls what it missed from any peer when it returns.
 - **Management**: every node serves the whole UI and API. Use any node; sign
   in again when you switch. To enroll new nodes after losing the first
   one, another node needs a copy of the CA key: enroll it with `"ca": true`
@@ -131,10 +136,25 @@ repository is `sudo pelagos install --engines kea4,d2 --source isc`.
 
 ## Removing a node, uninstalling
 
-1. On another node, **Nodes and replication**, "Remove" the node: it leaves
-   the cluster and its certificate is revoked. The removed node then reports
-   itself isolated until it is uninstalled or enrolled again.
-2. Uninstall the package:
+In a cluster of three nodes or more, take the node out of what the others
+expect from it first, then remove it:
+
+1. **Kea HA**: if it runs an HA server (the Nodes screen shows its "Kea HA"
+   role, and the remove dialog warns about it), **DHCP, High availability**,
+   "Edit relationship": delete its row (or promote a backup in its place,
+   [DHCP: backups](dhcp.md#backup-servers)) and apply. Otherwise the other
+   servers keep trying to send it lease updates and heartbeats.
+2. **BIND secondaries**: for each zone it holds as a secondary, untick it
+   under "Secondary nodes" of the zone ([DNS: several secondaries](dns.md#several-secondaries)),
+   so the primary stops notifying it. If it is the primary of zones, make
+   another node primary first (new primary zone there, secondaries pointed
+   at it).
+3. On another node, **Nodes and replication**, "Remove" the node: it leaves
+   the cluster and its certificate is revoked. The other nodes learn it
+   through replication and refuse it from then on; it disappears from their
+   replication status and its `peer_offline` alert resolves. The removed
+   node reports itself isolated until it is uninstalled or enrolled again.
+4. Uninstall the package:
 
    ```sh
    sudo apt remove pelagos      # keeps /etc/pelagos and /var/lib/pelagos

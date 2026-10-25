@@ -450,18 +450,40 @@ class Lease(Model):
 @dataclass(slots=True)
 class HAPartner(Model):
     role: str | None; state: str | None; scopes: list[str]; in_touch: bool | None
+    server_name: str | None = None   # the remote's this-server-name
     last_state: str | None = None; age: int | None = None
     connecting_clients: int | None = None; unacked_clients: int | None = None
     unacked_clients_left: int | None = None; analyzed_packets: int | None = None
+
+@dataclass(slots=True)
+class HAPeer(Model):            # one entry of the ha hook's "peers"
+    name: str; role: str             # primary | secondary | standby | backup
+    url: str | None = None; auto_failover: bool | None = None
 
 @dataclass(slots=True)
 class HAState(Model):           # status-get -> arguments.high-availability[0]
     node_id: str; family: Family; collected_at: datetime
     server_name: str | None; mode: HAMode | None; role: str | None; state: str | None
     scopes: list[str] = []; unsent_update_count: int | None = None
-    partner: HAPartner | None = None
+    partner: HAPartner | None = None # None on a backup: status-get has no remote there
     enabled: bool = True             # False when the ha hook is not loaded
     raw: dict[str, Any] = {}
+    heartbeat: dict[str, Any] | None = None
+    peers: list[HAPeer] = []         # the relationship as configured (config-get, cached 30 s)
+```
+
+An HA relationship is one pair of active servers (`primary` with `standby` in
+hot-standby, with `secondary` in load-balancing, alone in passive-backup) and
+any number of `backup` servers, each run by at most one node.
+`connectors.kea.ha.relationships(states, names)` groups the nodes' `HAState`
+by configured peer list: every server with its role, the node running it (or
+none), its state (its own, else as its partner reports it), its partner and
+contact. `validate_setup`, `relationship_entry` and `hooks_with_ha` build the
+`ha` hook entry of each server for `KeaBackend.plan_ha_setup(spec,
+this_server)` (a `hooks-libraries` change on the config path; Kea 2.6 and
+3.x take the same structure).
+
+```python
 
 @dataclass(slots=True)
 class D2Stats(Model):           # kea-dhcp-ddns statistic-get-all reduced
@@ -563,6 +585,7 @@ class AlertKind(str, Enum):
     POOL_NEAR_FULL="pool_near_full"; POOL_FULL="pool_full"
     SERIAL_DIVERGENCE="serial_divergence"; SECONDARY_STALE="secondary_stale"; ZONE_ERROR="zone_error"
     HA_DEGRADED="ha_degraded"; HA_PARTNER_DOWN="ha_partner_down"; HA_TRANSITION="ha_transition"
+    HA_BACKUP_OUT_OF_SYNC="ha_backup_out_of_sync"
     D2_ERRORS="d2_errors"
     DAEMON_DOWN="daemon_down"; PEER_OFFLINE="peer_offline"; CONFIG_DIVERGENCE="config_divergence"
     LEASE_WITHOUT_RECORD="lease_without_record"; RECORD_WITHOUT_LEASE="record_without_lease"
@@ -825,7 +848,8 @@ Semantics for `DhcpBackend`:
   running change (object commands or `config-set`) is verified, then the file
   is persisted on that node before `apply` returns (`config-write`, or the
   lossless patch of section 9 when the file uses `<?include?>`). Multi-node
-  transactions (both HA peers) are orchestrated by `services.plan_service`:
+  transactions (every Kea node: the HA pair and its backups) are orchestrated
+  by `services.plan_service`:
   apply on self, then ask each other target node to apply the same plan over
   the replication channel (`POST /repl/v1/plans/apply`, section 13); on any
   failure, roll back the nodes already applied, which puts their running
@@ -867,6 +891,13 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
    `APPLYING`, apply on each target node in order (self first), `APPLIED`
    or `FAILED` (with rollback attempted on nodes already applied, result
    `ROLLED_BACK` if all rollbacks succeeded).
+   A plan made of parts (`PlanService.register_composite`: host plans, an HA
+   setup, a zone's secondaries) is applied part by part, each on its own
+   targets; when a part fails, it rolls back its own nodes and every part
+   applied before it is rolled back in reverse order. The top plan carries
+   the parts' changes tagged with their `node_ids`, their diffs under a
+   `# <node>` header, their preconditions and validations
+   (`services.composite.merge_parts`). Parts live in memory with the plan.
 3. One `AuditEntry` per node per plan, plus one summary entry
    (`action = "<scope>.apply"`) with the full diff. The web process writes the
    entry of its own node (`request.entry = "node"`, `action = "<scope>.<op>"`,
@@ -1336,7 +1367,7 @@ application/json`. All endpoints under `/repl/v1`.
 | `POST /repl/v1/plans/rollback` | `{"plan": Plan}` | `NodeApplyResult` | |
 | `POST /repl/v1/events` | `{"events": [message]}` (at most 100) | `{"accepted": n}` | live events of the caller for this node's UI (section 18); only `ha` (`state`, `unsent`, `heartbeat`) and `zones` (`serial`, `transfer`) are taken (`core.relay_events`), stamped with the caller's node id and `"relayed": true`; `404` from an older node, which the sender then skips |
 | `POST /repl/v1/actions/<name>` | action body (below) | `{"ok": true, "result"}` or `{"ok": false, "code", "detail", "errors"}` | a write another node asks this node to build or run (peer write channel, below); `404` from a node that does not serve actions |
-| `GET /repl/v1/engines/<engine>/snapshot` | | engine-specific read (zones list, subnets, HA state) | used by `services` to answer "read on both peers" without a second code path |
+| `GET /repl/v1/engines/<engine>/snapshot` | | engine-specific read (zones list, subnets, HA state) | used by `services` to answer "read on every node" without a second code path |
 | `POST /repl/v1/enroll` | section 14 | section 14 | accepts a connection without a client certificate; protected by the one-time token |
 | `GET /repl/v1/ca` | | `{"ca_pem","ca_fingerprint","node_id","name"}` | no client certificate; the enrolling node checks the fingerprint before sending its token |
 | `POST /repl/v1/renew` | `{"csr_pem"}` | `{"cert_pem"}` | section 14; the CSR must carry the caller's own node id |
@@ -1395,6 +1426,7 @@ run under the collector's backend lock):
 | `dns.zone.plan` | `{"change": Change, "created_by"}` | `{"plan": Plan}` built by this node's BIND (`plan_zone_change`) |
 | `dhcp.adopt.plan` | `{"engine": "kea4"|"kea6"|"d2", "source": "file"|"running", "created_by"}` | `{"plan": Plan}` (`plan_adopt` of this node's file) |
 | `dhcp.config.plan` | `{"engine", "config", "created_by"}` | `{"plan": Plan}` (whole-configuration replace of this node; D2 secrets sealed in the plan) |
+| `dhcp.ha.plan` | `{"engine": "kea4"|"kea6", "spec": {...} | null, "this_server", "created_by"}` | `{"plan": Plan}` (this node's part of an HA setup: `plan_ha_setup`; `spec` null removes the hook) |
 | `ops.run` | `{"engine": "bind"|"v4"|"v6"|"d2", "name", "params", "confirm", "user", "client_ip"}` | `{"output"}`: an allow-listed write operation, audited here as `node:<caller>` with `request.requested_by` |
 
 A plan built this way is stored by the caller (`PeerGateway.build_plan`
@@ -1495,6 +1527,11 @@ Client behavior (`core.replication.ReplicationClient`, run by the collector):
   (clock skew, a third node) are never lost. A peer that is up but runs a
   newer `cluster.toml` schema stays reachable in `peer_statuses()` with
   `code: "schema_mismatch"` (`CONFIG_DIVERGENCE`, upgrade this node).
+  Replication is a full mesh: every node exchanges with every node of
+  `[[nodes]]`, whatever their number, and a node enrolled through any CA
+  holder reaches the others once `cluster.toml` carries it. A node removed
+  from `[[nodes]]` leaves the statuses and failure counts at the next
+  anti-entropy pass (no ghost peer, its `PEER_OFFLINE` resolves).
 - `core.replication.ReplicationService(ctx, registry)` bundles all of this
   for the collector: `start()` (server, signal listener, pull, state
   `ready`), `stop()`, and a worker that also renews the node certificate and
@@ -1738,8 +1775,9 @@ Alert kinds and rules (thresholds from `settings`):
 | `serial_divergence` | warning | a secondary's SOA serial differs from the primary's for longer than `alerts_serial_divergence_seconds` |
 | `secondary_stale` | critical | secondary `expires` within 24 h, or AXFR refused |
 | `zone_error` | critical | `rndc zonestatus` fails or the zone is not loaded |
-| `ha_degraded` | warning | state not in {`hot-standby`, `load-balancing`, `backup`} for the configured mode |
-| `ha_partner_down` | critical | state `partner-down` or partner `in_touch == false`, outside an HA maintenance window started from Pelagos (then `ha_degraded`) |
+| `ha_degraded` | warning | state not in {`hot-standby`, `load-balancing`, `passive-backup`, `backup`} for the configured mode |
+| `ha_partner_down` | critical | state `partner-down` or partner `in_touch == false`, outside an HA maintenance window started from Pelagos (then `ha_degraded`); the title names the partner server; a backup has no partner and never raises it |
+| `ha_backup_out_of_sync` | warning | a backup's assigned lease count differs from the primary's (an active server's when the primary is not read) by more than max(2, 1 %) for 5 minutes; raised by the peers poller from the `ha` and `utilization` snapshots, node = the backup, subject `ha-backup:<engine>` |
 | `ha_transition` | info | state changed since the last poll (also a `ha_transitions` row) |
 | `d2_errors` | warning | `(update-error + update-timeout) / update-sent` over the last hour > `alerts_d2_error_rate` |
 | `daemon_down` | critical | a configured local daemon does not answer |
@@ -1880,7 +1918,8 @@ change revokes the user's other sessions.
 | --- | --- | --- | --- |
 | `GET /dns/instances` | `read:dns` | | `{"items": [{"node_id", "capabilities": DnsCapabilities, "status": {rndc status fields}}]}` |
 | `GET /dns/zones?view=&kind=&q=` | `read:dns` | | `{"items": [{"zone": Zone, "serials": {node_id: int|null}, "divergent": bool, "status": {node_id: ZoneStatus}}]}` (`status` filled for secondary, mirror and stub zones with the read node's status, kept `peer_poll_seconds`, else `{}`) |
-| `GET /dns/zones/{zone}?view=` | `read:dns` | | `{"zone": Zone, "status": {node_id: ZoneStatus}, "mode": "dynamic"|"static"|<kind>, "views": [view names holding this zone]}` |
+| `GET /dns/zones/{zone}?view=` | `read:dns` | | `{"zone": Zone, "status": {node_id: ZoneStatus}, "mode": "dynamic"|"static"|<kind>, "views": [view names holding this zone], "copies": {node_id: {"kind","source"}}}` (`copies`: every reachable node holding the zone in that view) |
+| `POST /dns/zones/{zone}/secondaries/plan` | `write:dns.zones` | `{"view"?, "node_ids": [...], "primaries"?, "also_notify"?}` (`node_ids`: every node to hold a secondary copy of the zone's primary node; one part per node: the primary's `also-notify` set to their addresses (other entries kept; a zone in a user file keeps its own), a secondary added on each new node (`primaries` default `<primary address> key <read key>`, `allow-transfer` of the primary), the copy removed from each node left out; `409` when nothing changes) | `Plan` (`requires_confirmation` when a copy is removed) |
 | `POST /dns/zones/plan` | `write:dns.zones` | `{"change": Change, "node_ids"?: [...], "node_id"?}` (`node_id`: the node that holds the zone and builds the plan, default this node, else the first node running BIND; a peer builds it over `dns.zone.plan`; target `<view>/<zone>`, `after` = Zone; `after.source: "addzone"` adds it with `rndc addzone`, and a zone whose source is `addzone` is changed with `rndc modzone`/`delzone`; with `node_ids` a new primary also lands on those peers as a secondary of this node, `after.secondary.primaries` saying where they transfer from) | `Plan` |
 | `GET /dns/zones/{zone}/records?view=&type=&name=&q=&page=&per_page=` | `read:dns` | | paginated `RRset` (`node_id` of the node read in `meta`) |
 | `POST /dns/zones/{zone}/records/plan` | `write:dns.records` | `{"view"?, "changes": [Change]}` | `Plan` |
@@ -1927,11 +1966,12 @@ the API normalizes to the absolute form.
 | `GET /dhcp/{family}/leases?subnet_id=&q=&state=&node_id=&from_address=&limit=` | `read:dhcp` | | `{"items": [Lease], "meta": {"node_id","next","limit"}}`: one page of `lease4-get-page`/`lease6-get-page` from `from_address` (`limit` 1 to 1000, default 100; a subnet filter reads at most 10 Kea pages), `meta.next` is the cursor of the next page (null at the end); `q` is an address, MAC, DUID or exact hostname sent to Kea's lookup commands (no cursor) |
 | `GET /dhcp/{family}/leases/recent?limit=` | `read:dhcp` | | `{"items": [lease], "as_of", "nodes"}`: the latest client transactions by `cltt` across the nodes (the collectors' `recent_leases` snapshots, read-only; `limit` 1 to 50, default 20), one per address (the newest copy of an HA pair), fields as the `leases`/`lease` event (section 15); `as_of` is the oldest walk read |
 | `GET /dhcp/{family}/leases/{ip}` | `read:dhcp` | | `{"items": [Lease]}` (one per node, to show HA agreement) |
-| `POST /dhcp/{family}/leases/{ip}/delete/plan` | `ops:dhcp.leases` | `{"node_id"?}` (default this node; a peer's lease is deleted on that peer) | `Plan` (`requires_confirmation`) |
+| `POST /dhcp/{family}/leases/{ip}/delete/plan` | `ops:dhcp.leases` | `{"node_id"?}` (default every node holding the lease, HA partner and backups alike, since lease commands are not replicated by the ha hook; with `node_id` that node only; `404` when no node holds it) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/utilization?node_id=` | `read:dhcp` | | `{"items": [{"subnet_id","subnet","pool","total","assigned","declined","percent"}]}` |
 | `GET /dhcp/{family}/stats?node_id=` | `read:dhcp` | | `{"node_id", "statistics": {...}}` |
-| `GET /dhcp/{family}/ha` | `read:dhcp` | | `{"items": [HAState]}` |
-| `POST /dhcp/{family}/ha/maintenance/plan` | `ops:dhcp.ha` | `{"node_id","action":"start"|"cancel"}` (`node_id`: the server that goes in-maintenance or leaves it; the plan is applied on its partner, which stays up as `partner-in-maintenance`) | `Plan` (`requires_confirmation`) |
+| `GET /dhcp/{family}/ha` | `read:dhcp` | | `{"items": [HAState], "relationships": [{"family","mode","servers":[{"name","role","url","auto_failover","node_id","node_name","state","scopes","unsent_update_count","partner","in_touch","collected_at","managed"}],"active":[name],"backups":[name]}]}` |
+| `POST /dhcp/{family}/ha/setup/plan` | `write:dhcp.config` | `{"mode","servers":[{"name","url","role","auto_failover"?,"node_id"?}], tunables?, "hooks_dir"?}` or `{"remove": true, "node_ids"?}` (roles checked per mode as Kea does; one part per node with a `node_id`, built there over `dhcp.ha.plan`: its `hooks-libraries` with the `ha` hook under its own `this-server-name`, `lease_cmds` added when missing; `remove` drops the hook from `node_ids`, default every node where HA is on) | `Plan` (scope `dhcp.config`, `requires_confirmation`, applied part by part) |
+| `POST /dhcp/{family}/ha/maintenance/plan` | `ops:dhcp.ha` | `{"node_id","action":"start"|"cancel"}` (`node_id`: the server that goes in-maintenance or leaves it; the plan is applied on its HA partner, found by server name among every node (a server shut down: the only active server left, or the one in `partner-in-maintenance` for a cancel), which stays up as `partner-in-maintenance`; a backup server is refused with `400`) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/ha/transitions?from=&to=` | `read:dhcp` | | `{"items": [{"ts","node_id","server_name","from_state","to_state","partner_state"}]}` |
 | `POST /dhcp/{family}/service/plan` | `ops:dhcp.ha` | `{"node_id","enable": bool}` (applied on `node_id`, this node or a peer) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/ddns` | `read:dhcp` | | `{"dhcp_ddns": {...}, "ddns_params": {...}, "node_id"}` |
@@ -2217,7 +2257,7 @@ English text, which stays the fallback for older clients, the CLI and the
 audit log:
 
 ```json
-{"key": "alert.ha_partner_down", "params": {"engine": "kea4", "state": "partner-down"}}
+{"key": "alert.ha_partner_down", "params": {"engine": "kea4", "partner": "ns2", "state": "partner-down"}}
 ```
 
 A parameter value is a string, a number, a list (shown joined with `", "`),

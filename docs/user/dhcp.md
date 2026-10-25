@@ -95,10 +95,13 @@ state, expiry, the DNS forward and reverse flags, and the node read.
 - **Search**: an IP, a MAC, a DUID or an exact hostname (Kea lookup
   commands). Filters: subnet, state, node. Page size up to 1000.
 - **Per-node view** ("Nodes agree", "Nodes disagree"): the same lease on
-  every node. In an HA pair both partners should hold it; "Missing on"
-  names the node that does not.
-- **Delete lease** (`ops:dhcp.leases`): a confirmed plan on the node you
-  pick ("Delete the lease on ns2").
+  every node. In an HA relationship the partners and every backup should
+  hold it; "Missing on" names the node that does not.
+- **Delete lease** (`ops:dhcp.leases`): a confirmed plan. "Delete on the N
+  servers" reaches every Kea server that holds the lease, backups included
+  (lease commands are not copied by the `ha` hook, so a copy left on one
+  server would come back); the bin icon of one copy deletes it on that node
+  only ("Delete the lease on ns2").
 - **Host card**: the [host](screens.md#hosts) joining this lease with its
   reservation and records.
 
@@ -121,18 +124,66 @@ records in one plan.
 
 ![DHCP high availability](../images/dhcp-ha-dark.png)
 
-For a Kea HA pair (`libdhcp_ha.so`, hot-standby or load-balancing), one card
-per server: state, mode, role, scopes served, the partner as seen from here
-(state, last contact, in touch or not), unsent lease updates, unacked
-clients, DHCP service enabled or disabled, and the history of state
-transitions.
+A Kea HA relationship (`libdhcp_ha.so`) is a pair of active servers
+(`primary` and `standby` in hot-standby, `primary` and `secondary` in
+load-balancing, or a lone `primary` in passive-backup) plus any number of
+`backup` servers. The screen shows:
+
+- the summary and the rail: the pair joined by the HA link, then each backup
+  after a dashed line (it receives the lease updates);
+- "Servers of the relationship": every configured server with its role, the
+  node that runs it ("not a Pelagos node" for a server outside the
+  cluster), its state (for a server outside the cluster, as its partner last
+  saw it), whether its partner is in touch, and its HA listener URL;
+- one card per server Pelagos runs: state, mode, role, scopes served, the
+  partner as seen from here (state, last contact, in touch or not), unsent
+  lease updates, unacked clients, DHCP service enabled or disabled;
+- the history of state transitions.
+
+Alerts:
 
 - `ha_degraded` (warning): a server outside its normal states
-  (`hot-standby`, `load-balancing`, `backup`) outside a maintenance.
+  (`hot-standby`, `load-balancing`, `passive-backup`, `backup`) outside a
+  maintenance.
 - `ha_partner_down` (critical): state `partner-down`, or the partner not in
-  touch. During a maintenance started from Pelagos, the server that stays up
-  raises `ha_degraded` instead (below).
+  touch; the title names the partner. A backup has no partner and never
+  raises it. During a maintenance started from Pelagos, the server that
+  stays up raises `ha_degraded` instead (below).
+- `ha_backup_out_of_sync` (warning): a backup whose lease count stays away
+  from the primary's (the active partner's when the primary is not read)
+  for 5 minutes: it stopped receiving lease updates.
 - `ha_transition` (info): each state change, also kept as a series.
+
+### Set up or edit the relationship
+
+"Set up HA" (no relationship yet) or "Edit relationship"
+(`write:dhcp.config`) opens the relationship form: the mode, then one row
+per server with its name (`this-server-name`), the URL of its HA listener,
+its role and the cluster node that runs it ("not a Pelagos node" for a
+server you configure by hand with the same list). "Add a server" adds a
+backup. The form refuses what Kea refuses: one primary, exactly one standby
+(hot-standby) or secondary (load-balancing), at least one backup in
+passive-backup, distinct names and URLs, one server per node. The plan has
+one part per node: each node writes the `ha` hook under its own name, adds
+`lease_cmds` when it is missing, keeps its other hooks, and rolls back when
+a later node refuses. "Remove HA" drops the hook from every node where HA
+is on.
+
+### Backup servers
+
+A backup receives every lease update from the active servers and answers no
+client; it has no heartbeat, no partner and takes no part in maintenance
+("Start maintenance" is not offered on its card, and the API refuses it).
+Configuration plans (subnets, reservations, options, classes) reach backups
+like any node running the engine.
+
+To **promote a backup** after an active server is lost: on the backup's card,
+"Promote". The relationship form opens with the backup in the role of the
+lost server (the one not in touch, else the partner of the primary) and that
+server as a backup; review, preview and apply. Every remaining node gets the
+new peer list; when the lost server returns, it rejoins as a backup and
+synchronizes its leases. A server outside the cluster needs the same peer
+list by hand.
 
 ### Maintenance of one server
 
@@ -141,7 +192,9 @@ To reboot or upgrade one server of the pair (`ops:dhcp.ha`):
 1. On the card of the server that goes down, "Start maintenance", review
    and confirm the plan. It sends `ha-maintenance-start` to its partner,
    which takes over every client (`partner-in-maintenance`) while the
-   server enters `in-maintenance`.
+   server enters `in-maintenance`. The partner is found by its server name,
+   from any node of the cluster; backups keep receiving lease updates and
+   stay `backup`.
 2. Stop and work on the server. DHCP keeps running on the partner, which
    moves to `partner-down` once the server is gone. Pelagos knows it started
    that maintenance: the partner raises `ha_degraded` (a warning marked
@@ -158,9 +211,9 @@ shut down, it sends `ha-maintenance-cancel` and both return to their normal
 state. Once the partner is `partner-down`, Pelagos refuses it (`409`).
 
 "Disable DHCP" and "Enable DHCP" (`dhcp-disable`, `dhcp-enable`) stop and
-resume answering clients on one server, as confirmed plans. Pelagos never
-changes the HA mode or the peer list: edit them in the Kea configuration
-([Getting started: HA pair](getting-started.md#7-a-kea-ha-pair)).
+resume answering clients on one server, as confirmed plans. The HA mode and
+the peer list change only through the relationship form above or the Kea
+configuration ([Getting started: HA pair](getting-started.md#7-a-kea-ha-pair)).
 
 ## DDNS
 

@@ -2,8 +2,11 @@
 
 This walk-through builds a two-node cluster: `ns1` and `ns2`, each running
 BIND and Kea DHCPv4 with DDNS, `example.lan` served by `ns1` as primary and
-`ns2` as secondary, and a Kea hot-standby HA pair. Addresses: `ns1` is
-`192.0.2.11`, `ns2` is `192.0.2.12`, clients are in `192.0.2.0/24`.
+`ns2` as secondary, and a Kea hot-standby HA pair. It then adds a third node,
+`ns3`, as a Kea HA backup server and a second BIND secondary. Addresses:
+`ns1` is `192.0.2.11`, `ns2` is `192.0.2.12`, `ns3` is `192.0.2.13`, clients
+are in `192.0.2.0/24`. A cluster has no node limit: every node replicates
+with every other one.
 
 - [1. Initialize the first node](#1-initialize-the-first-node)
 - [2. Sign in and secure the admin account](#2-sign-in-and-secure-the-admin-account)
@@ -12,7 +15,8 @@ BIND and Kea DHCPv4 with DDNS, `example.lan` served by `ns1` as primary and
 - [5. Enroll a second node](#5-enroll-a-second-node)
 - [6. Secondary zones on ns2](#6-secondary-zones-on-ns2)
 - [7. A Kea HA pair](#7-a-kea-ha-pair)
-- [8. Users for the team](#8-users-for-the-team)
+- [8. Add a third node](#8-add-a-third-node)
+- [9. Users for the team](#9-users-for-the-team)
 
 ## 1. Initialize the first node
 
@@ -229,9 +233,17 @@ back. See [DNS](dns.md).
 
 ## 7. A Kea HA pair
 
-Pelagos reads and operates Kea HA but never changes the HA mode or the peer
-list on its own: you declare the pair in each Kea configuration, then
-Pelagos shows its state, raises alerts and drives maintenance.
+Pelagos never changes the HA mode or the peer list on its own: you declare
+the relationship, then Pelagos shows its state, raises alerts and drives
+maintenance. Two ways to declare it:
+
+- **From the HA screen**: **DHCP, High availability**, "Set up HA". Pick the
+  mode, then one row per Kea server: its name, the URL of its HA listener
+  (`http://192.0.2.11:8001/`), its role and the node that runs it. The plan
+  writes the `ha` hook (and `lease_cmds` when it is missing) on every node of
+  the relationship, each under its own `this-server-name`, and rolls every
+  node back when one refuses. Kea 2.6 and 3.x take the same configuration.
+- **By hand**, as below.
 
 On both nodes, `kea-dhcp4.conf` loads `libdhcp_lease_cmds.so` and
 `libdhcp_ha.so` with the same peer list; only `this-server-name` differs
@@ -282,7 +294,38 @@ With HA in place:
   from only, because `this-server-name`, interfaces and sockets are per node.
 - Maintenance of one server is a plan: [DHCP: HA maintenance](dhcp.md#high-availability).
 
-## 8. Users for the team
+## 8. Add a third node
+
+A third node joins the same way as the second, and any number after it:
+there is no pair limit in the replication, every node exchanges
+`cluster.toml` and the audit log with every other one.
+
+1. Enroll `ns3` from any node holding the CA key (step 5), with
+   `--name ns3 --web-url https://ns3.example.lan:8443
+   --replication-url https://ns3.example.lan:8444`. It may run another
+   distribution (a Rocky node with the rpm, for example).
+2. `sudo pelagos import` on `ns3`, then `sudo pelagos audit` there.
+3. **BIND secondary**: open the zone (**DNS, Zones**, `example.lan`), tab
+   "Status per node", "Secondary nodes": tick `ns3` next to `ns2`, "Plan the
+   secondaries". The plan adds the secondary on `ns3` (primaries: the
+   address of `ns1` with `key ddi-read`) and puts `ns3` in the `also-notify`
+   of the primary; a new zone gets every ticked node directly from "Add
+   zone". The status tab then has one transfer row per secondary.
+4. **Kea HA backup**: **DHCP, High availability**, "Edit relationship", "Add
+   a server": name `ns3`, URL `http://192.0.2.13:8001/`, role Backup, node
+   `ns3`. The plan writes the new peer list on `ns1`, `ns2` and `ns3`. Open
+   `8001/tcp` from the pair to `ns3`. The backup receives every lease update
+   of the active servers and answers no client; promote it when an active
+   server is lost ([DHCP: backups](dhcp.md#backup-servers)).
+
+From then on, subnet, reservation, option and class plans reach the three
+Kea servers, a lease delete reaches every server holding the lease, and a
+record plan reaches the primary, then both secondaries by NOTIFY and IXFR.
+The dashboard's cluster trace draws the three nodes, the replication arcs
+between them, the HA link of the pair and the lease update feed of the
+backup.
+
+## 9. Users for the team
 
 **Administration, Users**, "New user": a username, an initial password, one
 or more roles. Tick "Must change the password" to force a new password at

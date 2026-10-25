@@ -13,6 +13,46 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-25, N-NODES: clusters of more than two nodes
+- `pelagos.domain.dhcp`: `HAPartner.server_name` (status-get's remote
+  `server-name`), new `HAPeer` (`name`, `role`, `url`, `auto_failover`) and
+  `HAState.peers` (the relationship as the ha hook configures it, this server
+  included; `KeaBackend.ha_state()` fills it from config-get, cached 30 s).
+  Additive, defaults keep older payloads valid. `AlertKind.HA_BACKUP_OUT_OF_SYNC`
+  (`ha_backup_out_of_sync`, warning, subject `ha-backup:<engine>`, raised by the
+  peers poller on the backup node when its assigned lease count differs from
+  the primary's by more than max(2, 1 %) for 5 minutes).
+- Messages: `alert.ha_partner_down` gains `{partner}`; new
+  `alert.ha_backup_out_of_sync`, `plan.kea.ha_setup`, `plan.kea.ha_remove`,
+  `plan.kea.ha_setup_cluster`, `plan.kea.ha_remove_cluster`,
+  `plan.kea.lease_delete_nodes`, `plan.zone.secondaries`,
+  `plan.zone.secondaries_none` (the frontend catalogs follow).
+- Section 17: `GET /dhcp/{family}/ha` adds `relationships`;
+  new `POST /dhcp/{family}/ha/setup/plan` (`write:dhcp.config`);
+  `GET /dns/zones/{zone}` adds `copies`; new
+  `POST /dns/zones/{zone}/secondaries/plan` (`write:dns.zones`).
+  `POST /dhcp/{family}/leases/{ip}/delete/plan` without `node_id` now targets
+  every node holding the lease (it was this node only; `404` when no node
+  holds it). HA maintenance finds the partner by HA server name among all
+  nodes and refuses a backup server (`400`).
+- Section 13: peer action `dhcp.ha.plan` (this node's part of an HA setup).
+  `Replicator.pull_all` forgets the statuses and failure counts of nodes no
+  longer in `cluster.toml`.
+- Section 6: `PlanService` composites are no longer host plans only: a plan
+  registered with parts (HA setup, zone secondaries) is applied part by part,
+  each part on its own node, every part rolled back when one fails. Parts are
+  merged into the top plan by `services.composite.merge_parts` (changes tagged
+  with the part's `node_ids`, diffs under a `# <node>` header).
+- WP-BIND (`configplan`): a secondary rendered on a peer of a new primary
+  copies the primary's `allow_transfer`, so Pelagos reads the copy with the
+  same key.
+- Reads without `node_id` go to the first peer running the engine that
+  answers (`PeerGateway.first_running`), not blindly to the first one.
+- Frontend: `MeshLinks` motion primitive (README), the cluster trace draws
+  every node from three on, HA page relationship view and form, zone
+  secondaries, node HA roles. The mock gains `--scenario pair|three|four`
+  (`MOCK_SCENARIO`) and `POST /api/v1/_mock/scenario`.
+
 ## 2026-10-25, live events: the collector publishes what the UI listens to
 - `docs/architecture.md` sections 2, 13, 14, 15, 17, 18. Additive.
 - WebSocket (section 18): new topic `zones` (`serial`, `transfer`, needs

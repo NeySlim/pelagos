@@ -25,7 +25,7 @@ CATALOG: dict[str, str] = {
     "note.no_difference": "no difference found",
     "note.static_file_edit": "file edit, the zone stays static",
     "note.static_file_edit_on": "file edit on {node}, the zone stays static",
-    "note.secret_files": "{count} secret file(s)",
+    "note.secret_files": "{count} secret files",
     # Plan summaries.
     "plan.change": "{op} {target}",
     "plan.rrset.changes": "{zone}: record changes",
@@ -68,7 +68,7 @@ CATALOG: dict[str, str] = {
     "plan.install.isc_kea": "ISC Kea {series}",
     "plan.install.distro_packages": "distro packages",
     "plan.import": "import {engines}",
-    "plan.security": "security remediation: {count} finding(s)",
+    "plan.security": "security remediation: {count} findings",
     # Alert titles.
     "alert.daemon_down": "{engine} does not answer",
     "alert.zone_not_loaded": "zone {zone} is not loaded",
@@ -298,6 +298,13 @@ CATALOG: dict[str, str] = {
 _FORMATTER = string.Formatter()
 
 
+# English singular of counted keys whose CATALOG text is the plural (the UI's `<key>_one`).
+SINGULAR: dict[str, str] = {
+    "note.secret_files": "{count} secret file",
+    "plan.security": "security remediation: {count} finding",
+}
+
+
 def placeholders(template: str) -> list[str]:
     """Parameter names of a template, in order of first use."""
     out: list[str] = []
@@ -348,8 +355,12 @@ def _value(value: Any) -> str:
 
 def render(message: Message) -> str:
     """The English text of a message, nested messages included."""
-    params = {k: _value(v) for k, v in (message.get("params") or {}).items()}
-    return CATALOG[message["key"]].format(**params)
+    raw = message.get("params") or {}
+    params = {k: _value(v) for k, v in raw.items()}
+    template = CATALOG[message["key"]]
+    if raw.get("count") == 1:
+        template = SINGULAR.get(message["key"], template)
+    return template.format(**params)
 
 
 def text(key: str, /, **params: Any) -> tuple[str, Message]:

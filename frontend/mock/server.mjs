@@ -1961,7 +1961,7 @@ function buildHandlers(state, emit) {
           : [`remediate ${id}`],
       )]
       return createPlan(state, user, {
-        scope: 'security', engine: null, summary: `security remediation: ${ids.length} finding(s)`,
+        scope: 'security', engine: null, summary: `security remediation: ${ids.length} finding${ids.length === 1 ? '' : 's'}`,
         summary_message: { key: 'plan.security', params: { count: ids.length } },
         changes: ids.map((id) => ({ op: 'replace', target: `security/${id}`, before: null, after: null, node_ids: [] })),
         diff: unifiedDiff('key "rndc-key" {\n\talgorithm hmac-md5;\n};', 'key "rndc-key" {\n\talgorithm hmac-sha256;\n};', '/etc/bind/rndc.key'),

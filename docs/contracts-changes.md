@@ -13,6 +13,12 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-25, open points: English singular of counted messages
+`backend/pelagos/domain/messages.py`: `note.secret_files` and `plan.security`
+read as plurals ("3 findings") and `SINGULAR` holds their English singular,
+which `render` uses when `count` is 1. The UI catalogs already carried
+`_one`/`_other`; their base keys lost the "(s)" too. Nothing to react to.
+
 ## 2026-10-25, open points: `pelagos init` errors and password rule
 `backend/pelagos/cli.py` `cmd_init`: commands and options unchanged, behavior
 only. It refuses an existing `cluster.toml` before asking for the password

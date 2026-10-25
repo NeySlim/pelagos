@@ -298,3 +298,14 @@ def test_legacy_alert_gaining_a_message_is_not_updated(tmp_path):
 def test_open_allow_transfer_wording():
     text = render(msg("finding.open_allow_transfer.description_zone", zone="example.lan"))
     assert text == "Zone example.lan allows zone transfers to any client."
+
+
+def test_counted_keys_have_an_english_singular():
+    assert render(msg("plan.security", count=1)) == "security remediation: 1 finding"
+    assert render(msg("plan.security", count=3)) == "security remediation: 3 findings"
+    assert render(msg("note.secret_files", count=1)) == "1 secret file"
+    catalog = json.loads((FRONTEND_I18N / "locales" / "en" / "messages.json").read_text())
+    for key, singular in messages.SINGULAR.items():
+        assert messages.placeholders(singular) == messages.placeholders(CATALOG[key])
+        assert catalog[f"{key}_one"] == singular.replace("{count}", "{{count}}")
+    assert not [k for k, v in CATALOG.items() if "(s)" in v]

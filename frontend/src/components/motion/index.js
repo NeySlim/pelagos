@@ -1,7 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // Motion primitives: every animation follows useMotion() and the data-motion level.
+// The v2 primitives (README.md) are what feature code builds on; keep their APIs small.
 export { CountUp, AnimatedValue } from './CountUp'
 export { useCountUp } from '../../hooks/useCountUp'
 export { StatusDot, PulsingHalo, FlowLine, Reticle, RadarRing } from './Decor'
 export { MiniHistogram, StippledAreaChart, SegmentedProgress } from './Charts'
 export { Stagger, PageTransition, StatChip, IconButton, AppBackdrop } from './Layout'
+export { RollingNumber, SwapText } from './RollingNumber'
+export { Readout, Ruler, ScaleBar } from './Instrument'
+export { Checklist, StepRail, CheckMark } from './Procedure'
+export { SignalLink } from './SignalLink'
+export { RowEnter, RowLeave } from './Rows'
+export { flipRows, niceTicks, poissonGap, progressOf, rollCells, rollDirection, MAX_TICKS, PULSE_MS, STEP_STATES } from './primitives'
+export { NavCursor, TabInk } from './Cursors'
+export { Skeleton, SkeletonTable } from './Skeleton'
+export { AmbientScreen } from './Ambient'
+export { useAnimationLoop, loopStats } from '../../hooks/useAnimationLoop'
+export { useCanvas } from '../../hooks/useCanvas'
+export { useMotionLevel, useAmbient } from '../../contexts/MotionContext'

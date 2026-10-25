@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: Apache-2.0
+// Pure helpers behind the motion v2 components: odometer alignment, ruler ticks,
+// procedure progress, Poisson spacing of link ticks, and the FLIP row helper.
+
+const numeric = (text) => {
+  const n = parseFloat(String(text).replace(/[^\d.-]/g, ''))
+  return Number.isFinite(n) ? n : null
+}
+
+// Direction of a change: explicit, else by numeric value, else up.
+export function rollDirection(previous, next, explicit) {
+  if (explicit === 'up' || explicit === 'down') return explicit
+  const [a, b] = [numeric(previous), numeric(next)]
+  return a !== null && b !== null && b < a ? 'down' : 'up'
+}
+
+// Right-aligns the old characters against the new ones; a new leading character rolls in
+// from a blank. Returns one { char, from } cell per character of `next`.
+export function rollCells(previous, next) {
+  const chars = [...next]
+  const olds = [...previous]
+  const pad = Math.max(0, chars.length - olds.length)
+  const aligned = Array(pad).fill('').concat(olds.slice(Math.max(0, olds.length - chars.length)))
+  return chars.map((char, i) => ({ char, from: aligned[i] }))
+}
+
+// Round tick values (1, 2 or 5 times a power of ten) from 0 to `max`, at most `count` + 1.
+export function niceTicks(max, count = 3) {
+  if (!(max > 0)) return [0]
+  const raw = max / count
+  const power = 10 ** Math.floor(Math.log10(raw))
+  const step = [1, 2, 5, 10].map((m) => m * power).find((s) => s >= raw) || 10 * power
+  const ticks = []
+  for (let v = 0; v <= max + step * 1e-9; v += step) ticks.push(Number(v.toPrecision(12)))
+  return ticks
+}
+
+export const STEP_STATES = ['pending', 'running', 'done', 'failed', 'reverted']
+
+// Share of a procedure behind the cursor: done items, plus half of a running one.
+export function progressOf(items) {
+  if (!items.length) return 0
+  const done = items.filter((i) => i.state === 'done').length
+  const running = items.some((i) => i.state === 'running') ? 0.5 : 0
+  return Math.min(1, (done + running) / items.length)
+}
+
+export const PULSE_MS = 600
+export const MAX_TICKS = 4
+
+// Milliseconds to the next arrival of a Poisson process at `rate` per second.
+export function poissonGap(rate, random = Math.random) {
+  if (!(rate > 0)) return Infinity
+  return (-Math.log(1 - random()) / rate) * 1000
+}
+
+// FLIP: measure `rows`, run `mutate` (which must update the DOM synchronously, e.g. through
+// flushSync), then glide every moved row from its old place on the spring. Reads are
+// batched before writes. Below full motion it only mutates. Returns how many rows moved.
+export function flipRows(rows, mutate, level = typeof document !== 'undefined' ? document.documentElement.dataset.motion : 'full') {
+  const list = [...rows]
+  if (level !== 'full' || list.length === 0) {
+    mutate()
+    return 0
+  }
+  const first = new Map(list.map((r) => [r, r.getBoundingClientRect().top]))
+  mutate()
+  const moves = []
+  for (const r of list) {
+    if (!r.isConnected) continue
+    const dy = first.get(r) - r.getBoundingClientRect().top
+    if (Math.abs(dy) >= 0.5) moves.push([r, dy])
+  }
+  for (const [r, dy] of moves) {
+    r.classList.remove('fx-flip')
+    r.style.transform = `translateY(${dy}px)`
+  }
+  if (moves.length) moves[0][0].getBoundingClientRect()
+  for (const [r] of moves) {
+    r.classList.add('fx-flip')
+    r.style.transform = ''
+    r.addEventListener('transitionend', () => r.classList.remove('fx-flip'), { once: true })
+  }
+  return moves.length
+}

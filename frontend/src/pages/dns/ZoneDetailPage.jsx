@@ -33,6 +33,7 @@ import { useMessage } from '../../i18n/message'
 import { onPlanEvent, planZone } from '../../lib/planEvents'
 import { ZoneSerialTrace } from './ZoneSerialTrace'
 import { useCatchUps } from './catchUp'
+import { useZoneEvents } from './zoneEvents'
 import { KeyValue, ListValue, ModeBadge, SourceBadge } from './common'
 import { useNodeNames, usePlanFlow, laggingNodes, SECONDARY_KINDS } from './helpers'
 import { RecordEditor } from './RecordEditor'
@@ -54,6 +55,8 @@ function RecordsTab({ zone, view, editable, mode, onChanged, status, nameOf }) {
   const [rollbackOf, setRollbackOf] = useState(null)
   const filters = { type: type || undefined, q: q || undefined, view: view || undefined }
   const records = usePaginatedApi((params) => api.dns.records(zone.name, params), { perPage: 50, filters })
+  // A new serial here or a transfer landing means new record contents.
+  useZoneEvents(zone.name, zone.view, () => records.refetch())
 
   const open = (mode, rrset = null) => setEditor({ mode, rrset })
   const done = () => {
@@ -330,6 +333,7 @@ export default function ZoneDetailPage() {
       timers.forEach(clearTimeout)
     }
   }, [zoneName, zoneParam, view, setData])
+  useZoneEvents(zoneName, zone?.view, () => api.dns.zone(zoneParam, view).then(setData).catch(() => {}))
   const [deleted, setDeleted] = useState(false)
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)

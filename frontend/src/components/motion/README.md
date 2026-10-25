@@ -74,7 +74,7 @@ cluster is idle. Feature code builds on the primitives below; keep their APIs sm
 | `AmbientScreen` | | graticule drifting at the trace paper speed, breathing over 12 s, faint contours; still unless `full` and `ambient` on; absent when ambient is off |
 | `AmbientTile` | `children` | layer under a tile body (`TileFrame` `ambient` prop); holds the canvases below |
 | `AmbientWave`, `AmbientSpectrum`, `AmbientDots` | `rate`, `peak` / `values` / `pulse` | tile canvases: wave amplitude is the query rate, spectrum the last 28 lease samples, dot matrix with hairline mesh that ripples once per `pulse` change. About 30 fps on the shared loop at `full`; one static frame (redrawn on new data) below; nothing when ambient is off or the family is not Instrument |
-| `RegMarks`, `Sweep` | `pulse` / `trigger` | corner brackets pulse once per event; a calibration sweep crosses the tile per refresh (`TileFrame` reads per-tile sweeps, event pulses and reading order from `TileRefresh`, fed by the dashboard page) |
+| `RegMarks`, `Sweep` | `pulse` / `trigger` | corner brackets pulse once per event; a calibration sweep crosses the tile per refresh, under the body like the ambient canvases (panels and text cover it; only the corner brackets sit above the body) (`TileFrame` reads per-tile sweeps, event pulses and reading order from `TileRefresh`, fed by the dashboard page) |
 
 `Ruler` takes `cursor` (marker following the latest sample) and `inset`.
 

@@ -38,6 +38,62 @@ test('tiles carry canvas layers and registration marks, and the loop runs while 
   expect(await page.evaluate(() => window.__pelagosLoop().frames)).toBeGreaterThan(before)
 })
 
+// A calibration sweep held at `x` (page px) inside the tile: the real layer, animation stopped.
+const holdSweep = (tile, x) =>
+  tile.evaluate((el, at) => {
+    const layer = el.querySelector('.fx-amb-sweep')
+    let line = layer.querySelector('.fx-sweep')
+    if (!line) {
+      line = document.createElement('i')
+      line.className = 'fx-sweep'
+      layer.appendChild(line)
+    }
+    const r = el.getBoundingClientRect()
+    line.style.animation = 'none'
+    line.style.transform = `translateX(${at - r.right + 1}px)`
+  }, x)
+
+test('ambient layers stay behind tile content at 1440x900', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await signIn(page)
+  const tile = page.getByTestId('tile-dhcp')
+  const panel = tile.locator('.dash-stat').first()
+  await expect(panel).toBeVisible()
+  await page.waitForTimeout(1500) // first-load sweeps are over
+  // Stacking: every ambient layer of every tile comes before the body and under it.
+  const order = await page.evaluate(() =>
+    [...document.querySelectorAll('.dash-tile')].map((t) => {
+      const body = t.querySelector(':scope > .tile-handle + div')
+      const z = (el) => Number.parseInt(getComputedStyle(el).zIndex, 10) || 0
+      return [...t.querySelectorAll(':scope > .fx-amb-tile, :scope > .fx-amb-sweep')].every(
+        (layer) => z(layer) < z(body) && Boolean(layer.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING),
+      )
+    }),
+  )
+  expect(order.length).toBeGreaterThan(3)
+  expect(order.every(Boolean)).toBe(true)
+  // The screen graticule lies under the shell content, and tiles are opaque surfaces.
+  const screen = await page.evaluate(() => {
+    const grid = document.querySelector('[data-testid="ambient-screen"]')
+    const content = grid?.nextElementSibling
+    const bg = getComputedStyle(document.querySelector('.dash-tile')).backgroundColor
+    return { under: Number.parseInt(getComputedStyle(grid).zIndex, 10) < Number.parseInt(getComputedStyle(content).zIndex, 10), bg }
+  })
+  expect(screen.under).toBe(true)
+  expect(screen.bg).not.toMatch(/rgba\(.*,\s*0(\.\d+)?\)$|transparent/)
+  // Pixels: a sweep held over a panel leaves the panel untouched, and shows on the bare tile.
+  const box = await panel.boundingBox()
+  const head = await tile.locator('.tile-handle').boundingBox()
+  const x = Math.round(box.x + box.width - 8)
+  const inPanel = { x: x - 2, y: Math.round(box.y + 3), width: 5, height: Math.round(box.height - 6) }
+  const onTile = { x: x - 2, y: Math.round(head.y + head.height + 3), width: 5, height: 6 }
+  const before = [await page.screenshot({ clip: inPanel }), await page.screenshot({ clip: onTile })]
+  await holdSweep(tile, x)
+  const after = [await page.screenshot({ clip: inPanel }), await page.screenshot({ clip: onTile })]
+  expect(after[1].equals(before[1]), 'the held sweep shows on the tile ground').toBe(false)
+  expect(after[0].equals(before[0]), 'the held sweep crosses the panel').toBe(true)
+})
+
 test('ambient off removes every layer', async ({ page }) => {
   await signIn(page)
   await page.goto('/account')

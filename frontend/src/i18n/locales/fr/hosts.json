@@ -11,8 +11,10 @@
   "fields": {
     "ips": "Adresses",
     "key": "Clé",
+    "reverseView": "Vue inverse",
     "reverseZone": "Zone inverse",
     "ttl": "TTL",
+    "view": "Vue",
     "zone": "Zone"
   },
   "list": {
@@ -60,6 +62,7 @@
     "notesHint": "Enregistrée dans le user-context de la réservation",
     "reverseAuto": "Le PTR va dans {{zone}}",
     "reverseNone": "Aucune zone inverse connue : pas de PTR sauf si vous en indiquez une",
+    "reverseViewSame": "Comme la vue ({{view}})",
     "subnetAuto": "Automatique : {{subnet}}",
     "subnetPick": "Choisir un sous-réseau",
     "title": "Nouvel hôte",

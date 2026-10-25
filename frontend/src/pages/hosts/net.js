@@ -65,3 +65,15 @@ export function reverseZoneFor(ip, zoneNames = []) {
   }
   return null
 }
+
+export const DEFAULT_VIEW = '_default'
+
+// Views that hold at least one zone, the default view first.
+export function zoneViews(zones) {
+  const views = new Set((zones || []).map((z) => z.zone?.view || DEFAULT_VIEW))
+  return [...views].sort((a, b) => (a === DEFAULT_VIEW ? -1 : b === DEFAULT_VIEW ? 1 : a.localeCompare(b)))
+}
+
+// Names of the zones served in one view.
+export const zoneNamesIn = (zones, view) =>
+  (zones || []).filter((z) => (z.zone?.view || DEFAULT_VIEW) === (view || DEFAULT_VIEW)).map((z) => z.zone?.name).filter(Boolean)

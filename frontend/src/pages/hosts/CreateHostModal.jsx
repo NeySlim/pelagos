@@ -8,15 +8,20 @@ import { Input } from '../../components/Input'
 import { api } from '../../services/api'
 import { Checkbox, NativeSelect } from '../dhcp/ui'
 import { fieldErrors, isIPv4, isIPv6, isMac } from '../dhcp/lib'
-import { reverseZoneFor, subnetFor } from './net'
+import { DEFAULT_VIEW, reverseZoneFor, subnetFor, zoneNamesIn, zoneViews } from './net'
 
 export function CreateHostModal({ subnets, subnets6 = [], zones, flow, onClose, initial = {} }) {
   const { t } = useTranslation(['hosts', 'dhcp', 'common'])
-  const zoneNames = useMemo(() => zones.map((z) => z.zone?.name).filter(Boolean), [zones])
-  const forwardZones = zoneNames.filter((z) => !z.endsWith('.arpa.'))
+  // The view pickers only show when BIND has views beyond the default one.
+  const views = useMemo(() => zoneViews(zones), [zones])
+  const hasViews = views.some((v) => v !== DEFAULT_VIEW)
+  const initialView = initial.view || DEFAULT_VIEW
+  const forwardIn = (view) => zoneNamesIn(zones, view).filter((z) => !z.endsWith('.arpa.'))
   const [form, setForm] = useState({
     hostname: initial.hostname || '',
-    zone: initial.zone || forwardZones[0] || '',
+    view: initialView,
+    reverse_view: '',
+    zone: initial.zone || forwardIn(initialView)[0] || '',
     ip: initial.ip || '',
     reverse_zone: '',
     ttl: '3600',
@@ -27,12 +32,21 @@ export function CreateHostModal({ subnets, subnets6 = [], zones, flow, onClose, 
   })
   const [errors, setErrors] = useState({})
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value?.target ? value.target.value : value }))
+  // A new view offers its own zones: keep the zone when that view serves it too.
+  const setView = (view) =>
+    setForm((f) => {
+      const names = forwardIn(view)
+      return { ...f, view, zone: names.includes(f.zone) ? f.zone : names[0] || '' }
+    })
+  const forwardZones = forwardIn(form.view)
+  // An empty reverse_view follows the view, as the backend does.
+  const reverseNames = zoneNamesIn(zones, form.reverse_view || form.view)
 
   const ip = form.ip.trim()
   const validIp = isIPv4(ip) || isIPv6(ip)
   // The subnet list follows the family of the address typed.
   const familySubnets = isIPv6(ip) ? subnets6 : subnets
-  const autoReverse = validIp ? reverseZoneFor(ip, zoneNames) : null
+  const autoReverse = validIp ? reverseZoneFor(ip, reverseNames) : null
   const autoSubnet = validIp ? subnetFor(ip, familySubnets) : null
 
   const validate = () => {
@@ -56,6 +70,8 @@ export function CreateHostModal({ subnets, subnets6 = [], zones, flow, onClose, 
       zone: form.zone.trim(),
       ttl: Number(form.ttl),
       reservation: form.reservation,
+      ...(form.view !== DEFAULT_VIEW ? { view: form.view } : {}),
+      ...(form.reverse_view ? { reverse_view: form.reverse_view } : {}),
       ...(form.reverse_zone.trim() || autoReverse ? { reverse_zone: form.reverse_zone.trim() || autoReverse } : {}),
       ...(form.reservation ? { mac: form.mac.trim().toLowerCase(), ...(subnetId ? { subnet_id: Number(subnetId) } : {}) } : {}),
       ...(form.notes.trim() ? { notes: form.notes.trim() } : {}),
@@ -78,6 +94,18 @@ export function CreateHostModal({ subnets, subnets6 = [], zones, flow, onClose, 
       loading={flow.building}
       testId="host-form"
     >
+      {hasViews && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <NativeSelect label={t('fields.view')} value={form.view} onChange={setView} options={views.map((v) => ({ value: v, label: v }))} testId="host-view" />
+          <NativeSelect
+            label={t('fields.reverseView')}
+            value={form.reverse_view}
+            onChange={set('reverse_view')}
+            options={[{ value: '', label: t('create.reverseViewSame', { view: form.view }) }, ...views.map((v) => ({ value: v, label: v }))]}
+            testId="host-reverse-view"
+          />
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Input label={t('dhcp:fields.hostname')} value={form.hostname} onChange={set('hostname')} error={errors.hostname} placeholder="printer2" required data-testid="host-hostname" />
         {forwardZones.length ? (

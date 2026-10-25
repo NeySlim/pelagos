@@ -11,8 +11,10 @@
   "fields": {
     "ips": "Addresses",
     "key": "Key",
+    "reverseView": "Reverse view",
     "reverseZone": "Reverse zone",
     "ttl": "TTL",
+    "view": "View",
     "zone": "Zone"
   },
   "list": {
@@ -60,6 +62,7 @@
     "notesHint": "Saved in the reservation user-context",
     "reverseAuto": "PTR goes to {{zone}}",
     "reverseNone": "No known reverse zone: no PTR unless you name one",
+    "reverseViewSame": "Same as the view ({{view}})",
     "subnetAuto": "Automatic: {{subnet}}",
     "subnetPick": "Pick a subnet",
     "title": "New host",

@@ -75,6 +75,12 @@ knows for the address ("No known reverse zone: no PTR unless you name
 one"). It is one plan: the records go to the primary of each zone, the
 reservation to every Kea node.
 
+When BIND has views beyond `_default`, the form also shows "View" (default
+`_default`; the zone list follows it) and "Reverse view" (default "Same as
+the view": the PTR goes to the reverse zone of the same view; pick
+`_default` or another view to put it elsewhere). These are the `view` and
+`reverse_view` fields of `POST /hosts/plan`.
+
 ## Alerts
 
 ![Alerts](../images/alerts-dark.png)

@@ -234,8 +234,14 @@ class TestReferencePair:
             return True
 
         wait_for("modules replicated", modules_everywhere, timeout=90)
+
         # Kea 2.6 from Debian answers the reads the API needs (no host_cmds, no subnet_cmds).
-        servers = api(A1).get("/dhcp/v4/servers")["items"]
+        # A peer's capabilities come with its next engine snapshot, a few seconds after its import.
+        def servers_known() -> list | None:
+            items = api(A1).get("/dhcp/v4/servers")["items"]
+            return items if len(items) == 2 and all(s.get("capabilities") for s in items) else None
+
+        servers = wait_for("Kea capabilities of both nodes", servers_known, timeout=90)
         assert {s["capabilities"]["version"][:3] for s in servers} == {"2.6"}
         subnets = api(A1).get("/dhcp/v4/subnets")["items"]
         assert [s["subnet"] for s in subnets] == ["10.99.1.0/24"]

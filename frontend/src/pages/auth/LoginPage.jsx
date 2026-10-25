@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Login: username and password, then a TOTP code when the server answers
 // 401 totp_required. Rate limiting (429) and bad credentials show inline.
-import { useState } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { LockKey, User, ShieldCheck } from '@phosphor-icons/react'
@@ -10,11 +10,15 @@ import { Button } from '../../components/Button'
 import { Input } from '../../components/Input'
 import { Logo } from '../../components/Logo'
 import { AmbientScreen, AppBackdrop, Reticle } from '../../components/motion'
-import { LoginScene } from './LoginScene'
+import { TraceScene } from './TraceScene'
+import './login.css'
 import { useTheme } from '../../contexts/ThemeContext'
 import { errorMessage } from '../../services/apiClient'
 import { languages } from '../../i18n'
 import { persistPreference } from '../../stores/preferencesStore'
+
+// The radar scene belongs to Mission Control: loaded only under its effects.
+const LoginScene = lazy(() => import('./LoginScene'))
 
 export default function LoginPage() {
   const { t, i18n } = useTranslation('auth')
@@ -57,8 +61,13 @@ export default function LoginPage() {
   return (
     <div className="relative min-h-full flex items-center justify-center p-4 overflow-hidden" style={{ background: 'var(--gradient-bg)' }}>
       {effects === 'mission' && <AppBackdrop />}
-      {effects === 'mission' && <LoginScene />}
+      {effects === 'mission' && (
+        <Suspense fallback={null}>
+          <LoginScene />
+        </Suspense>
+      )}
       {effects === 'instrument' && <AmbientScreen />}
+      {effects === 'instrument' && <TraceScene />}
       <div className="relative z-[1] w-full max-w-sm">
         <div className="flex justify-center mb-6">
           <Logo variant="vertical" size="lg" />

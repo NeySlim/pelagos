@@ -21,3 +21,18 @@
   background: var(--m-glass-strong);
 }
 .login-card-title { letter-spacing: 0.04em; }
+
+/* Instrument: the empty cluster trace across the lower part of the screen, under the card. */
+.login-trace {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 7vh;
+  height: min(34vh, 280px);
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.6;
+  border-block: 1px solid var(--fx-hair);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+}

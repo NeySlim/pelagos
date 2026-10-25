@@ -124,16 +124,17 @@ export function alertMarkers(alerts = [], nodeIds = [], limit = 5) {
   return { byNode, markers }
 }
 
-// Pool utilization as segments: filled ones green, yellow past the warning threshold,
-// red past the critical one, the partly filled one ember, the rest gray.
+// Pool utilization as segments: filled ones take the pool's state (green, yellow past
+// the warning threshold, red past the critical one), the partly filled one ember, the
+// rest gray. A pool that rounds to 0% stays all gray.
 export function utilizationSegments(percent, { count = 12, warn = 80, full = 95 } = {}) {
   const p = Math.min(100, Math.max(0, Number(percent) || 0))
   const filled = (p / 100) * count
+  const fill = p >= full ? 'danger' : p >= warn ? 'warning' : 'done'
   return Array.from({ length: count }, (_, i) => {
-    const start = (i / count) * 100
     let state = 'next'
-    if (i + 1 <= filled) state = start >= full ? 'danger' : start >= warn ? 'warning' : 'done'
-    else if (i < filled) state = 'current'
+    if (i + 1 <= filled) state = fill
+    else if (i < filled && p >= 0.5) state = 'current'
     return { key: i, state }
   })
 }

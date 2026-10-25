@@ -89,8 +89,24 @@ describe('radar states', () => {
 
   it('cuts a pool utilization into threshold-colored segments', () => {
     const states = utilizationSegments(95, { count: 10, warn: 80, full: 90 }).map((s) => s.state)
-    expect(states).toEqual(['done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'warning', 'current'])
-    expect(utilizationSegments(100, { count: 4, warn: 50, full: 75 }).map((s) => s.state)).toEqual(['done', 'done', 'warning', 'danger'])
+    expect(states).toEqual([...Array(9).fill('danger'), 'current'])
+    expect(utilizationSegments(100, { count: 4, warn: 50, full: 75 }).map((s) => s.state)).toEqual(Array(4).fill('danger'))
     expect(utilizationSegments(0, { count: 3 }).every((s) => s.state === 'next')).toBe(true)
+  })
+
+  it('colors filled segments by the pool percent with the defaults', () => {
+    const states = (p) => utilizationSegments(p).map((s) => s.state)
+    const count = (p, state) => states(p).filter((s) => s === state).length
+    expect(states(100)).toEqual(Array(12).fill('danger'))
+    expect(count(99, 'danger')).toBe(11)
+    expect(states(99)[11]).toBe('current')
+    expect(count(95, 'danger')).toBe(11)
+    expect(count(95, 'done') + count(95, 'warning')).toBe(0)
+    expect(count(85, 'warning')).toBe(10)
+    expect(states(85)[10]).toBe('current')
+    expect(count(85, 'done')).toBe(0)
+    expect(count(50, 'done')).toBe(6)
+    expect(states(0)).toEqual(Array(12).fill('next'))
+    expect(states(0.2)).toEqual(Array(12).fill('next'))
   })
 })

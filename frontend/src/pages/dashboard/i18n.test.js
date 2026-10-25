@@ -10,10 +10,11 @@ const NS = 'dashboard'
 const flatKeys = (obj, prefix = '') =>
   Object.entries(obj).flatMap(([k, v]) => (v && typeof v === 'object' ? flatKeys(v, `${prefix}${k}.`) : [`${prefix}${k}`]))
 const literalKeys = (src) => [...src.matchAll(/\bt\(\s*'([^'$]+)'/g)].map((m) => m[1])
+// A counted key resolves through its plural forms (`<key>_one`, `<key>_other`).
 function resolves(lang, key) {
   const [ns, path] = key.includes(':') ? key.split(':') : [NS, key]
-  const value = path.split('.').reduce((o, k) => (o && typeof o === 'object' ? o[k] : undefined), lang[ns])
-  return typeof value === 'string'
+  const get = (p) => p.split('.').reduce((o, k) => (o && typeof o === 'object' ? o[k] : undefined), lang[ns])
+  return typeof get(path) === 'string' || (typeof get(`${path}_one`) === 'string' && typeof get(`${path}_other`) === 'string')
 }
 
 const sources = import.meta.glob(['./*.jsx', './*.js', '!./*.test.*'], { query: '?raw', import: 'default', eager: true })

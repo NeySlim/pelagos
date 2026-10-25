@@ -42,7 +42,8 @@ html[data-motion='reduced'] .fx-rise-in { animation: fx-fade var(--d-quick) ease
 .fx-ecg-qrs { opacity: 0.35; stroke-dasharray: 1; stroke-dashoffset: 0; }
 .fx-ecg-qrs.is-beat { animation: fx-ecg-trace 250ms linear both, fx-ecg-rest var(--d-moment) var(--ease-out) 250ms both; }
 .fx-ecg.is-lost { color: var(--accent-danger); }
-.fx-ecg-flat { stroke-dasharray: 3 3; opacity: 0.8; }
+/* No partner, no beat: the flat baseline, heavy enough to read at a glance. */
+.fx-ecg path.fx-ecg-flat { stroke-width: 1.8; stroke-dasharray: 6 2.5; opacity: 1; }
 
 /* ============ HA unsent queue: ticks land, sent ones leave toward the partner ============ */
 .fx-queue { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -51,7 +52,7 @@ html[data-motion='reduced'] .fx-rise-in { animation: fx-fade var(--d-quick) ease
 .fx-queue-slots > i { display: block; width: 1px; height: 6px; background: var(--accent-pro); transform-origin: bottom; }
 .fx-queue-slots > i.is-in { animation: fx-tick-land 320ms var(--settle) both; }
 .fx-queue-slots > i.is-out { animation: fx-queue-out var(--d-moment) linear both; animation-delay: calc(var(--fx-k, 0) * 70ms); }
-.fx-queue-slots > b { font-weight: 500; font-size: 9px; line-height: 1; color: var(--accent-pro); }
+.fx-queue-slots > b { margin-left: 3px; font-weight: 500; font-size: 9.5px; line-height: 1; color: var(--accent-pro); }
 
 /* ============ Zone transfer: head, then tail 300 ms behind, at constant speed ============ */
 .fx-xserial { position: relative; display: inline-block; padding-bottom: 3px; }
@@ -62,8 +63,10 @@ html[data-motion='reduced'] .fx-rise-in { animation: fx-fade var(--d-quick) ease
 .fx-xfer > span { position: absolute; left: 50%; bottom: 3px; transform: translateX(-50%); font-family: var(--font-mono); font-size: 9px; color: var(--fx-faint); white-space: nowrap; animation: fx-xfer-label var(--fx-xfer, 900ms) linear both; }
 
 /* A changed value tints its cell once; two identical keyframes let a new change restart it. */
-.fx-hl-a { animation: fx-hl-a 1.2s ease-out; border-radius: 2px; }
-.fx-hl-b { animation: fx-hl-b 1.2s ease-out; border-radius: 2px; }
+.fx-hl-a, .fx-hl-b { position: relative; }
+.fx-hl-a::after, .fx-hl-b::after { content: ''; position: absolute; inset: 0; border-radius: 2px; pointer-events: none; opacity: 0; background: color-mix(in srgb, var(--fx-row-hl, var(--accent-primary)) 18%, transparent); }
+.fx-hl-a::after { animation: fx-hl-a 1.2s ease-out; }
+.fx-hl-b::after { animation: fx-hl-b 1.2s ease-out; }
 
 /* ============ Canvas traces: serial steps and thresholds ============ */
 .fx-trace { position: relative; height: 96px; border: 1px solid var(--fx-hair); border-radius: 4px; background: var(--bg-primary); overflow: hidden; cursor: crosshair; touch-action: pan-y; }
@@ -85,8 +88,8 @@ html[data-motion='reduced'] .fx-rise-in { animation: fx-fade var(--d-quick) ease
   100% { transform: translateX(100%) scaleX(0); }
 }
 @keyframes fx-xfer-label { 0%, 100% { opacity: 0; } 15%, 80% { opacity: 1; } }
-@keyframes fx-hl-a { from { background-color: color-mix(in srgb, var(--fx-row-hl, var(--accent-primary)) 18%, transparent); } }
-@keyframes fx-hl-b { from { background-color: color-mix(in srgb, var(--fx-row-hl, var(--accent-primary)) 18%, transparent); } }
+@keyframes fx-hl-a { from { opacity: 1; } }
+@keyframes fx-hl-b { from { opacity: 1; } }
 
 /* ============ Motion levels ============ */
 /* reduced: no travel and no scale; fades of 150 ms that carry a state remain. */
@@ -97,6 +100,7 @@ html[data-motion='reduced'] .fx-ecg-qrs.is-beat { animation: fx-ecg-rest var(--d
 html[data-motion='reduced'] .fx-queue-slots > i.is-in { animation: fx-fade var(--d-quick) ease both; }
 html[data-motion='reduced'] .fx-queue-slots > i.is-out { animation: fx-fade-out var(--d-quick) ease both; animation-delay: 0ms; }
 html[data-motion='reduced'] .fx-xfer { display: none; }
+html[data-motion='reduced'] :is(.fx-hl-a, .fx-hl-b)::after { animation-duration: var(--d-moment, 400ms); }
 html[data-motion='off'] .fx-xfer { display: none; }
 
 /* ============ Rows that leave after a hold; alerts that open and settle ============ */

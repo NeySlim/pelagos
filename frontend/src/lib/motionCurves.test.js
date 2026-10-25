@@ -52,4 +52,13 @@ describe('motion v2 curves', () => {
     expect(ambientRunning('off', 'on')).toBe(false)
     expect(ambientRunning('full', 'on', true)).toBe(false)
   })
+
+  it('procedure keyframes animate only compositor properties', () => {
+    const proc = readFileSync(resolve(import.meta.dirname, '../styles/procedures.css'), 'utf8')
+    const bodies = [...proc.matchAll(/@keyframes [\w-]+ \{([\s\S]*?\})\s*\}/g)].map((m) => m[1])
+    expect(bodies.length).toBeGreaterThan(5)
+    for (const body of bodies) {
+      for (const [, prop] of body.matchAll(/([a-z-]+)\s*:/g)) expect(['transform', 'opacity', 'stroke-dashoffset']).toContain(prop)
+    }
+  })
 })

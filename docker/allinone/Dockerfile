@@ -65,8 +65,10 @@ RUN chmod 0755 /usr/local/bin/pelagos-entrypoint && ln -s /opt/pelagos/bin/pelag
  && rm -rf /usr/share/pelagos/seed/kea-3 /usr/share/pelagos/seed/kea-2.6 \
  && rm -f /etc/kea/*.conf
 # The daemons run as their own users (bind, _kea); pelagos belongs to both groups.
+# The Kea directories are set image-wide, not only in supervisord.conf: `kea-dhcp4 -t` run by
+# `pelagos import` through docker exec must accept the same socket paths as the daemons.
 ENV PELAGOS_KEA_GID=_kea PELAGOS_BIND_GID=bind PELAGOS_BIND_UID=bind PYTHONUNBUFFERED=1 \
-    KEA_DHCP6=false
+    KEA_DHCP6=false KEA_CONTROL_SOCKET_DIR=/run/kea KEA_PIDFILE_DIR=/run/kea KEA_LOCKFILE_DIR=/run/kea
 VOLUME ["/etc/pelagos", "/var/lib/pelagos", "/etc/bind", "/var/cache/bind", "/etc/kea", "/var/lib/kea"]
 EXPOSE 53/udp 53/tcp 67/udp 8443 8444
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \

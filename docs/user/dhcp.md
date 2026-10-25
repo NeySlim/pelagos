@@ -4,6 +4,15 @@ The DHCP group drives Kea DHCPv4 on every node that runs it; the DHCPv6
 group holds the same screens for Kea DHCPv6 and shows once the DHCPv6
 module is on (**Administration, Modules**). Reading needs `read:dhcp`.
 
+To start serving DHCPv6 on a node: `sudo pelagos install --engines kea6`
+(it writes a minimal `kea-dhcp6.conf`, listening on no interface), turn the
+DHCPv6 module on, add the LAN interface to `interfaces-config` (Kea editor
+or **Kea file and running configuration**), then create a subnet with that
+interface (`"interface": "eth0"`) or reached through a relay. Clients
+without router advertisements must solicit on their own (systemd-networkd:
+`[DHCPv6] WithoutRA=solicit`). A reservation is by DUID: the lease list
+shows each client's.
+
 ![DHCPv4 subnets and pools](../images/dhcp-subnets-light.png)
 
 - [How DHCP changes are applied](#how-dhcp-changes-are-applied)

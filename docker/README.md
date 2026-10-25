@@ -83,6 +83,17 @@ docker run -d --name pelagos -e PELAGOS_ADMIN_PASSWORD='change me' \
 
 Use `--network host` to serve DHCP on the LAN.
 
+The node starts with every engine off. Adopt the seeded BIND and Kea
+configuration (supervisord stands in for systemd, so the import reloads and
+checks the engines like on a host):
+
+```sh
+docker exec pelagos pelagos import --engines bind,kea4,d2 --dry-run
+docker exec pelagos pelagos import --engines bind,kea4,d2 --yes
+```
+
+Add `kea6` when the container runs with `KEA_DHCP6=true`.
+
 ## Entrypoint modes
 
 `entrypoint.sh` prepares the volumes as root, then drops to `pelagos`:

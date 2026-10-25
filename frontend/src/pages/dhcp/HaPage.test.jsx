@@ -133,3 +133,59 @@ describe('HA page with backups', () => {
     expect(await within(form).findByTestId('ha-setup-error')).toHaveTextContent('needs exactly one')
   })
 })
+
+describe('HA page: backup cards and hub and spoke', () => {
+  it('gives a backup its own fields, never the mode or scopes of the pair', async () => {
+    const rel = db.relationships[0]
+    rel.servers[0] = { ...rel.servers[0], leases: 120, last_lease_at: '2026-10-25T09:59:00Z' }
+    rel.servers[2] = { ...rel.servers[2], leases: 112, last_lease_at: '2026-10-25T09:58:00Z', receives_from: ['ns1', 'ns2'], lease_reference: { server: 'ns1', leases: 120 } }
+    renderPage()
+    const cards = await screen.findAllByTestId('ha-server')
+    const backup = cards.find((c) => c.getAttribute('data-role') === 'backup')
+    expect(backup).toHaveTextContent('RoleBackup')
+    expect(backup).not.toHaveTextContent('Hot standby')
+    expect(backup).not.toHaveTextContent('Scopes served')
+    expect(within(backup).getByTestId('ha-backup-receives')).toHaveTextContent('Lease updates from ns1, ns2')
+    expect(within(backup).getByTestId('ha-backup-last')).not.toHaveTextContent('none seen yet')
+    expect(within(backup).getByTestId('ha-backup-leases')).toHaveTextContent('112ns1 holds 1208 apart')
+    expect(within(backup).queryByTestId('ha-heartbeat')).toBeNull()
+    const primary = cards.find((c) => c.getAttribute('data-role') === 'primary')
+    expect(primary).toHaveTextContent('Scopes served')
+    expect(primary).toHaveTextContent('Leases120')
+  })
+
+  it('groups a Kea 3 hub by relationship and edits both in one form', async () => {
+    setupPlan.mockResolvedValue({ id: 'P', summary: 'kea4 HA hot-standby on 4 servers', changes: [], target_node_ids: [] })
+    const hubPeers = (me, spoke, port) => [
+      { name: me, role: 'standby', url: `http://ns1.example.lan:${port}/` },
+      { name: spoke, role: 'primary', url: `http://${spoke}.example.lan:8001/` },
+    ]
+    const side = (name, node, role, partner, p) => ({ ...state('ns1', role, 'hot-standby', null), node_id: ID[node], server_name: name, peers: p, partner: { role: role === 'primary' ? 'standby' : 'primary', server_name: partner, state: 'hot-standby', in_touch: true, age: 1 } })
+    const a = hubPeers('ns1-a', 'ns2', 8001)
+    const b = hubPeers('ns1-b', 'ns3', 8003)
+    db.ha = [{ ...side('ns1-a', 'ns1', 'standby', 'ns2', a), other_relationships: [side('ns1-b', 'ns1', 'standby', 'ns3', b)] }, side('ns2', 'ns2', 'primary', 'ns1-a', a), side('ns3', 'ns3', 'primary', 'ns1-b', b)]
+    const relOf = (p, hub, spoke) => ({
+      family: 'v4',
+      mode: 'hot-standby',
+      servers: [relServer(p[0], { node_id: 'N1', node_name: 'ns1', state: 'hot-standby', in_touch: true }), relServer(p[1], { node_id: ID[spoke], node_name: spoke, state: 'hot-standby', in_touch: true })],
+      active: [hub, spoke],
+      backups: [],
+    })
+    db.relationships = [relOf(a, 'ns1-a', 'ns2'), relOf(b, 'ns1-b', 'ns3')]
+    renderPage()
+    const sections = await screen.findAllByTestId('ha-relationship')
+    expect(sections).toHaveLength(2)
+    expect(screen.getAllByTestId('ha-relationship-title').map((h) => h.textContent)).toEqual(['Relationship 1: Hot standby, ns1-a, ns2', 'Relationship 2: Hot standby, ns1-b, ns3'])
+    expect(within(sections[1]).getAllByTestId('ha-server').map((c) => c.textContent.slice(0, 5))).toEqual(['ns3Pr', 'ns1-b'])
+    fireEvent.click(screen.getByTestId('ha-setup'))
+    const form = await screen.findByTestId('ha-setup-form')
+    expect(within(form).getAllByTestId('ha-setup-relationship')).toHaveLength(2)
+    fireEvent.submit(form)
+    await waitFor(() => expect(setupPlan).toHaveBeenCalled())
+    const body = setupPlan.mock.calls[0][1]
+    expect(body.relationships.map((r) => r.servers.map((s) => `${s.name}:${s.node_id}`))).toEqual([
+      ['ns1-a:N1', 'ns2:N2'],
+      ['ns1-b:N1', 'ns3:N3'],
+    ])
+  })
+})

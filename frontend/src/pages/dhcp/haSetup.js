@@ -125,7 +125,7 @@ export function validateHaSetup(draft) {
   return errors
 }
 
-// POST /dhcp/{family}/ha/setup/plan body.
+// POST /dhcp/{family}/ha/setup/plan body of one relationship.
 export function setupBody(draft) {
   return {
     mode: draft.mode,
@@ -146,4 +146,85 @@ export function relationshipHealthy(rel) {
   if (!rel?.servers?.length) return false
   const known = rel.servers.filter((s) => s.managed !== false || s.state)
   return known.every((s) => (s.role === 'backup' ? s.state === 'backup' : s.state === rel.mode && s.in_touch !== false))
+}
+
+// Kea 3 hub and spoke: a setup holds several relationships; a node may run a server in each, under
+// its own name and URL. One relationship is sent as {mode, servers}, several as {relationships}.
+
+// A setup draft ({relationships}) from the relationships the nodes run.
+export function draftFromRelationships(rels) {
+  return { relationships: (rels || []).map(draftFromRelationship) }
+}
+
+export const asSetup = (relDraft) => ({ relationships: [relDraft] })
+
+// A second relationship for a hub: the first relationship's server on this node under a new name
+// and port, as the standby, and an empty primary to fill in.
+export function addRelationship(draft, family) {
+  const first = draft.relationships[0]?.servers.find((s) => s.node_id && s.role !== 'backup')
+  const n = draft.relationships.length
+  const port = (DEFAULT_PORT[family] || 8001) + 2 * n
+  const hub = first
+    ? { name: `${first.name}-${n + 1}`, url: first.url.replace(/:\d+\/?$/, `:${port}/`), role: 'standby', node_id: first.node_id, auto_failover: null }
+    : { name: '', url: '', role: 'standby', node_id: '', auto_failover: null }
+  return {
+    relationships: [
+      ...draft.relationships,
+      { mode: 'hot-standby', servers: [hub, { name: '', url: '', role: 'primary', node_id: '', auto_failover: null }] },
+    ],
+  }
+}
+
+// Field prefix of a relationship's problems, as the API names them.
+export const relPrefix = (draft, r) => (draft.relationships.length > 1 ? `relationships[${r}].` : '')
+
+// { field: message key } of a whole setup: each relationship, then names and URLs unique across
+// them (a hub listens on its own URL in each relationship).
+export function validateSetup(draft) {
+  const errors = {}
+  const names = new Set()
+  const urls = new Set()
+  draft.relationships.forEach((rel, r) => {
+    const at = relPrefix(draft, r)
+    for (const [key, value] of Object.entries(validateHaSetup(rel))) errors[`${at}${key}`] = value
+    if (draft.relationships.length < 2) return
+    const seen = { names: new Set(), urls: new Set() }
+    rel.servers.forEach((s, i) => {
+      const name = String(s.name || '').trim()
+      const url = String(s.url || '').trim().replace(/\/$/, '')
+      if (name && names.has(name) && !errors[`${at}servers[${i}].name`]) errors[`${at}servers[${i}].name`] = 'ha.setup.errors.nameElsewhere'
+      if (url && urls.has(url) && !errors[`${at}servers[${i}].url`]) errors[`${at}servers[${i}].url`] = 'ha.setup.errors.urlElsewhere'
+      if (name) seen.names.add(name)
+      if (url) seen.urls.add(url)
+    })
+    seen.names.forEach((n) => names.add(n))
+    seen.urls.forEach((u) => urls.add(u))
+  })
+  return errors
+}
+
+// POST /dhcp/{family}/ha/setup/plan body of a whole setup.
+export function setupRequest(draft) {
+  if (draft.relationships.length === 1) return setupBody(draft.relationships[0])
+  return { relationships: draft.relationships.map(setupBody) }
+}
+
+// The relationship a server takes part in, by name (a hub has one name per relationship).
+export function relationshipOf(rels, serverName) {
+  return (rels || []).findIndex((rel) => rel.servers.some((s) => s.name === serverName))
+}
+
+// One HA state per relationship a server is in (GET .../ha items): a hub's other relationships
+// (Kea 3, `other_relationships`) follow it, each on the hub's node.
+export function flattenHa(items) {
+  return (items || []).flatMap((h) => [h, ...(h.other_relationships || []).filter((o) => o.enabled !== false).map((o) => ({ ...o, node_id: o.node_id || h.node_id }))])
+}
+
+// A backup's lease count against its primary's ({ diff, inStep }), the rule of the
+// ha_backup_out_of_sync alert: in step within max(2, 1 %) of the primary; null when unknown.
+export function backupGap(srv) {
+  const ref = srv?.lease_reference
+  if (!ref || typeof ref.leases !== 'number' || typeof srv.leases !== 'number') return null
+  const diff = Math.abs(ref.leases - srv.leases)
+  return { diff, inStep: diff <= Math.max(2, Math.floor(ref.leases / 100)) }
 }

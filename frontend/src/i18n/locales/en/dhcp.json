@@ -295,7 +295,7 @@
       "edit": "Edit relationship",
       "removeHa": "Remove HA",
       "promote": "Promote",
-      "intro": "One relationship per family: a pair of active servers (primary and standby, or primary and secondary) and any number of backups. The plan writes the ha hook on every node that runs a server, each under its own name; servers no Pelagos node runs are written by hand with the same list. Kea 2.6 and 3.x take the same configuration.",
+      "intro": "A relationship is a pair of active servers (primary and standby, or primary and secondary) with any number of backups, or a primary with backups in passive-backup. The plan writes the ha hook on every node that runs a server, each under its own name; servers no Pelagos node runs are written by hand with the same list. Kea 2.6 and 3.x take the same configuration for one relationship.",
       "url": "HA listener URL",
       "role": "Role",
       "noNode": "not a Pelagos node",
@@ -317,9 +317,26 @@
         "role": "Not a role of {{mode}}",
         "roleCount": "{{mode}} needs exactly one {{role}} server",
         "backupNeeded": "{{mode}} needs at least one backup server",
-        "noNode": "At least one server must run on a node of this cluster"
-      }
-    }
+        "noNode": "At least one server must run on a node of this cluster",
+        "nameElsewhere": "Already used in another relationship",
+        "urlElsewhere": "Each relationship needs its own URL"
+      },
+      "editMany": "Edit relationships",
+      "relationshipN": "Relationship {{n}}",
+      "removeRelationship": "Remove this relationship",
+      "addRelationship": "Add a relationship",
+      "hubHint": "Kea 3 hub and spoke: a node runs a server in several relationships, under its own name and URL in each. Kea 2.6 takes one relationship per server."
+    },
+    "leases": "Leases",
+    "lastLease": "Last lease {{when}}",
+    "receives": "Receives",
+    "receivesFrom": "Lease updates from {{servers}}",
+    "lastUpdate": "Last lease update",
+    "noLeaseSeen": "none seen yet",
+    "leasesOf": "{{server}} holds {{count}}",
+    "inStep": "in step",
+    "leaseGap": "{{n}} apart",
+    "relationshipTitle": "Relationship {{n}}: {{mode}}, {{servers}}"
   },
   "ddns": {
     "add": "Add parameter",

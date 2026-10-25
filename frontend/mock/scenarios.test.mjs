@@ -94,3 +94,38 @@ describe('mock clusters of more than two nodes', () => {
     expect((await fetch(`${base}/_mock/scenario`, { method: 'POST', body: JSON.stringify({ name: 'nine' }) })).status).toBe(404)
   })
 })
+
+describe('mock Kea 3 hub and spoke', () => {
+  it('serves two relationships on the hub, maintenance and setup across them', async () => {
+    const res = await fetch(`${base}/_mock/scenario`, { method: 'POST', body: JSON.stringify({ name: 'hub' }) })
+    expect((await res.json()).nodes).toEqual(['ns1', 'ns2', 'ns3'])
+    const call = await session()
+    const ha = (await call('GET', '/dhcp/v4/ha')).data
+    expect(ha.items[0].other_relationships.map((h) => h.server_name)).toEqual(['ns1-b'])
+    expect(ha.relationships.map((r) => r.servers.map((s) => `${s.name}@${s.node_name}`))).toEqual([
+      ['ns1-a@ns1', 'ns2@ns2'],
+      ['ns1-b@ns1', 'ns3@ns3'],
+    ])
+    expect(ha.relationships[0].servers[0].leases).toBeGreaterThan(0)
+    const maint = (await call('POST', '/dhcp/v4/ha/maintenance/plan', { node_id: ids().ns1, action: 'start' })).data
+    expect(maint.target_node_ids.sort()).toEqual([ids().ns2, ids().ns3].sort())
+    const rels = ha.relationships.map((r) => ({ mode: r.mode, servers: r.servers.map(({ name, url, role, node_id }) => ({ name, url, role, node_id })) }))
+    const plan = (await call('POST', '/dhcp/v4/ha/setup/plan', { relationships: rels })).data
+    expect(plan.target_node_ids).toEqual([ids().ns1, ids().ns2, ids().ns3])
+    const clash = structuredClone(rels)
+    clash[1].servers[0].url = clash[0].servers[0].url
+    const bad = await call('POST', '/dhcp/v4/ha/setup/plan', { relationships: clash })
+    expect(bad.status).toBe(400)
+    expect(bad.data.errors[0].field).toBe('relationships[1].servers[0].url')
+  })
+
+  it('compares a backup with its primary in four nodes', async () => {
+    await fetch(`${base}/_mock/scenario`, { method: 'POST', body: JSON.stringify({ name: 'four' }) })
+    const call = await session()
+    const servers = (await call('GET', '/dhcp/v4/ha')).data.relationships[0].servers
+    const ns4 = servers.find((s) => s.name === 'ns4')
+    expect(ns4.receives_from).toEqual(['ns1', 'ns2'])
+    expect(ns4.lease_reference.server).toBe('ns1')
+    expect(ns4.leases).toBeLessThan(ns4.lease_reference.leases)
+  })
+})

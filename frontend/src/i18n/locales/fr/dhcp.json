@@ -295,7 +295,7 @@
       "edit": "Modifier la relation",
       "removeHa": "Retirer la HA",
       "promote": "Promouvoir",
-      "intro": "Une relation par famille : une paire de serveurs actifs (primaire et standby, ou primaire et secondaire) et autant de secours que voulu. Le plan écrit le hook ha sur chaque nœud qui porte un serveur, chacun sous son propre nom ; les serveurs sans nœud Pelagos s'écrivent à la main avec la même liste. Kea 2.6 et 3.x prennent la même configuration.",
+      "intro": "Une relation est une paire de serveurs actifs (primaire et standby, ou primaire et secondaire) avec autant de secours que voulu, ou un primaire avec ses secours en passive-backup. Le plan écrit le hook ha sur chaque nœud qui porte un serveur, chacun sous son propre nom ; les serveurs sans nœud Pelagos s'écrivent à la main avec la même liste. Kea 2.6 et 3.x prennent la même configuration pour une relation.",
       "url": "URL de l'écouteur HA",
       "role": "Rôle",
       "noNode": "pas un nœud Pelagos",
@@ -317,9 +317,26 @@
         "role": "Pas un rôle de {{mode}}",
         "roleCount": "{{mode}} demande exactement un serveur {{role}}",
         "backupNeeded": "{{mode}} demande au moins un serveur de secours",
-        "noNode": "Au moins un serveur doit tourner sur un nœud du cluster"
-      }
-    }
+        "noNode": "Au moins un serveur doit tourner sur un nœud du cluster",
+        "nameElsewhere": "Déjà utilisé dans une autre relation",
+        "urlElsewhere": "Chaque relation a besoin de sa propre URL"
+      },
+      "editMany": "Modifier les relations",
+      "relationshipN": "Relation {{n}}",
+      "removeRelationship": "Retirer cette relation",
+      "addRelationship": "Ajouter une relation",
+      "hubHint": "Kea 3 en étoile (hub and spoke) : un nœud porte un serveur dans plusieurs relations, sous un nom et une URL propres à chacune. Kea 2.6 ne prend qu'une relation par serveur."
+    },
+    "leases": "Baux",
+    "lastLease": "Dernier bail {{when}}",
+    "receives": "Reçoit",
+    "receivesFrom": "Mises à jour de baux de {{servers}}",
+    "lastUpdate": "Dernière mise à jour de bail",
+    "noLeaseSeen": "aucune reçue pour l'instant",
+    "leasesOf": "{{server}} en a {{count}}",
+    "inStep": "à jour",
+    "leaseGap": "écart de {{n}}",
+    "relationshipTitle": "Relation {{n}} : {{mode}}, {{servers}}"
   },
   "ddns": {
     "add": "Ajouter un paramètre",

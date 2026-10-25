@@ -36,8 +36,9 @@ const NODE_IDS = {
   ns4: '01JB0000000000000000NS4DDD',
 }
 export const SELF_ID = NODE_IDS.ns1
-// Nodes of each scenario; ns3 and ns4 are Kea HA backups and BIND secondaries.
-export const SCENARIOS = { pair: ['ns1', 'ns2'], three: ['ns1', 'ns2', 'ns3'], four: ['ns1', 'ns2', 'ns3', 'ns4'] }
+// Nodes of each scenario; ns3 and ns4 are Kea HA backups and BIND secondaries. In `hub` (Kea 3
+// hub and spoke) ns1 is the standby of two relationships, one with ns2, one with ns3.
+export const SCENARIOS = { pair: ['ns1', 'ns2'], three: ['ns1', 'ns2', 'ns3'], four: ['ns1', 'ns2', 'ns3', 'ns4'], hub: ['ns1', 'ns2', 'ns3'] }
 const FINGERPRINTS = { ns1: 'a3f1c2', ns2: 'b7e9d4', ns3: 'c4d8e1', ns4: 'd2a7f9' }
 const isBackup = (name) => name === 'ns3' || name === 'ns4'
 
@@ -495,6 +496,8 @@ function makeLeases4(seeds, names) {
     const valid = s.subnet_id === 3 ? 900 : 3600
     const state = i === 5 ? 'declined' : 'default'
     for (const nodeId of names.map((n) => NODE_IDS[n])) {
+      // ns4, the backup out of sync, missed some lease updates while it was restarted.
+      if (nodeId === NODE_IDS.ns4 && i % 5 === 2) continue
       leases.push({
         ip_address: s.ip,
         subnet_id: s.subnet_id,
@@ -703,6 +706,26 @@ function haState(nodeId, family, selfName, partnerState, state, role, peers) {
     enabled: true,
     raw: {},
   }
+}
+
+// Kea 3 hub and spoke: ns1 runs ns1-a (standby of ns2) and ns1-b (standby of ns3); DHCPv6 stays a pair.
+function makeHubHa(family) {
+  if (family === 'v6') return makeHa('v6', ['ns1', 'ns2'])
+  const rel = (hubName, spoke, port) => [
+    { name: hubName, role: 'standby', url: `http://ns1.example.lan:${port}/`, auto_failover: null },
+    { name: spoke, role: 'primary', url: `http://${spoke}.example.lan:8001/`, auto_failover: null },
+  ]
+  const side = (nodeId, me, other, role, peers) => {
+    const st = haState(nodeId, family, me, 'hot-standby', 'hot-standby', role, peers)
+    return { ...st, partner: { ...st.partner, role: role === 'primary' ? 'standby' : 'primary', server_name: other } }
+  }
+  const a = rel('ns1-a', 'ns2', 8001)
+  const b = rel('ns1-b', 'ns3', 8003)
+  return [
+    { ...side(NODE_IDS.ns1, 'ns1-a', 'ns2', 'standby', a), other_relationships: [side(NODE_IDS.ns1, 'ns1-b', 'ns3', 'standby', b)] },
+    side(NODE_IDS.ns2, 'ns2', 'ns1-a', 'primary', a),
+    side(NODE_IDS.ns3, 'ns3', 'ns1-b', 'primary', b),
+  ]
 }
 
 function makeHa(family, names) {
@@ -1014,7 +1037,7 @@ export function createState(scenario = 'pair') {
     },
     reservations: { v4: reservations4, v6: makeReservations6() },
     leases: { v4: makeLeases4(seeds, names), v6: makeLeases6() },
-    ha: { v4: makeHa('v4', names), v6: makeHa('v6', names) },
+    ha: scenario === 'hub' ? { v4: makeHubHa('v4'), v6: makeHubHa('v6') } : { v4: makeHa('v4', names), v6: makeHa('v6', names) },
     serviceEnabled: { v4: Object.fromEntries(ids.map((id) => [id, true])), v6: Object.fromEntries(pairIds.map((id) => [id, true])) },
     ddns: {
       v4: {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { draftForNodes, draftFromRelationship, promoteDraft, relationshipHealthy, setupBody, validateHaSetup, withMode } from './haSetup'
+import { addRelationship, asSetup, backupGap, draftForNodes, draftFromRelationship, draftFromRelationships, flattenHa, promoteDraft, relPrefix, relationshipHealthy, setupBody, setupRequest, validateHaSetup, validateSetup, withMode } from './haSetup'
 
 const server = (name, role, extra = {}) => ({ name, role, url: `http://${name}.example.lan:8001/`, node_id: name.toUpperCase(), ...extra })
 const draft = (mode, ...roles) => ({ mode, servers: roles.map((r, i) => server(`ns${i + 1}`, r)) })
@@ -81,5 +81,56 @@ describe('HA relationship form', () => {
         { name: 'ns2', url: 'http://ns2.example.lan:8001/', role: 'standby' },
       ],
     })
+  })
+})
+
+describe('Kea 3 hub and spoke setup', () => {
+  const rel = (mode, ...servers) => ({ mode, servers })
+  const hubDraft = () => ({
+    relationships: [
+      rel('hot-standby', server('hub-a', 'standby', { node_id: 'HUB', url: 'http://hub.example.lan:8001/' }), server('spoke1', 'primary')),
+      rel('hot-standby', server('hub-b', 'standby', { node_id: 'HUB', url: 'http://hub.example.lan:8003/' }), server('spoke2', 'primary')),
+    ],
+  })
+
+  it('takes one node in several relationships, each server under its own name and URL', () => {
+    expect(validateSetup(hubDraft())).toEqual({})
+    expect(setupRequest(hubDraft())).toEqual({ relationships: hubDraft().relationships.map(setupBody) })
+    // One relationship keeps the shape every node version takes.
+    expect(setupRequest({ relationships: [hubDraft().relationships[0]] })).toEqual(setupBody(hubDraft().relationships[0]))
+  })
+
+  it('refuses a name or a URL used in two relationships, prefixing fields as the API does', () => {
+    const d = hubDraft()
+    d.relationships[1].servers[0].name = 'hub-a'
+    d.relationships[1].servers[0].url = 'http://hub.example.lan:8001'
+    expect(validateSetup(d)).toEqual({
+      'relationships[1].servers[0].name': 'ha.setup.errors.nameElsewhere',
+      'relationships[1].servers[0].url': 'ha.setup.errors.urlElsewhere',
+    })
+    d.relationships[1].servers[1].role = 'standby'
+    expect(validateSetup(d)['relationships[1].servers']).toBe('ha.setup.errors.roleCount')
+  })
+
+  it('adds a relationship with the hub on a new port', () => {
+    const d = addRelationship({ relationships: [draft('hot-standby', 'primary', 'standby')] }, 'v4')
+    expect(d.relationships).toHaveLength(2)
+    expect(d.relationships[1].servers[0]).toMatchObject({ name: 'ns1-2', url: 'http://ns1.example.lan:8003/', role: 'standby', node_id: 'NS1' })
+    expect(relPrefix(d, 1)).toBe('relationships[1].')
+    expect(draftFromRelationships([draft('hot-standby', 'primary', 'standby')]).relationships).toHaveLength(1)
+    expect(asSetup(draft('hot-standby', 'primary', 'standby')).relationships).toHaveLength(1)
+  })
+
+  it('flattens a hub into one state per relationship', () => {
+    const items = [{ node_id: 'HUB', server_name: 'hub-a', other_relationships: [{ server_name: 'hub-b', enabled: true }] }, { node_id: 'S1', server_name: 'spoke1' }]
+    expect(flattenHa(items).map((h) => `${h.node_id}:${h.server_name}`)).toEqual(['HUB:hub-a', 'HUB:hub-b', 'S1:spoke1'])
+  })
+
+  it('measures a backup against its primary like the alert does', () => {
+    expect(backupGap({ leases: 98, lease_reference: { server: 'ns1', leases: 100 } })).toEqual({ diff: 2, inStep: true })
+    expect(backupGap({ leases: 90, lease_reference: { server: 'ns1', leases: 100 } })).toEqual({ diff: 10, inStep: false })
+    expect(backupGap({ leases: 4950, lease_reference: { server: 'ns1', leases: 5000 } }).inStep).toBe(true)
+    expect(backupGap({ leases: null, lease_reference: { server: 'ns1', leases: 1 } })).toBeNull()
+    expect(backupGap({ leases: 3 })).toBeNull()
   })
 })

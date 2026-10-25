@@ -25,6 +25,7 @@ import { useFallbackMs } from '../../hooks/useClusterSignals'
 import { PULSE_MS } from '../../components/motion/primitives'
 import { AreaPage, SectionError } from '../dhcp/ui'
 import { resetNodeNameCache } from '../dhcp/hooks'
+import { flattenHa } from '../dhcp/haSetup'
 import { EnrollTokenDialog } from './EnrollTokenDialog'
 
 const MODULES = ['bind', 'kea4', 'kea6', 'd2']
@@ -81,13 +82,14 @@ export default function NodesPage() {
   const { showSuccess, showError } = useNotification()
   const nodes = useApi(() => api.nodes.list(), [])
   const replication = useApi(() => api.nodes.replication(), [])
-  // HA role of each node per family; a family whose read fails shows none.
+  // HA role of each node per family and relationship (a Kea 3 hub has several); a family whose
+  // read fails shows none.
   const haRoles = useApi(async () => {
     const out = {}
     for (const family of ['v4', 'v6']) {
       try {
         const res = await api.dhcp.ha(family)
-        for (const h of res?.items || []) if (h.enabled !== false && h.role) (out[h.node_id] ||= []).push({ family, role: h.role, server: h.server_name })
+        for (const h of flattenHa(res?.items)) if (h.enabled !== false && h.role) (out[h.node_id] ||= []).push({ family, role: h.role, server: h.server_name })
       } catch {
         // DHCPv6 off, or no HA: no role
       }
@@ -194,7 +196,7 @@ export default function NodesPage() {
         return roles.length ? (
           <span className="inline-flex flex-wrap gap-1" data-testid="node-ha-roles">
             {roles.map((r) => (
-              <Badge key={r.family} variant={r.role === 'backup' ? 'gray' : 'purple'} size="sm">
+              <Badge key={`${r.family}-${r.server}`} variant={r.role === 'backup' ? 'gray' : 'purple'} size="sm">
                 {r.family} {t(`common:status.${r.role}`, { defaultValue: r.role })}
               </Badge>
             ))}

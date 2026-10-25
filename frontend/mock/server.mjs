@@ -496,40 +496,65 @@ function buildHosts(state) {
   })
 }
 
-// HA state as status-get reads it now: the partner age follows the mock's heartbeats.
-// Every HA relationship across the nodes (connectors.kea.ha.relationships): each configured
-// server with its role, node and state.
+// One HAState per relationship a server belongs to: a hub's other relationships follow it.
+export function flatHa(states) {
+  return states.flatMap((h) => [h, ...(h.other_relationships || []).filter((o) => o.enabled !== false)])
+}
+
+// What the collectors last saw of each node's leases: assigned count and newest transaction.
+function leaseMarks(state, family, nodeId) {
+  const held = state.leases[family].filter((l) => l.node_id === nodeId)
+  if (!held.length) return { leases: null, last_lease_at: null }
+  const assigned = held.filter((l) => l.state === 'default').length
+  return { leases: assigned, last_lease_at: held.map((l) => String(l.cltt)).sort().at(-1) }
+}
+
+// Every HA relationship across the nodes (connectors.kea.ha.relationships and
+// DhcpService.relationships): each configured server with its role, node, state and leases; a
+// backup with the servers it receives lease updates from and the primary it is compared with.
 export function haRelationships(state, family) {
-  const states = state.ha[family].filter((h) => h.enabled !== false)
+  const states = flatHa(state.ha[family].filter((h) => h.enabled !== false))
   if (!states.length) return []
-  const peers = states.find((h) => h.peers?.length)?.peers || states.map((h) => ({ name: h.server_name, role: h.role }))
-  const servers = peers.map((p) => {
-    const own = states.find((h) => h.server_name === p.name)
-    const seenBy = states.find((h) => h.partner?.server_name === p.name)
-    const partner = own?.partner?.server_name || (own && own.role !== 'backup' ? peers.find((o) => o.name !== p.name && o.role !== 'backup')?.name : null) || null
-    return {
-      name: p.name,
-      role: p.role,
-      url: p.url || null,
-      auto_failover: p.auto_failover ?? null,
-      node_id: own?.node_id || null,
-      node_name: own ? nodeName(state, own.node_id) : null,
-      state: own ? own.state : seenBy?.partner?.state || null,
-      scopes: own?.scopes || [],
-      unsent_update_count: own?.unsent_update_count ?? null,
-      partner,
-      in_touch: seenBy?.partner ? seenBy.partner.in_touch : null,
-      collected_at: own?.collected_at || null,
-      managed: Boolean(own),
+  const hubs = new Set(state.ha[family].filter((h) => h.other_relationships?.length).map((h) => h.node_id))
+  const groups = new Map()
+  for (const h of states) {
+    const key = (h.peers?.length ? h.peers.map((p) => p.name) : [h.server_name]).slice().sort().join(',')
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(h)
+  }
+  return [...groups.values()].map((members) => {
+    const peers = members.find((h) => h.peers?.length)?.peers || members.map((h) => ({ name: h.server_name, role: h.role }))
+    const servers = peers.map((p) => {
+      const own = members.find((h) => h.server_name === p.name)
+      const seenBy = members.find((h) => h.partner?.server_name === p.name)
+      const partner = own?.partner?.server_name || (own && own.role !== 'backup' ? peers.find((o) => o.name !== p.name && o.role !== 'backup')?.name : null) || null
+      return {
+        name: p.name,
+        role: p.role,
+        url: p.url || null,
+        auto_failover: p.auto_failover ?? null,
+        node_id: own?.node_id || null,
+        node_name: own ? nodeName(state, own.node_id) : null,
+        state: own ? own.state : seenBy?.partner?.state || null,
+        scopes: own?.scopes || [],
+        unsent_update_count: own?.unsent_update_count ?? null,
+        partner,
+        in_touch: seenBy?.partner ? seenBy.partner.in_touch : null,
+        collected_at: own?.collected_at || null,
+        managed: Boolean(own),
+        ...(own ? leaseMarks(state, family, own.node_id) : { leases: null, last_lease_at: null }),
+      }
+    })
+    const active = servers.filter((s) => s.role !== 'backup').map((s) => s.name)
+    const order = { primary: 0, secondary: 1, standby: 1 }
+    const ref = servers.filter((s) => s.role in order && s.leases !== null && !hubs.has(s.node_id)).sort((a, b) => order[a.role] - order[b.role])[0]
+    for (const s of servers) {
+      if (s.role !== 'backup') continue
+      s.receives_from = active
+      s.lease_reference = ref ? { server: ref.name, leases: ref.leases } : null
     }
+    return { family, mode: members[0].mode, servers, active, backups: servers.filter((s) => s.role === 'backup').map((s) => s.name) }
   })
-  return [{
-    family,
-    mode: states[0].mode,
-    servers,
-    active: servers.filter((s) => s.role !== 'backup').map((s) => s.name),
-    backups: servers.filter((s) => s.role === 'backup').map((s) => s.name),
-  }]
 }
 
 const HA_MODE_ROLES = {
@@ -538,6 +563,7 @@ const HA_MODE_ROLES = {
   'passive-backup': { primary: [1, 1], backup: [1, Infinity] },
 }
 
+// HA state as status-get reads it now: the partner age follows the mock's heartbeats.
 function liveHa(h, now = Date.now()) {
   if (!h.partner || h.partner.in_touch === false) return h
   return { ...h, collected_at: new Date(now).toISOString(), partner: { ...h.partner, age: heartbeatAge(`${h.node_id}/${h.family}`, now) } }
@@ -1713,59 +1739,89 @@ function buildHandlers(state, emit) {
           },
         })
       }
-      const roles = HA_MODE_ROLES[body.mode]
-      if (!roles) throw invalid('mode', 'hot-standby, load-balancing or passive-backup')
-      const servers = Array.isArray(body.servers) ? body.servers : []
-      if (servers.length < 2) throw invalid('servers', 'at least two servers')
+      // One relationship ({mode, servers}) or several ({relationships}: Kea 3 hub and spoke).
+      const multi = Array.isArray(body.relationships)
+      const rels = multi ? body.relationships : [body]
+      if (multi && !rels.length) throw invalid('relationships', 'a list of relationships, each with mode and servers')
       const errors = []
-      const counts = {}
-      servers.forEach((srv, i) => {
-        if (!srv.name || /\s/.test(srv.name)) errors.push({ field: `servers[${i}].name`, message: 'a name without spaces' })
-        if (!/^https?:\/\/[^/]+/.test(srv.url || '')) errors.push({ field: `servers[${i}].url`, message: 'http://address:port/ or https://address:port/' })
-        if (!roles[srv.role]) errors.push({ field: `servers[${i}].role`, message: `${body.mode} takes ${Object.keys(roles).join(', ')}` })
-        else counts[srv.role] = (counts[srv.role] || 0) + 1
+      const names = new Set()
+      const urls = new Set()
+      rels.forEach((rel, r) => {
+        const at = multi ? `relationships[${r}].` : ''
+        const roles = HA_MODE_ROLES[rel.mode]
+        if (!roles) {
+          errors.push({ field: `${at}mode`, message: 'hot-standby, load-balancing or passive-backup' })
+          return
+        }
+        const servers = Array.isArray(rel.servers) ? rel.servers : []
+        if (servers.length < 2) {
+          errors.push({ field: `${at}servers`, message: 'at least two servers' })
+          return
+        }
+        const counts = {}
+        const nodes = new Set()
+        servers.forEach((srv, i) => {
+          if (!srv.name || /\s/.test(srv.name)) errors.push({ field: `${at}servers[${i}].name`, message: 'a name without spaces' })
+          else if (names.has(srv.name)) errors.push({ field: `${at}servers[${i}].name`, message: multi ? 'a server name is used in one relationship only' : 'duplicate name' })
+          names.add(srv.name)
+          if (!/^https?:\/\/[^/]+/.test(srv.url || '')) errors.push({ field: `${at}servers[${i}].url`, message: 'http://address:port/ or https://address:port/' })
+          else if (urls.has(srv.url)) errors.push({ field: `${at}servers[${i}].url`, message: multi ? 'each relationship needs its own url' : 'duplicate url' })
+          urls.add(srv.url)
+          if (!roles[srv.role]) errors.push({ field: `${at}servers[${i}].role`, message: `${rel.mode} takes ${Object.keys(roles).join(', ')}` })
+          else counts[srv.role] = (counts[srv.role] || 0) + 1
+          if (srv.node_id) {
+            if (nodes.has(srv.node_id)) errors.push({ field: `${at}servers[${i}].node_id`, message: 'a node runs one server of the relationship' })
+            nodes.add(srv.node_id)
+          }
+        })
+        for (const [role, [low, high]] of Object.entries(roles)) {
+          const n = counts[role] || 0
+          if (n < low || n > high) errors.push({ field: `${at}servers`, message: `${rel.mode} needs ${low === high ? low : `at least ${low}`} ${role} server(s), got ${n}` })
+        }
       })
-      for (const [role, [low, high]] of Object.entries(roles)) {
-        const n = counts[role] || 0
-        if (n < low || n > high) errors.push({ field: 'servers', message: `${body.mode} needs ${low === high ? low : `at least ${low}`} ${role} server(s), got ${n}` })
-      }
-      if (new Set(servers.map((srv) => srv.name)).size !== servers.length) errors.push({ field: 'servers[].name', message: 'duplicate name' })
-      const onNodes = servers.filter((srv) => srv.node_id)
-      if (!onNodes.length) errors.push({ field: 'servers[].node_id', message: 'required' })
-      if (new Set(onNodes.map((srv) => srv.node_id)).size !== onNodes.length) errors.push({ field: 'servers[].node_id', message: 'duplicate' })
+      const placed = rels.flatMap((rel) => (rel.servers || []).filter((srv) => srv.node_id).map((srv) => ({ rel, srv })))
+      if (!errors.length && !placed.length) errors.push({ field: multi ? 'relationships[].servers[].node_id' : 'servers[].node_id', message: 'required' })
       if (errors.length) throw new Problem(400, 'validation_error', `invalid HA setup: ${errors[0].field}: ${errors[0].message}`, errors)
+      const nodeIds = [...new Set(placed.map((x) => x.srv.node_id))]
+      const peersOf = (rel) => rel.servers.map(({ name, url, role }) => ({ name, url, role, auto_failover: null }))
+      const entriesOf = (nodeId) => placed.filter((x) => x.srv.node_id === nodeId).map(({ rel, srv }) => ({ 'this-server-name': srv.name, mode: rel.mode, peers: peersOf(rel) }))
       const before = ha.map((h) => ({ ...h }))
-      const peers = servers.map(({ name, url, role }) => ({ name, url, role, auto_failover: null }))
+      const all = rels.flatMap((rel) => rel.servers)
       return createPlan(state, user, {
         scope: 'dhcp.config',
         engine: kea(params.family),
-        summary: `${kea(params.family)} HA ${body.mode} on ${servers.length} servers: ${servers.map((srv) => `${srv.name} (${srv.role})`).join(', ')}`,
-        changes: onNodes.map((srv) => ({ op: 'replace', target: 'hooks-libraries', before: null, after: { 'this-server-name': srv.name, mode: body.mode, peers }, node_ids: [srv.node_id] })),
-        diff: onNodes.map((srv) => `# ${nodeName(state, srv.node_id)}\n${unifiedDiff('', jsonText({ 'this-server-name': srv.name, mode: body.mode, peers }), 'hooks-libraries')}`).join(''),
-        targets: onNodes.map((srv) => srv.node_id),
+        summary: `${kea(params.family)} HA ${[...new Set(rels.map((rel) => rel.mode))].join(', ')} on ${all.length} servers: ${all.map((srv) => `${srv.name} (${srv.role})`).join(', ')}`,
+        changes: nodeIds.map((nodeId) => ({ op: 'replace', target: 'hooks-libraries', before: null, after: entriesOf(nodeId), node_ids: [nodeId] })),
+        diff: nodeIds.map((nodeId) => `# ${nodeName(state, nodeId)}\n${unifiedDiff('', jsonText(entriesOf(nodeId)), 'hooks-libraries')}`).join(''),
+        targets: nodeIds,
         tool: 'config-test',
         requires_confirmation: true,
         apply() {
-          const next = onNodes.map((srv) => {
+          const stateOf = ({ rel, srv }) => {
             const prev = before.find((h) => h.node_id === srv.node_id) || {}
             const backup = srv.role === 'backup'
-            const other = servers.find((o) => o !== srv && o.role !== 'backup')
+            const other = rel.servers.find((o) => o !== srv && o.role !== 'backup')
             return {
               ...prev,
               node_id: srv.node_id,
               family: params.family,
               collected_at: iso(Date.now()),
               server_name: srv.name,
-              mode: body.mode,
+              mode: rel.mode,
               role: srv.role,
-              state: backup ? 'backup' : body.mode === 'passive-backup' ? 'passive-backup' : body.mode,
+              state: backup ? 'backup' : rel.mode === 'passive-backup' ? 'passive-backup' : rel.mode,
               scopes: srv.role === 'primary' ? [srv.name] : [],
               unsent_update_count: 0,
-              peers,
-              partner: backup || !other ? null : { role: other.role, server_name: other.name, state: body.mode, scopes: [], in_touch: true, last_state: body.mode, age: 1 },
+              peers: peersOf(rel),
+              partner: backup || !other ? null : { role: other.role, server_name: other.name, state: rel.mode, scopes: [], in_touch: true, last_state: rel.mode, age: 1 },
               enabled: true,
               raw: {},
+              other_relationships: [],
             }
+          }
+          const next = nodeIds.map((nodeId) => {
+            const [first, ...more] = placed.filter((x) => x.srv.node_id === nodeId).map(stateOf)
+            return { ...first, other_relationships: more }
           })
           ha.splice(0, ha.length, ...next)
           next.forEach((h) => emit('ha', 'state', h))
@@ -1780,32 +1836,35 @@ function buildHandlers(state, emit) {
       const ha = state.ha[params.family]
       const target = ha.find((h) => h.node_id === body.node_id)
       if (!target) throw notFound(`HA server on node ${body.node_id}`)
-      if (target.role === 'backup') throw invalid('node_id', `${nodeName(state, body.node_id)} is an HA backup server: it takes no part in HA maintenance, stop it directly`)
-      // The server that stays up is the partner by server name, never a backup.
-      const partner = ha.find((h) => h.server_name === target.partner?.server_name) || ha.find((h) => h !== target && h.role !== 'backup')
-      const before = ha.map((h) => ({ node_id: h.node_id, state: h.state }))
+      const held = [target, ...(target.other_relationships || [])]
+      if (held.every((h) => h.role === 'backup')) throw invalid('node_id', `${nodeName(state, body.node_id)} is an HA backup server: it takes no part in HA maintenance, stop it directly`)
+      // The server that stays up is the partner by server name, never a backup; a hub has one per relationship.
+      const flat = flatHa(ha)
+      const partners = held
+        .filter((h) => h.role !== 'backup')
+        .map((h) => flat.find((o) => o.server_name === h.partner?.server_name) || flat.find((o) => o.node_id !== h.node_id && o.role !== 'backup'))
+        .filter(Boolean)
+      const ups = [...new Set(partners.map((p) => p.node_id))]
+      const snapshot = () => flat.map((h) => ({ h, state: h.state }))
+      const before = snapshot()
       return createPlan(state, user, {
         scope: 'dhcp.ha',
         engine: kea(params.family),
         summary: `${body.action === 'start' ? 'start' : 'cancel'} HA maintenance on ${nodeName(state, body.node_id)}`,
-        changes: [{ op: 'replace', target: `ha/${nodeName(state, body.node_id)}`, before: target.state, after: body.action === 'start' ? 'in-maintenance' : 'hot-standby', node_ids: [body.node_id] }],
+        changes: [{ op: 'replace', target: `ha/${nodeName(state, body.node_id)}`, before: target.state, after: body.action === 'start' ? 'in-maintenance' : 'hot-standby', node_ids: ups.length ? ups : [body.node_id] }],
         diff: unifiedDiff(`state: ${target.state}`, `state: ${body.action === 'start' ? 'in-maintenance' : 'hot-standby'}`, `ha ${nodeName(state, body.node_id)}`),
-        targets: [partner?.node_id || body.node_id],
+        targets: ups.length ? ups : [body.node_id],
         tool: body.action === 'start' ? 'ha-maintenance-start' : 'ha-maintenance-cancel',
         requires_confirmation: true,
         preconditions: [{ kind: 'ha_state', node_id: body.node_id, subject: 'ha', value: target.state }],
         apply() {
-          if (body.action === 'start') {
-            target.state = 'in-maintenance'
-            if (partner) partner.state = 'partner-in-maintenance'
-          } else {
-            target.state = 'hot-standby'
-            if (partner) partner.state = 'hot-standby'
-          }
+          const start = body.action === 'start'
+          for (const h of held) if (h.role !== 'backup') h.state = start ? 'in-maintenance' : h.mode
+          for (const p of partners) p.state = start ? 'partner-in-maintenance' : p.mode
           ha.forEach((h) => emit('ha', 'state', h))
         },
         rollback() {
-          for (const b of before) ha.find((h) => h.node_id === b.node_id).state = b.state
+          for (const b of before) b.h.state = b.state
         },
       })
     },

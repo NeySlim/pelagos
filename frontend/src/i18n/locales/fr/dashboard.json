@@ -64,7 +64,8 @@
       "nodes": "Nœuds",
       "online": "{{online}}/{{total}} en ligne",
       "zones": "Zones",
-      "zonesValue": "{{total}} · {{divergent}} divergente(s)"
+      "zonesValue_one": "{{total}} · {{count}} divergente",
+      "zonesValue_other": "{{total}} · {{count}} divergentes"
     },
     "dns": {
       "title": "DNS",
@@ -117,6 +118,8 @@
   },
   "radar": {
     "queries": "Requêtes/s",
-    "rate": "{{rate}} req/s"
+    "rate": "{{rate}} req/s",
+    "alertCount_one": "{{count}} alerte ouverte",
+    "alertCount_other": "{{count}} alertes ouvertes"
   }
 }

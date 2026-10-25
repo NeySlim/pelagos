@@ -29,8 +29,14 @@ describe('backend message catalog', () => {
     }
   })
 
-  it('has no key the backend does not emit', () => {
-    expect(Object.keys(resources.en[MESSAGES_NS]).sort()).toEqual([...keys].sort())
+  it('has no key the backend does not emit, plural forms of a counted key aside', () => {
+    const plural = /^(.+)_(zero|one|two|few|many|other)$/
+    for (const lang of languages.map((l) => l.code)) {
+      const own = Object.keys(resources[lang][MESSAGES_NS])
+      const base = own.filter((k) => !(plural.test(k) && backendKeys[k.match(plural)[1]]?.includes('count')))
+      expect(base.sort(), lang).toEqual([...keys].sort())
+      for (const k of own.filter((k) => !base.includes(k))) expect(placeholders(resources[lang][MESSAGES_NS][k]), k).toEqual(backendKeys[k.match(plural)[1]])
+    }
   })
 })
 
@@ -78,8 +84,14 @@ describe('renderMessage', () => {
     )
   })
 
-  it('keeps parameter names such as count out of the i18next options', () => {
-    expect(renderMessage({ key: 'plan.security', params: { count: 3 } })).toBe('security remediation: 3 finding(s)')
+  it('picks the plural form from a numeric count', async () => {
+    expect(renderMessage({ key: 'plan.security', params: { count: 3 } })).toBe('security remediation: 3 findings')
+    expect(renderMessage({ key: 'plan.security', params: { count: 1 } })).toBe('security remediation: 1 finding')
+    await i18n.changeLanguage('fr')
+    expect(renderMessage({ key: 'note.secret_files', params: { count: 2 } })).toBe('2 fichiers secrets')
+    expect(renderMessage({ key: 'note.secret_files', params: { count: 1 } })).toBe('1 fichier secret')
+    // A count given as text stays a plain parameter: the base key renders.
+    expect(renderMessage({ key: 'plan.security', params: { count: '4' } })).toBe('correction de sécurité : 4 constats')
   })
 
   it('falls back to the English text for unknown keys, nested ones included', () => {

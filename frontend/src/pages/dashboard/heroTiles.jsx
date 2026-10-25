@@ -83,7 +83,7 @@ export function RadarTile({ summary, openAlerts, editing, live }) {
         {!compact && (
           <div className="absolute left-3 top-3 flex flex-col gap-2 pointer-events-none" data-testid="radar-chips">
             <StatChip icon={HardDrives} tone={online === nodes.length ? 'success' : 'danger'} label={t('tiles.radar.nodes')} value={t('tiles.radar.online', { online, total: nodes.length })} />
-            <StatChip icon={Globe} tone={divergent ? 'warning' : 'success'} label={t('tiles.radar.zones')} value={t('tiles.radar.zonesValue', { total: zones.length, divergent })} />
+            <StatChip icon={Globe} tone={divergent ? 'warning' : 'success'} label={t('tiles.radar.zones')} value={t('tiles.radar.zonesValue', { total: zones.length, count: divergent })} />
           </div>
         )}
         {!compact && (

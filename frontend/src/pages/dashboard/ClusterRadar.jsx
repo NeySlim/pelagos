@@ -7,6 +7,7 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { useElementSize } from '../../hooks/useElementSize'
+import { useMessage } from '../../i18n/message'
 import { CountUp, PulsingHalo, Reticle, StatusDot } from '../../components/motion'
 import { cn } from '../../lib/utils'
 import {
@@ -30,6 +31,7 @@ const formatRate = (v, lang) => new Intl.NumberFormat(lang, { maximumFractionDig
 
 export function ClusterRadar({ nodes = [], zones = [], ha = [], alerts = [], rates = {}, totalRate = null, compact = false }) {
   const { t, i18n } = useTranslation(['dashboard', 'common'])
+  const msg = useMessage()
   const [ref, size] = useElementSize()
   const ticks = useMemo(() => tickPath(), [])
   const frame = radarFrame(size.width, size.height, { squash: RADAR_SQUASH, top: compact ? 58 : 72, bottom: ha.length ? (compact ? 52 : 62) : 24, side: 16 })
@@ -124,8 +126,8 @@ export function ClusterRadar({ nodes = [], zones = [], ha = [], alerts = [], rat
                 to={`/alerts?severity=${alert.severity}`}
                 className={cn('radar-marker', `fx-tone-${alert.severity === 'critical' ? 'danger' : alert.severity === 'warning' ? 'warning' : 'neutral'}`)}
                 style={{ left: pos.left, top: pos.top }}
-                title={alert.title}
-                aria-label={alert.title}
+                title={msg(alert.title_message, alert.title)}
+                aria-label={msg(alert.title_message, alert.title)}
                 data-testid="radar-alert"
               />
             )
@@ -147,8 +149,9 @@ export function ClusterRadar({ nodes = [], zones = [], ha = [], alerts = [], rat
                     <span className="radar-pin-rate">{t('radar.rate', { rate: formatRate(rate, i18n.language) })}</span>
                   )}
                   {nodeAlerts.length > 0 && (
-                    <span className={cn('radar-pin-alerts', nodeAlerts.some((a) => a.severity === 'critical') ? 'fx-tone-danger' : 'fx-tone-warning')} title={nodeAlerts.map((a) => a.title).join('\n')}>
-                      {nodeAlerts.length}
+                    <span className={cn('radar-pin-alerts', nodeAlerts.some((a) => a.severity === 'critical') ? 'fx-tone-danger' : 'fx-tone-warning')} title={nodeAlerts.map((a) => msg(a.title_message, a.title)).join('\n')}>
+                      <span aria-hidden="true">{nodeAlerts.length}</span>
+                      <span className="sr-only">{t('radar.alertCount', { count: nodeAlerts.length })}</span>
                     </span>
                   )}
                 </Link>

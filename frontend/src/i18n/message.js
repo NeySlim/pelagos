@@ -36,8 +36,11 @@ function renderKey(t, message) {
     if (text === MISSING) return MISSING
     replace[name] = text
   }
-  // `replace` keeps parameter names such as `count` out of i18next's own options.
-  return t(message.key, { ...opts, replace, interpolation: { escapeValue: false } })
+  // `replace` keeps parameter names out of i18next's own options; only a numeric `count`
+  // goes through as well, so `<key>_one`/`<key>_other` resolve (the base key is the fallback).
+  const count = message.params?.count
+  const plural = typeof count === 'number' ? { count } : {}
+  return t(message.key, { ...opts, ...plural, replace, interpolation: { escapeValue: false } })
 }
 
 // The text of `message` in the current language, or `fallback` (the backend's English).

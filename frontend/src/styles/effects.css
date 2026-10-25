@@ -215,6 +215,9 @@ html[data-motion='off'] .fx-halo-ring { opacity: 0.45; transform: scale(0.75); }
 /* ---- Motion levels ---- */
 html[data-page-hidden] .fx-loop,
 html[data-page-hidden] .fx-dot-pulse::after { animation-play-state: paused; }
+/* An open dialog blurs the page behind its backdrop: loops under it would re-blur every frame. */
+html:has(.modal-backdrop[data-state='open']) .fx-loop,
+html:has(.modal-backdrop[data-state='open']) .fx-dot-pulse::after { animation-play-state: paused; }
 
 html[data-motion='reduced'] .fx-loop,
 html[data-motion='reduced'] .fx-dot-pulse::after { animation: none; }

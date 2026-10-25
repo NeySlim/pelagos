@@ -112,6 +112,24 @@ test('the animations preference sets the motion level and is kept', async ({ pag
   await expect.poll(() => rootData(page, 'motion')).toBe('full')
 })
 
+test('loops pause under an open dialog, and the alerts table fits its card', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await signIn(page)
+  await page.goto('/alerts')
+  const table = page.getByTestId('alerts-table')
+  const ack = table.getByTestId('alert-row-ack').first()
+  await expect(ack).toBeVisible()
+  const [box, ackBox] = [await table.boundingBox(), await ack.boundingBox()]
+  expect(ackBox.x + ackBox.width).toBeLessThanOrEqual(box.x + box.width)
+  const playState = () => page.getByTestId('ws-dot').evaluate((el) => getComputedStyle(el, '::after').animationPlayState)
+  expect(await playState()).toBe('running')
+  await table.getByTestId('data-table-row').first().click()
+  await expect(page.getByTestId('alert-detail')).toBeVisible()
+  await expect.poll(playState).toBe('paused')
+  await page.keyboard.press('Escape')
+  await expect.poll(playState).toBe('running')
+})
+
 test.describe('reduced motion from the system', () => {
   test.use({ reducedMotion: 'reduce' })
 

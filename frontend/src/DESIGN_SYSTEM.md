@@ -177,7 +177,7 @@ the tab is hidden. `src/styles/effects.css` applies them:
 Rules: animate `transform` and `opacity` only (no animated blur, size or
 `stroke-dashoffset`), use a `backwards` fill for entries so nothing stays
 transformed, never put a looping animation behind a glass panel (it would
-re-blur every frame), and reserve the final size of changing numbers
+re-blur every frame; loops pause while a dialog backdrop is open), and reserve the final size of changing numbers
 (`CountUp` renders a hidden ghost of the final value).
 
 Primitives (`components/motion/`, also exported from `components/index.js`):
@@ -240,7 +240,9 @@ classes:
   solid `bg-secondary` when `backdrop-filter` is unsupported or
   `prefers-contrast: more`.
 - Type: Michroma (`font-display`, `--font-display`) uppercase for the brand,
-  page, card and modal titles and nav group labels (10px minimum); Inter with
+  page, card and modal titles and nav group labels (10px minimum; small
+  section labels such as `ui-label`, `rich-stat-label` and `dash-label` go
+  down to 9.5px, the radar readout label to 9px); Inter with
   tabular numerals everywhere else. A title that carries an identifier (a dot,
   colon, slash, `@` or `_`, or `literalTitle` on `PageLayout`) gets
   `ui-title-literal` and keeps its case (`lib/displayCase.js`).

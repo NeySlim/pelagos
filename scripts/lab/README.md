@@ -113,10 +113,30 @@ exists).
 
 At the end lab-ns1, lab-ns2 and lab-client stay provisioned with Pelagos for
 the demo (the last module, `test_three_lab.py`, leaves the pair after ns3's
-removal; run `test_pair_lab.py` alone for the reference pair's demo state);
+removal; `make lab-demo` below brings the three-node or the pair demo back);
 lab-pkg-rpm and lab-docker are rolled back, lab-rpm keeps the removed node.
 
 ## Demo
+
+A full `make test-lab` ends with the pair only (its last module removes ns3).
+`make lab-demo` provisions the demo directly from the checkout, without the
+other modules and without that removal:
+
+```sh
+cd ~/pelagos && make lab-demo            # three nodes: the pair, lab-rpm as ns3 (Kea HA backup, second secondary)
+make lab-demo NODES=2                     # the reference pair only (test_pair_lab.py)
+```
+
+`NODES=3` runs `test_three_lab.py` with `PELAGOS_LAB_KEEP=1` and deselects
+`test_12_remove_the_third_node`, `NODES=2` runs `test_pair_lab.py`; each
+rolls its VMs back first and builds the packages from the checkout, so it
+works after any earlier run. The same thing by hand:
+
+```sh
+cd ~/pelagos/backend && PELAGOS_LAB=1 PELAGOS_LAB_KEEP=1 .venv/bin/pytest -m lab -x \
+  tests/lab/test_three_lab.py \
+  --deselect tests/lab/test_three_lab.py::TestThreeNodes::test_12_remove_the_third_node
+```
 
 The UI of ns1 from the workstation, through lab-dev:
 

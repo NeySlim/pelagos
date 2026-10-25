@@ -15,7 +15,7 @@ VERSION   := $(shell packaging/version.sh python)
 IMAGE     ?= pelagos
 DOCKER    ?= docker
 
-.PHONY: dev venv npm lint lint-backend lint-frontend fmt test test-unit test-vitest test-daemon test-lab test-e2e
+.PHONY: dev venv npm lint lint-backend lint-frontend fmt test test-unit test-vitest test-daemon test-lab lab-demo test-e2e
 .PHONY: screenshots build-frontend run run-backend run-frontend clean messages-keys
 .PHONY: deb rpm docker docker-allinone packages version lock wheels test-packaging
 
@@ -67,6 +67,15 @@ screenshots:
 
 test-lab:
 	cd $(BACKEND) && PELAGOS_LAB=1 .venv/bin/pytest -m lab --timeout 3600 -x $(LAB_ARGS)
+
+# Lab demo (scripts/lab/README.md): NODES=3 (default) leaves the pair and lab-rpm as a third node
+# (HA backup, second secondary), NODES=2 the reference pair, both with Pelagos built from here.
+NODES ?= 3
+LAB_DEMO_2 := tests/lab/test_pair_lab.py
+LAB_DEMO_3 := tests/lab/test_three_lab.py --deselect tests/lab/test_three_lab.py::TestThreeNodes::test_12_remove_the_third_node
+lab-demo:
+	@test -n "$(LAB_DEMO_$(NODES))" || { echo "NODES must be 2 or 3" >&2; exit 2; }
+	cd $(BACKEND) && PELAGOS_LAB=1 PELAGOS_LAB_KEEP=1 .venv/bin/pytest -m lab --timeout 3600 -x $(LAB_DEMO_$(NODES))
 
 build-frontend:
 	cd $(FRONTEND) && npm run build

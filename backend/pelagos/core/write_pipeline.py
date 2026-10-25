@@ -124,6 +124,7 @@ def _copy_selinux_label(source: Path, target: str) -> None:
 
 
 JOURNAL_DIR = ".inplace"
+BACKUP_MODE = 0o640
 
 
 def _journal_name(path: Path) -> str:
@@ -171,8 +172,11 @@ def _overwrite(path: Path, content: bytes) -> None:
         os.fsync(fh.fileno())
 
 
-def _write_new(path: Path, data: bytes) -> None:
-    with path.open("wb") as fh:
+def _write_new(path: Path, data: bytes, mode: int = BACKUP_MODE) -> None:
+    """Backup and journal copies may hold keys: never readable by others, whatever the umask."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, mode)
+    with os.fdopen(fd, "wb") as fh:
+        os.fchmod(fh.fileno(), mode)
         fh.write(data)
         fh.flush()
         os.fsync(fh.fileno())
@@ -256,7 +260,8 @@ class WritePipeline:
     def backup(self, paths: list[Path]) -> Path:
         stamp = utcnow().strftime("%Y%m%dT%H%M%S%fZ")
         bdir = self.backup_root / f"{stamp}-{self.label or 'write'}"
-        bdir.mkdir(parents=True, exist_ok=False, mode=0o750)
+        self.backup_root.mkdir(parents=True, exist_ok=True, mode=0o750)
+        bdir.mkdir(exist_ok=False, mode=0o750)
         manifest: list[dict[str, Any]] = []
         for i, path in enumerate(paths):
             entry: dict[str, Any] = {"path": str(path), "index": i}
@@ -264,6 +269,8 @@ class WritePipeline:
                 st = path.stat()
                 dest = bdir / f"{i}.bak"
                 shutil.copy2(path, dest)
+                # The manifest keeps the original mode for restore; the copy is the node's only.
+                os.chmod(dest, BACKUP_MODE)
                 entry.update(
                     {
                         "absent": False,
@@ -276,7 +283,9 @@ class WritePipeline:
             else:
                 entry["absent"] = True
             manifest.append(entry)
-        (bdir / "manifest.json").write_text(json.dumps({"label": self.label, "files": manifest}, indent=2))
+        _write_new(
+            bdir / "manifest.json", json.dumps({"label": self.label, "files": manifest}, indent=2).encode()
+        )
         return bdir
 
     def restore(self, backup_dir: Path, reload: bool = True) -> PipelineResult:

@@ -39,6 +39,32 @@ def test_success_path_writes_and_backs_up(tmp_root):
     assert [s["name"] for s in result.steps] == ["backup", "write", "validate", "reload", "verify"]
 
 
+def test_backups_are_never_world_readable(tmp_root):
+    import os
+
+    target = tmp_root / "etc" / "named.conf"
+    target.parent.mkdir()
+    target.write_text("key secret;\n")
+    target.chmod(0o644)
+    old_umask = os.umask(0o022)  # sudo from a shell, docker exec: the umask the CLI often gets
+    try:
+        pipe = WritePipeline(
+            tmp_root / "backups" / "bind",
+            validate=lambda: ValidationResult(ok=True, tool="named-checkconf"),
+            reload=lambda: "ok",
+        )
+        result = pipe.run([FileChange(target, b"new\n")])
+    finally:
+        os.umask(old_umask)
+    assert result.ok
+    manifest = json.loads((result.backup_dir / "manifest.json").read_text())
+    assert manifest["files"][0]["mode"] == 0o644  # restore puts the original mode back
+    for path in [result.backup_dir.parent, result.backup_dir, *result.backup_dir.iterdir()]:
+        assert path.stat().st_mode & 0o007 == 0, path
+    assert pipe.restore(result.backup_dir, reload=False).ok
+    assert target.read_text() == "key secret;\n" and target.stat().st_mode & 0o777 == 0o644
+
+
 def test_validation_failure_restores_without_reload(tmp_root):
     target = tmp_root / "zones.conf"
     target.write_text("old\n")

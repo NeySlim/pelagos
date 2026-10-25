@@ -36,3 +36,17 @@ export function liveCount(key, base, mean, now = Date.now()) {
 export function liveCounters(nodeKey, counters, now = Date.now()) {
   return Object.fromEntries(Object.entries(counters).map(([name, [base, mean]]) => [name, liveCount(`${nodeKey}/${name}`, base, mean, now)]))
 }
+
+// HA heartbeats every `periodMs` (Kea heartbeat-delay) with tens of milliseconds of jitter,
+// fixed per beat: the partner `age` at `now`, in whole seconds as Kea status-get reports it.
+export function heartbeatAge(key, now = Date.now(), periodMs = 10000) {
+  const phase = seedOf(key) * 1000
+  const jitter = (k) => (seedOf(`${key}/${k}`) / 6.283 - 0.5) * 60
+  let k = Math.floor((now - phase) / periodMs)
+  let beat = k * periodMs + phase + jitter(k)
+  if (beat > now) {
+    k -= 1
+    beat = k * periodMs + phase + jitter(k)
+  }
+  return Math.max(0, Math.floor((now - beat) / 1000))
+}

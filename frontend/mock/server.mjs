@@ -14,7 +14,7 @@ import { createState, iso, ulid, ALL_PERMISSIONS } from './data.mjs'
 import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, isExpired, auditEntry, configHash, isAdmin } from './plans.mjs'
 import { createWsHub } from './ws.mjs'
 import { opsHandlers } from './ops.mjs'
-import { liveCounters } from './live.mjs'
+import { heartbeatAge, liveCounters } from './live.mjs'
 
 const API = '/api/v1'
 const ANON = new Set(['GET /health', 'GET /version', 'POST /auth/login'])
@@ -481,6 +481,12 @@ function buildHosts(state) {
   })
 }
 
+// HA state as status-get reads it now: the partner age follows the mock's heartbeats.
+function liveHa(h, now = Date.now()) {
+  if (!h.partner || h.partner.in_touch === false) return h
+  return { ...h, collected_at: new Date(now).toISOString(), partner: { ...h.partner, age: heartbeatAge(`${h.node_id}/${h.family}`, now) } }
+}
+
 function summary(state) {
   const pools = []
   for (const family of ['v4', 'v6']) {
@@ -491,7 +497,7 @@ function summary(state) {
   const open = state.alerts.filter((a) => a.state === 'open')
   return {
     nodes: state.nodes,
-    ha: [...state.ha.v4, ...state.ha.v6],
+    ha: [...state.ha.v4, ...state.ha.v6].map((h) => liveHa(h)),
     pools,
     zones: state.zones.filter((z) => z.kind !== 'forward').map((z) => ({ zone: z.name, view: z.view, kind: z.kind, ...zoneSerials(state, z) })),
     d2: Object.values(state.d2),
@@ -530,7 +536,7 @@ function bindStats(state, nodeId) {
   for (const z of state.zones) zones[`${z.view}/${z.name}`] = { serial: zoneSerials(state, z).serials[nodeId] ?? 0, QryAuthAns: 1200, QryNxrrset: 31, XfrSuccess: 4 }
   return {
     node_id: nodeId,
-    collected_at: iso(Date.now() - 20000),
+    collected_at: new Date().toISOString(),
     version: state.dnsCapabilities.version,
     boot_time: iso(Date.now() - 86400000 * 6),
     config_time: iso(Date.now() - 3600000),
@@ -794,8 +800,9 @@ function seriesPools(state, query) {
       .map((r, idx) => {
         const points = []
         for (let t = from, i = 0; t <= to && i < 2000; t += step, i += 1) {
-          const wave = Math.sin((t / 3600000 / 24) * Math.PI * 2 + idx) * 0.15
-          const assigned = Math.max(0, Math.min(r.total, Math.round(r.assigned * (0.85 + wave))))
+          // A daily swell under minute-scale churn; the newest point is the pool as it is now.
+          const wave = Math.sin((t / 3600000 / 24) * Math.PI * 2 + idx) * 0.08 + Math.sin((t / 420000) * Math.PI * 2 + idx) * 0.03 + Math.sin((t / 97000) * Math.PI * 2 + 2 * idx) * 0.015
+          const assigned = to - t < step ? r.assigned : Math.max(0, Math.min(r.total, Math.round(r.assigned * (0.93 + wave))))
           points.push([Math.floor(t / 1000), assigned, r.total])
         }
         return { key: { engine, subnet_id: r.subnet_id, pool: r.pool, node_id: nodeId }, points }
@@ -1518,11 +1525,11 @@ function buildHandlers(state, emit) {
       const node = nodeOr(query)
       const scale = node === state.selfId ? 1 : 0.15
       const live = params.family === 'v6'
-        ? liveCounters(`${node}/v6`, { 'pkt6-received': [40110, 6 * scale], 'pkt6-solicit-received': [9020, 1.5 * scale], 'pkt6-request-received': [18030, 2.6 * scale], 'pkt6-reply-sent': [26044, 2.6 * scale] })
-        : liveCounters(`${node}/v4`, { 'pkt4-received': [120220, 14 * scale], 'pkt4-discover-received': [30110, 3.2 * scale], 'pkt4-request-received': [70210, 6.5 * scale], 'pkt4-ack-sent': [70011, 6.4 * scale] })
+        ? liveCounters(`${node}/v6`, { 'pkt6-received': [40110, 6 * scale], 'pkt6-solicit-received': [9020, 1.5 * scale], 'pkt6-advertise-sent': [9011, 1.5 * scale], 'pkt6-request-received': [18030, 2.6 * scale], 'pkt6-reply-sent': [26044, 2.6 * scale] })
+        : liveCounters(`${node}/v4`, { 'pkt4-received': [120220, 14 * scale], 'pkt4-discover-received': [30110, 3.2 * scale], 'pkt4-offer-sent': [30101, 3.15 * scale], 'pkt4-request-received': [70210, 6.5 * scale], 'pkt4-ack-sent': [70011, 6.4 * scale], 'pkt4-nak-sent': [12, 0.02 * scale] })
       const counters = params.family === 'v6'
         ? { ...live, 'pkt6-receive-drop': 1 }
-        : { ...live, 'pkt4-nak-sent': 12, 'pkt4-receive-drop': 3 }
+        : { ...live, 'pkt4-receive-drop': 3 }
       items.forEach((r, i) => {
         counters[`subnet[${r.subnet_id}].pool[${i}].total-addresses`] = r.total
         counters[`subnet[${r.subnet_id}].pool[${i}].assigned-addresses`] = r.assigned
@@ -1533,7 +1540,7 @@ function buildHandlers(state, emit) {
       const statistics = Object.fromEntries(Object.entries(counters).map(([k, v]) => [k, [[v, stamp]]]))
       return { node_id: nodeOr(query), statistics }
     },
-    'GET /dhcp/{family}/ha': ({ params }) => ({ items: state.ha[params.family] }),
+    'GET /dhcp/{family}/ha': ({ params }) => ({ items: state.ha[params.family].map((h) => liveHa(h)) }),
     'POST /dhcp/{family}/ha/maintenance/plan': ({ params, body, user }) => {
       if (!['start', 'cancel'].includes(body.action)) throw invalid('action', 'must be start or cancel')
       const ha = state.ha[params.family]

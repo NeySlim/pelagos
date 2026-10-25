@@ -21,6 +21,7 @@ from pelagos.domain import AuditResult, Engine, Family, PlanState
 from pelagos.domain.common import new_id
 from pelagos.services.dhcp_service import DhcpService
 from pelagos.services.dns_service import DnsService
+from pelagos.services.errors import EngineUnavailable
 from pelagos.services.ops_service import OpsService
 from pelagos.services.peer_actions import PeerActions
 from pelagos.services.peers import PeerGateway
@@ -120,6 +121,10 @@ def pair(tmp_root: Path, named_server, kea_dhcp4) -> Iterator[Pair]:
         service_b.stop()
 
 
+def here_last(ctx):
+    return [e for e in ctx.audit_log.read() if e.action == "dns.zone.op"][-1]
+
+
 def test_rndc_operations_on_the_peer(pair, named_server):
     ops = OpsService(pair.web, ConnectorRegistry(), pair.gateway)
     out = ops.run_bind("notify", {"zone": "example.lan"}, pair.peer_id, False, "alice", None)
@@ -134,6 +139,19 @@ def test_rndc_operations_on_the_peer(pair, named_server):
     assert "notify" in dns.operation("notify", "example.lan", pair.peer_id, None, "alice").lower()
     here = [e for e in pair.web.audit_log.read() if e.action == "dns.zone.op"]
     assert here and here[-1].response["remote"] and here[-1].user == "alice"
+    # Freeze, reload (a dynamic zone reloads only frozen) and thaw on the peer; without node_id they
+    # go to the first peer running BIND.
+    for op in ("freeze", "reload", "thaw"):
+        out = dns.operation(op, "example.lan", None, None, "alice")
+        assert isinstance(out, str), (op, out)
+    ran = [e for e in pair.peer_ctx.audit_log.read() if e.action == "dns.zone.apply"]
+    assert [e.target.split("/")[0] for e in ran][-3:] == ["op:freeze", "op:reload", "op:thaw"]
+    assert all(e.result is AuditResult.OK for e in ran[-3:])
+    # retransfer of a primary: named refuses it, the refusal comes back from the peer, audited on both.
+    with pytest.raises(EngineUnavailable, match="inappropriate zone type"):
+        dns.operation("retransfer", "example.lan", pair.peer_id, None, "alice")
+    assert pair.peer_ctx.audit_log.read()[-1].result is AuditResult.ERROR
+    assert here_last(pair.web).result is AuditResult.ERROR
 
 
 def test_zone_created_on_the_peer_then_edited_from_here(pair):

@@ -51,6 +51,8 @@ class BindPoller:
         self.node_id = node_id
         self.store = store
         self.clock = clock
+        # (zone, view) -> (kind, serial) at the last read: a change is a `zones` event.
+        self.serials: dict[tuple[str, str], tuple[ZoneKind | None, int | None]] = {}
 
     def poll(self) -> PollOutcome:
         out = PollOutcome(kinds=KINDS, where=engine_filter(self.node_id, Engine.BIND.value))
@@ -80,6 +82,9 @@ class BindPoller:
         for st in statuses:
             out.alerts.extend(rules.zone_alerts(self.node_id, st, now_dt))
             self._record_serial(now, st)
+            self._serial_event(st, out)
+        listed = {(st.zone, st.view) for st in statuses}
+        self.serials = {k: v for k, v in self.serials.items() if k in listed}
         self.store.write_snapshot(self.node_id, "bind", "zones", now, [st.to_dict() for st in statuses])
 
         try:
@@ -90,6 +95,43 @@ class BindPoller:
         except (ConnectorError, NotImplementedError) as exc:
             log.debug("instance_stats failed: %s", exc)
         return out
+
+    def holds_copy(self, zone: str, view: str) -> bool:
+        """This node holds the zone as a transferred copy (secondary or mirror) at the last read."""
+        kind = self.serials.get((zone, view), (None, None))[0]
+        return kind in (ZoneKind.SECONDARY, ZoneKind.MIRROR)
+
+    def recheck(self, zone: str, view: str) -> tuple[PollOutcome, int | None]:
+        """Read one zone again (a peer announced a new serial): events only, and its serial now."""
+        out = PollOutcome()
+        kind = self.serials.get((zone, view), (None, None))[0]
+        st = self._zone_status(Zone(name=zone, view=view, kind=kind or ZoneKind.SECONDARY))
+        if st.error is None:
+            self._record_serial(int(self.clock()), st)
+            self._serial_event(st, out)
+        return out, st.serial
+
+    def _serial_event(self, st: ZoneStatus, out: PollOutcome) -> None:
+        """`zones`/`serial` when a primary's serial moved, `zones`/`transfer` when a secondary's or
+        mirror's copy did; relayed so every node's trace shows them. The first read only records."""
+        key = (st.zone, st.view)
+        before = self.serials.get(key)
+        self.serials[key] = (st.kind, st.serial)
+        if before is None or st.serial is None or before[1] == st.serial:
+            return
+        data = {
+            "zone": st.zone,
+            "view": st.view,
+            "kind": st.kind.value if st.kind else None,
+            "serial": st.serial,
+            "previous": before[1],
+        }
+        if st.kind in (ZoneKind.SECONDARY, ZoneKind.MIRROR):
+            primary = primary_serial(self.store, st.zone, st.view, exclude=self.node_id)
+            data["primary_node_id"] = primary[0] if primary else None
+            out.events.append(("zones", "transfer", data, {"relay": True}))
+        else:
+            out.events.append(("zones", "serial", data, {"relay": True}))
 
     def _zone_status(self, zone: Zone) -> ZoneStatus:
         try:

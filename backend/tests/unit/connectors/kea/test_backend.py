@@ -31,7 +31,7 @@ from pelagos.domain import (
     Subnet,
     utcnow,
 )
-from tests.unit.connectors.kea.fake import FakeKea, config_of, err, load, make_ctx
+from tests.unit.connectors.kea.fake import FakeKea, config_of, err, load, make_ctx, ok
 
 pytestmark = pytest.mark.unit
 
@@ -326,6 +326,36 @@ def test_ha_maintenance_and_service_toggle(kea3):
     assert plan.changes[0].before == {"enabled": True}
     assert backend.apply(plan).ok and fake.status_args["dhcp-state"]["disabled-by-user"] is True
     assert backend.rollback(plan).ok and fake.status_args["dhcp-state"]["disabled-by-user"] is False
+
+
+def test_ha_heartbeat_window_from_age_and_kea_clock(kea3):
+    from datetime import UTC, datetime, timedelta
+
+    from pelagos.connectors.kea.ha import heartbeat_window, kea_time
+    from pelagos.domain import from_rfc3339
+
+    backend, fake = kea3
+    fake.status_args = load("kea32-dhcp4-status-get")["arguments"]
+    fake.status_args["high-availability"][0]["ha-servers"]["remote"]["age"] = 3
+    fake.overrides["ha-heartbeat"] = ok(
+        {"date-time": "Sun, 25 Oct 2026 15:21:25 GMT", "state": "hot-standby", "unsent-update-count": 0}
+    )
+    ha = backend.ha_state()
+    hb = ha.heartbeat
+    assert hb is not None and hb["age"] == 3 and hb["kea_time"] == "2026-10-25T15:21:25.000Z"
+    assert ("ha-heartbeat", {"server-name": ha.server_name}) in fake.sent
+    assert from_rfc3339(hb["lo"]) <= from_rfc3339(hb["hi"])
+    # Pure bounds: (T - age - 1, T - age] with T inside the exchange, capped by Kea's clock + 1 s.
+    sent = datetime(2026, 10, 25, 15, 21, 25, 400000, tzinfo=UTC)
+    received = sent + timedelta(milliseconds=900)
+    window = heartbeat_window(2, sent, received, kea_time({"date-time": "Sun, 25 Oct 2026 15:21:25 GMT"}))
+    assert window["lo"] == "2026-10-25T15:21:22.400Z" and window["hi"] == "2026-10-25T15:21:24.000Z"
+    assert heartbeat_window(2, sent, received)["hi"] == "2026-10-25T15:21:24.300Z"
+    assert heartbeat_window(None, sent, received) is None and heartbeat_window(-1, sent, received) is None
+    assert kea_time({"date-time": "garbage"}) is None and kea_time({}) is None
+    # A hook without ha-heartbeat still gives the window from status-get alone.
+    fake.overrides["ha-heartbeat"] = err("'ha-heartbeat' command not supported.", 2)
+    assert backend.ha_state().heartbeat["kea_time"] is None
 
 
 def test_ha_absent(kea3):

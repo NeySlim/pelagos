@@ -47,7 +47,7 @@ from pelagos.connectors.kea.control_socket import (
     KeaCommandError,
     KeaControlSocket,
 )
-from pelagos.connectors.kea.ha import MAINTENANCE_COMMANDS, ha_state_from_status
+from pelagos.connectors.kea.ha import MAINTENANCE_COMMANDS, ha_state_from_status, heartbeat_window, kea_time
 from pelagos.connectors.kea.schema import config_schema
 from pelagos.connectors.kea.secrets import masked_refusal
 from pelagos.core.keadoc import KeaDocument
@@ -404,7 +404,21 @@ class KeaBackend(DhcpBackend):
         return pool_utilization_from_stats(self.statistics(), self.list_subnets(), self.ctx.node_id)
 
     def ha_state(self) -> HAState:
-        return ha_state_from_status(self.ctx.node_id, self.family, self.status())
+        sent = utcnow()
+        status = self.status()
+        received = utcnow()
+        ha = ha_state_from_status(self.ctx.node_id, self.family, status)
+        ha.collected_at = received
+        if ha.enabled and ha.partner is not None:
+            # Kea's own clock bounds when status-get ran; an older hook without the command still works.
+            kea_now = None
+            try:
+                args = {"server-name": ha.server_name} if ha.server_name else None
+                kea_now = kea_time(self.socket.call("ha-heartbeat", args))
+            except (ConnectorError, OSError, ValueError):
+                kea_now = None
+            ha.heartbeat = heartbeat_window(ha.partner.age, sent, received, kea_now)
+        return ha
 
     # Plans ------------------------------------------------------------------------------------
 

@@ -23,7 +23,7 @@ from pelagos.domain import Model, to_rfc3339, utcnow
 
 log = logging.getLogger(__name__)
 
-TOPICS = frozenset({"alerts", "ha", "nodes", "jobs", "plans", "audit", "leases", "system"})
+TOPICS = frozenset({"alerts", "ha", "nodes", "jobs", "plans", "audit", "leases", "zones", "system"})
 MAX_QUEUE = 256
 MAX_DATAGRAM = 65536
 
@@ -83,7 +83,8 @@ class EventHub:
 
     def dispatch(self, msg: dict[str, Any]) -> int:
         with self._lock:
-            targets = [s for s in self._subscribers if msg["topic"] in s.topics]
+            # `system` (pong, replication, security counts, coalesced notices) reaches every socket.
+            targets = [s for s in self._subscribers if msg["topic"] in s.topics or msg["topic"] == "system"]
         for sub in targets:
             sub.offer(msg)
         self.published += 1

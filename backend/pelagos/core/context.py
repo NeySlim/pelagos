@@ -23,6 +23,9 @@ from pelagos.domain.common import utcnow
 
 REPL_READY = "ready"
 REPL_SYNCING = "syncing"
+# Every peer refuses this node (removed from the cluster, certificate revoked): it still serves
+# its engines, but nothing it writes reaches the cluster any more.
+REPL_ISOLATED = "isolated"
 
 
 # A `syncing` state older than this is stale (a collector killed mid-pull): the node is writable again.
@@ -42,13 +45,15 @@ def read_replication_state(paths: Paths) -> str:
         age = time.time() - path.stat().st_mtime
     except OSError:
         return REPL_READY
-    if not words or words[0] != REPL_SYNCING or age > SYNCING_STALE_SECONDS:
+    if not words or words[0] not in (REPL_SYNCING, REPL_ISOLATED):
+        return REPL_READY
+    if words[0] == REPL_SYNCING and age > SYNCING_STALE_SECONDS:
         return REPL_READY
     # The pid means something only in the writer's own pid namespace (compose runs two containers).
     same_host = len(words) > 2 and words[2] == socket.gethostname()
     if same_host and words[1].isdigit() and not _alive(int(words[1])):
         return REPL_READY
-    return REPL_SYNCING
+    return words[0]
 
 
 def _alive(pid: int) -> bool:

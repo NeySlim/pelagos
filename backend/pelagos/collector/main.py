@@ -44,6 +44,11 @@ from pelagos.services import consistency
 log = logging.getLogger(__name__)
 
 LEASE_PAGE = 500
+# Live task defaults (settings.collector): fast HA reads and the lease watch.
+LIVE_SECONDS = 5.0
+LEASE_WATCH_MAX = 50000
+# A zone whose serial a peer announced is read again here after these delays, until it follows.
+ZONE_RECHECK_DELAYS = (2.0, 5.0, 15.0, 30.0)
 META_LAST_ACK = "last_ack_audit_id"
 META_ACK_OFFSET = "ack_scan_offset"
 META_ACK_INODE = "ack_scan_inode"
@@ -168,6 +173,16 @@ class Collector:
         self.peers = PeersPoller(
             peer_client, self.node_id, lambda: self.ctx.cluster().nodes, store, settings, clock
         )
+        from pelagos.core import ha_maintenance
+
+        for poller in self.kea:
+            poller.maintenance = lambda engine: ha_maintenance.active(ctx.paths, engine)
+            poller.maintenance_done = lambda engine: ha_maintenance.close(ctx.paths, engine)
+        # (zone, view) -> (serial announced by a peer, attempt, monotonic time of the next read).
+        self.zone_rechecks: dict[tuple[str, str], tuple[int, int, float]] = {}
+        self._zone_lock = threading.Lock()  # recheck_zone runs on replication threads
+        self._replication_seen: tuple[Any, ...] | None = None
+        self._findings_seen: frozenset[str] | None = None
         self.last_report = CycleReport()
         # Where security findings come from (the helper or a local audit); tests replace it.
         self.findings_source: Callable[[NodeContext], list[dict[str, Any]] | None] = _collect_findings
@@ -206,6 +221,94 @@ class Collector:
     def poll_peers(self) -> None:
         self.peers.settings = self.ctx.settings()
         self._finish(self.peers.poll())
+
+    def live(self) -> None:
+        """Fast pass (settings.collector.live_seconds): HA heartbeats and the lease watch."""
+        for poller in self.kea:
+            with self.backend_lock:
+                outcome = poller.heartbeat()
+            self._finish(outcome)
+        self.watch_leases()
+        self.zone_checks()
+
+    def watch_leases(self) -> None:
+        """Walk the leases of a server that answered clients since the last walk; new and renewed
+        ones go out as `leases` events and the latest ones to the "recent_leases" snapshot."""
+        limit = int(self.ctx.settings().get("collector", {}).get("lease_watch_max", LEASE_WATCH_MAX))
+        for poller in self.kea:
+            with self.backend_lock:
+                acks = poller.ack_counter()
+            if not poller.lease_walk_due(acks, limit):
+                continue
+            try:
+                leases = _all_leases(poller.backend, self.node_id, self.backend_lock)
+            except (ConnectorError, NotImplementedError) as exc:
+                log.debug("lease watch %s failed: %s", poller.engine.value, exc)
+                continue
+            self._finish(poller.lease_diff(leases, acks))
+
+    def recheck_zone(self, zone: str, view: str, serial: int) -> None:
+        """A peer announced a new serial for a zone this node may hold as a secondary: read it again
+        shortly, so the transfer shows when it lands instead of at the next full poll."""
+        if self.bind is None or not self.bind.holds_copy(zone, view):
+            return
+        with self._zone_lock:
+            self.zone_rechecks[(zone, view)] = (serial, 0, time.monotonic() + ZONE_RECHECK_DELAYS[0])
+
+    def zone_checks(self) -> None:
+        if self.bind is None or not self.zone_rechecks:
+            return
+        now = time.monotonic()
+        with self._zone_lock:
+            due = [(k, v) for k, v in self.zone_rechecks.items() if v[2] <= now]
+        for key, (serial, attempt, _due) in due:
+            with self.backend_lock:
+                outcome, current = self.bind.recheck(*key)
+            self._finish(outcome)
+            with self._zone_lock:
+                if self.zone_rechecks.get(key, (None,))[0] != serial:
+                    continue  # a newer serial was announced meanwhile: its own schedule stands
+                if current is None or current >= serial or attempt + 1 >= len(ZONE_RECHECK_DELAYS):
+                    del self.zone_rechecks[key]
+                else:
+                    self.zone_rechecks[key] = (serial, attempt + 1, now + ZONE_RECHECK_DELAYS[attempt + 1])
+
+    def replication_events(self) -> None:
+        """`system`/`replication` when this node's cluster.toml version or audit head moved."""
+        try:
+            version = self.ctx.config_store.load_cluster().version
+            count, head = self.ctx.audit_log.head()
+        except Exception:
+            return
+        seen = (version, count, head)
+        if seen == self._replication_seen:
+            return
+        first = self._replication_seen is None
+        self._replication_seen = seen
+        if not first:
+            data = {"node_id": self.node_id, "config_version": version, "audit_count": count}
+            self.events.emit("system", "replication", data, key="system:replication:self")
+
+    def on_peer_events(self, caller: str, messages: list[dict[str, Any]]) -> None:
+        """Events a peer relayed (POST /repl/v1/events): shown here as that node's, a zone serial
+        announced by the primary starts a recheck of this node's copy."""
+        for msg in messages:
+            data = msg.get("data") or {}
+            key = None
+            if msg["topic"] == "ha" and msg["event"] in ("heartbeat", "unsent"):
+                key = f"peer:{caller}:ha:{msg['event']}:{data.get('family')}"
+            self.events.emit_message(msg, key=key)
+            if msg["topic"] == "zones" and msg["event"] == "serial" and isinstance(data.get("serial"), int):
+                self.recheck_zone(str(data.get("zone")), str(data.get("view") or "_default"), data["serial"])
+
+    def on_peer_plan(self, plan: Any, origin: str, verb: str, phase: str, result: Any) -> None:
+        """A plan this node runs for a peer: its steps on this node's `plans` topic, and the HA
+        maintenance window it opens or closes here."""
+        if phase != "running" and result is not None:
+            from pelagos.core import ha_maintenance
+
+            ha_maintenance.record_plan(self.ctx.paths, plan, bool(result.ok), verb)
+        self.events.emit("plans", "step", plan_step(plan, self.node_id, origin, verb, phase, result))
 
     def apply_acks(self) -> list[Alert]:
         """Replay alert.ack audit entries (local API acks and replicated ones) onto open alerts.
@@ -272,6 +375,12 @@ class Collector:
             return []
         outcome = security_outcome(findings, self.node_id)
         self._finish(outcome)
+        seen = frozenset(a.subject for a in outcome.alerts)
+        if self._findings_seen is not None and seen != self._findings_seen:
+            data = {"findings": len(seen), "opened": len(seen - self._findings_seen)}
+            data["resolved"] = len(self._findings_seen - seen)
+            self.events.emit("system", "security", data, key="system:security")
+        self._findings_seen = seen
         return outcome.alerts
 
     def retention(self) -> dict[str, int]:
@@ -291,6 +400,7 @@ class Collector:
             ("poll_kea", self.poll_kea),
             ("poll_d2", self.poll_d2),
             ("poll_peers", self.poll_peers),
+            ("live", self.live),
             ("apply_acks", self.apply_acks),
             ("consistency", self.consistency),
             ("security_audit", self.security_audit),
@@ -309,11 +419,13 @@ class Collector:
         poll = float(settings.get("poll_seconds", 60))
         peer_poll = float(settings.get("peer_poll_seconds", 30))
         consistency_period = float(settings.get("consistency_seconds", 900))
+        live = max(1.0, float(settings.get("live_seconds", LIVE_SECONDS)))
         return [
             Task("poll_bind", poll, self.poll_bind),
             Task("poll_kea", poll, self.poll_kea),
             Task("poll_d2", poll, self.poll_d2),
             Task("poll_peers", peer_poll, self.poll_peers),
+            Task("live", live, self.live),
             Task("apply_acks", poll, self.apply_acks),
             Task("consistency", consistency_period, self.consistency),
             Task("security_audit", consistency_period, self.security_audit),
@@ -346,9 +458,16 @@ class Collector:
     # Internals -------------------------------------------------------------
 
     def _finish(self, outcome: PollOutcome) -> None:
-        opened, updated, resolved = self.alerts.reconcile(outcome.alerts, set(outcome.kinds), outcome.where)
-        for topic, event, data in outcome.events:
-            self.events.emit(topic, event, data)
+        if outcome.kinds or outcome.alerts:
+            opened, updated, resolved = self.alerts.reconcile(
+                outcome.alerts, set(outcome.kinds), outcome.where
+            )
+        else:
+            opened, updated, resolved = [], [], []
+        for item in outcome.events:
+            topic, event, data = item[:3]
+            opts = item[3] if len(item) > 3 else {}
+            self.events.emit(topic, event, data, **opts)
         for alert in opened:
             self.events.emit("alerts", "opened", alert)
             self._audit(alert, "alert.raise")
@@ -427,6 +546,26 @@ class Collector:
             else:
                 forward.setdefault(zone.name, []).extend(rrsets)
         return forward, reverse, errors
+
+
+def plan_step(
+    plan: Any, node_id: str, origin: str | None, verb: str, phase: str, result: Any = None
+) -> dict[str, Any]:
+    """Payload of `plans`/`step` (section 18): one node's part of an apply or rollback."""
+    data: dict[str, Any] = {
+        "plan_id": plan.id,
+        "scope": plan.scope.value,
+        "node_id": node_id,
+        "origin_node_id": origin,
+        "verb": verb,
+        "state": "running"
+        if phase == "running"
+        else ("done" if result is not None and result.ok else "failed"),
+    }
+    if result is not None:
+        data["ok"] = bool(result.ok)
+        data["message"] = result.message or None
+    return data
 
 
 def _all_leases(backend: DhcpBackend, node_id: str, lock: Any = None) -> list[Lease]:
@@ -517,6 +656,30 @@ def start_replication(
 
         write_replication_state(ctx.paths, REPL_READY)
         return None
+
+
+def start_relay(ctx: NodeContext, collector: Collector, replication: Any) -> Any:
+    """Peers' UIs get this node's live events (relay) and this node's UI gets theirs (hooks)."""
+    from pelagos.collector.relay import PeerEventRelay
+
+    service = getattr(replication, "service", None)
+    replicator = getattr(replication, "replicator", None)
+    app = getattr(service, "app", None)
+    if app is not None:
+        app.on_peer_events = collector.on_peer_events
+        app.on_plan = collector.on_peer_plan
+    if replicator is None:
+        return None
+
+    def send(peer: Any, batch: list[dict[str, Any]]) -> Any:
+        client = replicator.client(peer)
+        client.timeout = 3.0
+        return client.push_events(batch)
+
+    relay = PeerEventRelay(lambda: [p for p in ctx.cluster().nodes if p.id != ctx.node.id], send)
+    collector.events.relay = relay.offer
+    relay.start()
+    return relay
 
 
 # Exit status asking the service manager for a restart (Restart=on-failure): the engines changed.
@@ -663,8 +826,13 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
         log.warning("signal socket %s unavailable: %s", paths.collector_sock, exc)
     replication = start_replication(ctx, listener, store, backends, collector.backend_lock)
     replicator = getattr(replication, "replicator", None)
+    relay = None
     if replicator is not None:
         collector.peers.liveness = replicator
+        relay = start_relay(ctx, collector, replication)
+    # A write from the web process: the zone serials it moved are read now, not at the next poll.
+    bind_due = threading.Event()
+    listener.on("audit", lambda _msg: bind_due.set())
     watch = EnginesWatch(ctx)
     settings_watch = SettingsWatch(ctx)
     next_modules_check = 0.0
@@ -680,6 +848,7 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
                 return EXIT_ENGINES_CHANGED
             if settings_watch.changed():
                 reload_settings(collector, tasks, replication)
+            collector.replication_events()
             if time.monotonic() >= next_modules_check:
                 next_modules_check = time.monotonic() + MODULES_CHECK_SECONDS
                 try:
@@ -695,11 +864,25 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
                     except Exception:
                         log.exception("task %s failed", task.name)
                     task.next_run = now + task.period
+            collector.events.flush()
             sleep_for = max(0.5, min(t.next_run for t in tasks) - time.monotonic())
+            if collector.events.held or collector.zone_rechecks:
+                sleep_for = min(sleep_for, 1.0)
             if listener.sock is not None:
                 listener.wait(min(sleep_for, 5.0))
             else:
                 time.sleep(min(sleep_for, 5.0))
+            if bind_due.is_set():
+                bind_due.clear()
+                for task in tasks:
+                    if task.name == "poll_bind":
+                        task.next_run = min(task.next_run, time.monotonic() + 1.0)
+            if collector.zone_rechecks:
+                try:
+                    with collector.batch():
+                        collector.zone_checks()
+                except Exception:
+                    log.exception("zone recheck failed")
             if acks_due.is_set():
                 acks_due.clear()
                 try:
@@ -710,6 +893,8 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     except KeyboardInterrupt:
         return 0
     finally:
+        if relay is not None:
+            relay.close()
         close = getattr(replication, "close", None)
         if callable(close):
             close()

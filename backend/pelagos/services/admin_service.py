@@ -42,6 +42,8 @@ SETTINGS_SCHEMA: dict[str, Any] = {
         "pool_sample_seconds": (int, 30, 86400),
         "peer_poll_seconds": (int, 5, 3600),
         "consistency_seconds": (int, 60, 7 * 86400),
+        "live_seconds": (int, 1, 300),
+        "lease_watch_max": (int, 0, 10_000_000),
     },
     "retention": {
         "pool_raw_days": (int, 1, 3650),

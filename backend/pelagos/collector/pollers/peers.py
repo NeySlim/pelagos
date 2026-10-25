@@ -108,6 +108,8 @@ class PeersPoller:
         self.failures: dict[str, int] = {}
         self.divergent_since: dict[tuple[str, str, str], int] = {}
         self._unimplemented_logged = False
+        # Last node state sent per peer: (status, version, config_version, audit_count, error).
+        self._node_seen: dict[str, tuple[Any, ...]] = {}
 
     def poll(self) -> PollOutcome:
         out = PollOutcome(kinds=KINDS, where=owned)
@@ -164,7 +166,7 @@ class PeersPoller:
                 node.version = last[1].get("version")
                 node.config_version = last[1].get("config_version")
                 node.audit_count = last[1].get("audit_count")
-            out.events.append(("nodes", "status", node))
+            self._node_event(node, out)
             return
         self.store.write_snapshot(
             peer.id,
@@ -178,19 +180,16 @@ class PeersPoller:
                 "audit_head": status.audit_head,
             },
         )
-        out.events.append(
-            (
-                "nodes",
-                "status",
-                Node(
-                    peer=peer,
-                    status=NodeStatus.ONLINE,
-                    version=status.version,
-                    config_version=status.config_version,
-                    audit_count=status.audit_count,
-                    last_seen=datetime.fromtimestamp(now, tz=UTC),
-                ),
-            )
+        self._node_event(
+            Node(
+                peer=peer,
+                status=NodeStatus.ONLINE,
+                version=status.version,
+                config_version=status.config_version,
+                audit_count=status.audit_count,
+                last_seen=datetime.fromtimestamp(now, tz=UTC),
+            ),
+            out,
         )
         if self.client is None:
             return
@@ -207,6 +206,26 @@ class PeersPoller:
                     self.store.write_snapshot(
                         peer.id, engine, kind, int(entry.get("ts") or now), entry["payload"]
                     )
+
+    def _node_event(self, node: Node, out: PollOutcome) -> None:
+        """`nodes`/`status` when a peer comes, goes or changes; `system`/`replication` when its
+        configuration version or audit count moved (the change reached it). First sightings only
+        record, a steady peer sends nothing."""
+        seen = (node.status, node.version, node.config_version, node.audit_count, node.error)
+        before = self._node_seen.get(node.peer.id)
+        self._node_seen[node.peer.id] = seen
+        if before == seen:
+            return
+        out.events.append(("nodes", "status", node, {"key": f"nodes:status:{node.peer.id}"}))
+        if before is None or node.status is not NodeStatus.ONLINE:
+            return
+        if (node.config_version, node.audit_count) != (before[2], before[3]):
+            data = {
+                "node_id": node.peer.id,
+                "config_version": node.config_version,
+                "audit_count": node.audit_count,
+            }
+            out.events.append(("system", "replication", data, {"key": f"system:replication:{node.peer.id}"}))
 
     def _serial_divergence(self, now: int, out: PollOutcome) -> None:
         """Compare secondary and mirror copies of a zone with the primary; alert after the grace period."""

@@ -899,3 +899,55 @@ def test_start_failure_leaves_the_node_writable(pair):
     finally:
         busy.close()
     assert read_replication_state(a.paths) == "ready"
+
+
+# Live events and isolation -----------------------------------------------------------
+
+
+def test_relayed_events_are_checked_and_stamped_with_the_caller(pair):
+    a, b = pair
+    seen: list[tuple[str, list[dict]]] = []
+    b.service.app.on_peer_events = lambda caller, msgs: seen.append((caller, msgs))
+    client = ReplicationClient(a.ctx.cluster().peer(b.id), a.service.client_context)
+    events = [
+        {"topic": "ha", "event": "heartbeat", "node_id": "forged", "data": {"family": "v4"}},
+        {"topic": "alerts", "event": "opened", "data": {"id": "x"}},  # not relayable
+        {"topic": "zones", "event": "transfer", "data": "not a dict"},
+    ]
+    assert client.push_events(events) == 1
+    assert seen[0][0] == a.id and seen[0][1][0]["node_id"] == a.id and seen[0][1][0]["relayed"] is True
+    with pytest.raises(ReplicationError) as err:
+        client.push_events([events[0]] * 101)
+    assert err.value.status == 400
+
+
+def test_plan_hook_sees_each_remote_step(pair):
+    a, b = pair
+    b.service.registry.register(Engine.BIND, FakeBindBackend())
+    steps: list[tuple[str, str, str, bool | None]] = []
+    b.service.app.on_plan = lambda plan, origin, verb, phase, result: steps.append(
+        (origin, verb, phase, None if result is None else result.ok)
+    )
+    client = ReplicationClient(a.ctx.cluster().peer(b.id), a.service.client_context)
+    plan = _plan(a)
+    assert client.apply_plan(plan).ok
+    assert client.rollback_plan(plan).ok
+    assert steps == [
+        (a.id, "apply", "running", None),
+        (a.id, "apply", "done", True),
+        (a.id, "rollback", "running", None),
+        (a.id, "rollback", "done", True),
+    ]
+
+
+def test_a_node_every_peer_refuses_reports_isolated(pair):
+    a, b = pair
+    assert b.service.steady_state() == "ready"
+    a.service.enrollment.revoke(b.id, f"user:admin@node:{a.id}")
+    b.service._after_exchange(b.service.replicator.pull_all())
+    assert b.service.state == "isolated" and read_replication_state(b.paths) == "isolated"
+    status = b.service.replicator.statuses[a.id]
+    assert status.reachable is False and status.code == "revoked"
+    # The remaining node is fine: it simply has no peer left.
+    a.service._after_exchange(a.service.replicator.pull_all())
+    assert a.service.state == "ready"

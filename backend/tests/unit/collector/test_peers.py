@@ -65,7 +65,11 @@ def test_peer_status_snapshot_and_offline_after_three_failures(store):
         out = poller.poll()
         if i < 3:
             assert out.alerts == []
-        node_event = next(e for e in out.events if e[0] == "nodes")[2]
+        node_events = [e for e in out.events if e[0] == "nodes"]
+        if i > 1:
+            assert node_events == []  # a peer that stays down sends nothing more
+            continue
+        node_event = node_events[0][2]
         assert node_event.status is NodeStatus.OFFLINE and node_event.config_version == 3
         assert node_event.last_seen is not None
     assert {a.kind for a in out.alerts} == {AlertKind.PEER_OFFLINE}

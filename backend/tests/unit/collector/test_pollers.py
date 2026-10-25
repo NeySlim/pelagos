@@ -267,7 +267,7 @@ def test_kea_poller_ha_transitions_and_alerts(store):
     clock.advance(60)
     out = poller.poll()
     assert kinds(out) == {AlertKind.HA_PARTNER_DOWN}  # transition is true only on the poll that saw it
-    assert not [e for e in out.events if e[0] == "ha"]
+    assert [e[1] for e in out.events if e[0] == "ha"] == ["heartbeat"]
     kea.ha.state = "waiting"
     kea.ha.partner = HAPartner(role="standby", state="syncing", in_touch=True)
     clock.advance(60)

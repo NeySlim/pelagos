@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any
 
-from pelagos.domain import Family, HAMode, HAPartner, HAState, utcnow
+from pelagos.domain import Family, HAMode, HAPartner, HAState, to_rfc3339, utcnow
 
 MAINTENANCE_COMMANDS = {"start": "ha-maintenance-start", "cancel": "ha-maintenance-cancel"}
 # States in which a peer serves what its mode expects; anything else is degraded (section 15).
@@ -69,3 +71,41 @@ def is_healthy(state: HAState) -> bool:
 def ha_configured(cfg: dict[str, Any]) -> bool:
     """True when the ha hook is in hooks-libraries of a Dhcp4/Dhcp6 object."""
     return any("libdhcp_ha" in str(h.get("library", "")) for h in cfg.get("hooks-libraries") or [])
+
+
+def kea_time(answer: dict[str, Any]) -> datetime | None:
+    """`date-time` of an ha-heartbeat answer (RFC 1123, whole seconds, the server's own clock)."""
+    raw = answer.get("date-time")
+    if not isinstance(raw, str):
+        return None
+    try:
+        value = parsedate_to_datetime(raw)
+    except (TypeError, ValueError, IndexError):
+        return None
+    return value.astimezone(UTC) if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def heartbeat_window(
+    age: Any, sent_at: datetime, received_at: datetime, kea_now: datetime | None = None
+) -> dict[str, Any] | None:
+    """Bounds of the partner's last heartbeat from one status-get exchange.
+
+    Kea reports `age` in whole seconds, truncated: the beat happened in (T - age - 1, T - age] where
+    T, the instant status-get ran, lies between the request and the answer. ha-heartbeat, sent right
+    after, carries Kea's clock in whole seconds: T < kea_now + 1 narrows the upper bound.
+    """
+    if not isinstance(age, int) or isinstance(age, bool) or age < 0:
+        return None
+    upper = received_at
+    if kea_now is not None:
+        upper = max(sent_at, min(upper, kea_now + timedelta(seconds=1)))
+    lo = sent_at - timedelta(seconds=age + 1)
+    hi = upper - timedelta(seconds=age)
+    return {
+        "lo": to_rfc3339(lo),
+        "hi": to_rfc3339(hi),
+        "age": age,
+        "sent_at": to_rfc3339(sent_at),
+        "received_at": to_rfc3339(received_at),
+        "kea_time": to_rfc3339(kea_now) if kea_now is not None else None,
+    }

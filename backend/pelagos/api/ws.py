@@ -41,6 +41,7 @@ TOPIC_PERMISSIONS: dict[str, str | None] = {
     "leases": "read:dhcp",
     "ha": "read:dhcp",
     "nodes": "read:nodes",
+    "zones": "read:dns",
     "plans": None,
     "jobs": None,
 }

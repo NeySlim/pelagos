@@ -18,7 +18,8 @@ from pelagos.domain import Alert
 @dataclass(slots=True)
 class PollOutcome:
     alerts: list[Alert] = field(default_factory=list)
-    events: list[tuple[str, str, Any]] = field(default_factory=list)  # (topic, event, data)
+    # (topic, event, data) or (topic, event, data, {"key", "relay", "node_id"}): see EventSink.emit.
+    events: list[tuple[Any, ...]] = field(default_factory=list)
     kinds: frozenset[str] = frozenset()
     where: Callable[[Alert], bool] | None = None
     ok: bool = True

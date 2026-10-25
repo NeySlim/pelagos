@@ -12,11 +12,12 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend, DnsBackend, PreconditionFailed
-from pelagos.core import plan_secrets
+from pelagos.core import ha_maintenance, plan_secrets
 from pelagos.core.context import NodeContext
 from pelagos.core.plans import PlanNotFound
 from pelagos.domain import (
@@ -185,6 +186,7 @@ class PlanService:
                 raise PlanError("precondition_failed", str(exc)) from exc
             plan.state = PlanState.APPLYING
             self.ctx.plan_store.update(plan)
+        self._phase(plan, "applying")
         results: list[NodeApplyResult] = []
         applied: list[tuple[Plan, list[str]]] = []
         progress: list[str] = []  # nodes of the current part applied (or maybe applied) so far
@@ -256,7 +258,10 @@ class PlanService:
             return [NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=str(exc))], False
         for node_id in targets:
             progress.append(node_id)  # until it answers, the node may have applied
+            started = time.monotonic()
+            self._step(plan, node_id, "apply", None)
             result = self._apply_on(plan if node_id == self.ctx.node.id else outgoing, node_id, who)
+            self._step(plan, node_id, "apply", result, started)
             results.append(result)
             if not (result.ok or result.outcome_unknown):
                 progress.remove(node_id)
@@ -290,6 +295,7 @@ class PlanService:
                 result = NodeApplyResult(node_id=node_id, ok=False, message=f"{type(exc).__name__}: {exc}")
             result.node_id = node_id
             self._audit_node(plan, result, "apply", who, backend)
+            ha_maintenance.record_plan(self.ctx.paths, plan, result.ok)
             return result
         peer = self.peers.peer(node_id)
         if peer is None:
@@ -301,28 +307,33 @@ class PlanService:
     ) -> list[NodeApplyResult]:
         out: list[NodeApplyResult] = []
         for node_id in reversed(node_ids):
-            if node_id == self.ctx.node.id:
-                backend = self._backend(plan)
-                try:
-                    if backend:
-                        with self._engine_lock(plan):
-                            res = backend.rollback(plan)
-                    else:
-                        res = NodeApplyResult(node_id=node_id, ok=False, message="no backend")
-                except Exception as exc:
-                    res = NodeApplyResult(node_id=node_id, ok=False, message=f"rollback failed: {exc}")
-                res.node_id = node_id
-                self._audit_node(plan, res, "rollback", who, backend)
-            else:
-                peer = self.peers.peer(node_id)
-                res = (
-                    self.peers.rollback_plan(peer, plan)
-                    if peer
-                    else NodeApplyResult(node_id=node_id, ok=False, message="unknown node")
-                )
+            started = time.monotonic()
+            self._step(plan, node_id, "rollback", None)
+            res = self._rollback_one(plan, node_id, who)
+            self._step(plan, node_id, "rollback", res, started)
             res.rolled_back = True
             out.append(res)
         return out
+
+    def _rollback_one(self, plan: Plan, node_id: str, who: tuple[str, str | None]) -> NodeApplyResult:
+        if node_id != self.ctx.node.id:
+            peer = self.peers.peer(node_id)
+            if peer is None:
+                return NodeApplyResult(node_id=node_id, ok=False, message="unknown node")
+            return self.peers.rollback_plan(peer, plan)
+        backend = self._backend(plan)
+        try:
+            if backend:
+                with self._engine_lock(plan):
+                    res = backend.rollback(plan)
+            else:
+                res = NodeApplyResult(node_id=node_id, ok=False, message="no backend")
+        except Exception as exc:
+            res = NodeApplyResult(node_id=node_id, ok=False, message=f"rollback failed: {exc}")
+        res.node_id = node_id
+        self._audit_node(plan, res, "rollback", who, backend)
+        ha_maintenance.record_plan(self.ctx.paths, plan, res.ok, "rollback")
+        return res
 
     def apply_as_job(
         self,
@@ -338,6 +349,7 @@ class PlanService:
             self.check_applicable(plan, confirm)
             plan.state = PlanState.APPLYING
             self.ctx.plan_store.update(plan)
+        self._phase(plan, "applying")
 
         def run(job: Any, progress: Any) -> Any:
             try:
@@ -378,6 +390,7 @@ class PlanService:
                 raise PlanError("plan_state", f"only applied plans roll back; plan is {plan.state.value}")
             plan.state = PlanState.APPLYING  # in flight: a second rollback or apply gets plan_state
             self.ctx.plan_store.update(plan)
+        self._phase(plan, "rolling_back")
         parts = self.parts(plan) if plan.scope is PlanScope.HOST else [plan]
         results: list[NodeApplyResult] = []
         try:
@@ -405,6 +418,53 @@ class PlanService:
         return result
 
     # Audit and events ---------------------------------------------------
+
+    def _phase(self, plan: Plan, event: str) -> None:
+        """`plans`/`validated`, `applying` or `rolling_back`: the plan and the nodes it goes to."""
+        if self.events is None:
+            return
+        self.events.publish(
+            "plans",
+            event,
+            {
+                "plan_id": plan.id,
+                "scope": plan.scope.value,
+                "state": "rolling_back" if event == "rolling_back" else plan.state.value,
+                "origin_node_id": plan.node_id or self.ctx.node.id,
+                "target_node_ids": list(plan.target_node_ids or [self.ctx.node.id]),
+                "validations": [
+                    {"tool": v.tool, "node_id": v.node_id, "ok": v.ok} for v in plan.validations or []
+                ],
+            },
+        )
+
+    def _step(
+        self,
+        plan: Plan,
+        node_id: str,
+        verb: str,
+        result: NodeApplyResult | None,
+        started: float | None = None,
+    ) -> None:
+        """`plans`/`step`: one node's part, `running` when it starts and `done` or `failed` when it
+        answered, so each node's chip finishes when that node does (section 18)."""
+        if self.events is None:
+            return
+        data: dict[str, Any] = {
+            "plan_id": plan.id,
+            "scope": plan.scope.value,
+            "node_id": node_id,
+            "origin_node_id": self.ctx.node.id,
+            "verb": verb,
+            "state": "running" if result is None else ("done" if result.ok else "failed"),
+        }
+        if result is not None:
+            data["ok"] = bool(result.ok)
+            data["outcome_unknown"] = bool(result.outcome_unknown)
+            data["message"] = _mask_text_values(result.message) or None
+            if started is not None:
+                data["duration_ms"] = int((time.monotonic() - started) * 1000)
+        self.events.publish("plans", "step", data)
 
     def _publish(self, result: ApplyResult) -> None:
         if self.events is None:

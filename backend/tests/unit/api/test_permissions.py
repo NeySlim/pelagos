@@ -114,6 +114,7 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ),
     ("GET", "/dhcp/<string:family>/leases", "/dhcp/v4/leases", None, "read:dhcp"),
     ("GET", "/dhcp/<string:family>/leases/<string:ip>", "/dhcp/v4/leases/192.0.2.100", None, "read:dhcp"),
+    ("GET", "/dhcp/<string:family>/leases/recent", "/dhcp/v4/leases/recent", None, "read:dhcp"),
     (
         "POST",
         "/dhcp/<string:family>/leases/<string:ip>/delete/plan",

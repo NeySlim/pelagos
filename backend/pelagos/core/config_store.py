@@ -49,6 +49,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "pool_sample_seconds": 300,
         "peer_poll_seconds": 30,
         "consistency_seconds": 900,
+        "live_seconds": 5,
+        "lease_watch_max": 50000,
     },
     "retention": {
         "pool_raw_days": 7,

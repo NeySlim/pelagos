@@ -71,7 +71,26 @@ class Services:
         # A restart deferred by a job runs once it is done, a moment later so the UI reads the outcome.
         self.jobs.on_finished = lambda job: self._recheck_groups()
         self._publish_audit()
+        self._publish_plans()
         ctx.extra["services"] = self
+
+    def _publish_plans(self) -> None:
+        """Every plan this process builds goes to the `plans` topic as `validated` (or `failed` when a
+        check refused it) once its checks ran (section 18)."""
+        store = self.ctx.plan_store
+        put = getattr(store.put, "__pelagos_inner__", store.put)
+        plans = self.plans
+
+        def publishing_put(plan):  # type: ignore[no-untyped-def]
+            stored = put(plan)
+            try:
+                plans._phase(stored, "validated")
+            except Exception:
+                log.debug("plan event not published", exc_info=True)
+            return stored
+
+        publishing_put.__pelagos_inner__ = put  # type: ignore[attr-defined]
+        store.put = publishing_put  # type: ignore[method-assign]
 
     def _recheck_groups(self) -> None:
         if not self.groups.deferred:

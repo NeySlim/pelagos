@@ -31,7 +31,7 @@ from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend
 from pelagos.core.keadoc import DEFAULT_CWD, KeaDocument, KeaFileUnreadable
 from pelagos.core.keafile import KeaConfigError, kea_config_differences
-from pelagos.domain import Alert, AlertKind, Engine
+from pelagos.domain import Alert, AlertKind, Engine, Family, HAState, Lease, to_rfc3339
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +50,11 @@ D2_KINDS = frozenset(
     {AlertKind.DAEMON_DOWN.value, AlertKind.D2_ERRORS.value, AlertKind.CONFIG_DIVERGENCE.value}
 )
 D2_WINDOW_SECONDS = 3600
+# Latest leases kept in the "recent_leases" snapshot, and lease events sent per watch pass.
+RECENT_LEASES = 50
+LEASE_EVENTS_MAX = 20
+# Counters that move when this server hands out or renews a lease: a lease walk runs only then.
+ACK_COUNTERS = {Family.V4: "pkt4-ack-sent", Family.V6: "pkt6-reply-sent"}
 # A daemon that cannot be read says nothing about its file: its open file alert stays as it is.
 UNREAD_KINDS = frozenset({AlertKind.CONFIG_DIVERGENCE.value})
 # Keys that legitimately differ between HA peers: dropped before hashing for config_divergence.
@@ -214,6 +219,16 @@ class KeaPoller:
         self.last_reclaimed: int | None = None
         self.file_check = FileDivergenceCache(backend, self.engine, node_id, locks_dir)
         self.pool_streak: dict[str, int] = {}
+        # True while Pelagos holds an HA maintenance window open on this engine (core.ha_maintenance).
+        self.maintenance: Callable[[str], bool] = lambda _engine: False
+        self.maintenance_done: Callable[[str], None] = lambda _engine: None
+        # Last HA observation sent as an event: (state, partner state, in touch) and the unsent count.
+        self._ha_seen: tuple[Any, ...] | None = None
+        self._unsent_seen: int | None = None
+        # Lease watch: ip -> (client identifier, cltt) of the last walk, and the ack counter then.
+        self.lease_index: dict[str, tuple[str, int]] | None = None
+        self.last_acks: int | None = None
+        self.last_walk: float | None = None
 
     def _open_pool_alerts(self) -> dict[str, AlertKind]:
         """Pool alerts of this engine open (or acked) now, from the alert table the poll reconciles."""
@@ -295,7 +310,11 @@ class KeaPoller:
         previous = self.last_ha_state
         if previous is None:
             previous = self.store.last_ha_state(self.node_id, engine)
-        alerts, transition = rules.ha_alerts(self.node_id, ha, previous)
+        maintenance = self.maintenance(engine)
+        if maintenance and ha.state in rules.HA_NORMAL_STATES and ha.partner and ha.partner.in_touch:
+            self.maintenance_done(engine)
+            maintenance = False
+        alerts, transition = rules.ha_alerts(self.node_id, ha, previous, maintenance)
         out.alerts.extend(alerts)
         if transition is not None:
             self.store.write_ha_transition(
@@ -309,9 +328,114 @@ class KeaPoller:
                 _json_list(transition["scopes"]),
                 transition["reason"],
             )
-        if ha.state != self.last_ha_state:
-            out.events.append(("ha", "state", ha))
+        self.ha_events(ha, out)
         self.last_ha_state = ha.state
+
+    def ha_events(self, ha: HAState, out: PollOutcome) -> None:
+        """`state` when the server's or its partner's state or contact changed, `unsent` when only the
+        unsent update count moved, `heartbeat` on every read (coalesced per engine). Heartbeats and
+        states are relayed to the peers so every node's trace shows every server."""
+        if not ha.enabled:
+            return
+        engine = self.engine.value
+        partner = ha.partner
+        seen = (ha.state, partner.state if partner else None, partner.in_touch if partner else None)
+        if seen != self._ha_seen:
+            out.events.append(("ha", "state", ha, {"relay": True}))
+        elif ha.unsent_update_count != self._unsent_seen:
+            out.events.append(("ha", "unsent", ha, {"key": f"ha:unsent:{engine}", "relay": True}))
+        out.events.append(("ha", "heartbeat", ha, {"key": f"ha:heartbeat:{engine}", "relay": True}))
+        self._ha_seen = seen
+        self._unsent_seen = ha.unsent_update_count
+
+    def heartbeat(self) -> PollOutcome:
+        """Fast HA read between full polls (settings.collector.live_seconds): events only, no alerts."""
+        out = PollOutcome()
+        try:
+            ha = self.backend.ha_state()
+        except ConnectorError as exc:
+            log.debug("ha_state %s failed: %s", self.engine.value, exc)
+            return out
+        if ha.enabled:
+            self.store.write_snapshot(self.node_id, self.engine.value, "ha", int(self.clock()), ha.to_dict())
+            self.ha_events(ha, out)
+        return out
+
+    # Lease watch -------------------------------------------------------------
+
+    def ack_counter(self) -> int | None:
+        """pkt4-ack-sent / pkt6-reply-sent, None when the server cannot tell (stat_cmds missing)."""
+        name = ACK_COUNTERS[self.backend.family]
+        try:
+            answer = self.backend.command("statistic-get", {"name": name})
+        except (ConnectorError, NotImplementedError):
+            return None
+        series = answer.get(name) if isinstance(answer, dict) else None
+        try:
+            return int(series[0][0])  # type: ignore[index]
+        except (TypeError, ValueError, IndexError, KeyError):
+            return None
+
+    def lease_walk_due(self, acks: int | None, max_leases: int) -> bool:
+        """A walk is due on the first pass, whenever the server answered clients since the last one,
+        and once per poll period anyway (leases an HA partner sent, commands); never on a table
+        larger than `max_leases` (the summary still counts it)."""
+        if self.last_active is not None and self.last_active > max_leases:
+            return False
+        if self.lease_index is None or self.last_walk is None:
+            return True
+        period = float(self.settings.get("collector", {}).get("poll_seconds", 60))
+        moved = acks is not None and acks != self.last_acks
+        return moved or self.clock() - self.last_walk >= period
+
+    def lease_diff(self, leases: list[Lease], acks: int | None) -> PollOutcome:
+        """New and renewed leases since the previous walk as `leases` events, and the latest ones by
+        client transaction time as the "recent_leases" snapshot. The first walk only records."""
+        out = PollOutcome()
+        engine = self.engine.value
+        index: dict[str, tuple[str, int]] = {}
+        changes: list[tuple[str, Lease]] = []
+        for lease in leases:
+            key = f"{lease.ip_address}/{lease.lease_type or ''}"
+            ident = lease.hw_address or lease.duid or lease.client_id or ""
+            cltt = int(lease.cltt.timestamp()) if lease.cltt else 0
+            index[key] = (ident, cltt)
+            if self.lease_index is None:
+                continue
+            before = self.lease_index.get(key)
+            if before is None or before[0] != ident:
+                changes.append(("new", lease))
+            elif cltt > before[1]:
+                changes.append(("renewed", lease))
+        first = self.lease_index is None
+        self.lease_index = index
+        self.last_acks = acks
+        self.last_walk = self.clock()
+        dated = [lease for lease in leases if lease.cltt is not None]
+        dated.sort(key=_cltt, reverse=True)
+        self.store.write_snapshot(
+            self.node_id,
+            engine,
+            "recent_leases",
+            int(self.clock()),
+            [lease_brief(x) for x in dated[:RECENT_LEASES]],
+        )
+        if first or not changes:
+            return out
+        changes.sort(key=lambda c: _cltt(c[1]))
+        family = self.backend.family.value
+        for change, lease in changes[-LEASE_EVENTS_MAX:]:
+            data = {"engine": engine, "family": family, "change": change, "lease": lease_brief(lease)}
+            out.events.append(("leases", "lease", data))
+        if len(changes) > LEASE_EVENTS_MAX:
+            data = {
+                "engine": engine,
+                "dropped": len(changes) - LEASE_EVENTS_MAX,
+                "new": sum(1 for c in changes if c[0] == "new"),
+                "renewed": sum(1 for c in changes if c[0] == "renewed"),
+            }
+            out.events.append(("leases", "coalesced", data))
+        return out
 
     def _poll_pools(self, now: int, out: PollOutcome) -> None:
         engine = self.engine.value
@@ -361,7 +485,7 @@ class KeaPoller:
                 else 0
             ),
         }
-        out.events.append(("leases", "summary", summary))
+        out.events.append(("leases", "summary", summary, {"key": f"leases:summary:{engine}"}))
         self.last_active = active
         if reclaimed is not None:
             self.last_reclaimed = reclaimed
@@ -379,6 +503,30 @@ class KeaPoller:
             return int(series[0][0])
         except (TypeError, ValueError, IndexError):
             return None
+
+
+def _cltt(lease: Lease) -> float:
+    return lease.cltt.timestamp() if lease.cltt else 0.0
+
+
+def lease_brief(lease: Lease) -> dict[str, Any]:
+    """What the lease events and the recent leases carry: who, where, when (no raw Kea answer)."""
+    return {
+        "ip_address": lease.ip_address,
+        "subnet_id": lease.subnet_id,
+        "family": lease.family.value,
+        "hw_address": lease.hw_address,
+        "client_id": lease.client_id,
+        "duid": lease.duid,
+        "hostname": lease.hostname,
+        "state": lease.state.value,
+        "valid_lft": lease.valid_lft,
+        "cltt": to_rfc3339(lease.cltt) if lease.cltt else None,
+        "expires_at": to_rfc3339(lease.expires_at) if lease.expires_at else None,
+        "lease_type": lease.lease_type,
+        "prefix_len": lease.prefix_len,
+        "node_id": lease.node_id,
+    }
 
 
 def _json_list(values: list[str]) -> str:

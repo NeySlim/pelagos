@@ -174,9 +174,13 @@ def pool_alerts(
 
 
 def ha_alerts(
-    node_id: str, ha: HAState, previous_state: str | None
+    node_id: str, ha: HAState, previous_state: str | None, maintenance: bool = False
 ) -> tuple[list[Alert], dict[str, Any] | None]:
-    """HA alerts for one Kea server plus the transition row to record when the state moved."""
+    """HA alerts for one Kea server plus the transition row to record when the state moved.
+
+    `maintenance`: Pelagos started an HA maintenance from this server, so its partner being
+    away is expected; ha_partner_down gives way to ha_degraded until the window ends.
+    """
     engine = ha.family.kea_engine
     subject = f"ha:{engine.value}"
     out: list[Alert] = []
@@ -193,7 +197,10 @@ def ha_alerts(
         "partner_in_touch": partner.in_touch if partner else None,
         "unsent_update_count": ha.unsent_update_count,
     }
-    if ha.state in HA_PARTNER_DOWN_STATES or (partner is not None and partner.in_touch is False):
+    if maintenance:
+        base["maintenance"] = True
+    partner_down = ha.state in HA_PARTNER_DOWN_STATES or (partner is not None and partner.in_touch is False)
+    if partner_down and not maintenance:
         out.append(
             Alert(
                 kind=AlertKind.HA_PARTNER_DOWN,
@@ -205,7 +212,7 @@ def ha_alerts(
                 details=base,
             )
         )
-    elif ha.state not in HA_NORMAL_STATES:
+    elif ha.state not in HA_NORMAL_STATES or partner_down:
         out.append(
             Alert(
                 kind=AlertKind.HA_DEGRADED,

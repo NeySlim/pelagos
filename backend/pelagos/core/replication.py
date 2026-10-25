@@ -27,7 +27,13 @@ from pelagos.core import ca as ca_mod
 from pelagos.core import context as context_mod
 from pelagos.core.audit_log import AuditLog
 from pelagos.core.config_store import ConfigError, ConfigStore, NodeConfig
-from pelagos.core.context import REPL_READY, REPL_SYNCING, NodeContext, write_replication_state
+from pelagos.core.context import (
+    REPL_ISOLATED,
+    REPL_READY,
+    REPL_SYNCING,
+    NodeContext,
+    write_replication_state,
+)
 from pelagos.core.enrollment import EnrollError, EnrollmentService, EnrollRequest, install_certificate
 from pelagos.core.paths import Paths
 from pelagos.core.plan_secrets import hand_secrets_to_backend
@@ -110,6 +116,10 @@ class PeerActionError(Exception):
         self.code = code
         self.detail = detail
         self.errors = errors or []
+
+
+# Answers of a peer that no longer counts this node as a member (section 14).
+REFUSED_CODES = frozenset({"revoked", "unknown_node"})
 
 
 class ReplicationError(Exception):
@@ -246,6 +256,10 @@ class ReplicationClient:
     def apply_plan(self, plan: Plan) -> NodeApplyResult:
         return NodeApplyResult.from_dict(self._call("POST", "/plans/apply", {"plan": plan.to_dict()}))
 
+    def push_events(self, events: list[dict[str, Any]]) -> int:
+        """Live events relayed to this peer's UI (collector.relay); returns how many it took."""
+        return int(self._call("POST", "/events", {"events": events}).get("accepted", 0))
+
     def rollback_plan(self, plan: Plan) -> NodeApplyResult:
         return NodeApplyResult.from_dict(self._call("POST", "/plans/rollback", {"plan": plan.to_dict()}))
 
@@ -307,6 +321,10 @@ class ReplicationApp:
         self.on_peer_seen: Callable[[str], None] | None = None
         # Called after a peer pushed entries this node did not have (alert acks to replay, ...).
         self.on_audit_merged: Callable[[], None] | None = None
+        # Called with (caller, checked messages) of POST /events: the collector shows them locally.
+        self.on_peer_events: Callable[[str, list[dict[str, Any]]], None] | None = None
+        # Called around a plan this node runs for a peer: (plan, origin node, verb, phase, result).
+        self.on_plan: Callable[[Plan, str, str, str, NodeApplyResult | None], None] | None = None
 
     # WSGI entry
     def __call__(self, environ: dict[str, Any], start_response: Callable[..., Any]) -> list[bytes]:
@@ -362,6 +380,8 @@ class ReplicationApp:
             return self._plan(self._body(environ), caller, "rollback")
         if route == "/renew" and method == "POST":
             return self._renew(self._body(environ), caller)
+        if route == "/events" and method == "POST":
+            return self._events(self._body(environ), caller)
         m = _ENGINE_RE.match(route)
         if m and method == "GET":
             return self._snapshot(m.group(1), environ.get("QUERY_STRING", ""))
@@ -475,19 +495,69 @@ class ReplicationApp:
         entries = self.audit_log.get_many([str(i) for i in ids])
         return 200, {"entries": [e.to_dict() for e in entries]}
 
+    def _events(self, body: dict[str, Any], caller: str) -> tuple[int, Any]:
+        """Relayed live events: only the topics and events of RELAY_EVENTS, stamped with the caller."""
+        from pelagos.core.relay_events import MAX_BATCH, relayable
+
+        raw = body.get("events")
+        if not isinstance(raw, list) or len(raw) > MAX_BATCH:
+            raise _Refused(400, "validation_error", f"events must be a list of at most {MAX_BATCH}")
+        accepted = []
+        for msg in raw:
+            if not relayable(msg):
+                continue
+            accepted.append(
+                {
+                    "topic": msg["topic"],
+                    "event": msg["event"],
+                    "ts": str(msg.get("ts") or to_rfc3339(utcnow())),
+                    "node_id": caller,
+                    "data": msg["data"],
+                    "relayed": True,
+                }
+            )
+        if accepted and self.on_peer_events is not None:
+            try:
+                self.on_peer_events(caller, accepted)
+            except Exception:
+                log.exception("relayed events from %s not handled", caller)
+        return 200, {"accepted": len(accepted)}
+
+    def _plan_hook(
+        self, plan: Plan, caller: str, verb: str, phase: str, result: NodeApplyResult | None = None
+    ) -> None:
+        if self.on_plan is None:
+            return
+        try:
+            self.on_plan(plan, caller, verb, phase, result)
+        except Exception:
+            log.exception("plan hook failed")
+
     def _plan(self, body: dict[str, Any], caller: str, verb: str) -> tuple[int, Any]:
         try:
             plan = Plan.from_dict(body["plan"])
         except (KeyError, TypeError, ValueError) as exc:
             raise _Refused(400, "validation_error", f"invalid plan: {exc}") from None
+        self._plan_hook(plan, caller, verb, "running")
         # Secrets handed over and the apply run as one step against the collector's polls; installer
         # plans touch files and services, not the connectors' sockets, so they never hold the polls.
         lock = nullcontext() if plan.scope.value in UNLOCKED_SCOPES else self.registry.lock
         with lock:
             result = self._unseal(plan) if verb == "apply" else None
             if result is None:
-                result = self.registry.apply(plan) if verb == "apply" else self.registry.rollback(plan)
+                try:
+                    result = self.registry.apply(plan) if verb == "apply" else self.registry.rollback(plan)
+                except Exception as exc:
+                    self._plan_hook(
+                        plan,
+                        caller,
+                        verb,
+                        "done",
+                        NodeApplyResult(node_id=self.node.id, ok=False, message=str(exc)),
+                    )
+                    raise
         result.node_id = self.node.id
+        self._plan_hook(plan, caller, verb, "done", result)
         entry = AuditEntry(
             node_id=self.node.id,
             user=f"node:{caller}",
@@ -767,6 +837,7 @@ class Replicator:
                 node_id=peer.id,
                 reachable=False,
                 error=str(error),
+                code=error.code if isinstance(error, ReplicationError) else None,
                 name=peer.name,
                 config_version=previous.config_version if previous else None,
                 audit_count=previous.audit_count if previous else None,
@@ -1068,7 +1139,7 @@ class ReplicationService:
             finally:
                 done.set()
                 beat.join(timeout=5)
-        self._set_state(REPL_READY)
+        self._set_state(self.steady_state())
         self._stop.clear()
         self._next_poll = time.monotonic() + self.peer_poll_seconds
         self._worker = threading.Thread(target=self._loop, name="pelagos-replicator", daemon=True)
@@ -1134,7 +1205,36 @@ class ReplicationService:
     def _after_exchange(self, results: list[PeerStatus]) -> list[PeerStatus]:
         if any(r.audit_added for r in results):
             self._audit_merged()
+        steady = self.steady_state()
+        if steady != self.state and self.state in (REPL_READY, REPL_ISOLATED):
+            if steady == REPL_ISOLATED:
+                log.warning("every peer refuses this node's certificate: the node is isolated")
+            self._set_state(steady)
         return results
+
+    def steady_state(self) -> str:
+        """`isolated` when this node was removed from the cluster: it is gone from its own [[nodes]],
+        its certificate is revoked, or every peer refuses it (revoked, unknown node)."""
+        try:
+            cfg = self.ctx.config_store.load_cluster()
+        except Exception:
+            return REPL_READY
+        if cfg.peer(self.ctx.node.id) is None and cfg.nodes:
+            return REPL_ISOLATED
+        try:
+            _ca, node_cert, _key = node_tls_files(self.paths)
+            if ca_mod.fingerprint(node_cert.read_bytes()) in cfg.revoked:
+                return REPL_ISOLATED
+        except (OSError, ValueError, AttributeError):
+            pass
+        peers = [p for p in cfg.nodes if p.id != self.ctx.node.id]
+        if not peers:
+            return REPL_READY
+        statuses = {s.node_id: s for s in self.replicator.peer_statuses()}
+        refused = [statuses.get(p.id) for p in peers]
+        if all(s is not None and s.code in REFUSED_CODES for s in refused):
+            return REPL_ISOLATED
+        return REPL_READY
 
     def _on_peer_seen(self, node_id: str) -> None:
         """A peer that was failing reached us: retry the pending push now instead of after the backoff."""

@@ -203,6 +203,9 @@ class HAState(Model):
     partner: HAPartner | None = None
     enabled: bool = True
     raw: dict[str, Any] = field(default_factory=dict)
+    # Where the partner's last heartbeat lies (connectors.kea.ha.heartbeat_window): {"lo", "hi",
+    # "age", "sent_at", "received_at", "kea_time"}; None when unknown (no partner, older reads).
+    heartbeat: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)

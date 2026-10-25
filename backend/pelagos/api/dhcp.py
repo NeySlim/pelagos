@@ -180,6 +180,22 @@ class Leases(FamilyResource):
         return paged(rows, 1, limit, len(rows), {"node_id": node_id, "next": cursor, "limit": limit})
 
 
+@ns.route("/<string:family>/leases/recent")
+class RecentLeases(FamilyResource):
+    @require("read:dhcp")
+    @ns.doc(params={"limit": "leases, default 20, max 50"})
+    @ns.response(
+        200,
+        "Latest client transactions by cltt across the nodes (collector lease watch); as_of: oldest walk",
+    )
+    def get(self, family: str):
+        limit = int_arg("limit")
+        limit = 20 if limit is None else limit
+        if limit < 1 or limit > 50:
+            raise ApiError("validation_error", "limit must be between 1 and 50")
+        return dhcp(family).recent_leases(limit)
+
+
 @ns.route("/<string:family>/leases/<string:ip>")
 class OneLease(FamilyResource):
     @require("read:dhcp")

@@ -10,6 +10,7 @@ service, which applies on self first and then on the peers.
 from __future__ import annotations
 
 import ipaddress
+from datetime import UTC, datetime
 from typing import Any
 
 from pelagos.connectors.base import DdnsBackend, DhcpBackend
@@ -36,6 +37,7 @@ from pelagos.domain import (
     SharedNetwork,
     Subnet,
     messages,
+    to_rfc3339,
 )
 from pelagos.services import kea_files, lease_query
 from pelagos.services.dhcp_checks import check_hook_libraries, check_v6_reservation, hook_dirs
@@ -311,6 +313,36 @@ class DhcpService:
         for row in rows:
             row.node_id = row.node_id or read_on
         return rows, read_on
+
+    def recent_leases(self, limit: int = 20) -> dict[str, Any]:
+        """The latest client transactions (cltt) across the nodes, from the collectors' lease watch
+        ("recent_leases" snapshots, read-only). An HA pair holds the same lease twice: the copy with
+        the newest cltt is kept. `as_of` is the oldest walk among the nodes read."""
+        cache = getattr(self.alerts, "cache", None)
+        store = cache.store if cache is not None else None
+        if store is None:
+            return {"items": [], "as_of": None, "nodes": []}
+        best: dict[str, dict[str, Any]] = {}
+        walks: dict[str, int] = {}
+        for snap in store.snapshots(engine=self.engine.value):
+            if snap["kind"] != "recent_leases" or not isinstance(snap["payload"], list):
+                continue
+            walks[snap["node_id"]] = int(snap["ts"])
+            for row in snap["payload"]:
+                if not isinstance(row, dict) or not row.get("ip_address"):
+                    continue
+                row = {**row, "node_id": row.get("node_id") or snap["node_id"]}
+                key = f"{row['ip_address']}/{row.get('lease_type') or ''}"
+                held = best.get(key)
+                if held is None or str(row.get("cltt") or "") > str(held.get("cltt") or ""):
+                    best[key] = row
+        rows = sorted(best.values(), key=lambda r: str(r.get("cltt") or ""), reverse=True)[:limit]
+        as_of = min(walks.values()) if walks else None
+        return {
+            "items": rows,
+            "as_of": to_rfc3339(datetime.fromtimestamp(as_of, tz=UTC)) if as_of else None,
+            "nodes": sorted(walks),
+        }
 
     def lease_page(
         self,

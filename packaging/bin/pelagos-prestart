@@ -24,6 +24,10 @@ fi
 mkdir -p "$etc" "$var"
 find "$etc" "$var" ! -type l ! -path "$etc/pelagos.env" \( ! -user "$user" -o ! -group "$group" \) \
   -exec chown -h "$user:$group" {} + 2>/dev/null || true
+# Files written under another umask (an older image, a root CLI run) lose their world bits;
+# certificates and pelagos.env are public.
+find "$etc" "$var" ! -type l ! -path "$etc/pelagos.env" ! -name '*.crt' -perm /o=rwx \
+  -exec chmod o-rwx {} + 2>/dev/null || true
 for d in "$etc" "$var"; do
   [ -L "$d" ] || chmod 0750 "$d"
 done

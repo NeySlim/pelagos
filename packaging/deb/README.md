@@ -58,7 +58,9 @@ The package depends on the exact `python3.X` the venv was built with.
   a failure.
 - `ExecStartPre=+/opt/pelagos/bin/pelagos-prestart` (root) gives
   `/etc/pelagos` and `/var/lib/pelagos` back to `pelagos` (init may run as
-  root; symbolic links are never followed and `pelagos.env` stays root's) and creates a self-signed certificate in `/etc/pelagos/tls/` when
+  root; symbolic links are never followed and `pelagos.env` stays root's),
+  removes world access from everything there but certificates and
+  `pelagos.env`, and creates a self-signed certificate in `/etc/pelagos/tls/` when
   none exists.
 - `/usr/bin/pelagos` runs the CLI from the venv with `/etc/pelagos/pelagos.env`
   (a conffile, `root:root 0644`). The file is parsed as `KEY=value` lines like

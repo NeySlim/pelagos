@@ -41,12 +41,16 @@ chmod 0644 "$victim" "$key_victim"
 ln -s "$victim" "$var/backups/planted"
 chown -h "$user:$group" "$var/backups/planted"
 ln -s "$victim" "$var/planted-root"
+printf 'x' >"$var/series.sqlite"
+chmod 0644 "$var/series.sqlite"
 
 PELAGOS_ETC="$etc" PELAGOS_VAR="$var" PELAGOS_USER="$user" PELAGOS_GROUP="$group" \
   "$bin/pelagos-prestart" collector
 check "prestart: victim behind a symlink keeps its owner" test "$(stat -c %U "$victim")" = root
 check "prestart: victim behind a symlink keeps its mode" test "$(stat -c %a "$victim")" = 644
 check "prestart: state chowned" test "$(stat -c %U "$var/cluster.toml")" = "$user"
+check "prestart: world-readable state tightened" test "$(stat -c %a "$var/series.sqlite")" = 640
+check "prestart: certificate stays readable" test "$(stat -c %a "$etc/tls/server.crt")" = 644
 check "prestart: pelagos.env stays root's" test "$(stat -c '%U %a' "$etc/pelagos.env")" = "root 644"
 check "prestart: TLS key 0600" test "$(stat -c '%U %a' "$etc/tls/server.key")" = "$user 600"
 

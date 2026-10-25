@@ -7,8 +7,10 @@ Snapshots written under (node_id, "kea4"|"kea6", kind):
   "ha"            HAState dict
   "utilization"   pool_utilization() rows
   "subnets"       [Subnet dict]
-  "config_hash"   {"hash": raw config-hash-get, "normalized": hash without per-node keys}
-                  (peers compare "normalized" for config_divergence)
+  "config_hash"   {"hash": raw config-hash-get, "normalized": hash without per-node keys,
+                   "shared", "relationships": collector.kea_shared.shared_hashes}
+                  (peers compare "relationships" and "shared" for config_divergence, "normalized"
+                  when a node publishes no "relationships")
 and under (node_id, "d2", kind): "capabilities", "status", "stats" (D2Stats dict without raw).
 """
 
@@ -26,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.collector import rules
+from pelagos.collector.kea_shared import shared_hashes
 from pelagos.collector.pollers import PollOutcome, engine_filter
 from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend
@@ -294,7 +297,11 @@ class KeaPoller:
 
     def _config_hash(self, running: dict[str, Any]) -> dict[str, Any]:
         """Raw config-hash-get (what /dhcp/{family}/servers shows) and the hash peers compare."""
-        return {"hash": self.backend.config_hash(), "normalized": normalized_config_hash(running)}
+        return {
+            "hash": self.backend.config_hash(),
+            "normalized": normalized_config_hash(running),
+            **shared_hashes(running),
+        }
 
     def _subnets(self) -> list[dict[str, Any]]:
         return [s.to_dict() for s in self.backend.list_subnets()]

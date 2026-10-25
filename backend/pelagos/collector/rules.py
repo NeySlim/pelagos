@@ -360,7 +360,13 @@ def serial_divergence(
     )
 
 
-def config_divergence(engine: str, hashes: dict[str, str | None]) -> Alert:
+def config_divergence(
+    engine: str, hashes: dict[str, str | None], relationships: list[dict[str, Any]] | None = None
+) -> Alert:
+    """`hashes` per divergent node; `relationships` the HA relationships (server names) involved."""
+    details: dict[str, Any] = {"hashes": hashes}
+    if relationships is not None:
+        details["relationships"] = relationships
     return Alert(
         kind=AlertKind.CONFIG_DIVERGENCE,
         severity=Severity.WARNING,
@@ -368,7 +374,7 @@ def config_divergence(engine: str, hashes: dict[str, str | None]) -> Alert:
         engine=Engine(engine),
         subject=f"{engine}:config-hash",
         **_title("alert.config_divergence", engine=engine),
-        details={"hashes": hashes},
+        details=details,
     )
 
 

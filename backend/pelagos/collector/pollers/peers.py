@@ -15,7 +15,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from pelagos.collector import rules
+from pelagos.collector import kea_shared, rules
 from pelagos.collector.pollers import PollOutcome
 from pelagos.collector.series import SeriesStore
 from pelagos.collector.snapshots import CACHE_KIND
@@ -275,21 +275,25 @@ class PeersPoller:
                 del self.divergent_since[key]
 
     def _config_divergence(self, out: PollOutcome) -> None:
-        """Compare the normalized config hashes (per-node keys removed) of every node running Kea.
+        """Compare what the Kea servers of each HA relationship must share (collector.kea_shared):
+        subnets, pools, reservations, options, classes and the peers list, never per-server keys.
 
-        Raw config-hash-get values always differ between HA peers (this-server-name at least), so
-        they are only compared when some node did not publish a normalized hash.
-        """
+        A node that publishes no relationship hashes (an older version) falls back to the normalized
+        hash of the whole configuration, then to the raw config-hash-get, across every node."""
         for engine in (Engine.KEA4.value, Engine.KEA6.value):
             payloads: dict[str, dict[str, Any]] = {}
             for snap in self.store.snapshots(engine=engine):
                 if snap["kind"] == "config_hash":
                     payloads[snap["node_id"]] = snap["payload"] or {}
+            if payloads and all("relationships" in p for p in payloads.values()):
+                hashes, groups = kea_shared.divergent(payloads)
+                if hashes:
+                    out.alerts.append(rules.config_divergence(engine, hashes, groups))
+                continue
             field = "normalized" if all(p.get("normalized") for p in payloads.values()) else "hash"
-            hashes: dict[str, str | None] = {n: p.get(field) for n, p in payloads.items()}
-            distinct = {h for h in hashes.values() if h}
-            if len(distinct) > 1:
-                out.alerts.append(rules.config_divergence(engine, hashes))
+            old: dict[str, str | None] = {n: p.get(field) for n, p in payloads.items()}
+            if len({h for h in old.values() if h}) > 1:
+                out.alerts.append(rules.config_divergence(engine, old))
 
     def _backup_sync(self, now: int, out: PollOutcome) -> None:
         """Compare each Kea HA backup's lease count with its primary's (an active server's otherwise):

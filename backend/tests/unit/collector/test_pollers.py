@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from pelagos.collector import rules
+from pelagos.collector.kea_shared import shared_hashes
 from pelagos.collector.pollers import kea as kea_poller
 from pelagos.collector.pollers.bind import BindPoller
 from pelagos.collector.pollers.kea import D2Poller, KeaPoller, normalized_config_hash
@@ -222,6 +223,7 @@ def test_kea_poller_pools_samples_and_alerts(store):
     assert store.snapshot(NODE, "kea4", "config_hash")[1] == {
         "hash": "abc123",
         "normalized": normalized_config_hash({}),
+        **shared_hashes({}),
     }
     assert store.snapshot(NODE, "kea4", "subnets")[1][0]["subnet"] == "192.0.2.0/24"
     assert store.counts()["series_pool"] == 1

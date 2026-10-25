@@ -59,14 +59,18 @@ export function Checklist({ items = [], className, showCount = true, testId = 'c
   )
 }
 
-export function StepRail({ steps = [], reverse = false, className, testId = 'step-rail' }) {
+// `fillMs` times the rail's current move: the real duration of the step it covers.
+export function StepRail({ steps = [], reverse = false, fillMs, className, testId = 'step-rail' }) {
   const { t } = useTranslation()
   // Walking back, the rail holds what is not reverted yet.
   const p = reverse ? 1 - progressOf(steps.map((s) => ({ state: s.state === 'reverted' ? 'done' : 'pending' }))) : progressOf(steps)
   return (
     <div className={cn('fx-rail', reverse && 'is-reverse', className)} data-testid={testId}>
       <span className="fx-rail-track" aria-hidden="true">
-        <span className="fx-rail-fill" style={{ transform: `scaleY(${p.toFixed(3)})` }} />
+        <span
+          className="fx-rail-fill"
+          style={{ transform: `scaleY(${p.toFixed(3)})`, ...(fillMs > 0 ? { transitionDuration: `${Math.round(fillMs)}ms` } : {}) }}
+        />
       </span>
       <ol className="flex flex-col">
         {steps.map((step) => {
@@ -75,6 +79,7 @@ export function StepRail({ steps = [], reverse = false, className, testId = 'ste
             <li key={step.id ?? step.label} className={cn('fx-step', `is-${s}`)} data-state={s} data-testid={`${testId}-step`}>
               <CheckMark state={s} />
               <span className="fx-step-label">{step.label}</span>
+              {step.detail && <span className="fx-check-detail">{step.detail}</span>}
               <span className="sr-only">{t(`common:motion.states.${s}`)}</span>
               {step.nodes?.length > 0 && (
                 <span className="fx-step-nodes">
@@ -86,6 +91,7 @@ export function StepRail({ steps = [], reverse = false, className, testId = 'ste
                         className={cn('fx-node-chip', `is-${ns}`)}
                         style={node.durationMs ? { '--fx-dn': `${Math.round(node.durationMs)}ms` } : undefined}
                         data-state={ns}
+                        data-testid={`${testId}-node`}
                       >
                         {node.name}
                       </span>
@@ -93,7 +99,7 @@ export function StepRail({ steps = [], reverse = false, className, testId = 'ste
                   })}
                 </span>
               )}
-              <span className="fx-step-ms">{formatMs(step.ms)}</span>
+              <span className="fx-step-ms">{step.note ?? formatMs(step.ms)}</span>
             </li>
           )
         })}

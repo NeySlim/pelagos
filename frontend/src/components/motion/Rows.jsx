@@ -52,8 +52,9 @@ export function RowEnter({ children, className, highlight = true, ...props }) {
   )
 }
 
-// A <tr> on its way out: it folds (fades below full) and then calls onLeft once.
-export function RowLeave({ children, className, onLeft, ...props }) {
+// A <tr> on its way out: it folds (fades below full) and then calls onLeft once. `holdMs`
+// keeps it in place first (an acknowledged alert is struck through before it folds).
+export function RowLeave({ children, className, onLeft, holdMs = 0, style, ...props }) {
   const level = useMotionLevel()
   const [gone, setGone] = useState(false)
   const done = useRef(onLeft)
@@ -62,17 +63,18 @@ export function RowLeave({ children, className, onLeft, ...props }) {
   })
   useEffect(() => {
     const cancel = nextFrame(() => setGone(true))
-    const timer = setTimeout(() => done.current?.(), LEAVE_MS[level] ?? 0)
+    const timer = setTimeout(() => done.current?.(), (LEAVE_MS[level] ?? 0) + (level === 'off' ? 0 : holdMs))
     return () => {
       cancel()
       clearTimeout(timer)
     }
-  }, [level])
+  }, [level, holdMs])
   return (
     <tr
       className={cn('fx-row', gone && (level === 'full' ? 'is-folded' : 'is-faded'), className)}
       data-row-phase="leave"
       aria-hidden="true"
+      style={holdMs ? { ...style, '--fx-leave-hold': `${holdMs}ms` } : style}
       {...props}
     >
       {wrapCells(children)}

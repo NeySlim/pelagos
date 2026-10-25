@@ -111,7 +111,7 @@ describe('DashboardPage', () => {
 
     const ha = screen.getByTestId('tile-ha')
     expect(within(ha).getAllByTestId('tile-ha-row')).toHaveLength(2)
-    expect(within(ha).getByText('not in touch')).toBeInTheDocument()
+    expect(within(ha).getByRole('img', { name: 'not in touch' })).toBeInTheDocument()
 
     const zones = screen.getByTestId('tile-zones')
     expect(within(zones).getByText('1 of 2 divergent')).toBeInTheDocument()

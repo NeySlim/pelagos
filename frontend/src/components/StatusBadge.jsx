@@ -3,6 +3,7 @@
 // The label is translated from common:status.<value>; unknown values render as text.
 import { useTranslation } from 'react-i18next'
 import { Badge } from './Badge'
+import { cn } from '../lib/utils'
 
 const VARIANTS = {
   // NodeStatus
@@ -71,14 +72,23 @@ export function statusVariant(status) {
   return VARIANTS[String(status)] || 'default'
 }
 
-export function StatusBadge({ status, label, size = 'sm', dot = true, pulse, className, ...props }) {
+// `truncate` lets a narrow cell shorten the label with an ellipsis, the full text as title.
+export function StatusBadge({ status, label, size = 'sm', dot = true, pulse, truncate = false, className, ...props }) {
   const { t } = useTranslation()
   const key = String(status ?? 'unknown')
   const text = label ?? t(`status.${key}`, { defaultValue: key.replace(/[-_]/g, ' ') })
   const variant = statusVariant(key)
   return (
-    <Badge variant={variant} size={size} dot={dot} pulse={pulse ?? ['applying', 'rolling_back', 'running', 'syncing'].includes(key)} className={className} {...props}>
-      {text}
+    <Badge
+      variant={variant}
+      size={size}
+      dot={dot}
+      pulse={pulse ?? ['applying', 'rolling_back', 'running', 'syncing'].includes(key)}
+      className={truncate ? cn('max-w-full min-w-0', className) : className}
+      title={truncate && typeof text === 'string' ? text : undefined}
+      {...props}
+    >
+      {truncate ? <span className="truncate min-w-0">{text}</span> : text}
     </Badge>
   )
 }

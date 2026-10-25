@@ -14,7 +14,7 @@ import { Badge } from '../../components/Badge'
 import { UtilizationBar } from '../../components/UtilizationBar'
 import { EmptyState } from '../../components/EmptyState'
 import { cn, formatRelativeTime } from '../../lib/utils'
-import { AmbientTile, CountUp, MiniHistogram, RegMarks, StatusDot, Sweep } from '../../components/motion'
+import { AmbientTile, CountUp, MiniHistogram, RegMarks, RollingNumber, StatusDot, Sweep } from '../../components/motion'
 import { SWEEP_MAX_STEPS, SWEEP_STEP_MS, TileRefresh } from './tileRefresh'
 import { dhcpFamily, poolThresholds, formatErrorRate } from './summary'
 import { PoolPressure } from './poolPressure'
@@ -136,12 +136,20 @@ export function HaTile({ summary, editing, nameOf }) {
       {ha.length === 0 ? (
         <Empty icon={ArrowsLeftRight} title={t('tiles.ha.empty')} />
       ) : (
-        <table className="w-full text-xs">
+        // Fixed columns: long state labels shorten inside their badge, the unsent count
+        // never leaves the tile.
+        <table className="w-full text-xs table-fixed" data-testid="tile-ha-table">
+          <colgroup>
+            <col />
+            <col className="w-[31%]" />
+            <col className="w-[32%]" />
+            <col className="w-[3.25rem]" />
+          </colgroup>
           <thead>
-            <tr className="text-2xs uppercase tracking-wider text-text-tertiary">
-              <th className="text-left font-semibold pb-1">{t('tiles.ha.server')}</th>
-              <th className="text-left font-semibold pb-1">{t('tiles.ha.state')}</th>
-              <th className="text-left font-semibold pb-1">{t('tiles.ha.partner')}</th>
+            <tr className="text-2xs uppercase tracking-wider text-text-tertiary align-bottom">
+              <th className="text-left font-semibold pb-1 truncate">{t('tiles.ha.server')}</th>
+              <th className="text-left font-semibold pb-1 truncate">{t('tiles.ha.state')}</th>
+              <th className="text-left font-semibold pb-1 truncate">{t('tiles.ha.partner')}</th>
               <th className="text-right font-semibold pb-1">{t('tiles.ha.unsent')}</th>
             </tr>
           </thead>
@@ -149,28 +157,30 @@ export function HaTile({ summary, editing, nameOf }) {
             {ha.map((h) => (
               <tr key={`${h.node_id}/${h.family}`} className="border-t border-border-op30" data-testid="tile-ha-row">
                 <td className="py-1 pr-2">
-                  <span className="inline-flex items-center gap-1">
-                    {h.role === 'primary' && <Crown size={11} className="text-accent-warning" />}
-                    <span className="font-medium text-text-primary">{h.server_name || nameOf(h.node_id)}</span>
-                    <Badge variant={h.family === 'v6' ? 'violet' : 'secondary'} size="sm">
-                      {h.family === 'v6' ? 'DHCPv6' : 'DHCPv4'}
+                  <span className="flex items-center gap-1 min-w-0">
+                    {h.role === 'primary' && <Crown size={11} className="text-accent-warning shrink-0" />}
+                    <span className="font-medium text-text-primary truncate">{h.server_name || nameOf(h.node_id)}</span>
+                    <Badge variant={h.family === 'v6' ? 'violet' : 'secondary'} size="sm" className="shrink-0" title={h.family === 'v6' ? 'DHCPv6' : 'DHCPv4'}>
+                      {h.family === 'v6' ? 'v6' : 'v4'}
                     </Badge>
                   </span>
                 </td>
                 <td className="py-1 pr-2">
-                  <StatusBadge status={h.state || 'unknown'} />
+                  <span className="flex min-w-0">
+                    <StatusBadge status={h.state || 'unknown'} truncate />
+                  </span>
                 </td>
                 <td className="py-1 pr-2">
                   {h.partner ? (
-                    <span className="inline-flex items-center gap-1">
-                      <StatusBadge status={h.partner.state || 'unknown'} dot={false} />
-                      {h.partner.in_touch === false && <span className="text-2xs status-danger-text">{t('tiles.ha.notInTouch')}</span>}
+                    <span className="flex items-center gap-1 min-w-0">
+                      <StatusBadge status={h.partner.state || 'unknown'} dot={false} truncate />
+                      {h.partner.in_touch === false && <StatusDot tone="danger" pulse className="shrink-0" label={t('tiles.ha.notInTouch')} title={t('tiles.ha.notInTouch')} data-testid="tile-ha-not-in-touch" />}
                     </span>
                   ) : (
                     '-'
                   )}
                 </td>
-                <td className="py-1 text-right font-mono">{h.unsent_update_count ?? '-'}</td>
+                <td className="py-1 text-right font-mono tabular-nums whitespace-nowrap">{h.unsent_update_count ?? '-'}</td>
               </tr>
             ))}
           </tbody>
@@ -265,7 +275,7 @@ export function ZoneSyncTile({ summary, editing, nameOf }) {
                       className={cn('font-mono text-2xs rounded px-1 border', serial !== max ? 'status-warning-bg status-warning-text border-transparent' : 'border-border-op50 text-text-secondary')}
                       title={nameOf(id)}
                     >
-                      {nameOf(id)} {serial ?? '?'}
+                      {nameOf(id)} {serial === null || serial === undefined ? '?' : <RollingNumber value={serial} data-testid="tile-zone-serial" />}
                     </span>
                   ))}
                 </span>
@@ -317,7 +327,7 @@ export function PoolsTile({ summary, editing, nameOf, thresholds, openAlerts }) 
               </li>
             ))}
           </ul>
-          <PoolPressure pool={pools[0]} openAlerts={openAlerts} warn={warn} full={full} />
+          <PoolPressure pools={pools} openAlerts={openAlerts} warn={warn} full={full} />
         </div>
         </div>
       )}

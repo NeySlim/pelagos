@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MotionProvider } from '../../contexts/MotionContext'
 import { CountUp, MiniHistogram, SegmentedProgress, StatusDot, StippledAreaChart, Stagger, RadarRing, StatChip, IconButton, AppBackdrop } from '.'
+import { loopStats } from '../../hooks/useAnimationLoop'
 
 describe('CountUp', () => {
   beforeEach(() => localStorage.clear())
@@ -19,6 +20,14 @@ describe('CountUp', () => {
   it('counts up to the value at full level', async () => {
     const { container } = render(<CountUp value={50} duration={30} />)
     await waitFor(() => expect(container.querySelector('.fx-count-live')).toHaveTextContent('50'))
+  })
+
+  it('counts on the shared loop and leaves it once landed', async () => {
+    const base = loopStats().active
+    const { container } = render(<CountUp value={80} duration={60} />)
+    expect(loopStats().active).toBe(base + 1)
+    await waitFor(() => expect(container.querySelector('.fx-count-live')).toHaveTextContent('80'))
+    await waitFor(() => expect(loopStats().active).toBe(base))
   })
 
   it('shows the value at once when animations are reduced', () => {

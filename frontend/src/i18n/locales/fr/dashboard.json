@@ -2,7 +2,8 @@
   "pages": {
     "overview": {
       "title": "Tableau de bord",
-      "subtitle": "Trace du cluster, débits DNS et DHCP en direct, HA, pools, synchro des zones et alertes"
+      "subtitle": "Trace du cluster, débits DNS et DHCP en direct, HA, pools, synchro des zones et alertes",
+      "subtitleRadar": "Radar du cluster, débits DNS et DHCP en direct, HA, pools, synchro des zones et alertes"
     }
   },
   "viewAll": "Ouvrir",

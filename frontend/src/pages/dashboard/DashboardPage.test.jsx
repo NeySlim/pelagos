@@ -69,6 +69,8 @@ vi.mock('../../services/api', () => {
 })
 vi.mock('../../hooks/usePermission', () => ({ usePermission: () => ({ hasPermission: () => true }) }))
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ modules: { dhcpv6: true } }) }))
+let effects = 'instrument'
+vi.mock('../../contexts/ThemeContext', async (importOriginal) => ({ ...(await importOriginal()), useEffectsLayer: () => effects }))
 const showSuccess = vi.fn()
 vi.mock('../../contexts/NotificationContext', () => ({ useNotification: () => ({ showSuccess, showError: vi.fn() }) }))
 
@@ -85,12 +87,22 @@ beforeEach(() => {
   savedLayout = []
   settings = {}
   summaryExtra = {}
+  effects = 'instrument'
   settingsCalls.mockReset()
   calls.saveLayout.mockReset()
   showSuccess.mockReset()
 })
 
 describe('DashboardPage', () => {
+  it('names the trace, or the radar under Mission Control', async () => {
+    const { unmount } = renderPage()
+    expect(await screen.findByText(/^Cluster trace, live DNS/)).toBeInTheDocument()
+    unmount()
+    effects = 'mission'
+    renderPage()
+    expect(await screen.findByText(/^Cluster radar, live DNS/)).toBeInTheDocument()
+  })
+
   it('renders every tile from the summary', async () => {
     renderPage()
     const nodes = await screen.findByTestId('tile-nodes')

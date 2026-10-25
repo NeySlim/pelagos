@@ -2,7 +2,8 @@
   "pages": {
     "overview": {
       "title": "Dashboard",
-      "subtitle": "Cluster trace, live DNS and DHCP rates, HA, pools, zone sync and alerts"
+      "subtitle": "Cluster trace, live DNS and DHCP rates, HA, pools, zone sync and alerts",
+      "subtitleRadar": "Cluster radar, live DNS and DHCP rates, HA, pools, zone sync and alerts"
     }
   },
   "viewAll": "Open",

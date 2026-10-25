@@ -18,6 +18,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { useWsTopic } from '../../hooks/useWebSocket'
 import { useMobile } from '../../contexts/MobileContext'
 import { useAuth } from '../../contexts/AuthContext'
+import { useEffectsLayer } from '../../contexts/ThemeContext'
 import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
@@ -169,6 +170,8 @@ export default function DashboardPage() {
     setEditing(false)
   }
 
+  // Mission Control keeps its radar, so its subtitle names the radar.
+  const radar = useEffectsLayer() === 'mission'
   const openAlerts = canAlerts ? alerts.data?.items || [] : []
   const tileProps = { summary: summary.data, alerts: canAlerts ? topAlerts : null, openAlerts, editing, nameOf, thresholds: settings.data, live, samples }
   const ordered = useMemo(() => [...layout].sort((a, b) => a.y - b.y || a.x - b.x), [layout])
@@ -181,7 +184,7 @@ export default function DashboardPage() {
     <PageLayout
       icon={Gauge}
       title={t('pages.overview.title')}
-      subtitle={t('pages.overview.subtitle')}
+      subtitle={t(radar ? 'pages.overview.subtitleRadar' : 'pages.overview.subtitle')}
       testId="page-dashboard-overview"
       actions={
         editing ? (

@@ -876,11 +876,11 @@ function makeAlerts(names) {
     // With four nodes, the last backup missed lease updates while it was restarted.
     ...(names.includes('ns4')
       ? [
-          a('ALRT0000000000000000000010', 'ha_backup_out_of_sync', 'warning', 'open', 'ha-backup:kea4', 'kea4 HA backup ns4 is out of sync with ns1 (12 leases differ)', {
-            title_message: msg('alert.ha_backup_out_of_sync', { engine: 'kea4', server: 'ns4', reference: 'ns1', count: 12 }),
+          a('ALRT0000000000000000000010', 'ha_backup_out_of_sync', 'warning', 'open', 'ha-backup:kea4', 'kea4 HA backup ns4 is out of sync with ns1 (13 leases differ)', {
+            title_message: msg('alert.ha_backup_out_of_sync', { engine: 'kea4', server: 'ns4', reference: 'ns1', count: 13 }),
             engine: 'kea4',
             node_id: NODE_IDS.ns4,
-            details: { server_name: 'ns4', reference: 'ns1', leases: 52, reference_leases: 64 },
+            details: { server_name: 'ns4', reference: 'ns1', leases: 53, reference_leases: 66 },
           }),
         ]
       : []),

@@ -28,7 +28,8 @@
       "partner": "Partner",
       "unsent": "Unsent",
       "notInTouch": "not in touch",
-      "empty": "HA is not configured"
+      "empty": "HA is not configured",
+      "receives": "receives updates"
     },
     "inconsistencies": {
       "title": "Alerts",

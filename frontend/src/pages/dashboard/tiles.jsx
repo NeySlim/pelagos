@@ -18,6 +18,7 @@ import { AmbientTile, CountUp, MiniHistogram, RegMarks, RollingNumber, StatusDot
 import { SWEEP_MAX_STEPS, SWEEP_STEP_MS, TileRefresh } from './tileRefresh'
 import { dhcpFamily, mergePools, poolThresholds, formatErrorRate } from './summary'
 import { PoolPressure } from './poolPressure'
+import { flattenHa } from '../dhcp/haSetup'
 
 // `ambient` is a canvas layer under the body. The marks ping on the tile's domain events
 // and the sweep follows refreshes (TileRefresh); all are absent unless ambient layers are on.
@@ -121,7 +122,8 @@ export function NodesTile({ summary, editing, live }) {
 export function HaTile({ summary, editing, nameOf }) {
   const family = dhcpFamily(summary)
   const { t } = useTranslation(['dashboard', 'common'])
-  const ha = (summary?.ha || []).filter((h) => h.enabled !== false)
+  // One row per relationship a server is in (a Kea 3 hub has several).
+  const ha = flattenHa(summary?.ha).filter((h) => h.enabled !== false)
   const bad = ha.filter((h) => !['hot-standby', 'load-balancing', 'backup', 'passive-backup'].includes(h.state) || h.partner?.in_touch === false)
   return (
     <TileFrame
@@ -155,7 +157,7 @@ export function HaTile({ summary, editing, nameOf }) {
           </thead>
           <tbody>
             {ha.map((h) => (
-              <tr key={`${h.node_id}/${h.family}`} className="border-t border-border-op30" data-testid="tile-ha-row">
+              <tr key={`${h.node_id}/${h.family}/${h.server_name || ''}`} className="border-t border-border-op30" data-testid="tile-ha-row">
                 <td className="py-1 pr-2">
                   <span className="flex items-center gap-1 min-w-0">
                     {h.role === 'primary' && <Crown size={11} className="text-accent-warning shrink-0" />}
@@ -171,7 +173,12 @@ export function HaTile({ summary, editing, nameOf }) {
                   </span>
                 </td>
                 <td className="py-1 pr-2">
-                  {h.partner ? (
+                  {h.role === 'backup' ? (
+                    // A backup exchanges no heartbeat: it only receives the lease updates.
+                    <span className="block truncate text-text-tertiary" data-testid="tile-ha-backup">
+                      {t('tiles.ha.receives')}
+                    </span>
+                  ) : h.partner ? (
                     <span className="flex items-center gap-1 min-w-0">
                       <StatusBadge status={h.partner.state || 'unknown'} dot={false} truncate />
                       {h.partner.in_touch === false && <StatusDot tone="danger" pulse className="shrink-0" label={t('tiles.ha.notInTouch')} title={t('tiles.ha.notInTouch')} data-testid="tile-ha-not-in-touch" />}
@@ -180,7 +187,7 @@ export function HaTile({ summary, editing, nameOf }) {
                     '-'
                   )}
                 </td>
-                <td className="py-1 text-right font-mono tabular-nums whitespace-nowrap">{h.unsent_update_count ?? '-'}</td>
+                <td className="py-1 text-right font-mono tabular-nums whitespace-nowrap">{h.role === 'backup' ? '-' : (h.unsent_update_count ?? '-')}</td>
               </tr>
             ))}
           </tbody>

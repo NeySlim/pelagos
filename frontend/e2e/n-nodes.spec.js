@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Clusters of three and four nodes (mock scenarios `three` and `four`): the cluster trace
+// Clusters of three and four nodes (mock scenarios `three`, `four`, `hub`): the cluster trace
 // draws every node with its HA role and the mesh of links, signals travel to the node they
 // concern, the HA page lists the pair and its backups and edits the relationship, the nodes
 // page shows the roles, a zone has its secondaries on every peer with a transfer row each,
@@ -82,6 +82,43 @@ test.describe('at 1440 px', () => {
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('ha-servers').locator('tbody tr').nth(2)).toContainText('Standby')
   })
+
+  test('a backup card shows what it receives and its leases against the primary', async ({ page }) => {
+    await scenario(page, 'four')
+    await signIn(page)
+    await page.goto('/dhcp/v4/ha')
+    const backup = page.locator('[data-testid="ha-server"][data-role="backup"]').last()
+    await expect(backup).toContainText('ns4')
+    await expect(backup.getByTestId('ha-backup-receives')).toContainText('Lease updates from ns1, ns2')
+    await expect(backup.getByTestId('ha-backup-leases')).toContainText('apart')
+    await expect(backup).not.toContainText('Scopes served')
+    await expect(backup).not.toContainText('Hot standby')
+  })
+
+  test('a Kea 3 hub shows one section per relationship and maintenance goes to both spokes', async ({ page }) => {
+    await scenario(page, 'hub')
+    await signIn(page)
+    await page.goto('/dhcp/v4/ha')
+    await expect(page.getByTestId('ha-relationship')).toHaveCount(2)
+    await expect(page.getByTestId('ha-relationship-title').nth(1)).toContainText('ns1-b, ns3')
+    await expect(page.getByTestId('ha-server')).toHaveCount(4)
+    await page.getByTestId('ha-setup').click()
+    const form = page.getByTestId('ha-setup-form')
+    await expect(form.getByTestId('ha-setup-relationship')).toHaveCount(2)
+    await page.keyboard.press('Escape')
+    const hub = page.getByTestId('ha-relationship').first().locator('[data-testid="ha-server"][data-role="standby"]')
+    await hub.getByTestId('ha-maintenance-start').click()
+    await page.getByTestId('confirm-type-input').fill('ns1-a')
+    await page.getByTestId('confirm-button').click()
+    const preview = page.getByTestId('plan-preview')
+    await expect(preview.getByTestId('plan-summary')).toContainText('maintenance')
+    await preview.getByTestId('plan-confirm-checkbox').check()
+    await preview.getByTestId('plan-apply').click()
+    await expect(preview.getByTestId('plan-result')).toContainText('Applied')
+    await expect(preview.getByTestId('plan-steps-step').last().getByTestId('plan-steps-node')).toHaveCount(2)
+  })
+
+
 
   test('the nodes page shows the HA roles, a zone has a secondary on each peer and the plan keeps three', async ({ page }) => {
     await scenario(page, 'four')

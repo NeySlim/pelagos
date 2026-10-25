@@ -17,6 +17,7 @@ import { LiveStatus, TileFrame } from './tiles'
 import { TraceTile } from './traceTile'
 import { LatestLease } from './LatestLease'
 import { dhcpFamily, haTone, mergePools, poolThresholds, rateFormat, splitRate } from './summary'
+import { flattenHa } from '../dhcp/haSetup'
 
 const MissionRadarTile = lazy(() => import('./radarTile'))
 
@@ -186,7 +187,8 @@ export function DhcpTile({ summary, editing, live, thresholds, nameOf, samples }
   const { warn, full } = poolThresholds(summary, thresholds)
   const pools = mergePools(summary?.pools)
   const hot = pools.filter((p) => p.percent >= warn).length
-  const ha = (summary?.ha || []).filter((h) => h.enabled !== false)
+  // One pill per server name: a Kea 3 hub shows one per relationship.
+  const ha = flattenHa(summary?.ha).filter((h) => h.enabled !== false)
   const dhcp = live?.dhcp
   const series = (dhcp?.series || []).slice(-LIVE_CAPACITY)
   const current = dhcp?.current

@@ -28,7 +28,8 @@
       "partner": "Partenaire",
       "unsent": "Non envoyés",
       "notInTouch": "sans contact",
-      "empty": "La HA n'est pas configurée"
+      "empty": "La HA n'est pas configurée",
+      "receives": "reçoit les mises à jour"
     },
     "inconsistencies": {
       "title": "Alertes",

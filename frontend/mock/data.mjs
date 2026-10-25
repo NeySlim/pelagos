@@ -722,6 +722,9 @@ function dhcpCapabilities(engine) {
   }
 }
 
+// A backend message (architecture section 19): the UI renders it, `title` is its English.
+const msg = (key, params = {}) => ({ key, params })
+
 function makeAlerts() {
   const a = (id, kind, severity, state, subject, title, extra = {}) => ({
     id,
@@ -741,42 +744,58 @@ function makeAlerts() {
     ...extra,
   })
   return [
-    a('ALRT0000000000000000000001', 'pool_near_full', 'warning', 'open', 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219', 'Pool 192.0.2.200 - 192.0.2.219 is 95% full', {
+    a('ALRT0000000000000000000001', 'pool_near_full', 'warning', 'open', 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219', 'pool 192.0.2.200-192.0.2.219 of subnet 3 is 95% used', {
+      title_message: msg('alert.pool_usage', { pool: '192.0.2.200-192.0.2.219', subnet_id: 3, percent: '95' }),
       engine: 'kea4',
       node_id: NODE_IDS.ns1,
       details: { subnet_id: 3, assigned: 19, total: 20, percent: 95 },
     }),
-    a('ALRT0000000000000000000002', 'record_without_lease', 'info', 'open', 'ip:192.0.2.120', 'old-nas.example.lan. has an A record but no lease', {
-      details: { name: 'old-nas.example.lan.', ip: '192.0.2.120' },
+    a('ALRT0000000000000000000002', 'record_without_lease', 'info', 'open', 'name:old-nas.example.lan./A', 'A record old-nas.example.lan. (192.0.2.120) has a DHCID but no lease', {
+      title_message: msg('alert.record_without_lease', { rtype: 'A', name: 'old-nas.example.lan.', addresses: ['192.0.2.120'] }),
+      details: { name: 'old-nas.example.lan.', rtype: 'A', addresses: ['192.0.2.120'] },
     }),
-    a('ALRT0000000000000000000003', 'ptr_mismatch', 'warning', 'open', 'ip:192.0.2.106', 'PTR for 192.0.2.106 points to workstation7.example.lan.', {
-      details: { ip: '192.0.2.106', ptr: 'workstation7.example.lan.', expected: 'pc7.example.lan.' },
+    a('ALRT0000000000000000000003', 'ptr_mismatch', 'warning', 'open', 'ip:192.0.2.106', '192.0.2.106: pc7.example.lan. has no PTR (found workstation7.example.lan.)', {
+      title_message: msg('alert.ptr_mismatch', {
+        ip: '192.0.2.106',
+        problems: { join: [msg('alert.ptr_mismatch.no_ptr', { name: 'pc7.example.lan.', found: 'workstation7.example.lan.' })], sep: '; ' },
+      }),
+      details: { ip: '192.0.2.106', problems: ['pc7.example.lan. has no PTR (found workstation7.example.lan.)'] },
     }),
-    a('ALRT0000000000000000000004', 'lease_without_record', 'info', 'open', 'ip:192.0.2.140', 'Lease 192.0.2.140 (lab1) has no DNS record', {
+    a('ALRT0000000000000000000004', 'lease_without_record', 'info', 'open', 'ip:192.0.2.140', 'lease 192.0.2.140 (lab1.example.lan.) has no A record in example.lan.', {
+      title_message: msg('alert.lease_without_record', { ip: '192.0.2.140', fqdn: 'lab1.example.lan.', rtype: 'A', zone: 'example.lan.' }),
       details: { ip: '192.0.2.140', hostname: 'lab1.example.lan' },
     }),
-    a('ALRT0000000000000000000005', 'insecure_key', 'critical', 'open', 'key:rndc-key', 'rndc key uses hmac-md5', {
+    // Security alerts carry the finding's description as their title.
+    a('ALRT0000000000000000000005', 'insecure_key', 'critical', 'open', 'key:rndc-key', 'The rndc key rndc-key uses hmac-md5.', {
+      title_message: msg('finding.weak_rndc_key.description', { key: 'rndc-key', algorithm: 'hmac-md5' }),
       engine: 'bind',
       node_id: NODE_IDS.ns2,
       details: { algorithm: 'hmac-md5' },
     }),
-    a('ALRT0000000000000000000006', 'd2_errors', 'warning', 'acked', 'd2:ns2', '4 DNS update errors on ns2', {
+    a('ALRT0000000000000000000006', 'd2_errors', 'warning', 'acked', 'd2:updates', 'DDNS updates failing: 4.0% over the last hour', {
+      title_message: msg('alert.d2_errors', { percent: '4.0' }),
       engine: 'd2',
       node_id: NODE_IDS.ns2,
       acked_by: 'alice',
       acked_at: ago(1800),
       details: { 'update-error': 2, 'update-timeout': 2 },
     }),
-    a('ALRT0000000000000000000007', 'ha_transition', 'info', 'resolved', 'kea4:ha:ns2', 'ns2 went from syncing to hot-standby', {
+    a('ALRT0000000000000000000007', 'ha_transition', 'info', 'resolved', 'kea4:ha:ns2', 'kea4 HA moved from syncing to hot-standby', {
+      title_message: msg('alert.ha_transition', { engine: 'kea4', from_state: 'syncing', to_state: 'hot-standby' }),
       engine: 'kea4',
       node_id: NODE_IDS.ns2,
       resolved_at: ago(3500),
     }),
-    a('ALRT0000000000000000000008', 'reservation_mismatch', 'warning', 'open', 'ip:192.0.2.125', 'Reservation for kiosk has no lease and the host is unreachable', {
+    a('ALRT0000000000000000000008', 'reservation_mismatch', 'warning', 'open', 'ip:192.0.2.125', `reservation hw-address=${MAC(400)} (kiosk.example.lan.) disagrees with DNS: A kiosk.example.lan. is 192.0.2.126`, {
+      title_message: msg('alert.reservation_mismatch', {
+        reservation: `hw-address=${MAC(400)}`,
+        fqdn: 'kiosk.example.lan.',
+        problems: { join: [msg('alert.reservation_mismatch.records', { rtype: 'A', fqdn: 'kiosk.example.lan.', addresses: ['192.0.2.126'] })], sep: '; ' },
+      }),
       details: { ip: '192.0.2.125', mac: MAC(400) },
     }),
     a('ALRT0000000000000000000009', 'config_divergence', 'warning', 'open', 'd2:config-file', '/etc/kea/kea-dhcp-ddns.conf differs from the running d2 configuration', {
-      title_message: { key: 'alert.config_file_divergence', params: { path: '/etc/kea/kea-dhcp-ddns.conf', engine: 'd2' } },
+      title_message: msg('alert.config_file_divergence', { path: '/etc/kea/kea-dhcp-ddns.conf', engine: 'd2' }),
       engine: 'd2',
       node_id: NODE_IDS.ns1,
       details: { path: '/etc/kea/kea-dhcp-ddns.conf', differences: ["/tsig-keys[0]/algorithm: 'HMAC-SHA256' in the file, 'HMAC-MD5' running"], count: 1, cause: 'file' },

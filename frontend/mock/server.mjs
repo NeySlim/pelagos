@@ -117,8 +117,24 @@ function adoptPlan(state, user, engine, body) {
 const invalid = (field, message) => new Problem(400, 'validation_error', 'Invalid request', [{ field, message }])
 // Finding ids carry no fixed vocabulary: the dual-key rotation is keyed on kind and engine.
 const SECURITY_FINDINGS = [
-  { id: 'rndc-md5', kind: 'insecure_key', severity: 'critical', engine: 'bind', subject: 'key:rndc-key', description: 'The rndc key uses hmac-md5.', proposal: 'Regenerate the rndc key with hmac-sha256.', risk: 'rndc restarts briefly; no query impact.' },
-  { id: 'd2-key-md5', kind: 'insecure_key', severity: 'warning', engine: 'd2', subject: 'key:kea-ddns', description: 'All nodes share one DDNS key created with hmac-md5.', proposal: 'Add a new hmac-sha256 key to the BIND update-policy, switch D2 on every node, then remove the old key.', risk: 'Updates in flight during the switch are retried.' },
+  {
+    id: 'rndc-md5', kind: 'insecure_key', severity: 'critical', engine: 'bind', subject: 'key:rndc-key',
+    description: 'The rndc key rndc-key uses hmac-md5.',
+    description_message: { key: 'finding.weak_rndc_key.description', params: { key: 'rndc-key', algorithm: 'hmac-md5' } },
+    proposal: 'Regenerate rndc-key in hmac-sha256 with a new secret and restart named.',
+    proposal_message: { key: 'finding.weak_rndc_key.proposal', params: { key: 'rndc-key', new_algorithm: 'hmac-sha256' } },
+    risk: 'Other tools using this key (scripts, a remote rndc) stop working until they get the new key.',
+    risk_message: { key: 'finding.weak_rndc_key.risk', params: {} },
+  },
+  {
+    id: 'd2-key-md5', kind: 'insecure_key', severity: 'warning', engine: 'd2', subject: 'key:kea-ddns',
+    description: 'D2 signs updates with kea-ddns in hmac-md5.',
+    description_message: { key: 'finding.weak_shared_kea_key.d2_description', params: { key: 'kea-ddns', algorithm: 'hmac-md5' } },
+    proposal: "Dual-key switch: add kea-ddns-sha256 to the primary's BIND, switch D2, remove the old key.",
+    proposal_message: { key: 'finding.weak_shared_kea_key.d2_proposal', params: { new_key: 'kea-ddns-sha256' } },
+    risk: 'During the switch both keys are accepted; DDNS updates keep working on every step.',
+    risk_message: { key: 'finding.weak_shared_kea_key.risk', params: {} },
+  },
   {
     id: 'stats-public', kind: 'insecure_listener', severity: 'warning', engine: 'bind', subject: 'statistics-channels',
     description: 'The statistics channel listens on 0.0.0.0 and allows all.',
@@ -127,7 +143,15 @@ const SECURITY_FINDINGS = [
     risk: 'Remote collectors of the BIND statistics lose access; Pelagos reads them locally.',
     risk_message: { key: 'finding.stats_nonlocal.risk', params: {} },
   },
-  { id: 'transfer-any', kind: 'insecure_listener', severity: 'info', engine: 'bind', subject: 'zone:partner.example.', description: 'allow-transfer is not restricted on one zone.', proposal: 'Restrict to key ddi-read.', risk: 'None.' },
+  {
+    id: 'transfer-any', kind: 'insecure_listener', severity: 'info', engine: 'bind', subject: 'zone:partner.example.',
+    description: 'Zone partner.example. allows zone transfers to any client.',
+    description_message: { key: 'finding.open_allow_transfer.description_zone', params: { zone: 'partner.example.' } },
+    // A configuration snippet: the backend sends no message for it, the UI shows it as is.
+    proposal: 'allow-transfer { key ddi-read; };',
+    risk: 'Secondaries that transfer by address only must be listed or given a key, or their transfers fail.',
+    risk_message: { key: 'finding.open_allow_transfer.risk', params: {} },
+  },
 ]
 const isDualKey = (finding) => finding?.kind === 'insecure_key' && finding?.engine === 'd2'
 const PASSWORD_RULE ='must have at least 12 characters and three of: lowercase, uppercase, digits, symbols'

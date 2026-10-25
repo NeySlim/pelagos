@@ -13,6 +13,17 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-25, final pass: one view key lookup, peer refusals
+- `connectors.bind.viewkeys.view_key_name` is the only reader of
+  `settings.dns.view_keys`; `services.zone_defaults.key_names` uses it, so a
+  non-default view with no key for a role gets no defaulted grant (it used to
+  fall back to the global key, which record plans refuse). Nothing to react to.
+- `PeerGateway.action`: a 401 or 403 from the peer (revoked or unknown node) is
+  `conflict` with the peer's detail, no longer `engine_unavailable`. A peer
+  without the master key answers a plan carrying secrets with
+  `precondition_failed`. A peer zone operation with no answer carries
+  `outcome_unknown` like `ops.run`.
+
 ## 2026-10-25, W3-PEER: peer write channel, zone key defaults, host views
 - `POST /repl/v1/actions/<name>` (`core.replication`: `ReplicationApp(actions=)`,
   `ReplicationClient.action`, `PeerActionError`; served by

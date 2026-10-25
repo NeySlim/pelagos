@@ -45,6 +45,7 @@ from pelagos.connectors.bind.rndc import (
     zone_status_from,
 )
 from pelagos.connectors.bind.stats import StatsClient
+from pelagos.connectors.bind.viewkeys import global_key_name, view_key_name
 from pelagos.connectors.bind.zonefile import ZoneFileError
 from pelagos.core.write_pipeline import FileChange
 from pelagos.domain import (
@@ -116,7 +117,7 @@ class BindBackend(BindExtras, DnsBackend):
         return dict(self.ctx.settings.get("dns", {}) or {})
 
     def key_name(self, role: str) -> str:
-        return self.dns_settings.get(f"{role}_key") or {"read": "ddi-read", "admin": "ddi-admin"}[role]
+        return global_key_name(self.dns_settings, role)
 
     def _key(self, role: str, name: str | None = None) -> TsigKey | None:
         """TSIG key: managed keys.conf first (what named loads, rotated by key plans), then the
@@ -146,13 +147,7 @@ class BindBackend(BindExtras, DnsBackend):
 
     def _view_key_name(self, role: str, view: str | None) -> str | None:
         """Views are selected by key (`match-clients { key ...; }`): `dns.view_keys.<view>.<role>`."""
-        if view in (None, DEFAULT_VIEW):
-            return None
-        entry = (self.dns_settings.get("view_keys") or {}).get(view)
-        name = entry.get(role) if isinstance(entry, dict) else entry
-        if not name:
-            raise NotSupported(f"no TSIG key configured for view {view} (settings dns.view_keys)")
-        return str(name)
+        return view_key_name(self.dns_settings, role, view)
 
     def _plan_ttl(self) -> int:
         return int(self.ctx.settings.get("plan_ttl_seconds", 600))

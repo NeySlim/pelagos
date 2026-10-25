@@ -9,24 +9,25 @@ from __future__ import annotations
 
 from typing import Any
 
+from pelagos.connectors.base import NotSupported
+from pelagos.connectors.bind.viewkeys import global_key_name, view_key_name
 from pelagos.domain import Change, ChangeOp
 
 DEFAULT_VIEW = "_default"
 
 
-def key_names(settings: dict[str, Any], view: str | None) -> tuple[str, str]:
-    """(admin key, read key) for `view`: `dns.view_keys.<view>` first, then `dns.admin_key/read_key`."""
+def key_names(settings: dict[str, Any], view: str | None) -> tuple[str | None, str | None]:
+    """(admin key, read key) for `view`, as record plans pick them; None for a role a non-default view
+    has no key for in `dns.view_keys` (record plans refuse that view, so no grant is defaulted)."""
     dns = dict(settings.get("dns") or {})
-    admin = str(dns.get("admin_key") or "ddi-admin")
-    read = str(dns.get("read_key") or "ddi-read")
-    if view not in (None, "", DEFAULT_VIEW):
-        entry = (dns.get("view_keys") or {}).get(view)
-        if isinstance(entry, dict):
-            admin = str(entry.get("admin") or admin)
-            read = str(entry.get("read") or read)
-        elif entry:
-            admin = read = str(entry)
-    return admin, read
+
+    def one(role: str) -> str | None:
+        try:
+            return view_key_name(dns, role, view) or global_key_name(dns, role)
+        except NotSupported:
+            return None
+
+    return one("admin"), one("read")
 
 
 def apply_key_defaults(change: Change, settings: dict[str, Any]) -> None:
@@ -39,7 +40,7 @@ def apply_key_defaults(change: Change, settings: dict[str, Any]) -> None:
     view = after.get("view") or change.target.partition("/")[0] or DEFAULT_VIEW
     admin, read = key_names(settings, view)
     # BIND refuses update-policy next to allow-update: an explicit allow-update keeps its own rule.
-    if "update_policy" not in after and "allow_update" not in after:
+    if admin and "update_policy" not in after and "allow_update" not in after:
         after["update_policy"] = [f"grant {admin} zonesub ANY"]
-    if "allow_transfer" not in after:
+    if read and "allow_transfer" not in after:
         after["allow_transfer"] = [f"key {read}"]

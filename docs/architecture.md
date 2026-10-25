@@ -1956,8 +1956,10 @@ an `op:` plan over `/repl/v1/plans/apply`, the peer audits it as
 A new primary zone (`op: add`, kind `primary`) whose `after` has no
 `update_policy` (and no `allow_update`) gets `grant <admin key> zonesub ANY`,
 and without `allow_transfer` gets `key <read key>`: the keys of
-`dns.view_keys.<view>` for a zone in a view, else `dns.admin_key` and
-`dns.read_key` (`services.zone_defaults`). A value given, even empty, is kept.
+`dns.view_keys.<view>` for a zone in a non-default view, `dns.admin_key` and
+`dns.read_key` in `_default` (`connectors.bind.viewkeys`, shared with record
+plans). A non-default view with no key for a role gets no default for it, since
+record plans refuse that view. A value given, even empty, is kept.
 `GET /dns/zones/{zone}/dnssec` adds to each key `tag`, `role`, `state`, `goal`,
 `ds_state`, `published`, `next_rollover` and `ds` (the DS of a KSK/CSK, SHA-256,
 from the zone's DNSKEY set), and to the status `ds`, `cds` and `ds_guidance`

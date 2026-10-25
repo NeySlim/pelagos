@@ -44,7 +44,14 @@ def test_views_use_their_own_keys():
     outside = _add("x/new.example.lan", kind="primary", view="outside")
     apply_key_defaults(outside, SETTINGS)
     assert outside.after["allow_transfer"] == ["key out-read"]
-    assert key_names(SETTINGS, "unknown") == ("ddi-admin", "ddi-read")
+    # Same keys as record plans: a view without its own key gets no grant they could never use.
+    assert key_names(SETTINGS, "unknown") == (None, None)
+    half = {"dns": {"view_keys": {"lab": {"read": "lab-read"}}}}
+    assert key_names(half, "lab") == (None, "lab-read")
+    lab = _add("lab/new.example.lan", kind="primary")
+    apply_key_defaults(lab, half)
+    assert lab.after == {"kind": "primary", "allow_transfer": ["key lab-read"]}
+    assert key_names(half, "_default") == ("ddi-admin", "ddi-read")
 
 
 def test_explicit_values_and_other_zones_are_kept():

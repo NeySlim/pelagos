@@ -118,7 +118,7 @@ test('HA heartbeats trace the ECG; the unsent queue fills on failover and drains
   await page.goto('/dhcp/v4/ha')
   const beat = page.getByTestId('ha-heartbeat').first()
   await expect(beat).toBeVisible()
-  await expect.poll(async () => Number(await beat.getAttribute('data-beats')), { timeout: 8000 }).toBeGreaterThan(0)
+  await expect.poll(async () => Number(await beat.getAttribute('data-beats')), { timeout: 12000 }).toBeGreaterThan(0)
   try {
     await event(page, 'ha-failover')
     await expect(beat).toHaveClass(/is-lost/)
@@ -202,7 +202,7 @@ test('motion off: checks are drawn at once and nothing traces', async ({ page })
     await page.keyboard.press('Escape')
     await page.goto('/dhcp/v4/ha')
     const beat = page.getByTestId('ha-heartbeat').first()
-    await expect.poll(async () => Number(await beat.getAttribute('data-beats')), { timeout: 8000 }).toBeGreaterThan(0)
+    await expect.poll(async () => Number(await beat.getAttribute('data-beats')), { timeout: 12000 }).toBeGreaterThan(0)
     await expect(page.locator('.fx-ecg-qrs.is-beat')).toHaveCount(0)
   } finally {
     await page.goto('/account')

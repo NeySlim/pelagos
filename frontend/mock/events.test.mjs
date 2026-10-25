@@ -146,9 +146,17 @@ describe('live mock', () => {
     await event('ha-failback')
     expect(primary.state).toBe('hot-standby')
     expect(primary.unsent_update_count).toBe(0)
+    const sample = '2026-01-01T00:00:00Z'
+    mock.state.ha.v4[1].collected_at = sample
+    await event('heartbeat')
+    expect(mock.state.ha.v4[1].collected_at).not.toBe(sample)
+    // State changes go out on `ha`; a heartbeat sample alone does not.
+    await sleep(30)
+    const changes = ws.messages.filter((m) => m.topic === 'ha').length
+    expect(changes).toBeGreaterThan(3)
     await event('heartbeat')
     await sleep(30)
-    expect(ws.messages.filter((m) => m.topic === 'ha').length).toBeGreaterThan(3)
+    expect(ws.messages.filter((m) => m.topic === 'ha').length).toBe(changes)
     ws.close()
   })
 })

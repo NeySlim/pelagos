@@ -188,14 +188,14 @@ export function createEvents(state, h) {
       return { ok: true }
     },
 
-    // One HA status sample per server: what the heartbeat traces draw.
+    // One HA status sample per server, what the heartbeat traces draw. It is read through
+    // GET /dhcp/{family}/ha; the `ha` topic only carries state changes.
     heartbeat() {
       for (const family of ['v4', 'v6']) {
         for (const s of state.ha[family] || []) {
           if (s.state === 'unavailable') continue
           s.collected_at = iso(now())
           if (s.partner?.in_touch) s.partner.age = 0
-          h.emit('ha', 'state', s)
         }
       }
       return { ok: true }

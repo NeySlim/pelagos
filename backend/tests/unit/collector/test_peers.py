@@ -6,7 +6,12 @@ from __future__ import annotations
 import pytest
 
 from pelagos.collector.alerts import AlertStore
-from pelagos.collector.pollers.peers import PeersPoller, ReplicationPeerClient, peer_engines
+from pelagos.collector.pollers.peers import (
+    CONFIG_DIVERGENCE_GRACE_SECONDS,
+    PeersPoller,
+    ReplicationPeerClient,
+    peer_engines,
+)
 from pelagos.collector.series import SeriesStore, connect
 from pelagos.core.replication import PeerStatus, ReplicationError
 from pelagos.domain import AlertKind, NodeModules, NodeStatus, Peer
@@ -100,12 +105,32 @@ def test_no_client_means_no_liveness_but_still_divergence_checks(store):
     clock = Clock()
     store.write_snapshot(NODE, "kea4", "config_hash", 1, {"hash": "a"})
     store.write_snapshot(PEER, "kea4", "config_hash", 1, {"hash": "b"})
-    out = make(store, None, clock, [peer()]).poll()
+    poller = make(store, None, clock, [peer()])
+    assert poller.poll().alerts == []  # a plan reaches the nodes' snapshots at different times
+    clock.now += CONFIG_DIVERGENCE_GRACE_SECONDS
+    out = poller.poll()
     assert {a.kind for a in out.alerts} == {AlertKind.CONFIG_DIVERGENCE}
     assert out.alerts[0].node_id is None and out.alerts[0].subject == "kea4:config-hash"
     assert out.alerts[0].details["hashes"] == {NODE: "a", PEER: "b"}
     store.write_snapshot(PEER, "kea4", "config_hash", 2, {"hash": "a"})
-    assert make(store, None, clock, [peer()]).poll().alerts == []
+    assert poller.poll().alerts == [] and poller.config_since == {}
+
+
+def test_config_divergence_that_clears_within_the_grace_never_alerts(store):
+    """The lab case: a reservation lands on the three Kea servers, one snapshot lags one poll."""
+    clock = Clock()
+    store.write_snapshot(NODE, "kea4", "config_hash", 1, {"hash": "old"})
+    store.write_snapshot(PEER, "kea4", "config_hash", 1, {"hash": "new"})
+    poller = make(store, None, clock, [peer()])
+    assert poller.poll().alerts == []
+    clock.now += 60
+    assert poller.poll().alerts == []
+    store.write_snapshot(NODE, "kea4", "config_hash", 2, {"hash": "new"})
+    clock.now += 60
+    assert poller.poll().alerts == [] and poller.config_since == {}
+    store.write_snapshot(PEER, "kea4", "config_hash", 3, {"hash": "newer"})
+    clock.now += 60
+    assert poller.poll().alerts == []  # diverging again starts a new grace period
 
 
 def test_config_divergence_compares_normalized_hashes(store):
@@ -115,7 +140,10 @@ def test_config_divergence_compares_normalized_hashes(store):
     store.write_snapshot(PEER, "kea4", "config_hash", 1, {"hash": "b", "normalized": "n"})
     assert make(store, None, clock, [peer()]).poll().alerts == []
     store.write_snapshot(PEER, "kea4", "config_hash", 2, {"hash": "b", "normalized": "m"})
-    out = make(store, None, clock, [peer()]).poll()
+    poller = make(store, None, clock, [peer()])
+    poller.poll()
+    clock.now += CONFIG_DIVERGENCE_GRACE_SECONDS
+    out = poller.poll()
     assert out.alerts[0].details["hashes"] == {NODE: "n", PEER: "m"}
 
 

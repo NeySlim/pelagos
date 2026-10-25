@@ -177,7 +177,9 @@ database, hook library paths, the HA hook's timers and multi-threading,
 DDNS settings, and the defaults one Kea version writes and another does not
 (a backup on Kea 3.0 next to a pair on 2.6 is compared fine). Servers that
 belong to no relationship are compared with each other. The alert's details
-name the relationship and the hash of each node.
+name the relationship and the hash of each node. The alert opens once the
+difference has lasted two minutes: right after a plan, each node reports its
+new configuration at its next poll.
 ### Set up or edit the relationship
 
 "Set up HA" (no relationship yet) or "Edit relationship" ("Edit

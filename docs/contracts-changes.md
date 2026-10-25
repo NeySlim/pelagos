@@ -34,6 +34,9 @@ What changed (file, symbol). Why. Which packages must react, and how.
   comparison. HA alerts of a hub's second relationship and later have
   subject `ha:<engine>:<server name>`. `ha_backup_out_of_sync` compares a
   backup with its own relationship's primary, never a hub.
+  The cluster-wide `config_divergence` opens after 120 s
+  (`CONFIG_DIVERGENCE_GRACE_SECONDS`): snapshots of one plan land up to an
+  engine poll plus a peer poll apart.
 - Sections 3 and 6: `/var/lib/pelagos/plans/<id>.plan` holds each plan and its
   parts, encrypted with the master key (`PlanStore(plans_dir=, box=)`,
   `set_parts`, `parts`; `PlanService.register_composite` stores the parts

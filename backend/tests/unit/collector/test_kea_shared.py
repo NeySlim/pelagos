@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from pelagos.collector.kea_shared import divergent, shared_hashes
-from pelagos.collector.pollers.peers import PeersPoller
+from pelagos.collector.pollers.peers import CONFIG_DIVERGENCE_GRACE_SECONDS, PeersPoller
 from pelagos.collector.series import SeriesStore, connect
 from pelagos.domain import AlertKind, NodeModules, Peer
 
@@ -269,10 +269,13 @@ def test_peers_poller_alerts_only_on_real_divergence(tmp_root):
             )
             for n in ("n2", "n3")
         ]
-        poller = PeersPoller(None, "n1", lambda: peers, store, {}, lambda: 2_000_000.0)
+        clock = [2_000_000.0]
+        poller = PeersPoller(None, "n1", lambda: peers, store, {}, lambda: clock[0])
         assert poller.poll().alerts == []
         nodes["n3"]["Dhcp4"]["subnet4"][0]["pools"] = [{"pool": "192.0.2.100 - 192.0.2.120"}]
         store.write_snapshot("n3", "kea4", "config_hash", 2, {"hash": "n3", **shared_hashes(nodes["n3"])})
+        assert poller.poll().alerts == []  # within the grace period
+        clock[0] += CONFIG_DIVERGENCE_GRACE_SECONDS
         [alert] = poller.poll().alerts
         assert alert.kind is AlertKind.CONFIG_DIVERGENCE and alert.subject == "kea4:config-hash"
         assert alert.details["relationships"][0]["servers"] == ["ns1", "ns2", "ns3"]

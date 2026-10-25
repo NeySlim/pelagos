@@ -35,6 +35,9 @@ KINDS = frozenset(
 OFFLINE_AFTER = 3
 # A backup's lease count may trail its active server's while updates are in flight: this long first.
 BACKUP_GRACE_SECONDS = 300
+# Each node snapshots its Kea config once per engine poll (60 s) and peers copy it once per peer poll:
+# right after a plan, the nodes' hashes disagree for up to that long without any real divergence.
+CONFIG_DIVERGENCE_GRACE_SECONDS = 120
 # Zone kinds whose serial must follow the primary's (section 15, serial_divergence).
 TRANSFERRED_KINDS = frozenset({"secondary", "mirror"})
 
@@ -137,6 +140,7 @@ class PeersPoller:
         self.failures: dict[str, int] = {}
         self.divergent_since: dict[tuple[str, str, str], int] = {}
         self.backup_since: dict[tuple[str, str], int] = {}
+        self.config_since: dict[str, int] = {}
         self._unimplemented_logged = False
         # Last node state sent per peer: (status, version, config_version, audit_count, error).
         self._node_seen: dict[str, tuple[Any, ...]] = {}
@@ -152,7 +156,7 @@ class PeersPoller:
         for peer in peers:
             self._poll_peer(peer, now, out)
         self._serial_divergence(now, out)
-        self._config_divergence(out)
+        self._config_divergence(now, out)
         self._backup_sync(now, out)
         return out
 
@@ -296,26 +300,33 @@ class PeersPoller:
             if key not in active:
                 del self.divergent_since[key]
 
-    def _config_divergence(self, out: PollOutcome) -> None:
+    def _config_divergence(self, now: int, out: PollOutcome) -> None:
         """Compare what the Kea servers of each HA relationship must share (collector.kea_shared):
         subnets, pools, reservations, options, classes and the peers list, never per-server keys.
 
         A node that publishes no relationship hashes (an older version) falls back to the normalized
-        hash of the whole configuration, then to the raw config-hash-get, across every node."""
+        hash of the whole configuration, then to the raw config-hash-get, across every node.
+        Raised once the divergence outlasts CONFIG_DIVERGENCE_GRACE_SECONDS."""
         for engine in (Engine.KEA4.value, Engine.KEA6.value):
-            payloads: dict[str, dict[str, Any]] = {}
-            for snap in self.store.snapshots(engine=engine):
-                if snap["kind"] == "config_hash":
-                    payloads[snap["node_id"]] = snap["payload"] or {}
-            if payloads and all("relationships" in p for p in payloads.values()):
-                hashes, groups = kea_shared.divergent(payloads)
-                if hashes:
-                    out.alerts.append(rules.config_divergence(engine, hashes, groups))
+            alert = self._config_divergence_of(engine)
+            if alert is None:
+                self.config_since.pop(engine, None)
                 continue
-            field = "normalized" if all(p.get("normalized") for p in payloads.values()) else "hash"
-            old: dict[str, str | None] = {n: p.get(field) for n, p in payloads.items()}
-            if len({h for h in old.values() if h}) > 1:
-                out.alerts.append(rules.config_divergence(engine, old))
+            since = self.config_since.setdefault(engine, now)
+            if now - since >= CONFIG_DIVERGENCE_GRACE_SECONDS:
+                out.alerts.append(alert)
+
+    def _config_divergence_of(self, engine: str) -> Alert | None:
+        payloads: dict[str, dict[str, Any]] = {}
+        for snap in self.store.snapshots(engine=engine):
+            if snap["kind"] == "config_hash":
+                payloads[snap["node_id"]] = snap["payload"] or {}
+        if payloads and all("relationships" in p for p in payloads.values()):
+            hashes, groups = kea_shared.divergent(payloads)
+            return rules.config_divergence(engine, hashes, groups) if hashes else None
+        field = "normalized" if all(p.get("normalized") for p in payloads.values()) else "hash"
+        old: dict[str, str | None] = {n: p.get(field) for n, p in payloads.items()}
+        return rules.config_divergence(engine, old) if len({h for h in old.values() if h}) > 1 else None
 
     def _backup_sync(self, now: int, out: PollOutcome) -> None:
         """Compare each Kea HA backup's lease count with its primary's (an active server's otherwise):

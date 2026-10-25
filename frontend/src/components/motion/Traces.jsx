@@ -71,6 +71,15 @@ export const SerialTrace = forwardRef(function SerialTrace(
   const readoutRef = useRef(null)
   const lastFrame = useRef(0)
   const [held, setHeld] = useState(false) // the playhead is away from the present
+  const [onScreen, setOnScreen] = useState(true)
+  const box = useRef(null)
+  // Off screen the paper stops; a glide in progress still finishes.
+  useEffect(() => {
+    if (!box.current || typeof IntersectionObserver === 'undefined') return undefined
+    const io = new IntersectionObserver(([entry]) => setOnScreen(entry.isIntersecting))
+    io.observe(box.current)
+    return () => io.disconnect()
+  }, [])
   const repaint = useRef(() => {})
   const getInks = useInks(useCallback(() => repaint.current(), []))
 
@@ -271,7 +280,7 @@ export const SerialTrace = forwardRef(function SerialTrace(
       lastFrame.current = time
       redraw()
     },
-    { enabled: true },
+    { enabled: onScreen || held },
   )
 
   useImperativeHandle(
@@ -315,6 +324,7 @@ export const SerialTrace = forwardRef(function SerialTrace(
 
   return (
     <div
+      ref={box}
       className={cn('fx-trace', className)}
       data-testid={testId}
       data-scrubbing={held ? 'true' : undefined}

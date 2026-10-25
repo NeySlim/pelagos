@@ -28,6 +28,8 @@ x-pelagos-common: &pelagos-common
     PELAGOS_REPLICATION_URL: ${PELAGOS_REPLICATION_URL:-}
     PELAGOS_KEA_GID: ${PELAGOS_KEA_GID:-8450}
     PELAGOS_BIND_HOST: bind
+    # BIND and Kea are the containers below: the installer reloads them, never restarts them.
+    PELAGOS_EXTERNAL_ENGINES: "1"
   volumes:
     - pelagos-etc:/etc/pelagos
     - pelagos-var:/var/lib/pelagos

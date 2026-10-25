@@ -168,6 +168,9 @@ wanted = {
     "group": group,
 }
 missing = {k: v for k, v in wanted.items() if not current.get(k)}
+# A recreated BIND container may come back on another address: follow the one rndc names.
+if current.get("rndc_address") == host and current.get("query_address") not in (None, "", address):
+    missing["query_address"] = address
 if missing:
     merged = {**current, **missing}
     if target == "bind":

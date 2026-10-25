@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
-  auditPhase, buildSteps, estimateMs, finishApply, finishRollback, jobSteps, localApplied, localReverted, recordDuration, resetEstimates, reverseFillMs, startApply, startRollback,
+  appliedSteps, auditPhase, buildSteps, estimateMs, finishApply, finishRollback, jobSteps, localApplied, localReverted, recordDuration, resetEstimates, reverseFillMs, startApply, startRollback,
 } from './planTrace'
 import { emitPlanEvent, onPlanEvent, planZone, recalledApply, rememberApply } from './planEvents'
 
@@ -73,6 +73,11 @@ describe('plan rail', () => {
     expect(reverseFillMs(applied, 'peers')).toBe(Math.round(estimateMs('peer') * 0.7))
     const measured = finishApply(localApplied(startApply(buildSteps(plan()), 0), 400), ok([['n1'], ['n2'], ['n3']]), 1000)
     expect(reverseFillMs(measured, 'peers')).toBe(420)
+  })
+
+  it('a plan applied out of sight walks back from a full rail', () => {
+    const steps = finishRollback(startRollback(appliedSteps(plan()), 0), { state: 'rolled_back', results: [] }, 10)
+    expect(states(steps).map((s) => s[1])).toEqual(['reverted', 'reverted', 'reverted'])
   })
 
   it('learns node durations as an average', () => {

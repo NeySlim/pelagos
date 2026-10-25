@@ -38,6 +38,12 @@ export function buildSteps(plan, selfId = plan?.node_id) {
   return steps
 }
 
+// The rail of a plan already applied when this view did not see it run: every step done,
+// durations unknown.
+export function appliedSteps(plan, selfId = plan?.node_id) {
+  return buildSteps(plan, selfId).map((s) => ({ ...s, state: 'done', nodes: s.nodes.map((n) => ({ ...n, state: 'done' })) }))
+}
+
 const clone = (steps) => steps.map((s) => ({ ...s, nodes: s.nodes.map((n) => ({ ...n })) }))
 
 function stepOf(steps, id) {

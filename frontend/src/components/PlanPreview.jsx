@@ -20,7 +20,7 @@ import { useMessage } from '../i18n/message'
 import { useMotionLevel } from '../contexts/MotionContext'
 import { emitPlanEvent, recalledApply, rememberApply } from '../lib/planEvents'
 import {
-  auditPhase, buildSteps, estimateMs, finishApply, finishRollback, jobSteps, localApplied, localReverted, reverseFillMs, startApply, startRollback,
+  appliedSteps, auditPhase, buildSteps, estimateMs, finishApply, finishRollback, jobSteps, localApplied, localReverted, reverseFillMs, startApply, startRollback,
 } from '../lib/planTrace'
 import { Button } from './Button'
 import { Badge } from './Badge'
@@ -207,7 +207,7 @@ export function PlanPreview({
     setBusy(true)
     setError(null)
     setPlan((p) => ({ ...p, state: 'rolling_back' }))
-    const base = railRef.current?.steps || buildSteps(plan)
+    const base = railRef.current?.steps || appliedSteps(plan)
     const walking = startRollback(base, performance.now())
     setRail({ steps: walking, reverse: true, fillMs: reverseFillMs(base, walking.find((s) => s.state === 'running')?.id) })
     emitPlanEvent({ type: 'rollback-start', plan, at: appliedAt.current })

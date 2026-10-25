@@ -28,7 +28,8 @@ cluster is idle. Feature code builds on the primitives below; keep their APIs sm
 - **One loop.** Per-frame work goes through `useAnimationLoop`: one shared
   `requestAnimationFrame`, registered only at `full` on a visible page. Budget: 2 ms of
   script per frame for everything on screen (`loopStats().p95`, `window.__pelagosLoop()`
-  in development).
+  in development). `useCountUp` and `SignalLink` register on it too; nothing else calls
+  `requestAnimationFrame` per frame.
 - **Accessibility.** Decorative marks are `aria-hidden`; numbers expose their final
   value; a state is always a word next to its color.
 
@@ -69,6 +70,16 @@ Helpers (`primitives.js`): `flipRows(rows, mutate, level?)` measures, runs `muta
 
 `DataTable` uses `SkeletonTable` while loading, `flipRows` on a local sort and
 `RowEnter` for rows that appear after the first load when `animateInserts` is set.
+
+## Wiring left to feature lots
+
+These primitives are tested in isolation; each gets an e2e check when a page uses it.
+
+- `Checklist` and `StepRail`: plan preview, apply and job progress (procedures lot).
+- `RowEnter` and `RowLeave`: set `animateInserts` on live tables (leases, records, jobs).
+- `RollingNumber`, `Readout`, `Ruler`, `ScaleBar`, `SignalLink`: the dashboard cluster
+  trace, which replaces the Mission radar; under Instrument the radar is a still frame.
+- Hover row actions on tables.
 
 ## Choices
 

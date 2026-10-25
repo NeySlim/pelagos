@@ -94,7 +94,7 @@ export function HeartbeatTrace({ beat = 0, lost = false, className, testId = 'he
 }
 
 // Lease updates waiting for the HA partner: one 1 x 6 px tick per update (up to
-// QUEUE_SLOTS, then a "+"), new ones land, sent ones leave toward the partner 70 ms apart.
+// QUEUE_SLOTS, then "+N" for the rest), new ones land, sent ones leave toward the partner 70 ms apart.
 export function UnsentQueue({ count, className, testId = 'unsent-queue' }) {
   const level = useMotionLevel()
   const value = count !== null && count !== undefined && count !== '' && Number.isFinite(Number(count)) ? Math.max(0, Math.floor(Number(count))) : null
@@ -131,7 +131,7 @@ export function UnsentQueue({ count, className, testId = 'unsent-queue' }) {
     <span className={cn('fx-queue', className)} data-testid={testId} data-count={value ?? ''} data-draining={leaving ? 'true' : undefined}>
       <span className="fx-queue-slots" aria-hidden="true">
         {slots}
-        {value !== null && value > QUEUE_SLOTS && <b>+</b>}
+        {value !== null && value > QUEUE_SLOTS && <b data-testid={`${testId}-more`}>+{value - QUEUE_SLOTS}</b>}
       </span>
       {value === null ? <span>-</span> : <RollingNumber value={value} delta={false} />}
     </span>

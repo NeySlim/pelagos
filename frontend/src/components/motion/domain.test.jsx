@@ -111,7 +111,10 @@ describe('UnsentQueue', () => {
     expect(container.querySelectorAll('.fx-queue-slots > i')).toHaveLength(0)
     rerender(again(<UnsentQueue count={40} />))
     expect(container.querySelectorAll('.fx-queue-slots > i')).toHaveLength(24)
-    expect(container.querySelector('.fx-queue-slots > b')).toHaveTextContent('+')
+    expect(screen.getByTestId('unsent-queue-more')).toHaveTextContent('+16')
+    rerender(again(<UnsentQueue count={187} />))
+    expect(container.querySelectorAll('.fx-queue-slots > i')).toHaveLength(24)
+    expect(screen.getByTestId('unsent-queue-more')).toHaveTextContent('+163')
   })
 
   it('changes at once at off', () => {

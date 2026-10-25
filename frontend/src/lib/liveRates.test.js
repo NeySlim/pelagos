@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { advance, appendPoint, combine, dhcpCounters, dnsCounters, emptySource, keaCounter, latest, prune, sampleTime, share, summarizeLive } from './liveRates'
+import { MIN_SAMPLE_GAP_MS, advance, liveWindowLabel, liveWindowSeconds, appendPoint, combine, dhcpCounters, dnsCounters, emptySource, keaCounter, latest, prune, sampleTime, share, summarizeLive } from './liveRates'
 import { liveTargets } from '../hooks/useLiveRates'
 
 const sample = (t, total, parts = {}) => ({ t: t * 1000, counters: { total, parts } })
@@ -49,6 +49,25 @@ describe('rates', () => {
     expect(latest(s.points)).toBe(10)
   })
 
+  it('keeps the older sample when two arrive too close together', () => {
+    let s = advance(emptySource(), sample(0, 100, { NOERROR: 100 }))
+    // One query over 11 ms would read as 90.9/s.
+    const close = advance(s, { t: 11, counters: { total: 101, parts: { NOERROR: 101 } } })
+    expect(close).toBe(s)
+    s = advance(close, sample(4, 140, { NOERROR: 140 }))
+    expect(s.points).toEqual([{ t: 4000, v: 10 }])
+    expect(advance(s, { t: 4000 + MIN_SAMPLE_GAP_MS - 1, counters: { total: 150, parts: {} } })).toBe(s)
+  })
+
+  it('labels the live window from the points it holds', () => {
+    expect(liveWindowSeconds(2)).toBe(28)
+    expect(liveWindowSeconds(20)).toBe(76)
+    expect(liveWindowSeconds(100)).toBe(176)
+    const t = (key, vars) => `${key}:${JSON.stringify(vars)}`
+    expect(liveWindowLabel(t, 3)).toBe('live.agoSeconds:{"seconds":28}')
+    expect(liveWindowLabel(t, 45)).toBe('live.ago:{"minutes":3}')
+  })
+
   it('keeps at most `capacity` points', () => {
     let points = []
     for (let i = 0; i < 10; i += 1) points = appendPoint(points, { t: i, v: i }, 4)
@@ -83,6 +102,12 @@ describe('dashboard targets and view', () => {
     const targets = liveTargets([node('a', 'online', { bind: true, kea4: true, kea6: false }), node('b', 'offline'), node('c', 'online', { bind: false, kea4: false, kea6: true })])
     expect(targets.map((t) => t.key)).toEqual(['dns:a', 'dhcp:v4:a', 'dhcp:v6:c'])
     expect(liveTargets([node('a')], { dns: false, dhcp: false })).toEqual([])
+  })
+
+  it('polls Kea6 only with the cluster module dhcpv6', () => {
+    const nodes = [node('a', 'online', { bind: false, kea4: true, kea6: true })]
+    expect(liveTargets(nodes, { dhcpv6: false }).map((t) => t.key)).toEqual(['dhcp:v4:a'])
+    expect(liveTargets(nodes, { dhcpv6: true }).map((t) => t.key)).toEqual(['dhcp:v4:a', 'dhcp:v6:a'])
   })
 
   it('sums the nodes and keeps each node rate', () => {

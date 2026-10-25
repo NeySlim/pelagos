@@ -5,6 +5,11 @@
 
 export const LIVE_INTERVAL_MS = 4000
 export const LIVE_CAPACITY = 45
+// Two samples closer than this keep the older one: counter rounding over a few
+// milliseconds would read as a spike.
+export const MIN_SAMPLE_GAP_MS = LIVE_INTERVAL_MS / 2
+// A live chart spans at least this many polls; fewer points sit at its right end.
+export const LIVE_MIN_SLOTS = 8
 export const RCODES = ['NOERROR', 'NXDOMAIN', 'SERVFAIL', 'REFUSED']
 
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0)
@@ -43,6 +48,18 @@ export function sampleTime(stats, now) {
   return Number.isFinite(t) ? t : now
 }
 
+// Seconds a live chart of `count` points spans (stretched to LIVE_MIN_SLOTS, capped).
+export function liveWindowSeconds(count, capacity = LIVE_CAPACITY) {
+  const slots = Math.min(capacity, Math.max(count, LIVE_MIN_SLOTS))
+  return Math.round(((slots - 1) * LIVE_INTERVAL_MS) / 1000)
+}
+
+// Left axis label of a live chart: "-30 s" under a minute, then "-3 min".
+export function liveWindowLabel(t, count) {
+  const seconds = liveWindowSeconds(count)
+  return seconds < 60 ? t('live.agoSeconds', { seconds }) : t('live.ago', { minutes: Math.round(seconds / 60) })
+}
+
 export function appendPoint(points, point, capacity = LIVE_CAPACITY) {
   const out = [...(points || []), point]
   return out.length > capacity ? out.slice(out.length - capacity) : out
@@ -51,14 +68,15 @@ export function appendPoint(points, point, capacity = LIVE_CAPACITY) {
 export const emptySource = () => ({ last: null, points: [], parts: {} })
 
 // Feeds one sample { t, counters } into a source { last, points, parts }. The same
-// snapshot twice adds nothing; a counter reset rebases on the new sample.
-export function advance(source, sample, capacity = LIVE_CAPACITY) {
+// snapshot twice, or a sample under `minGapMs` after the last, adds nothing; a counter
+// reset rebases on the new sample.
+export function advance(source, sample, capacity = LIVE_CAPACITY, minGapMs = MIN_SAMPLE_GAP_MS) {
   const state = source || emptySource()
   if (!sample?.counters) return state
   const last = state.last
   if (!last) return { ...state, last: sample }
   const dt = (sample.t - last.t) / 1000
-  if (!(dt > 0)) return state
+  if (!(dt > 0) || dt * 1000 < minGapMs) return state
   const delta = sample.counters.total - last.counters.total
   if (delta < 0) return { ...state, last: sample }
   const points = appendPoint(state.points, { t: sample.t, v: delta / dt }, capacity)

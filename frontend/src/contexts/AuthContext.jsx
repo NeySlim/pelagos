@@ -5,6 +5,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react'
 import { api } from '../services/api'
 import { apiClient } from '../services/apiClient'
+import { resetLiveRates } from '../hooks/useLiveRates'
 import { applyServerPreferences, getPreferences, setAuthenticated as setPrefsAuthenticated } from '../stores/preferencesStore'
 import i18n from '../i18n'
 
@@ -36,6 +37,7 @@ export function AuthProvider({ children }) {
     setCapabilities(null)
     apiClient.clearCsrfToken()
     setPrefsAuthenticated(false)
+    resetLiveRates()
   }, [])
 
   const loadCapabilities = useCallback(async () => {

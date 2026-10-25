@@ -21,6 +21,10 @@ function load() {
 
 let store = null
 const getStore = () => (store ??= load())
+// Keys with a request in flight, shared by every poller; a reset bumps the generation so
+// answers requested before it are dropped.
+const inFlight = new Set()
+let generation = 0
 
 function save() {
   try {
@@ -30,9 +34,11 @@ function save() {
   }
 }
 
-// Forgets every series (sign-out, tests).
+// Forgets every series: called when the session ends (sign-out, expiry) and by tests.
 export function resetLiveRates() {
   store = {}
+  generation += 1
+  inFlight.clear()
   try {
     sessionStorage.removeItem(STORAGE_KEY)
   } catch {
@@ -45,8 +51,9 @@ export const dhcpTarget = (family, id) => ({
   key: `dhcp:${family}:${id}`, kind: 'dhcp', family, node: id, load: () => api.dhcp.stats(family, id), counters: (res) => dhcpCounters(res, family),
 })
 
-// Targets for the dashboard: BIND and Kea counters of every node that runs them.
-export function liveTargets(nodes, { dns = true, dhcp = true } = {}) {
+// Targets for the dashboard: BIND and Kea counters of every node that runs them. Kea6
+// also needs the cluster module dhcpv6, which the backend requires on /dhcp/v6.
+export function liveTargets(nodes, { dns = true, dhcp = true, dhcpv6 = true } = {}) {
   const out = []
   for (const n of nodes || []) {
     if (n.status && n.status !== 'online') continue
@@ -56,14 +63,25 @@ export function liveTargets(nodes, { dns = true, dhcp = true } = {}) {
     const has = (engine) => !m || m[engine] !== false
     if (dns && has('bind')) out.push(dnsTarget(id))
     for (const family of ['v4', 'v6']) {
+      if (family === 'v6' && !dhcpv6) continue
       if (dhcp && has(family === 'v4' ? 'kea4' : 'kea6')) out.push(dhcpTarget(family, id))
     }
   }
   return out
 }
 
-async function sampleAll(targets) {
-  const results = await Promise.allSettled(targets.map((tg) => Promise.resolve().then(tg.load)))
+async function sampleAll(all) {
+  const targets = all.filter((tg) => !inFlight.has(tg.key))
+  if (targets.length === 0) return false
+  const gen = generation
+  targets.forEach((tg) => inFlight.add(tg.key))
+  let results
+  try {
+    results = await Promise.allSettled(targets.map((tg) => Promise.resolve().then(tg.load)))
+  } finally {
+    if (gen === generation) targets.forEach((tg) => inFlight.delete(tg.key))
+  }
+  if (gen !== generation) return false
   const now = Date.now()
   const s = getStore()
   let changed = false
@@ -72,7 +90,9 @@ async function sampleAll(targets) {
     const tg = targets[i]
     const counters = tg.counters(r.value)
     if (!counters) return
-    s[tg.key] = advance(s[tg.key] || emptySource(), { t: sampleTime(r.value, now), counters })
+    const next = advance(s[tg.key] || emptySource(), { t: sampleTime(r.value, now), counters })
+    if (next === s[tg.key]) return
+    s[tg.key] = next
     changed = true
   })
   if (changed) save()

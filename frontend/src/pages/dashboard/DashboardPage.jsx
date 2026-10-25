@@ -17,6 +17,7 @@ import { useApi } from '../../hooks/useApi'
 import { usePermission } from '../../hooks/usePermission'
 import { useWsTopic } from '../../hooks/useWebSocket'
 import { useMobile } from '../../contexts/MobileContext'
+import { useAuth } from '../../contexts/AuthContext'
 import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
@@ -37,6 +38,7 @@ export default function DashboardPage() {
   const { t } = useTranslation(['dashboard', 'common'])
   const { isMobile } = useMobile()
   const { hasPermission } = usePermission()
+  const { modules } = useAuth()
   const { showSuccess, showError } = useNotification()
   const canAlerts = hasPermission('read:alerts')
   const canSettings = hasPermission('admin:settings')
@@ -54,7 +56,7 @@ export default function DashboardPage() {
   const settings = useApi(() => (needSettings ? api.admin.settings().catch(() => null) : Promise.resolve(null)), [needSettings])
   const saved = useApi(() => api.dashboard.getLayout().catch(() => ({ layout: [] })), [])
   const nodes = summary.data?.nodes
-  const targets = useMemo(() => liveTargets(nodes, { dns: canDns, dhcp: canDhcp }), [nodes, canDns, canDhcp])
+  const targets = useMemo(() => liveTargets(nodes, { dns: canDns, dhcp: canDhcp, dhcpv6: Boolean(modules?.dhcpv6) }), [nodes, canDns, canDhcp, modules?.dhcpv6])
   const sources = useLiveRates(targets)
   const live = useMemo(() => summarizeLive(targets, sources), [targets, sources])
   const nameOf = useCallback((id) => (nodes || []).find((n) => n.peer.id === id)?.peer.name || String(id || '').slice(-6), [nodes])

@@ -992,7 +992,7 @@ def _only_this_node(node_ids: Any, me: str) -> None:
     others = [n for n in node_ids if n != me]
     if others:
         raise ValidationError(
-            "a configuration replace applies to the node it was loaded from only; plan the other node apart",
+            "a configuration replace applies to the node it was loaded from only; plan each node apart",
             [field_error("node_ids", str(n)) for n in others],
         )
 

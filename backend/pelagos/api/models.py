@@ -224,6 +224,7 @@ Preferences = model(
         "theme_mode": fields.String(enum=["system", "dark", "light"]),
         "language": fields.String(enum=["en", "fr"]),
         "animations": fields.String(enum=["full", "reduced", "off"]),
+        "ambient": fields.String(enum=["on", "off"]),
         "dashboard_layout": fields.List(fields.Raw),
     },
 )

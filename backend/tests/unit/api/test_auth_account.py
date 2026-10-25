@@ -122,10 +122,11 @@ def test_preferences(login):
     c = login("vera")
     prefs = c.get("/api/v1/account/preferences").get_json()
     assert prefs == {
-        "theme_family": "mission",
+        "theme_family": "instrument",
         "theme_mode": "system",
         "language": "en",
         "animations": "full",
+        "ambient": "on",
         "dashboard_layout": [],
     }
     r = c.put(
@@ -133,9 +134,13 @@ def test_preferences(login):
     )
     assert r.status_code == 200 and r.get_json()["language"] == "fr" and r.get_json()["theme_mode"] == "dark"
     assert r.get_json()["animations"] == "reduced"
-    r = c.put("/api/v1/account/preferences", json={"language": "xx", "color": "red", "animations": "wild"})
+    assert c.put("/api/v1/account/preferences", json={"ambient": "off"}).get_json()["ambient"] == "off"
+    r = c.put(
+        "/api/v1/account/preferences",
+        json={"language": "xx", "color": "red", "animations": "wild", "ambient": "loud"},
+    )
     assert r.status_code == 400
-    assert {e["field"] for e in r.get_json()["errors"]} == {"language", "color", "animations"}
+    assert {e["field"] for e in r.get_json()["errors"]} == {"language", "color", "animations", "ambient"}
     assert c.get("/api/v1/account/preferences").get_json()["language"] == "fr"
 
 

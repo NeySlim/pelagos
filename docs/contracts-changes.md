@@ -13,6 +13,21 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-25, UI Instrument: default family, ambient preference
+- `GET/PUT /account/preferences` (`services/account_service.py`, `api/models.py`):
+  new key `ambient` (`on`, `off`, default `on`); the default `theme_family` is now
+  `instrument` (architecture sections 4, 10 and 17). Additive: a stored choice is
+  kept, older clients ignore the key. The mock server follows.
+- `frontend/`: every theme family gains four tokens (`bg-inset`, `border-strong`,
+  `contrast-bg`, `contrast-fg`); `effects` may now be `'instrument'`, written as
+  `data-effects` on `<html>`, with its layer in `src/styles/instrument.css`. The
+  motion level stays `data-motion`; the ambient choice is `data-ambient`. Motion
+  v2 tokens and primitives live in `src/styles/motion.css` and
+  `src/components/motion/` (README there). No new dependency: odometer, FLIP and
+  springs are in-house (`linear()` easings). IBM Plex Sans and Mono (SIL OFL 1.1)
+  are self-hosted under `frontend/public/fonts/`; Mission Control keeps Michroma,
+  Inter and Fira Code under its own `data-effects`.
+
 ## 2026-10-25, open points: enroll command and security findings shape
 `docs/architecture.md` section 14 shows the `command` of
 `POST /nodes/enroll-token` (`enroll_command`: `sudo`, `--name <name>`,

@@ -15,6 +15,7 @@ import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, 
 import { createWsHub } from './ws.mjs'
 import { opsHandlers } from './ops.mjs'
 import { heartbeatAge, liveCounters } from './live.mjs'
+import { createEvents, poolHistoryKey, stopEventTimers } from './events.mjs'
 
 const API = '/api/v1'
 const ANON = new Set(['GET /health', 'GET /version', 'POST /auth/login'])
@@ -307,6 +308,8 @@ function zoneSerials(state, zone) {
   for (const node of state.nodes) {
     let value = serial
     if (zone.name === 'lab.example.lan.' && !node.is_self) value = serial - 1
+    // Right after a change the secondaries are one serial behind until their IXFR lands.
+    else if (!node.is_self && (state.transferLag?.[zone.name] || 0) > Date.now()) value = serial - 1
     if (zone.kind === 'forward') value = null
     serials[node.peer.id] = value
   }
@@ -798,13 +801,17 @@ function seriesPools(state, query) {
     series: rows
       .filter((r) => !query.get('pool') || r.pool === query.get('pool'))
       .map((r, idx) => {
+        // Samples recorded by mock events replace the synthetic curve from their first instant.
+        const recorded = (state.poolHistory?.[poolHistoryKey(engine, r.subnet_id, r.pool, nodeId)] || []).filter(([ts]) => ts * 1000 >= from && ts * 1000 <= to)
+        const until = recorded.length ? recorded[0][0] * 1000 : Infinity
         const points = []
-        for (let t = from, i = 0; t <= to && i < 2000; t += step, i += 1) {
+        for (let t = from, i = 0; t <= to && t < until && i < 2000; t += step, i += 1) {
           // A daily swell and a 7 min churn; the newest point is the pool as it is now.
           const wave = Math.sin((t / 3600000 / 24) * Math.PI * 2 + idx) * 0.08 + Math.sin((t / 420000) * Math.PI * 2 + idx) * 0.03
           const assigned = to - t < step ? r.assigned : Math.max(0, Math.min(r.total, Math.round(r.assigned * (0.93 + wave))))
           points.push([Math.floor(t / 1000), assigned, r.total])
         }
+        points.push(...recorded)
         return { key: { engine, subnet_id: r.subnet_id, pool: r.pool, node_id: nodeId }, points }
       }),
   }
@@ -940,7 +947,18 @@ function settingsPlan(state, user, { scope, engine, target, current, next, tool,
 
 // ------------------------------------------------------------------ handlers
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
 function buildHandlers(state, emit) {
+  // A record plan changed the zone on this node: its secondaries lag until the transfer.
+  const markTransfer = (planId) => {
+    const plan = state.plans.get(planId)?.plan
+    if (plan?.scope !== 'dns.rrset' || !state.transferMs) return
+    const zone = String(plan.changes?.[0]?.target || '').split('/')[0]
+    if (!zone) return
+    state.transferLag ||= {}
+    state.transferLag[zone] = Date.now() + state.transferMs
+  }
   const kea = (family) => (family === 'v4' ? 'kea4' : 'kea6')
   const keaTool = (family) => `kea-dhcp${family === 'v4' ? '4' : '6'} -t`
   const nodeOr = (q) => q.get('node_id') || state.selfId
@@ -1787,15 +1805,38 @@ function buildHandlers(state, emit) {
       if (held.plan.state === 'validated' && isExpired(held.plan)) held.plan.state = 'expired'
       return held.plan
     },
-    'POST /plans/{id}/apply': ({ params, body, user, res }) => {
-      const out = applyPlan(state, user, params.id, Boolean(body.confirm), emit)
+    // With applyNodeMs set, a plan takes time like the real one: this node applies (its audit
+    // entry goes out), then each peer, then the ApplyResult. A rollback runs peers first.
+    'POST /plans/{id}/apply': async ({ params, body, user, res }) => {
+      const pace = state.applyNodeMs || 0
+      const job = Boolean(state.plans.get(params.id)?.job)
+      const queued = []
+      const out = applyPlan(state, user, params.id, Boolean(body.confirm), pace && !job ? (...a) => queued.push(a) : emit)
       if (out.code) throw new Problem(out.status, out.code, out.detail)
+      if (queued.length) {
+        const peers = (out.body?.results || []).filter((r) => r.node_id !== state.selfId).length
+        await sleep(pace)
+        queued.filter(([topic]) => topic === 'audit').forEach((a) => emit(...a))
+        await sleep(pace * peers)
+        queued.filter(([topic]) => topic !== 'audit').forEach((a) => emit(...a))
+        markTransfer(params.id)
+      }
       res.statusCode = out.status
       return out.body
     },
-    'POST /plans/{id}/rollback': ({ params, user }) => {
-      const out = rollbackPlan(state, user, params.id, emit)
+    'POST /plans/{id}/rollback': async ({ params, user }) => {
+      const pace = state.applyNodeMs || 0
+      const queued = []
+      const out = rollbackPlan(state, user, params.id, pace ? (...a) => queued.push(a) : emit)
       if (out.code) throw new Problem(out.status, out.code, out.detail)
+      if (pace) {
+        const peers = (out.body?.results || []).filter((r) => r.node_id !== state.selfId).length
+        await sleep(pace * peers)
+        queued.filter(([topic]) => topic === 'audit').forEach((a) => emit(...a))
+        await sleep(pace)
+        queued.filter(([topic]) => topic !== 'audit').forEach((a) => emit(...a))
+        markTransfer(params.id)
+      }
       return out.body
     },
     'DELETE /plans/{id}': ({ params, user }) => {
@@ -2117,9 +2158,13 @@ function readBody(req) {
   })
 }
 
-export function createMockServer({ quiet = false, jobStepMs } = {}) {
+// `live` paces the mock like a cluster: plans take time per node, secondaries transfer after
+// a change, HA servers report a heartbeat every haBeatMs. Off by default for unit tests.
+export function createMockServer({ quiet = false, jobStepMs, live = false, applyNodeMs = live ? 350 : 0, transferMs = live ? 1500 : 0, haBeatMs = live ? 3000 : 0 } = {}) {
   const state = createState()
   if (jobStepMs !== undefined) state.jobStepMs = jobStepMs
+  state.applyNodeMs = applyNodeMs
+  state.transferMs = transferMs
 
   const sessionOf = (req) => {
     const sid = parseCookies(req.headers.cookie).pelagos_session
@@ -2132,6 +2177,9 @@ export function createMockServer({ quiet = false, jobStepMs } = {}) {
 
   const hub = createWsHub({ authenticate: (req) => sessionOf(req).user, nodeId: state.selfId })
   const handlers = buildHandlers(state, hub.emit)
+  const events = createEvents(state, {
+    emit: hub.emit, inPool4, poolRange, ipToInt, utilization, bumpSerial, findZone,
+  })
   const missing = ENDPOINTS.filter((spec) => !handlers[spec])
   if (missing.length) throw new Error(`mock server misses handlers for: ${missing.join(', ')}`)
 
@@ -2168,6 +2216,15 @@ export function createMockServer({ quiet = false, jobStepMs } = {}) {
       if (!quiet) console.log(`${req.method} ${url.pathname}${url.search} ${res.statusCode} ${Date.now() - started}ms`)
     })
     try {
+      // Mock only: produce a cluster event (see events.mjs).
+      if (url.pathname === `${API}/_mock/events` && req.method === 'POST') {
+        const raw = await readBody(req)
+        const body = raw ? JSON.parse(raw) : {}
+        const out = events.run(body.kind, body)
+        if (!out) throw new Problem(404, 'not_found', `unknown event kind ${body.kind}`)
+        sendJson(res, 200, out)
+        return
+      }
       if (!url.pathname.startsWith(`${API}/`)) throw new Problem(404, 'not_found', 'not an API path')
       const path = url.pathname.slice(API.length)
       const route = routeOf(req.method, path)
@@ -2230,6 +2287,8 @@ export function createMockServer({ quiet = false, jobStepMs } = {}) {
     }
   }, 15000)
   ticker.unref?.()
+  const beat = haBeatMs > 0 ? setInterval(() => events.run('heartbeat'), haBeatMs) : null
+  beat?.unref?.()
 
   return {
     state,
@@ -2240,8 +2299,11 @@ export function createMockServer({ quiet = false, jobStepMs } = {}) {
         server.listen(port, host, () => resolve(server.address()))
       })
     },
+    events,
     close() {
       clearInterval(ticker)
+      if (beat) clearInterval(beat)
+      stopEventTimers()
       hub.closeAll()
       return new Promise((resolve) => server.close(() => resolve()))
     },
@@ -2254,7 +2316,7 @@ if (isMain) {
   const portArg = args.indexOf('--port')
   const port = Number(portArg >= 0 ? args[portArg + 1] : process.env.MOCK_PORT || 8481)
   const host = process.env.MOCK_HOST || '127.0.0.1'
-  const mock = createMockServer({ quiet: args.includes('--quiet') })
+  const mock = createMockServer({ quiet: args.includes('--quiet'), live: !args.includes('--static') })
   mock.listen(port, host).then((addr) => {
     console.log(`Pelagos mock API on http://${addr.address}:${addr.port}${API} (users: admin/admin, alice/alice, bob/bob + 123456, viewer/viewer)`)
   })

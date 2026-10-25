@@ -219,7 +219,8 @@ export function applyPlan(state, user, id, confirm, emit) {
   plan.state = 'applied'
   // Rollback stays allowed for the plan TTL after apply.
   plan.expires_at = iso(Date.now() + (state.settings.plan_ttl_seconds || 600) * 1000)
-  const entry = auditEntry(state, user, { action: `${plan.scope}.apply`, target: plan.changes[0]?.target || plan.scope, engine: plan.engine, plan_id: plan.id, diff: plan.diff })
+  // The node entry of section 6: its request names the entry kind and the verb.
+  const entry = auditEntry(state, user, { action: `${plan.scope}.apply`, target: plan.changes[0]?.target || plan.scope, engine: plan.engine, plan_id: plan.id, diff: plan.diff, request: { entry: 'node', verb: 'apply' } })
   emit('audit', 'entry', entry)
   const result = { plan_id: plan.id, state: 'applied', results: nodeResults(state, plan, true, message, [entry.id]), finished_at: iso(Date.now()) }
   emit('plans', 'applied', result)
@@ -238,7 +239,7 @@ export function rollbackPlan(state, user, id, emit) {
   held.rollback()
   bumpConfigHashes(state, plan)
   plan.state = 'rolled_back'
-  const entry = auditEntry(state, user, { action: `${plan.scope}.rollback`, target: plan.changes[0]?.target || plan.scope, engine: plan.engine, plan_id: plan.id, diff: plan.diff, result: 'rolled_back' })
+  const entry = auditEntry(state, user, { action: `${plan.scope}.rollback`, target: plan.changes[0]?.target || plan.scope, engine: plan.engine, plan_id: plan.id, diff: plan.diff, result: 'rolled_back', request: { entry: 'node', verb: 'rollback' } })
   emit('audit', 'entry', entry)
   const result = {
     plan_id: plan.id,

@@ -7,6 +7,13 @@ case "$1" in
   purge)
     rm -rf /var/lib/pelagos /var/lib/pelagos-helper /etc/pelagos /run/pelagos
     if getent passwd pelagos >/dev/null; then
+      # The engine files Pelagos wrote stay for named and Kea: they go to root, so a later account
+      # reusing the freed uid never owns BIND includes, TSIG keys or zones.
+      for dir in /etc/bind /var/cache/bind /var/lib/bind /etc/kea /var/lib/kea; do
+        if [ -d "$dir" ]; then
+          find "$dir" -xdev -user pelagos -exec chown -h root {} + 2>/dev/null || true
+        fi
+      done
       deluser --quiet --system pelagos >/dev/null 2>&1 || true
     fi
     if getent group pelagos >/dev/null; then

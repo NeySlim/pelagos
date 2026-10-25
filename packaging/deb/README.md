@@ -70,7 +70,9 @@ The package depends on the exact `python3.X` the venv was built with.
   with `pelagos install`. Group membership is added for engines installed
   before Pelagos; the installer handles the other order.
 - `remove` keeps configuration and state; `purge` deletes `/etc/pelagos`,
-  `/var/lib/pelagos` and the user.
+  `/var/lib/pelagos` and the user. The files Pelagos wrote for BIND and Kea
+  (`/etc/bind/pelagos`, zones under `/var/cache/bind/pelagos`) stay, so the
+  engines keep running, and are given to root first.
 
 ## Tests
 

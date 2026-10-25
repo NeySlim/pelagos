@@ -23,6 +23,7 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { COLS, ROW_HEIGHT, DEFAULT_LAYOUT, normalizeLayout, serializeLayout, sameLayout } from './layout'
 import { NodesTile, HaTile, InconsistenciesTile, ZoneSyncTile, PoolsTile, D2Tile } from './tiles'
+import { TileRefresh } from './tileRefresh'
 import { RadarTile, DnsTile, DhcpTile } from './heroTiles'
 import { liveTargets, useLiveRates } from '../../hooks/useLiveRates'
 import { summarizeLive } from '../../lib/liveRates'
@@ -168,6 +169,7 @@ export default function DashboardPage() {
       }
     >
       {/* The measured container exists from the first render, so its width is observed before the grid shows. */}
+      <TileRefresh.Provider value={summary.data || null}>
       <div ref={containerRef} className={editing ? 'dashboard-grid editing' : 'dashboard-grid'} data-testid="dashboard-grid">
       {summary.loading && !summary.data ? (
         <div className="flex justify-center py-12">
@@ -213,6 +215,7 @@ export default function DashboardPage() {
         </>
       )}
       </div>
+      </TileRefresh.Provider>
     </PageLayout>
   )
 }

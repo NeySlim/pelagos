@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: Apache-2.0
+// Tile ambient layers: canvases driven by the live rates, registration marks and a refresh
+// sweep, gated by the ambient preference and the motion level, on the one shared loop.
+import { test, expect } from '@playwright/test'
+import { signIn } from './family'
+
+const rootData = (page, key) => page.evaluate((k) => document.documentElement.dataset[k], key)
+const style = (locator, prop) => locator.evaluate((el, p) => getComputedStyle(el)[p], prop)
+
+// True when the canvas holds at least one painted (non transparent) pixel.
+const painted = (locator) =>
+  locator.evaluate((cv) => {
+    const data = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data
+    for (let i = 3; i < data.length; i += 4) if (data[i] > 0) return true
+    return false
+  })
+
+let errors
+test.beforeEach(async ({ page }) => {
+  errors = []
+  page.on('pageerror', (e) => errors.push(e.message))
+})
+test.afterEach(() => expect(errors).toEqual([]))
+
+test('tiles carry canvas layers and registration marks, and the loop runs while they move', async ({ page }) => {
+  await signIn(page)
+  const dns = page.getByTestId('tile-dns')
+  await expect(dns.getByTestId('ambient-wave')).toBeAttached()
+  await expect(page.getByTestId('tile-dhcp').getByTestId('ambient-spectrum')).toBeAttached()
+  await expect(page.getByTestId('tile-radar').getByTestId('ambient-dots')).toBeAttached()
+  await expect(dns.getByTestId('reg-marks')).toBeAttached()
+  await expect.poll(() => painted(dns.getByTestId('ambient-wave'))).toBe(true)
+  await expect.poll(() => painted(page.getByTestId('tile-radar').getByTestId('ambient-dots'))).toBe(true)
+  // The layers sit under the data and never take the pointer.
+  expect(await style(dns.getByTestId('ambient-tile'), 'pointerEvents')).toBe('none')
+  const before = await page.evaluate(() => window.__pelagosLoop().frames)
+  await page.waitForTimeout(600)
+  expect(await page.evaluate(() => window.__pelagosLoop().frames)).toBeGreaterThan(before)
+})
+
+test('ambient off removes every layer', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/account')
+  const setAmbient = async (name) => {
+    await page.getByTestId('pref-ambient').getByRole('combobox').click()
+    await page.getByRole('option', { name }).click()
+    await expect.poll(() => rootData(page, 'ambient')).toBe(name.toLowerCase())
+  }
+  await setAmbient('Off')
+  try {
+    await page.goto('/')
+    await expect(page.getByTestId('tile-dns')).toBeVisible()
+    for (const id of ['ambient-screen', 'ambient-tile', 'ambient-wave', 'ambient-spectrum', 'ambient-dots', 'reg-marks', 'tile-sweep']) {
+      await expect(page.getByTestId(id), id).toHaveCount(0)
+    }
+  } finally {
+    // The mock keeps preferences for the whole run: put the default back.
+    await page.goto('/account')
+    await setAmbient('On')
+  }
+})
+
+test.describe('reduced motion and ambient layers', () => {
+  test.use({ reducedMotion: 'reduce' })
+
+  test('draws one static frame and joins no loop', async ({ page }) => {
+    await signIn(page)
+    const wave = page.getByTestId('tile-dns').getByTestId('ambient-wave')
+    await expect(wave).toBeAttached()
+    await expect.poll(() => painted(wave)).toBe(true)
+    const snapshot = () => wave.evaluate((cv) => cv.toDataURL())
+    const first = await snapshot()
+    const before = await page.evaluate(() => window.__pelagosLoop())
+    await page.waitForTimeout(1000)
+    const after = await page.evaluate(() => window.__pelagosLoop())
+    expect(after.active).toBe(0)
+    expect(after.frames).toBe(before.frames)
+    expect(await snapshot()).toBe(first)
+    await expect(page.locator('.fx-sweep.is-go, .fx-regs.is-ping')).toHaveCount(0)
+  })
+})

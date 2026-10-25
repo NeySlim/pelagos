@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Dashboard tiles, each fed by GET /dashboard/summary (plus open alerts for the
 // inconsistencies tile). The header is the drag handle while editing the layout.
+import { useContext } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useMessage } from '../../i18n/message'
 import { Link } from 'react-router-dom'
@@ -12,13 +13,20 @@ import { Badge } from '../../components/Badge'
 import { UtilizationBar } from '../../components/UtilizationBar'
 import { EmptyState } from '../../components/EmptyState'
 import { cn, formatRelativeTime } from '../../lib/utils'
-import { CountUp, MiniHistogram, StatusDot } from '../../components/motion'
+import { AmbientTile, CountUp, MiniHistogram, RegMarks, StatusDot, Sweep } from '../../components/motion'
+import { TileRefresh } from './tileRefresh'
 import { dhcpFamily, poolThresholds, formatErrorRate } from './summary'
 
-export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, status, children, bodyClassName, className }) {
+// `ambient` is a canvas layer under the body; `pulse` is a token that changes when the tile
+// receives a live sample. Both are decoration and absent unless ambient layers are on.
+export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, status, children, bodyClassName, className, ambient, pulse }) {
+  const refreshed = useContext(TileRefresh)
   return (
-    <div className={cn('h-full flex flex-col card-soft overflow-hidden dash-tile', className)} data-testid={`tile-${id}`}>
-      <div className={cn('tile-handle flex items-center gap-2 px-3.5 py-2.5 border-b border-border-op30 section-header-gradient dash-tile-head', editing && 'cursor-move select-none')}>
+    <div className={cn('h-full flex flex-col card-soft overflow-hidden dash-tile relative', className)} data-testid={`tile-${id}`}>
+      <AmbientTile>{ambient}</AmbientTile>
+      <RegMarks pulse={pulse ?? refreshed} />
+      <Sweep trigger={refreshed} />
+      <div className={cn('tile-handle relative z-[1] flex items-center gap-2 px-3.5 py-2.5 border-b border-border-op30 section-header-gradient dash-tile-head', editing && 'cursor-move select-none')}>
         {editing && <DotsSixVertical size={14} className="text-text-tertiary" />}
         {Icon && <Icon size={16} className="text-accent-primary shrink-0" weight="duotone" />}
         <h3 className="ui-card-title text-sm font-semibold text-text-primary truncate">{title}</h3>
@@ -30,7 +38,7 @@ export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, sta
           </Link>
         )}
       </div>
-      <div className={cn('flex-1 min-h-0 overflow-auto p-3', bodyClassName)}>{children}</div>
+      <div className={cn('relative z-[1] flex-1 min-h-0 overflow-auto p-3', bodyClassName)}>{children}</div>
     </div>
   )
 }

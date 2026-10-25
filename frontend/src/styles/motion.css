@@ -279,6 +279,23 @@ html[data-motion='reduced'] .ui-progress-fill { transition: background-color var
   animation: fx-contour-drift 90s ease-in-out infinite alternate;
 }
 
+/* Tile layers: canvases under the body, registration marks and a refresh sweep above it. */
+.fx-amb-tile { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.fx-amb-canvas { display: block; width: 100%; height: 100%; color: var(--fx-c); }
+.fx-amb-canvas.fx-amb-ink { color: var(--text-primary); }
+.fx-regs { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.fx-reg { position: absolute; width: 7px; height: 7px; border: 0 solid var(--fx-hair-3); opacity: 0.55; transform-origin: center; }
+.fx-reg-tl { left: 4px; top: 4px; border-left-width: 1px; border-top-width: 1px; }
+.fx-reg-tr { right: 4px; top: 4px; border-right-width: 1px; border-top-width: 1px; }
+.fx-reg-bl { left: 4px; bottom: 4px; border-left-width: 1px; border-bottom-width: 1px; }
+.fx-reg-br { right: 4px; bottom: 4px; border-right-width: 1px; border-bottom-width: 1px; }
+.fx-regs.is-ping .fx-reg { animation: fx-reg-ping var(--d-moment) var(--ease-out) both; }
+.fx-amb-sweep { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; }
+.fx-amb-sweep > .fx-sweep.is-go { animation: fx-sweep var(--d-moment) linear both; }
+/* Ruler cursor: a small marker that settles on the latest sample. */
+.fx-ruler-cursor { position: absolute; inset: 0; transition: transform var(--d-slow) var(--settle); }
+.fx-ruler-cursor::before { content: ''; position: absolute; top: 0; right: 0; width: 5px; height: 5px; margin-top: -2.5px; border-top: 1px solid var(--text-secondary); border-right: 1px solid var(--text-secondary); transform: rotate(-135deg); transform-origin: center; }
+
 /* ============ Boot: the chrome lights up once per session ============ */
 html.boot .fx-boot { animation: fx-rise var(--d-base) var(--ease-out) both; animation-delay: calc(min(var(--fx-i, 0), 8) * 24ms); }
 
@@ -332,6 +349,7 @@ html.boot .fx-boot { animation: fx-rise var(--d-base) var(--ease-out) both; anim
 @keyframes fx-sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 @keyframes fx-paper-drift { to { transform: translateX(-24px); } }
 @keyframes fx-breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@keyframes fx-reg-ping { 0% { opacity: 0.55; transform: scale(1); } 30% { opacity: 1; transform: scale(1.3); } 100% { opacity: 0.55; transform: scale(1); } }
 @keyframes fx-contour-drift { to { transform: translate(-3%, -2%); } }
 @keyframes fx-dialog-in { from { opacity: 0; scale: 0.96; } }
 @keyframes fx-dialog-out { to { opacity: 0; scale: 0.97; } }
@@ -351,7 +369,9 @@ html[data-motion='reduced'] .fx-nav-cursor.is-travel { animation: none; }
 html[data-motion='reduced'] :is(.ui-nav-fold, .ui-nav-chevron) { transition: none; }
 html[data-motion='reduced'] .fx-ck.is-done svg path { transition: none; }
 html[data-motion='reduced'] :is(.fx-cw, .fx-cw > div) { transition: opacity var(--d-quick) ease; }
-html[data-motion='reduced'] .fx-skeleton > .fx-sweep { display: none; }
+html[data-motion='reduced'] :is(.fx-skeleton > .fx-sweep, .fx-amb-sweep) { display: none; }
+html[data-motion='reduced'] .fx-regs.is-ping .fx-reg { animation: none; }
+html[data-motion='reduced'] .fx-ruler-cursor { transition: none; }
 html[data-motion='reduced'] :is(.ui-menu, .ui-tooltip, .ui-toast)[data-state] { animation-name: fx-fade; }
 html[data-motion='reduced'] :is(.ui-tooltip, .ui-toast)[data-state='closed'] { animation-name: fx-fade-out; }
 html[data-motion='reduced'] :is(.ui-modal, .ui-dialog)[data-state='open'] { animation: fx-fade var(--d-quick) ease both; }
@@ -361,7 +381,9 @@ html.boot[data-motion='reduced'] .fx-boot { animation-name: fx-fade; animation-d
 /* off: everything is instant (effects.css); a running step is feedback and keeps turning. */
 html[data-motion='off'] .fx-ck.is-running::after { animation: fx-spin 0.8s linear infinite !important; }
 html[data-motion='off'] .fx-roll-ch > .fx-roll-out,
-html[data-motion='off'] .fx-skeleton > .fx-sweep { display: none; }
+html[data-motion='off'] :is(.fx-skeleton > .fx-sweep, .fx-amb-sweep) { display: none; }
+html[data-motion='off'] .fx-regs.is-ping .fx-reg { animation: none; }
+html[data-motion='off'] .fx-ruler-cursor { transition: none; }
 html[data-motion='off'] .fx-ck.is-done svg path { stroke-dashoffset: 0; }
 html[data-motion='off'] .fx-toast-ttl { display: none; }
 
@@ -369,7 +391,8 @@ html[data-motion='off'] .fx-toast-ttl { display: none; }
 html:not([data-motion='full']) :is(.fx-ambient-grid, .fx-ambient-contour),
 html[data-page-hidden] :is(.fx-ambient-grid, .fx-ambient-contour, .fx-skeleton > .fx-sweep),
 html[data-ambient='off'] :is(.fx-ambient-grid, .fx-ambient-contour) { animation-play-state: paused; }
-html[data-ambient='off'] .fx-ambient { display: none; }
+html[data-ambient='off'] :is(.fx-ambient, .fx-amb-tile, .fx-regs, .fx-amb-sweep) { display: none; }
+html[data-page-hidden] :is(.fx-regs.is-ping .fx-reg, .fx-amb-sweep > .fx-sweep) { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
-  :is(.fx-ambient-grid, .fx-ambient-contour, .fx-skeleton > .fx-sweep) { animation: none !important; }
+  :is(.fx-ambient-grid, .fx-ambient-contour, .fx-skeleton > .fx-sweep, .fx-regs.is-ping .fx-reg, .fx-amb-sweep > .fx-sweep) { animation: none !important; }
 }

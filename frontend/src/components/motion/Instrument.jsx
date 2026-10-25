@@ -25,11 +25,15 @@ export function Readout({ channel, unit, rate, count, className }) {
 }
 
 // Value ruler on the right edge of a strip: ticks keyed by value glide (translateY) to
-// their new height when the series maximum changes; the layer is the ruler's height.
-export function Ruler({ max, count = 4, format = String, className }) {
+// their new height when the series maximum changes; the layer is the ruler's height. A
+// `cursor` value draws a marker that follows the latest sample.
+export function Ruler({ max, count = 4, format = String, cursor, inset = 0, className }) {
   const ticks = useMemo(() => niceTicks(max, count).filter((v) => v > 0), [max, count])
   return (
-    <span className={cn('fx-ruler', className)} aria-hidden="true" data-testid="ruler">
+    <span className={cn('fx-ruler', className)} style={inset ? { top: inset, bottom: inset } : undefined} aria-hidden="true" data-testid="ruler">
+      {cursor !== undefined && cursor !== null && max > 0 && (
+        <span className="fx-ruler-cursor" data-testid="ruler-cursor" style={{ transform: `translateY(${((1 - Math.min(1, Math.max(0, cursor / max))) * 100).toFixed(2)}%)` }} />
+      )}
       {ticks.map((v) => (
         <span key={v} className="fx-ruler-tick" style={{ transform: `translateY(${((1 - v / max) * 100).toFixed(2)}%)` }}>
           <i />

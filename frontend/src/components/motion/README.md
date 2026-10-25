@@ -61,7 +61,12 @@ cluster is idle. Feature code builds on the primitives below; keep their APIs sm
 | `NavCursor` | `container` ref, `activeKey`, `layoutKey`, `selector` | 2 px cursor gliding on the spring, stretched while travelling (Instrument only) |
 | `TabInk` | `container` ref, `activeKey`, `selector` | ink sliding and resizing under the active tab (Instrument only) |
 | `Skeleton`, `SkeletonTable` | `lines` / `columns`, `rows` | placeholders at the final geometry and a calibration sweep (600 ms once, then 1.4 s while waiting); first load only |
-| `AmbientScreen` | | graticule drifting at the trace paper speed, breathing over 12 s, faint contours; still unless `full` and `ambient` on |
+| `AmbientScreen` | | graticule drifting at the trace paper speed, breathing over 12 s, faint contours; still unless `full` and `ambient` on; absent when ambient is off |
+| `AmbientTile` | `children` | layer under a tile body (`TileFrame` `ambient` prop); holds the canvases below |
+| `AmbientWave`, `AmbientSpectrum`, `AmbientDots` | `rate`, `peak` / `values` / `pulse` | tile canvases: wave amplitude is the query rate, spectrum the last 28 lease samples, dot matrix with hairline mesh that ripples once per `pulse` change. About 30 fps on the shared loop at `full`; one static frame (redrawn on new data) below; nothing when ambient is off or the family is not Instrument |
+| `RegMarks`, `Sweep` | `pulse` / `trigger` | corner brackets pulse once per event; a calibration sweep crosses the tile per refresh (`TileFrame` reads the dashboard summary identity through `TileRefresh`) |
+
+`Ruler` takes `cursor` (marker following the latest sample) and `inset`.
 
 Helpers (`primitives.js`): `flipRows(rows, mutate, level?)` measures, runs `mutate`
 (synchronous DOM update, e.g. `flushSync`) and glides moved rows on the spring;

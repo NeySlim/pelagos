@@ -673,7 +673,7 @@ export const themeFamilies = {
   },
 }
 
-const ThemeContext = createContext()
+export const ThemeContext = createContext()
 
 function readSaved(key, valid) {
   try {

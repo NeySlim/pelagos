@@ -283,7 +283,22 @@ def hooks_with_ha(
     if not any("libdhcp_lease_cmds" in str(h.get("library", "")) for h in out):
         out.append({"library": located("libdhcp_lease_cmds.so")})
     library = str(previous["library"]) if previous else located("libdhcp_ha.so")
-    out.append({"library": library, "parameters": {"high-availability": [entry]}})
+    params: dict[str, Any] = {}
+    if previous is not None:
+        # Keys the setup does not manage (multi-threading, TLS files, ...) are kept, per peer too.
+        params = dict(previous.get("parameters") or {})
+        old = (params.get("high-availability") or [None])[0]
+        if isinstance(old, dict):
+            old_peers = {p.get("name"): p for p in old.get("peers") or [] if isinstance(p, dict)}
+            merged = {k: v for k, v in old.items() if k != "peers"}
+            merged.update(entry)
+            merged["peers"] = [
+                {**{k: v for k, v in old_peers.get(p["name"], {}).items() if k not in ("role", "url")}, **p}
+                for p in entry["peers"]
+            ]
+            entry = merged
+    params["high-availability"] = [entry]
+    out.append({"library": library, "parameters": params})
     return out
 
 

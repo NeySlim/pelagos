@@ -162,3 +162,31 @@ def test_two_relationships_stay_apart():
                 peers=[HAPeer("x1", "primary"), HAPeer("x2", "backup")])  # fmt: skip
     rels = ha.relationships([a, b, HAState(node_id="n9", family=Family.V4, enabled=False)], {})
     assert sorted(len(r["servers"]) for r in rels) == [2, 4]
+
+
+def test_setup_keeps_what_it_does_not_manage():
+    old = {
+        "this-server-name": "s1",
+        "mode": "hot-standby",
+        "multi-threading": {"enable-multi-threading": True, "http-dedicated-listener": True},
+        "trust-anchor": "/etc/kea/ca.pem",
+        "peers": [
+            {
+                "name": "s1",
+                "url": "http://192.0.2.1:8001/",
+                "role": "primary",
+                "cert-file": "/etc/kea/s1.pem",
+            },
+            {"name": "s2", "url": "http://192.0.2.2:8001/", "role": "standby"},
+        ],
+    }
+    hooks = [{"library": f"{HOOKS}/libdhcp_ha.so", "parameters": {"high-availability": [old], "x": 1}}]
+    spec = {"mode": "load-balancing", "servers": servers("primary", "secondary", "backup")}
+    out = ha.hooks_with_ha(hooks, ha.relationship_entry(spec, "s1"), HOOKS)
+    params = out[-1]["parameters"]
+    entry = params["high-availability"][0]
+    assert params["x"] == 1 and entry["mode"] == "load-balancing"
+    assert entry["multi-threading"]["http-dedicated-listener"] is True
+    assert entry["trust-anchor"] == "/etc/kea/ca.pem"
+    assert entry["peers"][0]["cert-file"] == "/etc/kea/s1.pem"
+    assert [p["role"] for p in entry["peers"]] == ["primary", "secondary", "backup"]

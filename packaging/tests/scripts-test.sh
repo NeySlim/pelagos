@@ -116,5 +116,27 @@ ln -s "$envf" "$work/link.env"
 check "wrapper: refuses a symlink" bash -c "! PELAGOS_ENV_FILE='$work/link.env' '$wrapper'"
 check "wrapper: missing file is fine" env PELAGOS_ENV_FILE="$work/absent" "$wrapper"
 
+# version.sh: dev builds carry a snapshot so the next build upgrades them; releases never do.
+vsrc="$work/vsrc"
+mkdir -p "$vsrc/backend/pelagos"
+echo '__version__ = "0.1.0.dev0"' >"$vsrc/backend/pelagos/__init__.py"
+version="$here/../version.sh"
+check "version: no git, no snapshot" test "$(env -u PELAGOS_SNAPSHOT "$version" deb "$vsrc")" = "0.1.0~dev0"
+check "version: deb snapshot" \
+  test "$(PELAGOS_SNAPSHOT=20261025000000.abc1234 "$version" deb "$vsrc")" = "0.1.0~dev0+git20261025000000.abc1234"
+check "version: rpm snapshot" \
+  test "$(PELAGOS_SNAPSHOT=20261025000000.abc1234 "$version" rpm "$vsrc")" = "0.1.0~dev0^git20261025000000.abc1234"
+check "version: docker tag has no snapshot" \
+  test "$(PELAGOS_SNAPSHOT=20261025000000.abc1234 "$version" docker "$vsrc")" = "0.1.0-dev0"
+if command -v dpkg >/dev/null 2>&1; then
+  check "version: snapshot sorts after the bare dev version" \
+    dpkg --compare-versions "0.1.0~dev0+git20261025000000.abc1234" gt "0.1.0~dev0"
+  check "version: snapshot sorts before the release" \
+    dpkg --compare-versions "0.1.0~dev0+git20261025000000.abc1234" lt "0.1.0"
+fi
+echo '__version__ = "0.1.0"' >"$vsrc/backend/pelagos/__init__.py"
+check "version: a release is never stamped" \
+  test "$(PELAGOS_SNAPSHOT=20261025000000.abc1234 "$version" deb "$vsrc")" = "0.1.0"
+
 if [[ $failures -gt 0 ]]; then echo "$failures check(s) failed"; exit 1; fi
 echo "all checks passed"

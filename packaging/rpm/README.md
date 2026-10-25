@@ -8,7 +8,9 @@ and Fedora. Build with `make rpm` on the target release (output in
 
 `build.sh` makes the source tarball from the working tree (with the frontend
 `dist` when it exists) and runs `rpmbuild -ba` with the version passed as
-macros (`0.1.0.dev0` becomes `0.1.0~dev0`). `%install` runs the same
+macros (`0.1.0.dev0` becomes `0.1.0~dev0^git<commit time>.<commit>` in a git
+checkout, or `0.1.0~dev0` without git; `PELAGOS_SNAPSHOT` sets the snapshot,
+as for the deb). `%install` runs the same
 `packaging/build-tree.sh` as the deb, so the payload is identical: venv in
 `/opt/pelagos/venv`, frontend `dist` or the API-only notice page, helpers in
 `/opt/pelagos/bin`. The rpm Python helpers (shebang mangling, bytecompile,

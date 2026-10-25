@@ -63,15 +63,17 @@ the next boot; it then starts the VM, drops its stale host keys from
 
 ## Reference pair
 
-`scripts/lab/provision.sh [all|ns1|ns2|client] [--force]` builds, from lab-dev
-and without Pelagos, the legacy setup the lab tier imports. It is idempotent
-and refuses a host Pelagos already manages unless `--force` is given.
+`scripts/lab/provision.sh [all|three|ns1|ns2|rpm|client] [--force]` builds,
+from lab-dev and without Pelagos, the legacy setup the lab tier imports. It
+is idempotent and refuses a host Pelagos already manages unless `--force` is
+given. `three` builds the same pair plus lab-rpm as a third server (below).
 
 | Host | What runs |
 | --- | --- |
 | lab-ns1 | BIND 9.20 (Debian) primary for `example.lan`, `0.99.10.in-addr.arpa` and `1.99.10.in-addr.arpa`, dynamic with `allow-update { key kea-ddns; }` (hmac-md5, generated on ns1, copied to ns2), transfers and notifies to ns2 by address; Kea DHCPv4 2.6 (Debian) HA primary, hot-standby, `lease_cmds`, `stat_cmds`, `ha`; D2 sending every update to ns1 with `kea-ddns` |
 | lab-ns2 | BIND secondary of the three zones; Kea DHCPv4 HA standby; D2 like ns1 |
 | lab-client | systemd-networkd DHCP client on its second NIC (`/etc/netplan/60-lab-dhcp.yaml`, hostname `lab-client`) |
+| lab-rpm (`three` only) | BIND 9.18 (Rocky) secondary of the three zones (`/var/named/slaves`), named in the primary's `allow-transfer` and `also-notify`; Kea DHCPv4 3.0 (Rocky) HA backup server `ns3` (`http://10.99.0.13:8001/`, no interface: a backup answers no client), named in the pair's peer list; the HA port is labelled `kea_port_t` for SELinux and opened in firewalld when it runs |
 
 DHCP segment: lab-client's second NIC sits on the lab bridge too, so the Kea
 servers listen on their `eth0` and serve the dedicated subnet `10.99.1.0/24`
@@ -106,10 +108,13 @@ exists).
 | --- | --- | --- |
 | `test_docker_lab.py` | lab-docker | the node image built from the checkout, `docker/compose.yaml` with the ISC BIND and Kea images (`packaging/tests/compose-smoke.sh`), `/api/v1/health` reached from lab-dev |
 | `test_installer_lab.py` | lab-ns1, lab-rpm, lab-pkg-rpm | Debian: a legacy server seeded, audited, imported and migrated, Kea 2.6 from Debian then ISC 3.2. Rocky: the rpm built on lab-pkg-rpm and installed, `pelagos install --init` with SELinux enforcing, the API (install endpoints through the root helper), then ISC Kea |
+| `test_three_lab.py` | lab-ns1, lab-ns2, lab-rpm, lab-client | `provision.sh three`, the deb on the pair and the rpm on lab-rpm, ns2 enrolled from ns1 with the CA key, ns3 enrolled from ns2, three imports and the HA relationship with its backup read through the API, replication of a setting written on ns3, a record planned from ns3 reaching both secondaries, a reservation on the three Kea servers, a lease of lab-client copied to the backup, HA maintenance of ns2 asked from ns3 (applied on ns1, the backup stays `backup`, refused for the backup itself), a zone created with two secondaries then ns3 dropped and added back by the secondaries plan, then ns3 taken out of the HA relationship and of the zone and removed from the cluster (isolated, gone from both peers) |
 | `test_pair_lab.py` | lab-ns1, lab-ns2, lab-client | the reference pair above, then: the deb on both, ns1 initialized, ns2 enrolled with a token, both imported through the API, the security plan (md5 to sha256 through the dual-key switch on both D2, Pelagos access to the zones), a record written through ns2 and read on ns1, a host whose reservation (on both Kea) and records join the lease of a real DHCP request, Kea killed on ns1 (`ha_partner_down` on ns2, `daemon_down` on ns1, back to hot-standby), ns2 stopped while ns1 changes settings and records, then caught up, a static zone added by hand edited through its file from ns2 (the secondary transfers it) then converted to dynamic by the security plan, a hand edit of the Kea file on each node (409 on the pair until adopted: running on ns1, file on ns2, then one options plan for both) |
 
 At the end lab-ns1, lab-ns2 and lab-client stay provisioned with Pelagos for
-the demo; lab-rpm, lab-pkg-rpm and lab-docker are rolled back.
+the demo (the last module, `test_three_lab.py`, leaves the pair after ns3's
+removal; run `test_pair_lab.py` alone for the reference pair's demo state);
+lab-pkg-rpm and lab-docker are rolled back, lab-rpm keeps the removed node.
 
 ## Demo
 

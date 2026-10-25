@@ -2,13 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # Provision the reference pair, without Pelagos, from lab-dev (idempotent).
 #
-# Usage: provision.sh [all|ns1|ns2|client] [--force]
+# Usage: provision.sh [all|three|ns1|ns2|rpm|client] [--force]
 #
 #   lab-ns1   BIND primary for example.lan, 0.99.10.in-addr.arpa and 1.99.10.in-addr.arpa
 #             (dynamic, updates signed by the hmac-md5 key kea-ddns), Kea DHCPv4 HA primary
 #             (hot-standby), D2 sending updates to the primary with kea-ddns.
 #   lab-ns2   BIND secondary of the same zones, Kea DHCPv4 HA standby, D2 like ns1.
 #   lab-client DHCP client (systemd-networkd through netplan) on its second NIC.
+#   three     the same pair plus lab-rpm (Rocky 10, BIND 9.18 and Kea 3.0 from Rocky): a Kea HA
+#             backup server (ns3) of the pair and a second BIND secondary; the pair's peer list,
+#             allow-transfer and also-notify name it. `rpm` provisions lab-rpm alone (after three).
 #
 # DHCP segment: the second NIC of lab-client shares the lab bridge, so the servers answer on
 # eth0 for the dedicated subnet 10.99.1.0/24 (pool .100-.199), selected by interface name.
@@ -19,16 +22,22 @@ set -euo pipefail
 
 NS1=lab-ns1
 NS2=lab-ns2
+NS3=lab-rpm
 CLIENT=lab-client
 NS1_IP=10.99.0.11
 NS2_IP=10.99.0.12
+NS3_IP=10.99.0.13
 HOOKS=/usr/lib/x86_64-linux-gnu/kea/hooks
+RPM_HOOKS=/usr/lib64/kea/hooks
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
 
 target="${1:-all}"
 force=0
 [[ "${2:-}" == "--force" || "${1:-}" == "--force" ]] && force=1
 [[ "$target" == "--force" ]] && target=all
+# Three nodes: lab-rpm is a backup of the HA pair and a secondary of every zone.
+three=0
+[[ "$target" == three || "$target" == rpm ]] && three=1
 
 on() {
   # on <host> <script on stdin>: runs as root on the host.
@@ -88,10 +97,13 @@ zone_file() {
 EOF
   case "$1" in
     example.lan)
-      printf 'ns1 IN A %s\nns2 IN A %s\nlab-dev IN A 10.99.0.15\n' "$NS1_IP" "$NS2_IP" ;;
+      printf 'ns1 IN A %s\nns2 IN A %s\nlab-dev IN A 10.99.0.15\n' "$NS1_IP" "$NS2_IP"
+      [[ $three -eq 1 ]] && printf 'ns3 IN A %s\n' "$NS3_IP" ;;
     0.99.10.in-addr.arpa)
-      printf '11 IN PTR ns1.example.lan.\n12 IN PTR ns2.example.lan.\n15 IN PTR lab-dev.example.lan.\n' ;;
+      printf '11 IN PTR ns1.example.lan.\n12 IN PTR ns2.example.lan.\n15 IN PTR lab-dev.example.lan.\n'
+      [[ $three -eq 1 ]] && printf '13 IN PTR ns3.example.lan.\n' ;;
   esac
+  return 0
 }
 
 ZONES=(example.lan 0.99.10.in-addr.arpa 1.99.10.in-addr.arpa)
@@ -109,14 +121,15 @@ EOF
 }
 
 bind_primary() {
-  local zones="" z
+  local zones="" z secondaries="$NS2_IP;"
+  [[ $three -eq 1 ]] && secondaries="$NS2_IP; $NS3_IP;"
   for z in "${ZONES[@]}"; do
     zones+="zone \"$z\" {
 	type primary;
 	file \"/var/lib/bind/db.$z\";
 	allow-update { key kea-ddns; };
-	allow-transfer { $NS2_IP; };
-	also-notify { $NS2_IP; };
+	allow-transfer { $secondaries };
+	also-notify { $secondaries };
 	notify yes;
 };
 "
@@ -163,10 +176,22 @@ dig +short @127.0.0.1 example.lan SOA | grep -q .
 EOF
 }
 
+ha_peers() {
+  # The peer list every server of the relationship carries.
+  printf '              { "name": "ns1", "url": "http://%s:8001/", "role": "primary", "auto-failover": true },\n' "$NS1_IP"
+  if [[ $three -eq 1 ]]; then
+    printf '              { "name": "ns2", "url": "http://%s:8001/", "role": "standby", "auto-failover": true },\n' "$NS2_IP"
+    printf '              { "name": "ns3", "url": "http://%s:8001/", "role": "backup" }\n' "$NS3_IP"
+  else
+    printf '              { "name": "ns2", "url": "http://%s:8001/", "role": "standby", "auto-failover": true }\n' "$NS2_IP"
+  fi
+}
+
 kea_dhcp4() {
-  # kea_dhcp4 <host> <this server name>
-  local host="$1" me="$2"
-  cat <<EOF | put "$host" /etc/kea/kea-dhcp4.conf 0640 root:_kea
+  # kea_dhcp4 <host> <this server name> [hooks dir] [owner]
+  local host="$1" me="$2" hooks="${3:-$HOOKS}" owner="${4:-root:_kea}" peers
+  peers="$(ha_peers)"
+  cat <<EOF | put "$host" /etc/kea/kea-dhcp4.conf 0640 "$owner"
 {
   "Dhcp4": {
     "interfaces-config": { "interfaces": [ "eth0" ] },
@@ -177,10 +202,10 @@ kea_dhcp4() {
     "rebind-timer": 1800,
     "multi-threading": { "enable-multi-threading": true, "thread-pool-size": 4, "packet-queue-size": 64 },
     "hooks-libraries": [
-      { "library": "$HOOKS/libdhcp_lease_cmds.so" },
-      { "library": "$HOOKS/libdhcp_stat_cmds.so" },
+      { "library": "$hooks/libdhcp_lease_cmds.so" },
+      { "library": "$hooks/libdhcp_stat_cmds.so" },
       {
-        "library": "$HOOKS/libdhcp_ha.so",
+        "library": "$hooks/libdhcp_ha.so",
         "parameters": {
           "high-availability": [ {
             "this-server-name": "$me",
@@ -196,8 +221,7 @@ kea_dhcp4() {
               "http-client-threads": 2
             },
             "peers": [
-              { "name": "ns1", "url": "http://$NS1_IP:8001/", "role": "primary", "auto-failover": true },
-              { "name": "ns2", "url": "http://$NS2_IP:8001/", "role": "standby", "auto-failover": true }
+$peers
             ]
           } ]
         }
@@ -278,6 +302,97 @@ provision_ns() {
   kea_restart "$host"
 }
 
+bind_secondary_rpm() {
+  # BIND 9.18 from Rocky on lab-rpm: secondaries of every zone in /var/named/slaves.
+  local zones="" z
+  for z in "${ZONES[@]}"; do
+    zones+="zone \"$z\" {
+	type secondary;
+	primaries { $NS1_IP; };
+	file \"slaves/db.$z\";
+};
+"
+  done
+  cat <<EOF | put "$NS3" /etc/named.conf 0640 root:named
+options {
+	directory "/var/named";
+	listen-on { any; };
+	listen-on-v6 { any; };
+	recursion no;
+	allow-query { any; };
+	dnssec-validation auto;
+	pid-file "/run/named/named.pid";
+	session-keyfile "/run/named/session.key";
+	managed-keys-directory "/var/named/dynamic";
+};
+
+include "/etc/rndc.key";
+controls { inet 127.0.0.1 port 953 allow { 127.0.0.1; } keys { "rndc-key"; }; };
+
+$zones
+EOF
+  on "$NS3" <<'EOF'
+set -e
+[ -s /etc/rndc.key ] || rndc-confgen -a -A hmac-sha256 >/dev/null
+chown root:named /etc/rndc.key; chmod 0640 /etc/rndc.key
+restorecon -F /etc/named.conf /etc/rndc.key 2>/dev/null || true
+rm -f /var/named/slaves/db.*
+named-checkconf
+systemctl enable -q named
+systemctl restart named
+for i in $(seq 1 30); do
+  dig +short @127.0.0.1 example.lan SOA | grep -q . && break
+  sleep 1
+done
+dig +short @127.0.0.1 example.lan SOA | grep -q .
+EOF
+}
+
+provision_rpm() {
+  # lab-rpm: Kea 3.0 HA backup server ns3 (answers no client) and the second BIND secondary.
+  on "$NS3" <<'EOF'
+set -e
+need=""
+for p in bind bind-utils kea kea-hooks socat jq policycoreutils-python-utils; do
+  rpm -q "$p" >/dev/null 2>&1 || need="$need $p"
+done
+[ -z "$need" ] || dnf install -y -q $need >/dev/null 2>&1 || dnf install -y -q bind bind-utils kea socat jq >/dev/null
+# SELinux: the HA listener of Kea on 8001/tcp.
+if command -v semanage >/dev/null && semanage port -l | grep -q '^kea_port_t'; then
+  semanage port -a -t kea_port_t -p tcp 8001 2>/dev/null || semanage port -m -t kea_port_t -p tcp 8001
+fi
+if systemctl is-active -q firewalld; then
+  firewall-cmd -q --add-service=dns --add-port=8001/tcp --add-port=8443/tcp --add-port=8444/tcp
+fi
+EOF
+  bind_secondary_rpm
+  kea_dhcp4 "$NS3" ns3 "$RPM_HOOKS" root:kea
+  on "$NS3" <<'EOF'
+set -e
+# A backup answers no client: no interface to listen on, the subnet keeps no interface name.
+python3 - <<'PY'
+import json
+path = "/etc/kea/kea-dhcp4.conf"
+cfg = json.load(open(path))
+d = cfg["Dhcp4"]
+d["interfaces-config"] = {"interfaces": []}
+d.pop("dhcp-ddns", None)
+for k in [k for k in d if k.startswith("ddns-")]:
+    d.pop(k)
+for s in d["subnet4"]:
+    s.pop("interface", None)
+json.dump(cfg, open(path, "w"), indent=2)
+PY
+chown root:kea /etc/kea/kea-dhcp4.conf; chmod 0640 /etc/kea/kea-dhcp4.conf
+restorecon -F /etc/kea/kea-dhcp4.conf 2>/dev/null || true
+kea-dhcp4 -t /etc/kea/kea-dhcp4.conf >/dev/null
+systemctl enable -q kea-dhcp4
+systemctl restart kea-dhcp4
+for i in $(seq 1 20); do [ -S /run/kea/kea4-ctrl-socket ] && break; sleep 1; done
+test -S /run/kea/kea4-ctrl-socket
+EOF
+}
+
 provision_client() {
   on "$CLIENT" <<'EOF'
 set -e
@@ -320,11 +435,25 @@ wait_ha() {
   return 1
 }
 
+wait_backup() {
+  # The backup server reports the backup state.
+  local i out
+  for i in $(seq 1 40); do
+    out="$("${SSH[@]}" "$NS3" 'echo "{\"command\": \"status-get\"}" | sudo socat - UNIX-CONNECT:/run/kea/kea4-ctrl-socket 2>/dev/null' || true)"
+    if grep -q '"state": "backup"' <<<"$out"; then echo "backup: backup"; return 0; fi
+    sleep 3
+  done
+  echo "the backup did not reach the backup state: $out" >&2
+  return 1
+}
+
 case "$target" in
-  all | ns1 | ns2) ;;
+  all | three | ns1 | ns2) ;;
+  rpm) guard "$NS3"; provision_rpm; wait_backup; exit 0 ;;
   client) provision_client; exit 0 ;;
-  *) sed -n '3,19p' "$0"; exit 2 ;;
+  *) sed -n '3,23p' "$0"; exit 2 ;;
 esac
+[[ "$target" == three ]] && guard "$NS3"
 
 [[ "$target" == ns2 ]] || guard "$NS1"
 [[ "$target" == ns1 ]] || guard "$NS2"
@@ -345,6 +474,8 @@ if [[ "$target" != ns1 ]]; then
   bind_secondary
   provision_ns "$NS2" ns2 "$secret"
 fi
-[[ "$target" == all ]] && wait_ha
-[[ "$target" == all ]] && provision_client
+[[ "$target" == three ]] && provision_rpm
+[[ "$target" == all || "$target" == three ]] && wait_ha
+[[ "$target" == three ]] && wait_backup
+[[ "$target" == all || "$target" == three ]] && provision_client
 echo "provisioned: $target"

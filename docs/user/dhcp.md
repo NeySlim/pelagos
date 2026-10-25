@@ -1,0 +1,182 @@
+# DHCP screens
+
+The DHCP group drives Kea DHCPv4 on every node that runs it; the DHCPv6
+group holds the same screens for Kea DHCPv6 and shows once the DHCPv6
+module is on (**Administration, Modules**). Reading needs `read:dhcp`.
+
+![DHCPv4 subnets and pools](../images/dhcp-subnets-light.png)
+
+- [How DHCP changes are applied](#how-dhcp-changes-are-applied)
+- [Subnets and pools](#subnets-and-pools)
+- [Shared networks](#shared-networks)
+- [Options](#options)
+- [Client classes](#client-classes)
+- [Leases](#leases)
+- [Reservations](#reservations)
+- [High availability](#high-availability)
+- [DDNS](#ddns)
+- [Hooks](#hooks)
+- [Statistics](#statistics)
+- [Kea file and running configuration](#kea-file-and-running-configuration)
+
+## How DHCP changes are applied
+
+- Configuration plans (subnets, pools, shared networks, reservations,
+  classes, options, DDNS parameters, hooks) apply to **every node running
+  that Kea engine**, so both HA partners stay identical. Each node gets the
+  change computed against its own configuration, checked with
+  `config-test`, applied, then written to its file with `config-write`
+  (comments and layout kept).
+- With Kea 3.x and the `subnet_cmds` and `host_cmds` hooks, subnets and
+  reservations change through those commands. With Kea 2.6 (reduced mode),
+  the whole configuration is replaced with `config-set`.
+- Each plan carries the configuration hash of every node as a
+  precondition: an edit made elsewhere in between makes the apply fail
+  instead of overwriting it.
+- Notes you type are stored in the Kea `user-context` of the object
+  (`"pelagos": {"notes": ...}`).
+
+## Subnets and pools
+
+The subnets of the node read, with ID, prefix, shared network, pools and
+their utilization bar (assigned of total, declined), prefix delegation pools
+(v6), relays and options. Search covers prefixes and notes; filter by
+shared network.
+
+"New subnet" (`write:dhcp.subnets`): ID (unique), prefix
+(`192.0.2.0/24`, `2001:db8::/64`), shared network, interface, relay
+addresses, pools one per line (`192.0.2.100 - 192.0.2.199` or a prefix),
+PD pools for v6 (`2001:db8:8000::/48 56`: prefix, then delegated length),
+options one `name = data` per line (`routers = 192.0.2.1`), client classes,
+valid and preferred lifetimes, a note. A subnet without pool serves
+reservations only. Editing and deleting a subnet are plans too.
+
+Pool use raises `pool_near_full` and `pool_full` at the thresholds of the
+settings (80 % and 95 % by default), on two polls in a row, with 5 points of
+hysteresis.
+
+## Shared networks
+
+Subnets grouped on one link: name, interface, relay addresses, options,
+note, and the member subnets ("Show its subnets"). A subnet joins a shared
+network from its own form.
+
+## Options
+
+Global option data (name or code, space, data, CSV format, always send,
+never send) and the custom option definitions (code, name, type, array,
+record types, space). Subnet, shared network, class and reservation
+options are edited on those objects.
+
+## Client classes
+
+Name, test expression (a Kea classification expression such as
+`substring(option[60].hex,0,9) == 'PXEClient'`), "Additional list only"
+(evaluated only when listed by a subnet or pool), options, and for v4 the
+boot fields (next server, server hostname, boot file name), a note.
+
+## Leases
+
+Active leases, page by page, with IP, MAC or DUID, hostname, subnet,
+state, expiry, the DNS forward and reverse flags, and the node read.
+
+- **Search**: an IP, a MAC, a DUID or an exact hostname (Kea lookup
+  commands). Filters: subnet, state, node. Page size up to 1000.
+- **Per-node view** ("Nodes agree", "Nodes disagree"): the same lease on
+  every node. In an HA pair both partners should hold it; "Missing on"
+  names the node that does not.
+- **Delete lease** (`ops:dhcp.leases`): a confirmed plan on the node you
+  pick ("Delete the lease on ns2").
+- **Host card**: the [host](screens.md#hosts) joining this lease with its
+  reservation and records.
+
+A banner "lease changes, refresh" appears when the collector sees leases
+come and go.
+
+## Reservations
+
+Reservations by subnet (or global): identifier type (`hw-address`,
+`duid`, `client-id`, `circuit-id`, `flex-id`), identifier, IP address (v4)
+or addresses and prefixes (v6), hostname, client classes, boot fields,
+note. The address must be inside the subnet. Plans need
+`write:dhcp.reservations` and go to every Kea node. With a hosts database
+configured in Kea and the `host_cmds` hook, reservations are written there.
+
+The [Hosts](screens.md#hosts) screen creates a reservation and its DNS
+records in one plan.
+
+## High availability
+
+![DHCP high availability](../images/dhcp-ha-dark.png)
+
+For a Kea HA pair (`libdhcp_ha.so`, hot-standby or load-balancing), one card
+per server: state, mode, role, scopes served, the partner as seen from here
+(state, last contact, in touch or not), unsent lease updates, unacked
+clients, DHCP service enabled or disabled, and the history of state
+transitions.
+
+- `ha_degraded` (warning): a server outside its normal states
+  (`hot-standby`, `load-balancing`, `backup`) outside a maintenance.
+- `ha_partner_down` (critical): state `partner-down`, or the partner not in
+  touch.
+- `ha_transition` (info): each state change, also kept as a series.
+
+### Maintenance of one server
+
+To reboot or upgrade one server of the pair (`ops:dhcp.ha`):
+
+1. On the card of the server that goes down, "Start maintenance", review
+   and confirm the plan. It sends `ha-maintenance-start` to its partner,
+   which takes over every client (`partner-in-maintenance`) while the
+   server enters `in-maintenance`.
+2. Stop and work on the server. DHCP keeps running on the partner.
+3. Start it again, then "End maintenance": the pair resynchronizes its
+   leases and returns to its normal state.
+
+"Disable DHCP" and "Enable DHCP" (`dhcp-disable`, `dhcp-enable`) stop and
+resume answering clients on one server, as confirmed plans. Pelagos never
+changes the HA mode or the peer list: edit them in the Kea configuration
+([Getting started: HA pair](getting-started.md#7-a-kea-ha-pair)).
+
+## DDNS
+
+The `dhcp-ddns` connection of the server (where it sends name change
+requests), the global `ddns-*` parameters ("Add parameter", JSON values
+such as `true`, `25` or `"example.lan."`, `write:dhcp.options`), and the D2
+statistics per node (sent, success, error, timeout). `d2_errors` is raised
+when (errors + timeouts) / sent over the last hour exceeds
+`alerts_d2_error_rate` (5 % by default).
+
+The D2 configuration itself (forward and reverse domains, DNS servers,
+TSIG keys) is edited with the Kea editor (D2) or the security audit for the
+key. Kea 3.x refuses clear TSIG secrets in the D2 configuration: Pelagos
+writes them to secret files (mode 0640, Kea group) under the Kea
+configuration directory.
+
+## Hooks
+
+The loaded hook libraries with their parameters; "used by Pelagos" marks
+`lease_cmds`, `host_cmds`, `subnet_cmds`, `stat_cmds` and `ha`. "Load a
+hook" (`write:dhcp.config`) adds `libdhcp_<name>.so` from the directory of
+the hooks already in use, on every node; "Unload" removes one.
+
+## Statistics
+
+Server counters and per-subnet counters (total, assigned, declined,
+reclaimed addresses; NA and PD for v6), filterable, a live rate of leases
+handed out, and the address use of the last 24 hours.
+
+## Kea file and running configuration
+
+Pelagos compares each Kea configuration file (includes resolved) with what
+the daemon runs (`config-get`). When they differ, for example after a hand
+edit without `config-reload`, the DHCP screens show a banner "... differs
+from the running configuration", the alert `config_divergence` opens, and
+configuration plans answer `409 config_divergence` until one side is
+adopted:
+
+- **Adopt the file**: Kea loads what the file says.
+- **Adopt the running configuration**: the file is rewritten from the
+  running configuration, comments kept.
+
+Both are confirmed plans built on the node that holds the file.

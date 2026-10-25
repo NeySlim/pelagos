@@ -170,7 +170,7 @@ function TotpSection() {
 function PreferencesSection() {
   const { t, i18n } = useTranslation(['account', 'common'])
   const { themeFamily, setThemeFamily, mode, setMode, themes } = useTheme()
-  const { animations, setAnimations, levels } = useMotion()
+  const { animations, setAnimations, levels, ambient, setAmbient, ambientModes } = useMotion()
   const language = i18n.language?.split('-')[0] || 'en'
   const changeLanguage = (code) => {
     i18n.changeLanguage(code)
@@ -179,7 +179,7 @@ function PreferencesSection() {
   return (
     <Section icon={Palette} title={t('preferences.title')} testId="account-preferences">
       <p className="text-xs text-text-secondary">{t('preferences.help')}</p>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 max-w-4xl">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 max-w-5xl">
         <Select label={t('common:theme.family')} options={themes.map((th) => ({ value: th.id, label: th.name }))} value={themeFamily} onChange={setThemeFamily} />
         <Select label={t('common:theme.mode')} options={['system', 'dark', 'light'].map((m) => ({ value: m, label: t(`common:theme.${m}`) }))} value={mode} onChange={setMode} />
         <Select label={t('common:language.label')} options={languages.map((l) => ({ value: l.code, label: l.name }))} value={language} onChange={changeLanguage} />
@@ -191,8 +191,16 @@ function PreferencesSection() {
             onChange={setAnimations}
           />
         </div>
+        <div data-testid="pref-ambient">
+          <Select
+            label={t('common:theme.ambient')}
+            options={ambientModes.map((m) => ({ value: m, label: t(`common:theme.ambientModes.${m}`) }))}
+            value={ambient}
+            onChange={setAmbient}
+          />
+        </div>
       </div>
-      <p className="text-xs text-text-tertiary">{t('preferences.animationsHelp')}</p>
+      <p className="text-xs text-text-tertiary">{t('preferences.animationsHelp')} {t('preferences.ambientHelp')}</p>
       <div className="flex flex-wrap gap-2" data-testid="theme-swatches">
         {themes.map((th) => (
           <button

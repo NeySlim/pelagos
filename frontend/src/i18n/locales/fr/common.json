@@ -262,13 +262,19 @@
       "pelagic": "Interface de contrôle océanique",
       "gray": "Ardoise neutre",
       "purple": "Violet profond",
-      "sunset": "Ambre chaud"
+      "sunset": "Ambre chaud",
+      "instrument": "Surfaces calmes, couleurs de signal, mouvement mesuré"
     },
     "animations": "Animations",
     "animationLevels": {
       "full": "Complètes",
       "reduced": "Réduites",
       "off": "Désactivées"
+    },
+    "ambient": "Fonds animés",
+    "ambientModes": {
+      "on": "Activés",
+      "off": "Désactivés"
     }
   },
   "windows": {
@@ -309,5 +315,14 @@
     "ago": "-{{minutes}} min",
     "agoSeconds": "-{{seconds}} s",
     "now": "maintenant"
+  },
+  "motion": {
+    "states": {
+      "pending": "En attente",
+      "running": "En cours",
+      "done": "Terminé",
+      "failed": "En échec",
+      "reverted": "Annulé"
+    }
   }
 }

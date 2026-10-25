@@ -18,6 +18,8 @@ import { FilterSelect } from './Select'
 import { useTranslation } from 'react-i18next'
 import { titleCaseClass } from '../../lib/displayCase'
 import { IconButton } from '../motion/Layout'
+import { TabInk } from '../motion/Cursors'
+import { useRef } from 'react'
 
 export function UnifiedPageHeader({
   // Title section
@@ -53,6 +55,7 @@ export function UnifiedPageHeader({
   className
 }) {
   const { t } = useTranslation()
+  const tabsRef = useRef(null)
   const hasTabs = tabs && tabs.length > 0
   const hasFilters = filters && filters.length > 0
 
@@ -178,7 +181,7 @@ export function UnifiedPageHeader({
           'ui-tabs-row overflow-x-auto scrollbar-hide',
           isMobile ? 'px-3' : 'px-6'
         )}>
-          <div className="ui-tabs flex gap-0.5 min-w-max pb-0">
+          <div ref={tabsRef} className="ui-tabs relative flex gap-0.5 min-w-max pb-0">
             {tabs.map((tab) => {
               const TabIcon = tab.icon
               const isActive = activeTab === tab.id
@@ -188,6 +191,7 @@ export function UnifiedPageHeader({
                 <button
                   key={tab.id}
                   type="button"
+                  aria-current={isActive ? 'true' : undefined}
                   onClick={() => onTabChange?.(tab.id)}
                   aria-label={iconOnly ? tab.label : undefined}
                   title={iconOnly ? tab.label : undefined}
@@ -225,6 +229,7 @@ export function UnifiedPageHeader({
                 </button>
               )
             })}
+            <TabInk container={tabsRef} activeKey={activeTab} />
           </div>
         </div>
       )}

@@ -2,7 +2,8 @@
 // Table for every list screen: columns with renderers, server or client sorting,
 // search box, filter selects with removable chips, pagination, loading, empty and
 // error states, selectable rows and a right-side toolbar. Cells render as text.
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { CaretUp, CaretDown, CaretUpDown, ArrowsClockwise, Table as TableIcon } from '@phosphor-icons/react'
 import { cn } from '../lib/utils'
@@ -12,7 +13,9 @@ import { SearchBar } from './SearchBar'
 import { FilterSelect } from './ui/Select'
 import { FilterChips } from './ui/FilterChips'
 import { EmptyState } from './EmptyState'
-import { LoadingSpinner } from './LoadingSpinner'
+import { SkeletonTable } from './motion/Skeleton'
+import { RowEnter } from './motion/Rows'
+import { flipRows } from './motion/primitives'
 import { Button } from './Button'
 import { errorMessage } from '../services/apiClient'
 
@@ -54,12 +57,18 @@ export function DataTable({
   // Pagination: { page, perPage, total, onPageChange, onPerPageChange }
   pagination,
   dense = false,
+  // Rows whose key appears after the first load unfold into place with a highlight
+  // (inserted records, hosts, alerts). Off by default: a refetch is not an insertion.
+  animateInserts = false,
   className,
   testId = 'data-table',
 }) {
   const { t } = useTranslation()
   const [localSort, setLocalSort] = useState(null)
   const activeSort = sort || localSort
+  const bodyRef = useRef(null)
+  const known = useRef(null)
+  const entering = useRef(new Set())
 
   const keyOf = (row, index) => (typeof rowKey === 'function' ? rowKey(row, index) : getValue(row, rowKey) ?? index)
 
@@ -77,7 +86,17 @@ export function DataTable({
     const next =
       activeSort?.field === field ? { field, order: activeSort.order === 'asc' ? 'desc' : 'asc' } : { field, order: 'asc' }
     if (onSortChange) onSortChange(next)
-    else setLocalSort(next)
+    // A local sort reorders rows already on screen: they glide to their new place.
+    else flipRows(bodyRef.current?.rows || [], () => flushSync(() => setLocalSort(next)))
+  }
+
+  if (animateInserts && !loading) {
+    const keys = sortedRows.map((row, index) => keyOf(row, index))
+    if (known.current) {
+      for (const key of keys) if (!known.current.has(key)) entering.current.add(key)
+      for (const key of entering.current) if (!keys.includes(key)) entering.current.delete(key)
+    }
+    if (keys.length || known.current) known.current = new Set(keys)
   }
 
   const chipFilters = filters
@@ -93,7 +112,7 @@ export function DataTable({
   const cellPad = dense ? 'px-3 py-1.5' : 'px-3 py-2'
 
   return (
-    <div className={cn('ui-table flex flex-col rounded-xl border border-border bg-bg-secondary overflow-hidden', className)} data-testid={testId}>
+    <div className={cn('ui-table flex flex-col rounded-xl border border-border bg-bg-secondary overflow-hidden', className)} data-testid={testId} style={dense ? { '--fx-cell-py': '6px' } : undefined}>
       {hasToolbar && (
         <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border-op60">
           {title && <h3 className={cn('ui-card-title text-sm font-semibold text-text-primary mr-2', titleCaseClass(title))}>{title}</h3>}
@@ -163,14 +182,15 @@ export function DataTable({
               })}
             </tr>
           </thead>
-          <tbody>
+          <tbody ref={bodyRef}>
             {!loading &&
               !error &&
               sortedRows.map((row, index) => {
                 const key = keyOf(row, index)
                 const selected = selectedKey !== undefined && selectedKey === key
+                const Row = entering.current.has(key) ? RowEnter : 'tr'
                 return (
-                  <tr
+                  <Row
                     key={key}
                     className={cn(
                       'ui-row border-b border-border-op30 last:border-b-0 transition-colors',
@@ -202,17 +222,13 @@ export function DataTable({
                         </td>
                       )
                     })}
-                  </tr>
+                  </Row>
                 )
               })}
           </tbody>
         </table>
 
-        {loading && (
-          <div className="flex items-center justify-center py-12" data-testid="data-table-loading">
-            <LoadingSpinner size="md" />
-          </div>
-        )}
+        {loading && <SkeletonTable columns={columns.length} testId="data-table-loading" />}
         {!loading && error && (
           <div className="flex flex-col items-center justify-center gap-3 py-10 px-4 text-center" data-testid="data-table-error">
             <p className="text-sm status-danger-text">{errorMessage(error)}</p>

@@ -8,7 +8,8 @@ import { List, X, House, UserCircle, SignOut } from '@phosphor-icons/react'
 import { Sidebar, useVisibleNavItems } from './Sidebar'
 import { WebSocketIndicator } from './WebSocketIndicator'
 import { Logo } from './Logo'
-import { AppBackdrop, IconButton, PageTransition } from './motion'
+import { AppBackdrop, AmbientScreen, IconButton, PageTransition } from './motion'
+import { useBootSequence } from '../hooks/useBootSequence'
 import { useTheme } from '../contexts/ThemeContext'
 import { cn } from '../lib/utils'
 import { useAuth } from '../contexts/AuthContext'
@@ -23,6 +24,7 @@ export function AppShell() {
   const { isMobile } = useMobile()
   const { effects } = useTheme()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  useBootSequence()
   const visibleItems = useVisibleNavItems()
   const activeId = resolveActiveNavId(location.pathname)
 
@@ -39,6 +41,7 @@ export function AppShell() {
   return (
     <div className="ui-app relative flex h-full w-full overflow-hidden bg-bg-primary">
       {effects === 'mission' && <AppBackdrop />}
+      {effects === 'instrument' && <AmbientScreen />}
       <div className="relative z-[1] flex flex-col w-full h-full overflow-hidden">
         {isMobile && (
           <header className="ui-topbar shrink-0 h-10 bg-bg-secondary border-b border-border-op50 flex items-center px-2 z-40 gap-1">
@@ -58,7 +61,7 @@ export function AppShell() {
 
         {isMobile && mobileMenuOpen && (
           <>
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setMobileMenuOpen(false)} />
+            <div className="ui-scrim fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setMobileMenuOpen(false)} />
             <div className="fixed top-10 right-0 left-0 z-50 p-2">
               <div className="ui-menu bg-bg-secondary border border-border rounded-xl shadow-2xl p-2 max-h-[70vh] overflow-auto">
                 <div className="grid grid-cols-4 gap-1 mb-1">

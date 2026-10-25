@@ -32,7 +32,7 @@ export function Modal({
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="modal-backdrop fixed inset-0 z-[200] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <Dialog.Overlay className="modal-backdrop fixed inset-0 z-[200]" />
         <Dialog.Content 
           className={cn(
             // Mobile: full screen
@@ -41,18 +41,13 @@ export function Modal({
             "w-full h-full sm:h-auto sm:mx-4",
             sizes[size],
             "ui-modal bg-bg-primary sm:modal-enhanced sm:rounded-xl",
-            "flex flex-col",
-            // Animations (desktop only)
-            "sm:data-[state=open]:animate-in sm:data-[state=closed]:animate-out",
-            "sm:data-[state=closed]:fade-out-0 sm:data-[state=open]:fade-in-0",
-            "sm:data-[state=closed]:zoom-out-95 sm:data-[state=open]:zoom-in-95",
-            "sm:data-[state=closed]:slide-out-to-left-1/2 sm:data-[state=closed]:slide-out-to-top-[48%]",
-            "sm:data-[state=open]:slide-in-from-left-1/2 sm:data-[state=open]:slide-in-from-top-[48%]"
+            // Enter and exit follow data-state (styles/motion.css): scale composes with the centering.
+            "flex flex-col"
           )}
           aria-describedby={undefined}
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border-op50 shrink-0 modal-header-gradient">
+          <div className="ui-modal-header flex items-center justify-between px-4 py-3 border-b border-border-op50 shrink-0 modal-header-gradient">
             <Dialog.Title className={cn('ui-modal-title text-sm font-semibold text-text-primary', titleCaseClass(title))}>
               {title}
             </Dialog.Title>

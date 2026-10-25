@@ -55,6 +55,7 @@
   "preferences": {
     "title": "Preferences",
     "help": "Saved to your account and applied on every node.",
-    "animationsHelp": "Reduced keeps short fades and stops looping effects. Your system's reduced motion setting always applies."
+    "animationsHelp": "Reduced keeps short fades and stops looping effects. Your system's reduced motion setting always applies.",
+    "ambientHelp": "Ambient backgrounds are a faint graticule and live traces under the data. They stand still unless animations are full."
   }
 }

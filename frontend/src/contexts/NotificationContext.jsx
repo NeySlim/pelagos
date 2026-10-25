@@ -11,6 +11,9 @@ import { Input } from '../components/Input'
 import i18n from '../i18n'
 
 const NotificationContext = createContext()
+const TOAST_EXIT_MS = 400
+
+const TONES = { success: 'success', error: 'danger', warning: 'warning', info: 'neutral' }
 
 export function NotificationProvider({ children }) {
   const [toasts, setToasts] = useState([])
@@ -18,18 +21,18 @@ export function NotificationProvider({ children }) {
   const [promptDialog, setPromptDialog] = useState(null)
   const [promptValue, setPromptValue] = useState('')
 
+  // Closing keeps the toast mounted for its exit (Radix Presence waits for the
+  // animation); it leaves the list once that is over.
   const removeToast = useCallback((id) => {
-    setToasts(prev => prev.filter(toast => toast.id !== id))
+    setToasts(prev => prev.map(toast => (toast.id === id ? { ...toast, open: false } : toast)))
+    setTimeout(() => setToasts(prev => prev.filter(toast => toast.id !== id)), TOAST_EXIT_MS)
   }, [])
 
+  // Radix runs the timer and pauses it while the toast is hovered or focused.
   const addToast = useCallback((type, message, duration = 5000) => {
     const id = Date.now() + Math.random() // unique even when called in a tight loop
-    setToasts(prev => [...prev, { id, type, message, duration }])
-    
-    if (duration > 0) {
-      setTimeout(() => removeToast(id), duration)
-    }
-  }, [removeToast])
+    setToasts(prev => [...prev, { id, type, message, duration, open: true }])
+  }, [])
 
   const showSuccess = useCallback((message) => addToast('success', message), [addToast])
   const showError = useCallback((message) => addToast('error', message), [addToast])
@@ -120,9 +123,11 @@ export function NotificationProvider({ children }) {
         {toasts.map(toast => (
           <Toast.Root
             key={toast.id}
-            className={`ui-toast rounded-xl border p-4 shadow-2xl backdrop-blur-sm transition-all ${getColors(toast.type)}`}
-            open={true}
-            onOpenChange={() => removeToast(toast.id)}
+            className={`ui-toast relative overflow-hidden rounded-xl border p-4 shadow-2xl backdrop-blur-sm ${getColors(toast.type)}`}
+            open={toast.open}
+            duration={toast.duration > 0 ? toast.duration : Infinity}
+            onOpenChange={(open) => !open && removeToast(toast.id)}
+            data-tone={TONES[toast.type] || 'neutral'}
           >
             <div className="flex items-start gap-3">
               <div className="flex-shrink-0 mt-0.5">
@@ -140,6 +145,7 @@ export function NotificationProvider({ children }) {
                 <X size={16} />
               </Toast.Close>
             </div>
+            {toast.duration > 0 && <span className="fx-toast-ttl" style={{ '--fx-ttl': `${toast.duration}ms` }} aria-hidden="true" />}
           </Toast.Root>
         ))}
 
@@ -149,8 +155,8 @@ export function NotificationProvider({ children }) {
       {/* Confirm Dialog */}
       <Dialog.Root open={!!confirmDialog} onOpenChange={(open) => !open && handleConfirm(false)}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[300]" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[301] w-full max-w-sm bg-bg-secondary border border-border rounded-lg shadow-xl p-4">
+          <Dialog.Overlay className="ui-dialog-overlay fixed inset-0 bg-black/60 backdrop-blur-sm z-[300]" />
+          <Dialog.Content className="ui-dialog fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[301] w-full max-w-sm bg-bg-secondary border border-border rounded-lg shadow-xl p-4">
             <Dialog.Title className="text-sm font-semibold text-text-primary mb-2">
               {confirmDialog?.title}
             </Dialog.Title>
@@ -178,8 +184,8 @@ export function NotificationProvider({ children }) {
       {/* Prompt Dialog */}
       <Dialog.Root open={!!promptDialog} onOpenChange={(open) => !open && handlePrompt(false)}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[300]" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[301] w-full max-w-sm bg-bg-secondary border border-border rounded-lg shadow-xl p-4">
+          <Dialog.Overlay className="ui-dialog-overlay fixed inset-0 bg-black/60 backdrop-blur-sm z-[300]" />
+          <Dialog.Content className="ui-dialog fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[301] w-full max-w-sm bg-bg-secondary border border-border rounded-lg shadow-xl p-4">
             <Dialog.Title className="text-sm font-semibold text-text-primary mb-2">
               {promptDialog?.title}
             </Dialog.Title>

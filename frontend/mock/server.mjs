@@ -1024,19 +1024,20 @@ function buildHandlers(state, emit) {
       return null
     },
     'GET /account/preferences': ({ user }) => ({
-      theme_family: 'mission',
+      theme_family: 'instrument',
       theme_mode: 'system',
       language: 'en',
       animations: 'full',
+      ambient: 'on',
       dashboard_layout: null,
       ...(state.preferences.get(user.id) || {}),
     }),
     'PUT /account/preferences': ({ user, body }) => {
-      const allowed = ['theme_family', 'theme_mode', 'language', 'animations', 'dashboard_layout']
+      const allowed = ['theme_family', 'theme_mode', 'language', 'animations', 'ambient', 'dashboard_layout']
       const merged = { ...(state.preferences.get(user.id) || {}) }
       for (const key of allowed) if (key in body) merged[key] = body[key]
       state.preferences.set(user.id, merged)
-      return { theme_family: 'mission', theme_mode: 'system', language: 'en', animations: 'full', dashboard_layout: null, ...merged }
+      return { theme_family: 'instrument', theme_mode: 'system', language: 'en', animations: 'full', ambient: 'on', dashboard_layout: null, ...merged }
     },
 
     // Nodes

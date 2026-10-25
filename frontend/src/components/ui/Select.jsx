@@ -148,10 +148,6 @@ export function Select({
               "border border-border-op50 rounded-lg",
               "shadow-xl shadow-black/20",
               "overflow-hidden",
-              // Animation
-              "animate-in fade-in-0 zoom-in-95",
-              "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
-              "data-[side=bottom]:slide-in-from-top-2 data-[side=top]:slide-in-from-bottom-2",
               sizeConfig.content
             )}
             position="popper"
@@ -166,7 +162,7 @@ export function Select({
                     value={toInternal(option.value)}
                     disabled={option.disabled}
                     className={cn(
-                      "flex items-center gap-2 rounded-md cursor-pointer outline-none",
+                      "ui-menu-item flex items-center gap-2 rounded-md cursor-pointer outline-none",
                       "transition-colors duration-100",
                       "text-text-primary",
                       "hover:bg-tertiary-op80 data-[highlighted]:bg-tertiary-op80",

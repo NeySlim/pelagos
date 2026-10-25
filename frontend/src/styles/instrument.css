@@ -1,0 +1,500 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Instrument effects layer. Everything here is scoped to html[data-effects='instrument'],
+   which ThemeContext sets for the instrument family only. Materials, not glass: three
+   luminance steps and alpha hairlines; a shadow only on what floats; no backdrop-filter;
+   neutral high-contrast primary actions; mono for data; status colors only on states. */
+
+/* ============ Tokens ============ */
+:root[data-effects='instrument'] {
+  --i-hl: rgba(255, 255, 255, 0.05);
+  --i-hair-3: rgba(255, 255, 255, 0.22);
+  --i-faint: #5a626b;
+  --i-ring: rgba(230, 233, 236, 0.55);
+  --i-scrim: rgba(8, 9, 10, 0.62);
+  --i-shadow-float: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --r-s: 4px;
+  --r-m: 6px;
+  --r-l: 10px;
+  --fx-faint: var(--i-faint);
+  --fx-hair: var(--border);
+  --fx-hair-2: var(--border-strong);
+  --fx-hair-3: var(--i-hair-3);
+  --fx-hl: var(--i-hl);
+  /* The UCM-era glass and glow tokens collapse to plain materials. */
+  --glass-bg: var(--bg-secondary);
+  --glass-border: var(--border-strong);
+  --glass-blur: 0px;
+  --glass-shadow: none;
+  --shadow-glow-primary: none;
+  --shadow-glow-success: none;
+  --shadow-glow-danger: none;
+  --shadow-glow-warning: none;
+  --shadow-inner-highlight: none;
+  --floating-window-shadow: var(--i-shadow-float);
+  --border-subtle: var(--border);
+}
+:root[data-effects='instrument'].theme-light {
+  --i-hl: rgba(18, 22, 26, 0.04);
+  --i-hair-3: rgba(18, 22, 26, 0.24);
+  --i-faint: #8d959d;
+  --i-ring: rgba(21, 25, 29, 0.5);
+  --i-scrim: rgba(40, 44, 48, 0.42);
+  --i-shadow-float: 0 0 0 1px rgba(18, 22, 26, 0.06), 0 8px 24px rgba(18, 22, 26, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* ============ Base ============ */
+:root[data-effects='instrument'] body {
+  font-size: 13px;
+  font-feature-settings: 'ss02', 'cv01';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  background: var(--bg-primary);
+}
+:root[data-effects='instrument'] .font-mono { letter-spacing: 0; font-variant-numeric: tabular-nums; }
+:root[data-effects='instrument'] :focus-visible { --tw-ring-color: var(--i-ring); --tw-ring-offset-color: var(--bg-primary); }
+/* Name the properties: hover color 110 ms, press 110 ms; nothing transitions "all". */
+:root[data-effects='instrument'] :is(button, a, input, select, textarea) {
+  transition-property: color, background-color, border-color, opacity, transform;
+  transition-duration: var(--d-fast);
+  transition-timing-function: ease;
+}
+:root[data-effects='instrument'] * { scrollbar-color: var(--border-strong) transparent; }
+:root[data-effects='instrument'] ::-webkit-scrollbar-thumb { background: var(--border-strong); }
+:root[data-effects='instrument'] ::-webkit-scrollbar-thumb:hover { background: var(--i-hair-3); }
+:root[data-effects='instrument'] ::selection { background: color-mix(in srgb, var(--accent-primary) 28%, transparent); }
+
+/* ============ Shell: an inverted L, darker than the content ============ */
+:root[data-effects='instrument'] .ui-app { background: var(--bg-primary); }
+:root[data-effects='instrument'] .ui-sidebar {
+  width: 216px;
+  background: color-mix(in srgb, var(--bg-primary) 92%, transparent);
+  border-right: 1px solid var(--border);
+  box-shadow: none;
+  padding-top: 14px;
+}
+:root[data-effects='instrument'] .ui-brand { font-family: inherit; font-size: 13.5px; font-weight: 600; letter-spacing: 0.01em; }
+:root[data-effects='instrument'] .ui-brand-node { font-size: 11px; }
+:root[data-effects='instrument'] .ui-sidebar-rule { background: var(--border); }
+:root[data-effects='instrument'] .ui-brand-row + .ui-sidebar-rule { opacity: 0; margin-top: 2px; margin-bottom: 2px; }
+:root[data-effects='instrument'] .ui-nav-group {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--text-tertiary);
+  background: transparent;
+  padding: 6px 8px;
+  margin-top: 6px;
+}
+:root[data-effects='instrument'] .ui-nav-group:hover,
+:root[data-effects='instrument'] .ui-nav-group.has-active { color: var(--text-secondary); background: transparent; }
+:root[data-effects='instrument'] .ui-nav-group .ui-nav-chevron { opacity: 0.6; }
+:root[data-effects='instrument'] .ui-nav-items > div { padding-left: 0; }
+:root[data-effects='instrument'] .ui-nav-item {
+  gap: 9px;
+  padding: 6px 8px 6px 10px;
+  border-radius: var(--r-s);
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  background: transparent;
+}
+:root[data-effects='instrument'] .ui-nav-item svg { color: var(--text-tertiary); transition: color var(--d-fast) ease; }
+:root[data-effects='instrument'] .ui-nav-item:not(.is-active):hover { background: var(--i-hl); color: var(--text-primary); }
+:root[data-effects='instrument'] .ui-nav-item:not(.is-active):hover svg { color: var(--text-secondary); }
+:root[data-effects='instrument'] .ui-nav-item.is-active { background: var(--bg-tertiary); color: var(--text-primary); }
+:root[data-effects='instrument'] .ui-nav-item.is-active svg { color: var(--text-primary); }
+:root[data-effects='instrument'] .ui-nav-indicator { display: none; }
+:root[data-effects='instrument'] .ui-user-row { padding: 0; margin-top: 0; }
+:root[data-effects='instrument'] .ui-user-row > .ui-sidebar-rule { margin: 0; }
+:root[data-effects='instrument'] .ui-user-button { padding: 10px 14px; border-radius: 0; }
+:root[data-effects='instrument'] .ui-user-button:hover { background: var(--i-hl); }
+:root[data-effects='instrument'] .ui-avatar { background: var(--bg-tertiary); border-color: var(--border-strong); }
+:root[data-effects='instrument'] .ui-avatar svg { color: var(--text-secondary); }
+:root[data-effects='instrument'] .ui-avatar + span .fx-dot { border-color: var(--bg-primary); }
+
+:root[data-effects='instrument'] .ui-topbar { background: var(--bg-primary); border-bottom: 1px solid var(--border); height: 48px; }
+:root[data-effects='instrument'] .ui-scrim { background: var(--i-scrim); -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+/* ============ Page frame ============ */
+:root[data-effects='instrument'] .ui-page-header {
+  background: transparent;
+  box-shadow: none;
+  border-bottom: 1px solid var(--border);
+  margin: 0 20px;
+  padding-top: 6px;
+}
+:root[data-effects='instrument'] .ui-page-header > div:first-child { padding-left: 0; padding-right: 0; }
+:root[data-effects='instrument'] .ui-page-header .ui-tabs-row { padding-left: 0; padding-right: 0; }
+:root[data-effects='instrument'] .ui-page-icon { display: none; }
+:root[data-effects='instrument'] .ui-page-title { font-family: inherit; font-size: 17px; font-weight: 600; letter-spacing: -0.005em; line-height: 1.3; text-transform: none; }
+:root[data-effects='instrument'] .ui-page-title.ui-title-literal { font-family: var(--font-mono); font-weight: 500; font-size: 16px; letter-spacing: 0; }
+:root[data-effects='instrument'] .ui-page-subtitle { font-size: 12.5px; color: var(--text-tertiary); margin-top: 3px; }
+
+/* Tabs: text only, the ink slides underneath (TabInk). */
+:root[data-effects='instrument'] .ui-tabs { gap: 2px; border-bottom: none; }
+:root[data-effects='instrument'] .ui-tab {
+  background: transparent !important;
+  border-color: transparent !important;
+  border-radius: var(--r-s) var(--r-s) 0 0;
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  font-weight: 400;
+  padding: 7px 10px 9px;
+  gap: 7px;
+}
+:root[data-effects='instrument'] .ui-tab svg { width: 13px; height: 13px; color: var(--i-faint); }
+:root[data-effects='instrument'] .ui-tab:hover { color: var(--text-primary); }
+:root[data-effects='instrument'] :is(.ui-tab.is-active, .ui-tab[data-state='active']) { color: var(--text-primary); }
+:root[data-effects='instrument'] :is(.ui-tab.is-active, .ui-tab[data-state='active']) svg { color: var(--text-secondary); }
+:root[data-effects='instrument'] .ui-tab > span[class*='rounded-full'] { background: transparent; color: var(--i-faint); font-family: var(--font-mono); font-size: 11px; padding: 0; }
+:root[data-effects='instrument'] .ui-tab-underline { display: none; }
+:root[data-effects='instrument'] .ui-tab-panel[data-state='active'] { animation: fx-fade var(--d-fast) ease both; }
+
+/* ============ Typography of components ============ */
+:root[data-effects='instrument'] .ui-card-title,
+:root[data-effects='instrument'] .ui-modal-title { font-family: inherit; font-size: 12.5px; font-weight: 600; text-transform: none; letter-spacing: 0; }
+:root[data-effects='instrument'] .ui-modal-title { font-size: 14px; }
+:root[data-effects='instrument'] .ui-label { font-family: inherit; font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-tertiary); }
+
+/* ============ Controls ============ */
+:root[data-effects='instrument'] .ui-btn {
+  border-radius: var(--r-s);
+  font-weight: 500;
+  min-height: 28px;
+  box-shadow: none;
+}
+:root[data-effects='instrument'] .ui-btn:active:not(:disabled) { transform: scale(0.97); }
+:root[data-effects='instrument'] .ui-btn:disabled { opacity: 0.45; }
+:root[data-effects='instrument'] .ui-btn svg { flex-shrink: 0; }
+/* The primary action is neutral and high contrast: the accents stay for data. */
+:root[data-effects='instrument'] .btn-gradient,
+:root[data-effects='instrument'] .btn-gradient.text-white {
+  background: var(--contrast-bg);
+  color: var(--contrast-fg);
+  border: 1px solid transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+:root[data-effects='instrument'] .btn-gradient::before { display: none; }
+:root[data-effects='instrument'] .btn-gradient:hover:not(:disabled) { background: color-mix(in srgb, var(--contrast-bg) 88%, var(--bg-tertiary)); box-shadow: none; transform: none; }
+:root[data-effects='instrument'] .btn-gradient:active:not(:disabled) { transform: scale(0.97); box-shadow: none; }
+:root[data-effects='instrument'] .btn-gradient.danger { background: var(--accent-danger); color: var(--contrast-fg); }
+:root[data-effects='instrument'] .btn-gradient.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-danger) 88%, var(--contrast-bg)); }
+:root[data-effects='instrument'] .btn-gradient.success { background: var(--accent-success); color: var(--contrast-fg); }
+:root[data-effects='instrument'] .btn-gradient.success:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-success) 88%, var(--contrast-bg)); }
+:root[data-effects='instrument'] :is(.btn-soft, .ui-dropdown-trigger) {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-s);
+  box-shadow: none;
+  color: var(--text-primary);
+}
+:root[data-effects='instrument'] :is(.btn-soft, .ui-dropdown-trigger):hover:not(:disabled) { background: var(--bg-inset); border-color: var(--i-hair-3); transform: none; box-shadow: none; }
+:root[data-effects='instrument'] .btn-soft:active:not(:disabled) { transform: scale(0.97); box-shadow: none; }
+:root[data-effects='instrument'] .btn-soft svg { color: var(--text-secondary); }
+:root[data-effects='instrument'] :is(.btn-danger-soft, .btn-warning-soft) {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-s);
+  box-shadow: none;
+}
+:root[data-effects='instrument'] .btn-danger-soft { color: var(--accent-danger); }
+:root[data-effects='instrument'] .btn-warning-soft { color: var(--accent-warning); }
+:root[data-effects='instrument'] .btn-danger-soft:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-danger) 9%, var(--bg-tertiary)); border-color: color-mix(in srgb, var(--accent-danger) 40%, transparent); transform: none; box-shadow: none; }
+:root[data-effects='instrument'] .btn-warning-soft:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-warning-fill) 9%, var(--bg-tertiary)); border-color: color-mix(in srgb, var(--accent-warning-fill) 45%, transparent); transform: none; box-shadow: none; }
+:root[data-effects='instrument'] :is(.ui-btn-ghost, .ui-btn-outline) { color: var(--text-secondary); border-radius: var(--r-s); }
+:root[data-effects='instrument'] :is(.ui-btn-ghost, .ui-btn-outline):hover:not(:disabled) { background: var(--i-hl); color: var(--text-primary); }
+:root[data-effects='instrument'] .ui-btn-outline { border-color: var(--border-strong); }
+
+:root[data-effects='instrument'] .ui-icon-button {
+  border-radius: var(--r-s);
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+:root[data-effects='instrument'] .ui-icon-button-md { width: 30px; height: 30px; }
+:root[data-effects='instrument'] .ui-icon-button-lg { width: 34px; height: 34px; }
+:root[data-effects='instrument'] .ui-icon-button:hover { background: var(--bg-inset); border-color: var(--i-hair-3); color: var(--text-primary); }
+:root[data-effects='instrument'] .ui-icon-button:active { transform: scale(0.94); }
+:root[data-effects='instrument'] .ui-icon-button.is-active { background: var(--bg-inset); color: var(--text-primary); box-shadow: none; }
+:root[data-effects='instrument'] :is(.ui-modal-header, .ui-floating-header) .ui-icon-button { background: transparent; border-color: transparent; color: var(--text-tertiary); }
+:root[data-effects='instrument'] :is(.ui-modal-header, .ui-floating-header) .ui-icon-button:hover { background: var(--i-hl); color: var(--text-primary); }
+
+/* Inputs sit on the ground color, framed by a control hairline; focus is neutral. */
+:root[data-effects='instrument'] .ui-input,
+:root[data-effects='instrument'] .ui-input:hover {
+  background-color: var(--bg-primary) !important;
+  border-color: var(--border-strong);
+  border-radius: var(--r-s);
+  font-size: 12.5px;
+}
+:root[data-effects='instrument'] .ui-input:hover { border-color: var(--i-hair-3); }
+:root[data-effects='instrument'] :is(.ui-input:focus, .ui-input:focus-visible, .ui-input[data-state='open']) {
+  border-color: var(--i-hair-3) !important;
+  box-shadow: 0 0 0 3px var(--i-hl) !important;
+  --tw-ring-color: transparent;
+}
+:root[data-effects='instrument'] .ui-input[aria-invalid='true'] { border-color: var(--accent-danger) !important; }
+:root[data-effects='instrument'] :is(input, textarea, select):not([type='checkbox']):not([type='radio']) { background-color: var(--bg-primary) !important; }
+:root[data-effects='instrument'] :is(input, textarea, select):not([type='checkbox']):not([type='radio']):hover { background-color: var(--bg-primary) !important; }
+:root[data-effects='instrument'] :is(input, textarea)::placeholder { color: var(--i-faint); }
+:root[data-effects='instrument'] input[type='checkbox'] { border-color: var(--border-strong); background-color: var(--bg-primary); border-radius: 3px; }
+:root[data-effects='instrument'] input[type='checkbox']:hover { border-color: var(--i-hair-3); background-color: var(--bg-primary); }
+:root[data-effects='instrument'] input[type='checkbox']:checked {
+  background-color: var(--contrast-bg) !important;
+  border-color: var(--contrast-bg) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23121416' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E") !important;
+}
+:root[data-effects='instrument'].theme-light input[type='checkbox']:checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E") !important;
+}
+:root[data-effects='instrument'] input[type='radio'] { accent-color: var(--contrast-bg); }
+
+/* Stat chips and stat bars: label over a mono value. */
+:root[data-effects='instrument'] .ui-stat-chip { border-radius: var(--r-s); background: var(--bg-tertiary); border-color: var(--border); padding: 6px 10px; }
+:root[data-effects='instrument'] .ui-stat-chip-label { font-family: inherit; font-size: 11px; letter-spacing: 0; text-transform: none; color: var(--text-tertiary); }
+:root[data-effects='instrument'] .ui-stat-chip-value { font-family: var(--font-mono); font-weight: 500; letter-spacing: -0.01em; }
+:root[data-effects='instrument'] .ui-stat-chip-icon { color: var(--text-tertiary); }
+:root[data-effects='instrument'] .rich-stats-bar { background: transparent; box-shadow: none; border-bottom-color: var(--border); }
+:root[data-effects='instrument'] .rich-stat-item { background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--r-s); box-shadow: none; padding: 8px 12px; transition: border-color var(--d-fast) ease; }
+:root[data-effects='instrument'] .rich-stat-item:hover { transform: none; box-shadow: none; border-color: var(--border-strong); }
+:root[data-effects='instrument'] .rich-stat-icon { background: transparent; box-shadow: none; color: var(--text-tertiary); }
+:root[data-effects='instrument'] .rich-stat-icon > svg { color: inherit; }
+:root[data-effects='instrument'] .rich-stat-value { font-family: var(--font-mono); font-weight: 500; letter-spacing: -0.01em; }
+:root[data-effects='instrument'] .rich-stat-label { font-size: 11px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--text-tertiary); }
+
+/* ============ Surfaces ============ */
+:root[data-effects='instrument'] :is(.card-soft, .card-interactive, .ui-panel) {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  box-shadow: none;
+}
+:root[data-effects='instrument'] .card-soft:hover { border-color: var(--border); box-shadow: none; }
+:root[data-effects='instrument'] .card-interactive:hover { background: color-mix(in srgb, var(--bg-secondary) 50%, var(--bg-tertiary)); border-color: var(--border-strong); transform: none; box-shadow: none; }
+:root[data-effects='instrument'] .card-interactive:active { transform: scale(0.995); }
+:root[data-effects='instrument'] :is(.card-soft, .card-interactive, .ui-table, .ui-panel) :is(.card-soft, .card-interactive, .ui-panel) { background: var(--bg-tertiary); border-radius: var(--r-s); }
+:root[data-effects='instrument'] .ui-card-header { border-color: var(--border); background: transparent; }
+:root[data-effects='instrument'] .section-header-gradient,
+:root[data-effects='instrument'] .section-header-gradient:hover { background: transparent; }
+:root[data-effects='instrument'] .ui-subpanel { border-color: var(--border); border-radius: var(--r-s); background: transparent; }
+:root[data-effects='instrument'] .ui-subpanel > button:hover { background: var(--i-hl); }
+:root[data-effects='instrument'] .detail-header-gradient { border-radius: var(--r-m); }
+:root[data-effects='instrument'] .detail-section-frame { border-radius: var(--r-m); }
+:root[data-effects='instrument'] .detail-field-frame { border-radius: var(--r-s); }
+:root[data-effects='instrument'] .detail-icon-gradient { border: 1px solid var(--border); border-radius: var(--r-s); }
+:root[data-effects='instrument'] .detail-icon-gradient svg { color: var(--text-secondary) !important; }
+/* Colored icon tiles disappear: icons are monochrome. */
+:root[data-effects='instrument'] [class*='icon-bg-'] { background: transparent; color: var(--text-tertiary); box-shadow: none; }
+:root[data-effects='instrument'] .hero-gradient { background: transparent; }
+
+/* ============ Tables ============ */
+:root[data-effects='instrument'] .ui-table { border-radius: var(--r-m); border-color: var(--border); background: var(--bg-secondary); box-shadow: none; }
+:root[data-effects='instrument'] .ui-table thead,
+:root[data-effects='instrument'] .ui-table .table-header-gradient { background: var(--bg-secondary); }
+:root[data-effects='instrument'] .ui-table th {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-tertiary);
+  border-color: var(--border);
+}
+:root[data-effects='instrument'] .ui-table th[aria-sort] { color: var(--text-secondary); }
+:root[data-effects='instrument'] .ui-table td { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+:root[data-effects='instrument'] .ui-table td.font-mono { font-size: 12px; }
+:root[data-effects='instrument'] .ui-table > div { border-color: var(--border); }
+:root[data-effects='instrument'] .ui-row { border-color: var(--border); transition: background-color var(--d-fast) ease; }
+:root[data-effects='instrument'] .ui-row:hover { background: var(--i-hl); }
+:root[data-effects='instrument'] .ui-row.is-selected { background: var(--i-hl); box-shadow: inset 2px 0 0 var(--text-primary); }
+:root[data-effects='instrument'] .table-row-hover:hover { background: var(--i-hl); }
+:root[data-effects='instrument'] tr.row-selected td { background: var(--i-hl); }
+
+/* ============ Status: a dot and a word, color on the mark ============ */
+:root[data-effects='instrument'] .fx-dot { box-shadow: none; }
+:root[data-effects='instrument'] .fx-tone-warning { --fx-c: var(--accent-warning-fill); }
+:root[data-effects='instrument'] .fx-tone-primary { --fx-c: var(--accent-primary); }
+/* No ping rings: a state that matters is a word; the live dot breathes only while connecting. */
+:root[data-effects='instrument'] .fx-dot-pulse::after { display: none; }
+:root[data-effects='instrument'] [data-ws-state='connecting'] { animation: i-breathe 1.6s ease-in-out infinite; }
+:root[data-effects='instrument'] .ui-badge {
+  border-radius: var(--r-s);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  box-shadow: none;
+  font-weight: 500;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 1px 7px;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+:root[data-effects='instrument'] .ui-badge:hover { box-shadow: none; }
+:root[data-effects='instrument'] .ui-badge.rounded-full { padding: 0 6px; font-size: 10.5px; }
+:root[data-effects='instrument'] :is(.ui-badge-success, .ui-badge-emerald, .ui-badge-teal) { color: var(--accent-success); border-color: color-mix(in srgb, var(--accent-success) 35%, transparent); }
+:root[data-effects='instrument'] :is(.ui-badge-warning, .ui-badge-yellow, .ui-badge-amber, .ui-badge-orange) { color: var(--accent-warning); border-color: color-mix(in srgb, var(--accent-warning-fill) 45%, transparent); }
+:root[data-effects='instrument'] :is(.ui-badge-danger, .ui-badge-red) { color: var(--accent-danger); border-color: color-mix(in srgb, var(--accent-danger) 35%, transparent); }
+:root[data-effects='instrument'] :is(.ui-badge-primary, .ui-badge-blue, .ui-badge-cyan) { color: var(--accent-primary); border-color: color-mix(in srgb, var(--accent-primary) 35%, transparent); }
+:root[data-effects='instrument'] :is(.ui-badge-violet, .ui-badge-purple) { color: var(--accent-pro); border-color: color-mix(in srgb, var(--accent-pro) 35%, transparent); }
+/* Info leaves the accent: it is not a protocol. */
+:root[data-effects='instrument'] .ui-badge-info { color: var(--text-secondary); border-color: var(--border-strong); }
+/* With a dot, the word is neutral and the dot carries the state. */
+:root[data-effects='instrument'] .ui-badge:has(> .ui-badge-dot) { color: var(--text-secondary); border-color: var(--border-strong); }
+:root[data-effects='instrument'] .ui-badge-dot { --fx-dot: 6px !important; }
+
+/* Utilization: a 4 px bar scaled from the left, fixed threshold marks. */
+:root[data-effects='instrument'] .ui-progress-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-inset);
+  overflow: visible;
+  position: relative;
+}
+:root[data-effects='instrument'] .ui-progress-fill { border-radius: 2px; transition: transform var(--d-slow) var(--ease-in-out), background-color var(--d-base) ease; }
+:root[data-effects='instrument'] .ui-progress-fill.status-warning-bg-solid { background-color: var(--accent-warning-fill); }
+:root[data-effects='instrument'] .ui-progress-tick { display: block; }
+:root[data-effects='instrument'] .ui-meter { height: 4px; border-radius: 2px; background: var(--bg-inset); }
+:root[data-effects='instrument'] .ui-meter-fill { box-shadow: none; }
+:root[data-effects='instrument'] .status-warning-bg-solid { background-color: var(--accent-warning-fill); }
+
+/* ============ Floating: menus, dialogs, tooltips, toasts, windows ============ */
+:root[data-effects='instrument'] .modal-backdrop,
+:root[data-effects='instrument'] .ui-dialog-overlay {
+  background: var(--i-scrim);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-effects='instrument'] .ui-modal { background: var(--bg-secondary); }
+@media (min-width: 640px) {
+  :root[data-effects='instrument'] .ui-modal,
+  :root[data-effects='instrument'] .modal-enhanced,
+  :root[data-effects='instrument'] .ui-dialog {
+    border: none;
+    border-radius: var(--r-l);
+    box-shadow: var(--i-shadow-float);
+    overflow: hidden;
+  }
+}
+:root[data-effects='instrument'] .modal-header-gradient { background: transparent; }
+:root[data-effects='instrument'] .modal-header-gradient::before { display: none; }
+:root[data-effects='instrument'] .ui-modal-header { border-color: var(--border); padding: 14px 16px; }
+:root[data-effects='instrument'] :is(.ui-modal, .ui-dialog) :is(.border-border, .border-border-op50, .ui-modal-footer) { border-color: var(--border); }
+:root[data-effects='instrument'] .ui-menu {
+  background: var(--bg-secondary);
+  border: none;
+  border-radius: var(--r-l);
+  box-shadow: var(--i-shadow-float);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  padding: 4px;
+}
+:root[data-effects='instrument'] .ui-menu-item { border-radius: var(--r-s); font-size: 12.5px; padding-top: 6px; padding-bottom: 6px; }
+:root[data-effects='instrument'] .ui-menu-item:is(:hover, [data-highlighted]) { background: var(--i-hl); }
+:root[data-effects='instrument'] .ui-menu-item svg { color: var(--text-tertiary); }
+:root[data-effects='instrument'] .ui-menu .text-accent-primary { color: var(--text-primary); }
+:root[data-effects='instrument'] .ui-menu .text-status-danger,
+:root[data-effects='instrument'] .ui-menu .text-status-danger svg { color: var(--accent-danger); }
+:root[data-effects='instrument'] .ui-menu-label { font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+:root[data-effects='instrument'] .ui-menu .bg-accent-primary-op15 { background: var(--bg-tertiary); }
+:root[data-effects='instrument'] .ui-menu .h-px.bg-border { background: var(--border); }
+:root[data-effects='instrument'] .ui-tooltip {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-s);
+  box-shadow: var(--i-shadow-float);
+  font-size: 11.5px;
+  padding: 5px 8px;
+}
+:root[data-effects='instrument'] .ui-toast {
+  background: var(--bg-secondary);
+  border: none;
+  border-radius: var(--r-l);
+  box-shadow: var(--i-shadow-float);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  padding: 10px 12px 12px;
+}
+:root[data-effects='instrument'] .ui-toast [class*='Description'],
+:root[data-effects='instrument'] .ui-toast .text-sm { font-size: 12.5px; }
+:root[data-effects='instrument'] .ui-toast svg[class*='-text'] { width: 16px; height: 16px; }
+:root[data-effects='instrument'] .ui-toast[data-tone='success'] { --fx-toast-c: var(--accent-success); }
+:root[data-effects='instrument'] .ui-toast[data-tone='danger'] { --fx-toast-c: var(--accent-danger); }
+:root[data-effects='instrument'] .ui-toast[data-tone='warning'] { --fx-toast-c: var(--accent-warning-fill); }
+:root[data-effects='instrument'] .ui-floating {
+  background: var(--bg-secondary);
+  border-color: var(--border) !important;
+  border-radius: var(--r-l);
+  box-shadow: var(--i-shadow-float);
+}
+:root[data-effects='instrument'] .ui-floating-header { background: transparent !important; border-color: var(--border); border-radius: var(--r-l) var(--r-l) 0 0; }
+:root[data-effects='instrument'] .fx-chart-tooltip {
+  background: var(--bg-tertiary);
+  border-color: var(--border-strong);
+  border-radius: var(--r-s);
+  box-shadow: var(--i-shadow-float);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+:root[data-effects='instrument'] .fx-chart-tooltip-label { letter-spacing: 0; text-transform: none; font-size: 10.5px; }
+:root[data-effects='instrument'] .fx-chart-tooltip-value { font-family: var(--font-mono); font-weight: 500; }
+
+/* ============ Labels: structure comes from hairlines and alignment, not capitals ============ */
+:root[data-effects='instrument'] { --font-display: var(--font-sans); }
+:root[data-effects='instrument'] :is(.uppercase, .dash-label, .radar-readout-label, .radar-rail-family, .radar-rail-state, .ui-waypoint-sub) {
+  text-transform: none;
+  letter-spacing: 0;
+}
+:root[data-effects='instrument'] :is(.tracking-wide, .tracking-wider, .tracking-widest) { letter-spacing: 0.01em; }
+:root[data-effects='instrument'] .dash-label { font-size: 11px; line-height: 14px; }
+:root[data-effects='instrument'] :is(.radar-pin-name, .dash-node-name) { font-family: var(--font-mono); letter-spacing: 0; }
+:root[data-effects='instrument'] .login-card-title { letter-spacing: 0; }
+:root[data-effects='instrument'] .fx-reticle { --fx-c: var(--i-hair-3); --fx-reticle: 7px !important; }
+:root[data-effects='instrument'] :is(.fx-segment-done, .fx-segment-current, .fx-segment-warning, .fx-segment-danger) { box-shadow: none; }
+:root[data-effects='instrument'] .fx-segment-current { background: var(--text-secondary); }
+:root[data-effects='instrument'] .fx-segment-warning { background: var(--accent-warning-fill); }
+:root[data-effects='instrument'] .ui-waypoint { box-shadow: none; background: transparent; border-color: var(--border-strong); border-radius: var(--r-s); font-weight: 500; }
+
+/* Icons are monochrome: a title's icon is a label, not a signal. */
+:root[data-effects='instrument'] :is(.ui-card-title > svg, svg:has(+ .ui-card-title), .ui-empty-icon) { color: var(--text-tertiary); }
+:root[data-effects='instrument'] .ui-empty-halo { display: none; }
+:root[data-effects='instrument'] .dash-tile-head a:hover { color: var(--text-primary); }
+
+/* Status badges read as a dot and a word: the dot carries the color, the word stays neutral. */
+:root[data-effects='instrument'] :is(.ui-badge-success, .ui-badge-emerald, .ui-badge-warning, .ui-badge-yellow, .ui-badge-amber, .ui-badge-danger, .ui-badge-red):not(:has(> .ui-badge-dot)) {
+  color: var(--text-secondary);
+  border-color: var(--border-strong);
+}
+:root[data-effects='instrument'] :is(.ui-badge-success, .ui-badge-emerald, .ui-badge-warning, .ui-badge-yellow, .ui-badge-amber, .ui-badge-danger, .ui-badge-red):not(:has(> .ui-badge-dot))::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--i-badge-dot);
+}
+:root[data-effects='instrument'] :is(.ui-badge-success, .ui-badge-emerald) { --i-badge-dot: var(--accent-success); }
+:root[data-effects='instrument'] :is(.ui-badge-warning, .ui-badge-yellow, .ui-badge-amber) { --i-badge-dot: var(--accent-warning-fill); }
+:root[data-effects='instrument'] :is(.ui-badge-danger, .ui-badge-red) { --i-badge-dot: var(--accent-danger); }
+
+/* ============ Motion tuning: entries are short and close ============ */
+:root[data-effects='instrument'] .fx-page { animation: i-rise var(--d-panel) var(--ease-out) backwards; }
+:root[data-effects='instrument'] :is(.fx-stagger > *, .fx-stagger-item) {
+  animation: i-rise var(--d-panel) var(--ease-out) backwards;
+  animation-delay: calc(min(var(--fx-i, 0), 8) * 24ms);
+}
+html.boot[data-effects='instrument'] .fx-page { animation-delay: 120ms; }
+html[data-effects='instrument'][data-motion='reduced'] :is(.fx-page, .fx-stagger > *, .fx-stagger-item) { animation-name: fx-fade; animation-duration: 100ms; animation-delay: 0s; }
+html[data-effects='instrument'][data-motion='reduced'] [data-ws-state='connecting'] { animation: none; }
+html[data-effects='instrument'][data-motion='reduced'] .ui-btn:active,
+html[data-effects='instrument'][data-motion='reduced'] .ui-icon-button:active { transform: none; }
+
+@keyframes i-rise { from { opacity: 0; transform: translateY(4px); } }
+@keyframes i-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* ============ Small screens ============ */
+@media (max-width: 640px) {
+  :root[data-effects='instrument'] .ui-page-header { margin: 0 12px; padding-top: 0; }
+  :root[data-effects='instrument'] .ui-page-header:empty { display: none; }
+  :root[data-effects='instrument'] .ui-modal { border-radius: 0; }
+}

@@ -26,8 +26,8 @@ const TriggerButton = forwardRef(({ children, disabled, size = 'default', varian
       "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium",
       sizes[size],
       variants[variant],
-      "transition-all duration-200",
-      "hover:scale-[1.01] active:scale-[0.99]",
+      "ui-dropdown-trigger transition-colors duration-150",
+      "active:scale-[0.97]",
       "disabled:opacity-50 disabled:cursor-not-allowed",
       variant !== 'primary' && "focus:outline-none focus:ring-1 focus:ring-accent-primary focus:ring-offset-1 focus:ring-offset-bg-primary"
     )}
@@ -49,7 +49,7 @@ export function Dropdown({ trigger, items, onSelect, disabled = false, size = 'd
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content
-          className="min-w-[180px] bg-bg-secondary border border-border rounded-lg shadow-xl p-0.5 z-50"
+          className="ui-menu min-w-[180px] bg-bg-secondary border border-border rounded-lg shadow-xl p-0.5 z-50"
           sideOffset={4}
         >
           {items.map((item, index) => {
@@ -72,7 +72,7 @@ export function Dropdown({ trigger, items, onSelect, disabled = false, size = 'd
                 disabled={item.disabled}
                 data-testid={item.testId}
                 className={cn(
-                  "flex items-center gap-2 px-2.5 py-1.5 text-xs rounded cursor-pointer outline-none transition-colors",
+                  "ui-menu-item flex items-center gap-2 px-2.5 py-1.5 text-xs rounded cursor-pointer outline-none transition-colors",
                   item.danger 
                     ? "status-danger-text hover:status-danger-bg" 
                     : "text-text-primary hover:bg-bg-tertiary",

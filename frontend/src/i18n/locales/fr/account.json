@@ -55,6 +55,7 @@
   "preferences": {
     "title": "Préférences",
     "help": "Enregistrées dans votre compte et appliquées sur chaque nœud.",
-    "animationsHelp": "Réduites garde de courts fondus et arrête les effets en boucle. Le réglage système de réduction des animations s'applique toujours."
+    "animationsHelp": "Réduites garde de courts fondus et arrête les effets en boucle. Le réglage système de réduction des animations s'applique toujours.",
+    "ambientHelp": "Les fonds animés sont un graticule discret et des traces en direct sous les données. Ils restent fixes sauf si les animations sont complètes."
   }
 }

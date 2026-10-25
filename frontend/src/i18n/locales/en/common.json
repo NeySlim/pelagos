@@ -262,12 +262,18 @@
       "pelagic": "Ocean Mission Control UI",
       "gray": "Neutral slate",
       "purple": "Deep violet",
-      "sunset": "Warm amber"
+      "sunset": "Warm amber",
+      "instrument": "Calm surfaces, signal colors, measured motion"
     },
     "animations": "Animations",
     "animationLevels": {
       "full": "Full",
       "reduced": "Reduced",
+      "off": "Off"
+    },
+    "ambient": "Ambient backgrounds",
+    "ambientModes": {
+      "on": "On",
       "off": "Off"
     }
   },
@@ -309,5 +315,14 @@
     "ago": "-{{minutes}} min",
     "agoSeconds": "-{{seconds}} s",
     "now": "now"
+  },
+  "motion": {
+    "states": {
+      "pending": "Pending",
+      "running": "Running",
+      "done": "Done",
+      "failed": "Failed",
+      "reverted": "Reverted"
+    }
   }
 }

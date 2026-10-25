@@ -26,6 +26,7 @@ export function WebSocketIndicator({ className, showLabel = false, variant = 'de
         <StatusDot
           title={t(config.labelKey)}
           data-testid="ws-dot"
+          data-ws-state={state}
           size={10}
           tone={isConnected ? 'success' : state === WsState.ERROR ? 'danger' : 'neutral'}
           pulse={isConnected}

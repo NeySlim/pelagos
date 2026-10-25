@@ -352,6 +352,8 @@ HostRequest = model(
         "mac": fields.String(example="aa:bb:cc:dd:ee:ff"),
         "zone": fields.String(required=True, example="example.lan"),
         "reverse_zone": fields.String,
+        "view": fields.String(description="view of the forward zone (default _default)"),
+        "reverse_view": fields.String(description="view of the reverse zone (default: view)"),
         "ttl": fields.Integer(default=300),
         "reservation": fields.Boolean(default=False),
         "subnet_id": fields.Integer,

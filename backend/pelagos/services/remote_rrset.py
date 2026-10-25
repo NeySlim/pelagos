@@ -29,22 +29,26 @@ from pelagos.domain import (
 from pelagos.services.errors import EngineUnavailable
 
 
-def primary_peer(dns: Any, zone: str) -> Any:
-    """The peer running BIND that holds `zone` (default view) as primary."""
+def primary_peer(dns: Any, zone: str, view: str | None = None) -> Any:
+    """The peer running BIND that holds `zone` as primary in `view` (None: the default view)."""
     zone = normalize_name(zone)
+    want = view or "_default"
     for peer in dns.peers.peers_running(Engine.BIND):
         snap = dns.peers.snapshot(peer, Engine.BIND, "summary", {})
         for z in (snap or {}).get("zones") or []:
             if normalize_name(z.get("name", "")) == zone and z.get("kind") == ZoneKind.PRIMARY.value:
-                if z.get("view") in (None, "_default"):
+                if (z.get("view") or "_default") == want:
                     return peer
     raise EngineUnavailable(f"no reachable node holds zone {zone} as primary")
 
 
-def plan_on_primary(dns: Any, ctx: Any, zone: str, changes: list[Change], created_by: str) -> Plan:
+def plan_on_primary(
+    dns: Any, ctx: Any, zone: str, changes: list[Change], created_by: str, view: str | None = None
+) -> Plan:
     zone = normalize_name(zone)
-    peer = primary_peer(dns, zone)
-    snap = dns._peer_snapshot(peer, "records", zone=zone, view=None)
+    view = None if view in (None, "", "_default") else view
+    peer = primary_peer(dns, zone, view)
+    snap = dns._peer_snapshot(peer, "records", zone=zone, view=view)
     current = [RRset.from_dict(r) for r in snap.get("records", [])]
     settings = ctx.settings() or {}
     dns_settings = dict(settings.get("dns", {}) or {})
@@ -58,7 +62,7 @@ def plan_on_primary(dns: Any, ctx: Any, zone: str, changes: list[Change], create
     if not resolved and not errors:
         errors.append("no change")
     ok = not errors
-    preconditions = rr.preconditions(resolved, peer.id)
+    preconditions = rr.preconditions(resolved, peer.id, view)
     soa = next((r for r in current if r.rtype == "SOA" and normalize_name(r.name) == zone), None)
     if soa is not None and soa.rdata:
         # Same staleness guard as a plan built on the primary itself.
@@ -75,7 +79,7 @@ def plan_on_primary(dns: Any, ctx: Any, zone: str, changes: list[Change], create
         summary_message=summary,
         created_by=created_by,
         engine=Engine.BIND,
-        changes=[rr.to_change(zone, rc) for rc in resolved],
+        changes=[rr.to_change(zone, rc, view) for rc in resolved],
         diff=rr.diff_text(resolved),
         preconditions=preconditions,
         validations=[

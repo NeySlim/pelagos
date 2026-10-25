@@ -39,6 +39,8 @@ from pelagos.services.errors import EngineUnavailable, NotFound, ServiceError, V
 from pelagos.services.plan_service import PlanService
 
 MAC_RE = re.compile(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$")
+VIEW_RE = re.compile(r"^(?!-)[A-Za-z0-9_.-]{1,64}$")
+DEFAULT_VIEW = "_default"
 HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 
 
@@ -328,6 +330,8 @@ class HostsService:
         mac = _mac(request.get("mac"))
         ttl = request.get("ttl", 300)
         want_reservation = bool(request.get("reservation", False))
+        view = _view(request.get("view"), "view", errors)
+        reverse_view = _view(request.get("reverse_view"), "reverse_view", errors) or view
         if not hostname:
             errors.append(field_error("hostname", "required"))
         elif hostname.endswith(zone.rstrip(".")) and "." in hostname:
@@ -359,18 +363,18 @@ class HostsService:
         parts: list[Plan] = []
         rtype = "A" if ip.version == 4 else "AAAA"
         rr_changes = [Change(ChangeOp.ADD, f"{zone}/{fqdn}/{rtype}", after={"ttl": ttl, "rdata": [str(ip)]})]
-        parts.append(self._dns_part(zone, rr_changes, created_by))
+        parts.append(self._dns_part(zone, rr_changes, created_by, view))
         reverse_zone = request.get("reverse_zone")
         ptr_name = ip.reverse_pointer + "."
         if reverse_zone:
             reverse_zone = normalize_name(str(reverse_zone))
         else:
-            reverse_zone = self._find_reverse_zone(ptr_name)
+            reverse_zone = self._find_reverse_zone(ptr_name, reverse_view)
         if reverse_zone:
             ptr = [
                 Change(ChangeOp.ADD, f"{reverse_zone}/{ptr_name}/PTR", after={"ttl": ttl, "rdata": [fqdn]})
             ]
-            parts.append(self._dns_part(reverse_zone, ptr, created_by))
+            parts.append(self._dns_part(reverse_zone, ptr, created_by, reverse_view))
         if want_reservation:
             dhcp = self.dhcp4 if ip.version == 4 else self.dhcp6
             if dhcp is None or dhcp.local is None:
@@ -440,23 +444,27 @@ class HostsService:
         self.plans.register_composite(plan, parts)
         return self.ctx.plan_store.put(plan)
 
-    def _dns_part(self, zone: str, changes: list[Change], created_by: str) -> Plan:
-        """An RRset plan applied where the zone is primary (this node, or the peer holding it). Without
-        BIND here, the plan is built from the primary's records and applied there."""
+    def _dns_part(self, zone: str, changes: list[Change], created_by: str, view: str | None = None) -> Plan:
+        """An RRset plan applied where the zone is primary (this node, or the peer holding it), in
+        `view` with that view's key. Without BIND here, the plan is built from the primary's records
+        and applied there."""
         assert self.dns is not None
         if self.dns.local is None:
-            return remote_rrset.plan_on_primary(self.dns, self.ctx, zone, changes, created_by)
-        part = self.dns.local.plan_rrset_changes(zone, changes, None, created_by)
-        primary = self.dns._primary_node(normalize_name(zone), None)
+            return remote_rrset.plan_on_primary(self.dns, self.ctx, zone, changes, created_by, view)
+        part = self.dns.local.plan_rrset_changes(zone, changes, view, created_by)
+        primary = self.dns._primary_node(normalize_name(zone), view)
         if primary is not None:
             part.target_node_ids = [primary]
         return part
 
-    def _find_reverse_zone(self, ptr_name: str) -> str | None:
+    def _find_reverse_zone(self, ptr_name: str, view: str | None = None) -> str | None:
         assert self.dns is not None
         try:
             zones = [
-                z["zone"]["name"] for z in self.dns.zones() if z["zone"]["kind"] == ZoneKind.PRIMARY.value
+                z["zone"]["name"]
+                for z in self.dns.zones(view)
+                if z["zone"]["kind"] == ZoneKind.PRIMARY.value
+                and z["zone"].get("view", DEFAULT_VIEW) == (view or DEFAULT_VIEW)
             ]
         except ServiceError:
             return None
@@ -527,6 +535,16 @@ def reverse_to_ip(name: str) -> str | None:
 def _add_record(host: Host, rr: RRset) -> None:
     if not any(r.name == rr.name and r.rtype == rr.rtype for r in host.records):
         host.records.append(rr)
+
+
+def _view(value: Any, field: str, errors: list[dict[str, str]]) -> str | None:
+    """A view name, None for the default view."""
+    if value in (None, "", DEFAULT_VIEW):
+        return None
+    if not isinstance(value, str) or not VIEW_RE.match(value):
+        errors.append(field_error(field, "a view name"))
+        return None
+    return value
 
 
 def _mac(value: Any) -> str | None:

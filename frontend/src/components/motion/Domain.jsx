@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Marks that belong to DNS, DHCP and HA events. Dora: four ticks landing 90 ms apart for a
-// lease that just arrived. HeartbeatTrace: a QRS that traces itself on each heartbeat
+// lease or an exchange that just arrived. HeartbeatTrace: a QRS that traces itself on each heartbeat
 // received, then rests at 35 %. UnsentQueue: lease updates waiting for the partner, one
 // tick per update, that fill and drain. TransferBar and TransferSerial: a measured zone
 // transfer (head, tail 300 ms behind) and the serial that rolls when it arrives.
@@ -18,12 +18,17 @@ export const TRANSFER_TAIL_MS = 300
 export const QUEUE_SLOTS = 24
 export const QUEUE_DRAIN_MS = 70
 
-// DISCOVER, OFFER, REQUEST, ACK. `nak` stops on a red last tick that stays. `transient`
-// fades the mark away once it has landed (table rows), then calls onDone.
-export function Dora({ play = true, nak = false, transient = false, onDone, className }) {
+const DORA = ['D', 'O', 'R', 'A']
+
+// DISCOVER, OFFER, REQUEST, ACK (or v6 `labels`). With `beat` the ticks land again each
+// time it changes (a live exchange); otherwise once when `play`. `nak` stops on a red last
+// tick that stays. `transient` fades the mark away once landed (table rows), then onDone.
+export function Dora({ beat, play = true, nak = false, labels = DORA, values = [], transient = false, onDone, className, testId = 'dora' }) {
   const { t } = useTranslation()
   const level = useMotionLevel()
-  const animate = play && level !== 'off'
+  const live = beat !== undefined
+  const gen = useBeats(beat)
+  const animate = (live ? gen > 0 : play) && level !== 'off'
   const [gone, setGone] = useState(false)
   const [finished, setFinished] = useState(false)
   const done = useRef(onDone)
@@ -44,39 +49,53 @@ export function Dora({ play = true, nak = false, transient = false, onDone, clas
     }
   }, [transient, level])
   if (finished) return null
+  const shown = nak && labels === DORA ? ['D', 'O', 'R', 'N'] : labels
   return (
     <span
-      className={cn('fx-dora', animate && 'is-go', nak && 'is-nak', gone && 'is-gone', className)}
-      data-testid="dora"
+      key={gen}
+      className={cn('fx-dora', (!live || beat !== null) && 'is-on', animate && 'is-go', nak && 'is-nak', gone && 'is-gone', className)}
+      data-testid={testId}
       data-state={nak ? 'nak' : 'ack'}
-      title={t('motion.dora')}
+      data-gen={live ? gen : undefined}
+      title={values.length ? undefined : t('motion.dora')}
       aria-hidden="true"
     >
-      <i />
-      <i />
-      <i />
-      <i />
-      <span>D</span>
-      <span>O</span>
-      <span>R</span>
-      <span>{nak ? 'N' : 'A'}</span>
+      {shown.map((l, i) => (
+        <i key={`t${i}`} style={{ '--fx-k': i }} />
+      ))}
+      {shown.map((l, i) => (
+        <span key={`l${i}`} style={{ '--fx-k': i }}>
+          {l}
+        </span>
+      ))}
+      {values.map((v, i) => (
+        <small key={`v${i}`} style={{ '--fx-k': i }}>
+          {v}
+        </small>
+      ))}
     </span>
   )
 }
 
-// One QRS per heartbeat: `beat` changes when a new sample arrives. `lost` draws a red dashed
-// baseline instead: nothing beats when the partner is gone, which is the signal.
-export function HeartbeatTrace({ beat = 0, lost = false, className, testId = 'heartbeat' }) {
-  const level = useMotionLevel()
+// Counts changes of `beat` after mount; a change to null or undefined is not a beat.
+function useBeats(beat) {
   const seen = useRef(beat)
   const [gen, setGen] = useState(0)
   useEffect(() => {
     if (seen.current === beat) return
     seen.current = beat
-    setGen((g) => g + 1)
+    if (beat !== null && beat !== undefined) setGen((g) => g + 1)
   }, [beat])
+  return gen
+}
+
+// One QRS per heartbeat: `beat` changes when a new sample arrives. `lost` draws a red dashed
+// baseline instead: nothing beats when the partner is gone, which is the signal.
+export function HeartbeatTrace({ beat = 0, lost = false, label, className, testId = 'heartbeat-trace' }) {
+  const level = useMotionLevel()
+  const gen = useBeats(beat)
   return (
-    <span className={cn('fx-ecg', lost && 'is-lost', className)} data-testid={testId} data-beats={gen} aria-hidden="true">
+    <span className={cn('fx-ecg', lost && 'is-lost', className)} data-testid={testId} data-beats={gen} title={label} aria-hidden="true">
       <svg viewBox="0 0 48 14" fill="none" preserveAspectRatio="none">
         {lost ? (
           <path d="M0 9.5H48" className="fx-ecg-flat" />

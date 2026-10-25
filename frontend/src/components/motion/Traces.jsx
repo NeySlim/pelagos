@@ -2,7 +2,7 @@
 // Canvas traces for procedures. SerialTrace: one step lane per node over a 5 min window of
 // paper that scrolls at constant speed; a plan is a marker, a serial change is a step, and
 // scrubTo()/release() move a playhead back to an instant (the rollback rewind) and return.
-// ThresholdTrace: a value against fixed threshold lines, with latches that close where the
+// IncidentTrace: a value against fixed threshold lines, with latches that close where the
 // signal crossed a line (alert opened) and where it came back (resolved). Both draw once
 // per event below full motion, and their readouts are DOM text.
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
@@ -345,9 +345,9 @@ export const SerialTrace = forwardRef(function SerialTrace(
   )
 })
 
-// ---------------------------------------------------------------- threshold trace
+// ---------------------------------------------------------------- incident trace
 
-export function ThresholdTrace({ points = [], thresholds = [], latches = [], from, to, min = 0, max = 100, format = (v) => `${Math.round(v)}%`, tone = 'dhcp', className, testId = 'threshold-trace' }) {
+export function IncidentTrace({ points = [], thresholds = [], latches = [], from, to, min = 0, max = 100, format = (v) => `${Math.round(v)}%`, tone = 'dhcp', className, testId = 'incident-trace' }) {
   const level = useMotionLevel()
   const full = level === 'full'
   const reveal = useRef(full ? performance.now() : null)

@@ -254,20 +254,6 @@
 }
 .fx-strip-xro.is-right { transform: translateX(8px); }
 
-/* ============ DORA ticks and the heartbeat ECG ============ */
-.fx-dora { display: inline-grid; grid-template-columns: repeat(4, 14px); justify-items: center; row-gap: 2px; }
-.fx-dora > i { display: block; width: 2px; height: 10px; border-radius: 1px; background: var(--accent-pro); opacity: 0.3; transform: scaleY(0.3); transform-origin: bottom; }
-.fx-dora.is-on > i { opacity: 1; transform: none; }
-.fx-dora.is-go > i { animation: fx-tick-land 320ms var(--settle) both; animation-delay: calc(var(--fx-k) * 90ms); }
-.fx-dora.is-nak > i:nth-of-type(4) { background: var(--accent-danger); }
-.fx-dora > span { font-family: var(--font-mono); font-size: 9px; line-height: 1; color: var(--fx-faint); }
-.fx-dora.is-go > span { animation: fx-fade var(--d-quick) ease both; animation-delay: calc(var(--fx-k) * 90ms + 60ms); }
-.fx-dora > small { font-family: var(--font-mono); font-size: 9px; color: var(--fx-faint); }
-.fx-ecg { width: 26px; height: 10px; overflow: visible; }
-.fx-ecg path { fill: none; stroke: var(--accent-success); stroke-width: 1.2; stroke-linejoin: round; opacity: 0.35; stroke-dasharray: 1; stroke-dashoffset: 0; }
-.fx-ecg path.is-beat { animation: fx-ecg-draw 250ms linear both, fx-ecg-rest var(--d-moment) var(--ease-out) 250ms both; }
-.fx-ecg.is-lost path { stroke: var(--accent-danger); stroke-dasharray: 0.08 0.08; opacity: 0.6; }
-
 /* A pool crossing a threshold: one ring at the front of the fill, once. */
 .ui-progress-ring { position: absolute; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; border: 1px solid var(--accent-danger); pointer-events: none; opacity: 0; animation: fx-ring var(--d-moment) var(--ease-out) both; }
 .ui-progress-ring.is-warning { border-color: var(--accent-warning-fill, var(--accent-warning)); }
@@ -457,8 +443,6 @@ html.boot .fx-boot { animation: fx-rise var(--d-base) var(--ease-out) both; anim
 @keyframes fx-strip-flash { from { opacity: 1; } to { opacity: 0.45; } }
 @keyframes fx-bar-grow { from { transform: scaleY(0); } }
 @keyframes fx-tick-land { from { transform: scaleY(0); opacity: 1; } to { transform: scaleY(1); opacity: 1; } }
-@keyframes fx-ecg-draw { from { stroke-dashoffset: 1; opacity: 1; } to { stroke-dashoffset: 0; opacity: 1; } }
-@keyframes fx-ecg-rest { from { opacity: 1; } to { opacity: 0.35; } }
 @keyframes fx-ring { 0% { opacity: 0.9; transform: scale(0.4); } 100% { opacity: 0; transform: scale(1.4); } }
 
 /* ============ Motion levels ============ */
@@ -481,9 +465,6 @@ html[data-motion='reduced'] :is(.ui-modal, .ui-dialog)[data-state='closed'] { an
 html.boot[data-motion='reduced'] .fx-boot { animation-name: fx-fade; animation-delay: 0ms; }
 html[data-motion='reduced'] :is(.fx-strip-pen, .fx-trace-readout) { transition: none; }
 html[data-motion='reduced'] .fx-strip-bar.is-new { animation: none; }
-html[data-motion='reduced'] .fx-dora.is-go > i { animation: fx-fade var(--d-quick) ease both; animation-delay: 0ms; }
-html[data-motion='reduced'] .fx-dora.is-go > span { animation: none; }
-html[data-motion='reduced'] .fx-ecg path.is-beat { animation: fx-ecg-rest var(--d-quick) ease both; }
 html[data-motion='reduced'] .ui-progress-ring { display: none; }
 
 /* off: everything is instant (effects.css); a running step is feedback and keeps turning. */

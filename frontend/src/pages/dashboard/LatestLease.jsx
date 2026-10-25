@@ -51,13 +51,12 @@ export function LatestLease({ family = 'v4' }) {
   if (!allowed || !lease) return null
   return (
     <div className="dash-lease" data-testid="latest-lease" data-lease={lease.ip_address}>
-      <span className="dash-lease-who">
+      <span className="dash-lease-who" title={lease.hw_address || lease.duid || undefined}>
         <b>{lease.ip_address}</b>
-        <span>{lease.hw_address || lease.duid || ''}</span>
       </span>
       <Dora key={play} play={play > 0} nak={lease.state === 'declined'} />
-      <span className="dash-lease-when" title={lease.cltt}>
-        {`${t('tiles.dhcp.latestLease')} · ${formatRelativeTime(lease.cltt)}`}
+      <span className="dash-lease-when" title={`${t('tiles.dhcp.latestLease')} ${lease.hw_address || lease.duid || ''}`.trim()}>
+        {formatRelativeTime(lease.cltt)}
       </span>
     </div>
   )

@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
 import { createRef } from 'react'
 import { MotionProvider } from '../../contexts/MotionContext'
-import { Dora, HeartbeatTrace, SerialTrace, ThresholdTrace, TransferSerial, UnsentQueue } from '.'
+import { Dora, HeartbeatTrace, IncidentTrace, SerialTrace, TransferSerial, UnsentQueue } from '.'
 import { clipPoints, crossingTime, levelOf, rulerStep, rulerTicks, snapMarker, stepLevels, timeToX, valueAt, xToTime } from './traceMath'
 
 const withLevel = (level, ui) => {
@@ -81,17 +81,17 @@ describe('HeartbeatTrace', () => {
     const { container, rerender } = withLevel('full', <HeartbeatTrace beat={0} />)
     expect(container.querySelector('.fx-ecg-qrs')).not.toHaveClass('is-beat')
     rerender(again(<HeartbeatTrace beat={1} />))
-    expect(screen.getByTestId('heartbeat')).toHaveAttribute('data-beats', '1')
+    expect(screen.getByTestId('heartbeat-trace')).toHaveAttribute('data-beats', '1')
     expect(container.querySelector('.fx-ecg-qrs')).toHaveClass('is-beat')
     rerender(again(<HeartbeatTrace beat={1} lost />))
-    expect(screen.getByTestId('heartbeat')).toHaveClass('is-lost')
+    expect(screen.getByTestId('heartbeat-trace')).toHaveClass('is-lost')
     expect(container.querySelector('.fx-ecg-flat')).toBeInTheDocument()
   })
 
   it('does not trace at off', () => {
     const { container, rerender } = withLevel('off', <HeartbeatTrace beat={0} />)
     rerender(again(<HeartbeatTrace beat={2} />))
-    expect(screen.getByTestId('heartbeat')).toHaveAttribute('data-beats', '1')
+    expect(screen.getByTestId('heartbeat-trace')).toHaveAttribute('data-beats', '1')
     expect(container.querySelector('.fx-ecg-qrs')).not.toHaveClass('is-beat')
   })
 })
@@ -170,9 +170,9 @@ describe('SerialTrace', () => {
   })
 })
 
-describe('ThresholdTrace', () => {
+describe('IncidentTrace', () => {
   it('lists its latches for the latched, held and released states', () => {
-    withLevel('off', <ThresholdTrace points={[[0, 70], [10, 100]]} from={0} to={20} latches={[{ t: 5, value: 95, state: 'held' }, { t: 15, value: 80, state: 'released' }]} thresholds={[{ value: 80 }, { value: 95 }]} />)
-    expect(screen.getByTestId('threshold-trace')).toHaveAttribute('data-latches', 'held released')
+    withLevel('off', <IncidentTrace points={[[0, 70], [10, 100]]} from={0} to={20} latches={[{ t: 5, value: 95, state: 'held' }, { t: 15, value: 80, state: 'released' }]} thresholds={[{ value: 80 }, { value: 95 }]} />)
+    expect(screen.getByTestId('incident-trace')).toHaveAttribute('data-latches', 'held released')
   })
 })

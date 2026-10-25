@@ -160,6 +160,7 @@
 .trace-node-engines > span { display: inline-flex; align-items: center; gap: 4px; height: 17px; padding: 0 5px; border-radius: 3px; background: var(--bg-inset, var(--bg-primary)); font-size: 10.5px; color: var(--text-secondary); }
 .trace-node-engines .fx-dot { --fx-dot: 5px; }
 .trace-node-hb { position: absolute; right: 8px; top: 7px; display: flex; gap: 6px; }
+.trace-node-hb .fx-ecg { width: 26px; height: 10px; }
 .trace-lanes { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 124px; }
 .trace-plot { position: relative; min-width: 0; min-height: 120px; }
 .trace-values { display: grid; grid-auto-rows: 1fr; border-left: 1px solid var(--fx-hair); background: var(--bg-secondary); }

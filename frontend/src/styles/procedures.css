@@ -23,16 +23,13 @@ html[data-motion='reduced'] .fx-rise-in { animation: fx-fade var(--d-quick) ease
 
 /* ============ DORA: four ticks land 90 ms apart on the settle curve ============ */
 .fx-dora { display: inline-grid; grid-template-columns: repeat(4, 11px); justify-items: center; row-gap: 2px; vertical-align: middle; transition: opacity var(--d-base) ease; }
-.fx-dora > i { display: block; width: 2px; height: 9px; border-radius: 1px; background: var(--accent-pro); transform-origin: bottom; }
-.fx-dora > span { font-family: var(--font-mono); font-size: 9px; line-height: 1; color: var(--fx-faint); }
-.fx-dora > :nth-child(1), .fx-dora > :nth-child(5) { --fx-k: 0; }
-.fx-dora > :nth-child(2), .fx-dora > :nth-child(6) { --fx-k: 1; }
-.fx-dora > :nth-child(3), .fx-dora > :nth-child(7) { --fx-k: 2; }
-.fx-dora > :nth-child(4), .fx-dora > :nth-child(8) { --fx-k: 3; }
+.fx-dora > i { display: block; width: 2px; height: 9px; border-radius: 1px; background: var(--accent-pro); opacity: 0.3; transform: scaleY(0.3); transform-origin: bottom; }
+.fx-dora.is-on > i { opacity: 1; transform: none; }
+.fx-dora > span, .fx-dora > small { font-family: var(--font-mono); font-size: 9px; line-height: 1; color: var(--fx-faint); }
 .fx-dora.is-go > i { animation: fx-tick-land 320ms var(--settle) both; animation-delay: calc(var(--fx-k) * 90ms); }
 .fx-dora.is-go > span { animation: fx-fade var(--d-quick) ease both; animation-delay: calc(var(--fx-k) * 90ms + 60ms); }
-.fx-dora.is-nak > i:nth-child(4) { background: var(--accent-danger); }
-.fx-dora.is-nak > span:nth-child(8) { color: var(--accent-danger); }
+.fx-dora.is-nak > i:nth-of-type(4) { background: var(--accent-danger); }
+.fx-dora.is-nak > span:nth-of-type(4) { color: var(--accent-danger); }
 .fx-dora.is-gone { opacity: 0; }
 
 /* ============ Heartbeat: one QRS traced per beat received, resting at 35 % ============ */
@@ -77,7 +74,6 @@ html[data-motion='reduced'] .fx-rise-in { animation: fx-fade var(--d-quick) ease
 .fx-trace-head > b { font-weight: 500; color: var(--text-secondary); }
 
 /* ============ Keyframes ============ */
-@keyframes fx-tick-land { from { transform: scaleY(0); } }
 @keyframes fx-ecg-trace { from { stroke-dashoffset: 1; opacity: 1; } to { stroke-dashoffset: 0; opacity: 1; } }
 @keyframes fx-ecg-rest { from { opacity: 1; } to { opacity: 0.35; } }
 @keyframes fx-queue-out { to { opacity: 0; transform: translateX(16px); } }

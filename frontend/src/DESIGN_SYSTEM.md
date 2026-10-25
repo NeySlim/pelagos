@@ -272,7 +272,8 @@ to `html[data-effects='instrument']`), through the same hook classes as below.
   (plan, rollback, alert, resolution, zone sync, replication, HA); readouts on the
   right (rates, mean interval and jitter, last event), legend, sample count, scale
   bar and a 30 s / 90 s / 5 min window. The DNS and DHCP tiles carry `StripChart`s
-  (CH1, CH2), rcodes, the latest leases as `Dora` ticks with the per step rates,
+  (CH1, CH2), rcodes, the latest exchange as `Dora` ticks with the per step rates
+  and the latest lease with its own ticks,
   the busiest pools against their thresholds and the HA pills; Pool usage adds the
   pressure of the hottest pool (`ThresholdTrace`, one hour, alert latches).
 - Sign-in: `TraceScene`, the empty trace writing a flat line from the moment

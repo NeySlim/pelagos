@@ -18,7 +18,7 @@ import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { ENGINES, INCONSISTENCY_KINDS, KINDS, PRESSURE_AFTER_MS, PRESSURE_BEFORE_MS, SEVERITIES, STATES, jobResult, poolSeriesQuery, pressureLatches, subjectLink } from './lib'
 import { adoptCall, fileAlertEngine } from '../dhcp/keaFile'
-import { ThresholdTrace } from '../../components/motion'
+import { IncidentTrace } from '../../components/motion'
 
 import { useNodeNames, usePlanFlow } from '../dhcp/hooks'
 
@@ -95,7 +95,7 @@ function AlertPressure({ alert }) {
         <b>{t('detail.pressure')}</b>
         <span className="font-mono">{query.raw}</span>
       </div>
-      <ThresholdTrace
+      <IncidentTrace
         points={points}
         from={opened - PRESSURE_BEFORE_MS}
         to={end ?? undefined}

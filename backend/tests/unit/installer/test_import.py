@@ -13,7 +13,7 @@ from pelagos.installer import bindconf, keaconf
 from pelagos.installer.importer import bind_fingerprint, build_import_plan, kea_fingerprint, verify_import
 from pelagos.installer.jobs import apply_plan
 from tests.fixtures.ports import find_binary
-from tests.unit.installer.fakes import checkconf_print, copy_kea, debian_tree
+from tests.unit.installer.fakes import checkconf_print, copy_kea, debian_tree, foreign_user
 
 pytestmark = pytest.mark.unit
 
@@ -194,7 +194,9 @@ def test_import_accepts_kea_includes(tmp_path):
 
     env = debian_tree(tmp_path)
     env.tools.version = "3.2.1"
-    env.paths = dataclasses.replace(env.paths, kea_user="root", kea_group=grp.getgrgid(os.getgid()).gr_name)
+    env.paths = dataclasses.replace(
+        env.paths, kea_user=foreign_user(), kea_group=grp.getgrgid(os.getgid()).gr_name
+    )
     d = tmp_path / "etc/kea"
     d.mkdir(parents=True, exist_ok=True)
     part = d / "subnets4.json"
@@ -224,8 +226,8 @@ def test_import_makes_the_kea_config_writable_by_kea(tmp_path):
 
     env = debian_tree(tmp_path)
     group = grp.getgrgid(os.getgid()).gr_name
-    # The Kea user is someone else (root), its group is ours: config-write must go through the group.
-    env.paths = dataclasses.replace(env.paths, kea_user="root", kea_group=group)
+    # The Kea user is someone else, its group is ours: config-write must go through the group.
+    env.paths = dataclasses.replace(env.paths, kea_user=foreign_user(), kea_group=group)
     copy_kea(tmp_path, {"kea-dhcp4.conf": "debian-2.6-kea-dhcp4.conf"})
     conf = tmp_path / "etc/kea/kea-dhcp4.conf"
     conf.chmod(0o644)
@@ -266,11 +268,12 @@ def test_bind_fingerprint_ignores_only_pelagos_additions(tmp_path):
     assert checks["bind.include"] and checks["bind.keys"] and checks["bind.stats"]
 
 
-@pytest.mark.skipif(find_binary("named-checkconf") is None, reason="named-checkconf not installed")
 def test_real_named_checkconf_accepts_the_import(tmp_path):
+    # The unit tier requires the BIND tools (AGENTS.md, Tests): a missing binary fails, never skips.
+    named_checkconf = find_binary("named-checkconf")
+    assert named_checkconf, "named-checkconf not found: install bind9-utils (bind-utils on RHEL)"
     env = debian_tree(tmp_path)
     apply_plan(build_import_plan(env, ["bind"]), env)
-    named_checkconf = find_binary("named-checkconf")
     res = subprocess.run(
         [named_checkconf, "-p", str(env.paths.named_conf)], capture_output=True, text=True, check=False
     )

@@ -166,8 +166,7 @@ def test_gunicorn_conf_uses_ssl_context_without_warnings(node_paths):
         "ctx = cfg.ssl_context(cfg, lambda: ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER))\n"
         "print(ctx.minimum_version == ssl.TLSVersion.TLSv1_2)\n"
     )
-    import pelagos.gunicorn_conf as _unused  # noqa: F401  (import check only in the subprocess)
-
+    # Only the subprocess imports it: the module monkey-patches the process for gevent.
     conf = Path(sys.modules["pelagos"].__file__).parent / "gunicorn_conf.py"
     env = {**os.environ, "PELAGOS_HOME": str(node_paths.etc.parent)}
     out = subprocess.run(

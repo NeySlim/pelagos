@@ -9,24 +9,16 @@ from types import SimpleNamespace
 import pytest
 
 from pelagos.installer import keasetup
+from tests.unit.installer.fakes import foreign_user
 
 pytestmark = pytest.mark.unit
 
 
-def _group() -> str:
-    gids = os.getgroups()
-    for name in ("_kea", "kea"):
-        try:
-            if grp.getgrnam(name).gr_gid in gids:
-                return name
-        except KeyError:
-            continue
-    return grp.getgrgid(os.getgid()).gr_name
-
-
 def _env(conf_dir: Path):
     return SimpleNamespace(
-        paths=SimpleNamespace(kea_conf_dir=conf_dir, kea_user="root", kea_group=_group()),
+        paths=SimpleNamespace(
+            kea_conf_dir=conf_dir, kea_user=foreign_user(), kea_group=grp.getgrgid(os.getgid()).gr_name
+        ),
         dry_run=False,
         relabel=lambda paths: None,
     )

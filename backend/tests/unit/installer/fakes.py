@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import dataclasses
+import os
+import pwd
 import shutil
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,18 @@ from pelagos.platform import FakeRunner, distro_from_fields, parse_os_release, p
 from tests.fixtures.ports import find_binary
 
 DATA = Path(__file__).parent / "data"
+
+
+def foreign_user() -> str:
+    """A user other than the one running the tests (the suite also runs as root in CI)."""
+    me = os.getuid()
+    for name in ("root", "nobody", "daemon"):
+        try:
+            if pwd.getpwnam(name).pw_uid != me:
+                return name
+        except KeyError:
+            continue
+    return next(p.pw_name for p in pwd.getpwall() if p.pw_uid != me)
 
 
 def os_release(name: str) -> dict[str, str]:
@@ -85,6 +99,8 @@ class FakeTools:
         self.calls.append(("checkconf", str(named_conf)))
         if not self.checkconf_ok:
             return False, "injected failure"
+        if not named_conf.is_file():
+            return False, f"open: {named_conf}: file not found"
         try:
             checkconf_print(named_conf)
         except (OSError, bindconf.ParseError) as exc:
@@ -188,14 +204,6 @@ class FakePackages:
         return "refreshed"
 
 
-def rewrite_tree(src: Path, dest: Path, old: str, new: str) -> None:
-    """Copies config files, pointing absolute paths into the temp tree."""
-    dest.mkdir(parents=True, exist_ok=True)
-    for f in src.iterdir():
-        if f.is_file():
-            (dest / f.name).write_text(f.read_text().replace(old, new))
-
-
 def make_env(tmp: Path, distro: str = "debian13", kea_version: str = "3.2.1") -> InstallerEnv:
     """An InstallerEnv whose engine paths all live under `tmp` (etc/bind, etc/kea, run/kea, ...)."""
     d = distro_from_fields(os_release(distro))
@@ -237,13 +245,21 @@ def make_env(tmp: Path, distro: str = "debian13", kea_version: str = "3.2.1") ->
     return env
 
 
+def _in_tree(text: str, tmp: Path) -> str:
+    """Host BIND paths moved under tmp: named-checkconf changes into `directory`, which must exist."""
+    return text.replace("/etc/bind", str(tmp / "etc/bind")).replace(
+        "/var/cache/bind", str(tmp / "var/cache/bind")
+    )
+
+
 def debian_tree(tmp: Path, name: str = "debian") -> InstallerEnv:
     """Debian default BIND config (named.conf + three includes) and an rndc.key, under tmp."""
     env = make_env(tmp)
     etc = tmp / "etc/bind"
     etc.mkdir(parents=True)
+    (tmp / "var/cache/bind").mkdir(parents=True, exist_ok=True)
     for f in ("named.conf", "named.conf.local", "named.conf.options"):
-        (etc / f).write_text((DATA / "bind" / f"{name}-{f}").read_text().replace("/etc/bind", str(etc)))
+        (etc / f).write_text(_in_tree((DATA / "bind" / f"{name}-{f}").read_text(), tmp))
     (etc / "named.conf.root-hints").write_text(
         'zone "." {\n\ttype hint;\n\tfile "/usr/share/dns/root.hints";\n};\n'
     )
@@ -254,7 +270,11 @@ def debian_tree(tmp: Path, name: str = "debian") -> InstallerEnv:
 def legacy_tree(tmp: Path) -> InstallerEnv:
     env = make_env(tmp)
     etc = tmp / "etc/bind"
-    rewrite_tree(DATA / "bind" / "legacy", etc, "/etc/bind", str(etc))
+    etc.mkdir(parents=True, exist_ok=True)
+    (tmp / "var/cache/bind").mkdir(parents=True, exist_ok=True)
+    for f in (DATA / "bind" / "legacy").iterdir():
+        if f.is_file():
+            (etc / f.name).write_text(_in_tree(f.read_text(), tmp))
     return env
 
 

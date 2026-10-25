@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +18,27 @@ from pelagos.core.write_pipeline import WritePipeline
 pytestmark = pytest.mark.unit
 
 ROOT = "DhcpDdns"
+
+
+@contextlib.contextmanager
+def unreadable(path: Path) -> Iterator[None]:
+    """`path` cannot be read until the block ends. Root ignores file modes, so as root the file is
+    swapped for a directory of the same name, which fails to read with an OSError just the same."""
+    if os.geteuid() != 0:
+        path.chmod(0)
+        try:
+            yield
+        finally:
+            path.chmod(0o644)
+        return
+    saved = path.with_name(path.name + ".saved")
+    path.rename(saved)
+    path.mkdir()
+    try:
+        yield
+    finally:
+        path.rmdir()
+        saved.rename(path)
 
 
 class Socket:
@@ -58,20 +82,14 @@ def test_an_unreadable_include_blocks_writes(tmp_path):
     )
     with pytest.raises(Exception, match="differs"):
         file.guard(sock.body)
-    part.chmod(0)
-    try:
+    with unreadable(part):
         with pytest.raises(ConnectorError, match=f"cannot read included file {part}"):
             file.document()
         with pytest.raises(ConnectorError, match="cannot read included file"):
             file.guard(sock.body)
-    finally:
-        part.chmod(0o644)
     # The top-level file itself unreadable: Kea owns it, config-write persists.
-    file.path.chmod(0)
-    try:
+    with unreadable(file.path):
         assert file.document() is None and file.guard(sock.body) is None
-    finally:
-        file.path.chmod(0o644)
 
 
 KEYS_MAIN = '{"DhcpDdns": {\n  // keys live apart\n  <?include "%s"?>\n  "port": 53001\n}}\n'

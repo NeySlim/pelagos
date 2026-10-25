@@ -416,7 +416,12 @@ def test_dual_key_on_d2_only_node_runs_step_two_only(tmp_path):
 
 
 def test_static_zone_conversion_to_dynamic(tmp_path):
+    import dataclasses
+    import getpass
+
     env = debian_tree(tmp_path)
+    # named runs as us here: the zone directory of the temp tree is ours, so the journal fits.
+    env.paths = dataclasses.replace(env.paths, bind_user=getpass.getuser())
     local = tmp_path / "etc/bind/named.conf.local"
     local.write_text(
         'zone "localhost.localdomain" IN {\n\ttype master;\n\tfile "named.localhost";\n'

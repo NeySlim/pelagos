@@ -96,7 +96,16 @@ and per-process temporary directories, never fixed paths under `/tmp`.
 
 Three tiers, selected by pytest markers (declared in `backend/pyproject.toml`):
 
-- `unit`: no network, no daemons. `make test`.
+- `unit`: no network, no daemons. `make test`. Requires `named-checkconf`
+  (`bind9-utils`, `bind-utils` on RHEL): generated configs are validated with
+  the real tool, and a missing binary fails the tier instead of skipping.
+  The tier is hermetic and must pass as any user, root included (CI runs it
+  as root in `debian:trixie`): BIND and Kea trees live under `tmp_path`,
+  including the `directory` named-checkconf changes into; nothing reads the
+  host's `/etc`, `/var`, services or engine users; a test that needs a file
+  to be unreadable or a user other than the caller gets one that works as
+  root too (`foreign_user()` in `tests/unit/installer/fakes.py`), and skips
+  as root only when the kernel check itself is what it tests.
 - `daemon`: starts a real `named` and real Kea daemons as the current user
   in a temporary directory, on free high ports and Unix sockets.
   `make test-daemon`. Skipped automatically when the binaries

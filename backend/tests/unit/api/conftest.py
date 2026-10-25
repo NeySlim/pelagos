@@ -13,6 +13,7 @@ from pelagos.domain import Family, User, new_id
 from pelagos.services.container import Services
 from pelagos.services.registry import ConnectorRegistry
 from tests.conftest import ADMIN_PASSWORD
+from tests.unit.installer.fakes import make_env
 from tests.unit.services.fakes import FakeDdnsBackend, FakeDhcpBackend, FakeDnsBackend, fake_context
 
 ROLE_USERS = {"viewer": "vera", "dns-operator": "dora", "dhcp-operator": "dhani", "admin": "admin"}
@@ -32,7 +33,7 @@ def fake_registry(node_ctx: NodeContext) -> ConnectorRegistry:
 
 
 @pytest.fixture
-def services(node_ctx: NodeContext, fake_registry: ConnectorRegistry) -> Services:
+def services(node_ctx: NodeContext, fake_registry: ConnectorRegistry, tmp_path) -> Services:
     def setup(cfg) -> None:
         cfg.modules["dhcpv6"] = True
         for role, name in ROLE_USERS.items():
@@ -44,6 +45,9 @@ def services(node_ctx: NodeContext, fake_registry: ConnectorRegistry) -> Service
     node_ctx.config_store.update_cluster(setup, updated_by="test")
     node_ctx.login_limiter.limit = 1000
     svc = Services(node_ctx, registry=fake_registry)
+    # The installer endpoints work on an empty fake host, never on the machine running the tests.
+    fake_host = make_env(tmp_path / "host")
+    svc.install.env_factory = lambda: fake_host
     yield svc
     svc.close()
 

@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import time
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -18,6 +21,28 @@ from pelagos.domain import AlertKind, Engine, Family, HAPartner, Severity, Zone,
 from tests.unit.collector.fakes import NODE, PEER, FakeDdnsBackend, FakeDhcpBackend, FakeDnsBackend
 
 pytestmark = pytest.mark.unit
+
+
+@contextlib.contextmanager
+def unreadable(path: Path) -> Iterator[None]:
+    """`path` cannot be read until the block ends. Root ignores file modes, so as root the file is
+    swapped for a directory of the same name, which fails to read with an OSError just the same."""
+    if os.geteuid() != 0:
+        path.chmod(0)
+        try:
+            yield
+        finally:
+            path.chmod(0o644)
+        return
+    saved = path.with_name(path.name + ".saved")
+    path.rename(saved)
+    path.mkdir()
+    try:
+        yield
+    finally:
+        path.rmdir()
+        saved.rename(path)
+
 
 SETTINGS = {
     "alerts_pool_warning_percent": 80,
@@ -354,19 +379,13 @@ def test_kea_file_divergence(store, tmp_root):
     assert "cannot read included file /nonexistent/subnets.json" in alerts[0].details["differences"][0]
     part.write_text('"valid-lifetime": 3600,')
     backend.conf_path.write_text(FILE_V4.replace('"valid-lifetime": 3600,', f'<?include "{part}"?>'))
-    part.chmod(0)
-    try:
+    with unreadable(part):
         alerts = [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE]
         assert "cannot read included file" in alerts[0].details["differences"][0]
-    finally:
-        part.chmod(0o644)
     assert [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE] == []
     # An unreadable top-level file is the installer's finding, not a divergence.
-    backend.conf_path.chmod(0)
-    try:
+    with unreadable(backend.conf_path):
         assert [a for a in poller.poll().alerts if a.kind is AlertKind.CONFIG_DIVERGENCE] == []
-    finally:
-        backend.conf_path.chmod(0o644)
 
 
 def test_daemon_down_keeps_the_file_alert_open(store, tmp_root):

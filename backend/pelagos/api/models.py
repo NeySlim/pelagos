@@ -164,7 +164,7 @@ Health = model(
     "Health",
     {
         "status": fields.String(enum=["ok", "degraded"]),
-        "replication": fields.String(enum=["ready", "syncing"]),
+        "replication": fields.String(enum=["ready", "syncing", "isolated"]),
         "node_id": fields.String,
         "time": fields.DateTime(dt_format="iso8601"),
     },
@@ -235,7 +235,7 @@ Layout = model("Layout", {"layout": fields.List(fields.Raw, required=True)})
 NodeList = items_of(Node, "NodeList")
 Replication = model(
     "Replication",
-    {"state": fields.String(enum=["ready", "syncing"]), "peers": fields.List(fields.Raw)},
+    {"state": fields.String(enum=["ready", "syncing", "isolated"]), "peers": fields.List(fields.Raw)},
 )
 EnrollTokenRequest = model("EnrollTokenRequest", {"ttl_seconds": fields.Integer(default=900)})
 SyncAnswer = model("SyncAnswer", {"config_adopted": fields.Boolean, "audit_added": fields.Integer})

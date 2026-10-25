@@ -17,6 +17,17 @@ def test_health_and_version_are_anonymous(client):
     assert v.status_code == 200 and v.get_json()["api"] == "v1"
 
 
+def test_an_isolated_node_is_degraded(admin_client, node_ctx):
+    from pelagos.core.context import write_replication_state
+
+    write_replication_state(node_ctx.paths, "isolated")
+    h = admin_client.get("/api/v1/health").get_json()
+    assert h["status"] == "degraded" and h["replication"] == "isolated"
+    assert admin_client.get("/api/v1/nodes/replication").get_json()["state"] == "isolated"
+    write_replication_state(node_ctx.paths, "ready")
+    assert admin_client.get("/api/v1/health").get_json()["status"] == "ok"
+
+
 def test_unauthenticated_is_problem_json(client):
     r = client.get("/api/v1/nodes")
     assert r.status_code == 401

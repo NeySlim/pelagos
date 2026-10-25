@@ -89,7 +89,7 @@ class NodeContext:
 
     @property
     def replication_state(self) -> str:
-        """`ready` or `syncing` (section 13), as published by the collector."""
+        """`ready`, `syncing` or `isolated` (section 13), as published by the collector."""
         if self.replication_state_override is not None:
             return self.replication_state_override
         return read_replication_state(self.paths)

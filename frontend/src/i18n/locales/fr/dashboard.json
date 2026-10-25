@@ -114,6 +114,9 @@
     "collecting": "Collecte des compteurs en cours",
     "ago": "-{{minutes}} min",
     "agoSeconds": "-{{seconds}} s",
+    "readout": { "qps": "req/s", "lps": "baux/s" },
+    "sampleRate": "{{rate}} éch/s",
+    "span": { "seconds": "{{seconds}} s", "minutes": "{{minutes}} min" },
     "now": "maintenant"
   },
   "radar": {

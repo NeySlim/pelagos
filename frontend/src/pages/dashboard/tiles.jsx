@@ -14,18 +14,19 @@ import { UtilizationBar } from '../../components/UtilizationBar'
 import { EmptyState } from '../../components/EmptyState'
 import { cn, formatRelativeTime } from '../../lib/utils'
 import { AmbientTile, CountUp, MiniHistogram, RegMarks, StatusDot, Sweep } from '../../components/motion'
-import { TileRefresh } from './tileRefresh'
+import { SWEEP_MAX_STEPS, SWEEP_STEP_MS, TileRefresh } from './tileRefresh'
 import { dhcpFamily, poolThresholds, formatErrorRate } from './summary'
 
-// `ambient` is a canvas layer under the body; `pulse` is a token that changes when the tile
-// receives a live sample. Both are decoration and absent unless ambient layers are on.
-export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, status, children, bodyClassName, className, ambient, pulse }) {
-  const refreshed = useContext(TileRefresh)
+// `ambient` is a canvas layer under the body. The marks ping on the tile's domain events
+// and the sweep follows refreshes (TileRefresh); all are absent unless ambient layers are on.
+export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, status, children, bodyClassName, className, ambient }) {
+  const refresh = useContext(TileRefresh)
+  const delay = Math.min(refresh?.order?.[id] ?? 0, SWEEP_MAX_STEPS) * SWEEP_STEP_MS
   return (
     <div className={cn('h-full flex flex-col card-soft overflow-hidden dash-tile relative', className)} data-testid={`tile-${id}`}>
       <AmbientTile>{ambient}</AmbientTile>
-      <RegMarks pulse={pulse ?? refreshed} />
-      <Sweep trigger={refreshed} />
+      <RegMarks pulse={refresh?.pulses?.[id]} />
+      <Sweep trigger={refresh?.sweeps?.[id]} delay={delay} />
       <div className={cn('tile-handle relative z-[1] flex items-center gap-2 px-3.5 py-2.5 border-b border-border-op30 section-header-gradient dash-tile-head', editing && 'cursor-move select-none')}>
         {editing && <DotsSixVertical size={14} className="text-text-tertiary" />}
         {Icon && <Icon size={16} className="text-accent-primary shrink-0" weight="duotone" />}

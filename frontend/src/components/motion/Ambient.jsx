@@ -177,15 +177,15 @@ export function RegMarks({ pulse }) {
 }
 
 // Calibration sweep: one vertical hairline with a trail crosses the tile when `trigger`
-// changes (a refresh). Nothing moves below full motion.
-export function Sweep({ trigger }) {
+// changes (a refresh), after `delay` ms to stagger tiles. Nothing moves below full motion.
+export function Sweep({ trigger, delay = 0 }) {
   const show = useAmbientLayers()
   const { ambientRunning } = useMotion()
   const count = useEventCount(trigger)
   if (!show) return null
   return (
     <span className="fx-amb-sweep" aria-hidden="true" data-testid="tile-sweep">
-      {count > 0 && ambientRunning && <i key={count} className="fx-sweep is-go" />}
+      {count > 0 && ambientRunning && <i key={count} className="fx-sweep is-go" style={delay ? { animationDelay: `${delay}ms` } : undefined} />}
     </span>
   )
 }

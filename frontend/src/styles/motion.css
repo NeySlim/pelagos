@@ -84,7 +84,7 @@
 .fx-ruler-tick > i { position: absolute; top: 0; right: 0; width: 4px; height: 1px; background: var(--fx-hair-3); }
 .fx-ruler-tick > span { position: absolute; top: 0; right: 7px; transform: translateY(-50%); line-height: 1; }
 
-.fx-scalebar { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 10.5px; color: var(--fx-faint); }
+.fx-scalebar { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: inherit; color: var(--fx-faint); }
 .fx-scalebar > i { display: block; width: 60px; height: 5px; border: 1px solid var(--fx-hair-3); border-top: 0; transform-origin: left; transition: transform var(--d-slow) var(--ease-in-out); }
 
 /* ============ Procedures: checklist and step rail ============ */
@@ -281,6 +281,7 @@ html[data-motion='reduced'] .ui-progress-fill { transition: background-color var
 
 /* Tile layers: canvases under the body, registration marks and a refresh sweep above it. */
 .fx-amb-tile { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.fx-amb-tile.is-under { z-index: -1; border-radius: inherit; }
 .fx-amb-canvas { display: block; width: 100%; height: 100%; color: var(--fx-c); }
 .fx-amb-canvas.fx-amb-ink { color: var(--text-primary); }
 .fx-regs { position: absolute; inset: 0; z-index: 2; pointer-events: none; }

@@ -2,13 +2,14 @@
 // Hero row of the dashboard: the cluster radar between a DNS panel (query rate as a
 // stippled area, rcode sparklines) and a DHCP panel (lease rate, pool segments, HA
 // pills). Live rates come from useLiveRates through DashboardPage (live.js).
-import { useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 import { Crosshair, Globe, Network, HardDrives, WarningDiamond, ArrowsLeftRight } from '@phosphor-icons/react'
-import { AmbientDots, AmbientSpectrum, AmbientWave, CountUp, IconButton, MiniHistogram, Readout, Ruler, ScaleBar, SegmentedProgress, StatChip, StatusDot, StippledAreaChart } from '../../components/motion'
+import { AmbientDots, AmbientSpectrum, AmbientTile, AmbientWave, CountUp, IconButton, MiniHistogram, Readout, Ruler, ScaleBar, SegmentedProgress, StatChip, StatusDot, StippledAreaChart } from '../../components/motion'
 import { cn } from '../../lib/utils'
 import { TileFrame } from './tiles'
+import { TileRefresh } from './tileRefresh'
 import { ClusterRadar } from './ClusterRadar'
 import { LIVE_CAPACITY, LIVE_INTERVAL_MS, LIVE_MIN_SLOTS, RCODES, latest, liveWindowLabel, liveWindowSeconds, share } from '../../lib/liveRates'
 import { haTone, utilizationSegments } from './radarLayout'
@@ -21,7 +22,9 @@ const HISTOGRAM_BARS = 22
 const fmt = (lang, digits = 1) => (v) => new Intl.NumberFormat(lang, { maximumFractionDigits: v < 10 ? digits : 0 }).format(v)
 const timeOf = (lang) => (p) => (p?.t ? new Date(p.t).toLocaleTimeString(lang, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '')
 
-const SAMPLE_RATE = `${1000 / LIVE_INTERVAL_MS} S/s`
+// Width of the value ruler: the chart keeps its own gutter so the ticks never cover data.
+const RULER_WIDTH = 28
+const SCALE_BASE = 60
 const peakOf = (series) => series.reduce((m, p) => Math.max(m, p.v), 0)
 const lastTime = (series) => series[series.length - 1]?.t
 
@@ -38,10 +41,14 @@ function useSampleCount(series) {
   return count
 }
 
-// "30 s" or "3 min": the span the window covers, for the scale bar.
-function spanLabel(count) {
-  const s = liveWindowSeconds(count)
-  return s < 60 ? `${s} s` : `${Math.round(s / 60)} min`
+// Round reference of the scale bar: 10 s under a minute of window, then 1 min.
+function scaleReference(windowSeconds, chartWidth, t) {
+  const ref = windowSeconds < 60 ? 10 : 60
+  const px = (ref / windowSeconds) * chartWidth
+  return {
+    ratio: Math.min(chartWidth, px) / SCALE_BASE,
+    label: ref < 60 ? t('live.span.seconds', { seconds: ref }) : t('live.span.minutes', { minutes: 1 }),
+  }
 }
 
 function LiveStatus({ active }) {
@@ -84,6 +91,7 @@ export function RadarTile({ summary, openAlerts, editing, live }) {
   const online = nodes.filter((n) => n.status === 'online').length
   const divergent = zones.filter((z) => z.divergent).length
   const compact = size.width > 0 && size.width < 560
+  const pulses = useContext(TileRefresh)?.pulses
   return (
     <TileFrame
       id="radar"
@@ -93,8 +101,7 @@ export function RadarTile({ summary, openAlerts, editing, live }) {
       status={<LiveStatus active={live?.dns.current !== null && live?.dns.current !== undefined} />}
       bodyClassName="p-0 overflow-hidden relative"
       className="dash-hero"
-      ambient={<AmbientDots pulse={lastTime(live?.dns.series || [])} />}
-      pulse={lastTime(live?.dns.series || [])}
+      ambient={<AmbientDots pulse={pulses?.radar} />}
     >
       <div ref={ref} className="absolute inset-0">
         <ClusterRadar
@@ -136,6 +143,9 @@ export function DnsTile({ summary, editing, live }) {
   const [chartRef, chartSize] = useElementSize()
   const samples = useSampleCount(series)
   const peak = peakOf(series)
+  const sampleRate = t('live.sampleRate', { rate: new Intl.NumberFormat(i18n.language).format(1000 / LIVE_INTERVAL_MS) })
+  const chartWidth = Math.max(0, chartSize.width - RULER_WIDTH)
+  const scale = series.length >= 2 ? scaleReference(liveWindowSeconds(series.length), chartWidth, t) : null
   return (
     <TileFrame
       id="dns"
@@ -145,8 +155,6 @@ export function DnsTile({ summary, editing, live }) {
       linkLabel={t('viewAll')}
       editing={editing}
       status={<LiveStatus active={current !== null && current !== undefined} />}
-      ambient={<AmbientWave rate={current ?? 0} peak={peak} tone="primary" />}
-      pulse={lastTime(series)}
     >
       {!dns?.enabled ? (
         <p className="text-xs text-text-tertiary italic">{t('tiles.dns.none')}</p>
@@ -156,36 +164,36 @@ export function DnsTile({ summary, editing, live }) {
             <StatChip tone="primary" label={t('tiles.dns.rate')} value={current === null || current === undefined ? '-' : <CountUp value={current} format={format} />} className="dash-chip" data-testid="dns-rate" />
             <StatChip tone="warning" label={t('tiles.dns.nxdomain')} value={nx === null ? '-' : <CountUp value={nx} format={(v) => `${fmt(i18n.language)(v)} %`} />} className="dash-chip" />
           </div>
-          <div className="dash-subpanel flex-1 min-h-[120px] flex flex-col">
-            <Label
-              right={
-                <span className="inline-flex items-center gap-3">
-                  <Readout channel="CH1" unit="q/s" rate={SAMPLE_RATE} count={samples} />
-                  <span className="text-3xs text-text-tertiary whitespace-nowrap">{t('tiles.dns.zones', { count: zones.length })}</span>
-                </span>
-              }
-            >
+          <div className="dash-subpanel relative isolate flex-1 min-h-[120px] flex flex-col">
+            {/* The wave sits inside the panel, under its content: the panel itself is opaque. */}
+            <AmbientTile className="is-under">
+              <AmbientWave rate={current ?? 0} peak={peak} tone="primary" />
+            </AmbientTile>
+            <Label right={<span className="text-3xs text-text-tertiary whitespace-nowrap">{t('tiles.dns.zones', { count: zones.length })}</span>}>
               {t('tiles.dns.chart')}
             </Label>
             <div ref={chartRef} className="relative flex-1 min-h-[64px]">
-              {series.length >= 2 && <Ruler max={peak} cursor={current ?? 0} inset={6} format={format} />}
-              {series.length < 2 ? (
-                <Collecting />
-              ) : (
-                <StippledAreaChart
-                  points={series.map((p) => ({ value: p.v, t: p.t }))}
-                  capacity={LIVE_CAPACITY}
-                  height={Math.max(64, chartSize.height)}
-                  step={6}
-                  label={t('tiles.dns.chartLabel', { rate: format(current ?? 0) })}
-                  formatValue={(v) => t('tiles.dns.perSecond', { rate: format(v) })}
-                  formatLabel={timeOf(i18n.language)}
-                />
-              )}
+              <div className="absolute inset-y-0 left-0" style={{ right: RULER_WIDTH }}>
+                {series.length < 2 ? (
+                  <Collecting />
+                ) : (
+                  <StippledAreaChart
+                    points={series.map((p) => ({ value: p.v, t: p.t }))}
+                    capacity={LIVE_CAPACITY}
+                    height={Math.max(64, chartSize.height)}
+                    step={6}
+                    label={t('tiles.dns.chartLabel', { rate: format(current ?? 0) })}
+                    formatValue={(v) => t('tiles.dns.perSecond', { rate: format(v) })}
+                    formatLabel={timeOf(i18n.language)}
+                  />
+                )}
+              </div>
+              {series.length >= 2 && <Ruler max={peak} cursor={current ?? undefined} inset={6} format={format} />}
+              <Readout className="absolute left-2 top-0 pointer-events-none" channel="CH1" unit={t('live.readout.qps')} rate={sampleRate} count={samples} />
             </div>
             <div className="flex items-center justify-between text-3xs text-text-tertiary mt-1">
               <span>{liveWindowLabel(t, series.length)}</span>
-              {series.length >= 2 && <ScaleBar ratio={liveWindowSeconds(series.length) / liveWindowSeconds(LIVE_CAPACITY)} label={spanLabel(series.length)} />}
+              {scale && <ScaleBar ratio={scale.ratio} label={scale.label} />}
               <span>{t('live.now')}</span>
             </div>
           </div>
@@ -224,6 +232,7 @@ export function DhcpTile({ summary, editing, live, thresholds, nameOf }) {
   const format = fmt(i18n.language)
   const [ref, size] = useElementSize()
   const samples = useSampleCount(series)
+  const sampleRate = t('live.sampleRate', { rate: new Intl.NumberFormat(i18n.language).format(1000 / LIVE_INTERVAL_MS) })
   // Bars widen to fill the panel until the window holds LIVE_CAPACITY points.
   const width = size.width || 240
   const bars = Math.max(LIVE_MIN_SLOTS, Math.min(LIVE_CAPACITY, Math.floor(width / 5), series.length))
@@ -238,8 +247,7 @@ export function DhcpTile({ summary, editing, live, thresholds, nameOf }) {
       linkLabel={t('viewAll')}
       editing={editing}
       status={<LiveStatus active={current !== null && current !== undefined} />}
-      ambient={<AmbientSpectrum values={series.map((p) => p.v)} tone="pro" />}
-      pulse={lastTime(series)}
+      ambient={<AmbientSpectrum values={series.length >= LIVE_MIN_SLOTS ? series.map((p) => p.v) : []} tone="pro" />}
     >
       <div className="flex flex-col gap-3 h-full">
         <div className="grid grid-cols-2 gap-2">
@@ -247,7 +255,7 @@ export function DhcpTile({ summary, editing, live, thresholds, nameOf }) {
           <StatChip tone={hot ? 'warning' : 'success'} label={t('tiles.dhcp.hot')} value={<CountUp value={hot} />} className="dash-chip" />
         </div>
         <div className="dash-subpanel" ref={ref}>
-          <Label right={<Readout channel="CH2" unit="l/s" rate={SAMPLE_RATE} count={samples} />}>{t('tiles.dhcp.chart')}</Label>
+          <Label right={<Readout channel="CH2" unit={t('live.readout.lps')} rate={sampleRate} count={samples} />}>{t('tiles.dhcp.chart')}</Label>
           {series.length < 2 ? (
             <div style={{ height: 34 }}>
               <Collecting />

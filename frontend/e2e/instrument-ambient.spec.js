@@ -47,6 +47,8 @@ test('ambient off removes every layer', async ({ page }) => {
     await expect.poll(() => rootData(page, 'ambient')).toBe(name.toLowerCase())
   }
   await setAmbient('Off')
+  // Nothing else animates on this page: the ambient animator has left the shared loop.
+  await expect.poll(() => page.evaluate(() => window.__pelagosLoop().active)).toBe(0)
   try {
     await page.goto('/')
     await expect(page.getByTestId('tile-dns')).toBeVisible()
@@ -58,6 +60,45 @@ test('ambient off removes every layer', async ({ page }) => {
     await page.goto('/account')
     await setAmbient('On')
   }
+})
+
+test('animations off: layers hold one still frame, no ping, no sweep, no loop', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/account')
+  const setMotion = async (name, value) => {
+    await page.getByTestId('pref-animations').getByRole('combobox').click()
+    await page.getByRole('option', { name }).click()
+    await expect.poll(() => rootData(page, 'motion')).toBe(value)
+  }
+  await setMotion('Off', 'off')
+  try {
+    await page.goto('/')
+    const wave = page.getByTestId('tile-dns').getByTestId('ambient-wave')
+    await expect.poll(() => painted(wave)).toBe(true)
+    const first = await wave.evaluate((cv) => cv.toDataURL())
+    await page.waitForTimeout(1000)
+    expect(await wave.evaluate((cv) => cv.toDataURL())).toBe(first)
+    expect((await page.evaluate(() => window.__pelagosLoop())).active).toBe(0)
+    await expect(page.locator('.fx-sweep.is-go, .fx-regs.is-ping')).toHaveCount(0)
+  } finally {
+    await page.goto('/account')
+    await setMotion('Full', 'full')
+  }
+})
+
+test('the registration marks do not ping on live samples alone', async ({ page }) => {
+  await signIn(page)
+  await expect(page.getByTestId('tile-dns').getByTestId('reg-marks')).toBeAttached()
+  // Let the first-load sweep finish, then watch across two live samples (4 s each).
+  await page.waitForTimeout(1500)
+  await page.evaluate(() => {
+    window.__pings = 0
+    new MutationObserver((list) => {
+      for (const m of list) if (m.target.classList?.contains('is-ping') || [...m.addedNodes].some((n) => n.classList?.contains('is-ping'))) window.__pings += 1
+    }).observe(document.querySelector('[data-testid="dashboard-grid"]'), { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] })
+  })
+  await page.waitForTimeout(9000)
+  expect(await page.evaluate(() => window.__pings)).toBe(0)
 })
 
 test.describe('reduced motion and ambient layers', () => {
@@ -77,5 +118,18 @@ test.describe('reduced motion and ambient layers', () => {
     expect(after.frames).toBe(before.frames)
     expect(await snapshot()).toBe(first)
     await expect(page.locator('.fx-sweep.is-go, .fx-regs.is-ping')).toHaveCount(0)
+  })
+
+  test('the wave is visible through the query panel, not hidden under it', async ({ page }) => {
+    await signIn(page)
+    const panel = page.getByTestId('tile-dns').locator('.dash-subpanel')
+    const wave = panel.getByTestId('ambient-wave')
+    await expect.poll(() => painted(wave)).toBe(true)
+    await page.waitForTimeout(500)
+    const shot = () => panel.screenshot({ animations: 'disabled' })
+    const on = await shot()
+    expect((await shot()).equals(on)).toBe(true)
+    await wave.evaluate((cv) => { cv.style.visibility = 'hidden' })
+    expect((await shot()).equals(on)).toBe(false)
   })
 })

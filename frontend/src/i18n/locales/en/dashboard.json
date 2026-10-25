@@ -114,6 +114,9 @@
     "collecting": "Collecting live counters",
     "ago": "-{{minutes}} min",
     "agoSeconds": "-{{seconds}} s",
+    "readout": { "qps": "q/s", "lps": "l/s" },
+    "sampleRate": "{{rate}} S/s",
+    "span": { "seconds": "{{seconds}} s", "minutes": "{{minutes}} min" },
     "now": "now"
   },
   "radar": {

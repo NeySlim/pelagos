@@ -23,7 +23,7 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { COLS, ROW_HEIGHT, DEFAULT_LAYOUT, normalizeLayout, serializeLayout, sameLayout } from './layout'
 import { NodesTile, HaTile, InconsistenciesTile, ZoneSyncTile, PoolsTile, D2Tile } from './tiles'
-import { TileRefresh } from './tileRefresh'
+import { TILE_SLICES, TileRefresh, changedTiles } from './tileRefresh'
 import { RadarTile, DnsTile, DhcpTile } from './heroTiles'
 import { liveTargets, useLiveRates } from '../../hooks/useLiveRates'
 import { summarizeLive } from '../../lib/liveRates'
@@ -89,10 +89,49 @@ export default function DashboardPage() {
     }, 1000)
   }, [refetchAll])
   useEffect(() => () => timer.current && clearTimeout(timer.current), [])
-  useWsTopic('ha', refreshSoon)
-  useWsTopic('nodes', refreshSoon)
-  useWsTopic('alerts', refreshSoon)
-  useWsTopic('plans', refreshSoon)
+  // Domain events (not samples) ping the registration marks of the tiles they concern.
+  const [events, setEvents] = useState({ ha: 0, nodes: 0, alerts: 0, plans: 0 })
+  const onEvent = useCallback((topic) => {
+    if (topic) setEvents((e) => ({ ...e, [topic]: e[topic] + 1 }))
+    refreshSoon()
+  }, [refreshSoon])
+  useWsTopic('ha', () => onEvent('ha'))
+  // Node heartbeats repeat: only a change of status or error is an event.
+  const nodeState = useRef({})
+  useWsTopic('nodes', (msg) => {
+    const node = msg?.data
+    const key = `${node?.status}|${node?.error || ''}`
+    const known = nodeState.current[node?.peer?.id]
+    if (node?.peer?.id) nodeState.current[node.peer.id] = key
+    onEvent(known !== undefined && known !== key ? 'nodes' : null)
+  })
+  useWsTopic('alerts', () => onEvent('alerts'))
+  useWsTopic('plans', () => onEvent('plans'))
+  const pulses = useMemo(
+    () => ({ radar: events.ha + events.nodes + events.alerts + events.plans, nodes: events.nodes, ha: events.ha, dhcp: events.ha, inconsistencies: events.alerts, zones: events.plans }),
+    [events],
+  )
+  // Sweeps: every tile on first load and on Refresh (staggered), later only the tiles whose data changed.
+  const [sweeps, setSweeps] = useState({})
+  const sweepTiles = useCallback((ids) => setSweeps((s) => Object.fromEntries(Object.keys(TILE_SLICES).map((id) => [id, (s[id] || 0) + (ids.includes(id) ? 1 : 0)]))), [])
+  const lastSummary = useRef(null)
+  const manual = useRef(false)
+  useEffect(() => {
+    const next = summary.data
+    if (!next) return
+    const prev = lastSummary.current
+    lastSummary.current = next
+    if (manual.current) {
+      manual.current = false
+      return
+    }
+    sweepTiles(prev ? changedTiles(prev, next) : Object.keys(TILE_SLICES))
+  }, [summary.data, sweepTiles])
+  const refresh = useCallback(() => {
+    manual.current = true
+    sweepTiles(Object.keys(TILE_SLICES))
+    refetchAll()
+  }, [sweepTiles, refetchAll])
   useEffect(() => {
     const id = setInterval(() => {
       if (document.visibilityState !== 'hidden') refreshSoon()
@@ -130,6 +169,8 @@ export default function DashboardPage() {
   // Tiles enter in reading order (top-left first), whatever the layout array order.
   const entryIndex = useMemo(() => Object.fromEntries(ordered.map((item, i) => [item.i, i])), [ordered])
 
+  const refreshState = useMemo(() => ({ sweeps, pulses, order: entryIndex }), [sweeps, pulses, entryIndex])
+
   return (
     <PageLayout
       icon={Gauge}
@@ -154,7 +195,7 @@ export default function DashboardPage() {
           </>
         ) : (
           <>
-            <Button variant="secondary" size="sm" onClick={refetchAll} disabled={summary.loading}>
+            <Button variant="secondary" size="sm" onClick={refresh} disabled={summary.loading}>
               <ArrowsClockwise size={14} />
               {t('common:actions.refresh')}
             </Button>
@@ -169,7 +210,7 @@ export default function DashboardPage() {
       }
     >
       {/* The measured container exists from the first render, so its width is observed before the grid shows. */}
-      <TileRefresh.Provider value={summary.data || null}>
+      <TileRefresh.Provider value={refreshState}>
       <div ref={containerRef} className={editing ? 'dashboard-grid editing' : 'dashboard-grid'} data-testid="dashboard-grid">
       {summary.loading && !summary.data ? (
         <div className="flex justify-center py-12">

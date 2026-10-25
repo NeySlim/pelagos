@@ -623,7 +623,7 @@ export const ClusterTrace = forwardRef(function ClusterTrace(
   return (
     <div
       ref={hostRef}
-      className={cn('fx-trace', className)}
+      className={cn('fx-ctrace', className)}
       data-testid={testId}
       data-window={windowMs}
       data-running={running ? 'true' : 'false'}
@@ -639,7 +639,7 @@ export const ClusterTrace = forwardRef(function ClusterTrace(
       onBlur={keyboard ? onBlur : undefined}
     >
       <canvas ref={canvasRef} data-testid={`${testId}-canvas`} aria-hidden="true" />
-      {readout && <div ref={readoutRef} className="fx-trace-readout" data-testid={`${testId}-readout`} aria-hidden="true" />}
+      {readout && <div ref={readoutRef} className="fx-ctrace-readout" data-testid={`${testId}-readout`} aria-hidden="true" />}
       {keyboard && (
         <>
           <span id={hintId} className="sr-only">
@@ -670,7 +670,7 @@ function writeReadout(el, d, { t, tnow, rows, event, hx, width, locale, eventLab
     d.key = key
     el.replaceChildren()
     const head = document.createElement('div')
-    head.className = 'fx-trace-readout-time'
+    head.className = 'fx-ctrace-readout-time'
     head.textContent = `${time} `
     const sub = document.createElement('span')
     sub.textContent = ago
@@ -678,7 +678,7 @@ function writeReadout(el, d, { t, tnow, rows, event, hx, width, locale, eventLab
     el.appendChild(head)
     for (const [label, value, color] of rows) {
       const row = document.createElement('div')
-      row.className = 'fx-trace-readout-row'
+      row.className = 'fx-ctrace-readout-row'
       if (color) row.dataset.ink = color
       const l = document.createElement('span')
       l.textContent = label
@@ -689,7 +689,7 @@ function writeReadout(el, d, { t, tnow, rows, event, hx, width, locale, eventLab
     }
     if (evText) {
       const ev = document.createElement('div')
-      ev.className = 'fx-trace-readout-event'
+      ev.className = 'fx-ctrace-readout-event'
       ev.textContent = evText
       el.appendChild(ev)
     }

@@ -147,7 +147,7 @@
 :root[data-effects='instrument'] .ui-tab:hover { color: var(--text-primary); }
 :root[data-effects='instrument'] :is(.ui-tab.is-active, .ui-tab[data-state='active']) { color: var(--text-primary); }
 :root[data-effects='instrument'] :is(.ui-tab.is-active, .ui-tab[data-state='active']) svg { color: var(--text-secondary); }
-:root[data-effects='instrument'] .ui-tab > span[class*='rounded-full'] { background: transparent; color: var(--i-faint); font-family: var(--font-mono); font-size: 11px; padding: 0; }
+:root[data-effects='instrument'] .ui-tab > span[class*='rounded-full'] { background: transparent; color: var(--text-tertiary); font-family: var(--font-mono); font-size: 11px; padding: 0; }
 :root[data-effects='instrument'] .ui-tab-underline { display: none; }
 :root[data-effects='instrument'] .ui-tab-panel[data-state='active'] { animation: fx-fade var(--d-fast) ease both; }
 
@@ -238,7 +238,7 @@
 :root[data-effects='instrument'] .ui-input[aria-invalid='true'] { border-color: var(--accent-danger) !important; }
 :root[data-effects='instrument'] :is(input, textarea, select):not([type='checkbox']):not([type='radio']) { background-color: var(--bg-primary) !important; }
 :root[data-effects='instrument'] :is(input, textarea, select):not([type='checkbox']):not([type='radio']):hover { background-color: var(--bg-primary) !important; }
-:root[data-effects='instrument'] :is(input, textarea)::placeholder { color: var(--i-faint); }
+:root[data-effects='instrument'] :is(input, textarea)::placeholder { color: var(--text-tertiary); }
 :root[data-effects='instrument'] input[type='checkbox'] { border-color: var(--border-strong); background-color: var(--bg-primary); border-radius: 3px; }
 :root[data-effects='instrument'] input[type='checkbox']:hover { border-color: var(--i-hair-3); background-color: var(--bg-primary); }
 :root[data-effects='instrument'] input[type='checkbox']:checked {

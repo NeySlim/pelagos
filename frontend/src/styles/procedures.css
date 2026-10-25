@@ -25,7 +25,7 @@ html[data-motion='reduced'] .fx-rise-in { animation: fx-fade var(--d-quick) ease
 .fx-dora { display: inline-grid; grid-template-columns: repeat(4, 11px); justify-items: center; row-gap: 2px; vertical-align: middle; transition: opacity var(--d-base) ease; }
 .fx-dora > i { display: block; width: 2px; height: 9px; border-radius: 1px; background: var(--accent-pro); opacity: 0.3; transform: scaleY(0.3); transform-origin: bottom; }
 .fx-dora.is-on > i { opacity: 1; transform: none; }
-.fx-dora > span, .fx-dora > small { font-family: var(--font-mono); font-size: 9px; line-height: 1; color: var(--fx-faint); }
+.fx-dora > span, .fx-dora > small { font-family: var(--font-mono); font-size: 9px; line-height: 1; color: var(--text-tertiary); }
 .fx-dora.is-go > i { animation: fx-tick-land 320ms var(--settle) both; animation-delay: calc(var(--fx-k) * 90ms); }
 .fx-dora.is-go > span { animation: fx-fade var(--d-quick) ease both; animation-delay: calc(var(--fx-k) * 90ms + 60ms); }
 .fx-dora.is-nak > i:nth-of-type(4) { background: var(--accent-danger); }
@@ -57,7 +57,7 @@ html[data-motion='reduced'] .fx-rise-in { animation: fx-fade var(--d-quick) ease
 .fx-xfer-dhcp { --fx-xfer-c: var(--accent-pro); }
 .fx-xfer-neutral { --fx-xfer-c: var(--text-primary); }
 .fx-xfer > i { position: absolute; inset: 0; background: var(--fx-xfer-c); transform-origin: left; transform: scaleX(0); animation: fx-xfer var(--fx-xfer, 900ms) linear both; }
-.fx-xfer > span { position: absolute; left: 50%; bottom: 3px; transform: translateX(-50%); font-family: var(--font-mono); font-size: 9px; color: var(--fx-faint); white-space: nowrap; animation: fx-xfer-label var(--fx-xfer, 900ms) linear both; }
+.fx-xfer > span { position: absolute; left: 50%; bottom: 3px; transform: translateX(-50%); font-family: var(--font-mono); font-size: 9px; color: var(--text-tertiary); white-space: nowrap; animation: fx-xfer-label var(--fx-xfer, 900ms) linear both; }
 
 /* A changed value tints its cell once; two identical keyframes let a new change restart it. */
 .fx-hl-a, .fx-hl-b { position: relative; }

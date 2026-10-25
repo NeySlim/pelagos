@@ -76,15 +76,15 @@
 .fx-swap > .fx-swap-in { animation: fx-fade var(--d-quick) ease both; }
 
 /* ============ Instrument marks: readout, value ruler, scale bar, registration ============ */
-.fx-readout { display: inline-flex; gap: 8px; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.04em; color: var(--fx-faint); white-space: nowrap; }
+.fx-readout { display: inline-flex; gap: 8px; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.04em; color: var(--text-tertiary); white-space: nowrap; }
 .fx-readout b { font-weight: 400; color: var(--text-tertiary); }
 
-.fx-ruler { position: absolute; top: 0; bottom: 0; right: 0; width: 28px; pointer-events: none; font-family: var(--font-mono); font-size: 9px; color: var(--fx-faint); }
+.fx-ruler { position: absolute; top: 0; bottom: 0; right: 0; width: 28px; pointer-events: none; font-family: var(--font-mono); font-size: 9px; color: var(--text-tertiary); }
 .fx-ruler-tick { position: absolute; inset: 0; transition: transform var(--d-slow) var(--ease-in-out), opacity var(--d-quick) ease; }
 .fx-ruler-tick > i { position: absolute; top: 0; right: 0; width: 4px; height: 1px; background: var(--fx-hair-3); }
 .fx-ruler-tick > span { position: absolute; top: 0; right: 7px; transform: translateY(-50%); line-height: 1; }
 
-.fx-scalebar { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: inherit; color: var(--fx-faint); }
+.fx-scalebar { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: inherit; color: var(--text-tertiary); }
 .fx-scalebar > i { display: block; width: 60px; height: 5px; border: 1px solid var(--fx-hair-3); border-top: 0; transform-origin: left; transition: transform var(--d-slow) var(--ease-in-out); }
 
 /* ============ Procedures: checklist and step rail ============ */
@@ -123,7 +123,7 @@
 .fx-checklist-rail > i { position: absolute; inset: 0; background: var(--accent-success); transform-origin: top; transition: transform var(--d-base) var(--ease-in-out); }
 .fx-check { position: relative; display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12.5px; color: var(--text-secondary); }
 .fx-check-detail { color: var(--text-tertiary); font-family: var(--font-mono); font-size: 11.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fx-check-ms { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--fx-faint); }
+.fx-check-ms { margin-left: auto; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-tertiary); }
 .fx-checklist-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); }
 
 .fx-rail { position: relative; padding: 6px 0 6px 22px; }
@@ -136,7 +136,7 @@
 .fx-step.is-running .fx-step-label,
 .fx-step.is-done .fx-step-label { color: var(--text-primary); }
 .fx-step.is-failed .fx-step-label { color: var(--accent-danger); }
-.fx-step-ms { margin-left: auto; flex-shrink: 0; white-space: nowrap; font-family: var(--font-mono); font-size: 11px; color: var(--fx-faint); }
+.fx-step-ms { margin-left: auto; flex-shrink: 0; white-space: nowrap; font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); }
 .fx-step-nodes { display: inline-flex; gap: 4px; margin-left: 6px; }
 .fx-node-chip {
   position: relative;
@@ -148,7 +148,7 @@
   border-radius: 3px;
   font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--fx-faint);
+  color: var(--text-tertiary);
   transition: color var(--d-quick) ease, border-color var(--d-quick) ease;
 }
 /* The chip underline fills linearly over the node's real step duration (--fx-dn). */
@@ -173,16 +173,16 @@
 /* ============ Signal link (canvas) ============ */
 .fx-link { position: relative; min-width: 60px; height: 48px; }
 .fx-link canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.fx-link-label { position: absolute; left: 50%; transform: translateX(-50%); font-family: var(--font-mono); font-size: 10px; color: var(--fx-faint); white-space: nowrap; }
+.fx-link-label { position: absolute; left: 50%; transform: translateX(-50%); font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); white-space: nowrap; }
 .fx-link-label.is-top { top: 0; }
 .fx-link-label.is-bottom { bottom: 0; }
 
 /* ============ Cluster trace (canvas) and its playhead readout ============ */
-.fx-trace { position: relative; width: 100%; height: 100%; min-height: 0; cursor: crosshair; touch-action: pan-y; }
+.fx-ctrace { position: relative; width: 100%; height: 100%; min-height: 0; cursor: crosshair; touch-action: pan-y; }
 /* Inset: the tile body clips anything drawn outside the plot. */
-.fx-trace:focus-visible { outline: 2px solid var(--i-ring, var(--accent-primary)); outline-offset: -2px; box-shadow: none; }
-.fx-trace > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.fx-trace-readout {
+.fx-ctrace:focus-visible { outline: 2px solid var(--i-ring, var(--accent-primary)); outline-offset: -2px; box-shadow: none; }
+.fx-ctrace > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.fx-ctrace-readout {
   position: absolute;
   top: 8px;
   left: 0;
@@ -205,14 +205,14 @@
   opacity: 0;
   transition: opacity var(--d-fast) ease;
 }
-.fx-trace-readout.is-on { opacity: 1; }
-.fx-trace-readout-time { color: var(--text-primary); font-size: 11px; }
-.fx-trace-readout-time > span { color: var(--fx-faint); }
-.fx-trace-readout-row { display: flex; justify-content: space-between; gap: 12px; }
-.fx-trace-readout-row > b { font-weight: 400; color: var(--text-primary); }
-.fx-trace-readout-row[data-ink='dns'] > b { color: var(--accent-primary); }
-.fx-trace-readout-row[data-ink='dhcp'] > b { color: var(--accent-pro); }
-.fx-trace-readout-event { margin-top: 2px; padding-top: 2px; border-top: 1px solid var(--fx-hair); color: var(--text-primary); white-space: normal; }
+.fx-ctrace-readout.is-on { opacity: 1; }
+.fx-ctrace-readout-time { color: var(--text-primary); font-size: 11px; }
+.fx-ctrace-readout-time > span { color: var(--text-tertiary); }
+.fx-ctrace-readout-row { display: flex; justify-content: space-between; gap: 12px; }
+.fx-ctrace-readout-row > b { font-weight: 400; color: var(--text-primary); }
+.fx-ctrace-readout-row[data-ink='dns'] > b { color: var(--accent-primary); }
+.fx-ctrace-readout-row[data-ink='dhcp'] > b { color: var(--accent-pro); }
+.fx-ctrace-readout-event { margin-top: 2px; padding-top: 2px; border-top: 1px solid var(--fx-hair); color: var(--text-primary); white-space: normal; }
 .fx-trace-tag { position: absolute; left: 8px; top: 5px; z-index: 1; pointer-events: none; }
 
 /* ============ Strip chart (SVG): the paper slides, the pen settles ============ */
@@ -463,7 +463,7 @@ html[data-motion='reduced'] :is(.ui-tooltip, .ui-toast)[data-state='closed'] { a
 html[data-motion='reduced'] :is(.ui-modal, .ui-dialog)[data-state='open'] { animation: fx-fade var(--d-quick) ease both; }
 html[data-motion='reduced'] :is(.ui-modal, .ui-dialog)[data-state='closed'] { animation: fx-fade-out var(--d-quick) ease both; }
 html.boot[data-motion='reduced'] .fx-boot { animation-name: fx-fade; animation-delay: 0ms; }
-html[data-motion='reduced'] :is(.fx-strip-pen, .fx-trace-readout) { transition: none; }
+html[data-motion='reduced'] :is(.fx-strip-pen, .fx-ctrace-readout) { transition: none; }
 html[data-motion='reduced'] .fx-strip-bar.is-new { animation: none; }
 html[data-motion='reduced'] .ui-progress-ring { display: none; }
 

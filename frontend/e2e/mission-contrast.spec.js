@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// The dashboard stat chip values and badge words are text: they keep WCAG AA (4.5:1) over
+// The dashboard stat values and badge words are text: they keep WCAG AA (4.5:1) over
 // their own fill in both schemes of Instrument (the default) and Mission Control. The
 // ground is the element's fill composited over its ancestors.
 import { test, expect } from '@playwright/test'
@@ -49,7 +49,7 @@ const contrasts = (page, selector, value, label) =>
       return { label: `${chip.className}: ${name}`, ratio: (hi + 0.05) / (lo + 0.05) }
     })
   }, [value, label])
-const chipContrasts = (page) => contrasts(page, '.dash-chip', '.ui-stat-chip-value', '.ui-stat-chip-label')
+const chipContrasts = (page) => contrasts(page, '.dash-stat', '.dash-stat-value', '.dash-stat-label')
 
 for (const [family, name] of [['instrument', 'Instrument'], ['mission', 'Mission']]) {
   test.describe(name, () => {

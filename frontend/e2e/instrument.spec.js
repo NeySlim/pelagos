@@ -122,15 +122,11 @@ test('dialogs and menus enter from their origin and leave', async ({ page }) => 
   await expect(modal).toHaveCount(0)
 })
 
-test('the dashboard radar is a still frame and a hidden page pauses every loop', async ({ page }) => {
+test('the dashboard draws the cluster trace, and a hidden page pauses every loop', async ({ page }) => {
   await signIn(page)
-  const radar = page.getByTestId('cluster-radar')
-  await expect(radar).toBeVisible()
-  await expect(radar.locator('.radar-sweep')).toBeHidden()
-  expect(await style(radar.locator('.radar-ticks'), 'animationName')).toBe('none')
-  for (const strip of await radar.locator(':is(.radar-link-strip, .fx-flow-strip, .fx-halo-ring)').all()) {
-    expect(await style(strip, 'animationName')).toBe('none')
-  }
+  await expect(page.getByTestId('cluster-trace')).toBeVisible()
+  await expect(page.getByTestId('cluster-radar')).toHaveCount(0)
+  await expect(page.getByTestId('cluster-trace')).toHaveAttribute('data-running', 'true')
   // A connecting live dot breathes, and stops with the ambient layers when the tab hides.
   await page.evaluate(() => {
     const dot = document.createElement('span')

@@ -72,7 +72,7 @@ test('the dashboard hero draws the cluster radar and live rates', async ({ page 
   expect(sweep).toBe('fx-spin')
   // Two polls of the mock's growing counters give a query rate, on the tile and the pins.
   await expect(page.getByTestId('dns-rate').locator('.sr-only')).toHaveText(/^[1-9][\d,.]*$/, { timeout: 20000 })
-  await expect(page.getByTestId('tile-dns').getByTestId('stippled-area-chart')).toBeVisible()
+  await expect(page.getByTestId('tile-dns').getByTestId('dns-strip')).toBeVisible()
   await expect(radar.getByTestId('radar-node').first()).toContainText('q/s')
   await expect(page.getByTestId('tile-dhcp').getByTestId('dhcp-pool').first()).toBeVisible()
 })

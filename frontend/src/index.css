@@ -679,6 +679,7 @@ html, body, #root {
 .theme-light .status-badge-danger { color: color-mix(in srgb, var(--accent-danger) 45%, #000); }
 :root:not(.theme-light) .status-danger-text,
 :root:not(.theme-light) .status-badge-danger { color: color-mix(in srgb, var(--accent-danger) 70%, #fff); }
+:root:not(.theme-light) .status-primary-text { color: color-mix(in srgb, var(--accent-primary) 70%, #fff); }
 .theme-light .status-primary-text { color: color-mix(in srgb, var(--accent-primary) 45%, #000); }
 .theme-light .status-purple-text { color: color-mix(in srgb, var(--accent-purple) 45%, #000); }
 .theme-light .nav-item-active { color: color-mix(in srgb, var(--accent-primary) 65%, #000); }

@@ -11,9 +11,10 @@ async function signIn(page) {
   await expect(page.getByTestId('sidebar')).toBeVisible()
 }
 
-// Contrast of every `.dash-chip` value against its composited background.
-const chipContrasts = (page) =>
-  page.locator('.dash-chip').evaluateAll((chips) => {
+// Contrast of the text (`value` selector inside, or the element itself) of every `selector`
+// element against its composited background.
+const contrasts = (page, selector, value, label) =>
+  page.locator(selector).evaluateAll((chips, [value, label]) => {
     const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true })
     const rgba = (css) => {
       ctx.clearRect(0, 0, 1, 1)
@@ -38,13 +39,15 @@ const chipContrasts = (page) =>
       return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
     }
     return chips.map((chip) => {
-      const value = chip.querySelector('.ui-stat-chip-value')
+      const text = value ? chip.querySelector(value) : chip
       const bg = ground(chip)
-      const fg = over(rgba(getComputedStyle(value).color), bg)
+      const fg = over(rgba(getComputedStyle(text).color), bg)
       const [hi, lo] = [lum(fg), lum(bg)].sort((a, b) => b - a)
-      return { label: chip.querySelector('.ui-stat-chip-label')?.textContent, ratio: (hi + 0.05) / (lo + 0.05) }
+      const name = (label ? chip.querySelector(label) : chip)?.textContent
+      return { label: `${chip.className}: ${name}`, ratio: (hi + 0.05) / (lo + 0.05) }
     })
-  })
+  }, [value, label])
+const chipContrasts = (page) => contrasts(page, '.dash-chip', '.ui-stat-chip-value', '.ui-stat-chip-label')
 
 for (const scheme of ['dark', 'light']) {
   test(`dashboard chip values keep AA contrast in Mission ${scheme}`, async ({ page }) => {
@@ -54,6 +57,17 @@ for (const scheme of ['dark', 'light']) {
     await expect(page.getByTestId('dns-rate')).toBeVisible()
     await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('theme-light'))).toBe(scheme === 'light')
     const results = await chipContrasts(page)
+    expect(results.length).toBeGreaterThanOrEqual(4)
+    for (const r of results) expect(r.ratio, r.label).toBeGreaterThanOrEqual(4.5)
+  })
+
+  test(`badge text keeps AA contrast over its own fill in Mission ${scheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: scheme })
+    await signIn(page)
+    await page.goto('/alerts')
+    await expect(page.getByTestId('alert-row-ack').first()).toBeVisible()
+    await expect(page.locator('.ui-badge-info').first()).toBeVisible()
+    const results = await contrasts(page, '.ui-badge:not(.ui-badge-outline)')
     expect(results.length).toBeGreaterThanOrEqual(4)
     for (const r of results) expect(r.ratio, r.label).toBeGreaterThanOrEqual(4.5)
   })

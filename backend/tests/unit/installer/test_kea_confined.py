@@ -68,3 +68,22 @@ def test_confined_accepts_kea_files(tmp_path):
     assert keasetup.confined(env, conf, conf) is None
     assert keasetup.confined(env, conf, conf.parent / "new.json") is None
     assert keasetup.confined(env, conf, conf.parent / ".." / "x.json") is not None
+
+
+def test_config_mode_says_why_it_left_the_mode(tmp_path):
+    conf = tmp_path / "kea-dhcp4.conf"
+    conf.write_text("{}")
+    env = _env(tmp_path)
+    # A compose node: Kea's user lives in the Kea container, not on this host.
+    env.paths.kea_user = "pelagos-test-no-such-user"
+    out = keasetup._config_mode(env, conf)
+    assert "no user pelagos-test-no-such-user" in out and "Kea runs elsewhere" in out
+    assert "not found" not in out
+    env = _env(tmp_path)
+    assert (
+        keasetup._config_mode(env, tmp_path / "missing.conf")
+        == f"{tmp_path / 'missing.conf'} not found: mode left as is"
+    )
+    link = tmp_path / "link.conf"
+    link.symlink_to(conf)
+    assert "is a symbolic link" in keasetup._config_mode(env, link)

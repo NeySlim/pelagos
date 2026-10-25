@@ -8,6 +8,7 @@ socket directory, and Kea 3.x refuses an absolute path that differs textually fr
 
 from __future__ import annotations
 
+import errno
 import grp
 import json
 import os
@@ -405,9 +406,21 @@ def _config_mode(env: Any, conf: Path) -> str:
     try:
         uid = pwd.getpwnam(env.paths.kea_user).pw_uid
         gid = grp.getgrnam(env.paths.kea_group).gr_gid
+    except KeyError:
+        # A Kea container sharing its files (docker/compose.yaml): its user lives there, not here.
+        return (
+            f"{conf}: no user {env.paths.kea_user} or group {env.paths.kea_group} on this host"
+            " (Kea runs elsewhere, as in a container): mode left as is, Kea's own side decides"
+            " whether config-write may write it"
+        )
+    try:
         fd = os.open(conf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    except (OSError, KeyError):
-        return f"{conf}: Kea user or file not found (or a symlink); config-write left as is"
+    except FileNotFoundError:
+        return f"{conf} not found: mode left as is"
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            return f"{conf} is a symbolic link: mode left as is (set it on the target)"
+        return f"{conf} not opened ({exc.strerror}): mode left as is"
     try:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode):

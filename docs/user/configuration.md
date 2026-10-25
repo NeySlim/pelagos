@@ -191,8 +191,11 @@ to change what it drives.
 ## Settings
 
 **Administration, Settings**, or `GET` and `PUT /api/v1/admin/settings`
-(partial updates). Values are validated (type and range) and apply on every
-node without a restart.
+(partial updates). Values are validated (type and range). Alert, DNS, Kea,
+collector and retention settings apply on every node at once; the General
+settings (plan lifetime, session lifetimes, sign-in rate limit) apply at
+once on the node you changed them on and on the other nodes after
+`sudo systemctl restart pelagos`.
 
 ### General
 
@@ -281,7 +284,8 @@ unless root owns it and only root can write it).
 The units and their `ReadWritePaths` use the default directories: keep
 them on packaged nodes. The container variables (`PELAGOS_NODE_NAME`,
 `PELAGOS_KEA_GID`, `PELAGOS_BIND_HOST`...) are listed in
-[Installation: Docker](installation.md#docker).
+[Installation: Docker](installation.md#docker) and
+[Installation: Entrypoint modes](installation.md#entrypoint-modes).
 
 ## TLS certificates
 
@@ -348,7 +352,7 @@ Permissions are `<action>:<resource>` strings; `*` holds them all.
 | `write:dhcp.options` | option data, DDNS parameters |
 | `write:dhcp.config` | hooks, the Kea editor, D2 configuration, adopting a Kea file |
 | `ops:dhcp.leases` | lease deletion and lease operations |
-| `ops:dhcp.ha` | HA maintenance, enable or disable the DHCP service, `ha-*` operations |
+| `ops:dhcp.ha` | HA maintenance, the DHCP service plan (enable or disable), `ha-sync`, `ha-scopes`, `ha-continue`, `ha-reset` operations |
 | `read:dhcp.secrets` | reserved: no endpoint uses it in this version (Kea secrets are always masked) |
 | `read:hosts`, `write:hosts` | host cards; host plans (`write:hosts` or the DNS and DHCP writes the plan expands into) |
 | `read:alerts`, `write:alerts` | alerts; acknowledge and run the consistency check |
@@ -374,8 +378,8 @@ Built-in roles (defined in code, not editable):
 A user's permissions are the union of its roles. `ops:dhcp.ha` is only in
 `admin` and custom roles. Applying a plan needs the permission of its scope
 (for example `write:dns.records` for a record plan). Custom roles: names of
-2 to 63 characters (`a-z`, `0-9`, `-`). Deleting a role removes its
-permissions from every user holding it.
+2 to 63 characters (`a-z`, `0-9`, `-`). A role still held by a user cannot
+be deleted: remove it from those users first (the error names them).
 
 ## Users, sessions and API access
 

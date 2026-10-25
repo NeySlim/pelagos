@@ -8,7 +8,8 @@ ns2 enrolled from ns1, both configurations imported, the security plan applied (
 through the dual-key switch on both D2), a record written through ns2 and read on ns1, a host
 whose reservation and records join a real lease, Kea killed on ns1 (HA alert), ns2 stopped and
 caught up, a static zone edited through its file then converted to dynamic, hand edits of the Kea
-files adopted. The VMs are rolled back first; the pair is left running with Pelagos for the demo.
+files adopted, ns2's D2 file adopted and an rndc change run on ns2, both from ns1. The VMs are
+rolled back first; the pair is left running with Pelagos for the demo.
 """
 
 from __future__ import annotations
@@ -129,6 +130,29 @@ def file_diverged(address: str) -> bool:
     me = node_id(address)
     items = api(address).get("/dhcp/v4/config/file")["items"]
     return any(i["node_id"] == me and i["diverged"] for i in items)
+
+
+D2_CONF = "/etc/kea/kea-dhcp-ddns.conf"
+D2_TIMEOUT = "dns-server-timeout"
+
+
+def hand_edit_d2(host: str, value: int) -> None:
+    """Sets the DNS server timeout in the D2 file only, with a comment; D2 keeps running the old one."""
+    text = sudo_cat(host, D2_CONF)
+    edited = re.sub(rf'"{D2_TIMEOUT}"\s*:\s*\d+', f'"{D2_TIMEOUT}": {value}', text, count=1)
+    if edited == text:
+        edited = re.sub(
+            r'"DhcpDdns"\s*:\s*\{', f'"DhcpDdns": {{\n    "{D2_TIMEOUT}": {value},', text, count=1
+        )
+    assert edited != text, "no DhcpDdns object in the D2 file"
+    if not edited.startswith(HAND_COMMENT):
+        edited = f"{HAND_COMMENT}\n{edited}"
+    ssh(host, f"sudo tee {D2_CONF} >/dev/null", data=edited.encode())
+
+
+def d2_file_of(address: str, node: str) -> dict:
+    items = api(address).get("/dhcp/d2/config/file")["items"]
+    return next((i for i in items if i["node_id"] == node), {})
 
 
 def file_alerts(address: str) -> list[dict]:
@@ -463,6 +487,40 @@ class TestReferencePair:
             timeout=180,
             interval=5,
         )
+
+    def test_12b_d2_file_of_ns2_adopted_from_ns1(self):
+        """ns2's D2 file is edited by hand; ns1 sees it diverge and adopts ns2's running configuration
+        through the peer write channel: ns2 builds and applies the plan, both nodes audit it."""
+        ns2 = node_id(A2)
+        before = keaconf.loads(sudo_cat(A2, D2_CONF))["DhcpDdns"].get(D2_TIMEOUT)
+        hand_edit_d2(A2, 4321)
+        wait_for(
+            "ns1 sees ns2's D2 file diverge",
+            lambda: d2_file_of(A1, ns2).get("diverged"),
+            timeout=120,
+            interval=5,
+        )
+        plan = api(A1).post("/dhcp/d2/config/adopt/plan", {"source": "running", "node_id": ns2})
+        assert plan["target_node_ids"] == [ns2] and plan["requires_confirmation"], plan
+        assert api(A1).apply(plan)["state"] == "applied"
+        text = sudo_cat(A2, D2_CONF)
+        assert text.startswith(HAND_COMMENT), text[:200]
+        assert keaconf.loads(text)["DhcpDdns"].get(D2_TIMEOUT) != 4321
+        if before is not None:
+            assert keaconf.loads(text)["DhcpDdns"][D2_TIMEOUT] == before
+        wait_for(
+            "ns2's D2 file agrees", lambda: not d2_file_of(A1, ns2).get("diverged"), timeout=120, interval=5
+        )
+        ns1 = node_id(A1)
+        audited = api(A2).get("/audit?per_page=50&action=d2.config")["items"]
+        assert any(e["plan_id"] == plan["id"] and e["user"] == f"node:{ns1}" for e in audited), audited
+        # A runtime change on ns2 from ns1: rndc runs there, both nodes audit it.
+        out = api(A1).post(
+            "/dns/ops", {"op": "flushname", "params": {"name": "www.example.lan"}, "node_id": ns2}
+        )
+        assert out["node_id"] == ns2
+        ops = api(A2).get("/audit?per_page=20&action=dns.ops")["items"]
+        assert any(e["user"] == f"node:{ns1}" and e["request"].get("requested_by") for e in ops), ops
 
     def test_13_demo_state(self):
         api(A1).call(

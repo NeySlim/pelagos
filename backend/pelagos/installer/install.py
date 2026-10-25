@@ -147,9 +147,9 @@ def build_install_plan(
             after["tsig_key"] = KEA_DDNS_KEY
             after["secret_file"] = str(keasetup.secret_file_path(paths.kea_conf_dir, KEA_DDNS_KEY))
         changes.append(_change(f"install/{engine}/config", env, after))
-        changes.append(
-            _change(f"install/service/{engine}", env, {"unit": "resolved at apply", "enable": True})
-        )
+        # The unit systemd knows, else the one the packages of this source ship.
+        unit = env.kea_unit(engine, fallback=paths.kea_service(engine, isc))
+        changes.append(_change(f"install/service/{engine}", env, {"unit": unit, "enable": True}))
 
     node_engines: dict[str, Any] = {e: True for e in engines}
     changes.append(_change("install/node", env, {"engines": node_engines}))
@@ -230,7 +230,10 @@ def step_repo(env: Any, change: Change) -> str:
         target.write_bytes(data)
         os.chmod(target, f.mode)
         out.append(f"{target} written")
-    out.append(env.packages.refresh() or "package index refreshed")
+    if env.dry_run:
+        out.append("dry run: would refresh the package index")
+    else:
+        out.append(env.packages.refresh() or "package index refreshed")
     return "\n".join(o for o in out if o)
 
 
@@ -274,8 +277,8 @@ def step_user(env: Any, change: Change) -> str:
     return "; ".join(out)
 
 
-def step_service(env: Any, engine: str) -> str:
-    unit = env.bind_unit() if engine == "bind" else env.kea_unit(engine)
+def step_service(env: Any, engine: str, planned: str | None = None) -> str:
+    unit = env.bind_unit() if engine == "bind" else env.kea_unit(engine, fallback=planned)
     notes: list[str] = []
     if engine != "bind" and env.packages.is_installed(env.paths.kea_packages_for([engine], isc=True)[0]):
         notes = disable_stale_apparmor(env)
@@ -401,7 +404,8 @@ def install_steps(plan: Plan, env: Any) -> list[Step]:
             steps.append(Step(t, lambda c=c: step_user(env, c)))
         elif t.startswith("install/service/"):
             engine = t.rsplit("/", 1)[1]
-            steps.append(Step(t, lambda e=engine: step_service(env, e)))
+            planned = (c.after or {}).get("unit")
+            steps.append(Step(t, lambda e=engine, u=planned: step_service(env, e, u)))
         elif t == "install/bind/adopt":
             steps.append(Step(t, lambda c=c: step_bind_adopt(env, c, ctx), weight=2))
         elif t.endswith("/config") and t.split("/")[1] in KEA_DAEMONS:

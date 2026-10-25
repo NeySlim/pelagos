@@ -141,6 +141,14 @@ def test_install_dry_run_on_a_fresh_host(tmp_path, distro):
     assert out["install/service/bind"].startswith("dry run: would enable and start ")
     assert "once the packages are installed" in out["install/bind/adopt"]
     assert env.packages.installed == set() and not list(tmp_path.glob("etc/**/*.conf"))
+    # Nothing refreshed, and the units are the ones the ISC packages ship.
+    repo = next(v for k, v in out.items() if k.startswith("install/repo/"))
+    assert repo.endswith("dry run: would refresh the package index") and "refreshed" not in repo
+    for engine in ("kea4", "d2"):
+        unit = env.paths.kea_services_isc[engine]
+        assert out[f"install/service/{engine}"] == f"dry run: would enable and start {unit}"
+        planned = next(c for c in plan.changes if c.target == f"install/service/{engine}")
+        assert planned.after["unit"] == unit
 
 
 def test_job_runner_stops_at_first_failure():

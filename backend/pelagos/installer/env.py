@@ -259,12 +259,13 @@ class InstallerEnv:
     def backup_root(self) -> Path:
         return self.node_paths.backups_dir
 
-    def kea_unit(self, engine: str) -> str:
-        """The unit that runs a Kea daemon here: the first candidate systemd knows, else the distro name."""
+    def kea_unit(self, engine: str, fallback: str | None = None) -> str:
+        """The unit that runs a Kea daemon here: the first candidate systemd knows, else `fallback`
+        (the unit of the packages being installed), else the distro name."""
         for unit in self.paths.kea_service_candidates(engine):
             if self.services.exists(unit):
                 return unit
-        return self.paths.kea_services_distro[engine]
+        return fallback or self.paths.kea_services_distro[engine]
 
     def bind_unit(self) -> str:
         return self.paths.bind_service

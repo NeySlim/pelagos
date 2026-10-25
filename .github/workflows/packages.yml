@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Release artifacts, on version tags and on demand: the deb (Debian 13), the rpms (RHEL 9 and
-# 10), the node and all-in-one images with their smoke tests and, on a tag, the images pushed
-# to ghcr.io/<owner>/pelagos and ghcr.io/<owner>/pelagos-allinone plus a GitHub release
+# Release artifacts: the deb (Debian 13), the rpms (RHEL 9 and 10), the node and all-in-one
+# images with their smoke tests. They are built on version tags, on demand, and on pull requests
+# and pushes to main touching packaging inputs. Only a version tag pushes the images to
+# ghcr.io/<owner>/pelagos and ghcr.io/<owner>/pelagos-allinone and creates a GitHub release
 # carrying the packages. ghcr packages start private: make them public once (package settings)
 # before documenting a ghcr.io image for users.
 name: packages
@@ -9,10 +10,28 @@ name: packages
 on:
   push:
     tags: ["v*"]
+    branches: [main]
+    paths: &packaging-paths
+      - packaging/**
+      - docker/**
+      - "**/Dockerfile*"
+      - "**/compose*.yaml"
+      - "**/compose*.yml"
+      - Makefile
+      - backend/pyproject.toml
+      - frontend/package.json
+      - frontend/package-lock.json
+      - .github/workflows/packages.yml
+  pull_request:
+    paths: *packaging-paths
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: packages-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   frontend:

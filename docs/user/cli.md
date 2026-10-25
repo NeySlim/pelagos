@@ -2,7 +2,10 @@
 
 `/usr/bin/pelagos` runs the CLI from `/opt/pelagos/venv` with the
 environment of `/etc/pelagos/pelagos.env`. Most commands change files owned
-by the service and need root: run them with `sudo`.
+by the service and need root: run them with `sudo`. `sudo` does not pass
+your shell's variables on, so set `PELAGOS_ADMIN_PASSWORD` or
+`PELAGOS_NEW_PASSWORD` on the `sudo` line itself
+(`sudo PELAGOS_NEW_PASSWORD='...' pelagos user reset-password ops`).
 
 ```
 pelagos [--home DIR] [-v] <command> [options]

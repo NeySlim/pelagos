@@ -649,7 +649,10 @@ class BindBackend(BindExtras, DnsBackend):
             # left out: named rewrites them with dynamic updates.
             written = {str(p): sha256_text(result.texts[p]) for p in paths if p not in result.zone_files}
             try:
-                (Path(outcome.backup_dir) / WRITTEN_FILE).write_text(json.dumps(written, indent=1))
+                record = Path(outcome.backup_dir) / WRITTEN_FILE
+                fd = os.open(record, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640)
+                with os.fdopen(fd, "w") as fh:
+                    fh.write(json.dumps(written, indent=1))
             except OSError:
                 pass
         self._set_details(

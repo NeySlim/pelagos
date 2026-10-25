@@ -743,6 +743,12 @@ def run_audit(env: Any) -> list[Finding]:
         bind_in.kea_keys = d2_keys | {"kea-ddns"}
         bind_keys = {k.name for k in bindconf.keys(list(bind_in.files.top_level()))}
         findings += audit_bind(bind_in)
+        if env.remote_bind() is not None:
+            # Pelagos reaches this named over the network: moving rndc or the statistics channel to
+            # 127.0.0.1 would cut it off, so these listeners are restricted by hand.
+            for f in findings:
+                if f.kind in ("rndc_nonlocal", "stats_nonlocal"):
+                    f.details["remediable"] = False
     if kea_in is not None:
         kea_in.bind_keys = bind_keys
         findings += audit_kea(kea_in)

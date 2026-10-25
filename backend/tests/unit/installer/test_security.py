@@ -621,3 +621,23 @@ def test_secret_file_migration_keeps_comments_and_includes(tmp_path):
     assert part.startswith("// TSIG keys of the D2 server")
     key = keaconf.tsig_keys(keaconf.loads(main, str(conf)))[0]
     assert Path(key["secret-file"]).read_text().strip().startswith("bGVnYWN5")
+
+
+def test_remote_named_keeps_its_network_listeners(tmp_path):
+    """A named reached over the network (compose): moving rndc and statistics to 127.0.0.1 is not offered."""
+    from pelagos.core.config_store import ConfigStore, NodeConfig
+
+    env = legacy_tree(tmp_path)
+    local = {f.id: f for f in run_audit(env)}
+    assert local["bind:rndc_nonlocal:*"].to_dict()["remediable"]
+    env.node_paths.ensure()
+    remote = {"rndc_address": "bind", "statistics_url": "http://bind:8053/json/v1"}
+    ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml).save_node(
+        NodeConfig(id=env.node_id, name=env.node_id, engines={"bind": False, "disabled": {"bind": remote}})
+    )
+    found = {f.id: f.to_dict() for f in run_audit(env)}
+    assert not found["bind:rndc_nonlocal:*"]["remediable"]
+    assert not found["bind:stats_nonlocal:0.0.0.0"]["remediable"]
+    assert found["bind:open_recursion:options"]["remediable"]
+    with pytest.raises(ValueError, match="no automatic remediation"):
+        build_security_plan(env, ["bind:rndc_nonlocal:*"])

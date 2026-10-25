@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// The dashboard stat chip values are text: they keep WCAG AA (4.5:1) over their chip in
-// both Mission schemes. The chip ground is its own fill composited over its ancestors.
+// The dashboard stat chip values and badge words are text: they keep WCAG AA (4.5:1) over
+// their own fill in both schemes of Instrument (the default) and Mission Control. The
+// ground is the element's fill composited over its ancestors.
 import { test, expect } from '@playwright/test'
+import { setServerFamily } from './family'
 
 async function signIn(page) {
   await page.goto('/login')
@@ -49,26 +51,33 @@ const contrasts = (page, selector, value, label) =>
   }, [value, label])
 const chipContrasts = (page) => contrasts(page, '.dash-chip', '.ui-stat-chip-value', '.ui-stat-chip-label')
 
-for (const scheme of ['dark', 'light']) {
-  test(`dashboard chip values keep AA contrast in Mission ${scheme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme })
-    await signIn(page)
-    await page.goto('/')
-    await expect(page.getByTestId('dns-rate')).toBeVisible()
-    await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('theme-light'))).toBe(scheme === 'light')
-    const results = await chipContrasts(page)
-    expect(results.length).toBeGreaterThanOrEqual(4)
-    for (const r of results) expect(r.ratio, r.label).toBeGreaterThanOrEqual(4.5)
-  })
+for (const [family, name] of [['instrument', 'Instrument'], ['mission', 'Mission']]) {
+  test.describe(name, () => {
+    test.beforeAll(async ({ playwright }, info) => setServerFamily(playwright, info.project.use.baseURL, family))
+    test.afterAll(async ({ playwright }, info) => setServerFamily(playwright, info.project.use.baseURL, 'instrument'))
 
-  test(`badge text keeps AA contrast over its own fill in Mission ${scheme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: scheme })
-    await signIn(page)
-    await page.goto('/alerts')
-    await expect(page.getByTestId('alert-row-ack').first()).toBeVisible()
-    await expect(page.locator('.ui-badge-info').first()).toBeVisible()
-    const results = await contrasts(page, '.ui-badge:not(.ui-badge-outline)')
-    expect(results.length).toBeGreaterThanOrEqual(4)
-    for (const r of results) expect(r.ratio, r.label).toBeGreaterThanOrEqual(4.5)
+    for (const scheme of ['dark', 'light']) {
+      test(`dashboard chip values keep AA contrast in ${name} ${scheme}`, async ({ page }) => {
+        await page.emulateMedia({ colorScheme: scheme })
+        await signIn(page)
+        await page.goto('/')
+        await expect(page.getByTestId('dns-rate')).toBeVisible()
+        await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('theme-light'))).toBe(scheme === 'light')
+        const results = await chipContrasts(page)
+        expect(results.length).toBeGreaterThanOrEqual(4)
+        for (const r of results) expect(r.ratio, r.label).toBeGreaterThanOrEqual(4.5)
+      })
+
+      test(`badge text keeps AA contrast over its own fill in ${name} ${scheme}`, async ({ page }) => {
+        await page.emulateMedia({ colorScheme: scheme })
+        await signIn(page)
+        await page.goto('/alerts')
+        await expect(page.getByTestId('alert-row-ack').first()).toBeVisible()
+        await expect(page.locator('.ui-badge-info').first()).toBeVisible()
+        const results = await contrasts(page, '.ui-badge:not(.ui-badge-outline)')
+        expect(results.length).toBeGreaterThanOrEqual(4)
+        for (const r of results) expect(r.ratio, r.label).toBeGreaterThanOrEqual(4.5)
+      })
+    }
   })
 }

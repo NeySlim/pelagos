@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// Mission Control is the default family and drives the effects layer; the animation
+// Mission Control stays selectable and drives its own effects layer; the animation
 // preference (Account > Preferences) reaches data-motion and survives a reload.
 import { test, expect } from '@playwright/test'
+import { setServerFamily } from './family'
+
+test.beforeAll(async ({ playwright }, info) => setServerFamily(playwright, info.project.use.baseURL, 'mission'))
+test.afterAll(async ({ playwright }, info) => setServerFamily(playwright, info.project.use.baseURL, 'instrument'))
 
 async function signIn(page) {
   await page.goto('/login')
@@ -20,7 +24,7 @@ test.beforeEach(async ({ page }) => {
 })
 test.afterEach(() => expect(errors).toEqual([]))
 
-test('Mission Control is the default family, with glass panels over the backdrop', async ({ page }) => {
+test('Mission Control draws glass panels over the backdrop', async ({ page }) => {
   await signIn(page)
   expect(await rootData(page, 'effects')).toBe('mission')
   await expect(page.getByTestId('app-backdrop')).toBeAttached()
@@ -49,6 +53,7 @@ test('the Mission dashboard tiles enter staggered', async ({ page }) => {
 })
 
 test('the sign-in page shows the radar scene behind an unblurred card', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('pelagos-theme-family', 'mission'))
   await page.goto('/login')
   await expect(page.getByTestId('login-scene')).toBeAttached()
   const blur = await page.getByTestId('login-form').evaluate((el) => getComputedStyle(el).backdropFilter)

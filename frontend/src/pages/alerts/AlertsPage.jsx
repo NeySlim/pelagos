@@ -33,7 +33,8 @@ function Field({ label, children }) {
   )
 }
 
-// A Kea file alert (section 9) is settled by adopting one side, on the node that holds the file.
+// A Kea file alert (section 9) is settled by adopting one side; the node that holds the file
+// builds the plan, whichever node the user is on.
 function FileAdoptActions({ alert }) {
   const { t } = useTranslation('alerts')
   const { hasPermission } = usePermission()
@@ -42,15 +43,14 @@ function FileAdoptActions({ alert }) {
   const engine = fileAlertEngine(alert)
   if (!engine || alert.state === 'resolved' || !hasPermission('write:dhcp.config')) return null
   const selfId = nodes.find((n) => n.is_self)?.peer?.id
-  if (selfId && alert.node_id && alert.node_id !== selfId) {
-    return <p className="text-2xs text-text-tertiary self-center">{t('actions.adoptElsewhere', { node: nameOf(alert.node_id) })}</p>
-  }
+  const target = selfId && alert.node_id && alert.node_id !== selfId ? alert.node_id : undefined
   return (
     <>
-      <Button variant="secondary" size="sm" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'file'))} data-testid="alert-adopt-file">
+      {target && <p className="text-2xs text-text-tertiary self-center" data-testid="alert-adopt-node">{t('actions.adoptOn', { node: nameOf(target) })}</p>}
+      <Button variant="secondary" size="sm" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'file', target))} data-testid="alert-adopt-file">
         {t('actions.adoptFile')}
       </Button>
-      <Button variant="secondary" size="sm" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'running'))} data-testid="alert-adopt-running">
+      <Button variant="secondary" size="sm" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'running', target))} data-testid="alert-adopt-running">
         {t('actions.adoptRunning')}
       </Button>
       {flow.modal}

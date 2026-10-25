@@ -135,7 +135,6 @@
       "none": "Choisissez une opération.",
       "permission": "Vos rôles n'autorisent pas cette opération.",
       "unavailable": "Le démon ne propose pas cette commande (hook non chargé).",
-      "remote": "Les modifications s'exécutent sur ce nœud seulement : connectez-vous sur ce nœud pour l'y lancer.",
       "confirm": "Cochez d'abord la confirmation."
     },
     "errors": {

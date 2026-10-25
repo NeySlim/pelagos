@@ -102,7 +102,7 @@ function adoptPlan(state, user, engine, body) {
     summary: body.source === 'file' ? `${daemon}: adopt ${f.path} as the running configuration` : `${daemon}: write the running configuration to ${f.path}`,
     changes: [{ op: 'replace', target: `adopt/${body.source}`, before: { files: [f.path], differences: f.differences }, after: { source: body.source }, node_ids: [] }],
     diff,
-    targets: [state.selfId],
+    targets: [body.node_id || state.selfId],
     tool: body.source === 'file' ? 'config-test' : 'lossless-editor',
     requires_confirmation: true,
     apply: () => {

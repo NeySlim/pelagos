@@ -115,7 +115,8 @@ export const dhcp = {
     apiClient.post(`/dhcp/${family}/config/plan`, { config, ...(node_ids ? { node_ids } : {}), ...(node_id ? { node_id } : {}) }),
   // Section 9: does the file on disk say what Kea runs; adopt one side when it does not.
   configFile: (family) => apiClient.get(`/dhcp/${family}/config/file`),
-  adoptPlan: (family, source) => apiClient.post(`/dhcp/${family}/config/adopt/plan`, { source }),
+  // node_id: the node that holds the file (default this node); a peer builds its own plan.
+  adoptPlan: (family, source, node_id) => apiClient.post(`/dhcp/${family}/config/adopt/plan`, { source, ...(node_id ? { node_id } : {}) }),
 }
 
 export const d2 = {
@@ -125,7 +126,7 @@ export const d2 = {
   configPlan: (config, node_ids, node_id) =>
     apiClient.post('/dhcp/d2/config/plan', { config, ...(node_ids ? { node_ids } : {}), ...(node_id ? { node_id } : {}) }),
   configFile: () => apiClient.get('/dhcp/d2/config/file'),
-  adoptPlan: (source) => apiClient.post('/dhcp/d2/config/adopt/plan', { source }),
+  adoptPlan: (source, node_id) => apiClient.post('/dhcp/d2/config/adopt/plan', { source, ...(node_id ? { node_id } : {}) }),
 }
 
 export const hosts = {

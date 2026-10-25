@@ -135,7 +135,6 @@
       "none": "Pick an operation.",
       "permission": "Your roles do not allow this operation.",
       "unavailable": "The daemon does not offer this command (hook not loaded).",
-      "remote": "Changes run on this node only: sign in on that node to run it there.",
       "confirm": "Tick the confirmation first."
     },
     "errors": {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Section 9: a Kea configuration file that no longer says what the daemon runs blocks every
 // Kea write until one side is adopted. The banner shows it on the DHCP pages and offers both
-// adopt plans for this node; another node's file is adopted from that node.
+// adopt plans, built by the node that holds the file.
 import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FileX } from '@phosphor-icons/react'
@@ -45,6 +45,7 @@ export function KeaFileBanner({ engine }) {
         <div className="flex flex-col gap-2" data-testid={`kea-file-banner-${engine}`}>
           {diverged.map((item) => {
             const place = adoptPlace(item, selfId)
+            const target = place === 'other' ? item.node_id : undefined
             return (
               <div
                 key={item.node_id}
@@ -66,18 +67,17 @@ export function KeaFileBanner({ engine }) {
                     )}
                   </div>
                 </div>
-                {canAdopt && place === 'here' && (
+                {canAdopt && place !== 'unknown' && (
                   <div className="flex flex-wrap items-center gap-2 pl-6">
-                    <Button size="xs" variant="secondary" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'file'))} data-testid="adopt-file">
+                    <Button size="xs" variant="secondary" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'file', target))} data-testid="adopt-file">
                       {t('keaFile.adoptFile')}
                     </Button>
-                    <Button size="xs" variant="secondary" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'running'))} data-testid="adopt-running">
+                    <Button size="xs" variant="secondary" disabled={flow.building} onClick={() => flow.build(() => adoptCall(engine, 'running', target))} data-testid="adopt-running">
                       {t('keaFile.adoptRunning')}
                     </Button>
-                    <span className="text-2xs text-text-secondary">{t('keaFile.hint')}</span>
+                    <span className="text-2xs text-text-secondary">{place === 'other' ? t('keaFile.otherNode', { node: nameOf(item.node_id) }) : t('keaFile.hint')}</span>
                   </div>
                 )}
-                {canAdopt && place === 'other' && <p className="pl-6 text-2xs text-text-secondary">{t('keaFile.otherNode', { node: nameOf(item.node_id) })}</p>}
               </div>
             )
           })}

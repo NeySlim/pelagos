@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Runtime operations: the allow-listed rndc and Kea control commands, grouped into reads
-// and changes. Reads may target any node running the engine; changes run on this node,
-// are audited, and the risky ones ask for an explicit confirmation.
+// and changes. Both may target any node running the engine (a peer runs them itself);
+// changes are audited, and the risky ones ask for an explicit confirmation.
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Terminal, Play, MagnifyingGlass, Warning, Globe, TreeStructure, ArrowsClockwise } from '@phosphor-icons/react'

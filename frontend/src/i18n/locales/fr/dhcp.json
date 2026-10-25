@@ -306,7 +306,7 @@
     "adoptFile": "Adopter le fichier",
     "adoptRunning": "Adopter la configuration en cours",
     "hint": "Le fichier : Kea charge ce que dit le fichier. La configuration en cours : le fichier est réécrit, commentaires conservés.",
-    "otherNode": "Adoptez-le depuis {{node}}, le nœud qui porte le fichier."
+    "otherNode": "Le fichier est sur {{node}} : {{node}} construit le plan."
   },
   "stats": {
     "server": "Compteurs du serveur",

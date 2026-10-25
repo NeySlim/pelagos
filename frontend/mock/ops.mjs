@@ -113,9 +113,6 @@ export function opsHandlers(state, { Problem, invalid, hasPermission, auditEntry
     }
     if (spec.confirm && body.confirm !== true) throw new Problem(428, 'confirmation_required', `${spec.name} needs confirm=true`)
     const target = body.node_id || state.selfId
-    if (target !== state.selfId && spec.write) {
-      throw new Problem(501, 'not_supported', `${spec.name} changes the daemon: run it on that node (log in there)`)
-    }
     return { params, target }
   }
   const keaCatalog = (family, query) => ({

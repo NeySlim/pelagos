@@ -3,8 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../services/api', () => ({
   api: {
-    dhcp: { adoptPlan: vi.fn(async (family, source) => ({ family, source })) },
-    d2: { adoptPlan: vi.fn(async (source) => ({ family: 'd2', source })) },
+    dhcp: { adoptPlan: vi.fn(async (family, source, node_id) => ({ family, source, node_id })) },
+    d2: { adoptPlan: vi.fn(async (source, node_id) => ({ family: 'd2', source, node_id })) },
   },
 }))
 
@@ -33,8 +33,10 @@ describe('kea file divergence', () => {
   })
 
   it('builds the adopt plan of the right engine', async () => {
-    expect(await adoptCall('v6', 'file')).toEqual({ family: 'v6', source: 'file' })
-    expect(await adoptCall('d2', 'running')).toEqual({ family: 'd2', source: 'running' })
+    expect(await adoptCall('v6', 'file')).toEqual({ family: 'v6', source: 'file', node_id: undefined })
+    expect(await adoptCall('d2', 'running')).toEqual({ family: 'd2', source: 'running', node_id: undefined })
+    expect(await adoptCall('v4', 'file', 'b')).toEqual({ family: 'v4', source: 'file', node_id: 'b' })
+    expect(await adoptCall('d2', 'file', 'b')).toEqual({ family: 'd2', source: 'file', node_id: 'b' })
   })
 })
 

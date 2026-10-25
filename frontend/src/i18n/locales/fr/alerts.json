@@ -39,7 +39,7 @@
     "openZone": "Ouvrir la zone",
     "adoptFile": "Adopter le fichier",
     "adoptRunning": "Adopter la configuration en cours",
-    "adoptElsewhere": "Adoptez-le depuis {{node}}, le nœud qui porte le fichier"
+    "adoptOn": "Sur {{node}}, le nœud qui porte le fichier"
   },
   "ack": {
     "title": "Acquitter l'alerte",

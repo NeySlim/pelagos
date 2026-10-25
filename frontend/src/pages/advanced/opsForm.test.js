@@ -34,7 +34,7 @@ describe('opsForm', () => {
     expect(runBlocker(null, local)).toBe('none')
     expect(runBlocker(nta, { ...local, allowed: false })).toBe('permission')
     expect(runBlocker({ ...nta, available: false }, local)).toBe('unavailable')
-    expect(runBlocker(nta, { ...local, isLocal: false })).toBe('remote')
+    expect(runBlocker(nta, { ...local, isLocal: false })).toBe(null)
     expect(runBlocker({ ...nta, write: false }, { ...local, isLocal: false })).toBe(null)
     expect(runBlocker({ ...nta, confirm: true }, local)).toBe('confirm')
     expect(runBlocker({ ...nta, confirm: true }, { ...local, confirmed: true })).toBe(null)

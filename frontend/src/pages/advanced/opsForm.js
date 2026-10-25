@@ -51,12 +51,11 @@ export function buildParams(spec, values) {
   return { params: out, errors }
 }
 
-// Changes run on this node only; a confirmed operation needs the box ticked.
-export function runBlocker(spec, { isLocal, confirmed, allowed }) {
+// Changes run on the node selected (a peer runs them itself); a confirmed operation needs the box ticked.
+export function runBlocker(spec, { confirmed, allowed }) {
   if (!spec) return 'none'
   if (!allowed) return 'permission'
   if (spec.available === false) return 'unavailable'
-  if (spec.write && !isLocal) return 'remote'
   if (spec.confirm && !confirmed) return 'confirm'
   return null
 }

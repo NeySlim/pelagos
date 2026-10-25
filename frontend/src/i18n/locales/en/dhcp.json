@@ -306,7 +306,7 @@
     "adoptFile": "Adopt the file",
     "adoptRunning": "Adopt the running configuration",
     "hint": "The file: Kea loads what the file says. The running configuration: the file is rewritten, comments kept.",
-    "otherNode": "Adopt it from {{node}}, the node that holds the file."
+    "otherNode": "The file is on {{node}}: {{node}} builds the plan."
   },
   "stats": {
     "server": "Server counters",

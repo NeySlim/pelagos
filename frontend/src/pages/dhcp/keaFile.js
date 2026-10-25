@@ -7,8 +7,9 @@ export function divergedFiles(items) {
   return (items || []).filter((item) => item && item.diverged)
 }
 
-export function adoptCall(engine, source) {
-  return engine === 'd2' ? api.d2.adoptPlan(source) : api.dhcp.adoptPlan(engine, source)
+// `nodeId`: the node that holds the file; undefined for this node.
+export function adoptCall(engine, source, nodeId) {
+  return engine === 'd2' ? api.d2.adoptPlan(source, nodeId) : api.dhcp.adoptPlan(engine, source, nodeId)
 }
 
 const ENGINES = { kea4: 'v4', kea6: 'v6', d2: 'd2' }
@@ -21,8 +22,8 @@ export function fileAlertEngine(alert) {
   return match ? ENGINES[match[1]] : null
 }
 
-// Where a diverged file can be adopted: 'here' (this node), 'other', or 'unknown' while the
-// node list has not loaded (no adopt button then: a peer's file answers 400 here).
+// Where a diverged file is: 'here' (this node), 'other' (a peer builds the plan), or 'unknown'
+// while the node list has not loaded (no adopt button then: the target node is not known).
 export function adoptPlace(item, selfId) {
   if (!selfId) return 'unknown'
   return item?.node_id === selfId ? 'here' : 'other'

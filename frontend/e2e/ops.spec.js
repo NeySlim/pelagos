@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Runtime operations screen against the mock: an rndc read, an rndc change with a typed
-// parameter, a Kea command that needs a confirmation, and a change refused on a peer.
+// parameter, a Kea command that needs a confirmation, and a change run on a peer.
 import { test, expect } from '@playwright/test'
 
 async function signIn(page, username = 'admin', password = 'admin') {
@@ -47,6 +47,18 @@ test('a Kea command that needs a confirmation', async ({ page }) => {
   await list.locator('[data-op="status-get"]').click()
   await page.getByTestId('ops-run').click()
   await expect(page.getByTestId('ops-output')).toContainText('pid')
+})
+
+test('a change runs on the peer selected', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/advanced/ops')
+  await page.getByTestId('page-advanced-ops').getByRole('combobox').first().click()
+  await page.getByRole('option', { name: 'ns2' }).click()
+  await page.getByTestId('ops-list').locator('[data-op="flushname"]').click()
+  await page.getByTestId('ops-param-name').fill('www.example.lan')
+  await expect(page.getByTestId('ops-blocked')).toHaveCount(0)
+  await page.getByTestId('ops-run').click()
+  await expect(page.getByTestId('ops-output')).toContainText('Done, no output.')
 })
 
 test('a DNS operator sees Kea changes as not allowed', async ({ page }) => {

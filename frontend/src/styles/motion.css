@@ -304,10 +304,8 @@ html.boot .fx-boot { animation: fx-rise var(--d-base) var(--ease-out) both; anim
   transform-origin: var(--radix-dropdown-menu-content-transform-origin, var(--radix-select-content-transform-origin, var(--radix-popover-content-transform-origin, top)));
   animation: fx-pop-in var(--d-quick) var(--ease-out) both;
 }
-.ui-menu[data-state='closed'] {
-  transform-origin: var(--radix-dropdown-menu-content-transform-origin, var(--radix-select-content-transform-origin, top));
-  animation: fx-pop-out 100ms var(--ease-exit) both;
-}
+/* Menus close at once: they open dozens of times an hour, and a lingering exit would
+   swallow a click that reopens them. */
 .ui-tooltip[data-state='delayed-open'],
 .ui-tooltip[data-state='instant-open'] { transform-origin: var(--radix-tooltip-content-transform-origin); animation: fx-pop-in 125ms var(--ease-out) both; }
 .ui-tooltip[data-state='instant-open'] { animation: none; }
@@ -338,7 +336,6 @@ html.boot .fx-boot { animation: fx-rise var(--d-base) var(--ease-out) both; anim
 @keyframes fx-dialog-in { from { opacity: 0; scale: 0.96; } }
 @keyframes fx-dialog-out { to { opacity: 0; scale: 0.97; } }
 @keyframes fx-pop-in { from { opacity: 0; transform: scale(0.97); } }
-@keyframes fx-pop-out { to { opacity: 0; transform: scale(0.97); } }
 @keyframes fx-toast-in { from { opacity: 0; transform: translateY(-8px); } }
 @keyframes fx-toast-out { to { opacity: 0; transform: translateY(-8px); } }
 @keyframes fx-toast-swipe { from { transform: translateX(var(--radix-toast-swipe-end-x)); } to { opacity: 0; transform: translateX(calc(var(--radix-toast-swipe-end-x) + 24px)); } }
@@ -356,7 +353,7 @@ html[data-motion='reduced'] .fx-ck.is-done svg path { transition: none; }
 html[data-motion='reduced'] :is(.fx-cw, .fx-cw > div) { transition: opacity var(--d-quick) ease; }
 html[data-motion='reduced'] .fx-skeleton > .fx-sweep { display: none; }
 html[data-motion='reduced'] :is(.ui-menu, .ui-tooltip, .ui-toast)[data-state] { animation-name: fx-fade; }
-html[data-motion='reduced'] :is(.ui-menu, .ui-tooltip, .ui-toast)[data-state='closed'] { animation-name: fx-fade-out; }
+html[data-motion='reduced'] :is(.ui-tooltip, .ui-toast)[data-state='closed'] { animation-name: fx-fade-out; }
 html[data-motion='reduced'] :is(.ui-modal, .ui-dialog)[data-state='open'] { animation: fx-fade var(--d-quick) ease both; }
 html[data-motion='reduced'] :is(.ui-modal, .ui-dialog)[data-state='closed'] { animation: fx-fade-out var(--d-quick) ease both; }
 html.boot[data-motion='reduced'] .fx-boot { animation-name: fx-fade; animation-delay: 0ms; }

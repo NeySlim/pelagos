@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Pool or subnet utilization: a bar colored by threshold (success, warning at
 // `warn` percent, danger at `full` percent) with the assigned/total figures. The fill
-// scales from the left (transform only); the threshold marks show under Instrument.
+// scales from the left (transform only); the threshold marks show under Instrument. When
+// the fill crosses a threshold upwards, a one pixel ring flares once at its front.
+import { useEffect, useRef, useState } from 'react'
 import { cn, formatPercent } from '../lib/utils'
 import i18n from '../i18n'
 
@@ -27,6 +29,13 @@ export function UtilizationBar({
   const pct = percent ?? (safeTotal > 0 ? (safeAssigned / safeTotal) * 100 : 0)
   const clamped = Math.max(0, Math.min(100, pct))
   const level = utilizationLevel(clamped, { warn, full })
+  const rank = { success: 0, warning: 1, danger: 2 }[level]
+  const previous = useRef(rank)
+  const [crossed, setCrossed] = useState(0)
+  useEffect(() => {
+    if (rank > previous.current) setCrossed((n) => n + 1)
+    previous.current = rank
+  }, [rank])
   const colors = {
     success: 'status-success-bg-solid',
     warning: 'status-warning-bg-solid',
@@ -40,6 +49,7 @@ export function UtilizationBar({
         {[warn, full].filter((v) => v > 0 && v < 100).map((v) => (
           <span key={v} className={cn('ui-progress-tick', v === full && 'is-full')} style={{ left: `${v}%` }} aria-hidden="true" />
         ))}
+        {crossed > 0 && <span key={crossed} className={cn('ui-progress-ring', `is-${level}`)} style={{ left: `${clamped}%` }} aria-hidden="true" data-testid="utilization-ring" />}
         <div
           className={cn('ui-progress-fill h-full w-full rounded-full origin-left', colors[level])}
           style={{ transform: `scaleX(${clamped / 100})` }}

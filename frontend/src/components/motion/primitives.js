@@ -102,3 +102,16 @@ export function flipRows(rows, mutate, level = typeof document !== 'undefined' ?
   }
   return glideRows(moves)
 }
+
+const STRIP = { pad: 8, top: 16, bottom: 14, ruler: 22 }
+
+// Geometry of a strip: points right-aligned over `slots` slots.
+export function stripGeometry(points, { width, height, slots, kind }) {
+  const series = points.slice(-slots)
+  const step = Math.max(1, (width - STRIP.pad * 2 - (kind === 'line' ? STRIP.ruler : 0)) / Math.max(1, slots - 1))
+  const offset = slots - series.length
+  const max = Math.max(0, ...series.map((p) => p.v)) * 1.15 || 1
+  const x = (i) => STRIP.pad + (i + offset) * step
+  const y = (v) => STRIP.top + (height - STRIP.top - STRIP.bottom) * (1 - Math.max(0, v) / max)
+  return { series, step, offset, max, x, y }
+}

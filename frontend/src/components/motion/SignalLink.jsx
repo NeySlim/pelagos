@@ -52,9 +52,9 @@ export const SignalLink = forwardRef(function SignalLink(
       ctx.globalAlpha = 1
       if (!live) return
       for (const t of ticks.current) {
-        const p = (now - t.start) / PULSE_MS
+        const p = (now - t.start) / (t.duration || PULSE_MS)
         const x = (t.dir === 'back' ? 1 - p : p) * width
-        ctx.fillStyle = c[tickTone] || c.dhcp
+        ctx.fillStyle = c[t.tone || tickTone] || c.dhcp
         ctx.globalAlpha = 0.85
         ctx.fillRect(Math.round(x), y - 3, 1, 6)
       }
@@ -122,11 +122,11 @@ export const SignalLink = forwardRef(function SignalLink(
           nextTick.current = now + poissonGap(rate)
         }
       }
-      ticks.current = ticks.current.filter((t) => now - t.start < PULSE_MS)
-      const before = events.current.length
+      ticks.current = ticks.current.filter((t) => now - t.start < (t.duration || PULSE_MS))
       events.current = events.current.filter((e) => now - e.start < e.duration)
       redraw()
-      if (before && !events.current.length) setBusy(0)
+      // Pulses, transfers and heartbeat ticks keep the loop; Poisson ticks need `ticking`.
+      if (busy > 0 && !events.current.length && !ticks.current.some((t) => t.tone)) setBusy(0)
     },
     { enabled: ticking || busy > 0 },
   )
@@ -138,6 +138,13 @@ export const SignalLink = forwardRef(function SignalLink(
       pulse({ tone = 'neutral', dir = direction } = {}) {
         if (!live || down) return false
         events.current.push({ kind: 'pulse', tone, dir, start: performance.now(), duration: PULSE_MS })
+        setBusy((n) => n + 1)
+        return true
+      },
+      // One discrete message (an HA heartbeat): a 1 x 6 px tick, linear.
+      tick({ tone = 'success', dir = direction, durationMs = 500 } = {}) {
+        if (!live || down) return false
+        ticks.current.push({ start: performance.now(), dir, tone, duration: durationMs })
         setBusy((n) => n + 1)
         return true
       },

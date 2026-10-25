@@ -21,6 +21,18 @@ runs on a shared host pick free ports instead of the defaults.
 Mock users: `admin`/`admin`, `alice`/`alice` (dns-operator), `bob`/`bob` with
 TOTP code `123456` (dhcp-operator), `viewer`/`viewer`.
 
+Run as `npm run mock` (or by Playwright) the mock is live: a plan takes about
+350 ms per node and announces the local apply on `audit` before its outcome on
+`plans`, secondaries lag one serial for 1.5 s after a change, and HA servers
+report a heartbeat every 3 s (`--static` turns this off; unit tests build it
+static). Cluster events on demand, for the animations that follow them:
+
+```sh
+curl -X POST localhost:8481/api/v1/_mock/events -d '{"kind": "lease"}'
+# kinds: lease, alert, alert-resolve, replication, transfer ({"zone", "delayMs"}),
+#        ha-failover, ha-failback ({"family"}), heartbeat
+```
+
 The mock answers with the shapes the real API returns (checked against a
 backend driving real `named` and Kea); when the two disagree, the backend
 wins and the mock follows. Shapes the specification leaves open are logged
@@ -61,7 +73,7 @@ certificate.
 | `src/pages/<area>/` | one folder per area: `routes.js` plus its pages |
 | `src/pages/routes.js` | the list of areas and the sidebar groups |
 | `src/i18n/locales/<lang>/<ns>.json` | `common`, `auth` and one namespace per area |
-| `mock/` | mock API (`server.mjs`), sample data (`data.mjs`), plan lifecycle (`plans.mjs`), WebSocket (`ws.mjs`) |
+| `mock/` | mock API (`server.mjs`), sample data (`data.mjs`), plan lifecycle (`plans.mjs`), WebSocket (`ws.mjs`), cluster events on demand (`events.mjs`) |
 | `e2e/` | Playwright tests against the mock: every page with its data and no console error, plan apply and rollback, area flows |
 
 ## Working on an area

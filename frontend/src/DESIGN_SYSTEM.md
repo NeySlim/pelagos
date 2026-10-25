@@ -278,6 +278,27 @@ to `html[data-effects='instrument']`), through the same hook classes as below.
 - Sign-in: `TraceScene`, the empty trace writing a flat line from the moment
   the page opened, under the opaque card.
 
+## Procedures and domain events
+
+`src/styles/procedures.css` and the domain primitives of `components/motion` (table in
+its README, "Domain wiring") draw what the cluster does, never decoration:
+
+- Plans: validations tick in order along a hairline; at apply the sections fold through
+  grid rows and a step rail follows the real sequence (local apply, peers through
+  replication, results per node) with measured durations; a rollback walks it back in
+  amber and rewinds the zone serial trace to the plan's instant. The TTL drains under
+  "Expires in". An applied record plan leaves a toast with a duration hairline and a
+  "Roll back plan" action.
+- Tables: rows that arrive unfold, rows that go fold in place (alerts strike through
+  first), a changed cell tints once; never for a page or filter change.
+- DNS: a node catching up shows a transfer bar (head, tail 300 ms behind) and its serial
+  rolls on arrival. DHCP: a new lease lands four DORA ticks (a declined one stops on
+  red). HA: one QRS per heartbeat received, a red flat line when the partner is lost, the
+  unsent queue fills and drains. Nodes: a replication pulse crosses the link. Alerts: a
+  pool alert latches where its use crossed the threshold.
+- Levels: `reduced` keeps fades of 150 ms and color changes, no travel (no transfer bar,
+  no pulse, no rail or checklist transition); `off` changes everything at once.
+
 ## Mission Control effects layer
 
 A family declares `effects: 'instrument' | 'mission' | 'none'`; ThemeContext writes it as

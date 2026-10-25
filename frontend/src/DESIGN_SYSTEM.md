@@ -1,7 +1,7 @@
 # Pelagos Design System
 
 Copied from the UCM design system (relicensed Apache-2.0 by its author) with the
-Pelagos families added: Mission Control (the default) and Pelagic.
+Pelagos families added: Instrument (the default), Mission Control and Pelagic.
 
 > Source of truth: `src/index.css` (tokens, component classes) and
 > `src/contexts/ThemeContext.jsx` (per-theme color values). This document
@@ -10,11 +10,12 @@ Pelagos families added: Mission Control (the default) and Pelagic.
 ## Theming model
 
 Colors are **not** hardcoded. `ThemeContext.jsx` writes CSS custom properties on
-`document.documentElement` at runtime. There are **5 theme families** × **2 modes**:
+`document.documentElement` at runtime. There are **6 theme families** × **2 modes**:
 
 | Family | `id` | Accent | Modes |
 |--------|------|--------|-------|
-| Mission Control: graphite glass, ember and neon (default) | `mission` | `#FF6A2B` | dark / light |
+| Instrument: calm surfaces, signal colors, measured motion (default) | `instrument` | `#5FC7E6` | dark / light |
+| Mission Control: graphite glass, ember and neon | `mission` | `#FF6A2B` | dark / light |
 | Pelagic: Ocean Mission Control UI | `pelagic` | `#2DD4BF` | dark / light |
 | Gray | `gray` | `#4F8EF7` | dark / light |
 | Purple Night | `purple` | `#A855F7` | dark / light |
@@ -22,7 +23,9 @@ Colors are **not** hardcoded. `ThemeContext.jsx` writes CSS custom properties on
 
 Mode resolves from `system` / `dark` / `light` (persisted in localStorage +
 server prefs). Every component must read tokens (`var(--…)` or the Tailwind
-aliases below) so it adapts to all 8 combinations. Never hardcode a hex.
+aliases below) so it adapts to all 12 combinations. Never hardcode a hex.
+Every family also defines `bg-inset` (bar tracks), `border-strong` (control
+hairline), `contrast-bg` and `contrast-fg` (neutral primary action).
 
 ## Typography
 
@@ -39,9 +42,13 @@ aliases below) so it adapts to all 8 combinations. Never hardcode a hex.
 | `text-2xl` | 24px | Page titles |
 
 ### Font Families
-- `font-sans`: Inter (UI text), self-hosted (`/fonts/Inter-*.woff2`)
-- `font-mono`: Fira Code (code, serials, hashes), self-hosted. `.font-mono`
-  also applies `font-size: 0.92em; letter-spacing: -0.01em` (Fira runs wide).
+- `font-sans` (`--font-sans`): IBM Plex Sans under Instrument, Inter in the
+  other families; self-hosted (`/fonts/IBMPlexSans-*.woff2`, `/fonts/Inter-*.woff2`).
+- `font-mono` (`--font-mono`): IBM Plex Mono under Instrument (every datum: node
+  names, zones, addresses, serials, counters, diffs), Fira Code elsewhere.
+  `.font-mono` also applies `font-size: 0.92em`.
+- `font-display` (`--font-display`): Michroma under Mission Control, the sans
+  face under Instrument.
 
 ## Colors
 
@@ -150,23 +157,28 @@ for floating panels / overlays.
 
 ## Motion (timing & easing)
 
+Motion system v2 (`src/styles/motion.css`, `src/lib/motion.js`, primitives and
+rules in `src/components/motion/README.md`):
+
 | Var | Value | Use |
 |-----|-------|-----|
-| `--duration-fast` | 150ms | Transforms, taps |
-| `--duration-normal` | 250ms | Color/box-shadow |
-| `--duration-slow` | 400ms | Large transitions |
-| `--ease-smooth` | `cubic-bezier(0.4,0,0.2,1)` | Default |
-| `--ease-out` / `--ease-bounce` / `--ease-spring` |: | Entrances, playful motion |
+| `--d-instant` / `--d-fast` / `--d-quick` | 70 / 110 / 150 ms | press, hover color, tooltip, cursor |
+| `--d-base` / `--d-panel` / `--d-page` | 200 / 240 / 260 ms | dialog, menu, row, toast, page |
+| `--d-slow` / `--d-moment` | 400 / 600 ms | gauges, rails; pulses, rare events |
+| `--ease-out`, `--ease-out-soft`, `--ease-in-out`, `--ease-drawer`, `--ease-exit` | beziers | UI entries, moves, exits |
+| `--spring` | `linear()`, zeta 0.8, 1.5 % overshoot, 300 ms | things that move and stop |
+| `--settle` | `linear()`, critically damped | things that land |
+| `linear` | | time and transport |
 
-Keyframe animations (Tailwind): `animate-fade-in`, `animate-slide-up`,
-`animate-slide-in-right`, `animate-pulse-slow`.
+`--duration-fast/normal/slow` remain as aliases for the UCM-era rules.
 
 ### Motion levels and primitives
 
 `MotionContext` resolves the `animations` preference (Account > Preferences:
 `full`, `reduced`, `off`) against `prefers-reduced-motion` (which can only
-lower it) and writes `data-motion` on `<html>`; `data-page-hidden` is set while
-the tab is hidden. `src/styles/effects.css` applies them:
+lower it) and writes `data-motion` on `<html>`; the `ambient` preference (`on`,
+`off`) is written as `data-ambient`; `data-page-hidden` is set while the tab is
+hidden. `src/styles/effects.css` and `motion.css` apply them:
 
 | Level | Loops (`fx-loop`: sweeps, pulses, flowing dashes) | Entries (stagger, page) | `CountUp` |
 |-------|------|------|------|
@@ -222,9 +234,36 @@ are `IconButton`s. Dashboard tiles enter in reading order (`fx-stagger-item`).
 - Sign-in: `LoginScene` lays a radar disc with halos and beams behind an
   opaque glass card (no backdrop blur over a looping animation).
 
+## Instrument effects layer
+
+`effects: 'instrument'` turns on `src/styles/instrument.css` (everything scoped
+to `html[data-effects='instrument']`), through the same hook classes as below.
+
+- Materials, not glass: three luminance steps (`bg-primary` < `bg-secondary` <
+  `bg-tertiary`), `bg-inset` for tracks and alpha hairlines; a shadow only on what
+  floats (menus, dialogs, toasts, windows); no `backdrop-filter`.
+- Radii by material: 6px panels and tiles, 4px controls and chips, 10px dialogs,
+  menus and toasts, 2px bars.
+- Chrome: an inverted L darker than the content; the sidebar sits on the ground
+  with a hairline, the active entry carries a 2px cursor that glides on the
+  spring (`NavCursor`); groups fold through grid rows. The page header has no
+  icon tile, a 17px title (mono for data titles) and tabs with a sliding ink
+  (`TabInk`).
+- Color: one signal per protocol (DNS cyan `accent-primary`, DHCP violet
+  `accent-pro`), status colors only on dots, bars and readings; a state is a dot
+  and a word (status badges get a dot, their word stays neutral); `info` is
+  neutral. The primary button is neutral high contrast (`contrast-bg`).
+- Type: IBM Plex Sans 400/500/600 for the UI, IBM Plex Mono 400/500 for data;
+  no spaced capitals for labels.
+- Ambient: `AmbientScreen` (graticule drifting at the trace paper speed, faint
+  contours) under the app and the sign-in page; still below `full` motion,
+  hidden when `ambient` is `off`.
+- Loading: `SkeletonTable` with a calibration sweep in `DataTable`; the chrome
+  lights up once per session (`html.boot`, `useBootSequence`).
+
 ## Mission Control effects layer
 
-A family declares `effects: 'mission' | 'none'`; ThemeContext writes it as
+A family declares `effects: 'instrument' | 'mission' | 'none'`; ThemeContext writes it as
 `data-effects` on `<html>`. `src/styles/mission.css` styles the shared
 components through stable hook classes (`ui-sidebar`, `ui-page-header`,
 `ui-page-title`, `ui-tabs`/`ui-tab`, `ui-card-title`, `ui-table`/`ui-row`,

@@ -172,18 +172,20 @@ Themes are families with a `dark` and a `light` palette. Add one in
 existing family must be present) and nothing else: the selector lists
 `Object.values(themeFamilies)`. Status colors (`accent-success`,
 `accent-warning`, `accent-danger`) carry meaning and stay the same across
-families. `accent-primary` is DNS and primary actions, `accent-pro` is DHCP.
-Check WCAG AA contrast (4.5:1) of the three text tokens and the two accents
-on `bg-secondary`. `frontend/src/index.css` `:root` and `.theme-light` hold
-the defaults used before React mounts; they match the default family
-(Mission Control). A family's `effects` key selects its effects layer
-(`'mission'` turns on `src/styles/mission.css`: glass panels, backdrop, display
-font; `'none'` keeps the plain look). Mission Control has its own status hues
-(neon green, yellow, red-pink) with the same meaning; the other families keep
-the UCM ones. Animations go through the motion primitives in
-`src/components/motion/` and honor `useMotion()` (preference `animations`:
-full, reduced, off, lowered by `prefers-reduced-motion`): animate transform and
-opacity only, mark loops `fx-loop`.
+families. `accent-primary` is DNS, `accent-pro` is DHCP; `contrast-bg` and
+`contrast-fg` are the neutral primary action of Instrument. Check WCAG AA
+contrast (4.5:1) of the three text tokens and the two accents on
+`bg-secondary`. `frontend/src/index.css` `:root` and `.theme-light` hold the
+defaults used before React mounts; they match the default family
+(Instrument). A family's `effects` key selects its effects layer
+(`'instrument'` turns on `src/styles/instrument.css`: materials, hairlines,
+IBM Plex, neutral actions; `'mission'` turns on `src/styles/mission.css`:
+glass panels, backdrop, display font; `'none'` keeps the plain look).
+Animations go through the motion primitives in `src/components/motion/`
+(README there) and honor `useMotionLevel()` (preference `animations`: full,
+reduced, off, lowered by `prefers-reduced-motion`; preference `ambient`: on,
+off): animate transform, opacity, stroke-dashoffset or a canvas on the shared
+loop (`useAnimationLoop`) only, mark CSS loops `fx-loop`.
 
 ## Daily commands
 

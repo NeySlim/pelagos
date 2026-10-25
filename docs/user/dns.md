@@ -155,8 +155,8 @@ so).
 ## Secondaries
 
 Secondary, stub and mirror zones with their primaries, last refresh,
-expiry and errors. A secondary that expires within 24 hours, or whose
-transfer is refused, raises `secondary_stale`. "Retransfer" forces a new
+expiry and errors. A secondary or mirror zone that expires within 24 hours
+raises `secondary_stale`. "Retransfer" forces a new
 transfer from the primary.
 
 ## DNSSEC

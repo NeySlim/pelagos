@@ -28,7 +28,8 @@ screen opens on the enrollment). Sessions belong to the node you signed in
 on; opening another node's UI asks you to sign in there.
 
 The indicator in the header shows the live updates (WebSocket): "Live
-updates on", "Connecting...", "Live updates off".
+updates on", "Connecting...", "Live updates off", "Live updates unavailable"
+(the socket could not be opened).
 
 ## Dashboard
 
@@ -92,7 +93,7 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 | --- | --- | --- |
 | `pool_near_full`, `pool_full` | warning, critical | pool use at or above the warning or critical percent on two polls in a row |
 | `serial_divergence` | warning | a secondary's serial differs from the primary's longer than `alerts_serial_divergence_seconds` |
-| `secondary_stale` | critical | a secondary expires within 24 hours, or its transfer is refused |
+| `secondary_stale` | critical | a secondary or mirror zone expires within 24 hours |
 | `zone_error` | critical | `rndc zonestatus` fails or the zone is not loaded |
 | `ha_degraded` | warning | an HA server outside its normal states, outside a maintenance |
 | `ha_partner_down` | critical | state `partner-down`, or partner not in touch |
@@ -141,7 +142,9 @@ Shown when the advanced editor module is on (Operations always).
   `ha-sync`, `dhcp-disable`, `leases-reclaim`, `lease4-resend-ddns`,
   `lease4-wipe` for Kea. Dangerous ones need the confirmation box. Reads
   need `read:dns` or `read:dhcp`; changes need `ops:dns`, `ops:dhcp.leases`
-  (lease commands), `ops:dhcp.ha` (`ha-*`) or `write:dhcp.config`. A command
+  (lease commands), `ops:dhcp.ha` (`ha-sync`, `ha-scopes`, `ha-continue`,
+  `ha-reset`) or `write:dhcp.config` (including `dhcp-disable` and
+  `dhcp-enable`). A command
   the daemon does not offer (hook not loaded) is disabled. Every change is
   audited.
 
@@ -156,7 +159,7 @@ node's configuration version and the CA certificate fingerprint.
 
 - **Enroll a node** (`admin:nodes`): a one-time token valid 15 minutes, 1
   hour or 24 hours, the CA fingerprint and the command to run on the new
-  server ([Getting started](getting-started.md#enroll-a-second-node)).
+  server ([Getting started](getting-started.md#5-enroll-a-second-node)).
 - **Sync**: exchange configuration and audit with that peer now.
 - **Remove**: the node leaves the cluster; its certificate is revoked and
   refused by the others. Its BIND and Kea keep running. A node cannot

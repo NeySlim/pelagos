@@ -226,13 +226,16 @@ Permissions are those of [Configuration: roles](configuration.md#roles-and-permi
 | Method, path | Permission | Purpose |
 | --- | --- | --- |
 | `GET /hosts`, `GET /hosts/{key}` | `read:hosts` | host cards (`q`, `subnet_id`, `zone`, `only_inconsistent`) |
-| `POST /hosts/plan` | `write:hosts` | `{"hostname", "ip", "mac"?, "zone", "reverse_zone"?, "view"?, "ttl"?, "reservation": bool, "subnet_id"?, "notes"?}` |
+| `POST /hosts/plan` | `write:hosts` | `{"hostname", "ip", "mac"?, "zone", "reverse_zone"?, "view"?, "reverse_view"?, "ttl"?, "reservation": bool, "subnet_id"?, "notes"?}` |
 | `GET /alerts`, `GET /alerts/summary` | `read:alerts` | alerts (`kind`, `severity`, `state`, `node_id`, `engine`) |
 | `POST /alerts/{id}/ack` | `write:alerts` | `{"comment"?}` |
 | `POST /alerts/consistency/run` | `write:alerts` | run the consistency pass now (`202 {"job_id"}`) |
 | `GET /series/pools`, `/series/serials`, `/series/ha-transitions` | `read:series` | time series (`from`, `to`, `step`) |
 | `GET /audit`, `GET /audit/{id}` | `read:audit` | audit entries (`user`, `action`, `target`, `node_id`, `engine`, `result`, `from`, `to`) |
 | `GET /audit/export` | `read:audit` | NDJSON stream (`from`, `to`) |
+
+In `POST /hosts/plan`, `reverse_view` defaults to `view`; `"_default"` puts
+the PTR in the default view.
 
 ### Plans, jobs, advanced, install, administration
 

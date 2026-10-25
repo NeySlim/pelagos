@@ -9,7 +9,7 @@ BIND and Kea DHCPv4 with DDNS, `example.lan` served by `ns1` as primary and
 - [2. Sign in and secure the admin account](#2-sign-in-and-secure-the-admin-account)
 - [3. Import an existing BIND and Kea](#3-import-an-existing-bind-and-kea)
 - [4. Run the security audit](#4-run-the-security-audit)
-- [5. Enroll a second node](#enroll-a-second-node)
+- [5. Enroll a second node](#5-enroll-a-second-node)
 - [6. Secondary zones on ns2](#6-secondary-zones-on-ns2)
 - [7. A Kea HA pair](#7-a-kea-ha-pair)
 - [8. Users for the team](#8-users-for-the-team)
@@ -149,7 +149,7 @@ nodes once others run D2: the CLI then refuses it (`--fix-all` skips it)
 and points to **Administration, Security audit**, whose plan switches
 every D2 before it removes the old key from BIND.
 
-## Enroll a second node
+## 5. Enroll a second node
 
 1. On `ns1`, **Administration, Nodes and replication**, "Enroll a node":
    choose the validity (15 minutes, 1 hour, 24 hours), "Create the token".

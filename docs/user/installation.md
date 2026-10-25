@@ -121,7 +121,7 @@ the variable on the `sudo` line (`sudo PELAGOS_ADMIN_PASSWORD='...' pelagos
 init ...`, which leaves the password in the shell history). Without a
 terminal and without the variable, `init` stops at the prompt.
 On a server that joins an existing cluster, run `pelagos enroll` instead
-([Enroll a second node](getting-started.md#enroll-a-second-node)).
+([Enroll a second node](getting-started.md#5-enroll-a-second-node)).
 
 Continue with [Getting started](getting-started.md).
 
@@ -331,6 +331,15 @@ The images' entrypoint prepares the volumes as root, then drops to the
 `allinone`, `pelagos <arguments>` (the CLI as `pelagos`), or any other
 command run as given. `docker compose exec pelagos pelagos ...` runs the CLI
 wrapper as root inside the container, like `sudo pelagos` on a host.
+
+Besides the compose variables above, the entrypoint reads these (set them
+with `docker run -e` or in the `environment` of the compose file):
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `PELAGOS_ADMIN_USER` | `admin` | first user name for `init` |
+| `PELAGOS_BIND_HOST` | `127.0.0.1` (`bind` in compose) | address of `named` for rndc, written to `node.toml [engines.bind]` |
+| `PELAGOS_BIND_GID`, `PELAGOS_BIND_UID` | `53`, `53` | group and user of `named` in the BIND container: group of `/etc/bind`, owner of `/var/cache/bind` and `/var/lib/bind` |
 
 To enroll a container node in an existing cluster, leave
 `PELAGOS_ADMIN_PASSWORD` unset, then run the enrollment once with the

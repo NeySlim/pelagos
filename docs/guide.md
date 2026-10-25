@@ -413,7 +413,9 @@ pelagos` runs.
   `sudo semodule -r pelagos-kea-dhcpd_t` (`semodule -l | grep pelagos`
   lists it).
 - **Firewall**: open `8443/tcp` to administrators and `8444/tcp` between
-  nodes (`firewall-cmd --add-port`); DNS (53) and DHCP (67/68, 547) are the
+  nodes. With firewalld (RHEL defaults):
+  `sudo firewall-cmd --permanent --add-port=8443/tcp --add-port=8444/tcp`
+  then `sudo firewall-cmd --reload`. DNS (53) and DHCP (67/68, 547) are the
   engines' business.
 
 ## Reference: files, ports, units

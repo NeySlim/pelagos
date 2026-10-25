@@ -154,9 +154,10 @@ every D2 before it removes the old key from BIND.
 1. On `ns1`, **Administration, Nodes and replication**, "Enroll a node":
    choose the validity (15 minutes, 1 hour, 24 hours), "Create the token".
    The dialog shows the token once, the CA fingerprint and the command to
-   run. The token is single use. The command has neither `sudo` nor the
-   URL options: add `--web-url` and `--replication-url` as below when the
-   other nodes cannot reach `ns2` by its short host name.
+   run. The token is single use. The command starts with `sudo` and carries
+   `--web-url` and `--replication-url` shaped like this node's own URLs
+   (same domain and ports): replace every `<name>` with the new node's name,
+   and fix the URLs if the other nodes reach it another way.
 2. Install the package on `ns2` (and BIND and Kea, or let `pelagos install`
    do it), then:
 

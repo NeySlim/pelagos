@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import logging
 import secrets
@@ -22,6 +23,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from pelagos import __version__
 from pelagos.core import ca as ca_mod
@@ -252,6 +254,27 @@ class _WindowLimiter:
             return True
 
 
+def _like(own_url: str | None, default_port: int) -> str:
+    """URL of the new node shaped like this node's: same scheme, domain suffix and port."""
+    parsed = urlsplit(own_url or "")
+    host = parsed.hostname or ""
+    try:
+        ipaddress.ip_address(host)
+        suffix = ""
+    except ValueError:
+        suffix = host[host.index(".") :] if "." in host else ""
+    port = parsed.port or default_port
+    return f"{parsed.scheme or 'https'}://<name>{suffix}:{port}"
+
+
+def enroll_command(url: str, token: str, fingerprint: str, web_url: str | None) -> str:
+    """The command shown with a token: run as root, with the URLs the peers will use for the new node."""
+    return (
+        f"sudo pelagos enroll --url {url} --token {token} --ca-fingerprint {fingerprint} --name <name>"
+        f" --web-url {_like(web_url, 8443)} --replication-url {_like(url, 8444)}"
+    )
+
+
 class EnrollmentService:
     """Issuing side: tokens, signing, node registration, renewal, revocation."""
 
@@ -302,7 +325,7 @@ class EnrollmentService:
             "url": url,
             "ca_fingerprint": fp,
             "expires_at": to_rfc3339(expires),
-            "command": f"pelagos enroll --url {url} --token {token} --ca-fingerprint {fp} --name <name>",
+            "command": enroll_command(url, token, fp, self.node.web_url),
         }
 
     # Enrollment ------------------------------------------------------------

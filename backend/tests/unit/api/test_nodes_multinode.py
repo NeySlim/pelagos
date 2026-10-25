@@ -172,7 +172,9 @@ def test_enroll_token_is_issued_by_the_enrollment_service(admin, node_ctx):
     body = r.get_json()
     assert len(body["token"]) == 43 and body["ca_fingerprint"].startswith("sha256:")
     assert body["url"] == node_ctx.node.replication_url
-    assert body["command"].startswith(f"pelagos enroll --url {body['url']} --token {body['token']}")
+    assert body["command"].startswith(f"sudo pelagos enroll --url {body['url']} --token {body['token']}")
+    assert "--web-url https://<name>" in body["command"]
+    assert "--replication-url https://<name>" in body["command"]
     # The collector consumes it: the store holds the hash only.
     stored = node_ctx.paths.enroll_tokens.read_text()
     assert body["token"] not in stored

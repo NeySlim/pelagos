@@ -1053,7 +1053,7 @@ function buildHandlers(state, emit) {
         url: 'https://ns1.example.lan:8444',
         ca_fingerprint: 'sha256:4f2a9c'.padEnd(71, '0'),
         expires_at: expires,
-        command: `pelagos enroll --url https://ns1.example.lan:8444 --token ${token} --ca-fingerprint sha256:4f2a9c...`,
+        command: `sudo pelagos enroll --url https://ns1.example.lan:8444 --token ${token} --ca-fingerprint sha256:4f2a9c... --name <name> --web-url https://<name>.example.lan:8443 --replication-url https://<name>.example.lan:8444`,
       }
     },
     'DELETE /nodes/{id}': ({ params, user }) => {

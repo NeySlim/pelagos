@@ -15,6 +15,7 @@ from pelagos.core.enrollment import (
     EnrollResponse,
     TokenStore,
     _parse_engines,
+    enroll_command,
 )
 from pelagos.domain.common import utcnow
 
@@ -89,3 +90,23 @@ def test_parse_engines():
     assert _parse_engines("bind, d2") == {"bind": True, "kea4": False, "kea6": False, "d2": True}
     with pytest.raises(ValueError, match="unknown engines"):
         _parse_engines("bind,dhcp")
+
+
+@pytest.mark.parametrize(
+    ("url", "web_url", "web", "repl"),
+    [
+        (
+            "https://ns1.example.lan:8444",
+            "https://ns1.example.lan:8443",
+            "https://<name>.example.lan:8443",
+            "https://<name>.example.lan:8444",
+        ),
+        ("https://ns1:9444", None, "https://<name>:8443", "https://<name>:9444"),
+        ("https://192.0.2.11:8444", "https://192.0.2.11:443", "https://<name>:443", "https://<name>:8444"),
+    ],
+)
+def test_enroll_command_runs_as_root_with_the_peer_urls(url, web_url, web, repl):
+    cmd = enroll_command(url, "tok", "sha256:ab", web_url)
+    assert cmd.startswith(f"sudo pelagos enroll --url {url} --token tok --ca-fingerprint sha256:ab ")
+    assert "--name <name> " in cmd
+    assert cmd.endswith(f"--web-url {web} --replication-url {repl}")

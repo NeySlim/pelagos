@@ -375,7 +375,7 @@ def check_engines(env: Any, engines: list[str]) -> dict[str, bool]:
         out["bind.options_include"] = insp.options_include_present or insp.options_file is None
         out["bind.keys"] = all(k in insp.keys for k in IMPORT_KEYS)
         stats = insp.stats
-        url = f"http://127.0.0.1:{stats['port']}/json/v1" if stats and stats["reachable"] else None
+        url = env.bind_stats_url(stats["port"]) if stats and stats["reachable"] else None
         out["bind.stats"] = bool(url) and env.t.http_get(url)[0] == 200
     for engine in engines:
         if engine not in KEA_DAEMONS:

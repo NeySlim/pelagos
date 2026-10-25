@@ -301,7 +301,7 @@ def adopt(env: Any, named_conf: Path, opts: AdoptOptions) -> AdoptResult:
     stats = stats_listener(files)
     stats_port: int | None = None
     if stats and stats["reachable"]:
-        stats_url = f"http://127.0.0.1:{stats['port']}/json/v1"
+        stats_url = env.bind_stats_url(stats["port"])
         out.append(f"statistics-channels present on {stats['address']}:{stats['port']}; reused")
     elif stats:
         stats_url = None
@@ -472,7 +472,7 @@ def bind_pipeline(
             return "named not running: reload skipped"
         if restart:
             return env.services.restart(env.bind_unit()) or "named restarted"
-        ok, output = env.t.rndc(None, "reconfig")
+        ok, output = env.t.rndc(env.rndc_conf(), "reconfig")
         if not ok:
             raise RuntimeError(f"rndc reconfig failed: {output}")
         return output or "rndc reconfig"
@@ -482,7 +482,7 @@ def bind_pipeline(
             return True
         # After a restart named needs a moment before its control channel answers.
         deadline = time.monotonic() + (20 if restart else 0)
-        while not env.t.rndc(None, "status")[0]:
+        while not env.t.rndc(env.rndc_conf(), "status")[0]:
             if time.monotonic() >= deadline:
                 return False
             time.sleep(0.5)

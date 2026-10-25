@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 from typing import Protocol
@@ -11,6 +12,7 @@ from pelagos.platform.runner import CommandResult
 
 SUPERVISOR_SOCK = "/run/supervisor.sock"
 SYSTEMD_DIR = "/run/systemd/system"
+EXTERNAL_ENV = "PELAGOS_EXTERNAL_ENGINES"
 
 
 class Runner(Protocol):
@@ -129,9 +131,51 @@ class SupervisorServices(ServiceManager):
         return self._ctl("tail", supervisor_program(unit), check=False).output[-4000:]
 
 
+class ExternalServices(ServiceManager):
+    """Engines in their own containers (docker/compose.yaml, PELAGOS_EXTERNAL_ENGINES=1): they always
+    run, are reloaded over rndc or their control socket, and are never started or restarted here."""
+
+    def is_active(self, unit: str) -> bool:
+        return True
+
+    def is_enabled(self, unit: str) -> bool:
+        return True
+
+    def exists(self, unit: str) -> bool:
+        return True
+
+    def _elsewhere(self, unit: str) -> str:
+        return f"{unit} runs in its own container: nothing to do here"
+
+    def enable_now(self, unit: str) -> str:
+        return self._elsewhere(unit)
+
+    def start(self, unit: str) -> str:
+        return self._elsewhere(unit)
+
+    def disable_now(self, unit: str) -> str:
+        raise RuntimeError(f"{unit} runs in its own container: stop it there")
+
+    def restart(self, unit: str) -> str:
+        raise RuntimeError(f"{unit} runs in its own container: restart it there")
+
+    def reload_or_restart(self, unit: str) -> str:
+        return self.restart(unit)
+
+    def daemon_reload(self) -> str:
+        return ""
+
+    def journal(self, unit: str, lines: int = 20) -> str:
+        return self._elsewhere(unit)
+
+
 def service_manager_for(runner: Runner) -> ServiceManager:
-    """systemctl where systemd runs; supervisorctl in the all-in-one image."""
-    systemd = Path(SYSTEMD_DIR).is_dir()
-    if not systemd and shutil.which("supervisorctl") and Path(SUPERVISOR_SOCK).exists():
+    """systemctl where systemd runs; supervisorctl in the all-in-one image; nothing to drive when
+    the engines are other containers."""
+    if Path(SYSTEMD_DIR).is_dir():
+        return ServiceManager(runner)
+    if shutil.which("supervisorctl") and Path(SUPERVISOR_SOCK).exists():
         return SupervisorServices(runner)
+    if os.environ.get(EXTERNAL_ENV) == "1":
+        return ExternalServices(runner)
     return ServiceManager(runner)

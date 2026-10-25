@@ -9,7 +9,7 @@ import json
 import pytest
 
 from pelagos.installer.env import Tools
-from pelagos.platform import CommandResult, FakeRunner, ServiceManager, SupervisorServices
+from pelagos.platform import CommandResult, ExternalServices, FakeRunner, ServiceManager, SupervisorServices
 from pelagos.platform import services as services_mod
 from tests.unit.installer.fakes import make_env
 
@@ -111,3 +111,57 @@ def test_service_manager_follows_the_init_system(tmp_path, monkeypatch):
     assert isinstance(services_mod.service_manager_for(FakeRunner()), SupervisorServices)
     (tmp_path / "systemd").mkdir()
     assert type(services_mod.service_manager_for(FakeRunner())) is ServiceManager
+
+
+def test_external_engines_only_in_their_containers(tmp_path, monkeypatch):
+    monkeypatch.setattr(services_mod, "SUPERVISOR_SOCK", str(tmp_path / "none.sock"))
+    monkeypatch.setattr(services_mod, "SYSTEMD_DIR", str(tmp_path / "systemd"))
+    monkeypatch.setenv(services_mod.EXTERNAL_ENV, "1")
+    runner = FakeRunner()
+    sm = services_mod.service_manager_for(runner)
+    assert isinstance(sm, ExternalServices)
+    assert sm.is_active("named.service") and sm.exists("kea-dhcp4-server.service")
+    assert "own container" in sm.start("named.service")
+    with pytest.raises(RuntimeError):
+        sm.restart("named.service")
+    assert runner.log == []
+    (tmp_path / "systemd").mkdir()
+    assert type(services_mod.service_manager_for(runner)) is ServiceManager
+
+
+def _node_engines(env, engines):
+    from pelagos.core.config_store import ConfigStore, NodeConfig
+
+    env.node_paths.ensure()
+    ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml).save_node(
+        NodeConfig(id=env.node_id, name=env.node_id, engines=engines)
+    )
+
+
+def test_remote_named_is_reached_through_the_node_settings(tmp_path):
+    env = make_env(tmp_path)
+    assert env.remote_bind() is None and env.rndc_conf() is None
+    assert env.bind_stats_url(8053) == "http://127.0.0.1:8053/json/v1"
+    remote = {
+        "rndc_address": "bind",
+        "statistics_url": "http://bind:8053/json/v1",
+        "query_address": "192.0.2.53",
+    }
+    # Parked while BIND is off (pelagos init leaves it so), as the image entrypoint writes it.
+    _node_engines(env, {"bind": False, "disabled": {"bind": remote}})
+    assert env.remote_bind() == remote
+    assert env.bind_stats_url(8053) == "http://bind:8053/json/v1"
+    assert env.rndc_conf() is None  # no rndc configuration for that server yet
+    env.paths.rndc_conf_pelagos.parent.mkdir(parents=True, exist_ok=True)
+    env.paths.rndc_conf_pelagos.write_text("options { default-server bind; };\n")
+    assert env.rndc_conf() == env.paths.rndc_conf_pelagos
+
+
+def test_local_named_keeps_the_default_rndc(tmp_path):
+    env = make_env(tmp_path)
+    local = {"rndc_address": "127.0.0.1", "statistics_url": "http://127.0.0.1:8953/json/v1"}
+    _node_engines(env, {"bind": local})
+    env.paths.rndc_conf_pelagos.parent.mkdir(parents=True, exist_ok=True)
+    env.paths.rndc_conf_pelagos.write_text("")
+    assert env.remote_bind() is None and env.rndc_conf() is None
+    assert env.bind_stats_url(8053) == "http://127.0.0.1:8053/json/v1"

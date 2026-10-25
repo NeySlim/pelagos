@@ -269,6 +269,35 @@ class InstallerEnv:
     def bind_unit(self) -> str:
         return self.paths.bind_service
 
+    def remote_bind(self) -> dict[str, Any] | None:
+        """node.toml [engines.bind] (or the parked table) of a named on another host, such as the
+        BIND container of docker/compose.yaml: rndc and the statistics channel go there."""
+        try:
+            if not self.node_paths.node_toml.exists():
+                return None
+            from pelagos.core.config_store import ConfigStore
+
+            engines = ConfigStore(self.node_paths.node_toml, self.node_paths.cluster_toml).load_node().engines
+        except (OSError, ValueError):
+            return None
+        disabled = engines.get("disabled")
+        for table in (engines.get("bind"), disabled.get("bind") if isinstance(disabled, dict) else None):
+            if isinstance(table, dict) and str(table.get("rndc_address") or "") not in LOCAL_ADDRESSES:
+                return table
+        return None
+
+    def rndc_conf(self) -> Path | None:
+        """rndc reaches a remote named only through the node's rndc configuration."""
+        if self.remote_bind() is not None and self.paths.rndc_conf_pelagos.exists():
+            return self.paths.rndc_conf_pelagos
+        return None
+
+    def bind_stats_url(self, port: int) -> str:
+        remote = self.remote_bind()
+        if remote is not None and remote.get("statistics_url"):
+            return str(remote["statistics_url"])
+        return f"http://127.0.0.1:{port}/json/v1"
+
     def update_node_engines(self, engines: dict[str, Any]) -> str:
         """Merges what this node drives into node.toml [engines]; no-op before `pelagos init`."""
         if not self.node_paths.node_toml.exists():

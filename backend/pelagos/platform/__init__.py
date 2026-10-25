@@ -22,7 +22,12 @@ from pelagos.platform.packages import (
     isc_repo_name,
 )
 from pelagos.platform.runner import CommandError, CommandResult, CommandRunner, FakeRunner
-from pelagos.platform.services import ServiceManager, SupervisorServices, service_manager_for
+from pelagos.platform.services import (
+    ExternalServices,
+    ServiceManager,
+    SupervisorServices,
+    service_manager_for,
+)
 from pelagos.platform.users import (
     PELAGOS_USER,
     ensure_supplementary_groups,
@@ -42,6 +47,7 @@ __all__ = [
     "CommandResult",
     "CommandRunner",
     "Distro",
+    "ExternalServices",
     "FakeRunner",
     "PackageManager",
     "PlatformPaths",

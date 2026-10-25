@@ -19,16 +19,15 @@ const loop = {
 }
 
 const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden'
-const raf = typeof window !== 'undefined' && window.requestAnimationFrame ? window.requestAnimationFrame.bind(window) : null
-const caf = typeof window !== 'undefined' && window.cancelAnimationFrame ? window.cancelAnimationFrame.bind(window) : null
+const hasRaf = () => typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
 
 function start() {
-  if (loop.raf || !raf || loop.fns.size === 0 || hidden()) return
-  loop.raf = raf(tick)
+  if (loop.raf || !hasRaf() || loop.fns.size === 0 || hidden()) return
+  loop.raf = window.requestAnimationFrame(tick)
 }
 
 function stop() {
-  if (loop.raf && caf) caf(loop.raf)
+  if (loop.raf && hasRaf()) window.cancelAnimationFrame?.(loop.raf)
   loop.raf = 0
   loop.last = 0
 }

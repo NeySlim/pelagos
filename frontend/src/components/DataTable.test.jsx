@@ -18,6 +18,24 @@ const rows = [
 ]
 
 describe('DataTable', () => {
+  it('loads with a skeleton at the table geometry and unfolds rows inserted later', () => {
+    const { rerender } = render(<DataTable columns={columns} rows={[]} loading animateInserts />)
+    expect(screen.getByTestId('data-table-loading')).toHaveAttribute('aria-busy', 'true')
+    rerender(<DataTable columns={columns} rows={rows} animateInserts />)
+    expect(document.querySelectorAll('tr.fx-row')).toHaveLength(0)
+    rerender(<DataTable columns={columns} rows={[...rows, { id: 3, name: 'www', ip: '192.0.2.80', meta: {} }]} animateInserts />)
+    const inserted = document.querySelectorAll('tr.fx-row')
+    expect(inserted).toHaveLength(1)
+    expect(inserted[0]).toHaveTextContent('www')
+    rerender(<DataTable columns={columns} rows={rows} animateInserts />)
+    expect(document.querySelectorAll('tr.fx-row')).toHaveLength(0)
+  })
+
+  it('utilization bars scale from the left and mark both thresholds', () => {
+    render(<UtilizationBar percent={42} warn={80} full={95} />)
+    expect(screen.getByRole('progressbar').style.transform).toBe('scaleX(0.42)')
+    expect(document.querySelectorAll('.ui-progress-tick')).toHaveLength(2)
+  })
   it('renders rows as text, including nested keys', () => {
     render(<DataTable columns={columns} rows={rows} />)
     const bodyRows = screen.getAllByTestId('data-table-row')

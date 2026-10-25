@@ -2,9 +2,12 @@
 // Pure helpers behind the motion v2 components: odometer alignment, ruler ticks,
 // procedure progress, Poisson spacing of link ticks, and the FLIP row helper.
 
+const SCALE = { k: 1e3, K: 1e3, M: 1e6, G: 1e9 }
+
+// Numeric value of a label, its unit prefix included ("1.24 k/s" is 1240).
 const numeric = (text) => {
-  const n = parseFloat(String(text).replace(/[^\d.-]/g, ''))
-  return Number.isFinite(n) ? n : null
+  const m = String(text).replace(/,/g, '').match(/(-?\d+(?:\.\d+)?)\s*([kKMG])?/)
+  return m ? Number(m[1]) * (SCALE[m[2]] || 1) : null
 }
 
 // Direction of a change: explicit, else by numeric value, else up.
@@ -24,8 +27,8 @@ export function rollCells(previous, next) {
   return chars.map((char, i) => ({ char, from: aligned[i] }))
 }
 
-// Round tick values (1, 2 or 5 times a power of ten) from 0 to `max`, at most `count` + 1.
-export function niceTicks(max, count = 3) {
+// Round tick values (1, 2 or 5 times a power of ten) from 0 to `max`, about `count` of them.
+export function niceTicks(max, count = 4) {
   if (!(max > 0)) return [0]
   const raw = max / count
   const power = 10 ** Math.floor(Math.log10(raw))

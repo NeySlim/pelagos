@@ -26,7 +26,7 @@ export function Readout({ channel, unit, rate, count, className }) {
 
 // Value ruler on the right edge of a strip: ticks keyed by value glide (translateY) to
 // their new height when the series maximum changes; the layer is the ruler's height.
-export function Ruler({ max, count = 3, format = String, className }) {
+export function Ruler({ max, count = 4, format = String, className }) {
   const ticks = useMemo(() => niceTicks(max, count).filter((v) => v > 0), [max, count])
   return (
     <span className={cn('fx-ruler', className)} aria-hidden="true" data-testid="ruler">

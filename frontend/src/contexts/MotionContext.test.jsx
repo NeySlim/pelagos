@@ -36,6 +36,33 @@ describe('MotionProvider', () => {
   afterEach(() => {
     window.matchMedia = originalMatchMedia
     delete document.documentElement.dataset.motion
+    delete document.documentElement.dataset.ambient
+  })
+
+  it('keeps ambient backgrounds on by default, writes data-ambient and persists a change', () => {
+    function Ambient() {
+      const { ambient, ambientRunning, setAmbient } = useMotion()
+      return <button type="button" onClick={() => setAmbient('off')}>{`${ambient}/${ambientRunning ? 'moving' : 'still'}`}</button>
+    }
+    render(<MotionProvider><Ambient /></MotionProvider>)
+    expect(screen.getByRole('button')).toHaveTextContent('on/moving')
+    expect(document.documentElement.dataset.ambient).toBe('on')
+    fireEvent.click(screen.getByRole('button'))
+    expect(screen.getByRole('button')).toHaveTextContent('off/still')
+    expect(document.documentElement.dataset.ambient).toBe('off')
+    expect(JSON.parse(localStorage.getItem('pelagos-preferences')).ambient).toBe('off')
+    act(() => applyServerPreferences({ ambient: 'on' }))
+    expect(screen.getByRole('button')).toHaveTextContent('on/moving')
+  })
+
+  it('holds ambient still when the system asks for reduced motion', () => {
+    stubReducedMotion(true)
+    function Ambient() {
+      const { ambientRunning } = useMotion()
+      return <span data-testid="amb">{ambientRunning ? 'moving' : 'still'}</span>
+    }
+    render(<MotionProvider><Ambient /></MotionProvider>)
+    expect(screen.getByTestId('amb')).toHaveTextContent('still')
   })
 
   it('defaults to full motion and writes data-motion', () => {

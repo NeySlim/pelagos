@@ -193,7 +193,7 @@ def test_lease_diff_new_renewed_and_recent(store):
     base = [lease("192.0.2.10", "02:00:00:00:00:10", 1000), lease("192.0.2.11", "02:00:00:00:00:11", 1100)]
     assert poller.lease_walk_due(None, 50000)
     assert poller.lease_diff(base, 5).events == []  # the first walk only records
-    ts, recent = store.snapshot(NODE, "kea4", "recent_leases")
+    _ts, recent = store.snapshot(NODE, "kea4", "recent_leases")
     assert [r["ip_address"] for r in recent] == ["192.0.2.11", "192.0.2.10"]
     assert not poller.lease_walk_due(5, 50000)  # nobody served since
     assert poller.lease_walk_due(6, 50000)

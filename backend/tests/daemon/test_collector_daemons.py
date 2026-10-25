@@ -156,3 +156,30 @@ def test_collector_polls_bind_and_kea(rig):
     assert total == len(listed) and any(a.kind is AlertKind.DAEMON_DOWN for a in listed)
     audit = [e.action for e in collector.ctx.audit_log.read()]
     assert "alert.raise" in audit and "alert.resolve" in audit
+
+
+def test_live_pass_on_real_daemons(rig, named_server):
+    """Kea answers the ack counter the lease watch keys on; a dynamic update moves the zone serial,
+    which the next BIND poll turns into a `zones` event."""
+    import dns.query
+    import dns.tsigkeyring
+    import dns.update
+
+    collector, kea4 = rig
+    poller = collector.kea[0]
+    assert isinstance(poller.ack_counter(), int)
+    collector.cycle()
+    kea4.ok("lease4-add", {"ip-address": "192.0.2.170", "hw-address": "02:00:5e:00:01:70", "subnet-id": 1})
+    poller.last_walk = 0.0  # the periodic walk is due
+    collector.live()
+    _ts, recent = collector.store.snapshot(collector.node_id, "kea4", "recent_leases")
+    assert "192.0.2.170" in {r["ip_address"] for r in recent}
+    keyring = dns.tsigkeyring.from_text({"ddi-admin": named_server.keys["ddi-admin"]})
+    update = dns.update.UpdateMessage("example.lan.", keyring=keyring, keyalgorithm="hmac-sha256")
+    update.add("live-daemon", 300, "A", "192.0.2.92")
+    dns.query.tcp(update, "127.0.0.1", port=named_server.dns_port, timeout=5)
+    seen: list[tuple] = []
+    collector.events.emit = lambda topic, event, data, **opts: seen.append((topic, event, data))  # type: ignore[method-assign]
+    collector.poll_bind()
+    zones = [d for t, e, d in seen if t == "zones" and e == "serial"]
+    assert [z["zone"] for z in zones] == ["example.lan."] and zones[0]["serial"] > zones[0]["previous"]

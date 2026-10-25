@@ -77,7 +77,7 @@ const BODIES = {
   'DELETE /auth/totp': { password: 'Admin-new-password-1' },
   'PUT /account/preferences': { language: 'fr' },
   'PUT /dashboard/layout': { layout: [{ i: 'ha', x: 0, y: 0, w: 4, h: 3 }] },
-  'POST /dns/zones/plan': { change: { op: 'add', target: '_default/new.example.lan.', after: { name: 'new.example.lan.', kind: 'primary', file: 'db.new' } } },
+  'POST /dns/zones/plan': { change: { op: 'add', target: '_default/new.example.lan.', after: { name: 'new.example.lan.', kind: 'primary', file: 'db.new', ns: ['ns1.example.lan.'] } } },
   'POST /dns/zones/{zone}/records/plan': { changes: [{ op: 'add', target: 'example.lan./api/A', after: { ttl: 300, rdata: ['192.0.2.90'] } }] },
   'POST /dns/zones/{zone}/retransfer': { node_id: 'x' },
   'POST /dns/config/plan': { changes: [{ op: 'replace', target: 'options/recursion', after: 'no' }] },

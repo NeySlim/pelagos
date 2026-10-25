@@ -34,6 +34,7 @@ SETTINGS_SCHEMA: dict[str, Any] = {
         "admin_key": (str, None, None),
         "update_types_admin": (list, None, None),
         "update_types_kea": (list, None, None),
+        "default_ns": (list, None, None),
     },
     "kea": {"ddns_key": (str, None, None)},
     "collector": {

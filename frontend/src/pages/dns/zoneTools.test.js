@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   zoneMode, staticFindingId, editableZone, splitList, zoneForm, zoneEditChange, zoneEditDiff, zoneViews,
   zoneStats, catalogMemberBody, policyStatements, policyText, policyGrammarNames, policyErrors, dnssecOpBody,
-  secondaryPeers, zoneDeleteRequest, newZoneAfter, CREATABLE_KINDS,
+  secondaryPeers, zoneDeleteRequest, newZoneAfter, CREATABLE_KINDS, nameServers, defaultNameServers,
 } from './zoneTools'
 
 const zone = {
@@ -127,5 +127,38 @@ describe('newZoneAfter', () => {
     expect(newZoneAfter(form({ kind: 'redirect' }), ok).errors).toEqual({ file: 'fileOrPrimaries' })
     expect(newZoneAfter(form({ kind: 'secondary' }), ok).errors).toEqual({ primaries: 'list' })
     expect(CREATABLE_KINDS).toEqual(expect.arrayContaining(['mirror', 'static-stub', 'hint', 'redirect']))
+  })
+})
+
+describe('name servers of a new primary', () => {
+  const ok = (n) => /^[a-z0-9.-]+$/.test(n)
+  const node = (name, url, withBind = true) => ({ peer: { name, web_url: url, modules: { bind: withBind } } })
+
+  it('are proposed from the nodes running BIND', () => {
+    expect(defaultNameServers([node('ns1', 'https://ns1.example.lan:8443'), node('ns2', 'https://192.0.2.12:8443'), node('dhcp', 'https://dhcp.example.lan:8443', false)]))
+      .toBe('ns1.example.lan.\nns2 192.0.2.12')
+    expect(defaultNameServers([node('ns1', 'https://[2001:db8::11]:8443', false)])).toBe('ns1 2001:db8::11')
+    expect(defaultNameServers([])).toBe('')
+  })
+
+  it('hang short names off the zone and add their address records', () => {
+    expect(nameServers('ns1 192.0.2.53\nns2.example.net.\nns3 2001:db8::53', 'z.example.lan.', ok)).toEqual({
+      ns: ['ns1.z.example.lan.', 'ns2.example.net.', 'ns3.z.example.lan.'],
+      records: [
+        { name: 'ns1.z.example.lan.', rtype: 'A', ttl: 3600, rdata: ['192.0.2.53'] },
+        { name: 'ns3.z.example.lan.', rtype: 'AAAA', ttl: 3600, rdata: ['2001:db8::53'] },
+      ],
+    })
+    expect(nameServers('', 'z.example.lan.', ok)).toEqual({ ns: [], records: [] })
+  })
+
+  it('refuse localhost, bad addresses and in-zone names without an address', () => {
+    expect(nameServers('localhost.', 'z.example.lan.', ok).error).toBe('nsLocalhost')
+    expect(nameServers('ns1 not-an-ip', 'z.example.lan.', ok).error).toBe('nsAddress')
+    expect(nameServers('ns1.z.example.lan.', 'z.example.lan.', ok).error).toBe('nsGlue')
+    expect(nameServers('ns1 192.0.2.1 extra', 'z.example.lan.', ok).error).toBe('nsName')
+    const form = { name: 'z.example.lan', kind: 'primary', view: '_default', ns: 'localhost.' }
+    expect(newZoneAfter(form, ok).errors).toEqual({ ns: 'nsLocalhost' })
+    expect(newZoneAfter({ ...form, ns: 'ns1.example.net.' }, ok).after.ns).toEqual(['ns1.example.net.'])
   })
 })

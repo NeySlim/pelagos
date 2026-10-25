@@ -108,7 +108,13 @@
       "fileOrPrimaries": "Enter a zone file or at least one primary",
       "rootOnly": "This kind of zone is always the root zone (.)",
       "hintFileHelp": "Root hints file, for instance /usr/share/dns/root.hints",
-      "mirrorHelp": "Primaries are optional for the root zone only; named needs recursion and DNSSEC validation"
+      "mirrorHelp": "Primaries are optional for the root zone only; named needs recursion and DNSSEC validation",
+      "ns": "Name servers (NS)",
+      "nsHelp": "One per line: a full name (ns1.example.lan.), or a name in the zone with its address (ns1 192.0.2.53). Proposed from the nodes running BIND; empty: dns.default_ns of the settings",
+      "nsName": "Each line is a name server name, optionally followed by its address",
+      "nsLocalhost": "localhost serves the zone to nobody: give the real name servers",
+      "nsAddress": "The address after a name server must be an IPv4 or IPv6 address",
+      "nsGlue": "A name server inside the zone needs its address on the same line"
     },
     "mode": "Mode"
   },

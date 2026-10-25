@@ -161,7 +161,8 @@
         "read_key": "Clé de transfert",
         "admin_key": "Clé de mise à jour",
         "update_types_admin": "Types que Pelagos peut modifier",
-        "update_types_kea": "Types que Kea peut modifier"
+        "update_types_kea": "Types que Kea peut modifier",
+        "default_ns": "Serveurs de noms des nouvelles zones primaires"
       },
       "kea": {
         "ddns_key": "Clé DDNS"

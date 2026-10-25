@@ -94,6 +94,32 @@ test('a static-stub zone and a root hint zone are created from the zone form', a
   expect((await hint).postDataJSON().change).toMatchObject({ target: '_default/.', after: { kind: 'hint', name: '.', file: '/usr/share/dns/root.hints' } })
 })
 
+test('a new primary zone gets the cluster name servers, never localhost', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/dns/zones')
+  await page.getByTestId('zone-add').click()
+  const modal = page.getByTestId('zone-new')
+  await modal.getByTestId('zone-new-name').fill('fresh.example.org')
+  const ns = modal.getByTestId('zone-new-ns')
+  await expect(ns).toHaveValue(/^ns1\.example\.lan\.$/m)
+  await ns.fill('localhost.')
+  await modal.getByRole('button', { name: 'Preview the plan' }).click()
+  await expect(modal).toContainText('localhost serves the zone to nobody')
+  await ns.fill('ns1\nns2.example.lan.')
+  await modal.getByRole('button', { name: 'Preview the plan' }).click()
+  await expect(modal).toContainText('A name server inside the zone needs its address')
+  await ns.fill('ns1 192.0.2.53\nns2.example.lan.')
+  const request = page.waitForRequest((r) => r.url().endsWith('/dns/zones/plan') && r.method() === 'POST')
+  await modal.getByRole('button', { name: 'Preview the plan' }).click()
+  expect((await request).postDataJSON().change.after).toMatchObject({
+    kind: 'primary',
+    ns: ['ns1.fresh.example.org.', 'ns2.example.lan.'],
+    records: [{ name: 'ns1.fresh.example.org.', rtype: 'A', ttl: 3600, rdata: ['192.0.2.53'] }],
+  })
+  await expect(page.getByTestId('plan-preview')).toContainText('fresh.example.org.')
+  await page.keyboard.press('Escape')
+})
+
 test('a Pelagos zone is edited through a replace plan', async ({ page }) => {
   await signIn(page)
   await page.goto('/dns/zones/lab.example.lan')

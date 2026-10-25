@@ -1111,6 +1111,12 @@ function buildHandlers(state, emit) {
     'POST /dns/zones/plan': ({ body, user }) => {
       const change = body.change
       const [view = '_default', name] = String(change?.target || '').split('/')
+      // A new primary needs real name servers, as connectors.bind.configplan.initial_ns says.
+      if (change?.op === 'add' && change.after?.kind === 'primary') {
+        const ns = change.after.ns || []
+        if (!ns.length) throw invalid('change.after.ns', `zone ${absName(change.after.name || name)} needs name servers: give ns, or set dns.default_ns in the settings`)
+        if (ns.some((n) => n === 'localhost.' || n.endsWith('.localhost.'))) throw invalid('change.after.ns', 'NS localhost. serves the zone to nobody: give the real name servers')
+      }
       return listPlan(state, user, {
         scope: 'dns.zone',
         engine: 'bind',

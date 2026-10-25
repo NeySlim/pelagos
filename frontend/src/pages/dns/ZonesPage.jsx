@@ -24,14 +24,17 @@ import { errorMessage } from '../../services/apiClient'
 import { ModeBadge, SerialCells, SourceBadge } from './common'
 import { useNodeNames, usePlanFlow, zoneHref, resynchronizeZone, SECONDARY_KINDS } from './helpers'
 import { validDomainName } from './records'
-import { ADDZONE_KINDS, CREATABLE_KINDS, ROOT_KINDS, newZoneAfter, splitList, zoneMode, zoneStats } from './zoneTools'
+import { ADDZONE_KINDS, CREATABLE_KINDS, ROOT_KINDS, defaultNameServers, newZoneAfter, splitList, zoneMode, zoneStats } from './zoneTools'
 
 const KINDS = ['primary', 'secondary', 'stub', 'static-stub', 'forward', 'mirror', 'hint', 'redirect']
-const LIST_ERRORS = { list: 'zones.new.listError', required: 'zones.new.fileRequired', fileOrPrimaries: 'zones.new.fileOrPrimaries' }
+const LIST_ERRORS = {
+  list: 'zones.new.listError', required: 'zones.new.fileRequired', fileOrPrimaries: 'zones.new.fileOrPrimaries',
+  nsName: 'zones.new.nsName', nsLocalhost: 'zones.new.nsLocalhost', nsAddress: 'zones.new.nsAddress', nsGlue: 'zones.new.nsGlue',
+}
 
-function NewZoneModal({ open, onClose, onPlan, views, peers }) {
+function NewZoneModal({ open, onClose, onPlan, views, peers, nameServers = '' }) {
   const { t } = useTranslation(['dns', 'common'])
-  const [form, setForm] = useState({ name: '', kind: 'primary', view: '_default', file: '', primaries: '', forwarders: '', serverAddresses: '', serverNames: '', addzone: false, peers: [], secondaryPrimaries: '' })
+  const [form, setForm] = useState({ name: '', kind: 'primary', view: '_default', file: '', primaries: '', forwarders: '', serverAddresses: '', serverNames: '', addzone: false, peers: [], secondaryPrimaries: '', ns: nameServers })
   const togglePeer = (id) => setForm((f) => ({ ...f, peers: f.peers.includes(id) ? f.peers.filter((p) => p !== id) : [...f.peers, id] }))
   const kind = form.kind
   const canAddzone = ADDZONE_KINDS.includes(kind)
@@ -85,6 +88,18 @@ function NewZoneModal({ open, onClose, onPlan, views, peers }) {
           helperText={kind === 'hint' ? t('zones.new.hintFileHelp') : t('zones.new.fileHelp')}
           error={errorOf('file')}
           data-testid="zone-new-file"
+        />
+      )}
+      {kind === 'primary' && (
+        <Textarea
+          label={t('zones.new.ns')}
+          value={form.ns}
+          onChange={set('ns')}
+          rows={2}
+          placeholder="ns1.example.lan. or ns1 192.0.2.53"
+          error={errorOf('ns')}
+          helperText={t('zones.new.nsHelp')}
+          data-testid="zone-new-ns"
         />
       )}
       {showPrimaries && (
@@ -292,6 +307,7 @@ export default function ZonesPage() {
           onClose={() => setCreating(false)}
           views={views}
           peers={bindPeers}
+          nameServers={defaultNameServers(nodes)}
           onPlan={async (change, nodeIds) => {
             const plan = await flow.run(() => api.dns.zonePlan(change, nodeIds))
             if (plan) setCreating(false)

@@ -371,11 +371,11 @@ class ConfigPlanner:
         zone.file = zone.file or str(path)
         if path.exists() or path in self.result.texts:
             return {}
-        ns = [normalize_name(n) for n in (raw.get("ns") or self.default_ns or ["localhost."])]
         records = [RRset.from_dict(r) if isinstance(r, dict) else r for r in raw.get("records") or []]
         for record in records:
             # Relative owners hang off the zone; anything outside the zone is refused.
             record.name = owner_name(record.name, zone.name)
+        ns = initial_ns(zone.name, raw.get("ns") or self.default_ns, records)
         self._set_text(path, zone_file_text(zone.name, ns, records))
         self.result.zone_files[path] = self.result.texts[path]
         return {"ns": ns, "records": [r.to_dict() for r in records]}
@@ -543,6 +543,28 @@ class ConfigPlanner:
         self.result.changes.append(
             Change(ChangeOp.ADD, change.target, before=None, after={"views": views}, node_ids=change.node_ids)
         )
+
+
+def initial_ns(zone: str, names: list[str] | None, records: list[RRset]) -> list[str]:
+    """NS of a new primary: required, never localhost, an in-zone name needs its address record."""
+    zone = normalize_name(zone)
+    ns = [normalize_name(str(n)) for n in names or [] if str(n).strip()]
+    if not ns:
+        raise PlanError(f"zone {zone} needs name servers: give ns, or set dns.default_ns in the settings")
+    addressed = set()
+    for r in records:
+        if r.rtype.upper() in ("A", "AAAA"):
+            try:
+                addressed.add(owner_name(r.name, zone))
+            except ValueError:
+                continue
+    for n in ns:
+        if n == "localhost." or n.endswith(".localhost."):
+            raise PlanError(f"NS {n} serves the zone to nobody: give the real name servers")
+        in_zone = zone == "." or n == zone or n.endswith("." + zone)
+        if in_zone and n not in addressed:
+            raise PlanError(f"NS {n} is inside {zone}: add its A or AAAA record to the new zone")
+    return ns
 
 
 def zone_file_text(zone: str, ns: list[str], records: list[RRset], serial: int | None = None) -> str:

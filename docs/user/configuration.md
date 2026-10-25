@@ -224,6 +224,7 @@ once on the node you changed them on and on the other nodes after
 | `admin_key` | `ddi-admin` | TSIG key Pelagos signs updates with |
 | `update_types_admin` | `A, AAAA, PTR, CNAME, TXT, SRV, MX, DHCID` | record types granted to the admin key in new update policies |
 | `update_types_kea` | `A, AAAA, PTR, DHCID` | record types granted to the Kea DDNS key |
+| `default_ns` | none | NS names of a new primary zone when the plan gives none (`["ns1.example.lan.", "ns2.example.lan."]`); without either the plan is refused, and `localhost.` always is |
 | `view_keys` | none | per view key names, written by the `view_key` remediation (`{ inside = "ddi-inside" }`) |
 
 ### Kea (`[settings.kea]`)

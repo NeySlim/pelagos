@@ -14,7 +14,7 @@ from typing import Any
 
 from pelagos.connectors.base import ConnectorError, NotSupported
 from pelagos.connectors.bind import addzone, catalog, dnssec, ops
-from pelagos.connectors.bind.configplan import run_checkzone, zone_file_text
+from pelagos.connectors.bind.configplan import initial_ns, run_checkzone, zone_file_text
 from pelagos.connectors.bind.managed import ManagedFiles
 from pelagos.connectors.bind.namedconf.lexer import ParseError
 from pelagos.connectors.bind.rndc import RndcNotFound, zone_args
@@ -330,8 +330,8 @@ class BindExtras:
             path = planner._zone_file_path(zone)
             zone.file = zone.file or str(path)
             if op is ChangeOp.ADD and zone.kind is ZoneKind.PRIMARY and not path.exists():
-                ns = [normalize_name(n) for n in (raw.get("ns") or planner.default_ns or ["localhost."])]
                 records = [RRset.from_dict(r) for r in raw.get("records") or []]
+                ns = initial_ns(name, raw.get("ns") or planner.default_ns, records)
                 file_text = zone_file_text(name, ns, records)
                 initial = {"ns": ns, "records": [r.to_dict() for r in records], "file_path": str(path)}
         after = zone.to_dict()

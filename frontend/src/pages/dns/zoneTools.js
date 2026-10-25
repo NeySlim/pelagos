@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Pure helpers for the zone screens: how record changes reach a zone (dynamic UPDATE or
 // static file edit), the zone edit plan, catalog member and DNSSEC plan bodies.
+import { isIPv4, isIPv6 } from './records'
 
 // Mirrors services.dns_extras.zone_mode: the API sends `mode`, older answers only the Zone.
 export function zoneMode(item) {
@@ -146,6 +147,45 @@ export const ADDZONE_KINDS = ['primary', 'secondary', 'stub', 'forward']
 export const ROOT_KINDS = ['hint', 'redirect']
 
 const lines = (text) => String(text || '').split('\n').map((l) => l.trim()).filter(Boolean)
+
+const urlHost = (url) => {
+  try {
+    return new URL(url).hostname.replace(/^\[|\]$/g, '')
+  } catch {
+    return ''
+  }
+}
+
+// Name server lines proposed for a new primary, one per node that runs BIND: the node's
+// domain name when its URL has one, else its name (relative to the zone) and its address.
+export function defaultNameServers(nodes) {
+  const withBind = (nodes || []).filter((n) => n.peer?.modules?.bind)
+  return (withBind.length ? withBind : nodes || []).map((n) => {
+    const host = urlHost(n.peer?.web_url || n.peer?.url)
+    if (host && !isIPv4(host) && !isIPv6(host) && host.includes('.')) return `${host.toLowerCase()}.`
+    return host && (isIPv4(host) || isIPv6(host)) ? `${n.peer.name} ${host}` : n.peer?.name
+  }).filter(Boolean).join('\n')
+}
+
+// NS lines `<name> [address]`: a one-label name hangs off the zone, a name inside the zone
+// needs its address (it becomes an A or AAAA record of the new zone), localhost is refused.
+export function nameServers(text, zone, validName) {
+  const apex = zone === '.' ? '' : zone.replace(/\.$/, '')
+  const ns = []
+  const records = []
+  for (const line of lines(text)) {
+    const [raw, address, extra] = line.split(/\s+/)
+    const name = (raw.endsWith('.') ? raw : raw.includes('.') || !apex ? `${raw}.` : `${raw}.${apex}.`).toLowerCase()
+    if (extra !== undefined || !validName(name)) return { error: 'nsName' }
+    if (name === 'localhost.' || name.endsWith('.localhost.')) return { error: 'nsLocalhost' }
+    if (address !== undefined && !isIPv4(address) && !isIPv6(address)) return { error: 'nsAddress' }
+    const inside = !apex || name === `${apex}.` || name.endsWith(`.${apex}.`)
+    if (inside && address === undefined) return { error: 'nsGlue' }
+    if (!ns.includes(name)) ns.push(name)
+    if (inside) records.push({ name, rtype: isIPv6(address) ? 'AAAA' : 'A', ttl: 3600, rdata: [address] })
+  }
+  return { ns, records }
+}
 const bareName = (name) => String(name).replace(/\.$/, '')
 
 // The Zone of a creation form, or the form fields in error (BIND's own rules per kind).
@@ -166,10 +206,15 @@ export function newZoneAfter(form, validName) {
   if (kind === 'static-stub' && !addresses.length && !names.length) errors.serverAddresses = 'list'
   if (kind === 'hint' && !file) errors.file = 'required'
   if (kind === 'redirect' && !file && !primaries.length) errors.file = 'fileOrPrimaries'
+  const servers = kind === 'primary' ? nameServers(form.ns, abs, validName) : { ns: [], records: [] }
+  if (servers.error) errors.ns = servers.error
   if (Object.keys(errors).length) return { errors, after: null }
 
   const after = { name: abs, kind, view: form.view || '_default' }
   if (kind === 'primary') after.file = file || `db.${bareName(abs)}`
+  // Empty: the backend falls back to dns.default_ns of the settings.
+  if (servers.ns.length) after.ns = servers.ns
+  if (servers.records.length) after.records = servers.records
   if (['secondary', 'stub'].includes(kind)) after.file = file || `sec/db.${bareName(abs)}`
   if (['mirror', 'hint', 'redirect'].includes(kind) && file) after.file = file
   if (['secondary', 'stub', 'mirror', 'redirect'].includes(kind) && primaries.length) after.primaries = primaries

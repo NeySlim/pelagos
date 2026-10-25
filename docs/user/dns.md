@@ -42,7 +42,14 @@ retransfer.
 
 - **Primary**: the zone file is proposed under the Pelagos zone directory
   (`/var/cache/bind/pelagos` on Debian, `/var/named/pelagos` on RHEL) with
-  a minimal SOA and NS. Unless you give them, Pelagos adds
+  a minimal SOA and NS. "Name servers (NS)" is prefilled from the nodes
+  running BIND: the host name of each node's URL when it has a domain, else
+  `<node name> <address>`. One line per server: a full name
+  (`ns1.example.lan.`), or a name in the new zone with its address
+  (`ns1 192.0.2.53`, which also adds its A or AAAA record, as BIND needs
+  for a name server inside its own zone). Left empty, the plan uses the
+  `dns.default_ns` setting; with neither, or with `localhost.`, the plan
+  is refused. Unless you give them, Pelagos adds
   `update-policy { grant ddi-admin zonesub ANY; };` and
   `allow-transfer { key ddi-read; };`, so the zone is dynamic and readable.
   Tick other nodes under "Also on these nodes, as secondaries" to create the

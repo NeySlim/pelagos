@@ -161,7 +161,8 @@
         "read_key": "Transfer key",
         "admin_key": "Update key",
         "update_types_admin": "Record types Pelagos may update",
-        "update_types_kea": "Record types Kea may update"
+        "update_types_kea": "Record types Kea may update",
+        "default_ns": "Name servers of new primary zones"
       },
       "kea": {
         "ddns_key": "DDNS key"

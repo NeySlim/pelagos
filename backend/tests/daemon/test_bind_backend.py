@@ -234,7 +234,7 @@ def test_key_rotation_in_keys_conf(named_server, tmp_root):
         Change(
             ChangeOp.ADD,
             "_default/rot.example.lan",
-            after={"kind": "primary", "allow_transfer": ["key rot-key"]},
+            after={"kind": "primary", "allow_transfer": ["key rot-key"], "ns": ["ns1.example.net."]},
         )
     )
     assert backend.apply(zone).ok, zone.validations
@@ -311,7 +311,9 @@ def test_rollback_after_injected_checkconf_failure(named_server, tmp_root):
     backend = make_backend(named_server, tmp_root)
     setup_includes(backend)
     plan = backend.plan_zone_change(
-        Change(ChangeOp.ADD, "_default/fail.example.lan", after={"kind": "primary"})
+        Change(
+            ChangeOp.ADD, "_default/fail.example.lan", after={"kind": "primary", "ns": ["ns1.example.net."]}
+        )
     )
     assert plan.state is PlanState.VALIDATED
     before = config_fingerprint(named_server)

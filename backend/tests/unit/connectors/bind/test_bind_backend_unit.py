@@ -16,6 +16,15 @@ from pelagos.domain.plan import Change, ChangeOp, PlanScope, PlanState, Precondi
 
 pytestmark = pytest.mark.unit
 
+NS = ["ns1.example.net."]
+# A new primary whose name server lives in the zone: its address comes with it.
+LAB_ZONE = {
+    "kind": "primary",
+    "notes": "n",
+    "ns": ["ns1.lab.example.lan."],
+    "records": [{"name": "ns1", "rtype": "A", "ttl": 3600, "rdata": ["192.0.2.53"]}],
+}
+
 ZONE_DATA = [
     RRset("example.lan.", "SOA", 3600, ["ns1.example.lan. hostmaster.example.lan. 42 3600 900 1209600 300"]),
     RRset("www.example.lan.", "A", 300, ["192.0.2.10"]),
@@ -139,9 +148,7 @@ def test_rrset_plan_and_apply(tmp_root: Path, monkeypatch: pytest.MonkeyPatch) -
 def test_zone_plan_apply_and_rollback(tmp_root: Path, conf_tree: Path) -> None:
     backend, rec = make_backend(tmp_root, conf_tree)
     zones_conf = conf_tree / "pelagos" / "zones.conf"
-    plan = backend.plan_zone_change(
-        Change(ChangeOp.ADD, "_default/lab.example.lan", after={"kind": "primary", "notes": "n"}), "alice"
-    )
+    plan = backend.plan_zone_change(Change(ChangeOp.ADD, "_default/lab.example.lan", after=LAB_ZONE), "alice")
     assert plan.state is PlanState.VALIDATED, plan.validations
     zone_file = tmp_root / "var" / "pelagos" / "lab.example.lan.db"
     assert plan.changes[0].after["file"] == str(zone_file)
@@ -152,7 +159,7 @@ def test_zone_plan_apply_and_rollback(tmp_root: Path, conf_tree: Path) -> None:
     assert result.ok, result.message
     assert ("reconfig",) in rec.calls
     assert 'zone "lab.example.lan" {' in zones_conf.read_text()
-    assert "IN SOA localhost. hostmaster.lab.example.lan." in zone_file.read_text()
+    assert "IN SOA ns1.lab.example.lan. hostmaster.lab.example.lan." in zone_file.read_text()
     assert oct(zone_file.stat().st_mode & 0o777) == "0o664"
     assert oct(zones_conf.stat().st_mode & 0o777) == "0o640"
     # named creates the journal next to the zone file: the directory is setgid and group writable.
@@ -321,7 +328,7 @@ def test_zone_files_stay_in_pelagos_directories(tmp_root: Path, conf_tree: Path)
     )
     assert "outside" in sec.error
     inside = backend.plan_zone_change(
-        Change(ChangeOp.ADD, "_default/z4.example.lan", after={"kind": "primary", "file": "z4.db"})
+        Change(ChangeOp.ADD, "_default/z4.example.lan", after={"kind": "primary", "file": "z4.db", "ns": NS})
     )
     assert inside.state is PlanState.VALIDATED, inside.error
     assert inside.changes[0].after["file"] == "z4.db"
@@ -433,3 +440,25 @@ def test_static_zone_follows_named_and_the_default_view(
     )
     assert backend.config_zone("example.lan") is None
     assert backend.config_zone("example.lan", "inside") is not None
+
+
+@pytest.mark.parametrize(
+    ("after", "error"),
+    [
+        ({"kind": "primary"}, "needs name servers"),
+        ({"kind": "primary", "ns": ["localhost."]}, "serves the zone to nobody"),
+        ({"kind": "primary", "ns": ["ns1.n.example.lan."]}, "add its A or AAAA record"),
+    ],
+)
+def test_new_primary_needs_real_name_servers(tmp_root: Path, conf_tree: Path, after, error) -> None:
+    backend, _ = make_backend(tmp_root, conf_tree)
+    plan = backend.plan_zone_change(Change(ChangeOp.ADD, "_default/n.example.lan", after=after))
+    assert plan.state is PlanState.FAILED and error in plan.error
+
+
+def test_new_primary_falls_back_to_the_default_ns_setting(tmp_root: Path, conf_tree: Path) -> None:
+    backend, _ = make_backend(tmp_root, conf_tree)
+    backend.ctx.settings["dns"]["default_ns"] = ["ns1.example.net.", "ns2.example.net."]
+    plan = backend.plan_zone_change(Change(ChangeOp.ADD, "_default/d.example.lan", after={"kind": "primary"}))
+    assert plan.state is PlanState.VALIDATED, plan.error
+    assert plan.changes[0].after["ns"] == ["ns1.example.net.", "ns2.example.net."]

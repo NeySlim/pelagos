@@ -46,7 +46,7 @@ def test_zone_created_through_the_api_takes_record_plans(api, named_server):
         "op": "add",
         "target": "_default/fresh.example.lan",
         "before": None,
-        "after": {"kind": "primary"},
+        "after": {"kind": "primary", "ns": ["ns1.example.net."]},
     }
     plan = planned(client.post(f"{V1}/dns/zones/plan", json={"change": change}))
     after = plan["changes"][0]["after"]
@@ -71,7 +71,7 @@ def test_zone_created_through_the_api_takes_record_plans(api, named_server):
     change = {
         "op": "add",
         "target": "_default/closed.example.lan",
-        "after": {"kind": "primary", "allow_transfer": ["none"]},
+        "after": {"kind": "primary", "allow_transfer": ["none"], "ns": ["ns1.example.net."]},
     }
     plan = planned(client.post(f"{V1}/dns/zones/plan", json={"change": change}))
     assert plan["changes"][0]["after"]["allow_transfer"] == ["none"]

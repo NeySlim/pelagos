@@ -26,7 +26,11 @@ def allow_new_zones(server) -> None:
 def test_added_zone_listing_modzone_delzone(named_server, tmp_root):
     backend = make_backend(named_server, tmp_root)
     refused = backend.plan_zone_change(
-        Change(ChangeOp.ADD, "_default/added.lan", after={"kind": "primary", "source": "addzone"})
+        Change(
+            ChangeOp.ADD,
+            "_default/added.lan",
+            after={"kind": "primary", "source": "addzone", "ns": ["ns1.example.net."]},
+        )
     )
     assert refused.state is PlanState.FAILED and "allow-new-zones" in refused.error
     allow_new_zones(named_server)

@@ -108,7 +108,13 @@
       "fileOrPrimaries": "Indiquez un fichier de zone ou au moins un primaire",
       "rootOnly": "Ce type de zone est toujours la zone racine (.)",
       "hintFileHelp": "Fichier des serveurs racine, par exemple /usr/share/dns/root.hints",
-      "mirrorHelp": "Les primaires ne sont facultatifs que pour la zone racine ; named doit faire la récursion et valider DNSSEC"
+      "mirrorHelp": "Les primaires ne sont facultatifs que pour la zone racine ; named doit faire la récursion et valider DNSSEC",
+      "ns": "Serveurs de noms (NS)",
+      "nsHelp": "Un par ligne : un nom complet (ns1.example.lan.), ou un nom dans la zone suivi de son adresse (ns1 192.0.2.53). Proposés d'après les nœuds qui font tourner BIND ; vide : dns.default_ns des paramètres",
+      "nsName": "Chaque ligne est un nom de serveur, éventuellement suivi de son adresse",
+      "nsLocalhost": "localhost ne sert la zone à personne : indiquer les vrais serveurs de noms",
+      "nsAddress": "L'adresse après un serveur de noms doit être une adresse IPv4 ou IPv6",
+      "nsGlue": "Un serveur de noms dans la zone a besoin de son adresse sur la même ligne"
     },
     "mode": "Mode"
   },

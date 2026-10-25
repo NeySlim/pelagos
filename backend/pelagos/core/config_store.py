@@ -41,6 +41,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "admin_key": "ddi-admin",
         "update_types_admin": ["A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "DHCID"],
         "update_types_kea": ["A", "AAAA", "PTR", "DHCID"],
+        "default_ns": [],
     },
     "kea": {"ddns_key": "kea-ddns"},
     "collector": {

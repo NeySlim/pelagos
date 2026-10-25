@@ -245,7 +245,7 @@ def test_zone_delete_is_built_and_applied_on_the_node_running_bind(pair):
 
 def test_new_zone_built_on_a_peer_gets_the_ddi_keys(pair):
     dns = DnsService(pair.a, None, pair.gateway)
-    after = {"name": "new.example.lan", "kind": "primary"}
+    after = {"name": "new.example.lan", "kind": "primary", "ns": ["ns1.example.net."]}
     plan = dns.plan_zone(
         {"op": "add", "target": "new.example.lan", "after": after}, "alice", None, pair.b.node.id
     )

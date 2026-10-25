@@ -157,7 +157,11 @@ def test_rndc_operations_on_the_peer(pair, named_server):
 def test_zone_created_on_the_peer_then_edited_from_here(pair):
     setup_includes(pair.registry.dns)
     dns = DnsService(pair.web, None, pair.gateway)
-    change = {"op": "add", "target": "_default/peer.example.lan", "after": {"kind": "primary"}}
+    change = {
+        "op": "add",
+        "target": "_default/peer.example.lan",
+        "after": {"kind": "primary", "ns": ["ns1.example.net."]},
+    }
     plan = dns.plan_zone(change, "alice")
     assert plan.target_node_ids == [pair.peer_id] and plan.state is PlanState.VALIDATED, plan.validations
     assert pair.plans().apply(plan, "alice", confirm=True).state is PlanState.APPLIED

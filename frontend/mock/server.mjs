@@ -749,7 +749,7 @@ function seriesPools(state, query) {
         for (let t = from, i = 0; t <= to && i < 2000; t += step, i += 1) {
           const wave = Math.sin((t / 3600000 / 24) * Math.PI * 2 + idx) * 0.15
           const assigned = Math.max(0, Math.min(r.total, Math.round(r.assigned * (0.85 + wave))))
-          points.push([iso(t), assigned, r.total])
+          points.push([Math.floor(t / 1000), assigned, r.total])
         }
         return { key: { engine, subnet_id: r.subnet_id, pool: r.pool, node_id: nodeId }, points }
       }),
@@ -1792,7 +1792,7 @@ function buildHandlers(state, emit) {
           const points = []
           for (let t = from, i = 0; t <= to; t += 3600000, i += 1) {
             const serial = (serials[n.peer.id] ?? 0) - Math.floor((to - t) / 14400000)
-            points.push([iso(t), serial, n.is_self ? false : zone.name === 'lab.example.lan.'])
+            points.push([Math.floor(t / 1000), serial, n.is_self ? false : zone.name === 'lab.example.lan.'])
           }
           return { node_id: n.peer.id, points }
         }),

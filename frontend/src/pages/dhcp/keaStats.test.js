@@ -27,4 +27,15 @@ describe('pool history', () => {
     ])
     expect(poolHistory(undefined)).toEqual([])
   })
+
+  it('reads the backend shape: Unix seconds per point', () => {
+    const series = [
+      { points: [[1792800000, 7, 100], [1792803600, 10, 100]] },
+      { points: [[1792800000, 3, 100]] },
+    ]
+    expect(poolHistory(series)).toEqual([
+      { t: 1792800000 * 1000, value: 5 },
+      { t: 1792803600 * 1000, value: 10 },
+    ])
+  })
 })

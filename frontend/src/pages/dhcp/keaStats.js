@@ -62,11 +62,14 @@ export function subnetUtilization(row) {
 
 // GET /series/pools summed over the pools: one { t, value } point per timestamp with
 // the percentage of all addresses in use, oldest first.
+// Series timestamps are Unix seconds from the backend; ISO strings are accepted too.
+export const pointTime = (ts) => (typeof ts === 'number' ? ts * 1000 : Date.parse(ts))
+
 export function poolHistory(series) {
   const byTime = new Map()
   for (const s of series || []) {
     for (const [ts, assigned, total] of s.points || []) {
-      const t = Date.parse(ts)
+      const t = pointTime(ts)
       if (!Number.isFinite(t)) continue
       const cur = byTime.get(t) || { assigned: 0, total: 0 }
       cur.assigned += Number(assigned) || 0

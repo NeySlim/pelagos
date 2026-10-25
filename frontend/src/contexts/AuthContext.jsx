@@ -7,6 +7,7 @@ import { clearLists } from '../lib/listCache'
 import { api } from '../services/api'
 import { apiClient } from '../services/apiClient'
 import { resetLiveRates } from '../hooks/useLiveRates'
+import { resetClusterSignals } from '../hooks/useClusterSignals'
 import { applyServerPreferences, getPreferences, setAuthenticated as setPrefsAuthenticated } from '../stores/preferencesStore'
 import i18n from '../i18n'
 
@@ -39,6 +40,7 @@ export function AuthProvider({ children }) {
     apiClient.clearCsrfToken()
     setPrefsAuthenticated(false)
     resetLiveRates()
+    resetClusterSignals()
   }, [])
 
   const loadCapabilities = useCallback(async () => {

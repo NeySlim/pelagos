@@ -25,6 +25,7 @@ from pelagos.core.replication import (
     node_tls_files,
 )
 from pelagos.domain import Engine, Node, NodeApplyResult, NodeStatus, Peer, Plan, PlanScope, utcnow
+from pelagos.services.errors import EngineUnavailable, ServiceError
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +34,24 @@ log = logging.getLogger(__name__)
 ENGINE_PLAN_TIMEOUT = 300.0
 INSTALLER_PLAN_TIMEOUT = 1800.0
 SYNC_TIMEOUT = 120.0
+# Writes a peer builds or runs for this node (POST /repl/v1/actions/<name>): plan builds read the
+# engine (config-get, showzone), runtime operations wait for rndc or the control socket.
+ACTION_TIMEOUT = 120.0
+# Codes a peer may answer with that keep their meaning (and HTTP status) here.
+ACTION_CODES = frozenset(
+    {
+        "validation_error",
+        "not_found",
+        "conflict",
+        "config_divergence",
+        "precondition_failed",
+        "engine_validation_failed",
+        "confirmation_required",
+        "not_supported",
+        "engine_unavailable",
+        "forbidden",
+    }
+)
 INSTALLER_SCOPES = (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY)
 
 
@@ -206,3 +225,55 @@ class PeerGateway:
             return NodeApplyResult(
                 node_id=peer.id, ok=False, message=f"{peer.name}: {exc}", outcome_unknown=True
             )
+
+    # Writes on a peer ---------------------------------------------------
+
+    def action(self, peer: Peer, name: str, body: dict[str, Any], timeout: float | None = None) -> Any:
+        """Run action `name` on `peer`; its refusal comes back as the same ServiceError, an offline or
+        silent peer as engine_unavailable, a peer on an older release as not_supported."""
+        if timeout is None:
+            try:
+                settings = self.ctx.settings()
+            except Exception:  # an unreadable cluster.toml must not block the call: defaults apply
+                settings = {}
+            timeout = float(settings.get("peer_action_timeout_seconds", ACTION_TIMEOUT))
+        client = self._client_with_timeout(peer, timeout)
+        if client is None:
+            raise EngineUnavailable("node certificate not available")
+        try:
+            data = client.action(name, body)
+        except ReplicationError as exc:
+            if exc.code == UNREACHABLE:
+                raise EngineUnavailable(f"node {peer.name} is offline: {exc}") from None
+            if exc.status == 404:
+                raise ServiceError(
+                    "not_supported", f"node {peer.name} cannot run {name} for another node: upgrade it"
+                ) from None
+            if exc.status is None:
+                raise EngineUnavailable(f"node {peer.name} did not answer {name}: {exc}") from None
+            raise EngineUnavailable(f"node {peer.name}: {exc}") from None
+        except OSError as exc:
+            raise EngineUnavailable(f"node {peer.name} did not answer {name}: {exc}") from None
+        if not data.get("ok"):
+            code = str(data.get("code") or "engine_unavailable")
+            detail = f"{peer.name}: {data.get('detail') or code}"
+            errors = data.get("errors") if isinstance(data.get("errors"), list) else None
+            raise ServiceError(code if code in ACTION_CODES else "engine_unavailable", detail, errors)
+        return data.get("result")
+
+    def build_plan(self, peer: Peer, name: str, body: dict[str, Any]) -> Plan:
+        """A plan built by `peer` on its own engine, to be stored and applied from here (on `peer`)."""
+        result = self.action(peer, name, body)
+        try:
+            plan = Plan.from_dict(result["plan"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise EngineUnavailable(f"node {peer.name} answered {name} with no valid plan: {exc}") from None
+        # Checks read on the peer stay the peer's: this node never re-reads them against its own engine.
+        for pre in plan.preconditions:
+            if pre.node_id is None:
+                pre.node_id = peer.id
+        for validation in plan.validations:
+            if validation.node_id is None:
+                validation.node_id = peer.id
+        plan.target_node_ids = [peer.id]
+        return plan

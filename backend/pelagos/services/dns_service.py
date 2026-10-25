@@ -37,6 +37,7 @@ from pelagos.domain import (
 from pelagos.services.dns_extras import DnsExtras, zone_mode
 from pelagos.services.errors import EngineUnavailable, NotFound, ValidationError, field_error
 from pelagos.services.peers import PeerGateway
+from pelagos.services.zone_defaults import apply_key_defaults
 
 TRANSFER_KINDS = frozenset({ZoneKind.SECONDARY, ZoneKind.MIRROR, ZoneKind.STUB})
 OPERATIONS = ("retransfer", "notify", "reload", "freeze", "thaw", "sync")
@@ -434,6 +435,11 @@ class DnsService(DnsExtras):
             parsed.append(change)
         if not parsed:
             raise ValidationError("changes must not be empty", [field_error("changes", "required")])
+        if self.local is None:
+            # No BIND here: built from the primary's records, applied on the primary.
+            from pelagos.services import remote_rrset
+
+            return self._store(remote_rrset.plan_on_primary(self, self.ctx, zone, parsed, created_by, view))
         plan = self._local().plan_rrset_changes(zone, parsed, view, created_by)
         primary = self._primary_node(zone, view)
         if primary is not None:
@@ -470,12 +476,24 @@ class DnsService(DnsExtras):
             f"zone {zone} is {local.kind.value} here and no reachable node is its primary"
         )
 
-    def plan_zone(self, raw: dict[str, Any], created_by: str, node_ids: list[str] | None = None) -> Plan:
+    def plan_zone(
+        self,
+        raw: dict[str, Any],
+        created_by: str,
+        node_ids: list[str] | None = None,
+        node_id: str | None = None,
+    ) -> Plan:
         """With `node_ids`, the zone also lands on those peers: as a secondary of this node for a
-        new primary (`after.secondary.primaries` says where they transfer from)."""
+        new primary (`after.secondary.primaries` says where they transfer from). `node_id` names the
+        node that holds the zone (default: this node, else the first node running BIND); a peer
+        builds the plan itself over the replication channel."""
         change = parse_change(raw, "change")
         if "/" not in change.target:
             change.target = f"_default/{change.target}"
+        apply_key_defaults(change, self.ctx.settings())
+        owner = self.zone_owner(node_id)
+        if owner is not None:
+            return self._store(self.remote_zone_plan(owner, change, created_by, node_ids))
         targets = self.secondary_for_peers(change, node_ids) if node_ids else None
         plan = self._local().plan_zone_change(change, created_by)
         if targets:

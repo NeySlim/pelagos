@@ -4,7 +4,8 @@
 Each operation names its permission, whether it changes the daemon's state, and whether it needs
 an explicit confirmation. The service builds the rndc words or the Kea arguments itself from typed
 parameters: nothing a caller sends reaches the daemon unchecked. Writes run under the engine lock
-and every call is audited. Reads may target a peer (snapshot kind "op"); writes run on this node.
+and every call is audited. Reads may target a peer (snapshot kind "op"); writes on a peer go over
+/repl/v1/actions/ops.run and are audited on both nodes.
 """
 
 from __future__ import annotations
@@ -390,7 +391,9 @@ class OpsService:
         words = rndc_words(op, params)
         self._check_confirm(spec, confirm)
         target = node_id or self.ctx.node.id
-        if target != self.ctx.node.id:
+        if target != self.ctx.node.id and spec.write:
+            output = self._run_remote(Engine.BIND, "bind", spec, params, confirm, target, user, client_ip)
+        elif target != self.ctx.node.id:
             output = self._peer_read(target, Engine.BIND, spec, {"op": op, "params": params})
         else:
             backend = self.registry.dns
@@ -416,7 +419,9 @@ class OpsService:
         self._check_confirm(spec, confirm)
         target = node_id or self.ctx.node.id
         engine = ENGINE_OF_FAMILY[family]
-        if target != self.ctx.node.id:
+        if target != self.ctx.node.id and spec.write:
+            result = self._run_remote(engine, family, spec, params, confirm, target, user, client_ip)
+        elif target != self.ctx.node.id:
             result = self._peer_read(target, engine, spec, {"command": command, "params": params})
         else:
             backend = self.registry.backend(engine)
@@ -431,6 +436,79 @@ class OpsService:
                 params,
             )
         return {"command": command, "family": family, "node_id": target, "result": result}
+
+    def run_received(
+        self,
+        kind: str,
+        name: str,
+        params: dict[str, Any],
+        confirm: bool,
+        user: str,
+        caller: str,
+        client_ip: str | None,
+    ) -> Any:
+        """A write operation a peer forwards (`kind` "bind" or a Kea family), run and audited here as
+        `node:<caller>` on behalf of `user`; the caller checked the user's permission."""
+        spec = self.spec(kind, name)
+        if not spec.write:
+            raise _field("op", f"{name} is a read: peers read it through the op snapshot")
+        self._check_confirm(spec, confirm)
+        audit_params = {**params, "requested_by": user}
+        if kind == "bind":
+            words = rndc_words(name, params)
+            dns = self.registry.dns
+            if dns is None:
+                raise EngineUnavailable("this node does not run BIND")
+            call = lambda: _truncate(_rndc(dns).run(*words))  # noqa: E731
+            return self._run_local(Engine.BIND, spec, call, f"node:{caller}", client_ip, audit_params)
+        arguments = kea_arguments(kind, name, params)
+        engine = ENGINE_OF_FAMILY[kind]
+        backend = self.registry.backend(engine)
+        if backend is None:
+            raise EngineUnavailable(f"this node does not run {engine.value}")
+        return self._run_local(
+            engine,
+            spec,
+            lambda: _socket(backend).call(name, arguments, allow_empty=True),
+            f"node:{caller}",
+            client_ip,
+            audit_params,
+        )
+
+    def _run_remote(
+        self,
+        engine: Engine,
+        kind: str,
+        spec: OpSpec,
+        params: dict[str, Any],
+        confirm: bool,
+        node_id: str,
+        user: str,
+        client_ip: str | None,
+    ) -> Any:
+        """A write operation on a peer: the peer runs it and audits it, this node audits the request."""
+        peer = self.peers.peer(node_id)
+        if peer is None:
+            raise ValidationError(f"unknown node {node_id}", [field_error("node_id", "unknown")])
+        if not getattr(peer.modules, engine.value, False):
+            raise EngineUnavailable(f"node {peer.name} does not run {engine.value}")
+        body = {
+            "engine": kind,
+            "name": spec.name,
+            "params": params,
+            "confirm": confirm,
+            "user": user,
+            "client_ip": client_ip,
+        }
+        audit_params = {**params, "node_id": peer.id}
+        try:
+            output = (self.peers.action(peer, "ops.run", body) or {}).get("output")
+        except ServiceError as exc:
+            error = AuditResult.ERROR
+            self._audit(engine, spec, audit_params, None, error, exc.detail, user, client_ip, True)
+            raise
+        self._audit(engine, spec, audit_params, output, AuditResult.OK, None, user, client_ip, True)
+        return output
 
     def _kea_read(self, family: str, command: str, params: dict[str, Any], node_id: str | None) -> Any:
         engine = ENGINE_OF_FAMILY[family]
@@ -450,9 +528,7 @@ class OpsService:
 
     def _peer_read(self, node_id: str, engine: Engine, spec: OpSpec, params: dict[str, Any]) -> Any:
         if spec.write:
-            raise ServiceError(
-                "not_supported", f"{spec.name} changes the daemon: run it on that node (log in there)"
-            )
+            raise ServiceError("not_supported", f"{spec.name} changes the daemon: it is not a read")
         peer = self.peers.peer(node_id)
         if peer is None:
             raise ValidationError(f"unknown node {node_id}", [field_error("node_id", "unknown")])
@@ -500,8 +576,10 @@ class OpsService:
         message: str | None,
         user: str,
         client_ip: str | None,
+        remote: bool = False,
     ) -> None:
         action = "dns.ops" if engine is Engine.BIND else "dhcp.ops"
+        response = {"output": output, **({"remote": True} if remote else {})}
         self.ctx.audit_log.append(
             AuditEntry(
                 node_id=self.ctx.node.id,
@@ -510,7 +588,7 @@ class OpsService:
                 target=f"{engine.value}:{spec.name}",
                 engine=engine,
                 request=masked({"op": spec.name, **params}),
-                response=masked({"output": output}) if output is not None else None,
+                response=masked(response) if output is not None or remote else None,
                 result=result,
                 message=message,
                 client_ip=client_ip,

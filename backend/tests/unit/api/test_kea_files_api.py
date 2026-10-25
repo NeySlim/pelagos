@@ -121,11 +121,13 @@ def test_a_diverged_partner_file_blocks_the_pair(role_client, peer_b):
     assert c.post(D + "/subnets/plan", json=SUBNET).status_code == 200
 
 
-def test_adopt_needs_this_node_and_a_source(role_client, peer_b):
+def test_adopt_needs_a_source_and_is_built_on_the_node_of_the_file(role_client, peer_b):
     c = role_client("admin")
     assert c.post(D + "/config/adopt/plan", json={"source": "both"}).status_code == 400
+    # A peer's file is adopted through the peer: its fake connector cannot adopt either.
     r = c.post(D + "/config/adopt/plan", json={"source": "file", "node_id": NODE_B})
-    assert r.status_code == 400 and "log in" in r.get_json()["detail"]
+    assert r.status_code == 501 and r.get_json()["detail"].startswith("ns2: ")
+    assert ("action", "dhcp.adopt.plan") in peer_b.calls
     # The fake connector cannot adopt (the real one is covered by the daemon tier).
     assert c.post(D + "/config/adopt/plan", json={"source": "file"}).status_code == 501
     assert c.post("/api/v1/dhcp/d2/config/adopt/plan", json={"source": "running"}).status_code == 501
@@ -138,7 +140,11 @@ def test_config_replace_targets_only_the_loaded_node(role_client, peer_b, node_c
     config = dict(fake_registry.kea4.config)
     plan = c.post(D + "/config/plan", json={"config": config}).get_json()
     assert plan["target_node_ids"] == [node_ctx.node.id]
-    r = c.post(D + "/config/plan", json={"config": config, "node_id": NODE_B})
+    # A peer's configuration replace is built by the peer and targets it alone.
+    peer_config = dict(peer_b.registry.kea4.config)
+    plan = c.post(D + "/config/plan", json={"config": peer_config, "node_id": NODE_B}).get_json()
+    assert plan["target_node_ids"] == [NODE_B] and plan["node_id"] == NODE_B, plan
+    r = c.post(D + "/config/plan", json={"config": peer_config, "node_id": NODE_B, "node_ids": ["x"]})
     assert r.status_code == 400
     d2 = {"tsig-keys": [], "forward-ddns": {"ddns-domains": []}, "reverse-ddns": {"ddns-domains": []}}
     plan = c.post("/api/v1/dhcp/d2/config/plan", json={"config": d2}).get_json()

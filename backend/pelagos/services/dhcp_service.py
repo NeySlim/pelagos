@@ -495,16 +495,12 @@ class DhcpService:
             return self.ctx.plan_store.put(self._plan_one_node(kind, body, created_by))
         if kind not in self.CONFIG_KINDS:
             raise ValidationError(f"unknown plan kind {kind}")
+        if kind == "config" and (body.get("node_id") or self.ctx.node.id) != self.ctx.node.id:
+            return self._peer_config_plan(self.engine, body, created_by)
         backend = self._local()
         if kind == "config":
             # A whole-configuration replace targets exactly the node whose configuration was loaded:
             # per-node keys (interfaces, HA this-server-name, sockets) must never reach the partner.
-            target = body.get("node_id") or self.ctx.node.id
-            if target != self.ctx.node.id:
-                raise ValidationError(
-                    "a configuration replace is built on the node it replaces; log in on that node",
-                    [field_error("node_id", "not this node")],
-                )
             _only_this_node(body.get("node_ids"), self.ctx.node.id)
             targets = [self.ctx.node.id]
         elif body.get("node_ids"):
@@ -717,10 +713,7 @@ class DhcpService:
             )
         target = body.get("node_id") or self.ctx.node.id
         if target != self.ctx.node.id:
-            raise ValidationError(
-                "the file is adopted on the node that holds it; log in on that node",
-                [field_error("node_id", "not this node")],
-            )
+            return self._peer_adopt_plan(self.engine, target, source, created_by)
         plan = self._local().plan_adopt(source, created_by)
         plan.target_node_ids = [self.ctx.node.id]
         return self.ctx.plan_store.put(plan)
@@ -886,18 +879,14 @@ class DhcpService:
         return {"node_id": read_on, "config": mask_d2_secrets(config)}
 
     def plan_d2_config(self, body: dict[str, Any], created_by: str) -> Plan:
-        """Replaces the DhcpDdns object of exactly the node it was loaded from (this node)."""
+        """Replaces the DhcpDdns object of exactly the node it was loaded from."""
+        if (body.get("node_id") or self.ctx.node.id) != self.ctx.node.id:
+            return self._peer_config_plan(Engine.D2, body, created_by)
         if self.d2 is None:
             raise EngineUnavailable("this node does not run kea-dhcp-ddns")
         config = body.get("config")
         if not isinstance(config, dict):
             raise ValidationError("config must be an object", [field_error("config", "object expected")])
-        target = body.get("node_id") or self.ctx.node.id
-        if target != self.ctx.node.id:
-            raise ValidationError(
-                "a D2 configuration replace is built on the node it replaces; log in on that node",
-                [field_error("node_id", "not this node")],
-            )
         _only_this_node(body.get("node_ids"), self.ctx.node.id)
         kea_files.check(
             self.alerts, Engine.D2, [self.ctx.node.id], self.ctx.node.id, self.d2, self._node_names()
@@ -926,20 +915,49 @@ class DhcpService:
         return items
 
     def plan_d2_adopt(self, body: dict[str, Any], created_by: str) -> Plan:
-        if self.d2 is None:
-            raise EngineUnavailable("this node does not run kea-dhcp-ddns")
         source = body.get("source")
         if source not in ("file", "running"):
             raise ValidationError(
                 "source must be file or running", [field_error("source", "file or running")]
             )
         if (body.get("node_id") or self.ctx.node.id) != self.ctx.node.id:
-            raise ValidationError(
-                "the file is adopted on the node that holds it; log in on that node",
-                [field_error("node_id", "not this node")],
-            )
+            return self._peer_adopt_plan(Engine.D2, str(body["node_id"]), source, created_by)
+        if self.d2 is None:
+            raise EngineUnavailable("this node does not run kea-dhcp-ddns")
         plan = self.d2.plan_adopt(source, created_by)
         plan.target_node_ids = [self.ctx.node.id]
+        return self.ctx.plan_store.put(plan)
+
+    # Plans built on the node that holds the file or the configuration ----------------------
+
+    def _engine_peer(self, engine: Engine, node_id: str) -> Peer:
+        peer = self.peers.peer(node_id)
+        if peer is None:
+            raise ValidationError(f"unknown node {node_id}", [field_error("node_id", "unknown")])
+        if not getattr(peer.modules, engine.value, False):
+            raise EngineUnavailable(f"node {peer.name} does not run {engine.value}")
+        return peer
+
+    def _peer_adopt_plan(self, engine: Engine, node_id: str, source: str, created_by: str) -> Plan:
+        """Adopt a peer's file: the peer reads its file and daemon and builds the plan (section 9)."""
+        peer = self._engine_peer(engine, node_id)
+        plan = self.peers.build_plan(
+            peer, "dhcp.adopt.plan", {"engine": engine.value, "source": source, "created_by": created_by}
+        )
+        return self.ctx.plan_store.put(plan)
+
+    def _peer_config_plan(self, engine: Engine, body: dict[str, Any], created_by: str) -> Plan:
+        """A whole-configuration replace of a peer, built there from the configuration it served."""
+        peer = self._engine_peer(engine, str(body["node_id"]))
+        config = body.get("config")
+        if not isinstance(config, dict):
+            raise ValidationError("config must be an object", [field_error("config", "object expected")])
+        _only_this_node(body.get("node_ids"), peer.id)
+        names = self._node_names()
+        kea_files.check(self.alerts, engine, [peer.id], self.ctx.node.id, None, names, self.peers)
+        plan = self.peers.build_plan(
+            peer, "dhcp.config.plan", {"engine": engine.value, "config": config, "created_by": created_by}
+        )
         return self.ctx.plan_store.put(plan)
 
 
@@ -966,7 +984,7 @@ def with_percent(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _only_this_node(node_ids: Any, me: str) -> None:
-    """A configuration replace targets this node only: `node_ids` naming another node is a 400."""
+    """A configuration replace targets one node only: `node_ids` naming another node is a 400."""
     if node_ids is None:
         return
     if not isinstance(node_ids, list):
@@ -974,7 +992,7 @@ def _only_this_node(node_ids: Any, me: str) -> None:
     others = [n for n in node_ids if n != me]
     if others:
         raise ValidationError(
-            "a configuration replace applies to this node only; log in on the other node",
+            "a configuration replace applies to the node it was loaded from only; plan the other node apart",
             [field_error("node_ids", str(n)) for n in others],
         )
 

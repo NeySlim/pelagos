@@ -96,7 +96,14 @@ class ZonesPlan(Resource):
                 "node_ids must be a list",
                 errors=[{"field": "node_ids", "message": "list"}],
             )
-        return plan_answer(dns().plan_zone(_change(body), username(), node_ids or None))
+        node_id = body.get("node_id")
+        if node_id is not None and not isinstance(node_id, str):
+            raise ApiError(
+                "validation_error",
+                "node_id must be a string",
+                errors=[{"field": "node_id", "message": "string"}],
+            )
+        return plan_answer(dns().plan_zone(_change(body), username(), node_ids or None, node_id))
 
 
 @ns.route("/zones/<string:zone>")

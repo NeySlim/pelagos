@@ -23,8 +23,10 @@ class SecretChannelError(Exception):
 
 
 def needs_sealing(plan: Plan) -> bool:
+    """A secret-file change without its sealed secret (a plan built by a peer arrives sealed)."""
     return plan.scope is PlanScope.D2_CONFIG and any(
-        c.target.startswith(SECRET_FILE_PREFIX) for c in plan.changes
+        c.target.startswith(SECRET_FILE_PREFIX) and not (isinstance(c.after, dict) and c.after.get(SEALED))
+        for c in plan.changes
     )
 
 

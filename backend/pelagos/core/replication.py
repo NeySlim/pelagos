@@ -53,10 +53,13 @@ RENEWAL_CHECK_SECONDS = 6 * 3600
 HOUSEKEEPING_SECONDS = 3600
 _ENGINE_RE = re.compile(r"^/engines/([a-z0-9]+)/snapshot$")
 SNAPSHOT_ENGINES = frozenset({"bind", "kea4", "kea6", "d2"})
+_ACTION_RE = re.compile(r"^/actions/([a-z0-9][a-z0-9_.-]{0,63})$")
 # Event the collector receives when entries from a peer were merged into the local audit log.
 EVENT_AUDIT_MERGED = "audit_merged"
 
 SnapshotProvider = Callable[[str, str, dict[str, str]], dict[str, Any]]
+# (action name, request body, caller node id) -> result of POST /repl/v1/actions/<name>.
+ActionHandler = Callable[[str, dict[str, Any], str], Any]
 
 
 @dataclass(slots=True)
@@ -96,6 +99,17 @@ class PeerStatus:
 
 # ReplicationError.code when no connection was made (the request never reached the peer).
 UNREACHABLE = "unreachable"
+
+
+class PeerActionError(Exception):
+    """Raised by an ActionHandler: the caller gets {"ok": false, code, detail, errors} with HTTP 200,
+    so that a refusal is told apart from a node that does not serve the action (404)."""
+
+    def __init__(self, code: str, detail: str, errors: list[dict[str, Any]] | None = None) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+        self.errors = errors or []
 
 
 class ReplicationError(Exception):
@@ -242,6 +256,13 @@ class ReplicationClient:
         query = {"kind": kind, **{k: str(v) for k, v in (params or {}).items() if v is not None}}
         return self._call("GET", f"/engines/{engine}/snapshot?{urllib.parse.urlencode(query)}")
 
+    def action(self, name: str, body: dict[str, Any]) -> dict[str, Any]:
+        """POST /actions/<name>: {"ok": true, "result": ...} or {"ok": false, "code", "detail", "errors"}."""
+        data = self._call("POST", f"/actions/{name}", body)
+        if not isinstance(data, dict) or "ok" not in data:
+            raise ReplicationError(f"POST /actions/{name} on {self.peer.name}: malformed answer")
+        return data
+
     def renew(self, csr_pem: bytes) -> bytes:
         return str(self._call("POST", "/renew", {"csr_pem": csr_pem.decode()})["cert_pem"]).encode()
 
@@ -269,8 +290,11 @@ class ReplicationApp:
         enrollment: EnrollmentService | None = None,
         snapshot: SnapshotProvider | None = None,
         secrets: SecretBox | None = None,
+        actions: ActionHandler | None = None,
     ) -> None:
         self.node = node
+        # Writes a peer asks this node to build or run (services.peer_actions); None: not served.
+        self.actions = actions
         # Master key: unseals the secrets a plan built on another node carries (core.plan_secrets).
         self.secrets = secrets
         self.config_store = config_store
@@ -341,6 +365,9 @@ class ReplicationApp:
         m = _ENGINE_RE.match(route)
         if m and method == "GET":
             return self._snapshot(m.group(1), environ.get("QUERY_STRING", ""))
+        m = _ACTION_RE.match(route)
+        if m and method == "POST":
+            return self._action(m.group(1), self._body(environ), caller)
         raise _Refused(404, "not_found", f"{method} {route}")
 
     def _snapshot(self, engine: str, query: str) -> tuple[int, Any]:
@@ -354,6 +381,15 @@ class ReplicationApp:
             return 200, self.registry.snapshot(engine)
         except EngineNotConfigured as exc:
             raise _Refused(404, "not_found", str(exc)) from None
+
+    def _action(self, name: str, body: dict[str, Any], caller: str) -> tuple[int, Any]:
+        if self.actions is None:
+            raise _Refused(404, "not_found", "remote actions are not served by this node")
+        try:
+            result = self.actions(name, body, caller)
+        except PeerActionError as exc:
+            return 200, {"ok": False, "code": exc.code, "detail": exc.detail, "errors": exc.errors}
+        return 200, {"ok": True, "result": result}
 
     # Authentication: the client certificate must name an enrolled, non-revoked node.
     def authenticate(self, cert_der: bytes | None) -> str:
@@ -945,6 +981,7 @@ class ReplicationService:
         listener: Any = None,
         snapshot: SnapshotProvider | None = None,
         on_audit_merged: Callable[[], None] | None = None,
+        actions: ActionHandler | None = None,
     ) -> None:
         self.ctx = ctx
         self.paths = ctx.paths
@@ -961,6 +998,7 @@ class ReplicationService:
             self.enrollment,
             snapshot=snapshot,
             secrets=ctx.secrets,
+            actions=actions,
         )
         self.app.on_peer_seen = self._on_peer_seen
         self.on_audit_merged = on_audit_merged
@@ -1255,12 +1293,18 @@ def start_collector_side(
     registry: ConnectorRegistry | None = None,
     snapshot: SnapshotProvider | None = None,
     on_audit_merged: Callable[[], None] | None = None,
+    actions: ActionHandler | None = None,
 ) -> _CollectorHandle:
     """Collector hook: serve /repl/v1 and push on the collector's `collector.sock` signals."""
     if not node_enrolled(ctx.paths):
         raise NotImplementedError("node is not enrolled (no PKI files)")
     service = ReplicationService(
-        ctx, registry, listener=listener, snapshot=snapshot, on_audit_merged=on_audit_merged
+        ctx,
+        registry,
+        listener=listener,
+        snapshot=snapshot,
+        on_audit_merged=on_audit_merged,
+        actions=actions,
     )
     service.start()
     return _CollectorHandle(service)

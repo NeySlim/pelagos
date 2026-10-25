@@ -213,7 +213,7 @@ def peer(node_ctx, services):
     return registry
 
 
-def test_reads_go_to_a_peer_writes_do_not(role_client, wired, peer):
+def test_reads_and_writes_go_to_a_peer(role_client, wired, peer, node_ctx, services):
     admin = role_client("admin")
     r = admin.post(
         f"{V1}/dns/ops", json={"op": "zonestatus", "params": {"zone": "example.lan"}, "node_id": NODE_B}
@@ -222,8 +222,16 @@ def test_reads_go_to_a_peer_writes_do_not(role_client, wired, peer):
     assert r.get_json()["output"] == "ok: zonestatus example.lan" and r.get_json()["node_id"] == NODE_B
     assert peer.dns.rndc.calls == [("zonestatus", "example.lan")] and wired.dns.rndc.calls == []
     r = admin.post(f"{V1}/dns/ops", json={"op": "flush", "node_id": NODE_B})
-    assert r.status_code == 501 and r.get_json()["code"] == "not_supported"
-    assert peer.dns.rndc.calls == [("zonestatus", "example.lan")]
+    assert r.status_code == 200, r.get_json()
+    assert peer.dns.rndc.calls[-1] == ("flush",) and wired.dns.rndc.calls == []
+    # Audited here for the user, on the peer for the calling node on the user's behalf.
+    here = [e for e in node_ctx.audit_log.read() if e.action == "dns.ops"][-1]
+    assert here.user == "admin" and here.request["node_id"] == NODE_B and here.response["remote"]
+    client = services.peers.client(services.peers.peer(NODE_B))
+    there = client.peer_audit[-1]
+    assert there.user.startswith("node:") and there.request["requested_by"] == "admin"
+    r = admin.post(f"{V1}/dhcp/v4/ops", json={"command": "dhcp-disable", "node_id": NODE_B})
+    assert r.status_code == 428
     catalog = admin.get(f"{V1}/dhcp/v4/ops?node_id={NODE_B}").get_json()
     assert catalog["error"] is None and catalog["node_id"] == NODE_B
     r = admin.post(f"{V1}/dhcp/v4/ops", json={"command": "status-get", "node_id": NODE_B})
@@ -235,3 +243,12 @@ def test_snapshot_op_refuses_writes(wired):
         ops.snapshot_op(wired, ops.Engine.BIND, {"op": "flush", "params": "{}"})
     with pytest.raises(ServiceError):
         ops.run_kea_read(object(), "v4", "status-get", {})
+
+
+def test_peer_writes_need_the_same_permission_as_local_ones(role_client, peer):
+    viewer = role_client("viewer")
+    r = viewer.post(f"{V1}/dns/ops", json={"op": "flush", "node_id": NODE_B})
+    assert r.status_code == 403
+    r = viewer.post(f"{V1}/dhcp/v4/ops", json={"command": "dhcp-enable", "node_id": NODE_B})
+    assert r.status_code == 403
+    assert peer.dns.rndc.calls == [] and peer.kea4.socket.calls == []

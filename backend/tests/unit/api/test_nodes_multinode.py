@@ -199,7 +199,9 @@ def test_node_without_bind_reads_from_peer(role_client, peer_b, fake_registry, s
         "/api/v1/dns/zones/example.lan/records/plan",
         json={"changes": [{"op": "add", "target": "x/A", "after": {"ttl": 1, "rdata": ["192.0.2.5"]}}]},
     )
-    assert r.status_code == 503 and "does not run BIND" in r.get_json()["detail"]
+    # Built from the primary's records and applied there, as host plans are.
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()["target_node_ids"] == [NODE_B]
 
 
 def test_record_plan_on_a_secondary_applies_on_the_primary(role_client, peer_b, fake_registry, node_ctx):

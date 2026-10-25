@@ -18,6 +18,7 @@ from pelagos.domain import (
     Change,
     ChangeOp,
     Engine,
+    Peer,
     Plan,
     PlanScope,
     PlanState,
@@ -93,28 +94,78 @@ class DnsExtras:
         """Target nodes of a zone plan; peers get the zone as a secondary of this node."""
         targets = self._target_nodes(node_ids)
         peers = [n for n in targets if n != self.ctx.node.id]
+        self._as_secondaries(change, self.ctx.node.id, self.ctx.node.replication_url, peers)
+        return targets
+
+    def _as_secondaries(self, change: Change, origin: str, origin_url: str, peers: list[str]) -> None:
+        """A new primary on `origin` lands on `peers` as its secondary (`after.secondary`)."""
         if not peers or change.op is ChangeOp.DELETE:
-            return targets
+            return
         after = change.after if isinstance(change.after, dict) else None
         if after is None or after.get("kind", "primary") != "primary":
-            return targets
+            return
         secondary = dict(after.get("secondary") or {})
-        primaries = secondary.get("primaries") or self._self_primaries()
+        primaries = secondary.get("primaries") or self._primaries_at(origin_url)
         if not primaries:
             raise ValidationError(
-                "cannot tell the peers where this node's named listens: give secondary.primaries",
+                "cannot tell the peers where the primary's named listens: give secondary.primaries",
                 [field_error("change.after.secondary.primaries", "required")],
             )
-        after["secondary"] = {"origin": self.ctx.node.id, "primaries": list(primaries)}
+        after["secondary"] = {"origin": origin, "primaries": list(primaries)}
         if not after.get("also_notify"):
             notify = [a for n in peers for a in self._node_addresses(n)]
             if notify:
                 after["also_notify"] = notify
-        return targets
 
     def _self_primaries(self) -> list[str]:
+        return self._primaries_at(self.ctx.node.replication_url)
+
+    def _primaries_at(self, url: str) -> list[str]:
         read_key = (self.ctx.settings().get("dns") or {}).get("read_key", "ddi-read")
-        return [f"{a} key {read_key}" for a in self._addresses(self.ctx.node.replication_url)]
+        return [f"{a} key {read_key}" for a in self._addresses(url)]
+
+    def zone_owner(self, node_id: str | None) -> Peer | None:
+        """The peer a zone plan is built on, None for this node: the named node, else this node when
+        it runs BIND, else the first peer that does (as reads choose)."""
+        if node_id in (None, self.ctx.node.id):
+            if self.local is not None:
+                return None
+            if node_id is not None:
+                raise EngineUnavailable("this node does not run BIND")
+            peers = self.peers.peers_running(Engine.BIND)
+            if not peers:
+                raise EngineUnavailable("no node runs BIND")
+            return peers[0]
+        peer = self.peers.peer(str(node_id))
+        if peer is None:
+            raise ValidationError(f"unknown node {node_id}", [field_error("node_id", "unknown")])
+        if not peer.modules.bind:
+            raise EngineUnavailable(f"node {peer.name} does not run BIND")
+        return peer
+
+    def remote_zone_plan(
+        self, owner: Peer, change: Change, created_by: str, node_ids: list[str] | None
+    ) -> Plan:
+        """A zone plan built by `owner` over /repl/v1/actions; `node_ids` peers get the zone as its
+        secondary (add) or lose their copy (delete), as for a plan built here."""
+        others = []
+        for node_id in node_ids or []:
+            if node_id == owner.id or node_id in others:
+                continue
+            peer = next((p for p in self.ctx.cluster().nodes if p.id == node_id), None)
+            if peer is None:
+                raise ValidationError(f"unknown node {node_id}", [field_error("node_ids", node_id)])
+            if not peer.modules.bind:
+                raise ValidationError(
+                    f"node {peer.name} does not run BIND", [field_error("node_ids", node_id)]
+                )
+            others.append(node_id)
+        self._as_secondaries(change, owner.id, owner.url, others)
+        plan = self.peers.build_plan(
+            owner, "dns.zone.plan", {"change": change.to_dict(), "created_by": created_by}
+        )
+        plan.target_node_ids = [owner.id, *others]
+        return plan
 
     def _node_addresses(self, node_id: str) -> list[str]:
         peer = self.peers.peer(node_id)

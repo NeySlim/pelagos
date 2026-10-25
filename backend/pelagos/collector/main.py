@@ -490,6 +490,7 @@ def start_replication(
     """
     from pelagos.core.replication import EVENT_AUDIT_MERGED, start_collector_side
     from pelagos.core.signals import signal_collector
+    from pelagos.services.peer_actions import PeerActions
 
     backends = backends if backends is not None else Backends()
     core_registry, service_registry = build_registries(ctx, backends, backend_lock)
@@ -502,6 +503,7 @@ def start_replication(
             store,
             registry=core_registry,
             snapshot=provider,
+            actions=PeerActions(ctx, service_registry, core_registry.lock),
             # Runs on replication threads: the collector loop replays acks when the datagram arrives.
             on_audit_merged=lambda: signal_collector(sock, EVENT_AUDIT_MERGED),
         )

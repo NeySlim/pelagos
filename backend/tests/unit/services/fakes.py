@@ -1787,6 +1787,44 @@ class FakeReplicationClient:
         self.calls.append(("snapshot", (engine, kind, params)))
         return engine_snapshot(self.registry, Engine(engine), kind, params)
 
+    def action(self, name: str, body: dict[str, Any]) -> dict[str, Any]:
+        """POST /repl/v1/actions/<name> served by services.peer_actions over the peer's engines."""
+        import json
+
+        from pelagos.core.replication import PeerActionError
+        from pelagos.services.peer_actions import PeerActions
+
+        self._check()
+        self.calls.append(("action", name))
+        handler = PeerActions(self.peer_ctx(), self.registry)
+        try:
+            result = handler(name, json.loads(json.dumps(body)), getattr(self, "caller", "node-a"))
+        except PeerActionError as exc:
+            return {"ok": False, "code": exc.code, "detail": exc.detail, "errors": exc.errors}
+        return {"ok": True, "result": json.loads(json.dumps(result, default=str))}
+
+    def peer_ctx(self) -> Any:
+        """The peer's NodeContext (set `ctx`), else a stand-in with an audit list and a locks dir."""
+        if getattr(self, "ctx", None) is not None:
+            return self.ctx
+        import tempfile
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        if getattr(self, "_stand_in", None) is None:
+            root = Path(tempfile.mkdtemp(prefix="pelagos-fake-peer-"))
+            audit: list[Any] = []
+            self.peer_audit = audit
+            self._stand_in = SimpleNamespace(
+                node=SimpleNamespace(id=self.node_id, name=f"peer-{self.node_id[-4:]}"),
+                paths=SimpleNamespace(locks_dir=root),
+                audit_log=SimpleNamespace(append=audit.append),
+                secrets=self.secrets,
+                settings=lambda: {},
+                cluster=lambda: SimpleNamespace(nodes=[], modules={}),
+            )
+        return self._stand_in
+
     def apply_plan(self, plan: Plan) -> NodeApplyResult:
         self._check()
         self.calls.append(("apply", plan.id))

@@ -42,7 +42,7 @@ BindOpRequest = ns.model(
     {
         "op": fields.String(required=True, example="flushname"),
         "params": fields.Raw(description="zone, view, name, lifetime, mode, clean as the operation lists"),
-        "node_id": fields.String(description="default: this node; peers answer read operations only"),
+        "node_id": fields.String(description="default: this node; a peer runs writes itself"),
         "confirm": fields.Boolean,
     },
 )

@@ -97,7 +97,7 @@ export function HeartbeatTrace({ beat = 0, lost = false, className, testId = 'he
 // QUEUE_SLOTS, then a "+"), new ones land, sent ones leave toward the partner 70 ms apart.
 export function UnsentQueue({ count, className, testId = 'unsent-queue' }) {
   const level = useMotionLevel()
-  const value = Number.isFinite(Number(count)) ? Math.max(0, Math.floor(Number(count))) : null
+  const value = count !== null && count !== undefined && count !== '' && Number.isFinite(Number(count)) ? Math.max(0, Math.floor(Number(count))) : null
   const shown = value === null ? 0 : Math.min(value, QUEUE_SLOTS)
   const prev = useRef(shown)
   const [leaving, setLeaving] = useState(null) // { from, to, gen }

@@ -70,7 +70,7 @@ export const SerialTrace = forwardRef(function SerialTrace(
   const lastValues = useRef(new Map()) // lane id -> { value, at: perf time it changed }
   const readoutRef = useRef(null)
   const lastFrame = useRef(0)
-  const [busy, setBusy] = useState(false)
+  const [held, setHeld] = useState(false) // the playhead is away from the present
   const repaint = useRef(() => {})
   const getInks = useInks(useCallback(() => repaint.current(), []))
 
@@ -261,9 +261,11 @@ export const SerialTrace = forwardRef(function SerialTrace(
         scrub.current.at = g.from + (target - g.from) * easeInOut(k)
         if (k >= 1) {
           scrub.current.glide = null
-          if (g.clear) scrub.current.at = null
+          if (g.clear) {
+            scrub.current.at = null
+            setHeld(false)
+          }
           g.resolve()
-          setBusy(false)
         }
       } else if (time - lastFrame.current < FRAME_MS) return
       lastFrame.current = time
@@ -279,6 +281,7 @@ export const SerialTrace = forwardRef(function SerialTrace(
       scrubTo(at, { durationMs = 700 } = {}) {
         return new Promise((resolve) => {
           scrub.current.glide?.resolve()
+          setHeld(true)
           if (!full) {
             scrub.current = { at, glide: null }
             redraw()
@@ -287,7 +290,6 @@ export const SerialTrace = forwardRef(function SerialTrace(
           }
           const fromT = scrub.current.at ?? clock.current()
           scrub.current.glide = { from: fromT, to: at, start: performance.now(), dur: durationMs, resolve }
-          setBusy(true)
         })
       },
       // Lets the playhead return to the present, then the trace is live again.
@@ -296,12 +298,12 @@ export const SerialTrace = forwardRef(function SerialTrace(
           scrub.current.glide?.resolve()
           if (!full || scrub.current.at === null) {
             scrub.current = { at: null, glide: null }
+            setHeld(false)
             redraw()
             resolve()
             return
           }
           scrub.current.glide = { from: scrub.current.at, to: () => clock.current(), start: performance.now(), dur: durationMs, resolve, clear: true }
-          setBusy(true)
         })
       },
       get scrubbed() {
@@ -315,7 +317,7 @@ export const SerialTrace = forwardRef(function SerialTrace(
     <div
       className={cn('fx-trace', className)}
       data-testid={testId}
-      data-scrubbing={busy || scrub.current.at !== null ? 'true' : undefined}
+      data-scrubbing={held ? 'true' : undefined}
       onPointerMove={(e) => {
         const rect = e.currentTarget.getBoundingClientRect()
         hover.current = e.clientX - rect.left

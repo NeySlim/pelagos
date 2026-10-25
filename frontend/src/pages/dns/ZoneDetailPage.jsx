@@ -3,7 +3,7 @@
 // zonestatus + SOA query), the zone statement as configured, the rndc operations
 // (notify, reload, retransfer), the zone edit and deletion plans, the view selector
 // for a zone present in several views and the conversion of a static zone.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Globe, ArrowsClockwise, Plus, PencilSimple, Trash, Bell, ArrowClockwise, ShieldCheck, Table as TableIcon, HardDrives, Gear, DownloadSimple, Lightning, FileText, DotsThree } from '@phosphor-icons/react'
@@ -27,11 +27,11 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { PlanPreviewModal } from '../../components/PlanPreview'
-import { SerialTrace, TransferSerial } from '../../components/motion'
+import { TransferSerial } from '../../components/motion'
 import { usePoll } from '../../hooks/usePoll'
 import { useMessage } from '../../i18n/message'
 import { onPlanEvent, planZone } from '../../lib/planEvents'
-import { useSerialHistory } from './serialHistory'
+import { ZoneSerialTrace } from './ZoneSerialTrace'
 import { useCatchUps } from './catchUp'
 import { KeyValue, ListValue, ModeBadge, SourceBadge } from './common'
 import { useNodeNames, usePlanFlow, laggingNodes, SECONDARY_KINDS } from './helpers'
@@ -41,41 +41,8 @@ import { ZoneEditModal } from './ZoneEditModal'
 import { clearLists } from '../../lib/listCache'
 import { editableZone, secondaryPeers, staticFindingId, zoneDeleteRequest, zoneMode } from './zoneTools'
 
-const TRACE_WINDOW_MS = 300000
 const ZONE_POLL_MS = 15000
 const TRANSFER_REREAD_MS = 2500
-const REWIND_LEAD_MS = 400
-const REWIND_HOLD_MS = 350
-
-// Serial per node over the last 5 minutes: a step per new serial, a marker per plan, and a
-// playhead that rewinds to the plan's instant while its rollback runs.
-function ZoneSerialTrace({ zone, view, status, nameOf }) {
-  const { t } = useTranslation(['dns', 'common'])
-  const trace = useRef(null)
-  const { lanes, markers } = useSerialHistory({ zone: zone.name, view, status, windowMs: TRACE_WINDOW_MS })
-  useEffect(
-    () =>
-      onPlanEvent((event) => {
-        if (planZone(event.plan) !== zone.name || !trace.current) return
-        if (event.type === 'rollback-start' && event.at) trace.current.scrubTo(event.at - REWIND_LEAD_MS)
-        if (event.type === 'rolled-back') setTimeout(() => trace.current?.release(), REWIND_HOLD_MS)
-      }),
-    [zone.name],
-  )
-  const named = useMemo(() => lanes.map((l) => ({ ...l, label: nameOf(l.id) })), [lanes, nameOf])
-  const labeled = useMemo(() => markers.map((m) => ({ ...m, label: t(m.kind === 'rollback' ? 'trace.rolledBack' : 'trace.planApplied') })), [markers, t])
-  if (!named.length) return null
-  return (
-    <div className="mb-3" data-testid="zone-serial-trace">
-      <div className="fx-trace-head">
-        <b>{t('trace.serials')}</b>
-        <span className="font-mono">{t('trace.window', { minutes: TRACE_WINDOW_MS / 60000 })}</span>
-      </div>
-      <SerialTrace ref={trace} lanes={named} markers={labeled} windowMs={TRACE_WINDOW_MS} />
-    </div>
-  )
-}
-
 function RecordsTab({ zone, view, editable, mode, onChanged, status, nameOf }) {
   const { t } = useTranslation(['dns', 'common'])
   const msg = useMessage()

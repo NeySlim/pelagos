@@ -812,3 +812,10 @@ export function useTheme() {
   }
   return context
 }
+
+// The effects layer of the current family ('instrument', 'mission' or 'none'); outside a
+// provider (isolated tests) the default family's.
+export function useEffectsLayer() {
+  const context = useContext(ThemeContext)
+  return context?.effects ?? themeFamilies[DEFAULT_FAMILY].effects
+}

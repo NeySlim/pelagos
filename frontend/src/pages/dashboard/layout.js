@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Dashboard grid: the tiles, their default placement and the normalization of a
 // layout read from GET /dashboard/layout (unknown tiles dropped, missing ones
-// appended, sizes clamped), so an old or hand-edited layout always renders.
+// appended, sizes clamped, the old radar tile renamed), so an old or hand-edited
+// layout always renders.
 
 export const COLS = 12
 export const ROW_HEIGHT = 40
 
 export const TILES = [
-  { i: 'radar', minW: 4, minH: 7, hero: true },
+  { i: 'trace', minW: 4, minH: 9, hero: true },
   { i: 'dns', minW: 3, minH: 7, hero: true },
   { i: 'dhcp', minW: 3, minH: 7, hero: true },
   { i: 'nodes', minW: 3, minH: 4 },
@@ -23,7 +24,7 @@ export const TILE_IDS = TILES.map((tile) => tile.i)
 export const HERO_HEIGHT = 11
 
 export const DEFAULT_LAYOUT = [
-  { i: 'radar', x: 3, y: 0, w: 6, h: HERO_HEIGHT },
+  { i: 'trace', x: 3, y: 0, w: 6, h: HERO_HEIGHT },
   { i: 'dns', x: 0, y: 0, w: 3, h: HERO_HEIGHT },
   { i: 'dhcp', x: 9, y: 0, w: 3, h: HERO_HEIGHT },
   { i: 'nodes', x: 0, y: 11, w: 4, h: 6 },
@@ -36,9 +37,13 @@ export const DEFAULT_LAYOUT = [
 
 const int = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : null)
 
+// Tile ids renamed since a layout was saved: the cluster radar became the cluster trace.
+export const RENAMED = { radar: 'trace' }
+
 export function normalizeLayout(saved) {
   const byId = new Map()
-  for (const item of Array.isArray(saved) ? saved : []) {
+  const items = (Array.isArray(saved) ? saved : []).map((item) => (item && RENAMED[item.i] ? { ...item, i: RENAMED[item.i] } : item))
+  for (const item of items) {
     if (!item || !TILE_IDS.includes(item.i) || byId.has(item.i)) continue
     const tile = TILES.find((x) => x.i === item.i)
     const [x, y, w, h] = [int(item.x), int(item.y), int(item.w), int(item.h)]

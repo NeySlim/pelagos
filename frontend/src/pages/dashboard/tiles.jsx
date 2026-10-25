@@ -17,6 +17,7 @@ import { cn, formatRelativeTime } from '../../lib/utils'
 import { AmbientTile, CountUp, MiniHistogram, RegMarks, StatusDot, Sweep } from '../../components/motion'
 import { SWEEP_MAX_STEPS, SWEEP_STEP_MS, TileRefresh } from './tileRefresh'
 import { dhcpFamily, poolThresholds, formatErrorRate } from './summary'
+import { PoolPressure } from './poolPressure'
 
 // `ambient` is a canvas layer under the body. The marks ping on the tile's domain events
 // and the sweep follows refreshes (TileRefresh); all are absent unless ambient layers are on.
@@ -44,6 +45,17 @@ export function TileFrame({ id, icon: Icon, title, link, linkLabel, editing, sta
       </div>
       <div className={cn('relative z-[1] flex-1 min-h-0 overflow-auto p-3', bodyClassName)}>{children}</div>
     </div>
+  )
+}
+
+// "Live" with a dot that lights while counters arrive.
+export function LiveStatus({ active }) {
+  const { t } = useTranslation('dashboard')
+  return (
+    <span className="dash-live" data-testid="tile-live">
+      <StatusDot tone={active ? 'success' : 'neutral'} pulse={active} />
+      {t('live.label')}
+    </span>
   )
 }
 
@@ -266,7 +278,7 @@ export function ZoneSyncTile({ summary, editing, nameOf }) {
   )
 }
 
-export function PoolsTile({ summary, editing, nameOf, thresholds }) {
+export function PoolsTile({ summary, editing, nameOf, thresholds, openAlerts }) {
   const { t } = useTranslation(['dashboard', 'common'])
   const pools = [...(summary?.pools || [])].sort((a, b) => b.percent - a.percent)
   const { warn, full } = poolThresholds(summary, thresholds)
@@ -285,24 +297,29 @@ export function PoolsTile({ summary, editing, nameOf, thresholds }) {
       {pools.length === 0 ? (
         <Empty icon={ChartBar} title={t('tiles.pools.empty')} />
       ) : (
-        <ul className="space-y-2">
-          {pools.map((p) => (
-            <li key={`${p.node_id}/${p.engine}/${p.subnet_id}/${p.pool}`} className="text-xs" data-testid="tile-pool">
-              <div className="flex items-center gap-2 mb-0.5">
-                <Badge variant={p.engine === 'kea6' ? 'violet' : 'secondary'} size="sm">
-                  {p.engine === 'kea6' ? 'v6' : 'v4'}
-                </Badge>
-                <span className="font-mono text-text-primary truncate" title={p.pool}>
-                  {p.pool}
-                </span>
-                <span className="ml-auto text-2xs text-text-tertiary font-mono whitespace-nowrap">
-                  {p.subnet} · {nameOf(p.node_id)}
-                </span>
-              </div>
-              <UtilizationBar assigned={p.assigned} total={p.total} percent={p.percent} warn={warn} full={full} size="sm" label={`${p.pool} (${p.subnet})`} />
-            </li>
-          ))}
-        </ul>
+        <div className="dash-pressure-wrap">
+        <div className="dash-pressure">
+          <ul className="space-y-2 min-w-0">
+            {pools.map((p) => (
+              <li key={`${p.node_id}/${p.engine}/${p.subnet_id}/${p.pool}`} className="text-xs" data-testid="tile-pool">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <Badge variant={p.engine === 'kea6' ? 'violet' : 'secondary'} size="sm">
+                    {p.engine === 'kea6' ? 'v6' : 'v4'}
+                  </Badge>
+                  <span className="font-mono text-text-primary truncate" title={p.pool}>
+                    {p.pool}
+                  </span>
+                  <span className="ml-auto text-2xs text-text-tertiary font-mono whitespace-nowrap">
+                    {p.subnet} · {nameOf(p.node_id)}
+                  </span>
+                </div>
+                <UtilizationBar assigned={p.assigned} total={p.total} percent={p.percent} warn={warn} full={full} size="sm" label={`${p.pool} (${p.subnet})`} />
+              </li>
+            ))}
+          </ul>
+          <PoolPressure pool={pools[0]} openAlerts={openAlerts} warn={warn} full={full} />
+        </div>
+        </div>
       )}
     </TileFrame>
   )

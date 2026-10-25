@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Dashboard: react-grid-layout tiles over GET /dashboard/summary: the hero row (cluster
-// radar, live DNS and DHCP rates) then nodes, HA, inconsistencies, zone sync, pools and
+// trace, live DNS and DHCP rates) then nodes, HA, inconsistencies, zone sync, pools and
 // DDNS errors. The layout is per user, read from and saved to /dashboard/layout; live
 // events refresh the data and the rate counters are polled while the page is visible.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -24,12 +24,12 @@ import { errorMessage } from '../../services/apiClient'
 import { COLS, ROW_HEIGHT, DEFAULT_LAYOUT, normalizeLayout, serializeLayout, sameLayout } from './layout'
 import { NodesTile, HaTile, InconsistenciesTile, ZoneSyncTile, PoolsTile, D2Tile } from './tiles'
 import { TILE_SLICES, TileRefresh, changedTiles } from './tileRefresh'
-import { RadarTile, DnsTile, DhcpTile } from './heroTiles'
+import { ClusterTile, DnsTile, DhcpTile } from './heroTiles'
 import { liveTargets, useLiveRates } from '../../hooks/useLiveRates'
 import { summarizeLive } from '../../lib/liveRates'
 
 const TILE_COMPONENTS = {
-  radar: RadarTile, dns: DnsTile, dhcp: DhcpTile,
+  trace: ClusterTile, dns: DnsTile, dhcp: DhcpTile,
   nodes: NodesTile, ha: HaTile, inconsistencies: InconsistenciesTile, zones: ZoneSyncTile, pools: PoolsTile, d2: D2Tile,
 }
 const REFRESH_MS = 30000
@@ -60,6 +60,12 @@ export default function DashboardPage() {
   const targets = useMemo(() => liveTargets(nodes, { dns: canDns, dhcp: canDhcp, dhcpv6: Boolean(modules?.dhcpv6) }), [nodes, canDns, canDhcp, modules?.dhcpv6])
   const sources = useLiveRates(targets)
   const live = useMemo(() => summarizeLive(targets, sources), [targets, sources])
+  // Samples received since the page opened: the n of the readouts.
+  const lastSample = (live.dns.enabled ? live.dns.series : live.dhcp.series).at(-1)?.t
+  const [samples, setSamples] = useState(0)
+  useEffect(() => {
+    if (lastSample !== undefined) setSamples((n) => n + 1)
+  }, [lastSample])
   const nameOf = useCallback((id) => (nodes || []).find((n) => n.peer.id === id)?.peer.name || String(id || '').slice(-6), [nodes])
 
   const [layout, setLayout] = useState(DEFAULT_LAYOUT)
@@ -108,7 +114,7 @@ export default function DashboardPage() {
   useWsTopic('alerts', () => onEvent('alerts'))
   useWsTopic('plans', () => onEvent('plans'))
   const pulses = useMemo(
-    () => ({ radar: events.ha + events.nodes + events.alerts + events.plans, nodes: events.nodes, ha: events.ha, dhcp: events.ha, inconsistencies: events.alerts, zones: events.plans }),
+    () => ({ trace: events.ha + events.nodes + events.alerts + events.plans, nodes: events.nodes, ha: events.ha, dhcp: events.ha, inconsistencies: events.alerts, zones: events.plans }),
     [events],
   )
   // Sweeps: every tile on first load and on Refresh (staggered), later only the tiles whose data changed.
@@ -164,7 +170,7 @@ export default function DashboardPage() {
   }
 
   const openAlerts = canAlerts ? alerts.data?.items || [] : []
-  const tileProps = { summary: summary.data, alerts: canAlerts ? topAlerts : null, openAlerts, editing, nameOf, thresholds: settings.data, live }
+  const tileProps = { summary: summary.data, alerts: canAlerts ? topAlerts : null, openAlerts, editing, nameOf, thresholds: settings.data, live, samples }
   const ordered = useMemo(() => [...layout].sort((a, b) => a.y - b.y || a.x - b.x), [layout])
   // Tiles enter in reading order (top-left first), whatever the layout array order.
   const entryIndex = useMemo(() => Object.fromEntries(ordered.map((item, i) => [item.i, i])), [ordered])
@@ -220,8 +226,8 @@ export default function DashboardPage() {
         <EmptyState icon={Gauge} title={errorMessage(summary.error)} action={{ label: t('common:actions.retry'), onClick: refetchAll }} />
       ) : isMobile ? (
         <div className="space-y-3" data-testid="dashboard-stack">
-          {/* On a phone the radar leads, the other tiles follow in reading order. */}
-          {[...ordered.filter((it) => it.i === 'radar'), ...ordered.filter((it) => it.i !== 'radar')].map((item, i) => {
+          {/* On a phone the cluster trace leads, the other tiles follow in reading order. */}
+          {[...ordered.filter((it) => it.i === 'trace'), ...ordered.filter((it) => it.i !== 'trace')].map((item, i) => {
             const Tile = TILE_COMPONENTS[item.i]
             return (
               <div key={item.i} className="fx-stagger-item" style={{ height: item.h * ROW_HEIGHT, '--fx-i': i }}>

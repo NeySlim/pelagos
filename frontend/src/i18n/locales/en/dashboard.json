@@ -2,7 +2,7 @@
   "pages": {
     "overview": {
       "title": "Dashboard",
-      "subtitle": "Cluster radar, live DNS and DHCP rates, HA, pools, zone sync and alerts"
+      "subtitle": "Cluster trace, live DNS and DHCP rates, HA, pools, zone sync and alerts"
     }
   },
   "viewAll": "Open",
@@ -44,7 +44,11 @@
       "title": "Pool usage",
       "hot": "{{count}} above threshold",
       "hot_one": "{{count}} above threshold",
-      "empty": "No pool"
+      "empty": "No pool",
+      "pressure": "Pressure",
+      "used": "% used",
+      "window": "1 h",
+      "pressureLabel": "Fill of pool {{pool}} over the last hour, now {{percent}} %"
     },
     "d2": {
       "title": "DDNS updates",
@@ -85,7 +89,30 @@
       "chart": "Lease rate",
       "chartLabel": "Leases handed out, now {{rate}} per second",
       "pools": "Busiest pools",
-      "ha": "High availability"
+      "ha": "High availability",
+      "latest": "Latest leases",
+      "exchange": "+{{count}} leases",
+      "exchange_one": "+{{count}} lease",
+      "perSecond": "per second",
+      "nak": "NAK",
+      "steps": {
+        "v4": {
+          "discover": "Discover",
+          "offer": "Offer",
+          "request": "Request",
+          "ack": "Ack"
+        },
+        "v6": {
+          "discover": "Solicit",
+          "offer": "Advertise",
+          "request": "Request",
+          "ack": "Reply"
+        }
+      }
+    },
+    "trace": {
+      "title": "Cluster trace",
+      "nodes": "Nodes"
     }
   },
   "kinds": {
@@ -124,5 +151,59 @@
     "rate": "{{rate}} q/s",
     "alertCount_one": "{{count}} open alert",
     "alertCount_other": "{{count}} open alerts"
+  },
+  "trace": {
+    "heartbeats": "HA heartbeats received",
+    "heartbeat": "heartbeat",
+    "config": "config",
+    "audit": "audit",
+    "lanes": {
+      "dns": "DNS queries",
+      "dhcp": "DHCP leases",
+      "hb": "HA heartbeat",
+      "events": "Events"
+    },
+    "units": {
+      "dns": "queries/s",
+      "dhcp": "leases/s"
+    },
+    "hbInterval": "hb interval",
+    "link": {
+      "label": "replication · HA",
+      "inSync": "in sync",
+      "behind": "{{name}} behind by {{count}}",
+      "unreachable": "{{name}} unreachable"
+    },
+    "more": "+{{count}} more",
+    "aria": "Cluster trace over the last {{window}}: DNS queries, DHCP leases, HA heartbeats and events",
+    "window": "Trace window",
+    "windows": {
+      "30000": "30 s",
+      "90000": "90 s",
+      "300000": "5 min"
+    },
+    "noHeartbeat": "no heartbeat",
+    "downSince": "partner lost {{when}}",
+    "measuring": "measuring",
+    "lastEvent": "last event",
+    "noEvent": "none yet",
+    "legend": {
+      "dns": "DNS",
+      "dhcp": "DHCP",
+      "heartbeat": "heartbeat",
+      "plan": "plan",
+      "alert": "alert",
+      "replication": "replication"
+    },
+    "events": {
+      "plan": "plan {{plan}} applied",
+      "rb": "plan {{plan}} rolled back",
+      "fail": "plan {{plan}} failed",
+      "alert": "alert opened: {{kind}}",
+      "ok": "alert resolved: {{kind}}",
+      "axfr": "zone in sync: {{subject}}",
+      "repl": "config {{version}} replicated",
+      "ha": "HA {{server}} {{family}}: {{state}}"
+    }
   }
 }

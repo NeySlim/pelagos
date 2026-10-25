@@ -9,7 +9,7 @@ export const SWEEP_MAX_STEPS = 8
 
 // Summary slices a tile shows: a new sweep is asked only when one of them changed.
 export const TILE_SLICES = {
-  radar: ['nodes', 'zones', 'ha', 'alerts'],
+  trace: ['nodes', 'zones', 'ha', 'alerts'],
   dns: ['zones'],
   dhcp: ['pools', 'ha'],
   nodes: ['nodes'],

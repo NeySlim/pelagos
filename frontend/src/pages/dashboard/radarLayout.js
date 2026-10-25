@@ -6,8 +6,6 @@
 export const RADAR_SQUASH = 0.4
 export const NODE_RADIUS = 0.62
 
-const NORMAL_HA = ['hot-standby', 'load-balancing', 'backup', 'passive-backup', 'ready']
-const BAD_HA = ['partner-down', 'terminated', 'unavailable']
 
 // Angles (degrees, 0 = right, 90 = front) of n nodes: one node in front, two face to
 // face left and right, more spread evenly from the front left.
@@ -100,16 +98,7 @@ export function beamDuration(rate) {
   return Math.min(2.4, Math.max(0.35, 2.4 - 0.6 * Math.log10(rate + 1)))
 }
 
-// HA pill tone, like the reference waypoints: the serving server ember, a healthy
-// standby green, a backup gray, a broken pair red, a transition yellow.
-export function haTone(h) {
-  if (!h) return 'neutral'
-  if (BAD_HA.includes(h.state) || h.partner?.in_touch === false) return 'danger'
-  if (!NORMAL_HA.includes(h.state)) return 'warning'
-  if (h.state === 'backup' || h.state === 'passive-backup' || h.role === 'backup') return 'neutral'
-  if (h.role === 'primary' || h.state === 'load-balancing') return 'primary'
-  return 'success'
-}
+export { haTone } from './summary'
 
 // Alert markers: alerts of a node sit on its pin; cluster-wide ones spread on the back rim.
 export function alertMarkers(alerts = [], nodeIds = [], limit = 5) {

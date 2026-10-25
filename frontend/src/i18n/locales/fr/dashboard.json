@@ -2,7 +2,7 @@
   "pages": {
     "overview": {
       "title": "Tableau de bord",
-      "subtitle": "Radar du cluster, débits DNS et DHCP en direct, HA, pools, synchro des zones et alertes"
+      "subtitle": "Trace du cluster, débits DNS et DHCP en direct, HA, pools, synchro des zones et alertes"
     }
   },
   "viewAll": "Ouvrir",
@@ -44,7 +44,11 @@
       "title": "Occupation des pools",
       "hot": "{{count}} au-dessus du seuil",
       "hot_one": "{{count}} au-dessus du seuil",
-      "empty": "Aucun pool"
+      "empty": "Aucun pool",
+      "pressure": "Pression",
+      "used": "% utilisé",
+      "window": "1 h",
+      "pressureLabel": "Remplissage du pool {{pool}} sur la dernière heure, actuellement {{percent}} %"
     },
     "d2": {
       "title": "Mises à jour DDNS",
@@ -85,7 +89,30 @@
       "chart": "Débit de baux",
       "chartLabel": "Baux attribués, actuellement {{rate}} par seconde",
       "pools": "Pools les plus remplis",
-      "ha": "Haute disponibilité"
+      "ha": "Haute disponibilité",
+      "latest": "Derniers baux",
+      "exchange": "+{{count}} baux",
+      "exchange_one": "+{{count}} bail",
+      "perSecond": "par seconde",
+      "nak": "NAK",
+      "steps": {
+        "v4": {
+          "discover": "Discover",
+          "offer": "Offer",
+          "request": "Request",
+          "ack": "Ack"
+        },
+        "v6": {
+          "discover": "Solicit",
+          "offer": "Advertise",
+          "request": "Request",
+          "ack": "Reply"
+        }
+      }
+    },
+    "trace": {
+      "title": "Trace du cluster",
+      "nodes": "Nœuds"
     }
   },
   "kinds": {
@@ -124,5 +151,59 @@
     "rate": "{{rate}} req/s",
     "alertCount_one": "{{count}} alerte ouverte",
     "alertCount_other": "{{count}} alertes ouvertes"
+  },
+  "trace": {
+    "heartbeats": "Battements HA reçus",
+    "heartbeat": "battement",
+    "config": "config",
+    "audit": "audit",
+    "lanes": {
+      "dns": "Requêtes DNS",
+      "dhcp": "Baux DHCP",
+      "hb": "Battement HA",
+      "events": "Événements"
+    },
+    "units": {
+      "dns": "requêtes/s",
+      "dhcp": "baux/s"
+    },
+    "hbInterval": "intervalle",
+    "link": {
+      "label": "réplication · HA",
+      "inSync": "synchronisé",
+      "behind": "{{name}} en retard de {{count}}",
+      "unreachable": "{{name}} injoignable"
+    },
+    "more": "+{{count}} autres",
+    "aria": "Trace du cluster sur {{window}} : requêtes DNS, baux DHCP, battements HA et événements",
+    "window": "Fenêtre de la trace",
+    "windows": {
+      "30000": "30 s",
+      "90000": "90 s",
+      "300000": "5 min"
+    },
+    "noHeartbeat": "aucun battement",
+    "downSince": "partenaire perdu {{when}}",
+    "measuring": "mesure en cours",
+    "lastEvent": "dernier événement",
+    "noEvent": "aucun pour l’instant",
+    "legend": {
+      "dns": "DNS",
+      "dhcp": "DHCP",
+      "heartbeat": "battement",
+      "plan": "plan",
+      "alert": "alerte",
+      "replication": "réplication"
+    },
+    "events": {
+      "plan": "plan {{plan}} appliqué",
+      "rb": "plan {{plan}} annulé",
+      "fail": "plan {{plan}} en échec",
+      "alert": "alerte ouverte : {{kind}}",
+      "ok": "alerte résolue : {{kind}}",
+      "axfr": "zone synchronisée : {{subject}}",
+      "repl": "config {{version}} répliquée",
+      "ha": "HA {{server}} {{family}} : {{state}}"
+    }
   }
 }

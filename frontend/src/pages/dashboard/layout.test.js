@@ -21,11 +21,23 @@ describe('dashboard layout', () => {
   })
 
   it('appends missing tiles below the saved ones', () => {
-    const out = normalizeLayout([{ i: 'radar', x: 0, y: 0, w: 12, h: 8 }, { i: 'pools', x: 0, y: 8, w: 12, h: 5 }])
-    expect(out.find((it) => it.i === 'radar')).toMatchObject({ y: 0, h: 8 })
-    const others = out.filter((it) => !['pools', 'radar'].includes(it.i))
-    expect(Math.min(...others.map((it) => it.y))).toBe(13)
+    const out = normalizeLayout([{ i: 'trace', x: 0, y: 0, w: 12, h: 9 }, { i: 'pools', x: 0, y: 9, w: 12, h: 5 }])
+    expect(out.find((it) => it.i === 'trace')).toMatchObject({ y: 0, h: 9 })
+    const others = out.filter((it) => !['pools', 'trace'].includes(it.i))
+    expect(Math.min(...others.map((it) => it.y))).toBe(14)
     for (const a of others) for (const b of others) if (a !== b) expect(a.y + a.h <= b.y || b.y + b.h <= a.y).toBe(true)
+  })
+
+  it('turns the old radar tile into the cluster trace, in its place', () => {
+    const out = normalizeLayout([{ i: 'radar', x: 3, y: 0, w: 6, h: 11 }, { i: 'dns', x: 0, y: 0, w: 3, h: 11 }])
+    expect(out.find((it) => it.i === 'radar')).toBeUndefined()
+    expect(out.find((it) => it.i === 'trace')).toMatchObject({ x: 3, y: 0, w: 6, h: 11 })
+    // A layout holding both keeps the first one.
+    const both = normalizeLayout([{ i: 'trace', x: 0, y: 0, w: 6, h: 11 }, { i: 'radar', x: 6, y: 0, w: 6, h: 11 }])
+    expect(both.filter((it) => it.i === 'trace')).toHaveLength(1)
+    expect(both.find((it) => it.i === 'trace').x).toBe(0)
+    // A radar saved smaller than the trace needs grows to its minimum height.
+    expect(normalizeLayout([{ i: 'radar', x: 0, y: 0, w: 6, h: 7 }]).find((it) => it.i === 'trace').h).toBe(9)
   })
 
   it('puts the hero row on top of a layout saved before it', () => {

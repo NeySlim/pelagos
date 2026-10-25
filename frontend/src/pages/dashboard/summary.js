@@ -26,3 +26,27 @@ export function formatErrorRate(errors, sent, language) {
   const rate = sent ? (errors / sent) * 100 : 0
   return new Intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(rate)
 }
+
+const NORMAL_HA = ['hot-standby', 'load-balancing', 'backup', 'passive-backup', 'ready']
+const BAD_HA = ['partner-down', 'terminated', 'unavailable']
+
+// HA pill tone, like the reference waypoints: the serving server ember, a healthy
+// standby green, a backup gray, a broken pair red, a transition yellow.
+export function haTone(h) {
+  if (!h) return 'neutral'
+  if (BAD_HA.includes(h.state) || h.partner?.in_touch === false) return 'danger'
+  if (!NORMAL_HA.includes(h.state)) return 'warning'
+  if (h.state === 'backup' || h.state === 'passive-backup' || h.role === 'backup') return 'neutral'
+  if (h.role === 'primary' || h.state === 'load-balancing') return 'primary'
+  return 'success'
+}
+
+// Rates as the tiles print them: one decimal under 10.
+export const rateFormat = (lang) => (v) => new Intl.NumberFormat(lang, { maximumFractionDigits: v < 10 ? 1 : 0 }).format(v)
+
+// "837" and "/s", or "1.24" and "k/s" past a thousand: the unit rolls with the digits.
+export function splitRate(v, lang) {
+  if (v === null || v === undefined) return { n: '-', u: '' }
+  if (v >= 1000) return { n: new Intl.NumberFormat(lang, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v / 1000), u: 'k/s' }
+  return { n: rateFormat(lang)(v), u: '/s' }
+}

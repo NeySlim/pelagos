@@ -720,12 +720,12 @@ class EnginesWatch:
         mtime = self._stat()
         if mtime == self._mtime:
             return False
-        self._mtime = mtime
         try:
             engines = self.ctx.config_store.load_node().engines
-        except Exception:  # a half-written or broken file: keep running on the current connectors
+        except Exception:  # unreadable for now: keep the connectors, read it again next loop
             log.exception("node.toml not readable")
             return False
+        self._mtime = mtime
         return engines != self.engines
 
 
@@ -775,17 +775,19 @@ def publish_own_modules(ctx: NodeContext) -> bool:
     """Each node owns its [[nodes]].modules entry: when cluster.toml says something else than
     node.toml [engines] (a peer wrote that entry later), publish it again."""
     try:
+        # node.toml as it is now: ctx.node predates an import until the collector restarts.
+        modules = ctx.config_store.load_node().modules
         own = ctx.config_store.load_cluster().peer(ctx.node.id)
     except Exception:
-        log.exception("cluster.toml not readable")
+        log.exception("node.toml or cluster.toml not readable")
         return False
-    if own is None or own.modules == ctx.node.modules:
+    if own is None or own.modules == modules:
         return False
 
     def mutate(cfg: Any) -> None:
         peer = cfg.peer(ctx.node.id)
         if peer is not None:
-            peer.modules = ctx.node.modules
+            peer.modules = modules
 
     ctx.config_store.update_cluster(mutate, updated_by=f"node:{ctx.node.id}")
     log.info("published this node's modules in cluster.toml again")

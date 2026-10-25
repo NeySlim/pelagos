@@ -121,3 +121,20 @@ def test_node_config_modules(node_paths):
     node = store.load_node()
     assert node.modules.bind is True and node.modules.kea6 is False
     assert node.name == "ns1"
+
+
+def test_atomic_write_as_root_keeps_the_owner(tmp_path, monkeypatch):
+    """The installer helper (root) rewrites node.toml: the service user keeps reading it."""
+    from pelagos.core import config_store
+
+    target = tmp_path / "node.toml"
+    target.write_bytes(b"old\n")
+    st = target.stat()
+    calls = []
+    monkeypatch.setattr(config_store.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(config_store.os, "chown", lambda p, uid, gid: calls.append((uid, gid)))
+    config_store.atomic_write(target, b"new\n")
+    assert calls == [(st.st_uid, st.st_gid)] and target.read_bytes() == b"new\n"
+    calls.clear()
+    config_store.atomic_write(tmp_path / "fresh.toml", b"x\n")
+    assert calls == []  # a new file: the helper gives the tree back afterwards

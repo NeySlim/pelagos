@@ -122,6 +122,18 @@ def remove_stale_temps(path: Path, older_than: float = STALE_TEMP_SECONDS) -> in
     return removed
 
 
+def _keep_owner(tmp: str, path: Path) -> None:
+    """Root rewriting a file (the installer helper) keeps its owner: the service user must never
+    lose read access to node.toml or cluster.toml, even until the helper gives the tree back."""
+    if not hasattr(os, "geteuid") or os.geteuid() != 0:
+        return
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return
+    os.chown(tmp, st.st_uid, st.st_gid)
+
+
 def atomic_write(path: Path, data: bytes, mode: int = 0o640) -> None:
     """Write via a temp file in the same directory, fsync, rename, fsync the directory."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,6 +145,7 @@ def atomic_write(path: Path, data: bytes, mode: int = 0o640) -> None:
             fh.flush()
             os.fsync(fh.fileno())
         os.chmod(tmp, mode)
+        _keep_owner(tmp, path)
         os.replace(tmp, path)
         fsync_dir(path.parent)
     except BaseException:

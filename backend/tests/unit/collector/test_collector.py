@@ -425,6 +425,45 @@ def test_engines_watch_sees_node_toml_changes(node_ctx):
     assert watch.changed() is True
 
 
+def test_engines_watch_reads_an_unreadable_node_toml_again(node_ctx, monkeypatch):
+    """A read that fails (root rewriting the file) does not hide the change from the next loop."""
+    import os
+
+    from pelagos.collector.main import EnginesWatch
+
+    watch = EnginesWatch(node_ctx)
+    node = node_ctx.config_store.load_node()
+    node.engines = {**node.engines, "d2": True}
+    node_ctx.config_store.save_node(node)
+    os.utime(node_ctx.paths.node_toml, ns=(3, 3))
+    real = node_ctx.config_store.load_node
+
+    def denied():
+        raise PermissionError("node.toml")
+
+    monkeypatch.setattr(node_ctx.config_store, "load_node", denied)
+    assert watch.changed() is False
+    monkeypatch.setattr(node_ctx.config_store, "load_node", real)
+    assert watch.changed() is True
+
+
+def test_node_publishes_the_modules_node_toml_has_now(node_ctx):
+    """An import adds engines to node.toml after start: the stale ctx.node never wins."""
+    from pelagos.collector.main import publish_own_modules
+
+    node = node_ctx.config_store.load_node()
+    node.engines = {**node.engines, "d2": True}
+    node_ctx.config_store.save_node(node)
+
+    def imported(cfg):
+        cfg.peer(node_ctx.node.id).modules = node.modules
+
+    node_ctx.config_store.update_cluster(imported, updated_by=f"node:{node_ctx.node.id}")
+    assert node_ctx.node.modules != node.modules
+    assert publish_own_modules(node_ctx) is False
+    assert node_ctx.config_store.load_cluster().peer(node_ctx.node.id).modules.d2 is True
+
+
 def test_node_publishes_its_own_modules_again(node_ctx):
     from pelagos.collector.main import publish_own_modules
     from pelagos.domain import NodeModules

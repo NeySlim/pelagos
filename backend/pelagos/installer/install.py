@@ -236,6 +236,8 @@ def step_repo(env: Any, change: Change) -> str:
 
 def step_packages(env: Any, change: Change) -> str:
     pkgs = list(change.after["install"])
+    if env.dry_run:
+        return f"dry run: would install {' '.join(pkgs)}" if pkgs else "nothing to install"
     if env.distro.is_rhel and env.distro.id != "fedora":
         missing = [p for p in pkgs if p.startswith("kea") and not env.packages.available(p)]
         if missing:
@@ -277,6 +279,8 @@ def step_service(env: Any, engine: str) -> str:
     notes: list[str] = []
     if engine != "bind" and env.packages.is_installed(env.paths.kea_packages_for([engine], isc=True)[0]):
         notes = disable_stale_apparmor(env)
+    if env.dry_run:
+        return "\n".join([*notes, f"dry run: would enable and start {unit}"])
     # A unit that hit its start limit (a failed earlier start) refuses to start until reset.
     env.runner.run(["systemctl", "reset-failed", unit], privileged=True, check=False, timeout=30)
     out = "\n".join([*notes, env.services.enable_now(unit)]).strip()
@@ -288,6 +292,10 @@ def step_service(env: Any, engine: str) -> str:
 
 def step_bind_adopt(env: Any, change: Change, ctx: InstallContext) -> str:
     keys = list(change.after["keys"])
+    named_conf = Path(change.after["named_conf"])
+    if env.dry_run and not named_conf.exists():
+        # The packages step only pretends in a dry run: there is no named.conf to adopt yet.
+        return f"dry run: {named_conf} is adopted once the packages are installed"
     extra = {KEA_DDNS_KEY: ctx.secret(KEA_DDNS_KEY)} if KEA_DDNS_KEY in keys else {}
     if not env.dry_run:
         keasetup._wait(lambda: env.paths.rndc_key.exists(), seconds=20)

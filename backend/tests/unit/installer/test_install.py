@@ -127,6 +127,22 @@ def test_install_dry_run_writes_nothing(tmp_path):
     assert not (tmp_path / "etc/kea/kea-dhcp4.conf").exists()
 
 
+@pytest.mark.parametrize("distro", ["debian13", "rocky10"])
+def test_install_dry_run_on_a_fresh_host(tmp_path, distro):
+    """Nothing installed yet: the dry run walks every step without the files the packages bring."""
+    env = make_env(tmp_path, distro)
+    env.dry_run = True
+    env.binaries.update({"named": None, "kea-dhcp4": None, "kea-dhcp-ddns": None})
+    plan = build_install_plan(env, ["bind", "kea4", "d2"], "isc")
+    job = apply_plan(plan, env)
+    assert job.state is JobState.DONE, job.error
+    out = {s["name"]: s["output"] for s in job.steps}
+    assert out["install/packages"].startswith("dry run: would install ")
+    assert out["install/service/bind"].startswith("dry run: would enable and start ")
+    assert "once the packages are installed" in out["install/bind/adopt"]
+    assert env.packages.installed == set() and not list(tmp_path.glob("etc/**/*.conf"))
+
+
 def test_job_runner_stops_at_first_failure():
     def boom() -> str:
         raise RuntimeError("no network")

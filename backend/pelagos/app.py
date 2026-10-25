@@ -168,9 +168,12 @@ def _problem(doc: dict, status: int, headers: dict | None = None) -> Response:
 
 
 def wsgi_app() -> Flask:
-    """gunicorn entry: `pelagos.app:wsgi_app()`; also listens to collector events on events.sock."""
+    """gunicorn entry: `pelagos.app:wsgi_app()`; also listens to collector events on events.sock
+    and watches the account's groups in the background."""
     app = create_app()
     from pelagos.services.container import Services
 
-    Services.of(app.extensions["pelagos"]).start_event_listener()
+    services = Services.of(app.extensions["pelagos"])
+    services.start_event_listener()
+    services.groups.start()
     return app

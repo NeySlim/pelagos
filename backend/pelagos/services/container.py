@@ -165,6 +165,7 @@ class Services:
             self.listener = None
 
     def close(self) -> None:
+        self.groups.stop()
         if self.listener is not None:
             self.listener.stop()
         self.cache.close()

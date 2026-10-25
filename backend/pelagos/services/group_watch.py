@@ -68,6 +68,7 @@ class GroupWatch:
         self.kill = kill
         self._next = 0.0
         self._lock = threading.Lock()
+        self._stop = threading.Event()
         self.requested = False
 
     def check(self, force: bool = False) -> list[str]:
@@ -86,6 +87,24 @@ class GroupWatch:
         if missing:
             self.request_restart(missing)
         return missing
+
+    def start(self) -> threading.Thread:
+        """Checks every `interval` in the background: an idle web process restarts too, so the
+        first request after an engine install already carries the new groups."""
+
+        def loop() -> None:
+            while not self._stop.wait(self.interval) and not self.requested:
+                try:
+                    self.check(force=True)
+                except Exception:
+                    log.warning("group check failed", exc_info=True)
+
+        thread = threading.Thread(target=loop, name="pelagos-group-watch", daemon=True)
+        thread.start()
+        return thread
+
+    def stop(self) -> None:
+        self._stop.set()
 
     def request_restart(self, missing: list[str]) -> bool:
         master = os.environ.get(MASTER_ENV, "")

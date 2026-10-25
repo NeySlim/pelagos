@@ -63,6 +63,39 @@ def test_restart_requested_once_through_the_master(tmp_path, monkeypatch):
     assert len(kills) == 1 and not gw.marker_path(tmp_path).exists()
 
 
+def test_background_check_restarts_an_idle_process(tmp_path, monkeypatch):
+    kills: list[tuple[int, int]] = []
+    probes: list[int] = []
+    groups: list[str] = []
+
+    def probe() -> list[str]:
+        probes.append(1)
+        return list(groups)
+
+    watch = gw.GroupWatch(tmp_path, interval=0.02, probe=probe, kill=lambda p, s: kills.append((p, s)))
+    monkeypatch.setenv(gw.MASTER_ENV, "4242")
+    monkeypatch.setattr(gw, "RESTART_DELAY", 0.01)
+    thread = watch.start()
+    deadline = time.monotonic() + 2
+    while len(probes) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not kills  # nothing missing yet: no restart
+    groups.append("bind")  # no request comes in, the timer alone notices
+    while not kills and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert kills == [(4242, signal.SIGTERM)]
+    thread.join(1)
+    assert not thread.is_alive()  # one restart request ends the loop
+
+
+def test_stopped_watch_checks_nothing(tmp_path):
+    watch = gw.GroupWatch(tmp_path, interval=0.01, probe=lambda: pytest.fail("no probe after stop"))
+    watch.stop()
+    thread = watch.start()
+    thread.join(1)
+    assert not thread.is_alive()
+
+
 def test_without_gunicorn_only_logs(tmp_path, monkeypatch):
     monkeypatch.delenv(gw.MASTER_ENV, raising=False)
     watch = gw.GroupWatch(tmp_path, probe=lambda: ["bind"], kill=lambda p, s: pytest.fail("no kill"))

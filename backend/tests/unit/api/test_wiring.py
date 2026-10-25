@@ -68,6 +68,9 @@ def peer_b(node_ctx, services):
         kea4=FakeDhcpBackend(fake_context(NODE_B, "kea4"), Family.V4),
         d2=FakeDdnsBackend(fake_context(NODE_B, "d2")),
     )
+    # ns2 is the standby partner of ns1's Kea.
+    registry.kea4.ha.server_name, registry.kea4.ha.role, registry.kea4.ha.scopes = "ns2", "standby", []
+    registry.kea4.ha.partner.server_name, registry.kea4.ha.partner.role = "ns1", "primary"
     client = FakeReplicationClient(NODE_B, registry)
     services.peers.client = lambda peer: client if peer.id == NODE_B else None
     services.peers.forget()

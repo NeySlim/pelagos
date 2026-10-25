@@ -40,6 +40,8 @@ CATALOG: dict[str, str] = {
     "plan.bind.config": "BIND configuration: {changes}",
     "plan.bind.includes": "Pelagos include files and include lines",
     "plan.host": "host {fqdn} -> {ip}",
+    "plan.zone.secondaries": "zone {zone}: secondaries on {nodes}",
+    "plan.zone.secondaries_none": "zone {zone}: no secondary node",
     "plan.host.reserved": "host {fqdn} -> {ip} reserved for {mac}",
     "plan.kea.subnet": "{op} subnet {subnet}",
     "plan.kea.reservation": "{op} reservation {target}",
@@ -60,6 +62,11 @@ CATALOG: dict[str, str] = {
     "plan.kea.ha_cancel": (
         "HA maintenance cancel: {down} leaves maintenance and both servers return to normal ({up} drives)"
     ),
+    "plan.kea.ha_setup": "{engine} HA {mode}: {server} as {role}",
+    "plan.kea.ha_remove": "{engine}: remove the HA hook",
+    "plan.kea.ha_setup_cluster": "{engine} HA {mode} on {count} servers: {servers}",
+    "plan.kea.ha_remove_cluster": "{engine}: remove HA from {servers}",
+    "plan.kea.lease_delete_nodes": "delete lease {ip} on {nodes}",
     "plan.kea.service_enable": "enable DHCP service ({engine})",
     "plan.kea.service_disable": "disable DHCP service ({engine})",
     "plan.kea.service_enable_on": "enable DHCP service ({engine} on {node})",
@@ -75,7 +82,10 @@ CATALOG: dict[str, str] = {
     "alert.zone_error": "zone {zone}: error",
     "alert.secondary_stale": "secondary zone {zone} expires soon",
     "alert.pool_usage": "pool {pool} of subnet {subnet_id} is {percent}% used",
-    "alert.ha_partner_down": "{engine} HA partner is down (state {state})",
+    "alert.ha_partner_down": "{engine} HA partner {partner} is down (state {state})",
+    "alert.ha_backup_out_of_sync": (
+        "{engine} HA backup {server} is out of sync with {reference} ({count} leases differ)"
+    ),
     "alert.ha_degraded": "{engine} HA is in state {state}",
     "alert.ha_transition": "{engine} HA moved from {from_state} to {to_state}",
     "alert.d2_errors": "DDNS updates failing: {percent}% over the last hour",

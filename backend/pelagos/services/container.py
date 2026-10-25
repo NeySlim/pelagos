@@ -54,6 +54,8 @@ class Services:
             ctx, Family.V6, self.registry.kea6, self.peers, self.registry.d2, self.alerts
         )
         self.plans = PlanService(ctx, self.registry, self.peers, self.events)
+        # Plans made of one part per node (HA setup, zone secondaries) register their parts there.
+        self.dhcp4.plans = self.dhcp6.plans = self.dns.plans = self.plans
         self.hosts = HostsService(ctx, self.dns, self.dhcp4, self.dhcp6, self.alerts, self.plans)
         self.dashboard = DashboardService(
             ctx, self.registry, self.peers, self.dns, self.dhcp4, self.dhcp6, self.alerts

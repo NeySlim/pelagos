@@ -200,7 +200,7 @@ def test_lease_delete_ha_and_service(role_client, kea4, node_ctx):
     assert _apply(op, plan["id"]).status_code == 428
     assert _apply(op, plan["id"], True).get_json()["state"] == "applied"
     assert op.get(D + "/leases/192.0.2.150").status_code == 404
-    assert op.post(D + "/leases/192.0.2.150/delete/plan").status_code == 422
+    assert op.post(D + "/leases/192.0.2.150/delete/plan").status_code == 404  # no node holds it any more
 
     assert op.post(D + "/ha/maintenance/plan", json={"action": "start"}).status_code == 403  # ops:dhcp.ha
     admin = role_client("admin")

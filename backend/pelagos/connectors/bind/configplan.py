@@ -305,6 +305,8 @@ class ConfigPlanner:
                 "view": view,
                 "kind": ZoneKind.SECONDARY.value,
                 "primaries": list(secondary.get("primaries") or []),
+                # The copy grants transfers as the primary does: Pelagos reads it with the same key.
+                "allow_transfer": list(raw.get("allow_transfer") or []),
                 "notes": raw.get("notes"),
             }
         zone = Zone.from_dict({k: v for k, v in raw.items() if k not in ("ns", "records", "secondary")})

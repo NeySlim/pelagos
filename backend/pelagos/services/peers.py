@@ -112,6 +112,12 @@ class PeerGateway:
     def peers_running(self, engine: Engine) -> list[Peer]:
         return [p for p in self.peers() if getattr(p.modules, engine.value, False)]
 
+    def first_running(self, engine: Engine) -> Peer | None:
+        """The peer a read without a node goes to: the first running `engine` that answers (any
+        of three or more may be down), else the first one, whose error the caller reports."""
+        peers = self.peers_running(engine)
+        return next((p for p in peers if self.status(p).reachable), peers[0] if peers else None)
+
     # Status -------------------------------------------------------------
 
     def status(self, peer: Peer) -> PeerStatus:

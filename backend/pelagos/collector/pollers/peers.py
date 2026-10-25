@@ -25,9 +25,16 @@ from pelagos.domain import Alert, AlertKind, Engine, Node, NodeStatus, Peer
 log = logging.getLogger(__name__)
 
 KINDS = frozenset(
-    {AlertKind.PEER_OFFLINE.value, AlertKind.SERIAL_DIVERGENCE.value, AlertKind.CONFIG_DIVERGENCE.value}
+    {
+        AlertKind.PEER_OFFLINE.value,
+        AlertKind.SERIAL_DIVERGENCE.value,
+        AlertKind.CONFIG_DIVERGENCE.value,
+        AlertKind.HA_BACKUP_OUT_OF_SYNC.value,
+    }
 )
 OFFLINE_AFTER = 3
+# A backup's lease count may trail its active server's while updates are in flight: this long first.
+BACKUP_GRACE_SECONDS = 300
 # Zone kinds whose serial must follow the primary's (section 15, serial_divergence).
 TRANSFERRED_KINDS = frozenset({"secondary", "mirror"})
 
@@ -107,6 +114,7 @@ class PeersPoller:
         self.clock = clock
         self.failures: dict[str, int] = {}
         self.divergent_since: dict[tuple[str, str, str], int] = {}
+        self.backup_since: dict[tuple[str, str], int] = {}
         self._unimplemented_logged = False
         # Last node state sent per peer: (status, version, config_version, audit_count, error).
         self._node_seen: dict[str, tuple[Any, ...]] = {}
@@ -123,6 +131,7 @@ class PeersPoller:
             self._poll_peer(peer, now, out)
         self._serial_divergence(now, out)
         self._config_divergence(out)
+        self._backup_sync(now, out)
         return out
 
     def _status(self, peer: Peer) -> tuple[PeerStatus, int] | None:
@@ -281,3 +290,50 @@ class PeersPoller:
             distinct = {h for h in hashes.values() if h}
             if len(distinct) > 1:
                 out.alerts.append(rules.config_divergence(engine, hashes))
+
+    def _backup_sync(self, now: int, out: PollOutcome) -> None:
+        """Compare each Kea HA backup's lease count with its primary's (an active server's otherwise):
+        a backup takes every lease update, so a lasting gap means it stopped receiving them."""
+        active: set[tuple[str, str]] = set()
+        for engine in (Engine.KEA4, Engine.KEA6):
+            ha: dict[str, dict[str, Any]] = {}
+            leases: dict[str, int] = {}
+            for snap in self.store.snapshots(engine=engine.value):
+                payload = snap["payload"]
+                if snap["kind"] == "ha" and isinstance(payload, dict) and payload.get("enabled", True):
+                    ha[snap["node_id"]] = payload
+                elif snap["kind"] == "utilization" and isinstance(payload, list):
+                    leases[snap["node_id"]] = sum(int(r.get("assigned") or 0) for r in payload)
+            # The primary is the reference; an active server in a normal state stands in for it.
+            order = {"primary": 0, "secondary": 1, "standby": 1}
+            candidates = sorted(
+                (n for n, h in ha.items() if h.get("role") in order and n in leases),
+                key=lambda n: (order[ha[n]["role"]], ha[n].get("state") not in rules.HA_NORMAL_STATES),
+            )
+            reference = (candidates[0], ha[candidates[0]]) if candidates else None
+            if reference is None:
+                continue
+            ref_node, ref_ha = reference
+            for node_id, st in ha.items():
+                if st.get("role") != "backup" or node_id not in leases:
+                    continue
+                if not rules.backup_diverges(leases[node_id], leases[ref_node]):
+                    continue
+                key = (engine.value, node_id)
+                active.add(key)
+                since = self.backup_since.setdefault(key, now)
+                if now - since >= BACKUP_GRACE_SECONDS:
+                    out.alerts.append(
+                        rules.ha_backup_out_of_sync(
+                            node_id,
+                            engine,
+                            str(st.get("server_name") or node_id),
+                            str(ref_ha.get("server_name") or ref_node),
+                            leases[node_id],
+                            leases[ref_node],
+                            since,
+                        )
+                    )
+        for key in list(self.backup_since):
+            if key not in active:
+                del self.backup_since[key]

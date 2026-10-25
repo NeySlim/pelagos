@@ -42,6 +42,7 @@ OPS_ENGINES = ("bind", "v4", "v6", "d2")
 ZONE_PLAN = "dns.zone.plan"
 ADOPT_PLAN = "dhcp.adopt.plan"
 CONFIG_PLAN = "dhcp.config.plan"
+HA_PLAN = "dhcp.ha.plan"
 OPS_RUN = "ops.run"
 
 
@@ -56,6 +57,7 @@ class PeerActions:
             ZONE_PLAN: self.zone_plan,
             ADOPT_PLAN: self.adopt_plan,
             CONFIG_PLAN: self.config_plan,
+            HA_PLAN: self.ha_plan,
             OPS_RUN: self.ops_run,
         }
 
@@ -117,6 +119,30 @@ class PeerActions:
                 family = Family.V4 if engine is Engine.KEA4 else Family.V6
                 service = DhcpService(self.ctx, family, backend, PeerGateway(self.ctx))
                 plan = service._build_config_plan("config", {"config": config}, backend, created_by)
+        except FileDiverged as exc:
+            raise kea_files.from_connector(engine, exc, self.ctx.node.id) from None
+        return self._plan(plan)
+
+    def ha_plan(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """This node's part of an HA setup: its ha hook under `this_server` (`spec` null removes it)."""
+        from pelagos.connectors.kea.ha import validate_setup
+
+        engine, backend = self._dhcp_backend(body)
+        if engine is Engine.D2:
+            raise ValidationError("engine must be kea4 or kea6", [field_error("engine", "invalid")])
+        spec = body.get("spec")
+        if spec is not None:
+            if not isinstance(spec, dict):
+                raise ValidationError("spec must be an object", [field_error("spec", "object expected")])
+            problems = validate_setup(spec)
+            if problems:
+                raise ValidationError(
+                    f"invalid HA setup: {problems[0][0]}: {problems[0][1]}",
+                    [field_error(f, m) for f, m in problems],
+                )
+        server = body.get("this_server")
+        try:
+            plan = backend.plan_ha_setup(spec, str(server) if server else None, _created_by(body))
         except FileDiverged as exc:
             raise kea_files.from_connector(engine, exc, self.ctx.node.id) from None
         return self._plan(plan)

@@ -89,6 +89,12 @@ class PlanService:
     def parts(self, plan: Plan) -> list[Plan]:
         return self._composites.get(plan.id, [])
 
+    def _parts_of(self, plan: Plan) -> list[Plan]:
+        """The engine plans applied in order: a host plan's or another composite's parts, else itself."""
+        if plan.scope is PlanScope.HOST or plan.id in self._composites:
+            return self.parts(plan)
+        return [plan]
+
     # Checks -------------------------------------------------------------
 
     def check_applicable(self, plan: Plan, confirm: bool) -> None:
@@ -107,6 +113,7 @@ class PlanService:
         if (
             plan.scope not in JOB_SCOPES
             and plan.scope is not PlanScope.HOST
+            and plan.id not in self._composites
             and local
             and self._backend(plan) is None
         ):
@@ -170,7 +177,7 @@ class PlanService:
             self._track(-1)
 
     def _apply(self, plan: Plan, user: str, confirm: bool, client_ip: str | None) -> ApplyResult:
-        parts = self.parts(plan) if plan.scope is PlanScope.HOST else [plan]
+        parts = self._parts_of(plan)
         who = (user, client_ip)
         # Check and claim under the lock: a concurrent caller then sees APPLYING and gets plan_state.
         with self._lock:
@@ -391,7 +398,7 @@ class PlanService:
             plan.state = PlanState.APPLYING  # in flight: a second rollback or apply gets plan_state
             self.ctx.plan_store.update(plan)
         self._phase(plan, "rolling_back")
-        parts = self.parts(plan) if plan.scope is PlanScope.HOST else [plan]
+        parts = self._parts_of(plan)
         results: list[NodeApplyResult] = []
         try:
             for part in reversed(parts):

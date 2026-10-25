@@ -278,7 +278,14 @@ ZoneItem = model(
     },
 )
 ZoneList = items_of(ZoneItem, "ZoneList")
-ZoneDetail = model("ZoneDetail", {"zone": fields.Nested(Zone), "status": fields.Raw})
+ZoneDetail = model(
+    "ZoneDetail",
+    {
+        "zone": fields.Nested(Zone),
+        "status": fields.Raw,
+        "copies": fields.Raw(description="node id -> {kind, source} of each reachable node holding it"),
+    },
+)
 RRsetPage = page_of(RRset, "RRsetPage")
 ZoneOp = model("ZoneOp", {"node_id": fields.String, "view": fields.String})
 OpOutput = model("OpOutput", {"output": fields.String, "node_id": fields.String})
@@ -319,7 +326,53 @@ OptionList = items_of(OptionData, "OptionList", option_defs=fields.List(fields.R
 ReservationPage = page_of(Reservation, "ReservationPage")
 LeasePage = page_of(Lease, "LeasePage")
 LeaseList = items_of(Lease, "LeaseList")
-HAList = items_of(HAState, "HAList")
+HAList = items_of(
+    HAState,
+    "HAList",
+    relationships=fields.List(
+        fields.Raw,
+        description='[{"family","mode","servers":[{"name","role","url","auto_failover","node_id","node_name",'
+        '"state","scopes","unsent_update_count","partner","in_touch","collected_at","managed"}],'
+        '"active":[name],"backups":[name]}]',
+    ),
+)
+HA_TUNABLES = (
+    "heartbeat_delay",
+    "max_response_delay",
+    "max_ack_delay",
+    "max_unacked_clients",
+    "max_rejected_lease_updates",
+    "delayed_updates_limit",
+    "sync_leases",
+    "sync_timeout",
+    "sync_page_limit",
+    "send_lease_updates",
+    "wait_backup_ack",
+)
+HASetupBody = model(
+    "HASetupBody",
+    {
+        "mode": fields.String(enum=["hot-standby", "load-balancing", "passive-backup"]),
+        "servers": fields.List(
+            fields.Raw,
+            description='[{"name","url","role":"primary"|"secondary"|"standby"|"backup","auto_failover"?,'
+            '"node_id"?}]: node_id names the node of this cluster that runs the server',
+        ),
+        "remove": fields.Boolean(description="drop the ha hook from node_ids instead"),
+        "node_ids": fields.List(fields.String, description="with remove: default every node where HA is on"),
+        "hooks_dir": fields.String(description="default: the directory of the loaded hook libraries"),
+        **{k: fields.Raw for k in HA_TUNABLES},
+    },
+)
+SecondariesBody = model(
+    "SecondariesBody",
+    {
+        "view": fields.String,
+        "node_ids": fields.List(
+            fields.String, required=True, description="every node to hold a secondary copy"
+        ),
+    },
+)
 Utilization = items_of(fields.Raw, "Utilization")
 DhcpStats = model("DhcpStats", {"node_id": fields.String, "statistics": fields.Raw})
 DhcpConfig = model("DhcpConfig", {"node_id": fields.String, "hash": fields.String, "config": fields.Raw})

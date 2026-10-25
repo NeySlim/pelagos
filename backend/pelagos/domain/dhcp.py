@@ -178,6 +178,7 @@ class Lease(Model):
 @dataclass(slots=True)
 class HAPartner(Model):
     role: str | None = None
+    server_name: str | None = None  # the remote's this-server-name, as status-get names it
     state: str | None = None
     scopes: list[str] = field(default_factory=list)
     in_touch: bool | None = None
@@ -187,6 +188,16 @@ class HAPartner(Model):
     unacked_clients: int | None = None
     unacked_clients_left: int | None = None
     analyzed_packets: int | None = None
+
+
+@dataclass(slots=True)
+class HAPeer(Model):
+    """One entry of the ha hook's `peers` list: role primary, secondary, standby or backup."""
+
+    name: str
+    role: str
+    url: str | None = None
+    auto_failover: bool | None = None
 
 
 @dataclass(slots=True)
@@ -206,6 +217,9 @@ class HAState(Model):
     # Where the partner's last heartbeat lies (connectors.kea.ha.heartbeat_window): {"lo", "hi",
     # "age", "sent_at", "received_at", "kea_time"}; None when unknown (no partner, older reads).
     heartbeat: dict[str, Any] | None = None
+    # Every server of the relationship as the ha hook configures it (HAPeer), this one included;
+    # status-get alone never lists the backups.
+    peers: list[HAPeer] = field(default_factory=list)
 
 
 @dataclass(slots=True)

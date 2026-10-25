@@ -968,7 +968,17 @@ class Replicator:
 
     def pull_all(self, self_id: str | None = None) -> list[PeerStatus]:
         """Pull on start and anti-entropy: a full two-way sync with every peer."""
-        return [self.sync_peer(p) for p in self.peers(self_id)]
+        peers = self.peers(self_id)
+        self._forget_removed({p.id for p in peers})
+        return [self.sync_peer(p) for p in peers]
+
+    def _forget_removed(self, current: set[str]) -> None:
+        """A removed node leaves the statuses and failure counts: no ghost peer, no offline alert."""
+        with self._lock:
+            for node_id in [n for n in self.statuses if n not in current]:
+                del self.statuses[node_id]
+            for node_id in [n for n in self.failures if n not in current]:
+                del self.failures[node_id]
 
     def push_config(self, self_id: str | None = None) -> list[PeerStatus]:
         out: list[PeerStatus] = []

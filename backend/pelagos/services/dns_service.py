@@ -52,6 +52,7 @@ class DnsService(DnsExtras):
         # Transfer status per (node, view, zone) for the zone list, kept peer_poll_seconds.
         self._zone_status: dict[tuple[str, str, str], tuple[float, dict[str, Any]]] = {}
         self._zone_status_lock = threading.Lock()
+        self.plans: Any = None  # PlanService, for plans made of one part per node (zone secondaries)
 
     # Targets ------------------------------------------------------------
 
@@ -75,10 +76,10 @@ class DnsService(DnsExtras):
                 return self.local, None
             if node_id is not None:
                 raise EngineUnavailable("this node does not run BIND")
-            peers = self.peers.peers_running(Engine.BIND)
-            if not peers:
+            peer = self.peers.first_running(Engine.BIND)
+            if peer is None:
                 raise EngineUnavailable("no node runs BIND")
-            return None, peers[0]
+            return None, peer
         peer = self.peers.peer(node_id)
         if peer is None:
             raise NotFound(f"node {node_id}")

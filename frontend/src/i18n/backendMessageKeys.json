@@ -20,12 +20,19 @@
   "alert.duplicate_reservation": [
     "ip"
   ],
+  "alert.ha_backup_out_of_sync": [
+    "count",
+    "engine",
+    "reference",
+    "server"
+  ],
   "alert.ha_degraded": [
     "engine",
     "state"
   ],
   "alert.ha_partner_down": [
     "engine",
+    "partner",
     "state"
   ],
   "alert.ha_transition": [
@@ -363,12 +370,35 @@
     "effect",
     "server"
   ],
+  "plan.kea.ha_remove": [
+    "engine"
+  ],
+  "plan.kea.ha_remove_cluster": [
+    "engine",
+    "servers"
+  ],
+  "plan.kea.ha_setup": [
+    "engine",
+    "mode",
+    "role",
+    "server"
+  ],
+  "plan.kea.ha_setup_cluster": [
+    "count",
+    "engine",
+    "mode",
+    "servers"
+  ],
   "plan.kea.ha_start": [
     "down",
     "up"
   ],
   "plan.kea.lease_delete": [
     "ip"
+  ],
+  "plan.kea.lease_delete_nodes": [
+    "ip",
+    "nodes"
   ],
   "plan.kea.lease_delete_on": [
     "ip",
@@ -441,6 +471,13 @@
   "plan.zone.rndc_on": [
     "node",
     "op",
+    "zone"
+  ],
+  "plan.zone.secondaries": [
+    "nodes",
+    "zone"
+  ],
+  "plan.zone.secondaries_none": [
     "zone"
   ],
   "problem.config_divergence": [],

@@ -235,9 +235,21 @@ class Stats(FamilyResource):
 @ns.route("/<string:family>/ha")
 class Ha(FamilyResource):
     @require("read:dhcp")
-    @ns.response(200, "HA state on every node", m.HAList)
+    @ns.response(200, "HA state on every node, and the relationships they form", m.HAList)
     def get(self, family: str):
-        return items(dhcp(family).ha())
+        service = dhcp(family)
+        states = service.ha()
+        return {**items(states), "relationships": service.relationships(states)}
+
+
+@ns.route("/<string:family>/ha/setup/plan")
+class HaSetupPlan(FamilyResource):
+    @require("write:dhcp.config")
+    @ns.expect(m.HASetupBody)
+    @ns.response(200, "Plan with one part per node of the relationship (requires_confirmation)", m.Plan)
+    @ns.response(400, "validation_failed: roles, names or urls", m.Problem)
+    def post(self, family: str):
+        return plan_answer(dhcp(family).plan_ha_setup(json_body(), username()))
 
 
 @ns.route("/<string:family>/ha/maintenance/plan")

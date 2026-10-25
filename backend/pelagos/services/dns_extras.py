@@ -24,6 +24,7 @@ from pelagos.domain import (
     PlanState,
     Zone,
     ZoneKind,
+    ZoneSource,
     messages,
     normalize_name,
 )
@@ -141,10 +142,10 @@ class DnsExtras:
                 return None
             if node_id is not None:
                 raise EngineUnavailable("this node does not run BIND")
-            peers = self.peers.peers_running(Engine.BIND)
-            if not peers:
+            peer = self.peers.first_running(Engine.BIND)
+            if peer is None:
                 raise EngineUnavailable("no node runs BIND")
-            return peers[0]
+            return peer
         peer = self.peers.peer(str(node_id))
         if peer is None:
             raise ValidationError(f"unknown node {node_id}", [field_error("node_id", "unknown")])
@@ -175,6 +176,163 @@ class DnsExtras:
         )
         plan.target_node_ids = [owner.id, *others]
         return plan
+
+    def _zone_copies(self, zone: str, view: str) -> dict[str, Zone]:
+        """node id -> the zone as each node running BIND holds it in `view` (reachable nodes only)."""
+        out: dict[str, Zone] = {}
+        if self.local is not None:
+            found = next((z for z in self.local.list_zones(view) if z.name == zone), None)
+            if found is not None:
+                out[self.ctx.node.id] = found
+        for peer in self.peers.peers_running(Engine.BIND):
+            snap = self.peers.snapshot(peer, Engine.BIND, "summary", {})
+            if snap is None or snap.get("error"):
+                continue
+            for raw in snap.get("zones") or []:
+                if normalize_name(raw.get("name", "")) == zone and raw.get("view", DEFAULT_VIEW) == view:
+                    out[peer.id] = Zone.from_dict(raw)
+        return out
+
+    def zone_copies(self, zone: str, view: str | None) -> dict[str, dict[str, Any]]:
+        """node id -> {"kind", "source"} of every reachable node holding `zone` in `view`."""
+        copies = self._zone_copies(normalize_name(zone), view or DEFAULT_VIEW)
+        return {n: {"kind": z.kind.value, "source": z.source.value} for n, z in copies.items()}
+
+    def plan_secondaries(
+        self,
+        zone: str,
+        view: str | None,
+        node_ids: Any,
+        created_by: str,
+        primaries: Any = None,
+        also_notify: Any = None,
+    ) -> Plan:
+        """Make `node_ids` exactly the nodes holding `zone` as a secondary of its primary node: the
+        new ones get it (transferring from the primary with the read key), the dropped ones lose
+        their copy, and the primary's also-notify names every secondary node. One part per node.
+        `primaries` and `also_notify` replace the addresses read from the nodes' URLs (a named on
+        another address or port)."""
+        for name, value in (("primaries", primaries), ("also_notify", also_notify)):
+            if value is not None and not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
+                raise ValidationError(
+                    f"{name} must be a list of strings", [field_error(name, "list expected")]
+                )
+        from pelagos.services.composite import merge_parts
+
+        if not isinstance(node_ids, list):
+            raise ValidationError("node_ids must be a list", [field_error("node_ids", "list expected")])
+        zone = normalize_name(zone)
+        view = view or DEFAULT_VIEW
+        copies = self._zone_copies(zone, view)
+        primary_id = next((n for n, z in copies.items() if z.kind is ZoneKind.PRIMARY), None)
+        if primary_id is None:
+            raise NotFound(f"zone {zone}: no reachable node holds it as primary")
+        known = {p.id: p for p in self.ctx.cluster().nodes}
+        wanted: list[str] = []
+        for node_id in node_ids:
+            node = known.get(str(node_id))
+            if node is None:
+                raise ValidationError(f"unknown node {node_id}", [field_error("node_ids", str(node_id))])
+            if not node.modules.bind:
+                raise ValidationError(
+                    f"node {node.name} does not run BIND", [field_error("node_ids", str(node_id))]
+                )
+            if node.id == primary_id:
+                raise ValidationError(
+                    f"{node.name} holds {zone} as primary", [field_error("node_ids", str(node_id))]
+                )
+            if node.id not in wanted:
+                wanted.append(node.id)
+        current = [
+            n for n, z in copies.items() if z.kind is ZoneKind.SECONDARY and z.source is ZoneSource.PELAGOS
+        ]
+        for n, z in copies.items():
+            if n in wanted and n not in current and n != primary_id:
+                raise ValidationError(
+                    f"{known[n].name if n in known else n} already holds {zone} as {z.kind.value}",
+                    [field_error("node_ids", n)],
+                )
+        added = [n for n in wanted if n not in current]
+        removed = [n for n in current if n not in wanted]
+        primary = copies[primary_id]
+        primary_url = (
+            self.ctx.node.replication_url if primary_id == self.ctx.node.id else known[primary_id].url
+        )
+        primaries = list(primaries) if primaries else self._primaries_at(primary_url)
+        if added and not primaries:
+            raise ValidationError(
+                "cannot tell the secondaries where the primary's named listens",
+                [field_error("node_ids", "primary address unknown")],
+            )
+        target = f"{view}/{zone}"
+        parts: list[Plan] = []
+        cluster_addresses = {a for n in {*known, self.ctx.node.id} for a in self._addresses_of(n)}
+        notify = [a for a in primary.also_notify if a.split()[0] not in cluster_addresses]
+        for n in wanted:
+            for a in self._addresses_of(n):
+                if a not in notify:
+                    notify.append(a)
+        if also_notify is not None:
+            notify = list(also_notify)
+        if primary.source is ZoneSource.PELAGOS and sorted(notify) != sorted(primary.also_notify):
+            after = {k: v for k, v in primary.to_dict().items() if k not in ("records", "ns")}
+            after["also_notify"] = notify
+            parts.append(
+                self._zone_part(primary_id, Change(ChangeOp.REPLACE, target, after=after), created_by)
+            )
+        for n in added:
+            after = {
+                "name": zone,
+                "view": view,
+                "kind": ZoneKind.SECONDARY.value,
+                "primaries": primaries,
+                "allow_transfer": list(primary.allow_transfer),
+            }
+            parts.append(self._zone_part(n, Change(ChangeOp.ADD, target, after=after), created_by))
+        for n in removed:
+            parts.append(self._zone_part(n, Change(ChangeOp.DELETE, target), created_by))
+        names = {p.id: p.name for p in self.ctx.cluster().nodes}
+        names.setdefault(self.ctx.node.id, self.ctx.node.name)
+        nodes = [names.get(n, n) for n in wanted]
+        summary = (
+            messages.msg("plan.zone.secondaries", zone=zone, nodes=nodes)
+            if nodes
+            else messages.msg("plan.zone.secondaries_none", zone=zone)
+        )
+        plan = Plan(
+            scope=PlanScope.DNS_ZONE,
+            node_id=self.ctx.node.id,
+            engine=Engine.BIND,
+            **_summary(summary),
+            created_by=created_by,
+            requires_confirmation=bool(removed),
+        )
+        if not parts:
+            raise ServiceError("conflict", f"{zone} already has exactly these secondaries")
+        merge_parts(plan, parts, names)
+        if self.plans is None:
+            raise EngineUnavailable("plans are not wired on this node")
+        self.plans.register_composite(plan, parts)
+        return self.ctx.plan_store.put(plan)
+
+    def _zone_part(self, node_id: str, change: Change, created_by: str) -> Plan:
+        """A zone plan built on `node_id` (here, or by the peer over dns.zone.plan), applied there."""
+        if node_id == self.ctx.node.id:
+            part = self._local().plan_zone_change(change, created_by)
+        else:
+            peer = self.peers.peer(node_id)
+            if peer is None:
+                raise ValidationError(f"unknown node {node_id}", [field_error("node_ids", node_id)])
+            part = self.peers.build_plan(
+                peer, "dns.zone.plan", {"change": change.to_dict(), "created_by": created_by}
+            )
+        part.target_node_ids = [node_id]
+        return part
+
+    def _addresses_of(self, node_id: str) -> list[str]:
+        if node_id == self.ctx.node.id:
+            return self._addresses(self.ctx.node.replication_url)
+        return self._node_addresses(node_id)
 
     def _node_addresses(self, node_id: str) -> list[str]:
         peer = self.peers.peer(node_id)

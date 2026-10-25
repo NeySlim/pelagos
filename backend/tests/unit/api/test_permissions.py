@@ -42,6 +42,13 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("GET", "/dns/zones", "/dns/zones", None, "read:dns"),
     ("POST", "/dns/zones/plan", "/dns/zones/plan", CHANGE, "write:dns.zones"),
     ("GET", "/dns/zones/<string:zone>", "/dns/zones/example.lan", None, "read:dns"),
+    (
+        "POST",
+        "/dns/zones/<string:zone>/secondaries/plan",
+        "/dns/zones/example.lan/secondaries/plan",
+        {"node_ids": []},
+        "write:dns.zones",
+    ),
     ("GET", "/dns/zones/<string:zone>/records", "/dns/zones/example.lan/records", None, "read:dns"),
     (
         "POST",
@@ -133,6 +140,13 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
         "ops:dhcp.ha",
     ),
     ("GET", "/dhcp/<string:family>/ha/transitions", "/dhcp/v4/ha/transitions", None, "read:dhcp"),
+    (
+        "POST",
+        "/dhcp/<string:family>/ha/setup/plan",
+        "/dhcp/v4/ha/setup/plan",
+        {"remove": True},
+        "write:dhcp.config",
+    ),
     ("POST", "/dhcp/<string:family>/service/plan", "/dhcp/v4/service/plan", {"enable": False}, "ops:dhcp.ha"),
     ("GET", "/dhcp/<string:family>/ddns", "/dhcp/v4/ddns", None, "read:dhcp"),
     ("POST", "/dhcp/<string:family>/ddns/plan", "/dhcp/v4/ddns/plan", CHANGES, "write:dhcp.options"),

@@ -14,6 +14,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import timedelta
@@ -47,7 +48,16 @@ from pelagos.connectors.kea.control_socket import (
     KeaCommandError,
     KeaControlSocket,
 )
-from pelagos.connectors.kea.ha import MAINTENANCE_COMMANDS, ha_state_from_status, heartbeat_window, kea_time
+from pelagos.connectors.kea.ha import (
+    MAINTENANCE_COMMANDS,
+    ha_peers_from_config,
+    ha_state_from_status,
+    heartbeat_window,
+    hooks_dir_of,
+    hooks_with_ha,
+    kea_time,
+    relationship_entry,
+)
 from pelagos.connectors.kea.schema import config_schema
 from pelagos.connectors.kea.secrets import masked_refusal
 from pelagos.core.keadoc import KeaDocument
@@ -57,6 +67,7 @@ from pelagos.domain import (
     ClientClass,
     DhcpCapabilities,
     Family,
+    HAPeer,
     HAState,
     Lease,
     NodeApplyResult,
@@ -94,6 +105,7 @@ READ_SUFFIXES = ("-get", "-get-all", "-get-page", "-list")
 KNOWN_HOOKS = ("lease_cmds", "host_cmds", "subnet_cmds", "stat_cmds", "ha", "class_cmds")
 LEASE_PAGE = 1000
 APPLIED_KEPT = 256
+HA_PEERS_TTL = 30.0  # seconds the configured HA peers are reused between config-get reads
 _PLAN_ID = re.compile(r"^[0-9A-Za-z_-]{1,64}$")
 # Target kinds (config.parse_target) each configuration plan scope may touch.
 SCOPE_TARGETS = {
@@ -152,6 +164,8 @@ class KeaBackend(DhcpBackend):
         self._applied: dict[str, tuple[str, Path | None]] = {}
         self._last_backup: Path | None = None
         self._config_cache: list[dict[str, Any]] | None = None
+        # The configured HA peers (monotonic read time, peers): config-get is too heavy per live pass.
+        self._ha_peers: tuple[float, list[HAPeer]] | None = None
 
     # Helpers ----------------------------------------------------------------------
 
@@ -409,6 +423,8 @@ class KeaBackend(DhcpBackend):
         received = utcnow()
         ha = ha_state_from_status(self.ctx.node_id, self.family, status)
         ha.collected_at = received
+        if ha.enabled:
+            ha.peers = self._configured_ha_peers()
         if ha.enabled and ha.partner is not None:
             # Kea's own clock bounds when status-get ran; an older hook without the command still works.
             kea_now = None
@@ -425,6 +441,17 @@ class KeaBackend(DhcpBackend):
                 kea_now = None
             ha.heartbeat = heartbeat_window(ha.partner.age, sent, received, kea_now)
         return ha
+
+    def _configured_ha_peers(self) -> list[HAPeer]:
+        now = time.monotonic()
+        if self._ha_peers is not None and now - self._ha_peers[0] < HA_PEERS_TTL:
+            return list(self._ha_peers[1])
+        try:
+            peers = ha_peers_from_config(self.config_get())
+        except ConnectorError:
+            return list(self._ha_peers[1]) if self._ha_peers else []
+        self._ha_peers = (now, peers)
+        return list(peers)
 
     # Plans ------------------------------------------------------------------------------------
 
@@ -741,6 +768,38 @@ class KeaBackend(DhcpBackend):
             requires_confirmation=True,
         )
 
+    def plan_ha_setup(
+        self, spec: dict[str, Any] | None, this_server: str | None, created_by: str = ""
+    ) -> Plan:
+        """The ha hook of this server set to the relationship `spec` under the name `this_server`
+        (`spec` None removes the hook). lease_cmds is added when missing; the hook library sits in the
+        directory of the loaded ones unless `spec["hooks_dir"]` says otherwise."""
+        cfg = self.config_get()
+        hooks = [h for h in cfg.get("hooks-libraries") or [] if isinstance(h, dict)]
+        if spec is None:
+            entry = None
+            role = None
+        else:
+            if not this_server:
+                raise ConnectorError("this server's name in the relationship is required")
+            role = next((s.get("role") for s in spec["servers"] if s.get("name") == this_server), None)
+            if role is None:
+                raise ConnectorError(f"{this_server} is not one of the relationship's servers")
+            entry = relationship_entry(spec, this_server)
+        try:
+            new_hooks = hooks_with_ha(hooks, entry, (spec or {}).get("hooks_dir") or hooks_dir_of(hooks))
+        except ValueError as exc:
+            raise ConnectorError(str(exc)) from None
+        change = Change(ChangeOp.REPLACE, "hooks-libraries", after=new_hooks)
+        summary = (
+            messages.msg("plan.kea.ha_remove", engine=self.engine_name)
+            if spec is None
+            else messages.msg(
+                "plan.kea.ha_setup", engine=self.engine_name, mode=spec["mode"], server=this_server, role=role
+            )
+        )
+        return self._plan_config(PlanScope.DHCP_CONFIG, [change], created_by, summary)
+
     def plan_service_toggle(self, enable: bool, created_by: str = "") -> Plan:
         status = self.status()
         dhcp_state = status.get("dhcp-state") or {}
@@ -853,6 +912,7 @@ class KeaBackend(DhcpBackend):
 
     def _run(self, changes: list[Change], label: str, scope: PlanScope) -> NodeApplyResult:
         self._last_backup = None
+        self._ha_peers = None
         try:
             if scope is PlanScope.DHCP_LEASE:
                 return self._run_lease(changes)

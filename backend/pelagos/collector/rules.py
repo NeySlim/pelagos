@@ -9,6 +9,7 @@ on every pass:
   serial_divergence  lagging node, bind      "zone:<zone>[@<view>]"
   pool_near_full/pool_full  node, kea4|kea6  "<engine>:subnet:<id>:pool:<pool without spaces>"
   ha_degraded/ha_partner_down/ha_transition  node, kea4|kea6  "ha:<engine>"
+  ha_backup_out_of_sync  backup node, kea4|kea6  "ha-backup:<engine>"
   d2_errors          node, d2                "d2:updates"
   peer_offline       peer node, no engine    "peer:<peer id>"
   config_divergence  cluster-wide, engine    "<engine>:config-hash"
@@ -21,6 +22,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
+from pelagos.connectors.kea.ha import partner_name
 from pelagos.domain import Alert, AlertKind, Engine, HAState, Severity, ZoneKind, ZoneStatus, messages
 from pelagos.services.consistency import redact_kea_difference
 
@@ -187,8 +189,10 @@ def ha_alerts(
     if not ha.enabled or ha.state is None:
         return out, None
     partner = ha.partner
+    partner_server = partner_name(ha)
     base = {
         "server_name": ha.server_name,
+        "partner": partner_server,
         "mode": ha.mode.value if ha.mode else None,
         "role": ha.role,
         "state": ha.state,
@@ -208,7 +212,12 @@ def ha_alerts(
                 node_id=node_id,
                 engine=engine,
                 subject=subject,
-                **_title("alert.ha_partner_down", engine=engine.value, state=ha.state),
+                **_title(
+                    "alert.ha_partner_down",
+                    engine=engine.value,
+                    partner=partner_server or messages.msg("common.the_partner"),
+                    state=ha.state,
+                ),
                 details=base,
             )
         )
@@ -248,6 +257,44 @@ def ha_alerts(
             )
         )
     return out, transition
+
+
+def ha_backup_out_of_sync(
+    node_id: str,
+    engine: Engine,
+    server: str,
+    reference: str,
+    leases: int,
+    reference_leases: int,
+    since: int,
+) -> Alert:
+    """A backup server whose lease count stays away from the active server's (lease updates lost)."""
+    return Alert(
+        kind=AlertKind.HA_BACKUP_OUT_OF_SYNC,
+        severity=Severity.WARNING,
+        node_id=node_id,
+        engine=engine,
+        subject=f"ha-backup:{engine.value}",
+        **_title(
+            "alert.ha_backup_out_of_sync",
+            engine=engine.value,
+            server=server,
+            reference=reference,
+            count=abs(reference_leases - leases),
+        ),
+        details={
+            "server_name": server,
+            "reference": reference,
+            "leases": leases,
+            "reference_leases": reference_leases,
+            "since": since,
+        },
+    )
+
+
+def backup_diverges(leases: int, reference: int) -> bool:
+    """Lease counts of a backup and its active server differ by more than in-flight updates explain."""
+    return abs(reference - leases) > max(2, reference // 100)
 
 
 def d2_error_rate(

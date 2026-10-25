@@ -985,7 +985,9 @@ class FakeDhcpBackend(DhcpBackend):
             role="primary",
             state="hot-standby",
             scopes=["ns1"],
-            partner=HAPartner(role="standby", state="hot-standby", scopes=[], in_touch=True),
+            partner=HAPartner(
+                role="standby", server_name="ns2", state="hot-standby", scopes=[], in_touch=True
+            ),
         )
         self.commands: list[tuple[str, dict[str, Any] | None]] = []
         self.applied: list[str] = []
@@ -1458,6 +1460,18 @@ class FakeDhcpBackend(DhcpBackend):
         plan.requires_confirmation = True
         return _validated(plan, "ha-maintenance")
 
+    def plan_ha_setup(self, spec: dict | None, this_server: str | None, created_by: str = "") -> Plan:
+        from pelagos.connectors.kea.ha import hooks_dir_of, hooks_with_ha, relationship_entry
+
+        self._check()
+        plan = self._plan(PlanScope.DHCP_CONFIG, created_by, f"HA setup {this_server or 'removed'}")
+        hooks = list(self.config.get("hooks-libraries") or [])
+        entry = relationship_entry(spec, this_server or "") if spec is not None else None
+        after = hooks_with_ha(hooks, entry, hooks_dir_of(hooks) or "/usr/lib/kea/hooks")
+        plan.changes.append(Change(ChangeOp.REPLACE, "hooks-libraries", before=hooks, after=after))
+        plan.diff = _diff(hooks, after, "hooks-libraries")
+        return _validated(plan, "config-test")
+
     def plan_service_toggle(self, enable: bool, created_by: str = "") -> Plan:
         self._check()
         plan = self._plan(PlanScope.DHCP_HA, created_by, "dhcp-enable" if enable else "dhcp-disable")
@@ -1500,6 +1514,8 @@ class FakeDhcpBackend(DhcpBackend):
                     if change.after == "start"
                     else (self.ha.mode.value if self.ha.mode else "hot-standby")
                 )
+            elif target == "hooks-libraries":
+                self.config["hooks-libraries"] = copy.deepcopy(change.after)
             elif target == "service":
                 after = change.after
                 # The real connector takes {"enable": bool}; older fakes passed a bare bool.

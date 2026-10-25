@@ -27,6 +27,7 @@ class AlertKind(enum.StrEnum):
     HA_DEGRADED = "ha_degraded"
     HA_PARTNER_DOWN = "ha_partner_down"
     HA_TRANSITION = "ha_transition"
+    HA_BACKUP_OUT_OF_SYNC = "ha_backup_out_of_sync"
     D2_ERRORS = "d2_errors"
     DAEMON_DOWN = "daemon_down"
     PEER_OFFLINE = "peer_offline"

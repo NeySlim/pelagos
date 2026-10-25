@@ -114,12 +114,36 @@ class OneZone(Resource):
     @ns.response(404, "not_found", m.Problem)
     def get(self, zone: str):
         z, statuses = dns().zone(zone, arg("view"))
+        copies = dns().zone_copies(z.name, z.view)
         return {
             "zone": z.to_dict(),
             "status": {k: v.to_dict() for k, v in statuses.items()},
             "mode": zone_mode(z),
             "views": dns().zone_views(z.name),
+            "copies": copies,
         }
+
+
+@ns.route("/zones/<string:zone>/secondaries/plan")
+class ZoneSecondariesPlan(Resource):
+    @require("write:dns.zones")
+    @ns.expect(m.SecondariesBody)
+    @ns.response(
+        200, "Plan: one part on the primary (also-notify) and one per secondary added or dropped", m.Plan
+    )
+    @ns.response(409, "conflict: the zone already has exactly these secondaries", m.Problem)
+    def post(self, zone: str):
+        body = json_body()
+        return plan_answer(
+            dns().plan_secondaries(
+                zone,
+                body.get("view"),
+                body.get("node_ids"),
+                username(),
+                body.get("primaries"),
+                body.get("also_notify"),
+            )
+        )
 
 
 @ns.route("/zones/<string:zone>/records")

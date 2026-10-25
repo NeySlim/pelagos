@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import atexit
 import fcntl
 import os
 import random
@@ -20,8 +21,9 @@ SBIN_DIRS = ("/usr/sbin", "/usr/local/sbin", "/sbin")
 
 
 # Ports come from below the kernel's ephemeral range: no outgoing connection of any process (another
-# test's client, a daemon) can take a reserved port between free_port() and the bind.
-_RANGE_FLOOR = 10000
+# test's client, a daemon) can take a reserved port between free_port() and the bind. Ports picked by
+# hand on the shared host (e2e MOCK_PORT, VITE_PORT) stay below _RANGE_FLOOR (AGENTS.md).
+_RANGE_FLOOR = 20000
 _HELD_MAX = 256
 _held: OrderedDict[int, Any] = OrderedDict()
 _held_lock = threading.Lock()
@@ -50,19 +52,38 @@ def _bindable(host: str, port: int) -> bool:
     return True
 
 
+def _release(port: int, handle: Any) -> None:
+    """Unlink the lock file while still holding its flock, then close: lock files never pile up."""
+    try:
+        os.unlink(_lock_dir() / str(port))
+    except OSError:
+        pass
+    handle.close()
+
+
 def _claim(port: int) -> bool:
-    """An flock per port, held by this process: parallel test processes never get the same port."""
-    handle = open(_lock_dir() / str(port), "a")
+    """An flock per port, held by this process: parallel test processes never get the same port.
+    The lock counts only on the file still at the path (a holder unlinks it before releasing)."""
+    path = _lock_dir() / str(port)
+    handle = open(path, "a")
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if os.fstat(handle.fileno()).st_ino != os.stat(path).st_ino:
+            raise OSError("lock file replaced")
     except OSError:
         handle.close()
         return False
     _held[port] = handle
     while len(_held) > _HELD_MAX:
-        _old, old_handle = _held.popitem(last=False)
-        old_handle.close()
+        _release(*_held.popitem(last=False))
     return True
+
+
+@atexit.register
+def _release_all() -> None:
+    with _held_lock:
+        while _held:
+            _release(*_held.popitem())
 
 
 def free_port(host: str = "127.0.0.1") -> int:
@@ -80,7 +101,7 @@ def free_port(host: str = "127.0.0.1") -> int:
             if _claim(port):
                 if _bindable(host, port):
                     return port
-                _held.pop(port).close()
+                _release(port, _held.pop(port))
     return _kernel_port(host)
 
 

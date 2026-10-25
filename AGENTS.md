@@ -90,7 +90,9 @@ create them with `make dev`). The development host is Debian 13 with BIND 9.20 (
 executable by group `_kea`, which the `lab` user is in), Python 3.13 system
 and 3.12 through `uv`, Node 22. The Makefile prepends `/usr/sbin` to `PATH`.
 Several agents share the development host at the same time, so fixtures use free ports
-and per-process temporary directories, never fixed paths under `/tmp`.
+and per-process temporary directories, never fixed paths under `/tmp`. Fixture ports come
+from 20000 up to the kernel's ephemeral floor; ports picked by hand (Playwright
+`MOCK_PORT`, `VITE_PORT`) stay between 10000 and 19999.
 
 ## Tests
 
@@ -145,7 +147,7 @@ what any code that spawns the daemons must do too:
   exercise the production rules.
 - Binaries are located with `shutil.which` over `PATH` plus `/usr/sbin` and
   `/usr/local/sbin`; ports come from `tests/fixtures/ports.py`
-  (`free_port()`, bound then released) so parallel runs never collide.
+  (`free_port()`, claimed by an flock per port) so parallel runs never collide.
 - Debian confines `/usr/sbin/named` with AppArmor, which denies a config in
   a temp dir. The development host has that profile disabled (see `scripts/lab/README.md`);
   if `named` logs "loading configuration: permission denied", that is the

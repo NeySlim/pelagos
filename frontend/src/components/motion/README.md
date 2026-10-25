@@ -55,7 +55,12 @@ cluster is idle. Feature code builds on the primitives below; keep their APIs sm
 | `Checklist` | `items: [{ id, label, detail?, state, ms? }]` | checks draw themselves, side rail fills, `n/total` rolls |
 | `StepRail` | `steps: [{ id, label, state, ms?, nodes?: [{ name, state, durationMs? }] }]`, `reverse` | 2 px rail filled linearly by step; node chip underline fills over the real duration; `reverse` walks back in amber |
 | `CheckMark` | `state` | the mark alone |
-| `SignalLink` | `state: 'ok' \| 'down'`, `rate`, `tickTone`, `direction`, `labelTop`, `labelBottom`; ref `pulse({ tone, dir })`, `transfer({ tone, dir, label, durationMs })` | canvas link between two nodes; Poisson ticks at `rate` per second (at most 4), pulses 600 ms linear, transfer head and tail 300 ms apart; red dashes when down; returns `false` when nothing travels (below full, or down) |
+| `SignalLink` | `state: 'ok' \| 'down'`, `rate`, `tickTone`, `direction`, `labelTop`, `labelBottom`; ref `pulse({ tone, dir })`, `tick({ tone, dir, durationMs })`, `transfer({ tone, dir, label, durationMs })` | canvas link between two nodes; Poisson ticks at `rate` per second (at most 4), pulses 600 ms linear, transfer head and tail 300 ms apart; red dashes when down; returns `false` when nothing travels (below full, or down) |
+| `ClusterTrace` | `lanes`, `windowMs`, `ruler`, `names`, `readout`, `reveal`, `clockOffset`, `locale`, `labels`, `eventLabel`; ref `scrubTo(t)`, `release()`, `redraw()` | canvas strip-chart recorder: x is a function of the clock (sub-pixel paper at full, a jump per sample below), lanes `line`, `bars`, `ecg` (rows of beats, lost marks, outage), `events` (plan, rb, fail, alert, ok, axfr, repl, ha), `step`; smoothed Y scale, ruler whose tick sets crossfade with spacing, window zoom over 400 ms, magnetic playhead (7 px) with the nearest sample in a mono readout, a one-time reveal; draws on the shared loop only while visible at full |
+| `ThresholdTrace` | `samples`, `thresholds: [{ v, label, bad }]`, `latches: [{ t, v, state: 'open' \| 'held' \| 'released' }]`, `windowMs`, `min`, `max`, `channel`, `unit` | one line lane of `ClusterTrace` with threshold lines and alert latches |
+| `StripChart` | `points`, `kind: 'line' \| 'bars'`, `tone`, `slots = 45`, `height`, `channel`, `unit`, `rate`, `count`, `format`, `formatTime` | SVG strip: paper slides one slot over the real sample interval (linear), value `Ruler`, `+` pen on the settle curve, crosshair readout |
+| `Dora` | `beat`, `nak`, `labels`, `values` | four ticks landing 90 ms apart when `beat` changes; red last tick on NAK |
+| `HeartbeatTrace` | `beat`, `lost` | mini ECG drawn by `stroke-dashoffset` on each beat, red dashes when lost |
 | `RowEnter` | a `<tr>` with its cells, `highlight = true` | unfolds through grid rows, content fades in 110 ms later, highlight 1.2 s (`--fx-row-hl`) |
 | `RowLeave` | a `<tr>`, `onLeft` | folds (fades below full), then `onLeft()` once |
 | `NavCursor` | `container` ref, `activeKey`, `layoutKey`, `selector` | 2 px cursor gliding on the spring, stretched while travelling (Instrument only) |
@@ -70,7 +75,7 @@ cluster is idle. Feature code builds on the primitives below; keep their APIs sm
 
 Helpers (`primitives.js`): `flipRows(rows, mutate, level?)` measures, runs `mutate`
 (synchronous DOM update, e.g. `flushSync`) and glides moved rows on the spring;
-`rollCells`, `rollDirection`, `niceTicks`, `progressOf`, `poissonGap`, `PULSE_MS`,
+`rollCells`, `rollDirection`, `niceTicks`, `progressOf`, `poissonGap`, `stripGeometry`, `PULSE_MS`,
 `MAX_TICKS`, `STEP_STATES`.
 
 `DataTable` uses `SkeletonTable` while loading, `flipRows` on a local sort and
@@ -82,8 +87,10 @@ These primitives are tested in isolation; each gets an e2e check when a page use
 
 - `Checklist` and `StepRail`: plan preview, apply and job progress (procedures lot).
 - `RowEnter` and `RowLeave`: set `animateInserts` on live tables (leases, records, jobs).
-- `RollingNumber`, `Readout`, `Ruler`, `ScaleBar`, `SignalLink`: the dashboard cluster
-  trace, which replaces the Mission radar; under Instrument the radar is a still frame.
+- `ClusterTrace` in step mode with `scrubTo`/`release`: the serial trace of the zone
+  page and its rewind during a plan rollback (procedures lot). The dashboard already
+  uses `ClusterTrace`, `StripChart`, `ThresholdTrace`, `Dora`, `HeartbeatTrace`,
+  `SignalLink`, `RollingNumber`, `Readout`, `Ruler` and `ScaleBar`.
 - Hover row actions on tables.
 
 ## Navigation choreography

@@ -211,7 +211,8 @@ are `IconButton`s. Dashboard tiles enter in reading order (`fx-stagger-item`).
 
 ### Screens in the Mission language
 
-- Dashboard hero (`pages/dashboard/heroTiles.jsx`, `ClusterRadar.jsx`): the
+- Dashboard hero under Mission (`pages/dashboard/radarTile.jsx`, loaded on
+  demand under its effects only, and `ClusterRadar.jsx`): the
   cluster radar is one react-grid-layout tile between a DNS tile and a DHCP
   tile. Its floor is a square scaled on Y (`radarLayout.js` holds the math:
   node angles, projection, link and HA states, pool segments): nodes are pins
@@ -231,7 +232,7 @@ are `IconButton`s. Dashboard tiles enter in reading order (`fx-stagger-item`).
 - Page headings: card titles carry `ui-card-title` (literal case for node
   names), tiny section labels `ui-label`; `RichStatsBar` reads label over
   value as round chips.
-- Sign-in: `LoginScene` lays a radar disc with halos and beams behind an
+- Sign-in: `LoginScene` (loaded under Mission only) lays a radar disc with halos and beams behind an
   opaque glass card (no backdrop blur over a looping animation).
 
 ## Instrument effects layer
@@ -260,6 +261,22 @@ to `html[data-effects='instrument']`), through the same hook classes as below.
   hidden when `ambient` is `off`.
 - Loading: `SkeletonTable` with a calibration sweep in `DataTable`; the chrome
   lights up once per session (`html.boot`, `useBootSequence`).
+- Dashboard hero (`pages/dashboard/traceTile.jsx`, `traceModel.js`): the cluster
+  trace replaces the radar for every family but Mission. This node and its peer
+  are cards (version, rolling config and audit, engines, an ECG per HA family that
+  draws itself on each measured heartbeat) joined by a `SignalLink` whose lease
+  ticks follow the real lease rate, with pulses for replication and HA changes and
+  a transfer bar for a zone that catches up. Below, `ClusterTrace` (canvas): DNS
+  queries (line), DHCP leases (bars), HA heartbeats (QRS at each beat measured from
+  the Kea partner age, red dashes and crosses while the partner is lost), events
+  (plan, rollback, alert, resolution, zone sync, replication, HA); readouts on the
+  right (rates, mean interval and jitter, last event), legend, sample count, scale
+  bar and a 30 s / 90 s / 5 min window. The DNS and DHCP tiles carry `StripChart`s
+  (CH1, CH2), rcodes, the latest leases as `Dora` ticks with the per step rates,
+  the busiest pools against their thresholds and the HA pills; Pool usage adds the
+  pressure of the hottest pool (`ThresholdTrace`, one hour, alert latches).
+- Sign-in: `TraceScene`, the empty trace writing a flat line from the moment
+  the page opened, under the opaque card.
 
 ## Mission Control effects layer
 

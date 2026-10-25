@@ -35,16 +35,27 @@ updates on", "Connecting...", "Live updates off", "Live updates unavailable"
 
 ![Dashboard](../images/dashboard-dark.png)
 
-- **Cluster radar**: every node with its engines, online or not, open
-  alerts, the zones and how many diverge.
-- **DNS**: queries per second (live chart), NXDOMAIN, zone count.
-- **DHCP**: leases handed out per second, hot pools, busiest pools, HA.
+- **Cluster trace**: this node and its peer with their engines, versions and
+  HA heartbeats, the link between them (in sync, how far behind, unreachable),
+  then a recorder of the last 30 s, 90 s or 5 min: DNS queries, DHCP leases,
+  HA heartbeats measured from Kea (interval and jitter, a red line while the
+  partner is lost) and events (plans, rollbacks, alerts, replication, HA).
+  Point at the trace to read the exact sample under the pointer; near an event
+  the pointer snaps to it and names it. The Mission Control theme keeps the
+  cluster radar here.
+- **DNS**: queries per second (live chart), NXDOMAIN, zone count, answers by
+  rcode.
+- **DHCP**: leases handed out per second, hot pools, the latest leases with
+  the rate of each step (Discover, Offer, Request, Ack; a red last tick when
+  NAKs were sent), busiest pools, HA.
 - **Nodes**: online count, version, configuration version and audit count
   of each node.
 - **DHCP HA**: state of each server, its partner, unsent updates.
 - **Alerts**: open alerts by severity.
 - **Zone sync**: zones whose serials diverge between nodes.
-- **Pool usage**: pools above the warning threshold.
+- **Pool usage**: pools above the warning threshold, and the fill of the
+  hottest pool over the last hour against the thresholds; an alert on it
+  closes a red latch where it opened and a green one where it resolved.
 - **DDNS updates**: D2 success, errors, timeouts and error rate.
 
 "Edit layout" lets you move and resize tiles; "Save layout" keeps it in

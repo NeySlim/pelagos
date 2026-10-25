@@ -13,6 +13,25 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-25, UI Instrument: cluster trace on the dashboard
+- No API change. `PUT /dashboard/layout` stores the tile id `trace` in place of
+  `radar`; the frontend renames a saved `radar` item to `trace` in its place
+  (`pages/dashboard/layout.js`), so an older layout keeps its arrangement.
+- The dashboard polls `GET /dhcp/{family}/ha` for the HA families in use, at the
+  live rate cadence (4 s, page visible, `read:dhcp`): the partner `age` of
+  status-get places each heartbeat (`lib/trace.js`, `hooks/useClusterSignals.js`).
+  A heartbeat timestamp from Kea (`ha-heartbeat` `date-time`) or a server-side
+  heartbeat series would make the jitter exact; until then the age's whole
+  seconds bound it.
+- `dhcpCounters` also reads `pkt4-discover-received`, `pkt4-offer-sent`,
+  `pkt4-request-received`, `pkt4-nak-sent` (v6: solicit, advertise, request,
+  reply) for the DORA lane; a latest-lease endpoint (newest `cltt`) would let
+  the tile name the address. The Pool usage tile reads `GET /series/pools` for
+  the hottest pool (1 h, step 60 s, `read:series`).
+- Mock server: HA partner ages follow 10 s heartbeats with jitter
+  (`mock/live.mjs` `heartbeatAge`), DORA and NAK counters grow, BIND stats are
+  stamped now, pool series churn over minutes.
+
 ## 2026-10-25, UI Instrument: default family, ambient preference
 - `GET/PUT /account/preferences` (`services/account_service.py`, `api/models.py`):
   new key `ambient` (`on`, `off`, default `on`); the default `theme_family` is now

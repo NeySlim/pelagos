@@ -88,6 +88,11 @@ class Paths:
         return self.var / "plan_tombstones.json"
 
     @property
+    def plans_dir(self) -> Path:
+        """Plans built on this node, one encrypted file each (0700): apply and rollback survive a restart."""
+        return self.var / "plans"
+
+    @property
     def enroll_tokens(self) -> Path:
         return self.var / "enroll_tokens.json"
 

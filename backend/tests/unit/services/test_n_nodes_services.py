@@ -272,3 +272,41 @@ def test_promote_a_backup_while_the_lost_server_is_down(four):
     with pytest.raises(ValidationError) as err:
         dhcp.plan_ha_setup({"remove": True, "node_ids": ["no-such-node"]}, "alice")
     assert err.value.errors == [{"field": "node_ids", "message": "no-such-node"}]
+
+
+def _restarted(node: Node) -> tuple[DhcpService, PlanService]:
+    """The web process of `node` after a restart: a new context reads the plans back from disk."""
+    ctx = NodeContext.build(node.ctx.paths)
+    gateway = PeerGateway(ctx, cache_seconds=0)
+    dhcp = DhcpService(ctx, Family.V4, node.kea, gateway)
+    plans = PlanService(ctx, node.registry, gateway)
+    dhcp.plans = plans
+    return dhcp, plans
+
+
+def test_ha_setup_plan_applies_and_rolls_back_across_restarts(four):
+    dhcp, _ = four.dhcp(0)
+    roles = ("primary", "standby", "backup", "backup")
+    body = {
+        "mode": "hot-standby",
+        "servers": [
+            {"name": f"server{i + 1}", "url": f"http://192.0.2.{i + 1}:8001/", "role": r, "node_id": n.id}
+            for i, (n, r) in enumerate(zip(four.nodes, roles, strict=True))
+        ],
+    }
+    before = [list(n.kea.config["hooks-libraries"]) for n in four.nodes]
+    built = dhcp.plan_ha_setup(body, "alice")
+
+    _dhcp, plans = _restarted(four.nodes[0])
+    plan = plans.ctx.plan_store.get(built.id)
+    assert plan is not built and len(plans.parts(plan)) == 4
+    result = plans.apply(plan, "alice", confirm=True)
+    assert result.state is PlanState.APPLIED and len(result.results) == 4
+    assert all(n.kea.config["hooks-libraries"] != b for n, b in zip(four.nodes, before, strict=True))
+
+    _dhcp, plans = _restarted(four.nodes[0])
+    plan = plans.ctx.plan_store.get(built.id)
+    assert plan.state is PlanState.APPLIED and all(p.state is PlanState.APPLIED for p in plans.parts(plan))
+    back = plans.rollback(plan, "alice")
+    assert back.state is PlanState.ROLLED_BACK, back
+    assert [n.kea.config["hooks-libraries"] for n in four.nodes] == before

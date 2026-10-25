@@ -19,7 +19,6 @@ from typing import Any
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend, DnsBackend, PreconditionFailed
 from pelagos.core import ha_maintenance, plan_secrets
 from pelagos.core.context import NodeContext
-from pelagos.core.plans import PlanNotFound
 from pelagos.domain import (
     ApplyResult,
     AuditEntry,
@@ -64,7 +63,6 @@ class PlanService:
         self.registry = registry
         self.peers = peers
         self.events = events
-        self._composites: dict[str, list[Plan]] = {}
         self._lock = threading.Lock()
         self._in_flight = 0  # applies and rollbacks running in this process
 
@@ -78,20 +76,18 @@ class PlanService:
     # Composites ---------------------------------------------------------
 
     def register_composite(self, plan: Plan, parts: list[Plan]) -> None:
-        # Parts live as long as their plan in the PlanStore: forget those whose plan is gone.
-        for plan_id in list(self._composites):
-            try:
-                self.ctx.plan_store.get(plan_id)
-            except PlanNotFound:
-                self._composites.pop(plan_id, None)
-        self._composites[plan.id] = parts
+        # Parts live with their plan in the PlanStore (saved with it, gone when it expires).
+        self.ctx.plan_store.set_parts(plan.id, parts)
 
     def parts(self, plan: Plan) -> list[Plan]:
-        return self._composites.get(plan.id, [])
+        return self.ctx.plan_store.parts(plan.id) or []
+
+    def _composite(self, plan: Plan) -> bool:
+        return self.ctx.plan_store.parts(plan.id) is not None
 
     def _parts_of(self, plan: Plan) -> list[Plan]:
         """The engine plans applied in order: a host plan's or another composite's parts, else itself."""
-        if plan.scope is PlanScope.HOST or plan.id in self._composites:
+        if plan.scope is PlanScope.HOST or self._composite(plan):
             return self.parts(plan)
         return [plan]
 
@@ -106,14 +102,14 @@ class PlanService:
             raise PlanError("plan_state", f"plan {plan.id} is {plan.state.value}")
         if plan.requires_confirmation and not confirm:
             raise PlanError("confirmation_required", "this plan needs confirm=true")
-        if plan.scope is PlanScope.HOST and plan.id not in self._composites:
+        if plan.scope is PlanScope.HOST and not self._composite(plan):
             raise PlanError("plan_state", "host plan parts are gone; build the plan again")
         # The local engine is needed only when this node is a target (a peer lease delete is not).
         local = self.ctx.node.id in (plan.target_node_ids or [self.ctx.node.id])
         if (
             plan.scope not in JOB_SCOPES
             and plan.scope is not PlanScope.HOST
-            and plan.id not in self._composites
+            and not self._composite(plan)
             and local
             and self._backend(plan) is None
         ):

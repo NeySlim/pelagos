@@ -116,7 +116,10 @@ class NodeContext:
             config_store=store,
             audit_log=audit_log,
             plan_store=PlanStore(
-                int(settings.get("plan_ttl_seconds", 600)), tombstone_path=paths.plan_tombstones
+                int(settings.get("plan_ttl_seconds", 600)),
+                tombstone_path=paths.plan_tombstones,
+                plans_dir=paths.plans_dir,
+                box=secrets,
             ),
             sessions=SessionStore(
                 int(settings.get("session_ttl_seconds", 43200)),

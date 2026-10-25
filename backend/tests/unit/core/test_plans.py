@@ -98,3 +98,91 @@ def test_writes_append_to_a_journal_without_fsync(tmp_root, monkeypatch):
         restarted.put(_plan())
     assert store.journal_path.stat().st_size <= 500
     assert len(json.loads(path.read_text())["plans"]) > len(kept)
+
+
+# Plan files: plans and their parts survive a restart of the web process ---------------------
+
+
+def _box():
+    from pelagos.core.secrets import SecretBox, generate_master_key
+
+    return SecretBox.from_b64(generate_master_key())
+
+
+def _composite() -> tuple[Plan, list[Plan]]:
+    from pelagos.domain import Change, ChangeOp, Engine
+
+    parts = [
+        Plan(
+            scope=PlanScope.DHCP_CONFIG,
+            node_id=n,
+            engine=Engine.KEA4,
+            summary=f"ha on {n}",
+            changes=[Change(ChangeOp.REPLACE, "hooks-libraries", after=[{"library": "libdhcp_ha.so"}])],
+            target_node_ids=[n],
+        )
+        for n in ("n1", "n2", "n3")
+    ]
+    plan = Plan(scope=PlanScope.DHCP_CONFIG, node_id="n1", summary="HA setup tsig-secret-in-clear")
+    return plan, parts
+
+
+def test_plans_and_parts_survive_a_restart_encrypted(tmp_root):
+    from pelagos.domain import PlanState
+
+    box = _box()
+    dirs = {"tombstone_path": tmp_root / "plan_tombstones.json", "plans_dir": tmp_root / "plans", "box": box}
+    store = PlanStore(ttl_seconds=600, **dirs)
+    plan, parts = _composite()
+    store.set_parts(plan.id, parts)
+    store.put(plan)
+    single = store.put(_plan())
+    plan.state = PlanState.APPLIED
+    parts[0].state = PlanState.APPLIED
+    store.update(plan)
+    store.touch(plan)
+    file = tmp_root / "plans" / f"{plan.id}.plan"
+    assert stat.S_IMODE(file.stat().st_mode) == 0o600
+    assert stat.S_IMODE((tmp_root / "plans").stat().st_mode) == 0o700
+    assert b"tsig-secret-in-clear" not in file.read_bytes() and b"libdhcp_ha" not in file.read_bytes()
+
+    restarted = PlanStore(ttl_seconds=600, **dirs)
+    again = restarted.get(plan.id)
+    assert again.to_dict() == plan.to_dict() and again.state is PlanState.APPLIED
+    assert [p.to_dict() for p in restarted.parts(plan.id) or []] == [p.to_dict() for p in parts]
+    assert restarted.get(single.id).to_dict() == single.to_dict() and restarted.parts(single.id) is None
+    restarted.delete(single.id)
+    assert not (tmp_root / "plans" / f"{single.id}.plan").exists()
+
+
+def test_expired_interrupted_and_foreign_plan_files_on_restart(tmp_root):
+    from pelagos.core.plans import INTERRUPTED
+    from pelagos.domain import PlanState
+
+    box = _box()
+    dirs = {"tombstone_path": tmp_root / "plan_tombstones.json", "plans_dir": tmp_root / "plans", "box": box}
+    store = PlanStore(ttl_seconds=600, **dirs)
+    old, running = store.put(_plan()), store.put(_plan())
+    old.expires_at = utcnow() - timedelta(seconds=1)
+    store.update(old)
+    running.state = PlanState.APPLYING
+    store.update(running)
+    (tmp_root / "plans" / "BOGUS.plan").write_text("enc:not-a-token")
+
+    restarted = PlanStore(ttl_seconds=600, **dirs)
+    with pytest.raises(PlanExpired):
+        restarted.get(old.id)
+    assert not (tmp_root / "plans" / f"{old.id}.plan").exists()
+    interrupted = restarted.get(running.id)
+    assert interrupted.state is PlanState.FAILED and interrupted.error == INTERRUPTED
+    assert not (tmp_root / "plans" / "BOGUS.plan").exists()
+    # Another master key reads nothing: the plans are gone, their ids answer 410.
+    other = PlanStore(ttl_seconds=600, **{**dirs, "box": _box()})
+    with pytest.raises(PlanExpired):
+        other.get(running.id)
+
+
+def test_without_the_master_key_plans_stay_in_memory(tmp_root):
+    store = PlanStore(ttl_seconds=600, plans_dir=tmp_root / "plans")
+    store.put(_plan())
+    assert not (tmp_root / "plans").exists()

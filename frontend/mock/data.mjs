@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Sample cluster for the mock server: two nodes (ns1, ns2) running BIND, Kea 4/6
 // and D2 in hot-standby, documentation address space only. Shapes follow
-// docs/architecture.md sections 4 and 17. createState() returns a fresh copy so
-// tests and the server never share mutations.
+// docs/architecture.md sections 4 and 17. createState(scenario) returns a fresh copy so
+// tests and the server never share mutations. Scenarios: `pair` (ns1, ns2), `three`
+// (ns3 joins as a Kea HA backup and a BIND secondary), `four` (ns3 and ns4 both).
 
 const NOW = Date.now()
 export const iso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z')
@@ -28,8 +29,17 @@ export function ulid(ms = Date.now()) {
   return out + rand
 }
 
-const NODE_IDS = { ns1: '01JB0000000000000000NS1AAA', ns2: '01JB0000000000000000NS2BBB' }
+const NODE_IDS = {
+  ns1: '01JB0000000000000000NS1AAA',
+  ns2: '01JB0000000000000000NS2BBB',
+  ns3: '01JB0000000000000000NS3CCC',
+  ns4: '01JB0000000000000000NS4DDD',
+}
 export const SELF_ID = NODE_IDS.ns1
+// Nodes of each scenario; ns3 and ns4 are Kea HA backups and BIND secondaries.
+export const SCENARIOS = { pair: ['ns1', 'ns2'], three: ['ns1', 'ns2', 'ns3'], four: ['ns1', 'ns2', 'ns3', 'ns4'] }
+const FINGERPRINTS = { ns1: 'a3f1c2', ns2: 'b7e9d4', ns3: 'c4d8e1', ns4: 'd2a7f9' }
+const isBackup = (name) => name === 'ns3' || name === 'ns4'
 
 function peer(name, id) {
   return {
@@ -37,36 +47,26 @@ function peer(name, id) {
     name,
     url: `https://${name}.example.lan:8444`,
     web_url: `https://${name}.example.lan:8443`,
-    cert_fingerprint: name === 'ns1' ? 'a3f1c2'.padEnd(64, '0') : 'b7e9d4'.padEnd(64, '1'),
-    modules: { bind: true, kea4: true, kea6: true, d2: true },
-    enrolled_at: ago(86400 * 40),
+    cert_fingerprint: FINGERPRINTS[name].padEnd(64, String(Object.keys(NODE_IDS).indexOf(name))),
+    // The backups run BIND and DHCPv4 only (a Rocky node of the lab).
+    modules: isBackup(name) ? { bind: true, kea4: true, kea6: false, d2: false } : { bind: true, kea4: true, kea6: true, d2: true },
+    enrolled_at: ago(86400 * (isBackup(name) ? 3 : 40)),
     enrolled_by: name === 'ns1' ? null : 'admin',
   }
 }
 
-function makeNodes() {
-  return [
-    {
-      peer: peer('ns1', NODE_IDS.ns1),
-      is_self: true,
-      status: 'online',
-      version: '0.1.0',
-      config_version: 42,
-      audit_count: 318,
-      last_seen: ago(2),
-      error: null,
-    },
-    {
-      peer: peer('ns2', NODE_IDS.ns2),
-      is_self: false,
-      status: 'online',
-      version: '0.1.0',
-      config_version: 42,
-      audit_count: 318,
-      last_seen: ago(4),
-      error: null,
-    },
-  ]
+function makeNodes(names) {
+  return names.map((name, i) => ({
+    peer: peer(name, NODE_IDS[name]),
+    is_self: name === 'ns1',
+    status: 'online',
+    version: '0.1.0',
+    // ns4 has not pulled the last configuration change yet.
+    config_version: name === 'ns4' ? 41 : 42,
+    audit_count: name === 'ns4' ? 316 : 318,
+    last_seen: ago(2 + i * 2),
+    error: null,
+  }))
 }
 
 const BUILTIN_ROLES = [
@@ -488,13 +488,13 @@ function makeHostSeeds() {
   return seeds.filter((s, i, all) => all.findIndex((o) => o.ip === s.ip) === i)
 }
 
-function makeLeases4(seeds) {
+function makeLeases4(seeds, names) {
   const leases = []
   seeds.filter((s) => s.lease).forEach((s, i) => {
     const cltt = NOW - (i % 30) * 60000
     const valid = s.subnet_id === 3 ? 900 : 3600
     const state = i === 5 ? 'declined' : 'default'
-    for (const nodeId of [NODE_IDS.ns1, NODE_IDS.ns2]) {
+    for (const nodeId of names.map((n) => NODE_IDS[n])) {
       leases.push({
         ip_address: s.ip,
         subnet_id: s.subnet_id,
@@ -505,8 +505,8 @@ function makeLeases4(seeds) {
         hostname: s.forward || s.subnet_id !== 3 ? `${s.name}.example.lan` : s.name,
         state,
         valid_lft: valid,
-        // ns2 lags a few seconds behind, as a hot-standby partner does.
-        cltt: iso(nodeId === NODE_IDS.ns1 ? cltt : cltt - 3000),
+        // The partner lags a few seconds behind, a backup a little more.
+        cltt: iso(nodeId === NODE_IDS.ns1 ? cltt : nodeId === NODE_IDS.ns2 ? cltt - 3000 : cltt - 5000),
         expires_at: iso(cltt + valid * 1000),
         fqdn_fwd: s.forward,
         fqdn_rev: s.forward,
@@ -666,7 +666,15 @@ function makeClasses(family) {
   ]
 }
 
-function haState(nodeId, family, selfName, partnerState, state, role) {
+const ROLE_OF = { ns1: 'primary', ns2: 'standby', ns3: 'backup', ns4: 'backup' }
+
+// The configured peers of a relationship: the pair, then the backups (HAPeer).
+export function haPeers(names) {
+  return names.map((name) => ({ name, role: ROLE_OF[name], url: `http://${name}.example.lan:8001/`, auto_failover: null }))
+}
+
+function haState(nodeId, family, selfName, partnerState, state, role, peers) {
+  const backup = role === 'backup'
   return {
     node_id: nodeId,
     family,
@@ -677,8 +685,11 @@ function haState(nodeId, family, selfName, partnerState, state, role) {
     state,
     scopes: role === 'primary' ? [selfName] : [],
     unsent_update_count: 0,
-    partner: {
+    peers,
+    // status-get of a backup has no remote: it exchanges no heartbeat.
+    partner: backup ? null : {
       role: role === 'primary' ? 'standby' : 'primary',
+      server_name: selfName === 'ns1' ? 'ns2' : 'ns1',
       state: partnerState,
       scopes: role === 'primary' ? [] : [selfName === 'ns1' ? 'ns2' : 'ns1'],
       in_touch: true,
@@ -694,11 +705,15 @@ function haState(nodeId, family, selfName, partnerState, state, role) {
   }
 }
 
-function makeHa(family) {
-  return [
-    haState(NODE_IDS.ns1, family, 'ns1', 'hot-standby', 'hot-standby', 'primary'),
-    haState(NODE_IDS.ns2, family, 'ns2', 'hot-standby', 'hot-standby', 'standby'),
-  ]
+function makeHa(family, names) {
+  // DHCPv6 runs on the pair only; DHCPv4 has the backups too.
+  const members = family === 'v6' ? names.filter((n) => !isBackup(n)) : names
+  const peers = haPeers(members)
+  return members.map((name) =>
+    isBackup(name)
+      ? haState(NODE_IDS[name], family, name, null, 'backup', 'backup', peers)
+      : haState(NODE_IDS[name], family, name, 'hot-standby', 'hot-standby', ROLE_OF[name], peers),
+  )
 }
 
 function d2Stats(nodeId, errors) {
@@ -760,7 +775,7 @@ function dhcpCapabilities(engine) {
 // A backend message (architecture section 19): the UI renders it, `title` is its English.
 const msg = (key, params = {}) => ({ key, params })
 
-function makeAlerts() {
+function makeAlerts(names) {
   const a = (id, kind, severity, state, subject, title, extra = {}) => ({
     id,
     kind,
@@ -835,6 +850,17 @@ function makeAlerts() {
       node_id: NODE_IDS.ns1,
       details: { path: '/etc/kea/kea-dhcp-ddns.conf', differences: ["/tsig-keys[0]/algorithm: 'HMAC-SHA256' in the file, 'HMAC-MD5' running"], count: 1, cause: 'file' },
     }),
+    // With four nodes, the last backup missed lease updates while it was restarted.
+    ...(names.includes('ns4')
+      ? [
+          a('ALRT0000000000000000000010', 'ha_backup_out_of_sync', 'warning', 'open', 'ha-backup:kea4', 'kea4 HA backup ns4 is out of sync with ns1 (12 leases differ)', {
+            title_message: msg('alert.ha_backup_out_of_sync', { engine: 'kea4', server: 'ns4', reference: 'ns1', count: 12 }),
+            engine: 'kea4',
+            node_id: NODE_IDS.ns4,
+            details: { server_name: 'ns4', reference: 'ns1', leases: 52, reference_leases: 64 },
+          }),
+        ]
+      : []),
   ]
 }
 
@@ -929,7 +955,10 @@ function makeHistoryFiles(history) {
   return files
 }
 
-export function createState() {
+export function createState(scenario = 'pair') {
+  const names = SCENARIOS[scenario] || SCENARIOS.pair
+  const ids = names.map((n) => NODE_IDS[n])
+  const pairIds = ids.filter((_, i) => !isBackup(names[i]))
   const seeds = makeHostSeeds()
   const zones = makeZones()
   const records = makeRecords(seeds)
@@ -937,9 +966,10 @@ export function createState() {
   const reservations4 = makeReservations4(seeds)
   const history = makeHistory()
   return {
+    scenario: SCENARIOS[scenario] ? scenario : 'pair',
     selfId: SELF_ID,
     nodeIds: NODE_IDS,
-    nodes: makeNodes(),
+    nodes: makeNodes(names),
     users: makeUsers(),
     customRoles: [{ name: 'helpdesk', builtin: false, description: 'Read and reservations', permissions: ['read:dns', 'read:dhcp', 'read:hosts', 'write:dhcp.reservations'] }],
     builtinRoles: BUILTIN_ROLES,
@@ -983,9 +1013,9 @@ export function createState() {
       v6: [opt('dns-servers', 23, '2001:db8::53', 'dhcp6')],
     },
     reservations: { v4: reservations4, v6: makeReservations6() },
-    leases: { v4: makeLeases4(seeds), v6: makeLeases6() },
-    ha: { v4: makeHa('v4'), v6: makeHa('v6') },
-    serviceEnabled: { v4: { [NODE_IDS.ns1]: true, [NODE_IDS.ns2]: true }, v6: { [NODE_IDS.ns1]: true, [NODE_IDS.ns2]: true } },
+    leases: { v4: makeLeases4(seeds, names), v6: makeLeases6() },
+    ha: { v4: makeHa('v4', names), v6: makeHa('v6', names) },
+    serviceEnabled: { v4: Object.fromEntries(ids.map((id) => [id, true])), v6: Object.fromEntries(pairIds.map((id) => [id, true])) },
     ddns: {
       v4: {
         dhcp_ddns: { 'enable-updates': true, 'server-ip': '127.0.0.1', 'server-port': 53001, 'ncr-protocol': 'UDP', 'ncr-format': 'JSON' },
@@ -1004,7 +1034,7 @@ export function createState() {
         { library: '/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_stat_cmds.so', parameters: {}, known: true, name: 'stat_cmds' },
         {
           library: '/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_ha.so',
-          parameters: { 'high-availability': [{ 'this-server-name': 'ns1', mode: 'hot-standby', peers: [{ name: 'ns1', role: 'primary' }, { name: 'ns2', role: 'standby' }] }] },
+          parameters: { 'high-availability': [{ 'this-server-name': 'ns1', mode: 'hot-standby', peers: haPeers(names).map(({ name, url, role }) => ({ name, url, role })) }] },
           known: true,
           name: 'ha',
         },
@@ -1016,7 +1046,7 @@ export function createState() {
     },
     availableHooks: [['lease_cmds', 'Lease commands (lease4-get, lease4-del, ...)'], ['host_cmds', 'Host reservation commands'], ['subnet_cmds', 'Subnet and shared network commands'], ['stat_cmds', 'Lease statistics per subnet and pool'], ['ha', 'High availability'], ['flex_id', 'Flexible identifier'], ['class_cmds', 'Client class commands'], ['run_script', 'External script hook'], ['bootp', 'BOOTP support'], ['limits', 'Rate limits per class or subnet']].map(([name, description]) => ({ name, description })),
     d2: { [NODE_IDS.ns1]: d2Stats(NODE_IDS.ns1, 0), [NODE_IDS.ns2]: d2Stats(NODE_IDS.ns2, 4) },
-    alerts: makeAlerts(),
+    alerts: makeAlerts(names),
     // Section 9: the D2 file of this node was edited by hand; the Kea files agree.
     keaFiles: {
       v4: { path: '/etc/kea/kea-dhcp4.conf', diverged: false, differences: [] },

@@ -52,6 +52,9 @@ export const dns = {
   zones: (params) => apiClient.get(`/dns/zones${buildQueryString(params)}`),
   zone: (zone, view) => apiClient.get(`/dns/zones/${zonePath(zone)}${buildQueryString({ view })}`),
   zonePlan: (change, node_ids) => apiClient.post('/dns/zones/plan', node_ids?.length ? { change, node_ids } : { change }),
+  // node_ids: every node that is to hold the zone as a secondary of its primary node.
+  secondariesPlan: (zone, view, node_ids) =>
+    apiClient.post(`/dns/zones/${zonePath(zone)}/secondaries/plan`, { node_ids, ...(view ? { view } : {}) }),
   records: (zone, params) => apiClient.get(`/dns/zones/${zonePath(zone)}/records${buildQueryString(params)}`),
   recordsPlan: (zone, changes, view) =>
     apiClient.post(`/dns/zones/${zonePath(zone)}/records/plan`, view ? { view, changes } : { changes }),
@@ -96,7 +99,7 @@ export const dhcp = {
   leases: (family, params) => apiClient.get(`/dhcp/${family}/leases${buildQueryString(params)}`),
   recentLeases: (family, params) => apiClient.get(`/dhcp/${family}/leases/recent${buildQueryString(params)}`),
   lease: (family, ip) => apiClient.get(`/dhcp/${family}/leases/${enc(ip)}`),
-  // node_id: the node holding the copy to delete (default: this node).
+  // node_id: the node holding the copy to delete (default: every node holding the lease).
   leaseDeletePlan: (family, ip, node_id) =>
     apiClient.post(`/dhcp/${family}/leases/${enc(ip)}/delete/plan`, node_id ? { node_id } : undefined),
   utilization: (family, node_id) => apiClient.get(`/dhcp/${family}/utilization${buildQueryString({ node_id })}`),
@@ -104,6 +107,8 @@ export const dhcp = {
   ha: (family) => apiClient.get(`/dhcp/${family}/ha`),
   haMaintenancePlan: (family, node_id, action) =>
     apiClient.post(`/dhcp/${family}/ha/maintenance/plan`, { node_id, action }),
+  // The relationship written on every node of it: { mode, servers: [{ name, url, role, node_id? }] }, or { remove: true }.
+  haSetupPlan: (family, body) => apiClient.post(`/dhcp/${family}/ha/setup/plan`, body),
   haTransitions: (family, params) => apiClient.get(`/dhcp/${family}/ha/transitions${buildQueryString(params)}`),
   servicePlan: (family, node_id, enable) => apiClient.post(`/dhcp/${family}/service/plan`, { node_id, enable }),
   ddns: (family) => apiClient.get(`/dhcp/${family}/ddns`),

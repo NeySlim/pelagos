@@ -153,7 +153,7 @@ export function observeNodeVersion(node) {
   const before = versions[id]
   versions = { ...versions, [id]: v }
   if (typeof before === 'number' && v > before) {
-    const e = { t: Date.now(), kind: 'repl', key: 'events.repl', params: { version: v, node: node.peer.name || '' }, id: `${id}:${v}` }
+    const e = { t: Date.now(), kind: 'repl', key: 'events.repl', params: { version: v, node: node.peer.name || '' }, id: `${id}:${v}`, node: id }
     addTraceEvent(e)
     return e
   }
@@ -175,10 +175,11 @@ export function observeZoneSerials(zones, now = Date.now()) {
     if (!before || values.length < 2) continue
     const serial = Math.max(...values)
     const inSync = values.every((v) => v === serial)
-    const caughtUp = Object.keys(z.serials).some((id) => typeof before[id] === 'number' && before[id] < serial)
-    if (inSync && caughtUp) {
+    const caughtUp = Object.keys(z.serials).filter((id) => typeof before[id] === 'number' && before[id] < serial)
+    if (inSync && caughtUp.length) {
       const subject = String(z.zone).replace(/\.$/, '')
-      const e = { t: now, kind: 'axfr', key: 'events.axfr', params: { subject, serial }, id: `${key}:${serial}` }
+      // `nodes`: the copies that caught up, each the end of one transfer from the primary.
+      const e = { t: now, kind: 'axfr', key: 'events.axfr', params: { subject, serial }, id: `${key}:${serial}`, nodes: caughtUp }
       addTraceEvent(e)
       out.push(e)
     }

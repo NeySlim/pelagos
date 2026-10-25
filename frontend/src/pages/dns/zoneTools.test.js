@@ -4,6 +4,7 @@ import {
   zoneMode, staticFindingId, editableZone, splitList, zoneForm, zoneEditChange, zoneEditDiff, zoneViews,
   zoneStats, catalogMemberBody, policyStatements, policyText, policyGrammarNames, policyErrors, dnssecOpBody,
   secondaryPeers, zoneDeleteRequest, newZoneAfter, CREATABLE_KINDS, nameServers, defaultNameServers,
+  zoneCopies, secondaryChoice,
 } from './zoneTools'
 
 const zone = {
@@ -184,5 +185,23 @@ describe('name servers of a new primary', () => {
     const form = { name: 'z.example.lan', kind: 'primary', view: '_default', ns: 'localhost.' }
     expect(newZoneAfter(form, ok).errors).toEqual({ ns: 'nsLocalhost' })
     expect(newZoneAfter({ ...form, ns: 'ns1.example.net.' }, ok).after.ns).toEqual(['ns1.example.net.'])
+  })
+})
+
+describe('secondaries of a primary', () => {
+  const node = (id, bind = true) => ({ peer: { id, name: id, modules: { bind } } })
+  const nodes = [node('ns1'), node('ns2'), node('ns3'), node('ns4'), node('dhcp1', false)]
+
+  it('reads the copies, else the status entries that hold the zone', () => {
+    const copies = { ns1: { kind: 'primary', source: 'pelagos' }, ns2: { kind: 'secondary', source: 'pelagos' } }
+    expect(zoneCopies({ copies })).toBe(copies)
+    const status = { ns1: { kind: 'primary' }, ns2: { kind: 'secondary' }, ns3: { kind: null, error: 'zone not configured' } }
+    expect(Object.keys(zoneCopies({ status }))).toEqual(['ns1', 'ns2'])
+  })
+
+  it('offers every BIND node but the primary, the current secondaries ticked', () => {
+    const detail = { copies: { ns2: { kind: 'primary' }, ns1: { kind: 'secondary' }, ns3: { kind: 'secondary' } } }
+    expect(secondaryChoice(detail, nodes)).toEqual({ primary: 'ns2', current: ['ns1', 'ns3'], candidates: ['ns1', 'ns3', 'ns4'] })
+    expect(secondaryChoice({ copies: { ns1: { kind: 'secondary' } } }, nodes)).toBeNull()
   })
 })

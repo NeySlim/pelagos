@@ -211,7 +211,8 @@
     "perPage": "Per page",
     "previous": "Previous",
     "next": "Next",
-    "page": "Page {{page}}"
+    "page": "Page {{page}}",
+    "deleteAll": "Delete on the {{count}} servers"
   },
   "reservations": {
     "create": "New reservation",
@@ -227,7 +228,7 @@
     "buildPlan": "Preview the plan",
     "cancelMaintenance": "End maintenance",
     "collected": "Read",
-    "degraded": "The HA pair is not in a normal state: check both servers below",
+    "degraded": "The HA relationship is not in a normal state: check the servers below",
     "disableService": "Disable DHCP",
     "empty": "No HA information",
     "emptyHint": "No server of this family answers status-get with the ha hook.",
@@ -270,9 +271,55 @@
           "title": "Disable DHCP on {{server}}?",
           "message": "{{server}} stops answering DHCP clients (dhcp-disable). Clients rely on the partner until it is enabled again."
         }
+      },
+      "remove": {
+        "true": {
+          "title": "Remove HA from every server?",
+          "message": "The ha hook is removed from {{server}}. Each server then serves its clients alone; leases are no longer copied."
+        }
       }
     },
-    "heartbeat": "One trace per HA status sample received"
+    "heartbeat": "One trace per HA status sample received",
+    "healthyBackups": "HA pair healthy, mode {{mode}}, {{count}} backup(s) in step",
+    "relationship": "Servers of the relationship ({{count}})",
+    "state": "State",
+    "contact": "Contact",
+    "receivesUpdates": "receives lease updates",
+    "leaseFeed": "lease updates sent to the backup",
+    "backupNote": "Backup server: it receives every lease update from the active servers and answers no client. Promote it by giving it the role of a lost server.",
+    "setup": {
+      "title": "Set up HA",
+      "editTitle": "Edit the HA relationship",
+      "promoteTitle": "Promote {{server}}",
+      "start": "Set up HA",
+      "edit": "Edit relationship",
+      "removeHa": "Remove HA",
+      "promote": "Promote",
+      "intro": "One relationship per family: a pair of active servers (primary and standby, or primary and secondary) and any number of backups. The plan writes the ha hook on every node that runs a server, each under its own name; servers no Pelagos node runs are written by hand with the same list. Kea 2.6 and 3.x take the same configuration.",
+      "url": "HA listener URL",
+      "role": "Role",
+      "noNode": "not a Pelagos node",
+      "addBackup": "Add a server",
+      "backupHint": "Extra servers join as backups: they take the lease updates and can be promoted.",
+      "remove": "Remove server {{name}}",
+      "modeHint": {
+        "hot-standby": "The primary serves every client; the standby takes over when the primary fails.",
+        "load-balancing": "The primary and the secondary share the clients; either serves all of them when the other fails.",
+        "passive-backup": "The primary serves every client and sends its lease updates to the backups; no automatic failover."
+      },
+      "errors": {
+        "mode": "Choose a mode",
+        "twoServers": "A relationship needs at least two servers",
+        "name": "A name without spaces",
+        "duplicate": "Already used by another server",
+        "url": "http://address:port/ or https://address:port/",
+        "nodeTwice": "A node runs one server of the relationship",
+        "role": "Not a role of {{mode}}",
+        "roleCount": "{{mode}} needs exactly one {{role}} server",
+        "backupNeeded": "{{mode}} needs at least one backup server",
+        "noNode": "At least one server must run on a node of this cluster"
+      }
+    }
   },
   "ddns": {
     "add": "Add parameter",

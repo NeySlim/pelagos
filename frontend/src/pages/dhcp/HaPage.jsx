@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-// High availability: one card per Kea server (state, role, scopes, partner view),
-// live through the `ha` topic; maintenance and DHCP service toggles go through a
-// confirmation dialog, then a plan that itself requires confirmation.
+// High availability: the relationship (the pair and any number of backups, every server
+// with its role and state, those no Pelagos node runs included), then one card per Kea
+// server (state, role, scopes, partner view), live through the `ha` topic. Maintenance
+// and DHCP service toggles go through a confirmation dialog, then a plan that itself
+// requires confirmation; the relationship itself is edited with HaSetupModal (promoting a
+// backup is an edit of the roles).
 import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Heartbeat, Wrench, Power, ArrowRight, CheckCircle, Warning } from '@phosphor-icons/react'
+import { Heartbeat, Wrench, Power, ArrowRight, CheckCircle, Warning, PencilSimple, ArrowFatLineUp, Trash } from '@phosphor-icons/react'
 import { Badge } from '../../components/Badge'
 import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
@@ -25,14 +28,21 @@ import { haTone } from '../dashboard/radarLayout'
 import { AreaPage, SectionError } from './ui'
 import { usePlanFlow, useNodeNames } from './hooks'
 import { HEALTHY_HA_STATES, haTransitionRows } from './lib'
+import { HaSetupModal } from './HaSetupModal'
+import { draftForNodes, draftFromRelationship, promoteDraft, relationshipHealthy } from './haSetup'
 
 const HA_POLL_MS = 5000
+const ROLE_ORDER = { primary: 0, secondary: 1, standby: 1, backup: 2 }
+// Cards follow the relationship: the pair, primary first, then the backups.
+const byRole = (a, b) => (ROLE_ORDER[a.role] ?? 3) - (ROLE_ORDER[b.role] ?? 3)
 
 export default function HaPage({ family }) {
   const { t } = useTranslation(['dhcp', 'common'])
   const { hasPermission } = usePermission()
   const canOperate = hasPermission('ops:dhcp.ha')
-  const { nameOf } = useNodeNames()
+  const canConfigure = hasPermission('write:dhcp.config')
+  const { nameOf, nodes } = useNodeNames()
+  const [setup, setSetup] = useState(null) // { draft, title }
   // Kea roles and modes (primary, standby, hot-standby, ...) read in the UI language.
   const haTerm = (value) => (value ? t(`common:status.${value}`, { defaultValue: value }) : '-')
   const ha = useApi(() => api.dhcp.ha(family), [family])
@@ -69,14 +79,28 @@ export default function HaPage({ family }) {
     })
   })
 
-  const items = useMemo(() => ha.data?.items || [], [ha.data])
+  const items = useMemo(() => [...(ha.data?.items || [])].sort(byRole), [ha.data])
+  // The relationship as the nodes configure it (GET .../ha `relationships`), live states merged in.
+  const rel = useMemo(() => {
+    const found = ha.data?.relationships?.[0]
+    if (!found) return null
+    const servers = found.servers.map((srv) => {
+      const live = items.find((h) => h.node_id && h.node_id === srv.node_id)
+      return live ? { ...srv, state: live.state, unsent_update_count: live.unsent_update_count } : srv
+    })
+    return { ...found, servers }
+  }, [ha.data, items])
   const serverOf = (nodeId) => (servers.data?.items || []).find((s) => s.node_id === nodeId)
-  const healthy = items.length > 0 && items.every((h) => h.enabled && HEALTHY_HA_STATES.includes(h.state) && h.partner?.in_touch !== false)
+  const healthy = rel
+    ? relationshipHealthy(rel)
+    : items.length > 0 && items.every((h) => h.enabled && HEALTHY_HA_STATES.includes(h.state) && h.partner?.in_touch !== false)
+  const backups = rel?.servers.filter((srv) => srv.role === 'backup') || []
 
   const runConfirmed = async () => {
     const { kind, nodeId, value } = confirm
     setConfirm(null)
     if (kind === 'maintenance') await flow.build(() => api.dhcp.haMaintenancePlan(family, nodeId, value))
+    else if (kind === 'remove') await flow.build(() => api.dhcp.haSetupPlan(family, { remove: true }))
     else await flow.build(() => api.dhcp.servicePlan(family, nodeId, value))
   }
 
@@ -102,8 +126,57 @@ export default function HaPage({ family }) {
     message: t(`ha.confirm.${confirm.kind}.${String(confirm.value)}.message`, { server: confirm.name }),
   }
 
+  const serverColumns = [
+    { key: 'name', label: t('fields.server'), render: (r) => <span className="font-mono">{r.name}</span> },
+    { key: 'role', label: t('ha.setup.role'), render: (r) => <Badge variant={r.role === 'backup' ? 'gray' : 'purple'} size="sm">{haTerm(r.role)}</Badge> },
+    { key: 'node', label: t('fields.node'), render: (r) => (r.node_id ? <span className="font-mono">{nameOf(r.node_id)}</span> : <span className="text-text-tertiary">{t('ha.setup.noNode')}</span>) },
+    { key: 'state', label: t('ha.state'), render: (r) => (r.state ? <StatusBadge status={r.state} /> : '-') },
+    {
+      key: 'touch',
+      label: t('ha.contact'),
+      render: (r) =>
+        r.role === 'backup' ? (
+          <span className="text-text-tertiary">{t('ha.receivesUpdates')}</span>
+        ) : r.in_touch === null || r.in_touch === undefined ? (
+          '-'
+        ) : (
+          <Badge variant={r.in_touch ? 'success' : 'danger'} size="sm">
+            {r.in_touch ? t('ha.inTouch') : t('ha.notInTouch')}
+          </Badge>
+        ),
+    },
+    { key: 'url', label: t('ha.setup.url'), render: (r) => <span className="font-mono text-text-secondary">{r.url || '-'}</span> },
+  ]
+
+  const openSetup = (draft, title) => setSetup({ draft, title })
+  const editRelationship = () => openSetup(rel ? draftFromRelationship(rel) : draftForNodes(nodes, family), rel ? t('ha.setup.editTitle') : t('ha.setup.title'))
+  const removeRelationship = () => setConfirm({ kind: 'remove', value: true, name: rel?.servers.map((srv) => srv.name).join(', ') || '' })
+
   return (
-    <AreaPage ns="dhcp" page="ha" icon={Heartbeat} family={family} onRefresh={refresh} loading={ha.loading}>
+    <AreaPage
+      ns="dhcp"
+      page="ha"
+      icon={Heartbeat}
+      family={family}
+      onRefresh={refresh}
+      loading={ha.loading}
+      actions={
+        canConfigure && ha.data ? (
+          <>
+            {rel && (
+              <Button variant="danger-soft" size="sm" onClick={removeRelationship} disabled={flow.building} data-testid="ha-remove">
+                <Trash size={14} />
+                {t('ha.setup.removeHa')}
+              </Button>
+            )}
+            <Button variant="secondary" size="sm" onClick={editRelationship} disabled={flow.building} data-testid="ha-setup">
+              <PencilSimple size={14} />
+              {rel ? t('ha.setup.edit') : t('ha.setup.start')}
+            </Button>
+          </>
+        ) : null
+      }
+    >
       <div className="space-y-4">
         <SectionError error={ha.error} onRetry={ha.refetch} />
         {ha.loading && !ha.data && (
@@ -116,21 +189,45 @@ export default function HaPage({ family }) {
           <Card className="px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-3" hover={false} data-testid="ha-summary">
             <span className={`flex items-center gap-2 text-sm ${healthy ? 'status-success-text' : 'status-warning-text'}`}>
               {healthy ? <CheckCircle size={16} weight="fill" /> : <Warning size={16} weight="fill" />}
-              {healthy ? t('ha.healthy', { mode: haTerm(items[0].mode) }) : t('ha.degraded')}
+              {healthy ? t(backups.length ? 'ha.healthyBackups' : 'ha.healthy', { mode: haTerm(rel?.mode || items[0].mode), count: backups.length }) : t('ha.degraded')}
             </span>
             <span className="ml-auto flex items-center flex-wrap gap-y-2" data-testid="ha-rail">
-              {items.map((h, i) => (
-                <span key={h.node_id} className="flex items-center">
-                  {i > 0 && <FlowLine tone={h.partner?.in_touch === false || items[i - 1].partner?.in_touch === false ? 'danger' : 'primary'} length="44px" thickness={2} className="mx-1.5 ui-waypoint-joint" />}
-                  <span className={`ui-waypoint fx-tone-${haTone(h)}`} title={haTerm(h.state)}>
-                    <StatusDot tone={haTone(h)} size={6} pulse={haTone(h) === 'danger'} />
-                    {h.server_name || nameOf(h.node_id)}
-                    <span className="ui-waypoint-sub">{haTerm(h.state)}</span>
+              {(rel ? rel.servers : items).map((x, i, all) => {
+                const h = rel ? items.find((it) => it.node_id && it.node_id === x.node_id) || { state: x.state, partner: { in_touch: x.in_touch } } : x
+                const name = rel ? x.name : x.server_name || nameOf(x.node_id)
+                const role = x.role
+                const prev = all[i - 1]
+                const feed = role === 'backup'
+                const lost = !feed && prev && (h.partner?.in_touch === false || (rel ? prev.in_touch === false : prev.partner?.in_touch === false))
+                return (
+                  <span key={`${name}-${i}`} className="flex items-center" data-testid="ha-rail-server" data-role={role || ''}>
+                    {i > 0 &&
+                      (feed ? (
+                        <span className="mx-1.5 w-8 border-t border-dashed border-accent-pro" title={t('ha.leaseFeed')} aria-hidden="true" />
+                      ) : (
+                        <FlowLine tone={lost ? 'danger' : 'primary'} length="44px" thickness={2} className="mx-1.5 ui-waypoint-joint" />
+                      ))}
+                    <span className={`ui-waypoint fx-tone-${haTone(h)}`} title={haTerm(h.state)}>
+                      <StatusDot tone={haTone(h)} size={6} pulse={haTone(h) === 'danger'} />
+                      {name}
+                      <span className="ui-waypoint-sub">{feed ? haTerm('backup') : haTerm(h.state)}</span>
+                    </span>
                   </span>
-                </span>
-              ))}
+                )
+              })}
             </span>
           </Card>
+        )}
+        {rel && (
+          <DataTable
+            title={t('ha.relationship', { count: rel.servers.length })}
+            columns={serverColumns}
+            rows={rel.servers}
+            rowKey={(r) => r.name}
+            emptyTitle={t('ha.empty')}
+            dense
+            testId="ha-servers"
+          />
         )}
         <div className="grid gap-4 lg:grid-cols-2">
           {items.map((h) => {
@@ -189,7 +286,26 @@ export default function HaPage({ family }) {
                       </div>
                     </div>
                   )}
-                  {canOperate && h.enabled && (
+                  {h.role === 'backup' && (
+                    <div className="rounded-lg border border-dashed border-border p-2 text-text-secondary" data-testid="ha-backup-note">
+                      {t('ha.backupNote')}
+                    </div>
+                  )}
+                  {h.role === 'backup' && canConfigure && rel && (
+                    <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
+                      <Button
+                        variant="secondary"
+                        size="xs"
+                        onClick={() => openSetup(promoteDraft(rel, h.server_name), t('ha.setup.promoteTitle', { server: name }))}
+                        disabled={flow.building}
+                        data-testid="ha-promote"
+                      >
+                        <ArrowFatLineUp size={12} />
+                        {t('ha.setup.promote')}
+                      </Button>
+                    </div>
+                  )}
+                  {canOperate && h.enabled && h.role !== 'backup' && (
                     <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
                       <Button
                         variant="warning-soft"
@@ -247,9 +363,10 @@ export default function HaPage({ family }) {
         title={confirmText?.title}
         message={confirmText?.message}
         confirmLabel={t('ha.buildPlan')}
-        variant={confirm?.kind === 'service' && confirm?.value === false ? 'danger' : 'warning'}
+        variant={confirm?.kind === 'remove' || (confirm?.kind === 'service' && confirm?.value === false) ? 'danger' : 'warning'}
         typeToConfirm={confirm?.kind === 'maintenance' && confirm?.value === 'start' ? confirm.name : undefined}
       />
+      {setup && <HaSetupModal family={family} initial={setup.draft} title={setup.title} nodes={nodes} flow={flow} onClose={() => setSetup(null)} />}
       {flow.modal}
     </AreaPage>
   )

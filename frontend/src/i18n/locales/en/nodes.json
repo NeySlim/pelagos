@@ -19,7 +19,8 @@
     "reachable": "Reachable",
     "status": "Status",
     "url": "Address",
-    "version": "Version"
+    "version": "Version",
+    "haRole": "Kea HA"
   },
   "list": {
     "empty": "No node",
@@ -40,7 +41,8 @@
     "button": "Remove",
     "done": "{{name}} removed from the cluster",
     "message": "The node loses its trust: it stops replicating and its certificate is no longer accepted. Its BIND and Kea keep running.",
-    "title": "Remove {{name}} from the cluster?"
+    "title": "Remove {{name}} from the cluster?",
+    "haWarning": "{{name}} is a Kea HA server ({{roles}}): take it out of the relationship on the HA page first, or the other servers keep sending it lease updates."
   },
   "replication": {
     "alone": "This node has no peer yet: enroll a second server for a redundant interface.",

@@ -138,16 +138,23 @@
     "ptr_mismatch": "PTR incohérent",
     "duplicate_ip": "IP en double",
     "insecure_key": "clé faible",
-    "insecure_listener": "écoute non sûre"
+    "insecure_listener": "écoute non sûre",
+    "ha_backup_out_of_sync": "secours HA désynchronisé"
   },
   "live": {
     "label": "Direct",
     "collecting": "Collecte des compteurs en cours",
     "ago": "-{{minutes}} min",
     "agoSeconds": "-{{seconds}} s",
-    "readout": { "qps": "req/s", "lps": "baux/s" },
+    "readout": {
+      "qps": "req/s",
+      "lps": "baux/s"
+    },
     "sampleRate": "{{rate}} éch/s",
-    "span": { "seconds": "{{seconds}} s", "minutes": "{{minutes}} min" },
+    "span": {
+      "seconds": "{{seconds}} s",
+      "minutes": "{{minutes}} min"
+    },
     "now": "maintenant"
   },
   "radar": {
@@ -209,6 +216,15 @@
       "axfr": "zone synchronisée : {{subject}}",
       "repl": "config {{version}} répliquée",
       "ha": "HA {{server}} {{family}} : {{state}}"
+    },
+    "mesh": {
+      "noHa": "sans HA",
+      "replication": "réplication",
+      "ha": "paire HA",
+      "feed": "baux vers les secours",
+      "inSync": "{{count}} nœuds synchronisés",
+      "behind": "{{names}} en retard de {{count}}",
+      "unreachable": "injoignable : {{names}}"
     }
   }
 }

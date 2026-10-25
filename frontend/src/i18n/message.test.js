@@ -61,8 +61,8 @@ describe('renderMessage', () => {
   it('translates into French', async () => {
     await i18n.changeLanguage('fr')
     expect(renderMessage(summary, 'x')).toBe('example.lan. : ajout : 1, suppression : 2')
-    const alert = { key: 'alert.ha_partner_down', params: { engine: 'kea4', state: 'partner-down' } }
-    expect(renderMessage(alert, 'x')).toBe('Le partenaire HA kea4 est arrêté (état partner-down)')
+    const alert = { key: 'alert.ha_partner_down', params: { engine: 'kea4', partner: 'ns2', state: 'partner-down' } }
+    expect(renderMessage(alert, 'x')).toBe('Le partenaire HA ns2 de kea4 est arrêté (état partner-down)')
   })
 
   it('joins with the separator the backend chose', () => {

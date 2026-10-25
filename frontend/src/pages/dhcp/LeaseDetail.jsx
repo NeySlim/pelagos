@@ -59,7 +59,8 @@ export function LeaseDetail({ family, ip, onDeleted, compact = false }) {
   ]
   const nodeColumns = agreement.nodes
   const canDelete = hasPermission('ops:dhcp.leases')
-  // Each copy is deleted on the node that holds it, so a lease only a peer has is reachable too.
+  // Each copy is deleted on the node that holds it, so a lease only a peer has is reachable too;
+  // without a node the plan reaches every server holding it (HA partner and backups alike).
   const deleteOn = (nodeId) => flow.build(() => api.dhcp.leaseDeletePlan(family, ip, nodeId))
 
   return (
@@ -92,6 +93,12 @@ export function LeaseDetail({ family, ip, onDeleted, compact = false }) {
             >
               <Trash size={12} />
               {t('leases.delete')}
+            </Button>
+          )}
+          {canDelete && copies.length > 1 && (
+            <Button variant="danger-soft" size="xs" onClick={() => deleteOn(null)} loading={flow.building} data-testid="lease-delete-all">
+              <Trash size={12} />
+              {t('leases.deleteAll', { count: copies.length })}
             </Button>
           )}
         </span>

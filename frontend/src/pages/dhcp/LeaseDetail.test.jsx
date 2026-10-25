@@ -65,6 +65,7 @@ describe('LeaseDetail delete', () => {
     renderDetail()
     await screen.findByTestId(`lease-delete-${NS1}`)
     expect(screen.queryByTestId('lease-delete')).not.toBeInTheDocument()
+    expect(screen.getByTestId('lease-delete-all')).toHaveTextContent('Delete on the 2 servers')
     fireEvent.click(screen.getByTestId(`lease-delete-${NS2}`))
     await waitFor(() => expect(mocks.api.dhcp.leaseDeletePlan).toHaveBeenCalledWith('v4', IP, NS2))
   })

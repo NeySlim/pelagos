@@ -27,7 +27,7 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { PlanPreviewModal } from '../../components/PlanPreview'
-import { TransferSerial } from '../../components/motion'
+import { TransferBar, TransferSerial } from '../../components/motion'
 import { usePoll } from '../../hooks/usePoll'
 import { useMessage } from '../../i18n/message'
 import { onPlanEvent, planZone } from '../../lib/planEvents'
@@ -40,7 +40,7 @@ import { RecordEditor } from './RecordEditor'
 import { EDITABLE_TYPES, READ_ONLY_TYPES, absZone, isEditableType, relativeName } from './records'
 import { ZoneEditModal } from './ZoneEditModal'
 import { clearLists } from '../../lib/listCache'
-import { editableZone, secondaryPeers, staticFindingId, zoneDeleteRequest, zoneMode } from './zoneTools'
+import { editableZone, secondaryChoice, secondaryPeers, staticFindingId, zoneCopies, zoneDeleteRequest, zoneMode } from './zoneTools'
 
 const ZONE_POLL_MS = 15000
 const TRANSFER_REREAD_MS = 2500
@@ -205,15 +205,76 @@ function RecordsTab({ zone, view, editable, mode, onChanged, status, nameOf }) {
   )
 }
 
-function StatusTab({ status, nameOf, zone, canOps, onRetransfer, busyNode }) {
+// The secondaries of a primary: one box per BIND node; the plan adds and drops copies and
+// sets the primary's also-notify to the nodes kept.
+function SecondariesCard({ choice, nameOf, onPlan, busy }) {
   const { t } = useTranslation(['dns', 'common'])
-  const entries = Object.entries(status || {})
+  const [picked, setPicked] = useState(() => new Set(choice.current))
+  const key = choice.current.join(',')
+  useEffect(() => setPicked(new Set(key ? key.split(',') : [])), [key])
+  const changed = picked.size !== choice.current.length || choice.current.some((id) => !picked.has(id))
+  const toggle = (id) =>
+    setPicked((cur) => {
+      const next = new Set(cur)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  return (
+    <Card className="p-4 space-y-3" hover={false} data-testid="zone-secondaries">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="ui-card-title text-sm font-semibold text-text-primary">{t('detail.secondaries.title')}</span>
+        <span className="text-xs text-text-tertiary">{t('detail.secondaries.primaryOn', { node: nameOf(choice.primary) })}</span>
+      </div>
+      <div className="flex flex-wrap gap-x-5 gap-y-2">
+        {choice.candidates.map((id) => (
+          <label key={id} className="flex items-center gap-2 text-xs text-text-primary cursor-pointer">
+            <input type="checkbox" checked={picked.has(id)} onChange={() => toggle(id)} data-testid={`zone-secondary-${id}`} />
+            <span className="font-mono">{nameOf(id)}</span>
+          </label>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button size="xs" variant="secondary" disabled={!changed || busy} onClick={() => onPlan([...picked])} data-testid="zone-secondaries-plan">
+          {t('detail.secondaries.plan')}
+        </Button>
+        <span className="text-2xs text-text-tertiary">{t('detail.secondaries.hint')}</span>
+      </div>
+    </Card>
+  )
+}
+
+function StatusTab({ status, copies, nameOf, zone, canOps, onRetransfer, busyNode, choice, canPlan, onSecondaries, planning }) {
+  const { t } = useTranslation(['dns', 'common'])
+  // Only the nodes that hold the zone have a status worth a card.
+  const entries = Object.entries(status || {}).filter(([id, s]) => !copies || id in copies || !s.error)
   const serials = Object.fromEntries(entries.map(([id, s]) => [id, s.serial]))
   const lag = new Set(laggingNodes(serials))
   const catching = useCatchUps(serials)
+  const primary = choice?.primary
+  const secondaries = entries.filter(([id, s]) => id !== primary && (copies?.[id]?.kind || s.kind) === 'secondary')
   if (!entries.length) return <EmptyState icon={HardDrives} title={t('detail.noStatus')} />
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-testid="zone-status">
+    <div className="space-y-4">
+      {primary && secondaries.length > 0 && (
+        <Card className="p-3 space-y-1.5" hover={false} data-testid="zone-transfers">
+          <p className="text-2xs text-text-tertiary">{t('detail.secondaries.transfers', { node: nameOf(primary) })}</p>
+          {secondaries.map(([id, s]) => (
+            <div key={id} className="grid grid-cols-[minmax(0,6rem)_minmax(0,1fr)_minmax(0,9rem)] items-center gap-3 text-xs" data-testid="zone-transfer-row" data-node={id}>
+              <span className="font-mono text-text-secondary truncate">{nameOf(primary)}</span>
+              <span className="relative block h-3 border-b border-border" aria-hidden="true">
+                <TransferBar run={catching.has(id) ? s.serial || 1 : 0} tone="dns" label={catching.has(id) ? String(s.serial) : undefined} />
+              </span>
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="font-mono text-text-primary truncate">{nameOf(id)}</span>
+                {s.error ? <StatusBadge status="error" /> : lag.has(id) ? <StatusBadge status="divergent" /> : <StatusBadge status="in-sync" />}
+              </span>
+            </div>
+          ))}
+        </Card>
+      )}
+      {choice && canPlan && <SecondariesCard choice={choice} nameOf={nameOf} onPlan={onSecondaries} busy={planning} />}
+      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4" data-testid="zone-status">
       {entries.map(([id, s]) => (
         <Card key={id} className="p-4 space-y-3" hover={false}>
           <div className="flex items-center gap-2">
@@ -246,6 +307,7 @@ function StatusTab({ status, nameOf, zone, canOps, onRetransfer, busyNode }) {
           </dl>
         </Card>
       ))}
+      </div>
     </div>
   )
 }
@@ -308,7 +370,7 @@ export default function ZoneDetailPage() {
   const navigate = useNavigate()
   const { hasPermission } = usePermission()
   const { showSuccess, showError } = useNotification()
-  const { nameOf } = useNodeNames()
+  const { nameOf, nodes } = useNodeNames()
   const [tab, setTab] = useState('records')
   const [busy, setBusy] = useState(null)
   const { data, error, loading, refetch, setData } = useApi(() => api.dns.zone(zoneParam, view), [zoneParam, view])
@@ -377,7 +439,7 @@ export default function ZoneDetailPage() {
   const tabs = useMemo(
     () => [
       { id: 'records', label: t('detail.tabs.records'), icon: TableIcon },
-      { id: 'status', label: t('detail.tabs.status'), icon: HardDrives, count: Object.keys(data?.status || {}).length },
+      { id: 'status', label: t('detail.tabs.status'), icon: HardDrives, count: Object.keys(data ? zoneCopies(data) : {}).length },
       { id: 'config', label: t('detail.tabs.config'), icon: Gear },
     ],
     [t, data],
@@ -473,6 +535,11 @@ export default function ZoneDetailPage() {
           {tab === 'status' && (
             <StatusTab
               status={data.status}
+              copies={data.copies ? zoneCopies(data) : null}
+              choice={zone.kind === 'primary' ? secondaryChoice(data, nodes) : null}
+              canPlan={hasPermission('write:dns.zones')}
+              planning={flow.busy}
+              onSecondaries={(ids) => flow.run(() => api.dns.secondariesPlan(zone.name, view, ids))}
               nameOf={nameOf}
               zone={zone}
               canOps={canOps}

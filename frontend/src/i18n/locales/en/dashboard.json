@@ -138,16 +138,23 @@
     "ptr_mismatch": "PTR mismatch",
     "duplicate_ip": "duplicate IP",
     "insecure_key": "insecure key",
-    "insecure_listener": "insecure listener"
+    "insecure_listener": "insecure listener",
+    "ha_backup_out_of_sync": "HA backup out of sync"
   },
   "live": {
     "label": "Live",
     "collecting": "Collecting live counters",
     "ago": "-{{minutes}} min",
     "agoSeconds": "-{{seconds}} s",
-    "readout": { "qps": "q/s", "lps": "l/s" },
+    "readout": {
+      "qps": "q/s",
+      "lps": "l/s"
+    },
     "sampleRate": "{{rate}} S/s",
-    "span": { "seconds": "{{seconds}} s", "minutes": "{{minutes}} min" },
+    "span": {
+      "seconds": "{{seconds}} s",
+      "minutes": "{{minutes}} min"
+    },
     "now": "now"
   },
   "radar": {
@@ -209,6 +216,15 @@
       "axfr": "zone in sync: {{subject}}",
       "repl": "config {{version}} replicated",
       "ha": "HA {{server}} {{family}}: {{state}}"
+    },
+    "mesh": {
+      "noHa": "no HA",
+      "replication": "replication",
+      "ha": "HA pair",
+      "feed": "lease updates to backups",
+      "inSync": "{{count}} nodes in sync",
+      "behind": "{{names}} behind by {{count}}",
+      "unreachable": "unreachable: {{names}}"
     }
   }
 }

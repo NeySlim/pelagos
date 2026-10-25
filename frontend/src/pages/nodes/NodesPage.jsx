@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// Nodes and replication: cluster members with liveness, versions and modules,
-// the replication state seen from this node, sync and removal of a peer, and the
-// enrollment token dialog. Node status is live through the `nodes` topic.
+// Nodes and replication: cluster members with liveness, versions, modules and Kea HA
+// roles, the replication state seen from this node (one link per peer, any number of
+// them), sync and removal of a peer, and the enrollment token dialog. Node status is
+// live through the `nodes` topic.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { HardDrives, Key, ArrowsClockwise, CheckCircle, Warning, Trash } from '@phosphor-icons/react'
@@ -80,6 +81,19 @@ export default function NodesPage() {
   const { showSuccess, showError } = useNotification()
   const nodes = useApi(() => api.nodes.list(), [])
   const replication = useApi(() => api.nodes.replication(), [])
+  // HA role of each node per family; a family whose read fails shows none.
+  const haRoles = useApi(async () => {
+    const out = {}
+    for (const family of ['v4', 'v6']) {
+      try {
+        const res = await api.dhcp.ha(family)
+        for (const h of res?.items || []) if (h.enabled !== false && h.role) (out[h.node_id] ||= []).push({ family, role: h.role, server: h.server_name })
+      } catch {
+        // DHCPv6 off, or no HA: no role
+      }
+    }
+    return out
+  }, [])
   const [enrolling, setEnrolling] = useState(false)
   const [removing, setRemoving] = useState(null)
   const [busy, setBusy] = useState(null)
@@ -172,6 +186,24 @@ export default function NodesPage() {
       ),
     },
     { key: 'audit_count', label: t('fields.auditCount'), mono: true },
+    {
+      key: 'ha',
+      label: t('fields.haRole'),
+      render: (n) => {
+        const roles = haRoles.data?.[n.peer.id] || []
+        return roles.length ? (
+          <span className="inline-flex flex-wrap gap-1" data-testid="node-ha-roles">
+            {roles.map((r) => (
+              <Badge key={r.family} variant={r.role === 'backup' ? 'gray' : 'purple'} size="sm">
+                {r.family} {t(`common:status.${r.role}`, { defaultValue: r.role })}
+              </Badge>
+            ))}
+          </span>
+        ) : (
+          '-'
+        )
+      },
+    },
     {
       key: 'modules',
       label: t('fields.modules'),
@@ -347,7 +379,11 @@ export default function NodesPage() {
         onOpenChange={(o) => !o && setRemoving(null)}
         onConfirm={remove}
         title={t('remove.title', { name: removing?.peer.name })}
-        message={t('remove.message')}
+        message={
+          (haRoles.data?.[removing?.peer.id] || []).length
+            ? `${t('remove.message')} ${t('remove.haWarning', { name: removing?.peer.name, roles: haRoles.data[removing.peer.id].map((r) => `${r.family} ${r.role}`).join(', ') })}`
+            : t('remove.message')
+        }
         confirmLabel={t('remove.button')}
         typeToConfirm={removing?.peer.name}
         loading={Boolean(busy)}

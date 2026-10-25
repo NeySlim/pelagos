@@ -72,6 +72,8 @@ function concrete(spec, state) {
 }
 
 const BODIES = {
+  'POST /dhcp/{family}/ha/setup/plan': { remove: true },
+  'POST /dns/zones/{zone}/secondaries/plan': { node_ids: [] },
   'POST /auth/password': { current_password: 'admin', new_password: 'Admin-new-password-1' },
   'POST /auth/totp/confirm': { code: '123456' },
   'DELETE /auth/totp': { password: 'Admin-new-password-1' },

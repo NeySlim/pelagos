@@ -211,7 +211,8 @@
     "perPage": "Par page",
     "previous": "Précédent",
     "next": "Suivant",
-    "page": "Page {{page}}"
+    "page": "Page {{page}}",
+    "deleteAll": "Supprimer sur les {{count}} serveurs"
   },
   "reservations": {
     "create": "Nouvelle réservation",
@@ -227,7 +228,7 @@
     "buildPlan": "Aperçu du plan",
     "cancelMaintenance": "Terminer la maintenance",
     "collected": "Lu",
-    "degraded": "La paire HA n'est pas dans un état normal : vérifier les deux serveurs ci-dessous",
+    "degraded": "La relation HA n'est pas dans un état normal : vérifiez les serveurs ci-dessous",
     "disableService": "Désactiver le DHCP",
     "empty": "Aucune information HA",
     "emptyHint": "Aucun serveur de cette famille ne répond à status-get avec le hook ha.",
@@ -270,9 +271,55 @@
           "title": "Désactiver le DHCP sur {{server}} ?",
           "message": "{{server}} cesse de répondre aux clients DHCP (dhcp-disable). Les clients dépendent du partenaire jusqu'à la réactivation."
         }
+      },
+      "remove": {
+        "true": {
+          "title": "Retirer la HA de tous les serveurs ?",
+          "message": "Le hook ha est retiré de {{server}}. Chaque serveur sert alors ses clients seul ; les baux ne sont plus copiés."
+        }
       }
     },
-    "heartbeat": "Une trace par relevé d'état HA reçu"
+    "heartbeat": "Une trace par relevé d'état HA reçu",
+    "healthyBackups": "Paire HA saine, mode {{mode}}, {{count}} secours à jour",
+    "relationship": "Serveurs de la relation ({{count}})",
+    "state": "État",
+    "contact": "Contact",
+    "receivesUpdates": "reçoit les mises à jour de baux",
+    "leaseFeed": "mises à jour de baux envoyées au secours",
+    "backupNote": "Serveur de secours : il reçoit chaque mise à jour de bail des serveurs actifs et ne répond à aucun client. Promouvez-le en lui donnant le rôle d'un serveur perdu.",
+    "setup": {
+      "title": "Configurer la HA",
+      "editTitle": "Modifier la relation HA",
+      "promoteTitle": "Promouvoir {{server}}",
+      "start": "Configurer la HA",
+      "edit": "Modifier la relation",
+      "removeHa": "Retirer la HA",
+      "promote": "Promouvoir",
+      "intro": "Une relation par famille : une paire de serveurs actifs (primaire et standby, ou primaire et secondaire) et autant de secours que voulu. Le plan écrit le hook ha sur chaque nœud qui porte un serveur, chacun sous son propre nom ; les serveurs sans nœud Pelagos s'écrivent à la main avec la même liste. Kea 2.6 et 3.x prennent la même configuration.",
+      "url": "URL de l'écouteur HA",
+      "role": "Rôle",
+      "noNode": "pas un nœud Pelagos",
+      "addBackup": "Ajouter un serveur",
+      "backupHint": "Les serveurs ajoutés sont des secours : ils reçoivent les mises à jour de baux et peuvent être promus.",
+      "remove": "Retirer le serveur {{name}}",
+      "modeHint": {
+        "hot-standby": "Le primaire sert tous les clients ; le standby prend le relais quand le primaire tombe.",
+        "load-balancing": "Le primaire et le secondaire se partagent les clients ; chacun les sert tous quand l'autre tombe.",
+        "passive-backup": "Le primaire sert tous les clients et envoie ses mises à jour de baux aux secours ; pas de bascule automatique."
+      },
+      "errors": {
+        "mode": "Choisissez un mode",
+        "twoServers": "Une relation demande au moins deux serveurs",
+        "name": "Un nom sans espace",
+        "duplicate": "Déjà pris par un autre serveur",
+        "url": "http://adresse:port/ ou https://adresse:port/",
+        "nodeTwice": "Un nœud porte un seul serveur de la relation",
+        "role": "Pas un rôle de {{mode}}",
+        "roleCount": "{{mode}} demande exactement un serveur {{role}}",
+        "backupNeeded": "{{mode}} demande au moins un serveur de secours",
+        "noNode": "Au moins un serveur doit tourner sur un nœud du cluster"
+      }
+    }
   },
   "ddns": {
     "add": "Ajouter un paramètre",

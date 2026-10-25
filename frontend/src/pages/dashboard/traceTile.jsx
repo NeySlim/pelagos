@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // The cluster trace tile (Instrument and the plain families): this node and its peer as
-// cards joined by a signal link, then the strip-chart recorder (DNS queries, DHCP leases,
-// HA heartbeats measured from Kea, events from the WebSocket) with its readouts, legend,
-// sample count, scale bar and window. Everything that moves is a real event or sample.
+// cards joined by a signal link (three nodes or more: every node on the mesh of
+// traceMesh.jsx), then the strip-chart recorder (DNS queries, DHCP leases, HA heartbeats
+// measured from Kea, events from the WebSocket) with its readouts, legend, sample count,
+// scale bar and window. Everything that moves is a real event or sample.
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Pulse } from '@phosphor-icons/react'
@@ -16,9 +17,16 @@ import { cn, formatRelativeTime } from '../../lib/utils'
 import { LiveStatus, TileFrame } from './tiles'
 import { TileRefresh } from './tileRefresh'
 import { rateFormat, splitRate } from './summary'
-import { clockOffset, haFamilies, heartbeatOf, heartbeatReadout, linkOf, nodeEngines, topology, traceLanes } from './traceModel'
+import { clockOffset, haFamilies, heartbeatOf, heartbeatReadout, linkOf, meshModel, nodeEngines, topology, traceLanes } from './traceModel'
+import { TraceMesh } from './traceMesh'
 
 const WINDOW_KEY = 'pelagos-trace-window'
+
+// [primary, partner] node ids of the HA pair the mesh draws, or null.
+function haPairOf(nodes, ha) {
+  const ha_ = meshModel(nodes, ha).links.find((l) => l.kind === 'ha')
+  return ha_ ? [ha_.a, ha_.b] : null
+}
 const ENGINE_INK = { dns: 'var(--accent-primary)', dhcp: 'var(--accent-pro)', ok: 'var(--accent-success)' }
 
 const readWindow = () => {
@@ -112,6 +120,11 @@ export function TraceTile({ summary, editing, live, samples = 0 }) {
   const heartbeats = useHaHeartbeats(families, { enabled: hasPermission('read:dhcp') && families.length > 0 })
   const link = linkOf(self, peer, ha)
   const linkRef = useRef(null)
+  // Three nodes or more: one mesh of links, signals go from one node to another.
+  const mesh = nodes.length > 2
+  const meshRef = useRef(null)
+  const ends = useRef({ self: null, pair: null })
+  ends.current = { self: self?.peer.id || null, pair: mesh ? haPairOf(nodes, ha) : null }
   const traceRef = useRef(null)
   const [windowMs, setWindowMs] = useState(readWindow)
   // The pen draws the history once per session: the first time the trace shows.
@@ -119,7 +132,22 @@ export function TraceTile({ summary, editing, live, samples = 0 }) {
   const [sizeRef, size] = useElementSize()
 
   // Link signals for the events that travel between the nodes.
-  const onEvent = useCallback((e) => {
+  const onEvent = useCallback((e, message) => {
+    const m = meshRef.current
+    if (m) {
+      const { self: me, pair } = ends.current
+      if (e.kind === 'repl') {
+        const to = e.node || message?.data?.node_id
+        if (to && to !== me) m.signal(me, to, { kind: 'pulse', tone: 'neutral' })
+      } else if (e.kind === 'axfr') {
+        const label = String(e.params?.subject || '').replace(/^zone:/, '').replace(/@.*$/, '')
+        const targets = e.nodes || (message?.node_id ? [message.node_id] : [])
+        for (const to of targets) if (to !== me) m.signal(me, to, { kind: 'transfer', tone: 'dns', label })
+      } else if (e.kind === 'ha' && pair) {
+        m.signal(pair[1], pair[0], { kind: 'pulse', tone: 'dhcp', link: 'ha' })
+      }
+      return
+    }
     const l = linkRef.current
     if (!l) return
     if (e.kind === 'repl') l.pulse({ tone: 'neutral' })
@@ -142,7 +170,11 @@ export function TraceTile({ summary, editing, live, samples = 0 }) {
   const selfBeat = self && families[0] ? heartbeatOf(heartbeats, families[0], self.peer.id)?.beats?.[0]?.t : undefined
   const lastBeat = useRef(selfBeat)
   useEffect(() => {
-    if (selfBeat !== undefined && lastBeat.current !== undefined && Math.abs(selfBeat - lastBeat.current) > 1000) linkRef.current?.tick({ tone: 'success', dir: 'back' })
+    if (selfBeat !== undefined && lastBeat.current !== undefined && Math.abs(selfBeat - lastBeat.current) > 1000) {
+      const pair = ends.current.pair
+      if (meshRef.current && pair) meshRef.current.signal(pair[1], pair[0], { kind: 'tick', tone: 'success', link: 'ha' })
+      else linkRef.current?.tick({ tone: 'success', dir: 'back' })
+    }
     lastBeat.current = selfBeat
   }, [selfBeat])
 
@@ -226,7 +258,10 @@ export function TraceTile({ summary, editing, live, samples = 0 }) {
       className="dash-hero"
     >
       <div className="trace-tile" data-testid="cluster-trace-tile">
-        {self && (
+        {self && mesh && (
+          <TraceMesh ref={meshRef} nodes={nodes} ha={ha} self={self} engineOpts={engineOpts} families={families} heartbeats={heartbeats} />
+        )}
+        {self && !mesh && (
           <div className={cn('trace-topo', !peer && 'is-single')} data-testid="trace-topology">
             <NodeCard node={self} self engines={nodeEngines(self, engineOpts)} families={families} heartbeats={heartbeats} testId="trace-node" />
             {peer && (

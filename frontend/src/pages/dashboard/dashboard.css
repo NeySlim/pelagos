@@ -137,6 +137,27 @@
 .trace-tile { display: flex; flex-direction: column; height: 100%; min-height: 0; container-type: inline-size; }
 .trace-topo { display: grid; grid-template-columns: minmax(0, 1fr) 132px minmax(0, 1fr); gap: 0 10px; align-items: center; padding: 10px 12px 8px; border-bottom: 1px solid var(--fx-hair); }
 .trace-topo.is-single { grid-template-columns: minmax(0, 1fr); }
+/* Three nodes or more: a row of compact cards under the replication arcs, above the feeds. */
+.trace-mesh { border-bottom: 1px solid var(--fx-hair); }
+.trace-mesh-row { position: relative; display: grid; grid-template-columns: repeat(var(--mesh-n, 3), minmax(0, 1fr)); gap: 30px 22px; padding: 28px 12px 16px; }
+.trace-node-compact { padding: 6px 8px; gap: 3px; }
+.trace-node-compact .trace-node-name { font-size: 12px; gap: 6px; }
+.trace-node-compact.is-backup { border-style: dashed; }
+.trace-node-compact.is-self { border-top: 2px solid var(--text-secondary); }
+.trace-node-role { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+.trace-role { font-size: 10.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.trace-role.is-primary, .trace-role.is-standby, .trace-role.is-secondary { color: var(--accent-pro); }
+.trace-role.is-none { color: var(--text-tertiary); }
+.trace-node-hb-inline { display: flex; gap: 4px; }
+.trace-node-hb-inline .fx-ecg { width: 22px; height: 9px; }
+.trace-node-dots { display: inline-flex; gap: 3px; align-items: center; }
+.trace-node-dots .fx-dot { --fx-dot: 5px; }
+.trace-mesh-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; padding: 0 12px 6px; font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); }
+.trace-mesh-key::before { content: ''; display: inline-block; width: 14px; height: 0; margin-right: 5px; vertical-align: middle; border-top: 1px solid var(--text-tertiary); }
+.trace-mesh-key.is-ha::before { border-top: 1.5px solid var(--accent-pro); }
+.trace-mesh-key.is-feed::before { border-top: 1px dashed var(--accent-pro); }
+.trace-mesh-status { margin-left: auto; }
+.trace-mesh-status.is-warn { color: var(--accent-warning); }
 .trace-link { width: 100%; }
 .trace-peer { min-width: 0; display: grid; gap: 4px; }
 .trace-more { font-size: 10.5px; color: var(--text-tertiary); text-align: right; }
@@ -191,6 +212,10 @@
 html[data-motion='reduced'] .trace-range-thumb { transition: none; }
 @container (max-width: 560px) {
   .trace-topo { grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1fr); padding: 8px; gap: 0 6px; }
+  .trace-mesh-row { grid-template-columns: repeat(var(--mesh-narrow, 3), minmax(0, 1fr)); gap: 26px 12px; padding: 24px 8px 14px; }
+  .trace-mesh-key,
+  .trace-node-compact .trace-node-self,
+  .trace-node-hb-inline { display: none; }
   .trace-node-hb,
   .trace-node-engines,
   .trace-values,

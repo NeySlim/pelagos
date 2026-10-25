@@ -40,6 +40,8 @@ export function zoneEvents(state, emit, zoneName, delayMs = 0) {
   later(delayMs, () => {
     for (const n of state.nodes || []) {
       if (n.is_self || n.status !== 'online' || !n.peer?.modules?.bind) continue
+      const kept = state.secondaries?.[`${view}/${zoneName}`]
+      if (kept && !kept.includes(n.peer.id)) continue
       emit('zones', 'transfer', { zone: zoneName, view, kind: 'secondary', serial, previous: serial - 1, primary_node_id: state.selfId }, n.peer.id)
     }
   })
@@ -81,7 +83,8 @@ export function createEvents(state, h) {
     const t = now()
     const mac = `02:00:5e:${[t >>> 16, t >>> 8, t].map((x) => (x & 255).toString(16).padStart(2, '0')).join(':')}`
     const valid = subnetId === 3 ? 900 : 3600
-    for (const nodeId of [state.nodeIds.ns1, state.nodeIds.ns2]) {
+    // Every DHCPv4 server of the relationship holds it, backups included.
+    for (const nodeId of state.nodes.filter((n) => n.peer.modules?.kea4 !== false).map((n) => n.peer.id)) {
       state.leases.v4.push({
         ip_address: ip, subnet_id: subnetId, family: 'v4', hw_address: mac, client_id: `01:${mac}`, duid: null,
         hostname, state: 'default', valid_lft: valid, cltt: iso(nodeId === state.nodeIds.ns1 ? t : t - 40), expires_at: iso(t + valid * 1000),

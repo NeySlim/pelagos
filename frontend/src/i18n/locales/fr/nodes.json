@@ -19,7 +19,8 @@
     "reachable": "Joignable",
     "status": "État",
     "url": "Adresse",
-    "version": "Version"
+    "version": "Version",
+    "haRole": "HA Kea"
   },
   "list": {
     "empty": "Aucun nœud",
@@ -40,7 +41,8 @@
     "button": "Retirer",
     "done": "{{name}} retiré du cluster",
     "message": "Le nœud perd sa confiance : il ne réplique plus et son certificat n'est plus accepté. Son BIND et son Kea continuent de tourner.",
-    "title": "Retirer {{name}} du cluster ?"
+    "title": "Retirer {{name}} du cluster ?",
+    "haWarning": "{{name}} est un serveur HA Kea ({{roles}}) : sortez-le d'abord de la relation sur la page HA, sinon les autres serveurs continuent de lui envoyer les mises à jour de baux."
   },
   "replication": {
     "alone": "Ce nœud n'a pas encore de pair : enrôler un second serveur pour une interface redondante.",

@@ -164,7 +164,8 @@ export function ClusterRadar({ nodes = [], zones = [], ha = [], alerts = [], rat
               {ha.map((h, i) => {
                 const tone = haTone(h)
                 const next = ha[i + 1]
-                const joined = next && next.family === h.family
+                // The HA link joins the active pair; a backup stands apart (it only receives updates).
+                const joined = next && next.family === h.family && h.role !== 'backup' && next.role !== 'backup'
                 return (
                   <div key={`${h.node_id}/${h.family}`} className="radar-rail-step">
                     <Link to={`/dhcp/${h.family === 'v6' ? 'v6' : 'v4'}/ha`} className={cn('radar-rail-pill', `fx-tone-${tone}`)} title={t(`common:status.${h.state}`, { defaultValue: h.state })} data-testid="radar-ha-pill" data-tone={tone}>

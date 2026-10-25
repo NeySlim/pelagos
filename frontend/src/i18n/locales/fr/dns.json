@@ -219,7 +219,14 @@
     "deleteTitle": "Supprimer {{zone}}",
     "deleteMessage": "La zone est retirée de ce nœud par un plan que vous relisez avant son application.",
     "deletePeers": "Retirer aussi les copies secondaires sur {{nodes}}",
-    "deletePeersHelp": "Laissées en place, elles réessaient sans fin les transferts depuis un primaire qui ne sert plus la zone."
+    "deletePeersHelp": "Laissées en place, elles réessaient sans fin les transferts depuis un primaire qui ne sert plus la zone.",
+    "secondaries": {
+      "title": "Nœuds secondaires",
+      "primaryOn": "primaire sur {{node}}",
+      "plan": "Planifier les secondaires",
+      "hint": "Les nœuds cochés transfèrent la zone depuis le primaire avec la clé de lecture ; le primaire notifie chacun d'eux. Les copies décochées sont retirées.",
+      "transfers": "Transferts depuis le primaire sur {{node}}"
+    }
   },
   "resolver": {
     "recursion": "Récursion",

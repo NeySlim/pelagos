@@ -132,6 +132,28 @@ export function secondaryPeers(detail, selfId) {
     .map(([id]) => id)
 }
 
+// The nodes holding the zone, with the kind of their copy: the detail's `copies` (every
+// reachable node that has it), else every status entry read without an error.
+export function zoneCopies(detail) {
+  if (detail?.copies && typeof detail.copies === 'object') return detail.copies
+  return Object.fromEntries(
+    Object.entries(detail?.status || {})
+      .filter(([, st]) => st && !st.error && st.kind)
+      .map(([id, st]) => [id, { kind: st.kind, source: null }]),
+  )
+}
+
+// Who may hold the zone as a secondary of its primary node: the BIND nodes other than the
+// primary, the ones holding a copy now ticked. Null when no node holds it as primary.
+export function secondaryChoice(detail, nodes = []) {
+  const copies = zoneCopies(detail)
+  const primary = Object.keys(copies).find((id) => copies[id].kind === 'primary')
+  if (!primary) return null
+  const current = Object.keys(copies).filter((id) => copies[id].kind === 'secondary')
+  const candidates = nodes.filter((n) => n.peer.id !== primary && n.peer.modules?.bind !== false).map((n) => n.peer.id)
+  return { primary, current, candidates: [...new Set([...candidates, ...current])] }
+}
+
 // Delete plan request: with peers the plan also removes their secondary copies.
 export function zoneDeleteRequest(zone, peers = []) {
   const change = { op: 'delete', target: `${zone.view}/${zone.name}`, before: zone, after: null }

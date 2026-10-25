@@ -10,7 +10,7 @@ import { randomBytes, createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { ENDPOINTS } from '../src/services/endpoints.js'
 import { passwordProblem } from '../src/lib/password.js'
-import { createState, iso, ulid, ALL_PERMISSIONS } from './data.mjs'
+import { createState, iso, ulid, ALL_PERMISSIONS, SCENARIOS } from './data.mjs'
 import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, isExpired, auditEntry, configHash, isAdmin } from './plans.mjs'
 import { createWsHub } from './ws.mjs'
 import { opsHandlers } from './ops.mjs'
@@ -42,6 +42,7 @@ const PERMISSIONS = {
   'POST /dhcp/{family}/client-classes/plan': 'write:dhcp.classes', 'POST /dhcp/{family}/options/plan': 'write:dhcp.options',
   'POST /dhcp/{family}/reservations/plan': 'write:dhcp.reservations', 'POST /dhcp/{family}/leases/{ip}/delete/plan': 'ops:dhcp.leases',
   'POST /dhcp/{family}/ha/maintenance/plan': 'ops:dhcp.ha', 'POST /dhcp/{family}/service/plan': 'ops:dhcp.ha',
+  'POST /dhcp/{family}/ha/setup/plan': 'write:dhcp.config', 'POST /dns/zones/{zone}/secondaries/plan': 'write:dns.zones',
   'POST /dhcp/{family}/ddns/plan': 'write:dhcp.options', 'POST /dhcp/{family}/hooks/plan': 'write:dhcp.config',
   'POST /dhcp/{family}/config/plan': 'write:dhcp.config', 'POST /dhcp/d2/config/plan': 'write:dhcp.config',
   'POST /dhcp/{family}/config/adopt/plan': 'write:dhcp.config', 'POST /dhcp/d2/config/adopt/plan': 'write:dhcp.config',
@@ -302,10 +303,18 @@ function nodeName(state, id) {
 
 // ------------------------------------------------------------------ domain reads
 
+// Nodes holding a zone: a Pelagos primary is on this node and on its secondaries (every peer
+// until a secondaries plan says otherwise); other zones are on every node.
+function zoneHolders(state, zone) {
+  const kept = state.secondaries?.[`${zone.view}/${zone.name}`]
+  if (zone.kind !== 'primary' || !kept) return state.nodes
+  return state.nodes.filter((n) => n.is_self || kept.includes(n.peer.id))
+}
+
 function zoneSerials(state, zone) {
   const serial = state.soaSerial(state.records[zone.name])
   const serials = {}
-  for (const node of state.nodes) {
+  for (const node of zoneHolders(state, zone)) {
     let value = serial
     if (zone.name === 'lab.example.lan.' && !node.is_self) value = serial - 1
     // Right after a change the secondaries are one serial behind until their IXFR lands.
@@ -319,9 +328,12 @@ function zoneSerials(state, zone) {
 
 function zoneStatus(state, zone, nodeId) {
   const { serials } = zoneSerials(state, zone)
+  if (!(nodeId in serials) && zone.kind !== 'forward') {
+    return { zone: zone.name, view: zone.view, node_id: nodeId, kind: null, serial: null, error: `zone ${zone.name} is not configured on this node`, collected_at: iso(Date.now() - 15000), raw: {} }
+  }
   // A Pelagos primary is served by the peers as a secondary of this node.
   const peer = !state.nodes.find((n) => n.peer.id === nodeId)?.is_self
-  const kind = peer && zone.kind === 'primary' && zone.source === 'pelagos' ? 'secondary' : zone.kind
+  const kind = peer && zone.kind === 'primary' ? 'secondary' : zone.kind
   return {
     zone: zone.name,
     view: zone.view,
@@ -485,6 +497,47 @@ function buildHosts(state) {
 }
 
 // HA state as status-get reads it now: the partner age follows the mock's heartbeats.
+// Every HA relationship across the nodes (connectors.kea.ha.relationships): each configured
+// server with its role, node and state.
+export function haRelationships(state, family) {
+  const states = state.ha[family].filter((h) => h.enabled !== false)
+  if (!states.length) return []
+  const peers = states.find((h) => h.peers?.length)?.peers || states.map((h) => ({ name: h.server_name, role: h.role }))
+  const servers = peers.map((p) => {
+    const own = states.find((h) => h.server_name === p.name)
+    const seenBy = states.find((h) => h.partner?.server_name === p.name)
+    const partner = own?.partner?.server_name || (own && own.role !== 'backup' ? peers.find((o) => o.name !== p.name && o.role !== 'backup')?.name : null) || null
+    return {
+      name: p.name,
+      role: p.role,
+      url: p.url || null,
+      auto_failover: p.auto_failover ?? null,
+      node_id: own?.node_id || null,
+      node_name: own ? nodeName(state, own.node_id) : null,
+      state: own ? own.state : seenBy?.partner?.state || null,
+      scopes: own?.scopes || [],
+      unsent_update_count: own?.unsent_update_count ?? null,
+      partner,
+      in_touch: seenBy?.partner ? seenBy.partner.in_touch : null,
+      collected_at: own?.collected_at || null,
+      managed: Boolean(own),
+    }
+  })
+  return [{
+    family,
+    mode: states[0].mode,
+    servers,
+    active: servers.filter((s) => s.role !== 'backup').map((s) => s.name),
+    backups: servers.filter((s) => s.role === 'backup').map((s) => s.name),
+  }]
+}
+
+const HA_MODE_ROLES = {
+  'hot-standby': { primary: [1, 1], standby: [1, 1], backup: [0, Infinity] },
+  'load-balancing': { primary: [1, 1], secondary: [1, 1], backup: [0, Infinity] },
+  'passive-backup': { primary: [1, 1], backup: [1, Infinity] },
+}
+
 function liveHa(h, now = Date.now()) {
   if (!h.partner || h.partner.in_touch === false) return h
   return { ...h, collected_at: new Date(now).toISOString(), partner: { ...h.partner, age: heartbeatAge(`${h.node_id}/${h.family}`, now) } }
@@ -1155,7 +1208,52 @@ function buildHandlers(state, emit) {
     'GET /dns/zones/{zone}': ({ params, query }) => {
       const zone = findZone(state, params.zone, query.get('view'))
       const views = [...new Set(state.zones.filter((z) => z.name === zone.name).map((z) => z.view))].sort()
-      return { zone, mode: zoneMode(zone), views, status: Object.fromEntries(state.nodes.map((n) => [n.peer.id, zoneStatus(state, zone, n.peer.id)])) }
+      const copies = Object.fromEntries(
+        zoneHolders(state, zone).map((n) => [n.peer.id, { kind: n.is_self || zone.kind !== 'primary' ? zone.kind : 'secondary', source: n.is_self ? zone.source : 'pelagos' }]),
+      )
+      return { zone, mode: zoneMode(zone), views, status: Object.fromEntries(state.nodes.map((n) => [n.peer.id, zoneStatus(state, zone, n.peer.id)])), copies }
+    },
+    'POST /dns/zones/{zone}/secondaries/plan': ({ params, body, user }) => {
+      const zone = findZone(state, params.zone, body.view)
+      if (zone.kind !== 'primary') throw new Problem(409, 'conflict', `${zone.name} is not a primary zone`)
+      if (!Array.isArray(body.node_ids)) throw invalid('node_ids', 'list expected')
+      const peers = state.nodes.filter((n) => !n.is_self)
+      for (const id of body.node_ids) {
+        const node = state.nodes.find((n) => n.peer.id === id)
+        if (!node) throw invalid('node_ids', id)
+        if (node.is_self) throw invalid('node_ids', `${node.peer.name} holds ${zone.name} as primary`)
+      }
+      const key = `${zone.view}/${zone.name}`
+      state.secondaries ||= {}
+      const current = state.secondaries[key] || peers.map((n) => n.peer.id)
+      const wanted = [...new Set(body.node_ids)]
+      const added = wanted.filter((id) => !current.includes(id))
+      const removed = current.filter((id) => !wanted.includes(id))
+      if (!added.length && !removed.length) throw new Problem(409, 'conflict', `${zone.name} already has exactly these secondaries`)
+      const notify = (ids) => ids.map((id) => `192.0.2.${50 + state.nodes.findIndex((n) => n.peer.id === id) + 3}`)
+      const changes = [
+        { op: 'replace', target: key, before: { also_notify: notify(current) }, after: { also_notify: notify(wanted) }, node_ids: [state.selfId] },
+        ...added.map((id) => ({ op: 'add', target: key, before: null, after: { kind: 'secondary', primaries: ['192.0.2.53 key ddi-read'] }, node_ids: [id] })),
+        ...removed.map((id) => ({ op: 'delete', target: key, before: { kind: 'secondary' }, after: null, node_ids: [id] })),
+      ]
+      const names = wanted.map((id) => nodeName(state, id))
+      return createPlan(state, user, {
+        scope: 'dns.zone',
+        engine: 'bind',
+        summary: names.length ? `zone ${zone.name}: secondaries on ${names.join(', ')}` : `zone ${zone.name}: no secondary node`,
+        changes,
+        diff: changes.map((c) => `# ${nodeName(state, c.node_ids[0])}\n${unifiedDiff(jsonText(c.before), jsonText(c.after), `zones.conf ${zone.name}`)}`).join(''),
+        targets: [state.selfId, ...added, ...removed],
+        tool: 'named-checkconf',
+        requires_confirmation: removed.length > 0,
+        apply() {
+          state.secondaries[key] = wanted
+          if (added.length) state.transferLag = { ...(state.transferLag || {}), [zone.name]: Date.now() + (state.transferMs || 0) }
+        },
+        rollback() {
+          state.secondaries[key] = current
+        },
+      })
     },
     'POST /dns/zones/plan': ({ body, user }) => {
       const change = body.change
@@ -1593,13 +1691,98 @@ function buildHandlers(state, emit) {
       const statistics = Object.fromEntries(Object.entries(counters).map(([k, v]) => [k, [[v, stamp]]]))
       return { node_id: nodeOr(query), statistics }
     },
-    'GET /dhcp/{family}/ha': ({ params }) => ({ items: state.ha[params.family].map((h) => liveHa(h)) }),
+    'GET /dhcp/{family}/ha': ({ params }) => ({ items: state.ha[params.family].map((h) => liveHa(h)), relationships: haRelationships(state, params.family) }),
+    'POST /dhcp/{family}/ha/setup/plan': ({ params, body, user }) => {
+      const ha = state.ha[params.family]
+      if (body.remove === true) {
+        const before = ha.map((h) => ({ ...h }))
+        return createPlan(state, user, {
+          scope: 'dhcp.config',
+          engine: kea(params.family),
+          summary: `${kea(params.family)}: remove HA from ${ha.map((h) => nodeName(state, h.node_id)).join(', ')}`,
+          changes: ha.map((h) => ({ op: 'replace', target: 'hooks-libraries', before: 'ha', after: null, node_ids: [h.node_id] })),
+          diff: ha.map((h) => `# ${nodeName(state, h.node_id)}\n-libdhcp_ha.so (${h.server_name})\n`).join(''),
+          targets: ha.map((h) => h.node_id),
+          tool: 'config-test',
+          requires_confirmation: true,
+          apply() {
+            ha.forEach((h) => Object.assign(h, { enabled: false, state: null, partner: null, peers: [] }))
+          },
+          rollback() {
+            ha.splice(0, ha.length, ...before)
+          },
+        })
+      }
+      const roles = HA_MODE_ROLES[body.mode]
+      if (!roles) throw invalid('mode', 'hot-standby, load-balancing or passive-backup')
+      const servers = Array.isArray(body.servers) ? body.servers : []
+      if (servers.length < 2) throw invalid('servers', 'at least two servers')
+      const errors = []
+      const counts = {}
+      servers.forEach((srv, i) => {
+        if (!srv.name || /\s/.test(srv.name)) errors.push({ field: `servers[${i}].name`, message: 'a name without spaces' })
+        if (!/^https?:\/\/[^/]+/.test(srv.url || '')) errors.push({ field: `servers[${i}].url`, message: 'http://address:port/ or https://address:port/' })
+        if (!roles[srv.role]) errors.push({ field: `servers[${i}].role`, message: `${body.mode} takes ${Object.keys(roles).join(', ')}` })
+        else counts[srv.role] = (counts[srv.role] || 0) + 1
+      })
+      for (const [role, [low, high]] of Object.entries(roles)) {
+        const n = counts[role] || 0
+        if (n < low || n > high) errors.push({ field: 'servers', message: `${body.mode} needs ${low === high ? low : `at least ${low}`} ${role} server(s), got ${n}` })
+      }
+      if (new Set(servers.map((srv) => srv.name)).size !== servers.length) errors.push({ field: 'servers[].name', message: 'duplicate name' })
+      const onNodes = servers.filter((srv) => srv.node_id)
+      if (!onNodes.length) errors.push({ field: 'servers[].node_id', message: 'required' })
+      if (new Set(onNodes.map((srv) => srv.node_id)).size !== onNodes.length) errors.push({ field: 'servers[].node_id', message: 'duplicate' })
+      if (errors.length) throw new Problem(400, 'validation_error', `invalid HA setup: ${errors[0].field}: ${errors[0].message}`, errors)
+      const before = ha.map((h) => ({ ...h }))
+      const peers = servers.map(({ name, url, role }) => ({ name, url, role, auto_failover: null }))
+      return createPlan(state, user, {
+        scope: 'dhcp.config',
+        engine: kea(params.family),
+        summary: `${kea(params.family)} HA ${body.mode} on ${servers.length} servers: ${servers.map((srv) => `${srv.name} (${srv.role})`).join(', ')}`,
+        changes: onNodes.map((srv) => ({ op: 'replace', target: 'hooks-libraries', before: null, after: { 'this-server-name': srv.name, mode: body.mode, peers }, node_ids: [srv.node_id] })),
+        diff: onNodes.map((srv) => `# ${nodeName(state, srv.node_id)}\n${unifiedDiff('', jsonText({ 'this-server-name': srv.name, mode: body.mode, peers }), 'hooks-libraries')}`).join(''),
+        targets: onNodes.map((srv) => srv.node_id),
+        tool: 'config-test',
+        requires_confirmation: true,
+        apply() {
+          const next = onNodes.map((srv) => {
+            const prev = before.find((h) => h.node_id === srv.node_id) || {}
+            const backup = srv.role === 'backup'
+            const other = servers.find((o) => o !== srv && o.role !== 'backup')
+            return {
+              ...prev,
+              node_id: srv.node_id,
+              family: params.family,
+              collected_at: iso(Date.now()),
+              server_name: srv.name,
+              mode: body.mode,
+              role: srv.role,
+              state: backup ? 'backup' : body.mode === 'passive-backup' ? 'passive-backup' : body.mode,
+              scopes: srv.role === 'primary' ? [srv.name] : [],
+              unsent_update_count: 0,
+              peers,
+              partner: backup || !other ? null : { role: other.role, server_name: other.name, state: body.mode, scopes: [], in_touch: true, last_state: body.mode, age: 1 },
+              enabled: true,
+              raw: {},
+            }
+          })
+          ha.splice(0, ha.length, ...next)
+          next.forEach((h) => emit('ha', 'state', h))
+        },
+        rollback() {
+          ha.splice(0, ha.length, ...before)
+        },
+      })
+    },
     'POST /dhcp/{family}/ha/maintenance/plan': ({ params, body, user }) => {
       if (!['start', 'cancel'].includes(body.action)) throw invalid('action', 'must be start or cancel')
       const ha = state.ha[params.family]
       const target = ha.find((h) => h.node_id === body.node_id)
       if (!target) throw notFound(`HA server on node ${body.node_id}`)
-      const partner = ha.find((h) => h !== target)
+      if (target.role === 'backup') throw invalid('node_id', `${nodeName(state, body.node_id)} is an HA backup server: it takes no part in HA maintenance, stop it directly`)
+      // The server that stays up is the partner by server name, never a backup.
+      const partner = ha.find((h) => h.server_name === target.partner?.server_name) || ha.find((h) => h !== target && h.role !== 'backup')
       const before = ha.map((h) => ({ node_id: h.node_id, state: h.state }))
       return createPlan(state, user, {
         scope: 'dhcp.ha',
@@ -1607,7 +1790,7 @@ function buildHandlers(state, emit) {
         summary: `${body.action === 'start' ? 'start' : 'cancel'} HA maintenance on ${nodeName(state, body.node_id)}`,
         changes: [{ op: 'replace', target: `ha/${nodeName(state, body.node_id)}`, before: target.state, after: body.action === 'start' ? 'in-maintenance' : 'hot-standby', node_ids: [body.node_id] }],
         diff: unifiedDiff(`state: ${target.state}`, `state: ${body.action === 'start' ? 'in-maintenance' : 'hot-standby'}`, `ha ${nodeName(state, body.node_id)}`),
-        targets: [body.node_id],
+        targets: [partner?.node_id || body.node_id],
         tool: body.action === 'start' ? 'ha-maintenance-start' : 'ha-maintenance-cancel',
         requires_confirmation: true,
         preconditions: [{ kind: 'ha_state', node_id: body.node_id, subject: 'ha', value: target.state }],
@@ -2187,8 +2370,8 @@ function readBody(req) {
 
 // `live` paces the mock like a cluster: plans take time per node, secondaries transfer after
 // a change, HA servers report a heartbeat every haBeatMs. Off by default for unit tests.
-export function createMockServer({ quiet = false, jobStepMs, live = false, applyNodeMs = live ? 350 : 0, transferMs = live ? 1500 : 0, haBeatMs = live ? 3000 : 0 } = {}) {
-  const state = createState()
+export function createMockServer({ quiet = false, jobStepMs, live = false, applyNodeMs = live ? 350 : 0, transferMs = live ? 1500 : 0, haBeatMs = live ? 3000 : 0, scenario = 'pair' } = {}) {
+  const state = createState(scenario)
   if (jobStepMs !== undefined) state.jobStepMs = jobStepMs
   state.applyNodeMs = applyNodeMs
   state.transferMs = transferMs
@@ -2251,6 +2434,18 @@ export function createMockServer({ quiet = false, jobStepMs, live = false, apply
         const out = events.run(body.kind, body)
         if (!out) throw new Problem(404, 'not_found', `unknown event kind ${body.kind}`)
         sendJson(res, 200, out)
+        return
+      }
+      // Mock only: switch the cluster to another scenario (pair, three, four); sessions stay.
+      if (url.pathname === `${API}/_mock/scenario` && req.method === 'POST') {
+        const raw = await readBody(req)
+        const name = (raw ? JSON.parse(raw) : {}).name
+        if (!SCENARIOS[name]) throw new Problem(404, 'not_found', `unknown scenario ${name}`)
+        const keep = { sessions: state.sessions, emit: state.emit, jobStepMs: state.jobStepMs, applyNodeMs: state.applyNodeMs, transferMs: state.transferMs }
+        for (const k of Object.keys(state)) delete state[k]
+        Object.assign(state, createState(name), keep)
+        hub.emit('nodes', 'status', state.nodes.find((n) => !n.is_self) || state.nodes[0])
+        sendJson(res, 200, { scenario: name, nodes: state.nodes.map((n) => n.peer.name) })
         return
       }
       if (!url.pathname.startsWith(`${API}/`)) throw new Problem(404, 'not_found', 'not an API path')
@@ -2345,7 +2540,9 @@ if (isMain) {
   const portArg = args.indexOf('--port')
   const port = Number(portArg >= 0 ? args[portArg + 1] : process.env.MOCK_PORT || 8481)
   const host = process.env.MOCK_HOST || '127.0.0.1'
-  const mock = createMockServer({ quiet: args.includes('--quiet'), live: !args.includes('--static') })
+  const scenarioArg = args.indexOf('--scenario')
+  const scenario = scenarioArg >= 0 ? args[scenarioArg + 1] : process.env.MOCK_SCENARIO || 'pair'
+  const mock = createMockServer({ quiet: args.includes('--quiet'), live: !args.includes('--static'), scenario })
   mock.listen(port, host).then((addr) => {
     console.log(`Pelagos mock API on http://${addr.address}:${addr.port}${API} (users: admin/admin, alice/alice, bob/bob + 123456, viewer/viewer)`)
   })

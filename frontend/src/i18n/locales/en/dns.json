@@ -219,7 +219,14 @@
     "deleteTitle": "Delete {{zone}}",
     "deleteMessage": "The zone is removed from this node through a plan you review before it applies.",
     "deletePeers": "Also remove the secondary copies on {{nodes}}",
-    "deletePeersHelp": "Left in place, they keep retrying transfers from a primary that no longer serves the zone."
+    "deletePeersHelp": "Left in place, they keep retrying transfers from a primary that no longer serves the zone.",
+    "secondaries": {
+      "title": "Secondary nodes",
+      "primaryOn": "primary on {{node}}",
+      "plan": "Plan the secondaries",
+      "hint": "Ticked nodes transfer the zone from the primary with the read key; the primary notifies each of them. Unticked copies are removed.",
+      "transfers": "Transfers from the primary on {{node}}"
+    }
   },
   "resolver": {
     "recursion": "Recursion",

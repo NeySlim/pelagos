@@ -437,6 +437,7 @@ class KeaPoller:
         if span is None:
             return False
         return (now - span[0] if away else span[1] - span[0]) < self.ha_grace
+
     def terminated_cause(self, ha: HAState) -> dict[str, Any]:
         """rules.terminated_cause from what this node knows: the node clocks the peers poller
         measured ("node"/"clock" snapshots) and the shared configuration hashes of every node."""

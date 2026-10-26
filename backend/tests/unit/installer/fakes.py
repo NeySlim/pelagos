@@ -96,6 +96,7 @@ class FakeTools:
         self.addresses: list[str] = []
         # (address, zone) pairs a fake named refuses; everything else answers.
         self.refused: set[tuple[str, str]] = set()
+        self.silent: set[tuple[str, str]] = set()  # probes that time out (None)
         self.real_checkconf = find_binary("named-checkconf")
 
     def checkconf(self, named_conf: Path) -> tuple[bool, str]:
@@ -136,6 +137,8 @@ class FakeTools:
 
     def soa_answered(self, address: str, port: int, zone: str) -> bool | None:
         self.calls.append(("soa", address, zone))
+        if (address, zone) in self.silent:
+            return None
         return (address, zone) not in self.refused
 
     def local_addresses(self) -> list[str]:

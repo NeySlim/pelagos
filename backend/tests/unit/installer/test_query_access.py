@@ -62,3 +62,11 @@ def test_served_zones_skip_hints_and_builtin(tmp_path):
     files = bindconf.load_files(env.paths.named_conf)
     zones = bindsetup.served_zones(files)
     assert "example.lan." in zones and "." not in zones and "localhost." not in zones
+
+
+def test_silent_host_address_is_skipped(tmp_path):
+    env = _env(tmp_path)
+    env.t.addresses = ["192.0.2.10", "192.0.2.11"]
+    env.t.refused = {("127.0.0.1", "example.lan.")}
+    env.t.silent = {("192.0.2.10", "example.lan.")}
+    assert bindsetup.choose_query_address(env, ["example.lan."]) == ("192.0.2.11", [])

@@ -24,6 +24,7 @@ def check_free(label: str, value: str) -> None:
     host, port = split_listen(value)
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
     with socket.socket(family, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # TIME_WAIT is not a holder
         try:
             sock.bind((host or "0.0.0.0", port))  # noqa: S104 - a probe, nothing listens
         except OSError as exc:

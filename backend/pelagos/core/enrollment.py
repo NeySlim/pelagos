@@ -682,9 +682,17 @@ def enroll_cli(paths: Paths, args: argparse.Namespace) -> int:
         web_listen = getattr(args, "web_listen", None)
         repl_listen = getattr(args, "replication_listen", None)
         fresh = not paths.node_toml.exists()
-        if web_listen or fresh:
+        own: set[str] = set()  # ports the node's own config already lists are its own service
+        if not fresh:
+            try:
+                lock = paths.locks_dir / "cluster.lock"
+                current = ConfigStore(paths.node_toml, paths.cluster_toml, lock).load_node()
+                own = {current.web_listen, current.replication_listen}
+            except Exception:
+                own = set()
+        if (web_listen or fresh) and (web_listen or "0.0.0.0:8443") not in own:
             check_free("web-listen", web_listen or "0.0.0.0:8443")
-        if repl_listen or fresh:
+        if (repl_listen or fresh) and (repl_listen or "0.0.0.0:8444") not in own:
             check_free("replication-listen", repl_listen or "0.0.0.0:8444")
         result = enroll_node(
             paths,

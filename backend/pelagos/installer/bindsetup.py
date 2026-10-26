@@ -482,7 +482,8 @@ def choose_query_address(env: Any, zones: list[str], port: int = 53) -> tuple[st
     if not first:
         return "127.0.0.1", []
     for address in env.t.local_addresses():
-        if not refused_zones(env, address, zones, port):
+        # Only a definite answer counts: a timeout may mean named does not listen there.
+        if all(env.t.soa_answered(address, port, z) is True for z in zones):
             return address, []
     return "127.0.0.1", first
 

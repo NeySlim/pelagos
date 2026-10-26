@@ -22,7 +22,7 @@ export default {
     { id: 'admin-users', group: 'admin', path: '/admin/users', labelKey: 'admin:nav.users', icon: Users, permission: 'admin:users', order: 83 },
     { id: 'admin-roles', group: 'admin', path: '/admin/roles', labelKey: 'admin:nav.roles', icon: UserGear, permission: 'admin:roles', order: 84 },
     { id: 'admin-modules', group: 'admin', path: '/admin/modules', labelKey: 'admin:nav.modules', icon: SquaresFour, permission: 'admin:modules', order: 85 },
-    { id: 'admin-certificates', group: 'admin', path: '/admin/certificates', labelKey: 'admin:nav.certificates', icon: Certificate, permission: 'admin:certificates', order: 86 },
-    { id: 'admin-settings', group: 'admin', path: '/admin/settings', labelKey: 'admin:nav.settings', icon: Gear, permission: 'admin:settings', order: 87 },
+    { id: 'admin-certificates', group: 'admin', path: '/admin/certificates', labelKey: 'admin:nav.certificates', icon: Certificate, permission: 'admin:certificates', order: 87 },
+    { id: 'admin-settings', group: 'admin', path: '/admin/settings', labelKey: 'admin:nav.settings', icon: Gear, permission: 'admin:settings', order: 88 },
   ],
 }

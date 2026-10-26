@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        v: [base, mlkem, tls12, client12, curve]
+        v: [base, aesoff, avx2off, pcloff, chacha12]
     steps:
       - run: |
           apt-get update -q

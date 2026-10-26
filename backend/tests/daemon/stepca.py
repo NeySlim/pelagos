@@ -175,12 +175,15 @@ def start(exe: str, root: Path, resolver_port: int) -> StepCa:
         stderr=subprocess.STDOUT,
         # Go's hybrid ML-KEM key share breaks the handshake with some OpenSSL 3.5 clients
         # ("bad record MAC" on the server); plain X25519 and P-256 are all the tests need.
-        env={**os.environ, **({"GODEBUG": "tlsmlkem=0"} if os.environ.get("SV") == "mlkem" else {})},
+        env={**os.environ, **({"GODEBUG": {"aesoff": "cpu.aes=off", "avx2off": "cpu.avx2=off", "pcloff": "cpu.pclmulqdq=off"}[os.environ["SV"]]} if os.environ.get("SV") in ("aesoff", "avx2off", "pcloff") else {})},
     )
     server = StepCa(root, port, http01, root_cert.public_bytes(serialization.Encoding.PEM).decode(), proc)
     context = ssl.create_default_context(cadata=server.root_pem)
     if os.environ.get("SV") == "client12":
         context.maximum_version = ssl.TLSVersion.TLSv1_2
+    if os.environ.get("SV") == "chacha12":
+        context.maximum_version = ssl.TLSVersion.TLSv1_2
+        context.set_ciphers("ECDHE-ECDSA-CHACHA20-POLY1305")
     if os.environ.get("SV") == "curve":
         context.set_ecdh_curve("prime256v1")
     print("DIAG", ssl.OPENSSL_VERSION, platform.machine(), os.environ.get("SV"), flush=True)

@@ -33,6 +33,8 @@ SETTINGS_SCHEMA: dict[str, Any] = {
     "alerts_custom_hooks": (bool, None, None),
     "alerts_clock_skew_warning_seconds": (int, 1, 3600),
     "alerts_clock_skew_critical_seconds": (int, 1, 3600),
+    "alerts_cert_warning_days": (int, 1, 365),
+    "alerts_cert_critical_days": (int, 1, 365),
     "dns": {
         "read_key": (str, None, None),
         "admin_key": (str, None, None),
@@ -107,6 +109,13 @@ SETTINGS_SCHEMA: dict[str, Any] = {
         "small_node_mb": (int, 256, 1048576),
         "max_download_mb": (int, 1, 4096),
         "break_dnssec": (bool, None, None),
+    },
+    # The sources ("cluster", "nodes") are written by /admin/certificates only.
+    "certificates": {
+        "ucm_renew_days": (int, 1, 365),
+        "retry_min_seconds": (int, 30, 86400),
+        "retry_max_seconds": (int, 60, 7 * 86400),
+        "propagation_seconds": (int, 10, 3600),
     },
 }
 
@@ -408,6 +417,10 @@ class AdminService:
                     "alerts_clock_skew_warning_seconds",
                     "must be lower than alerts_clock_skew_critical_seconds",
                 )
+            )
+        if merged["alerts_cert_critical_days"] >= merged["alerts_cert_warning_days"]:
+            errors.append(
+                field_error("alerts_cert_critical_days", "must be lower than alerts_cert_warning_days")
             )
         if merged["session_idle_seconds"] > merged["session_ttl_seconds"]:
             errors.append(field_error("session_idle_seconds", "must not exceed session_ttl_seconds"))

@@ -54,6 +54,8 @@ class AlertKind(enum.StrEnum):
     RESTART_LOOP = "restart_loop"
     POOL_FORECAST = "pool_forecast"
     SECURITY_ADVISORY = "security_advisory"
+    CERT_EXPIRY = "cert_expiry"
+    CERT_RENEWAL_FAILED = "cert_renewal_failed"
 
 
 INCONSISTENCY_KINDS = frozenset(

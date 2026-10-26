@@ -44,6 +44,16 @@ ADOPT_PLAN = "dhcp.adopt.plan"
 CONFIG_PLAN = "dhcp.config.plan"
 HA_PLAN = "dhcp.ha.plan"
 OPS_RUN = "ops.run"
+# Web UI certificate of this node (services.cert_service, core.webcert).
+CERTS_STATUS = "certs.status"
+CERTS_RUN = "certs.run"
+CERTS_REQUEST = "certs.request"
+CERTS_CHECK = "certs.check"
+CERTS_UPLOAD = "certs.upload"
+CERTS_SELF_SIGNED = "certs.self_signed"
+CERTS_ACTIONS = frozenset(
+    {CERTS_STATUS, CERTS_RUN, CERTS_REQUEST, CERTS_CHECK, CERTS_UPLOAD, CERTS_SELF_SIGNED}
+)
 
 
 class PeerActions:
@@ -59,12 +69,29 @@ class PeerActions:
             CONFIG_PLAN: self.config_plan,
             HA_PLAN: self.ha_plan,
             OPS_RUN: self.ops_run,
+            CERTS_STATUS: self.certs_status,
+            CERTS_RUN: self.certs_run,
+            CERTS_REQUEST: self.certs_request,
+            CERTS_CHECK: self.certs_check,
+            CERTS_UPLOAD: self.certs_upload,
+            CERTS_SELF_SIGNED: self.certs_self_signed,
         }
 
     def __call__(self, name: str, body: dict[str, Any], caller: str) -> Any:
         handler = self.handlers.get(name)
         if handler is None:
             raise PeerActionError("not_supported", f"this node does not serve action {name}")
+        if name in CERTS_ACTIONS:
+            # Certificates never touch the engines: no engine lock, so a long poll never waits on it.
+            try:
+                return handler(body, caller)
+            except PeerActionError:
+                raise
+            except Exception as exc:
+                refusal = refusal_of(exc)
+                if refusal is None:
+                    raise
+                raise refusal from None
         if not self.lock.acquire(timeout=LOCK_TIMEOUT):
             raise PeerActionError("engine_unavailable", "busy: the collector is reading the engines")
         try:
@@ -184,6 +211,91 @@ class PeerActions:
             client_ip=body.get("client_ip") if isinstance(body.get("client_ip"), str) else None,
         )
         return {"output": output}
+
+    # Web certificate --------------------------------------------------------------------------
+
+    def _certs(self) -> Any:
+        from pelagos.core.webcert.manager import CertManager
+
+        return CertManager(self.ctx)
+
+    def certs_status(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        return self._certs().status()
+
+    def certs_run(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """Start this node's issuance in the background; the caller polls certs.status for the job."""
+        from pelagos.core.webcert.manager import CertFailure
+
+        certs = self._certs()
+        actor = str(body.get("actor") or "unknown")
+        job_id = str(body.get("job_id") or "") or None
+
+        def run() -> None:
+            try:
+                certs.issue(actor=actor, trigger="apply", job_id=job_id)
+            except CertFailure as exc:
+                log.info("certificate request from %s failed: %s", caller, exc)
+
+        threading.Thread(target=run, name="webcert-issue", daemon=True).start()
+        return {"started": True}
+
+    def certs_request(self, body: dict[str, Any], caller: str) -> Any:
+        certs = self._certs()
+        actor = str(body.get("actor") or "unknown")
+        if body.get("drop"):
+            certs.drop_request(actor)
+            return {"dropped": True}
+        names = body.get("names") or []
+        if not isinstance(names, list):
+            raise ValidationError("names must be a list", [field_error("names", "list expected")])
+        return certs.make_request(str(body.get("key_type") or "ec-p256"), [str(n) for n in names], actor)
+
+    def _material(self, certs: Any, body: dict[str, Any]) -> Any:
+        from pelagos.core.webcert import pem
+
+        key_pem = None
+        if body.get("key_sealed"):
+            if self.ctx.secrets is None:
+                raise ValidationError("no master key on this node", [field_error("key", "no master key")])
+            key_pem = self.ctx.secrets.decrypt(f"certs/upload/{self.ctx.node.id}", str(body["key_sealed"]))
+        try:
+            return certs.material(
+                str(body.get("certs_pem") or ""),
+                None,
+                key_pem,
+                use_pending_key=bool(body.get("use_pending_key")),
+            )
+        except pem.CertError as exc:
+            raise ValidationError(str(exc), [field_error("cert_pem", str(exc))]) from None
+
+    def certs_check(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        certs = self._certs()
+        return certs.check(self._material(certs, body)).to_dict()
+
+    def certs_upload(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        from pelagos.core.webcert.manager import CertFailure
+
+        certs = self._certs()
+        mat = self._material(certs, body)
+        try:
+            out = certs.upload(
+                mat, str(body.get("actor") or "unknown"), used_pending=bool(body.get("use_pending_key"))
+            )
+        except CertFailure as exc:
+            return {
+                "installed": False,
+                "error": str(exc),
+                "checks": exc.report.to_dict() if exc.report else None,
+            }
+        return {"installed": True, **out}
+
+    def certs_self_signed(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        from pelagos.core.webcert.manager import CertFailure
+
+        try:
+            return self._certs().self_signed(str(body.get("actor") or "unknown"))
+        except CertFailure as exc:
+            raise ValidationError(str(exc), [field_error("certificate", str(exc))]) from None
 
 
 def _created_by(body: dict[str, Any]) -> str:

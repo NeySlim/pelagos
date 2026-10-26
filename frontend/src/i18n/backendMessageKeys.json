@@ -9,6 +9,18 @@
     "path",
     "size"
   ],
+  "alert.cert_expired": [
+    "cert",
+    "not_after"
+  ],
+  "alert.cert_expiry": [
+    "cert",
+    "not_after"
+  ],
+  "alert.cert_renewal_failed": [
+    "error",
+    "failures"
+  ],
   "alert.clock_skew": [
     "node",
     "offset",
@@ -296,6 +308,9 @@
   "alert.zone_not_loaded": [
     "zone"
   ],
+  "cert.kind.ca": [],
+  "cert.kind.node": [],
+  "cert.kind.web": [],
   "common.none": [],
   "common.the_partner": [],
   "common.with_note": [
@@ -469,6 +484,9 @@
   "job.phase.changes": [],
   "job.phase.d2_switch": [],
   "job.step.bind_adopt": [],
+  "job.step.cert_node": [
+    "node"
+  ],
   "job.step.error": [],
   "job.step.kea_config": [
     "engine"
@@ -538,6 +556,10 @@
     "changes"
   ],
   "plan.bind.includes": [],
+  "plan.certs.dns01_setup": [
+    "key",
+    "zones"
+  ],
   "plan.change": [
     "op",
     "target"

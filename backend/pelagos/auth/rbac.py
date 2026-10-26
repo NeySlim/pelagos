@@ -14,6 +14,7 @@ PERMISSIONS: tuple[str, ...] = (
     "read:hosts", "write:hosts",
     "read:alerts", "write:alerts", "read:series", "read:audit", "read:nodes", "read:advanced",
     "admin:nodes", "admin:users", "admin:roles", "admin:settings", "admin:install", "admin:modules",
+    "admin:certificates",
 )  # fmt: skip
 
 _VIEWER = ["read:dns", "read:dhcp", "read:hosts", "read:alerts", "read:series", "read:audit", "read:nodes"]

@@ -164,6 +164,14 @@ CATALOG: dict[str, str] = {
     "alert.restart_loop": "{engine} restarted {count} times in the last {minutes} minutes",
     "alert.pool_forecast": "pool {pool} of subnet {subnet_id} should be full in about {days} days",
     "alert.security_advisory": "{engine} {version} is affected by {cve}: {summary} (ISC data of {dataset})",
+    "alert.cert_expiry": "{cert} certificate expires on {not_after}",
+    "alert.cert_expired": "{cert} certificate expired on {not_after}",
+    "alert.cert_renewal_failed": "web certificate renewal failed {failures} times: {error}",
+    "cert.kind.web": "Web UI",
+    "cert.kind.node": "Node replication",
+    "cert.kind.ca": "Internal CA",
+    "plan.certs.dns01_setup": "DNS-01 for web certificates: key {key} and update-policy on {zones}",
+    "job.step.cert_node": "certificate of {node}",
     # Security findings: description, proposal and risk.
     "finding.weak_rndc_key.description": "The rndc key {key} uses {algorithm}.",
     "finding.weak_rndc_key.proposal": (

@@ -13,6 +13,7 @@ from pelagos.services.account_service import AccountService
 from pelagos.services.admin_service import AdminService
 from pelagos.services.advanced_service import AdvancedService
 from pelagos.services.alerts_service import AlertsService, SeriesCache, SeriesService
+from pelagos.services.cert_service import CertService
 from pelagos.services.dashboard_service import DashboardService
 from pelagos.services.dhcp_service import DhcpService
 from pelagos.services.dns_service import DnsService
@@ -72,6 +73,7 @@ class Services:
         self.advanced = AdvancedService(ctx, self.dns)
         self.ops = OpsService(ctx, self.registry, self.peers)
         self.install = InstallService(ctx, self.dns, self.dhcp4, self.peers)
+        self.certs = CertService(ctx, self.peers, self.jobs, self.dns)
         self.last_login = LastLoginStore(
             ctx.paths.var / "last_login.json", ctx.paths.locks_dir / "last_login.lock"
         )

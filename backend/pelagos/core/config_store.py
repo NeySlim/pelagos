@@ -40,6 +40,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "alerts_custom_hooks": True,
     "alerts_clock_skew_warning_seconds": 5,
     "alerts_clock_skew_critical_seconds": 30,
+    "alerts_cert_warning_days": 30,
+    "alerts_cert_critical_days": 7,
     "dns": {
         "read_key": "ddi-read",
         "admin_key": "ddi-admin",
@@ -114,6 +116,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "small_node_mb": 4096,
         "max_download_mb": 256,
         "break_dnssec": True,
+    },
+    # Web UI certificates (core.webcert.config); the sources sit under "cluster" and "nodes".
+    "certificates": {
+        "ucm_renew_days": 30,
+        "retry_min_seconds": 300,
+        "retry_max_seconds": 21600,
+        "propagation_seconds": 180,
     },
 }
 

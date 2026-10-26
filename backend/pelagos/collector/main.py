@@ -55,6 +55,8 @@ LIVE_SECONDS = 5.0
 LEASE_WATCH_MAX = 50000
 # A zone whose serial a peer announced is read again here after these delays, until it follows.
 ZONE_RECHECK_DELAYS = (2.0, 5.0, 15.0, 30.0)
+# Web certificate renewal and expiry checks (core.webcert): often enough for 24 h certificates.
+CERT_SECONDS = 60.0
 META_LAST_ACK = "last_ack_audit_id"
 META_ACK_OFFSET = "ack_scan_offset"
 META_ACK_INODE = "ack_scan_inode"
@@ -208,6 +210,12 @@ class Collector:
         self.findings_source: Callable[[NodeContext], list[dict[str, Any]] | None] = _collect_findings
         # Set by run(): the collector.sock listener other components register their handlers on.
         self.listener: SignalListener | None = None
+        from pelagos.core.webcert.manager import CertManager
+
+        # Web UI certificate of this node: renewal of an automatic source and expiry alerts.
+        self.certs = CertManager(ctx)
+        self.cert_background = True
+        self._cert_thread: threading.Thread | None = None
 
     def _reloading(self, poller: KeaPoller) -> Callable[[str], bool]:
         """True while Pelagos writes or reloads the engine and for the grace period after."""
@@ -455,6 +463,28 @@ class Collector:
         """Disk and file growth, reservation risks, delegation and SOA, root reachability."""
         for outcome in self.checks.slow():
             self._finish(outcome)
+    def certificates(self) -> list[Alert]:
+        """Renew the web certificate when due (or install one another node sent), then the expiry
+        alerts of the web, node and internal CA certificates and a failing renewal."""
+        from pelagos.core.webcert.manager import ALERT_KINDS
+
+        busy = self._cert_thread is not None and self._cert_thread.is_alive()
+        if not busy:
+            # An issuance waits on DNS propagation and the CA: never in the polling loop itself.
+            self._cert_thread = threading.Thread(target=self._renew_certificate, name="webcert", daemon=True)
+            self._cert_thread.start()
+            if not self.cert_background:
+                self._cert_thread.join()
+        alerts = self.certs.alerts()
+        node_id = self.node_id
+        self._finish(PollOutcome(alerts=alerts, kinds=ALERT_KINDS, where=lambda a: a.node_id == node_id))
+        return alerts
+
+    def _renew_certificate(self) -> None:
+        try:
+            self.certs.run_due()
+        except Exception:
+            log.exception("web certificate renewal failed")
 
     def retention(self) -> dict[str, int]:
         now = int(self.clock())
@@ -480,6 +510,7 @@ class Collector:
             ("security_audit", self.security_audit),
             ("health", self.health),
             ("health_audit", self.health_audit),
+            ("certificates", self.certificates),
             ("retention", self.retention),
         ):
             try:
@@ -509,6 +540,7 @@ class Collector:
             Task("security_audit", consistency_period, self.security_audit),
             Task("health", poll, self.health),
             Task("health_audit", consistency_period, self.health_audit),
+            Task("certificates", CERT_SECONDS, self.certificates),
             Task("retention", 3600.0, self.retention),
         ]
 

@@ -38,6 +38,7 @@ def register_api(app: Flask) -> Api:
         alerts,
         audit,
         auth,
+        certs,
         dashboard,
         dhcp,
         dns,
@@ -119,6 +120,7 @@ def register_api(app: Flask) -> Api:
         advanced,
         install,
         admin,
+        certs,
         ops,
     ):
         api.add_namespace(module.ns)

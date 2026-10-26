@@ -36,13 +36,17 @@ errorlog = "-"
 loglevel = "info"
 
 
-def ssl_context(conf, default_ssl_context_factory):  # gunicorn hook
-    """TLS 1.2 or newer (section 16); the default factory loads certfile and keyfile."""
+def ssl_context(conf, default_ssl_context_factory):  # gunicorn hook, in the worker
+    """TLS 1.2 or newer (section 16); the context follows certfile and keyfile when they change
+    (core.webcert.tlsreload), so a new certificate needs no restart and drops no session."""
     import ssl
+    from pathlib import Path
+
+    from pelagos.core.webcert import tlsreload
 
     context = default_ssl_context_factory()
     context.minimum_version = ssl.TLSVersion.TLSv1_2
-    return context
+    return tlsreload.install(Path(conf.certfile), Path(conf.keyfile), initial=context)
 
 
 def on_starting(server):  # gunicorn hook, in the master before workers fork

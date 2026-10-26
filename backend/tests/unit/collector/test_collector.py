@@ -293,6 +293,7 @@ def test_tasks_and_retention(rig):
         "security_audit": 900.0,
         "health": 60.0,
         "health_audit": 900.0,
+        "certificates": 60.0,
         "retention": 3600.0,
     }
     counts = collector.retention()
@@ -524,3 +525,33 @@ def test_collector_settings_reload_live(rig):
     assert handle.service.peer_poll_seconds == 5.0
     assert all(p.settings["alerts_pool_warning_percent"] == 50 for p in collector.kea)
     assert reload_settings(collector, tasks, handle) == []
+
+
+def test_certificate_expiry_alerts_open_and_resolve(rig, monkeypatch):
+    from pelagos.core.webcert import checks
+    from tests.unit.core.webcert_pki import key_pem_of, make_leaf, make_pki, pem_of
+
+    monkeypatch.setattr(checks.SYSTEM_TRUST, "roots", lambda: {})
+    collector, _backends, receiver = rig
+    collector.cert_background = False
+    pki = make_pki()
+    mgr = collector.certs
+
+    def install(start: timedelta) -> None:
+        leaf, key = make_leaf(pki.inter, ["ns1.example.lan"], start=start, lifetime=timedelta(days=90))
+        mgr.cert_path.parent.mkdir(parents=True, exist_ok=True)
+        mgr.cert_path.write_text(pem_of(leaf) + pem_of(pki.inter.cert))
+        mgr.key_path.write_text(key_pem_of(key))
+
+    install(timedelta(days=-86))
+    receiver.drain()
+    alerts = collector.certificates()
+    assert [(a.kind, a.severity, a.subject) for a in alerts] == [
+        (AlertKind.CERT_EXPIRY, Severity.CRITICAL, "cert:web")
+    ]
+    assert collector.alerts.get(alerts[0].id).state is AlertState.OPEN
+    assert audit_actions(collector.ctx)[-1] == "alert.raise"
+    install(timedelta(days=-1))
+    assert collector.certificates() == []
+    assert collector.alerts.get(alerts[0].id).state is AlertState.RESOLVED
+    assert [m["event"] for m in receiver.drain() if m["topic"] == "alerts"] == ["opened", "resolved"]

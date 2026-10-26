@@ -4,16 +4,14 @@
 import { test, expect } from '@playwright/test'
 import { setServerFamily, signIn } from './family'
 
-// Records the pseudo-element animations of view transitions seen from now on. A pseudo-element
-// with display: none paints nothing (the UA root fade can be listed for one frame before the
-// app's rule applies on a slow runner), so it does not count as seen.
+// Records the pseudo-element animations of view transitions seen from now on.
 const watch = (page) =>
   page.evaluate(() => {
     window.__vt = { pseudo: new Set(), names: new Set() }
     const tick = () => {
       for (const a of document.getAnimations()) {
         const p = a.effect?.pseudoElement
-        if (p && getComputedStyle(document.documentElement, p).display !== 'none') {
+        if (p) {
           window.__vt.pseudo.add(p)
           window.__vt.names.add(a.animationName)
         }
@@ -78,9 +76,8 @@ test('the theme switch cross-fades the whole document', async ({ page }) => {
   await page.getByTestId('user-menu').click()
   await page.getByRole('menuitem', { name: /^light$/i }).click()
   await expect.poll(() => rootData(page, 'theme')).toBe('light')
-  await page.waitForTimeout(400)
-  expect((await seen(page)).pseudo).toContain('::view-transition-new(root)')
-  expect(await rootData(page, 'vt')).toBeUndefined()
+  await expect.poll(async () => (await seen(page)).pseudo).toContain('::view-transition-new(root)')
+  await expect.poll(() => rootData(page, 'vt')).toBeUndefined()
   await page.getByTestId('user-menu').click()
   await page.getByRole('menuitem', { name: /^dark$/i }).click()
   await expect.poll(() => rootData(page, 'theme')).toBe('dark')

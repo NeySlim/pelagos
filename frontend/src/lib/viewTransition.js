@@ -4,7 +4,9 @@
 // Names are set by the elements themselves while a transition runs (SharedElement), so two
 // nodes never hold the same name.
 
-const VT_CLEAR_MS = 700
+// Upper bound for a marked navigation whose transition never starts (a lazy route can take
+// seconds to load); a started transition clears the mark when it finishes, not on a timer.
+const VT_CLEAR_MS = 5000
 
 export function supportsViewTransitions() {
   return typeof document !== 'undefined' && typeof document.startViewTransition === 'function'
@@ -65,6 +67,32 @@ export function sharesTransition(transition, to) {
 }
 
 let clearTimer = null
+let navTransition = 0
+
+const clearNav = () => {
+  const root = rootEl()
+  if (root && root.dataset.vt === 'nav') delete root.dataset.vt
+}
+
+// Follows the transition the router starts for a marked navigation: the mark must stay until
+// it finishes, or the UA root cross-fade plays over the page for the rest of it.
+function trackNavTransition() {
+  if (typeof document === 'undefined' || document.startViewTransition?.__tracked) return
+  const start = document.startViewTransition?.bind(document)
+  if (!start) return
+  const tracked = (...args) => {
+    const transition = start(...args)
+    if (rootEl()?.dataset.vt === 'nav') {
+      clearTimeout(clearTimer)
+      const id = ++navTransition
+      const done = () => id === navTransition && clearNav()
+      transition.finished.then(done, done)
+    }
+    return transition
+  }
+  tracked.__tracked = true
+  document.startViewTransition = tracked
+}
 // Marks the root while a navigation transition runs: CSS names the main region and
 // silences the page entry animation; the attribute leaves once the transition is over.
 export function markNavigation(direction) {
@@ -73,15 +101,15 @@ export function markNavigation(direction) {
   root.dataset.dir = direction
   root.dataset.vt = 'nav'
   clearTimeout(clearTimer)
-  clearTimer = setTimeout(() => {
-    if (root.dataset.vt === 'nav') delete root.dataset.vt
-  }, VT_CLEAR_MS)
+  navTransition++
+  clearTimer = setTimeout(clearNav, VT_CLEAR_MS)
 }
 
 // Wraps router.navigate so every link and navigate() call changes pages inside a view
 // transition. Replaces, deltas and same-page changes (filters, tabs) pass through; a
 // history pop keeps its replayed transition only when the level and family allow it.
 export function withViewTransitions(router, { idOf, read } = {}) {
+  trackNavTransition()
   const original = router.navigate.bind(router)
   const state = read || (() => ({ level: rootEl()?.dataset.motion, effects: rootEl()?.dataset.effects }))
   router.navigate = (to, opts) => {

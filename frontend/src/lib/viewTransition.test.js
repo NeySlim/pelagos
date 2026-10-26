@@ -132,7 +132,7 @@ describe('markNavigation', () => {
     vi.useFakeTimers()
     markNavigation('fwd')
     expect(document.documentElement.dataset.vt).toBe('nav')
-    vi.advanceTimersByTime(800)
+    vi.advanceTimersByTime(5100)
     expect(document.documentElement.dataset.vt).toBeUndefined()
     vi.useRealTimers()
   })

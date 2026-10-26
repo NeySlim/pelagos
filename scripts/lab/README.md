@@ -16,6 +16,7 @@ rolled back at will; nothing outside these VMs is ever a target.
 | `lab-dev` | 9115 | 10.99.0.15 | Debian 13 dev and test runner: repo checkout, venv, node_modules, BIND 9.20 and ISC Kea 3.2 binaries (services disabled) | `ready` |
 | `lab-pkg-rpm` | 9116 | 10.99.0.16 | Rocky 10, rpm build and install tests | `clean`, `rpmbuild` |
 | `lab-docker` | 9117 | 10.99.0.17 | Debian 13, Docker host for compose tests | `clean`, `docker` |
+| `lab-ucm` | 9122 | 10.99.0.22 | Debian 13 (4 GB), Docker, UCM built from git (`ucm.sh`) for the certificate tests | none: `ucm.sh` rebuilds it |
 
 All VMs: user `lab`, passwordless sudo, key authentication. The ssh aliases
 are configured on lab-dev (`~/.ssh/config`, key `~/.ssh/id_ed25519`, which
@@ -106,6 +107,8 @@ exists).
 
 | Module | VMs | What it checks |
 | --- | --- | --- |
+| `test_ucm_lab.py` | lab-ucm | UCM built from git (below): the "UCM by API" source applied to a two node cluster running on lab-dev (one year certificates served by each node's gunicorn), forced renewal with the old certificates revoked in UCM, the collector's renewal 30 days before the end, then the private ACME profile against UCM's ACME server with DNS-01 |
+| `test_public_acme_lab.py` | none | Hetzner Cloud DNS API and Let's Encrypt staging, skipped without credentials (below) |
 | `test_docker_lab.py` | lab-docker | the node image built from the checkout, `docker/compose.yaml` with the ISC BIND and Kea images (`packaging/tests/compose-smoke.sh`), `/api/v1/health` reached from lab-dev |
 | `test_installer_lab.py` | lab-ns1, lab-rpm, lab-pkg-rpm | Debian: a legacy server seeded, audited, imported and migrated, Kea 2.6 from Debian then ISC 3.2. Rocky: the rpm built on lab-pkg-rpm and installed, `pelagos install --init` with SELinux enforcing, the API (install endpoints through the root helper), then ISC Kea |
 | `test_kea26_lab.py` | lab-ns1, lab-ns2, lab-client | production as found: the reference pair (Kea 2.6.3 and BIND 9.20 from Debian 13) with four reservations written by hand in an order and spelling config-get does not keep (a client-id with colons) and kea-dhcp6 installed but disabled; the deb on both, ns2 enrolled, the import (kea6 left out), the security plan, a reservation through `config-set` on both peers (no host_cmds; the file keeps its order), no divergence alert for 150 s while file and peers differ only in order, a reservation changed by hand on ns2 (peer divergence naming it, `external.change` audit entry), a hook compiled by hand on ns1 against `kea-dev` (`custom_hook` with the built-in option, divergence naming the hook), then ns2's clock 90 s ahead with NTP off: both servers `terminated`, `ha_terminated` naming ns2, the repair plan refused, NTP back, the cause kept as fixed, "Repair HA" through the API and both back to `hot-standby` |
@@ -157,3 +160,35 @@ User `admin`, password `Lab-Admin-Password-1` (lab only, set by the tests;
 `PELAGOS_LAB_ADMIN_PASSWORD` changes it). ns2 answers on `10.99.0.12:8443`
 the same way. `ssh lab-client sudo networkctl renew ens19` asks for a new
 lease, `ssh lab-ns1 sudo systemctl kill kea-dhcp4-server` shows the HA alert.
+
+## UCM for the certificate tests
+
+`lab-ucm` (VMID 9122, a full clone of the Debian 13 template with 4 GB of
+RAM and a 20 GB disk) runs UCM (Ultimate CA Manager) in Docker.
+`scripts/lab/ucm.sh [host] [ref]` checks UCM out from its repository on
+lab-dev (ssh alias `github-ucm`, ref `v2.245` by default), builds its
+frontend with Node 22, builds the image on the VM from UCM's own Dockerfile
+(`ucm:git-<commit>`) and runs it as container `ucm` on 8443 and 8080, with
+the volumes `ucm-data` and `ucm-config`. It is idempotent and installs
+Docker on a bare VM, so a lost VM is a template clone away.
+
+`tests/lab/test_ucm_lab.py` runs it, then `tests/lab/ucmkit.py` signs in as
+admin (first password `changeme123`, changed to `Lab-Ucm-Admin-Password-1`
+or `PELAGOS_LAB_UCM_PASSWORD`), creates the CA `Pelagos Lab UCM CA`, has
+UCM serve an HTTPS certificate from that CA with its address as IP SAN
+(then restarts the container), and creates a one day API key limited to
+what Pelagos uses. The ACME test points UCM's DNS-01 resolver at a relay on
+lab-dev (`10.99.0.15`, a free port) to the test's named. Another UCM:
+`PELAGOS_UCM_URL`, `PELAGOS_UCM_API_KEY`, `PELAGOS_UCM_CA_ID`,
+`PELAGOS_UCM_TRUST_ROOT` (PEM file) and, for ACME,
+`PELAGOS_UCM_ACME_DIRECTORY`.
+
+```sh
+make test-lab LAB_ARGS=tests/lab/test_ucm_lab.py
+```
+
+`tests/lab/test_public_acme_lab.py` needs public DNS and skips without
+credentials: `PELAGOS_HETZNER_TOKEN` and `PELAGOS_HETZNER_ZONE` (a TXT
+record through the Hetzner Cloud API, seen on Hetzner's servers), plus
+`PELAGOS_LE_STAGING_NAME` (and `PELAGOS_LE_DELEGATION_ZONE` when its
+`_acme-challenge` is a CNAME) for a certificate from Let's Encrypt staging.

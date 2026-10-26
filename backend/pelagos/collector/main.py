@@ -882,7 +882,7 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
 
     def rpz_request(msg: dict[str, Any]) -> None:
         if collector.rpz is not None:
-            collector.rpz.request(msg.get("id"))
+            collector.rpz.request(msg.get("id"), bool(msg.get("accept_shrink")))
             rpz_due.set()
 
     listener.on("rpz", rpz_request)

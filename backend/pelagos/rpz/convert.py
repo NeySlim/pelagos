@@ -136,10 +136,14 @@ def _iter_native(lines: Iterable[str], seen: dict[str, bool] | None = None) -> I
             seen["soa"] = True
         m = _RPZ_RULE.match(line)
         if not m:
+            # Passthru, redirect and other policy records are not converted: count them as skipped.
+            if re.search(r"\s(?:CNAME|A|AAAA)\s", line, re.I):
+                yield None
             continue
         owner = m.group(1)
-        # The apex rule written for `name` covers `*.name`; rpz-* owners are triggers, not names.
-        if owner == "@" or owner.startswith(("*.", "rpz-")) or ".rpz-" in owner:
+        # `*.name` alone is read as a rule for `name`; rpz-* owners are triggers, not names.
+        owner = owner.removeprefix("*.")
+        if owner == "@" or owner.startswith("rpz-") or ".rpz-" in owner:
             continue
         yield owner
 

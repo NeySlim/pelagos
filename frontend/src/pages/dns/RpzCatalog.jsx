@@ -109,8 +109,8 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
     }
   }
   const applyNow = () => submit(() => api.dns.rpzPlan())
-  const refresh = async (id) => {
-    await api.dns.rpzRefresh(id)
+  const refresh = async (id, acceptShrink = false) => {
+    await api.dns.rpzRefresh(id, acceptShrink)
     showSuccess(t('rpzsub.refreshRequested'))
     setTimeout(refetch, 1500)
   }
@@ -159,9 +159,16 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
       align: 'right',
       render: (s) =>
         canWrite && s.kind === 'url' ? (
-          <Button variant="ghost" size="xs" onClick={() => refresh(s.id)} aria-label={t('rpzsub.refreshNow')} data-testid="rpz-refresh">
-            <ArrowsClockwise size={13} />
-          </Button>
+          <span className="inline-flex items-center gap-1">
+            {worstStatus(s.status).status === 'rejected' && (
+              <Button variant="ghost" size="xs" onClick={() => refresh(s.id, true)} data-testid="rpz-accept-shrink">
+                {t('rpzsub.acceptSmaller')}
+              </Button>
+            )}
+            <Button variant="ghost" size="xs" onClick={() => refresh(s.id)} aria-label={t('rpzsub.refreshNow')} data-testid="rpz-refresh">
+              <ArrowsClockwise size={13} />
+            </Button>
+          </span>
         ) : null,
     },
   ]

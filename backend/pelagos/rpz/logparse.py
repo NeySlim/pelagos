@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,16 @@ TIME = re.compile(r"^(\d{1,2}-\w{3}-\d{4} \d{2}:\d{2}:\d{2}(?:\.\d+)?)")
 MAX_READ = 8 * 1024 * 1024
 
 
+def parse_time(text: str) -> float:
+    """Epoch seconds of a named log time (`26-Oct-2026 10:11:12.345`, read as UTC), 0 if unreadable."""
+    for fmt in ("%d-%b-%Y %H:%M:%S.%f", "%d-%b-%Y %H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=UTC).timestamp()
+        except ValueError:
+            continue
+    return 0.0
+
+
 def parse_line(line: str) -> dict[str, Any] | None:
     m = LINE.search(line)
     if m is None:
@@ -24,6 +35,7 @@ def parse_line(line: str) -> dict[str, Any] | None:
     t = TIME.match(line)
     out = m.groupdict()
     out["time"] = t.group(1) if t else ""
+    out["ts"] = parse_time(out["time"])
     out["rule"] = out["rule"].rstrip(".")
     return out
 

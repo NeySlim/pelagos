@@ -84,7 +84,8 @@ export const dns = {
   rpzSetOrder: (order) => apiClient.put('/dns/rpz/order', { order }),
   rpzPlan: () => apiClient.post('/dns/rpz/plan'),
   rpzEstimate: (body) => apiClient.post('/dns/rpz/estimate', body),
-  rpzRefresh: (id) => apiClient.post('/dns/rpz/refresh', id ? { id } : {}),
+  rpzRefresh: (id, acceptShrink = false) =>
+    apiClient.post('/dns/rpz/refresh', id ? { id, ...(acceptShrink ? { accept_shrink: true } : {}) } : {}),
   rpzWhy: (domain, node_id) => apiClient.get(`/dns/rpz/why${buildQueryString({ domain, node_id })}`),
   rpzActivity: () => apiClient.get('/dns/rpz/activity'),
   rpzAllow: (domain, note) => apiClient.post('/dns/rpz/allow', { domain, note }),

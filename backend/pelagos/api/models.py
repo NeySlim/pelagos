@@ -332,7 +332,15 @@ RpzOverview = model(
     },
 )
 RpzResult = model("RpzResult", {"plan": fields.Raw(description="Plan or null"), "overview": fields.Raw})
-RpzBody = model("RpzBody", {"enabled": fields.Boolean, "level": fields.String, "action": fields.String})
+RpzBody = model(
+    "RpzBody",
+    {
+        "accept_shrink": fields.Boolean,
+        "enabled": fields.Boolean,
+        "level": fields.String,
+        "action": fields.String,
+    },
+)
 RpzData = model("RpzData", {"data": fields.Raw})
 Dnssec = model("Dnssec", {"node_id": fields.String, "status": fields.Raw})
 

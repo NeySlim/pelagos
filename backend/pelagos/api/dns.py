@@ -411,7 +411,8 @@ class RpzRefresh(Resource):
     @ns.expect(m.RpzBody)
     @ns.response(200, "This node's collector updates the lists now (body id: one list)", m.RpzData)
     def post(self):
-        return rpz().refresh(json_body(required=False).get("id"), username(), client_ip())
+        body = json_body(required=False)
+        return rpz().refresh(body.get("id"), username(), client_ip(), bool(body.get("accept_shrink")))
 
 
 @ns.route("/rpz/why")

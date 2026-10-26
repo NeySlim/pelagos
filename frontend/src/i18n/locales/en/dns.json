@@ -492,6 +492,7 @@
     "nothingToApply": "Saved. The nodes already match: nothing to apply.",
     "refreshRequested": "Update requested; the collector downloads the list now.",
     "refreshNow": "Update now",
+    "acceptSmaller": "Accept the smaller list",
     "ram": "{{ram}} RAM",
     "nodeError": "unreachable",
     "pending": "configuration to apply",

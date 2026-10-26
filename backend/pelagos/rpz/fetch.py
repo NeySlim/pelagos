@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-import gzip
 import urllib.error
 import urllib.request
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -54,6 +54,21 @@ def expiry(headers: Any, now: float | None = None) -> int | None:
     return parse_http_date(headers.get("Expires"))
 
 
+def gunzip(data: bytes, max_bytes: int) -> bytes:
+    """Inflate in chunks so that a small archive cannot expand past the download cap."""
+    inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    out = bytearray()
+    view = memoryview(data)
+    for start in range(0, len(view), CHUNK):
+        piece = inflater.decompress(view[start : start + CHUNK], max_bytes + 1 - len(out))
+        out += piece
+        while inflater.unconsumed_tail and len(out) <= max_bytes:
+            out += inflater.decompress(inflater.unconsumed_tail, max_bytes + 1 - len(out))
+        if len(out) > max_bytes:
+            raise FetchError(f"decompressed list larger than {max_bytes // 1_000_000} MB")
+    return bytes(out)
+
+
 def fetch(
     url: str,
     etag: str = "",
@@ -81,7 +96,7 @@ def fetch(
             encoding = (info.get("Content-Encoding") or "").lower()
             data = bytes(body)
             if encoding == "gzip" or data[:2] == b"\x1f\x8b":
-                data = gzip.decompress(data)
+                data = gunzip(data, max_bytes)
             return Fetched(
                 200,
                 data,
@@ -95,5 +110,5 @@ def fetch(
         if exc.code in (404, 410):
             raise FetchError(f"HTTP {exc.code}: the list is gone or moved") from exc
         raise FetchError(f"HTTP {exc.code}") from exc
-    except (urllib.error.URLError, TimeoutError, OSError, EOFError) as exc:
+    except (urllib.error.URLError, TimeoutError, OSError, EOFError, zlib.error) as exc:
         raise FetchError(str(getattr(exc, "reason", exc))) from exc

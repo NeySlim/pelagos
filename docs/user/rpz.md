@@ -90,7 +90,8 @@ Formats, detected from the content unless you choose one:
 
 - **RPZ zone**: a native response policy zone. Pelagos keeps its name rules
   (`name CNAME .`), so the action you choose applies; checked with
-  `named-checkzone`.
+  `named-checkzone`. A rule written only as `*.name CNAME .` counts as a rule
+  for `name`; passthru and other record types are skipped and counted.
 - **Hosts**: `0.0.0.0 name`, loopback and `localhost` lines are ignored.
 - **Domain list**: one name per line, `#` comments, `*.name` accepted.
 - **Adblock**: simple `||name^` rules; exceptions (`@@`), cosmetic rules and
@@ -108,7 +109,10 @@ zone's own policy records apply, and redirecting to an IP is not possible.
 
 ## Actions
 
-Per category or subscription:
+Per category or subscription. Action, interval and nodes are set per
+category: your own URLs and add-on lists in a category follow that category's
+values, and a list that needs its own action is added as a separate
+subscription.
 
 - **Block (NXDOMAIN)**: the default.
 - **Empty answer (NODATA)**.
@@ -129,7 +133,14 @@ A new copy replaces the old one only if it converts to something, passes
 setting) and reloads. Otherwise the old copy stays in service, the state shows
 "kept the old copy" with the reason, and the `rpz_update` alert opens. A failed
 download is retried after 15 minutes, doubling up to 6 hours. The same alert
-opens when no update succeeded for three intervals.
+opens when no update succeeded for three intervals (or twice the span the
+provider asked for with `Expires`, when that is longer).
+
+A list that really shrank (the provider restructured it) stays refused on every
+retry. On the Subscriptions tab, "Accept the smaller list" on that row fetches
+it again and skips the shrink check once (`POST /dns/rpz/refresh` with
+`id` and `accept_shrink=true`). An empty list or a `named-checkzone` failure is
+never accepted this way.
 
 ## Memory
 

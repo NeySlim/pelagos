@@ -325,3 +325,48 @@ def test_log_events_are_capped(node: Node) -> None:
     node.env.log_path.write_text(LOG * 3)
     node.run()
     assert len(node.state()["log"]["recent"]) == 3
+
+
+def test_accept_shrink_installs_a_smaller_list_but_not_an_empty_one(node: Node) -> None:
+    node.subscribe()
+    node.responses.append(ok(body(100)))
+    node.run()
+    node.now += 25 * HOUR
+    node.responses.append(ok(body(30), etag='"v2"'))
+    assert "shrank" in node.run().failed["mine"]
+    node.now += HOUR
+    node.responses.append(ok(body(30), etag='"v2"'))
+    assert node.run(only="mine", accept_shrink=True).updated == ["mine"]
+    assert node.state()["subs"]["mine"]["entries"] == 30
+    node.now += HOUR
+    node.responses.append(ok(b"# nothing\n", etag='"v3"'))
+    assert "empty" in node.run(only="mine", accept_shrink=True).failed["mine"]
+
+
+def test_accept_shrink_needs_a_named_list(node: Node) -> None:
+    node.subscribe()
+    node.responses.append(ok(body(100)))
+    node.run()
+    node.now += 25 * HOUR
+    node.responses.append(ok(body(30), etag='"v2"'))
+    assert "shrank" in node.run(accept_shrink=True).failed["mine"]
+
+
+def test_long_expires_does_not_raise_a_stale_finding(node: Node) -> None:
+    node.subscribe(interval_hours=24)
+    node.responses.append(ok(body(10), expires=NOW + 7 * 86400))
+    node.run()
+    subs, cfg = model.resolve(node.settings), model.config(node.settings)
+    assert sync.findings(subs, node.state(), cfg, NOW + 6 * 86400) == []
+    assert sync.findings(subs, node.state(), cfg, NOW + 15 * 86400)[0]["reason"] == "stale"
+
+
+def test_gunzip_is_capped_and_log_times_sort_across_months() -> None:
+    import gzip
+
+    from pelagos.rpz import logparse
+
+    assert fetch_mod.gunzip(gzip.compress(b"a" * 1000), 5_000) == b"a" * 1000
+    with pytest.raises(fetch_mod.FetchError):
+        fetch_mod.gunzip(gzip.compress(b"a" * 1_000_000), 100_000)
+    assert logparse.parse_time("31-Oct-2026 23:00:00.5") < logparse.parse_time("01-Nov-2026 00:00:00.1")

@@ -163,8 +163,11 @@ class Syncer:
 
     # Entry point -----------------------------------------------------------------
 
-    def run(self, only: str | None = None, force: bool = False) -> SyncReport:
-        """One pass over this node's lists; `only` names one, `force` ignores the schedule."""
+    def run(self, only: str | None = None, force: bool = False, accept_shrink: bool = False) -> SyncReport:
+        """One pass over this node's lists; `only` names one, `force` ignores the schedule.
+
+        `accept_shrink` skips the shrink check for `only` (never the empty or named-checkzone checks).
+        """
         settings = self.settings()
         cfg = model.config(settings)
         state = load_state(self.env.state_path)
@@ -179,7 +182,7 @@ class Syncer:
                 if sub.kind == "axfr":
                     self._axfr_status(sub, entry)
                     continue
-                self._update(sub, entry, cfg, force or bool(only), report)
+                self._update(sub, entry, cfg, force or bool(only), report, accept_shrink and bool(only))
             except Exception as exc:  # one list never stops the others
                 log.exception("rpz %s failed", sub.id)
                 self._fail(entry, str(exc), cfg, report, sub.id)
@@ -196,7 +199,13 @@ class Syncer:
     # Lists -----------------------------------------------------------------------------
 
     def _update(
-        self, sub: model.Sub, entry: dict[str, Any], cfg: dict[str, Any], force: bool, report: SyncReport
+        self,
+        sub: model.Sub,
+        entry: dict[str, Any],
+        cfg: dict[str, Any],
+        force: bool,
+        report: SyncReport,
+        accept_shrink: bool = False,
     ) -> None:
         now = self.env.clock()
         fp = fingerprint(sub)
@@ -223,7 +232,7 @@ class Syncer:
             )
             report.unchanged.append(sub.id)
             return
-        self._install(sub, entry, cfg, got, fp, report)
+        self._install(sub, entry, cfg, got, fp, report, accept_shrink)
 
     def _install(
         self,
@@ -233,6 +242,7 @@ class Syncer:
         got: fetch_mod.Fetched,
         fp: str,
         report: SyncReport,
+        accept_shrink: bool = False,
     ) -> None:
         env, now = self.env, self.env.clock()
         fmt = sub.format
@@ -248,7 +258,7 @@ class Syncer:
                 lines = io.TextIOWrapper(io.BytesIO(got.body), encoding="utf-8", errors="replace")
                 serial = serial_after(target, entry.get("serial"), now)
                 result = conv.convert_stream(lines, fmt, serial, fh, redirect_ip)
-            reason = self._reject_reason(entry, result.entries, cfg)
+            reason = self._reject_reason(entry, result.entries, cfg, accept_shrink)
             if reason is None:
                 reason = check_zone(env.checkzone, sub.zone, tmp)
             if reason is not None:
@@ -296,12 +306,14 @@ class Syncer:
         report.updated.append(sub.id)
 
     @staticmethod
-    def _reject_reason(entry: dict[str, Any], entries: int, cfg: dict[str, Any]) -> str | None:
+    def _reject_reason(
+        entry: dict[str, Any], entries: int, cfg: dict[str, Any], accept_shrink: bool = False
+    ) -> str | None:
         if entries == 0:
             return "the list is empty after conversion; the previous copy is kept"
         before = int(entry.get("entries") or 0)
         limit = int(cfg["shrink_percent"])
-        if before and entries < before * (100 - limit) / 100:
+        if before and not accept_shrink and entries < before * (100 - limit) / 100:
             drop = round(100 - entries * 100 / before)
             return (
                 f"the list shrank by {drop}% ({before} to {entries} entries, limit {limit}%); "
@@ -412,6 +424,7 @@ class Syncer:
             recent.append(
                 {
                     "time": ev["time"],
+                    "ts": ev["ts"],
                     "client": ev["client"],
                     "qname": ev["qname"],
                     "qtype": ev["qtype"],
@@ -451,6 +464,9 @@ def findings(
             continue
         updated = entry.get("ok_at") or entry.get("updated_at")
         stale_after = sub.interval_hours * 3600 * int(cfg["stale_factor"])
+        if updated and entry.get("next_check"):
+            # A provider Expires may legitimately space the checks wider than the interval.
+            stale_after = max(stale_after, (int(entry["next_check"]) - int(updated)) * 2)
         if sub.kind == "url" and updated and now - updated > stale_after:
             hours = int((now - updated) // 3600)
             out.append(

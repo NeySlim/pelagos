@@ -13,7 +13,7 @@ from typing import Any
 
 from pelagos.core.signals import signal_collector
 from pelagos.domain import AuditEntry, AuditResult, Change, ChangeOp, Engine, Plan, normalize_name
-from pelagos.rpz import catalog, estimate, model
+from pelagos.rpz import catalog, estimate, logparse, model
 from pelagos.rpz.model import RpzInputError
 from pelagos.services.errors import EngineUnavailable, NotFound, ValidationError, field_error
 from pelagos.services.masking import masked
@@ -223,7 +223,7 @@ class RpzService:
             for category, hits in (state.get("by_category") or {}).items():
                 by_category[category] = by_category.get(category, 0) + int(hits)
             recent.extend({**e, "node_id": peer.id} for e in state.get("recent") or [])
-        recent.sort(key=lambda e: e.get("time", ""), reverse=True)
+        recent.sort(key=lambda e: e.get("ts") or logparse.parse_time(e.get("time", "")), reverse=True)
         return {
             "nodes": nodes,
             "by_list": [
@@ -490,9 +490,18 @@ class RpzService:
         cfg = self._cfg()
         return {"applied_here": applied, "allow": cfg["allow"], "exempt_clients": cfg["exempt_clients"]}
 
-    def refresh(self, sub_id: str | None, user: str, client_ip: str | None) -> dict[str, Any]:
+    def refresh(
+        self, sub_id: str | None, user: str, client_ip: str | None, accept_shrink: bool = False
+    ) -> dict[str, Any]:
         if sub_id and sub_id not in {s.id for s in model.resolve(self.ctx.settings())}:
             raise NotFound(f"subscription {sub_id}")
-        reached = signal_collector(self.ctx.paths.collector_sock, "rpz", id=sub_id)
-        self._audit("rpz.refresh", f"rpz:subscription:{sub_id or '*'}", user, {"id": sub_id}, client_ip)
+        accept = bool(accept_shrink and sub_id)
+        reached = signal_collector(self.ctx.paths.collector_sock, "rpz", id=sub_id, accept_shrink=accept)
+        self._audit(
+            "rpz.refresh",
+            f"rpz:subscription:{sub_id or '*'}",
+            user,
+            {"id": sub_id, "accept_shrink": accept},
+            client_ip,
+        )
         return {"requested": reached}

@@ -121,3 +121,13 @@ def test_client_ip_owner_forms() -> None:
 def test_count_rules_matches_entries() -> None:
     result = conv.convert((DATA / "domains.txt").read_text(), "domains", 1)
     assert conv.count_rules(result.text) == result.entries
+
+
+def test_native_wildcard_only_rule_is_read_as_a_rule_for_the_name() -> None:
+    text = (
+        "$TTL 300\n@ IN SOA ns.example.lan. h.example.lan. 1 3600 600 86400 300\n"
+        "*.only-wild.example.net CNAME .\nok.example.org CNAME rpz-passthru.\n"
+    )
+    result = conv.convert(text, "rpz", 1, keep_domains=True)
+    assert result.entries == 1 and "only-wild.example.net CNAME ." in result.text
+    assert result.skipped == 1  # the passthru rule is counted, not dropped silently

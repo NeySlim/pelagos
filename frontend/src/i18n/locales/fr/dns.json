@@ -492,6 +492,7 @@
     "nothingToApply": "Enregistré. Les nœuds correspondent déjà : rien à appliquer.",
     "refreshRequested": "Mise à jour demandée ; le collecteur télécharge la liste maintenant.",
     "refreshNow": "Mettre à jour maintenant",
+    "acceptSmaller": "Accepter la liste réduite",
     "ram": "{{ram}} de RAM",
     "nodeError": "injoignable",
     "pending": "configuration à appliquer",

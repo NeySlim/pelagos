@@ -41,13 +41,13 @@ class RpzPoller:
         self.clock = clock
         self.synchronous = synchronous
         self._thread: threading.Thread | None = None
-        self._request: tuple[str | None, bool] | None = None
+        self._request: tuple[str | None, bool, bool] | None = None
         self._lock = threading.Lock()
 
-    def request(self, only: str | None = None) -> None:
+    def request(self, only: str | None = None, accept_shrink: bool = False) -> None:
         """Update now (one list, or all of them), whatever the schedule says."""
         with self._lock:
-            self._request = (only, True)
+            self._request = (only, True, accept_shrink and bool(only))
 
     def busy(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
@@ -73,7 +73,7 @@ class RpzPoller:
 
     def _start(self) -> None:
         with self._lock:
-            only, force = self._request or (None, False)
+            only, force, accept = self._request or (None, False, False)
             self._request = None
         env = self.backend.rpz_env(str(model.config(self.settings()).get("log_path") or ""))
         env.clock = self.clock
@@ -81,7 +81,7 @@ class RpzPoller:
 
         def work() -> None:
             try:
-                syncer.run(only, force)
+                syncer.run(only, force, accept)
             except Exception:
                 log.exception("rpz sync failed")
 

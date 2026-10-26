@@ -90,7 +90,8 @@ and removes it from `cluster.toml`. A key made on the node never travels.
   its certificates are not trusted, its limits are generous). The client is
   tested on every change against Pebble, Let's Encrypt's own test server
   (DNS-01 on a zone of a real named, 90 day certificates renewed with a
-  third left, nonces rejected at random as Let's Encrypt may);
+  third left, nonces rejected at random as Let's Encrypt may; also run once on
+  arm64 under qemu with Debian 13 and BIND 9.20.30);
 - **Private ACME (step-ca, UCM)**: the directory URL (for example
   `https://ca.example.lan/acme/acme/directory`) and the **trust root** used
   to reach the server (PEM, added to the system store);
@@ -135,8 +136,10 @@ another DNS host, either
   (`_acme-challenge.ns1.example.lan. CNAME ns1-example-lan.acme.example.lan.`),
   and the setup grants `ddi-acme` the whole delegation zone; or
 - let the node use the **DNS provider API**: Hetzner DNS, through the
-  Hetzner Cloud API (`https://api.hetzner.cloud/v1`), the only DNS API
-  Hetzner has served since the DNS Console API was shut down in May 2026.
+  Hetzner Cloud API (`https://api.hetzner.cloud/v1`), the DNS API
+  that replaces the legacy DNS Console API (`dns.hetzner.com`); it has been generally
+  available since 2025-11-10, after which no zone can be created in the legacy console
+  (docs.hetzner.cloud/changelog, checked 2026-10-26).
   Create the API token (read and write) in the Hetzner Console project that
   holds the zone. The node finds the zone by name, adds the TXT record with
   the `add_records` action of the RRSet, follows the action until it

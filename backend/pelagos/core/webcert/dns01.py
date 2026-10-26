@@ -255,10 +255,10 @@ class Rfc2136Provider(DnsProvider):
 
 
 class HetznerProvider(DnsProvider):
-    """Hetzner DNS through the Hetzner Cloud API, the only one since the DNS Console API was shut
-    down in May 2026 (docs.hetzner.cloud/reference/cloud, Zones and Zone RRSet Actions, checked
-    2026-10-26). Records change through add_records and remove_records, which return an action
-    that is followed until it succeeds; TXT values are sent quoted, as the API stores them."""
+    """Hetzner DNS through the Hetzner Cloud API, the successor of the legacy DNS Console API
+    (generally available 2025-11-10, docs.hetzner.cloud/changelog, checked 2026-10-26). Records
+    change through add_records and remove_records (actions followed until they succeed); TXT values
+    are sent quoted, as the API stores them."""
 
     TYPE = "hetzner"
     LABEL = "Hetzner DNS"

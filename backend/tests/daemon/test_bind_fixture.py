@@ -27,11 +27,15 @@ def test_soa_and_rndc_status(named_server):
 
 
 def test_statistics_channel(named_server):
-    stats = StatsClient(named_server.stats_url).instance_stats("n1")
+    client = StatsClient(named_server.stats_url)
+    key = "_default/example.lan"
+    # The zone serial shows up in the channel a moment after named starts answering.
+    has_serial = lambda: "serial" in client.instance_stats("n1").zones.get(key, {})  # noqa: E731
+    wait_for(has_serial, timeout=20, what="zone serial")
+    stats = client.instance_stats("n1")
     assert stats.version and stats.version.startswith("9.")
     assert stats.boot_time is not None
-    assert "_default/example.lan" in stats.zones
-    assert stats.zones["_default/example.lan"]["serial"] == 2026102401
+    assert stats.zones[key]["serial"] == 2026102401
 
 
 def test_signed_update_round_trip_and_axfr(named_server):

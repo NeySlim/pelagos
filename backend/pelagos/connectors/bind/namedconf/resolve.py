@@ -6,6 +6,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 import subprocess
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -396,6 +397,9 @@ def build_tree(files: ConfigFiles, node_id: str, include_dir: Path | None = None
         "parse_errors": files.errors,
         "other_statements": others,
         "has_views": bool(tree.views),
+        "unmovable_keys": [
+            {"path": p, "line": ln, "reason": why} for (p, ln), why in unmovable_keys(files).items()
+        ],
     }
     return tree
 
@@ -431,6 +435,33 @@ def _note(doc: ConfigDocument | None, node: Node, parents: tuple[Node, ...]) -> 
 
 def _entry(node: Node, path: str, managed: bool) -> ConfigEntry:
     return ConfigEntry(name=node.name, value=node.value_text(), path=path, line=node.line, managed=managed)
+
+
+_CONTROL_KEYS = re.compile(r"\bkeys\s*\{([^}]*)\}")
+_RNDC_FILES = frozenset({"rndc.key", "rndc.conf"})
+
+
+def unmovable_keys(files: ConfigFiles) -> dict[tuple[str, int | None], str]:
+    """Keys that must stay where they are, by (file, line): control channel keys and view keys."""
+    used: set[str] = set()
+    for res in files.statements():
+        if res.node.name == "controls" and not res.parents:
+            for block in _CONTROL_KEYS.findall(res.node.serialize()):
+                used.update(w.strip("\"'") for w in re.split(r"[;\s]+", block) if w)
+    out: dict[tuple[str, int | None], str] = {}
+    for res in files.statements():
+        node = res.node
+        if node.name != "key" or node.kind == "include":
+            continue
+        name = node.args[0] if node.args else ""
+        where = (res.path, node.line)
+        if res.parents:
+            out[where] = "declared inside a view"
+        elif Path(res.path).name in _RNDC_FILES:
+            out[where] = "rndc key file"
+        elif name in used:
+            out[where] = "used by a controls statement"
+    return out
 
 
 def _key_entry(node: Node, path: str, managed: bool, view: str | None = None) -> ConfigEntry:

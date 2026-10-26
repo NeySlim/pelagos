@@ -96,3 +96,13 @@ def test_options_and_zone_move_and_named_keeps_serving(server, tmp_root: Path) -
     edit = backend.plan_zone_change(Change(ChangeOp.REPLACE, "_default/legacy.example.lan", after=after))
     assert edit.state is PlanState.VALIDATED, edit.validations
     assert backend.apply(edit).ok
+
+
+def test_rndc_key_is_never_offered_nor_moved(server, tmp_root: Path) -> None:
+    backend = make_backend(server, tmp_root)
+    setup_includes(backend)
+    targets = {r["target"] for r in handover.candidates(backend.read_config())}
+    assert "handover/keys/rndc-key" not in targets
+    plan = backend.plan_config_change([Change(ChangeOp.REPLACE, "handover/keys/rndc-key")])
+    assert plan.state is PlanState.FAILED and "stays in the user file" in (plan.error or "")
+    assert "rndc-key" in (server.root / "rndc.key").read_text()

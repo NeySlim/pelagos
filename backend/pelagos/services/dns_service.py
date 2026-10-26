@@ -388,7 +388,10 @@ class DnsService(DnsExtras):
             for row in rows:
                 item = merged.setdefault(row["target"], {**row, "nodes": []})
                 item["nodes"].append(node_id)
-        return {"items": list(merged.values())}
+        # The plan is built on this node: a statement it lacks cannot be handed over from here.
+        here = self.ctx.node.id
+        items = [i for i in merged.values() if here in i["nodes"] or self.local is None]
+        return {"items": items}
 
     def rpz(self, node_id: str | None = None) -> list[dict[str, Any]]:
         tree = self._config(node_id)

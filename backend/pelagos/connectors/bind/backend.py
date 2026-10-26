@@ -498,8 +498,11 @@ class BindBackend(BindExtras, DnsBackend):
         _require_user_conf(planner.files)
         return planner
 
-    def _render(self, plan_scope: PlanScope, changes: list[Change]) -> tuple[ConfigPlanner, RenderResult]:
+    def _render(
+        self, plan_scope: PlanScope, changes: list[Change], replay: bool = False
+    ) -> tuple[ConfigPlanner, RenderResult]:
         planner = self._planner()
+        planner.replay = replay  # a node replaying a plan skips handovers it does not need
         for change in changes:
             if plan_scope is PlanScope.DNS_ZONE:
                 planner.zone_change(change)
@@ -608,7 +611,7 @@ class BindBackend(BindExtras, DnsBackend):
 
     def _apply_files(self, plan: Plan) -> NodeApplyResult:
         self._check_file_preconditions(plan)
-        _, result = self._render(plan.scope, plan.changes)
+        _, result = self._render(plan.scope, plan.changes, replay=True)
         if result.errors:
             return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message="; ".join(result.errors))
         paths = result.changed_paths()

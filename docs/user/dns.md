@@ -172,8 +172,10 @@ lists them on the Resolver screen (options), on each tab of ACLs and keys,
 and on the Zones screen (zones); a zone also has "Hand over the zone" in its
 header. "Hand this option over to Pelagos" (or ACL, key, zone) acts on one
 statement, "Hand over all" on the whole screen. Nodes that have the same
-statement are handled in the same plan; a plan runs on one set of nodes, so
-statements present on different nodes may need another click.
+statement are handled in the same plan. The plan is built on the node you are
+connected to, so only statements that node has are offered: one that exists
+only on a peer must be handed over from that peer. A node that no longer has
+a statement (already moved) is skipped when the plan is applied.
 
 One plan does everything: the statement is removed from your file, replaced
 by a `# moved to options.conf by Pelagos` comment (the rest of the file is
@@ -182,9 +184,15 @@ kept byte for byte), and written with the same value to `options.conf`,
 view). The preview shows both files, `named-checkconf` validates the result,
 and after `rndc reconfig` the effective value printed by `named-checkconf -p`
 must be what it was; otherwise the files are restored. Secrets stay masked in
-the preview. The zone can then be edited on its screen. Not offered: the
-`directory` option, an option set several times (such as `listen-on`) and keys
-declared inside a view. An option that must stay in your file (for example
+the preview. The zone can then be edited on its screen. Comments inside the
+moved zone, ACL or key are lost: the text that moves is the canonical form of
+the statement (comments around it stay in your file). A handed-over key is
+written to `keys.conf` only; it is not added to the cluster secret store, so
+cluster-wide rotation and replication of its secret are your job until you
+rotate it from the Keys tab. Not offered: the `directory` option, an option
+set several times (such as `listen-on`), keys declared inside a view, and the
+rndc control keys (`rndc.key`, `rndc.conf` or any key named by a `controls`
+statement), because `rndc` and named read them from their own files. An option that must stay in your file (for example
 because another tool owns it) is simply left alone.
 
 ## Secondaries

@@ -176,6 +176,41 @@ def test_refusals(backend: BindBackend) -> None:
     assert hand(backend, "handover/zones/x").state is PlanState.FAILED
 
 
+RNDC_KEY = 'key "rndc-key" {\n\talgorithm hmac-sha256;\n\tsecret "cm5kYy1zZWNyZXQtZm9yLXRlc3Rz";\n};\n'
+CONTROLS = (
+    'key "ctl" { algorithm hmac-sha256; secret "Y3RsLXNlY3JldC1mb3ItdGVzdHM="; };\n'
+    'controls { inet 127.0.0.1 port 953 allow { 127.0.0.1; } keys { "ctl"; }; };\n'
+    'view "v1" { match-clients { any; }; key "inview" { algorithm hmac-sha256; '
+    'secret "dmlldy1zZWNyZXQtZm9yLXRlc3Rz"; }; };\n'
+)
+
+
+def test_control_channel_and_view_keys_are_not_offered(backend: BindBackend) -> None:
+    (etc(backend) / "rndc.key").write_text(RNDC_KEY)
+    with (etc(backend) / "named.conf").open("a") as f:
+        f.write(f'include "{etc(backend)}/rndc.key";\n' + CONTROLS)
+    rows = {r["target"] for r in handover.candidates(backend.read_config(check=False))}
+    assert "handover/keys/xfr" in rows
+    assert not rows & {"handover/keys/rndc-key", "handover/keys/ctl", "handover/keys/inview"}
+    for name in ("rndc-key", "ctl", "inview"):
+        plan = hand(backend, f"handover/keys/{name}")
+        assert plan.state is PlanState.FAILED
+    assert "stays in the user file" in hand(backend, "handover/keys/ctl").error
+    assert "rndc-key" not in (etc(backend) / "pelagos" / "keys.conf").read_text()
+
+
+def test_replay_skips_a_statement_this_node_does_not_have(backend: BindBackend) -> None:
+    plan = hand(backend, "handover/options/recursion", "handover/acls/lan")
+    assert plan.state is PlanState.VALIDATED
+    (etc(backend) / "named.conf.local").write_text(LOCAL.replace('acl   "lan"', 'acl "gone"'))
+    plan.preconditions = []  # as on a peer: the file hashes belong to the planning node
+    again = backend.apply(plan)
+    assert again.ok
+    managed = (etc(backend) / "pelagos" / "options.conf").read_text()
+    assert "recursion no;" in managed
+    assert 'acl "lan"' not in (etc(backend) / "pelagos" / "acls.conf").read_text()
+
+
 def test_effective_value_change_fails_the_plan(backend: BindBackend, monkeypatch: pytest.MonkeyPatch) -> None:
     real = handover.print_effective
     calls = {"n": 0}

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pelagos.connectors.bind.namedconf.resolve import ConfigFiles, _under
+from pelagos.connectors.bind.namedconf.resolve import ConfigFiles, _under, unmovable_keys
 from pelagos.connectors.bind.namedconf.tree import Node, canonical, parse_nodes
 from pelagos.domain.dns import BindConfigTree, normalize_name
 from pelagos.domain.plan import Change, ChangeOp, ValidationResult
@@ -91,8 +91,9 @@ def candidates(tree: BindConfigTree) -> list[dict[str, Any]]:
     for a in tree.acls:
         if not a.managed:
             out.append(_row("acls", a.name, DEFAULT_VIEW, a.value, a.path, "acls.conf"))
+    fixed = {(u["path"], u["line"]) for u in tree.pelagos.get("unmovable_keys", [])}
     for k in tree.keys:
-        if not k.managed and "; view " not in k.value:  # a key inside a view stays where it is
+        if not k.managed and (k.path, k.line) not in fixed:
             out.append(_row("keys", k.name, DEFAULT_VIEW, k.value, k.path, "keys.conf"))
     for z in tree.zones:
         if z.source.value != "user_conf" or not z.config_path:
@@ -131,11 +132,16 @@ def render(planner: ConfigPlanner, change: Change) -> None:
     pel = planner.tree.pelagos
     found = user_statements(planner.files, managed.include_dir, kind, name, view)
     if not found:
-        # Already moved (a plan replayed on a peer, or applied twice): nothing to do.
+        if planner.replay:  # already moved, or never defined on this node: nothing to do
+            return
         raise PlanError(f"{kind[:-1]} {name} is not defined in a user file")
     if len(found) > 1:
         raise PlanError(f"{kind[:-1]} {name} is defined {len(found)} times in user files")
     target = found[0]
+    if kind == "keys":
+        why = unmovable_keys(planner.files).get((target.path, target.node.line))
+        if why:
+            raise PlanError(f"key {name} stays in the user file ({why})")
     if kind == "options":
         if not pel.get("options_include_present"):
             raise PlanError(f"{managed.options_conf} is not included from the options block")

@@ -132,6 +132,7 @@ class ConfigPlanner:
         self.default_ns = default_ns or []
         self.result = RenderResult()
         self.node_id = node_id
+        self.replay = False
         self._docs: dict[Path, ConfigDocument] = {}
 
     # Documents -----------------------------------------------------------------

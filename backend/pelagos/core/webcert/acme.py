@@ -28,6 +28,7 @@ LE_PRODUCTION = "https://acme-v02.api.letsencrypt.org/directory"
 LE_STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory"
 PROFILES = {"letsencrypt": LE_PRODUCTION, "letsencrypt-staging": LE_STAGING}
 POLL_SECONDS = 2.0
+BAD_NONCE_RETRIES = 3
 
 
 class AcmeError(Exception):
@@ -211,9 +212,12 @@ class AcmeClient:
         return {"protected": p64, "payload": body64, "signature": b64url(sig)}
 
     def post(self, url: str, payload: Any, use_jwk: bool = False) -> http.Response:
-        """Signed POST; a badNonce answer is retried once with the nonce it carries (RFC 8555 6.5)."""
+        """Signed POST; a badNonce answer is retried with the nonce it carries (RFC 8555 6.5), up
+        to BAD_NONCE_RETRIES times: servers may reject good nonces at random (Pebble does, 5 %)."""
         resp = self._http("POST", url, self._jws(url, payload, use_jwk, self._fresh_nonce()))
-        if resp.status == 400 and _problem(resp).endswith(":badNonce"):
+        for _ in range(BAD_NONCE_RETRIES):
+            if resp.status != 400 or not _problem(resp).endswith(":badNonce"):
+                break
             resp = self._http("POST", url, self._jws(url, payload, use_jwk, self._fresh_nonce()))
         return resp
 

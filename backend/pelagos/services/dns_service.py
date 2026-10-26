@@ -54,6 +54,7 @@ class DnsService(DnsExtras):
         self._zone_status: dict[tuple[str, str, str], tuple[float, dict[str, Any]]] = {}
         self._zone_status_lock = threading.Lock()
         self.plans: Any = None  # PlanService, for plans made of one part per node (zone secondaries)
+        self.ptr: Any = None  # PtrService, for record plans that also write the PTR
 
     # Targets ------------------------------------------------------------
 
@@ -432,8 +433,15 @@ class DnsService(DnsExtras):
     # Plans --------------------------------------------------------------
 
     def plan_records(
-        self, zone: str, changes: list[dict[str, Any]], view: str | None, created_by: str
+        self,
+        zone: str,
+        changes: list[dict[str, Any]],
+        view: str | None,
+        created_by: str,
+        ptr: dict[str, Any] | None = None,
     ) -> Plan:
+        """`ptr` ({"sync", "delete", "reverse_view"}) adds the PTR changes of the A/AAAA changes
+        to the same plan (services.ptr_service)."""
         zone = normalize_name(zone)
         parsed = []
         for i, raw in enumerate(changes):
@@ -456,12 +464,19 @@ class DnsService(DnsExtras):
             parsed.append(change)
         if not parsed:
             raise ValidationError("changes must not be empty", [field_error("changes", "required")])
+        if ptr and self.ptr is not None:
+            return self.ptr.plan_records(zone, parsed, view, ptr, created_by)
+        return self._store(self.rrset_part(zone, parsed, view, created_by))
+
+    def rrset_part(self, zone: str, changes: list[Change], view: str | None, created_by: str) -> Plan:
+        """An RRset plan (not stored) applied where `zone` is primary in `view`, this node or a peer."""
+        zone = normalize_name(zone)
         if self.local is None:
             # No BIND here: built from the primary's records, applied on the primary.
             from pelagos.services import remote_rrset
 
-            return self._store(remote_rrset.plan_on_primary(self, self.ctx, zone, parsed, created_by, view))
-        plan = self._local().plan_rrset_changes(zone, parsed, view, created_by)
+            return remote_rrset.plan_on_primary(self, self.ctx, zone, changes, created_by, view)
+        plan = self._local().plan_rrset_changes(zone, changes, view, created_by)
         primary = self._primary_node(zone, view)
         if primary is not None:
             plan.target_node_ids = [primary]
@@ -469,7 +484,7 @@ class DnsService(DnsExtras):
                 peer = self.peers.peer(primary)
                 note = messages.msg("note.static_file_edit_on", node=peer.name if peer else primary)
                 messages.add_note(plan, "summary", note)
-        return self._store(plan)
+        return plan
 
     def _static_on(self, node_id: str, zone: str, view: str | None) -> bool:
         peer = self.peers.peer(node_id)

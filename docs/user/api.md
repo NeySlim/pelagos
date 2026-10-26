@@ -183,7 +183,9 @@ Permissions are those of [Configuration: roles](configuration.md#roles-and-permi
 | `GET /dns/zones`, `GET /dns/zones/{zone}` | `read:dns` | zones, serials per node, mode (dynamic, static), views |
 | `POST /dns/zones/plan` | `write:dns.zones` | add, edit or delete a zone (`node_ids` adds secondaries on peers) |
 | `GET /dns/zones/{zone}/records` | `read:dns` | records, paginated (`view`, `type`, `name`, `q`) |
-| `POST /dns/zones/{zone}/records/plan` | `write:dns.records` | record changes |
+| `POST /dns/zones/{zone}/records/plan` | `write:dns.records` | record changes; `"ptr": {"sync", "delete", "reverse_view"?}` adds the PTR of the A/AAAA changes to the same plan |
+| `POST /dns/ptr/coverage` | `read:dns` | `{"addresses", "name"?, "view"?, "reverse_view"?}`: the reverse zone covering each address and its PTR now |
+| `GET /dns/ptr/orphans`, `POST /dns/ptr/orphans/plan` | `read:dns`, `write:dns.records` | orphan PTRs; `{"delete": [{"zone","name","target","view"?}], "create": [{"ip","target","view"?}]}` |
 | `POST /dns/zones/{zone}/notify`, `/reload`, `/retransfer` | `ops:dns` | rndc on a node (`node_id`, `view`) |
 | `GET /dns/zones/{zone}/dnssec`, `POST /dns/zones/{zone}/dnssec/plan` | `read:dns`, `write:dns.zones` | DNSSEC state; rollover and DS state |
 | `GET /dns/config`, `POST /dns/config/plan` | `read:dns`, `write:dns.config` | the configuration tree; statement changes |
@@ -234,6 +236,7 @@ Permissions are those of [Configuration: roles](configuration.md#roles-and-permi
 | `GET /alerts`, `GET /alerts/summary` | `read:alerts` | alerts (`kind`, `severity`, `state`, `node_id`, `engine`) |
 | `POST /alerts/{id}/ack` | `write:alerts` | `{"comment"?}` |
 | `POST /alerts/consistency/run` | `write:alerts` | run the consistency pass now (`202 {"job_id"}`) |
+| `GET /alerts/exceptions`, `POST /alerts/exceptions`, `DELETE /alerts/exceptions/{id}` | `read:alerts`, `write:alerts` | consistency exceptions: `{"kind", "key", "comment", "summary"?}` (the keys are in each alert's `details.exception_keys`) |
 | `GET /series/pools`, `/series/serials`, `/series/ha-transitions` | `read:series` | time series (`from`, `to`, `step`) |
 | `GET /audit`, `GET /audit/{id}` | `read:audit` | audit entries (`user`, `action`, `target`, `node_id`, `engine`, `result`, `from`, `to`) |
 | `GET /audit/export` | `read:audit` | NDJSON stream (`from`, `to`) |

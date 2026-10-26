@@ -26,7 +26,7 @@ from typing import Any
 Stamp = tuple[int, str]
 ZERO: Stamp = (0, "")
 # List sections whose items are records, by the field that keys them.
-RECORDS = {"nodes": "id", "users": "id", "roles": "name"}
+RECORDS = {"nodes": "id", "users": "id", "roles": "name", "exceptions": "id"}
 # List sections that are plain sets of strings.
 SETS = ("revoked",)
 HEADER = ("schema_version", "version", "updated_at", "updated_by", "cluster_id", "replication")

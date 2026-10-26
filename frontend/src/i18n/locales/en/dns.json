@@ -7,7 +7,8 @@
     "dnssec": "DNSSEC",
     "rpz": "RPZ",
     "catalogs": "Catalog zones",
-    "instances": "Instances"
+    "instances": "Instances",
+    "ptrOrphans": "Orphan PTRs"
   },
   "pages": {
     "zones": {
@@ -173,6 +174,22 @@
       "srv": "Expected: priority weight port target",
       "caa": "Expected: flags tag \"value\"",
       "txt": "Quoted strings of at most 255 characters"
+    },
+    "ptr": {
+      "label": "Create or update the PTR",
+      "deleteLabel": "Also delete the PTR that points to this name",
+      "in": "In {{zones}}, same plan as the records",
+      "checking": "Looking for the reverse zone",
+      "conflict": "The PTR of {{ip}} points to {{targets}}: it is replaced, the plan asks for confirmation",
+      "uncovered": "No reverse zone served for {{addresses}}: no PTR written for them",
+      "reasons": {
+        "no_reverse_zone": "No reverse zone served by the cluster covers this address",
+        "no_primary": "The reverse zone has no reachable primary",
+        "invalid": "Not a valid address",
+        "unreadable": "The reverse zone could not be read",
+        "unavailable": "The reverse zone lookup is not available",
+        "noPtrHere": "No PTR points to this name"
+      }
     }
   },
   "detail": {
@@ -612,5 +629,40 @@
         "description": "Top-level domains that mostly carry spam and abuse"
       }
     }
+  },
+  "orphans": {
+    "title": "Orphan PTRs",
+    "subtitle": "PTR records whose target has no A or AAAA to their address",
+    "columns": {
+      "ip": "Address",
+      "target": "Target",
+      "zone": "Reverse zone",
+      "category": "Category",
+      "age": "Lease"
+    },
+    "categories": {
+      "orphan": "Orphan",
+      "external": "External target, not verifiable",
+      "excepted": "Ignored",
+      "all": "All"
+    },
+    "targetHas": "has {{addresses}}",
+    "targetNone": "no address record",
+    "notVerifiable": "outside the managed zones",
+    "leaseSeen": "{{state}}, seen {{date}}",
+    "leaseGone": "written by DDNS, lease gone",
+    "ignored": "Ignored",
+    "create": "Create the {{rtype}}",
+    "delete": "Delete",
+    "ignore": "Ignore",
+    "unignore": "Stop ignoring",
+    "unignored": "Exception revoked",
+    "deleteSelected": "Delete {{count}} PTR",
+    "ignoreSelected": "Ignore {{count}}",
+    "select": "Select {{ip}}",
+    "selectAll": "Select every row",
+    "readError": "{{source}} not read: {{message}}",
+    "empty": "No orphan PTR",
+    "emptyHelp": "Every PTR of the reverse zones points to a name that has this address."
   }
 }

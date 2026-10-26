@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useMessage } from '../../i18n/message'
-import { Bell, ArrowsClockwise, CheckCircle, MagnifyingGlass, Warning, WarningOctagon, Info, ArrowSquareOut } from '@phosphor-icons/react'
+import { Bell, ArrowsClockwise, CheckCircle, MagnifyingGlass, Warning, WarningOctagon, Info, ArrowSquareOut, EyeSlash } from '@phosphor-icons/react'
 import { PageLayout, DataTable, Button, Badge, StatusBadge, Modal, JsonTree } from '../../components'
 import { RichStatsBar } from '../../components/ui/RichStatsBar'
 import { useApi, usePaginatedApi, useWsTopic } from '../../hooks'
@@ -16,9 +16,10 @@ import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
-import { ENGINES, INCONSISTENCY_KINDS, KINDS, PRESSURE_AFTER_MS, PRESSURE_BEFORE_MS, SEVERITIES, STATES, jobResult, poolSeriesQuery, pressureLatches, subjectLink } from './lib'
+import { ENGINES, INCONSISTENCY_KINDS, KINDS, exceptionItems, PRESSURE_AFTER_MS, PRESSURE_BEFORE_MS, SEVERITIES, STATES, jobResult, poolSeriesQuery, pressureLatches, subjectLink } from './lib'
 import { adoptCall, fileAlertEngine } from '../dhcp/keaFile'
 import { IncidentTrace } from '../../components/motion'
+import { IgnoreDialog } from './IgnoreDialog'
 
 import { useNodeNames, usePlanFlow } from '../dhcp/hooks'
 
@@ -112,7 +113,7 @@ function AlertPressure({ alert }) {
   )
 }
 
-function AlertDetail({ alert, nodeName, canAck, onAck, onClose }) {
+function AlertDetail({ alert, nodeName, canAck, onAck, onIgnore, onClose }) {
   const { t } = useTranslation(['alerts', 'dashboard', 'common'])
   const msg = useMessage()
   const navigate = useNavigate()
@@ -156,6 +157,12 @@ function AlertDetail({ alert, nodeName, canAck, onAck, onClose }) {
                 {link.label ? t(`actions.${link.label}`) : alert.subject}
               </Button>
             )}
+            {canAck && alert.state !== 'resolved' && exceptionItems(alert).length > 0 && (
+              <Button variant="secondary" size="sm" onClick={() => onIgnore(alert)} data-testid="alert-ignore">
+                <EyeSlash size={14} />
+                {t('actions.ignore')}
+              </Button>
+            )}
             {canAck && alert.state === 'open' && (
               <Button size="sm" onClick={() => onAck(alert)} data-testid="alert-ack">
                 <CheckCircle size={14} />
@@ -173,11 +180,13 @@ export default function AlertsPage() {
   const { t } = useTranslation(['alerts', 'dashboard', 'common'])
   const msg = useMessage()
   const [params, setParams] = useSearchParams()
+  const navigate = useNavigate()
   const { hasPermission } = usePermission()
   const { showSuccess, showError, showInfo, showPrompt } = useNotification()
   const canWrite = hasPermission('write:alerts')
   const [running, setRunning] = useState(false)
   const [selectedId, setSelectedId] = useState(null)
+  const [ignoring, setIgnoring] = useState(null)
   const alive = useRef(true)
   // Re-armed on every mount: StrictMode runs the cleanup once before the real mount.
   useEffect(() => {
@@ -314,6 +323,10 @@ export default function AlertsPage() {
             <ArrowsClockwise size={14} />
             {t('common:actions.refresh')}
           </Button>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/alerts/exceptions')} data-testid="alerts-exceptions">
+            <EyeSlash size={14} />
+            {t('nav.exceptions')}
+          </Button>
           {canWrite && (
             <Button size="sm" onClick={runConsistency} loading={running} disabled={running} data-testid="alerts-consistency">
               <MagnifyingGlass size={14} />
@@ -348,7 +361,17 @@ export default function AlertsPage() {
           testId="alerts-table"
         />
       </div>
-      <AlertDetail alert={selected} nodeName={nodeName} canAck={canWrite} onAck={ack} onClose={() => setSelectedId(null)} />
+      <AlertDetail alert={selected} nodeName={nodeName} canAck={canWrite} onAck={ack} onIgnore={(a) => setIgnoring(a)} onClose={() => setSelectedId(null)} />
+      <IgnoreDialog
+        open={Boolean(ignoring)}
+        items={ignoring ? exceptionItems(ignoring, msg(ignoring.title_message, ignoring.title)) : []}
+        onClose={() => setIgnoring(null)}
+        onDone={() => {
+          showSuccess(t('ignore.done'))
+          setSelectedId(null)
+          reload()
+        }}
+      />
     </PageLayout>
   )
 }

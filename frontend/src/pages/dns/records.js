@@ -196,3 +196,32 @@ export function buildChanges(args) {
 }
 
 export const isEditableType = (rtype) => EDITABLE_TYPES.includes(String(rtype).toUpperCase())
+
+export const ADDRESS_TYPES = ['A', 'AAAA']
+export const isAddressType = (rtype) => ADDRESS_TYPES.includes(String(rtype || '').toUpperCase())
+
+// The editor's PTR option from POST /dns/ptr/coverage items: enabled when a reverse zone served
+// by the cluster covers an address (on delete: when a PTR points to the name), else the reason.
+export function ptrOption({ mode, before, coverage }) {
+  if (!coverage) return { enabled: false, reason: null, conflicts: [], uncovered: [], zones: [] }
+  const covered = coverage.filter((i) => i.covered)
+  if (mode === 'delete') {
+    const pointing = covered.filter((i) => i.points_here)
+    return {
+      enabled: pointing.length > 0,
+      reason: pointing.length ? null : 'noPtrHere',
+      conflicts: [],
+      uncovered: [],
+      zones: [...new Set(pointing.map((i) => i.reverse_zone))],
+    }
+  }
+  const kept = new Set(before?.rdata || [])
+  return {
+    enabled: covered.length > 0,
+    reason: covered.length ? null : coverage.find((i) => i.reason)?.reason || 'no_reverse_zone',
+    // Only a new address replaces a PTR naming another host; the plan then asks for confirmation.
+    conflicts: covered.filter((i) => i.conflict && !kept.has(i.ip)),
+    uncovered: coverage.filter((i) => !i.covered).map((i) => i.ip),
+    zones: [...new Set(covered.map((i) => i.reverse_zone))],
+  }
+}

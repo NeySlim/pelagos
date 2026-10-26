@@ -13,6 +13,27 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-26, PTR lot: PTR in record plans, orphan PTRs, consistency exceptions
+- Section 10: `cluster.toml [[exceptions]]`, records keyed by `id`
+  (`core.cluster_merge.RECORDS["exceptions"]`, `ClusterConfig.exceptions`),
+  written only when not empty. Additive: an older node drops the section
+  when it reads the file and never tombstones it, so the records come back
+  on the next merge.
+- Section 15: consistency exceptions. Every consistency check takes
+  `excepted: Excepted` and asks it `(kind, key)` before raising; alerts carry
+  `details.exception_keys`. `services.consistency.excepted_for(cluster)` is
+  the helper for new checks (WP-COLLECTOR and the lots adding checks: call
+  it, write `exception_keys`, add the key to the table of section 15).
+  `ptr_mismatch` now drops excepted (address, name) pairs from its problems.
+  New `orphan_ptrs()`.
+- Section 17: `POST /dns/zones/{zone}/records/plan` takes `ptr`; new
+  `POST /dns/ptr/coverage`, `GET /dns/ptr/orphans`, `POST
+  /dns/ptr/orphans/plan`, `GET|POST /alerts/exceptions`, `DELETE
+  /alerts/exceptions/{id}`. Audit actions `alert.exception.add` and
+  `alert.exception.revoke`.
+- Section 19: message keys `plan.ptr.cleanup`, `note.ptr_sync`,
+  `note.ptr_overwrite`, `note.ptr_not_covered`.
+
 ## 2026-10-26, WP-INSTALLER: init and enroll listen options, import defaults, query access
 - `pelagos init` and `pelagos enroll` (`cli.py`) take `--web-listen` and
   `--replication-listen`; `bootstrap_first_node` and `enroll_node` take the

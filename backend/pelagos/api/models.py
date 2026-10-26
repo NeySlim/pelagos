@@ -457,6 +457,48 @@ AlertSummary = model(
     {"open": fields.Integer, "acked": fields.Integer, "by_severity": fields.Raw, "by_kind": fields.Raw},
 )
 AckBody = model("AckBody", {"comment": fields.String})
+ConsistencyException = model(
+    "ConsistencyException",
+    {
+        "id": fields.String,
+        "kind": fields.String(description="alert kind"),
+        "key": fields.String(description="stable object key of that kind (section 15)"),
+        "comment": fields.String,
+        "summary": fields.String,
+        "created_by": fields.String,
+        "created_at": fields.String,
+        "node_id": fields.String,
+    },
+)
+ConsistencyExceptionBody = model(
+    "ConsistencyExceptionBody",
+    {
+        "kind": fields.String(required=True),
+        "key": fields.String(required=True),
+        "comment": fields.String(required=True),
+        "summary": fields.String,
+    },
+)
+ConsistencyExceptions = model(
+    "ConsistencyExceptions", {"items": fields.List(fields.Nested(ConsistencyException))}
+)
+PtrCoverageBody = model(
+    "PtrCoverageBody",
+    {
+        "addresses": fields.List(fields.String, required=True),
+        "name": fields.String(description="owner the PTR should point to"),
+        "view": fields.String,
+        "reverse_view": fields.String(description="view of the PTR (default: view)"),
+    },
+)
+PtrCoverage = model("PtrCoverage", {"items": fields.List(fields.Raw)})
+PtrOrphans = model(
+    "PtrOrphans", {"items": fields.List(fields.Raw), "counts": fields.Raw, "errors": fields.Raw}
+)
+PtrOrphansPlanBody = model(
+    "PtrOrphansPlanBody",
+    {"delete": fields.List(fields.Raw), "create": fields.List(fields.Raw)},
+)
 JobRef = model("JobRef", {"job_id": fields.String})
 Series = model("Series", {"series": fields.List(fields.Raw)})
 AuditPage = page_of(AuditEntry, "AuditPage")

@@ -1,6 +1,7 @@
 {
   "nav": {
-    "alerts": "Alerts"
+    "alerts": "Alerts",
+    "exceptions": "Exceptions"
   },
   "pages": {
     "list": {
@@ -39,7 +40,8 @@
     "openZone": "Open the zone",
     "adoptFile": "Adopt the file",
     "adoptRunning": "Adopt the running configuration",
-    "adoptOn": "On {{node}}, the node that holds the file"
+    "adoptOn": "On {{node}}, the node that holds the file",
+    "ignore": "Ignore: admin's choice"
   },
   "ack": {
     "title": "Acknowledge the alert",
@@ -68,5 +70,28 @@
   "empty": "No alert",
   "emptyOpen": "No open alert",
   "emptyHelp": "The collector raises alerts on pools, zones, HA, DDNS, nodes and DNS/DHCP mismatches.",
-  "fresh": "Alerts changed: reload"
+  "fresh": "Alerts changed: reload",
+  "ignore": {
+    "title": "Ignore: admin's choice",
+    "body_one": "This object stays as it is: the check no longer raises an alert for it, on every node, until the exception is revoked.",
+    "body_other": "These {{count}} objects stay as they are: the check no longer raises an alert for them, on every node, until the exceptions are revoked.",
+    "comment": "Why",
+    "commentHelp": "Required, kept with the exception and in the audit log",
+    "commentRequired": "Say why the object is left as it is",
+    "submit": "Ignore",
+    "done": "Exception recorded"
+  },
+  "exceptions": {
+    "title": "Consistency exceptions",
+    "subtitle": "Objects left as they are by choice: the checks raise nothing for them",
+    "object": "Object",
+    "comment": "Comment",
+    "author": "By",
+    "date": "Date",
+    "revoke": "Revoke",
+    "revokeConfirm": "Revoke the exception for {{key}}? The check raises its alert again at its next pass.",
+    "revoked": "Exception revoked",
+    "empty": "No exception",
+    "emptyHelp": "Ignore an inconsistency from its alert or from the orphan PTR page."
+  }
 }

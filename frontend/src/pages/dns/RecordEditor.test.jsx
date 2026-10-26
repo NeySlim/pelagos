@@ -50,6 +50,86 @@ beforeEach(() => {
   get.mockReset().mockResolvedValue({ expires_at: new Date(Date.now() + 600000).toISOString() })
 })
 
+const covered = (ip, current = [], name = 'www.example.lan.') => ({
+  ip,
+  view: '_default',
+  ptr_name: `${ip.split('.').reverse().join('.')}.in-addr.arpa.`,
+  reverse_zone: '2.0.192.in-addr.arpa.',
+  covered: true,
+  reason: null,
+  current,
+  points_here: current.includes(name),
+  conflict: current.length > 0 && !current.includes(name),
+})
+
+describe('RecordEditor PTR option', () => {
+  const lookupFn = () => vi.fn().mockResolvedValue({ items: [] })
+  const planFn = () => vi.fn().mockImplementation(async (_zone, changes) => makePlan(changes))
+
+  it('is checked when a reverse zone covers the address and goes in the same plan', async () => {
+    const coverageFn = vi.fn().mockResolvedValue({ items: [covered('192.0.2.80')] })
+    const plan = planFn()
+    render(<RecordEditor open zone="example.lan." view="inside" mode="add" planFn={plan} lookupFn={lookupFn()} coverageFn={coverageFn} onClose={vi.fn()} />)
+    fill('record-owner', 'www')
+    fill('record-rdata', '192.0.2.80')
+    await waitFor(() => expect(screen.getByTestId('record-ptr-sync')).toBeChecked())
+    expect(coverageFn).toHaveBeenLastCalledWith({ addresses: ['192.0.2.80'], name: 'www.example.lan.', view: 'inside' })
+    expect(screen.getByTestId('record-ptr-help')).toHaveTextContent('2.0.192.in-addr.arpa.')
+    submit()
+    await waitFor(() => expect(plan).toHaveBeenCalled())
+    expect(plan.mock.calls[0][3]).toEqual({ sync: true, delete: true })
+  })
+
+  it('is disabled with the reason when no reverse zone covers the address', async () => {
+    const coverageFn = vi.fn().mockResolvedValue({ items: [{ ip: '198.51.100.7', covered: false, reason: 'no_reverse_zone', current: [] }] })
+    const plan = planFn()
+    render(<RecordEditor open zone="example.lan." mode="add" planFn={plan} lookupFn={lookupFn()} coverageFn={coverageFn} onClose={vi.fn()} />)
+    fill('record-owner', 'ext')
+    fill('record-rdata', '198.51.100.7')
+    await waitFor(() => expect(screen.getByTestId('record-ptr-help')).toHaveTextContent('No reverse zone served by the cluster covers this address'))
+    expect(screen.getByTestId('record-ptr-sync')).toBeDisabled()
+    submit()
+    await waitFor(() => expect(plan).toHaveBeenCalled())
+    expect(plan.mock.calls[0][3]).toBeUndefined()
+  })
+
+  it('shows a PTR that points elsewhere, and can be turned off', async () => {
+    const coverageFn = vi.fn().mockResolvedValue({ items: [covered('192.0.2.100', ['pc1.example.lan.'])] })
+    const plan = planFn()
+    render(<RecordEditor open zone="example.lan." mode="add" planFn={plan} lookupFn={lookupFn()} coverageFn={coverageFn} onClose={vi.fn()} />)
+    fill('record-owner', 'www')
+    fill('record-rdata', '192.0.2.100')
+    expect(await screen.findByTestId('record-ptr-conflict')).toHaveTextContent('192.0.2.100 points to pc1.example.lan.')
+    fireEvent.click(screen.getByTestId('record-ptr-sync'))
+    expect(screen.queryByTestId('record-ptr-conflict')).toBeNull()
+    submit()
+    await waitFor(() => expect(plan).toHaveBeenCalled())
+    expect(plan.mock.calls[0][3]).toBeUndefined()
+  })
+
+  it('offers to delete the PTR of a deleted A', async () => {
+    const rrset = { name: 'www.example.lan.', rtype: 'A', ttl: 300, rdata: ['192.0.2.10', '192.0.2.11'] }
+    const coverageFn = vi.fn().mockResolvedValue({ items: [covered('192.0.2.10', ['www.example.lan.']), covered('192.0.2.11')] })
+    const plan = planFn()
+    render(<RecordEditor open zone="example.lan." mode="delete" rrset={rrset} planFn={plan} lookupFn={vi.fn()} coverageFn={coverageFn} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByTestId('record-ptr-sync')).toBeChecked())
+    expect(screen.getByTestId('record-ptr')).toHaveTextContent('Also delete the PTR that points to this name')
+    submit()
+    await waitFor(() => expect(plan).toHaveBeenCalled())
+    expect(plan.mock.calls[0][3]).toEqual({ sync: false, delete: true })
+  })
+
+  it('has no PTR option for other types', async () => {
+    const coverageFn = vi.fn()
+    render(<RecordEditor open zone="example.lan." mode="add" planFn={planFn()} lookupFn={lookupFn()} coverageFn={coverageFn} onClose={vi.fn()} defaults={{ rtype: 'TXT' }} />)
+    fill('record-owner', 'www')
+    fill('record-rdata', 'hello')
+    await new Promise((r) => setTimeout(r, 400))
+    expect(screen.queryByTestId('record-ptr')).toBeNull()
+    expect(coverageFn).not.toHaveBeenCalled()
+  })
+})
+
 describe('RecordEditor', () => {
   it('previews, builds the plan, applies and rolls back', async () => {
     const lookupFn = vi.fn().mockResolvedValue({ items: [] })
@@ -67,6 +147,7 @@ describe('RecordEditor', () => {
     expect(planFn).toHaveBeenCalledWith(
       'example.lan.',
       [{ op: 'add', target: 'example.lan./www/A', before: null, after: { name: 'www.example.lan.', rtype: 'A', ttl: 3600, rdata: ['192.0.2.80'] }, node_ids: [] }],
+      undefined,
       undefined,
     )
     expect(screen.getByTestId('plan-summary')).toHaveTextContent('1 change(s) in example.lan.')

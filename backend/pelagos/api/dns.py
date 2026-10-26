@@ -174,7 +174,44 @@ class RecordsPlan(Resource):
     @ns.response(422, "engine_validation_failed", m.Problem)
     def post(self, zone: str):
         body = json_body()
-        return plan_answer(dns().plan_records(zone, _changes(body), body.get("view"), username()))
+        ptr = body.get("ptr")
+        if ptr is not None and not isinstance(ptr, dict):
+            raise ApiError(
+                "validation_error", "ptr must be an object", errors=[{"field": "ptr", "message": "object"}]
+            )
+        return plan_answer(dns().plan_records(zone, _changes(body), body.get("view"), username(), ptr))
+
+
+@ns.route("/ptr/coverage")
+class PtrCoverage(Resource):
+    @require("read:dns")
+    @ns.expect(m.PtrCoverageBody)
+    @ns.response(200, "Per address: the reverse zone covering it and its PTR now", m.PtrCoverage)
+    def post(self):
+        body = json_body()
+        return items(
+            services().ptr.coverage(
+                body.get("addresses"), body.get("name"), body.get("view"), body.get("reverse_view")
+            )
+        )
+
+
+@ns.route("/ptr/orphans")
+class PtrOrphans(Resource):
+    @require("read:dns")
+    @ns.response(200, "PTRs whose target has no A/AAAA to their address", m.PtrOrphans)
+    def get(self):
+        return services().ptr.orphans()
+
+
+@ns.route("/ptr/orphans/plan")
+class PtrOrphansPlan(Resource):
+    @require("write:dns.records")
+    @ns.expect(m.PtrOrphansPlanBody)
+    @ns.response(200, "One plan deleting orphan PTRs and creating missing addresses", m.Plan)
+    @ns.response(409, "conflict: nothing to change", m.Problem)
+    def post(self):
+        return plan_answer(services().ptr.plan_orphans(json_body(), username()))
 
 
 def _operation(op: str, zone: str):

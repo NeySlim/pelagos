@@ -1,6 +1,7 @@
 {
   "nav": {
-    "alerts": "Alertes"
+    "alerts": "Alertes",
+    "exceptions": "Exceptions"
   },
   "pages": {
     "list": {
@@ -39,7 +40,8 @@
     "openZone": "Ouvrir la zone",
     "adoptFile": "Adopter le fichier",
     "adoptRunning": "Adopter la configuration en cours",
-    "adoptOn": "Sur {{node}}, le nœud qui porte le fichier"
+    "adoptOn": "Sur {{node}}, le nœud qui porte le fichier",
+    "ignore": "Ignorer : choix de l'admin"
   },
   "ack": {
     "title": "Acquitter l'alerte",
@@ -68,5 +70,28 @@
   "empty": "Aucune alerte",
   "emptyOpen": "Aucune alerte ouverte",
   "emptyHelp": "Le collecteur lève des alertes sur les pools, les zones, la HA, le DDNS, les nœuds et les écarts DNS/DHCP.",
-  "fresh": "Les alertes ont changé : recharger"
+  "fresh": "Les alertes ont changé : recharger",
+  "ignore": {
+    "title": "Ignorer : choix de l'admin",
+    "body_one": "Cet objet reste tel quel : le contrôle ne lève plus d'alerte pour lui, sur tous les nœuds, tant que l'exception existe.",
+    "body_other": "Ces {{count}} objets restent tels quels : le contrôle ne lève plus d'alerte pour eux, sur tous les nœuds, tant que les exceptions existent.",
+    "comment": "Pourquoi",
+    "commentHelp": "Obligatoire, conservé avec l'exception et dans le journal d'audit",
+    "commentRequired": "Indiquez pourquoi l'objet reste tel quel",
+    "submit": "Ignorer",
+    "done": "Exception enregistrée"
+  },
+  "exceptions": {
+    "title": "Exceptions de cohérence",
+    "subtitle": "Objets laissés tels quels par choix : les contrôles ne lèvent rien pour eux",
+    "object": "Objet",
+    "comment": "Commentaire",
+    "author": "Par",
+    "date": "Date",
+    "revoke": "Révoquer",
+    "revokeConfirm": "Révoquer l'exception pour {{key}} ? Le contrôle lève de nouveau son alerte à son prochain passage.",
+    "revoked": "Exception révoquée",
+    "empty": "Aucune exception",
+    "emptyHelp": "Ignorez une incohérence depuis son alerte ou depuis la page des PTR orphelins."
+  }
 }

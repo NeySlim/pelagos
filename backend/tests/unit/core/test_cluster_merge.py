@@ -164,3 +164,35 @@ def test_stamp_helpers():
     assert cm.parse_stamp("bad") == cm.ZERO
     assert cm.writer_node("user:admin@node:01ABC") == "01ABC"
     assert cm.writer_node("system") == "system"
+
+
+def _exception(eid: str, key: str) -> dict:
+    return {
+        "id": eid,
+        "kind": "ptr_mismatch",
+        "key": key,
+        "comment": "kept on purpose",
+        "created_by": "admin",
+        "created_at": "2026-10-26T10:00:00Z",
+    }
+
+
+def _revoke(eid: str):
+    return lambda c: c.exceptions.__setitem__(slice(None), [e for e in c.exceptions if e["id"] != eid])
+
+
+def test_exceptions_are_records_created_and_revoked_across_nodes():
+    base = _base()
+    assert "exceptions" not in base.dumps()  # an empty list leaves the file as before
+    a = _write(base, "A", lambda c: c.exceptions.append(_exception("E1", "192.0.2.90|mail.example.net.")))
+    b = _write(base, "B", lambda c: c.exceptions.append(_exception("E2", "192.0.2.40|printer.example.lan.")))
+    ab, ba = merge_configs(a, b), merge_configs(b, a)
+    assert ab.digest() == ba.digest()
+    assert sorted(e["id"] for e in ab.exceptions) == ["E1", "E2"]
+    assert cm.flatten(ab.document())["exceptions/E1/key"] == "192.0.2.90|mail.example.net."
+    # Revoked on A while B still holds it: the tombstone wins and no field survives.
+    revoked = _write(ab, "A", _revoke("E1"))
+    merged = merge_configs(ab, revoked)
+    assert [e["id"] for e in merged.exceptions] == ["E2"]
+    assert not [p for p in merged.stamps if p.startswith("exceptions/E1")]
+    assert merge_configs(revoked, ab).digest() == merged.digest()

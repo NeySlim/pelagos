@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // DNS area: zones and records, resolver, ACLs and keys, secondaries, DNSSEC, RPZ, catalog zones,
-// instance statistics.
+// instance statistics, orphan PTRs.
 import { lazy } from 'react'
-import { Globe, ArrowsLeftRight, Key, CopySimple, ShieldCheck, Prohibit, BookOpen, ChartBar } from '@phosphor-icons/react'
+import { Globe, ArrowsLeftRight, Key, CopySimple, ShieldCheck, Prohibit, BookOpen, ChartBar, LinkBreak } from '@phosphor-icons/react'
 
 const ZonesPage = lazy(() => import('./ZonesPage'))
 const ZoneDetailPage = lazy(() => import('./ZoneDetailPage'))
@@ -13,6 +13,7 @@ const DnssecPage = lazy(() => import('./DnssecPage'))
 const RpzPage = lazy(() => import('./RpzPage'))
 const CatalogsPage = lazy(() => import('./CatalogsPage'))
 const InstancesPage = lazy(() => import('./InstancesPage'))
+const PtrOrphansPage = lazy(() => import('./PtrOrphansPage'))
 
 const read = 'read:dns'
 
@@ -28,6 +29,7 @@ export default {
     { path: '/dns/rpz', component: RpzPage, permission: read },
     { path: '/dns/catalogs', component: CatalogsPage, permission: read },
     { path: '/dns/instances', component: InstancesPage, permission: read },
+    { path: '/dns/ptr-orphans', component: PtrOrphansPage, permission: read },
   ],
   nav: [
     { id: 'dns-zones', group: 'dns', path: '/dns/zones', labelKey: 'dns:nav.zones', icon: Globe, permission: read, order: 10 },
@@ -38,5 +40,6 @@ export default {
     { id: 'dns-rpz', group: 'dns', path: '/dns/rpz', labelKey: 'dns:nav.rpz', icon: Prohibit, permission: read, order: 15 },
     { id: 'dns-catalogs', group: 'dns', path: '/dns/catalogs', labelKey: 'dns:nav.catalogs', icon: BookOpen, permission: read, order: 16 },
     { id: 'dns-instances', group: 'dns', path: '/dns/instances', labelKey: 'dns:nav.instances', icon: ChartBar, permission: read, order: 17 },
+    { id: 'dns-ptr-orphans', group: 'dns', path: '/dns/ptr-orphans', labelKey: 'dns:nav.ptrOrphans', icon: LinkBreak, permission: read, order: 18 },
   ],
 }

@@ -229,5 +229,9 @@
   "alert.version_mismatch": "Versions de {{engine}} différentes entre les nœuds : {{versions}}",
   "alert.restart_loop": "{{engine}} a redémarré {{count}} fois ces {{minutes}} dernières minutes",
   "alert.pool_forecast": "Le pool {{pool}} du sous-réseau {{subnet_id}} sera plein dans environ {{days}} jours",
-  "alert.security_advisory": "{{engine}} {{version}} est concerné par {{cve}} : {{summary}} (données ISC du {{dataset}})"
+  "alert.security_advisory": "{{engine}} {{version}} est concerné par {{cve}} : {{summary}} (données ISC du {{dataset}})",
+  "plan.ptr.cleanup": "Nettoyage des PTR : {{deleted}} cibles PTR retirées, {{created}} adresses ajoutées",
+  "note.ptr_sync": "PTR dans {{zones}}",
+  "note.ptr_overwrite": "le PTR de {{ip}} pointait vers {{targets}} et est remplacé",
+  "note.ptr_not_covered": "aucune zone inverse servie pour {{addresses}}, PTR non écrit"
 }

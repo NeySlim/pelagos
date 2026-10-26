@@ -63,7 +63,7 @@ _LITERAL = re.compile(
 
 def test_every_literal_key_in_the_sources_exists():
     # Audit action names share the dotted shape but are not messages.
-    actions = {"alert.ack", "alert.raise", "alert.resolve"}
+    actions = {"alert.ack", "alert.raise", "alert.resolve", "alert.exception.add", "alert.exception.revoke"}
     used: set[str] = set()
     for path in PACKAGE.rglob("*.py"):
         if path.name != "messages.py":

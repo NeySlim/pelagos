@@ -115,6 +115,9 @@ const BODIES = {
   'POST /hosts/plan': { hostname: 'printer2', ip: '192.0.2.43', mac: '02:00:5e:00:aa:01', zone: 'example.lan', reservation: true, subnet_id: 1 },
   'POST /plans/{id}/apply': { confirm: true },
   'POST /alerts/{id}/ack': { comment: 'known' },
+  'POST /alerts/exceptions': { kind: 'ptr_mismatch', key: '192.0.2.106|pc7.example.lan.', comment: 'kept on purpose' },
+  'POST /dns/ptr/coverage': { addresses: ['192.0.2.106'], name: 'pc7.example.lan.' },
+  'POST /dns/ptr/orphans/plan': { delete: [{ zone: '2.0.192.in-addr.arpa.', name: '106.2.0.192.in-addr.arpa.', target: 'workstation7.example.lan.' }] },
   'POST /install/plan': { engines: ['bind'], source: 'distro' },
   'POST /install/import/plan': { engines: ['bind', 'kea4'] },
   'POST /install/security/plan': { finding_ids: ['bind:weak_rndc_key:rndc-key'] },
@@ -146,7 +149,30 @@ const EXPECTED = {
   'DELETE /plans/{id}': 404,
   'GET /jobs/{id}': 404,
   'POST /dhcp/d2/config/plan': 409, // the mock D2 file diverges until adopted
+  'DELETE /alerts/exceptions/{id}': 404, // an alert id, not an exception id
 }
+
+describe('mock server PTR and exceptions', () => {
+  it('adds the PTR to a record plan, lists orphans and ignores an object', async () => {
+    const admin = client(await login('admin', 'admin'))
+    const cov = await admin('POST', '/dns/ptr/coverage', { addresses: ['192.0.2.106', '198.51.200.1'], name: 'kiosk2.example.lan.' })
+    expect(cov.data.items[0]).toMatchObject({ covered: true, reverse_zone: '2.0.192.in-addr.arpa.', conflict: true, current: ['workstation7.example.lan.'] })
+    expect(cov.data.items[1]).toMatchObject({ covered: false, reason: 'no_reverse_zone' })
+    const plan = await admin('POST', '/dns/zones/example.lan/records/plan', { changes: [{ op: 'add', target: 'example.lan./kiosk2/A', after: { ttl: 300, rdata: ['192.0.2.106'] } }], ptr: { sync: true, delete: true } })
+    expect(plan.data.changes.map((c) => c.target)).toEqual(['example.lan./kiosk2.example.lan./A', '2.0.192.in-addr.arpa./106.2.0.192.in-addr.arpa./PTR'])
+    expect(plan.data.requires_confirmation).toBe(true)
+    const orphans = await admin('GET', '/dns/ptr/orphans')
+    const item = orphans.data.items.find((i) => i.ip === '192.0.2.106')
+    expect(item).toMatchObject({ target: 'workstation7.example.lan.', category: 'orphan', fix: 'create_a', exception_key: '192.0.2.106|workstation7.example.lan.' })
+    const alert = mock.state.alerts.find((a) => a.kind === 'ptr_mismatch')
+    expect((await admin('POST', '/alerts/exceptions', { kind: 'ptr_mismatch', key: '192.0.2.106|pc7.example.lan.' })).status).toBe(400)
+    const created = await admin('POST', '/alerts/exceptions', { kind: 'ptr_mismatch', key: alert.details.exception_keys[0], comment: 'kept on purpose' })
+    expect(created.status).toBe(201)
+    expect(alert.state).toBe('resolved')
+    expect((await admin('GET', '/alerts/exceptions')).data.items.map((e) => e.id)).toContain(created.data.id)
+    expect((await admin('DELETE', `/alerts/exceptions/${created.data.id}`)).status).toBe(204)
+  })
+})
 
 describe('mock server', () => {
   it('blocks D2 writes while its file diverges, until a side is adopted', async () => {

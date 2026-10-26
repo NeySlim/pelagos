@@ -59,6 +59,32 @@ class RunConsistency(Resource):
         return {"job_id": job.id}, 202
 
 
+@ns.route("/exceptions")
+class Exceptions(Resource):
+    @require("read:alerts")
+    @ns.doc(params={"kind": "alert kind"})
+    @ns.response(200, "Admin exceptions to the consistency checks", m.ConsistencyExceptions)
+    def get(self):
+        return {"items": services().exceptions.list(arg("kind"))}
+
+    @require("write:alerts")
+    @ns.expect(m.ConsistencyExceptionBody)
+    @ns.response(201, "Created in cluster.toml (audit entry alert.exception.add)", m.ConsistencyException)
+    @ns.response(409, "conflict: already an exception", m.Problem)
+    def post(self):
+        return services().exceptions.create(json_body(), username(), client_ip()), 201
+
+
+@ns.route("/exceptions/<string:exception_id>")
+class ExceptionItem(Resource):
+    @require("write:alerts")
+    @ns.response(204, "Revoked (audit entry alert.exception.revoke)")
+    @ns.response(404, "not_found", m.Problem)
+    def delete(self, exception_id: str):
+        services().exceptions.revoke(exception_id, username(), client_ip())
+        return "", 204
+
+
 @ns.route("/<string:alert_id>/ack")
 class Ack(Resource):
     @require("write:alerts")

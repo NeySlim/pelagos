@@ -15,6 +15,13 @@ export const KINDS = [
 ]
 export const INCONSISTENCY_KINDS = new Set(['lease_without_record', 'record_without_lease', 'reservation_mismatch', 'ptr_mismatch', 'duplicate_ip'])
 
+// Objects of an inconsistency alert that can be ignored as the admin's choice (details.exception_keys).
+export function exceptionItems(alert, summary) {
+  if (!INCONSISTENCY_KINDS.has(alert?.kind)) return []
+  const keys = alert.details?.exception_keys || []
+  return keys.map((key) => ({ kind: alert.kind, key, summary: keys.length === 1 && summary ? summary : key }))
+}
+
 const SEVERITY_RANK = { critical: 0, warning: 1, info: 2 }
 export const bySeverity = (a, b) => (SEVERITY_RANK[a.severity] ?? 3) - (SEVERITY_RANK[b.severity] ?? 3)
 

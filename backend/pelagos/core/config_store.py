@@ -287,6 +287,8 @@ class ClusterConfig:
     settings: dict[str, Any] = field(default_factory=lambda: deep_merge(DEFAULT_SETTINGS, {}))
     secrets: dict[str, str] = field(default_factory=dict)
     revoked: list[str] = field(default_factory=list)
+    # Consistency exceptions (services.consistency): records {id, kind, key, comment, created_by, ...}.
+    exceptions: list[dict[str, Any]] = field(default_factory=list)
     schema_version: int = SCHEMA_VERSION
     # Per-entry stamps and tombstones (core.cluster_merge); `stamped` is False for a pre-merge file.
     stamps: dict[str, cm.Stamp] = field(default_factory=dict)
@@ -316,6 +318,7 @@ class ClusterConfig:
             settings=deep_merge(DEFAULT_SETTINGS, data.get("settings") or {}),
             secrets=dict(data.get("secrets") or {}),
             revoked=list(data.get("revoked") or []),
+            exceptions=[dict(e) for e in data.get("exceptions") or [] if isinstance(e, dict) and e.get("id")],
             schema_version=schema,
         )
         repl = data.get("replication")
@@ -339,6 +342,8 @@ class ClusterConfig:
             "settings": self.settings,
             "secrets": self.secrets,
             "revoked": self.revoked,
+            # Absent when empty: a file without exceptions stays byte-identical to older versions.
+            **({"exceptions": [_strip_none(e) for e in self.exceptions]} if self.exceptions else {}),
             **self._replication_table(),
         }
 

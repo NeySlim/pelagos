@@ -302,7 +302,11 @@ class HostsService:
             except ServiceError as exc:
                 errors["dns"] = exc.detail
         alerts = consistency.run_all(
-            leases=leases, reservations=reservations, forward=forward, reverse=reverse
+            leases=leases,
+            reservations=reservations,
+            forward=forward,
+            reverse=reverse,
+            excepted=consistency.excepted_for(self.ctx.cluster()),
         )
         by_kind: dict[str, int] = {}
         for alert in alerts:

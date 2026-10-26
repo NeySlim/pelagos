@@ -3,15 +3,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { StrictMode } from 'react'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { subjectLink, jobResult } from './lib'
+import { subjectLink, jobResult, exceptionItems } from './lib'
 
 const N1 = '01JB0000000000000000NS1AAA'
 const ALERTS = [
-  { id: 'A1', kind: 'ptr_mismatch', severity: 'warning', state: 'open', node_id: null, engine: null, subject: 'ip:192.0.2.106', title: 'PTR of 192.0.2.106 names another host', details: { ip: '192.0.2.106' }, first_seen: '2026-10-24T10:00:00Z', last_seen: '2026-10-24T11:00:00Z' },
+  { id: 'A1', kind: 'ptr_mismatch', severity: 'warning', state: 'open', node_id: null, engine: null, subject: 'ip:192.0.2.106', title: 'PTR of 192.0.2.106 names another host', details: { ip: '192.0.2.106', exception_keys: ['192.0.2.106|pc7.example.lan.'] }, first_seen: '2026-10-24T10:00:00Z', last_seen: '2026-10-24T11:00:00Z' },
   { id: 'A2', kind: 'pool_full', severity: 'critical', state: 'open', node_id: N1, engine: 'kea4', subject: 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219', title: 'Pool is full', details: {}, first_seen: '2026-10-24T10:00:00Z', last_seen: '2026-10-24T11:00:00Z' },
 ]
 
-const calls = { list: vi.fn(), ack: vi.fn(), run: vi.fn() }
+const calls = { list: vi.fn(), ack: vi.fn(), run: vi.fn(), addException: vi.fn() }
 const notify = { showSuccess: vi.fn(), showError: vi.fn(), showInfo: vi.fn(), showPrompt: vi.fn() }
 let canWrite = true
 
@@ -26,6 +26,10 @@ vi.mock('../../services/api', () => {
       ack: async (id, comment) => {
         calls.ack(id, comment)
         return { ...ALERTS[0], state: 'acked' }
+      },
+      addException: async (body) => {
+        calls.addException(body)
+        return { id: 'E1', ...body }
       },
       runConsistency: async () => {
         calls.run()
@@ -85,6 +89,29 @@ describe('AlertsPage', () => {
     expect(within(detail).getByTestId('alert-open-subject')).toHaveTextContent('Open the host')
   })
 
+  it('ignores the objects of an inconsistency with a mandatory comment', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByText('PTR of 192.0.2.106 names another host'))
+    fireEvent.click(await screen.findByTestId('alert-ignore'))
+    const dialog = await screen.findByTestId('ignore-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Ignore' }))
+    expect(await within(dialog).findByText('Say why the object is left as it is')).toBeInTheDocument()
+    expect(calls.addException).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByTestId('ignore-comment'), { target: { value: 'printer has no reverse on purpose' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Ignore' }))
+    await waitFor(() =>
+      expect(calls.addException).toHaveBeenCalledWith({ kind: 'ptr_mismatch', key: '192.0.2.106|pc7.example.lan.', comment: 'printer has no reverse on purpose', summary: 'PTR of 192.0.2.106 names another host' }),
+    )
+    expect(notify.showSuccess).toHaveBeenCalledWith('Exception recorded')
+  })
+
+  it('offers no ignore for alerts that are not inconsistencies', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByText('Pool is full'))
+    await screen.findByTestId('alert-detail')
+    expect(screen.queryByTestId('alert-ignore')).toBeNull()
+  })
+
   it('runs a consistency pass and reports what it found', async () => {
     renderPage()
     fireEvent.click(await screen.findByTestId('alerts-consistency'))
@@ -123,6 +150,16 @@ describe('alert subjects', () => {
     expect(subjectLink({ subject: 'kea6:subnet:1:pool:2001:db8::/64' }).to).toBe('/dhcp/v6/subnets')
     expect(subjectLink({ subject: 'peer:01JB' }).to).toBe('/nodes')
     expect(subjectLink({ subject: 'engine:bind' })).toBeNull()
+  })
+
+  it('lists the exception keys of an inconsistency', () => {
+    const alert = { kind: 'ptr_mismatch', details: { exception_keys: ['192.0.2.60|a.example.lan.', '192.0.2.60|b.example.lan.'] } }
+    expect(exceptionItems(alert, 'title')).toEqual([
+      { kind: 'ptr_mismatch', key: '192.0.2.60|a.example.lan.', summary: '192.0.2.60|a.example.lan.' },
+      { kind: 'ptr_mismatch', key: '192.0.2.60|b.example.lan.', summary: '192.0.2.60|b.example.lan.' },
+    ])
+    expect(exceptionItems({ kind: 'pool_full', details: { exception_keys: ['x'] } })).toEqual([])
+    expect(exceptionItems({ kind: 'duplicate_ip', details: {} })).toEqual([])
   })
 
   it('reads the result step of a job', () => {

@@ -7,7 +7,8 @@
     "dnssec": "DNSSEC",
     "rpz": "RPZ",
     "catalogs": "Zones catalogues",
-    "instances": "Instances"
+    "instances": "Instances",
+    "ptrOrphans": "PTR orphelins"
   },
   "pages": {
     "zones": {
@@ -173,6 +174,22 @@
       "srv": "Attendu : priorité poids port cible",
       "caa": "Attendu : flags tag \"valeur\"",
       "txt": "Chaînes entre guillemets de 255 caractères au plus"
+    },
+    "ptr": {
+      "label": "Créer ou mettre à jour le PTR",
+      "deleteLabel": "Supprimer aussi le PTR qui pointe vers ce nom",
+      "in": "Dans {{zones}}, même plan que les enregistrements",
+      "checking": "Recherche de la zone inverse",
+      "conflict": "Le PTR de {{ip}} pointe vers {{targets}} : il est remplacé, le plan demande confirmation",
+      "uncovered": "Aucune zone inverse servie pour {{addresses}} : pas de PTR écrit pour elles",
+      "reasons": {
+        "no_reverse_zone": "Aucune zone inverse servie par le cluster ne couvre cette adresse",
+        "no_primary": "La zone inverse n'a pas de primaire joignable",
+        "invalid": "Adresse invalide",
+        "unreadable": "La zone inverse n'a pas pu être lue",
+        "unavailable": "La recherche de la zone inverse n'est pas disponible",
+        "noPtrHere": "Aucun PTR ne pointe vers ce nom"
+      }
     }
   },
   "detail": {
@@ -612,5 +629,40 @@
         "description": "Domaines de premier niveau qui servent surtout au spam et aux abus"
       }
     }
+  },
+  "orphans": {
+    "title": "PTR orphelins",
+    "subtitle": "Enregistrements PTR dont la cible n'a pas de A ou AAAA vers leur adresse",
+    "columns": {
+      "ip": "Adresse",
+      "target": "Cible",
+      "zone": "Zone inverse",
+      "category": "Catégorie",
+      "age": "Bail"
+    },
+    "categories": {
+      "orphan": "Orphelin",
+      "external": "Cible externe, non vérifiable",
+      "excepted": "Ignorés",
+      "all": "Tous"
+    },
+    "targetHas": "a {{addresses}}",
+    "targetNone": "aucun enregistrement d'adresse",
+    "notVerifiable": "hors des zones gérées",
+    "leaseSeen": "{{state}}, vu le {{date}}",
+    "leaseGone": "posé par le DDNS, bail disparu",
+    "ignored": "Ignoré",
+    "create": "Créer le {{rtype}}",
+    "delete": "Supprimer",
+    "ignore": "Ignorer",
+    "unignore": "Ne plus ignorer",
+    "unignored": "Exception révoquée",
+    "deleteSelected": "Supprimer {{count}} PTR",
+    "ignoreSelected": "Ignorer {{count}}",
+    "select": "Sélectionner {{ip}}",
+    "selectAll": "Sélectionner toutes les lignes",
+    "readError": "{{source}} non lu : {{message}}",
+    "empty": "Aucun PTR orphelin",
+    "emptyHelp": "Chaque PTR des zones inverses pointe vers un nom qui a cette adresse."
   }
 }

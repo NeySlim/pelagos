@@ -480,6 +480,16 @@
   ],
   "job.step.verify": [],
   "note.no_difference": [],
+  "note.ptr_not_covered": [
+    "addresses"
+  ],
+  "note.ptr_overwrite": [
+    "ip",
+    "targets"
+  ],
+  "note.ptr_sync": [
+    "zones"
+  ],
   "note.secret_files": [
     "count"
   ],
@@ -605,6 +615,10 @@
   "plan.kea.write_running": [
     "engine",
     "path"
+  ],
+  "plan.ptr.cleanup": [
+    "created",
+    "deleted"
   ],
   "plan.rrset.changes": [
     "zone"

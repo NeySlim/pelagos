@@ -15,6 +15,7 @@ import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, 
 import { createWsHub } from './ws.mjs'
 import { opsHandlers } from './ops.mjs'
 import { rpzHandlers } from './rpz.mjs'
+import { ptrHelpers } from './ptr.mjs'
 import { heartbeatAge, liveCounters } from './live.mjs'
 import { createEvents, leaseBrief, poolHistoryKey, stopEventTimers, zoneEvents } from './events.mjs'
 
@@ -56,6 +57,8 @@ const PERMISSIONS = {
   'GET /hosts': 'read:hosts', 'GET /hosts/{key}': 'read:hosts', 'POST /hosts/plan': 'write:hosts',
   'GET /alerts': 'read:alerts', 'GET /alerts/summary': 'read:alerts', 'POST /alerts/{id}/ack': 'write:alerts',
   'POST /alerts/consistency/run': 'write:alerts',
+  'GET /alerts/exceptions': 'read:alerts', 'POST /alerts/exceptions': 'write:alerts', 'DELETE /alerts/exceptions/{id}': 'write:alerts',
+  'POST /dns/ptr/coverage': 'read:dns', 'GET /dns/ptr/orphans': 'read:dns', 'POST /dns/ptr/orphans/plan': 'write:dns.records',
   'GET /series/pools': 'read:series', 'GET /series/serials': 'read:series', 'GET /series/ha-transitions': 'read:series',
   'GET /audit': 'read:audit', 'GET /audit/{id}': 'read:audit', 'GET /audit/export': 'read:audit',
   'GET /advanced/bind/grammar': 'read:advanced', 'GET /advanced/bind/tree': 'read:advanced',
@@ -441,6 +444,11 @@ function reverseToIp(name) {
 const ipSortKey = (ip = '') => (ip.includes(':') ? [6, v6Nibbles(ip)] : [4, String(ipToInt(ip)).padStart(12, '0')])
 
 const INCONSISTENCY_KINDS = new Set(['lease_without_record', 'record_without_lease', 'reservation_mismatch', 'ptr_mismatch', 'duplicate_ip'])
+const ALERT_KINDS = new Set([
+  ...INCONSISTENCY_KINDS, 'pool_near_full', 'pool_full', 'serial_divergence', 'secondary_stale', 'zone_error', 'ha_degraded',
+  'ha_partner_down', 'ha_transition', 'ha_backup_out_of_sync', 'd2_errors', 'daemon_down', 'peer_offline', 'config_divergence',
+  'insecure_key', 'insecure_listener',
+])
 
 // The join of the hosts service: hosts merge on a shared MAC, then IP, then name,
 // over v4 and (when the module is on) v6 leases, reservations, A/AAAA and PTR records.
@@ -936,38 +944,116 @@ function rrsetPlan(state, user, zoneName, body) {
     if (after && after.ttl < 0) throw invalid(`changes[${i}].after.ttl`, 'must be >= 0')
     return { op: c.op, target: `${zone.name}/${name}/${rtype.toUpperCase()}`, before, after, node_ids: c.node_ids || [] }
   })
-  const oldText = normalized.map((c) => rrsetText(c.before)).filter(Boolean).join('\n')
-  const newText = normalized.map((c) => rrsetText(c.after)).filter(Boolean).join('\n')
+  // The PTR of the A/AAAA changes, in the same plan (services/ptr_service.py).
+  const ptr = body.ptr ? state.ptr.ptrChanges(normalized, body.ptr, body.ptr.reverse_view || body.view) : { changes: [], replaced: [] }
+  const all = [...normalized, ...ptr.changes]
+  const zonesOf = [...new Set(all.map((c) => c.target.split('/')[0]))]
+  const oldText = all.map((c) => rrsetText(c.before)).filter(Boolean).join('\n')
+  const newText = all.map((c) => rrsetText(c.after)).filter(Boolean).join('\n')
   const serial = state.soaSerial(records)
   const bad = normalized.some((c) => c.after?.rdata.some((r) => /invalid/i.test(r)))
-  const snapshot = JSON.parse(JSON.stringify(records))
+  const snapshots = Object.fromEntries(zonesOf.map((z) => [z, JSON.parse(JSON.stringify(state.records[z]))]))
+  const replacedText = ptr.replaced.map((r) => `the PTR of ${r.ip} pointed to ${r.targets.join(', ')} and is replaced`)
   return createPlan(state, user, {
     scope: 'dns.rrset',
     engine: 'bind',
-    summary: `${normalized.length} change(s) in ${zone.name}`,
-    changes: normalized,
+    summary: `${normalized.length} change(s) in ${zone.name}${ptr.changes.length ? ` (PTR in ${zonesOf.slice(1).join(', ')})` : ''}${replacedText.map((t) => ` (${t})`).join('')}`,
+    changes: all,
     diff: unifiedDiff(oldText, newText, zone.name),
     targets: [state.selfId],
     tool: 'dnspython',
+    requires_confirmation: ptr.replaced.length > 0,
     preconditions: [
       { kind: 'soa_serial', node_id: state.selfId, subject: zone.name, value: String(serial) },
-      ...normalized.map((c) => ({ kind: c.before ? 'rrset_exists' : 'rrset_absent', node_id: state.selfId, subject: c.target, value: c.before ? c.before.rdata.join(' ') : '' })),
+      ...all.map((c) => ({ kind: c.before ? 'rrset_exists' : 'rrset_absent', node_id: state.selfId, subject: c.target, value: c.before ? c.before.rdata.join(' ') : '' })),
     ],
-    validations: [{ ok: !bad, tool: 'dnspython', output: bad ? 'rdata does not parse' : '', node_id: state.selfId }],
+    validations: [
+      { ok: !bad, tool: 'dnspython', output: bad ? 'rdata does not parse' : '', node_id: state.selfId },
+      ...(replacedText.length ? [{ ok: true, tool: 'ptr', output: replacedText.join('; '), node_id: state.selfId }] : []),
+    ],
     apply() {
-      for (const c of normalized) {
-        const idx = records.findIndex((r) => r.name === c.before?.name && r.rtype === c.before?.rtype)
-        if (c.before && idx >= 0) records.splice(idx, 1)
-        if (c.after) records.push(c.after)
-      }
-      bumpSerial(records)
+      applyRecordChanges(state, all, zonesOf)
       return 'NOERROR'
     },
     // A rollback is a new change: its serial goes above the applied one, never back.
     rollback() {
-      const current = state.soaSerial(records)
-      records.splice(0, records.length, ...JSON.parse(JSON.stringify(snapshot)))
-      setSerial(records, current + 1)
+      restoreZones(state, snapshots)
+    },
+  })
+}
+
+function applyRecordChanges(state, changes, zones) {
+  for (const c of changes) {
+    const table = state.records[c.target.split('/')[0]]
+    const idx = table.findIndex((r) => r.name === c.before?.name && r.rtype === c.before?.rtype)
+    if (c.before && idx >= 0) table.splice(idx, 1)
+    if (c.after) table.push(c.after)
+  }
+  for (const z of zones) bumpSerial(state.records[z])
+}
+
+function restoreZones(state, snapshots) {
+  for (const [z, snapshot] of Object.entries(snapshots)) {
+    const table = state.records[z]
+    const current = state.soaSerial(table)
+    table.splice(0, table.length, ...JSON.parse(JSON.stringify(snapshot)))
+    setSerial(table, current + 1)
+  }
+}
+
+// POST /dns/ptr/orphans/plan: PTR targets removed and missing addresses created, in one plan.
+function orphansPlan(state, user, body) {
+  const deletes = body.delete || []
+  const creates = body.create || []
+  if (!Array.isArray(deletes) || !Array.isArray(creates) || deletes.length + creates.length === 0) throw invalid('delete', 'required')
+  const changes = []
+  const byTarget = new Map()
+  deletes.forEach((d, i) => {
+    const zone = absName(d.zone || '')
+    if (!zone.endsWith('.arpa.') || !absName(d.name || '').endsWith(zone)) throw invalid(`delete[${i}]`, 'name must be in the reverse zone')
+    const key = `${zone}|${absName(d.name)}`
+    byTarget.set(key, [...(byTarget.get(key) || []), absName(d.target || '')])
+  })
+  for (const [key, targets] of byTarget) {
+    const [zone, name] = key.split('|')
+    const current = state.ptr.rrset(zone, name, 'PTR')
+    if (!current) continue
+    const want = current.rdata.filter((t) => !targets.includes(t))
+    const target = `${zone}/${name}/PTR`
+    changes.push(want.length ? { op: 'replace', target, before: current, after: { ...current, rdata: want }, node_ids: [] } : { op: 'delete', target, before: current, after: null, node_ids: [] })
+  }
+  creates.forEach((c, i) => {
+    const ip = state.ptr.canonical(c.ip)
+    if (!ip) throw invalid(`create[${i}].ip`, 'a valid address')
+    const name = absName(c.target || '')
+    const zone = state.ptr.bestZone(name, c.view, false)
+    if (!zone) throw invalid('create', `${name} is not in a zone served by the cluster`)
+    const rtype = ip.includes(':') ? 'AAAA' : 'A'
+    const current = state.ptr.rrset(zone.name, name, rtype)
+    const target = `${zone.name}/${name}/${rtype}`
+    if (!current) changes.push({ op: 'add', target, before: null, after: { name, rtype, ttl: 3600, rdata: [ip] }, node_ids: [] })
+    else if (!current.rdata.includes(ip)) changes.push({ op: 'replace', target, before: current, after: { ...current, rdata: [...current.rdata, ip] }, node_ids: [] })
+  })
+  if (!changes.length) throw new Problem(409, 'conflict', 'the PTR records already match; nothing to change')
+  const zonesOf = [...new Set(changes.map((c) => c.target.split('/')[0]))]
+  const snapshots = Object.fromEntries(zonesOf.map((z) => [z, JSON.parse(JSON.stringify(state.records[z]))]))
+  const deleted = [...byTarget.values()].reduce((n, t) => n + t.length, 0)
+  return createPlan(state, user, {
+    scope: 'dns.rrset',
+    engine: 'bind',
+    summary: `PTR cleanup: ${deleted} PTR targets removed, ${creates.length} addresses added`,
+    summary_message: { key: 'plan.ptr.cleanup', params: { deleted, created: creates.length } },
+    changes,
+    diff: unifiedDiff(changes.map((c) => rrsetText(c.before)).filter(Boolean).join('\n'), changes.map((c) => rrsetText(c.after)).filter(Boolean).join('\n'), 'PTR cleanup'),
+    targets: [state.selfId],
+    tool: 'dnspython',
+    requires_confirmation: deletes.length > 0,
+    apply() {
+      applyRecordChanges(state, changes, zonesOf)
+      return 'NOERROR'
+    },
+    rollback() {
+      restoreZones(state, snapshots)
     },
   })
 }
@@ -1355,6 +1441,12 @@ function buildHandlers(state, emit) {
       return paginate(items, query, { node_id: state.selfId, zone: zone.name, serial: state.soaSerial(state.records[zone.name]) })
     },
     'POST /dns/zones/{zone}/records/plan': ({ params, body, user }) => rrsetPlan(state, user, params.zone, body),
+    'POST /dns/ptr/coverage': ({ body }) => {
+      if (!Array.isArray(body.addresses)) throw invalid('addresses', 'a list')
+      return { items: state.ptr.coverage(body) }
+    },
+    'GET /dns/ptr/orphans': () => state.ptr.orphans(),
+    'POST /dns/ptr/orphans/plan': ({ body, user }) => orphansPlan(state, user, body),
     'POST /dns/zones/{zone}/retransfer': ({ params, body }) => {
       const zone = findZone(state, params.zone, body.view)
       if (zone.kind !== 'secondary') throw new Problem(409, 'conflict', `${zone.name} is not a secondary zone`)
@@ -2180,6 +2272,38 @@ function buildHandlers(state, emit) {
       emit('audit', 'entry', entry)
       return alert
     },
+    'GET /alerts/exceptions': ({ query }) => ({ items: state.ptr.exceptions().filter((e) => !query.get('kind') || e.kind === query.get('kind')) }),
+    'POST /alerts/exceptions': ({ body, user, res }) => {
+      const errors = []
+      if (!ALERT_KINDS.has(body.kind)) errors.push({ field: 'kind', message: 'an alert kind' })
+      if (!body.key || typeof body.key !== 'string') errors.push({ field: 'key', message: 'required' })
+      if (!String(body.comment || '').trim()) errors.push({ field: 'comment', message: 'required: say why the object is left as it is' })
+      if (errors.length) throw new Problem(400, 'validation_error', 'invalid exception', errors)
+      const list = state.ptr.exceptions()
+      if (list.some((e) => e.kind === body.kind && e.key === body.key)) throw new Problem(409, 'conflict', `${body.kind} ${body.key} is already an exception`)
+      const record = { id: ulid(), kind: body.kind, key: body.key, comment: String(body.comment).trim(), created_by: user.username, created_at: iso(Date.now()), node_id: state.selfId, ...(body.summary ? { summary: body.summary } : {}) }
+      list.push(record)
+      // As the collector's next pass: an alert whose every object is excepted resolves.
+      for (const a of state.alerts) {
+        const keys = a.details?.exception_keys || []
+        if (a.kind === record.kind && a.state !== 'resolved' && keys.length && keys.every((k) => list.some((e) => e.kind === a.kind && e.key === k))) {
+          a.state = 'resolved'
+          a.resolved_at = iso(Date.now())
+          emit('alerts', 'resolved', a)
+        }
+      }
+      emit('audit', 'entry', auditEntry(state, user, { action: 'alert.exception.add', target: `exception:${record.kind}:${record.key}`, message: record.comment }))
+      res.statusCode = 201
+      return record
+    },
+    'DELETE /alerts/exceptions/{id}': ({ params, user }) => {
+      const list = state.ptr.exceptions()
+      const idx = list.findIndex((e) => e.id === params.id)
+      if (idx < 0) throw notFound(`exception ${params.id}`)
+      const [record] = list.splice(idx, 1)
+      emit('audit', 'entry', auditEntry(state, user, { action: 'alert.exception.revoke', target: `exception:${record.kind}:${record.key}` }))
+      return null
+    },
     'POST /alerts/consistency/run': ({ res }) => {
       const job = { id: ulid(), plan_id: null, state: 'running', progress: 10, steps: [{ name: 'consistency', state: 'running', output: '', started_at: iso(Date.now()), finished_at: null }], created_at: iso(Date.now()), finished_at: null, error: null }
       state.jobs.set(job.id, job)
@@ -2474,6 +2598,7 @@ function readBody(req) {
 // a change, HA servers report a heartbeat every haBeatMs. Off by default for unit tests.
 export function createMockServer({ quiet = false, jobStepMs, live = false, applyNodeMs = live ? 350 : 0, transferMs = live ? 1500 : 0, haBeatMs = live ? 3000 : 0, scenario = 'pair' } = {}) {
   const state = createState(scenario)
+  state.ptr = ptrHelpers(state, { reverseToIp, v6Nibbles, canonicalV6 })
   if (jobStepMs !== undefined) state.jobStepMs = jobStepMs
   state.applyNodeMs = applyNodeMs
   state.transferMs = transferMs
@@ -2543,7 +2668,7 @@ export function createMockServer({ quiet = false, jobStepMs, live = false, apply
         const raw = await readBody(req)
         const name = (raw ? JSON.parse(raw) : {}).name
         if (!SCENARIOS[name]) throw new Problem(404, 'not_found', `unknown scenario ${name}`)
-        const keep = { sessions: state.sessions, emit: state.emit, jobStepMs: state.jobStepMs, applyNodeMs: state.applyNodeMs, transferMs: state.transferMs }
+        const keep = { sessions: state.sessions, emit: state.emit, jobStepMs: state.jobStepMs, applyNodeMs: state.applyNodeMs, transferMs: state.transferMs, ptr: state.ptr }
         for (const k of Object.keys(state)) delete state[k]
         Object.assign(state, createState(name), keep)
         hub.emit('nodes', 'status', state.nodes.find((n) => !n.is_self) || state.nodes[0])

@@ -825,18 +825,18 @@ function makeAlerts(names) {
     }),
     a('ALRT0000000000000000000002', 'record_without_lease', 'info', 'open', 'ip:192.0.2.120', 'A record old-nas.example.lan. (192.0.2.120) has a DHCID but no lease', {
       title_message: msg('alert.record_without_lease', { rtype: 'A', name: 'old-nas.example.lan.', addresses: ['192.0.2.120'] }),
-      details: { name: 'old-nas.example.lan.', rtype: 'A', addresses: ['192.0.2.120'] },
+      details: { name: 'old-nas.example.lan.', rtype: 'A', addresses: ['192.0.2.120'], exception_keys: ['old-nas.example.lan./A'] },
     }),
     a('ALRT0000000000000000000003', 'ptr_mismatch', 'warning', 'open', 'ip:192.0.2.106', '192.0.2.106: pc7.example.lan. has no PTR (found workstation7.example.lan.)', {
       title_message: msg('alert.ptr_mismatch', {
         ip: '192.0.2.106',
         problems: { join: [msg('alert.ptr_mismatch.no_ptr', { name: 'pc7.example.lan.', found: 'workstation7.example.lan.' })], sep: '; ' },
       }),
-      details: { ip: '192.0.2.106', problems: ['pc7.example.lan. has no PTR (found workstation7.example.lan.)'] },
+      details: { ip: '192.0.2.106', problems: ['pc7.example.lan. has no PTR (found workstation7.example.lan.)'], exception_keys: ['192.0.2.106|pc7.example.lan.'] },
     }),
     a('ALRT0000000000000000000004', 'lease_without_record', 'info', 'open', 'ip:192.0.2.140', 'lease 192.0.2.140 (lab1.example.lan.) has no A record in example.lan.', {
       title_message: msg('alert.lease_without_record', { ip: '192.0.2.140', fqdn: 'lab1.example.lan.', rtype: 'A', zone: 'example.lan.' }),
-      details: { ip: '192.0.2.140', hostname: 'lab1.example.lan' },
+      details: { ip: '192.0.2.140', hostname: 'lab1.example.lan', exception_keys: ['lab1.example.lan.'] },
     }),
     // Security alerts carry the finding's description as their title.
     a('ALRT0000000000000000000005', 'insecure_key', 'critical', 'open', 'key:rndc-key', 'The rndc key rndc-key uses hmac-md5.', {

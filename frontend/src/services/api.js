@@ -56,8 +56,12 @@ export const dns = {
   secondariesPlan: (zone, view, node_ids) =>
     apiClient.post(`/dns/zones/${zonePath(zone)}/secondaries/plan`, { node_ids, ...(view ? { view } : {}) }),
   records: (zone, params) => apiClient.get(`/dns/zones/${zonePath(zone)}/records${buildQueryString(params)}`),
-  recordsPlan: (zone, changes, view) =>
-    apiClient.post(`/dns/zones/${zonePath(zone)}/records/plan`, view ? { view, changes } : { changes }),
+  // ptr: { sync, delete, reverse_view? } also writes the PTR of the A/AAAA changes in the same plan.
+  recordsPlan: (zone, changes, view, ptr) =>
+    apiClient.post(`/dns/zones/${zonePath(zone)}/records/plan`, { ...(view ? { view } : {}), changes, ...(ptr ? { ptr } : {}) }),
+  ptrCoverage: (body) => apiClient.post('/dns/ptr/coverage', body),
+  ptrOrphans: () => apiClient.get('/dns/ptr/orphans'),
+  ptrOrphansPlan: (body) => apiClient.post('/dns/ptr/orphans/plan', body),
   retransfer: (zone, node_id, view) =>
     apiClient.post(`/dns/zones/${zonePath(zone)}/retransfer`, { node_id, ...(view ? { view } : {}) }),
   notify: (zone, body = {}) => apiClient.post(`/dns/zones/${zonePath(zone)}/notify`, body),
@@ -175,6 +179,9 @@ export const alerts = {
   summary: () => apiClient.get('/alerts/summary'),
   ack: (id, comment) => apiClient.post(`/alerts/${enc(id)}/ack`, comment ? { comment } : {}),
   runConsistency: () => apiClient.post('/alerts/consistency/run'),
+  exceptions: (params) => apiClient.get(`/alerts/exceptions${buildQueryString(params)}`),
+  addException: (body) => apiClient.post('/alerts/exceptions', body),
+  revokeException: (id) => apiClient.delete(`/alerts/exceptions/${enc(id)}`),
 }
 
 export const series = {

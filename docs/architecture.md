@@ -1318,6 +1318,16 @@ break_dnssec = true
 "rndc/pelagos" = "enc:v1:..."
 "totp/admin" = "enc:v1:..."
 
+[[exceptions]]                           # "Ignore: admin's choice" (section 15), absent when none
+id = "01JC..."
+kind = "ptr_mismatch"                    # an alert kind
+key = "192.0.2.90|mail.example.net."     # stable object key of that kind
+comment = "mail relay of the provider"   # mandatory
+summary = "192.0.2.90 -> mail.example.net."   # optional label for the UI
+created_by = "admin"
+created_at = "2026-10-26T10:00:00Z"
+node_id = "01JB0ZK4Q9X3M5N7P8R2T4V6W8"
+
 [replication]                            # written by ConfigStore, never by hand (section 13)
 stamps = { "settings/plan_ttl_seconds" = "43@01JB0ZK4Q9X3M5N7P8R2T4V6W8", "users/01JB.../roles" = "40@01JB..." }
 tombstones = { "roles/old-role" = "41@01JB0ZK4Q9X3M5N7P8R2T4V6W8" }
@@ -1523,7 +1533,7 @@ node that built it.
 Merge of `cluster.toml` (`core.cluster_merge`, `config_store.merge_configs`):
 the file is a map of entries, one per leaf: `settings/<key>/...`,
 `modules/<key>`, `secrets/<name>`, `revoked/<fingerprint>`, and for the record
-lists `nodes/<id>`, `users/<id>`, `roles/<name>` (the record exists) plus
+lists `nodes/<id>`, `users/<id>`, `roles/<name>`, `exceptions/<id>` (the record exists) plus
 `<section>/<record>/<field>/...` (path parts percent-encoded). Every entry
 carries a stamp `<counter>@<node id>` in `[replication] stamps`: a Lamport
 counter shared with `version` (a write uses max(version, every stamp) + 1 and
@@ -1891,6 +1901,58 @@ hash of the divergent nodes) and `relationships` (`[{"servers",
 | `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; subject is the pool subject |
 | `security_advisory` | info, warning | an installed BIND or Kea version falls in a range of `pelagos/data/isc_advisories.json`; subject `<engine>:<CVE id>` |
 
+#### Consistency exceptions ("Ignore: admin's choice")
+
+An acknowledgement ends when the alert reopens; an exception is permanent. It
+is a record of `cluster.toml [[exceptions]]` (section 10, replicated and
+merged like users: a revoke on one node wins over the record on another),
+keyed by `(kind, key)`: the alert kind and a stable key of the object the
+check is about. While it exists the check raises nothing for that object;
+revoking it lets the next pass raise again. Created and revoked through
+`POST /alerts/exceptions` and `DELETE /alerts/exceptions/{id}`
+(`write:alerts`, audit actions `alert.exception.add` and
+`alert.exception.revoke`; the comment is mandatory), listed by
+`GET /alerts/exceptions` (`read:alerts`). Each change signals the local
+collector to run its consistency pass.
+
+Object keys, written by every alert in `details.exception_keys` (a list:
+`ptr_mismatch` carries one key per (address, name) problem still raised):
+
+| Kind | Key |
+| --- | --- |
+| `ptr_mismatch` | `<ip>|<name>`: the address (compressed) and the forward owner without PTR, or the PTR target without that address |
+| `lease_without_record` | `<fqdn>` of the lease hostname |
+| `record_without_lease` | `<owner>/<A or AAAA>` |
+| `reservation_mismatch` | `<reservation key>|<ip>` |
+| `duplicate_ip` | `<ip>` |
+
+Every consistency check, present or future, consults the exceptions through
+one helper of `services.consistency`:
+
+```python
+Excepted = Callable[[str, str], bool]                # (kind, key) -> True when the admin excepted it
+def excepted_for(cluster: ClusterConfig) -> Excepted  # from ctx.cluster(); incomplete records never match
+def excepted_from(entries: Iterable[dict]) -> Excepted
+def run_all(*, leases, reservations, forward, reverse, excepted: Excepted | None = None) -> list[Alert]
+```
+
+A new check takes `excepted` (default: nothing excepted), calls it with its
+kind and the object key before it builds an Alert, puts the keys of what it
+raises in `details.exception_keys`, and documents its key in the table above.
+The collector passes `excepted_for(self.ctx.cluster())` on each pass; the UI
+offers "Ignore" on any inconsistency alert that carries `exception_keys`.
+
+#### Orphan PTRs
+
+`services.consistency.orphan_ptrs(forward, reverse, excepted)` lists, for each
+PTR target without an A/AAAA to its address, `{"ip", "name", "target",
+"category", "target_zone", "target_addresses", "rtype", "ddns", "fix",
+"exception_key", "excepted"}`: `category` is `orphan` (target under a managed
+forward zone) or `external` (outside every managed zone, not verifiable);
+`fix` is `create_a` when the target has no address of that family, `delete`
+otherwise, null for an external target; `ddns` is true when a DHCID sits at
+the PTR owner. Orphans use the `ptr_mismatch` exception key.
+
 ## 16. Security model and RBAC
 
 Authentication: username + argon2id password (`argon2-cffi`, defaults
@@ -2022,7 +2084,10 @@ change revokes the user's other sessions.
 | `POST /dns/zones/{zone}/secondaries/plan` | `write:dns.zones` | `{"view"?, "node_ids": [...], "primaries"?, "also_notify"?}` (`node_ids`: every node to hold a secondary copy of the zone's primary node; one part per node: the primary's `also-notify` set to their addresses (other entries kept; a zone in a user file keeps its own), a secondary added on each new node (`primaries` default `<primary address> key <read key>`, `allow-transfer` of the primary), the copy removed from each node left out; `409` when nothing changes) | `Plan` (`requires_confirmation` when a copy is removed) |
 | `POST /dns/zones/plan` | `write:dns.zones` | `{"change": Change, "node_ids"?: [...], "node_id"?}` (`node_id`: the node that holds the zone and builds the plan, default this node, else the first node running BIND; a peer builds it over `dns.zone.plan`; target `<view>/<zone>`, `after` = Zone; `after.source: "addzone"` adds it with `rndc addzone`, and a zone whose source is `addzone` is changed with `rndc modzone`/`delzone`; with `node_ids` a new primary also lands on those peers as a secondary of this node, `after.secondary.primaries` saying where they transfer from) | `Plan` |
 | `GET /dns/zones/{zone}/records?view=&type=&name=&q=&page=&per_page=` | `read:dns` | | paginated `RRset` (`node_id` of the node read in `meta`) |
-| `POST /dns/zones/{zone}/records/plan` | `write:dns.records` | `{"view"?, "changes": [Change]}` | `Plan` |
+| `POST /dns/zones/{zone}/records/plan` | `write:dns.records` | `{"view"?, "changes": [Change], "ptr"?: {"sync"?: true, "delete"?: sync, "reverse_view"?}}` (`ptr`: the PTR of the A/AAAA changes goes in the same plan, in `reverse_view` (default `view`) like host plans: `sync` writes the PTR of added and kept addresses and removes the PTR naming this owner for removed ones, `delete` removes it for the addresses of a deleted RRset; a PTR naming another host is replaced only for a new address, with `requires_confirmation` and a `ptr` validation naming the old target; addresses no served reverse zone covers are named in the summary; a plan with PTR changes is a composite of one RRset part per zone) | `Plan` |
+| `POST /dns/ptr/coverage` | `read:dns` | `{"addresses": [ip], "name"?, "view"?, "reverse_view"?}` | `{"items": [{"ip","view","ptr_name","reverse_zone","covered","reason","current":[targets],"points_here","conflict"}]}` (`reason`: `invalid`, `no_reverse_zone`, `no_primary` (a secondary copy with no reachable primary), `unreadable`; at most 500 addresses) |
+| `GET /dns/ptr/orphans` | `read:dns` | | `{"items": [orphan PTR (section 15) + "zone","view","exception","lease"]}`, `"counts": {"orphan","external","excepted"}`, `"errors": {source: message}}` (`lease`: `{"state","hostname","cltt","expires_at"}` of the address when the PTR was written by DDNS and a lease is known) |
+| `POST /dns/ptr/orphans/plan` | `write:dns.records` | `{"delete"?: [{"zone","name","target","view"?}], "create"?: [{"ip","target","view"?}]}` (delete removes the target from the PTR RRset, the RRset when it was the last one; create adds the address to the target's A/AAAA in its served forward zone; at most 500 items) | `Plan` (scope `dns.rrset`, `requires_confirmation` with deletes; `409` when nothing changes) |
 | `POST /dns/zones/{zone}/retransfer` | `ops:dns` | `{"node_id", "view"?}` | `{"output"}` |
 | `POST /dns/zones/{zone}/notify` | `ops:dns` | `{"node_id"?, "view"?}` | `{"output"}` |
 | `POST /dns/zones/{zone}/reload` | `ops:dns` | `{"node_id"?, "view"?}` | `{"output"}` |
@@ -2140,6 +2205,9 @@ configuration; the problem document carries `"engine"` and `"divergences":
 | `GET /alerts/summary` | `read:alerts` | | `{"open","acked","by_severity": {...}, "by_kind": {...}}` |
 | `POST /alerts/{id}/ack` | `write:alerts` | `{"comment"?}` | `Alert` |
 | `POST /alerts/consistency/run` | `write:alerts` | | `202 {"job_id"}` |
+| `GET /alerts/exceptions?kind=` | `read:alerts` | | `{"items": [{"id","kind","key","comment","summary"?,"created_by","created_at","node_id"}]}` (newest first) |
+| `POST /alerts/exceptions` | `write:alerts` | `{"kind","key","comment","summary"?}` (`comment` mandatory) | `201` the exception (`409` when `(kind, key)` already is one) |
+| `DELETE /alerts/exceptions/{id}` | `write:alerts` | | `204` |
 | `GET /series/pools?engine=&subnet_id=&pool=&node_id=&from=&to=&step=` | `read:series` | | `{"series": [{"key": {...}, "points": [[ts, assigned, total]]}]}` |
 | `GET /series/serials?zone=&view=&from=&to=` | `read:series` | | `{"series": [{"node_id","points": [[ts, serial, divergent]]}]}` |
 | `GET /series/ha-transitions?engine=&node_id=&from=&to=` | `read:series` | | `{"items": [...]}` |

@@ -17,6 +17,7 @@ from pelagos.services.dashboard_service import DashboardService
 from pelagos.services.dhcp_service import DhcpService
 from pelagos.services.dns_service import DnsService
 from pelagos.services.events import EventHub, EventSocketListener
+from pelagos.services.exceptions_service import ExceptionsService
 from pelagos.services.group_watch import GroupWatch
 from pelagos.services.hosts_service import HostsService
 from pelagos.services.install_service import InstallService
@@ -24,6 +25,7 @@ from pelagos.services.jobs import JobStore
 from pelagos.services.ops_service import OpsService
 from pelagos.services.peers import PeerGateway
 from pelagos.services.plan_service import PlanService
+from pelagos.services.ptr_service import PtrService
 from pelagos.services.registry import ConnectorRegistry
 from pelagos.services.rpz_service import RpzService
 
@@ -59,6 +61,9 @@ class Services:
         # Plans made of one part per node (HA setup, zone secondaries) register their parts there.
         self.dhcp4.plans = self.dhcp6.plans = self.dns.plans = self.plans
         self.hosts = HostsService(ctx, self.dns, self.dhcp4, self.dhcp6, self.alerts, self.plans)
+        self.ptr = PtrService(ctx, self.dns, self.plans, self.hosts._dhcp_services)
+        self.dns.ptr = self.ptr
+        self.exceptions = ExceptionsService(ctx)
         self.dashboard = DashboardService(
             ctx, self.registry, self.peers, self.dns, self.dhcp4, self.dhcp6, self.alerts
         )

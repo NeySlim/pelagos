@@ -118,6 +118,8 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 - **Check consistency** runs the DNS/DHCP consistency pass now instead of
   waiting for `consistency_seconds`.
 - Actions on an alert open the host, the zone, or adopt a Kea file.
+- **Ignore: admin's choice** (`write:alerts`, inconsistency alerts): keeps
+  the object as it is for good, with a mandatory comment (below).
 
 | Kind | Severity | Raised when |
 | --- | --- | --- |
@@ -153,6 +155,24 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 
 Alerts resolve by themselves when the condition goes away; resolved alerts
 are kept `alerts_resolved_days` (90).
+
+### Consistency exceptions
+
+An acknowledged alert opens again when its condition comes back. To leave
+an object inconsistent on purpose (a PTR that names an outside relay, an A
+that needs no PTR, a reservation kept apart), use **Ignore: admin's
+choice** on its alert or on the [orphan PTR page](dns.md#orphan-ptrs). The
+exception is stored in `cluster.toml` and replicated to every node, with
+its author, date and mandatory comment, and audited
+(`alert.exception.add`). The consistency checks raise nothing for that
+object while it exists; the open alert resolves at the next pass.
+
+**Alerts, Exceptions** lists them by kind, object, comment, author and
+date; **Revoke** (`write:alerts`, audited `alert.exception.revoke`) lets
+the check raise again. Each check has its own object: an (address, name)
+pair for `ptr_mismatch`, the host name for `lease_without_record`, the
+owner and type for `record_without_lease`, the reservation and address
+for `reservation_mismatch`, the address for `duplicate_ip`.
 
 ## Advanced
 

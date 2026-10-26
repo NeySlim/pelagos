@@ -26,6 +26,9 @@ CATALOG: dict[str, str] = {
     "note.static_file_edit": "file edit, the zone stays static",
     "note.static_file_edit_on": "file edit on {node}, the zone stays static",
     "note.secret_files": "{count} secret files",
+    "note.ptr_sync": "PTR in {zones}",
+    "note.ptr_overwrite": "the PTR of {ip} pointed to {targets} and is replaced",
+    "note.ptr_not_covered": "no reverse zone served for {addresses}, PTR left out",
     # Plan summaries.
     "plan.change": "{op} {target}",
     "plan.rrset.changes": "{zone}: record changes",
@@ -43,6 +46,7 @@ CATALOG: dict[str, str] = {
     "plan.zone.secondaries": "zone {zone}: secondaries on {nodes}",
     "plan.zone.secondaries_none": "zone {zone}: no secondary node",
     "plan.host.reserved": "host {fqdn} -> {ip} reserved for {mac}",
+    "plan.ptr.cleanup": "PTR cleanup: {deleted} PTR targets removed, {created} addresses added",
     "plan.kea.subnet": "{op} subnet {subnet}",
     "plan.kea.reservation": "{op} reservation {target}",
     "plan.kea.global": "{engine}: {targets}",

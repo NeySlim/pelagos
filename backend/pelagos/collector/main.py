@@ -418,7 +418,11 @@ class Collector:
             self.last_report.errors["consistency"] = "; ".join(failures)
             return []
         observed = consistency.run_all(
-            leases=leases, reservations=reservations, forward=forward, reverse=reverse
+            leases=leases,
+            reservations=reservations,
+            forward=forward,
+            reverse=reverse,
+            excepted=consistency.excepted_for(self.ctx.cluster()),
         )
         outcome = PollOutcome(alerts=observed, kinds=frozenset(k.value for k in INCONSISTENCY_KINDS))
         self._finish(outcome)

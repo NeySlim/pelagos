@@ -1,0 +1,9 @@
+$TTL 300
+@ IN SOA localhost. root.localhost. ( 2026102601 3600 600 86400 300 )
+  IN NS localhost.
+ads.example.com CNAME .
+*.ads.example.com CNAME .
+tracker.example.net CNAME .
+*.tracker.example.net CNAME .
+sub.tracker.example.net CNAME .
+ok.example.org CNAME rpz-passthru.

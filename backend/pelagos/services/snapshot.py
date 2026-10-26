@@ -15,7 +15,7 @@ from pelagos.domain import Engine, normalize_name
 from pelagos.services.registry import ConnectorRegistry
 
 SNAPSHOT_KINDS = {
-    Engine.BIND: ("summary", "zone", "records", "stats", "config", "tree", "op"),
+    Engine.BIND: ("summary", "zone", "records", "stats", "config", "tree", "op", "rpz"),
     Engine.KEA4: (
         "summary",
         "subnets",
@@ -90,6 +90,8 @@ def _bind(backend: DnsBackend, kind: str, params: dict[str, Any]) -> dict[str, A
             "zones": [z.to_dict() for z in zones],
             "serials": serials,
         }
+    if kind == "rpz":
+        return backend.rpz_node_state()  # type: ignore[attr-defined]
     zone = normalize_name(params.get("zone", ""))
     view = params.get("view")
     if kind == "zone":

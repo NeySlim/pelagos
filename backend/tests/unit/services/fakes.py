@@ -132,6 +132,9 @@ class FakeDnsBackend(DnsBackend):
         self.details: dict[str, dict[str, Any]] = {}
         self.catalog: list[str] = ["member1.example.lan."]
         self.policies: dict[str, list[dict[str, str]]] = {}
+        self.rpz_state: dict[str, Any] = {}
+        self.rpz_ram: int | None = 8192
+        self.dns: Any = None
         if seed:
             self.seed()
 
@@ -593,6 +596,20 @@ class FakeDnsBackend(DnsBackend):
             elif change.target.startswith("raw:"):
                 before, after = None, str(change.after)
                 plan.diff += _diff(before, after, change.target[4:])
+            elif kind == "rpz":
+                from pelagos.rpz import model as rpz_model
+
+                subs = [
+                    rpz_model.Sub(**{k: v for k, v in r.items() if k in rpz_model.Sub.__dataclass_fields__})
+                    for r in (change.after or {}).get("subs", [])
+                ]
+                mine = rpz_model.for_node(subs, self.node_id)
+                before = self.options.get("response-policy")
+                after = rpz_model.response_policy_value(mine) if mine else None
+                if before == after:
+                    return _validated(plan, "parser", False, "no change")
+                plan.diff += _diff(before, after, "options.conf response-policy")
+                before, after = None, dict(change.after or {})
             elif kind == "dnssec-policy":
                 before = self.policies.get(name)
                 after = None if change.op is ChangeOp.DELETE else dict(change.after or {})
@@ -743,7 +760,9 @@ class FakeDnsBackend(DnsBackend):
                 else:
                     self.policies[rest] = list(change.after.get("statements") or [])
                 continue
-            if head in ("keys", "acls", "options"):
+            if head == "rpz":
+                self._mutate_rpz(change)
+            elif head in ("keys", "acls", "options"):
                 self._mutate_config(head, rest, change)
             elif normalize_name(head) in self.zones and "/" in rest:
                 zone = normalize_name(head)
@@ -765,6 +784,25 @@ class FakeDnsBackend(DnsBackend):
                     if name not in self.zones:
                         self.add_zone(zone, [], serial=1)
                     self.zones[name] = zone
+
+    def _mutate_rpz(self, change: Change) -> None:
+        from pelagos.rpz import model as rpz_model
+
+        subs = [
+            rpz_model.Sub(**{k: v for k, v in r.items() if k in rpz_model.Sub.__dataclass_fields__})
+            for r in (change.after or {}).get("subs", [])
+        ]
+        mine = rpz_model.for_node(subs, self.node_id)
+        if mine:
+            self.options["response-policy"] = rpz_model.response_policy_value(mine)
+        else:
+            self.options.pop("response-policy", None)
+
+    def rpz_node_state(self) -> dict[str, Any]:
+        return {"state": self.rpz_state, "ram_mb": self.rpz_ram}
+
+    def rpz_env(self, log_path: str = "") -> Any:
+        raise NotImplementedError
 
     def _mutate_config(self, kind: str, name: str, change: Change) -> None:
         if kind == "keys":

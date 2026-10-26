@@ -109,6 +109,8 @@ CATALOG: dict[str, str] = {
     "alert.ptr_mismatch": "{ip}: {problems}",
     "alert.ptr_mismatch.no_ptr": "{name} has no PTR (found {found})",
     "alert.ptr_mismatch.dangling": "PTR points to {target} which has no address record for it",
+    "alert.rpz_update": "RPZ list {name}: update failed ({error})",
+    "alert.rpz_stale": "RPZ list {name}: no successful update for {hours} h",
     "alert.duplicate_reservation": "{ip} is reserved twice",
     "alert.duplicate_lease": "{ip} is reserved for {identifier} but leased to {lease}",
     # Security findings: description, proposal and risk.

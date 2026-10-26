@@ -307,6 +307,50 @@ class BindBackend(BindExtras, DnsBackend):
                 return Path(entry.value.strip().strip('"'))
         return self.named_conf.parent
 
+    def rpz_dir(self) -> Path:
+        """Where the RPZ zone files and the rewrite log live (the plan creates it with the first zone)."""
+        return (self.zone_dir or self._directory() / "pelagos") / "rpz"
+
+    def rpz_zone_loaded(self, zone: str) -> bool:
+        try:
+            status = self.rndc.zonestatus(zone)
+        except ConnectorError as exc:
+            if "not loaded" in str(exc) or isinstance(exc, RndcNotFound):
+                return False
+            raise
+        return status.get("loaded", "yes").lower() != "no"
+
+    def rpz_zone_info(self, zone: str) -> dict[str, str]:
+        return self.rndc.zonestatus(zone)
+
+    def rpz_state_path(self) -> Path:
+        configured = self.ctx.engine_config.get("rpz_state")
+        return Path(configured) if configured else self.ctx.backup_root.parent.parent / "rpz-state.json"
+
+    def rpz_env(self, log_path: str = "") -> Any:
+        """Where this node keeps RPZ zone files and how to reload and check them (pelagos.rpz.sync)."""
+        from pelagos.connectors.bind import rpzplan
+        from pelagos.rpz.sync import SyncEnv
+
+        directory = self.rpz_dir()
+        return SyncEnv(
+            node_id=self.ctx.node_id,
+            rpz_dir=directory,
+            state_path=self.rpz_state_path(),
+            reload=lambda zone: self.reload(zone),
+            zone_loaded=self.rpz_zone_loaded,
+            zone_info=self.rpz_zone_info,
+            checkzone=self.checkzone,
+            group=self.group,
+            log_path=Path(log_path) if log_path else rpzplan.log_path(directory.parent),
+        )
+
+    def rpz_node_state(self) -> dict[str, Any]:
+        """What the collector recorded for RPZ on this node, and the memory it has (snapshot kind rpz)."""
+        from pelagos.rpz import estimate, sync
+
+        return {"state": sync.load_state(self.rpz_state_path()), "ram_mb": estimate.node_ram_mb()}
+
     def instance_stats(self) -> BindInstanceStats:
         return self.stats.instance_stats(self.ctx.node_id)
 

@@ -40,6 +40,7 @@ class AlertKind(enum.StrEnum):
     INSECURE_KEY = "insecure_key"
     INSECURE_LISTENER = "insecure_listener"
     CUSTOM_HOOK = "custom_hook"
+    RPZ_UPDATE = "rpz_update"
 
 
 INCONSISTENCY_KINDS = frozenset(

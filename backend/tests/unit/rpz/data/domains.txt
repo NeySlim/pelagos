@@ -1,0 +1,7 @@
+# phishing sample
+phish.example.org
+*.wild.example.org
+phish.example.org
+bad_name!.example.org
+203.0.113.9
+UPPER.Example.COM

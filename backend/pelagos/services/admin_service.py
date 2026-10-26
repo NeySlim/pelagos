@@ -55,6 +55,18 @@ SETTINGS_SCHEMA: dict[str, Any] = {
         "alerts_resolved_days": (int, 1, 3650),
         "backups_days": (int, 1, 3650),
     },
+    "rpz": {
+        "check_seconds": (int, 30, 86400),
+        "default_interval_hours": (int, 1, 720),
+        "min_interval_minutes": (int, 5, 10080),
+        "shrink_percent": (int, 1, 100),
+        "stale_factor": (int, 1, 100),
+        "bytes_per_entry": (int, 50, 10000),
+        "memory_warn_percent": (int, 1, 100),
+        "small_node_mb": (int, 256, 1048576),
+        "max_download_mb": (int, 1, 4096),
+        "break_dnssec": (bool, None, None),
+    },
 }
 
 

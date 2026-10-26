@@ -24,6 +24,7 @@ from pelagos.collector.pollers import PollOutcome
 from pelagos.collector.pollers.bind import BindPoller
 from pelagos.collector.pollers.kea import D2Poller, KeaPoller, engine_write_in_progress
 from pelagos.collector.pollers.peers import PeerClient, PeersPoller, ReplicationPeerClient
+from pelagos.collector.pollers.rpz import RpzPoller
 from pelagos.collector.snapshots import SnapshotProvider
 from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBackend, DhcpBackend, DnsBackend
 from pelagos.core import ha_maintenance
@@ -175,6 +176,9 @@ class Collector:
             self.bind.external.locks_dir = ctx.paths.locks_dir
             self._watch_external(self.bind.external)
         locks = ctx.paths.locks_dir
+        self.rpz = (
+            RpzPoller(backends.dns, self.node_id, store, self.ctx.settings, clock) if backends.dns else None
+        )
         self.kea = [KeaPoller(b, self.node_id, store, settings, clock, locks) for b in backends.dhcp]
         self.d2 = D2Poller(backends.d2, self.node_id, store, settings, clock, locks) if backends.d2 else None
         self.peers = PeersPoller(
@@ -240,6 +244,10 @@ class Collector:
             with self.backend_lock:
                 outcome = self.bind.poll()
             self._finish(outcome)
+
+    def poll_rpz(self) -> None:
+        if self.rpz is not None:
+            self._finish(self.rpz.poll())
 
     def poll_kea(self) -> None:
         # Thresholds live in the replicated settings: re-read them every pass.
@@ -441,6 +449,7 @@ class Collector:
             ("poll_bind", self.poll_bind),
             ("poll_kea", self.poll_kea),
             ("poll_d2", self.poll_d2),
+            ("poll_rpz", self.poll_rpz),
             ("poll_peers", self.poll_peers),
             ("live", self.live),
             ("apply_acks", self.apply_acks),
@@ -462,10 +471,12 @@ class Collector:
         peer_poll = float(settings.get("peer_poll_seconds", 30))
         consistency_period = float(settings.get("consistency_seconds", 900))
         live = max(1.0, float(settings.get("live_seconds", LIVE_SECONDS)))
+        rpz_period = max(30.0, float(self.ctx.settings().get("rpz", {}).get("check_seconds", 300)))
         return [
             Task("poll_bind", poll, self.poll_bind),
             Task("poll_kea", poll, self.poll_kea),
             Task("poll_d2", poll, self.poll_d2),
+            Task("poll_rpz", rpz_period, self.poll_rpz),
             Task("poll_peers", peer_poll, self.poll_peers),
             Task("live", live, self.live),
             Task("apply_acks", poll, self.apply_acks),
@@ -575,7 +586,8 @@ class Collector:
             return forward, reverse, [f"bind: {exc or type(exc).__name__}"]
         errors: list[str] = []
         for zone in zones:
-            if zone.kind is not ZoneKind.PRIMARY:
+            # RPZ policy zones hold block lists, not hosts: never read in full.
+            if zone.kind is not ZoneKind.PRIMARY or zone.notes == "pelagos-rpz":
                 continue
             try:
                 with self.backend_lock:
@@ -866,6 +878,14 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     listener.on("audit", lambda _msg: acks_due.set())
     listener.on("audit_merged", lambda _msg: acks_due.set())
     listener.on("consistency", lambda _msg: collector.consistency())
+    rpz_due = threading.Event()
+
+    def rpz_request(msg: dict[str, Any]) -> None:
+        if collector.rpz is not None:
+            collector.rpz.request(msg.get("id"))
+            rpz_due.set()
+
+    listener.on("rpz", rpz_request)
     collector.listener = listener
     try:
         listener.open()
@@ -922,6 +942,11 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
                 listener.wait(min(sleep_for, 5.0))
             else:
                 time.sleep(min(sleep_for, 5.0))
+            if rpz_due.is_set():
+                rpz_due.clear()
+                for task in tasks:
+                    if task.name == "poll_rpz":
+                        task.next_run = min(task.next_run, time.monotonic() + 1.0)
             if bind_due.is_set():
                 bind_due.clear()
                 for task in tasks:

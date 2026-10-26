@@ -62,6 +62,18 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "alerts_resolved_days": 90,
         "backups_days": 90,
     },
+    "rpz": {
+        "check_seconds": 300,
+        "default_interval_hours": 24,
+        "min_interval_minutes": 60,
+        "shrink_percent": 50,
+        "stale_factor": 3,
+        "bytes_per_entry": 800,
+        "memory_warn_percent": 25,
+        "small_node_mb": 4096,
+        "max_download_mb": 256,
+        "break_dnssec": True,
+    },
 }
 
 DEFAULT_MODULES: dict[str, Any] = {"dhcpv6": False, "advanced_editor": True}

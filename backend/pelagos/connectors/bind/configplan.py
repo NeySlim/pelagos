@@ -194,6 +194,10 @@ class ConfigPlanner:
                 self.raw_change(change, target[len("raw:") :])
             elif target == "pelagos/includes":
                 self.include_setup(change)
+            elif target == "rpz/state":
+                from pelagos.connectors.bind import rpzplan
+
+                rpzplan.render(self, change)
             elif target.startswith("dnssec-policy/"):
                 self.policy_change(change, target[len("dnssec-policy/") :])
             else:

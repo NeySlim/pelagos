@@ -285,6 +285,7 @@ def test_tasks_and_retention(rig):
         "poll_bind": 60.0,
         "poll_kea": 60.0,
         "poll_d2": 60.0,
+        "poll_rpz": 300.0,
         "poll_peers": 30.0,
         "live": 5.0,
         "apply_acks": 60.0,

@@ -25,6 +25,7 @@ from pelagos.services.ops_service import OpsService
 from pelagos.services.peers import PeerGateway
 from pelagos.services.plan_service import PlanService
 from pelagos.services.registry import ConnectorRegistry
+from pelagos.services.rpz_service import RpzService
 
 log = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class Services:
         self.alerts = AlertsService(ctx, self.cache, self.events)
         self.series = SeriesService(self.cache)
         self.dns = DnsService(ctx, self.registry.dns, self.peers)
+        self.rpz = RpzService(ctx, self.dns, self.peers)
         self.dhcp4 = DhcpService(
             ctx, Family.V4, self.registry.kea4, self.peers, self.registry.d2, self.alerts
         )

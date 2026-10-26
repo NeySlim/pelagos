@@ -1,0 +1,10 @@
+[Adblock Plus 2.0]
+! Title: sample
+||ads.example.com^
+||tracker.example.net^$important
+||img.example.org^$third-party
+@@||ok.example.com^
+||path.example.com/banner^
+example.com##.ad
+||wild*.example.com^
+||cdn.example.org^

@@ -315,6 +315,25 @@ ResolverBody = model(
     },
 )
 RawList = items_of(fields.Raw, "RawList")
+RpzOverview = model(
+    "RpzOverview",
+    {
+        "catalog": fields.Raw,
+        "categories": fields.Raw(
+            description="category id -> selection {enabled, level, lists, addons, urls, ...}"
+        ),
+        "subscriptions": fields.List(fields.Raw, description="resolved subscriptions with status per node"),
+        "order": fields.List(fields.String),
+        "allow": fields.List(fields.Raw),
+        "exempt_clients": fields.List(fields.Raw),
+        "nodes": fields.List(fields.Raw),
+        "settings": fields.Raw,
+        "allow_zone": fields.String,
+    },
+)
+RpzResult = model("RpzResult", {"plan": fields.Raw(description="Plan or null"), "overview": fields.Raw})
+RpzBody = model("RpzBody", {"enabled": fields.Boolean, "level": fields.String, "action": fields.String})
+RpzData = model("RpzData", {"data": fields.Raw})
 Dnssec = model("Dnssec", {"node_id": fields.String, "status": fields.Raw})
 
 # DHCP -----------------------------------------------------------------------

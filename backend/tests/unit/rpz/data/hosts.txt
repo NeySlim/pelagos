@@ -1,0 +1,9 @@
+# Title: sample hosts
+127.0.0.1 localhost
+::1 localhost ip6-localhost
+0.0.0.0 0.0.0.0
+0.0.0.0 ads.example.com
+0.0.0.0 Metrics.Example.NET  # trailing comment
+0.0.0.0 a.example.com b.example.com
+192.0.2.1 not-a-block.example.org
+garbage line

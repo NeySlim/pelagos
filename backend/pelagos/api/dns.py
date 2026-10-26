@@ -10,7 +10,7 @@ from __future__ import annotations
 from flask_restx import Namespace, Resource, fields
 
 from pelagos.api import models as m
-from pelagos.api.common import arg, items, json_body, page_of, plan_answer
+from pelagos.api.common import arg, items, json_body, page_of, plan_answer, plan_dict
 from pelagos.api.errors import ApiError
 from pelagos.api.security import client_ip, require, services, username
 from pelagos.services.dns_extras import zone_mode
@@ -313,6 +313,161 @@ class Rpz(Resource):
     @ns.response(200, "Response policy zones", m.RawList)
     def get(self):
         return items(dns().rpz(arg("node_id")))
+
+
+def rpz():
+    return services().rpz
+
+
+def rpz_result(result: dict) -> dict:
+    """Plan and overview of a subscription change; a plan the engine refused is shown, not raised."""
+    plan = result.get("plan")
+    return {**result, "plan": plan_dict(plan) if plan is not None else None}
+
+
+@ns.route("/rpz/overview")
+class RpzOverviewRoute(Resource):
+    @require("read:dns")
+    @ns.response(200, "Catalog, selections, subscriptions with status per node, allow list", m.RpzOverview)
+    def get(self):
+        return rpz().overview()
+
+
+@ns.route("/rpz/catalog")
+class RpzCatalogRoute(Resource):
+    @require("read:dns")
+    @ns.response(200, "Built-in catalog: lists, categories with their levels", m.RpzData)
+    def get(self):
+        return rpz().catalog()
+
+
+@ns.route("/rpz/categories/<string:category>")
+class RpzCategory(Resource):
+    @require("write:dns.config")
+    @ns.expect(m.RpzBody)
+    @ns.response(200, "Selection saved; plan to apply on the nodes (null when nothing differs)", m.RpzResult)
+    @ns.response(400, "validation_error", m.Problem)
+    def put(self, category: str):
+        return rpz_result(rpz().set_category(category, json_body(), username(), client_ip()))
+
+    @require("write:dns.config")
+    @ns.response(200, "Category removed; plan to apply", m.RpzResult)
+    def delete(self, category: str):
+        return rpz_result(rpz().clear_category(category, username(), client_ip()))
+
+
+@ns.route("/rpz/subscriptions/<string:sub_id>")
+class RpzSubscription(Resource):
+    @require("write:dns.config")
+    @ns.expect(m.RpzBody)
+    @ns.response(200, "Custom subscription (URL list or zone transfer) saved; plan to apply", m.RpzResult)
+    @ns.response(400, "validation_error", m.Problem)
+    def put(self, sub_id: str):
+        return rpz_result(rpz().put_subscription(sub_id, json_body(), username(), client_ip()))
+
+    @require("write:dns.config")
+    @ns.response(200, "Subscription removed; plan to apply", m.RpzResult)
+    @ns.response(404, "not_found", m.Problem)
+    def delete(self, sub_id: str):
+        return rpz_result(rpz().delete_subscription(sub_id, username(), client_ip()))
+
+
+@ns.route("/rpz/order")
+class RpzOrder(Resource):
+    @require("write:dns.config")
+    @ns.expect(m.RpzBody)
+    @ns.response(200, "Order of the zones in response-policy saved; plan to apply", m.RpzResult)
+    def put(self):
+        return rpz_result(rpz().set_order(json_body().get("order"), username(), client_ip()))
+
+
+@ns.route("/rpz/plan")
+class RpzPlan(Resource):
+    @require("write:dns.config")
+    @ns.response(
+        200,
+        "Plan that brings every node to the saved subscriptions (plan null: nothing differs)",
+        m.RpzResult,
+    )
+    def post(self):
+        plan = rpz().plan(username())
+        return rpz_result({"plan": plan, "overview": rpz().overview()})
+
+
+@ns.route("/rpz/estimate")
+class RpzEstimate(Resource):
+    @require("read:dns")
+    @ns.expect(m.RpzBody)
+    @ns.response(
+        200, "Memory estimate per node if the lists or the category level were subscribed", m.RpzData
+    )
+    def post(self):
+        return rpz().estimate(json_body())
+
+
+@ns.route("/rpz/refresh")
+class RpzRefresh(Resource):
+    @require("write:dns.config")
+    @ns.expect(m.RpzBody)
+    @ns.response(200, "This node's collector updates the lists now (body id: one list)", m.RpzData)
+    def post(self):
+        return rpz().refresh(json_body(required=False).get("id"), username(), client_ip())
+
+
+@ns.route("/rpz/why")
+class RpzWhy(Resource):
+    @require("read:dns")
+    @ns.doc(params={"domain": "name to look up", **NODE})
+    @ns.response(
+        200, "Rules that match the name, in response-policy order, with list and category", m.RpzData
+    )
+    def get(self):
+        domain = arg("domain")
+        if not domain:
+            raise ApiError(
+                "validation_error", "domain is required", errors=[{"field": "domain", "message": "required"}]
+            )
+        return rpz().why(domain, arg("node_id"))
+
+
+@ns.route("/rpz/activity")
+class RpzActivity(Resource):
+    @require("read:dns")
+    @ns.response(200, "Rewrite counters per list and category, latest rewritten answers", m.RpzData)
+    def get(self):
+        return rpz().activity()
+
+
+@ns.route("/rpz/allow")
+class RpzAllow(Resource):
+    @require("write:dns.config")
+    @ns.expect(m.RpzBody)
+    @ns.response(200, "Domain allowed (passthru in the local zone)", m.RpzData)
+    def post(self):
+        body = json_body()
+        return rpz().allow(body.get("domain"), body.get("note", ""), username(), client_ip())
+
+    @require("write:dns.config")
+    @ns.doc(params={"domain": "allowed domain to remove"})
+    @ns.response(200, "Allow entry removed", m.RpzData)
+    def delete(self):
+        return rpz().disallow(arg("domain") or "", username(), client_ip())
+
+
+@ns.route("/rpz/exempt")
+class RpzExempt(Resource):
+    @require("write:dns.config")
+    @ns.expect(m.RpzBody)
+    @ns.response(200, "Client address or network exempt from every list (rpz-client-ip passthru)", m.RpzData)
+    def post(self):
+        body = json_body()
+        return rpz().exempt(body.get("cidr"), body.get("note", ""), username(), client_ip())
+
+    @require("write:dns.config")
+    @ns.doc(params={"cidr": "exempt client or network to remove"})
+    @ns.response(200, "Exemption removed", m.RpzData)
+    def delete(self):
+        return rpz().unexempt(arg("cidr") or "", username(), client_ip())
 
 
 @ns.route("/catalog-zones")

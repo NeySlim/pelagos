@@ -1,0 +1,446 @@
+{
+ "version": "2026-10-26",
+ "note": "Entry counts are rough orders of magnitude; the real count shows after the first download.",
+ "lists": {
+  "hagezi-light": {
+   "name": "HaGeZi Light",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/light.txt",
+   "format": "rpz",
+   "entries": 70000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-multi": {
+   "name": "HaGeZi Multi (normal)",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/multi.txt",
+   "format": "rpz",
+   "entries": 110000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-pro": {
+   "name": "HaGeZi Pro",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/pro.txt",
+   "format": "rpz",
+   "entries": 190000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-pro.plus": {
+   "name": "HaGeZi Pro++",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/pro.plus.txt",
+   "format": "rpz",
+   "entries": 220000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-ultimate": {
+   "name": "HaGeZi Ultimate",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/ultimate.txt",
+   "format": "rpz",
+   "entries": 400000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-pro.mini": {
+   "name": "HaGeZi Pro mini",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/pro.mini.txt",
+   "format": "rpz",
+   "entries": 100000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-pro.plus.mini": {
+   "name": "HaGeZi Pro++ mini",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/pro.plus.mini.txt",
+   "format": "rpz",
+   "entries": 120000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-ultimate.mini": {
+   "name": "HaGeZi Ultimate mini",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/ultimate.mini.txt",
+   "format": "rpz",
+   "entries": 250000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-popupads": {
+   "name": "HaGeZi Pop-up ads",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/popupads.txt",
+   "format": "rpz",
+   "entries": 60000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-native.apple": {
+   "name": "HaGeZi Native tracker Apple",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/native.apple.txt",
+   "format": "rpz",
+   "entries": 150,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-native.amazon": {
+   "name": "HaGeZi Native tracker Amazon",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/native.amazon.txt",
+   "format": "rpz",
+   "entries": 300,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-native.samsung": {
+   "name": "HaGeZi Native tracker Samsung",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/native.samsung.txt",
+   "format": "rpz",
+   "entries": 150,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-native.xiaomi": {
+   "name": "HaGeZi Native tracker Xiaomi",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/native.xiaomi.txt",
+   "format": "rpz",
+   "entries": 150,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-native.tiktok": {
+   "name": "HaGeZi Native tracker TikTok",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/native.tiktok.txt",
+   "format": "rpz",
+   "entries": 200,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-native.winoffice": {
+   "name": "HaGeZi Native tracker Windows and Office",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/native.winoffice.txt",
+   "format": "rpz",
+   "entries": 300,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-tif": {
+   "name": "HaGeZi Threat intelligence feeds",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/tif.txt",
+   "format": "rpz",
+   "entries": 600000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-tif.medium": {
+   "name": "HaGeZi Threat intelligence feeds medium",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/tif.medium.txt",
+   "format": "rpz",
+   "entries": 350000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-tif.mini": {
+   "name": "HaGeZi Threat intelligence feeds mini",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/tif.mini.txt",
+   "format": "rpz",
+   "entries": 110000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-fake": {
+   "name": "HaGeZi Scams and fakes",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/fake.txt",
+   "format": "rpz",
+   "entries": 20000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-doh": {
+   "name": "HaGeZi DNS over HTTPS resolvers",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/doh.txt",
+   "format": "rpz",
+   "entries": 3500,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-doh-vpn-proxy-bypass": {
+   "name": "HaGeZi DoH, VPN and proxy bypass",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/doh-vpn-proxy-bypass.txt",
+   "format": "rpz",
+   "entries": 15000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-dyndns": {
+   "name": "HaGeZi Dynamic DNS",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/dyndns.txt",
+   "format": "rpz",
+   "entries": 1500,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-gambling": {
+   "name": "HaGeZi Gambling",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/gambling.txt",
+   "format": "rpz",
+   "entries": 60000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-gambling.medium": {
+   "name": "HaGeZi Gambling medium",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/gambling.medium.txt",
+   "format": "rpz",
+   "entries": 40000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-gambling.mini": {
+   "name": "HaGeZi Gambling mini",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/gambling.mini.txt",
+   "format": "rpz",
+   "entries": 20000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-nsfw": {
+   "name": "HaGeZi Adult content",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/nsfw.txt",
+   "format": "rpz",
+   "entries": 70000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-social": {
+   "name": "HaGeZi Social networks",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/social.txt",
+   "format": "rpz",
+   "entries": 1500,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-anti.piracy": {
+   "name": "HaGeZi Piracy",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/anti.piracy.txt",
+   "format": "rpz",
+   "entries": 12000,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "hagezi-spam-tlds-rpz": {
+   "name": "HaGeZi Spam TLDs",
+   "url": "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/rpz/spam-tlds-rpz.txt",
+   "format": "rpz",
+   "entries": 800,
+   "license": "GPL-3.0",
+   "homepage": "https://github.com/hagezi/dns-blocklists"
+  },
+  "oisd-small": {
+   "name": "OISD small",
+   "url": "https://small.oisd.nl/rpz",
+   "format": "rpz",
+   "entries": 118000,
+   "license": "GPL-3.0",
+   "homepage": "https://oisd.nl"
+  },
+  "oisd-big": {
+   "name": "OISD big",
+   "url": "https://big.oisd.nl/rpz",
+   "format": "rpz",
+   "entries": 250000,
+   "license": "GPL-3.0",
+   "homepage": "https://oisd.nl"
+  },
+  "oisd-nsfw-small": {
+   "name": "OISD NSFW small",
+   "url": "https://nsfw-small.oisd.nl/rpz",
+   "format": "rpz",
+   "entries": 37000,
+   "license": "GPL-3.0",
+   "homepage": "https://oisd.nl"
+  },
+  "oisd-nsfw": {
+   "name": "OISD NSFW",
+   "url": "https://nsfw.oisd.nl/rpz",
+   "format": "rpz",
+   "entries": 950000,
+   "license": "GPL-3.0",
+   "homepage": "https://oisd.nl"
+  },
+  "stevenblack": {
+   "name": "StevenBlack unified hosts",
+   "url": "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
+   "format": "hosts",
+   "entries": 150000,
+   "license": "MIT",
+   "homepage": "https://github.com/StevenBlack/hosts"
+  },
+  "phishing-army": {
+   "name": "Phishing Army",
+   "url": "https://phishing.army/download/phishing_army_blocklist.txt",
+   "format": "domains",
+   "entries": 150000,
+   "license": "CC-BY-NC-4.0",
+   "homepage": "https://phishing.army",
+   "note": "Non commercial license: check that it fits your use."
+  }
+ },
+ "categories": {
+  "ads": {
+   "icon": "megaphone",
+   "levels": {
+    "light": [
+     "oisd-small"
+    ],
+    "normal": [
+     "oisd-big"
+    ],
+    "strict": [
+     "hagezi-pro.plus"
+    ]
+   },
+   "lists": [
+    "oisd-small",
+    "oisd-big",
+    "hagezi-light",
+    "hagezi-multi",
+    "hagezi-pro",
+    "hagezi-pro.plus",
+    "hagezi-ultimate",
+    "hagezi-pro.mini",
+    "hagezi-pro.plus.mini",
+    "hagezi-ultimate.mini",
+    "stevenblack"
+   ],
+   "addons": [
+    "hagezi-popupads",
+    "hagezi-native.apple",
+    "hagezi-native.amazon",
+    "hagezi-native.samsung",
+    "hagezi-native.xiaomi",
+    "hagezi-native.tiktok",
+    "hagezi-native.winoffice"
+   ]
+  },
+  "security": {
+   "icon": "shield",
+   "levels": {
+    "light": [
+     "hagezi-tif.mini"
+    ],
+    "normal": [
+     "hagezi-tif.medium"
+    ],
+    "strict": [
+     "hagezi-tif",
+     "phishing-army"
+    ]
+   },
+   "lists": [
+    "hagezi-tif.mini",
+    "hagezi-tif.medium",
+    "hagezi-tif",
+    "phishing-army"
+   ],
+   "addons": [
+    "hagezi-fake"
+   ]
+  },
+  "adult": {
+   "icon": "eye-slash",
+   "levels": {
+    "light": [
+     "oisd-nsfw-small"
+    ],
+    "normal": [
+     "hagezi-nsfw"
+    ],
+    "strict": [
+     "oisd-nsfw"
+    ]
+   },
+   "lists": [
+    "oisd-nsfw-small",
+    "hagezi-nsfw",
+    "oisd-nsfw"
+   ],
+   "addons": []
+  },
+  "gambling": {
+   "icon": "dice",
+   "levels": {
+    "light": [
+     "hagezi-gambling.mini"
+    ],
+    "normal": [
+     "hagezi-gambling.medium"
+    ],
+    "strict": [
+     "hagezi-gambling"
+    ]
+   },
+   "lists": [
+    "hagezi-gambling.mini",
+    "hagezi-gambling.medium",
+    "hagezi-gambling"
+   ],
+   "addons": []
+  },
+  "bypass": {
+   "icon": "arrows-split",
+   "levels": {
+    "light": [
+     "hagezi-doh"
+    ],
+    "normal": [
+     "hagezi-doh-vpn-proxy-bypass"
+    ],
+    "strict": [
+     "hagezi-doh-vpn-proxy-bypass",
+     "hagezi-dyndns"
+    ]
+   },
+   "lists": [
+    "hagezi-doh",
+    "hagezi-doh-vpn-proxy-bypass",
+    "hagezi-dyndns"
+   ],
+   "addons": []
+  },
+  "social": {
+   "icon": "users",
+   "levels": {
+    "normal": [
+     "hagezi-social"
+    ]
+   },
+   "lists": [
+    "hagezi-social"
+   ],
+   "addons": []
+  },
+  "piracy": {
+   "icon": "skull",
+   "levels": {
+    "normal": [
+     "hagezi-anti.piracy"
+    ]
+   },
+   "lists": [
+    "hagezi-anti.piracy"
+   ],
+   "addons": []
+  },
+  "spam_tlds": {
+   "icon": "envelope",
+   "levels": {
+    "normal": [
+     "hagezi-spam-tlds-rpz"
+    ]
+   },
+   "lists": [
+    "hagezi-spam-tlds-rpz"
+   ],
+   "addons": []
+  }
+ }
+}

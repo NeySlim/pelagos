@@ -219,6 +219,8 @@ once on the node you changed them on and on the other nodes after
 | `alerts_custom_hooks` | bool | `true` | | raise `custom_hook` for a Kea hook library that no package owns |
 | `alerts_clock_skew_warning_seconds` | int | `5` | 1 to 3600 | `clock_skew` (warning) when a peer's clock is at least this far off; also the bar the HA repair plan checks |
 | `alerts_clock_skew_critical_seconds` | int | `30` | 1 to 3600 | `clock_skew` turns critical (Kea terminates HA at 60 s); must be above the warning |
+| `alerts_cert_warning_days` | int | `30` | 1 to 365 | `cert_expiry` warning this long before a web, node or CA certificate ends (a third of the lifetime when shorter) |
+| `alerts_cert_critical_days` | int | `7` | 1 to 365 | `cert_expiry` critical (a tenth of the lifetime when shorter); lower than the warning |
 
 ### Health checks (`[settings.checks]`)
 
@@ -243,8 +245,6 @@ Every key is optional. Thresholds are read at each pass; the alerts are in
 | `forecast_window_days`, `forecast_warning_days`, `forecast_critical_days` | `7`, `14`, `3` | history used for the trend, days to full that raise the alert |
 | `advisories_enabled` | `true` | compare installed versions with the advisory data |
 | `advisories_fetch`, `advisories_url` | `false`, empty | download the data file daily from this https address |
-| `alerts_cert_warning_days` | int | `30` | 1 to 365 | `cert_expiry` warning this long before a web, node or CA certificate ends (a third of the lifetime when shorter) |
-| `alerts_cert_critical_days` | int | `7` | 1 to 365 | `cert_expiry` critical (a tenth of the lifetime when shorter); lower than the warning |
 
 ### DNS (`[settings.dns]`)
 
@@ -305,6 +305,7 @@ The audit log is never purged.
 The subscriptions themselves (`categories`, `subscriptions`, `order`, `allow`,
 `exempt_clients`) live in the same table and are managed from the RPZ screen;
 see [RPZ block lists](rpz.md).
+
 ### Certificates (`[settings.certificates]`)
 
 | Key | Default | Range | Effect |

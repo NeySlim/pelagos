@@ -15,9 +15,16 @@ export const KINDS = [
 ]
 export const INCONSISTENCY_KINDS = new Set(['lease_without_record', 'record_without_lease', 'reservation_mismatch', 'ptr_mismatch', 'duplicate_ip'])
 
-// Objects of an inconsistency alert that can be ignored as the admin's choice (details.exception_keys).
+// Health and audit checks an admin may keep as they are (backend EXCEPTABLE_KINDS); never an outage.
+export const EXCEPTABLE_KINDS = new Set([
+  'insecure_key', 'insecure_listener', 'custom_hook', 'disk_space', 'file_growth', 'reservation_risk',
+  'declined_addresses', 'resolver_health', 'delegation_issue', 'version_mismatch', 'pool_forecast',
+  'security_advisory', 'clock_unsynchronized', 'cert_expiry',
+])
+
+// Objects of an alert that can be ignored as the admin's choice (details.exception_keys).
 export function exceptionItems(alert, summary) {
-  if (!INCONSISTENCY_KINDS.has(alert?.kind)) return []
+  if (!INCONSISTENCY_KINDS.has(alert?.kind) && !EXCEPTABLE_KINDS.has(alert?.kind)) return []
   const keys = alert.details?.exception_keys || []
   return keys.map((key) => ({ kind: alert.kind, key, summary: keys.length === 1 && summary ? summary : key }))
 }

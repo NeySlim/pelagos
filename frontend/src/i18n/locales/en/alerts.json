@@ -74,8 +74,8 @@
   "fresh": "Alerts changed: reload",
   "ignore": {
     "title": "Ignore: admin's choice",
-    "body_one": "This object stays as it is: the check no longer raises an alert for it, on every node, until the exception is revoked.",
-    "body_other": "These {{count}} objects stay as they are: the check no longer raises an alert for them, on every node, until the exceptions are revoked.",
+    "body_one": "This object stays as it is: the check no longer raises an alert for it until the exception is revoked. A health check alert is ignored on its own node only.",
+    "body_other": "These {{count}} objects stay as they are: the check no longer raises an alert for them until the exceptions are revoked. A health check alert is ignored on its own node only.",
     "comment": "Why",
     "commentHelp": "Required, kept with the exception and in the audit log",
     "commentRequired": "Say why the object is left as it is",
@@ -83,7 +83,7 @@
     "done": "Exception recorded"
   },
   "exceptions": {
-    "title": "Consistency exceptions",
+    "title": "Alert exceptions",
     "subtitle": "Objects left as they are by choice: the checks raise nothing for them",
     "object": "Object",
     "comment": "Comment",
@@ -93,6 +93,6 @@
     "revokeConfirm": "Revoke the exception for {{key}}? The check raises its alert again at its next pass.",
     "revoked": "Exception revoked",
     "empty": "No exception",
-    "emptyHelp": "Ignore an inconsistency from its alert or from the orphan PTR page."
+    "emptyHelp": "Ignore an inconsistency or a health check alert from its alert, or a PTR from the orphan PTR page."
   }
 }

@@ -74,8 +74,8 @@
   "fresh": "Les alertes ont changé : recharger",
   "ignore": {
     "title": "Ignorer : choix de l'admin",
-    "body_one": "Cet objet reste tel quel : le contrôle ne lève plus d'alerte pour lui, sur tous les nœuds, tant que l'exception existe.",
-    "body_other": "Ces {{count}} objets restent tels quels : le contrôle ne lève plus d'alerte pour eux, sur tous les nœuds, tant que les exceptions existent.",
+    "body_one": "Cet objet reste tel quel : le contrôle ne lève plus d'alerte pour lui tant que l'exception existe. Une alerte de contrôle de santé n'est ignorée que sur son propre nœud.",
+    "body_other": "Ces {{count}} objets restent tels quels : le contrôle ne lève plus d'alerte pour eux tant que les exceptions existent. Une alerte de contrôle de santé n'est ignorée que sur son propre nœud.",
     "comment": "Pourquoi",
     "commentHelp": "Obligatoire, conservé avec l'exception et dans le journal d'audit",
     "commentRequired": "Indiquez pourquoi l'objet reste tel quel",
@@ -83,7 +83,7 @@
     "done": "Exception enregistrée"
   },
   "exceptions": {
-    "title": "Exceptions de cohérence",
+    "title": "Exceptions d'alertes",
     "subtitle": "Objets laissés tels quels par choix : les contrôles ne lèvent rien pour eux",
     "object": "Objet",
     "comment": "Commentaire",
@@ -93,6 +93,6 @@
     "revokeConfirm": "Révoquer l'exception pour {{key}} ? Le contrôle lève de nouveau son alerte à son prochain passage.",
     "revoked": "Exception révoquée",
     "empty": "Aucune exception",
-    "emptyHelp": "Ignorez une incohérence depuis son alerte ou depuis la page des PTR orphelins."
+    "emptyHelp": "Ignorez une incohérence ou une alerte de contrôle de santé depuis son alerte, ou un PTR depuis la page des PTR orphelins."
   }
 }

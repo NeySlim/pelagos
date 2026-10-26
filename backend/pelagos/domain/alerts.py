@@ -69,6 +69,36 @@ INCONSISTENCY_KINDS = frozenset(
 )
 
 
+# Health and audit checks whose alert the admin may keep as a deliberate choice ([[exceptions]]).
+# Outages (daemon down, HA terminated, clock skew, a failing renewal) are never excepted.
+EXCEPTABLE_KINDS = frozenset(
+    {
+        AlertKind.INSECURE_KEY,
+        AlertKind.INSECURE_LISTENER,
+        AlertKind.CUSTOM_HOOK,
+        AlertKind.DISK_SPACE,
+        AlertKind.FILE_GROWTH,
+        AlertKind.RESERVATION_RISK,
+        AlertKind.DECLINED_ADDRESSES,
+        AlertKind.RESOLVER_HEALTH,
+        AlertKind.DELEGATION_ISSUE,
+        AlertKind.VERSION_MISMATCH,
+        AlertKind.POOL_FORECAST,
+        AlertKind.SECURITY_ADVISORY,
+        AlertKind.CLOCK_UNSYNCHRONIZED,
+        AlertKind.CERT_EXPIRY,
+    }
+)
+
+
+def exception_keys(alert: Alert) -> list[str]:
+    """Keys an exception may name for an alert of EXCEPTABLE_KINDS: "<node>|<subject>" for that node
+    only (offered first), or the bare subject for every node."""
+    if alert.node_id:
+        return [f"{alert.node_id}|{alert.subject}", alert.subject]
+    return [alert.subject]
+
+
 class AlertState(enum.StrEnum):
     OPEN = "open"
     ACKED = "acked"

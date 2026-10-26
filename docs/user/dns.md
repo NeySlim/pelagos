@@ -309,5 +309,5 @@ so a later DDNS update of that address is not refused. When a fixed row
 was ignored, its exception is revoked once the plan applies.
 
 **Ignore** keeps a PTR as it is on purpose: see
-[Consistency exceptions](screens.md#consistency-exceptions).
+[Alert exceptions](screens.md#alert-exceptions).
 

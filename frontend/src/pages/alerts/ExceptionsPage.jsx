@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Consistency exceptions: objects the admin chose to leave as they are (cluster.toml, replicated).
+// Alert exceptions: objects the admin chose to leave as they are (cluster.toml, replicated).
 // Each one keeps its author, date and comment; revoking it lets the check raise again.
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -11,7 +11,7 @@ import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
-import { INCONSISTENCY_KINDS } from './lib'
+import { EXCEPTABLE_KINDS, INCONSISTENCY_KINDS } from './lib'
 
 export default function ExceptionsPage() {
   const { t } = useTranslation(['alerts', 'dashboard', 'common'])
@@ -64,7 +64,7 @@ export default function ExceptionsPage() {
       : []),
   ]
 
-  const kindOptions = [...INCONSISTENCY_KINDS].map((k) => ({ value: k, label: t(`dashboard:kinds.${k}`, { defaultValue: k }) }))
+  const kindOptions = [...INCONSISTENCY_KINDS, ...EXCEPTABLE_KINDS].map((k) => ({ value: k, label: t(`dashboard:kinds.${k}`, { defaultValue: k }) }))
 
   return (
     <PageLayout

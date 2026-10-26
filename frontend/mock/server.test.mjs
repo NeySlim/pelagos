@@ -179,6 +179,15 @@ describe('mock server PTR and exceptions', () => {
     expect((await admin('GET', '/alerts/exceptions')).data.items.map((e) => e.id)).toContain(created.data.id)
     expect((await admin('DELETE', `/alerts/exceptions/${created.data.id}`)).status).toBe(204)
   })
+
+  it('ignores a health check alert but never an outage', async () => {
+    const admin = client(await login('admin', 'admin'))
+    expect((await admin('POST', '/alerts/exceptions', { kind: 'ha_terminated', key: 'ha:kea4', comment: 'no' })).status).toBe(400)
+    const alert = mock.state.alerts.find((a) => a.kind === 'insecure_key')
+    const created = await admin('POST', '/alerts/exceptions', { kind: 'insecure_key', key: alert.details.exception_keys[0], comment: 'legacy key, rotated next month' })
+    expect(created.status).toBe(201)
+    expect(alert.state).toBe('resolved')
+  })
 })
 
 describe('mock server', () => {

@@ -162,6 +162,15 @@ describe('alert subjects', () => {
     expect(exceptionItems({ kind: 'duplicate_ip', details: {} })).toEqual([])
   })
 
+  it('offers the node key of a health check alert, never of an outage', () => {
+    const disk = { kind: 'disk_space', details: { exception_keys: ['n1|disk:/srv/archive'] } }
+    expect(exceptionItems(disk, 'Free space on /srv/archive')).toEqual([
+      { kind: 'disk_space', key: 'n1|disk:/srv/archive', summary: 'Free space on /srv/archive' },
+    ])
+    expect(exceptionItems({ kind: 'ha_terminated', details: { exception_keys: ['n1|ha:kea4'] } })).toEqual([])
+    expect(exceptionItems({ kind: 'restart_loop', details: { exception_keys: ['x'] } })).toEqual([])
+  })
+
   it('reads the result step of a job', () => {
     expect(jobResult({ steps: [{ name: 'result', output: { found: 2 } }] })).toEqual({ found: 2 })
     expect(jobResult({ steps: [] })).toBeNull()

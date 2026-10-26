@@ -1324,3 +1324,14 @@ section 21).
   `SETTINGS_SCHEMA["rpz"]`, snapshot kind `rpz` for the bind engine.
 - WP-FRONTEND: the RPZ screen becomes four tabs (subscriptions, exceptions,
   activity, policy zones); mock server `mock/rpz.mjs`.
+
+## 2026-10-26, Exceptions for health and audit alerts
+Additive. Contract (`domain/alerts.py`): `EXCEPTABLE_KINDS` and
+`exception_keys(alert)` (`<node id>|<subject>` or the bare subject). WP-COLLECTOR:
+`services.consistency.apply_exceptions` and `is_excepted`; `Collector._finish` filters
+every reconcile pass through the `[[exceptions]]` records, and the `consistency` signal
+also runs `Collector.apply_exceptions` to resolve newly excepted open alerts. WP-API-AUTH:
+`POST /alerts/exceptions` accepts only consistency and exceptable kinds. WP-FRONTEND:
+`EXCEPTABLE_KINDS` in `pages/alerts/lib.js` (the "Ignore" action and the exceptions
+filter). Rolling upgrade: a node on an older version keeps raising these alerts until
+it is upgraded.

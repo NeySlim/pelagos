@@ -886,7 +886,7 @@ function makeAlerts(names) {
       title_message: msg('finding.weak_rndc_key.description', { key: 'rndc-key', algorithm: 'hmac-md5' }),
       engine: 'bind',
       node_id: NODE_IDS.ns2,
-      details: { algorithm: 'hmac-md5' },
+      details: { algorithm: 'hmac-md5', exception_keys: [`${NODE_IDS.ns2}|key:rndc-key`] },
     }),
     a('ALRT0000000000000000000006', 'd2_errors', 'warning', 'acked', 'd2:updates', 'DDNS updates failing: 4.0% over the last hour', {
       title_message: msg('alert.d2_errors', { percent: '4.0' }),

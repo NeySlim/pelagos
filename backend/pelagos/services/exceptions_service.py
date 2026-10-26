@@ -11,12 +11,22 @@ from __future__ import annotations
 from typing import Any
 
 from pelagos.core.context import NodeContext
-from pelagos.domain import AlertKind, AuditEntry, AuditResult, new_id, to_rfc3339, utcnow
+from pelagos.domain import (
+    EXCEPTABLE_KINDS,
+    INCONSISTENCY_KINDS,
+    AuditEntry,
+    AuditResult,
+    new_id,
+    to_rfc3339,
+    utcnow,
+)
 from pelagos.services.errors import Conflict, NotFound, ValidationError, field_error
 
 MAX_COMMENT = 1000
 MAX_KEY = 512
 MAX_SUMMARY = 300
+# Consistency kinds and the health or audit checks an admin may keep as they are; never an outage.
+KINDS = frozenset(k.value for k in INCONSISTENCY_KINDS | EXCEPTABLE_KINDS)
 
 
 class ExceptionsService:
@@ -35,8 +45,8 @@ class ExceptionsService:
         comment = str(body.get("comment") or "").strip()
         summary = str(body.get("summary") or "").strip()
         errors: list[dict[str, str]] = []
-        if kind not in {k.value for k in AlertKind}:
-            errors.append(field_error("kind", "an alert kind"))
+        if kind not in KINDS:
+            errors.append(field_error("kind", "an alert kind that accepts exceptions"))
         if not isinstance(key, str) or not key.strip() or len(key) > MAX_KEY:
             errors.append(field_error("key", f"a non-empty string of at most {MAX_KEY} characters"))
         if not comment:

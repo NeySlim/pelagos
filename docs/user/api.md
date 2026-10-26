@@ -237,7 +237,7 @@ Permissions are those of [Configuration: roles](configuration.md#roles-and-permi
 | `GET /alerts`, `GET /alerts/summary` | `read:alerts` | alerts (`kind`, `severity`, `state`, `node_id`, `engine`) |
 | `POST /alerts/{id}/ack` | `write:alerts` | `{"comment"?}` |
 | `POST /alerts/consistency/run` | `write:alerts` | run the consistency pass now (`202 {"job_id"}`) |
-| `GET /alerts/exceptions`, `POST /alerts/exceptions`, `DELETE /alerts/exceptions/{id}` | `read:alerts`, `write:alerts` | consistency exceptions: `{"kind", "key", "comment", "summary"?}` (the keys are in each alert's `details.exception_keys`) |
+| `GET /alerts/exceptions`, `POST /alerts/exceptions`, `DELETE /alerts/exceptions/{id}` | `read:alerts`, `write:alerts` | alert exceptions: `{"kind", "key", "comment", "summary"?}` (the keys are in each alert's `details.exception_keys`; consistency and health check kinds only, never an outage) |
 | `GET /series/pools`, `/series/serials`, `/series/ha-transitions` | `read:series` | time series (`from`, `to`, `step`) |
 | `GET /audit`, `GET /audit/{id}` | `read:audit` | audit entries (`user`, `action`, `target`, `node_id`, `engine`, `result`, `from`, `to`) |
 | `GET /audit/export` | `read:audit` | NDJSON stream (`from`, `to`) |

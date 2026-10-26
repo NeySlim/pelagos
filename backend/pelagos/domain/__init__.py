@@ -1,7 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Domain model of Pelagos (docs/architecture.md section 4). Pure data, no I/O."""
 
-from pelagos.domain.alerts import INCONSISTENCY_KINDS, Alert, AlertKind, AlertState, Severity, alert_id
+from pelagos.domain.alerts import (
+    EXCEPTABLE_KINDS,
+    INCONSISTENCY_KINDS,
+    Alert,
+    AlertKind,
+    AlertState,
+    Severity,
+    alert_id,
+    exception_keys,
+)
 from pelagos.domain.audit import AuditEntry, AuditResult
 from pelagos.domain.cluster import Node, NodeModules, NodeStatus, Peer, Role, User
 from pelagos.domain.common import (
@@ -63,6 +72,7 @@ from pelagos.domain.plan import (
 )
 
 __all__ = [
+    "EXCEPTABLE_KINDS",
     "INCONSISTENCY_KINDS",
     "SCOPE_PERMISSIONS",
     "Alert",
@@ -120,6 +130,7 @@ __all__ = [
     "ZoneSource",
     "ZoneStatus",
     "alert_id",
+    "exception_keys",
     "from_rfc3339",
     "host_key",
     "new_id",

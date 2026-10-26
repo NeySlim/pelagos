@@ -159,7 +159,7 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 Alerts resolve by themselves when the condition goes away; resolved alerts
 are kept `alerts_resolved_days` (90).
 
-### Consistency exceptions
+### Alert exceptions
 
 An acknowledged alert opens again when its condition comes back. To leave
 an object inconsistent on purpose (a PTR that names an outside relay, an A
@@ -178,6 +178,18 @@ its page revokes its exception after the apply. Each check has its own object: a
 pair for `ptr_mismatch`, the host name for `lease_without_record`, the
 owner and type for `record_without_lease`, the reservation and address
 for `reservation_mismatch`, the address for `duplicate_ip`.
+
+Health and audit alerts that can be a deliberate choice take an exception
+the same way: `insecure_key`, `insecure_listener`, `custom_hook`,
+`disk_space`, `file_growth`, `reservation_risk`, `declined_addresses`,
+`resolver_health`, `delegation_issue` (an SOA outside the usual ranges on
+purpose, say), `version_mismatch`, `pool_forecast`, `security_advisory` (a
+distribution package that carries the fix without a new version),
+`clock_unsynchronized` and `cert_expiry`. Their object is the alert subject
+on that node only; the open alert resolves as soon as the exception is
+saved. Outages (`daemon_down`, HA states, `clock_skew`, `restart_loop`,
+`peer_offline`, `cert_renewal_failed`, `rpz_update`) cannot be ignored:
+acknowledge them instead.
 
 ## Advanced
 

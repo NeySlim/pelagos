@@ -9,6 +9,7 @@ import http from 'node:http'
 import { randomBytes, createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { ENDPOINTS } from '../src/services/endpoints.js'
+import { EXCEPTABLE_KINDS, INCONSISTENCY_KINDS } from '../src/pages/alerts/lib.js'
 import { passwordProblem } from '../src/lib/password.js'
 import { createState, iso, ulid, ALL_PERMISSIONS, SCENARIOS } from './data.mjs'
 import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, isExpired, auditEntry, configHash, isAdmin } from './plans.mjs'
@@ -446,12 +447,8 @@ function reverseToIp(name) {
 
 const ipSortKey = (ip = '') => (ip.includes(':') ? [6, v6Nibbles(ip)] : [4, String(ipToInt(ip)).padStart(12, '0')])
 
-const INCONSISTENCY_KINDS = new Set(['lease_without_record', 'record_without_lease', 'reservation_mismatch', 'ptr_mismatch', 'duplicate_ip'])
-const ALERT_KINDS = new Set([
-  ...INCONSISTENCY_KINDS, 'pool_near_full', 'pool_full', 'serial_divergence', 'secondary_stale', 'zone_error', 'ha_degraded',
-  'ha_partner_down', 'ha_transition', 'ha_backup_out_of_sync', 'd2_errors', 'daemon_down', 'peer_offline', 'config_divergence',
-  'insecure_key', 'insecure_listener',
-])
+// Kinds that take an admin exception: consistency checks and the exceptable health checks.
+const EXCEPTION_KINDS = new Set([...INCONSISTENCY_KINDS, ...EXCEPTABLE_KINDS])
 
 // The join of the hosts service: hosts merge on a shared MAC, then IP, then name,
 // over v4 and (when the module is on) v6 leases, reservations, A/AAAA and PTR records.
@@ -2325,7 +2322,7 @@ function buildHandlers(state, emit) {
     'GET /alerts/exceptions': ({ query }) => ({ items: state.ptr.exceptions().filter((e) => !query.get('kind') || e.kind === query.get('kind')) }),
     'POST /alerts/exceptions': ({ body, user, res }) => {
       const errors = []
-      if (!ALERT_KINDS.has(body.kind)) errors.push({ field: 'kind', message: 'an alert kind' })
+      if (!EXCEPTION_KINDS.has(body.kind)) errors.push({ field: 'kind', message: 'an alert kind that accepts exceptions' })
       if (!body.key || typeof body.key !== 'string') errors.push({ field: 'key', message: 'required' })
       if (!String(body.comment || '').trim()) errors.push({ field: 'comment', message: 'required: say why the object is left as it is' })
       if (errors.length) throw new Problem(400, 'validation_error', 'invalid exception', errors)

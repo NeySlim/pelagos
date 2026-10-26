@@ -230,6 +230,15 @@ def test_exceptions_lifecycle(admin, role_client, node_ctx, fake_registry):
     assert r.status_code == 400 and r.get_json()["errors"][0]["field"] == "comment"
     r = admin.post("/api/v1/alerts/exceptions", json={"kind": "nope", "key": "x", "comment": "c"})
     assert r.status_code == 400
+    # An outage is never kept as a choice; a health check such as disk space may be.
+    r = admin.post(
+        "/api/v1/alerts/exceptions", json={"kind": "ha_terminated", "key": "ha:kea4", "comment": "c"}
+    )
+    assert r.status_code == 400
+    disk = {"kind": "disk_space", "key": "n1|disk:/srv/archive", "comment": "archive volume, full by design"}
+    r = admin.post("/api/v1/alerts/exceptions", json=disk)
+    assert r.status_code == 201
+    assert admin.delete(f"/api/v1/alerts/exceptions/{r.get_json()['id']}").status_code in (200, 204)
     body = {"kind": "ptr_mismatch", "key": "192.0.2.90|mail.example.net.", "comment": "mail relay of the ISP"}
     r = admin.post("/api/v1/alerts/exceptions", json=body)
     assert r.status_code == 201, r.get_json()

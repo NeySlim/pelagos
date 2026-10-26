@@ -1936,6 +1936,8 @@ hash of the divergent nodes) and `relationships` (`[{"servers",
 | `restart_loop` | critical | `checks.restart_loop_count` restarts in `restart_loop_window_seconds`; subject `engine:<engine>` |
 | `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; subject is the pool subject |
 | `security_advisory` | info, warning | an installed BIND or Kea version falls in a range of `pelagos/data/isc_advisories.json`; subject `<engine>:<CVE id>` |
+| `cert_expiry` | warning / critical | the web certificate (subject `cert:web`), this node's replication certificate (`cert:node`) or the internal CA (`cert:ca`) expires within `alerts_cert_warning_days` / `alerts_cert_critical_days`, or within a third / a tenth of its lifetime when that is shorter (24 h certificates); details: `cert`, `not_after`, `days_left`, `fingerprint`, `issuer`, and for the web certificate `source` and `mode` |
+| `cert_renewal_failed` | warning | the last automatic request of the web certificate failed (subject `cert:web:renewal`; details `failures`, `last_error`, `next_attempt_at`) |
 
 #### Consistency exceptions ("Ignore: admin's choice")
 
@@ -1981,6 +1983,22 @@ raises in `details.exception_keys`, and documents its key in the table above.
 The collector passes `excepted_for(self.ctx.cluster())` on each pass; the UI
 offers "Ignore" on any inconsistency alert that carries `exception_keys`.
 
+Health and audit checks use the same records without a key of their own.
+`domain.alerts.EXCEPTABLE_KINDS` lists the kinds an admin may keep as a
+deliberate choice: `insecure_key`, `insecure_listener`, `custom_hook`,
+`disk_space`, `file_growth`, `reservation_risk`, `declined_addresses`,
+`resolver_health`, `delegation_issue`, `version_mismatch`, `pool_forecast`,
+`security_advisory`, `clock_unsynchronized`, `cert_expiry`. Outages
+(`daemon_down`, `ha_*`, `clock_skew`, `restart_loop`, `peer_offline`,
+`cert_renewal_failed`, `rpz_update`, ...) never take an exception, and
+`POST /alerts/exceptions` refuses any kind outside these two lists. The key
+of such an alert is `<node id>|<subject>` (that node only, the key written in
+`details.exception_keys`) or the bare `<subject>` (every node);
+`domain.alerts.exception_keys(alert)` returns both. The collector filters
+every reconcile pass through `services.consistency.apply_exceptions`, and on
+the `consistency` signal resolves at once the open alerts a new exception
+names (`Collector.apply_exceptions`).
+
 #### Orphan PTRs
 
 `services.consistency.orphan_ptrs(forward, reverse, excepted)` lists, for each
@@ -1991,8 +2009,6 @@ forward zone) or `external` (outside every managed zone, not verifiable);
 `fix` is `create_a` when the target has no address of that family, `delete`
 otherwise, null for an external target; `ddns` is true when a DHCID sits at
 the PTR owner. Orphans use the `ptr_mismatch` exception key.
-| `cert_expiry` | warning / critical | the web certificate (subject `cert:web`), this node's replication certificate (`cert:node`) or the internal CA (`cert:ca`) expires within `alerts_cert_warning_days` / `alerts_cert_critical_days`, or within a third / a tenth of its lifetime when that is shorter (24 h certificates); details: `cert`, `not_after`, `days_left`, `fingerprint`, `issuer`, and for the web certificate `source` and `mode` |
-| `cert_renewal_failed` | warning | the last automatic request of the web certificate failed (subject `cert:web:renewal`; details `failures`, `last_error`, `next_attempt_at`) |
 
 ## 16. Security model and RBAC
 

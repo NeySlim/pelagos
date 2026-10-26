@@ -14,6 +14,7 @@ from collections.abc import Callable, Iterable
 from typing import Any
 
 from pelagos.domain import (
+    EXCEPTABLE_KINDS,
     Alert,
     AlertKind,
     Lease,
@@ -22,6 +23,7 @@ from pelagos.domain import (
     ReservationIdType,
     RRset,
     Severity,
+    exception_keys,
     messages,
 )
 from pelagos.domain.dns import normalize_name
@@ -501,6 +503,26 @@ def run_all(
     return list(unique.values())
 
 
+def is_excepted(alert: Alert, excepted: Excepted) -> bool:
+    """True when an exception names this alert of EXCEPTABLE_KINDS (its node or every node)."""
+    if alert.kind not in EXCEPTABLE_KINDS:
+        return False
+    return any(excepted(alert.kind.value, key) for key in exception_keys(alert))
+
+
+def apply_exceptions(alerts: Iterable[Alert], excepted: Excepted) -> list[Alert]:
+    """Alerts of any check without the excepted ones; an exceptable alert carries the key the UI
+    offers (details.exception_keys, this node only). Consistency kinds set their own keys."""
+    out: list[Alert] = []
+    for alert in alerts:
+        if alert.kind in EXCEPTABLE_KINDS:
+            if is_excepted(alert, excepted):
+                continue
+            alert.details = {**alert.details, "exception_keys": exception_keys(alert)[:1]}
+        out.append(alert)
+    return out
+
+
 # Kea configuration file versus config-get (CONFIG_DIVERGENCE, cause "file"): lives in core.keafile
 # so the Kea connectors use the same comparison; re-exported for the collector.
 from pelagos.core.keafile import (  # noqa: E402
@@ -511,8 +533,10 @@ from pelagos.core.keafile import (  # noqa: E402
 
 __all__ = [
     "Excepted",
+    "apply_exceptions",
     "excepted_for",
     "excepted_from",
+    "is_excepted",
     "is_sensitive_kea_key",
     "kea_config_differences",
     "orphan_ptrs",

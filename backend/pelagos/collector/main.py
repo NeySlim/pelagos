@@ -437,6 +437,19 @@ class Collector:
         self.store.set_meta("last_run_consistency", str(int(self.clock())))
         return observed
 
+    def apply_exceptions(self) -> list[Alert]:
+        """Resolve at once the open alerts an admin exception now names, without waiting for their check."""
+        excepted = consistency.excepted_for(self.ctx.cluster())
+        gone = [a for a in self.alerts.open_alerts() if consistency.is_excepted(a, excepted)]
+        if not gone:
+            return []
+        ids = {a.id for a in gone}
+        kinds = {a.kind.value for a in gone}
+        report = self.last_report.resolved
+        before = len(report)
+        self._finish(PollOutcome(alerts=[], kinds=frozenset(kinds), where=lambda a: a.id in ids))
+        return report[before:]
+
     def security_audit(self) -> list[Alert]:
         """Weak keys and listeners off localhost from the security audit, as alerts (section 15)."""
         from pelagos.collector.security import security_outcome
@@ -572,9 +585,10 @@ class Collector:
 
     def _finish(self, outcome: PollOutcome) -> None:
         if outcome.kinds or outcome.alerts:
-            opened, updated, resolved = self.alerts.reconcile(
-                outcome.alerts, set(outcome.kinds), outcome.where
+            observed = consistency.apply_exceptions(
+                outcome.alerts, consistency.excepted_for(self.ctx.cluster())
             )
+            opened, updated, resolved = self.alerts.reconcile(observed, set(outcome.kinds), outcome.where)
         else:
             opened, updated, resolved = [], [], []
         for item in outcome.events:
@@ -937,7 +951,7 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     acks_due = threading.Event()
     listener.on("audit", lambda _msg: acks_due.set())
     listener.on("audit_merged", lambda _msg: acks_due.set())
-    listener.on("consistency", lambda _msg: collector.consistency())
+    listener.on("consistency", lambda _msg: (collector.consistency(), collector.apply_exceptions()))
     rpz_due = threading.Event()
 
     def rpz_request(msg: dict[str, Any]) -> None:

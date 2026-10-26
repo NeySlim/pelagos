@@ -40,10 +40,10 @@ def kea_hooks_dir() -> Path | None:
                         return path
         except (OSError, subprocess.SubprocessError):
             pass
-    for candidate in ("/usr/lib/x86_64-linux-gnu/kea/hooks", "/usr/lib64/kea/hooks", "/usr/lib/kea/hooks"):
-        if Path(candidate).is_dir():
-            return Path(candidate)
-    return None
+    # Debian multiarch (any architecture), then RHEL and Arch.
+    candidates = sorted(Path("/usr/lib").glob("*-linux-gnu*/kea/hooks"))
+    candidates += [Path("/usr/lib64/kea/hooks"), Path("/usr/lib/kea/hooks")]
+    return next((c for c in candidates if c.is_dir()), None)
 
 
 def kea_available() -> bool:

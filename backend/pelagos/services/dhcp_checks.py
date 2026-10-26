@@ -11,10 +11,11 @@ from typing import Any
 from pelagos.services.errors import ValidationError, field_error
 
 HOOK_FILE = re.compile(r"^libdhcp_[A-Za-z0-9_]+\.so$")
-# Distro hooks directories (Debian multiarch, RHEL, Arch); `kea-dhcp4 -W` names the real one.
+# Debian multiarch hooks directory of any architecture: peers of one cluster may differ.
+MULTIARCH_HOOK_DIR = re.compile(r"^/usr/lib/[a-z0-9_]+-linux-gnu[a-z0-9_]*/kea/hooks$")
+MULTIARCH_HOOK_DIR_LABEL = "/usr/lib/<multiarch>/kea/hooks"
+# Other distro hooks directories (RHEL, Arch, source); `kea-dhcp4 -W` names the real one.
 DISTRO_HOOK_DIRS = (
-    "/usr/lib/x86_64-linux-gnu/kea/hooks",
-    "/usr/lib/aarch64-linux-gnu/kea/hooks",
     "/usr/lib64/kea/hooks",
     "/usr/lib/kea/hooks",
     "/usr/local/lib/kea/hooks",
@@ -57,9 +58,11 @@ def check_hook_libraries(libraries: Any, allowed_dirs: set[str], field: str) -> 
                 f"{where}: {library!r} is not a Kea hook library (libdhcp_<name>.so)",
                 [field_error(where, "must be libdhcp_<name>.so")],
             )
-        if path.is_absolute() and str(Path(str(path.parent))) not in allowed_dirs:
+        parent = str(Path(str(path.parent)))
+        if path.is_absolute() and parent not in allowed_dirs and not MULTIARCH_HOOK_DIR.match(parent):
+            dirs = ", ".join(sorted(allowed_dirs | {MULTIARCH_HOOK_DIR_LABEL}))
             raise ValidationError(
-                f"{where}: {library} is outside the Kea hooks directory ({', '.join(sorted(allowed_dirs))})",
+                f"{where}: {library} is outside the Kea hooks directory ({dirs})",
                 [field_error(where, "outside the hooks directory")],
             )
         if not path.is_absolute() and len(path.parts) != 1:

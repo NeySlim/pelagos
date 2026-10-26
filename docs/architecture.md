@@ -227,7 +227,7 @@ Engine paths are resolved by `pelagos.platform` and exposed as a
 | Kea user:group | `_kea:_kea` | `kea:kea` |
 | Kea configs | `/etc/kea/kea-dhcp4.conf`, `kea-dhcp6.conf`, `kea-dhcp-ddns.conf` | same |
 | Kea sockets dir | `/run/kea/` (`kea4-ctrl-socket`, `kea6-ctrl-socket`, `kea-ddns-ctrl-socket`) | same |
-| Kea hooks dir | `/usr/lib/x86_64-linux-gnu/kea/hooks` (distro), `/usr/lib/x86_64-linux-gnu/kea/hooks` (ISC) | `/usr/lib64/kea/hooks` |
+| Kea hooks dir | `/usr/lib/<multiarch>/kea/hooks`, distro and ISC (`x86_64-linux-gnu` on amd64, `aarch64-linux-gnu` on arm64; read from `kea-dhcp4 -W`, `platform.debian_multiarch()` otherwise) | `/usr/lib64/kea/hooks` |
 | Kea leases | `/var/lib/kea/kea-leases4.csv`, `kea-leases6.csv` | same |
 | Kea logs | `/var/log/kea/` | same |
 

@@ -200,6 +200,11 @@ def test_hook_libraries_and_v6_reservations_are_validated(role_client, admin):
     assert hooks("../libdhcp_ha.so").status_code == 400
     assert hooks("libdhcp_lease_cmds.so").status_code == 200
     assert hooks("/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_ha.so").status_code == 200
+    # Any Debian multiarch directory: an amd64 node may plan for an arm64 or armhf peer.
+    assert hooks("/usr/lib/aarch64-linux-gnu/kea/hooks/libdhcp_ha.so").status_code == 200
+    assert hooks("/usr/lib/arm-linux-gnueabihf/kea/hooks/libdhcp_ha.so").status_code == 200
+    assert hooks("/usr/lib/evil/kea/hooks/libdhcp_ha.so").status_code == 400
+    assert hooks("/usr/lib/x86_64-linux-gnu/kea/libdhcp_ha.so").status_code == 400
     r = c.post(D + "/config/plan", json={"config": {"hooks-libraries": [{"library": "/srv/x.so"}]}})
     assert r.status_code == 400
     admin.put("/api/v1/admin/modules", json={"dhcpv6": True})

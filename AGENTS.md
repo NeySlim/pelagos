@@ -141,7 +141,7 @@ what any code that spawns the daemons must do too:
   `KEA_LOG_FILE_DIR`, `KEA_PIDFILE_DIR`, `KEA_LOCKFILE_DIR`, and the socket
   directory must be mode 0750 or stricter. Hooks are loaded from the
   compiled-in hooks directory (`kea-dhcp4 -W`, "Hooks directory"), which
-  the fixtures read at runtime so Debian (`/usr/lib/x86_64-linux-gnu/kea/hooks`),
+  the fixtures read at runtime so Debian (`/usr/lib/<multiarch>/kea/hooks`),
   RHEL (`/usr/lib64/kea/hooks`) and Arch (`/usr/lib/kea/hooks`) all work.
   `-X` disables the restrictions but the fixtures do not use it, so tests
   exercise the production rules.

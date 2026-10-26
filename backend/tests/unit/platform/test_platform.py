@@ -70,6 +70,38 @@ def test_missing_os_release_is_unknown(tmp_path):
     assert d.like == "unknown" and d.package_manager == "unknown"
 
 
+@pytest.mark.parametrize(
+    ("machine", "triplet"),
+    [
+        ("x86_64", "x86_64-linux-gnu"),
+        ("aarch64", "aarch64-linux-gnu"),
+        ("armv7l", "arm-linux-gnueabihf"),
+        ("i686", "i386-linux-gnu"),
+        ("ppc64le", "powerpc64le-linux-gnu"),
+        ("riscv64", "riscv64-linux-gnu"),
+    ],
+)
+def test_debian_multiarch(machine, triplet):
+    from pelagos.platform.distro import debian_multiarch
+
+    assert debian_multiarch(machine) == triplet
+
+
+def test_debian_hooks_dir_follows_the_host_architecture(monkeypatch):
+    import sysconfig
+
+    from pelagos.platform import distro
+
+    monkeypatch.setattr(sysconfig, "get_config_var", lambda name: None)
+    monkeypatch.setattr(distro._platform, "machine", lambda: "aarch64")
+    deb = platform_paths(detect_distro(DATA / "debian13"))
+    assert deb.kea_hooks_dir == Path("/usr/lib/aarch64-linux-gnu/kea/hooks")
+    monkeypatch.setattr(sysconfig, "get_config_var", lambda name: "arm-linux-gnueabihf")
+    assert platform_paths(detect_distro(DATA / "debian13")).kea_hooks_dir == Path(
+        "/usr/lib/arm-linux-gnueabihf/kea/hooks"
+    )
+
+
 def test_paths_per_family():
     deb = platform_paths(detect_distro(DATA / "debian13"))
     rpm = platform_paths(detect_distro(DATA / "rocky10"), selinux=True)

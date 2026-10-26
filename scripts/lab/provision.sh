@@ -27,7 +27,6 @@ CLIENT=lab-client
 NS1_IP=10.99.0.11
 NS2_IP=10.99.0.12
 NS3_IP=10.99.0.13
-HOOKS=/usr/lib/x86_64-linux-gnu/kea/hooks
 RPM_HOOKS=/usr/lib64/kea/hooks
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
 
@@ -187,9 +186,16 @@ ha_peers() {
   fi
 }
 
+hooks_dir() {
+  # hooks_dir <host>: the Debian multiarch hooks directory of the host's Kea.
+  "${SSH[@]}" "$1" 'ls -d /usr/lib/*-linux-gnu*/kea/hooks' | head -n 1
+}
+
 kea_dhcp4() {
   # kea_dhcp4 <host> <this server name> [hooks dir] [owner]
-  local host="$1" me="$2" hooks="${3:-$HOOKS}" owner="${4:-root:_kea}" peers
+  local host="$1" me="$2" hooks="${3:-}" owner="${4:-root:_kea}" peers
+  [[ -n "$hooks" ]] || hooks="$(hooks_dir "$host")"
+  [[ -n "$hooks" ]] || { echo "$host: no Kea hooks directory" >&2; exit 1; }
   peers="$(ha_peers)"
   cat <<EOF | put "$host" /etc/kea/kea-dhcp4.conf 0640 "$owner"
 {

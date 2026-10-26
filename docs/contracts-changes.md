@@ -67,6 +67,14 @@ What changed (file, symbol). Why. Which packages must react, and how.
   hashes (`collector.kea_shared`) are unchanged.
 - WP-LAB-E2E: `tests/lab/test_kea26_lab.py`.
 
+## 2026-10-26, arm64 lot: architecture independent Kea hooks paths
+Additive. Section 3: the Debian hooks directory is `/usr/lib/<multiarch>/kea/hooks` on
+every architecture. WP-INSTALLER: `platform.distro.debian_multiarch()` (Python
+`MULTIARCH`, then a `uname -m` table). WP-API-AUTH: `services.dhcp_checks` accepts a hook
+library under any Debian multiarch hooks directory (a cluster may mix amd64 and arm64).
+Fixtures: after `kea-dhcp4 -W`, `tests/fixtures/kea.py` globs
+`/usr/lib/*-linux-gnu*/kea/hooks`. No package has to react.
+
 ## 2026-10-26, PTR lot: PTR in record plans, orphan PTRs, consistency exceptions
 - Section 10: `cluster.toml [[exceptions]]`, records keyed by `id`
   (`core.cluster_merge.RECORDS["exceptions"]`, `ClusterConfig.exceptions`),

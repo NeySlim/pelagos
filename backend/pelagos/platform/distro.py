@@ -183,12 +183,40 @@ KEA_DAEMONS: dict[str, str] = {"kea4": "kea-dhcp4", "kea6": "kea-dhcp6", "d2": "
 ENGINES: tuple[str, ...] = ("bind", "kea4", "kea6", "d2")
 
 
+# Debian multiarch triplets by `uname -m`; the triplet is not always `<machine>-linux-gnu`.
+_MULTIARCH = {
+    "x86_64": "x86_64-linux-gnu",
+    "amd64": "x86_64-linux-gnu",
+    "aarch64": "aarch64-linux-gnu",
+    "arm64": "aarch64-linux-gnu",
+    "armv7l": "arm-linux-gnueabihf",
+    "armv6l": "arm-linux-gnueabihf",
+    "i386": "i386-linux-gnu",
+    "i686": "i386-linux-gnu",
+    "ppc64le": "powerpc64le-linux-gnu",
+    "s390x": "s390x-linux-gnu",
+    "riscv64": "riscv64-linux-gnu",
+}
+
+
+def debian_multiarch(machine: str | None = None) -> str:
+    """Debian multiarch triplet of this host (or of `machine`), as in `/usr/lib/<triplet>`."""
+    if machine is None:
+        import sysconfig
+
+        found = sysconfig.get_config_var("MULTIARCH")
+        if isinstance(found, str) and found:
+            return found
+        machine = _platform.machine()
+    machine = machine or "x86_64"
+    return _MULTIARCH.get(machine, f"{machine}-linux-gnu")
+
+
 def _hooks_dir(like: str) -> Path:
-    machine = _platform.machine() or "x86_64"
     if like == "rhel":
         return Path("/usr/lib64/kea/hooks")
     if like == "debian":
-        return Path(f"/usr/lib/{machine}-linux-gnu/kea/hooks")
+        return Path(f"/usr/lib/{debian_multiarch()}/kea/hooks")
     return Path("/usr/lib/kea/hooks")
 
 

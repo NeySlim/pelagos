@@ -563,6 +563,7 @@ class OpsService:
             with engine_lock(self.ctx.paths.locks_dir, engine.value):
                 output = call()
             if engine.value in ha_maintenance.KEA_ENGINES and spec.name == "config-reload":
+                ha_maintenance.mark(self.ctx.paths, engine.value, "write")
                 ha_maintenance.mark(self.ctx.paths, engine.value, "reload")
             result, message = AuditResult.OK, None
         except Exception as exc:

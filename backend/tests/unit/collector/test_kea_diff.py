@@ -239,6 +239,17 @@ def test_managed_bind_files_changed_by_hand_are_reported(store, tmp_root):
     assert managed_files_diff({"a.conf": "x\n"}, {"a.conf": "x\n"}) == []
 
 
+def test_a_tsig_secret_never_reaches_the_diff():
+    old = 'key "k1" {\n  algorithm hmac-sha256;\n  secret "T0xkU2VjcmV0";\n};\n'
+    new = old.replace("T0xkU2VjcmV0", "TmV3U2VjcmV0") + 'key "k2" {\n  secret "YW5vdGhlcg==";\n};\n'
+    text = "\n".join(managed_files_diff({"keys.conf": old}, {"keys.conf": new}))
+    assert "k2" in text and "TmV3U2VjcmV0" not in text and "T0xkU2VjcmV0" not in text
+    assert "YW5vdGhlcg" not in text
+    swapped = old.replace("T0x", "Zm9")
+    only = managed_files_diff({"keys.conf": old}, {"keys.conf": swapped})
+    assert only == ["keys.conf: secret value changed"]
+
+
 # Hooks no package owns ------------------------------------------------------
 
 
@@ -279,3 +290,47 @@ def test_ownership_cannot_be_told_without_a_package_tool_or_a_file(tmp_root):
     assert HookOwnership(runner=lambda _a: None, tool=lambda: ["rpm", "-qf"]).custom(str(lib)) is None
     assert HookOwnership(runner=lambda _a: 1, tool=lambda: ["rpm", "-qf"]).custom(str(lib)) is True
     assert builtin_equivalent("/opt/kea/libdhcp_ha.so") is None
+
+
+def test_an_unreadable_package_database_is_not_a_custom_hook(tmp_root):
+    lib = tmp_root / "liby.so"
+    lib.write_bytes(b"")
+    calls = iter([None, 1])
+    own = HookOwnership(runner=lambda _a: next(calls), tool=lambda: ["dpkg", "-S"])
+    assert own.custom(str(lib)) is None  # failure: not cached
+    assert own.custom(str(lib)) is True
+
+
+def test_an_alert_open_before_the_grace_is_kept_open_by_quiet_polls(store):
+    clock = Clock()
+    kea = FakeDhcpBackend()
+    poller = KeaPoller(kea, NODE, store, SETTINGS, clock)
+    poller.poll()
+    waiting(kea)
+    clock.advance(10)
+    poller.poll()
+    clock.advance(60)
+    assert kinds(poller.poll()) == {AlertKind.HA_PARTNER_DOWN}
+    poller.reloading = lambda _engine: True
+    clock.advance(10)
+    assert AlertKind.HA_PARTNER_DOWN in kinds(poller.poll())
+    poller.reloading = lambda _engine: False
+    settled(kea)
+    clock.advance(10)
+    assert poller.poll().alerts == []
+
+
+def test_a_marked_reload_followed_by_a_long_wait_still_alerts(store):
+    clock = Clock()
+    kea = FakeDhcpBackend()
+    poller = KeaPoller(kea, NODE, store, SETTINGS, clock)
+    poller.poll()
+    poller.reloading = lambda _engine: True
+    waiting(kea)
+    clock.advance(10)
+    assert poller.poll().alerts == []
+    poller.reloading = lambda _engine: False
+    clock.advance(10)
+    assert poller.poll().alerts == []
+    clock.advance(60)
+    assert AlertKind.HA_PARTNER_DOWN in kinds(poller.poll())

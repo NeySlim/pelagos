@@ -340,6 +340,17 @@ def confined(env: Any, conf: Path, path: Path) -> str | None:
     return None
 
 
+def _mark_written(env: Any, engine: str) -> None:
+    """The collector must not read this Pelagos write as an external change."""
+    try:
+        from pelagos.core import ha_maintenance
+
+        ha_maintenance.mark(env.paths, engine, "write")
+        ha_maintenance.mark(env.paths, engine, "reload")
+    except (AttributeError, TypeError):
+        pass  # an environment without Pelagos paths (tests, dry setup)
+
+
 def write_files(env: Any, engine: str, conf: Path, files: dict[Path, str], label: str, restart: bool) -> str:
     """Writes `conf` and the files it includes in one pipeline run (one backup, one validation).
     Every file must pass `confined`: an include elsewhere is refused, never written as root."""
@@ -355,6 +366,7 @@ def write_files(env: Any, engine: str, conf: Path, files: dict[Path, str], label
     )
     if not result.ok:
         raise RuntimeError(f"{names}: {result.error}")
+    _mark_written(env, engine)
     return f"{names} written; " + "; ".join(f"{s['name']} ok" for s in result.steps if s["ok"])
 
 

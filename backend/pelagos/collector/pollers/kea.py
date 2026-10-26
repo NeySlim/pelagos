@@ -241,6 +241,7 @@ class KeaPoller:
         self.reloading: Callable[[str], bool] = lambda _engine: False
         # Relationship -> [first, last] time its server or partner was seen away from a normal state.
         self._excursions: dict[str, list[float]] = {}
+        self._open_ha: dict[str, dict[Any, Alert]] = {}
         self.external = ExternalChangeWatcher(self.engine.value, clock, locks_dir)
         self.ownership = HookOwnership()
         # Last HA observation sent as an event: (state, partner state, in touch) and the unsent count.
@@ -367,7 +368,7 @@ class KeaPoller:
             alerts, transition = rules.ha_alerts(
                 self.node_id, one, before, maintenance, first=is_first, quiet=quiet
             )
-            out.alerts.extend(alerts)
+            out.alerts.extend(self._keep_open(one, is_first, quiet, alerts))
             if transition is not None:
                 self.store.write_ha_transition(
                     now,
@@ -383,6 +384,22 @@ class KeaPoller:
         self.ha_events(ha, out)
         self.last_ha_state = ha.state
         self.last_other_states = {o.server_name or "": o.state for o in ha.other_relationships}
+
+    def _keep_open(self, one: HAState, first: bool, quiet: bool, alerts: list[Any]) -> list[Any]:
+        """A quiet poll never closes an HA alert already open: it is emitted again until the
+        relationship is back to normal."""
+        key = "" if first else (one.server_name or "")
+        held = self._open_ha.setdefault(key, {})
+        for alert in alerts:
+            if alert.kind in (AlertKind.HA_PARTNER_DOWN, AlertKind.HA_DEGRADED):
+                held.clear()
+                held[alert.kind] = alert
+        in_touch = one.partner is None or one.partner.in_touch is not False
+        if one.state in rules.HA_NORMAL_STATES and in_touch:
+            held.clear()
+        if not quiet:
+            return alerts
+        return [*alerts, *held.values()]
 
     @property
     def ha_grace(self) -> float:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import logging
+import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -184,15 +185,23 @@ class BindPoller:
         self.external.observe(digest, texts, managed_files_diff, writing)
 
 
+# TSIG secrets never reach the audit log.
+_SECRET = re.compile(r'(\bsecret\s+")[^"]*(")')
+
+
 def managed_files_diff(before: dict[str, str], after: dict[str, str]) -> list[str]:
     """Unified diff lines of the managed files that changed (a file's absence reads as empty)."""
     out: list[str] = []
     for name in sorted(before.keys() | after.keys()):
         a, b = before.get(name, ""), after.get(name, "")
-        if a != b:
-            out.extend(
-                difflib.unified_diff(
-                    a.splitlines(), b.splitlines(), f"previous/{name}", f"current/{name}", lineterm=""
-                )
+        if a == b:
+            continue
+        ra, rb = _SECRET.sub(r"\1***\2", a), _SECRET.sub(r"\1***\2", b)
+        lines = list(
+            difflib.unified_diff(
+                ra.splitlines(), rb.splitlines(), f"previous/{name}", f"current/{name}", lineterm=""
             )
+        )
+        # A secret-only change leaves no visible diff once redacted: still report it.
+        out.extend(lines or [f"{name}: secret value changed"])
     return out

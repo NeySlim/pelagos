@@ -91,6 +91,10 @@ def _ca(
             x509.KeyUsage(True, False, False, False, False, True, True, False, False), critical=True
         )
         .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+        # Python 3.13 verifies with VERIFY_X509_STRICT, which rejects a chain without AKI.
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(signer.public_key()), critical=False
+        )
         .sign(signer, hashes.SHA256())
     )
 

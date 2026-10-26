@@ -463,6 +463,7 @@ class Collector:
         """Disk and file growth, reservation risks, delegation and SOA, root reachability."""
         for outcome in self.checks.slow():
             self._finish(outcome)
+
     def certificates(self) -> list[Alert]:
         """Renew the web certificate when due (or install one another node sent), then the expiry
         alerts of the web, node and internal CA certificates and a failing renewal."""

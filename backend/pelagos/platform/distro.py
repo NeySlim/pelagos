@@ -202,12 +202,25 @@ _MULTIARCH = {
 def debian_multiarch(machine: str | None = None) -> str:
     """Debian multiarch triplet of this host (or of `machine`), as in `/usr/lib/<triplet>`."""
     if machine is None:
+        # dpkg knows the host's triplet; the interpreter's (sysconfig) only as a last resort.
+        dpkg = shutil.which("dpkg-architecture")
+        if dpkg:
+            try:
+                out = subprocess.run(
+                    [dpkg, "-qDEB_HOST_MULTIARCH"], capture_output=True, text=True, timeout=5, check=False
+                ).stdout.strip()
+            except (OSError, subprocess.SubprocessError):
+                out = ""
+            if out:
+                return out
+        machine = _platform.machine()
+        if machine in _MULTIARCH:
+            return _MULTIARCH[machine]
         import sysconfig
 
         found = sysconfig.get_config_var("MULTIARCH")
         if isinstance(found, str) and found:
             return found
-        machine = _platform.machine()
     machine = machine or "x86_64"
     return _MULTIARCH.get(machine, f"{machine}-linux-gnu")
 

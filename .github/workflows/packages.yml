@@ -73,13 +73,14 @@ jobs:
     name: deb (${{ matrix.arch }})
     needs: frontend
     # The package is architecture dependent (compiled wheels): it is built and tested in a
-    # Debian 13 container of its architecture, natively on the arm runner. The repository
-    # variable ARM64_RUNNER=ubuntu-24.04 moves arm64 to an x86 runner under qemu instead.
+    # Debian 13 container of its architecture. arm64 runs under qemu on an x86 runner by
+    # default (always available); the repository variable ARM64_RUNNER=ubuntu-24.04-arm opts
+    # in to the native arm runner once the account has it.
     strategy:
       fail-fast: false
       matrix:
         arch: [amd64, arm64]
-    runs-on: ${{ matrix.arch == 'arm64' && (vars.ARM64_RUNNER || 'ubuntu-24.04-arm') || 'ubuntu-24.04' }}
+    runs-on: ${{ matrix.arch == 'arm64' && (vars.ARM64_RUNNER || 'ubuntu-24.04') || 'ubuntu-24.04' }}
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -99,6 +100,13 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends qemu-system-arm qemu-efi-aarch64 cloud-image-utils qemu-utils
+      - name: Debian cloud image cache (emulated install test)
+        if: matrix.arch == 'arm64' && runner.arch != 'ARM64'
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/pelagos-smoke
+          key: debian-13-arm64-cloud-${{ github.run_id }}
+          restore-keys: debian-13-arm64-cloud-
       - name: make deb (Debian 13 container)
         run: packaging/deb/container-build.sh ${{ matrix.arch }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -149,16 +157,25 @@ jobs:
             compose: true
           # The ISC images of the compose stack (internetsystemsconsortium/bind9,
           # docker.cloudsmith.io/isc/docker/kea-*) are published for linux/amd64 only.
+          # arm64 runs under qemu on an x86 runner unless ARM64_RUNNER opts in to the arm one.
           - arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: ${{ vars.ARM64_RUNNER || 'ubuntu-24.04' }}
             compose: false
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    env:
+      DOCKER_DEFAULT_PLATFORM: linux/${{ matrix.arch }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: frontend-dist
           path: frontend/dist
+      - name: qemu (arm64 image on an x86 runner)
+        if: matrix.arch == 'arm64' && runner.arch != 'ARM64'
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+        with:
+          platforms: arm64
       - name: make docker
         run: make docker
       - name: Compose smoke test

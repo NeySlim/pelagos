@@ -95,7 +95,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update -q && apt-get install -y -q --no-install-recommends $packages \
  && rm -f /usr/sbin/policy-rc.d \
  && systemctl mask getty@.service systemd-logind.service console-getty.service \
-      systemd-binfmt.service proc-sys-fs-binfmt_misc.automount proc-sys-fs-binfmt_misc.mount
+      systemd-binfmt.service systemd-modules-load.service proc-sys-fs-binfmt_misc.automount \
+      proc-sys-fs-binfmt_misc.mount
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]
 EOF

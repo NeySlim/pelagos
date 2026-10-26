@@ -92,14 +92,30 @@ def test_debian_hooks_dir_follows_the_host_architecture(monkeypatch):
 
     from pelagos.platform import distro
 
-    monkeypatch.setattr(sysconfig, "get_config_var", lambda name: None)
+    monkeypatch.setattr(distro.shutil, "which", lambda name: None)
+    monkeypatch.setattr(sysconfig, "get_config_var", lambda name: "x86_64-linux-musl")
     monkeypatch.setattr(distro._platform, "machine", lambda: "aarch64")
     deb = platform_paths(detect_distro(DATA / "debian13"))
     assert deb.kea_hooks_dir == Path("/usr/lib/aarch64-linux-gnu/kea/hooks")
-    monkeypatch.setattr(sysconfig, "get_config_var", lambda name: "arm-linux-gnueabihf")
+    # Unknown machine: the interpreter's triplet is the last resort.
+    monkeypatch.setattr(distro._platform, "machine", lambda: "loongarch64")
+    monkeypatch.setattr(sysconfig, "get_config_var", lambda name: "loongarch64-linux-gnu")
     assert platform_paths(detect_distro(DATA / "debian13")).kea_hooks_dir == Path(
-        "/usr/lib/arm-linux-gnueabihf/kea/hooks"
+        "/usr/lib/loongarch64-linux-gnu/kea/hooks"
     )
+
+
+def test_debian_multiarch_prefers_dpkg(monkeypatch):
+    from pelagos.platform import distro
+
+    monkeypatch.setattr(distro.shutil, "which", lambda name: "/usr/bin/dpkg-architecture")
+    monkeypatch.setattr(
+        distro.subprocess,
+        "run",
+        lambda *a, **k: distro.subprocess.CompletedProcess(a, 0, stdout="arm-linux-gnueabihf\n"),
+    )
+    monkeypatch.setattr(distro._platform, "machine", lambda: "x86_64")
+    assert distro.debian_multiarch() == "arm-linux-gnueabihf"
 
 
 def test_paths_per_family():

@@ -69,11 +69,17 @@ What changed (file, symbol). Why. Which packages must react, and how.
 
 ## 2026-10-26, arm64 lot: architecture independent Kea hooks paths
 Additive. Section 3: the Debian hooks directory is `/usr/lib/<multiarch>/kea/hooks` on
-every architecture. WP-INSTALLER: `platform.distro.debian_multiarch()` (Python
-`MULTIARCH`, then a `uname -m` table). WP-API-AUTH: `services.dhcp_checks` accepts a hook
+every architecture. WP-INSTALLER: `platform.distro.debian_multiarch()`
+(`dpkg-architecture -qDEB_HOST_MULTIARCH`, then a `uname -m` table, then Python's
+`MULTIARCH`). WP-API-AUTH: `services.dhcp_checks` accepts a hook
 library under any Debian multiarch hooks directory (a cluster may mix amd64 and arm64).
 Fixtures: after `kea-dhcp4 -W`, `tests/fixtures/kea.py` globs
-`/usr/lib/*-linux-gnu*/kea/hooks`. No package has to react.
+`/usr/lib/*-linux-gnu*/kea/hooks`. No package has to react. Source (ISC Kea 2.6.3 ARM,
+section "Configuring Hook Libraries", read 2026-10-26): since 2.6.3 a hook library is
+loaded only from the compiled-in hooks directory (override: `KEA_HOOKS_PATH`), and a
+library element may be a bare file name. Debian's directory was confirmed on a real
+arm64 Debian 13 with Kea 2.6 (`config-get` reports
+`/usr/lib/aarch64-linux-gnu/kea/hooks`).
 
 ## 2026-10-26, PTR lot: PTR in record plans, orphan PTRs, consistency exceptions
 - Section 10: `cluster.toml [[exceptions]]`, records keyed by `id`

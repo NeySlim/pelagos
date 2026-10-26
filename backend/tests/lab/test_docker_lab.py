@@ -50,3 +50,25 @@ def test_compose_stack_serves_health(docker_host):
         "for p in $(docker compose ls -a -q | grep '^pelagos-smoke-'); do "
         "docker compose -p $p down -v --remove-orphans >/dev/null 2>&1; done; true",
     )
+
+
+def test_deb_starts_in_a_systemd_container(docker_host):
+    """Container mode of the deb smoke test (the amd64 CI job): privileged Debian 13 with systemd,
+    BIND and Kea 2.6 from Debian, the hardened units, import and API."""
+    labkit.frontend_dist()
+    src = labkit.upload_source(docker_host, "~/pelagos-deb-src")
+    ssh(
+        docker_host,
+        f"cd {src} && packaging/deb/container-build.sh amd64 >/tmp/deb-build.log 2>&1",
+        timeout=2400,
+    )
+    _, out, _ = ssh(
+        docker_host,
+        f"cd {src} && SMOKE_MODE=container packaging/tests/deb-systemd-smoke.sh "
+        "build/deb/pelagos_*_amd64.deb 2>&1",
+        check=False,
+        timeout=1800,
+    )
+    assert "all checks passed (amd64, container)" in out, out[-6000:]
+    assert "systemd: running" in out
+    assert "ok:   Kea 2.6 resolved the bare hook names in /usr/lib/x86_64-linux-gnu/kea/hooks" in out

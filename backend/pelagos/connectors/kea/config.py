@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pelagos.connectors.base import ConnectorError, NotSupported
+from pelagos.core.keafile import kea_identifier
 from pelagos.domain import (
     Change,
     ChangeOp,
@@ -282,15 +283,9 @@ def pd_pool_to_kea(pd: PdPool, version: str | None = None) -> dict[str, Any]:
 # Reservations ------------------------------------------------------------------
 
 
-_HEX_ID = re.compile(r"^[0-9A-Fa-f]{2}([:-]?[0-9A-Fa-f]{2})*$")
-
-
 def normalize_identifier(identifier: str) -> str:
-    """Comparison form: Kea prints hw-address as aa:bb:.. but client-id as 010A0B..; both mean the same."""
-    text = identifier.strip()
-    if _HEX_ID.match(text):
-        return text.replace(":", "").replace("-", "").lower()
-    return text
+    """Comparison form shared with the divergence audit (see keafile.kea_identifier)."""
+    return kea_identifier(identifier)
 
 
 def normalize_key(key: str) -> str:

@@ -243,3 +243,12 @@ def test_a_client_id_written_with_colons_is_the_one_kea_runs():
         "/subnet4[id=1]/reservations[flex-id='cam-3']",
         "/subnet4[id=1]/reservations[flex-id=63616d2d34]",
     ]
+
+
+def test_same_identifier_shares_the_audit_rules():
+    from pelagos.services.dhcp_service import _same_identifier
+
+    assert _same_identifier("'abc'", "616263")
+    assert _same_identifier("0:1:2", "00:01:02")
+    assert _same_identifier("AA:BB", "aabb")
+    assert not _same_identifier("aa:bb", "aa:bc")

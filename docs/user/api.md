@@ -192,6 +192,8 @@ Permissions are those of [Configuration: roles](configuration.md#roles-and-permi
 | `GET /dns/handover` | `read:dns` | statements set in user files that can be moved to the managed files, with the nodes that have each; plan with `POST /dns/config/plan` and `handover/...` targets |
 | `GET /dns/resolver`, `POST /dns/resolver/plan` | `read:dns`, `write:dns.config` | recursion, forwarders, DNSSEC validation |
 | `GET /dns/rpz`, `GET /dns/catalog-zones` | `read:dns` | response policy zones, catalogs |
+| `GET /dns/rpz/overview`, `GET /dns/rpz/catalog`, `POST /dns/rpz/estimate`, `GET /dns/rpz/why`, `GET /dns/rpz/activity` | `read:dns` | RPZ subscriptions: state, catalog, memory estimate, "why is this domain blocked", rewrite counters |
+| `PUT`/`DELETE /dns/rpz/categories/{category}`, `PUT`/`DELETE /dns/rpz/subscriptions/{id}`, `PUT /dns/rpz/order`, `POST /dns/rpz/plan`, `POST /dns/rpz/refresh`, `POST`/`DELETE /dns/rpz/allow`, `POST`/`DELETE /dns/rpz/exempt` | `write:dns.config` | save a selection (answers with the plan to apply), update now, allow list and exempt clients |
 | `POST /dns/catalog-zones/{zone}/members/plan` | `write:dns.records` | add or remove a catalog member |
 | `GET /dns/dnssec/policies`, `POST /dns/dnssec/policies/plan` | `read:dns`, `write:dns.config` | `dnssec-policy` statements |
 | `GET`, `POST /dns/ops` | `read:dns`, the operation's | allow-listed rndc operations |

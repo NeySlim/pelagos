@@ -1219,3 +1219,25 @@ file name. A `config_divergence` group in the alert details gains `differences`
 change as external and keeps HA alerts quiet. New audit action `external.change` (target
 `<engine>:config`, `diff` holds the differences) written by the collector. Affects WP-API-AUTH
 (settings schema, done in `admin_service`) and WP-FRONTEND (kind list, i18n).
+
+## 2026-10-26, RPZ subscriptions: settings, alert kind, change target, snapshot kind, endpoints
+Additive; the owners apply it as follows (all described in `architecture.md`
+section 21).
+- WP-CORE: `DEFAULT_SETTINGS["rpz"]` (thresholds only) in `core/config_store.py`;
+  the desired state lives under `settings.rpz` (`categories`, `subscriptions`,
+  `order`, `allow`, `exempt_clients`) and the TSIG secrets of transferred zones in
+  `[secrets] "rpz/tsig/<id>"`.
+- Contract (`domain/alerts.py`, `domain/messages.py`): `AlertKind.RPZ_UPDATE`
+  (`rpz_update`) and the messages `alert.rpz_update`, `alert.rpz_stale`; the key
+  list for the frontend is regenerated with `make messages-keys`.
+- WP-BIND: `ConfigPlanner` accepts the `dns.config` target `rpz/state`
+  (`connectors/bind/rpzplan.py`); `BindBackend` gains `rpz_dir()`,
+  `rpz_zone_loaded()`, `rpz_zone_info()`, `rpz_state_path()`, `rpz_env()` and
+  `rpz_node_state()`. Zones and keys it writes carry the note `pelagos-rpz`.
+- WP-COLLECTOR: task `poll_rpz` (`collector/pollers/rpz.py`, period
+  `settings.rpz.check_seconds`), collector socket event `rpz` (`{"id"?}`: update
+  now), the consistency pass skips zones noted `pelagos-rpz`.
+- WP-API-AUTH: `services/rpz_service.py`, the `/dns/rpz/...` endpoints,
+  `SETTINGS_SCHEMA["rpz"]`, snapshot kind `rpz` for the bind engine.
+- WP-FRONTEND: the RPZ screen becomes four tabs (subscriptions, exceptions,
+  activity, policy zones); mock server `mock/rpz.mjs`.

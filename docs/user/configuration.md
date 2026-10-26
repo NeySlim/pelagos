@@ -259,6 +259,25 @@ once on the node you changed them on and on the other nodes after
 
 The audit log is never purged.
 
+### RPZ block lists (`[settings.rpz]`)
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `check_seconds` | `300` | 30 to 86400 | how often each collector looks for lists that are due |
+| `default_interval_hours` | `24` | 1 to 720 | update interval of a new subscription |
+| `min_interval_minutes` | `60` | 5 to 10080 | no list is fetched more often |
+| `shrink_percent` | `50` | 1 to 100 | a new copy that lost more than this is refused and the old one kept |
+| `stale_factor` | `3` | 1 to 100 | intervals without a successful update before the `rpz_update` alert |
+| `bytes_per_entry` | `800` | 50 to 10000 | memory estimate of named per listed domain |
+| `memory_warn_percent` | `25` | 1 to 100 | share of the node's RAM, at peak, from which a subscription is "too large" |
+| `small_node_mb` | `4096` | 256 to 1048576 | RAM at or under which a node is small ("tight" from half the threshold) |
+| `max_download_mb` | `256` | 1 to 4096 | largest download accepted |
+| `break_dnssec` | `true` | | rewrite answers to DNSSEC clients as well |
+
+The subscriptions themselves (`categories`, `subscriptions`, `order`, `allow`,
+`exempt_clients`) live in the same table and are managed from the RPZ screen;
+see [RPZ block lists](rpz.md).
+
 ### Timeouts read from cluster.toml
 
 Read when present, with these defaults; the settings API does not accept

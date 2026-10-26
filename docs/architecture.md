@@ -159,13 +159,14 @@ pelagos/
     alerts.py          alert evaluation and lifecycle
     events.py          EventSink (events.sock, budget and coalescing), SignalListener (collector.sock)
     relay.py           PeerEventRelay: live events batched to the peers
-    pollers/           bind.py, kea.py, peers.py
+    pollers/           bind.py, kea.py, peers.py, rpz.py
   services/            WP-API-AUTH (except consistency.py: WP-COLLECTOR)
     dns_service.py     zones, records, config plans across nodes
     dhcp_service.py    subnets, reservations, leases, HA across nodes
     hosts_service.py   the join view
     consistency.py     DNS/DHCP cross checks (used by the collector)
     plan_service.py    plan apply/rollback orchestration and audit
+  rpz/                 RPZ subscriptions (section 21): catalog.json, catalog.py, model.py, convert.py, fetch.py, sync.py, estimate.py, logparse.py
   installer/           WP-INSTALLER: detect.py, install.py, importer.py, security_audit.py
   platform/            WP-INSTALLER: distro.py (detection), paths per distro, services, users
   auth/                WP-API-AUTH: passwords.py, sessions.py, rbac.py, totp.py, csrf.py, rate_limit.py
@@ -608,6 +609,7 @@ class AlertKind(str, Enum):
     LEASE_WITHOUT_RECORD="lease_without_record"; RECORD_WITHOUT_LEASE="record_without_lease"
     RESERVATION_MISMATCH="reservation_mismatch"; PTR_MISMATCH="ptr_mismatch"; DUPLICATE_IP="duplicate_ip"
     INSECURE_KEY="insecure_key"; INSECURE_LISTENER="insecure_listener"; CUSTOM_HOOK="custom_hook"
+    RPZ_UPDATE="rpz_update"
 class AlertState(str, Enum): OPEN="open"; ACKED="acked"; RESOLVED="resolved"
 
 @dataclass(slots=True)
@@ -961,7 +963,7 @@ dns.zone       : "<view>/<zone>"                    view "_default" when none
                  | "op:<operation>/<view>/<zone>"   rndc retransfer|notify|reload|freeze|thaw|sync|
                                                     dnssec-rollover|dnssec-checkds, `after` = typed arguments
                                                     ({"key_id", "when", "state", "clean"}); never rolled back
-dns.config     : "keys/<name>" | "acls/<name>" | "options/<statement>" | "raw:<file>" | "pelagos/includes"
+dns.config     : "keys/<name>" | "acls/<name>" | "options/<statement>" | "raw:<file>" | "pelagos/includes" | "rpz/state" (section 21)
                  | "dnssec-policy/<name>"           after {"name", "statements": [{"name", "value"}]}, in policies.conf
 dhcp.subnet    : "subnet<4|6>/<id>"
 dhcp.shared_network : "shared-networks/<name>"
@@ -1289,6 +1291,18 @@ ha_transition_days = 365
 alerts_resolved_days = 90
 backups_days = 90
 
+[settings.rpz]                           # section 21
+check_seconds = 300
+default_interval_hours = 24
+min_interval_minutes = 60
+shrink_percent = 50
+stale_factor = 3
+bytes_per_entry = 800
+memory_warn_percent = 25
+small_node_mb = 4096
+max_download_mb = 256
+break_dnssec = true
+
 [secrets]                                # name -> "enc:v1:<base64(nonce||ciphertext||tag)>"
 "tsig/ddi-read" = "enc:v1:..."
 "tsig/ddi-admin" = "enc:v1:..."
@@ -1428,7 +1442,7 @@ engine, kind, params)` over the node's `pelagos.services.registry.ConnectorRegis
 (the registry the API uses, built with `ConnectorRegistry.from_node(ctx)`).
 Kinds: `bind`: `summary` (capabilities, rndc status, zones, serials by
 `<view>/<zone>`), `zone` (`zone`, `view`), `records` (`zone`, `view`),
-`stats`, `config`; `kea4`/`kea6`: `summary` (capabilities, status, HA,
+`stats`, `config`, `rpz` (the collector's RPZ state of the node and its memory, section 21); `kea4`/`kea6`: `summary` (capabilities, status, HA,
 config hash, utilization), `subnets`, `leases` (`subnet_id`, `limit`,
 `from_address`), `lease` (`ip`), `reservations` (`subnet_id`), `stats`,
 `config`; `d2`: `summary`, `stats`, `config`; every engine: `op` (`op` or
@@ -1652,6 +1666,7 @@ from `settings.collector`:
 | Poll peers (`GET /repl/v1/status`, engine snapshots) | `peer_poll_seconds` | `PEER_OFFLINE`, `SERIAL_DIVERGENCE`, `SECONDARY_STALE`, `CONFIG_DIVERGENCE` |
 | Live pass: local Kea HA state (`status-get`, `ha-heartbeat`), lease watch, zone rechecks | `live_seconds` (5) | snapshots `ha` and `recent_leases`, events only (no alert) |
 | Consistency pass (`services.consistency.run`) | `consistency_seconds` | cross alerts |
+| RPZ list updates (`collector/pollers/rpz.py`, in a thread; section 21) | `rpz.check_seconds` (300) | `RPZ_UPDATE`, snapshot `rpz` |
 | Security audit (`installer.security_audit.run_audit`, read-only, through the helper when not root; `collector/security.py`) | `consistency_seconds` | `INSECURE_KEY`, `INSECURE_LISTENER` (subject `<engine>:<finding subject>`, resolved when the finding goes; an audit that cannot run keeps the current ones) |
 | Retention and downsampling | hourly | purges per table below |
 | Replication push and anti-entropy | event driven, `peer_poll_seconds` | |
@@ -1853,6 +1868,7 @@ hash of the divergent nodes) and `relationships` (`[{"servers",
 | `duplicate_ip` | warning | same IP in two reservations or in a reservation and a foreign lease |
 | `insecure_key` | warning | TSIG or rndc key with hmac-md5/hmac-sha1 (from the security audit) |
 | `insecure_listener` | warning | rndc/statistics-channel/Kea HTTP listening off localhost without TLS |
+| `rpz_update` | warning | an RPZ list update failed or was rejected (subject `rpz:<id>`), or none succeeded for `rpz.stale_factor` intervals (`rpz-stale:<id>`); section 21 |
 
 ## 16. Security model and RBAC
 
@@ -2001,6 +2017,22 @@ change revokes the user's other sessions.
 | `GET /dns/resolver` | `read:dns` | | `{"recursion" (BIND default yes when absent), "recursion_explicit", "allow_recursion", "forwarders", "forward", "dnssec_validation", "per_node": {...}}` |
 | `POST /dns/resolver/plan` | `write:dns.config` | the keys to change, named like the `named.conf` statements: `{"recursion"?, "allow-recursion"?, "forwarders"?, "forward"?, "dnssec-validation"?}`; `null` removes the statement | `Plan` |
 | `GET /dns/rpz` | `read:dns` | | `{"items": [{"zone","policy","source"}]}` |
+| `GET /dns/rpz/overview` | `read:dns` | | `{"catalog", "categories": {id: selection}, "subscriptions": [{..., "status": {node_id: state|null}}], "order", "allow", "exempt_clients", "nodes": [{"id","name","ram_mb","pending","error","log"}], "settings", "allow_zone"}` (section 21) |
+| `GET /dns/rpz/catalog` | `read:dns` | | `{"version", "lists": {id: {name,url,format,entries,license,homepage}}, "categories": {id: {levels: {level: {lists, entries}}, lists, addons}}}` |
+| `PUT /dns/rpz/categories/{category}` | `write:dns.config` | `{"enabled"?, "level": "light"|"normal"|"strict"|"custom", "lists"?, "addons"?, "urls"?: [{"url","format"?}], "action"?, "redirect"?, "interval_hours"?, "nodes"?}` | `{"plan": Plan|null, "overview"}` (the selection is saved in `settings.rpz` at once; the plan brings the nodes to it, `null` when they already match) |
+| `DELETE /dns/rpz/categories/{category}` | `write:dns.config` | | `{"plan", "overview"}` |
+| `PUT /dns/rpz/subscriptions/{id}` | `write:dns.config` | `{"kind": "url"|"axfr", "name"?, "url"?, "format"?, "zone"?, "primaries"?, "tsig_key"?, "tsig_algorithm"?, "tsig_secret"?, "action"?, "redirect"?, "interval_hours"?, "enabled"?, "nodes"?, "category"?}` (the TSIG secret is stored encrypted in `[secrets]` as `rpz/tsig/<id>` and never returned) | `{"plan", "overview"}` |
+| `DELETE /dns/rpz/subscriptions/{id}` | `write:dns.config` | | `{"plan", "overview"}` |
+| `PUT /dns/rpz/order` | `write:dns.config` | `{"order": [subscription id]}` | `{"plan", "overview"}` |
+| `POST /dns/rpz/plan` | `write:dns.config` | | `{"plan", "overview"}` (the plan for the saved state: a `dns.config` plan with one change `rpz/state` on every node running BIND) |
+| `POST /dns/rpz/estimate` | `read:dns` | `{"category", "level", "lists"?, "addons"?}` or `{"lists": [id]}`, `{"node_ids"?, "extra_entries"?}` | `{"lists", "entries", "memory_mb", "nodes": [{"node_id","name","entries","memory_mb","peak_mb","ram_mb","percent_of_ram","level": "ok"|"caution"|"high","current"}]}` |
+| `POST /dns/rpz/refresh` | `write:dns.config` | `{"id"?}` | `{"requested"}` (this node's collector updates the lists now) |
+| `GET /dns/rpz/why?domain=&node_id=` | `read:dns` | | `{"domain", "verdict": "blocked"|"allowed"|"not_listed", "matches": [{"zone","list","name","category","rule","match": "exact"|"wildcard","passthru","action","applied"}]}` (this node, in `response-policy` order) |
+| `GET /dns/rpz/activity` | `read:dns` | | `{"nodes", "by_list": [{"list","name","category","hits"}], "by_category": [{"category","hits"}], "recent": [{"time","client","qname","qtype","trigger","action","list","category","rule","node_id"}]}` |
+| `POST /dns/rpz/allow` | `write:dns.config` | `{"domain", "note"?}` | `{"applied_here", "allow", "exempt_clients"}` |
+| `DELETE /dns/rpz/allow?domain=` | `write:dns.config` | | same |
+| `POST /dns/rpz/exempt` | `write:dns.config` | `{"cidr", "note"?}` | same |
+| `DELETE /dns/rpz/exempt?cidr=` | `write:dns.config` | | same |
 | `GET /dns/catalog-zones?node_id=` | `read:dns` | | `{"items": [{"zone", "view", "role": "consumer"|"producer", "members": [{"zone", "label", "group", "coo"}], "member_count", "version", "default_primaries"?, "statement"?, "options"?, "error"}]}` (members read from the catalog zone now) |
 | `POST /dns/catalog-zones/{zone}/members/plan` | `write:dns.records` | `{"op": "add"|"delete", "member", "group"?, "view"?}` | `Plan` (scope `dns.rrset` on the producer catalog: PTR `<sha1 label>.zones.<catalog>`, TXT `group.<label>...`; 400 on a consumer) |
 | `GET /dns/dnssec/policies` | `read:dns` | | `{"items": [{"name", "statements": [{"name","value"}], "text", "source", "config_path", "line", "used_by": ["<view>/<zone>"]}], "builtin": ["default","insecure","none"]}` |
@@ -2396,3 +2428,89 @@ endpoints) do not bump it. `GET /version` reports the package version.
 - Lease `v6` module gating is cluster-wide (`modules.dhcpv6`), while which
   engines a node drives is per node (`node.toml [engines]` mirrored into
   `[[nodes]].modules`).
+
+## 21. RPZ subscriptions
+
+Public block lists and RPZ feeds become policy zones that Pelagos manages in
+`response-policy`. Code: `pelagos.rpz` (no I/O outside `fetch` and `sync`),
+`connectors/bind/rpzplan.py` (the plan), `collector/pollers/rpz.py`,
+`services/rpz_service.py`.
+
+- **Catalog**: `pelagos/rpz/catalog.json`, versioned with the code. `lists`
+  (id, name, https URL, format `rpz|hosts|domains|adblock`, rough entry count,
+  license, homepage) and `categories` (`levels` light/normal/strict naming list
+  ids, `lists` that may be picked one by one, optional `addons`). The abuse.ch
+  RPZ feeds answer 410 and are not in it. Counts are estimates until the first
+  download shows the real one.
+- **Desired state**: `settings.rpz` in `cluster.toml` (replicated): `categories`
+  (id -> `{enabled, level, lists, addons, urls: [{url, format}], action,
+  redirect, interval_hours, nodes}`), `subscriptions` (id -> own list by URL or a
+  zone transfer: `kind = "axfr"`, `zone`, `primaries`, `tsig_key`,
+  `tsig_algorithm`, secret in `[secrets] "rpz/tsig/<id>"`), `order`, `allow`
+  (`[{domain, note, by, at}]`), `exempt_clients` (`[{cidr, note, by, at}]`). An
+  absent `nodes` means every node running BIND. Thresholds, all in
+  `[settings.rpz]` and editable through `PUT /admin/settings`: `check_seconds`
+  (300, the collector pass), `default_interval_hours` (24),
+  `min_interval_minutes` (60, floor of any interval), `shrink_percent` (50),
+  `stale_factor` (3), `bytes_per_entry` (800, measured on named 9.20: about 700
+  to 1000 bytes per listed domain, two rules each), `memory_warn_percent` (25),
+  `small_node_mb` (4096), `max_download_mb` (256), `break_dnssec` (true),
+  `log_events` (200), `log_path` (a log file of your own, see below).
+- **Zones**: a catalog list or own URL becomes the primary zone
+  `<id>.rpz.invalid` (file `<zone dir>/rpz/<zone>.db`, `allow-transfer { none; }`,
+  `allow-query { localhost; }`, `notify no`, note `pelagos-rpz`); a zone transfer
+  keeps the provider's zone name as a secondary with `primaries { ip key name; }`
+  and the TSIG key in `keys.conf` (note `pelagos-rpz`, secret from `[secrets]`).
+  `pelagos-allow.rpz.invalid` always comes first and holds `name CNAME
+  rpz-passthru.` for the allow list and `<prefix>.<reversed address>.rpz-client-ip
+  CNAME rpz-passthru.` for the exempt clients.
+- **Policy** per zone, in `response-policy` (`options.conf`): `nxdomain`,
+  `nodata`, `passthru` (log only) and a redirect to a name (`policy cname`) are
+  clauses; a redirect to an IP writes `A`/`AAAA` records in the converted zone
+  (`policy given`). Every zone carries `min-update-interval 0` (named defers a
+  reload by 60 s otherwise) and the statement ends with `break-dnssec yes`
+  unless `break_dnssec` is false (named skips a rewrite for DNSSEC clients
+  otherwise). A transferred zone with the default action keeps the provider's
+  own policy records.
+- **The plan**: `Change(target = "rpz/state", after = {"subs": [...resolved
+  subscriptions, tsig_secret per transfer], "allow": {"domains", "clients"},
+  "break_dnssec", "log"})` in a `dns.config` plan over every node running BIND.
+  Each node renders only the subscriptions that name it (`ConfigPlanner`
+  `rpz/state`): zone statements in `zones.conf`, empty zone files when absent,
+  keys in `keys.conf`, `response-policy` in `options.conf`; managed RPZ zones
+  and keys no longer wanted are removed (confirmation required). It refuses a
+  `response-policy` in a user file and a view configuration. Logging: named takes
+  one `logging` statement, so Pelagos writes `rpz.conf` (category `rpz` to
+  `<zone dir>/rpz/rpz.log`, 20 MB, 2 versions, and `default_syslog`) only when
+  the user's files have none; otherwise the user routes category `rpz` to a file
+  and sets `rpz.log_path`.
+- **Updates** (`pelagos.rpz.sync.Syncer`, run by the collector in a thread, one
+  pass per `check_seconds`, a list when `next_check` has come): conditional GET
+  (`If-None-Match`, `If-Modified-Since`), converted by `pelagos.rpz.convert` to a
+  zone body (native RPZ reduced to its qname rules, hosts, domain list, simple
+  adblock `||domain^`; subdomains of a listed name dropped, one `name` and one
+  `*.name` rule per domain), `named-checkzone`, hard link of the old file to
+  `.prev`, atomic rename (file time strictly increasing: named skips a reload
+  when it does not move), `rndc reload <zone>`. A list that converts to nothing,
+  shrank by more than `shrink_percent`, fails `named-checkzone` or whose reload
+  fails keeps the old copy (the `.prev` file is put back after a failed reload).
+  Next check: the interval, or `Expires`/`Cache-Control: max-age` when later (at
+  most 7 days), 15 minutes doubling up to 6 hours after a failure. State in
+  `rpz-state.json` next to `cluster.toml` (per list: etag, last-modified,
+  entries, bytes, source date, `updated_at`, `ok_at`, `next_check`, status,
+  error, failures; `log` with counters and the latest rewrites) and the `bind`
+  snapshot kind `rpz`.
+- **Alerts** `rpz_update` (warning, node, bind): subject `rpz:<id>` while a list's
+  last update failed or was rejected, `rpz-stale:<id>` when no update succeeded
+  for `stale_factor` intervals. Message keys `alert.rpz_update`,
+  `alert.rpz_stale`.
+- **Memory**: `estimate.assess` adds the largest list to the total (a reload
+  holds both copies) and compares with `MemTotal`: `high` from
+  `memory_warn_percent`, `caution` from half of it on a node at or under
+  `small_node_mb`. `POST /dns/rpz/estimate` gives it per node before saving.
+- **Exceptions**: the allow list and exempt clients are settings; the web
+  process rewrites the allow zone on its node at once and the other collectors
+  follow on their next pass. `GET /dns/rpz/why` asks the local named for
+  `<name>.<zone>` (CNAME) in each policy zone in order, then for the literal
+  `*.<parent>.<zone>` names to tell the rule that matched.
+- Consistency checks never read RPZ zones (note `pelagos-rpz`).

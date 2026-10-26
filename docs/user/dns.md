@@ -13,7 +13,7 @@ catalogs, DNSSEC](../dns-zones.md).
 - [ACLs and keys](#acls-and-keys)
 - [Secondaries](#secondaries)
 - [DNSSEC](#dnssec)
-- [RPZ](#rpz)
+- [RPZ](#rpz) (block lists in [their own page](rpz.md))
 - [Catalog zones](#catalog-zones)
 - [Instances](#instances)
 
@@ -245,9 +245,13 @@ secondaries: each consumer node picks up the members by itself.
 
 ## RPZ
 
-The response policy zones of the `response-policy` statement with their
-policy and rule count. They are declared in `named.conf` (or with the
-named.conf editor); their records are edited like any zone.
+The RPZ screen has four tabs. **Subscriptions**, **Exceptions** and
+**Activity** manage public block lists and are described in
+[RPZ block lists](rpz.md). **Policy zones** shows the response policy zones
+of the `response-policy` statement with their policy and rule count; the ones
+you declared in `named.conf` (or with the named.conf editor) have their
+records edited like any zone, the ones Pelagos creates for subscriptions are
+listed as "subscription".
 
 ## Catalog zones
 

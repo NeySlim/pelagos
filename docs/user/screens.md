@@ -139,6 +139,7 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 | `duplicate_ip` | warning | the same IP in two reservations, or reserved and leased to another client |
 | `insecure_key` | warning | a TSIG or rndc key in hmac-md5 or hmac-sha1 (from the security audit) |
 | `insecure_listener` | warning | rndc, statistics channel or a Kea HTTP listener open beyond localhost without TLS |
+| `rpz_update` | warning | an RPZ list could not be updated or was refused (empty, shrunk, invalid), or has not been updated for three intervals |
 
 Alerts resolve by themselves when the condition goes away; resolved alerts
 are kept `alerts_resolved_days` (90).

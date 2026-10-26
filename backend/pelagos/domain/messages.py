@@ -67,6 +67,7 @@ CATALOG: dict[str, str] = {
     "plan.kea.ha_cancel": (
         "HA maintenance cancel: {down} leaves maintenance and both servers return to normal ({up} drives)"
     ),
+    "plan.kea.ha_repair": "repair {engine} HA: restart the HA service of {servers} one after the other",
     "plan.kea.ha_setup": "{engine} HA {mode}: {server} as {role}",
     "plan.kea.ha_remove": "{engine}: remove the HA hook",
     "plan.kea.ha_setup_cluster": "{engine} HA {mode} on {count} servers: {servers}",
@@ -100,6 +101,14 @@ CATALOG: dict[str, str] = {
         "{engine} loads {library}, which no package owns and breaks on a Kea upgrade: "
         "use the built-in {option} options instead"
     ),
+    "alert.ha_terminated": "{engine} HA is terminated on {server}: {cause}",
+    "alert.ha_cause.clock_skew": "clock skew of {seconds} s with {partner}",
+    "alert.ha_cause.node_clock": "clock of node {node} is {seconds} s off",
+    "alert.ha_cause.config": "the HA configuration differs between the servers",
+    "alert.ha_cause.partner": "{partner} is out of reach",
+    "alert.ha_cause.unknown": "cause unknown, check the Kea logs of both servers",
+    "alert.clock_skew": "clock of node {node} is {offset} s off {reference}",
+    "alert.clock_unsynchronized": "clock of node {node} is not synchronized by NTP",
     "alert.d2_errors": "DDNS updates failing: {percent}% over the last hour",
     "alert.peer_offline": "node {node} is unreachable",
     "alert.serial_divergence": "zone {zone} serial {serial} differs from the primary ({reference})",

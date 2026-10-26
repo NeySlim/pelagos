@@ -19,6 +19,7 @@ from pelagos.collector import kea_shared, rules
 from pelagos.collector.pollers import PollOutcome
 from pelagos.collector.series import SeriesStore
 from pelagos.collector.snapshots import CACHE_KIND
+from pelagos.core import clock as clock_mod
 from pelagos.core.replication import PeerStatus, ReplicationClient, ReplicationError
 from pelagos.domain import Alert, AlertKind, Engine, Node, NodeStatus, Peer
 
@@ -30,6 +31,8 @@ KINDS = frozenset(
         AlertKind.SERIAL_DIVERGENCE.value,
         AlertKind.CONFIG_DIVERGENCE.value,
         AlertKind.HA_BACKUP_OUT_OF_SYNC.value,
+        AlertKind.CLOCK_SKEW.value,
+        AlertKind.CLOCK_UNSYNCHRONIZED.value,
     }
 )
 OFFLINE_AFTER = 3
@@ -144,11 +147,17 @@ class PeersPoller:
         self._unimplemented_logged = False
         # Last node state sent per peer: (status, version, config_version, audit_count, error).
         self._node_seen: dict[str, tuple[Any, ...]] = {}
+        # This node's NTP state (core.clock); tests replace it.
+        self.ntp: Callable[[], dict[str, Any]] = clock_mod.NTP.get
+        self._self_ntp: dict[str, Any] | None = None
+        self._self_name: str | None = None
 
     def poll(self) -> PollOutcome:
         out = PollOutcome(kinds=KINDS, where=owned)
         now = int(self.clock())
-        peers = [p for p in self.peers() if p.id != self.self_id]
+        everyone = self.peers()
+        peers = [p for p in everyone if p.id != self.self_id]
+        self._self_clock(next((p.name for p in everyone if p.id == self.self_id), self.self_id), now, out)
         known_nodes = {self.self_id, *(p.id for p in peers)}
         for snap_node in self.store.snapshot_nodes():
             if snap_node not in known_nodes:
@@ -226,6 +235,7 @@ class PeersPoller:
             ),
             out,
         )
+        self._peer_clock(peer, status, now, out)
         if self.client is None:
             return
         for engine in peer_engines(peer):
@@ -241,6 +251,64 @@ class PeersPoller:
                     self.store.write_snapshot(
                         peer.id, engine, kind, int(entry.get("ts") or now), entry["payload"]
                     )
+
+    def _self_clock(self, name: str, now: int, out: PollOutcome) -> None:
+        """This node's NTP state as the "node"/"clock" snapshot (offset 0: the reference)."""
+        try:
+            ntp = self.ntp()
+        except Exception as exc:  # a broken time tool must not stop the peers poll
+            log.debug("ntp state failed: %s", exc)
+            return
+        self._self_ntp = ntp
+        self._self_name = name
+        payload = {"name": name, "offset": 0.0, "uncertainty": 0.0, "ntp": ntp, "reference": self.self_id}
+        self.store.write_snapshot(self.self_id, "node", "clock", now, payload)
+        if rules.ntp_unsynchronized(ntp):
+            out.alerts.append(rules.clock_unsynchronized(self.self_id, name, ntp))
+
+    def _peer_clock(self, peer: Peer, status: PeerStatus, now: int, out: PollOutcome) -> None:
+        """clock_skew from the offset the status exchange measured, clock_unsynchronized from the
+        NTP state the peer reports. Thresholds: alerts_clock_skew_warning/critical_seconds."""
+        if rules.ntp_unsynchronized(status.ntp):
+            out.alerts.append(rules.clock_unsynchronized(peer.id, peer.name, status.ntp or {}))
+        if status.clock_offset is None:
+            return
+        uncertainty = status.clock_uncertainty or 0.0
+        payload = {
+            "name": peer.name,
+            "offset": round(status.clock_offset, 3),
+            "uncertainty": round(uncertainty, 3),
+            "ntp": status.ntp,
+            "reference": self.self_id,
+        }
+        self.store.write_snapshot(peer.id, "node", "clock", now, payload)
+        severity = clock_mod.skew_severity(
+            clock_mod.skew_floor(status.clock_offset, uncertainty), self.settings
+        )
+        if severity is None:
+            return
+        mine = self._self_ntp
+        suspect = None
+        if rules.ntp_unsynchronized(status.ntp) and not rules.ntp_unsynchronized(mine):
+            suspect = peer.id
+        elif rules.ntp_unsynchronized(mine) and not rules.ntp_unsynchronized(status.ntp):
+            suspect = self.self_id
+        thresholds = {
+            "warning_seconds": float(self.settings.get("alerts_clock_skew_warning_seconds", 5)),
+            "critical_seconds": float(self.settings.get("alerts_clock_skew_critical_seconds", 30)),
+        }
+        out.alerts.append(
+            rules.clock_skew(
+                peer.id,
+                peer.name,
+                self._self_name or self.self_id,
+                status.clock_offset,
+                uncertainty,
+                severity,
+                thresholds,
+                suspect,
+            )
+        )
 
     def _node_event(self, node: Node, out: PollOutcome) -> None:
         """`nodes`/`status` when a peer comes, goes or changes; `system`/`replication` when its

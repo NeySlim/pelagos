@@ -188,6 +188,9 @@ class HAPartner(Model):
     unacked_clients: int | None = None
     unacked_clients_left: int | None = None
     analyzed_packets: int | None = None
+    # Partner's clock minus this server's, in seconds, as Kea last measured it (status-get
+    # `clock-skew`, Kea 2.6 and later); None before the first heartbeat or on older versions.
+    clock_skew: int | None = None
 
 
 @dataclass(slots=True)

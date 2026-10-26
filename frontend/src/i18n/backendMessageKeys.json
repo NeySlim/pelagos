@@ -9,6 +9,14 @@
     "path",
     "size"
   ],
+  "alert.clock_skew": [
+    "node",
+    "offset",
+    "reference"
+  ],
+  "alert.clock_unsynchronized": [
+    "node"
+  ],
   "alert.config_divergence": [
     "engine"
   ],
@@ -60,6 +68,19 @@
     "reference",
     "server"
   ],
+  "alert.ha_cause.clock_skew": [
+    "partner",
+    "seconds"
+  ],
+  "alert.ha_cause.config": [],
+  "alert.ha_cause.node_clock": [
+    "node",
+    "seconds"
+  ],
+  "alert.ha_cause.partner": [
+    "partner"
+  ],
+  "alert.ha_cause.unknown": [],
   "alert.ha_degraded": [
     "engine",
     "state"
@@ -68,6 +89,11 @@
     "engine",
     "partner",
     "state"
+  ],
+  "alert.ha_terminated": [
+    "cause",
+    "engine",
+    "server"
   ],
   "alert.ha_transition": [
     "engine",
@@ -179,14 +205,6 @@
     "fqdn",
     "rtype"
   ],
-  "alert.rpz_stale": [
-    "hours",
-    "name"
-  ],
-  "alert.rpz_update": [
-    "error",
-    "name"
-  ],
   "alert.reservation_no_subnet": [
     "identifier",
     "ip"
@@ -230,6 +248,14 @@
     "count",
     "engine",
     "minutes"
+  ],
+  "alert.rpz_stale": [
+    "hours",
+    "name"
+  ],
+  "alert.rpz_update": [
+    "error",
+    "name"
   ],
   "alert.schema_mismatch": [
     "node"
@@ -561,6 +587,10 @@
     "engine"
   ],
   "plan.kea.ha_remove_cluster": [
+    "engine",
+    "servers"
+  ],
+  "plan.kea.ha_repair": [
     "engine",
     "servers"
   ],

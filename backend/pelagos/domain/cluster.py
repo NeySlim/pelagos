@@ -47,6 +47,9 @@ class Node(Model):
     audit_count: int | None = None
     last_seen: datetime | None = None
     error: str | None = None
+    # {"offset", "uncertainty", "ntp"}: the node's clock against the node answering (seconds,
+    # positive ahead) and its NTP state (core.clock); None when unknown.
+    clock: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)

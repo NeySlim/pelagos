@@ -12,6 +12,7 @@ from typing import Any
 
 from pelagos.auth.rate_limit import RateLimiter
 from pelagos.auth.sessions import SessionStore
+from pelagos.core import clock
 from pelagos.core.audit_log import AuditLog
 from pelagos.core.config_store import ClusterConfig, ConfigStore, NodeConfig, atomic_write
 from pelagos.core.paths import Paths
@@ -166,4 +167,5 @@ class NodeContext:
             config_version=cfg.version,
             audit_count=count,
             last_seen=utcnow(),
+            clock={"offset": 0.0, "uncertainty": 0.0, "ntp": clock.NTP.get()},
         )

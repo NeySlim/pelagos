@@ -20,6 +20,12 @@ HEALTHY_STATES = {
 }
 
 
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return int(value)
+
+
 def _state_of_entry(node_id: str, family: Family, entry: dict[str, Any]) -> HAState:
     servers = entry.get("ha-servers") or {}
     local = servers.get("local") or {}
@@ -43,6 +49,7 @@ def _state_of_entry(node_id: str, family: Family, entry: dict[str, Any]) -> HASt
             unacked_clients=remote.get("unacked-clients"),
             unacked_clients_left=remote.get("unacked-clients-left"),
             analyzed_packets=remote.get("analyzed-packets"),
+            clock_skew=_int_or_none(remote.get("clock-skew")),
         )
     return HAState(
         node_id=node_id,
@@ -84,6 +91,17 @@ def is_healthy(state: HAState) -> bool:
     if not state.enabled or state.mode is None:
         return True
     return (state.state or "") in HEALTHY_STATES[state.mode]
+
+
+def ha_serving(state: HAState) -> bool:
+    """The relationship is back: this server in a normal state and its partner in touch in one
+    (a backup, which has no partner, only needs its own state)."""
+    if (state.state or "") not in NORMAL_STATES:
+        return False
+    partner = state.partner
+    if partner is None:
+        return True
+    return partner.in_touch is not False and (partner.state or "") in NORMAL_STATES
 
 
 def ha_configured(cfg: dict[str, Any]) -> bool:

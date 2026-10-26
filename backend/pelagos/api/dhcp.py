@@ -261,6 +261,16 @@ class HaMaintenancePlan(FamilyResource):
         return _plan(family, "ha_maintenance")
 
 
+@ns.route("/<string:family>/ha/repair/plan")
+class HaRepairPlan(FamilyResource):
+    @require("ops:dhcp.ha")
+    @ns.expect(m.RepairBody)
+    @ns.response(200, "Plan resetting each terminated server in turn (requires_confirmation)", m.Plan)
+    @ns.response(409, "conflict: no server is terminated", m.Problem)
+    def post(self, family: str):
+        return _plan(family, "ha_repair", json_body(required=False))
+
+
 @ns.route("/<string:family>/ha/transitions")
 class HaTransitions(FamilyResource):
     @require("read:dhcp")

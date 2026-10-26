@@ -24,6 +24,7 @@ from typing import Any
 
 from pelagos import __version__
 from pelagos.core import ca as ca_mod
+from pelagos.core import clock
 from pelagos.core import context as context_mod
 from pelagos.core.audit_log import AuditLog
 from pelagos.core.config_store import ConfigError, ConfigStore, NodeConfig
@@ -44,7 +45,7 @@ from pelagos.core.secrets import SecretBox
 from pelagos.core.signals import EVENT_AUDIT, EVENT_CONFIG, SignalListener
 from pelagos.domain.audit import AuditEntry, AuditResult
 from pelagos.domain.cluster import Peer
-from pelagos.domain.common import to_rfc3339, utcnow
+from pelagos.domain.common import from_rfc3339, to_rfc3339, utcnow
 from pelagos.domain.plan import NodeApplyResult, Plan
 
 log = logging.getLogger(__name__)
@@ -88,6 +89,11 @@ class PeerStatus:
     last_seen: datetime | None = None
     config_adopted: bool = False
     audit_added: int = 0
+    # The peer's clock against this node's (core.clock.peer_offset), from the status exchange.
+    clock_offset: float | None = None
+    clock_uncertainty: float | None = None
+    # The peer's own NTP state (core.clock.read_ntp_state); None from an older peer.
+    ntp: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -100,6 +106,9 @@ class PeerStatus:
             "last_seen": to_rfc3339(self.last_seen) if self.last_seen else None,
             "error": self.error,
             "code": self.code,
+            "clock_offset": self.clock_offset,
+            "clock_uncertainty": self.clock_uncertainty,
+            "ntp": self.ntp,
         }
 
 
@@ -209,7 +218,16 @@ class ReplicationClient:
         return res.body
 
     def status(self) -> PeerStatus:
+        sent = utcnow()
         data = self._call("GET", "/status")
+        received = utcnow()
+        offset = uncertainty = None
+        if isinstance(data.get("time"), str):
+            try:
+                offset, uncertainty = clock.peer_offset(sent, received, from_rfc3339(data["time"]))
+            except ValueError:
+                pass
+        ntp = data.get("ntp")
         return PeerStatus(
             node_id=str(data.get("node_id", self.peer.id)),
             reachable=True,
@@ -222,7 +240,10 @@ class ReplicationClient:
             config_updated_by=data.get("config_updated_by"),
             config_digest=data.get("config_digest"),
             modules=dict(data.get("modules") or {}),
-            last_seen=utcnow(),
+            last_seen=received,
+            clock_offset=offset,
+            clock_uncertainty=uncertainty,
+            ntp=dict(ntp) if isinstance(ntp, dict) else None,
         )
 
     def fetch_config(self) -> dict[str, Any]:
@@ -429,6 +450,7 @@ class ReplicationApp:
     def status_payload(self) -> dict[str, Any]:
         cfg = self.config_store.load_cluster()
         count, head = self.audit_log.head()
+        ntp = clock.NTP.get()  # before the time stamp: a cache miss runs commands
         return {
             "node_id": self.node.id,
             "name": self.node.name,
@@ -440,6 +462,7 @@ class ReplicationApp:
             "audit_count": count,
             "audit_head": head,
             "time": to_rfc3339(utcnow()),
+            "ntp": ntp,
             "modules": self.node.modules.to_dict(),
         }
 

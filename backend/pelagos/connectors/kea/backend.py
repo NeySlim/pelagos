@@ -15,7 +15,7 @@ import copy
 import json
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -52,12 +52,14 @@ from pelagos.connectors.kea.ha import (
     MAINTENANCE_COMMANDS,
     ha_hook_entries,
     ha_peers_from_config,
+    ha_serving,
     ha_state_from_status,
     heartbeat_window,
     hooks_dir_of,
     hooks_with_ha,
     hub_subnets_warning,
     kea_time,
+    partner_name,
     relationship_entry,
 )
 from pelagos.connectors.kea.schema import config_schema
@@ -108,6 +110,11 @@ KNOWN_HOOKS = ("lease_cmds", "host_cmds", "subnet_cmds", "stat_cmds", "ha", "cla
 LEASE_PAGE = 1000
 APPLIED_KEPT = 256
 HA_PEERS_TTL = 30.0  # seconds the configured HA peers are reused between config-get reads
+# HA repair: a reset server leaves `terminated` at once; the pair needs a few heartbeats (and a
+# lease sync) to serve again. Peers answer a plan within peer_plan_timeout_seconds (300).
+HA_RESET_STEP_SECONDS = 30.0
+HA_REPAIR_WAIT_SECONDS = 180.0
+HA_POLL_SECONDS = 1.0
 _PLAN_ID = re.compile(r"^[0-9A-Za-z_-]{1,64}$")
 # Target kinds (config.parse_target) each configuration plan scope may touch.
 SCOPE_TARGETS = {
@@ -1014,9 +1021,61 @@ class KeaBackend(DhcpBackend):
                 enable = bool(after.get("enable", after.get("enabled", True)))
                 resp = self.socket.call("dhcp-enable" if enable else "dhcp-disable", None)
                 messages.append(json.dumps(resp) if resp else ("enabled" if enable else "disabled"))
+            elif t.kind == "ha_restart":
+                messages.append(self._ha_restart(change))
             else:
                 raise ConnectorError(f"{change.target} is not an HA or service change")
         return NodeApplyResult(node_id=self.ctx.node_id, ok=True, message="; ".join(m for m in messages if m))
+
+    def _ha_restart(self, change: Change) -> str:
+        """One step of the HA repair plan: restart the HA service of this server when one of its
+        relationships is `terminated`, then wait. config-reload reloads the hook libraries, so
+        the HA service starts afresh like after a process restart; ha-reset would not do: the
+        state machine re-terminates on the clock skew measured before it terminated.
+        A node before the last waits until it left `terminated`; the last one until it serves
+        (hot-standby, load-balancing) with its partner in touch. A rollback does nothing."""
+        after = change.after if isinstance(change.after, dict) else {}
+        if after.get("action") != "restart":
+            return "nothing to undo: an HA restart is not reversed"
+        order = [str(n) for n in after.get("order") or []]
+        last = not order or order[-1] == self.ctx.node_id
+        state = self.ha_state()
+        if not state.enabled:
+            raise NotSupported("the ha hook is not loaded on this server")
+        relationships = [state, *state.other_relationships]
+        stuck = [partner_name(one) for one in relationships if one.state == "terminated"]
+        name = state.server_name or self.engine_name
+        if stuck:
+            resp = self.socket.send("config-reload")
+            if int(resp.get("result", 1)) != 0:
+                raise KeaCommandError("config-reload", int(resp.get("result", 1)), str(resp.get("text", "")))
+            self._ha_peers = None
+        done = f"HA service of {name} restarted (config-reload)" if stuck else f"{name} was not terminated"
+        # A hub waits for the relationships that were terminated (a partner names each of them).
+        watched = set(stuck) if len(relationships) > 1 and stuck else None
+        if last:
+            final = self._wait_ha(ha_serving, HA_REPAIR_WAIT_SECONDS, watched)
+            return f"{done}; {final.state} with {partner_name(final) or 'the partner'}"
+        final = self._wait_ha(lambda s: s.state != "terminated", HA_RESET_STEP_SECONDS, watched)
+        return f"{done}; now {final.state}"
+
+    def _wait_ha(
+        self, done: Callable[[HAState], bool], seconds: float, partners: set[str | None] | None = None
+    ) -> HAState:
+        deadline = time.monotonic() + seconds
+        while True:
+            state = self.ha_state()
+            ones = [state, *state.other_relationships]
+            if partners is not None:
+                ones = [o for o in ones if partner_name(o) in partners]
+            if all(done(one) for one in ones):
+                return state
+            if time.monotonic() >= deadline:
+                raise ConnectorError(
+                    f"HA of {state.server_name} still {state.state} after {seconds:.0f} s"
+                    f" (partner {state.partner.state if state.partner else 'unknown'})"
+                )
+            time.sleep(HA_POLL_SECONDS)
 
     def _run_config(self, changes: list[Change], label: str) -> NodeApplyResult:
         caps = self.capabilities()

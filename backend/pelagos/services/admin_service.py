@@ -31,6 +31,8 @@ SETTINGS_SCHEMA: dict[str, Any] = {
     "alerts_d2_error_rate": (float, 0.0, 1.0),
     "alerts_ha_grace_seconds": (int, 0, 3600),
     "alerts_custom_hooks": (bool, None, None),
+    "alerts_clock_skew_warning_seconds": (int, 1, 3600),
+    "alerts_clock_skew_critical_seconds": (int, 1, 3600),
     "dns": {
         "read_key": (str, None, None),
         "admin_key": (str, None, None),
@@ -398,6 +400,15 @@ class AdminService:
                 field_error("alerts_pool_warning_percent", "must be lower than alerts_pool_critical_percent")
             )
         errors.extend(_check_pairs(merged.get("checks", {})))
+        if merged.get("alerts_clock_skew_warning_seconds", 5) >= merged.get(
+            "alerts_clock_skew_critical_seconds", 30
+        ):
+            errors.append(
+                field_error(
+                    "alerts_clock_skew_warning_seconds",
+                    "must be lower than alerts_clock_skew_critical_seconds",
+                )
+            )
         if merged["session_idle_seconds"] > merged["session_ttl_seconds"]:
             errors.append(field_error("session_idle_seconds", "must not exceed session_ttl_seconds"))
         if errors:

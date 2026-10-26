@@ -17,6 +17,7 @@ from pelagos.connectors.base import DdnsBackend, DhcpBackend
 from pelagos.connectors.kea import config as kcfg
 from pelagos.connectors.kea import ha as ha_mod
 from pelagos.connectors.kea.configfile import FileDiverged
+from pelagos.core import clock as clock_mod
 from pelagos.core.context import NodeContext
 from pelagos.domain import (
     Change,
@@ -37,6 +38,7 @@ from pelagos.domain import (
     Reservation,
     SharedNetwork,
     Subnet,
+    ValidationResult,
     messages,
     to_rfc3339,
 )
@@ -727,6 +729,8 @@ class DhcpService:
         ha_maintenance, service."""
         if kind == "ha_maintenance":
             return self.ctx.plan_store.put(self._plan_ha_maintenance(body, created_by))
+        if kind == "ha_repair":
+            return self.ctx.plan_store.put(self._plan_ha_repair(body, created_by))
         if kind == "lease_delete" and not body.get("node_id"):
             return self.ctx.plan_store.put(self._plan_lease_delete_everywhere(body, created_by))
         if kind in ("service", "lease_delete"):
@@ -1150,6 +1154,118 @@ class DhcpService:
             requires_confirmation=True,
             state=PlanState.VALIDATED,
         )
+
+    def _plan_ha_repair(self, body: dict[str, Any], created_by: str) -> Plan:
+        """Bring a relationship back from `terminated` (Kea ARM, "Clocks on Active Servers"): check
+        the node clocks, then restart the HA service of each active server (config-reload), one
+        after the other; the last one waits for both to serve again (hot-standby, load-balancing).
+
+        Targets are the active servers of every relationship with a server in `terminated`
+        (`server_name` narrows to that server's relationship). A node clock off by
+        alerts_clock_skew_warning_seconds or more fails the plan: a restart would terminate again.
+        Nothing to undo: a rollback leaves the servers as they are."""
+        wanted = body.get("server_name")
+        flat = ha_mod.flatten([s for s in self.ha() if s.enabled])
+        names = self._node_names()
+        broken = [s for s in flat if s.state == "terminated" and (not wanted or s.server_name == wanted)]
+        if not broken:
+            raise ServiceError("conflict", "no HA server is in the terminated state")
+        involved: list[HAState] = []
+        for st in broken:
+            partner = ha_mod.partner_name(st)
+            for one in flat:
+                same = one.server_name in (st.server_name, partner) and one.role != "backup"
+                if same and all(one is not x for x in involved):
+                    involved.append(one)
+        orphans = [s.server_name or "?" for s in involved if s.node_id not in names]
+        if orphans:
+            raise ValidationError(
+                f"{', '.join(orphans)} runs on no Pelagos node: restart it by hand",
+                [field_error("server_name", "not managed")],
+            )
+        # The primary last: its state drives the relationship back to normal.
+        involved.sort(key=lambda s: (s.role == "primary", s.server_name or ""))
+        order = list(dict.fromkeys(s.node_id for s in involved))
+        # The restart is a config-reload: it loads the file, which must hold what Kea runs.
+        kea_files.check(self.alerts, self.engine, order, self.ctx.node.id, self.local, names, self.peers)
+        validations = self._repair_clock_checks(order, involved, names)
+        failed = [v for v in validations if not v.ok]
+        servers = ", ".join(f"{s.server_name or '?'} ({names.get(s.node_id, s.node_id)})" for s in involved)
+        summary = messages.msg("plan.kea.ha_repair", engine=self.engine.value, servers=servers)
+        diff = "".join(
+            f"-{s.server_name or names.get(s.node_id, s.node_id)}: {s.state or 'unknown'}\n" for s in involved
+        )
+        diff += "".join(
+            f"+{i + 1}. {names.get(n, n)}: restart HA (config-reload)\n" for i, n in enumerate(order)
+        )
+        diff += f"+{names.get(order[-1], order[-1])}: wait for hot-standby / load-balancing on both\n"
+        after = {"action": "restart", "order": order, "servers": {s.node_id: s.server_name for s in involved}}
+        return Plan(
+            scope=PlanScope.DHCP_HA,
+            node_id=self.ctx.node.id,
+            engine=self.engine,
+            **_summary(summary),
+            created_by=created_by,
+            changes=[
+                Change(
+                    ChangeOp.REPLACE,
+                    "ha/restart",
+                    before={s.node_id: s.state for s in involved},
+                    after=after,
+                    node_ids=order,
+                )
+            ],
+            diff=diff,
+            validations=validations,
+            target_node_ids=order,
+            requires_confirmation=True,
+            state=PlanState.FAILED if failed else PlanState.VALIDATED,
+            error=failed[0].output if failed else None,
+        )
+
+    def _repair_clock_checks(
+        self, order: list[str], involved: list[HAState], names: dict[str, str]
+    ) -> list[ValidationResult]:
+        """One `clock` validation per node of the repair: its clock against this node's, from the
+        latest status exchange (this node is the reference)."""
+        settings = self.ctx.settings()
+        out: list[ValidationResult] = []
+        for node_id in order:
+            name = names.get(node_id, node_id)
+            if node_id == self.ctx.node.id:
+                offset, uncertainty = 0.0, 0.0
+            else:
+                peer = self.peers.peer(node_id)
+                status = self.peers.status(peer) if peer is not None else None
+                if status is None or status.clock_offset is None:
+                    out.append(
+                        ValidationResult(
+                            ok=False, tool="clock", output=f"{name}: clock unknown (node unreachable)"
+                        )
+                    )
+                    continue
+                offset, uncertainty = status.clock_offset, status.clock_uncertainty or 0.0
+            floor = clock_mod.skew_floor(offset, uncertainty)
+            if clock_mod.skew_severity(floor, settings) is not None:
+                out.append(
+                    ValidationResult(
+                        ok=False,
+                        tool="clock",
+                        output=f"{name}: clock {offset:+.1f} s off {self.ctx.node.name}:"
+                        " synchronize the clocks (NTP) first, a restart would terminate again",
+                    )
+                )
+            else:
+                out.append(ValidationResult(ok=True, tool="clock", output=f"{name}: clock {offset:+.1f} s"))
+        stale = [
+            f"{s.server_name}: Kea last measured {s.partner.clock_skew} s with its partner"
+            for s in involved
+            if s.partner is not None and s.partner.clock_skew is not None and abs(s.partner.clock_skew) >= 30
+        ]
+        if stale and all(v.ok for v in out):
+            note = "; ".join(stale) + " (before it terminated); the node clocks agree now"
+            out.append(ValidationResult(ok=True, tool="clock", output=note))
+        return out
 
     def _all_nodes(self) -> list[str]:
         """Kea configuration changes go to every node running this engine (both HA peers)."""

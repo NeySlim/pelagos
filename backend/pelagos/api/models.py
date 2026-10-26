@@ -423,6 +423,10 @@ MaintenanceBody = model(
     "MaintenanceBody",
     {"node_id": fields.String, "action": fields.String(required=True, enum=["start", "cancel"])},
 )
+RepairBody = model(
+    "RepairBody",
+    {"server_name": fields.String(description="a terminated server: repair its relationship only")},
+)
 ServiceBody = model("ServiceBody", {"node_id": fields.String, "enable": fields.Boolean(required=True)})
 Ddns = model("Ddns", {"dhcp_ddns": fields.Raw, "ddns_params": fields.Raw, "node_id": fields.String})
 Hooks = items_of(fields.Raw, "Hooks", available=fields.List(fields.Raw))

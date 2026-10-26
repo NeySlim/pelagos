@@ -10,7 +10,10 @@ on every pass:
   pool_near_full/pool_full  node, kea4|kea6  "<engine>:subnet:<id>:pool:<pool without spaces>"
   ha_degraded/ha_partner_down/ha_transition  node, kea4|kea6  "ha:<engine>" (a hub's other
                                              relationships: "ha:<engine>:<server name>")
+  ha_terminated      node, kea4|kea6         same subjects as ha_degraded
   ha_backup_out_of_sync  backup node, kea4|kea6  "ha-backup:<engine>"
+  clock_skew         peer node, no engine    "clock"
+  clock_unsynchronized  node, no engine      "ntp"
   d2_errors          node, d2                "d2:updates"
   peer_offline       peer node, no engine    "peer:<peer id>"
   config_divergence  cluster-wide, engine    "<engine>:config-hash"
@@ -32,6 +35,8 @@ HA_NORMAL_STATES = frozenset({"hot-standby", "load-balancing", "backup", "passiv
 HA_PARTNER_DOWN_STATES = frozenset({"partner-down"})
 # A terminated server stays so until restarted: a grace period would only delay a real fault.
 HA_NEVER_QUIET_STATES = frozenset({"terminated"})
+# Kea stops exchanging heartbeats and lease updates; only restarting both servers recovers.
+HA_TERMINATED_STATE = "terminated"
 STALE_WINDOW = timedelta(hours=24)
 
 
@@ -178,6 +183,47 @@ def pool_alerts(
     return out
 
 
+def terminated_cause(
+    ha: HAState, node_skews: list[dict[str, Any]], config_divergent: bool, warning_seconds: float = 5
+) -> dict[str, Any]:
+    """Probable cause of an HA service in `terminated`: {"cause", "message", "details"}.
+
+    Kea terminates when the partners' clocks drift 60 s apart, so clock skew comes first: the
+    partner's skew Kea measured (status-get `clock-skew`), else a node clock Pelagos measured
+    (`node_skews`: {"node_id", "name", "offset", "floor"}); then a configuration that differs
+    between the servers, then a partner out of reach; "unknown" otherwise."""
+    partner = ha.partner
+    other = partner_name(ha) or messages.msg("common.the_partner")
+    kea_skew = partner.clock_skew if partner is not None else None
+    if kea_skew is not None and abs(kea_skew) >= warning_seconds:
+        return {
+            "cause": "clock_skew",
+            "message": messages.msg("alert.ha_cause.clock_skew", partner=other, seconds=abs(kea_skew)),
+            "details": {"source": "kea", "partner": other, "clock_skew": kea_skew},
+        }
+    skewed = [s for s in node_skews if (s.get("floor") or 0) >= warning_seconds]
+    if skewed:
+        worst = max(skewed, key=lambda s: s.get("floor") or 0)
+        return {
+            "cause": "clock_skew",
+            "message": messages.msg(
+                "alert.ha_cause.node_clock",
+                node=worst.get("name") or worst.get("node_id"),
+                seconds=round(abs(float(worst.get("offset") or 0)), 1),
+            ),
+            "details": {"source": "nodes", "nodes": skewed},
+        }
+    if config_divergent:
+        return {"cause": "config", "message": messages.msg("alert.ha_cause.config"), "details": {}}
+    if partner is not None and partner.in_touch is False:
+        return {
+            "cause": "partner",
+            "message": messages.msg("alert.ha_cause.partner", partner=other),
+            "details": {"partner": other},
+        }
+    return {"cause": "unknown", "message": messages.msg("alert.ha_cause.unknown"), "details": {}}
+
+
 def ha_alerts(
     node_id: str,
     ha: HAState,
@@ -185,6 +231,7 @@ def ha_alerts(
     maintenance: bool = False,
     first: bool = True,
     quiet: bool = False,
+    cause: dict[str, Any] | None = None,
 ) -> tuple[list[Alert], dict[str, Any] | None]:
     """HA alerts for one relationship of a Kea server plus the transition row to record when the
     state moved. The first relationship has subject `ha:<engine>`; a hub's other ones (Kea 3)
@@ -194,6 +241,7 @@ def ha_alerts(
     away is expected; ha_partner_down gives way to ha_degraded until the window ends.
     `quiet`: a config-reload or another transient wait is being absorbed (grace period): no
     alert opens, the transition row is still returned for the history.
+    `terminated` raises ha_terminated (critical) alone, with `cause` (terminated_cause).
     """
     engine = ha.family.kea_engine
     subject = f"ha:{engine.value}" if first else f"ha:{engine.value}:{ha.server_name}"
@@ -215,9 +263,29 @@ def ha_alerts(
     }
     if maintenance:
         base["maintenance"] = True
+    if partner is not None and partner.clock_skew is not None:
+        base["clock_skew"] = partner.clock_skew
     partner_down = ha.state in HA_PARTNER_DOWN_STATES or (partner is not None and partner.in_touch is False)
     if quiet:
         pass
+    elif ha.state == HA_TERMINATED_STATE:
+        found = cause or terminated_cause(ha, [], False)
+        out.append(
+            Alert(
+                kind=AlertKind.HA_TERMINATED,
+                severity=Severity.CRITICAL,
+                node_id=node_id,
+                engine=engine,
+                subject=subject,
+                **_title(
+                    "alert.ha_terminated",
+                    engine=engine.value,
+                    server=ha.server_name or node_id,
+                    cause=found["message"],
+                ),
+                details={**base, "cause": found["cause"], "cause_details": found["details"]},
+            )
+        )
     elif partner_down and not maintenance:
         out.append(
             Alert(
@@ -440,3 +508,50 @@ def custom_hook(node_id: str, engine: Engine, library: str, option: str | None) 
         **title,
         details={"library": library, "builtin_option": option},
     )
+def clock_skew(
+    node_id: str,
+    name: str,
+    reference_name: str,
+    offset: float,
+    uncertainty: float,
+    severity: str,
+    thresholds: dict[str, float],
+    suspect: str | None = None,
+) -> Alert:
+    """A peer's clock `offset` seconds off this node's (positive ahead), measured within
+    `uncertainty`. `suspect`: the node whose NTP says it is not synchronized, when only one does."""
+    return Alert(
+        kind=AlertKind.CLOCK_SKEW,
+        severity=Severity(severity),
+        node_id=node_id,
+        engine=None,
+        subject="clock",
+        **_title("alert.clock_skew", node=name, offset=f"{offset:+.1f}", reference=reference_name),
+        details={
+            "offset": round(offset, 3),
+            "uncertainty": round(uncertainty, 3),
+            "reference": reference_name,
+            "suspect": suspect,
+            **thresholds,
+        },
+    )
+
+
+def clock_unsynchronized(node_id: str, name: str, ntp: dict[str, Any]) -> Alert:
+    """NTP says this node's clock is not disciplined (or no time service runs): it drifts freely."""
+    return Alert(
+        kind=AlertKind.CLOCK_UNSYNCHRONIZED,
+        severity=Severity.WARNING,
+        node_id=node_id,
+        engine=None,
+        subject="ntp",
+        **_title("alert.clock_unsynchronized", node=name),
+        details={"ntp": ntp},
+    )
+
+
+def ntp_unsynchronized(ntp: dict[str, Any] | None) -> bool:
+    """True only when the node said so: an unknown state (no timedatectl, older peer) never alerts."""
+    if not isinstance(ntp, dict):
+        return False
+    return ntp.get("synchronized") is False or ntp.get("ntp_enabled") is False

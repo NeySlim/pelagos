@@ -591,6 +591,8 @@ def parse_target(target: str) -> Target:
         return Target("config")
     if target == "ha/maintenance":
         return Target("ha")
+    if target == "ha/restart":
+        return Target("ha_restart")
     if target == "service":
         return Target("service")
     if m := _SUBNET_RE.match(target):

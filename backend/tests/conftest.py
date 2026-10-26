@@ -38,6 +38,14 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
                 item.add_marker(pytest.mark.skip(reason="named and rndc are required"))
 
 
+@pytest.fixture(autouse=True)
+def _host_ntp_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The test host's own NTP state never leaks into alerts: it reads as unknown."""
+    from pelagos.core import clock
+
+    monkeypatch.setattr(clock, "NTP", clock.NtpCache(run=lambda argv: None))
+
+
 @pytest.fixture
 def tmp_root() -> Iterator[Path]:
     # A short path: Unix socket paths are capped near 108 bytes.

@@ -22,7 +22,7 @@ from pelagos.core.replication import ReplicationService
 from pelagos.domain import Engine, Family, HAMode, HAPartner, HAPeer, HAState, PlanState
 from pelagos.domain.common import new_id
 from pelagos.services.dhcp_service import DhcpService
-from pelagos.services.errors import ValidationError
+from pelagos.services.errors import ServiceError, ValidationError
 from pelagos.services.peer_actions import PeerActions
 from pelagos.services.peers import PeerGateway
 from pelagos.services.plan_service import PlanError, PlanService
@@ -172,6 +172,68 @@ def test_ha_maintenance_from_a_backup_node_goes_to_the_partner(four):
     # Without node_id the backup's own server would stay up: refused too.
     with pytest.raises(ValidationError, match="backup"):
         dhcp.plan("ha_maintenance", {"action": "start"}, "alice")
+
+
+def _terminate_pair(four: Four, skew: int = 75) -> None:
+    """Both active servers in terminated after their clocks drifted `skew` seconds apart."""
+    for i, node in enumerate(four.nodes[:2]):
+        node.kea.ha.state = "terminated"
+        node.kea.ha.partner.state = "terminated"
+        node.kea.ha.partner.clock_skew = skew if i == 0 else -skew
+
+
+def test_ha_repair_restarts_each_terminated_server_primary_last(four):
+    dhcp, plans = four.dhcp(3)
+    ns1, ns2, ns3, _ = four.nodes
+    with pytest.raises(ServiceError, match="terminated"):
+        dhcp.plan("ha_repair", {}, "alice")
+    _terminate_pair(four)
+    plan = dhcp.plan("ha_repair", {}, "alice")
+    # The standby first, the primary last: it waits for both to serve again.
+    assert plan.target_node_ids == [ns2.id, ns1.id] and plan.requires_confirmation
+    assert plan.state is PlanState.VALIDATED and plan.summary.startswith(
+        "repair kea4 HA: restart the HA service of server2 (ns2)"
+    )
+    assert plan.changes[0].target == "ha/restart" and plan.changes[0].after["order"] == [ns2.id, ns1.id]
+    clocks = [v for v in plan.validations if v.tool == "clock"]
+    assert [v.ok for v in clocks] == [True, True, True]
+    assert "Kea last measured 75 s" in clocks[-1].output
+    assert "+1. ns2: restart HA (config-reload)" in plan.diff and "+2. ns1: restart HA" in plan.diff
+    result = plans.apply(plan, "alice", confirm=True)
+    assert result.state is PlanState.APPLIED and [r.node_id for r in result.results] == [ns2.id, ns1.id]
+    assert ns1.kea.ha.state == ns2.kea.ha.state == "hot-standby"
+    assert ns1.kea.resets == ns2.kea.resets == 1 and not hasattr(ns3.kea, "resets")
+    # Nothing to undo: a rollback leaves the servers serving.
+    back = plans.rollback(plan, "alice")
+    assert back.state is PlanState.ROLLED_BACK and ns1.kea.ha.state == "hot-standby"
+
+
+def test_status_exchange_measures_each_peer_clock(four):
+    dhcp, _ = four.dhcp(0)
+    node = dhcp.peers.node(dhcp.peers.peer(four.nodes[1].id))
+    # Same host, same clock: the offset is well within the round trip.
+    assert node.clock is not None and abs(node.clock["offset"]) <= node.clock["uncertainty"] + 0.05
+    assert node.clock["ntp"]["source"] is None  # the test host's NTP state reads as unknown
+    assert four.nodes[0].ctx.self_node().clock["offset"] == 0.0
+
+
+def test_ha_repair_refuses_while_a_node_clock_is_off(four, monkeypatch):
+    dhcp, _ = four.dhcp(0)
+    _, ns2, *_ = four.nodes
+    _terminate_pair(four)
+    real = dhcp.peers.status
+
+    def skewed(peer):
+        status = real(peer)
+        if peer.id == ns2.id:
+            status.clock_offset, status.clock_uncertainty = 42.4, 0.01
+        return status
+
+    monkeypatch.setattr(dhcp.peers, "status", skewed)
+    plan = dhcp.plan("ha_repair", {}, "alice")
+    assert plan.state is PlanState.FAILED
+    assert plan.error.startswith("ns2: clock +42.4 s off ns1: synchronize the clocks (NTP) first")
+    assert [v.ok for v in plan.validations if v.tool == "clock"] == [False, True]
 
 
 def test_maintenance_cancel_finds_the_partner_when_the_server_is_down(four):

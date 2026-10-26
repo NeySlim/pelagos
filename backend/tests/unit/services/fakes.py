@@ -1558,6 +1558,12 @@ class FakeDhcpBackend(DhcpBackend):
                     if change.after == "start"
                     else (self.ha.mode.value if self.ha.mode else "hot-standby")
                 )
+            elif target == "ha/restart":
+                # A reset server serves again (the real connector waits for the pair).
+                if isinstance(change.after, dict) and change.after.get("action") == "restart":
+                    self.resets = getattr(self, "resets", 0) + 1
+                    if self.ha.state == "terminated":
+                        self.ha.state = self.ha.mode.value if self.ha.mode else "hot-standby"
             elif target == "hooks-libraries":
                 self.config["hooks-libraries"] = copy.deepcopy(change.after)
             elif target == "service":

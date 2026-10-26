@@ -38,6 +38,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "alerts_d2_error_rate": 0.05,
     "alerts_ha_grace_seconds": 45,
     "alerts_custom_hooks": True,
+    "alerts_clock_skew_warning_seconds": 5,
+    "alerts_clock_skew_critical_seconds": 30,
     "dns": {
         "read_key": "ddi-read",
         "admin_key": "ddi-admin",

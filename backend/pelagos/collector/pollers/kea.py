@@ -30,10 +30,12 @@ from typing import Any
 from pelagos.collector import rules
 from pelagos.collector.external import ExternalChangeWatcher
 from pelagos.collector.hooks import HookOwnership, builtin_equivalent, custom_libraries
+from pelagos.collector.kea_shared import divergent as divergent_nodes
 from pelagos.collector.kea_shared import shared_hashes
 from pelagos.collector.pollers import PollOutcome, engine_filter
 from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend
+from pelagos.core import clock as clock_mod
 from pelagos.core.keadoc import DEFAULT_CWD, KeaDocument, KeaFileUnreadable
 from pelagos.core.keafile import (
     KeaConfigError,
@@ -54,6 +56,7 @@ KEA_KINDS = frozenset(
         AlertKind.HA_DEGRADED.value,
         AlertKind.HA_PARTNER_DOWN.value,
         AlertKind.HA_TRANSITION.value,
+        AlertKind.HA_TERMINATED.value,
         AlertKind.CONFIG_DIVERGENCE.value,
         AlertKind.CUSTOM_HOOK.value,
     }
@@ -365,8 +368,9 @@ class KeaPoller:
             is_first = one is ha
             before = previous if is_first else self.last_other_states.get(one.server_name or "")
             quiet = self._ha_quiet(one, now)
+            cause = self.terminated_cause(one) if one.state == rules.HA_TERMINATED_STATE else None
             alerts, transition = rules.ha_alerts(
-                self.node_id, one, before, maintenance, first=is_first, quiet=quiet
+                self.node_id, one, before, maintenance, first=is_first, quiet=quiet, cause=cause
             )
             out.alerts.extend(self._keep_open(one, is_first, quiet, alerts))
             if transition is not None:
@@ -432,6 +436,34 @@ class KeaPoller:
         if span is None:
             return False
         return (now - span[0] if away else span[1] - span[0]) < self.ha_grace
+    def terminated_cause(self, ha: HAState) -> dict[str, Any]:
+        """rules.terminated_cause from what this node knows: the node clocks the peers poller
+        measured ("node"/"clock" snapshots) and the shared configuration hashes of every node."""
+        warning = float(self.settings.get("alerts_clock_skew_warning_seconds", 5))
+        skews: list[dict[str, Any]] = []
+        for snap in self.store.snapshots(engine="node"):
+            payload = snap["payload"]
+            if snap["kind"] != "clock" or snap["node_id"] == self.node_id or not isinstance(payload, dict):
+                continue
+            floor = clock_mod.skew_floor(payload.get("offset"), payload.get("uncertainty"))
+            if floor is not None:
+                skews.append(
+                    {
+                        "node_id": snap["node_id"],
+                        "name": payload.get("name"),
+                        "offset": payload.get("offset"),
+                        "floor": round(floor, 3),
+                    }
+                )
+        payloads = {
+            s["node_id"]: s["payload"]
+            for s in self.store.snapshots(engine=self.engine.value)
+            if s["kind"] == "config_hash" and isinstance(s["payload"], dict)
+        }
+        divergent = False
+        if len(payloads) > 1 and all("relationships" in p for p in payloads.values()):
+            divergent = bool(divergent_nodes(payloads)[0])
+        return rules.terminated_cause(ha, skews, divergent, warning)
 
     def ha_events(self, ha: HAState, out: PollOutcome) -> None:
         """`state` when the server's or its partner's state or contact changed, `unsent` when only the

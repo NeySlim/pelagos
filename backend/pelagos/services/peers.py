@@ -71,6 +71,13 @@ class PeerSilent(EngineUnavailable):
         self.extra = {"outcome_unknown": True}
 
 
+def node_clock(status: PeerStatus) -> dict[str, Any] | None:
+    """The clock part of a Node from a status exchange; None when the peer did not answer."""
+    if not status.reachable or (status.clock_offset is None and status.ntp is None):
+        return None
+    return {"offset": status.clock_offset, "uncertainty": status.clock_uncertainty, "ntp": status.ntp}
+
+
 class PeerGateway:
     def __init__(self, ctx: NodeContext, cache_seconds: float | None = None) -> None:
         self.ctx = ctx
@@ -153,6 +160,7 @@ class PeerGateway:
             audit_count=status.audit_count,
             last_seen=utcnow() if status.reachable else None,
             error=status.error,
+            clock=node_clock(status),
         )
 
     def forget(self, node_id: str | None = None) -> None:

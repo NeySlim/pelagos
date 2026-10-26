@@ -174,6 +174,7 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
         {"action": "start"},
         "ops:dhcp.ha",
     ),
+    ("POST", "/dhcp/<string:family>/ha/repair/plan", "/dhcp/v4/ha/repair/plan", {}, "ops:dhcp.ha"),
     ("GET", "/dhcp/<string:family>/ha/transitions", "/dhcp/v4/ha/transitions", None, "read:dhcp"),
     (
         "POST",

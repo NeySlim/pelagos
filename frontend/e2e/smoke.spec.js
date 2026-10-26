@@ -14,7 +14,7 @@ const PAGES = [
   ['/dns/acls-keys', 'page-dns-aclsKeys', 'acls-table'],
   ['/dns/secondaries', 'page-dns-secondaries', 'secondaries-table'],
   ['/dns/dnssec', 'page-dns-dnssec', 'dnssec-zones'],
-  ['/dns/rpz', 'page-dns-rpz', 'rpz-table'],
+  ['/dns/rpz', 'page-dns-rpz', 'rpz-categories'],
   ['/dns/catalogs', 'page-dns-catalogs', 'catalog-card'],
   ['/dns/instances', 'page-dns-instances', 'dns-instance-rcodes'],
   ...['v4', 'v6'].flatMap((family) =>

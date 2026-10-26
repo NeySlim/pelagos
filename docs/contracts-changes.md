@@ -56,6 +56,16 @@ What changed (file, symbol). Why. Which packages must react, and how.
   left in code (backend, frontend, mock); `CheckSettings` raises on an
   unknown attribute. Lots merging after this one: rename their new keys to
   the convention when they add settings, and add any rename to `RENAMED`.
+## 2026-10-26, KEA26: Kea 2.6.3 Debian pair proven on the lab
+- Section 15: `ha_terminated` keeps a clock skew cause through the NTP fix
+  (`rules.clock_cause_fixed`), and names this node when only its NTP is
+  unsynchronized. Kea 2.6.3 has no `clock-skew` in status-get (added in
+  3.0: `communication_state.cc` at the Kea-3.0.0 tag); the comment of
+  `HAPartner.clock_skew` in `domain/dhcp.py` says so. No shape change.
+- `core.keafile.kea_identifier`: file and running host identifiers compare
+  as the bytes Kea stores (Kea 2.6 prints a client-id as plain hex). Peer
+  hashes (`collector.kea_shared`) are unchanged.
+- WP-LAB-E2E: `tests/lab/test_kea26_lab.py`.
 
 ## 2026-10-26, PTR lot: PTR in record plans, orphan PTRs, consistency exceptions
 - Section 10: `cluster.toml [[exceptions]]`, records keyed by `id`

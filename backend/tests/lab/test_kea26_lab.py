@@ -13,6 +13,7 @@ hot-standby by the "Repair HA" plan. The VMs are rolled back first; the pair is 
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 
@@ -61,6 +62,31 @@ int multi_threading_compatible() { return 1; }
 }
 """
 SKEW = 90
+# BIND as in production (empty: the current Debian 13 one). Served by snapshot.debian.org, from the
+# debian-security snapshot where it appeared (2026-07-22, checked on 2026-10-26).
+BIND_VERSION = os.environ.get("PELAGOS_LAB_BIND_VERSION", "1:9.20.26-1~deb13u1")
+BIND_SNAPSHOT = os.environ.get(
+    "PELAGOS_LAB_BIND_SNAPSHOT", "https://snapshot.debian.org/archive/debian-security/20260722T215339Z"
+)
+BIND_PACKAGES = ("bind9", "bind9-utils", "bind9-dnsutils", "bind9-host", "bind9-libs")
+
+
+def pin_bind(host: str) -> None:
+    """Puts BIND_VERSION in place of the provisioned bind9 (held), configuration kept."""
+    if not BIND_VERSION:
+        return
+    source = f"deb [check-valid-until=no] {BIND_SNAPSHOT} trixie-security main"
+    wanted = " ".join(f"{p}={BIND_VERSION}" for p in BIND_PACKAGES)
+    ssh(
+        host,
+        f"echo '{source}' | sudo tee /etc/apt/sources.list.d/bind-snapshot.list >/dev/null"
+        " && sudo apt-get update -q >/dev/null"
+        " && sudo DEBIAN_FRONTEND=noninteractive"
+        f" apt-get install -y -q --allow-downgrades {wanted} >/dev/null"
+        f" && sudo apt-mark hold {' '.join(BIND_PACKAGES)} >/dev/null"
+        " && sudo systemctl restart named && sleep 2 && sudo rndc status >/dev/null",
+        timeout=900,
+    )
 
 
 def api(address: str) -> Api:
@@ -153,6 +179,7 @@ class TestKea26DebianPair:
         out = run_script("provision.sh", "all", timeout=1800)
         assert "HA: hot-standby" in out
         for host in (A1, A2):
+            pin_bind(host)
             # Hand-written reservations, the same on both peers.
             edit_kea_file(host, lambda cfg: cfg["Dhcp4"]["subnet4"][0].update(reservations=SEEDED))
             # Production had the kea-dhcp6 package with its default file, never started.
@@ -170,6 +197,8 @@ class TestKea26DebianPair:
             got = dict(line.split() for line in versions.splitlines())
             assert re.fullmatch(r"2\.6\.3-\d+\+deb13u\d+", got["kea-dhcp4-server"]), got
             assert re.fullmatch(r"1:9\.20\.\d+-\d+~deb13u\d+", got["bind9"]), got
+            assert not BIND_VERSION or got["bind9"] == BIND_VERSION, got
+            assert ssh(host, "/usr/sbin/named -v")[1].startswith("BIND 9.20.")
             assert ssh(host, "/usr/sbin/kea-dhcp4 -v")[1].strip() == "2.6.3"
         # config-get keeps neither the order nor the spelling of the file.
         running = [r["hostname"] for r in reservations(kea(A1, "config-get")["arguments"])]
@@ -285,8 +314,11 @@ class TestKea26DebianPair:
             running = reservations(kea(host, "config-get")["arguments"])
             assert any(r["hw-address"] == "02:00:00:00:00:50" for r in running if "hw-address" in r)
             written = reservations(keaconf.loads(sudo_cat(host, KEA4_CONF)))
-            # config-write kept the file's order, the new one last.
-            assert [r["hostname"] for r in written] == [*(r["hostname"] for r in SEEDED), "kiosk"], written
+            # A file without includes is persisted by config-write: Kea's own dump, in its order.
+            assert [r["hostname"] for r in written] == [r["hostname"] for r in running], written
+            assert sorted(r["hostname"] for r in written) == sorted(
+                [*(r["hostname"] for r in SEEDED), "kiosk"]
+            )
         wait_for("HA back in hot-standby", both_hot_standby, timeout=180, interval=5)
         quiet_for(150, lambda: file_divergence(A1), lambda: file_divergence(A2), lambda: peer_divergence(A1))
 

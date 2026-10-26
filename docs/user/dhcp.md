@@ -265,8 +265,11 @@ drift more than 60 seconds apart (it warns from 30 seconds), and does not
 recover on its own: the pair keeps serving clients, but each server hands
 out leases the other never hears of, and nothing on the DHCP side looks
 wrong. The HA page then shows a red banner with the servers concerned, the
-probable cause and the skew Kea measured; the partner box of each card
-shows that skew too ("clock +75 s (Kea)").
+probable cause and, on Kea 3.0 and later, the skew Kea measured; the
+partner box of each card shows that skew too ("clock +75 s (Kea)"). Kea 2.6
+reports no skew in `status-get`: the cause then comes from the node clocks
+Pelagos measures ("clock of node ns2 is 89.9 s off", naming the node that
+lost NTP), and stays in the alert once NTP is fixed, until the repair.
 
 1. Fix the clocks. The Clock column of the Nodes page shows each node's
    offset against the node you are on and its NTP state (`clock_skew` and
@@ -280,10 +283,10 @@ shows that skew too ("clock +75 s (Kea)").
    fail the plan: a restart would terminate again), then restarts the
    HA service of each active server one after the other, the primary last.
    The restart is a `config-reload`, which reloads the hook libraries and
-   starts the HA service afresh like a restart of the daemon (checked on
-   Kea 3; on Kea 2.6, restart the daemons by hand if the plan fails);
-   `ha-reset` is not enough, the state machine terminates again on the skew
-   it measured before. The plan is refused while a Kea file differs from the running
+   starts the HA service afresh like a restart of the daemon (the Kea 2.6
+   and 3.x ARM say so; the tests check it on Kea 3.2 and on Kea 2.6.3 from
+   Debian); `ha-reset` is not enough, the state machine terminates again
+   on the skew it measured before. The plan is refused while a Kea file differs from the running
    configuration (the reload would load the file).
 3. Each server leaves `terminated` (`waiting`), the last one waits until
    both serve again (`hot-standby` or `load-balancing`, about a minute,

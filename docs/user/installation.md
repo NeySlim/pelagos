@@ -419,16 +419,18 @@ clock difference between the peers; fix it first (`timedatectl status`,
 `chronyc tracking`), then restart the peers one after the other:
 
 1. On the first server, `sudo systemctl restart kea-dhcp4-server` (or
-   `isc-kea-dhcp4-server` for the ISC packages). Wait until its HA state is
-   `waiting`, then `hot-standby` or `load-balancing` (DHCP screen, HA tab).
-2. Only then restart the second server and wait for the same states.
-3. Both servers report `hot-standby` or `load-balancing` and the alert
-   closes.
+   `isc-kea-dhcp4-server` for the ISC packages). Its HA state goes to
+   `waiting` and stays there while its partner is still `terminated` (DHCP
+   screen, HA tab).
+2. Then restart the second server, within 10 minutes: past that the first
+   one goes back to `terminated` (Kea 2.6 ARM, "Clocks on Active Servers").
+3. Both servers report `hot-standby` or `load-balancing` within a minute and
+   the alert closes.
 
-Never restart both at the same time: the pair would start without a live
-partner. A plan that does this for you, "Repair HA" on the HA page, checks
-the clocks and restarts the peers in order; the steps above are the manual
-equivalent.
+Restart them one after the other, not both at once. A plan that does this
+for you, "Repair HA" on the HA page, checks the clocks and restarts the
+peers in order (a `config-reload`, which restarts the HA service as well);
+the steps above are the manual equivalent.
 
 ## From source (developers)
 

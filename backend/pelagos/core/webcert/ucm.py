@@ -130,7 +130,13 @@ class UcmClient:
         return resp.text
 
     def revoke(self, cert_id: Any, reason: str = "superseded") -> None:
-        self._data(
+        done = self._data(
             self._call("POST", f"/api/v2/certificates/{quote(str(cert_id))}/revoke", {"reason": reason}),
             f"revoke certificate {cert_id}",
         )
+        # A revocation policy may queue it (cert_lifecycle.py, approval_gate.approval_payload).
+        if isinstance(done, dict) and done.get("approval_required"):
+            raise UcmError(
+                f"UCM queued the revocation of certificate {cert_id} for approval "
+                f"({done.get('message') or done.get('policy_name')}): approve it in UCM"
+            )

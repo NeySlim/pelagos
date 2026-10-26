@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import quote
 
 import dns.exception
 import dns.flags
@@ -254,86 +255,124 @@ class Rfc2136Provider(DnsProvider):
 
 
 class HetznerProvider(DnsProvider):
-    """Hetzner DNS through the Hetzner Cloud API (UCM services/acme/dns_providers/hetzner.py)."""
+    """Hetzner DNS through the Hetzner Cloud API, the only one since the DNS Console API was shut
+    down in May 2026 (docs.hetzner.cloud/reference/cloud, Zones and Zone RRSet Actions, checked
+    2026-10-26). Records change through add_records and remove_records, which return an action
+    that is followed until it succeeds; TXT values are sent quoted, as the API stores them."""
 
     TYPE = "hetzner"
     LABEL = "Hetzner DNS"
     CREDENTIALS = ("api_token",)
     BASE_URL = "https://api.hetzner.cloud/v1"
+    ACTION_TIMEOUT = 60.0
 
-    def __init__(self, api_token: str, base_url: str | None = None) -> None:
+    def __init__(
+        self,
+        api_token: str,
+        base_url: str | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
         if not api_token:
             raise DnsChallengeError("the Hetzner API token is missing")
         self.token = api_token
         self.base_url = (base_url or self.BASE_URL).rstrip("/")
-        self._zones: list[dict[str, Any]] | None = None
+        self.sleep = sleep
+        self._zones: dict[str, dict[str, Any] | None] = {}
 
-    def _call(self, method: str, path: str, body: Any = None) -> Any:
+    def _call(self, method: str, path: str, body: Any = None, missing_ok: bool = False) -> Any:
         try:
             resp = http.request(
                 method, self.base_url + path, body=body, headers={"Authorization": f"Bearer {self.token}"}
             )
         except http.HttpError as exc:
             raise DnsChallengeError(f"Hetzner API: {exc}") from exc
-        if resp.status == 404 and method in ("GET", "DELETE"):
+        if resp.status == 404 and missing_ok:
             return None
         if not resp.ok:
-            raise DnsChallengeError(
-                f"Hetzner API {method} {path}: {resp.excerpt().replace(self.token, '***')}"
-            )
+            data = resp.json()
+            err = data.get("error") if isinstance(data, dict) else None
+            detail = f"{err.get('code')}: {err.get('message')}" if isinstance(err, dict) else resp.excerpt()
+            detail = str(detail)[: http.ERROR_EXCERPT].replace(self.token, "***")
+            raise DnsChallengeError(f"Hetzner API {method} {path.split('?')[0]}: HTTP {resp.status} {detail}")
         return resp.json()
 
     def _zone(self, name: str) -> dict[str, Any]:
-        if self._zones is None:
-            data = self._call("GET", "/zones?per_page=100") or {}
-            self._zones = list(data.get("zones", []))
-        labels = name.rstrip(".").split(".")
+        """The longest zone of the account holding `name`, looked up by exact name."""
+        labels = name.rstrip(".").lower().split(".")
         for i in range(len(labels) - 1):
             candidate = ".".join(labels[i:])
-            for zone in self._zones:
-                if zone.get("name", "").rstrip(".").lower() == candidate:
-                    return zone
+            if candidate not in self._zones:
+                data = self._call("GET", f"/zones?name={quote(candidate)}") or {}
+                found = [z for z in data.get("zones", []) if str(z.get("name", "")).lower() == candidate]
+                self._zones[candidate] = found[0] if found else None
+            zone = self._zones[candidate]
+            if zone is not None:
+                return zone
         raise DnsChallengeError(f"no Hetzner zone holds {name}")
 
-    def _rrset_path(self, name: str) -> tuple[str, str]:
+    def _rrset_path(self, name: str) -> str:
         zone = self._zone(name)
-        zname = zone["name"].rstrip(".").lower()
+        zname = str(zone["name"]).rstrip(".").lower()
+        # RRSet names are relative to the zone, lower case, "@" for the apex.
         relative = name.rstrip(".").lower()[: -len(zname) - 1] or "@"
-        return f"/zones/{zone['id']}/rrsets/{relative}/TXT", relative
+        return f"/zones/{zone['id']}/rrsets/{quote(relative, safe='@')}/TXT"
+
+    def _wait(self, answer: Any, what: str) -> None:
+        action = (answer or {}).get("action") or {}
+        deadline = time.monotonic() + self.ACTION_TIMEOUT
+        while action.get("status") == "running":
+            if time.monotonic() > deadline:
+                raise DnsChallengeError(
+                    f"Hetzner API: {what} still running after {int(self.ACTION_TIMEOUT)} s"
+                )
+            self.sleep(1.0)
+            action = (self._call("GET", f"/actions/{action['id']}") or {}).get("action") or {}
+        if action.get("status") == "error":
+            err = action.get("error") or {}
+            raise DnsChallengeError(f"Hetzner API: {what} failed: {err.get('code')}: {err.get('message')}")
+
+    def _values(self, path: str) -> tuple[list[str], int | None] | None:
+        rrset = (self._call("GET", path, missing_ok=True) or {}).get("rrset")
+        if not rrset:
+            return None
+        return [str(r.get("value")) for r in rrset.get("records", [])], rrset.get("ttl")
 
     def add_txt(self, name: str, value: str) -> None:
-        path, relative = self._rrset_path(name)
-        quoted = f'"{value}"'
-        current = self._call("GET", path)
-        records = list(((current or {}).get("rrset") or {}).get("records", []))
-        if any(r.get("value") == quoted for r in records):
+        path = self._rrset_path(name)
+        quoted = txt_quoted(value)
+        current = self._values(path)
+        if current is not None and quoted in current[0]:
             return
-        if records:
-            self._call("PATCH", path, {"records": [*records, {"value": quoted}], "ttl": TXT_TTL})
-        else:
-            zone_path = path.rsplit("/rrsets/", 1)[0]
-            self._call(
-                "POST",
-                f"{zone_path}/rrsets",
-                {"name": relative, "type": "TXT", "ttl": TXT_TTL, "records": [{"value": quoted}]},
-            )
+        body: dict[str, Any] = {"records": [{"value": quoted}]}
+        # A TTL given for an existing RRSet must equal its own: only a new RRSet gets ours.
+        if current is None:
+            body["ttl"] = TXT_TTL
+        self._wait(self._call("POST", f"{path}/actions/add_records", body), f"add TXT {name}")
 
     def delete_txt(self, name: str, value: str) -> None:
-        path, _relative = self._rrset_path(name)
-        current = self._call("GET", path)
-        records = list(((current or {}).get("rrset") or {}).get("records", []))
-        keep = [r for r in records if r.get("value") != f'"{value}"']
-        if not records:
+        path = self._rrset_path(name)
+        quoted = txt_quoted(value)
+        current = self._values(path)
+        if current is None or quoted not in current[0]:
             return
-        if keep:
-            self._call("PATCH", path, {"records": keep, "ttl": TXT_TTL})
-        else:
-            self._call("DELETE", path)
+        # The API deletes the RRSet itself once its last record goes.
+        answer = self._call(
+            "POST", f"{path}/actions/remove_records", {"records": [{"value": quoted}]}, missing_ok=True
+        )
+        if answer is not None:
+            self._wait(answer, f"remove TXT {name}")
 
     def test(self) -> str:
-        data = self._call("GET", "/zones?per_page=100") or {}
-        zones = [z.get("name") for z in data.get("zones", [])]
-        return f"{len(zones)} zones: {', '.join(zones[:10])}"
+        data = self._call("GET", "/zones?per_page=50") or {}
+        zones = [str(z.get("name")) for z in data.get("zones", [])]
+        total = ((data.get("meta") or {}).get("pagination") or {}).get("total_entries", len(zones))
+        return f"{total} zones: {', '.join(zones[:10])}"
+
+
+def txt_quoted(value: str) -> str:
+    """A TXT value as the Hetzner API takes it: one quoted character-string (ACME values are
+    43 base64url characters, nothing to escape)."""
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 PROVIDERS: dict[str, type[DnsProvider]] = {HetznerProvider.TYPE: HetznerProvider}

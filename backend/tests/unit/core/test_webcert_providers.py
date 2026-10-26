@@ -10,6 +10,7 @@ import pytest
 
 from pelagos.core.webcert import dns01, http, ucm
 from pelagos.core.webcert.acme import Challenge
+from tests.unit.core.hetzner_mock import HetznerCloudMock
 from tests.unit.core.webcert_pki import make_leaf, make_pki, pem_of
 
 pytestmark = pytest.mark.unit
@@ -42,37 +43,95 @@ def test_challenge_names_and_delegation():
     ]
 
 
-def test_hetzner_adds_to_and_removes_from_the_rrset(monkeypatch):
-    api = "https://api.hetzner.cloud/v1"
-    rrset = f"{api}/zones/z1/rrsets/_acme-challenge.ns1/TXT"
-    fake = FakeHttp(
-        {
-            ("GET", f"{api}/zones?per_page=100"): (200, {"zones": [{"id": "z1", "name": "example.lan"}]}),
-            ("GET", rrset): (200, {"rrset": {"records": [{"value": '"other"'}]}}),
-            ("PATCH", rrset): (200, {}),
-        }
-    )
-    monkeypatch.setattr(http, "request", fake)
-    provider = dns01.HetznerProvider("tok-secret-1")
-    provider.add_txt("_acme-challenge.ns1.example.lan.", "v1")
-    method, url, body, headers = fake.calls[-1]
-    assert (method, url) == ("PATCH", rrset)
-    assert body == {"records": [{"value": '"other"'}, {"value": '"v1"'}], "ttl": dns01.TXT_TTL}
-    assert headers["Authorization"] == "Bearer tok-secret-1"
-    provider.delete_txt("_acme-challenge.ns1.example.lan.", "other")
-    # The last value of the rrset goes: the rrset itself is deleted.
-    assert fake.calls[-1][:2] == ("DELETE", rrset)
+def hetzner(monkeypatch) -> HetznerCloudMock:
+    mock = HetznerCloudMock("tok-secret-1")
+    mock.add_zone("example.com")
+    mock.add_zone("sub.example.com")
+    monkeypatch.setattr(http, "request", mock)
+    return mock
 
 
-def test_hetzner_errors_never_echo_the_token(monkeypatch):
-    api = "https://api.hetzner.cloud/v1"
-    fake = FakeHttp(
-        {("GET", f"{api}/zones?per_page=100"): (401, {"error": {"message": "bad token tok-secret-1"}})}
-    )
-    monkeypatch.setattr(http, "request", fake)
+def test_hetzner_adds_and_removes_through_rrset_actions(monkeypatch):
+    mock = hetzner(monkeypatch)
+    provider = dns01.HetznerProvider("tok-secret-1", sleep=lambda _s: None)
+    name = "_acme-challenge.ns1.example.com."
+    provider.add_txt(name, "v1")
+    assert mock.records("example.com", "_acme-challenge.ns1") == ['"v1"']
+    zid = mock.zones[0]["id"]
+    assert mock.rrsets[(zid, "_acme-challenge.ns1", "TXT")]["ttl"] == dns01.TXT_TTL
+    path = f"/zones/{zid}/rrsets/_acme-challenge.ns1/TXT"
+    assert ("POST", f"{path}/actions/add_records", {"records": [{"value": '"v1"'}], "ttl": 60}) in mock.calls
+    # The running action is followed until it succeeds.
+    assert mock.calls[-1][0:2] == ("GET", f"/actions/{max(mock.actions)}")
+    # A second value (wildcard and base name) joins the RRSet without a TTL of its own.
+    provider.add_txt(name, "v2")
+    assert mock.records("example.com", "_acme-challenge.ns1") == ['"v1"', '"v2"']
+    assert mock.calls[-2][2] == {"records": [{"value": '"v2"'}]}
+    provider.add_txt(name, "v2")  # already there: nothing sent
+    assert mock.calls[-1][0] == "GET"
+    provider.delete_txt(name, "v1")
+    assert mock.records("example.com", "_acme-challenge.ns1") == ['"v2"']
+    provider.delete_txt(name, "v2")
+    # The last record gone, the API drops the RRSet; deleting again is a no-op.
+    assert mock.records("example.com", "_acme-challenge.ns1") is None
+    provider.delete_txt(name, "v2")
+    assert not any(c[0] in ("PATCH", "PUT", "DELETE") for c in mock.calls)
+
+
+def test_hetzner_picks_the_longest_zone_and_the_apex(monkeypatch):
+    mock = hetzner(monkeypatch)
+    provider = dns01.HetznerProvider("tok-secret-1", sleep=lambda _s: None)
+    provider.add_txt("_acme-challenge.www.sub.example.com.", "v")
+    assert mock.records("sub.example.com", "_acme-challenge.www") == ['"v"']
+    provider.add_txt("sub.example.com.", "apex")
+    assert mock.records("sub.example.com", "@") == ['"apex"']
+    lookups = [c[1] for c in mock.calls if c[1].startswith("/zones?")]
+    # Zones are looked up by exact name, longest first, once each.
+    assert lookups == [
+        "/zones?name=_acme-challenge.www.sub.example.com",
+        "/zones?name=www.sub.example.com",
+        "/zones?name=sub.example.com",
+    ]
+    with pytest.raises(dns01.DnsChallengeError, match="no Hetzner zone holds"):
+        provider.add_txt("_acme-challenge.ns1.example.org.", "v")
+
+
+def test_hetzner_failed_action_and_errors_never_echo_the_token(monkeypatch):
+    mock = hetzner(monkeypatch)
+    provider = dns01.HetznerProvider("tok-secret-1", sleep=lambda _s: None)
+    mock.fail_next_action = "zone is locked"
+    with pytest.raises(dns01.DnsChallengeError, match="action_failed: zone is locked"):
+        provider.add_txt("_acme-challenge.ns1.example.com.", "v")
+    assert provider.test().startswith("2 zones")
+    with pytest.raises(dns01.DnsChallengeError, match="HTTP 401 unauthorized") as err:
+        dns01.HetznerProvider("tok-wrong-2").test()
+    assert "tok-wrong-2" not in str(err.value)
+
+    def echo(method, url, **_kw):
+        return http.Response(400, {}, b'{"error": {"code": "invalid_input", "message": "bad tok-secret-1"}}')
+
+    monkeypatch.setattr(http, "request", echo)
     with pytest.raises(dns01.DnsChallengeError) as err:
         dns01.HetznerProvider("tok-secret-1").test()
-    assert "tok-secret-1" not in str(err.value)
+    assert "tok-secret-1" not in str(err.value) and "***" in str(err.value)
+
+
+def test_hetzner_provider_with_the_solver(monkeypatch):
+    """The whole DNS-01 round through the provider: placed, seen, removed."""
+    mock = hetzner(monkeypatch)
+
+    def visible(name, server):
+        return [v.strip('"') for v in mock.records("example.com", "_acme-challenge.ns1") or []]
+
+    monkeypatch.setattr(dns01.HetznerProvider, "check_servers", lambda self, n: [dns01.Server("192.0.2.1")])
+    monkeypatch.setattr(dns01, "txt_values", visible)
+    ch = Challenge("ns1.example.com", "dns-01", "u", "tok", "tok.thumb", "a")
+    provider = dns01.make_provider("hetzner", {"api_token": "tok-secret-1"})
+    solver = dns01.DnsSolver(provider, sleep=lambda _s: None)
+    solver.present([ch])
+    assert mock.records("example.com", "_acme-challenge.ns1") == [f'"{ch.txt_value}"']
+    solver.cleanup([ch])
+    assert mock.records("example.com", "_acme-challenge.ns1") is None
 
 
 def test_dns_solver_waits_for_every_server_and_cleans(monkeypatch):
@@ -195,3 +254,12 @@ def test_ucm_approval_and_refused_key(monkeypatch):
         client.cas()
     with pytest.raises(ucm.UcmError, match="https"):
         ucm.UcmClient("http://ucm.example.lan", "k")
+
+
+def test_ucm_revocation_queued_for_approval_is_not_taken_as_done(monkeypatch):
+    base = "https://ucm.example.lan"
+    queued = {"approval_required": True, "policy_name": "Revocations", "status": "pending_approval"}
+    fake = FakeHttp({("POST", f"{base}/api/v2/certificates/9/revoke"): (200, {"data": queued})})
+    monkeypatch.setattr(http, "request", fake)
+    with pytest.raises(ucm.UcmError, match="revocation of certificate 9 for approval"):
+        ucm.UcmClient(base, "key-123").revoke(9)

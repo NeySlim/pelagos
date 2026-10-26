@@ -6,6 +6,7 @@ read its input leaves the current alerts alone.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
 import subprocess
@@ -53,7 +54,10 @@ def _cluster(subject_end: str) -> Callable[[Alert], bool]:
     return lambda alert: alert.node_id is None and alert.subject.endswith(subject_end)
 
 
-def local_addresses() -> set[str]:
+def local_addresses(proc: Path = Path("/proc/net")) -> set[str]:
+    """Addresses of this host. The collector unit has no AF_NETLINK, so `ip` fails there: the kernel's
+    procfs tables (fib_trie LOCAL entries, if_inet6) are read first and `ip` only adds to them."""
+    out = _proc_addresses(proc)
     try:
         text = subprocess.run(
             ["ip", "-o", "addr", "show"],
@@ -63,8 +67,30 @@ def local_addresses() -> set[str]:
             check=False,
         ).stdout
     except (OSError, subprocess.SubprocessError):
-        return set()
-    return {m.group(1) for m in re.finditer(r"inet6? ([0-9a-fA-F:.]+)/", text)}
+        return out
+    return out | {m.group(1) for m in re.finditer(r"inet6? ([0-9a-fA-F:.]+)/", text)}
+
+
+def _proc_addresses(proc: Path) -> set[str]:
+    out: set[str] = set()
+    try:
+        last = None
+        for line in (proc / "fib_trie").read_text().splitlines():
+            m = re.match(r"\s*\|-- ([0-9.]+)$", line)
+            if m:
+                last = m.group(1)
+            elif last and "/32 host LOCAL" in line:
+                out.add(last)
+    except OSError:
+        pass
+    try:
+        for line in (proc / "if_inet6").read_text().splitlines():
+            raw = line.split()[0] if line.split() else ""
+            if len(raw) == 32:
+                out.add(ipaddress.IPv6Address(int(raw, 16)).compressed)
+    except (OSError, ValueError):
+        pass
+    return out
 
 
 def _ha_groups(nodes: set[str], relations: dict[str, set[str]]) -> list[list[str]]:

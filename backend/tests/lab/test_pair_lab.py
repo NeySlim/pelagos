@@ -548,6 +548,18 @@ class TestReferencePair:
             "settings replicated",
             lambda: api(A2).get("/admin/settings")["collector"]["poll_seconds"] == 60,
         )
+        # A primary listed in its own NS set needs no transfer right (the collector has no netlink).
+        for alert in open_alerts(A1, "delegation_issue"):
+            assert not (alert["subject"].startswith("ns-transfer:") and A1 in alert["details"]["addresses"])
+        # A health check alert ignored as the admin's choice resolves at once, and comes back on revoke.
+        keyed = [a for a in open_alerts(A1, "insecure_key") if a["details"].get("exception_keys")]
+        if keyed:
+            alert = keyed[0]
+            body = {"kind": "insecure_key", "key": alert["details"]["exception_keys"][0], "comment": "lab"}
+            created = api(A1).call("POST", "/alerts/exceptions", body)
+            gone = lambda: alert["id"] not in {a["id"] for a in open_alerts(A1, "insecure_key")}  # noqa: E731
+            wait_for("excepted alert resolved", gone, timeout=60, interval=3)
+            api(A1).call("DELETE", f"/alerts/exceptions/{created['id']}")
         for address in (A1, A2):
             assert api(address).get("/nodes/replication")["state"] == "ready"
             health = Api(address).get("/health")

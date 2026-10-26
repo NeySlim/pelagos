@@ -182,3 +182,40 @@ def test_delegation_failure_needs_two_passes_and_peers_follow_ha_groups(rig):
     assert collector.checks._confirmed([alert], 2) == []
     assert _ha_groups({"a", "b", "c"}, {}) == [["a", "b", "c"]]
     assert _ha_groups({"a", "b", "c"}, {"a": {"x", "y"}, "b": {"y", "x"}}) == [["a", "b"]]
+
+
+# /proc/net of a Debian 13 node (192.0.2.11 on eth0): what the collector reads without AF_NETLINK.
+FIB_TRIE = """Main:
+  +-- 0.0.0.0/0 3 0 5
+     |-- 0.0.0.0
+        /0 universe UNICAST
+     +-- 192.0.2.0/24 2 0 2
+        |-- 192.0.2.0
+           /24 link UNICAST
+        |-- 192.0.2.11
+           /32 host LOCAL
+        |-- 192.0.2.255
+           /32 link BROADCAST
+     +-- 127.0.0.0/8 2 0 2
+        |-- 127.0.0.0
+           /8 host LOCAL
+        |-- 127.0.0.1
+           /32 host LOCAL
+"""
+IF_INET6 = """20010db8000000000000000000000011 02 40 00 80     eth0
+00000000000000000000000000000001 01 80 10 80       lo
+"""
+
+
+def test_local_addresses_come_from_procfs_when_ip_cannot_run(tmp_path, monkeypatch):
+    from pelagos.collector.checks import runner
+
+    (tmp_path / "fib_trie").write_text(FIB_TRIE)
+    (tmp_path / "if_inet6").write_text(IF_INET6)
+
+    def no_netlink(*_a, **_k):
+        raise OSError("Address family not supported by protocol")
+
+    monkeypatch.setattr(runner.subprocess, "run", no_netlink)
+    assert runner.local_addresses(tmp_path) == {"192.0.2.11", "127.0.0.1", "2001:db8::11", "::1"}
+    assert runner.local_addresses(tmp_path / "missing") == set()

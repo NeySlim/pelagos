@@ -129,6 +129,8 @@ export const dhcp = {
   ha: (family) => apiClient.get(`/dhcp/${family}/ha`),
   haMaintenancePlan: (family, node_id, action) =>
     apiClient.post(`/dhcp/${family}/ha/maintenance/plan`, { node_id, action }),
+  // Restart the HA service of each terminated server in turn; server_name narrows to its relationship.
+  haRepairPlan: (family, server_name) => apiClient.post(`/dhcp/${family}/ha/repair/plan`, server_name ? { server_name } : {}),
   // The relationship written on every node of it: { mode, servers: [{ name, url, role, node_id? }] }, or { remove: true }.
   haSetupPlan: (family, body) => apiClient.post(`/dhcp/${family}/ha/setup/plan`, body),
   haTransitions: (family, params) => apiClient.get(`/dhcp/${family}/ha/transitions${buildQueryString(params)}`),

@@ -241,6 +241,7 @@
     "notInTouch": "not in touch",
     "noTransitions": "No transition recorded",
     "partnerAge": "seen {{seconds}} s ago",
+    "partnerSkew": "clock {{seconds}} s (Kea)",
     "partnerRole": "role {{role}}",
     "partnerState": "Partner state",
     "partnerView": "Partner as seen from here",
@@ -276,6 +277,12 @@
         "true": {
           "title": "Remove HA from every server?",
           "message": "The ha hook is removed from {{server}}. Each server then serves its clients alone; leases are no longer copied."
+        }
+      },
+      "repair": {
+        "true": {
+          "title": "Repair HA on {{server}}?",
+          "message": "Pelagos checks that the node clocks agree, then restarts the HA service of each server in turn (config-reload) and waits until both serve in hot-standby or load-balancing. DHCP keeps being answered during the repair."
         }
       }
     },
@@ -336,7 +343,16 @@
     "leasesOf": "{{server}} holds {{count}}",
     "inStep": "in step",
     "leaseGap": "{{n}} apart",
-    "relationshipTitle": "Relationship {{n}}: {{mode}}, {{servers}}"
+    "relationshipTitle": "Relationship {{n}}: {{mode}}, {{servers}}",
+    "terminated": {
+      "title": "HA terminated on {{servers}}",
+      "explain": "The servers keep answering DHCP clients but exchange neither heartbeats nor lease updates: their lease databases drift apart until the HA service is restarted.",
+      "cause": "Probable cause: {{cause}}",
+      "keaSkew": "Kea measured a clock skew of {{seconds}} s with {{partner}} before terminating.",
+      "steps": "Fix the clocks first (NTP, see the Clock column of the Nodes page), then repair: Pelagos restarts each server's HA service one after the other.",
+      "repair": "Repair HA",
+      "nodes": "Check the clocks"
+    }
   },
   "ddns": {
     "add": "Add parameter",

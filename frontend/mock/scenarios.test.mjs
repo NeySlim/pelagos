@@ -119,6 +119,26 @@ describe('mock Kea 3 hub and spoke', () => {
     expect(bad.data.errors[0].field).toBe('relationships[1].servers[0].url')
   })
 
+  it('repairs a terminated HA: clocks checked, the primary restarted last', async () => {
+    await fetch(`${base}/_mock/scenario`, { method: 'POST', body: JSON.stringify({ name: 'terminated' }) })
+    const call = await session()
+    const ha = (await call('GET', '/dhcp/v4/ha')).data.items
+    expect(ha.map((h) => `${h.server_name}:${h.state}:${h.partner.clock_skew}`)).toEqual(['ns1:terminated:75', 'ns2:terminated:-75'])
+    const open = (await call('GET', '/alerts?kind=ha_terminated&state=open')).data.items
+    expect(open[0].details.cause).toBe('clock_skew')
+    const nodes = (await call('GET', '/nodes')).data.items
+    expect(nodes.every((n) => n.clock?.ntp?.synchronized)).toBe(true)
+    const plan = (await call('POST', '/dhcp/v4/ha/repair/plan', {})).data
+    expect(plan.target_node_ids).toEqual([ids().ns2, ids().ns1])
+    expect(plan.state).toBe('validated')
+    expect(plan.validations.map((v) => v.tool)).toEqual(['clock', 'clock'])
+    expect((await call('POST', `/plans/${plan.id}/apply`, { confirm: true })).status).toBe(200)
+    const after = (await call('GET', '/dhcp/v4/ha')).data.items
+    expect(after.map((h) => h.state)).toEqual(['hot-standby', 'hot-standby'])
+    expect((await call('GET', '/alerts?kind=ha_terminated&state=open')).data.items).toEqual([])
+    expect((await call('POST', '/dhcp/v4/ha/repair/plan', {})).status).toBe(409)
+  })
+
   it('compares a backup with its primary in four nodes', async () => {
     await fetch(`${base}/_mock/scenario`, { method: 'POST', body: JSON.stringify({ name: 'four' }) })
     const call = await session()

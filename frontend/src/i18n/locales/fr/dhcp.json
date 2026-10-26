@@ -241,6 +241,7 @@
     "notInTouch": "sans contact",
     "noTransitions": "Aucune bascule enregistrée",
     "partnerAge": "vu il y a {{seconds}} s",
+    "partnerSkew": "horloge {{seconds}} s (Kea)",
     "partnerRole": "rôle {{role}}",
     "partnerState": "État du partenaire",
     "partnerView": "Partenaire vu d'ici",
@@ -276,6 +277,12 @@
         "true": {
           "title": "Retirer la HA de tous les serveurs ?",
           "message": "Le hook ha est retiré de {{server}}. Chaque serveur sert alors ses clients seul ; les baux ne sont plus copiés."
+        }
+      },
+      "repair": {
+        "true": {
+          "title": "Réparer la HA de {{server}} ?",
+          "message": "Pelagos vérifie que les horloges des nœuds concordent, puis redémarre le service HA de chaque serveur l'un après l'autre (config-reload) et attend que les deux servent en hot-standby ou load-balancing. Le DHCP continue de répondre pendant la réparation."
         }
       }
     },
@@ -336,7 +343,16 @@
     "leasesOf": "{{server}} en a {{count}}",
     "inStep": "à jour",
     "leaseGap": "écart de {{n}}",
-    "relationshipTitle": "Relation {{n}} : {{mode}}, {{servers}}"
+    "relationshipTitle": "Relation {{n}} : {{mode}}, {{servers}}",
+    "terminated": {
+      "title": "HA arrêtée (terminated) sur {{servers}}",
+      "explain": "Les serveurs répondent toujours aux clients DHCP mais n'échangent plus ni battements ni mises à jour de baux : leurs bases de baux divergent jusqu'au redémarrage du service HA.",
+      "cause": "Cause probable : {{cause}}",
+      "keaSkew": "Kea a mesuré un décalage d'horloge de {{seconds}} s avec {{partner}} avant de s'arrêter.",
+      "steps": "Corrigez d'abord les horloges (NTP, voir la colonne Horloge de la page Nœuds), puis réparez : Pelagos redémarre le service HA de chaque serveur l'un après l'autre.",
+      "repair": "Réparer la HA",
+      "nodes": "Vérifier les horloges"
+    }
   },
   "ddns": {
     "add": "Ajouter un paramètre",

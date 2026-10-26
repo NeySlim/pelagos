@@ -26,6 +26,7 @@ const ALERT_KINDS = [
   'custom_hook', 'rpz_update',
   'disk_space', 'file_growth', 'reservation_risk', 'declined_addresses', 'resolver_health', 'delegation_issue',
   'version_mismatch', 'restart_loop', 'pool_forecast', 'security_advisory',
+  'ha_terminated', 'clock_skew', 'clock_unsynchronized',
 ]
 
 describe('dashboard i18n', () => {

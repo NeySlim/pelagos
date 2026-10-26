@@ -20,7 +20,14 @@
     "status": "État",
     "url": "Adresse",
     "version": "Version",
-    "haRole": "HA Kea"
+    "haRole": "HA Kea",
+    "clock": "Horloge"
+  },
+  "clock": {
+    "reference": "référence",
+    "within": "mesuré à {{seconds}} s près",
+    "synced": "NTP synchronisé",
+    "unsynced": "NTP non synchronisé"
   },
   "list": {
     "empty": "Aucun nœud",

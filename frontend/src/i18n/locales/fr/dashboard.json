@@ -152,7 +152,10 @@
     "version_mismatch": "versions différentes",
     "restart_loop": "redémarrages en boucle",
     "pool_forecast": "prévision de pool",
-    "security_advisory": "avis de sécurité"
+    "security_advisory": "avis de sécurité",
+    "ha_terminated": "HA arrêtée (terminated)",
+    "clock_skew": "décalage d'horloge",
+    "clock_unsynchronized": "horloge non synchronisée"
   },
   "live": {
     "label": "Direct",

@@ -152,7 +152,10 @@
     "version_mismatch": "version mismatch",
     "restart_loop": "restart loop",
     "pool_forecast": "pool forecast",
-    "security_advisory": "security advisory"
+    "security_advisory": "security advisory",
+    "ha_terminated": "HA terminated",
+    "clock_skew": "clock skew",
+    "clock_unsynchronized": "clock not synchronized"
   },
   "live": {
     "label": "Live",

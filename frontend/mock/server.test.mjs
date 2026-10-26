@@ -102,6 +102,7 @@ const BODIES = {
   'POST /dhcp/{family}/options/plan': { changes: [{ op: 'add', target: 'option-data/dhcp4/time-offset', after: { name: 'time-offset', code: 2, data: '3600' } }] },
   'POST /dhcp/{family}/reservations/plan': { change: { op: 'add', after: { subnet_id: 1, identifier: '02:00:5e:00:99:99', ip_address: '192.0.2.99', hostname: 'new' } } },
   'POST /dhcp/{family}/ha/maintenance/plan': { action: 'start' },
+  'POST /dhcp/{family}/ha/repair/plan': {},
   'POST /dhcp/{family}/service/plan': { enable: false },
   'POST /dhcp/{family}/ddns/plan': { changes: [{ op: 'replace', target: 'ddns-update-on-renew', after: true }] },
   'POST /dhcp/{family}/hooks/plan': { changes: [{ op: 'replace', target: 'hooks-libraries', after: [] }] },
@@ -142,6 +143,7 @@ const EXPECTED = {
   'POST /dns/zones/{zone}/retransfer': 409, // example.lan is a primary zone
   'POST /dns/catalog-zones/{zone}/members/plan': 404, // example.lan is not a catalog
   'POST /dhcp/{family}/ha/maintenance/plan': 404, // node_id missing on purpose
+  'POST /dhcp/{family}/ha/repair/plan': 409, // no server is terminated in the pair scenario
   'POST /dhcp/{family}/service/plan': 404,
   'GET /plans/{id}': 404,
   'POST /plans/{id}/apply': 404,

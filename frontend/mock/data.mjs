@@ -38,7 +38,9 @@ const NODE_IDS = {
 export const SELF_ID = NODE_IDS.ns1
 // Nodes of each scenario; ns3 and ns4 are Kea HA backups and BIND secondaries. In `hub` (Kea 3
 // hub and spoke) ns1 is the standby of two relationships, one with ns2, one with ns3.
-export const SCENARIOS = { pair: ['ns1', 'ns2'], three: ['ns1', 'ns2', 'ns3'], four: ['ns1', 'ns2', 'ns3', 'ns4'], hub: ['ns1', 'ns2', 'ns3'] }
+// `terminated`: the pair after a clock drift, NTP fixed since, Kea's DHCPv4 HA still terminated.
+export const SCENARIOS = { pair: ['ns1', 'ns2'], three: ['ns1', 'ns2', 'ns3'], four: ['ns1', 'ns2', 'ns3', 'ns4'], hub: ['ns1', 'ns2', 'ns3'], terminated: ['ns1', 'ns2'] }
+const NTP_SYNCED = { source: 'chrony', synchronized: true, ntp_enabled: true, offset: 0.0004, stratum: 3, reference: '192.0.2.1' }
 const FINGERPRINTS = { ns1: 'a3f1c2', ns2: 'b7e9d4', ns3: 'c4d8e1', ns4: 'd2a7f9' }
 const isBackup = (name) => name === 'ns3' || name === 'ns4'
 
@@ -67,6 +69,8 @@ function makeNodes(names) {
     audit_count: name === 'ns4' ? 316 : 318,
     last_seen: ago(2 + i * 2),
     error: null,
+    // Measured on the last status exchange from ns1 (the reference).
+    clock: { offset: name === 'ns1' ? 0 : [0.004, -0.012, 0.31][i % 3], uncertainty: name === 'ns1' ? 0 : 0.003, ntp: NTP_SYNCED },
   }))
 }
 
@@ -728,15 +732,17 @@ function makeHubHa(family) {
   ]
 }
 
-function makeHa(family, names) {
+function makeHa(family, names, terminated = false) {
   // DHCPv6 runs on the pair only; DHCPv4 has the backups too.
   const members = family === 'v6' ? names.filter((n) => !isBackup(n)) : names
   const peers = haPeers(members)
-  return members.map((name) =>
-    isBackup(name)
-      ? haState(NODE_IDS[name], family, name, null, 'backup', 'backup', peers)
-      : haState(NODE_IDS[name], family, name, 'hot-standby', 'hot-standby', ROLE_OF[name], peers),
-  )
+  return members.map((name) => {
+    if (isBackup(name)) return haState(NODE_IDS[name], family, name, null, 'backup', 'backup', peers)
+    if (!terminated) return haState(NODE_IDS[name], family, name, 'hot-standby', 'hot-standby', ROLE_OF[name], peers)
+    // Kea's last reading before it terminated: ns2's clock ran 75 s ahead.
+    const st = haState(NODE_IDS[name], family, name, 'terminated', 'terminated', ROLE_OF[name], peers)
+    return { ...st, partner: { ...st.partner, age: 86400, clock_skew: name === 'ns1' ? 75 : -75 } }
+  })
 }
 
 function d2Stats(nodeId, errors) {
@@ -797,6 +803,42 @@ function dhcpCapabilities(engine) {
 
 // A backend message (architecture section 19): the UI renders it, `title` is its English.
 const msg = (key, params = {}) => ({ key, params })
+
+// The terminated scenario: HA stopped days ago on clock skew; the clock alert resolved once NTP
+// was fixed, the HA alert stays until the servers are restarted.
+function terminatedAlerts() {
+  const cause = msg('alert.ha_cause.clock_skew', { seconds: 75, partner: 'ns2' })
+  const base = { acked_by: null, acked_at: null, first_seen: ago(3 * 86400), last_seen: ago(30), engine: 'kea4' }
+  return [
+    {
+      ...base,
+      id: 'ALRT0000000000000000000020',
+      kind: 'ha_terminated',
+      severity: 'critical',
+      state: 'open',
+      node_id: NODE_IDS.ns1,
+      subject: 'ha:kea4',
+      title: 'kea4 HA is terminated on ns1: clock skew of 75 s with ns2',
+      title_message: msg('alert.ha_terminated', { engine: 'kea4', server: 'ns1', cause }),
+      details: { state: 'terminated', partner: 'ns2', clock_skew: 75, cause: 'clock_skew', cause_details: { source: 'kea', partner: 'ns2', clock_skew: 75 } },
+      resolved_at: null,
+    },
+    {
+      ...base,
+      id: 'ALRT0000000000000000000021',
+      kind: 'clock_skew',
+      severity: 'critical',
+      state: 'resolved',
+      engine: null,
+      node_id: NODE_IDS.ns2,
+      subject: 'clock',
+      title: 'clock of node ns2 is +75.2 s off ns1',
+      title_message: msg('alert.clock_skew', { node: 'ns2', offset: '+75.2', reference: 'ns1' }),
+      details: { offset: 75.2, uncertainty: 0.004, reference: 'ns1', suspect: NODE_IDS.ns2, warning_seconds: 5, critical_seconds: 30 },
+      resolved_at: ago(600),
+    },
+  ]
+}
 
 function makeAlerts(names) {
   const a = (id, kind, severity, state, subject, title, extra = {}) => ({
@@ -1045,7 +1087,7 @@ export function createState(scenario = 'pair') {
     },
     reservations: { v4: reservations4, v6: makeReservations6() },
     leases: { v4: makeLeases4(seeds, names), v6: makeLeases6() },
-    ha: scenario === 'hub' ? { v4: makeHubHa('v4'), v6: makeHubHa('v6') } : { v4: makeHa('v4', names), v6: makeHa('v6', names) },
+    ha: scenario === 'hub' ? { v4: makeHubHa('v4'), v6: makeHubHa('v6') } : { v4: makeHa('v4', names, scenario === 'terminated'), v6: makeHa('v6', names) },
     serviceEnabled: { v4: Object.fromEntries(ids.map((id) => [id, true])), v6: Object.fromEntries(pairIds.map((id) => [id, true])) },
     ddns: {
       v4: {
@@ -1077,7 +1119,7 @@ export function createState(scenario = 'pair') {
     },
     availableHooks: [['lease_cmds', 'Lease commands (lease4-get, lease4-del, ...)'], ['host_cmds', 'Host reservation commands'], ['subnet_cmds', 'Subnet and shared network commands'], ['stat_cmds', 'Lease statistics per subnet and pool'], ['ha', 'High availability'], ['flex_id', 'Flexible identifier'], ['class_cmds', 'Client class commands'], ['run_script', 'External script hook'], ['bootp', 'BOOTP support'], ['limits', 'Rate limits per class or subnet']].map(([name, description]) => ({ name, description })),
     d2: { [NODE_IDS.ns1]: d2Stats(NODE_IDS.ns1, 0), [NODE_IDS.ns2]: d2Stats(NODE_IDS.ns2, 4) },
-    alerts: makeAlerts(names),
+    alerts: [...makeAlerts(names), ...(scenario === 'terminated' ? terminatedAlerts() : [])],
     // Section 9: the D2 file of this node was edited by hand; the Kea files agree.
     keaFiles: {
       v4: { path: '/etc/kea/kea-dhcp4.conf', diverged: false, differences: [] },

@@ -5,8 +5,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
-const db = vi.hoisted(() => ({ ha: [], relationships: [], nodes: [] }))
+const db = vi.hoisted(() => ({ ha: [], relationships: [], nodes: [], alerts: [] }))
 const setupPlan = vi.hoisted(() => vi.fn())
+const repairPlan = vi.hoisted(() => vi.fn())
 
 vi.mock('../../hooks/useWebSocket', () => ({
   useWebSocket: () => ({ isConnected: true }),
@@ -20,7 +21,9 @@ vi.mock('../../services/api', () => {
       haTransitions: async () => ({ items: [] }),
       configFile: async () => ({}),
       haSetupPlan: (...args) => setupPlan(...args),
+      haRepairPlan: (...args) => repairPlan(...args),
     },
+    alerts: { list: async () => ({ items: db.alerts }) },
     d2: { configFile: async () => ({}) },
     nodes: { list: async () => ({ items: db.nodes }) },
   }
@@ -53,6 +56,8 @@ const relServer = (p, extra) => ({ ...p, auto_failover: null, node_id: ID[p.name
 beforeEach(() => {
   resetNodeNameCache()
   setupPlan.mockReset()
+  repairPlan.mockReset()
+  db.alerts = []
   db.nodes = ['ns1', 'ns2', 'ns3'].map(node)
   db.ha = [state('ns3', 'backup', 'backup'), state('ns1', 'primary', 'hot-standby', 'ns2'), state('ns2', 'standby', 'hot-standby', 'ns1')]
   db.relationships = [
@@ -94,6 +99,39 @@ describe('HA page with backups', () => {
     expect(within(cards[2]).queryByTestId('ha-maintenance-start')).toBeNull()
     expect(within(cards[0]).getByTestId('ha-maintenance-start')).toBeInTheDocument()
     expect(screen.getByTestId('ha-summary')).toHaveTextContent('2 backup(s) in step')
+  })
+
+  it('a healthy relationship shows no terminated banner', async () => {
+    renderPage()
+    await screen.findByTestId('ha-servers')
+    expect(screen.queryByTestId('ha-terminated-banner')).toBeNull()
+  })
+
+  it('terminated: the banner gives the probable cause, Kea skew and builds the repair plan', async () => {
+    const stuck = (name, role, partner, skew) => {
+      const s = state(name, role, 'terminated', partner)
+      return { ...s, partner: { ...s.partner, state: 'terminated', clock_skew: skew } }
+    }
+    db.ha = [state('ns3', 'backup', 'backup'), stuck('ns1', 'primary', 'ns2', 75), stuck('ns2', 'standby', 'ns1', -75)]
+    db.alerts = [
+      {
+        id: 'A1', kind: 'ha_terminated', engine: 'kea4', state: 'open', severity: 'critical',
+        title: 'kea4 HA is terminated on ns1: clock skew of 75 s with ns2',
+        title_message: { key: 'alert.ha_terminated', params: { engine: 'kea4', server: 'ns1', cause: { key: 'alert.ha_cause.clock_skew', params: { seconds: 75, partner: 'ns2' } } } },
+        details: { cause: 'clock_skew' },
+      },
+    ]
+    repairPlan.mockResolvedValue({ id: 'R', summary: 'repair kea4 HA: restart the HA service of ns2 (ns2), ns1 (ns1) one after the other', changes: [], target_node_ids: ['N2', 'N1'] })
+    renderPage()
+    const banner = await screen.findByTestId('ha-terminated-banner')
+    expect(banner).toHaveTextContent('HA terminated on ns1, ns2')
+    expect(await within(banner).findByTestId('ha-terminated-cause')).toHaveTextContent('Probable cause: clock skew of 75 s with ns2')
+    expect(within(banner).getAllByTestId('ha-terminated-skew')[0]).toHaveTextContent('Kea measured a clock skew of 75 s with ns2')
+    expect(screen.getAllByTestId('ha-partner-skew')[0]).toHaveTextContent('clock +75 s (Kea)')
+    fireEvent.click(within(banner).getByTestId('ha-repair'))
+    fireEvent.click(await screen.findByTestId('confirm-button'))
+    await waitFor(() => expect(repairPlan).toHaveBeenCalledWith('v4'))
+    expect(await screen.findByTestId('plan-preview')).toHaveTextContent('restart the HA service')
   })
 
   it('edits the relationship: a backup added, the plan built for every node', async () => {

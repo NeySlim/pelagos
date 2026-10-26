@@ -27,6 +27,7 @@ import { AreaPage, SectionError } from '../dhcp/ui'
 import { resetNodeNameCache } from '../dhcp/hooks'
 import { flattenHa } from '../dhcp/haSetup'
 import { EnrollTokenDialog } from './EnrollTokenDialog'
+import { formatOffset, ntpState, skewTone } from './clock'
 
 const MODULES = ['bind', 'kea4', 'kea6', 'd2']
 const NODES_POLL_MS = 10000
@@ -128,7 +129,8 @@ export default function NodesPage() {
   useWsTopic('nodes', (msg) => {
     const next = msg?.data
     if (!next?.peer?.id) return
-    nodes.setData((cur) => (cur?.items ? { ...cur, items: cur.items.map((n) => (n.peer.id === next.peer.id ? next : n)) } : cur))
+    // The collector's node events carry no clock: keep the last one read from the API.
+    nodes.setData((cur) => (cur?.items ? { ...cur, items: cur.items.map((n) => (n.peer.id === next.peer.id ? { ...next, clock: next.clock ?? n.clock } : n)) } : cur))
   })
 
   const items = useMemo(() => nodes.data?.items || [], [nodes.data])
@@ -188,6 +190,33 @@ export default function NodesPage() {
       ),
     },
     { key: 'audit_count', label: t('fields.auditCount'), mono: true },
+    {
+      key: 'clock',
+      label: t('fields.clock'),
+      render: (n) => {
+        const ntp = ntpState(n.clock)
+        const tone = skewTone(n.clock)
+        return (
+          <span className="inline-flex flex-wrap items-center gap-1.5" data-testid="node-clock" data-tone={tone}>
+            {n.is_self ? (
+              <span className="text-text-tertiary">{t('clock.reference')}</span>
+            ) : (
+              <span
+                className={`font-mono ${tone === 'danger' ? 'status-danger-text' : tone === 'warning' ? 'status-warning-text' : ''}`}
+                title={n.clock?.uncertainty !== undefined && n.clock?.uncertainty !== null ? t('clock.within', { seconds: Number(n.clock.uncertainty).toFixed(3) }) : undefined}
+              >
+                {formatOffset(n.clock?.offset)}
+              </span>
+            )}
+            {ntp !== 'unknown' && (
+              <Badge variant={ntp === 'synced' ? 'success' : 'warning'} size="sm" title={n.clock?.ntp?.source || undefined}>
+                {t(`clock.${ntp}`)}
+              </Badge>
+            )}
+          </span>
+        )
+      },
+    },
     {
       key: 'ha',
       label: t('fields.haRole'),

@@ -50,6 +50,7 @@ const PERMISSIONS = {
   'POST /dhcp/{family}/client-classes/plan': 'write:dhcp.classes', 'POST /dhcp/{family}/options/plan': 'write:dhcp.options',
   'POST /dhcp/{family}/reservations/plan': 'write:dhcp.reservations', 'POST /dhcp/{family}/leases/{ip}/delete/plan': 'ops:dhcp.leases',
   'POST /dhcp/{family}/ha/maintenance/plan': 'ops:dhcp.ha', 'POST /dhcp/{family}/service/plan': 'ops:dhcp.ha',
+  'POST /dhcp/{family}/ha/repair/plan': 'ops:dhcp.ha',
   'POST /dhcp/{family}/ha/setup/plan': 'write:dhcp.config', 'POST /dns/zones/{zone}/secondaries/plan': 'write:dns.zones',
   'POST /dhcp/{family}/ddns/plan': 'write:dhcp.options', 'POST /dhcp/{family}/hooks/plan': 'write:dhcp.config',
   'POST /dhcp/{family}/config/plan': 'write:dhcp.config', 'POST /dhcp/d2/config/plan': 'write:dhcp.config',
@@ -1999,6 +2000,53 @@ function buildHandlers(state, emit) {
         },
         rollback() {
           for (const b of before) b.h.state = b.state
+        },
+      })
+    },
+    // As the backend: node clocks checked, then the HA service of each server restarted in turn (primary last).
+    'POST /dhcp/{family}/ha/repair/plan': ({ params, user }) => {
+      const flat = flatHa(state.ha[params.family])
+      const stuck = flat.filter((h) => h.state === 'terminated')
+      if (!stuck.length) throw new Problem(409, 'conflict', 'no HA server is in the terminated state')
+      const involved = flat.filter((h) => h.role !== 'backup' && stuck.some((s) => s.server_name === h.server_name || s.partner?.server_name === h.server_name))
+      involved.sort((a, b) => (a.role === 'primary') - (b.role === 'primary'))
+      const order = [...new Set(involved.map((h) => h.node_id))]
+      const validations = order.map((id) => {
+        const clock = state.nodes.find((n) => n.peer.id === id)?.clock
+        const offset = Number(clock?.offset ?? 0)
+        const ok = Math.abs(offset) - Number(clock?.uncertainty ?? 0) < (state.settings.alerts_clock_skew_warning_seconds ?? 5)
+        const sign = offset >= 0 ? '+' : '-'
+        return { ok, tool: 'clock', node_id: id, output: `${nodeName(state, id)}: clock ${sign}${Math.abs(offset).toFixed(1)} s${ok ? '' : ': synchronize the clocks (NTP) first'}` }
+      })
+      const servers = involved.map((h) => `${h.server_name} (${nodeName(state, h.node_id)})`).join(', ')
+      const before = involved.map((h) => ({ h, state: h.state, partner: { ...h.partner } }))
+      return createPlan(state, user, {
+        scope: 'dhcp.ha',
+        engine: kea(params.family),
+        summary: `repair ${kea(params.family)} HA: restart the HA service of ${servers} one after the other`,
+        summary_message: { key: 'plan.kea.ha_repair', params: { engine: kea(params.family), servers } },
+        changes: [{ op: 'replace', target: 'ha/restart', before: Object.fromEntries(involved.map((h) => [h.node_id, h.state])), after: { action: 'restart', order }, node_ids: order }],
+        diff: involved.map((h) => `-${h.server_name}: ${h.state}\n`).join('') + order.map((id, i) => `+${i + 1}. ${nodeName(state, id)}: restart HA (config-reload)\n`).join(''),
+        targets: order,
+        validations,
+        requires_confirmation: true,
+        apply() {
+          for (const h of involved) {
+            h.state = h.mode
+            h.partner = { ...h.partner, state: h.mode, in_touch: true, age: 0, clock_skew: 0 }
+          }
+          for (const a of state.alerts) {
+            if (a.kind === 'ha_terminated' && a.engine === kea(params.family) && a.state !== 'resolved') {
+              a.state = 'resolved'
+              a.resolved_at = iso(Date.now())
+              emit('alerts', 'resolved', a)
+            }
+          }
+          involved.forEach((h) => emit('ha', 'state', h))
+        },
+        rollback() {
+          // A restart is not undone: nothing changes.
+          return before.length
         },
       })
     },

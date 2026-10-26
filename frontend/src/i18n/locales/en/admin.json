@@ -163,6 +163,8 @@
       "alerts_d2_error_rate": "DDNS error rate",
       "alerts_ha_grace_seconds": "HA alert grace period (seconds)",
       "alerts_custom_hooks": "Warn about Kea hooks no package owns",
+      "alerts_clock_skew_warning_seconds": "Clock skew warning (seconds)",
+      "alerts_clock_skew_critical_seconds": "Clock skew critical (seconds)",
       "dns": {
         "read_key": "Transfer key",
         "admin_key": "Update key",

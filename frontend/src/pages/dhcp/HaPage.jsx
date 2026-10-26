@@ -30,6 +30,7 @@ import { AreaPage, SectionError } from './ui'
 import { usePlanFlow, useNodeNames } from './hooks'
 import { HEALTHY_HA_STATES, haTransitionRows } from './lib'
 import { HaSetupModal } from './HaSetupModal'
+import { HaTerminatedBanner } from './HaTerminatedBanner'
 import { asSetup, backupGap, draftForNodes, draftFromRelationship, draftFromRelationships, flattenHa, promoteDraft, relationshipHealthy } from './haSetup'
 
 const HA_POLL_MS = 5000
@@ -104,6 +105,7 @@ export default function HaPage({ family }) {
     const { kind, nodeId, value } = confirm
     setConfirm(null)
     if (kind === 'maintenance') await flow.build(() => api.dhcp.haMaintenancePlan(family, nodeId, value))
+    else if (kind === 'repair') await flow.build(() => api.dhcp.haRepairPlan(family))
     else if (kind === 'remove') await flow.build(() => api.dhcp.haSetupPlan(family, { remove: true }))
     else await flow.build(() => api.dhcp.servicePlan(family, nodeId, value))
   }
@@ -269,7 +271,12 @@ export default function HaPage({ family }) {
                 {h.partner.server_name && <span className="font-mono">{h.partner.server_name}</span>}
                 <span>{t('ha.partnerRole', { role: haTerm(h.partner.role) })}</span>
                 {h.partner.age !== null && h.partner.age !== undefined && <span>{t('ha.partnerAge', { seconds: h.partner.age })}</span>}
-                {h.partner.unacked_clients > 0 && <span className="status-warning-text">{t('ha.unacked', { n: h.partner.unacked_clients })}</span>}
+                {typeof h.partner.clock_skew === 'number' && h.partner.clock_skew !== 0 && (
+                  <span className={Math.abs(h.partner.clock_skew) >= 5 ? 'status-warning-text' : undefined} data-testid="ha-partner-skew">
+                    {t('ha.partnerSkew', { seconds: h.partner.clock_skew > 0 ? `+${h.partner.clock_skew}` : h.partner.clock_skew })}
+                  </span>
+                )}
+                {h.partner.unacked_clients > 0 &&<span className="status-warning-text">{t('ha.unacked', { n: h.partner.unacked_clients })}</span>}
               </div>
             </div>
           )}
@@ -391,6 +398,13 @@ export default function HaPage({ family }) {
     >
       <div className="space-y-4">
         <SectionError error={ha.error} onRetry={ha.refetch} />
+        <HaTerminatedBanner
+          family={family}
+          items={items}
+          canOperate={canOperate}
+          busy={flow.building}
+          onRepair={(servers) => setConfirm({ kind: 'repair', value: true, name: servers })}
+        />
         {ha.loading && !ha.data && (
           <div className="flex justify-center py-10">
             <LoadingSpinner size="md" />

@@ -1353,6 +1353,8 @@ the default view, `NotSupported` without `dns.view_keys.<view>`) and
 allow-transfer a zone inherits, per view, key None for the options). WP-COLLECTOR:
 `checks.delegation.Net.resolve` and `answers_for` take an optional TSIG key (the probe is
 signed with the view key, then sent unsigned), `DnsNet(probe_port=53)`, and the subject
-`view-unchecked:<view>` (info) for a view without a read key. Contract
-(`domain/messages.py`): message `alert.view_unchecked`, key list regenerated with
-`make messages-keys`. WP-FRONTEND: `alert.view_unchecked` in `en` and `fr`.
+`view-unchecked:<view>` (info) for a view without a usable read key; read keys are resolved
+once per view per pass and `delegation_max_zones` only counts zones that can be read. Contract
+(`domain/messages.py`): messages `alert.view_unchecked` (no key in `dns.view_keys`) and
+`alert.view_key_missing` (key configured, secret absent on the node), key list regenerated with
+`make messages-keys`. WP-FRONTEND: both messages in `en` and `fr`.

@@ -4,13 +4,17 @@
 from __future__ import annotations
 
 import json
+import threading
+from types import SimpleNamespace
 
 import pytest
 
 from pelagos.collector.checks import advisories, delegation
+from pelagos.collector.checks.runner import HealthChecks
 from pelagos.collector.checks.settings import CheckSettings
+from pelagos.connectors.base import ConnectorDenied, NotSupported
 from pelagos.connectors.bind.dns_client import TsigKey
-from pelagos.domain import Engine, Severity
+from pelagos.domain import Engine, Severity, Zone, ZoneKind
 
 pytestmark = pytest.mark.unit
 
@@ -112,9 +116,77 @@ def test_view_key_reaches_lookups_and_probes():
 
 
 def test_view_without_read_key_is_reported_once():
-    alert = delegation.view_unchecked_alert("n1", "inside", 3, "no TSIG key configured for view inside")
+    alert = delegation.view_unchecked_alert(
+        "n1", "inside", 3, NotSupported("no TSIG key configured for view inside")
+    )
     assert alert.subject == "view-unchecked:inside" and alert.severity is Severity.INFO
     assert alert.details == {"view": "inside", "zones": 3, "reason": "no TSIG key configured for view inside"}
+    assert alert.title_message["key"] == "alert.view_unchecked"
+    assert "(zones: 3)" in alert.title
+
+
+def test_view_key_without_secret_has_its_own_title():
+    alert = delegation.view_unchecked_alert("n1", "inside", 1, ConnectorDenied("TSIG key k is not available"))
+    assert alert.subject == "view-unchecked:inside"
+    assert alert.title_message["key"] == "alert.view_key_missing"
+    assert alert.details["reason"] == "TSIG key k is not available"
+
+
+class FakeClient:
+    server, port = "127.0.0.1", 53
+
+    def __init__(self):
+        self.queried = []
+
+    def query(self, name, rtype, key=None):
+        self.queried.append((name, rtype, key.name if key else None))
+        return []
+
+
+class FakeBackend:
+    def __init__(self, zones):
+        self.zones = zones
+        self.dns = FakeClient()
+        self.key_reads = []
+
+    def list_zones(self):
+        return self.zones
+
+    def read_key(self, view):
+        self.key_reads.append(view)
+        if view == "guest":
+            raise NotSupported(f"no TSIG key configured for view {view}")
+        if view == "lost":
+            raise ConnectorDenied("TSIG key ddi-lost is not available on this node")
+        return TsigKey(f"k-{view}", "c2VjcmV0", "hmac-sha256")
+
+    def inherited_lists(self):
+        return {}
+
+
+def test_runner_reads_each_view_key_once_and_budgets_checkable_zones_only():
+    zones = [
+        *(Zone(name=f"g{i}.lan.", kind=ZoneKind.PRIMARY, view="guest") for i in range(3)),
+        Zone(name="l.lan.", kind=ZoneKind.PRIMARY, view="lost"),
+        *(Zone(name=f"i{i}.lan.", kind=ZoneKind.PRIMARY, view="inside") for i in range(3)),
+    ]
+    backend = FakeBackend(zones)
+    ctx = SimpleNamespace(
+        node=SimpleNamespace(id="n1"), settings=lambda: {"checks": {"delegation_max_zones": 2}}
+    )
+    checks = HealthChecks(ctx, None, SimpleNamespace(dns=backend), threading.Lock())
+    checks.net_factory = lambda b: FakeNet({})
+
+    found = {a.subject: a for a in checks._delegation().alerts}
+
+    assert backend.key_reads == ["guest", "lost", "inside"]
+    # The budget goes to zones that can be read: unreadable views do not take it.
+    assert {q[0] for q in backend.dns.queried} == {"i0.lan.", "i1.lan."}
+    assert {q[2] for q in backend.dns.queried} == {"k-inside."}
+    assert found["view-unchecked:guest"].details["zones"] == 3
+    assert found["view-unchecked:guest"].title_message["key"] == "alert.view_unchecked"
+    assert found["view-unchecked:lost"].details["zones"] == 1
+    assert found["view-unchecked:lost"].title_message["key"] == "alert.view_key_missing"
 
 
 def test_probe_is_signed_with_the_view_key_then_unsigned(monkeypatch):

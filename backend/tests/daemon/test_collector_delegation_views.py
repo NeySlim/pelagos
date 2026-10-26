@@ -57,8 +57,7 @@ def split(tmp_root: Path):
         server.stop()
 
 
-def test_every_view_is_checked_with_its_own_key(split, tmp_root):
-    view_keys = {"inside": "ddi-inside", "outside": {"read": "ddi-read", "admin": "ddi-admin"}}
+def _checks(split, tmp_root, view_keys):
     backend = make_backend(
         split, tmp_root, {"plan_ttl_seconds": 600, "dns": {"read_key": "ddi-read", "view_keys": view_keys}}
     )
@@ -70,6 +69,12 @@ def test_every_view_is_checked_with_its_own_key(split, tmp_root):
     checks = HealthChecks(ctx, None, SimpleNamespace(dns=backend), threading.Lock())
     # Name servers of the test listen on the named port, not 53.
     checks.net_factory = lambda b: delegation.DnsNet(b.dns.server, b.dns.port, 1.0, probe_port=b.dns.port)
+    return checks
+
+
+def test_every_view_is_checked_with_its_own_key(split, tmp_root):
+    view_keys = {"inside": "ddi-inside", "outside": {"read": "ddi-read", "admin": "ddi-admin"}}
+    checks = _checks(split, tmp_root, view_keys)
 
     found = {a.subject: a for a in checks._delegation().alerts}
 
@@ -85,3 +90,15 @@ def test_every_view_is_checked_with_its_own_key(split, tmp_root):
     assert found["soa-range:split.lan@outside:refresh"].details["value"] == 60
     assert found["ns-extra:192.0.2.99"].details["zones"] == ["split.lan@outside"]
     assert found["view-unchecked:guest"].details["zones"] == 1
+    assert found["view-unchecked:guest"].title_message["key"] == "alert.view_unchecked"
+
+
+def test_view_key_without_secret_is_told_apart(split, tmp_root):
+    # guest names a key that neither named nor the cluster secrets know.
+    view_keys = {"inside": "ddi-inside", "guest": "ddi-lost", "outside": "ddi-read"}
+    found = {a.subject: a for a in _checks(split, tmp_root, view_keys)._delegation().alerts}
+
+    alert = found["view-unchecked:guest"]
+    assert alert.title_message["key"] == "alert.view_key_missing"
+    assert "ddi-lost" in alert.details["reason"]
+    assert "ns-silent:split.lan@inside:ns3.split.lan." in found

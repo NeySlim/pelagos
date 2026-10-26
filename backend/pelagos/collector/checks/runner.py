@@ -568,16 +568,25 @@ class HealthChecks:
         except (ConnectorError, OSError, AttributeError):
             inherited = {}
 
-        alerts: list[Alert] = []
-        unchecked: dict[str, tuple[int, str]] = {}
-        for zone in zones[: cfg.delegation_max_zones]:
+        # Keys depend on the view only: resolved once per view, before the zone budget, so zones of a
+        # view that cannot be read neither use the budget nor go uncounted.
+        keys: dict[str, Any] = {}  # view -> TsigKey, None, or the ConnectorError of read_key
+        unchecked: dict[str, int] = {}
+        checkable = []
+        for zone in zones:
             view = None if zone.view in ("", "_default") else zone.view
-            try:
-                key = backend.read_key(view) if view else None
-            except ConnectorError as exc:
-                count = unchecked.get(zone.view, (0, ""))[0] + 1
-                unchecked[zone.view] = (count, str(exc))
-                continue
+            if zone.view not in keys:
+                try:
+                    keys[zone.view] = backend.read_key(view) if view else None
+                except ConnectorError as exc:
+                    keys[zone.view] = exc
+            if isinstance(keys[zone.view], ConnectorError):
+                unchecked[zone.view] = unchecked.get(zone.view, 0) + 1
+            else:
+                checkable.append((zone, view, keys[zone.view]))
+
+        alerts: list[Alert] = []
+        for zone, view, key in checkable[: cfg.delegation_max_zones]:
             try:
                 with self.lock:
                     ns = client.query(zone.name, "NS", key) or []
@@ -609,8 +618,7 @@ class HealthChecks:
             if soa:
                 alerts.extend(delegation.soa_alerts(self.node_id, zone.name, zone.view, soa[0], cfg))
         alerts.extend(
-            delegation.view_unchecked_alert(self.node_id, v, n, why)
-            for v, (n, why) in sorted(unchecked.items())
+            delegation.view_unchecked_alert(self.node_id, v, n, keys[v]) for v, n in sorted(unchecked.items())
         )
         alerts = self._confirmed(delegation.group_extra(alerts, self.node_id), cfg.delegation_confirm_passes)
         return PollOutcome(alerts=alerts, kinds=kinds, where=_mine(self.node_id))

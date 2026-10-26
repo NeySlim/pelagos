@@ -23,6 +23,7 @@ import dns.rdatatype
 import dns.resolver
 
 from pelagos.collector.checks.settings import CheckSettings
+from pelagos.connectors.base import NotSupported
 from pelagos.domain import Alert, AlertKind, Engine, Severity, messages
 
 
@@ -249,13 +250,15 @@ def delegation_alerts(
     return out
 
 
-def view_unchecked_alert(node_id: str, view: str, zones: int, reason: str) -> Alert:
+def view_unchecked_alert(node_id: str, view: str, zones: int, error: Exception) -> Alert:
+    """No usable read key for the view: none configured (NotSupported) or its secret is missing here."""
+    key = "alert.view_unchecked" if isinstance(error, NotSupported) else "alert.view_key_missing"
     return _alert(
         node_id,
         Severity.INFO,
         f"view-unchecked:{view}",
-        messages.msg("alert.view_unchecked", view=view, zones=zones),
-        {"view": view, "zones": zones, "reason": reason},
+        messages.msg(key, view=view, zones=zones),
+        {"view": view, "zones": zones, "reason": str(error)},
     )
 
 

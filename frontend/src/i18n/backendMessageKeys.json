@@ -302,6 +302,10 @@
     "engine",
     "versions"
   ],
+  "alert.view_key_missing": [
+    "view",
+    "zones"
+  ],
   "alert.view_unchecked": [
     "view",
     "zones"

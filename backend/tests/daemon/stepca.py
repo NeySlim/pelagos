@@ -2,8 +2,8 @@
 """A local step-ca ACME server for the web certificate daemon tests.
 
 The binary comes from PELAGOS_STEP_CA, then PATH, then the smallstep GitHub release downloaded
-into the test session's temp dir, checked against a pinned SHA-256; the tests skip when none is available. The CA (root and
-intermediate) is made here with cryptography; ACME certificates last 24 hours, like step-ca's
+into the test session's temp dir (pinned SHA-256); the tests skip when none is available. The CA
+(root and intermediate) is made here with cryptography; ACME certificates last 24 hours, like step-ca's
 default. `--resolver` points the challenge lookups at the test's named; `--acme-http-port`
 (with `--insecure`) moves HTTP-01 off port 80.
 """
@@ -155,7 +155,7 @@ def start(exe: str, root: Path, resolver_port: int) -> StepCa:
                 }
             ]
         },
-        "tls": {"minVersion": 1.2, "maxVersion": 1.3},
+        "tls": {"minVersion": 1.2, "maxVersion": 1.2 if os.environ.get("SV") == "tls12" else 1.3},
     }
     (root / "ca.json").write_text(json.dumps(config))
     log = (root / "step-ca.log").open("w")
@@ -175,10 +175,15 @@ def start(exe: str, root: Path, resolver_port: int) -> StepCa:
         stderr=subprocess.STDOUT,
         # Go's hybrid ML-KEM key share breaks the handshake with some OpenSSL 3.5 clients
         # ("bad record MAC" on the server); plain X25519 and P-256 are all the tests need.
-        env={**os.environ, "GODEBUG": "tlsmlkem=0"},
+        env={**os.environ, **({"GODEBUG": "tlsmlkem=0"} if os.environ.get("SV") == "mlkem" else {})},
     )
     server = StepCa(root, port, http01, root_cert.public_bytes(serialization.Encoding.PEM).decode(), proc)
     context = ssl.create_default_context(cadata=server.root_pem)
+    if os.environ.get("SV") == "client12":
+        context.maximum_version = ssl.TLSVersion.TLSv1_2
+    if os.environ.get("SV") == "curve":
+        context.set_ecdh_curve("prime256v1")
+    print("DIAG", ssl.OPENSSL_VERSION, platform.machine(), os.environ.get("SV"), flush=True)
 
     def up() -> bool:
         if proc.poll() is not None:

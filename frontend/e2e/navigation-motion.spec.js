@@ -4,14 +4,16 @@
 import { test, expect } from '@playwright/test'
 import { setServerFamily, signIn } from './family'
 
-// Records the pseudo-element animations of view transitions seen from now on.
+// Records the pseudo-element animations of view transitions seen from now on. A pseudo-element
+// with display: none paints nothing (the UA root fade can be listed for one frame before the
+// app's rule applies on a slow runner), so it does not count as seen.
 const watch = (page) =>
   page.evaluate(() => {
     window.__vt = { pseudo: new Set(), names: new Set() }
     const tick = () => {
       for (const a of document.getAnimations()) {
         const p = a.effect?.pseudoElement
-        if (p) {
+        if (p && getComputedStyle(document.documentElement, p).display !== 'none') {
           window.__vt.pseudo.add(p)
           window.__vt.names.add(a.animationName)
         }

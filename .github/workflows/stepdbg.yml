@@ -1,0 +1,32 @@
+name: stepdbg
+on:
+  push:
+    branches: [main]
+jobs:
+  d:
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      SV: ${{ matrix.v }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        v: [base, mlkem, tls12, client12, curve]
+    steps:
+      - run: |
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends ca-certificates curl gnupg git make python3 python3-venv util-linux bind9 bind9-utils bind9-dnsutils
+          grep -m1 "model name" /proc/cpuinfo; grep -m1 -o "avx512[a-z]*" /proc/cpuinfo | head -1
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc
+        with:
+          enable-cache: false
+      - run: |
+          useradd -m -G bind ci
+          chown -R ci:ci "$GITHUB_WORKSPACE"
+          runuser -u ci -- env HOME=/home/ci UV_CACHE_DIR=/home/ci/.cache/uv make venv PYTHON=3.13 UV="$(command -v uv)"
+      - run: runuser -u ci -- env HOME=/home/ci SV=$SV make test-daemon PYTEST_ARGS="-rs -s -k webcert" 2>&1 | grep -E "DIAG|passed|failed|error|bad record" | sort | uniq -c | head

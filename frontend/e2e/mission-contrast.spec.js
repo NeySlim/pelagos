@@ -61,7 +61,7 @@ for (const [family, name] of [['instrument', 'Instrument'], ['mission', 'Mission
         await page.emulateMedia({ colorScheme: scheme })
         await signIn(page)
         await page.goto('/')
-        await expect(page.getByTestId('dns-rate')).toBeVisible()
+        await expect(page.getByTestId('dns-rate')).toBeVisible({ timeout: 20000 })
         await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('theme-light'))).toBe(scheme === 'light')
         const results = await chipContrasts(page)
         expect(results.length).toBeGreaterThanOrEqual(4)

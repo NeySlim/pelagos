@@ -142,12 +142,32 @@ def _kea_scalar(key: str, value: Any) -> Any:
     if key == "pool":
         return _pool_range(value) or _RANGE.sub("-", value.strip())
     if key in KEA_LOWERCASE:
-        return value.strip().lower()
+        return kea_identifier(value)
     if key == "library":
         return PurePosixPath(value).name  # the directory depends on the architecture
     if key == "data" and "," in value:
         return ",".join(part.strip() for part in value.split(","))
     return value
+
+
+_HEX_PART = re.compile(r"^[0-9a-f]{1,2}$")
+
+
+def kea_identifier(value: str) -> str:
+    """A host identifier as the bytes Kea stores, in lower-case hex without separators: Kea reads
+    'quoted text', 0x prefixes and `:` or space separated octets, and config-get answers
+    `aa:bb:..` (hw-address, duid) or plain hex (client-id, circuit-id, flex-id)."""
+    text = value.strip()
+    if len(text) >= 2 and text[0] == text[-1] == "'":
+        return text[1:-1].encode().hex()
+    low = text.lower().removeprefix("0x")
+    for sep in (":", " ", "-"):
+        if sep in low:
+            parts = low.split(sep)
+            if all(_HEX_PART.match(p) for p in parts):
+                return "".join(p.zfill(2) for p in parts)
+            return low
+    return f"0{low}" if len(low) % 2 else low
 
 
 def _pool_range(value: str) -> tuple[int, int, int] | None:
@@ -234,7 +254,7 @@ def item_idents(key: str, item: dict[str, Any]) -> list[Ident]:
     """The identities of one list item, preferred first: two items are the same when they share one."""
     out: list[Ident] = []
     if key == "reservations":
-        present = [(f, str(item[f]).strip().lower()) for f in RESERVATION_IDS if item.get(f)]
+        present = [(f, kea_identifier(str(item[f]))) for f in RESERVATION_IDS if item.get(f)]
         if present:
             out.append((present[0][0], "+".join(v for _, v in present)))
         for f in ("ip-address", "hostname"):
@@ -295,6 +315,11 @@ def pair_items(key: str, a: list[Any], b: list[Any]) -> tuple[list[tuple[int, in
 
 
 def item_label(key: str, item: dict[str, Any]) -> str:
+    """The item's identity as written (a reservation keeps its own spelling of the identifier)."""
+    if key == "reservations":
+        written = [(f, str(item[f]).strip().lower()) for f in RESERVATION_IDS if item.get(f)]
+        if written:
+            return f"{written[0][0]}={'+'.join(v for _, v in written)}"
     kind, value = item_idents(key, item)[0]
     return f"{kind}={value}" if kind != "item" else "item"
 

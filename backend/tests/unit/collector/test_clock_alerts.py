@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Clock skew between nodes (clock_skew, clock_unsynchronized) and HA in terminated (ha_terminated
-with its probable cause), from realistic Kea 2.6 status-get answers and replication exchanges."""
+with its probable cause), from real Kea 3.0 and 2.6.3 status-get answers and replication exchanges."""
 
 from __future__ import annotations
 
@@ -29,7 +29,8 @@ SETTINGS = {
 SYNCED = {"source": "chrony", "synchronized": True, "ntp_enabled": True, "offset": 0.0004, "stratum": 3}
 LOST = {"source": "timedatectl", "synchronized": False, "ntp_enabled": True, "offset": None, "stratum": None}
 
-# status-get of a Kea 2.6 primary whose partner clock ran 75 s ahead: both ended in terminated.
+# status-get of a Kea 3.0 primary whose partner clock ran 75 s ahead: both ended in terminated.
+# `system-time` and `clock-skew` appeared in Kea 3.0 (communication_state.cc, Kea-3.0.0 tag).
 TERMINATED_STATUS = {
     "pid": 4211,
     "uptime": 604800,
@@ -231,3 +232,71 @@ def test_kea_skew_is_marked_fixed_once_the_node_clocks_agree(store):
     store.write_snapshot(PEER, "node", "clock", clock.now, {**agreed, "offset": 64.0})
     alert = next(a for a in p.poll().alerts if a.kind is AlertKind.HA_TERMINATED)
     assert alert.details["cause_details"]["fixed"] is False
+
+
+# status-get of lab-ns2 (Debian kea-dhcp4-server 2.6.3-1+deb13u1, standby) 90 s ahead of its
+# primary: Kea 2.6 reports no `clock-skew`.
+KEA263_TERMINATED = {
+    "high-availability": [
+        {
+            "ha-mode": "hot-standby",
+            "ha-servers": {
+                "local": {"role": "standby", "scopes": [], "server-name": "ns2", "state": "terminated"},
+                "remote": {
+                    "age": 5,
+                    "analyzed-packets": 0,
+                    "communication-interrupted": False,
+                    "connecting-clients": 0,
+                    "in-touch": True,
+                    "last-scopes": ["ns1"],
+                    "last-state": "terminated",
+                    "role": "primary",
+                    "server-name": "ns1",
+                    "unacked-clients": 0,
+                    "unacked-clients-left": 0,
+                },
+            },
+        }
+    ]
+}
+FIXED = (
+    "kea4 HA is terminated on ns2: clock skew of 89.9 s with ns1 before it terminated,"
+    " the clocks agree now: repair HA"
+)
+
+
+def test_kea26_terminated_names_the_unsynchronized_node_then_remembers_the_skew(store):
+    kea = FakeDhcpBackend()
+    kea.ha = ha_state_from_status(NODE, Family.V4, KEA263_TERMINATED)
+    assert kea.ha.state == "terminated" and kea.ha.partner.clock_skew is None
+    clock = Clock()
+    settings = {**SETTINGS, "collector": {"peer_poll_seconds": 30}}
+    p = KeaPoller(kea, NODE, store, settings, clock)
+    alerts = AlertStore(store.conn)
+    # This node lost NTP and runs 89.9 s ahead of ns1, whose clock is synchronized.
+    store.write_snapshot(NODE, "node", "clock", clock.now, {"name": "ns2", "offset": 0.0, "ntp": LOST})
+    behind = {"name": "ns1", "offset": -89.91, "uncertainty": 0.008, "ntp": SYNCED, "reference": NODE}
+    store.write_snapshot(PEER, "node", "clock", clock.now, behind)
+    out = p.poll()
+    alert = next(a for a in out.alerts if a.kind is AlertKind.HA_TERMINATED)
+    assert alert.title == "kea4 HA is terminated on ns2: clock of node ns2 is 89.9 s off"
+    assert alert.details["cause_details"]["nodes"][0]["reference"] == "ns1"
+    alerts.reconcile(out.alerts, set(out.kinds))
+    # NTP fixed: the clocks agree, Kea stays terminated and the skew stays the cause.
+    store.write_snapshot(NODE, "node", "clock", clock.now, {"name": "ns2", "offset": 0.0, "ntp": SYNCED})
+    store.write_snapshot(PEER, "node", "clock", clock.now, {**behind, "offset": 0.02})
+    out = p.poll()
+    alert = next(a for a in out.alerts if a.kind is AlertKind.HA_TERMINATED)
+    assert alert.title == FIXED and alert.details["cause_details"]["fixed"] is True
+    alerts.reconcile(out.alerts, set(out.kinds))
+    # A restarted collector reads the cause back from the open alert.
+    again = KeaPoller(kea, NODE, store, settings, clock)
+    assert next(a for a in again.poll().alerts if a.kind is AlertKind.HA_TERMINATED).title == FIXED
+    # Repaired: the memory goes with the state, a later termination starts afresh.
+    kea.ha.state = kea.ha.partner.state = "hot-standby"
+    out = again.poll()
+    assert not any(a.kind is AlertKind.HA_TERMINATED for a in out.alerts)
+    alerts.reconcile(out.alerts, set(out.kinds))
+    kea.ha.state = "terminated"
+    alert = next(a for a in again.poll().alerts if a.kind is AlertKind.HA_TERMINATED)
+    assert alert.details["cause"] == "unknown"

@@ -247,6 +247,9 @@ class KeaPoller:
         # Relationship -> [first, last] time its server or partner was seen away from a normal state.
         self._excursions: dict[str, list[float]] = {}
         self._open_ha: dict[str, dict[Any, Alert]] = {}
+        # HA alert subject -> clock skew cause seen while terminated: Kea 2.6 reports no skew of
+        # its own, so once NTP fixed the clocks this is the only trace of why it terminated.
+        self._clock_causes: dict[str, dict[str, Any]] = {}
         self.external = ExternalChangeWatcher(self.engine.value, clock, locks_dir)
         self.ownership = HookOwnership()
         # Last HA observation sent as an event: (state, partner state, in touch) and the unsent count.
@@ -370,7 +373,12 @@ class KeaPoller:
             is_first = one is ha
             before = previous if is_first else self.last_other_states.get(one.server_name or "")
             quiet = self._ha_quiet(one, now)
-            cause = self.terminated_cause(one) if one.state == rules.HA_TERMINATED_STATE else None
+            subject = f"ha:{engine}" if is_first else f"ha:{engine}:{one.server_name}"
+            if one.state == rules.HA_TERMINATED_STATE:
+                cause = self.terminated_cause(one, subject)
+            else:
+                cause = None
+                self._clock_causes.pop(subject, None)
             alerts, transition = rules.ha_alerts(
                 self.node_id, one, before, maintenance, first=is_first, quiet=quiet, cause=cause
             )
@@ -439,25 +447,38 @@ class KeaPoller:
             return False
         return (now - span[0] if away else span[1] - span[0]) < self.ha_grace
 
-    def terminated_cause(self, ha: HAState) -> dict[str, Any]:
+    def terminated_cause(self, ha: HAState, subject: str | None = None) -> dict[str, Any]:
         """rules.terminated_cause from what this node knows: the node clocks the peers poller
-        measured ("node"/"clock" snapshots) and the shared configuration hashes of every node."""
+        measured ("node"/"clock" snapshots) and the shared configuration hashes of every node.
+        A clock skew seen since the server terminated stays its cause (marked fixed) after the
+        clocks agree again: Kea 2.6 keeps no skew reading of its own in status-get."""
         warning = float(reg.get(self.settings, "checks.clock_skew_warning_seconds"))
+        mine = self.store.snapshot(self.node_id, "node", "clock")
+        own = mine[1] if mine is not None and isinstance(mine[1], dict) else {}
         skews: list[dict[str, Any]] = []
         for snap in self.store.snapshots(engine="node"):
             payload = snap["payload"]
             if snap["kind"] != "clock" or snap["node_id"] == self.node_id or not isinstance(payload, dict):
                 continue
             floor = clock_mod.skew_floor(payload.get("offset"), payload.get("uncertainty"))
-            if floor is not None:
-                skews.append(
-                    {
-                        "node_id": snap["node_id"],
-                        "name": payload.get("name"),
-                        "offset": payload.get("offset"),
-                        "floor": round(floor, 3),
-                    }
+            if floor is None:
+                continue
+            entry = {
+                "node_id": snap["node_id"],
+                "name": payload.get("name"),
+                "offset": payload.get("offset"),
+                "floor": round(floor, 3),
+            }
+            # Offsets are measured from this node: when only this node lost NTP, it is the one off.
+            if rules.ntp_unsynchronized(own.get("ntp")) and not rules.ntp_unsynchronized(payload.get("ntp")):
+                offset = payload.get("offset")
+                entry.update(
+                    node_id=self.node_id,
+                    name=own.get("name") or self.node_id,
+                    offset=-float(offset) if isinstance(offset, int | float) else offset,
+                    reference=payload.get("name") or snap["node_id"],
                 )
+            skews.append(entry)
         payloads = {
             s["node_id"]: s["payload"]
             for s in self.store.snapshots(engine=self.engine.value)
@@ -466,7 +487,41 @@ class KeaPoller:
         divergent = False
         if len(payloads) > 1 and all("relationships" in p for p in payloads.values()):
             divergent = bool(divergent_nodes(payloads)[0])
-        return rules.terminated_cause(ha, skews, divergent, warning, self.partner_clock_agrees(ha, warning))
+        found = rules.terminated_cause(ha, skews, divergent, warning, self.partner_clock_agrees(ha, warning))
+        if subject is None:
+            return found
+        if found["cause"] == "clock_skew":
+            if not found["details"].get("fixed"):
+                self._clock_causes[subject] = found
+            return found
+        previous = self._clock_causes.get(subject) or self._open_clock_cause(subject)
+        return rules.clock_cause_fixed(previous, ha) if previous is not None else found
+
+    def _open_clock_cause(self, subject: str) -> dict[str, Any] | None:
+        """The clock_skew cause of this server's open ha_terminated alert (a collector restart
+        forgets the one held in memory)."""
+        conn = getattr(self.store, "conn", None)
+        if conn is None:
+            return None
+        try:
+            row = conn.execute(
+                "SELECT details FROM alerts WHERE state != 'resolved' AND kind = ? AND node_id = ? "
+                "AND engine = ? AND subject = ? ORDER BY last_seen DESC LIMIT 1",
+                (AlertKind.HA_TERMINATED.value, self.node_id, self.engine.value, subject),
+            ).fetchone()
+        except Exception:  # no alerts table yet
+            return None
+        if row is None:
+            return None
+        try:
+            details = json.loads(row[0])
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(details, dict) or details.get("cause") != "clock_skew":
+            return None
+        found = {"cause": "clock_skew", "details": details.get("cause_details") or {}}
+        self._clock_causes[subject] = found
+        return found
 
     def partner_clock_agrees(self, ha: HAState, warning: float) -> bool:
         """True when every node serving the partner has a fresh clock reading (peers poller, this

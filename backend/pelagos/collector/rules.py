@@ -232,6 +232,23 @@ def terminated_cause(
     return {"cause": "unknown", "message": messages.msg("alert.ha_cause.unknown"), "details": {}}
 
 
+def clock_cause_fixed(previous: dict[str, Any], ha: HAState) -> dict[str, Any]:
+    """A clock_skew cause seen while `ha` was terminated, restated once the clocks agree again:
+    the server stays terminated until the HA repair, whatever the clocks say now."""
+    details = dict(previous.get("details") or {})
+    if details.get("source") == "kea":
+        seconds: float = abs(float(details.get("clock_skew") or 0))
+    else:
+        offsets = [abs(float(n.get("offset") or 0)) for n in details.get("nodes") or []]
+        seconds = round(max(offsets, default=0.0), 1)
+    other = partner_name(ha) or messages.msg("common.the_partner")
+    return {
+        "cause": "clock_skew",
+        "message": messages.msg("alert.ha_cause.clock_skew_fixed", partner=other, seconds=seconds),
+        "details": {**details, "fixed": True},
+    }
+
+
 def ha_alerts(
     node_id: str,
     ha: HAState,

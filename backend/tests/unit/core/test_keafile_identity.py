@@ -12,6 +12,7 @@ import pytest
 from pelagos.core.keafile import (
     conform_root,
     kea_config_differences,
+    kea_identifier,
     loads,
     rebase_root,
     redact_kea_difference,
@@ -128,7 +129,8 @@ def running_config() -> dict[str, Any]:
                         ),
                         _reservation(
                             **{
-                                "client-id": "01:aa:bb:cc:dd:ee:02",
+                                # Kea 2.6.3 answers a client-id as plain hex (Host::toElement4).
+                                "client-id": "01aabbccddee02",
                                 "ip-address": "192.0.2.51",
                                 "hostname": "scanner",
                             }
@@ -206,3 +208,38 @@ def test_rebase_follows_reservations_by_identity():
 def test_labels_with_a_mac_do_not_break_redaction():
     line = "/subnet4[id=1]/reservations[hw-address=aa:bb]/ip-address: 'x' in the file, 'y' running"
     assert redact_kea_difference(line) == line
+
+
+@pytest.mark.parametrize(
+    ("written", "stored"),
+    [
+        ("01:AA:bb:cc:dd:ee:02", "01aabbccddee02"),
+        ("01aabbccddee02", "01aabbccddee02"),
+        ("0x01AABBCCDDEE02", "01aabbccddee02"),
+        ("1:aa:b:cc:dd:ee:2", "01aa0bccddee02"),
+        ("01 aa bb cc dd ee 02", "01aabbccddee02"),
+        ("'printer-1'", "7072696e7465722d31"),
+        ("aabbc", "0aabbc"),
+    ],
+)
+def test_identifiers_compare_as_the_bytes_kea_stores(written, stored):
+    assert kea_identifier(written) == stored
+
+
+def test_a_client_id_written_with_colons_is_the_one_kea_runs():
+    """lab-ns1, Kea 2.6.3 Debian: a file client-id `01:02:00:00:00:00:40` runs as `01020000000040`,
+    and a flex-id written as text runs as its hex."""
+    text = FILE.replace(
+        '{ "hw-address": "aa:bb:cc:dd:ee:03"',
+        '{ "flex-id": "\'cam-3\'", "ip-address": "192.0.2.60" },\n{ "hw-address": "aa:bb:cc:dd:ee:03"',
+    )
+    running = running_config()
+    running["Dhcp4"]["subnet4"][0]["reservations"].insert(
+        0, _reservation(**{"flex-id": "63616d2d33", "ip-address": "192.0.2.60", "hostname": ""})
+    )
+    assert kea_config_differences(loads(text), running) == []
+    running["Dhcp4"]["subnet4"][0]["reservations"][0]["flex-id"] = "63616d2d34"
+    assert [d.split(":")[0] for d in kea_config_differences(loads(text), running)] == [
+        "/subnet4[id=1]/reservations[flex-id='cam-3']",
+        "/subnet4[id=1]/reservations[flex-id=63616d2d34]",
+    ]

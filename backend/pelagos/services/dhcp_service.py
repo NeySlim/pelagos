@@ -1611,6 +1611,10 @@ def _current(change: Change, read: Any) -> dict[str, Any] | None:
     return {k: v for k, v in obj.to_dict().items() if k != "raw"} if obj is not None else None
 
 
+def _same_identifier(a: str, b: str) -> bool:
+    return kcfg.normalize_identifier(a) == kcfg.normalize_identifier(b)
+
+
 def _find_reservation(backend: DhcpBackend, target: str) -> Reservation | None:
     """`<subnetN/<id>|global>/reservations/<id_type>=<identifier>` among the backend's reservations."""
     scope, _, key = target.partition("/reservations/")
@@ -1618,7 +1622,7 @@ def _find_reservation(backend: DhcpBackend, target: str) -> Reservation | None:
     sid = scope.rpartition("/")[2]
     subnet_id = int(sid) if sid.isdigit() else None
     for r in backend.list_reservations(subnet_id):
-        if r.id_type.value == id_type and r.identifier.lower() == identifier.lower():
+        if r.id_type.value == id_type and _same_identifier(r.identifier, identifier):
             if subnet_id is None and r.subnet_id not in (None, 0):
                 continue
             return r

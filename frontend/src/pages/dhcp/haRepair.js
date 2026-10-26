@@ -9,7 +9,8 @@ export function terminatedServers(items) {
   return (items || []).filter((h) => h && h.enabled !== false && h.state === 'terminated')
 }
 
-// The clock skews Kea measured with each partner (status-get `clock-skew`), worth showing.
+// The clock skews Kea measured with each partner (status-get `clock-skew`, Kea 3.0 and later;
+// Kea 2.6 has none and the alert cause carries the node clocks), worth showing.
 export function keaSkews(items) {
   const out = []
   for (const h of terminatedServers(items)) {

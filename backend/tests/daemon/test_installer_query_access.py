@@ -22,7 +22,10 @@ def test_soa_probe_sees_the_refusal(tmp_path: Path):
     server = bind_custom.start(
         tmp_path,
         BODY,
-        files={"open.lan.db": bind_custom.zone_text("open.lan"), "closed.lan.db": bind_custom.zone_text("closed.lan")},
+        files={
+            "open.lan.db": bind_custom.zone_text("open.lan"),
+            "closed.lan.db": bind_custom.zone_text("closed.lan"),
+        },
     )
     try:
         tools = Tools(None)  # type: ignore[arg-type]  # the probe uses no environment

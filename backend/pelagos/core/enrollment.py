@@ -29,6 +29,7 @@ from pelagos import __version__
 from pelagos.core import ca as ca_mod
 from pelagos.core.audit_log import AuditLog
 from pelagos.core.config_store import ClusterConfig, ConfigError, ConfigStore, NodeConfig, atomic_write
+from pelagos.core.listen import ListenError, check_free, url_with_port
 from pelagos.core.locks import FileLock
 from pelagos.core.paths import Paths
 from pelagos.core.repl_http import TransportError, anonymous_context, pinned_context, request_json
@@ -582,6 +583,8 @@ def enroll_node(
     name: str | None = None,
     replication_url: str | None = None,
     web_url: str | None = None,
+    web_listen: str | None = None,
+    replication_listen: str | None = None,
     engines: dict[str, Any] | None = None,
     timeout: float = 15.0,
 ) -> EnrollResult:
@@ -598,13 +601,19 @@ def enroll_node(
             node.replication_url = replication_url
         if web_url:
             node.web_url = web_url
+        if web_listen:
+            node.web_listen = web_listen
+        if replication_listen:
+            node.replication_listen = replication_listen
     else:
         host = name or socket.gethostname().split(".")[0]
         node = NodeConfig(
             id=new_id(),
             name=host,
-            replication_url=replication_url or f"https://{host}:8444",
-            web_url=web_url or f"https://{host}:8443",
+            web_listen=web_listen or "0.0.0.0:8443",
+            replication_listen=replication_listen or "0.0.0.0:8444",
+            replication_url=replication_url or url_with_port(host, replication_listen or "0.0.0.0:8444"),
+            web_url=web_url or url_with_port(host, web_listen or "0.0.0.0:8443"),
             engines=dict(engines or {"bind": False, "kea4": False, "kea6": False, "d2": False}),
         )
     if engines:
@@ -670,6 +679,13 @@ def enroll_cli(paths: Paths, args: argparse.Namespace) -> int:
         return 2
     try:
         engines = _parse_engines(getattr(args, "engines", None))
+        web_listen = getattr(args, "web_listen", None)
+        repl_listen = getattr(args, "replication_listen", None)
+        fresh = not paths.node_toml.exists()
+        if web_listen or fresh:
+            check_free("web-listen", web_listen or "0.0.0.0:8443")
+        if repl_listen or fresh:
+            check_free("replication-listen", repl_listen or "0.0.0.0:8444")
         result = enroll_node(
             paths,
             url=args.url,
@@ -678,9 +694,11 @@ def enroll_cli(paths: Paths, args: argparse.Namespace) -> int:
             name=getattr(args, "name", None),
             replication_url=getattr(args, "replication_url", None),
             web_url=getattr(args, "web_url", None),
+            web_listen=getattr(args, "web_listen", None),
+            replication_listen=getattr(args, "replication_listen", None),
             engines=engines,
         )
-    except (EnrollError, FileExistsError, ValueError, OSError) as exc:
+    except (EnrollError, FileExistsError, ListenError, ValueError, OSError) as exc:
         print(f"pelagos enroll: {exc}")
         return 1
     print(

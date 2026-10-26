@@ -13,6 +13,20 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-26, WP-INSTALLER: init and enroll listen options, import defaults, query access
+- `pelagos init` and `pelagos enroll` (`cli.py`) take `--web-listen` and
+  `--replication-listen`; `bootstrap_first_node` and `enroll_node` take the
+  same two keyword arguments (default `None`, behaviour unchanged). Both
+  commands check the ports are free (`core/listen.py`) and the default
+  `web_url` / `replication_url` follow a non-default port. Additive.
+- Installer: `detect.import_defaults` makes `pelagos import` skip daemons
+  that are neither running nor enabled; a BIND import probes a SOA query per
+  zone and may set `query_address` to an allowed host address; new audit
+  finding kind `query_refused` (warning, not remediable) with messages
+  `finding.query_refused.*`; `stats_nonlocal` is no longer raised for a
+  statistics channel bound to loopback. rndc's "key file exists, but using
+  default configuration file" warning is dropped from rndc output.
+
 ## 2026-10-25, N-NODES follow-ups: backups, divergence, plans on disk, hub and spoke
 - `pelagos.domain.dhcp.HAState.other_relationships` (`list[HAState]`, default
   empty): a Kea 3 hub's other relationships. Additive. Readers that walk HA

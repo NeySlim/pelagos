@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from pelagos import __version__
+from pelagos.core.listen import ListenError
 from pelagos.core.paths import Paths
 
 
@@ -84,6 +85,10 @@ def cmd_init(args: argparse.Namespace) -> int:
     try:
         if paths.cluster_toml.exists():
             raise InitError(f"{paths.cluster_toml} exists: this node is already initialized", 1)
+        from pelagos.core.listen import check_free
+
+        check_free("web-listen", args.web_listen or "0.0.0.0:8443")
+        check_free("replication-listen", args.replication_listen or "0.0.0.0:8444")
         password = _init_password(args)
         result = bootstrap_first_node(
             paths,
@@ -92,10 +97,15 @@ def cmd_init(args: argparse.Namespace) -> int:
             admin_password=password,
             web_url=args.web_url,
             replication_url=args.replication_url,
+            web_listen=args.web_listen,
+            replication_listen=args.replication_listen,
         )
     except InitError as exc:
         print(f"pelagos init: {exc}", file=sys.stderr)
         return exc.code
+    except ListenError as exc:
+        print(f"pelagos init: {exc}", file=sys.stderr)
+        return 1
     except FileExistsError as exc:
         print(f"pelagos init: {exc}", file=sys.stderr)
         return 1
@@ -153,6 +163,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     i.add_argument("--web-url")
     i.add_argument("--replication-url")
+    i.add_argument("--web-listen", help="host:port of the UI (default 0.0.0.0:8443), must be free")
+    i.add_argument(
+        "--replication-listen", help="host:port of the replication API (default 0.0.0.0:8444), must be free"
+    )
     i.set_defaults(func=cmd_init)
 
     from pelagos.installer.cli import add_parsers as add_installer_parsers
@@ -170,6 +184,10 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--name", help="this node's name (default: short hostname)")
     e.add_argument("--replication-url", help="how peers reach this node (default https://<name>:8444)")
     e.add_argument("--web-url", help="UI URL of this node (default https://<name>:8443)")
+    e.add_argument("--web-listen", help="host:port of the UI (default 0.0.0.0:8443), must be free")
+    e.add_argument(
+        "--replication-listen", help="host:port of the replication API (default 0.0.0.0:8444), must be free"
+    )
     e.add_argument("--engines", help="comma list among bind,kea4,kea6,d2 that this node drives")
     e.set_defaults(func=cmd_enroll)
 

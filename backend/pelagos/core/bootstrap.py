@@ -10,6 +10,7 @@ from pathlib import Path
 from pelagos.auth.passwords import hash_password
 from pelagos.core import ca as ca_mod
 from pelagos.core.config_store import ClusterConfig, ConfigStore, NodeConfig
+from pelagos.core.listen import url_with_port
 from pelagos.core.paths import Paths
 from pelagos.core.secrets import SecretBox, write_master_key
 from pelagos.domain.cluster import Peer, User
@@ -31,6 +32,8 @@ def bootstrap_first_node(
     admin_password: str,
     web_url: str | None = None,
     replication_url: str | None = None,
+    web_listen: str | None = None,
+    replication_listen: str | None = None,
     engines: dict[str, object] | None = None,
 ) -> BootstrapResult:
     """Idempotent on an empty tree; refuses to overwrite an existing cluster.toml."""
@@ -44,8 +47,10 @@ def bootstrap_first_node(
     node = NodeConfig(
         id=node_id,
         name=host,
-        replication_url=replication_url or f"https://{host}:8444",
-        web_url=web_url or f"https://{host}:8443",
+        web_listen=web_listen or "0.0.0.0:8443",
+        replication_listen=replication_listen or "0.0.0.0:8444",
+        replication_url=replication_url or url_with_port(host, replication_listen or "0.0.0.0:8444"),
+        web_url=web_url or url_with_port(host, web_listen or "0.0.0.0:8443"),
         engines=dict(engines or {"bind": False, "kea4": False, "kea6": False, "d2": False}),
     )
     store.save_node(node)

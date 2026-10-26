@@ -234,7 +234,8 @@ The collector runs the same audit every `consistency_seconds` and raises
 | `open_recursion` | critical | `allow-recursion { localhost; localnets; };` |
 | `dnssec_validation_off` | warning | `dnssec-validation auto;` |
 | `rndc_nonlocal` | critical | rndc control channel moved to the loopback |
-| `stats_nonlocal` | warning | statistics channel moved to the loopback |
+| `stats_nonlocal` | warning | statistics channel moved to the loopback; raised only when it listens beyond loopback (a loopback channel with `allow { any; }` is not a finding) |
+| `query_refused` | warning | none automatic: add `127.0.0.1` to the `allow-query` of the zones that refuse the SOA query Pelagos sends |
 | `update_without_admin_key` | warning | `ddi-admin` (or the view key) added to the zone's `update-policy` or `allow-update` |
 | `transfer_without_read_key` | warning | `key ddi-read` added to `allow-transfer` |
 | `open_allow_transfer` | warning | `any` replaced by `key ddi-read` (other elements kept) |

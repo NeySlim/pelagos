@@ -258,6 +258,7 @@ def test_wrong_ca_fingerprint_is_refused_before_sending_the_token(cluster, tmp_r
 def test_enroll_cli(cluster, tmp_root, monkeypatch):
     from pelagos.cli import main
 
+    monkeypatch.setattr("pelagos.core.enrollment.check_free", lambda *_: None)  # default ports may be busy
     a = cluster.first()
     issued = a.service.enrollment.issue_token("user:admin")
     home = tmp_root / "cli"

@@ -28,6 +28,7 @@ def home(tmp_path, monkeypatch):
     for var in ("HOME", "ETC", "VAR", "RUN", "OPT", "ADMIN_PASSWORD"):
         monkeypatch.delenv(f"PELAGOS_{var}", raising=False)
     monkeypatch.setattr("sys.stdin", _Stdin(tty=False))
+    monkeypatch.setattr("pelagos.core.listen.check_free", lambda *_: None)  # default ports may be busy
     return tmp_path / "node"
 
 
@@ -91,3 +92,37 @@ def test_already_initialized_refuses_before_asking(home, monkeypatch, capsys):
     assert _init(home) == 1
     err = capsys.readouterr().err
     assert "already initialized" in err and "Traceback" not in err
+
+
+def test_listen_options_are_written_and_urls_follow_the_port(home, monkeypatch):
+    from pelagos.core.config_store import ConfigStore
+
+    monkeypatch.setenv("PELAGOS_ADMIN_PASSWORD", GOOD)
+    rc = _init(home, "--web-listen", "127.0.0.1:18443", "--replication-listen", "127.0.0.1:18444")
+    assert rc == 0
+    node = ConfigStore(home / "etc" / "node.toml", home / "var" / "cluster.toml").load_node()
+    assert (node.web_listen, node.replication_listen) == ("127.0.0.1:18443", "127.0.0.1:18444")
+    assert node.web_url == "https://ns1:18443" and node.replication_url == "https://ns1:18444"
+
+
+def test_busy_port_is_a_clear_error_and_nothing_is_written(home, monkeypatch, capsys):
+    import socket
+
+    monkeypatch.undo()  # the real check, with a real busy port
+    monkeypatch.setenv("PELAGOS_ADMIN_PASSWORD", GOOD)
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        port = busy.getsockname()[1]
+        assert _init(home, "--web-listen", f"127.0.0.1:{port}") == 1
+    err = capsys.readouterr().err
+    assert f"port {port} is already in use" in err and "--web-listen" in err
+    assert not (home / "etc" / "node.toml").exists()
+
+
+@pytest.mark.parametrize("value", ["nonsense", "0.0.0.0:", "0.0.0.0:99999", "0.0.0.0:0"])
+def test_malformed_listen_is_refused(value):
+    from pelagos.core.listen import ListenError, split_listen
+
+    with pytest.raises(ListenError, match="not host:port"):
+        split_listen(value)

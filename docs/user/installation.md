@@ -9,6 +9,7 @@ then enroll the others ([Getting started](getting-started.md)).
 - [Debian 13 (deb)](#debian-13-deb)
 - [RHEL, Rocky, AlmaLinux 9 and 10 (rpm)](#rhel-rocky-almalinux-9-and-10-rpm)
 - [Docker](#docker)
+- [An already busy server](#an-already-busy-server)
 - [From source (developers)](#from-source-developers)
 - [What the package installs](#what-the-package-installs)
 
@@ -41,6 +42,25 @@ make rpm                     # RHEL family: build/rpm/pelagos-<version>-<release
 make docker                  # node image pelagos:<version> and pelagos:latest
 make docker-allinone         # all-in-one image pelagos-allinone:<version>
 ```
+
+Packages exist for `amd64` and `arm64` (the CI builds the deb natively on
+both). The package depends on compiled wheels, so build it on the target
+architecture: on an arm64 host `make deb` produces
+`pelagos_<version>_arm64.deb`. Without an arm64 machine, build in an
+emulated Debian 13 arm64 container:
+
+```sh
+sudo apt install qemu-user-static binfmt-support    # once
+docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src debian:trixie sh -c '
+  apt-get update -q && apt-get install -y -q --no-install-recommends \
+    ca-certificates git make build-essential dpkg-dev debhelper fakeroot \
+    python3 python3-venv python3-pip && make deb'
+```
+
+The emulated build is slow (several times the native time) but yields the
+same package. The node and all-in-one images are published for both
+architectures; `docker buildx build --platform linux/arm64 ...` builds them
+from a checkout on any host.
 
 Build dependencies are listed in `packaging/deb/README.md` and
 `packaging/rpm/README.md`. A deb or rpm depends on the exact Python minor
@@ -122,6 +142,16 @@ init ...`, which leaves the password in the shell history). Without a
 terminal and without the variable, `init` stops at the prompt.
 On a server that joins an existing cluster, run `pelagos enroll` instead
 ([Enroll a second node](getting-started.md#5-enroll-a-second-node)).
+
+If 8443 or 8444 is taken by another service, choose the ports now:
+
+```sh
+sudo pelagos init --name ns1 --web-listen 0.0.0.0:9443 --replication-listen 0.0.0.0:9444
+```
+
+`init` refuses to continue when a port is in use. The advertised URLs follow
+the ports unless you pass `--web-url` and `--replication-url`. `pelagos
+enroll` takes the same two options.
 
 Continue with [Getting started](getting-started.md).
 
@@ -351,6 +381,54 @@ docker compose run --rm pelagos-init pelagos enroll --url https://ns1.example.la
   --replication-url https://ns2.example.lan:8444 --web-url https://ns2.example.lan:8443
 docker compose up -d
 ```
+
+## An already busy server
+
+Pelagos adopts what runs on the server; it does not assume an empty machine.
+Three situations come up on servers that already host services.
+
+**Ports already taken.** The UI and replication ports default to 8443 and
+8444. When another service holds one (a certificate manager, a reverse
+proxy), pass `--web-listen` and `--replication-listen` to `pelagos init` or
+`pelagos enroll` as shown above, or edit `web_listen` and
+`replication_listen` in `/etc/pelagos/node.toml` before the first start. The
+URLs that other nodes use must carry the same ports.
+
+**Zones with a restricted `allow-query`.** Pelagos reads zones by querying
+named from `query_address` (default `127.0.0.1`) and by zone transfer. If the
+zones only answer a LAN, those requests are refused and `query failed`
+appears in the named log. `pelagos import` tests a SOA query for every
+served zone and, when localhost is refused, records a host address that is
+allowed as `query_address`. When no address works, the audit raises the
+`query_refused` finding: add `127.0.0.1` to the `allow-query` of the listed
+zones (or set `query_address` in `node.toml` `[engines.bind]` to an allowed
+address) and run the audit again.
+
+**An existing Kea HA.** Import keeps the HA relationship as it is: it adds a
+control socket when missing and touches nothing else. Daemons that are
+neither running nor enabled are skipped, so a `kea-dhcp6` that only has the
+package's sample file is not adopted. The two peers must have synchronized
+clocks (Kea ends HA after about 60 seconds of drift), and the same hooks and
+reservations. Compare them on the DHCP screen before relying on the HA.
+
+### Repairing an HA stuck in `terminated`
+
+A Kea HA partner in `terminated` stays there until it is restarted: it does
+not recover by itself, even when the cause is gone. The usual cause is a
+clock difference between the peers; fix it first (`timedatectl status`,
+`chronyc tracking`), then restart the peers one after the other:
+
+1. On the first server, `sudo systemctl restart kea-dhcp4-server` (or
+   `isc-kea-dhcp4-server` for the ISC packages). Wait until its HA state is
+   `waiting`, then `hot-standby` or `load-balancing` (DHCP screen, HA tab).
+2. Only then restart the second server and wait for the same states.
+3. Both servers report `hot-standby` or `load-balancing` and the alert
+   closes.
+
+Never restart both at the same time: the pair would start without a live
+partner. A plan that does this for you, "Repair HA" on the HA page, checks
+the clocks and restarts the peers in order; the steps above are the manual
+equivalent.
 
 ## From source (developers)
 

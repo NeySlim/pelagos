@@ -47,7 +47,9 @@ to run when `cluster.toml` already exists.
 | `--admin-user NAME` | `admin` | first user, role `admin` |
 | `--admin-password PASSWORD` | | deprecated: visible in `ps` and the shell history; use `PELAGOS_ADMIN_PASSWORD` or the prompt |
 | `--web-url URL` | `https://<name>:8443` | UI URL advertised to the other nodes |
-| `--replication-url URL` | `https://<name>:8444` | how the other nodes reach this one |
+| `--replication-url URL` | `https://<name>:<replication port>` | how the other nodes reach this one |
+| `--web-listen HOST:PORT` | `0.0.0.0:8443` | where the UI listens (`node.toml` `web_listen`); the default `--web-url` follows its port |
+| `--replication-listen HOST:PORT` | `0.0.0.0:8444` | where replication listens (`replication_listen`); the default `--replication-url` follows its port |
 
 ```sh
 sudo pelagos init --name ns1 --web-url https://ns1.example.lan:8443 \
@@ -60,9 +62,13 @@ else asked twice on the terminal. Without a terminal (a script, `ssh` with no
 rule as every later change: at least 12 characters and three of lowercase,
 uppercase, digits, symbols.
 
+`init` first checks that both listen ports are free and stops with
+`port 8443 is already in use; pick another with --web-listen` otherwise,
+before anything is written.
+
 Exit status: `0` initialized, `1` already initialized (`cluster.toml`
-exists, checked before asking for the password) or the files could not be
-written, `2` no password, the two entries differ, or the password is too
+exists, checked before asking for the password), a listen port in use, or
+the files could not be written, `2` no password, the two entries differ, or the password is too
 weak. Nothing is written in the last case.
 
 ## pelagos enroll
@@ -79,7 +85,9 @@ node already has a `cluster.toml`.
 | `--ca-fingerprint sha256:...` | required | cluster CA fingerprint, shown with the token |
 | `--name NAME` | short hostname | this node's name |
 | `--replication-url URL` | `https://<name>:8444` | how the peers reach this node |
-| `--web-url URL` | `https://<name>:8443` | UI URL of this node |
+| `--web-url URL` | `https://<name>:<web port>` | UI URL of this node |
+| `--web-listen HOST:PORT` | `0.0.0.0:8443` | where the UI listens; checked free like for `init` |
+| `--replication-listen HOST:PORT` | `0.0.0.0:8444` | where replication listens; checked free like for `init` |
 | `--engines LIST` | none | comma list among `bind,kea4,kea6,d2` this node drives (usually left to `pelagos import`) |
 
 Exit status: `0` enrolled, `1` refused or unreachable, `2` missing option.
@@ -115,13 +123,23 @@ Adopts an existing BIND and Kea without rewriting them
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `--engines LIST` | every installed engine with a configuration file | comma list of `bind`, `kea4`, `kea6`, `d2` |
+| `--engines LIST` | installed engines with a configuration file that are running or enabled | comma list of `bind`, `kea4`, `kea6`, `d2` |
 | `--dry-run`, `--yes`/`-y`, `--json` | | as for `install` |
 
 ```sh
 sudo pelagos import --dry-run
 sudo pelagos import --engines bind,kea4,d2 --yes
 ```
+
+Without `--engines`, an engine that is installed but neither running nor
+enabled (for example `kea-dhcp6` with only the package's sample file) is
+skipped, and the command says why. Name it in `--engines` to adopt it anyway.
+
+Import also checks, for each served zone, that a SOA query from the address
+Pelagos uses (`query_address`) is answered. When `allow-query` excludes
+`127.0.0.1`, import picks a host address that is allowed; if none is, it keeps
+`127.0.0.1` and the security audit reports a `query_refused` finding that
+proposes adding `127.0.0.1` to the `allow-query` of those zones.
 
 Running `import` again is safe: steps already done report "nothing to write".
 

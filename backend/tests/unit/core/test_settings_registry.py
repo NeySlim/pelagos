@@ -216,7 +216,10 @@ def test_a_former_file_loads_with_current_names_and_values(tmp_path, release, ex
     assert [u.username for u in cfg.users] == [u["username"] for u in raw["users"]]
     assert [r.name for r in cfg.roles] == [r["name"] for r in raw["roles"]]
     assert cfg.secrets == raw["secrets"] and cfg.exceptions == raw.get("exceptions", [])
-    box = SecretBox.from_file(DATA / release / "master.key")
+    key = tmp_path / "master.key"  # git does not keep mode 0600
+    key.write_bytes((DATA / release / "master.key").read_bytes())
+    key.chmod(0o600)
+    box = SecretBox.from_file(key)
     admin_secret = "c2VjcmV0LWFkbWluLTAwMDAwMDAwMDAwMDA="
     assert box.decrypt("tsig/ddi-admin", cfg.secrets["tsig/ddi-admin"]) == admin_secret
     if release == "8ce8fae":

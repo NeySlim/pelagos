@@ -5,6 +5,7 @@
 - [Cannot sign in](#cannot-sign-in)
 - [named is not reachable](#named-is-not-reachable)
 - [Kea is not reachable](#kea-is-not-reachable)
+- [Kea HA is terminated](#kea-ha-is-terminated)
 - [Permissions on zone and Kea files](#permissions-on-zone-and-kea-files)
 - [AppArmor](#apparmor)
 - [SELinux](#selinux)
@@ -116,6 +117,27 @@ In the UI: **Nodes and replication** (peers, versions, errors), **Alerts**,
 - **`config-write` fails** (Kea cannot write its file): file group and mode,
   the AppArmor local include on Debian, the SELinux module on RHEL 9; `sudo
   pelagos import` sets them.
+
+## Kea HA is terminated
+
+An HA pair can sit in `terminated` for days without any DHCP symptom: both
+servers answer clients, neither copies its leases to the other. The usual
+cause is clock skew (Kea terminates past 60 s between the active servers);
+a configuration that differs between them or a partner long out of reach
+are the others. Pelagos raises `ha_terminated` (critical) with the probable
+cause, `clock_skew` and `clock_unsynchronized` for the clocks.
+
+1. Check the clocks: Nodes page, Clock column, or on each server
+   `timedatectl` and `chronyc tracking`. Fix NTP until every node agrees
+   within a few seconds.
+2. HA page, "Repair HA": the plan checks the clocks again, then restarts the
+   HA service of each server in turn and waits until the pair serves again.
+   See [DHCP: repair an HA in terminated](dhcp.md#repair-an-ha-in-terminated).
+
+By hand: fix the clocks, then `systemctl restart kea-dhcp4-server` (the unit
+name depends on the distribution) on one server, then on the other. A
+restarted server waits in `waiting` until its partner restarts too, and
+goes back to `terminated` after 10 minutes if it does not.
 
 ## Permissions on zone and Kea files
 

@@ -61,6 +61,27 @@ What changed (file, symbol). Why. Which packages must react, and how.
 - Data file `pelagos/data/isc_advisories.json`. New collector tasks `health` and `health_audit`.
 - Frontend: alert kind labels, settings labels and the alerts filter list follow.
 
+## 2026-10-26, HA-CLOCK: clock skew, ha_terminated and the HA repair plan
+- `pelagos.core.clock` (new): NTP state (`read_ntp_state`, cached `NTP`),
+  `peer_offset`, `skew_floor`, `skew_severity`. `tests/conftest.py` makes
+  the host's NTP state read as unknown in every test (autouse fixture).
+- Section 13: `GET /repl/v1/status` gains `ntp`; `PeerStatus` gains
+  `clock_offset`, `clock_uncertainty` and `ntp` (measured by
+  `ReplicationClient.status()` from `time`, which older peers already send).
+- Section 4: `Node.clock` (`{"offset","uncertainty","ntp"}`, default None),
+  `HAPartner.clock_skew` (status-get `clock-skew`, default None). Additive.
+- Section 15: `AlertKind.HA_TERMINATED`, `CLOCK_SKEW`,
+  `CLOCK_UNSYNCHRONIZED`; `terminated` raises `ha_terminated` alone (no
+  more `ha_degraded`/`ha_partner_down` for it). Settings
+  `alerts_clock_skew_warning_seconds` (5) and
+  `alerts_clock_skew_critical_seconds` (30), warning below critical.
+  Snapshot `node`/`clock` per node.
+- Section 17: `POST /dhcp/{family}/ha/repair/plan`; Kea change target
+  `ha/restart` (scope `dhcp.ha`, `config-reload` on a terminated server,
+  then a wait), handled by `KeaBackend._run_ha`.
+- Frontend: HA page banner and repair, Clock column on the nodes page, mock
+  scenario `terminated`.
+
 ## 2026-10-25, N-NODES follow-ups: backups, divergence, plans on disk, hub and spoke
 - `pelagos.domain.dhcp.HAState.other_relationships` (`list[HAState]`, default
   empty): a Kea 3 hub's other relationships. Additive. Readers that walk HA

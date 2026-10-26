@@ -217,6 +217,8 @@ once on the node you changed them on and on the other nodes after
 | `alerts_d2_error_rate` | float | `0.05` | 0.0 to 1.0 | `d2_errors` when (errors + timeouts) / sent over the last hour exceeds it |
 | `alerts_ha_grace_seconds` | int | `45` | 0 to 3600 | how long a Kea HA relationship may be away from a normal state (a `waiting` after a `config-reload`, say) before `ha_partner_down`, `ha_degraded` and `ha_transition` open; `terminated` is never delayed, and a reload done by Pelagos keeps them quiet for this long |
 | `alerts_custom_hooks` | bool | `true` | | raise `custom_hook` for a Kea hook library that no package owns |
+| `alerts_clock_skew_warning_seconds` | int | `5` | 1 to 3600 | `clock_skew` (warning) when a peer's clock is at least this far off; also the bar the HA repair plan checks |
+| `alerts_clock_skew_critical_seconds` | int | `30` | 1 to 3600 | `clock_skew` turns critical (Kea terminates HA at 60 s); must be above the warning |
 
 ### Health checks (`[settings.checks]`)
 

@@ -455,6 +455,7 @@ class HAPartner(Model):
     last_state: str | None = None; age: int | None = None
     connecting_clients: int | None = None; unacked_clients: int | None = None
     unacked_clients_left: int | None = None; analyzed_packets: int | None = None
+    clock_skew: int | None = None    # partner's clock minus this server's (status-get "clock-skew", s)
 
 @dataclass(slots=True)
 class HAPeer(Model):            # one entry of the ha hook's "peers"
@@ -554,6 +555,7 @@ class Node(Model):                 # runtime view = Peer + liveness
     audit_count: int | None
     last_seen: datetime | None
     error: str | None = None
+    clock: dict | None = None      # {"offset","uncertainty","ntp"}: against the node answering (self: 0)
 
 @dataclass(slots=True)
 class Role(Model):
@@ -603,7 +605,8 @@ class AlertKind(str, Enum):
     POOL_NEAR_FULL="pool_near_full"; POOL_FULL="pool_full"
     SERIAL_DIVERGENCE="serial_divergence"; SECONDARY_STALE="secondary_stale"; ZONE_ERROR="zone_error"
     HA_DEGRADED="ha_degraded"; HA_PARTNER_DOWN="ha_partner_down"; HA_TRANSITION="ha_transition"
-    HA_BACKUP_OUT_OF_SYNC="ha_backup_out_of_sync"
+    HA_BACKUP_OUT_OF_SYNC="ha_backup_out_of_sync"; HA_TERMINATED="ha_terminated"
+    CLOCK_SKEW="clock_skew"; CLOCK_UNSYNCHRONIZED="clock_unsynchronized"
     D2_ERRORS="d2_errors"
     DAEMON_DOWN="daemon_down"; PEER_OFFLINE="peer_offline"; CONFIG_DIVERGENCE="config_divergence"
     LEASE_WITHOUT_RECORD="lease_without_record"; RECORD_WITHOUT_LEASE="record_without_lease"
@@ -1268,6 +1271,8 @@ alerts_pool_warning_percent = 80
 alerts_pool_critical_percent = 95
 alerts_serial_divergence_seconds = 900   # secondary may lag this long before SECONDARY_STALE
 alerts_d2_error_rate = 0.05
+alerts_clock_skew_warning_seconds = 5    # CLOCK_SKEW warning; also the bar of the HA repair plan
+alerts_clock_skew_critical_seconds = 30  # CLOCK_SKEW critical (Kea terminates HA at 60 s)
 
 [settings.checks]
 # Thresholds of the health checks (item 19 to 28): defaults in core/config_store.py DEFAULT_SETTINGS
@@ -1420,7 +1425,7 @@ application/json`. All endpoints under `/repl/v1`.
 
 | Method, path | Request | Response | Notes |
 | --- | --- | --- | --- |
-| `GET /repl/v1/status` | | `{"node_id","name","version","config_version","config_updated_at","config_updated_by","config_digest","audit_count","audit_head","time","modules"}` | liveness and heads; `config_digest` from `ConfigStore.digest()` |
+| `GET /repl/v1/status` | | `{"node_id","name","version","config_version","config_updated_at","config_updated_by","config_digest","audit_count","audit_head","time","ntp","modules"}` | liveness and heads; `config_digest` from `ConfigStore.digest()`; `time` (read last) gives the caller the peer's clock offset, the midpoint of the exchange, within half its round trip (`core.clock.peer_offset`, `PeerStatus.clock_offset`, `clock_uncertainty`); `ntp` is the node's NTP state (`core.clock.read_ntp_state`: `source` chrony or timedatectl, `synchronized`, `ntp_enabled`, `offset`, `stratum`, `reference`, cached 60 s) |
 | `GET /repl/v1/config` | | `{"version","updated_at","updated_by","toml"}` | full `cluster.toml` text |
 | `PUT /repl/v1/config` | `{"version","updated_at","updated_by","toml"}` | `{"adopted": bool, "local_version": int, "digest": str}` | merge entry by entry (below); `adopted` when the local file changed |
 | `GET /repl/v1/audit?after=<id>&limit=<n>` | | `{"entries":[...], "next": id or null}` | ascending by id |
@@ -1682,7 +1687,7 @@ from `settings.collector`:
 | Poll local BIND (`rndc status`, zone statuses + SOA serials, statistics) | `poll_seconds` | `series_serial` on change, `DAEMON_DOWN`, `ZONE_ERROR` |
 | Poll local Kea 4/6 (`status-get`, HA, `statistic-get-all`, pool utilization) | `poll_seconds`; samples pools every `pool_sample_seconds` | `series_pool`, `ha_transitions`, `HA_*`, `POOL_*`, `DAEMON_DOWN` |
 | Poll local D2 | `poll_seconds` | `D2_ERRORS` when error rate over window exceeds `alerts_d2_error_rate` |
-| Poll peers (`GET /repl/v1/status`, engine snapshots) | `peer_poll_seconds` | `PEER_OFFLINE`, `SERIAL_DIVERGENCE`, `SECONDARY_STALE`, `CONFIG_DIVERGENCE` |
+| Poll peers (`GET /repl/v1/status`, engine snapshots) | `peer_poll_seconds` | `PEER_OFFLINE`, `SERIAL_DIVERGENCE`, `SECONDARY_STALE`, `CONFIG_DIVERGENCE`, `CLOCK_SKEW`, `CLOCK_UNSYNCHRONIZED`, snapshots `node`/`clock` per node (`{"name","offset","uncertainty","ntp","reference"}`, this node's offset 0) |
 | Live pass: local Kea HA state (`status-get`, `ha-heartbeat`), lease watch, zone rechecks | `live_seconds` (5) | snapshots `ha` and `recent_leases`, events only (no alert) |
 | Consistency pass (`services.consistency.run`) | `consistency_seconds` | cross alerts |
 | RPZ list updates (`collector/pollers/rpz.py`, in a thread; section 21) | `rpz.check_seconds` (300) | `RPZ_UPDATE`, snapshot `rpz` |
@@ -1847,6 +1852,9 @@ Alert kinds and rules (thresholds from `settings`):
 | `ha_backup_out_of_sync` | warning | a backup's assigned lease count differs from the primary's (an active server's when the primary is not read) by more than max(2, 1 %) for 5 minutes; raised by the peers poller from the `ha` and `utilization` snapshots, node = the backup, subject `ha-backup:<engine>` |
 | `ha_transition` | info | state changed since the last poll (also a `ha_transitions` row) |
 | `custom_hook` | warning | a Kea hook library that `dpkg -S` / `rpm -qf` says no package owns; raised by the Kea poller per library, subject `<engine>:hook:<file name>`; the title suggests the built-in option when one exists (`hostname-char-set` / `hostname-char-replacement` for a hostname sanitizing hook); off with `alerts_custom_hooks` |
+| `ha_terminated` | critical | state `terminated`, alone (no `ha_degraded` nor `ha_partner_down` for that relationship); details `cause` (`clock_skew`, `config`, `partner`, `unknown`) and `cause_details`, the title carries the cause as a nested message (`alert.ha_cause.*`): the partner's skew Kea measured (status-get `clock-skew`, `HAPartner.clock_skew`) of `alerts_clock_skew_warning_seconds` or more, else a node `clock` snapshot that far off, else a shared configuration that differs between nodes (`kea_shared.divergent`), else the partner not in touch |
+| `clock_skew` | warning / critical | a peer's clock offset, minus its uncertainty, at least `alerts_clock_skew_warning_seconds` / `alerts_clock_skew_critical_seconds`; node = the peer, subject `clock`; details `offset`, `uncertainty`, `reference` (this node's name), `suspect` (the node whose NTP says unsynchronized when only one does), thresholds |
+| `clock_unsynchronized` | warning | a node's `ntp` says `synchronized: false` or `ntp_enabled: false` (an unknown state never alerts); raised for this node and for each peer from its status, node = that node, subject `ntp` |
 
 The `ha_*` alerts above have subject `ha:<engine>`; a Kea 3 hub raises them
 for each relationship, the second one and later with subject
@@ -2156,6 +2164,7 @@ the API normalizes to the absolute form.
 | `GET /dhcp/{family}/stats?node_id=` | `read:dhcp` | | `{"node_id", "statistics": {...}}` |
 | `GET /dhcp/{family}/ha` | `read:dhcp` | | `{"items": [HAState], "relationships": [{"family","mode","servers":[{"name","role","url","auto_failover","node_id","node_name","state","scopes","unsent_update_count","partner","in_touch","collected_at","managed","leases","last_lease_at","receives_from"?,"lease_reference"?}],"active":[name],"backups":[name]}]}`: one relationship per entry (a hub's are separate); `leases` (assigned addresses) and `last_lease_at` (newest client transaction, on a backup the last lease update it received) come from the collector's `utilization` and `recent_leases` snapshots (null when unknown); a backup also has `receives_from` (the active servers) and `lease_reference` (`{"server","leases"}`, the primary of its relationship, never a hub, or null) |
 | `POST /dhcp/{family}/ha/setup/plan` | `write:dhcp.config` | `{"mode","servers":[{"name","url","role","auto_failover"?,"node_id"?}], tunables?, "hooks_dir"?}`, or `{"relationships": [{"mode","servers",tunables?}], "hooks_dir"?}` (Kea 3 hub and spoke: a node may run a server in several, names and URLs unique across them, field errors under `relationships[<i>].`; a Kea 2.x node in two is refused with `400`), or `{"remove": true, "node_ids"?}` (roles checked per mode as Kea does; one part per node with a `node_id`, built there over `dhcp.ha.plan`: its `hooks-libraries` with the `ha` hook under its own `this-server-name`, `lease_cmds` added when missing; `remove` drops the hook from `node_ids`, default every node where HA is on) | `Plan` (scope `dhcp.config`, `requires_confirmation`, applied part by part) |
+| `POST /dhcp/{family}/ha/repair/plan` | `ops:dhcp.ha` | `{"server_name"?}`: bring the relationships with a server in `terminated` back (`409 conflict` when none is). Targets: their active servers' nodes, the primary last (a server no Pelagos node runs: `400`). Validations `clock`, one per node: its offset against this node (`PeerStatus.clock_offset`) minus the uncertainty under `alerts_clock_skew_warning_seconds`, else the plan is `failed`; refused like a config plan while a target's Kea file diverges (the restart loads it). One change `ha/restart` (`after = {"action":"restart","order":[node ids],"servers":{node: server name}}`): on each node the connector sends `config-reload` when a relationship of the server is `terminated` (a reload restarts the HA hook like a daemon restart; `ha-reset` re-terminates on the skew measured before), then waits up to 30 s for it to leave `terminated`, the last node up to 180 s for `hot-standby`/`load-balancing` with its partner in touch. Rollback does nothing | `Plan` (`requires_confirmation`) |
 | `POST /dhcp/{family}/ha/maintenance/plan` | `ops:dhcp.ha` | `{"node_id","action":"start"|"cancel"}` (`node_id`: the server that goes in-maintenance or leaves it; the plan is applied on its HA partner, found by server name among every node (a server shut down: the only active server left, or the one in `partner-in-maintenance` for a cancel), which stays up as `partner-in-maintenance`; a backup server is refused with `400`; for a hub, the plan goes to its partner in each relationship (`target_node_ids` = those nodes); when the partner is a hub, the diff notes that its other relationships enter maintenance too, Kea applying it server-wide) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/ha/transitions?from=&to=` | `read:dhcp` | | `{"items": [{"ts","node_id","server_name","from_state","to_state","partner_state"}]}` |
 | `POST /dhcp/{family}/service/plan` | `ops:dhcp.ha` | `{"node_id","enable": bool}` (applied on `node_id`, this node or a peer) | `Plan` (`requires_confirmation`) |

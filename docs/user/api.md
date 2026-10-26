@@ -218,6 +218,7 @@ Permissions are those of [Configuration: roles](configuration.md#roles-and-permi
 | `GET /dhcp/{family}/utilization`, `/stats` | `read:dhcp` | pool use, Kea statistics |
 | `GET /dhcp/{family}/ha`, `/ha/transitions` | `read:dhcp` | HA state, history |
 | `POST /dhcp/{family}/ha/maintenance/plan` | `ops:dhcp.ha` | `{"node_id", "action": "start"|"cancel"}` |
+| `POST /dhcp/{family}/ha/repair/plan` | `ops:dhcp.ha` | `{"server_name"?}`: restart the HA service of each terminated server in turn, clocks checked first (`409` when none is terminated) |
 | `POST /dhcp/{family}/service/plan` | `ops:dhcp.ha` | `{"node_id", "enable": bool}` |
 | `GET /dhcp/{family}/ddns`, `POST .../ddns/plan` | `read:dhcp`, `write:dhcp.options` | DDNS parameters |
 | `GET /dhcp/{family}/hooks`, `POST .../hooks/plan` | `read:dhcp`, `write:dhcp.config` | hook libraries |

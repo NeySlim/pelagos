@@ -130,6 +130,9 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 | `ha_degraded` | warning | an HA server outside its normal states, outside a maintenance |
 | `ha_partner_down` | critical | state `partner-down`, or partner not in touch |
 | `ha_transition` | info | an HA state change |
+| `ha_terminated` | critical | an HA server in `terminated`, with the probable cause (clock skew, configuration, partner); repaired from the HA page ([DHCP](dhcp.md#repair-an-ha-in-terminated)) |
+| `clock_skew` | warning, critical | a peer's clock at least `alerts_clock_skew_warning_seconds` (critical: `alerts_clock_skew_critical_seconds`) off this node's, the measurement's margin subtracted |
+| `clock_unsynchronized` | warning | a node reports that NTP does not discipline its clock (timedatectl, chrony) or that no time service runs |
 | `d2_errors` | warning | D2 error rate over the last hour above `alerts_d2_error_rate` |
 | `daemon_down` | critical | a local engine does not answer |
 | `peer_offline` | warning | a peer unreachable for 3 polls |
@@ -216,8 +219,14 @@ Shown when the advanced editor module is on (Operations always).
 ![Nodes and replication](../images/nodes-dark.png)
 
 Every node: name, address (its web URL opens its UI), engines, status,
-version, configuration version, audit entries, last seen, error. The
-replication panel says "All peers in sync" or "Peers differ", with this
+version, configuration version, audit entries, clock, last seen, error.
+The clock is the node's offset against the node you are on ("reference"),
+measured on the last replication exchange (hover for the margin, half the
+round trip), in orange from `alerts_clock_skew_warning_seconds` and red from
+`alerts_clock_skew_critical_seconds`, with the NTP state the node reports
+(chrony when it runs, else timedatectl). Kea terminates HA past 60 s of
+skew, TSIG refuses updates past 300 s (fudge), and the node certificates
+need clocks that agree. The replication panel says "All peers in sync" or "Peers differ", with this
 node's configuration version and the CA certificate fingerprint.
 
 - **Enroll a node** (`admin:nodes`): a one-time token valid 15 minutes, 1

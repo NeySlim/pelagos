@@ -150,6 +150,13 @@ Each section shows:
 
 Alerts:
 
+- `ha_terminated` (critical): the HA service of a server is `terminated`.
+  Kea keeps answering clients but the servers exchange neither heartbeats
+  nor lease updates any more, and only a restart brings them back (below).
+  The title gives the probable cause: the clock skew Kea measured with its
+  partner, else a node clock Pelagos measured (`clock_skew`), else a
+  configuration that differs between the servers, else a partner out of
+  reach. It replaces `ha_degraded` and `ha_partner_down` for that server.
 - `ha_degraded` (warning): a server outside its normal states
   (`hot-standby`, `load-balancing`, `passive-backup`, `backup`) outside a
   maintenance.
@@ -250,6 +257,40 @@ one: when it returns, give it the new peer list (open the relationship form
 and apply it again with its node set, or edit its configuration by hand)
 before it serves clients, then it rejoins as a backup and synchronizes its
 leases. A server outside the cluster needs the same peer list by hand.
+
+### Repair an HA in `terminated`
+
+Kea terminates the HA service when the clocks of the two active servers
+drift more than 60 seconds apart (it warns from 30 seconds), and does not
+recover on its own: the pair keeps serving clients, but each server hands
+out leases the other never hears of, and nothing on the DHCP side looks
+wrong. The HA page then shows a red banner with the servers concerned, the
+probable cause and the skew Kea measured; the partner box of each card
+shows that skew too ("clock +75 s (Kea)").
+
+1. Fix the clocks. The Clock column of the Nodes page shows each node's
+   offset against the node you are on and its NTP state (`clock_skew` and
+   `clock_unsynchronized` alerts, see [Screens](screens.md)). Kea's own
+   reading stays at its last value while the HA service is terminated:
+   trust the Nodes page once NTP is back.
+2. "Repair HA" on the banner (`ops:dhcp.ha`) builds a plan that checks the
+   node clocks first (a node off by `alerts_clock_skew_warning_seconds` or
+   more fails the plan: a restart would terminate again), then restarts the
+   HA service of each active server one after the other, the primary last.
+   The restart is a `config-reload`, which reloads the hook libraries and
+   starts the HA service afresh like a restart of the daemon; `ha-reset` is
+   not enough, the state machine terminates again on the skew it measured
+   before. The plan is refused while a Kea file differs from the running
+   configuration (the reload would load the file).
+3. Each server leaves `terminated` (`waiting`), the last one waits until
+   both serve again (`hot-standby` or `load-balancing`, about a minute,
+   leases synchronized from the partner). The plan's steps show each
+   server; a server that does not come back within 3 minutes fails it with
+   its current state. Nothing to roll back: a rollback leaves the servers as
+   they are.
+
+Without Pelagos, the same repair is: fix the clocks, then restart
+`kea-dhcp4` (or `kea-dhcp6`) on one server, then on the other.
 
 ### Maintenance of one server
 

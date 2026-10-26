@@ -2,7 +2,7 @@
 """A local step-ca ACME server for the web certificate daemon tests.
 
 The binary comes from PELAGOS_STEP_CA, then PATH, then the smallstep GitHub release downloaded
-into the test session's temp dir; the tests skip when none is available. The CA (root and
+into the test session's temp dir, checked against a pinned SHA-256; the tests skip when none is available. The CA (root and
 intermediate) is made here with cryptography; ACME certificates last 24 hours, like step-ca's
 default. `--resolver` points the challenge lookups at the test's named; `--acme-http-port`
 (with `--insecure`) moves HTTP-01 off port 80.
@@ -10,6 +10,7 @@ default. `--resolver` points the challenge lookups at the test's named; `--acme-
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -33,6 +34,10 @@ from tests.fixtures.ports import free_port, wait_for
 VERSION = "0.30.2"
 RELEASE = "https://github.com/smallstep/certificates/releases/download/v{v}/step-ca_linux_{v}_{arch}.tar.gz"
 ARCH = {"x86_64": "amd64", "aarch64": "arm64"}
+SHA256 = {
+    "amd64": "126615795bafe3f2d3f890e2d628fa6e2857315fb48d0671d34b23047cc37d73",
+    "arm64": "43f79d1b0b8cab9895dbadd46b0a014006f682a6b1341e1fadf0be31d4b9f4b4",
+}
 
 
 def binary(cache: Path) -> str | None:
@@ -50,7 +55,10 @@ def binary(cache: Path) -> str | None:
     archive = download / "step-ca.tar.gz"
     try:
         with urllib.request.urlopen(RELEASE.format(v=VERSION, arch=arch), timeout=60) as resp:  # noqa: S310
-            archive.write_bytes(resp.read())
+            payload = resp.read()
+        if hashlib.sha256(payload).hexdigest() != SHA256[arch]:
+            return None
+        archive.write_bytes(payload)
         with tarfile.open(archive) as tar:
             member = next(m for m in tar.getmembers() if Path(m.name).name == "step-ca" and m.isfile())
             data = tar.extractfile(member)

@@ -406,5 +406,19 @@
     "window": "{{minutes}} dernières min",
     "planApplied": "plan appliqué",
     "rolledBack": "plan annulé"
+  },
+  "handover": {
+    "title": "Confier à Pelagos",
+    "help": "{{count}} instruction(s) sont posées dans vos propres fichiers named.conf, donc Pelagos ne fait que les lire. Confiez-les pour les modifier ici : elles passent dans les fichiers de Pelagos avec la même valeur.",
+    "all": "Tout confier ({{count}})",
+    "nodes": "{{count}} nœuds",
+    "one": {
+      "options": "Confier cette option à Pelagos",
+      "acls": "Confier cette ACL à Pelagos",
+      "keys": "Confier cette clé à Pelagos",
+      "zones": "Confier la zone à Pelagos"
+    },
+    "zone": "Confier la zone",
+    "zoneHelp": "Déplace la déclaration de la zone de vos fichiers named.conf vers le fichier de zones de Pelagos pour pouvoir la modifier ici"
   }
 }

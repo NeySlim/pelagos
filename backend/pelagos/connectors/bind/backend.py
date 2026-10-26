@@ -22,7 +22,7 @@ from pelagos.connectors.base import (
     NotSupported,
     PreconditionFailed,
 )
-from pelagos.connectors.bind import ops, staticzone, zonefile
+from pelagos.connectors.bind import handover, ops, staticzone, zonefile
 from pelagos.connectors.bind import rrset as rr
 from pelagos.connectors.bind.configplan import (
     ConfigPlanner,
@@ -631,11 +631,15 @@ class BindBackend(BindExtras, DnsBackend):
                     create_dirs=not is_zone,
                 )
             )
+        verify = self._verify(plan)
+        moved = [c.target for c in plan.changes if handover.is_handover(c)]
+        if moved:
+            verify = self._verify_handover(verify, moved)
         pipeline = self.ctx.pipeline_factory(
             backup_root=self.ctx.backup_root,
             validate=lambda: run_checkconf(self.checkconf, self.named_conf),
             reload=lambda: self.reconfig() or "reconfig done",
-            verify=self._verify(plan),
+            verify=verify,
             label=plan.id,
         )
         outcome = pipeline.run(file_changes)
@@ -670,6 +674,18 @@ class BindBackend(BindExtras, DnsBackend):
             message=outcome.error or "write pipeline failed",
             rolled_back=outcome.rolled_back,
         )
+
+    def _verify_handover(self, verify: Any, targets: list[str]) -> Any:
+        """After the reload the effective value of every moved statement must be what it was."""
+        before = handover.snapshot(handover.print_effective(self.checkconf, self.named_conf), targets)
+
+        def check() -> bool:
+            if not verify():
+                return False
+            after = handover.snapshot(handover.print_effective(self.checkconf, self.named_conf), targets)
+            return not handover.unchanged(before, after)
+
+        return check
 
     def _ensure_zone_dir(self, directory: Path) -> None:
         """Zone directories are setgid and group writable: named creates journals and transferred

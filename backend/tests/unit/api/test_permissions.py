@@ -68,6 +68,7 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("POST", "/dns/keys/plan", "/dns/keys/plan", CHANGE, "write:dns.config"),
     ("GET", "/dns/acls", "/dns/acls", None, "read:dns"),
     ("POST", "/dns/acls/plan", "/dns/acls/plan", CHANGE, "write:dns.config"),
+    ("GET", "/dns/handover", "/dns/handover", None, "read:dns"),
     ("GET", "/dns/resolver", "/dns/resolver", None, "read:dns"),
     ("POST", "/dns/resolver/plan", "/dns/resolver/plan", {"recursion": False}, "write:dns.config"),
     ("GET", "/dns/rpz", "/dns/rpz", None, "read:dns"),

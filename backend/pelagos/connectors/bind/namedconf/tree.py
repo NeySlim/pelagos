@@ -383,6 +383,26 @@ class ConfigDocument:
                 start -= 1
         del siblings[start:end]
 
+    def replace_with_comment(self, node: Node, text: str) -> bool:
+        """Put a one-line comment where a statement sat alone on its lines; False (nothing changed)
+        when other text shares a line with it, so the caller removes it instead."""
+        siblings, index, _ = self._locate(node)
+        i = index - 1
+        while i >= 0 and siblings[i].kind == "space" and "\n" not in siblings[i].text:
+            i -= 1
+        if i >= 0 and not (siblings[i].kind == "space" and "\n" in siblings[i].text):
+            return False
+        j = index + 1
+        while j < len(siblings) and siblings[j].kind in _INVISIBLE:
+            if siblings[j].kind == "space" and "\n" in siblings[j].text:
+                break
+            j += 1
+        else:
+            if j < len(siblings):
+                return False
+        siblings[index] = Node("comment", text, line=node.line)
+        return True
+
     def _locate(self, node: Node) -> tuple[list[Node], int, int]:
         found = _locate_in(self.root, node, 0)
         if found is None:

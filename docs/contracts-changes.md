@@ -1194,3 +1194,15 @@ canonical serialization of the file's top-level statements; `add` appends
 `after` at the end of the file. The changes never carry a whole file, so
 comments and formatting outside the edited statements are kept. WP-BIND
 (`plan_config_change`): merge them through the parser, never write bytes.
+
+## 2026-10-26, WP-BIND: handover/<kind>/<name> changes and GET /dns/handover
+Additive. `POST /dns/config/plan` accepts `replace` changes with target
+`handover/options/<name>`, `handover/acls/<name>`, `handover/keys/<name>` or
+`handover/zones/<view>/<zone>`: the statement leaves the user file (parser edit,
+the rest of the file byte for byte, `after.comment` false drops the line instead
+of leaving a `# moved to <file> by Pelagos` comment) and is written with the same
+value to the managed file. The plan carries an `effective-value` validation, and
+apply verifies the `named-checkconf -p` value after the reload, restoring the
+files otherwise. `GET /dns/handover` lists the statements that can move, with the
+nodes that have each. WP-FRONTEND shows it on the Resolver, ACLs and keys, Zones
+and zone screens.

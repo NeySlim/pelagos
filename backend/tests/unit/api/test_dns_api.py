@@ -363,3 +363,13 @@ def test_concurrent_apply_applies_once(role_client, fake_dns, node_ctx, services
     ]
     # One summary and one entry for this node: the losing caller wrote nothing.
     assert sorted(e["request"]["entry"] for e in entries) == ["node", "summary"]
+
+
+def test_handover_lists_user_statements(role_client, fake_dns):
+    dora = role_client("dns-operator")
+    res = dora.get("/api/v1/dns/handover")
+    assert res.status_code == 200
+    rows = {r["target"]: r for r in res.get_json()["items"]}
+    assert rows["handover/options/recursion"]["nodes"] == [fake_dns.node_id]
+    assert rows["handover/options/recursion"]["managed_file"] == "options.conf"
+    assert "handover/keys/ddi-admin" not in rows  # managed already

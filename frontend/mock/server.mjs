@@ -31,7 +31,7 @@ const PERMISSIONS = {
   'POST /dns/zones/plan': 'write:dns.zones', 'GET /dns/zones/{zone}/records': 'read:dns',
   'POST /dns/zones/{zone}/records/plan': 'write:dns.records', 'POST /dns/zones/{zone}/retransfer': 'ops:dns',
   'POST /dns/zones/{zone}/notify': 'ops:dns', 'POST /dns/zones/{zone}/reload': 'ops:dns',
-  'GET /dns/zones/{zone}/dnssec': 'read:dns', 'GET /dns/config': 'read:dns', 'POST /dns/config/plan': 'write:dns.config',
+  'GET /dns/zones/{zone}/dnssec': 'read:dns', 'GET /dns/config': 'read:dns', 'GET /dns/handover': 'read:dns', 'POST /dns/config/plan': 'write:dns.config',
   'GET /dns/keys': 'read:dns', 'GET /dns/keys/{name}/secret': 'read:dns.secrets', 'POST /dns/keys/plan': 'write:dns.config',
   'GET /dns/acls': 'read:dns', 'POST /dns/acls/plan': 'write:dns.config', 'GET /dns/resolver': 'read:dns',
   'POST /dns/resolver/plan': 'write:dns.config', 'GET /dns/rpz': 'read:dns', 'GET /dns/catalog-zones': 'read:dns',
@@ -1014,6 +1014,39 @@ function listPlan(state, user, { scope, engine, list, keyOf, change, label, tool
   })
 }
 
+// Hand over to Pelagos: the statements leave the user file and show as managed afterwards.
+function handoverPlan(state, user, body) {
+  const items = body.changes.map((c) => {
+    const item = state.handover.find((i) => i.target === c.target)
+    if (!item) throw notFound(`statement ${String(c.target).replace(/^handover\//, '')} in a user file`)
+    return item
+  })
+  const targets = body.node_ids || state.nodes.map((n) => n.peer.id)
+  const diff = items.map((i) => `--- ${i.config_path}\n-${i.name} ${i.value}\n+++ /etc/bind/pelagos/${i.managed_file}\n+${i.name} ${i.value}\n`).join('')
+  const flip = (list, name, to) => list.filter((x) => x.name === name).forEach((x) => Object.assign(x, to))
+  return createPlan(state, user, {
+    scope: 'dns.config',
+    engine: 'bind',
+    summary: `hand over ${items.length} statement(s) to Pelagos`,
+    changes: items.map((i) => ({ op: 'replace', target: i.target, before: i.value, after: { file: i.managed_file, from: i.config_path, value: i.value, comment: true }, node_ids: [] })),
+    diff,
+    targets,
+    validations: targets.flatMap((node_id) => [
+      { ok: true, tool: 'named-checkconf', output: '', node_id },
+      { ok: true, tool: 'effective-value', output: 'effective values unchanged', node_id },
+    ]),
+    preconditions: targets.map((node_id) => ({ kind: 'config_hash', node_id, subject: 'bind', value: configHash(state, 'bind') })),
+    apply() {
+      for (const i of items) {
+        state.handover = state.handover.filter((x) => x.target !== i.target)
+        if (i.kind === 'keys') flip(state.keys, i.name, { source: 'pelagos', config_path: '/etc/bind/pelagos/keys.conf' })
+        if (i.kind === 'zones') flip(state.zones, i.name, { source: 'pelagos', config_path: '/etc/bind/pelagos/zones.conf' })
+      }
+    },
+    rollback() {},
+  })
+}
+
 function settingsPlan(state, user, { scope, engine, target, current, next, tool, confirm, apply, summary }) {
   const before = JSON.parse(JSON.stringify(current))
   return createPlan(state, user, {
@@ -1353,6 +1386,7 @@ function buildHandlers(state, emit) {
     'POST /dns/config/plan': ({ body, user }) => {
       if (!Array.isArray(body.changes) || !body.changes.length) throw invalid('changes', 'at least one change is required')
       const first = body.changes[0]
+      if (String(first.target || '').startsWith('handover/')) return handoverPlan(state, user, body)
       // Advanced editor: raw:<file> and several options/<statement> changes in one plan.
       if (body.changes.length > 1 || String(first.target || '').startsWith('raw:')) {
         const text = (c, side) => (typeof c[side] === 'string' ? c[side] : jsonText(c[side]))
@@ -1395,6 +1429,7 @@ function buildHandlers(state, emit) {
         apply: () => {},
       })
     },
+    'GET /dns/handover': () => ({ items: state.handover.map((i) => ({ ...i, nodes: state.nodes.map((n) => n.peer.id) })) }),
     'GET /dns/keys': () => ({ items: state.keys.map(({ secret: _secret, ...k }) => k) }),
     'GET /dns/keys/{name}/secret': ({ params, user }) => {
       const key = state.keys.find((k) => k.name === params.name)

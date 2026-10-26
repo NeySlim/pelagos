@@ -1991,6 +1991,7 @@ change revokes the user's other sessions.
 | `GET /dns/zones/{zone}/dnssec?view=&node_id=` | `read:dns` | | `{"node_id", "status": {...}}` |
 | `GET /dns/config?node_id=` | `read:dns` | | `BindConfigTree` (secrets masked) |
 | `POST /dns/config/plan` | `write:dns.config` | `{"node_ids"?: [...], "changes": [Change]}` | `Plan` |
+| `GET /dns/handover` | `read:dns` | | `{"items": [{"kind": "options"\|"acls"\|"keys"\|"zones", "name", "view", "target", "value" (secrets masked), "config_path", "managed_file", "nodes": [...]}]}`: statements in user files; `target` goes to `/dns/config/plan` as a `replace` change (`after.comment` false removes the line instead of leaving `# moved to <file> by Pelagos`) |
 | `GET /dns/keys` | `read:dns` | | `{"items": [{"name","algorithm","source","config_path","used_by":[...]}]}` |
 | `GET /dns/keys/{name}/secret` | `read:dns.secrets` | | `{"name","algorithm","secret"}` (audited `dns.key.reveal`) |
 | `POST /dns/keys/plan` | `write:dns.config` | `{"change": Change}` (`after` = `{"name","algorithm","secret"?}`; secret generated when absent) | `Plan` |

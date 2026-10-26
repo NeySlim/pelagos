@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Globe, ArrowsClockwise, Plus, PencilSimple, Trash, Bell, ArrowClockwise, ShieldCheck, Table as TableIcon, HardDrives, Gear, DownloadSimple, Lightning, FileText, DotsThree } from '@phosphor-icons/react'
+import { Globe, ArrowsClockwise, Plus, PencilSimple, Trash, Bell, ArrowClockwise, ShieldCheck, Table as TableIcon, HardDrives, Gear, DownloadSimple, Lightning, FileText, DotsThree, HandGrabbing } from '@phosphor-icons/react'
 import { PageLayout } from '../../components/PageLayout'
 import { DataTable } from '../../components/DataTable'
 import { Button } from '../../components/Button'
@@ -37,6 +37,7 @@ import { useZoneEvents } from './zoneEvents'
 import { KeyValue, ListValue, ModeBadge, SourceBadge } from './common'
 import { useNodeNames, usePlanFlow, laggingNodes, SECONDARY_KINDS } from './helpers'
 import { RecordEditor } from './RecordEditor'
+import { handoverChanges, zoneHandover } from './handover'
 import { EDITABLE_TYPES, READ_ONLY_TYPES, absZone, isEditableType, relativeName } from './records'
 import { ZoneEditModal } from './ZoneEditModal'
 import { clearLists } from '../../lib/listCache'
@@ -408,7 +409,10 @@ export default function ZoneDetailPage() {
     // After a zone deletion the plan stays on screen for rollback; closing it leaves the page.
     onDone: (res) => {
       if (flow.plan?.scope === 'dns.zone' && flow.plan?.changes?.[0]?.op === 'delete') setDeleted(res?.state === 'applied')
-      else refetch()
+      else {
+        refetch()
+        handover.refetch()
+      }
     },
     onClose: () => {
       if (deleted) {
@@ -419,6 +423,9 @@ export default function ZoneDetailPage() {
     onError: showError,
   })
 
+  const handover = useApi(() => (hasPermission('write:dns.config') ? api.dns.handover().catch(() => ({ items: [] })) : Promise.resolve({ items: [] })), [])
+  const handoverItem = zone?.source === 'user_conf' ? zoneHandover(handover.data, zone) : null
+  const handOverZone = () => flow.run(() => api.dns.configPlan(handoverChanges([handoverItem]), handoverItem.nodes))
   const canOps = hasPermission('ops:dns')
   const editable = Boolean(zone) && zone.kind === 'primary' && hasPermission('write:dns.records')
   const viewArg = view ? { view } : {}
@@ -491,6 +498,12 @@ export default function ZoneDetailPage() {
               <Button variant="secondary" size="sm" onClick={() => setEditing(true)} data-testid="zone-edit-open">
                 <PencilSimple size={14} />
                 {t('detail.edit')}
+              </Button>
+            )}
+            {handoverItem && (
+              <Button variant="secondary" size="sm" onClick={handOverZone} loading={flow.busy} data-testid="zone-handover" title={t('handover.zoneHelp')}>
+                <HandGrabbing size={14} />
+                {t('handover.zone')}
               </Button>
             )}
             {hasPermission('write:dns.zones') && (

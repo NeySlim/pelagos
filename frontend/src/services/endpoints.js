@@ -42,6 +42,7 @@ export const ENDPOINTS = [
   'GET /dns/zones/{zone}/dnssec',
   'GET /dns/config',
   'POST /dns/config/plan',
+  'GET /dns/handover',
   'GET /dns/keys',
   'GET /dns/keys/{name}/secret',
   'POST /dns/keys/plan',

@@ -21,6 +21,8 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { ListValue, SourceBadge } from './common'
 import { usePlanFlow } from './helpers'
+import { HandoverCard } from './HandoverCard'
+import { handoverItems } from './handover'
 
 const KEY_ALGORITHMS = ['hmac-sha256', 'hmac-sha384', 'hmac-sha512', 'hmac-sha224', 'hmac-sha1']
 const WEAK_ALGORITHMS = ['hmac-md5', 'hmac-sha1']
@@ -140,9 +142,11 @@ export default function AclsKeysPage() {
   const [keyEditor, setKeyEditor] = useState(false)
   const acls = useApi(() => api.dns.acls(), [])
   const keys = useApi(() => api.dns.keys(), [])
+  const handover = useApi(() => api.dns.handover().catch(() => ({ items: [] })), [])
   const refetch = () => {
     acls.refetch()
     keys.refetch()
+    handover.refetch()
   }
   const flow = usePlanFlow({ onDone: refetch, onError: showError })
   const canWrite = hasPermission('write:dns.config')
@@ -268,6 +272,11 @@ export default function AclsKeysPage() {
         </>
       }
     >
+      {canWrite && (
+        <div className="mb-4">
+          <HandoverCard items={handoverItems(handover.data, [tab])} flow={flow} testId={`handover-${tab}`} />
+        </div>
+      )}
       {tab === 'acls' ? (
         <DataTable columns={aclColumns} rows={acls.data?.items || []} rowKey="name" loading={acls.loading && !acls.data} error={acls.error} onRetry={acls.refetch} clientSort emptyTitle={t('acls.empty')} testId="acls-table" />
       ) : (

@@ -148,8 +148,8 @@ Recursion (`recursion`, `allow-recursion`), forwarders (address, optionally
 `port N`), forward mode (BIND default `first`, or `only`), DNSSEC validation,
 and forward zones. "Per node" shows each node's values and flags those that
 differ. Changes (`write:dns.config`) go to the Pelagos `options.conf`; an
-option already set in your own files is not editable here (the plan says
-so).
+option already set in your own files is not editable here until you hand it
+over (see "Hand over to Pelagos" below).
 
 ## ACLs and keys
 
@@ -163,6 +163,29 @@ so).
   plan: every peer using the key needs the new secret at the same time.
   For the key shared with Kea D2, use the security audit, which switches
   both sides without losing an update.
+
+## Hand over to Pelagos
+
+An option, ACL, key or zone declared in your own `named.conf` files is shown
+as `User file` and Pelagos only reads it. A "Hand over to Pelagos" card
+lists them on the Resolver screen (options), on each tab of ACLs and keys,
+and on the Zones screen (zones); a zone also has "Hand over the zone" in its
+header. "Hand this option over to Pelagos" (or ACL, key, zone) acts on one
+statement, "Hand over all" on the whole screen. Nodes that have the same
+statement are handled in the same plan; a plan runs on one set of nodes, so
+statements present on different nodes may need another click.
+
+One plan does everything: the statement is removed from your file, replaced
+by a `# moved to options.conf by Pelagos` comment (the rest of the file is
+kept byte for byte), and written with the same value to `options.conf`,
+`acls.conf`, `keys.conf` or `zones.conf` (`views/<view>.conf` for a zone in a
+view). The preview shows both files, `named-checkconf` validates the result,
+and after `rndc reconfig` the effective value printed by `named-checkconf -p`
+must be what it was; otherwise the files are restored. Secrets stay masked in
+the preview. The zone can then be edited on its screen. Not offered: the
+`directory` option, an option set several times (such as `listen-on`) and keys
+declared inside a view. An option that must stay in your file (for example
+because another tool owns it) is simply left alone.
 
 ## Secondaries
 

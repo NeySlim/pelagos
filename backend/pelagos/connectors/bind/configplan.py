@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pelagos.connectors.bind import handover
 from pelagos.connectors.bind.dns_client import ALGORITHMS
 from pelagos.connectors.bind.managed import (
     DEFAULT_VIEW,
@@ -180,7 +181,9 @@ class ConfigPlanner:
     def apply_change(self, change: Change) -> None:
         try:
             target = change.target
-            if target.startswith("keys/"):
+            if handover.is_handover(change):
+                handover.render(self, change)
+            elif target.startswith("keys/"):
                 self.key_change(change, target[len("keys/") :])
             elif target.startswith("acls/"):
                 self.acl_change(change, target[len("acls/") :])
@@ -640,6 +643,9 @@ def validate_render(
         check = run_checkconf(checkconf, conf)
         check.output = check.output.replace(d + "/", "")
         out.append(check)
+        moved = [c.target for c in result.changes if handover.is_handover(c)]
+        if moved and check.ok:
+            out.append(handover.check_effective(checkconf, planner.user_conf, conf, moved))
     for path, text in result.zone_files.items():
         zone = _zone_for_file(result, path)
         if zone:

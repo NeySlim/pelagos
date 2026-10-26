@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.connectors.base import DnsBackend
+from pelagos.connectors.bind import handover
 from pelagos.core.context import NodeContext
 from pelagos.domain import (
     AuditEntry,
@@ -372,6 +373,22 @@ class DnsService(DnsExtras):
         if first is None:
             raise EngineUnavailable("no node runs BIND")
         return {**first, "per_node": per_node}
+
+    def handover(self) -> dict[str, Any]:
+        """Statements set in user files, with the nodes that have each one (nodes are offered together)."""
+        per_node: dict[str, list[dict[str, Any]]] = {}
+        if self.local is not None:
+            per_node[self.ctx.node.id] = handover.candidates(self.local.read_config())
+        for peer in self.peers.peers_running(Engine.BIND):
+            snap = self.peers.snapshot(peer, Engine.BIND, "config")
+            if snap and not snap.get("error") and snap.get("config"):
+                per_node[peer.id] = handover.candidates(BindConfigTree.from_dict(snap["config"]))
+        merged: dict[str, dict[str, Any]] = {}
+        for node_id, rows in per_node.items():
+            for row in rows:
+                item = merged.setdefault(row["target"], {**row, "nodes": []})
+                item["nodes"].append(node_id)
+        return {"items": list(merged.values())}
 
     def rpz(self, node_id: str | None = None) -> list[dict[str, Any]]:
         tree = self._config(node_id)

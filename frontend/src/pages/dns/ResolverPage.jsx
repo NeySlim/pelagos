@@ -25,6 +25,8 @@ import { errorMessage } from '../../services/apiClient'
 import { KeyValue, ListValue } from './common'
 import { useNodeNames, usePlanFlow, zoneHref, RESOLVER_KEYS, resolverChanges, sameValue as same } from './helpers'
 import { validForwarder } from './records'
+import { HandoverCard } from './HandoverCard'
+import { handoverItems } from './handover'
 
 function ResolverEditor({ open, onClose, current, onPlan }) {
   const { t } = useTranslation(['dns', 'common'])
@@ -89,7 +91,12 @@ export default function ResolverPage() {
   const [editing, setEditing] = useState(false)
   const { data, error, loading, refetch } = useApi(() => api.dns.resolver(), [])
   const forwardZones = useApi(() => api.dns.zones({ kind: 'forward' }), [])
-  const flow = usePlanFlow({ onDone: refetch, onError: showError })
+  const handover = useApi(() => api.dns.handover().catch(() => ({ items: [] })), [])
+  const reload = () => {
+    refetch()
+    handover.refetch()
+  }
+  const flow = usePlanFlow({ onDone: reload, onError: showError })
 
   const current = useMemo(() => (data ? Object.fromEntries(RESOLVER_KEYS.map((k) => [k, data[k] ?? null])) : null), [data])
   const perNode = useMemo(
@@ -129,6 +136,7 @@ export default function ResolverPage() {
         <EmptyState icon={ArrowsLeftRight} title={errorMessage(error)} action={{ label: t('common:actions.retry'), onClick: refetch }} />
       ) : (
         <div className="space-y-4 max-w-6xl">
+          {canWrite && <HandoverCard items={handoverItems(handover.data, ['options'])} flow={flow} testId="handover-options" />}
           <Card className="p-4" hover={false} data-testid="resolver-settings">
             <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <KeyValue label={t('resolver.recursion')}>{yesNo(current.recursion)}</KeyValue>

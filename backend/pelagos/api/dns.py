@@ -239,6 +239,14 @@ class ConfigPlan(Resource):
         return plan_answer(dns().plan_config(_changes(body), body.get("node_ids"), username()))
 
 
+@ns.route("/handover")
+class Handover(Resource):
+    @require("read:dns")
+    @ns.response(200, "Statements set in user files that can be handed over, with their nodes", m.RawList)
+    def get(self):
+        return dns().handover()
+
+
 @ns.route("/keys")
 class Keys(Resource):
     @require("read:dns")

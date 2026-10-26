@@ -66,6 +66,7 @@ export const dns = {
   config: (node_id) => apiClient.get(`/dns/config${buildQueryString({ node_id })}`),
   configPlan: (changes, node_ids) =>
     apiClient.post('/dns/config/plan', node_ids ? { node_ids, changes } : { changes }),
+  handover: () => apiClient.get('/dns/handover'),
   keys: () => apiClient.get('/dns/keys'),
   keySecret: (name) => apiClient.get(`/dns/keys/${enc(name)}/secret`),
   keysPlan: (change) => apiClient.post('/dns/keys/plan', { change }),

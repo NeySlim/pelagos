@@ -406,5 +406,19 @@
     "window": "last {{minutes}} min",
     "planApplied": "plan applied",
     "rolledBack": "plan rolled back"
+  },
+  "handover": {
+    "title": "Hand over to Pelagos",
+    "help": "{{count}} statement(s) are set in your own named.conf files, so Pelagos only reads them. Hand them over to edit them here: they move to the Pelagos files with the same value.",
+    "all": "Hand over all ({{count}})",
+    "nodes": "{{count}} nodes",
+    "one": {
+      "options": "Hand this option over to Pelagos",
+      "acls": "Hand this ACL over to Pelagos",
+      "keys": "Hand this key over to Pelagos",
+      "zones": "Hand the zone over to Pelagos"
+    },
+    "zone": "Hand over the zone",
+    "zoneHelp": "Moves the zone statement from your named.conf files to the Pelagos zones file so it can be edited here"
   }
 }

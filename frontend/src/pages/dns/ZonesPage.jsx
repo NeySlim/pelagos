@@ -24,6 +24,8 @@ import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { ModeBadge, SerialCells, SourceBadge } from './common'
+import { HandoverCard } from './HandoverCard'
+import { handoverItems } from './handover'
 import { useNodeNames, usePlanFlow, zoneHref, resynchronizeZone, SECONDARY_KINDS } from './helpers'
 import { validDomainName } from './records'
 import { ADDZONE_KINDS, CREATABLE_KINDS, ROOT_KINDS, defaultNameServers, newZoneAfter, splitList, zoneMode, zoneStats } from './zoneTools'
@@ -175,7 +177,14 @@ export default function ZonesPage() {
   useEffect(() => {
     if (data && !view && !kind && !q) setList('zones', data)
   }, [data, view, kind, q])
-  const flow = usePlanFlow({ onDone: () => refetch(), onError: showError })
+  const handover = useApi(() => api.dns.handover().catch(() => ({ items: [] })), [])
+  const flow = usePlanFlow({
+    onDone: () => {
+      refetch()
+      handover.refetch()
+    },
+    onError: showError,
+  })
 
   const items = useMemo(() => data?.items || [], [data])
   const rows = useMemo(() => items.filter((it) => !sync || (sync === 'divergent' ? it.divergent : !it.divergent)), [items, sync])
@@ -282,6 +291,7 @@ export default function ZonesPage() {
     >
       <div className="space-y-4">
         <RichStatsBar stats={stats} />
+        {hasPermission('write:dns.config') && <HandoverCard items={handoverItems(handover.data, ['zones'])} flow={flow} compact testId="handover-zones" />}
         <DataTable
           columns={columns}
           rows={rows}

@@ -40,7 +40,7 @@ const invocations = [
   () => api.dns.zonePlan({ op: 'add', target: '_default/x.lan.' }), () => api.dns.records('example.lan', { page: 2 }),
   () => api.dns.recordsPlan('example.lan', []), () => api.dns.retransfer('example.lan', 'n1'),
   () => api.dns.notify('example.lan'), () => api.dns.reload('example.lan'), () => api.dns.dnssec('example.lan'),
-  () => api.dns.config(), () => api.dns.configPlan([]), () => api.dns.keys(), () => api.dns.keySecret('ddi-admin'),
+  () => api.dns.config(), () => api.dns.configPlan([]), () => api.dns.handover(), () => api.dns.keys(), () => api.dns.keySecret('ddi-admin'),
   () => api.dns.keysPlan({}), () => api.dns.acls(), () => api.dns.aclsPlan({}), () => api.dns.resolver(),
   () => api.dns.resolverPlan({ recursion: true }), () => api.dns.rpz(), () => api.dns.catalogZones(), () => api.dns.catalogMemberPlan('cat.lan', {}), () => api.dns.dnssecPolicies(),
   () => api.dns.dnssecPoliciesPlan({}), () => api.dns.dnssecPlan('example.lan', { action: 'rollover' }), () => api.dns.stats('n1'),

@@ -189,6 +189,7 @@ Permissions are those of [Configuration: roles](configuration.md#roles-and-permi
 | `GET /dns/config`, `POST /dns/config/plan` | `read:dns`, `write:dns.config` | the configuration tree; statement changes |
 | `GET /dns/keys`, `POST /dns/keys/plan`, `GET /dns/keys/{name}/secret` | `read:dns`, `write:dns.config`, `read:dns.secrets` | TSIG keys; reveal is audited |
 | `GET /dns/acls`, `POST /dns/acls/plan` | `read:dns`, `write:dns.config` | ACLs |
+| `GET /dns/handover` | `read:dns` | statements set in user files that can be moved to the managed files, with the nodes that have each; plan with `POST /dns/config/plan` and `handover/...` targets |
 | `GET /dns/resolver`, `POST /dns/resolver/plan` | `read:dns`, `write:dns.config` | recursion, forwarders, DNSSEC validation |
 | `GET /dns/rpz`, `GET /dns/catalog-zones` | `read:dns` | response policy zones, catalogs |
 | `POST /dns/catalog-zones/{zone}/members/plan` | `write:dns.records` | add or remove a catalog member |

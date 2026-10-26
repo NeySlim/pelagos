@@ -1018,6 +1018,12 @@ export function createState(scenario = 'pair') {
       { name: 'internal', elements: ['192.0.2.0/24', '2001:db8::/64', 'localhost'], source: 'pelagos', config_path: '/etc/bind/pelagos/acls.conf' },
       { name: 'secondaries', elements: ['192.0.2.54', 'key ddi-read'], source: 'pelagos', config_path: '/etc/bind/pelagos/acls.conf' },
     ],
+    handover: [
+      { kind: 'options', name: 'max-ncache-ttl', view: null, target: 'handover/options/max-ncache-ttl', value: '600', config_path: '/etc/bind/named.conf.options', managed_file: 'options.conf' },
+      { kind: 'options', name: 'minimal-responses', view: null, target: 'handover/options/minimal-responses', value: 'yes', config_path: '/etc/bind/named.conf.options', managed_file: 'options.conf' },
+      { kind: 'keys', name: 'rndc-key', view: null, target: 'handover/keys/rndc-key', value: 'algorithm hmac-md5; secret ****', config_path: '/etc/bind/rndc.key', managed_file: 'keys.conf' },
+      { kind: 'zones', name: 'example.lan.', view: '_default', target: 'handover/zones/_default/example.lan.', value: 'primary', config_path: '/etc/bind/named.conf.local', managed_file: 'zones.conf' },
+    ],
     resolver: {
       recursion: true,
       allow_recursion: ['internal'],

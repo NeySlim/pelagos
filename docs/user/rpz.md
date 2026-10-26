@@ -147,7 +147,7 @@ never accepted this way.
 named keeps every rule in memory: measured on BIND 9.20, about 700 to 1000
 bytes per listed domain (two rules each), and a reload briefly holds the old
 and the new copy of the zone. Pelagos uses 800 bytes per entry (setting
-`bytes_per_entry`) and shows, before you save, for each node: the estimated
+`memory_per_entry_bytes`) and shows, before you save, for each node: the estimated
 memory at peak and its share of the node's RAM. The warning says "tight" for a
 node of 4 GB or less when the share exceeds 12.5 %, and "too large" above 25 %
 (`memory_warning_percent`); in that case saving asks for an explicit
@@ -196,10 +196,12 @@ settings API:
 | `min_interval_minutes` | 60 | no list is fetched more often |
 | `shrink_percent` | 50 | a list that loses more than this is refused |
 | `stale_factor` | 3 | intervals without success before the stale alert |
-| `bytes_per_entry` | 800 | memory estimate per listed domain |
+| `memory_per_entry_bytes` | 800 | memory estimate per listed domain |
 | `memory_warning_percent` | 25 | "too large" threshold (half of it: "tight" on small nodes) |
 | `small_node_mb` | 4096 | RAM at or under which a node counts as small |
-| `max_download_mb` | 256 | largest download accepted |
+| `max_download_mb` | 256 | largest download accepted (streamed to disk, not held in memory) |
+| `max_download_seconds` | 600 | longest a whole download may take |
+| `private_sources_enabled` | false | allow URLs that resolve to loopback, link-local or private addresses |
 | `break_dnssec` | true | rewrite answers to clients that ask for DNSSEC too |
 | `log_events` | 200 | rewritten answers kept for the Activity tab |
 | `log_path` | empty | log file of the `rpz` category when you manage `logging` |

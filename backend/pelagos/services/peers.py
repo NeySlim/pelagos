@@ -85,7 +85,7 @@ class PeerGateway:
         self.cache_seconds = (
             cache_seconds
             if cache_seconds is not None
-            else float(ctx.settings().get("collector", {}).get("peer_poll_seconds", 30))
+            else float(reg.get(ctx.settings(), "collector.peer_poll_seconds"))
         )
         self._status: dict[str, tuple[float, PeerStatus]] = {}
         self._lock = threading.Lock()

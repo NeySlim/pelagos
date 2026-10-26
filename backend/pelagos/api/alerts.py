@@ -7,7 +7,8 @@ from flask_restx import Namespace, Resource
 
 from pelagos.api import models as m
 from pelagos.api.common import arg, json_body, paged, pagination
-from pelagos.api.security import client_ip, require, services, username
+from pelagos.api.security import check_permission, client_ip, require, services, username
+from pelagos.domain import SECURITY_EXCEPTION_KINDS
 
 ns = Namespace("alerts", description="Alerts and DNS/DHCP inconsistencies", path="/alerts")
 
@@ -59,6 +60,11 @@ class RunConsistency(Resource):
         return {"job_id": job.id}, 202
 
 
+def _require_for_kind(kind: str) -> None:
+    if kind in {k.value for k in SECURITY_EXCEPTION_KINDS}:
+        check_permission("admin:settings")
+
+
 @ns.route("/exceptions")
 class Exceptions(Resource):
     @require("read:alerts")
@@ -72,7 +78,9 @@ class Exceptions(Resource):
     @ns.response(201, "Created in cluster.toml (audit entry alert.exception.add)", m.ConsistencyException)
     @ns.response(409, "conflict: already an exception", m.Problem)
     def post(self):
-        return services().exceptions.create(json_body(), username(), client_ip()), 201
+        body = json_body()
+        _require_for_kind(str(body.get("kind") or ""))
+        return services().exceptions.create(body, username(), client_ip()), 201
 
 
 @ns.route("/exceptions/<string:exception_id>")
@@ -81,6 +89,9 @@ class ExceptionItem(Resource):
     @ns.response(204, "Revoked (audit entry alert.exception.revoke)")
     @ns.response(404, "not_found", m.Problem)
     def delete(self, exception_id: str):
+        found = next((e for e in services().exceptions.list() if e["id"] == exception_id), None)
+        if found is not None:
+            _require_for_kind(str(found["kind"]))
         services().exceptions.revoke(exception_id, username(), client_ip())
         return "", 204
 

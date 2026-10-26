@@ -192,3 +192,8 @@ def test_private_ca_chain_without_its_root_is_a_warning():
     assert report.ok
     assert lv["chain"] == "warning" and lv["trust"] == "warning"
     assert [c.subject for c in report.chain] == [pki.inter.cert.subject]
+
+
+def test_a_malformed_pkcs7_bundle_is_a_cert_error_not_a_crash():
+    with pytest.raises(pem.CertError, match="PKCS7"):
+        pem.parse_material("-----BEGIN PKCS7-----\nAAAA\n-----END PKCS7-----")

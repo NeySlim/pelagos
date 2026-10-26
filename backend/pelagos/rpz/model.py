@@ -13,6 +13,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from pelagos.core import settings_registry as reg
 from pelagos.rpz import catalog
 
 ACTIONS = ("nxdomain", "nodata", "redirect", "passthru")
@@ -23,21 +24,12 @@ ALLOW_ZONE = f"pelagos-allow.{ZONE_SUFFIX}"
 ALLOW_ID = "allow"
 # named holds back a reload of a policy zone for 60 s by default: an update shows at once instead.
 NO_DEFER = "min-update-interval 0"
-SUB_ID = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
-HOST = re.compile(r"^(?=.{1,253}$)([a-z0-9_-]{1,63}\.)*[a-z0-9_-]{1,63}\.?$", re.I)
+SUB_ID = re.compile(r"[a-z][a-z0-9-]{0,39}")
+HOST = re.compile(r"(?=.{1,253}$)([a-z0-9_-]{1,63}\.)*[a-z0-9_-]{1,63}\.?", re.I)
 
+# Registered settings come from the registry; the rest are the entries the RPZ screen writes.
 DEFAULTS: dict[str, Any] = {
-    "check_seconds": 300,
-    "default_interval_hours": 24,
-    "min_interval_minutes": 60,
-    "shrink_percent": 50,
-    "stale_factor": 3,
-    "bytes_per_entry": 800,
-    "memory_warning_percent": 25,
-    "small_node_mb": 4096,
-    "max_download_mb": 256,
-    "break_dnssec": True,
-    "log_events": 200,
+    **reg.domain(None, "rpz"),
     "categories": {},
     "subscriptions": {},
     "order": [],
@@ -237,7 +229,7 @@ def _check_action(body: dict[str, Any], kind: str = "url") -> dict[str, Any]:
     if action == "redirect":
         if not redirect:
             raise RpzInputError("a redirect needs an IP address or a host name", "redirect")
-        if not is_ip(redirect) and not HOST.match(redirect):
+        if not is_ip(redirect) and not HOST.fullmatch(redirect):
             raise RpzInputError("redirect must be an IP address or a host name", "redirect")
         if kind == "axfr" and is_ip(redirect):
             raise RpzInputError("a transferred zone can only redirect to a name", "redirect")
@@ -253,7 +245,7 @@ def _check_action(body: dict[str, Any], kind: str = "url") -> dict[str, Any]:
 
 
 def check_url(url: Any, field_name: str = "url") -> str:
-    if not isinstance(url, str) or not re.match(r"^https?://[^\s/]+(/\S*)?$", url):
+    if not isinstance(url, str) or not re.fullmatch(r"https?://[^\s/]+(/\S*)?", url):
         raise RpzInputError("url must be an http or https address", field_name)
     return url
 
@@ -300,7 +292,7 @@ def _strip(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def clean_subscription(sub_id: str, body: dict[str, Any], taken_zones: set[str]) -> dict[str, Any]:
-    if not SUB_ID.match(sub_id) or sub_id in catalog.lists() or sub_id == ALLOW_ID:
+    if not SUB_ID.fullmatch(sub_id) or sub_id in catalog.lists() or sub_id == ALLOW_ID:
         raise RpzInputError("id must be lowercase letters, digits and dashes, and not a catalog list", "id")
     kind = body.get("kind") or "url"
     if kind not in KINDS:
@@ -324,7 +316,7 @@ def clean_subscription(sub_id: str, body: dict[str, Any], taken_zones: set[str])
         out["format"] = fmt
         return _strip(out)
     zone = str(body.get("zone") or "").strip().rstrip(".").lower()
-    if not zone or not HOST.match(zone):
+    if not zone or not HOST.fullmatch(zone):
         raise RpzInputError("zone must be the name of the policy zone to transfer", "zone")
     if zone in taken_zones or zone == ALLOW_ZONE:
         raise RpzInputError(f"zone {zone} is already used", "zone")
@@ -332,7 +324,7 @@ def clean_subscription(sub_id: str, body: dict[str, Any], taken_zones: set[str])
     if not isinstance(primaries, list) or not primaries or not all(is_ip(str(p)) for p in primaries):
         raise RpzInputError("primaries must be a list of IP addresses", "primaries")
     key = str(body.get("tsig_key") or "").strip()
-    if key and not re.match(r"^[A-Za-z0-9._-]{1,64}$", key):
+    if key and not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", key):
         raise RpzInputError("tsig_key is not a valid key name", "tsig_key")
     algorithm = str(body.get("tsig_algorithm") or "hmac-sha256").lower()
     if algorithm not in ("hmac-sha256", "hmac-sha384", "hmac-sha512"):

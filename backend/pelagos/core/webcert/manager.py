@@ -27,6 +27,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
 from pelagos.core import ca as ca_mod
+from pelagos.core import settings_registry as reg
 from pelagos.core.config_store import atomic_write
 from pelagos.core.context import NodeContext
 from pelagos.core.locks import FileLock
@@ -510,7 +511,7 @@ class CertManager:
         if challenge == "http-01":
             solver = http01.HttpSolver(port=int(a.get("http_port", http01.DEFAULT_PORT)), log=self.note)
         else:
-            timeout = float(wc.cert_settings(self.ctx.settings()).get("propagation_seconds", 180))
+            timeout = float(reg.get(self.ctx.settings(), "certificates.propagation_seconds"))
             solver = dns01.DnsSolver(
                 self._dns_provider(src, scope),
                 delegation_zone=(a.get("dns") or {}).get("delegation_zone"),

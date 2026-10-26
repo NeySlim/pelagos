@@ -41,6 +41,7 @@ class RpzPoller:
         self.clock = clock
         self.synchronous = synchronous
         self._thread: threading.Thread | None = None
+        self._started = 0.0
         self._request: tuple[str | None, bool, bool] | None = None
         self._lock = threading.Lock()
 
@@ -54,12 +55,14 @@ class RpzPoller:
 
     def poll(self) -> PollOutcome:
         out = PollOutcome(kinds=KINDS, where=engine_filter(self.node_id, Engine.BIND.value))
-        if self.busy():
-            return PollOutcome()  # the running update decides at its end; alerts stay as they are
         settings = self.settings()
         cfg = model.config(settings)
         subs = model.for_node(model.resolve(settings), self.node_id)
         now = int(self.clock())
+        running = self.busy()
+        stuck = running and now - self._started > self._stuck_after(cfg, len(subs))
+        if running and not stuck:
+            return PollOutcome()  # the running update decides at its end; alerts stay as they are
         try:
             snapshot = self.backend.rpz_node_state()
         except Exception as exc:
@@ -67,9 +70,29 @@ class RpzPoller:
             snapshot = {"state": {}, "ram_mb": None}
         self.store.write_snapshot(self.node_id, "bind", "rpz", now, snapshot)
         out.alerts.extend(self._alerts(subs, snapshot["state"], cfg))
-        if subs or snapshot["state"].get("allow"):
+        if stuck:
+            minutes = (now - int(self._started)) // 60
+            log.warning("rpz update running for %d min: not starting another", minutes)
+            out.alerts.append(self._stuck_alert(minutes))
+        elif not running and (subs or snapshot["state"].get("allow")):
             self._start()
         return out
+
+    @staticmethod
+    def _stuck_after(cfg: dict[str, Any], lists: int) -> float:
+        """Longest an update run can last when every list takes its full download time, plus a margin."""
+        return float(cfg["max_download_seconds"]) * (lists + 1) + 600
+
+    def _stuck_alert(self, minutes: int) -> Alert:
+        return Alert(
+            kind=AlertKind.RPZ_UPDATE,
+            severity=Severity.WARNING,
+            node_id=self.node_id,
+            engine=Engine.BIND,
+            subject="rpz-stuck",
+            **messages.fields("title", messages.msg("alert.rpz_stuck", minutes=minutes)),
+            details={"id": "", "reason": "stuck", "error": ""},
+        )
 
     def _start(self) -> None:
         with self._lock:
@@ -88,6 +111,7 @@ class RpzPoller:
         if self.synchronous:
             work()
             return
+        self._started = self.clock()
         self._thread = threading.Thread(target=work, name="pelagos-rpz", daemon=True)
         self._thread.start()
 

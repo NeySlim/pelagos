@@ -72,7 +72,7 @@ screenshots:
 test-lab:
 	cd $(BACKEND) && PELAGOS_LAB=1 .venv/bin/pytest -m lab --timeout 3600 -x $(LAB_ARGS)
 
-# Lab demo (scripts/lab/README.md): NODES=3 (default) leaves the pair and lab-rpm as a third node
+# Lab demo (scripts/lab/README.md): NODES=3 (default) leaves the pair and the Rocky node as a third node
 # (HA backup, second secondary), NODES=2 the reference pair, both with Pelagos built from here.
 NODES ?= 3
 LAB_DEMO_2 := tests/lab/test_pair_lab.py

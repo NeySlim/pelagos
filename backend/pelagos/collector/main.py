@@ -216,6 +216,11 @@ class Collector:
         self.certs = CertManager(ctx)
         self.cert_background = True
         self._cert_thread: threading.Thread | None = None
+        # run() turns this on: the slow checks probe the network, never inside the polling loop.
+        self.slow_background = False
+        self._slow_thread: threading.Thread | None = None
+        self._slow_ready: list[PollOutcome] = []
+        self._slow_lock = threading.Lock()
 
     def _reloading(self, poller: KeaPoller) -> Callable[[str], bool]:
         """True while Pelagos writes or reloads the engine and for the grace period after."""
@@ -474,7 +479,29 @@ class Collector:
 
     def health_audit(self) -> None:
         """Disk and file growth, reservation risks, delegation and SOA, root reachability."""
-        for outcome in self.checks.slow():
+        if not self.slow_background:
+            for outcome in self.checks.slow():
+                self._finish(outcome)
+            return
+        self.health_audit_ready()
+        if self._slow_thread is None or not self._slow_thread.is_alive():
+            self._slow_thread = threading.Thread(target=self._slow_checks, name="health-audit", daemon=True)
+            self._slow_thread.start()
+
+    def _slow_checks(self) -> None:
+        try:
+            outcomes = self.checks.slow()
+        except Exception:
+            log.exception("slow health checks failed")
+            return
+        with self._slow_lock:
+            self._slow_ready.extend(outcomes)
+
+    def health_audit_ready(self) -> None:
+        """Reconcile what the slow checks finished since the last call (the loop thread owns the store)."""
+        with self._slow_lock:
+            ready, self._slow_ready = self._slow_ready, []
+        for outcome in ready:
             self._finish(outcome)
 
     def certificates(self) -> list[Alert]:
@@ -505,7 +532,7 @@ class Collector:
         retention = self.ctx.settings().get("retention", {})
         counts = self.store.apply_retention(now, retention)
         counts["backups_deleted"] = series_mod.purge_backups(
-            self.ctx.paths.backups_dir, int(retention.get("backups_days", 90)), now
+            self.ctx.paths.backups_dir, int(reg.get(self.ctx.settings(), "retention.backups_days")), now
         )
         return counts
 
@@ -536,12 +563,12 @@ class Collector:
         return self.last_report
 
     def tasks(self) -> list[Task]:
-        settings = self.ctx.settings().get("collector", {})
-        poll = float(settings.get("poll_seconds", 60))
-        peer_poll = float(settings.get("peer_poll_seconds", 30))
-        consistency_period = float(settings.get("consistency_seconds", 900))
-        live = max(1.0, float(settings.get("live_seconds", LIVE_SECONDS)))
-        rpz_period = max(30.0, float(self.ctx.settings().get("rpz", {}).get("check_seconds", 300)))
+        settings = self.ctx.settings()
+        poll = float(reg.get(settings, "collector.poll_seconds"))
+        peer_poll = float(reg.get(settings, "collector.peer_poll_seconds"))
+        consistency_period = float(reg.get(settings, "collector.consistency_seconds"))
+        live = max(1.0, float(reg.get(settings, "collector.live_seconds")))
+        rpz_period = max(30.0, float(reg.get(settings, "rpz.check_seconds")))
         return [
             Task("poll_bind", poll, self.poll_bind),
             Task("poll_kea", poll, self.poll_kea),
@@ -554,6 +581,7 @@ class Collector:
             Task("security_audit", consistency_period, self.security_audit),
             Task("health", poll, self.health),
             Task("health_audit", consistency_period, self.health_audit),
+            Task("health_audit_ready", poll, self.health_audit_ready),
             Task("certificates", CERT_SECONDS, self.certificates),
             Task("retention", 3600.0, self.retention),
         ]
@@ -876,7 +904,7 @@ def reload_settings(collector: Collector, tasks: list[Task], replication: Any = 
     """Live reload of settings.collector: task periods, poller thresholds, the anti-entropy period."""
     try:
         changed = collector.refresh_tasks(tasks)
-        peer_poll = float(collector.ctx.settings().get("collector", {}).get("peer_poll_seconds", 30))
+        peer_poll = float(reg.get(collector.ctx.settings(), "collector.peer_poll_seconds"))
     except Exception:  # a half-written or broken file: keep the current periods
         log.exception("cluster.toml not readable")
         return []
@@ -951,6 +979,7 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
         )
         return 1 if report.errors else 0
 
+    collector.slow_background = True
     tasks = collector.tasks()
     listener = SignalListener(paths.collector_sock)
     # One replay per batch of datagrams, run by the loop after listener.wait().

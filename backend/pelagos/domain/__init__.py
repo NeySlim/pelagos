@@ -4,6 +4,7 @@
 from pelagos.domain.alerts import (
     EXCEPTABLE_KINDS,
     INCONSISTENCY_KINDS,
+    SECURITY_EXCEPTION_KINDS,
     Alert,
     AlertKind,
     AlertState,
@@ -75,6 +76,7 @@ __all__ = [
     "EXCEPTABLE_KINDS",
     "INCONSISTENCY_KINDS",
     "SCOPE_PERMISSIONS",
+    "SECURITY_EXCEPTION_KINDS",
     "Alert",
     "AlertKind",
     "AlertState",

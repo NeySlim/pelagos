@@ -136,6 +136,19 @@ def cmd_user(args: argparse.Namespace) -> int:
     return run(args, _paths(args))
 
 
+def cmd_settings(args: argparse.Namespace) -> int:
+    from pelagos.core import settings_registry as reg
+    from pelagos.core.context import NodeContext
+
+    if not args.legacy:
+        print("nothing to do: use --legacy", file=sys.stderr)
+        return 2
+    values = reg.legacy(NodeContext.build(_paths(args)).settings(), customised_only=not args.all)
+    for key, value in values.items():
+        print(f"{key} = {str(value).lower() if isinstance(value, bool) else value!r}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="pelagos", description="DNS and DHCP management for BIND 9 and Kea")
     p.add_argument("--home", help="development tree holding etc/, var/, run/ (sets PELAGOS_HOME)")
@@ -168,6 +181,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--replication-listen", help="host:port of the replication API (default 0.0.0.0:8444), must be free"
     )
     i.set_defaults(func=cmd_init)
+
+    t = sub.add_parser("settings", help="show settings under the names of the previous release")
+    t.add_argument("--legacy", action="store_true", help="root keys of the release before the registry")
+    t.add_argument("--all", action="store_true", help="include values equal to the default")
+    t.set_defaults(func=cmd_settings)
 
     from pelagos.installer.cli import add_parsers as add_installer_parsers
 

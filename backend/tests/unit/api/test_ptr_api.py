@@ -264,6 +264,18 @@ def test_exceptions_lifecycle(admin, role_client, node_ctx, fake_registry):
     assert "alert.exception.revoke" in actions
 
 
+def test_security_exceptions_need_admin_settings(admin, role_client):
+    op = role_client("dns-operator")
+    sec = {"kind": "insecure_key", "key": "n1|key:old", "comment": "lab key"}
+    disk = {"kind": "disk_space", "key": "n1|disk:/srv/a", "comment": "full by design"}
+    assert op.post("/api/v1/alerts/exceptions", json=sec).status_code == 403
+    assert op.post("/api/v1/alerts/exceptions", json=disk).status_code == 201
+    made = admin.post("/api/v1/alerts/exceptions", json=sec)
+    assert made.status_code == 201
+    assert op.delete(f"/api/v1/alerts/exceptions/{made.get_json()['id']}").status_code == 403
+    assert admin.delete(f"/api/v1/alerts/exceptions/{made.get_json()['id']}").status_code == 204
+
+
 DHCID = "AAIBY2/AuCccgoJbsaxcQc9TUapptP69lOjxfNuVAA2kjEA="
 
 

@@ -164,7 +164,7 @@ def renew_at(
     if source == ACME:
         return not_after - (not_after - not_before) * ACME_RENEW_FRACTION
     if source == UCM:
-        days = int(cert_settings(settings).get("ucm_renew_days", 30))
+        days = int(reg.get(settings, "certificates.ucm_renew_days"))
         lifetime = not_after - not_before
         # A certificate shorter than the window renews at a third left, like ACME.
         window = (
@@ -178,9 +178,8 @@ def renew_at(
 
 def retry_delay(failures: int, settings: dict[str, Any]) -> float:
     """Growing delay between automatic attempts: min * 2^(failures-1), capped at max."""
-    cfg = cert_settings(settings)
-    low = float(cfg.get("retry_min_seconds", 300))
-    high = float(cfg.get("retry_max_seconds", 21600))
+    low = float(reg.get(settings, "certificates.retry_min_seconds"))
+    high = float(reg.get(settings, "certificates.retry_max_seconds"))
     return min(high, low * (2 ** max(0, failures - 1)))
 
 

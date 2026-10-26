@@ -64,7 +64,7 @@ export function RpzCategoryCard({ id, category, catalog, selection, nodes, setti
   const levels = levelsOf(category)
   const lists = selectedLists(category, form)
   const entries = selectionEntries(catalog, category, form)
-  const bytes = settings?.bytes_per_entry || 800
+  const bytes = settings?.memory_per_entry_bytes || 800
   const dirty = !selection ? form.enabled : !sameForm(form, initial) || form.enabled !== initial.enabled
 
   useEffect(() => {

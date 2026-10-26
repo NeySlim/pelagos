@@ -26,6 +26,7 @@ from pelagos import __version__
 from pelagos.core import ca as ca_mod
 from pelagos.core import clock
 from pelagos.core import context as context_mod
+from pelagos.core import settings_registry as reg
 from pelagos.core.audit_log import AuditLog
 from pelagos.core.config_store import ConfigError, ConfigStore, NodeConfig
 from pelagos.core.context import (
@@ -1111,8 +1112,9 @@ class ReplicationService:
         self.replicator = Replicator(
             ctx.config_store, ctx.audit_log, self.client_context, ctx.node.id, timeout=timeout
         )
-        collector = ctx.settings().get("collector", {})
-        self.peer_poll_seconds = float(peer_poll_seconds or collector.get("peer_poll_seconds", 30))
+        self.peer_poll_seconds = float(
+            peer_poll_seconds or reg.get(ctx.settings(), "collector.peer_poll_seconds")
+        )
         # An external listener (the collector's, already bound) gets handlers; otherwise bind our own.
         self.listener: SignalListener | None = None
         if listener is not None:
@@ -1361,7 +1363,7 @@ class ReplicationService:
 
     def housekeeping(self) -> list[Path]:
         """Backup retention (`settings.retention.backups_days`) and expired enrollment tokens."""
-        days = int(self.ctx.settings().get("retention", {}).get("backups_days", 90))
+        days = int(reg.get(self.ctx.settings(), "retention.backups_days"))
         try:
             removed = purge_backups(self.paths.backups_dir, days)
             self.enrollment.tokens.purge()

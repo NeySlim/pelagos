@@ -105,8 +105,7 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: ~/.cache/pelagos-smoke
-          key: debian-13-arm64-cloud-${{ github.run_id }}
-          restore-keys: debian-13-arm64-cloud-
+          key: debian-13-arm64-cloud-v1
       - name: make deb (Debian 13 container)
         run: packaging/deb/container-build.sh ${{ matrix.arch }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -115,6 +114,7 @@ jobs:
           path: build/deb/*.deb
           if-no-files-found: error
       - name: Install and start (Debian 13 with systemd, BIND and Kea 2.6 from Debian)
+        timeout-minutes: 45
         run: packaging/tests/deb-systemd-smoke.sh build/deb/pelagos_*_${{ matrix.arch }}.deb
 
   rpm:

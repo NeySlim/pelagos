@@ -155,6 +155,30 @@ The volumes keep the state.
 server in maintenance first. Moving Kea from the distribution to the ISC
 repository is `sudo pelagos install --engines kea4,d2 --source isc`.
 
+### Upgrading from the release before the settings registry
+
+Upgrade node by node as above. What changes for this step:
+
+- **Settings are renamed.** Every setting now sits in a domain table
+  (`[settings.checks]`, `[settings.auth]`...). The first start of the new
+  collector rewrites `cluster.toml`, keeps the old names as tombstones so the
+  rename replicates, and writes one audit entry (`admin.settings.op`,
+  `op = migrate`, with the old to new names). Values are kept, in the new
+  units (`alerts_d2_error_rate` 0.05 becomes `checks.d2_error_percent` 5).
+- **Mixed phase.** A node still on the old release reads only the old root
+  names, so it runs with its defaults for any renamed threshold you changed,
+  until it is upgraded. It has no clock or HA repair features: peers cannot
+  plan the Kea HA repair against it (no `clock_offset` to check), and
+  certificate actions sent to it answer `not_supported`. Finish the upgrade of
+  every node before changing certificates or running an HA repair.
+- **Downgrade.** The old release does not read the new tables and refills
+  its root keys from its defaults, so customised thresholds come back as
+  defaults (pool warning 80, session lifetime 43200 s, D2 error rate 0.05).
+  Before going back, run `pelagos settings --legacy` on an upgraded node: it
+  prints the customised values under the old root names (`--all` prints every
+  one), to re-enter in `cluster.toml` or the settings screen after the
+  downgrade.
+
 ## Removing a node, uninstalling
 
 In a cluster of three nodes or more, take the node out of what the others

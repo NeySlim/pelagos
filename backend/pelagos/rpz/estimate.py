@@ -11,8 +11,8 @@ from pelagos.rpz import model
 MB = 1_000_000
 
 
-def entries_mb(entries: int, bytes_per_entry: int) -> float:
-    return round(entries * bytes_per_entry / MB, 1)
+def entries_mb(entries: int, memory_per_entry_bytes: int) -> float:
+    return round(entries * memory_per_entry_bytes / MB, 1)
 
 
 def node_ram_mb(meminfo: Path = Path("/proc/meminfo")) -> int | None:
@@ -30,7 +30,7 @@ def assess(entries: list[int], ram_mb: int | None, cfg: dict[str, Any]) -> dict[
 
     named loads the new copy of a zone before dropping the old one, so the peak adds the largest list.
     """
-    per = int(cfg.get("bytes_per_entry", model.DEFAULTS["bytes_per_entry"]))
+    per = int(cfg.get("memory_per_entry_bytes", model.DEFAULTS["memory_per_entry_bytes"]))
     total = sum(entries)
     steady = entries_mb(total, per)
     peak = entries_mb(total + (max(entries) if entries else 0), per)

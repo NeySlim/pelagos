@@ -90,6 +90,17 @@ EXCEPTABLE_KINDS = frozenset(
     }
 )
 
+# Exceptions on these silence a security check for good: they take admin:settings, not write:alerts.
+SECURITY_EXCEPTION_KINDS = frozenset(
+    {
+        AlertKind.INSECURE_KEY,
+        AlertKind.INSECURE_LISTENER,
+        AlertKind.SECURITY_ADVISORY,
+        AlertKind.CUSTOM_HOOK,
+        AlertKind.CERT_EXPIRY,
+    }
+)
+
 
 def exception_keys(alert: Alert) -> list[str]:
     """Keys an exception may name for an alert of EXCEPTABLE_KINDS: "<node>|<subject>" for that node

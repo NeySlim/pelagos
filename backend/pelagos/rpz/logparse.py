@@ -76,6 +76,9 @@ def read_new(path: Path, cursor: Cursor, limit: int = MAX_READ) -> list[str]:
         data = fh.read(min(limit, st.st_size - cursor.offset))
     end = data.rfind(b"\n")
     if end < 0:
+        # A full window without a newline is not a log line: skip it rather than stall on it.
+        if len(data) >= limit:
+            cursor.offset += len(data)
         return []
     cursor.offset += end + 1
     return data[: end + 1].decode("utf-8", "replace").splitlines()

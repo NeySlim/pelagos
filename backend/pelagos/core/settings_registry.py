@@ -4,8 +4,9 @@
 Naming convention (docs/architecture.md section 10, "Settings naming"):
 - a setting is a leaf of a domain table `[settings.<domain>]`, never a leaf of `[settings]` itself;
 - leaf names are snake_case `<subject>[_<qualifier>]_<unit>`, the unit spelled out (`_seconds`,
-  `_minutes`, `_hours`, `_days`, `_percent`, `_mb`, `_factor`, `_per_minute`) or, for a count, the
-  plural noun counted (`_queries`, `_failures`, `_zones`); a boolean is `<feature>_enabled` or a
+  `_minutes`, `_hours`, `_days`, `_percent`, `_mb`, `_bytes`, `_factor`, `_per_minute`,
+  `_per_hour`) or, for a count, the plural noun counted (`_queries`, `_failures`, `_zones`) or
+  `_count`; a boolean is `<feature>_enabled` or a
   policy verb (`require_totp`, `break_dnssec`);
 - severities are `<subject>_warning_<unit>` / `<subject>_critical_<unit>`, bounds
   `<subject>_min_<unit>` / `<subject>_max_<unit>`;
@@ -81,8 +82,8 @@ REGISTRY: tuple[Setting, ...] = (
     S("checks.forecast_window_days", "integer", 7, 1, 365, "days", "pools"),
     S("checks.forecast_warning_days", "integer", 14, 1, 365, "days", "pools"),
     S("checks.forecast_critical_days", "integer", 3, 1, 365, "days", "pools"),
-    S("checks.declined_addresses_warning", "integer", 5, 1, 1_000_000, "addresses", "pools"),
-    S("checks.declined_received_warning", "integer", 5, 1, 1_000_000, "declines_per_hour", "pools"),
+    S("checks.declined_addresses_warning_count", "integer", 5, 1, 1_000_000, "addresses", "pools"),
+    S("checks.declined_received_warning_per_hour", "integer", 5, 1, 1_000_000, "per_hour", "pools"),
     S("checks.d2_error_percent", "number", 5.0, 0, 100, "percent", "ddns"),
     S("checks.serial_divergence_seconds", "integer", 900, 0, 7 * DAY, "seconds", "secondaries"),
     S("checks.ha_grace_seconds", "integer", 45, 0, 3600, "seconds", "ha"),
@@ -109,7 +110,7 @@ REGISTRY: tuple[Setting, ...] = (
     S("checks.resolver_servfail_critical_percent", "integer", 30, 1, 100, "percent", "resolver"),
     S("checks.resolver_dnssec_failures", "integer", 10, 1, 1_000_000, "failures", "resolver"),
     S("checks.resolver_drop_percent", "integer", 80, 1, 100, "percent", "resolver"),
-    S("checks.resolver_drop_min_qpm", "integer", 60, 1, 10_000_000, "per_minute", "resolver"),
+    S("checks.resolver_drop_min_per_minute", "integer", 60, 1, 10_000_000, "per_minute", "resolver"),
     S("checks.resolver_roots_failures", "integer", 3, 1, 100, "failures", "resolver"),
     # Health checks: delegation and SOA timers
     S("checks.delegation_timeout_seconds", "integer", 2, 1, 30, "seconds", "delegation"),
@@ -162,10 +163,12 @@ REGISTRY: tuple[Setting, ...] = (
     S("rpz.min_interval_minutes", "integer", 60, 5, 10080, "minutes"),
     S("rpz.shrink_percent", "integer", 50, 1, 100, "percent"),
     S("rpz.stale_factor", "integer", 3, 1, 100, "factor"),
-    S("rpz.bytes_per_entry", "integer", 800, 50, 10000, "bytes"),
+    S("rpz.memory_per_entry_bytes", "integer", 800, 50, 10000, "bytes"),
     S("rpz.memory_warning_percent", "integer", 25, 1, 100, "percent"),
     S("rpz.small_node_mb", "integer", 4096, 256, 1_048_576, "mb"),
     S("rpz.max_download_mb", "integer", 256, 1, 4096, "mb"),
+    S("rpz.max_download_seconds", "integer", 600, 30, DAY, "seconds"),
+    S("rpz.private_sources_enabled", "boolean", False),
     S("rpz.log_events", "integer", 200, 10, 100_000, "events"),
     S("rpz.break_dnssec", "boolean", True),
     # Web certificates (core.webcert.config)
@@ -233,7 +236,27 @@ RENAMED: dict[str, tuple[str, float | None]] = {
     "collector.lease_watch_max": ("collector.lease_watch_max_leases", None),
     "dns.default_ttl": ("dns.default_ttl_seconds", None),
     "rpz.memory_warn_percent": ("rpz.memory_warning_percent", None),
+    "checks.declined_addresses_warning": ("checks.declined_addresses_warning_count", None),
+    "checks.declined_received_warning": ("checks.declined_received_warning_per_hour", None),
+    "checks.resolver_drop_min_qpm": ("checks.resolver_drop_min_per_minute", None),
+    "rpz.bytes_per_entry": ("rpz.memory_per_entry_bytes", None),
 }
+
+
+def legacy(settings: dict[str, Any] | None, customised_only: bool = True) -> dict[str, Any]:
+    """Current values under the root names the release before the registry (2b86817) reads.
+
+    For re-entering the thresholds by hand after a downgrade: that release ignores the new tables.
+    """
+    out: dict[str, Any] = {}
+    for old, (new, factor) in RENAMED.items():
+        if "." in old:
+            continue
+        value = get(settings, new)
+        if customised_only and value == BY_KEY[new].default:
+            continue
+        out[old] = _scaled(value, 1 / factor) if factor else value
+    return out
 
 
 def _scaled(value: Any, factor: float | None) -> Any:

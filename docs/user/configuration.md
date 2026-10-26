@@ -252,8 +252,8 @@ DHCP pools:
 | `forecast_window_days` | `7` | 1 to 365 days | pool history the trend is computed from |
 | `forecast_warning_days` | `14` | 1 to 365 days | `pool_forecast` warning when the pool is full in fewer days |
 | `forecast_critical_days` | `3` | 1 to 365 days | `pool_forecast` critical; lower than the warning |
-| `declined_addresses_warning` | `5` | 1 to 1000000 addresses | `declined_addresses`: declined addresses in a subnet |
-| `declined_received_warning` | `5` | 1 to 1000000 per hour | `declined_addresses`: DHCPDECLINE received per hour |
+| `declined_addresses_warning_count` | `5` | 1 to 1000000 addresses | `declined_addresses`: declined addresses in a subnet |
+| `declined_received_warning_per_hour` | `5` | 1 to 1000000 per hour | `declined_addresses`: DHCPDECLINE received per hour |
 
 DDNS:
 
@@ -318,7 +318,7 @@ Resolver:
 | `resolver_servfail_critical_percent` | `30` | 1 to 100 % | SERVFAIL share, critical; above the warning |
 | `resolver_dnssec_failures` | `10` | 1 to 1000000 failures | validation failures per window |
 | `resolver_drop_percent` | `80` | 1 to 100 % | query drop against the two preceding windows |
-| `resolver_drop_min_qpm` | `60` | 1 to 10000000 per minute | baseline needed to judge a drop |
+| `resolver_drop_min_per_minute` | `60` | 1 to 10000000 per minute | baseline needed to judge a drop |
 | `resolver_roots_failures` | `3` | 1 to 100 failures | failed root probes in a row |
 
 Delegation:
@@ -401,10 +401,12 @@ The audit log is never purged.
 | `min_interval_minutes` | `60` | 5 to 10080 min | no list is fetched more often |
 | `shrink_percent` | `50` | 1 to 100 % | a new copy that lost more than this is refused and the old one kept |
 | `stale_factor` | `3` | 1 to 100 times | intervals without a successful update before the `rpz_update` alert |
-| `bytes_per_entry` | `800` | 50 to 10000 bytes | memory estimate of named per listed domain |
+| `memory_per_entry_bytes` | `800` | 50 to 10000 bytes | memory estimate of named per listed domain |
 | `memory_warning_percent` | `25` | 1 to 100 % | share of the node's RAM, at peak, from which a subscription is "too large" |
 | `small_node_mb` | `4096` | 256 to 1048576 MB | RAM at or under which a node is small ("tight" from half the threshold) |
 | `max_download_mb` | `256` | 1 to 4096 MB | largest download accepted |
+| `max_download_seconds` | `600` | 30 to 86400 s | longest a whole download may take, however slowly the server sends |
+| `private_sources_enabled` | `off` |  | allow list URLs that resolve to loopback, link-local or private addresses (redirects included) |
 | `log_events` | `200` | 10 to 100000 events | update events kept per node in the RPZ activity |
 | `break_dnssec` | `on` |  | rewrite answers to DNSSEC clients as well |
 
@@ -522,7 +524,7 @@ Permissions are `<action>:<resource>` strings; `*` holds them all.
 | `ops:dhcp.ha` | HA maintenance, the DHCP service plan (enable or disable), `ha-sync`, `ha-scopes`, `ha-continue`, `ha-reset` operations |
 | `read:dhcp.secrets` | reserved: no endpoint uses it in this version (Kea secrets are always masked) |
 | `read:hosts`, `write:hosts` | host cards; host plans (`write:hosts` or the DNS and DHCP writes the plan expands into) |
-| `read:alerts`, `write:alerts` | alerts; acknowledge and run the consistency check |
+| `read:alerts`, `write:alerts` | alerts; acknowledge, run the consistency check, keep a non-security alert as an exception (exceptions on security checks need `admin:settings`) |
 | `read:series` | time series (pools, serials, HA transitions) |
 | `read:audit` | audit log and its export |
 | `read:nodes` | nodes and replication state |

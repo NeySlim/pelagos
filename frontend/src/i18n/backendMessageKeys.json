@@ -269,6 +269,9 @@
     "hours",
     "name"
   ],
+  "alert.rpz_stuck": [
+    "minutes"
+  ],
   "alert.rpz_update": [
     "error",
     "name"

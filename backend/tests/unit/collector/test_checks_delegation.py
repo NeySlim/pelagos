@@ -258,3 +258,21 @@ def test_newer_revision_wins_over_a_later_date(tmp_path):
     high = {**data, "revision": data["revision"] + 1, "updated": "2020-01-01"}
     (tmp_path / advisories.OVERRIDE_NAME).write_text(json.dumps(high))
     assert advisories.load(tmp_path)["revision"] == data["revision"] + 1
+
+
+def test_a_silent_server_costs_one_timeout_per_pass_not_one_per_zone():
+    import socket
+    import time
+
+    sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # receives, never answers
+    sink.bind(("127.0.0.1", 0))
+    port = sink.getsockname()[1]
+    try:
+        net = delegation.DnsNet("127.0.0.1", port, 0.4, probe_port=port)
+        start = time.monotonic()
+        verdicts = [net.answers_for("127.0.0.1", f"z{i}.example", None) for i in range(10)]
+        elapsed = time.monotonic() - start
+        assert verdicts == [False] * 10
+        assert elapsed < 1.0, elapsed  # 10 zones x 0.4 s unless the verdict is reused
+    finally:
+        sink.close()

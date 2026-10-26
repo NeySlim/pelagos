@@ -277,7 +277,7 @@ class KeaPoller:
 
     @property
     def sample_period(self) -> int:
-        return int(self.settings.get("collector", {}).get("pool_sample_seconds", 300))
+        return int(reg.get(self.settings, "collector.pool_sample_seconds"))
 
     def poll(self) -> PollOutcome:
         engine = self.engine.value
@@ -536,7 +536,7 @@ class KeaPoller:
             and other is not None
             and s["payload"].get("server_name") == other
         ]
-        fresh = 3 * float((self.settings.get("collector") or {}).get("peer_poll_seconds", 30))
+        fresh = 3 * float(reg.get(self.settings, "collector.peer_poll_seconds"))
         now = self.clock()
         for node_id in nodes:
             snap = self.store.snapshot(node_id, "node", "clock")
@@ -613,14 +613,13 @@ class KeaPoller:
             return False
         if self.lease_index is None or self.last_walk is None:
             return True
-        settings = self.settings.get("collector", {})
         since = self.clock() - self.last_walk
         # A busy server moves its counter on every pass: walks stay apart, more so on a big table.
-        live = float(settings.get("live_seconds", 5))
+        live = float(reg.get(self.settings, "collector.live_seconds"))
         if since < max(3 * live, (self.last_active or 0) / LEASE_WALK_RATE):
             return False
         moved = acks is not None and acks != self.last_acks
-        return moved or since >= float(settings.get("poll_seconds", 60))
+        return moved or since >= float(reg.get(self.settings, "collector.poll_seconds"))
 
     def lease_diff(self, leases: list[Lease], acks: int | None) -> PollOutcome:
         """New and renewed leases since the previous walk as `leases` events, and the latest ones by

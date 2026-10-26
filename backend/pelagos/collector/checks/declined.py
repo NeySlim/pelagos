@@ -40,7 +40,7 @@ def declined_alerts(
     for row in utilization:
         per_subnet[int(row.get("subnet_id") or 0)] += int(row.get("declined") or 0)
     for sid, count in sorted(per_subnet.items()):
-        if count < cfg.declined_addresses_warning:
+        if count < cfg.declined_addresses_warning_count:
             continue
         out.append(
             Alert(
@@ -61,7 +61,7 @@ def declined_alerts(
                 },
             )
         )
-    if received is not None and received >= cfg.declined_received_warning:
+    if received is not None and received >= cfg.declined_received_warning_per_hour:
         minutes = max(window_seconds // 60, 1)
         out.append(
             Alert(

@@ -13,6 +13,23 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-26, final review fixes: SSRF guard, secrets bound to targets, exception permissions
+- Settings: `rpz.max_download_seconds` (600), `rpz.private_sources_enabled` (false). Renamed
+  (former path kept in RENAMED): `checks.declined_addresses_warning` ->
+  `checks.declined_addresses_warning_count`, `checks.declined_received_warning` ->
+  `checks.declined_received_warning_per_hour`, `checks.resolver_drop_min_qpm` ->
+  `checks.resolver_drop_min_per_minute`, `rpz.bytes_per_entry` -> `rpz.memory_per_entry_bytes`
+  (also the `settings` key of `GET /rpz`). Units `_bytes` and `_per_hour` join the convention.
+  `pelagos settings --legacy` prints values under the names of the previous release.
+- RPZ downloads: http and https only, connection-time address check, body spooled to disk
+  (`Fetched.stream()`), total deadline; message `alert.rpz_stuck` (subject `rpz-stuck`).
+- A stored UCM key, DNS token or EAB key is used only for the URL or provider saved with it.
+- `POST` and `DELETE /alerts/exceptions` need `admin:settings` for `insecure_key`,
+  `insecure_listener`, `security_advisory`, `custom_hook`, `cert_expiry`
+  (`domain.SECURITY_EXCEPTION_KINDS`).
+- Collector: slow health checks run in a worker thread (`Collector.slow_background`), reconciled
+  by the new task `health_audit_ready`.
+
 ## 2026-10-26, settings lot: one naming convention, registry, migration of former keys
 - Section 10, "Settings naming": every setting is a leaf of a domain table
   (`auth`, `plans`, `peers`, `checks`, `collector`, `retention`, `dns`,

@@ -293,6 +293,7 @@ def test_tasks_and_retention(rig):
         "security_audit": 900.0,
         "health": 60.0,
         "health_audit": 900.0,
+        "health_audit_ready": 60.0,
         "certificates": 60.0,
         "retention": 3600.0,
     }
@@ -517,7 +518,15 @@ def test_collector_settings_reload_live(rig):
     os.utime(ctx.paths.cluster_toml, ns=(5, 5))
     assert watch.changed() is True and watch.changed() is False
     changed = reload_settings(collector, tasks, handle)
-    assert set(changed) == {"poll_bind", "poll_kea", "poll_d2", "apply_acks", "poll_peers", "health"}
+    assert set(changed) == {
+        "poll_bind",
+        "poll_kea",
+        "poll_d2",
+        "apply_acks",
+        "poll_peers",
+        "health",
+        "health_audit_ready",
+    }
     periods = {t.name: t for t in tasks}
     assert periods["poll_kea"].period == 10.0 and periods["poll_peers"].period == 5.0
     assert periods["poll_kea"].next_run < far  # a shorter period applies at once
@@ -555,3 +564,29 @@ def test_certificate_expiry_alerts_open_and_resolve(rig, monkeypatch):
     assert collector.certificates() == []
     assert collector.alerts.get(alerts[0].id).state is AlertState.RESOLVED
     assert [m["event"] for m in receiver.drain() if m["topic"] == "alerts"] == ["opened", "resolved"]
+
+
+def test_slow_checks_run_in_a_worker_and_the_loop_reconciles_them(rig, monkeypatch):
+    import threading
+
+    from pelagos.collector.pollers import PollOutcome
+
+    collector, _backends, _receiver = rig
+    gate = threading.Event()
+    seen: list[str] = []
+
+    def slow():
+        seen.append(threading.current_thread().name)
+        gate.wait(5)
+        return [PollOutcome()]
+
+    monkeypatch.setattr(collector.checks, "slow", slow)
+    collector.slow_background = True
+    collector.health_audit()  # returns at once although the checks are blocked
+    collector.health_audit()  # still running: no second worker
+    assert collector._slow_thread.is_alive()
+    gate.set()
+    collector._slow_thread.join(5)
+    assert seen == ["health-audit"] and len(collector._slow_ready) == 1
+    collector.health_audit_ready()
+    assert collector._slow_ready == []

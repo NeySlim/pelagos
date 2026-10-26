@@ -100,7 +100,10 @@ def _parse_pem(raw: bytes, password: str | None, out: Material) -> None:
         elif kind == "PKCS7":
             from cryptography.hazmat.primitives.serialization import pkcs7
 
-            out.certs.extend(pkcs7.load_pem_pkcs7_certificates(block))
+            try:
+                out.certs.extend(pkcs7.load_pem_pkcs7_certificates(block))
+            except ValueError as exc:
+                raise CertError("unreadable PKCS7 bundle") from exc
     if not found:
         raise CertError("no PEM block found")
 

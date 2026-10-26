@@ -12,6 +12,7 @@ import socket
 import urllib.parse
 from typing import Any
 
+from pelagos.core import settings_registry as reg
 from pelagos.domain import (
     AuditEntry,
     AuditResult,
@@ -131,7 +132,7 @@ class DnsExtras:
         return self._primaries_at(self.ctx.node.replication_url)
 
     def _primaries_at(self, url: str) -> list[str]:
-        read_key = (self.ctx.settings().get("dns") or {}).get("read_key", "ddi-read")
+        read_key = reg.get(self.ctx.settings(), "dns.read_key")
         return [f"{a} key {read_key}" for a in self._addresses(url)]
 
     def zone_owner(self, node_id: str | None) -> Peer | None:

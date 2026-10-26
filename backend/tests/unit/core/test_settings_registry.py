@@ -32,11 +32,13 @@ UNIT_SUFFIXES = {
     "_days": "days",
     "_percent": "percent",
     "_mb": "mb",
+    "_bytes": "bytes",
     "_factor": "factor",
     "_per_minute": "per_minute",
-    "_qpm": "per_minute",
+    "_per_hour": "per_hour",
 }
-COUNT_SUFFIXES = ("_queries", "_failures", "_zones", "_passes", "_leases", "_events", "_count", "_per_entry")
+# The list of docs/architecture.md section 10 ("Settings naming"), no other ending.
+COUNT_SUFFIXES = ("_queries", "_failures", "_zones", "_passes", "_leases", "_events", "_count")
 
 
 # Convention -------------------------------------------------------------------------------------
@@ -55,7 +57,7 @@ def test_every_setting_follows_the_naming_convention(spec):
         if unit is not None:
             assert spec.unit == unit
         else:
-            assert leaf.endswith(COUNT_SUFFIXES) or re.search(r"_(warning|critical)$", leaf), leaf
+            assert leaf.endswith(COUNT_SUFFIXES), leaf
             assert spec.unit, "a count says what it counts"
         assert spec.min is not None and spec.max is not None and spec.min <= spec.default <= spec.max
     if spec.type == "boolean":
@@ -70,6 +72,49 @@ def test_defaults_are_nested_and_consistent():
     assert reg.validate({}, reg.defaults()) == []
     for old, (new, _) in reg.RENAMED.items():
         assert old not in reg.BY_KEY and new in reg.BY_KEY
+
+
+def test_readers_never_carry_a_literal_default_of_a_registered_setting():
+    """Readers go through settings_registry.get: `.get("<leaf>", 60)` on a settings table would
+    diverge silently from the registry the day its default changes."""
+    import ast
+
+    leaves = {s.path[-1] for s in reg.REGISTRY}
+    tables = ("settings", "cfg", "collector", "retention", "rpz", "certificates", "dns")
+    found = []
+    for path in sorted((REPO / "backend" / "pelagos").rglob("*.py")):
+        if path.name == "settings_registry.py":
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "get"
+                and len(node.args) >= 2
+                and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value in leaves
+                and isinstance(node.args[1], ast.Constant | ast.Name)
+                and any(t in ast.unparse(node.func.value) for t in tables)
+            ):
+                found.append(f"{path.relative_to(REPO)}:{node.lineno}: {ast.unparse(node)}")
+    assert not found, "use settings_registry.get:\n" + "\n".join(found)
+
+
+def test_legacy_values_are_the_current_ones_under_the_old_root_names():
+    settings = reg.merge(
+        reg.defaults(),
+        {
+            "checks": {"pool_warning_percent": 70, "d2_error_percent": 2},
+            "auth": {"session_ttl_seconds": 7200},
+        },
+    )
+    assert reg.legacy(settings) == {
+        "alerts_pool_warning_percent": 70,
+        "alerts_d2_error_rate": 0.02,
+        "session_ttl_seconds": 7200,
+    }
+    everything = reg.legacy(settings, customised_only=False)
+    assert everything["alerts_pool_critical_percent"] == 95 and all("." not in k for k in everything)
 
 
 def _former_name_patterns() -> list[re.Pattern[str]]:

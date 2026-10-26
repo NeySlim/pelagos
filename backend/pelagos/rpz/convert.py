@@ -33,9 +33,9 @@ HOSTS_SKIP = frozenset(
         "0.0.0.0",  # noqa: S104 (a hosts file entry, not a listen address)
     }
 )
-_LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)$")
-_IP = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-f:]+:[0-9a-f:]*$", re.I)
-_RPZ_RULE = re.compile(r"^(\S+)\s+(?:\d+\s+)?(?:IN\s+)?CNAME\s+\.\s*$", re.I)
+_LABEL = re.compile(r"^(?!-)[a-z0-9_-]{1,63}(?<!-)\Z")
+_IP = re.compile(r"^(\d{1,3}\.){3}\d{1,3}\Z|^[0-9a-f:]+:[0-9a-f:]*\Z", re.I)
+_RPZ_RULE = re.compile(r"^(\S+)\s+(?:\d+\s+)?(?:IN\s+)?CNAME\s+\.\s*\Z", re.I)
 
 
 class ConvertError(ValueError):

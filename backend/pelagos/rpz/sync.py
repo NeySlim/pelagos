@@ -219,6 +219,9 @@ class Syncer:
             etag,
             modified,
             max_bytes=int(cfg["max_download_mb"]) * 1_000_000,
+            max_seconds=float(cfg["max_download_seconds"]),
+            allow_private=bool(cfg["private_sources_enabled"]),
+            tmp_dir=str(self.env.rpz_dir),
         )
         entry["checked_at"] = int(now)
         if got.status == 304:
@@ -232,7 +235,10 @@ class Syncer:
             )
             report.unchanged.append(sub.id)
             return
-        self._install(sub, entry, cfg, got, fp, report, accept_shrink)
+        try:
+            self._install(sub, entry, cfg, got, fp, report, accept_shrink)
+        finally:
+            got.close()
 
     def _install(
         self,
@@ -247,7 +253,7 @@ class Syncer:
         env, now = self.env, self.env.clock()
         fmt = sub.format
         if fmt == "auto":
-            fmt = conv.detect_format(got.body[:65536].decode("utf-8", "replace"))
+            fmt = conv.detect_format(got.head(65536).decode("utf-8", "replace"))
         redirect_ip = sub.redirect if sub.action == "redirect" and model.is_ip(sub.redirect) else None
         target = zone_path(env, sub.zone)
         env.rpz_dir.mkdir(parents=True, exist_ok=True)
@@ -255,7 +261,7 @@ class Syncer:
         tmp = Path(tmp_name)
         try:
             with os.fdopen(fd, "w") as fh:
-                lines = io.TextIOWrapper(io.BytesIO(got.body), encoding="utf-8", errors="replace")
+                lines = io.TextIOWrapper(got.stream(), encoding="utf-8", errors="replace")
                 serial = serial_after(target, entry.get("serial"), now)
                 result = conv.convert_stream(lines, fmt, serial, fh, redirect_ip)
             reason = self._reject_reason(entry, result.entries, cfg, accept_shrink)

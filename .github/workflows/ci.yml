@@ -18,6 +18,15 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  commits:
+    name: commit messages
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Subjects of 72 characters at most, one line, no trailer, no em dash
+        run: scripts/check-commits.sh "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.sha }}"
   backend:
     name: backend (python ${{ matrix.python }})
     # The unit tier validates generated configs with named-checkconf, so it runs on Debian 13

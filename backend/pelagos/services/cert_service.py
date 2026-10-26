@@ -41,6 +41,22 @@ def report_error(exc: manager.CertFailure) -> ServiceError:
     return ServiceError(code, str(exc), extra=extra)
 
 
+def _norm_url(url: Any) -> str | None:
+    text = str(url or "").strip().rstrip("/").lower()
+    return text or None
+
+
+def _secret_target(src: dict[str, Any], name: str) -> str | None:
+    """What a secret of source `src` is sent to: the UCM URL, the DNS provider or the ACME directory."""
+    if name == "ucm_api_key":
+        return _norm_url((src.get("ucm") or {}).get("url"))
+    if name == "dns_api_token":
+        return str(((src.get("acme") or {}).get("dns") or {}).get("provider") or "") or None
+    if name == "eab_hmac":
+        return _norm_url(wc.directory_url(src))
+    return None
+
+
 def _bad(field: str, message: str) -> ValidationError:
     return ValidationError(message, [field_error(field, message)])
 
@@ -171,12 +187,24 @@ class CertService:
                 )
         return out
 
+    def _stored_target(self, scope: str, name: str) -> str | None:
+        """Where the stored secret `name` of `scope` is sent, per the source saved for that scope."""
+        settings = self.ctx.settings()
+        if scope == wc.CLUSTER_SCOPE:
+            saved = wc.cluster_source(settings)
+        else:
+            saved = wc.node_source(settings, scope.removeprefix("node-"))
+        return _secret_target(saved, name) if saved else None
+
     def _require_secrets(self, src: dict[str, Any], scope: str, pending: dict[str, str | None]) -> None:
         def has(name: str) -> bool:
             key = wc.secret_name(scope, name)
             if key in pending:
                 return pending[key] is not None
-            return key in self.ctx.cluster().secrets
+            # A stored secret follows its target only: a changed URL or provider needs it re-entered.
+            return key in self.ctx.cluster().secrets and (
+                _secret_target(src, name) == self._stored_target(scope, name)
+            )
 
         if src["source"] == wc.UCM and not has("ucm_api_key"):
             raise _bad("secrets.ucm_api_key", "the UCM API key is required")
@@ -576,20 +604,24 @@ class CertService:
 
     # Tests of the remote services ---------------------------------------------------------------
 
-    def _stored_secret(self, body: dict[str, Any], name: str) -> str | None:
+    def _stored_secret(self, body: dict[str, Any], name: str, target: str | None) -> str | None:
+        """The key given in the body, else the stored one but only when `target` is where the source
+        saved for that scope already sends it (a stored key never goes to a URL typed in a test)."""
         given = (body.get("secrets") or {}).get(name) if isinstance(body.get("secrets"), dict) else None
         if given:
             return str(given)
-        scope = body.get("scope") or wc.CLUSTER_SCOPE
-        if scope != wc.CLUSTER_SCOPE and not str(scope).startswith("node-"):
+        scope = str(body.get("scope") or wc.CLUSTER_SCOPE)
+        if scope != wc.CLUSTER_SCOPE and not scope.startswith("node-"):
             raise _bad("scope", "scope must be cluster or node-<id>")
-        return self.ctx.get_secret(wc.secret_name(str(scope), name))
+        if target is None or target != self._stored_target(scope, name):
+            return None
+        return self.ctx.get_secret(wc.secret_name(scope, name))
 
     def test_ucm(self, body: dict[str, Any]) -> dict[str, Any]:
         from pelagos.core.webcert import ucm
 
         raw = body.get("ucm") or {}
-        key = self._stored_secret(body, "ucm_api_key")
+        key = self._stored_secret(body, "ucm_api_key", _norm_url(raw.get("url")))
         try:
             client = ucm.UcmClient(str(raw.get("url") or ""), key or "", raw.get("trust_root") or None)
             return {"ok": True, "cas": client.cas(), "templates": client.templates()}
@@ -625,7 +657,10 @@ class CertService:
         try:
             provider = dns01.make_provider(
                 str(dns.get("provider") or ""),
-                {"api_token": self._stored_secret(body, "dns_api_token") or ""},
+                {
+                    "api_token": self._stored_secret(body, "dns_api_token", str(dns.get("provider") or ""))
+                    or ""
+                },
             )
             return {"ok": True, "detail": provider.test()}
         except dns01.DnsChallengeError as exc:

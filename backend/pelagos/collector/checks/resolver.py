@@ -109,7 +109,7 @@ class ResolverMonitor:
         if rcov >= window // 2 and bcov >= window:
             recent_qpm = recent * 60 / rcov
             baseline_qpm = before * 60 / bcov
-            if baseline_qpm >= cfg.resolver_drop_min_qpm and recent_qpm <= baseline_qpm * (
+            if baseline_qpm >= cfg.resolver_drop_min_per_minute and recent_qpm <= baseline_qpm * (
                 1 - cfg.resolver_drop_percent / 100
             ):
                 drop = 100.0 * (1 - recent_qpm / baseline_qpm)

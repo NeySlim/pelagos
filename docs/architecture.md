@@ -621,6 +621,7 @@ class AlertKind(str, Enum):
     DECLINED_ADDRESSES="declined_addresses"; RESOLVER_HEALTH="resolver_health"
     DELEGATION_ISSUE="delegation_issue"; VERSION_MISMATCH="version_mismatch"
     RESTART_LOOP="restart_loop"; POOL_FORECAST="pool_forecast"; SECURITY_ADVISORY="security_advisory"
+    CERT_EXPIRY="cert_expiry"; CERT_RENEWAL_FAILED="cert_renewal_failed"
 class AlertState(str, Enum): OPEN="open"; ACKED="acked"; RESOLVED="resolved"
 
 @dataclass(slots=True)
@@ -1284,7 +1285,7 @@ action_timeout_seconds = 120
 [settings.checks]                        # every threshold that raises an alert (section 15)
 pool_warning_percent = 80
 pool_critical_percent = 95
-serial_divergence_seconds = 900          # secondary may lag this long before SECONDARY_STALE
+serial_divergence_seconds = 900          # secondary may lag this long before SERIAL_DIVERGENCE
 d2_error_percent = 5.0
 ha_grace_seconds = 45
 custom_hooks_enabled = true
@@ -1329,10 +1330,12 @@ default_interval_hours = 24
 min_interval_minutes = 60
 shrink_percent = 50
 stale_factor = 3
-bytes_per_entry = 800
+memory_per_entry_bytes = 800
 memory_warning_percent = 25
 small_node_mb = 4096
 max_download_mb = 256
+max_download_seconds = 600
+private_sources_enabled = false
 log_events = 200
 break_dnssec = true
 # categories, subscriptions, order, allow, exempt_clients: written by the RPZ screen (section 21)
@@ -1406,7 +1409,7 @@ copy the mock server serves):
   raises it (a poller, a health check, the certificate manager).
 - Leaf names are snake_case `<subject>[_<qualifier>]_<unit>`. The unit is
   spelled out: `_seconds`, `_minutes`, `_hours`, `_days`, `_percent`, `_mb`,
-  `_factor`, `_per_minute`; a count ends with the plural noun it counts
+  `_bytes`, `_factor`, `_per_minute`, `_per_hour`; a count ends with the plural noun it counts
   (`_queries`, `_failures`, `_zones`, `_passes`, `_leases`, `_events`) or
   `_count`. A ratio is a percentage, never a fraction.
 - Severities are `<subject>_warning_<unit>` and `<subject>_critical_<unit>`,
@@ -1962,6 +1965,31 @@ Alert kinds and rules (thresholds from `settings`):
 | `clock_skew` | warning / critical | a peer's clock offset, minus its uncertainty, at least `checks.clock_skew_warning_seconds` / `checks.clock_skew_critical_seconds`; node = the peer, subject `clock`; details `offset`, `uncertainty`, `reference` (this node's name), `suspect` (the node whose NTP says unsynchronized when only one does), thresholds; kept from the last `clock` snapshot while the peer is out of reach, with `measured_at` |
 | `clock_unsynchronized` | warning | a node's `ntp` says `synchronized: false` or `ntp_enabled: false` (an unknown state never alerts); raised for this node and for each peer from its status, node = that node, subject `ntp` |
 
+| `d2_errors` | warning | `(update-error + update-timeout) / update-sent` over the last hour > `checks.d2_error_percent` |
+| `daemon_down` | critical | a configured local daemon does not answer |
+| `peer_offline` | warning | peer unreachable for 3 polls |
+| `config_divergence` | warning | what the Kea servers of an HA relationship must share differs (subject `<engine>:config-hash`, below), or a Kea file differs from `config-get` (subject `<engine>:config-file`, kea4, kea6, d2), or cluster.toml schema mismatch (subject `schema:<peer id>`) |
+| `lease_without_record` | info | active lease with `fqdn_fwd` true and no A/AAAA for its hostname in the forward zone |
+| `record_without_lease` | info | A/AAAA with a DHCID whose lease no longer exists |
+| `reservation_mismatch` | warning | reservation hostname/IP disagrees with the A/PTR records |
+| `ptr_mismatch` | warning | A without matching PTR or PTR pointing to a name without that A, within managed zones |
+| `duplicate_ip` | warning | same IP in two reservations or in a reservation and a foreign lease |
+| `insecure_key` | warning | TSIG or rndc key with hmac-md5/hmac-sha1 (from the security audit) |
+| `insecure_listener` | warning | rndc/statistics-channel/Kea HTTP listening off localhost without TLS |
+| `rpz_update` | warning | an RPZ list update failed or was rejected (subject `rpz:<id>`), or none succeeded for `rpz.stale_factor` intervals (`rpz-stale:<id>`), or a run lasts past its download deadlines (`rpz-stuck`); section 21 |
+| `disk_space` | warning, critical | free space of a volume holding /var, /etc, the BIND directory, logs or lease files at or under `checks.disk_free_warning_percent` / `disk_free_critical_percent`; subject `disk:<mount point>` |
+| `file_growth` | warning, critical | named log, Kea lease file, `.jnl` journal, backups or audit log over its `checks.*_max_mb` (critical at 5 times), or Kea LFC not run for `lfc_stale_factor` intervals; subjects `file:<path>`, `lfc:<engine>` |
+| `reservation_risk` | info, warning | reservation inside a dynamic pool, outside its subnet, the same identifier or hostname twice, or missing or different between HA peers; subjects `<engine>:in-pool:<ip>`, `<engine>:outside-subnet:<ip>`, `<engine>:duplicate-id:<type>=<id>`, `<engine>:duplicate-host:<name>`, `<engine>:peer:<type>=<id>`, `<engine>:peer-id:<host or ip>` (same host or address under another identifier on each peer; peer subjects have no node) |
+| `declined_addresses` | warning | `declined-addresses` of a subnet or DHCPDECLINE packets per hour over their thresholds; subjects `<engine>:subnet:<id>`, `<engine>:decline-received` |
+| `resolver_health` | warning, critical | SERVFAIL share, DNSSEC validation failures, query drop against the baseline, root servers unreachable; subjects `resolver:servfail`, `resolver:dnssec`, `resolver:queries`, `resolver:roots` |
+| `delegation_issue` | info, warning | NS name that does not resolve or answer for the zone, NS not allowed to transfer, address in also-notify/allow-transfer that is not an NS, SOA value outside the usual range (info); subjects `ns-unresolved:<zone>:<ns>`, `ns-silent:...`, `ns-transfer:...`, `ns-extra:<address>` (one per address, all zones grouped), `soa-range:<zone>:<field>`, `view-unchecked:<view>` (info: no read key in `dns.view_keys` selects the view, or its secret is not on the node; such zones do not count toward `delegation_max_zones`); `<zone>` is `zone@view` outside the default view, each view is queried and its name servers probed with its read key, and also-notify/allow-transfer are the effective lists (zone, else view, else options) |
+| `version_mismatch` | info, warning | nodes run different versions of BIND, kea4 or kea6 (warning when the series differs); cluster-wide, subject `<engine>:version` |
+| `restart_loop` | critical | `checks.restart_loop_count` restarts in `restart_loop_window_seconds`; subject `engine:<engine>` |
+| `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; subject is the pool subject |
+| `security_advisory` | info, warning | the upstream version of an installed BIND or Kea falls in a range of `pelagos/data/isc_advisories.json` (`ranges_preview` for `-S` versions); subject `<engine>:<CVE id>`; details `cve`, `version`, `fixed_in`, `url`, `cvss`, `dataset_verified` |
+| `cert_expiry` | warning / critical | the web certificate (subject `cert:web`), this node's replication certificate (`cert:node`) or the internal CA (`cert:ca`) expires within `checks.cert_warning_days` / `checks.cert_critical_days`, or within a third / a tenth of its lifetime when that is shorter (24 h certificates); details: `cert`, `not_after`, `days_left`, `fingerprint`, `issuer`, and for the web certificate `source` and `mode` |
+| `cert_renewal_failed` | warning | the last automatic request of the web certificate failed (subject `cert:web:renewal`; details `failures`, `last_error`, `next_attempt_at`) |
+
 The `ha_*` alerts above have subject `ha:<engine>`; a Kea 3 hub raises them
 for each relationship, the second one and later with subject
 `ha:<engine>:<server name>`. `ha_backup_out_of_sync` compares a backup with
@@ -1992,30 +2020,7 @@ relationship with each other by `shared`. A node that publishes no
 `normalized`, then `hash`, across every node. Details: `hashes` (node ->
 hash of the divergent nodes) and `relationships` (`[{"servers",
 "hashes"}]`).
-| `d2_errors` | warning | `(update-error + update-timeout) / update-sent` over the last hour > `checks.d2_error_percent` |
-| `daemon_down` | critical | a configured local daemon does not answer |
-| `peer_offline` | warning | peer unreachable for 3 polls |
-| `config_divergence` | warning | what the Kea servers of an HA relationship must share differs (subject `<engine>:config-hash`, below), or a Kea file differs from `config-get` (subject `<engine>:config-file`, kea4, kea6, d2), or cluster.toml schema mismatch (subject `schema:<peer id>`) |
-| `lease_without_record` | info | active lease with `fqdn_fwd` true and no A/AAAA for its hostname in the forward zone |
-| `record_without_lease` | info | A/AAAA with a DHCID whose lease no longer exists |
-| `reservation_mismatch` | warning | reservation hostname/IP disagrees with the A/PTR records |
-| `ptr_mismatch` | warning | A without matching PTR or PTR pointing to a name without that A, within managed zones |
-| `duplicate_ip` | warning | same IP in two reservations or in a reservation and a foreign lease |
-| `insecure_key` | warning | TSIG or rndc key with hmac-md5/hmac-sha1 (from the security audit) |
-| `insecure_listener` | warning | rndc/statistics-channel/Kea HTTP listening off localhost without TLS |
-| `rpz_update` | warning | an RPZ list update failed or was rejected (subject `rpz:<id>`), or none succeeded for `rpz.stale_factor` intervals (`rpz-stale:<id>`); section 21 |
-| `disk_space` | warning, critical | free space of a volume holding /var, /etc, the BIND directory, logs or lease files at or under `checks.disk_free_warning_percent` / `disk_free_critical_percent`; subject `disk:<mount point>` |
-| `file_growth` | warning, critical | named log, Kea lease file, `.jnl` journal, backups or audit log over its `checks.*_max_mb` (critical at 5 times), or Kea LFC not run for `lfc_stale_factor` intervals; subjects `file:<path>`, `lfc:<engine>` |
-| `reservation_risk` | info, warning | reservation inside a dynamic pool, outside its subnet, the same identifier or hostname twice, or missing or different between HA peers; subjects `<engine>:in-pool:<ip>`, `<engine>:outside-subnet:<ip>`, `<engine>:duplicate-id:<type>=<id>`, `<engine>:duplicate-host:<name>`, `<engine>:peer:<type>=<id>`, `<engine>:peer-id:<host or ip>` (same host or address under another identifier on each peer; peer subjects have no node) |
-| `declined_addresses` | warning | `declined-addresses` of a subnet or DHCPDECLINE packets per hour over their thresholds; subjects `<engine>:subnet:<id>`, `<engine>:decline-received` |
-| `resolver_health` | warning, critical | SERVFAIL share, DNSSEC validation failures, query drop against the baseline, root servers unreachable; subjects `resolver:servfail`, `resolver:dnssec`, `resolver:queries`, `resolver:roots` |
-| `delegation_issue` | info, warning | NS name that does not resolve or answer for the zone, NS not allowed to transfer, address in also-notify/allow-transfer that is not an NS, SOA value outside the usual range (info); subjects `ns-unresolved:<zone>:<ns>`, `ns-silent:...`, `ns-transfer:...`, `ns-extra:<address>` (one per address, all zones grouped), `soa-range:<zone>:<field>`, `view-unchecked:<view>` (info: no read key in `dns.view_keys` selects the view, or its secret is not on the node; such zones do not count toward `delegation_max_zones`); `<zone>` is `zone@view` outside the default view, each view is queried and its name servers probed with its read key, and also-notify/allow-transfer are the effective lists (zone, else view, else options) |
-| `version_mismatch` | info, warning | nodes run different versions of BIND, kea4 or kea6 (warning when the series differs); cluster-wide, subject `<engine>:version` |
-| `restart_loop` | critical | `checks.restart_loop_count` restarts in `restart_loop_window_seconds`; subject `engine:<engine>` |
-| `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; subject is the pool subject |
-| `security_advisory` | info, warning | the upstream version of an installed BIND or Kea falls in a range of `pelagos/data/isc_advisories.json` (`ranges_preview` for `-S` versions); subject `<engine>:<CVE id>`; details `cve`, `version`, `fixed_in`, `url`, `cvss`, `dataset_verified` |
-| `cert_expiry` | warning / critical | the web certificate (subject `cert:web`), this node's replication certificate (`cert:node`) or the internal CA (`cert:ca`) expires within `checks.cert_warning_days` / `checks.cert_critical_days`, or within a third / a tenth of its lifetime when that is shorter (24 h certificates); details: `cert`, `not_after`, `days_left`, `fingerprint`, `issuer`, and for the web certificate `source` and `mode` |
-| `cert_renewal_failed` | warning | the last automatic request of the web certificate failed (subject `cert:web:renewal`; details `failures`, `last_error`, `next_attempt_at`) |
+
 
 #### Consistency exceptions ("Ignore: admin's choice")
 
@@ -2026,7 +2031,9 @@ keyed by `(kind, key)`: the alert kind and a stable key of the object the
 check is about. While it exists the check raises nothing for that object;
 revoking it lets the next pass raise again. Created and revoked through
 `POST /alerts/exceptions` and `DELETE /alerts/exceptions/{id}`
-(`write:alerts`, audit actions `alert.exception.add` and
+(`write:alerts`, plus `admin:settings` when the kind is a security check:
+`insecure_key`, `insecure_listener`, `security_advisory`, `custom_hook`,
+`cert_expiry`; audit actions `alert.exception.add` and
 `alert.exception.revoke`; the comment is mandatory), listed by
 `GET /alerts/exceptions` (`read:alerts`). Each change signals the local
 collector to run its consistency pass. A create checks for a duplicate
@@ -2112,7 +2119,7 @@ read:dns   write:dns.records   write:dns.zones   write:dns.config   ops:dns   re
 read:dhcp  write:dhcp.subnets  write:dhcp.reservations  write:dhcp.classes  write:dhcp.options  write:dhcp.config
            ops:dhcp.leases     ops:dhcp.ha        read:dhcp.secrets
 read:hosts write:hosts         (write:hosts is checked as the union of the dns/dhcp writes a host plan expands into)
-read:alerts  write:alerts (ack)   read:series   read:audit   read:nodes   read:advanced
+read:alerts  write:alerts (ack, exceptions)   read:series   read:audit   read:nodes   read:advanced
 admin:nodes  admin:users  admin:roles  admin:settings  admin:install  admin:modules  admin:certificates
 ```
 
@@ -2349,8 +2356,8 @@ configuration; the problem document carries `"engine"` and `"divergences":
 | `POST /alerts/{id}/ack` | `write:alerts` | `{"comment"?}` | `Alert` |
 | `POST /alerts/consistency/run` | `write:alerts` | | `202 {"job_id"}` |
 | `GET /alerts/exceptions?kind=` | `read:alerts` | | `{"items": [{"id","kind","key","comment","summary"?,"created_by","created_at","node_id"}]}` (newest first) |
-| `POST /alerts/exceptions` | `write:alerts` | `{"kind","key","comment","summary"?}` (`comment` mandatory) | `201` the exception (`409` when `(kind, key)` already is one) |
-| `DELETE /alerts/exceptions/{id}` | `write:alerts` | | `204` |
+| `POST /alerts/exceptions` | `write:alerts`; `admin:settings` for `insecure_key`, `insecure_listener`, `security_advisory`, `custom_hook`, `cert_expiry` | `{"kind","key","comment","summary"?}` (`comment` mandatory) | `201` the exception (`409` when `(kind, key)` already is one) |
+| `DELETE /alerts/exceptions/{id}` | `write:alerts`; `admin:settings` for the security kinds above | | `204` |
 | `GET /series/pools?engine=&subnet_id=&pool=&node_id=&from=&to=&step=` | `read:series` | | `{"series": [{"key": {...}, "points": [[ts, assigned, total]]}]}` |
 | `GET /series/serials?zone=&view=&from=&to=` | `read:series` | | `{"series": [{"node_id","points": [[ts, serial, divergent]]}]}` |
 | `GET /series/ha-transitions?engine=&node_id=&from=&to=` | `read:series` | | `{"items": [...]}` |
@@ -2697,10 +2704,20 @@ Public block lists and RPZ feeds become policy zones that Pelagos manages in
   `[settings.rpz]` and editable through `PUT /admin/settings`: `check_seconds`
   (300, the collector pass), `default_interval_hours` (24),
   `min_interval_minutes` (60, floor of any interval), `shrink_percent` (50),
-  `stale_factor` (3), `bytes_per_entry` (800, measured on named 9.20: about 700
+  `stale_factor` (3), `memory_per_entry_bytes` (800, measured on named 9.20: about 700
   to 1000 bytes per listed domain, two rules each), `memory_warning_percent` (25),
-  `small_node_mb` (4096), `max_download_mb` (256), `break_dnssec` (true),
+  `small_node_mb` (4096), `max_download_mb` (256), `max_download_seconds` (600,
+  whole-download deadline), `private_sources_enabled` (false), `break_dnssec` (true),
   `log_events` (200), `log_path` (a log file of your own, see below).
+- **Downloads**: http and https only, no proxy. Every connection, redirect hops
+  included, goes to an address checked when connecting: loopback, link-local,
+  private, unspecified and multicast targets are refused unless
+  `private_sources_enabled`, so a list URL cannot reach the node's own network
+  and a DNS answer changing between check and use gains nothing. The body is
+  spooled to a temporary file under the RPZ directory (inflated file to file,
+  same size cap) and converted from there. A run that outlasts
+  `max_download_seconds` x (lists + 1) + 10 min raises `alert.rpz_stuck`
+  (subject `rpz-stuck`) while the snapshot and the other alerts keep updating.
 - **Zones**: a catalog list or own URL becomes the primary zone
   `<id>.rpz.invalid` (file `<zone dir>/rpz/<zone>.db`, `allow-transfer { none; }`,
   `allow-query { localhost; }`, `notify no`, note `pelagos-rpz`); a zone transfer

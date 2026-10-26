@@ -58,7 +58,7 @@ def plan_on_primary(
         changes,
         current,
         allowed_types=dns_settings.get("update_types_admin"),
-        default_ttl=int(dns_settings.get("default_ttl_seconds", 3600)),
+        default_ttl=int(reg.get(settings, "dns.default_ttl_seconds")),
     )
     if not resolved and not errors:
         errors.append("no change")

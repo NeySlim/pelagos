@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 import urllib.error
 from email.message import Message
 from pathlib import Path
@@ -196,7 +197,7 @@ def test_fetch_sends_validators_and_reads_cache_headers() -> None:
         "https://example.com/l", etag='"old"', last_modified="Sun, 25 Oct 2026 06:00:00 GMT", opener=opener
     )
     assert seen["If-none-match"] == '"old"' and seen["If-modified-since"].startswith("Sun")
-    assert got.status == 200 and got.etag == '"x"' and got.body == b"a.example.com\n"
+    assert got.status == 200 and got.etag == '"x"' and got.stream().read() == b"a.example.com\n"
     assert got.expires is not None and got.expires > 1_700_000_000
 
 
@@ -218,7 +219,9 @@ def test_fetch_handles_304_gone_gzip_and_size_cap() -> None:
     assert (
         fetch.fetch(
             "https://example.com/l", opener=lambda r, timeout: Resp(packed, {"Content-Encoding": "gzip"})
-        ).body
+        )
+        .stream()
+        .read()
         == b"x.example.com\n"
     )
     with pytest.raises(fetch.FetchError, match="larger"):
@@ -227,6 +230,95 @@ def test_fetch_handles_304_gone_gzip_and_size_cap() -> None:
         fetch.fetch(
             "https://example.com/l", opener=lambda r, timeout: (_ for _ in ()).throw(TimeoutError("slow"))
         )
+
+
+def _serve(handler_cls):
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_fetch_refuses_loopback_and_redirects_to_it_unless_allowed() -> None:
+    from http.server import BaseHTTPRequestHandler
+
+    class H(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/redirect":
+                self.send_response(302)
+                self.send_header("Location", f"http://127.0.0.1:{self.server.server_port}/list")
+                self.end_headers()
+                return
+            if self.path == "/ftp":
+                self.send_response(302)
+                self.send_header("Location", "ftp://127.0.0.1/x")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"evil.example\n")
+
+        def log_message(self, *args):
+            pass
+
+    srv = _serve(H)
+    base = f"http://127.0.0.1:{srv.server_port}"
+    try:
+        for path in ("/list", "/redirect"):
+            with pytest.raises(fetch.FetchError, match="may not use"):
+                fetch.fetch(base + path, timeout=5)
+        got = fetch.fetch(base + "/redirect", timeout=5, allow_private=True)
+        assert got.stream().read() == b"evil.example\n"
+        with pytest.raises(fetch.FetchError, match="http or https"):
+            fetch.fetch(base + "/ftp", timeout=5, allow_private=True)
+    finally:
+        srv.shutdown()
+
+
+def test_refused_addresses() -> None:
+    for ip in ("127.0.0.1", "10.1.2.3", "169.254.169.254", "0.0.0.0", "::1", "fe80::1", "::ffff:127.0.0.1"):  # noqa: S104
+        assert fetch.refused_address(ip), ip
+    assert not fetch.refused_address("93.184.216.34") and not fetch.refused_address("2606:4700::1111")
+
+
+def test_fetch_has_a_total_deadline() -> None:
+    class Slow:
+        headers: dict[str, str] = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, n):
+            time.sleep(0.05)
+            return b"a.example\n"
+
+    with pytest.raises(fetch.FetchError, match="not finished"):
+        fetch.fetch("https://example.com/l", max_seconds=0.2, opener=lambda r, timeout: Slow())
+
+
+def test_urls_and_ids_with_a_trailing_newline_are_refused() -> None:
+    for bad in ("http://a.example/x\n", "http://a.example\n"):
+        with pytest.raises(model.RpzInputError):
+            model.check_url(bad)
+    assert model.SUB_ID.fullmatch("mylist\n") is None and model.HOST.fullmatch("a.example\n") is None
+
+
+def test_a_log_window_without_a_newline_is_skipped(tmp_path) -> None:
+    from pelagos.rpz import logparse
+
+    log = tmp_path / "rpz.log"
+    log.write_bytes(b"\x00" * 100)
+    cur = logparse.Cursor()
+    assert logparse.read_new(log, cur, limit=50) == [] and cur.offset == 50
+    assert logparse.read_new(log, cur, limit=50) == [] and cur.offset == 100
+    with log.open("ab") as fh:
+        fh.write(b"next line\n")
+    assert logparse.read_new(log, cur, limit=50) == ["next line"]
 
 
 def test_http_dates() -> None:
@@ -309,3 +401,25 @@ def test_poller_runs_the_sync_publishes_the_snapshot_and_raises_alerts(tmp_path:
     poller.poll()
     assert poller.poll().alerts == []
     assert NOW  # the shared clock constant is imported for the fixtures above
+
+
+def test_poller_reports_a_stuck_update_and_keeps_publishing(tmp_path: Path) -> None:
+    import threading
+
+    node = Node(tmp_path)
+    node.subscribe()
+    store = series_mod.SeriesStore(series_mod.connect(tmp_path / "series.sqlite"))
+    poller = RpzPoller(StubBackend(node), "n1", store, lambda: node.settings, lambda: node.now)
+    hold = threading.Event()
+    poller._thread = threading.Thread(target=hold.wait, daemon=True)
+    poller._thread.start()
+    poller._started = node.now
+    try:
+        assert poller.poll().alerts == []  # running, not late yet: nothing changes
+        node.now += 3 * 3600
+        out = poller.poll()
+        [alert] = [a for a in out.alerts if a.subject == "rpz-stuck"]
+        assert alert.title_message["key"] == "alert.rpz_stuck"
+        assert store.snapshot("n1", "bind", "rpz") is not None
+    finally:
+        hold.set()

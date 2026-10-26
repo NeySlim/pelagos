@@ -126,6 +126,7 @@ CATALOG: dict[str, str] = {
     "alert.ptr_mismatch.no_ptr": "{name} has no PTR (found {found})",
     "alert.ptr_mismatch.dangling": "PTR points to {target} which has no address record for it",
     "alert.rpz_update": "RPZ list {name}: update failed ({error})",
+    "alert.rpz_stuck": "RPZ list updates on this node have been running for {minutes} min",
     "alert.rpz_stale": "RPZ list {name}: no successful update for {hours} h",
     "alert.duplicate_reservation": "{ip} is reserved twice",
     "alert.duplicate_lease": "{ip} is reserved for {identifier} but leased to {lease}",

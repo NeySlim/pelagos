@@ -157,7 +157,7 @@ class RpzService:
                     "check_seconds",
                     "default_interval_hours",
                     "shrink_percent",
-                    "bytes_per_entry",
+                    "memory_per_entry_bytes",
                     "memory_warning_percent",
                     "small_node_mb",
                     "break_dnssec",
@@ -197,7 +197,7 @@ class RpzService:
         return {
             "lists": added,
             "entries": entries,
-            "memory_mb": estimate.entries_mb(entries, int(cfg["bytes_per_entry"])),
+            "memory_mb": estimate.entries_mb(entries, int(cfg["memory_per_entry_bytes"])),
             "nodes": out,
         }
 

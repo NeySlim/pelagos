@@ -395,7 +395,7 @@ class BindBackend(BindExtras, DnsBackend):
             changes,
             current,
             allowed_types=allowed,
-            default_ttl=int(self.dns_settings.get("default_ttl_seconds", 3600)),
+            default_ttl=int(reg.get(self.ctx.settings, "dns.default_ttl_seconds")),
         )
         plan.changes = [rr.to_change(zone, rc, view) for rc in resolved]
         plan.diff = rr.diff_text(resolved)

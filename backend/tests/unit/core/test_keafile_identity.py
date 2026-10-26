@@ -227,7 +227,7 @@ def test_identifiers_compare_as_the_bytes_kea_stores(written, stored):
 
 
 def test_a_client_id_written_with_colons_is_the_one_kea_runs():
-    """lab-ns1, Kea 2.6.3 Debian: a file client-id `01:02:00:00:00:00:40` runs as `01020000000040`,
+    """ns1, Kea 2.6.3 Debian: a file client-id `01:02:00:00:00:00:40` runs as `01020000000040`,
     and a flex-id written as text runs as its hex."""
     text = FILE.replace(
         '{ "hw-address": "aa:bb:cc:dd:ee:03"',

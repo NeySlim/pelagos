@@ -759,6 +759,10 @@ def test_internal_errors_do_not_leak_details_to_peers(pair, monkeypatch):
 def test_run_once_backs_off_when_the_replicator_raises(pair, monkeypatch):
     a, _b = pair
     svc = a.service
+    # The live worker must not race run_once (a real push in flight would clear _pending).
+    svc._stop.set()
+    svc._wake.set()
+    svc._worker.join(timeout=10)
 
     def boom(*_args, **_kwargs):
         raise RuntimeError("unexpected")

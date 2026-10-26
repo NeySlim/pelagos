@@ -180,7 +180,7 @@ def start(exe: str, root: Path, resolver_port: int) -> StepCa:
 
     try:
         wait_for(up, timeout=30, what="step-ca ACME directory")
-    except Exception:
+    except Exception as exc:
         server.stop()
-        raise
+        raise RuntimeError(f"{exc}\nstep-ca log:\n{server.log()[-4000:]}") from exc
     return server

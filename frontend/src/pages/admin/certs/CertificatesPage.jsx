@@ -312,7 +312,10 @@ export default function CertificatesPage() {
         <Card className="fixed bottom-4 right-4 z-[260] max-w-lg p-4 space-y-2 shadow-xl" hover={false} data-testid="cert-dns01-manual">
           {setup.manual?.length > 0 && <p className="text-xs font-medium">{t('dns01.manual')}</p>}
           {setup.manual?.map((m) => (
-            <pre key={`${m.view}/${m.zone}`} className="text-2xs font-mono whitespace-pre-wrap">{`zone ${m.zone}: update-policy { ${m.statements.join(' ')} };`}</pre>
+            <div key={`${m.view}/${m.zone}`}>
+              {m.reason === 'allow_update' && <p className="text-xs status-warning-text">{t('dns01.allowUpdate', { zone: m.zone })}</p>}
+              <pre className="text-2xs font-mono whitespace-pre-wrap">{`zone ${m.zone}: update-policy { ${m.statements.join(' ')} };`}</pre>
+            </div>
           ))}
           {setup.delegation?.length > 0 && <p className="text-xs font-medium">{t('dns01.delegation')}</p>}
           {setup.delegation?.map((r) => <pre key={r.name} className="text-2xs font-mono">{`${r.name} CNAME ${r.value}`}</pre>)}

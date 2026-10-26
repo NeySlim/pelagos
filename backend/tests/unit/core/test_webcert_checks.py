@@ -181,3 +181,14 @@ def test_every_check_text_has_a_code_the_ui_translates():
             group, name = code.split(".")
             ui = catalog[group][name]
             assert re.findall(r"\{\{(\w+)\}\}", ui) == re.findall(r"\{(\w+)\}", message), (lang, code)
+
+
+def test_private_ca_chain_without_its_root_is_a_warning():
+    pki = make_pki()
+    leaf, key = make_leaf(pki.inter, NAMES)
+    # Leaf and intermediate of a private CA, root neither given nor in the system store.
+    report = run(pem_of(leaf) + pem_of(pki.inter.cert), key_pem_of(key))
+    lv = levels(report)
+    assert report.ok
+    assert lv["chain"] == "warning" and lv["trust"] == "warning"
+    assert [c.subject for c in report.chain] == [pki.inter.cert.subject]

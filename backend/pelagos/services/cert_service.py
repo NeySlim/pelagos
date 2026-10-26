@@ -29,6 +29,8 @@ JOB_TIMEOUT = 900.0
 POLL_SECONDS = 2.0
 # A status read never holds the page: an unanswering node shows what its listener presents.
 STATUS_TIMEOUT = 10.0
+# How long a peer may take to receive a source just written before its request is started.
+REPLICATION_TIMEOUT = 30.0
 SECRET_FIELDS = tuple(wc.SOURCE_SECRETS)
 
 
@@ -205,9 +207,12 @@ class CertService:
             raise NotFound(f"node {node_id}")
         src = self._validated(body, cluster=False)
         scope = wc.node_scope(node_id)
-        secrets = self._secrets_from(body, scope) if src["source"] in wc.AUTOMATIC else {}
         if src["source"] in wc.AUTOMATIC:
+            secrets = self._secrets_from(body, scope)
             self._require_secrets(src, scope, secrets)
+        else:
+            # A node leaving ACME or UCM keeps no credential of its own.
+            secrets = {wc.secret_name(scope, n): None for n in SECRET_FIELDS}
         src.update(revision=new_id(), updated_by=actor, updated_at=to_rfc3339(utcnow()))
 
         def mutate(c: Any) -> None:
@@ -224,7 +229,7 @@ class CertService:
             {"source": src},
         )
         job = (
-            self.start_issue([node_id], actor)
+            self.start_issue([node_id], actor, revision=src["revision"])
             if body.get("apply") and src["source"] in wc.AUTOMATIC
             else None
         )
@@ -255,7 +260,7 @@ class CertService:
         self._audit(
             "admin.cert.replace", "cert:web:cluster", actor, client_ip, {"source": src, "nodes": targets}
         )
-        job = self.start_issue(targets, actor) if body.get("apply", True) else None
+        job = self.start_issue(targets, actor, revision=src["revision"]) if body.get("apply", True) else None
         return {"cluster": wc_public(src, self.ctx, wc.CLUSTER_SCOPE), "job": job.to_dict() if job else None}
 
     def clear_cluster_source(self, actor: str, client_ip: str | None) -> None:
@@ -269,9 +274,10 @@ class CertService:
 
     # Issuance ----------------------------------------------------------------------------------
 
-    def start_issue(self, node_ids: list[str], actor: str) -> Job:
+    def start_issue(self, node_ids: list[str], actor: str, revision: str | None = None) -> Job:
         """A job with one step per node: each requests its own certificate; a failure on one node
-        leaves its current certificate in place and does not stop the others."""
+        leaves its current certificate in place and does not stop the others. With `revision`, a
+        peer requests only once it has received that source revision."""
         names = self._names()
         job_id_box: dict[str, str] = {}
 
@@ -293,7 +299,7 @@ class CertService:
                 job.steps.append(entry)
                 progress(job)
                 try:
-                    out = self._issue_on(node_id, actor, job.id)
+                    out = self._issue_on(node_id, actor, job.id, revision)
                     entry.update(state="done", output=out)
                     results[node_id] = {"ok": True, "certificate": out.get("certificate")}
                 except ServiceError as exc:
@@ -321,12 +327,14 @@ class CertService:
 
         return self.jobs.submit(run)
 
-    def _issue_on(self, node_id: str, actor: str, job_id: str) -> dict[str, Any]:
+    def _issue_on(self, node_id: str, actor: str, job_id: str, revision: str | None = None) -> dict[str, Any]:
         if node_id == self.ctx.node.id:
             try:
                 return self.local.issue(actor=actor, trigger="apply", job_id=job_id)
             except manager.CertFailure as exc:
                 raise report_error(exc) from None
+        if revision is not None:
+            self._wait_replicated(node_id, revision)
         self._remote(node_id, "certs.run", {"actor": actor, "job_id": job_id})
         deadline = time.monotonic() + JOB_TIMEOUT
         while time.monotonic() < deadline:
@@ -342,6 +350,24 @@ class CertService:
                 return {"certificate": status.get("current")}
             raise ServiceError("conflict", str(job.get("error") or "failed"))
         raise ServiceError("conflict", "no answer from the node within 15 minutes")
+
+    def _wait_replicated(self, node_id: str, revision: str) -> None:
+        """Until the peer's effective source carries `revision`: before, it would request with the
+        previous source or refuse a source it does not have yet."""
+        deadline = time.monotonic() + REPLICATION_TIMEOUT
+        while True:
+            try:
+                status = self._remote(node_id, "certs.status", {}, timeout=STATUS_TIMEOUT)
+                if (status.get("source") or {}).get("revision") == revision:
+                    return
+            except EngineUnavailable:
+                pass
+            if time.monotonic() >= deadline:
+                raise ServiceError(
+                    "conflict",
+                    f"source not replicated yet: not received within {int(REPLICATION_TIMEOUT)} s",
+                )
+            time.sleep(POLL_SECONDS)
 
     def renew(self, node_id: str, actor: str) -> Job:
         if node_id not in self._node_ids():
@@ -448,21 +474,30 @@ class CertService:
         return result
 
     def _own_source(self, node_id: str, source: str, actor: str) -> None:
+        """The node's source becomes `source` (manual, self-signed): names and key type are kept,
+        the node's own ACME or UCM credentials are dropped."""
         src = {
             "source": source,
             "revision": new_id(),
             "updated_by": actor,
             "updated_at": to_rfc3339(utcnow()),
         }
+        scope = wc.node_scope(node_id)
 
         def mutate(c: Any) -> None:
-            nodes = c.settings.setdefault("certificates", {}).setdefault("nodes", {})
+            certs = c.settings.setdefault("certificates", {})
+            nodes = certs.setdefault("nodes", {})
             current = nodes.get(node_id) or {}
             if current.get("source") != source or "transfer" in current:
+                before, _ = wc.effective(c.settings, node_id)
+                kept = {k: before[k] for k in ("names", "key_type") if k in before}
                 nodes[node_id] = {
+                    **kept,
                     **src,
                     **({"transfer": current["transfer"]} if "transfer" in current else {}),
                 }
+            for name in SECRET_FIELDS:
+                c.secrets.pop(wc.secret_name(scope, name), None)
 
         self.ctx.config_store.update_cluster(mutate, updated_by=f"user:{actor}@node:{self.ctx.node.id}")
 
@@ -662,6 +697,7 @@ class CertService:
                 )
             )
         zones_by_key = {(z.view or "_default", z.name): z for z in zones}
+        planned: list[str] = []
         for key, rules in grants.items():
             zone = zones_by_key[key]
             policy = list(zone.update_policy)
@@ -671,8 +707,20 @@ class CertService:
             if zone.source.value != "pelagos":
                 manual.append({"zone": zone.name, "view": key[0], "statements": [f"{r};" for r in missing]})
                 continue
+            if zone.allow_update and not policy:
+                # BIND refuses allow-update next to update-policy: the admin converts it first.
+                manual.append(
+                    {
+                        "zone": zone.name,
+                        "view": key[0],
+                        "statements": [f"{r};" for r in missing],
+                        "reason": "allow_update",
+                    }
+                )
+                continue
             after = {k: v for k, v in zone.to_dict().items() if k not in ("records", "ns")}
             after["update_policy"] = policy + missing
+            planned.append(zone.name)
             parts.append(
                 backend.plan_zone_change(
                     Change(ChangeOp.REPLACE, f"{key[0]}/{zone.name}", after=after), actor
@@ -687,7 +735,7 @@ class CertService:
             "plan": None,
         }
         if parts:
-            out["plan"] = self._composite(parts, sorted({k[1] for k in grants}), actor)
+            out["plan"] = self._composite(parts, sorted(set(planned)), actor)
         return out
 
     def _composite(self, parts: list[Plan], zones: list[str], actor: str) -> Plan:

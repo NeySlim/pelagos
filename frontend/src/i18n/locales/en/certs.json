@@ -82,6 +82,7 @@
     "nothing": "The ddi-acme key and its grants are already in place.",
     "manual": "Zones in your own named.conf files: add these grants to their update-policy by hand.",
     "delegation": "Public DNS host: create these CNAME records to delegate the challenges.",
+    "allowUpdate": "Zone {{zone}} has an allow-update, which BIND does not combine with update-policy: replace it by an update-policy first, or use a CNAME delegation or a DNS provider.",
     "unserved": "No zone of this node holds {{names}}: use a DNS provider or a CNAME delegation."
   },
   "source": {

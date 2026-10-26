@@ -206,3 +206,56 @@ def test_transfer_from_another_node(ctx, pki):
     assert name not in cluster.secrets
     assert "transfer" not in cluster.settings["certificates"]["nodes"][ctx.node.id]
     assert mgr.take_transfer() is None
+
+
+def test_certificate_installed_by_hand_is_not_renewed_over(ctx, pki, monkeypatch):
+    clock = Clock()
+    mgr = manager.CertManager(ctx, clock=clock)
+    set_source(
+        ctx, {"source": "ucm", "revision": "r1", "ucm": {"url": "https://ucm.example.lan", "ca_id": 1}}
+    )
+    issued: list[str] = []
+
+    def issue_ucm(src, scope, csr_pem):
+        issued.append(src["revision"])
+        cert = sign_csr(pki.inter, csr_pem, lifetime=timedelta(days=365))
+        return pem_of(cert) + pem_of(pki.inter.cert) + pem_of(pki.root.cert), 7
+
+    monkeypatch.setattr(mgr, "_issue_ucm", issue_ucm)
+    # A manual upload while the node still has the UCM source (its switch to manual not replicated yet).
+    leaf, key = make_leaf(pki.inter, [HOST, "ns1"])
+    mgr.upload(pem.parse_material(pem_of(leaf) + pem_of(pki.inter.cert), key_pem_of(key)), "admin")
+    assert mgr.due() is None and mgr.run_due() is None and not issued
+    # The source saved again (new revision) takes over.
+    set_source(
+        ctx, {"source": "ucm", "revision": "r2", "ucm": {"url": "https://ucm.example.lan", "ca_id": 1}}
+    )
+    assert mgr.run_due() == "source changed" and issued == ["r2"]
+    assert "superseded_revision" not in mgr.state()
+
+
+def test_backoff_holds_one_revision_only(ctx, pki, monkeypatch):
+    clock = Clock()
+    mgr = manager.CertManager(ctx, clock=clock)
+    set_source(
+        ctx, {"source": "ucm", "revision": "r1", "ucm": {"url": "https://ucm.example.lan", "ca_id": 1}}
+    )
+
+    def broken(src, scope, csr_pem):
+        raise manager.CertFailure("UCM: 401 unauthorized")
+
+    monkeypatch.setattr(mgr, "_issue_ucm", broken)
+    for _ in range(5):
+        with pytest.raises(manager.CertFailure):
+            mgr.issue()
+    st = mgr.state()
+    assert st["failures"] == 5 and st["failed_revision"] == "r1"
+    assert mgr.due() is None  # hours of backoff
+    # The admin fixes the source without "apply": the next pass requests at once.
+    set_source(
+        ctx, {"source": "ucm", "revision": "r2", "ucm": {"url": "https://ucm.example.lan", "ca_id": 2}}
+    )
+    assert mgr.due() is not None
+    with pytest.raises(manager.CertFailure):
+        mgr.issue()
+    assert mgr.state()["failures"] == 1

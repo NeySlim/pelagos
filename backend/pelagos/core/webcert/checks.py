@@ -241,10 +241,12 @@ def check_material(
                 Check("chain", WARNING, "the chain was given out of order: it is installed in order")
             )
     else:
+        # Only the root missing above a given CA certificate is normal (private CA): a warning.
+        root_only = bool(chain.issuers) and pem.is_ca(last)
         checks.append(
             Check(
                 "chain",
-                ERROR,
+                WARNING if root_only else ERROR,
                 "the chain is incomplete: the issuer {issuer} is missing",
                 {"issuer": pem.common_name(last.issuer) or last.issuer.rfc4514_string()},
             )

@@ -400,11 +400,19 @@ class CertManager:
                 self._audit("admin.cert.apply", actor, request, str(exc), ok=False)
             raise
         now = to_rfc3339(self.clock())
+        configured, _ = self.source()
 
         def done(d: dict[str, Any]) -> None:
             d.update(last_issued_at=now, source=source, fingerprint=request["fingerprint"], failures=0)
             d.pop("next_attempt_at", None)
             d.pop("last_error", None)
+            d.pop("failed_revision", None)
+            # A certificate installed by hand over an automatic source holds until that source is
+            # saved again (new revision): the collector must not re-issue over it meanwhile.
+            if source not in wc.AUTOMATIC and configured.get("source") in wc.AUTOMATIC:
+                d["superseded_revision"] = configured.get("revision")
+            else:
+                d.pop("superseded_revision", None)
 
         self._update(done)
         self.note(
@@ -619,7 +627,10 @@ class CertManager:
         settings = self.ctx.settings()
 
         def fail(d: dict[str, Any]) -> None:
-            failures = int(d.get("failures", 0)) + 1
+            # The backoff belongs to one source revision: a corrected source starts again at once.
+            same = d.get("failed_revision") == src.get("revision")
+            failures = (int(d.get("failures", 0)) if same else 0) + 1
+            d["failed_revision"] = src.get("revision")
             d["failures"] = failures
             d["last_error"] = message[:500]
             d["next_attempt_at"] = to_rfc3339(
@@ -647,7 +658,9 @@ class CertManager:
             return None
         st = self.state()
         now = self.clock()
-        if st.get("next_attempt_at"):
+        if st.get("superseded_revision") and st["superseded_revision"] == src.get("revision"):
+            return None
+        if st.get("next_attempt_at") and st.get("failed_revision") == src.get("revision"):
             try:
                 if from_rfc3339(st["next_attempt_at"]) > now:
                     return None

@@ -82,6 +82,7 @@
     "nothing": "La clé ddi-acme et ses autorisations sont déjà en place.",
     "manual": "Zones de vos propres fichiers named.conf : ajoutez ces autorisations à leur update-policy à la main.",
     "delegation": "Hébergeur DNS public : créez ces enregistrements CNAME pour déléguer les défis.",
+    "allowUpdate": "La zone {{zone}} a un allow-update, que BIND ne combine pas avec update-policy : remplacez-le d'abord par une update-policy, ou utilisez une délégation CNAME ou un fournisseur DNS.",
     "unserved": "Aucune zone de ce nœud ne contient {{names}} : utilisez un fournisseur DNS ou une délégation CNAME."
   },
   "source": {

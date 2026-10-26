@@ -113,7 +113,8 @@ def test_upload_refused_carries_the_checks(admin, node_ctx):
     assert r.status_code == 400
     problem = r.get_json()
     failed = {c["id"] for c in problem["checks"]["checks"] if c["level"] == "error"}
-    assert failed == {"names", "chain"}
+    # The private root missing above the intermediate is only a warning.
+    assert failed == {"names"}
     assert admin.post(f"{BASE}/{node_ctx.node.id}/upload", json={"cert_pem": "garbage"}).status_code == 400
 
 

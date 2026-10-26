@@ -73,7 +73,7 @@ is left out.
 | Dates | not valid yet, or expired | expires within a week |
 | Names | the host of the node's web URL is not covered | another wanted name is not covered |
 | Usage | no `serverAuth` in the extended key usage, or a CA certificate | |
-| Chain | an issuer is missing and no trust root closes it | given out of order, extra certificates left out |
+| Chain | no issuer given for a certificate that is not self-signed, and no trust root closes it | only the root is missing above a given CA certificate (private CA), given out of order, extra certificates left out |
 | Trust | | self-signed, or the issuer is not in the system's CA store |
 
 **Install** is offered once no check is in error. **Install on other nodes
@@ -118,7 +118,10 @@ update-policy { grant ddi-admin zonesub ANY; grant ddi-acme name _acme-challenge
 ```
 
 Zones of your own `named.conf` files are listed with the statement to add
-by hand. Run the plan on the node that holds the zones as primary.
+by hand, and so is a zone that has an `allow-update` and no `update-policy`:
+BIND does not take both, so convert its `allow-update` to an `update-policy`
+first, or use a CNAME delegation or a DNS provider. Run the plan on the node
+that holds the zones as primary.
 
 **Let's Encrypt needs a public zone.** When your public domain lives at
 another DNS host, either
@@ -171,7 +174,9 @@ own key and requests its own certificate for its own names (node name, web
 URL host, added names), and no private key travels. **Save and request on
 every node** runs a job with one line per node: a node that fails keeps its
 current certificate and does not stop the others; the job ends failed and
-names the nodes that failed. The selected nodes show the source as
+names the nodes that failed. Each node starts its request once it has
+received the new setting; a node that has not within 30 seconds fails with
+"source not replicated yet" and requests on its own at its next pass. The selected nodes show the source as
 "(cluster)"; a node can still get a source of its own (**Source**), or come
 back to the cluster's with **Cluster setting**. With **Every node**, a node
 enrolled later follows the setting and requests its certificate within a
@@ -206,7 +211,12 @@ source requests a new certificate when:
 
 A failed request is retried after `retry_min_seconds` (300), doubling up to
 `retry_max_seconds` (6 hours), and raises `cert_renewal_failed` until a
-request succeeds.
+request succeeds. Saving the source again starts over without waiting.
+
+**Upload** or **New self-signed** on a node with an automatic source switches
+the node to manual or self-signed (its names and key type are kept, its own
+ACME or UCM credentials removed); the certificate installed is never
+replaced by a renewal of the previous source.
 
 `cert_expiry` watches three certificates of each node: the web certificate
 (`cert:web`), the node's replication certificate (`cert:node`) and the

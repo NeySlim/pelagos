@@ -95,6 +95,7 @@ def _listener_pki(root: Path) -> str:
         .not_valid_before(now - timedelta(minutes=5))
         .not_valid_after(now + timedelta(days=2))
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), critical=False)
         .add_extension(
             x509.KeyUsage(False, False, False, False, False, True, True, False, False), critical=True
         )
@@ -117,6 +118,10 @@ def _listener_pki(root: Path) -> str:
             critical=False,
         )
         .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+        # Python 3.13 verifies with VERIFY_X509_STRICT, which wants the AKI on the leaf.
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False
+        )
         .sign(ca_key, hashes.SHA256())
     )
     (root / "listener.crt").write_bytes(leaf.public_bytes(serialization.Encoding.PEM))

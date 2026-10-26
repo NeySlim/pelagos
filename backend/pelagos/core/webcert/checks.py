@@ -38,7 +38,42 @@ class Check:
     params: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"id": self.id, "level": self.level, "message": self.message, "params": self.params}
+        code = CODES.get(self.message, self.id)
+        return {
+            "id": self.id,
+            "code": code,
+            "level": self.level,
+            "message": self.message,
+            "params": self.params,
+        }
+
+
+# Stable code of each check text: the UI translates by code and falls back to the English.
+CODES = {
+    "no certificate found": "certificate.none",
+    "no private key: give the key or use a request made here": "key.missing",
+    "the private key does not match the certificate": "key.mismatch",
+    "the private key matches the certificate": "key.ok",
+    "the certificate is not valid yet": "dates.not_yet",
+    "the certificate has expired": "dates.expired",
+    "the certificate expires within a week": "dates.soon",
+    "the certificate is valid": "dates.ok",
+    "the certificate does not cover {names}": "names.missing",
+    "the certificate covers {names}": "names.ok",
+    "the certificate allows server authentication": "usage.ok",
+    "the certificate does not allow server authentication": "usage.no_server_auth",
+    "the certificate is a CA certificate, not a server one": "usage.ca",
+    "chain certificate {name} has expired": "chain_dates.expired",
+    "self-signed certificate: no chain": "chain.self_signed",
+    "the chain is complete and in order": "chain.ok",
+    "the chain was given out of order: it is installed in order": "chain.reordered",
+    "the chain is incomplete: the issuer {issuer} is missing": "chain.incomplete",
+    "{count} certificates are not part of the chain and are left out": "chain_extra.extra",
+    "self-signed: browsers will warn until they trust it": "trust.self_signed",
+    "the issuer is trusted by the system": "trust.system",
+    "the issuer is trusted through the root you gave, not by the system": "trust.own_root",
+    "the issuer is not recognized by the system": "trust.unknown",
+}
 
 
 @dataclass(slots=True)

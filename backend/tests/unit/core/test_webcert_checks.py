@@ -154,3 +154,30 @@ def test_garbage_is_a_clear_error():
         pem.parse_material(base64.b64encode(b"x" * 40))
     with pytest.raises(pem.CertError, match="more than one private key"):
         pem.parse_material(key_pem_of(pem.generate_key()) + key_pem_of(pem.generate_key()))
+
+
+def test_every_check_text_has_a_code_the_ui_translates():
+    import ast
+    import inspect
+    import json
+    import re
+    from pathlib import Path
+
+    source = inspect.getsource(checks)
+    texts = {
+        node.value
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "Check"
+        and len(node.args) >= 3
+        and isinstance(node.args[2], ast.Constant)
+        for node in [node.args[2]]
+    }
+    assert texts and texts <= set(checks.CODES)
+    locales = Path(__file__).resolve().parents[4] / "frontend" / "src" / "i18n" / "locales"
+    for lang in ("en", "fr"):
+        catalog = json.loads((locales / lang / "certs.json").read_text())["checkText"]
+        for message, code in checks.CODES.items():
+            group, name = code.split(".")
+            ui = catalog[group][name]
+            assert re.findall(r"\{\{(\w+)\}\}", ui) == re.findall(r"\{(\w+)\}", message), (lang, code)

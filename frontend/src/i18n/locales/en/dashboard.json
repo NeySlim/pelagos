@@ -155,7 +155,9 @@
     "security_advisory": "security advisory",
     "ha_terminated": "HA terminated",
     "clock_skew": "clock skew",
-    "clock_unsynchronized": "clock not synchronized"
+    "clock_unsynchronized": "clock not synchronized",
+    "cert_expiry": "certificate expiry",
+    "cert_renewal_failed": "certificate renewal failed"
   },
   "live": {
     "label": "Live",

@@ -41,7 +41,8 @@
     "adoptFile": "Adopter le fichier",
     "adoptRunning": "Adopter la configuration en cours",
     "adoptOn": "Sur {{node}}, le nœud qui porte le fichier",
-    "ignore": "Ignorer : choix de l'admin"
+    "ignore": "Ignorer : choix de l'admin",
+    "openCertificates": "Ouvrir les certificats"
   },
   "ack": {
     "title": "Acquitter l'alerte",

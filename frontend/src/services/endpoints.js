@@ -176,6 +176,22 @@ export const ENDPOINTS = [
   'PUT /admin/settings',
   'GET /admin/modules',
   'PUT /admin/modules',
+  // Administration > Certificates
+  'GET /admin/certificates',
+  'PUT /admin/certificates/cluster',
+  'DELETE /admin/certificates/cluster',
+  'POST /admin/certificates/test/ucm',
+  'POST /admin/certificates/test/acme',
+  'POST /admin/certificates/test/dns',
+  'POST /admin/certificates/dns01/plan',
+  'GET /admin/certificates/{id}',
+  'PUT /admin/certificates/{id}/source',
+  'POST /admin/certificates/{id}/renew',
+  'POST /admin/certificates/{id}/request',
+  'DELETE /admin/certificates/{id}/request',
+  'POST /admin/certificates/{id}/check',
+  'POST /admin/certificates/{id}/upload',
+  'POST /admin/certificates/{id}/self-signed',
 ]
 
 // Regex for one spec entry: `{x}` matches one path segment, `{family}` only v4 or v6.

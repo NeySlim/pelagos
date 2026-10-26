@@ -244,9 +244,28 @@ export const admin = {
   updateModules: (partial) => apiClient.put('/admin/modules', partial),
 }
 
+// Web UI certificates of every node (Administration > Certificates).
+export const certs = {
+  overview: () => apiClient.get('/admin/certificates'),
+  node: (id) => apiClient.get(`/admin/certificates/${enc(id)}`),
+  setSource: (id, body) => apiClient.put(`/admin/certificates/${enc(id)}/source`, body),
+  setCluster: (body) => apiClient.put('/admin/certificates/cluster', body),
+  clearCluster: () => apiClient.delete('/admin/certificates/cluster'),
+  renew: (id) => apiClient.post(`/admin/certificates/${enc(id)}/renew`),
+  request: (id, body) => apiClient.post(`/admin/certificates/${enc(id)}/request`, body),
+  dropRequest: (id) => apiClient.delete(`/admin/certificates/${enc(id)}/request`),
+  check: (id, body) => apiClient.post(`/admin/certificates/${enc(id)}/check`, body),
+  upload: (id, body) => apiClient.post(`/admin/certificates/${enc(id)}/upload`, body),
+  selfSigned: (id) => apiClient.post(`/admin/certificates/${enc(id)}/self-signed`),
+  testUcm: (body) => apiClient.post('/admin/certificates/test/ucm', body),
+  testAcme: (body) => apiClient.post('/admin/certificates/test/acme', body),
+  testDns: (body) => apiClient.post('/admin/certificates/test/dns', body),
+  dns01Plan: (body) => apiClient.post('/admin/certificates/dns01/plan', body),
+}
+
 export const api = {
   meta, auth, account, nodes, dashboard, dns, dhcp, d2, hosts, plans, jobs,
-  alerts, series, audit, advanced, install, admin, ops,
+  alerts, series, audit, advanced, install, admin, certs, ops,
 }
 
 export default api

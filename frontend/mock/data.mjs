@@ -109,6 +109,7 @@ export const ALL_PERMISSIONS = [
   'write:dhcp.config', 'ops:dhcp.leases', 'ops:dhcp.ha', 'read:dhcp.secrets',
   'read:hosts', 'write:hosts', 'read:alerts', 'write:alerts', 'read:series', 'read:audit', 'read:nodes', 'read:advanced',
   'admin:nodes', 'admin:users', 'admin:roles', 'admin:settings', 'admin:install', 'admin:modules',
+  'admin:certificates',
 ]
 
 function makeUsers() {
@@ -979,6 +980,8 @@ function makeSettings() {
     alerts_d2_error_rate: 0.05,
     alerts_ha_grace_seconds: 45,
     alerts_custom_hooks: true,
+    alerts_cert_warning_days: 30,
+    alerts_cert_critical_days: 7,
     dns: {
       read_key: 'ddi-read',
       admin_key: 'ddi-admin',
@@ -988,6 +991,7 @@ function makeSettings() {
     kea: { ddns_key: 'kea-ddns' },
     collector: { poll_seconds: 60, pool_sample_seconds: 300, peer_poll_seconds: 30, consistency_seconds: 900 },
     retention: { pool_raw_days: 7, pool_hourly_days: 365, serial_days: 90, ha_transition_days: 365, alerts_resolved_days: 90, backups_days: 90 },
+    certificates: { ucm_renew_days: 30, retry_min_seconds: 300, retry_max_seconds: 21600, propagation_seconds: 180 },
   }
 }
 

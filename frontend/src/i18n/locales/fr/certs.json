@@ -1,0 +1,266 @@
+{
+  "title": "Certificats",
+  "subtitle": "Certificat HTTPS de l'interface web de chaque nœud : source, contrôles, renouvellement",
+  "replicationNote": "Les certificats de réplication (CA interne et certificats des nœuds) restent à part : leur expiration lève des alertes, ils ne sont jamais remplacés ici.",
+  "actions": {
+    "source": "Source",
+    "upload": "Déposer",
+    "renew": "Renouveler",
+    "selfSigned": "Nouvel autosigné",
+    "applyAll": "Appliquer à tous les nœuds"
+  },
+  "sources": {
+    "self_signed": "Autosigné",
+    "manual": "Manuel",
+    "acme": "ACME",
+    "ucm": "UCM",
+    "inherit": "Réglage du cluster"
+  },
+  "sourceHelp": {
+    "self_signed": "Le certificat créé à l'installation, ou un nouveau créé ici. Les navigateurs avertissent tant qu'ils ne lui font pas confiance.",
+    "manual": "Un certificat que vous déposez : signé à partir d'une demande faite sur le nœud, ou certificat, chaîne et clé. Pas de renouvellement automatique : l'alerte d'expiration vous le rappelle.",
+    "acme": "Let's Encrypt, un serveur ACME privé (step-ca, UCM) ou une URL ACME quelconque. Le nœud crée sa clé, prouve ses noms et renouvelle quand il reste un tiers de la durée.",
+    "ucm": "UCM signe par son API une demande faite sur le nœud. Renouvelé avant l'échéance (réglage ucm_renew_days).",
+    "inherit": "Suivre la source définie pour tous les nœuds."
+  },
+  "node": {
+    "self": "ce nœud",
+    "unreachable": "injoignable",
+    "inherited": "{{source}} (cluster)",
+    "failures": "{{count}} essais échoués, prochain essai {{next}}",
+    "running": "Demande en cours : {{step}}",
+    "pendingRequest": "Une demande faite sur ce nœud attend son certificat signé."
+  },
+  "expiry": {
+    "expired": "expiré",
+    "unknown": "aucun certificat",
+    "days": "{{count}} jours restants"
+  },
+  "fields": {
+    "issuer": "Émetteur",
+    "names": "Noms",
+    "expires": "Expiration",
+    "key": "Clé",
+    "lastIssued": "Dernière émission",
+    "nextRenewal": "Prochain renouvellement",
+    "manualRenewal": "à la main",
+    "wanted": "Noms demandés",
+    "fingerprint": "Empreinte"
+  },
+  "log": {
+    "hide": "Masquer le journal",
+    "show": "Journal ({{count}})"
+  },
+  "job": {
+    "title": "Demandes de certificats",
+    "states": {
+      "queued": "en attente",
+      "running": "en cours",
+      "done": "terminé",
+      "failed": "échec"
+    }
+  },
+  "cluster": {
+    "title": "Tous les nœuds",
+    "none": "pas de source commune",
+    "clear": "Retirer",
+    "help": "Un seul réglage ACME ou UCM pour plusieurs nœuds : chaque nœud crée sa propre clé et demande son propre certificat pour ses propres noms. Les nœuds enrôlés plus tard le suivent.",
+    "applies": "S'applique à {{nodes}} ; chaque nœud renouvelle selon sa propre échéance.",
+    "everyNode": "tous les nœuds, y compris ceux enrôlés plus tard",
+    "thresholds": "Alertes d'expiration : avertissement {{warning}} jours, critique {{critical}} jours avant (Réglages).",
+    "clearTitle": "Retirer le réglage commun à tous les nœuds ?",
+    "clearBody": "Les nœuds gardent leur certificat actuel et cessent de le renouveler jusqu'à recevoir une source à eux."
+  },
+  "selfSigned": {
+    "done": "Nouveau certificat autosigné installé sur {{node}}",
+    "title": "Nouveau certificat autosigné sur {{node}} ?",
+    "body": "Une nouvelle clé et un certificat autosigné de dix ans remplacent l'actuel. Les navigateurs avertiront tant qu'ils ne lui font pas confiance."
+  },
+  "dns01": {
+    "title": "Mise en place du DNS-01",
+    "applied": "Mise en place du DNS-01 appliquée",
+    "nothing": "La clé ddi-acme et ses autorisations sont déjà en place.",
+    "manual": "Zones de vos propres fichiers named.conf : ajoutez ces autorisations à leur update-policy à la main.",
+    "delegation": "Hébergeur DNS public : créez ces enregistrements CNAME pour déléguer les défis.",
+    "unserved": "Aucune zone de ce nœud ne contient {{names}} : utilisez un fournisseur DNS ou une délégation CNAME."
+  },
+  "source": {
+    "save": "Enregistrer",
+    "applyAll": "Enregistrer et demander sur chaque nœud",
+    "applyNow": "Enregistrer et demander maintenant",
+    "testOk": "Connecté : {{detail}}",
+    "testFailed": "Échec : {{error}}",
+    "cas": "{{count}} CA",
+    "titleCluster": "Source pour tous les nœuds",
+    "title": "Source de {{node}}",
+    "source": "Source",
+    "allNodes": "Tous les nœuds",
+    "allNodesHelp": "Les nœuds enrôlés plus tard suivent aussi ce réglage",
+    "names": "Noms ajoutés",
+    "namesHelp": "En plus du nom du nœud et de l'hôte de son URL web",
+    "keyType": "Type de clé",
+    "clusterMode": "Un nom pour le cluster",
+    "clusterModeHelp": "Un répartiteur est devant les nœuds : chaque certificat porte le nom du cluster",
+    "clusterName": "Nom du cluster",
+    "test": "Tester",
+    "saved": "Source du certificat enregistrée"
+  },
+  "keyTypes": {
+    "ec-p256": "ECDSA P-256",
+    "rsa-3072": "RSA 3072"
+  },
+  "acme": {
+    "profile": "Serveur ACME",
+    "profiles": {
+      "letsencrypt": "Let's Encrypt",
+      "letsencrypt-staging": "Let's Encrypt (staging)",
+      "private": "ACME privé (step-ca, UCM)",
+      "custom": "Autre URL ACME"
+    },
+    "email": "Adresse de contact",
+    "directory": "URL du répertoire ACME",
+    "eabKid": "Identifiant de clé EAB",
+    "eabHelp": "External account binding, quand le serveur l'exige",
+    "eabKey": "Clé HMAC EAB",
+    "trustRoot": "Racine de confiance du serveur ACME",
+    "trustRootHelp": "Certificat PEM pour joindre un serveur privé ; ajouté au magasin du système",
+    "challenge": "Défi",
+    "challenges": {
+      "dns-01": "DNS-01 (enregistrement TXT)",
+      "http-01": "HTTP-01 (port au choix)"
+    },
+    "httpPort": "Port d'écoute HTTP-01",
+    "httpHelp": "Le serveur ACME se connecte au port 80 : redirigez-le vers ce port, ou routez /.well-known/acme-challenge/ vers lui.",
+    "dnsMethod": "TXT posés par",
+    "dnsMethods": {
+      "pelagos": "Pelagos, dans une zone qu'il sert (clé ddi-acme)",
+      "provider": "L'API d'un fournisseur DNS"
+    },
+    "dnsServer": "Serveur DNS qui reçoit l'UPDATE",
+    "dnsServerHelp": "Vide : le BIND de ce nœud. Sinon hôte[:port] du primaire",
+    "provider": "Fournisseur DNS",
+    "apiToken": "Jeton d'API",
+    "delegation": "Zone de délégation",
+    "delegationHelp": "Zone servie par Pelagos vers laquelle pointent les CNAME de _acme-challenge",
+    "setupPlan": "Préparer la mise en place DNS-01",
+    "testDirectory": "Tester le serveur ACME"
+  },
+  "ucm": {
+    "url": "URL d'UCM",
+    "apiKey": "Clé d'API",
+    "trustRoot": "Racine de confiance d'UCM",
+    "trustRootHelp": "Certificat PEM pour joindre UCM quand le sien n'est pas reconnu publiquement",
+    "testConnection": "Tester la connexion",
+    "ca": "CA signataire",
+    "caId": "Identifiant de la CA signataire",
+    "caIdHelp": "Testez la connexion pour choisir dans la liste",
+    "template": "Modèle",
+    "noTemplate": "Aucun modèle",
+    "templateId": "Identifiant du modèle",
+    "validity": "Durée (jours)",
+    "revokeOld": "Révoquer le certificat précédent",
+    "revokeOldHelp": "Après la bascule ; le renouvellement a lieu {{days}} jours avant l'échéance"
+  },
+  "errors": {
+    "required": "Obligatoire",
+    "https": "Doit commencer par https://",
+    "email": "Adresse invalide",
+    "port": "Port entre 1 et 65535",
+    "days": "Entre 1 et 3650",
+    "server": "Refusé par le serveur",
+    "fix": "Corrigez les champs signalés"
+  },
+  "checkLevels": {
+    "ok": "ok",
+    "warning": "avertissement",
+    "error": "erreur"
+  },
+  "checks": {
+    "key": "Clé",
+    "dates": "Dates",
+    "names": "Noms",
+    "usage": "Usage",
+    "chain_dates": "Dates de la chaîne",
+    "chain": "Chaîne",
+    "chain_extra": "Certificats en trop",
+    "trust": "Confiance",
+    "certificate": "Certificat"
+  },
+  "request": {
+    "copied": "Demande copiée",
+    "pending": "Demande pour {{names}} faite le {{when}} : faites-la signer, puis collez le certificat ci-dessous.",
+    "csr": "Demande de signature de certificat",
+    "copy": "Copier",
+    "download": "Télécharger",
+    "drop": "Abandonner",
+    "help": "Le nœud crée une clé qui ne le quitte jamais et une demande (CSR) à faire signer par l'autorité de votre choix.",
+    "namesHelp": "En plus de {{names}}",
+    "make": "Créer la clé et la demande"
+  },
+  "upload": {
+    "installed": "Certificat installé sur {{node}}",
+    "title": "Certificat de {{node}}",
+    "mode": "Ce que vous avez",
+    "modes": {
+      "request": "Certificat signé pour la demande faite sur le nœud",
+      "pem": "Certificat, chaîne et clé (PEM)",
+      "p12": "Fichier PKCS#12 (.p12, .pfx)"
+    },
+    "p12File": "Fichier PKCS#12",
+    "password": "Mot de passe PKCS#12",
+    "cert": "Certificat",
+    "certFile": "Fichier du certificat",
+    "chain": "Chaîne",
+    "chainHelp": "Certificats intermédiaires, dans n'importe quel ordre",
+    "key": "Clé privée",
+    "keyHelp": "Écrite en 0600 sur le nœud, jamais réaffichée ni écrite dans l'audit",
+    "keyFile": "Fichier de la clé",
+    "also": "Installer aussi sur d'autres nœuds",
+    "alsoHelp": "Seulement si le certificat couvre leurs noms ; la clé passe chiffrée par la réplication.",
+    "check": "Contrôler",
+    "install": "Installer"
+  },
+  "checkText": {
+    "certificate": {
+      "none": "aucun certificat trouvé"
+    },
+    "key": {
+      "missing": "pas de clé privée : donnez la clé ou utilisez la demande faite sur le nœud",
+      "mismatch": "la clé privée ne correspond pas au certificat",
+      "ok": "la clé privée correspond au certificat"
+    },
+    "dates": {
+      "not_yet": "le certificat n'est pas encore valide",
+      "expired": "le certificat a expiré",
+      "soon": "le certificat expire dans la semaine",
+      "ok": "le certificat est valide"
+    },
+    "names": {
+      "missing": "le certificat ne couvre pas {{names}}",
+      "ok": "le certificat couvre {{names}}"
+    },
+    "usage": {
+      "ok": "le certificat permet l'authentification de serveur",
+      "no_server_auth": "le certificat ne permet pas l'authentification de serveur",
+      "ca": "c'est un certificat de CA, pas un certificat de serveur"
+    },
+    "chain_dates": {
+      "expired": "le certificat {{name}} de la chaîne a expiré"
+    },
+    "chain": {
+      "self_signed": "certificat autosigné : pas de chaîne",
+      "ok": "la chaîne est complète et dans l'ordre",
+      "reordered": "la chaîne était dans le désordre : elle est installée dans l'ordre",
+      "incomplete": "la chaîne est incomplète : il manque l'émetteur {{issuer}}"
+    },
+    "chain_extra": {
+      "extra": "{{count}} certificats ne font pas partie de la chaîne et sont écartés"
+    },
+    "trust": {
+      "self_signed": "autosigné : les navigateurs avertiront tant qu'ils ne lui font pas confiance",
+      "system": "l'émetteur est reconnu par le système",
+      "own_root": "l'émetteur est reconnu par la racine fournie, pas par le système",
+      "unknown": "l'émetteur n'est pas reconnu par le système"
+    }
+  }
+}

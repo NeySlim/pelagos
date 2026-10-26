@@ -81,6 +81,11 @@ const invocations = [
   () => api.admin.roles(), () => api.admin.createRole({}), () => api.admin.updateRole('r', {}), () => api.admin.deleteRole('r'),
   () => api.admin.permissions(), () => api.admin.settings(), () => api.admin.updateSettings({}),
   () => api.admin.modules(), () => api.admin.updateModules({}),
+  () => api.certs.overview(), () => api.certs.node('n1'), () => api.certs.setSource('n1', { source: 'acme' }),
+  () => api.certs.setCluster({ source: 'ucm' }), () => api.certs.clearCluster(), () => api.certs.renew('n1'),
+  () => api.certs.request('n1', {}), () => api.certs.dropRequest('n1'), () => api.certs.check('n1', {}),
+  () => api.certs.upload('n1', {}), () => api.certs.selfSigned('n1'), () => api.certs.testUcm({}),
+  () => api.certs.testAcme({}), () => api.certs.testDns({}), () => api.certs.dns01Plan({}),
 ]
 
 describe('api.js', () => {

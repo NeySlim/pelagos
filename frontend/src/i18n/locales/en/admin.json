@@ -3,7 +3,8 @@
     "users": "Users",
     "roles": "Roles",
     "modules": "Modules",
-    "settings": "Settings"
+    "settings": "Settings",
+    "certificates": "Certificates"
   },
   "pages": {
     "users": {
@@ -149,6 +150,10 @@
       "checks": {
         "title": "Health checks",
         "help": "Thresholds of the disk, reservation, resolver, delegation, forecast and advisory checks"
+      },
+      "certificates": {
+        "title": "Certificates",
+        "help": "Renewal of the web certificates (Administration, Certificates)"
       }
     },
     "fields": {
@@ -239,6 +244,14 @@
         "advisories_enabled": "Check ISC security advisories",
         "advisories_fetch": "Fetch advisory data from the network",
         "advisories_url": "Advisory data URL (https)"
+      },
+      "alerts_cert_warning_days": "Certificate expiry warning (days)",
+      "alerts_cert_critical_days": "Certificate expiry critical (days)",
+      "certificates": {
+        "ucm_renew_days": "UCM renewal before the end (days)",
+        "retry_min_seconds": "First retry after a failed request (seconds)",
+        "retry_max_seconds": "Longest delay between retries (seconds)",
+        "propagation_seconds": "DNS-01 propagation wait (seconds)"
       }
     }
   }

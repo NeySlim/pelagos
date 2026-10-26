@@ -41,7 +41,8 @@
     "adoptFile": "Adopt the file",
     "adoptRunning": "Adopt the running configuration",
     "adoptOn": "On {{node}}, the node that holds the file",
-    "ignore": "Ignore: admin's choice"
+    "ignore": "Ignore: admin's choice",
+    "openCertificates": "Open the certificates"
   },
   "ack": {
     "title": "Acknowledge the alert",

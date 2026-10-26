@@ -155,7 +155,9 @@
     "security_advisory": "avis de sécurité",
     "ha_terminated": "HA arrêtée (terminated)",
     "clock_skew": "décalage d'horloge",
-    "clock_unsynchronized": "horloge non synchronisée"
+    "clock_unsynchronized": "horloge non synchronisée",
+    "cert_expiry": "expiration de certificat",
+    "cert_renewal_failed": "renouvellement de certificat en échec"
   },
   "live": {
     "label": "Direct",

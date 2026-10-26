@@ -63,6 +63,7 @@ function concrete(spec, state) {
     .replace('{key}', 'ip:192.0.2.10')
     .replace(/\{id\}/, () => {
       if (spec.includes('/nodes/')) return state.nodeIds.ns2
+      if (spec.includes('/admin/certificates/')) return state.nodeIds.ns2
       if (spec.includes('/admin/users/')) return userId
       if (spec.includes('/audit/')) return audit
       if (spec.includes('/advanced/history/')) return history
@@ -129,6 +130,10 @@ const BODIES = {
   'PUT /admin/roles/{name}': { description: 'changed' },
   'PUT /admin/settings': { plan_ttl_seconds: 900 },
   'PUT /admin/modules': { cluster: { dhcpv6: true } },
+  'PUT /admin/certificates/cluster': { source: 'acme', acme: { profile: 'letsencrypt-staging' }, apply: false },
+  'PUT /admin/certificates/{id}/source': { source: 'self_signed' },
+  'POST /admin/certificates/{id}/check': { cert_pem: '-----BEGIN CERTIFICATE-----', key_pem: 'key' },
+  'POST /admin/certificates/{id}/upload': { cert_pem: '-----BEGIN CERTIFICATE-----', key_pem: 'key' },
 }
 
 // Query strings of endpoints that take their input there.

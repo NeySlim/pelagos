@@ -1,0 +1,266 @@
+{
+  "title": "Certificates",
+  "subtitle": "HTTPS certificate of each node's web interface: source, checks, renewal",
+  "replicationNote": "Replication certificates (internal CA and node certificates) stay separate: their expiry raises alerts, they are never replaced here.",
+  "actions": {
+    "source": "Source",
+    "upload": "Upload",
+    "renew": "Renew now",
+    "selfSigned": "New self-signed",
+    "applyAll": "Apply to all nodes"
+  },
+  "sources": {
+    "self_signed": "Self-signed",
+    "manual": "Manual",
+    "acme": "ACME",
+    "ucm": "UCM",
+    "inherit": "Cluster setting"
+  },
+  "sourceHelp": {
+    "self_signed": "The certificate made at install, or a new one made here. Browsers warn until they trust it.",
+    "manual": "A certificate you upload: signed from a request made on the node, or certificate, chain and key. No automatic renewal: the expiry alert reminds you.",
+    "acme": "Let's Encrypt, a private ACME server (step-ca, UCM) or any ACME URL. The node makes its key, proves its names and renews when a third of the lifetime is left.",
+    "ucm": "UCM signs a request made on the node through its API. Renewed before the end (settings: ucm_renew_days).",
+    "inherit": "Follow the source set for all nodes."
+  },
+  "node": {
+    "self": "this node",
+    "unreachable": "unreachable",
+    "inherited": "{{source}} (cluster)",
+    "failures": "{{count}} failed attempts, next try {{next}}",
+    "running": "Request in progress: {{step}}",
+    "pendingRequest": "A request made on this node waits for its signed certificate."
+  },
+  "expiry": {
+    "expired": "expired",
+    "unknown": "no certificate",
+    "days": "{{count}} days left"
+  },
+  "fields": {
+    "issuer": "Issuer",
+    "names": "Names",
+    "expires": "Expires",
+    "key": "Key",
+    "lastIssued": "Last issued",
+    "nextRenewal": "Next renewal",
+    "manualRenewal": "by hand",
+    "wanted": "Names requested",
+    "fingerprint": "Fingerprint"
+  },
+  "log": {
+    "hide": "Hide the log",
+    "show": "Log ({{count}})"
+  },
+  "job": {
+    "title": "Certificate requests",
+    "states": {
+      "queued": "queued",
+      "running": "running",
+      "done": "done",
+      "failed": "failed"
+    }
+  },
+  "cluster": {
+    "title": "All nodes",
+    "none": "no common source",
+    "clear": "Remove",
+    "help": "One ACME or UCM setting for several nodes: each node makes its own key and requests its own certificate for its own names. Nodes enrolled later follow it.",
+    "applies": "Applies to {{nodes}}; each node renews on its own schedule.",
+    "everyNode": "every node, including nodes enrolled later",
+    "thresholds": "Expiry alerts: warning {{warning}} days, critical {{critical}} days before (Settings).",
+    "clearTitle": "Remove the setting for all nodes?",
+    "clearBody": "The nodes keep their current certificate and stop renewing it until they get a source of their own."
+  },
+  "selfSigned": {
+    "done": "New self-signed certificate installed on {{node}}",
+    "title": "New self-signed certificate on {{node}}?",
+    "body": "A new key and a ten-year self-signed certificate replace the current one. Browsers will warn until they trust it."
+  },
+  "dns01": {
+    "title": "DNS-01 setup",
+    "applied": "DNS-01 setup applied",
+    "nothing": "The ddi-acme key and its grants are already in place.",
+    "manual": "Zones in your own named.conf files: add these grants to their update-policy by hand.",
+    "delegation": "Public DNS host: create these CNAME records to delegate the challenges.",
+    "unserved": "No zone of this node holds {{names}}: use a DNS provider or a CNAME delegation."
+  },
+  "source": {
+    "save": "Save",
+    "applyAll": "Save and request on every node",
+    "applyNow": "Save and request now",
+    "testOk": "Connected: {{detail}}",
+    "testFailed": "Failed: {{error}}",
+    "cas": "{{count}} CAs",
+    "titleCluster": "Source for all nodes",
+    "title": "Source of {{node}}",
+    "source": "Source",
+    "allNodes": "Every node",
+    "allNodesHelp": "Nodes enrolled later follow this setting too",
+    "names": "Added names",
+    "namesHelp": "Besides the node name and the host of its web URL",
+    "keyType": "Key type",
+    "clusterMode": "One name for the cluster",
+    "clusterModeHelp": "A load balancer fronts the nodes: every certificate carries the cluster name",
+    "clusterName": "Cluster name",
+    "test": "Test",
+    "saved": "Certificate source saved"
+  },
+  "keyTypes": {
+    "ec-p256": "ECDSA P-256",
+    "rsa-3072": "RSA 3072"
+  },
+  "acme": {
+    "profile": "ACME server",
+    "profiles": {
+      "letsencrypt": "Let's Encrypt",
+      "letsencrypt-staging": "Let's Encrypt staging",
+      "private": "Private ACME (step-ca, UCM)",
+      "custom": "Other ACME URL"
+    },
+    "email": "Contact email",
+    "directory": "ACME directory URL",
+    "eabKid": "EAB key id",
+    "eabHelp": "External account binding, when the server asks for it",
+    "eabKey": "EAB HMAC key",
+    "trustRoot": "Trust root of the ACME server",
+    "trustRootHelp": "PEM certificate used to reach a private server; added to the system store",
+    "challenge": "Challenge",
+    "challenges": {
+      "dns-01": "DNS-01 (TXT record)",
+      "http-01": "HTTP-01 (port of your choice)"
+    },
+    "httpPort": "HTTP-01 listening port",
+    "httpHelp": "The ACME server connects to port 80: forward it to this port, or route /.well-known/acme-challenge/ to it.",
+    "dnsMethod": "TXT records put by",
+    "dnsMethods": {
+      "pelagos": "Pelagos, in a zone it serves (key ddi-acme)",
+      "provider": "A DNS provider API"
+    },
+    "dnsServer": "DNS server taking the UPDATE",
+    "dnsServerHelp": "Empty: this node's BIND. host[:port] of the primary otherwise",
+    "provider": "DNS provider",
+    "apiToken": "API token",
+    "delegation": "Delegation zone",
+    "delegationHelp": "Zone served by Pelagos that _acme-challenge CNAMEs point to",
+    "setupPlan": "Prepare the DNS-01 setup",
+    "testDirectory": "Test the ACME server"
+  },
+  "ucm": {
+    "url": "UCM URL",
+    "apiKey": "API key",
+    "trustRoot": "Trust root of UCM",
+    "trustRootHelp": "PEM certificate used to reach UCM when its own is not publicly trusted",
+    "testConnection": "Test the connection",
+    "ca": "Signing CA",
+    "caId": "Signing CA id",
+    "caIdHelp": "Test the connection to pick from the list",
+    "template": "Template",
+    "noTemplate": "No template",
+    "templateId": "Template id",
+    "validity": "Validity (days)",
+    "revokeOld": "Revoke the previous certificate",
+    "revokeOldHelp": "After the switch; renewal runs {{days}} days before the end"
+  },
+  "errors": {
+    "required": "Required",
+    "https": "Must start with https://",
+    "email": "Not an email address",
+    "port": "Port between 1 and 65535",
+    "days": "Between 1 and 3650",
+    "server": "Refused by the server",
+    "fix": "Fix the marked fields"
+  },
+  "checkLevels": {
+    "ok": "ok",
+    "warning": "warning",
+    "error": "error"
+  },
+  "checks": {
+    "key": "Key",
+    "dates": "Dates",
+    "names": "Names",
+    "usage": "Usage",
+    "chain_dates": "Chain dates",
+    "chain": "Chain",
+    "chain_extra": "Extra certificates",
+    "trust": "Trust",
+    "certificate": "Certificate"
+  },
+  "request": {
+    "copied": "Request copied",
+    "pending": "Request for {{names}} made on {{when}}: have it signed, then paste the certificate below.",
+    "csr": "Certificate signing request",
+    "copy": "Copy",
+    "download": "Download",
+    "drop": "Discard",
+    "help": "The node makes a key that never leaves it and a request (CSR) you have signed by any CA.",
+    "namesHelp": "Besides {{names}}",
+    "make": "Make the key and request"
+  },
+  "upload": {
+    "installed": "Certificate installed on {{node}}",
+    "title": "Certificate of {{node}}",
+    "mode": "What you have",
+    "modes": {
+      "request": "Signed certificate for the request made on the node",
+      "pem": "Certificate, chain and key (PEM)",
+      "p12": "PKCS#12 file (.p12, .pfx)"
+    },
+    "p12File": "PKCS#12 file",
+    "password": "PKCS#12 password",
+    "cert": "Certificate",
+    "certFile": "Certificate file",
+    "chain": "Chain",
+    "chainHelp": "Intermediate certificates; any order",
+    "key": "Private key",
+    "keyHelp": "Written 0600 on the node, never shown again nor written to the audit log",
+    "keyFile": "Key file",
+    "also": "Install on other nodes too",
+    "alsoHelp": "Only when the certificate covers their names; the key goes encrypted through replication.",
+    "check": "Check",
+    "install": "Install"
+  },
+  "checkText": {
+    "certificate": {
+      "none": "no certificate found"
+    },
+    "key": {
+      "missing": "no private key: give the key or use the request made on the node",
+      "mismatch": "the private key does not match the certificate",
+      "ok": "the private key matches the certificate"
+    },
+    "dates": {
+      "not_yet": "the certificate is not valid yet",
+      "expired": "the certificate has expired",
+      "soon": "the certificate expires within a week",
+      "ok": "the certificate is valid"
+    },
+    "names": {
+      "missing": "the certificate does not cover {{names}}",
+      "ok": "the certificate covers {{names}}"
+    },
+    "usage": {
+      "ok": "the certificate allows server authentication",
+      "no_server_auth": "the certificate does not allow server authentication",
+      "ca": "the certificate is a CA certificate, not a server one"
+    },
+    "chain_dates": {
+      "expired": "chain certificate {{name}} has expired"
+    },
+    "chain": {
+      "self_signed": "self-signed certificate: no chain",
+      "ok": "the chain is complete and in order",
+      "reordered": "the chain was given out of order: it is installed in order",
+      "incomplete": "the chain is incomplete: the issuer {{issuer}} is missing"
+    },
+    "chain_extra": {
+      "extra": "{{count}} certificates are not part of the chain and are left out"
+    },
+    "trust": {
+      "self_signed": "self-signed: browsers will warn until they trust it",
+      "system": "the issuer is trusted by the system",
+      "own_root": "the issuer is trusted through the root you gave, not by the system",
+      "unknown": "the issuer is not recognized by the system"
+    }
+  }
+}

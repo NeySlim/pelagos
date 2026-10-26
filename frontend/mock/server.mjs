@@ -16,6 +16,7 @@ import { createWsHub } from './ws.mjs'
 import { opsHandlers } from './ops.mjs'
 import { rpzHandlers } from './rpz.mjs'
 import { ptrHelpers } from './ptr.mjs'
+import { certsHandlers } from './certs.mjs'
 import { heartbeatAge, liveCounters } from './live.mjs'
 import { createEvents, leaseBrief, poolHistoryKey, stopEventTimers, zoneEvents } from './events.mjs'
 
@@ -78,6 +79,7 @@ const PERMISSIONS = {
 }
 for (const spec of ENDPOINTS) {
   if (spec.includes(' /dhcp/') && spec.startsWith('GET ') && !PERMISSIONS[spec]) PERMISSIONS[spec] = 'read:dhcp'
+  if (spec.includes(' /admin/certificates')) PERMISSIONS[spec] = 'admin:certificates'
 }
 
 class Problem extends Error {
@@ -2619,6 +2621,7 @@ function buildHandlers(state, emit) {
     },
     ...opsHandlers(state, { Problem, invalid, hasPermission, auditEntry }),
     ...rpzHandlers(state, { createPlan, invalid, notFound }),
+    ...certsHandlers(state, { Problem, invalid }),
   }
 }
 
@@ -2689,6 +2692,7 @@ export function createMockServer({ quiet = false, jobStepMs, live = false, apply
       instance: req.url.split('?')[0],
       code: problem.code,
       ...(problem.errors ? { errors: problem.errors } : {}),
+      ...(problem.extra || {}),
     }
     res.statusCode = problem.status
     res.setHeader('Content-Type', 'application/problem+json')

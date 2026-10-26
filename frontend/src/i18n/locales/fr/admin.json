@@ -3,7 +3,8 @@
     "users": "Utilisateurs",
     "roles": "Rôles",
     "modules": "Modules",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "certificates": "Certificats"
   },
   "pages": {
     "users": {
@@ -149,6 +150,10 @@
       "checks": {
         "title": "Contrôles de santé",
         "help": "Seuils des contrôles disque, réservations, résolveur, délégation, prévision et avis"
+      },
+      "certificates": {
+        "title": "Certificats",
+        "help": "Renouvellement des certificats web (Administration, Certificats)"
       }
     },
     "fields": {
@@ -239,6 +244,14 @@
         "advisories_enabled": "Vérifier les avis de sécurité ISC",
         "advisories_fetch": "Récupérer les données d'avis par le réseau",
         "advisories_url": "URL des données d'avis (https)"
+      },
+      "alerts_cert_warning_days": "Avertissement d'expiration des certificats (jours)",
+      "alerts_cert_critical_days": "Expiration critique des certificats (jours)",
+      "certificates": {
+        "ucm_renew_days": "Renouvellement UCM avant l'échéance (jours)",
+        "retry_min_seconds": "Premier nouvel essai après un échec (secondes)",
+        "retry_max_seconds": "Délai maximal entre deux essais (secondes)",
+        "propagation_seconds": "Attente de propagation DNS-01 (secondes)"
       }
     }
   }

@@ -110,6 +110,28 @@ def test_dns_solver_waits_for_every_server_and_cleans(monkeypatch):
         solver.present([ch])
 
 
+def test_update_refused_by_a_secondary_goes_to_the_primary(monkeypatch):
+    local = dns01.Server("127.0.0.1", 53)
+    sent: list[str] = []
+    monkeypatch.setattr(dns01, "zone_of", lambda name, server: "example.lan.")
+
+    def send(self, zone, name, server, build):
+        sent.append(str(server))
+        return "NOERROR" if server.host == "192.0.2.53" else "REFUSED"
+
+    monkeypatch.setattr(dns01.Rfc2136Provider, "_send", send)
+    monkeypatch.setattr(dns01.Rfc2136Provider, "primary_of", lambda self, zone: dns01.Server("192.0.2.53"))
+    provider = dns01.Rfc2136Provider(local, "ddi-acme", "c2VjcmV0", follow_primary=True)
+    provider.add_txt("_acme-challenge.ns2.example.lan.", "v")
+    assert sent == ["127.0.0.1", "192.0.2.53"]
+    # A server given by the admin is the only one asked.
+    sent.clear()
+    fixed = dns01.Rfc2136Provider(local, "ddi-acme", "c2VjcmV0")
+    with pytest.raises(dns01.DnsChallengeError, match="update-policy grant for key ddi-acme"):
+        fixed.add_txt("_acme-challenge.ns2.example.lan.", "v")
+    assert sent == ["127.0.0.1"]
+
+
 def test_ucm_issue_flow_and_revoke(monkeypatch):
     pki = make_pki()
     leaf, _key = make_leaf(pki.inter, ["ns1.example.lan"])

@@ -185,30 +185,59 @@ class Rfc2136Provider(DnsProvider):
     TYPE = "rfc2136"
     LABEL = "Zone served by Pelagos (signed UPDATE)"
 
-    def __init__(self, server: Server, key_name: str, secret: str, algorithm: str = "hmac-sha256") -> None:
+    def __init__(
+        self,
+        server: Server,
+        key_name: str,
+        secret: str,
+        algorithm: str = "hmac-sha256",
+        follow_primary: bool = False,
+    ) -> None:
         self.server = server
         self.key_name = key_name
         self.secret = secret
         if algorithm not in TSIG_ALGORITHMS:
             raise DnsChallengeError(f"unsupported TSIG algorithm {algorithm}")
         self.algorithm = algorithm
+        # The node's own BIND may hold the zone as a secondary: the UPDATE then goes to the primary
+        # named in the SOA (MNAME), resolved through the same server.
+        self.follow_primary = follow_primary
 
-    def _update(self, name: str, build: Callable[[dns.update.Update, str], None]) -> None:
-        zone = zone_of(name, self.server)
+    def _send(
+        self, zone: str, name: str, server: Server, build: Callable[[dns.update.Update, str], None]
+    ) -> str:
         keyring = dns.tsigkeyring.from_text({self.key_name: self.secret})
         msg = dns.update.Update(
             zone, keyring=keyring, keyname=self.key_name, keyalgorithm=TSIG_ALGORITHMS[self.algorithm]
         )
         build(msg, name)
         try:
-            resp = dns.query.tcp(msg, self.server.host, port=self.server.port, timeout=QUERY_TIMEOUT * 2)
+            resp = dns.query.tcp(msg, server.host, port=server.port, timeout=QUERY_TIMEOUT * 2)
         except (dns.exception.DNSException, OSError) as exc:
-            raise DnsChallengeError(f"UPDATE of {zone} on {self.server} failed: {exc}") from exc
-        rcode = dns.rcode.to_text(resp.rcode())
+            raise DnsChallengeError(f"UPDATE of {zone} on {server} failed: {exc}") from exc
+        return dns.rcode.to_text(resp.rcode())
+
+    def primary_of(self, zone: str) -> Server | None:
+        resp = _query(zone, "SOA", self.server)
+        mname = next((rr[0].mname.to_text() for rr in resp.answer if rr.rdtype == dns.rdatatype.SOA), None)
+        if mname is None:
+            return None
+        for rtype in ("A", "AAAA"):
+            answer = _query(mname, rtype, self.server).answer
+            for rrset in answer:
+                if rrset.rdtype == dns.rdatatype.from_text(rtype):
+                    return Server(rrset[0].to_text(), self.server.port)
+        return None
+
+    def _update(self, name: str, build: Callable[[dns.update.Update, str], None]) -> None:
+        zone = zone_of(name, self.server)
+        rcode = self._send(zone, name, self.server, build)
+        if rcode in ("NOTAUTH", "REFUSED", "NOTIMP") and self.follow_primary:
+            primary = self.primary_of(zone)
+            if primary is not None and str(primary) != str(self.server):
+                rcode = self._send(zone, name, primary, build)
         if rcode != "NOERROR":
-            hint = (
-                " (check the update-policy grant for key " + self.key_name + ")" if rcode == "REFUSED" else ""
-            )
+            hint = f" (check the update-policy grant for key {self.key_name})" if rcode == "REFUSED" else ""
             raise DnsChallengeError(f"UPDATE of {name} in {zone} refused: {rcode}{hint}")
 
     def add_txt(self, name: str, value: str) -> None:

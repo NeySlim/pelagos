@@ -27,6 +27,8 @@ log = logging.getLogger(__name__)
 
 JOB_TIMEOUT = 900.0
 POLL_SECONDS = 2.0
+# A status read never holds the page: an unanswering node shows what its listener presents.
+STATUS_TIMEOUT = 10.0
 SECRET_FIELDS = tuple(wc.SOURCE_SECRETS)
 
 
@@ -94,7 +96,7 @@ class CertService:
     def status(self, node_id: str) -> dict[str, Any]:
         if node_id == self.ctx.node.id:
             return self.local.status()
-        return self._remote(node_id, "certs.status", {})
+        return self._remote(node_id, "certs.status", {}, timeout=STATUS_TIMEOUT)
 
     def overview(self) -> dict[str, Any]:
         nodes: list[dict[str, Any]] = []
@@ -330,7 +332,7 @@ class CertService:
         while time.monotonic() < deadline:
             time.sleep(POLL_SECONDS)
             try:
-                status = self._remote(node_id, "certs.status", {})
+                status = self._remote(node_id, "certs.status", {}, timeout=STATUS_TIMEOUT)
             except EngineUnavailable:
                 continue
             job = status.get("job") or {}

@@ -29,6 +29,7 @@ from cryptography.hazmat.primitives import serialization
 from pelagos.core import ca as ca_mod
 from pelagos.core.config_store import atomic_write
 from pelagos.core.context import NodeContext
+from pelagos.core.locks import FileLock
 from pelagos.core.webcert import checks, pem, tlsreload
 from pelagos.core.webcert import config as wc
 from pelagos.core.write_pipeline import FileChange, WritePipeline
@@ -147,7 +148,8 @@ class CertManager:
         atomic_write(self.state_path, json.dumps(data, indent=1, default=str).encode(), mode=0o600)
 
     def _update(self, fn: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
-        with self._mutex:
+        # The web process and the collector both write the state: read-modify-write under a flock.
+        with self._mutex, FileLock(self.ctx.paths.locks_dir / "webcert-state.lock"):
             data = self.state()
             fn(data)
             self._save(data)
@@ -478,7 +480,8 @@ class CertManager:
                 raise CertFailure("this node runs no BIND: give the DNS server that takes the UPDATE")
             table = bind if isinstance(bind, dict) else {}
             host, port = str(table.get("query_address", "127.0.0.1")), int(table.get("query_port", 53))
-        return dns01.Rfc2136Provider(dns01.Server(host, port), dns01.ACME_KEY, secret)
+        follow = not d.get("server")
+        return dns01.Rfc2136Provider(dns01.Server(host, port), dns01.ACME_KEY, secret, follow_primary=follow)
 
     def _issue_acme(self, src: dict[str, Any], scope: str, csr_der: bytes, names: list[str]) -> str:
         from pelagos.core.webcert import acme, dns01, http01

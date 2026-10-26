@@ -224,11 +224,17 @@ class PeerActions:
 
     def certs_run(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
         """Start this node's issuance in the background; the caller polls certs.status for the job."""
-        from pelagos.core.webcert.manager import CertFailure
+        from pelagos.core.webcert.manager import Busy, CertFailure
 
         certs = self._certs()
         actor = str(body.get("actor") or "unknown")
         job_id = str(body.get("job_id") or "") or None
+        # Refused at once while another request runs here: the caller would wait for a job never started.
+        try:
+            with certs.exclusive():
+                pass
+        except Busy as exc:
+            raise PeerActionError("conflict", str(exc)) from None
 
         def run() -> None:
             try:

@@ -208,6 +208,14 @@ def test_ha_repair_restarts_each_terminated_server_primary_last(four):
     assert back.state is PlanState.ROLLED_BACK and ns1.kea.ha.state == "hot-standby"
 
 
+def test_ha_repair_refuses_a_partner_no_node_reads(four):
+    dhcp, _ = four.dhcp(0)
+    _terminate_pair(four)
+    four.nodes[1].service.stop()  # server2's node is down: its HA service cannot be restarted
+    with pytest.raises(ValidationError, match="server2 is not read from any Pelagos node"):
+        dhcp.plan("ha_repair", {}, "alice")
+
+
 def test_status_exchange_measures_each_peer_clock(four):
     dhcp, _ = four.dhcp(0)
     node = dhcp.peers.node(dhcp.peers.peer(four.nodes[1].id))

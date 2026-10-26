@@ -56,7 +56,7 @@ const invocations = [
   () => api.dhcp.reservations('v4', { q: 'pc' }), () => api.dhcp.reservationPlan('v4', {}), () => api.dhcp.leases('v4'), () => api.dhcp.recentLeases('v4', { limit: 1 }),
   () => api.dhcp.lease('v4', '192.0.2.10'), () => api.dhcp.leaseDeletePlan('v4', '192.0.2.10'),
   () => api.dhcp.utilization('v4'), () => api.dhcp.stats('v4'), () => api.dhcp.ha('v4'),
-  () => api.dhcp.haMaintenancePlan('v4', 'n1', 'start'), () => api.dhcp.haSetupPlan('v4', { remove: true }),
+  () => api.dhcp.haMaintenancePlan('v4', 'n1', 'start'), () => api.dhcp.haRepairPlan('v4'), () => api.dhcp.haSetupPlan('v4', { remove: true }),
   () => api.dns.secondariesPlan('example.lan', null, ['n2']), () => api.dhcp.haTransitions('v4', { from: 1 }),
   () => api.dhcp.servicePlan('v4', 'n1', false), () => api.dhcp.ddns('v4'), () => api.dhcp.ddnsPlan('v4', []),
   () => api.dhcp.hooks('v4'), () => api.dhcp.hooksPlan('v4', []), () => api.dhcp.config('v4'), () => api.dhcp.configPlan('v4', {}),

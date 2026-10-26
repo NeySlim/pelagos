@@ -1177,11 +1177,14 @@ class DhcpService:
                 same = one.server_name in (st.server_name, partner) and one.role != "backup"
                 if same and all(one is not x for x in involved):
                     involved.append(one)
-        orphans = [s.server_name or "?" for s in involved if s.node_id not in names]
+        # A partner Pelagos cannot read (no node runs it, or its node is down) cannot be restarted.
+        known = {one.server_name for one in flat}
+        orphans = sorted({p for st in broken if (p := ha_mod.partner_name(st)) and p not in known})
         if orphans:
             raise ValidationError(
-                f"{', '.join(orphans)} runs on no Pelagos node: restart it by hand",
-                [field_error("server_name", "not managed")],
+                f"{', '.join(orphans)} is not read from any Pelagos node (unreachable, or not managed):"
+                " restart it by hand",
+                [field_error("server_name", "partner not managed")],
             )
         # The primary last: its state drives the relationship back to normal.
         involved.sort(key=lambda s: (s.role == "primary", s.server_name or ""))

@@ -155,7 +155,7 @@ def test_grace_period_is_a_setting_and_terminated_is_never_absorbed(store):
     poller.poll()
     clock.advance(10)
     kea.ha.state = "terminated"
-    assert AlertKind.HA_DEGRADED in kinds(poller.poll())
+    assert AlertKind.HA_TERMINATED in kinds(poller.poll())
 
 
 def test_a_reload_done_by_pelagos_keeps_the_alerts_quiet(store):

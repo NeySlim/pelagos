@@ -69,7 +69,12 @@ def parse_listen(listen: str) -> tuple[str, int]:
 
 def served_fingerprint(listen: str, timeout: float = 5.0) -> str | None:
     """sha256 fingerprint of the certificate the web listener presents; None when nothing listens."""
-    host, port = parse_listen(listen)
+    der = served_certificate(*parse_listen(listen), timeout=timeout)
+    return ca_mod.fingerprint_der(der) if der else None
+
+
+def served_certificate(host: str, port: int, timeout: float = 5.0) -> bytes | None:
+    """DER of the certificate a Pelagos web listener presents; None when nothing listens."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE  # we compare the fingerprint ourselves
@@ -79,7 +84,13 @@ def served_fingerprint(listen: str, timeout: float = 5.0) -> str | None:
         return None
     with sock, context.wrap_socket(sock) as tls:
         der = tls.getpeercert(binary_form=True)
-    return ca_mod.fingerprint_der(der) if der else None
+        # A whole request: a connection dropped right after the handshake makes the gevent server
+        # close its other keep-alive connections.
+        tls.sendall(b"GET /api/v1/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        with contextlib.suppress(OSError):
+            while tls.recv(4096):
+                pass
+    return der or None
 
 
 class CertManager:

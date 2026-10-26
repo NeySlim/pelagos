@@ -141,7 +141,8 @@ def authoritative_servers(zone: str, server: Server | None) -> list[Server]:
                         if rrset.rdtype == dns.rdatatype.from_text(rtype)
                         for rd in rrset
                     ]
-                if not addresses:
+                # A server on another port than 53 (a test or a private listener) answers alone.
+                if not addresses and (server is None or server.port == 53):
                     addresses = [rd.to_text() for rd in dns.resolver.resolve(ns, rtype)]
             except (DnsChallengeError, dns.exception.DNSException, OSError):
                 continue

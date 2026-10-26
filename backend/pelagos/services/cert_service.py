@@ -136,14 +136,7 @@ class CertService:
 
         port = urlsplit(peer.web_url).port or 443
         try:
-            import socket
-            import ssl
-
-            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-            with socket.create_connection((host, port), timeout=3) as sock, context.wrap_socket(sock) as tls:
-                der = tls.getpeercert(binary_form=True)
+            der = manager.served_certificate(host, port, timeout=3)
         except OSError:
             return {"current": None}
         from cryptography import x509

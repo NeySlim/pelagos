@@ -422,6 +422,31 @@ def inherited_allow_update(files: ConfigFiles) -> dict[str | None, list[str] | N
     return out
 
 
+INHERITED_LISTS = ("also-notify", "allow-transfer")
+
+
+def inherited_zone_lists(files: ConfigFiles) -> dict[str | None, dict[str, list[str]]]:
+    """also-notify and allow-transfer a zone without its own inherits: key None for the options,
+    else per view (the view's own statement, or the options one)."""
+    options: dict[str, list[str]] = {}
+    views: dict[str, dict[str, list[str]]] = {}
+    for res in files.statements():
+        node, path, parents = res.node, res.path, res.parents
+        if not parents and node.name == "options":
+            for sub, _where in files.expanded(node.block.children if node.block else [], path):
+                if sub.is_statement and sub.name in INHERITED_LISTS:
+                    options[ZONE_LIST_FIELDS[sub.name]] = sub.elements()
+        elif not parents and node.name == "view":
+            views.setdefault(node.args[0] if node.args else "_default", {})
+        elif len(parents) == 1 and parents[0].name == "view" and node.name in INHERITED_LISTS:
+            view = parents[0].args[0] if parents[0].args else "_default"
+            views.setdefault(view, {})[ZONE_LIST_FIELDS[node.name]] = node.elements()
+    out: dict[str | None, dict[str, list[str]]] = {None: options}
+    for view, own in views.items():
+        out[view] = {**options, **own}
+    return out
+
+
 def _note(doc: ConfigDocument | None, node: Node, parents: tuple[Node, ...]) -> dict[str, Any] | None:
     if doc is None:
         return None

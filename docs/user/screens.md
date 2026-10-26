@@ -150,7 +150,7 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 | `reservation_risk` | info, warning | a reservation inside a dynamic pool, outside its subnet, reserved twice (same client or same name), or different between HA peers |
 | `declined_addresses` | warning | clients declined addresses: often a fixed IP inside a pool or another DHCP server on the segment |
 | `resolver_health` | warning, critical | many SERVFAIL answers, DNSSEC validation failures, a sudden drop of queries, or the root servers unreachable |
-| `delegation_issue` | info, warning | an NS name that does not resolve or answer, a secondary that cannot transfer, an address notified but not an NS, or SOA timers outside the usual range |
+| `delegation_issue` | info, warning | an NS name that does not resolve or answer, a secondary that cannot transfer, an address notified but not an NS, SOA timers outside the usual range, or a view no read key selects (every view is checked with its own key) |
 | `version_mismatch` | info, warning | nodes run different versions of BIND or Kea |
 | `restart_loop` | critical | a daemon restarted several times in a short period |
 | `pool_forecast` | warning, critical | a pool is on course to be full in a few days |

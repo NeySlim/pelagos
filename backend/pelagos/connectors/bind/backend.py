@@ -35,7 +35,13 @@ from pelagos.connectors.bind.configplan import (
 )
 from pelagos.connectors.bind.dns_client import DnsClient, TsigKey
 from pelagos.connectors.bind.extras import BindExtras, is_added_zone_change
-from pelagos.connectors.bind.namedconf.resolve import ConfigFiles, build_tree, files_tree, key_secret
+from pelagos.connectors.bind.namedconf.resolve import (
+    ConfigFiles,
+    build_tree,
+    files_tree,
+    inherited_zone_lists,
+    key_secret,
+)
 from pelagos.connectors.bind.rndc import (
     RndcClient,
     RndcNotFound,
@@ -148,6 +154,17 @@ class BindBackend(BindExtras, DnsBackend):
     def _view_key_name(self, role: str, view: str | None) -> str | None:
         """Views are selected by key (`match-clients { key ...; }`): `dns.view_keys.<view>.<role>`."""
         return view_key_name(self.dns_settings, role, view)
+
+    def read_key(self, view: str | None) -> TsigKey | None:
+        """Key that selects `view` for reads, None for the default view; NotSupported without a key
+        configured for the view, ConnectorDenied when its secret is not on this node."""
+        if view in (None, "", DEFAULT_VIEW):
+            return None
+        return self._require_key("read", view)
+
+    def inherited_lists(self) -> dict[str | None, dict[str, list[str]]]:
+        """also_notify and allow_transfer a zone without its own inherits, per view (None: options)."""
+        return inherited_zone_lists(self._files())
 
     def _plan_ttl(self) -> int:
         return int(self.ctx.settings.get("plan_ttl_seconds", 600))

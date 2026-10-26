@@ -3,7 +3,9 @@
 
 Subjects (kind delegation_issue, `<z>` is `zone` or `zone@view`): `ns-unresolved:<z>:<ns>`,
 `ns-silent:<z>:<ns>`, `ns-transfer:<z>:<ns>`, `ns-extra:<address>` (grouped over the zones by
-`group_extra`), `soa-range:<z>:<field>`.
+`group_extra`), `soa-range:<z>:<field>`, `view-unchecked:<view>` (no read key selects the view).
+Every view is checked through its own read key; also-notify and allow-transfer are the effective
+lists (zone, else view, else options).
 """
 
 from __future__ import annotations
@@ -25,26 +27,34 @@ from pelagos.domain import Alert, AlertKind, Engine, Severity, messages
 
 
 class Net(Protocol):
-    def resolve(self, name: str) -> list[str]: ...
+    def resolve(self, name: str, key: Any = None) -> list[str]: ...
 
-    def answers_for(self, address: str, zone: str) -> bool: ...
+    def answers_for(self, address: str, zone: str, key: Any = None) -> bool: ...
+
+
+def _signed(query: dns.message.Message, key: Any) -> dns.message.Message:
+    if key is not None:
+        query.use_tsig(key.keyring, keyname=key.name, algorithm=key.dns_algorithm)
+    return query
 
 
 class DnsNet:
-    """Real lookups: the local server first (in-zone names), then the system resolver."""
+    """Real lookups: the local server first (in-zone names, in the view `key` selects), then the system
+    resolver. Name servers are probed on `probe_port`."""
 
-    def __init__(self, local_server: str, local_port: int, timeout: float) -> None:
+    def __init__(self, local_server: str, local_port: int, timeout: float, probe_port: int = 53) -> None:
         self.local = (local_server, local_port)
         self.timeout = timeout
+        self.probe_port = probe_port
 
-    def resolve(self, name: str) -> list[str]:
+    def resolve(self, name: str, key: Any = None) -> list[str]:
         found: list[str] = []
         for rtype in ("A", "AAAA"):
-            found.extend(self._lookup(name, rtype))
+            found.extend(self._lookup(name, rtype, key))
         return list(dict.fromkeys(found))
 
-    def _lookup(self, name: str, rtype: str) -> list[str]:
-        query = dns.message.make_query(name, rtype)
+    def _lookup(self, name: str, rtype: str, key: Any = None) -> list[str]:
+        query = _signed(dns.message.make_query(name, rtype), key)
         try:
             reply = dns.query.udp(query, self.local[0], port=self.local[1], timeout=self.timeout)
             answers = [
@@ -61,12 +71,16 @@ class DnsNet:
         except Exception:
             return []
 
-    def answers_for(self, address: str, zone: str) -> bool:
-        """The server answers authoritatively (AA) with an SOA for the zone, without recursion."""
-        query = dns.message.make_query(zone, dns.rdatatype.SOA)
+    def answers_for(self, address: str, zone: str, key: Any = None) -> bool:
+        """The server answers authoritatively (AA) with an SOA for the zone, without recursion. With a
+        view key the probe is signed first (the peer selects the same view), then sent unsigned."""
+        return any(self._probe(address, zone, k) for k in dict.fromkeys([key, None]))
+
+    def _probe(self, address: str, zone: str, key: Any) -> bool:
+        query = _signed(dns.message.make_query(zone, dns.rdatatype.SOA), key)
         query.flags &= ~dns.flags.RD
         try:
-            reply = dns.query.udp(query, address, timeout=self.timeout)
+            reply = dns.query.udp(query, address, port=self.probe_port, timeout=self.timeout)
         except Exception:
             return False
         has_soa = any(rr.rdtype == dns.rdatatype.SOA for rr in reply.answer)
@@ -170,9 +184,11 @@ def delegation_alerts(
     net: Net,
     own_addresses: set[str],
     resolve_cache: Callable[[str], list[str]] | None = None,
+    key: Any = None,
 ) -> list[Alert]:
+    """`key` selects the view: name lookups on the local server and name server probes carry it."""
     label = _zone_label(zone, view)
-    resolve = resolve_cache or net.resolve
+    resolve = resolve_cache or (lambda name: net.resolve(name, key))
     out: list[Alert] = []
     ns_addresses: set[str] = set()
     unresolved = False
@@ -194,7 +210,7 @@ def delegation_alerts(
             )
             continue
         ns_addresses.update(addresses)
-        silent = [a for a in addresses if not net.answers_for(a, zone)]
+        silent = [a for a in addresses if not net.answers_for(a, zone, key)]
         if silent:
             out.append(
                 _alert(
@@ -231,6 +247,16 @@ def delegation_alerts(
             )
         )
     return out
+
+
+def view_unchecked_alert(node_id: str, view: str, zones: int, reason: str) -> Alert:
+    return _alert(
+        node_id,
+        Severity.INFO,
+        f"view-unchecked:{view}",
+        messages.msg("alert.view_unchecked", view=view, zones=zones),
+        {"view": view, "zones": zones, "reason": reason},
+    )
 
 
 def group_extra(alerts: list[Alert], node_id: str, shown: int = 5) -> list[Alert]:

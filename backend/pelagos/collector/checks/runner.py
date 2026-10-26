@@ -561,38 +561,57 @@ class HealthChecks:
             or (lambda b: delegation.DnsNet(b.dns.server, b.dns.port, cfg.delegation_timeout_seconds))
         )(backend)
         own = local_addresses() | {client.server}
-        cache: dict[str, list[str]] = {}
-
-        def resolve(name: str) -> list[str]:
-            if name not in cache:
-                cache[name] = net.resolve(name)
-            return cache[name]
+        cache: dict[tuple[str, str], list[str]] = {}
+        try:
+            with self.lock:
+                inherited = backend.inherited_lists()
+        except (ConnectorError, OSError, AttributeError):
+            inherited = {}
 
         alerts: list[Alert] = []
+        unchecked: dict[str, tuple[int, str]] = {}
         for zone in zones[: cfg.delegation_max_zones]:
-            if zone.view not in ("", "_default"):
-                continue  # views need their own read key: only the default view is checked
+            view = None if zone.view in ("", "_default") else zone.view
+            try:
+                key = backend.read_key(view) if view else None
+            except ConnectorError as exc:
+                count = unchecked.get(zone.view, (0, ""))[0] + 1
+                unchecked[zone.view] = (count, str(exc))
+                continue
             try:
                 with self.lock:
-                    ns = client.query(zone.name, "NS") or []
-                    soa = client.query(zone.name, "SOA") or []
+                    ns = client.query(zone.name, "NS", key) or []
+                    soa = client.query(zone.name, "SOA", key) or []
             except ConnectorError:
                 continue
+
+            def resolve(name: str, key: Any = key) -> list[str]:
+                slot = (key.name if key is not None else "", name)
+                if slot not in cache:
+                    cache[slot] = net.resolve(name, key)
+                return cache[slot]
+
+            lists = inherited.get(view, inherited.get(None, {}))
             alerts.extend(
                 delegation.delegation_alerts(
                     self.node_id,
                     zone.name,
                     zone.view,
                     [n.split()[-1] for n in ns],
-                    zone.also_notify,
-                    zone.allow_transfer,
+                    zone.also_notify or lists.get("also_notify", []),
+                    zone.allow_transfer or lists.get("allow_transfer", []),
                     net,
                     own,
                     resolve,
+                    key,
                 )
             )
             if soa:
                 alerts.extend(delegation.soa_alerts(self.node_id, zone.name, zone.view, soa[0], cfg))
+        alerts.extend(
+            delegation.view_unchecked_alert(self.node_id, v, n, why)
+            for v, (n, why) in sorted(unchecked.items())
+        )
         alerts = self._confirmed(delegation.group_extra(alerts, self.node_id), cfg.delegation_confirm_passes)
         return PollOutcome(alerts=alerts, kinds=kinds, where=_mine(self.node_id))
 

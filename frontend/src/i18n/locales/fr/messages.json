@@ -244,6 +244,7 @@
   "alert.ns_no_transfer": "Zone {{zone}} : le serveur de noms {{ns}} ({{address}}) n'est pas autorisé à transférer la zone",
   "alert.ns_not_listed": "{{address}} reçoit des notifications ou des transferts pour {{zones}} sans être un serveur de noms",
   "alert.soa_range": "Zone {{zone}} : le champ SOA {{field}} vaut {{value}}, plage usuelle {{low}} à {{high}}",
+  "alert.view_unchecked": "Vue {{view}} : délégation et SOA de ses {{zones}} zones non vérifiées, aucune clé de lecture ne sélectionne la vue (dns.view_keys)",
   "alert.version_mismatch": "Versions de {{engine}} différentes entre les nœuds : {{versions}}",
   "alert.restart_loop": "{{engine}} a redémarré {{count}} fois ces {{minutes}} dernières minutes",
   "alert.pool_forecast": "Le pool {{pool}} du sous-réseau {{subnet_id}} sera plein dans environ {{days}} jours",

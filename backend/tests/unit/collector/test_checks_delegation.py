@@ -9,6 +9,7 @@ import pytest
 
 from pelagos.collector.checks import advisories, delegation
 from pelagos.collector.checks.settings import CheckSettings
+from pelagos.connectors.bind.dns_client import TsigKey
 from pelagos.domain import Engine, Severity
 
 pytestmark = pytest.mark.unit
@@ -20,11 +21,14 @@ class FakeNet:
     def __init__(self, hosts, silent=()):
         self.hosts = hosts
         self.silent = set(silent)
+        self.keys = []
 
-    def resolve(self, name):
+    def resolve(self, name, key=None):
+        self.keys.append(("resolve", name, key))
         return self.hosts.get(name, [])
 
-    def answers_for(self, address, zone):
+    def answers_for(self, address, zone, key=None):
+        self.keys.append(("probe", address, key))
         return address not in self.silent
 
 
@@ -97,6 +101,36 @@ def test_zone_in_a_view_has_the_view_in_its_subject():
         "n1", "example.lan.", "inside", ["ns9.example.lan."], [], [], FakeNet({}), set()
     )
     assert found[0].subject == "ns-unresolved:example.lan@inside:ns9.example.lan."
+
+
+def test_view_key_reaches_lookups_and_probes():
+    net = FakeNet(HOSTS)
+    delegation.delegation_alerts(
+        "n1", "example.lan.", "inside", ["ns2.example.lan."], [], [], net, set(), key="k-inside"
+    )
+    assert net.keys == [("resolve", "ns2.example.lan.", "k-inside"), ("probe", "192.0.2.2", "k-inside")]
+
+
+def test_view_without_read_key_is_reported_once():
+    alert = delegation.view_unchecked_alert("n1", "inside", 3, "no TSIG key configured for view inside")
+    assert alert.subject == "view-unchecked:inside" and alert.severity is Severity.INFO
+    assert alert.details == {"view": "inside", "zones": 3, "reason": "no TSIG key configured for view inside"}
+
+
+def test_probe_is_signed_with_the_view_key_then_unsigned(monkeypatch):
+    seen = []
+
+    def fake_udp(query, address, port, timeout):
+        seen.append((query.keyname is not None, port))
+        raise OSError("unreachable")
+
+    monkeypatch.setattr(delegation.dns.query, "udp", fake_udp)
+    net = delegation.DnsNet("127.0.0.1", 53, 0.1, probe_port=5300)
+    assert net.answers_for("192.0.2.2", "example.lan.", TsigKey("k-inside", "c2VjcmV0")) is False
+    assert seen == [(True, 5300), (False, 5300)]
+    seen.clear()
+    assert net.answers_for("192.0.2.2", "example.lan.") is False
+    assert seen == [(False, 5300)]
 
 
 def test_packaged_advisories_are_valid_and_match_versions():

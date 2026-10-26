@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from pelagos.connectors.bind.namedconf.resolve import ConfigFiles, build_tree
+from pelagos.connectors.bind.namedconf.resolve import ConfigFiles, build_tree, inherited_zone_lists
 from pelagos.domain import zone_updates
 from pelagos.domain.dns import Zone, ZoneKind
 from pelagos.services.dns_extras import zone_mode
@@ -68,3 +68,15 @@ def test_zone_mode_with_inherited_rules(tmp_path: Path):
     )
     assert modes == {("a", "x.lan."): "dynamic", ("b", "x.lan."): "static", ("b", "y.lan."): "static"}
     assert zone_mode(Zone(name="s.lan.", kind=ZoneKind.SECONDARY)) != "static"
+
+
+def test_also_notify_and_allow_transfer_inherit_from_view_then_options(tmp_path: Path):
+    (tmp_path / "named.conf").write_text(
+        "options { also-notify { 192.0.2.5; }; allow-transfer { key ddi-read; }; };\n"
+        'view "inside" { allow-transfer { 192.0.2.2; }; zone "a.lan" { type primary; file "a"; }; };\n'
+        'view "outside" { also-notify { 192.0.2.99; }; zone "a.lan" { type primary; file "b"; }; };\n'
+    )
+    found = inherited_zone_lists(ConfigFiles.load(tmp_path / "named.conf"))
+    assert found[None] == {"also_notify": ["192.0.2.5"], "allow_transfer": ["key ddi-read"]}
+    assert found["inside"] == {"also_notify": ["192.0.2.5"], "allow_transfer": ["192.0.2.2"]}
+    assert found["outside"] == {"also_notify": ["192.0.2.99"], "allow_transfer": ["key ddi-read"]}

@@ -1345,3 +1345,14 @@ versions). WP-COLLECTOR: `checks/advisories.py` reads them; alert details gain
 `alert.security_advisory` says the check is on the upstream version and points to
 the distribution's security tracker (same placeholders). WP-FRONTEND: the `en` and
 `fr` catalogs carry the new text. Older nodes ignore the new fields.
+
+## 2026-10-26, Delegation and SOA checks cover every view
+Additive. WP-BIND: `BindBackend.read_key(view)` (the read key that selects a view, None for
+the default view, `NotSupported` without `dns.view_keys.<view>`) and
+`BindBackend.inherited_lists()` (`namedconf.resolve.inherited_zone_lists`: also-notify and
+allow-transfer a zone inherits, per view, key None for the options). WP-COLLECTOR:
+`checks.delegation.Net.resolve` and `answers_for` take an optional TSIG key (the probe is
+signed with the view key, then sent unsigned), `DnsNet(probe_port=53)`, and the subject
+`view-unchecked:<view>` (info) for a view without a read key. Contract
+(`domain/messages.py`): message `alert.view_unchecked`, key list regenerated with
+`make messages-keys`. WP-FRONTEND: `alert.view_unchecked` in `en` and `fr`.

@@ -238,7 +238,7 @@ Every key is optional. Thresholds are read at each pass; the alerts are in
 | `resolver_dnssec_failures` | `10` | validation failures per window |
 | `resolver_drop_percent`, `resolver_drop_min_qpm` | `80`, `60` | query drop against the two preceding windows, and the baseline needed to judge it |
 | `resolver_roots_failures` | `3` | failed root probes in a row |
-| `delegation_timeout_seconds`, `delegation_max_zones` | `2`, `200` | timeout per probe, zones checked per pass (default view only) |
+| `delegation_timeout_seconds`, `delegation_max_zones` | `2`, `200` | timeout per probe, primary zones checked per pass (every view, through the view's read key) |
 | `delegation_confirm_passes` | `2` | consecutive passes an unresolved or silent name server must fail before the alert opens |
 | `soa_refresh_min`/`max`, `soa_retry_min`/`max`, `soa_expire_min`/`max`, `soa_minimum_min`/`max` | `1200`/`86400`, `120`/`7200`, `604800`/`2419200`, `300`/`86400` | usual SOA ranges, `info` outside |
 | `restart_loop_count`, `restart_loop_window_seconds` | `3`, `1800` | restarts that make a loop |

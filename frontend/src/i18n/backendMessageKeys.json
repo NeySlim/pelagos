@@ -302,6 +302,10 @@
     "engine",
     "versions"
   ],
+  "alert.view_unchecked": [
+    "view",
+    "zones"
+  ],
   "alert.zone_error": [
     "zone"
   ],

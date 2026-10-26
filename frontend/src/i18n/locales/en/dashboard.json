@@ -142,7 +142,17 @@
     "custom_hook": "custom Kea hook",
     "insecure_listener": "insecure listener",
     "rpz_update": "RPZ list update",
-    "ha_backup_out_of_sync": "HA backup out of sync"
+    "ha_backup_out_of_sync": "HA backup out of sync",
+    "disk_space": "disk space",
+    "file_growth": "file growth",
+    "reservation_risk": "risky reservation",
+    "declined_addresses": "declined addresses",
+    "resolver_health": "resolver health",
+    "delegation_issue": "delegation or SOA",
+    "version_mismatch": "version mismatch",
+    "restart_loop": "restart loop",
+    "pool_forecast": "pool forecast",
+    "security_advisory": "security advisory"
   },
   "live": {
     "label": "Live",

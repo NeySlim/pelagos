@@ -41,6 +41,16 @@ class AlertKind(enum.StrEnum):
     INSECURE_LISTENER = "insecure_listener"
     CUSTOM_HOOK = "custom_hook"
     RPZ_UPDATE = "rpz_update"
+    DISK_SPACE = "disk_space"
+    FILE_GROWTH = "file_growth"
+    RESERVATION_RISK = "reservation_risk"
+    DECLINED_ADDRESSES = "declined_addresses"
+    RESOLVER_HEALTH = "resolver_health"
+    DELEGATION_ISSUE = "delegation_issue"
+    VERSION_MISMATCH = "version_mismatch"
+    RESTART_LOOP = "restart_loop"
+    POOL_FORECAST = "pool_forecast"
+    SECURITY_ADVISORY = "security_advisory"
 
 
 INCONSISTENCY_KINDS = frozenset(

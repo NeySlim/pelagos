@@ -200,6 +200,48 @@ directory (zones created by Pelagos are declared in `zones.conf`, its keys in
 then remove the two include lines, check with `named-checkconf` and
 `rndc reconfig`.
 
+## Health checks
+
+Besides the alerts of the engines, each node watches its own health:
+
+- Disk and files: free space of the volumes holding `/var` and `/etc`, the
+  named logs (with or without rotation), Kea lease files and the last LFC run,
+  zone journals (`.jnl`, the alert suggests `rndc sync -clean <zone>`), the
+  backup folder and the audit log.
+- Reservations: inside a dynamic pool, outside the subnet, reserved twice, and
+  different between HA peers (the peers compare the reservations they publish).
+- Declined addresses, restart loops, resolver health (SERVFAIL, DNSSEC
+  failures, query drop, root reachability), delegation and SOA, pool forecasts
+  and version differences between nodes.
+
+Thresholds: `[settings.checks]` in `docs/user/configuration.md`. The counters
+behind the rate checks are kept in memory, so they restart from zero when the
+collector restarts and judge only after a full window.
+
+### Security advisories
+
+`security_advisory` alerts compare the installed BIND and Kea versions with
+`backend/pelagos/data/isc_advisories.json` (shipped with Pelagos). Distribution
+packages often carry a fix without changing the version: read the vendor
+changelog before acting, and acknowledge the alert when the fix is there.
+
+To update the data:
+
+1. Read ISC's matrices (`https://kb.isc.org/docs/aa-00913` for BIND, the Kea
+   security page on `https://www.isc.org/` for Kea) and add one entry per CVE:
+   `id`, `engine` (`bind` or `kea`), `severity` (`high`, `medium` or `low`),
+   `summary`, `url` and `ranges` (`from`, `to` inclusive, `fixed`).
+2. Set `updated` to the date of the ISC matrix you checked (not today) and raise `revision`
+   (an integer): an override wins only when its `revision` is not lower than the shipped one.
+   The alert text and details show the dataset date, so stale data is visible. Run `make test`: a test validates the file.
+3. On a node, a newer valid file placed at `/var/lib/pelagos/isc_advisories.json`
+   wins (by `revision`) over the shipped one without upgrading Pelagos.
+
+Nodes that may reach the Internet can set `advisories_fetch = true` and
+`advisories_url` (https only) in `[settings.checks]`: the collector fetches the
+file once a day, validates it and keeps it as that override. It is off by
+default because nodes may be offline.
+
 ## Logs
 
 ```sh

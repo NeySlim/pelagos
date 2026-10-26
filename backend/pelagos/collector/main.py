@@ -19,6 +19,7 @@ from typing import Any
 
 from pelagos.collector import series as series_mod
 from pelagos.collector.alerts import ACK_ACTION, AlertStore
+from pelagos.collector.checks.runner import HealthChecks
 from pelagos.collector.events import EventSink, SignalListener
 from pelagos.collector.pollers import PollOutcome
 from pelagos.collector.pollers.bind import BindPoller
@@ -194,6 +195,14 @@ class Collector:
         self._zone_lock = threading.Lock()  # recheck_zone runs on replication threads
         self._replication_seen: tuple[Any, ...] | None = None
         self._findings_seen: frozenset[str] | None = None
+        self.checks = HealthChecks(
+            ctx,
+            store,
+            backends,
+            self.backend_lock,
+            clock,
+            lambda backend: _all_leases(backend, self.node_id, self.backend_lock),
+        )
         self.last_report = CycleReport()
         # Where security findings come from (the helper or a local audit); tests replace it.
         self.findings_source: Callable[[NodeContext], list[dict[str, Any]] | None] = _collect_findings
@@ -433,6 +442,16 @@ class Collector:
         self._findings_seen = seen
         return outcome.alerts
 
+    def health(self) -> None:
+        """Restart loops, resolver health, declined addresses, forecasts, versions, advisories."""
+        for outcome in self.checks.fast():
+            self._finish(outcome)
+
+    def health_audit(self) -> None:
+        """Disk and file growth, reservation risks, delegation and SOA, root reachability."""
+        for outcome in self.checks.slow():
+            self._finish(outcome)
+
     def retention(self) -> dict[str, int]:
         now = int(self.clock())
         retention = self.ctx.settings().get("retention", {})
@@ -455,6 +474,8 @@ class Collector:
             ("apply_acks", self.apply_acks),
             ("consistency", self.consistency),
             ("security_audit", self.security_audit),
+            ("health", self.health),
+            ("health_audit", self.health_audit),
             ("retention", self.retention),
         ):
             try:
@@ -482,6 +503,8 @@ class Collector:
             Task("apply_acks", poll, self.apply_acks),
             Task("consistency", consistency_period, self.consistency),
             Task("security_audit", consistency_period, self.security_audit),
+            Task("health", poll, self.health),
+            Task("health_audit", consistency_period, self.health_audit),
             Task("retention", 3600.0, self.retention),
         ]
 

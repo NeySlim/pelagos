@@ -1,0 +1,256 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Item 24: delegation and SOA sanity of the primary zones this node serves.
+
+Subjects (kind delegation_issue, `<z>` is `zone` or `zone@view`): `ns-unresolved:<z>:<ns>`,
+`ns-silent:<z>:<ns>`, `ns-transfer:<z>:<ns>`, `ns-extra:<address>` (grouped over the zones by
+`group_extra`), `soa-range:<z>:<field>`.
+"""
+
+from __future__ import annotations
+
+import ipaddress
+import re
+from collections.abc import Callable
+from typing import Any, Protocol
+
+import dns.flags
+import dns.message
+import dns.query
+import dns.rcode
+import dns.rdatatype
+import dns.resolver
+
+from pelagos.collector.checks.settings import CheckSettings
+from pelagos.domain import Alert, AlertKind, Engine, Severity, messages
+
+
+class Net(Protocol):
+    def resolve(self, name: str) -> list[str]: ...
+
+    def answers_for(self, address: str, zone: str) -> bool: ...
+
+
+class DnsNet:
+    """Real lookups: the local server first (in-zone names), then the system resolver."""
+
+    def __init__(self, local_server: str, local_port: int, timeout: float) -> None:
+        self.local = (local_server, local_port)
+        self.timeout = timeout
+
+    def resolve(self, name: str) -> list[str]:
+        found: list[str] = []
+        for rtype in ("A", "AAAA"):
+            found.extend(self._lookup(name, rtype))
+        return list(dict.fromkeys(found))
+
+    def _lookup(self, name: str, rtype: str) -> list[str]:
+        query = dns.message.make_query(name, rtype)
+        try:
+            reply = dns.query.udp(query, self.local[0], port=self.local[1], timeout=self.timeout)
+            answers = [
+                r.to_text() for rr in reply.answer if rr.rdtype == dns.rdatatype.from_text(rtype) for r in rr
+            ]
+            if answers:
+                return answers
+        except Exception:  # noqa: S110 (falls through to the system resolver)
+            pass
+        try:
+            resolver = dns.resolver.Resolver()
+            resolver.lifetime = self.timeout
+            return [r.to_text() for r in resolver.resolve(name, rtype)]
+        except Exception:
+            return []
+
+    def answers_for(self, address: str, zone: str) -> bool:
+        """The server answers authoritatively (AA) with an SOA for the zone, without recursion."""
+        query = dns.message.make_query(zone, dns.rdatatype.SOA)
+        query.flags &= ~dns.flags.RD
+        try:
+            reply = dns.query.udp(query, address, timeout=self.timeout)
+        except Exception:
+            return False
+        has_soa = any(rr.rdtype == dns.rdatatype.SOA for rr in reply.answer)
+        return reply.rcode() == dns.rcode.NOERROR and bool(reply.flags & dns.flags.AA) and has_soa
+
+
+def _zone_label(zone: str, view: str) -> str:
+    name = zone.rstrip(".") or "."
+    return name if view in ("", "_default") else f"{name}@{view}"
+
+
+def _nets(entries: list[str]) -> list[Any]:
+    """IP addresses and CIDR blocks among the tokens of an also-notify or allow-transfer list."""
+    out: list[Any] = []
+    for entry in entries:
+        for token in re.split(r"[\s;{}]+", entry):
+            try:
+                out.append(ipaddress.ip_network(token, strict=False))
+            except ValueError:
+                continue
+    return out
+
+
+def _all_literal(entries: list[str]) -> bool:
+    """True when every token of the list is an address, a block or a BIND keyword that is not a name."""
+    for entry in entries:
+        for token in re.split(r"[\s;{}]+", entry):
+            if not token or token in ("port", "dscp", "transport"):
+                continue
+            if token.isdigit():
+                continue
+            try:
+                ipaddress.ip_network(token, strict=False)
+            except ValueError:
+                return False
+    return True
+
+
+def _covers(nets: list[Any], address: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    return any(ip in n for n in nets if n.version == ip.version)
+
+
+def parse_soa(text: str) -> dict[str, int] | None:
+    parts = text.split()
+    if len(parts) < 7:
+        return None
+    try:
+        refresh, retry, expire, minimum = (int(x) for x in parts[3:7])
+    except ValueError:
+        return None
+    return {"refresh": refresh, "retry": retry, "expire": expire, "minimum": minimum}
+
+
+def soa_alerts(node_id: str, zone: str, view: str, soa_text: str, cfg: CheckSettings) -> list[Alert]:
+    soa = parse_soa(soa_text)
+    if soa is None:
+        return []
+    label = _zone_label(zone, view)
+    out: list[Alert] = []
+    for name in ("refresh", "retry", "expire", "minimum"):
+        low, high = getattr(cfg, f"soa_{name}_min"), getattr(cfg, f"soa_{name}_max")
+        if low <= soa[name] <= high:
+            continue
+        out.append(
+            _alert(
+                node_id,
+                Severity.INFO,
+                f"soa-range:{label}:{name}",
+                messages.msg("alert.soa_range", zone=label, field=name, value=soa[name], low=low, high=high),
+                {"zone": label, "field": name, "value": soa[name], "low": low, "high": high},
+            )
+        )
+    return out
+
+
+def _alert(
+    node_id: str, severity: Severity, subject: str, message: dict[str, Any], details: dict[str, Any]
+) -> Alert:
+    return Alert(
+        kind=AlertKind.DELEGATION_ISSUE,
+        severity=severity,
+        node_id=node_id,
+        engine=Engine.BIND,
+        subject=subject,
+        **messages.fields("title", message),
+        details=details,
+    )
+
+
+def delegation_alerts(
+    node_id: str,
+    zone: str,
+    view: str,
+    ns_names: list[str],
+    also_notify: list[str],
+    allow_transfer: list[str],
+    net: Net,
+    own_addresses: set[str],
+    resolve_cache: Callable[[str], list[str]] | None = None,
+) -> list[Alert]:
+    label = _zone_label(zone, view)
+    resolve = resolve_cache or net.resolve
+    out: list[Alert] = []
+    ns_addresses: set[str] = set()
+    unresolved = False
+    notify_nets = _nets(also_notify)
+    transfer_nets = _nets(allow_transfer)
+    transfer_checkable = bool(allow_transfer) and _all_literal(allow_transfer)
+    for ns in sorted({n.lower().rstrip(".") + "." for n in ns_names}):
+        addresses = resolve(ns)
+        if not addresses:
+            unresolved = True
+            out.append(
+                _alert(
+                    node_id,
+                    Severity.WARNING,
+                    f"ns-unresolved:{label}:{ns}",
+                    messages.msg("alert.ns_unresolved", zone=label, ns=ns),
+                    {"zone": label, "ns": ns},
+                )
+            )
+            continue
+        ns_addresses.update(addresses)
+        silent = [a for a in addresses if not net.answers_for(a, zone)]
+        if silent:
+            out.append(
+                _alert(
+                    node_id,
+                    Severity.WARNING,
+                    f"ns-silent:{label}:{ns}",
+                    messages.msg("alert.ns_silent", zone=label, ns=ns, address=silent[0]),
+                    {"zone": label, "ns": ns, "addresses": silent},
+                )
+            )
+        foreign = [a for a in addresses if a not in own_addresses]
+        if transfer_checkable and foreign and not any(_covers(transfer_nets, a) for a in foreign):
+            out.append(
+                _alert(
+                    node_id,
+                    Severity.WARNING,
+                    f"ns-transfer:{label}:{ns}",
+                    messages.msg("alert.ns_no_transfer", zone=label, ns=ns, address=foreign[0]),
+                    {"zone": label, "ns": ns, "addresses": foreign},
+                )
+            )
+    listed: set[str] = set()
+    for net_ in [*notify_nets, *transfer_nets]:
+        if net_.num_addresses == 1:  # a single host: a CIDR block is an access rule, not a server
+            listed.add(str(net_.network_address))
+    for address in sorted(set() if unresolved else listed - ns_addresses - own_addresses):
+        out.append(
+            _alert(
+                node_id,
+                Severity.INFO,
+                f"ns-extra:{label}:{address}",
+                messages.msg("alert.ns_not_listed", zones=label, address=address),
+                {"zone": label, "address": address},
+            )
+        )
+    return out
+
+
+def group_extra(alerts: list[Alert], node_id: str, shown: int = 5) -> list[Alert]:
+    """One ns-extra alert per address, listing its zones, instead of one per zone."""
+    zones: dict[str, list[str]] = {}
+    rest: list[Alert] = []
+    for a in alerts:
+        if a.subject.startswith("ns-extra:"):
+            zones.setdefault(a.details["address"], []).append(a.details["zone"])
+        else:
+            rest.append(a)
+    for address, names in sorted(zones.items()):
+        text = ", ".join(names[:shown]) + (", ..." if len(names) > shown else "")
+        rest.append(
+            _alert(
+                node_id,
+                Severity.INFO,
+                f"ns-extra:{address}",
+                messages.msg("alert.ns_not_listed", address=address, zones=text),
+                {"address": address, "zones": names},
+            )
+        )
+    return rest

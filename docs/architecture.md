@@ -610,6 +610,10 @@ class AlertKind(str, Enum):
     RESERVATION_MISMATCH="reservation_mismatch"; PTR_MISMATCH="ptr_mismatch"; DUPLICATE_IP="duplicate_ip"
     INSECURE_KEY="insecure_key"; INSECURE_LISTENER="insecure_listener"; CUSTOM_HOOK="custom_hook"
     RPZ_UPDATE="rpz_update"
+    DISK_SPACE="disk_space"; FILE_GROWTH="file_growth"; RESERVATION_RISK="reservation_risk"
+    DECLINED_ADDRESSES="declined_addresses"; RESOLVER_HEALTH="resolver_health"
+    DELEGATION_ISSUE="delegation_issue"; VERSION_MISMATCH="version_mismatch"
+    RESTART_LOOP="restart_loop"; POOL_FORECAST="pool_forecast"; SECURITY_ADVISORY="security_advisory"
 class AlertState(str, Enum): OPEN="open"; ACKED="acked"; RESOLVED="resolved"
 
 @dataclass(slots=True)
@@ -1265,6 +1269,11 @@ alerts_pool_critical_percent = 95
 alerts_serial_divergence_seconds = 900   # secondary may lag this long before SECONDARY_STALE
 alerts_d2_error_rate = 0.05
 
+[settings.checks]
+# Thresholds of the health checks (item 19 to 28): defaults in core/config_store.py DEFAULT_SETTINGS
+disk_free_warning_percent = 15
+disk_free_critical_percent = 5
+
 [settings.dns]
 read_key = "ddi-read"
 admin_key = "ddi-admin"
@@ -1668,6 +1677,8 @@ from `settings.collector`:
 | Consistency pass (`services.consistency.run`) | `consistency_seconds` | cross alerts |
 | RPZ list updates (`collector/pollers/rpz.py`, in a thread; section 21) | `rpz.check_seconds` (300) | `RPZ_UPDATE`, snapshot `rpz` |
 | Security audit (`installer.security_audit.run_audit`, read-only, through the helper when not root; `collector/security.py`) | `consistency_seconds` | `INSECURE_KEY`, `INSECURE_LISTENER` (subject `<engine>:<finding subject>`, resolved when the finding goes; an audit that cannot run keeps the current ones) |
+| Health pass (`collector/checks/runner.py`, `fast`) | `poll_seconds` | `RESTART_LOOP`, `RESOLVER_HEALTH` (servfail, dnssec, queries), `DECLINED_ADDRESSES`, `POOL_FORECAST`, `VERSION_MISMATCH` (cluster-wide), `SECURITY_ADVISORY` |
+| Health audit (`slow`) | `consistency_seconds` | `DISK_SPACE`, `FILE_GROWTH`, `RESERVATION_RISK` (local and cluster-wide), `DELEGATION_ISSUE`, `RESOLVER_HEALTH` (roots); snapshot `reservations` per Kea engine |
 | Retention and downsampling | hourly | purges per table below |
 | Replication push and anti-entropy | event driven, `peer_poll_seconds` | |
 
@@ -1869,6 +1880,16 @@ hash of the divergent nodes) and `relationships` (`[{"servers",
 | `insecure_key` | warning | TSIG or rndc key with hmac-md5/hmac-sha1 (from the security audit) |
 | `insecure_listener` | warning | rndc/statistics-channel/Kea HTTP listening off localhost without TLS |
 | `rpz_update` | warning | an RPZ list update failed or was rejected (subject `rpz:<id>`), or none succeeded for `rpz.stale_factor` intervals (`rpz-stale:<id>`); section 21 |
+| `disk_space` | warning, critical | free space of a volume holding /var, /etc, the BIND directory, logs or lease files at or under `checks.disk_free_warning_percent` / `disk_free_critical_percent`; subject `disk:<mount point>` |
+| `file_growth` | warning, critical | named log, Kea lease file, `.jnl` journal, backups or audit log over its `checks.*_max_mb` (critical at 5 times), or Kea LFC not run for `lfc_stale_factor` intervals; subjects `file:<path>`, `lfc:<engine>` |
+| `reservation_risk` | info, warning | reservation inside a dynamic pool, outside its subnet, the same identifier or hostname twice, or missing or different between HA peers; subjects `<engine>:in-pool:<ip>`, `<engine>:outside-subnet:<ip>`, `<engine>:duplicate-id:<type>=<id>`, `<engine>:duplicate-host:<name>`, `<engine>:peer:<type>=<id>`, `<engine>:peer-id:<host or ip>` (same host or address under another identifier on each peer; peer subjects have no node) |
+| `declined_addresses` | warning | `declined-addresses` of a subnet or DHCPDECLINE packets per hour over their thresholds; subjects `<engine>:subnet:<id>`, `<engine>:decline-received` |
+| `resolver_health` | warning, critical | SERVFAIL share, DNSSEC validation failures, query drop against the baseline, root servers unreachable; subjects `resolver:servfail`, `resolver:dnssec`, `resolver:queries`, `resolver:roots` |
+| `delegation_issue` | info, warning | NS name that does not resolve or answer for the zone, NS not allowed to transfer, address in also-notify/allow-transfer that is not an NS, SOA value outside the usual range (info); subjects `ns-unresolved:<zone>:<ns>`, `ns-silent:...`, `ns-transfer:...`, `ns-extra:<address>` (one per address, all zones grouped), `soa-range:<zone>:<field>` |
+| `version_mismatch` | info, warning | nodes run different versions of BIND, kea4 or kea6 (warning when the series differs); cluster-wide, subject `<engine>:version` |
+| `restart_loop` | critical | `checks.restart_loop_count` restarts in `restart_loop_window_seconds`; subject `engine:<engine>` |
+| `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; subject is the pool subject |
+| `security_advisory` | info, warning | an installed BIND or Kea version falls in a range of `pelagos/data/isc_advisories.json`; subject `<engine>:<CVE id>` |
 
 ## 16. Security model and RBAC
 

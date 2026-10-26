@@ -145,6 +145,10 @@
       "retention": {
         "title": "Retention",
         "help": "How long series, resolved alerts and backups are kept"
+      },
+      "checks": {
+        "title": "Health checks",
+        "help": "Thresholds of the disk, reservation, resolver, delegation, forecast and advisory checks"
       }
     },
     "fields": {
@@ -194,6 +198,45 @@
         "serial_days": "Serial series (days)",
         "ha_transition_days": "HA transitions (days)",
         "alerts_resolved_days": "Resolved alerts (days)"
+      },
+      "checks": {
+        "disk_free_warning_percent": "Free disk space warning (%)",
+        "disk_free_critical_percent": "Free disk space critical (%)",
+        "log_max_mb": "named log size limit (MB)",
+        "lease_file_max_mb": "Kea lease file size limit (MB)",
+        "lfc_stale_factor": "LFC overdue after (intervals)",
+        "journal_max_mb": "Zone journal size limit (MB)",
+        "backups_max_mb": "Backups size limit (MB)",
+        "audit_max_mb": "Audit log size limit (MB)",
+        "declined_addresses_warning": "Declined addresses per subnet",
+        "declined_received_warning": "Declines received per hour",
+        "resolver_window_seconds": "Resolver window (seconds)",
+        "resolver_min_queries": "Resolver minimum answers",
+        "resolver_servfail_warning_percent": "SERVFAIL warning (%)",
+        "resolver_servfail_critical_percent": "SERVFAIL critical (%)",
+        "resolver_dnssec_failures": "DNSSEC failures per window",
+        "resolver_drop_percent": "Query drop (%)",
+        "resolver_drop_min_qpm": "Query drop: minimum queries per minute",
+        "resolver_roots_failures": "Root probe failures in a row",
+        "delegation_timeout_seconds": "Delegation probe timeout (seconds)",
+        "delegation_max_zones": "Zones checked for delegation",
+        "delegation_confirm_passes": "Delegation failures confirmed over passes",
+        "soa_refresh_min": "SOA refresh minimum (seconds)",
+        "soa_refresh_max": "SOA refresh maximum (seconds)",
+        "soa_retry_min": "SOA retry minimum (seconds)",
+        "soa_retry_max": "SOA retry maximum (seconds)",
+        "soa_expire_min": "SOA expire minimum (seconds)",
+        "soa_expire_max": "SOA expire maximum (seconds)",
+        "soa_minimum_min": "SOA negative TTL minimum (seconds)",
+        "soa_minimum_max": "SOA negative TTL maximum (seconds)",
+        "restart_loop_count": "Restarts that make a loop",
+        "restart_loop_window_seconds": "Restart loop window (seconds)",
+        "forecast_window_days": "Forecast history (days)",
+        "forecast_warning_days": "Forecast warning (days to full)",
+        "forecast_critical_days": "Forecast critical (days to full)",
+        "advisories_enabled": "Check ISC security advisories",
+        "advisories_fetch": "Fetch advisory data from the network",
+        "advisories_url": "Advisory data URL (https)"
       }
     }
   }

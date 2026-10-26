@@ -26,6 +26,19 @@ What changed (file, symbol). Why. Which packages must react, and how.
   `finding.query_refused.*`; `stats_nonlocal` is no longer raised for a
   statistics channel bound to loopback. rndc's "key file exists, but using
   default configuration file" warning is dropped from rndc output.
+## 2026-10-26, WP-COLLECTOR: health checks (disk, reservations, declines, resolver, delegation, versions, restarts, forecast, advisories)
+- `pelagos.domain.AlertKind` gains `DISK_SPACE`, `FILE_GROWTH`, `RESERVATION_RISK`, `DECLINED_ADDRESSES`,
+  `RESOLVER_HEALTH`, `DELEGATION_ISSUE`, `VERSION_MISMATCH`, `RESTART_LOOP`, `POOL_FORECAST`,
+  `SECURITY_ADVISORY`. Subjects are stable per object (section 15 table) so a later exception mechanism
+  can key on (kind, subject). `RESERVATION_RISK` peer rows and `VERSION_MISMATCH` have no node.
+- `cluster.toml [settings.checks]` (`DEFAULT_SETTINGS`, `SETTINGS_SCHEMA`): thresholds of the new checks.
+  The Kea engines publish a `reservations` snapshot kind that peers copy.
+- Messages: `alert.disk_space`, `alert.log_growth*`, `alert.lease_file_growth`, `alert.lfc_stale`,
+  `alert.journal_growth`, `alert.backups_growth`, `alert.audit_growth`, `alert.reservation_*`,
+  `alert.declined_*`, `alert.resolver_*`, `alert.ns_*`, `alert.soa_range`, `alert.version_mismatch`,
+  `alert.restart_loop`, `alert.pool_forecast`, `alert.security_advisory` (catalogs follow).
+- Data file `pelagos/data/isc_advisories.json`. New collector tasks `health` and `health_audit`.
+- Frontend: alert kind labels, settings labels and the alerts filter list follow.
 
 ## 2026-10-25, N-NODES follow-ups: backups, divergence, plans on disk, hub and spoke
 - `pelagos.domain.dhcp.HAState.other_relationships` (`list[HAState]`, default

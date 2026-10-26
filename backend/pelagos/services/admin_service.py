@@ -47,6 +47,45 @@ SETTINGS_SCHEMA: dict[str, Any] = {
         "live_seconds": (int, 1, 300),
         "lease_watch_max": (int, 0, 10_000_000),
     },
+    "checks": {
+        "disk_free_warning_percent": (int, 1, 99),
+        "disk_free_critical_percent": (int, 1, 99),
+        "log_max_mb": (int, 1, 10000000),
+        "lease_file_max_mb": (int, 1, 10000000),
+        "lfc_stale_factor": (int, 1, 100),
+        "journal_max_mb": (int, 1, 10000000),
+        "backups_max_mb": (int, 1, 10000000),
+        "audit_max_mb": (int, 1, 10000000),
+        "declined_addresses_warning": (int, 1, 1000000),
+        "declined_received_warning": (int, 1, 1000000),
+        "resolver_window_seconds": (int, 60, 86400),
+        "resolver_min_queries": (int, 1, 10000000),
+        "resolver_servfail_warning_percent": (int, 1, 100),
+        "resolver_servfail_critical_percent": (int, 1, 100),
+        "resolver_dnssec_failures": (int, 1, 1000000),
+        "resolver_drop_percent": (int, 1, 100),
+        "resolver_drop_min_qpm": (int, 1, 10000000),
+        "resolver_roots_failures": (int, 1, 100),
+        "delegation_timeout_seconds": (int, 1, 30),
+        "delegation_max_zones": (int, 1, 100000),
+        "delegation_confirm_passes": (int, 1, 10),
+        "soa_refresh_min": (int, 1, 2147483648),
+        "soa_refresh_max": (int, 1, 2147483648),
+        "soa_retry_min": (int, 1, 2147483648),
+        "soa_retry_max": (int, 1, 2147483648),
+        "soa_expire_min": (int, 1, 2147483648),
+        "soa_expire_max": (int, 1, 2147483648),
+        "soa_minimum_min": (int, 0, 2147483648),
+        "soa_minimum_max": (int, 0, 2147483648),
+        "restart_loop_count": (int, 2, 1000),
+        "restart_loop_window_seconds": (int, 60, 86400),
+        "forecast_window_days": (int, 1, 365),
+        "forecast_warning_days": (int, 1, 365),
+        "forecast_critical_days": (int, 1, 365),
+        "advisories_enabled": (bool, None, None),
+        "advisories_fetch": (bool, None, None),
+        "advisories_url": (str, 0, None),
+    },
     "retention": {
         "pool_raw_days": (int, 1, 3650),
         "pool_hourly_days": (int, 1, 3650),
@@ -358,6 +397,7 @@ class AdminService:
             errors.append(
                 field_error("alerts_pool_warning_percent", "must be lower than alerts_pool_critical_percent")
             )
+        errors.extend(_check_pairs(merged.get("checks", {})))
         if merged["session_idle_seconds"] > merged["session_ttl_seconds"]:
             errors.append(field_error("session_idle_seconds", "must not exceed session_ttl_seconds"))
         if errors:
@@ -561,12 +601,32 @@ def _validate_settings(body: dict[str, Any], schema: dict[str, Any], prefix: str
             elif (lo is not None and value < lo) or (hi is not None and value > hi):
                 errors.append(field_error(path, f"must be between {lo} and {hi}"))
         elif kind is str:
-            if not isinstance(value, str) or not value.strip():
+            if not isinstance(value, str) or (lo != 0 and not value.strip()):
                 errors.append(field_error(path, "non-empty string expected"))
         elif kind is list:
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 errors.append(field_error(path, "list of strings expected"))
     return errors
+
+
+# (key that must be lower, key that must be higher) among the health check thresholds.
+CHECK_PAIRS = (
+    ("disk_free_critical_percent", "disk_free_warning_percent"),
+    ("resolver_servfail_warning_percent", "resolver_servfail_critical_percent"),
+    ("forecast_critical_days", "forecast_warning_days"),
+    ("soa_refresh_min", "soa_refresh_max"),
+    ("soa_retry_min", "soa_retry_max"),
+    ("soa_expire_min", "soa_expire_max"),
+    ("soa_minimum_min", "soa_minimum_max"),
+)
+
+
+def _check_pairs(checks: dict[str, Any]) -> list[dict[str, str]]:
+    return [
+        field_error(f"checks.{low}", f"must be lower than checks.{high}")
+        for low, high in CHECK_PAIRS
+        if low in checks and high in checks and checks[low] >= checks[high]
+    ]
 
 
 __all__ = ["DEFAULT_SETTINGS", "SETTINGS_SCHEMA", "AdminService"]

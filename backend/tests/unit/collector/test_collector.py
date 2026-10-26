@@ -291,6 +291,8 @@ def test_tasks_and_retention(rig):
         "apply_acks": 60.0,
         "consistency": 900.0,
         "security_audit": 900.0,
+        "health": 60.0,
+        "health_audit": 900.0,
         "retention": 3600.0,
     }
     counts = collector.retention()
@@ -514,7 +516,7 @@ def test_collector_settings_reload_live(rig):
     os.utime(ctx.paths.cluster_toml, ns=(5, 5))
     assert watch.changed() is True and watch.changed() is False
     changed = reload_settings(collector, tasks, handle)
-    assert set(changed) == {"poll_bind", "poll_kea", "poll_d2", "apply_acks", "poll_peers"}
+    assert set(changed) == {"poll_bind", "poll_kea", "poll_d2", "apply_acks", "poll_peers", "health"}
     periods = {t.name: t for t in tasks}
     assert periods["poll_kea"].period == 10.0 and periods["poll_peers"].period == 5.0
     assert periods["poll_kea"].next_run < far  # a shorter period applies at once

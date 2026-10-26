@@ -218,6 +218,30 @@ once on the node you changed them on and on the other nodes after
 | `alerts_ha_grace_seconds` | int | `45` | 0 to 3600 | how long a Kea HA relationship may be away from a normal state (a `waiting` after a `config-reload`, say) before `ha_partner_down`, `ha_degraded` and `ha_transition` open; `terminated` is never delayed, and a reload done by Pelagos keeps them quiet for this long |
 | `alerts_custom_hooks` | bool | `true` | | raise `custom_hook` for a Kea hook library that no package owns |
 
+### Health checks (`[settings.checks]`)
+
+Every key is optional. Thresholds are read at each pass; the alerts are in
+`docs/user/screens.md`.
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `disk_free_warning_percent`, `disk_free_critical_percent` | `15`, `5` | `disk_space` at or under this free share (critical must be lower) |
+| `log_max_mb`, `lease_file_max_mb`, `journal_max_mb`, `backups_max_mb`, `audit_max_mb` | `1024`, `512`, `256`, `2048`, `512` | `file_growth` at this size, critical at five times |
+| `lfc_stale_factor` | `3` | LFC overdue after this many `lfc-interval` periods |
+| `declined_addresses_warning`, `declined_received_warning` | `5`, `5` | declined addresses in a subnet, DHCPDECLINE per hour |
+| `resolver_window_seconds`, `resolver_min_queries` | `900`, `200` | window of the rate checks, answers needed before judging SERVFAIL |
+| `resolver_servfail_warning_percent`, `resolver_servfail_critical_percent` | `10`, `30` | SERVFAIL share of the answers |
+| `resolver_dnssec_failures` | `10` | validation failures per window |
+| `resolver_drop_percent`, `resolver_drop_min_qpm` | `80`, `60` | query drop against the two preceding windows, and the baseline needed to judge it |
+| `resolver_roots_failures` | `3` | failed root probes in a row |
+| `delegation_timeout_seconds`, `delegation_max_zones` | `2`, `200` | timeout per probe, zones checked per pass (default view only) |
+| `delegation_confirm_passes` | `2` | consecutive passes an unresolved or silent name server must fail before the alert opens |
+| `soa_refresh_min`/`max`, `soa_retry_min`/`max`, `soa_expire_min`/`max`, `soa_minimum_min`/`max` | `1200`/`86400`, `120`/`7200`, `604800`/`2419200`, `300`/`86400` | usual SOA ranges, `info` outside |
+| `restart_loop_count`, `restart_loop_window_seconds` | `3`, `1800` | restarts that make a loop |
+| `forecast_window_days`, `forecast_warning_days`, `forecast_critical_days` | `7`, `14`, `3` | history used for the trend, days to full that raise the alert |
+| `advisories_enabled` | `true` | compare installed versions with the advisory data |
+| `advisories_fetch`, `advisories_url` | `false`, empty | download the data file daily from this https address |
+
 ### DNS (`[settings.dns]`)
 
 | Key | Default | Effect |

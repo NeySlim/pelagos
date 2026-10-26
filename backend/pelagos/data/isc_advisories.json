@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "revision": 2,
+  "updated": "2025-10-22",
+  "source": "ISC security advisories and version matrices, https://kb.isc.org/docs/aa-00913",
+  "notice": "Seed compiled without network access and last extended with the advisories of 2025-10-22: later advisories and Kea development series (2.5.x, 2.7.x) are not covered. Check every range against the ISC matrices before relying on it, see docs/user/operations.md.",
+  "entries": [
+    {
+      "id": "CVE-2023-3341",
+      "engine": "bind",
+      "severity": "high",
+      "summary": "control channel message parsing can exhaust the stack",
+      "url": "https://kb.isc.org/docs/cve-2023-3341",
+      "ranges": [
+        {"from": "9.2.0", "to": "9.16.43", "fixed": "9.16.44"},
+        {"from": "9.18.0", "to": "9.18.18", "fixed": "9.18.19"},
+        {"from": "9.19.0", "to": "9.19.16", "fixed": "9.19.17"}
+      ]
+    },
+    {
+      "id": "CVE-2023-50387",
+      "engine": "bind",
+      "severity": "high",
+      "summary": "DNSSEC validation can use excessive CPU (KeyTrap)",
+      "url": "https://kb.isc.org/docs/cve-2023-50387",
+      "ranges": [
+        {"from": "9.0.0", "to": "9.16.46", "fixed": "9.16.48"},
+        {"from": "9.18.0", "to": "9.18.23", "fixed": "9.18.24"},
+        {"from": "9.19.0", "to": "9.19.20", "fixed": "9.19.21"}
+      ]
+    },
+    {
+      "id": "CVE-2023-50868",
+      "engine": "bind",
+      "severity": "high",
+      "summary": "NSEC3 closest encloser proof can use excessive CPU",
+      "url": "https://kb.isc.org/docs/cve-2023-50868",
+      "ranges": [
+        {"from": "9.0.0", "to": "9.16.46", "fixed": "9.16.48"},
+        {"from": "9.18.0", "to": "9.18.23", "fixed": "9.18.24"},
+        {"from": "9.19.0", "to": "9.19.20", "fixed": "9.19.21"}
+      ]
+    },
+    {
+      "id": "CVE-2024-1737",
+      "engine": "bind",
+      "severity": "high",
+      "summary": "a name with very many records slows down the cache and zone database",
+      "url": "https://kb.isc.org/docs/cve-2024-1737",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.16.50", "fixed": "9.18.28"},
+        {"from": "9.18.0", "to": "9.18.27", "fixed": "9.18.28"},
+        {"from": "9.19.0", "to": "9.19.24", "fixed": "9.20.0"}
+      ]
+    },
+    {
+      "id": "CVE-2024-1975",
+      "engine": "bind",
+      "severity": "high",
+      "summary": "validating SIG(0) signed requests can use excessive CPU",
+      "url": "https://kb.isc.org/docs/cve-2024-1975",
+      "ranges": [
+        {"from": "9.0.0", "to": "9.16.50", "fixed": "9.18.28"},
+        {"from": "9.18.0", "to": "9.18.27", "fixed": "9.18.28"},
+        {"from": "9.19.0", "to": "9.19.24", "fixed": "9.20.0"}
+      ]
+    },
+    {
+      "id": "CVE-2024-11187",
+      "engine": "bind",
+      "severity": "high",
+      "summary": "many records in the additional section can use excessive CPU",
+      "url": "https://kb.isc.org/docs/cve-2024-11187",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.16.50", "fixed": "9.18.33"},
+        {"from": "9.18.0", "to": "9.18.32", "fixed": "9.18.33"},
+        {"from": "9.20.0", "to": "9.20.4", "fixed": "9.20.5"},
+        {"from": "9.21.0", "to": "9.21.3", "fixed": "9.21.4"}
+      ]
+    },
+    {
+      "id": "CVE-2024-12705",
+      "engine": "bind",
+      "severity": "high",
+      "summary": "DNS over HTTPS query flooding can exhaust CPU and memory",
+      "url": "https://kb.isc.org/docs/cve-2024-12705",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.32", "fixed": "9.18.33"},
+        {"from": "9.20.0", "to": "9.20.4", "fixed": "9.20.5"},
+        {"from": "9.21.0", "to": "9.21.3", "fixed": "9.21.4"}
+      ]
+    },
+    {
+      "id": "CVE-2025-40775",
+      "engine": "bind",
+      "severity": "high",
+      "summary": "a DNS message with an invalid TSIG algorithm makes named exit",
+      "url": "https://kb.isc.org/docs/cve-2025-40775",
+      "ranges": [
+        {"from": "9.20.0", "to": "9.20.8", "fixed": "9.20.9"},
+        {"from": "9.21.0", "to": "9.21.7", "fixed": "9.21.8"}
+      ]
+    },
+    {
+      "id": "CVE-2025-40778",
+      "engine": "bind",
+      "severity": "high",
+      "summary": "unsolicited resource records can poison the resolver cache",
+      "url": "https://kb.isc.org/docs/cve-2025-40778",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.16.50", "fixed": "9.18.41"},
+        {"from": "9.18.0", "to": "9.18.40", "fixed": "9.18.41"},
+        {"from": "9.20.0", "to": "9.20.14", "fixed": "9.20.15"},
+        {"from": "9.21.0", "to": "9.21.13", "fixed": "9.21.14"}
+      ]
+    },
+    {
+      "id": "CVE-2025-40780",
+      "engine": "bind",
+      "severity": "high",
+      "summary": "weak pseudo-random generator makes the source port and query ID predictable (cache poisoning)",
+      "url": "https://kb.isc.org/docs/cve-2025-40780",
+      "ranges": [
+        {"from": "9.16.0", "to": "9.16.50", "fixed": "9.18.41"},
+        {"from": "9.18.0", "to": "9.18.40", "fixed": "9.18.41"},
+        {"from": "9.20.0", "to": "9.20.14", "fixed": "9.20.15"},
+        {"from": "9.21.0", "to": "9.21.13", "fixed": "9.21.14"}
+      ]
+    },
+    {
+      "id": "CVE-2025-32801",
+      "engine": "kea",
+      "severity": "high",
+      "summary": "a malicious hook library can lead to local privilege escalation",
+      "url": "https://kb.isc.org/docs/cve-2025-32801",
+      "ranges": [
+        {"from": "2.4.0", "to": "2.4.1", "fixed": "2.4.2"},
+        {"from": "2.6.0", "to": "2.6.2", "fixed": "2.6.3"},
+        {"from": "3.0.0", "to": "3.0.0", "fixed": "3.0.1"}
+      ]
+    },
+    {
+      "id": "CVE-2025-32802",
+      "engine": "kea",
+      "severity": "medium",
+      "summary": "insecure handling of file paths allows local file overwrite",
+      "url": "https://kb.isc.org/docs/cve-2025-32802",
+      "ranges": [
+        {"from": "2.4.0", "to": "2.4.1", "fixed": "2.4.2"},
+        {"from": "2.6.0", "to": "2.6.2", "fixed": "2.6.3"},
+        {"from": "3.0.0", "to": "3.0.0", "fixed": "3.0.1"}
+      ]
+    },
+    {
+      "id": "CVE-2025-32803",
+      "engine": "kea",
+      "severity": "medium",
+      "summary": "insecure file permissions on log and lease files",
+      "url": "https://kb.isc.org/docs/cve-2025-32803",
+      "ranges": [
+        {"from": "2.4.0", "to": "2.4.1", "fixed": "2.4.2"},
+        {"from": "2.6.0", "to": "2.6.2", "fixed": "2.6.3"},
+        {"from": "3.0.0", "to": "3.0.0", "fixed": "3.0.1"}
+      ]
+    }
+  ]
+}

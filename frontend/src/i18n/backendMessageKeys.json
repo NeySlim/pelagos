@@ -1,4 +1,14 @@
 {
+  "alert.audit_growth": [
+    "limit",
+    "path",
+    "size"
+  ],
+  "alert.backups_growth": [
+    "limit",
+    "path",
+    "size"
+  ],
   "alert.config_divergence": [
     "engine"
   ],
@@ -20,6 +30,21 @@
   ],
   "alert.daemon_down": [
     "engine"
+  ],
+  "alert.declined_addresses": [
+    "count",
+    "engine",
+    "subnet_id"
+  ],
+  "alert.declined_received": [
+    "count",
+    "engine",
+    "minutes"
+  ],
+  "alert.disk_space": [
+    "free",
+    "path",
+    "percent"
   ],
   "alert.duplicate_lease": [
     "identifier",
@@ -49,14 +74,60 @@
     "from_state",
     "to_state"
   ],
+  "alert.journal_growth": [
+    "limit",
+    "path",
+    "size",
+    "zone"
+  ],
+  "alert.lease_file_growth": [
+    "limit",
+    "path",
+    "size"
+  ],
   "alert.lease_without_record": [
     "fqdn",
     "ip",
     "rtype",
     "zone"
   ],
+  "alert.lfc_stale": [
+    "age",
+    "engine"
+  ],
+  "alert.log_growth": [
+    "limit",
+    "path",
+    "rotation",
+    "size"
+  ],
+  "alert.log_growth.not_rotated": [],
+  "alert.log_growth.rotated": [],
+  "alert.ns_no_transfer": [
+    "address",
+    "ns",
+    "zone"
+  ],
+  "alert.ns_not_listed": [
+    "address",
+    "zones"
+  ],
+  "alert.ns_silent": [
+    "address",
+    "ns",
+    "zone"
+  ],
+  "alert.ns_unresolved": [
+    "ns",
+    "zone"
+  ],
   "alert.peer_offline": [
     "node"
+  ],
+  "alert.pool_forecast": [
+    "days",
+    "pool",
+    "subnet_id"
   ],
   "alert.pool_usage": [
     "percent",
@@ -78,6 +149,21 @@
     "addresses",
     "name",
     "rtype"
+  ],
+  "alert.reservation_duplicate_host": [
+    "count",
+    "hostname",
+    "ips"
+  ],
+  "alert.reservation_duplicate_id": [
+    "count",
+    "identifier",
+    "ips"
+  ],
+  "alert.reservation_in_pool": [
+    "identifier",
+    "ip",
+    "pool"
   ],
   "alert.reservation_mismatch": [
     "fqdn",
@@ -101,16 +187,78 @@
     "error",
     "name"
   ],
+  "alert.reservation_no_subnet": [
+    "identifier",
+    "ip"
+  ],
+  "alert.reservation_outside_subnet": [
+    "identifier",
+    "ip",
+    "subnet"
+  ],
+  "alert.reservation_peer_differs": [
+    "identifier",
+    "nodes"
+  ],
+  "alert.reservation_peer_id_differs": [
+    "first",
+    "first_nodes",
+    "second",
+    "second_nodes",
+    "what"
+  ],
+  "alert.reservation_peer_missing": [
+    "identifier",
+    "missing",
+    "present"
+  ],
+  "alert.resolver_dnssec": [
+    "count",
+    "minutes"
+  ],
+  "alert.resolver_drop": [
+    "baseline",
+    "percent",
+    "recent"
+  ],
+  "alert.resolver_roots": [],
+  "alert.resolver_servfail": [
+    "minutes",
+    "percent"
+  ],
+  "alert.restart_loop": [
+    "count",
+    "engine",
+    "minutes"
+  ],
   "alert.schema_mismatch": [
     "node"
   ],
   "alert.secondary_stale": [
     "zone"
   ],
+  "alert.security_advisory": [
+    "cve",
+    "dataset",
+    "engine",
+    "summary",
+    "version"
+  ],
   "alert.serial_divergence": [
     "reference",
     "serial",
     "zone"
+  ],
+  "alert.soa_range": [
+    "field",
+    "high",
+    "low",
+    "value",
+    "zone"
+  ],
+  "alert.version_mismatch": [
+    "engine",
+    "versions"
   ],
   "alert.zone_error": [
     "zone"

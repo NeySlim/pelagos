@@ -24,6 +24,8 @@ const ALERT_KINDS = [
   'ha_transition', 'd2_errors', 'daemon_down', 'peer_offline', 'config_divergence', 'lease_without_record',
   'record_without_lease', 'reservation_mismatch', 'ptr_mismatch', 'duplicate_ip', 'insecure_key', 'insecure_listener',
   'custom_hook', 'rpz_update',
+  'disk_space', 'file_growth', 'reservation_risk', 'declined_addresses', 'resolver_health', 'delegation_issue',
+  'version_mismatch', 'restart_loop', 'pool_forecast', 'security_advisory',
 ]
 
 describe('dashboard i18n', () => {

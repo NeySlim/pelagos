@@ -145,6 +145,10 @@
       "retention": {
         "title": "Rétention",
         "help": "Durée de conservation des séries, des alertes résolues et des sauvegardes"
+      },
+      "checks": {
+        "title": "Contrôles de santé",
+        "help": "Seuils des contrôles disque, réservations, résolveur, délégation, prévision et avis"
       }
     },
     "fields": {
@@ -194,6 +198,45 @@
         "serial_days": "Historique des numéros de série (jours)",
         "ha_transition_days": "Transitions HA (jours)",
         "alerts_resolved_days": "Alertes résolues (jours)"
+      },
+      "checks": {
+        "disk_free_warning_percent": "Espace disque libre, avertissement (%)",
+        "disk_free_critical_percent": "Espace disque libre, critique (%)",
+        "log_max_mb": "Taille maximale du journal named (Mo)",
+        "lease_file_max_mb": "Taille maximale du fichier de baux Kea (Mo)",
+        "lfc_stale_factor": "LFC en retard après (intervalles)",
+        "journal_max_mb": "Taille maximale d'un journal de zone (Mo)",
+        "backups_max_mb": "Taille maximale des sauvegardes (Mo)",
+        "audit_max_mb": "Taille maximale du journal d'audit (Mo)",
+        "declined_addresses_warning": "Adresses déclinées par sous-réseau",
+        "declined_received_warning": "Refus reçus par heure",
+        "resolver_window_seconds": "Fenêtre du résolveur (secondes)",
+        "resolver_min_queries": "Réponses minimales du résolveur",
+        "resolver_servfail_warning_percent": "SERVFAIL, avertissement (%)",
+        "resolver_servfail_critical_percent": "SERVFAIL, critique (%)",
+        "resolver_dnssec_failures": "Échecs DNSSEC par fenêtre",
+        "resolver_drop_percent": "Chute des requêtes (%)",
+        "resolver_drop_min_qpm": "Chute des requêtes : minimum par minute",
+        "resolver_roots_failures": "Échecs de sonde des racines de suite",
+        "delegation_timeout_seconds": "Délai de la sonde de délégation (secondes)",
+        "delegation_max_zones": "Zones vérifiées pour la délégation",
+        "delegation_confirm_passes": "Passes confirmant un échec de délégation",
+        "soa_refresh_min": "SOA refresh minimal (secondes)",
+        "soa_refresh_max": "SOA refresh maximal (secondes)",
+        "soa_retry_min": "SOA retry minimal (secondes)",
+        "soa_retry_max": "SOA retry maximal (secondes)",
+        "soa_expire_min": "SOA expire minimal (secondes)",
+        "soa_expire_max": "SOA expire maximal (secondes)",
+        "soa_minimum_min": "SOA TTL négatif minimal (secondes)",
+        "soa_minimum_max": "SOA TTL négatif maximal (secondes)",
+        "restart_loop_count": "Redémarrages qui font une boucle",
+        "restart_loop_window_seconds": "Fenêtre de boucle de redémarrage (secondes)",
+        "forecast_window_days": "Historique de prévision (jours)",
+        "forecast_warning_days": "Prévision, avertissement (jours avant plein)",
+        "forecast_critical_days": "Prévision, critique (jours avant plein)",
+        "advisories_enabled": "Vérifier les avis de sécurité ISC",
+        "advisories_fetch": "Récupérer les données d'avis par le réseau",
+        "advisories_url": "URL des données d'avis (https)"
       }
     }
   }

@@ -1,0 +1,184 @@
+# SPDX-License-Identifier: Apache-2.0
+"""The health checks through a collector on a bootstrapped node with fake connectors."""
+
+from __future__ import annotations
+
+import pytest
+
+from pelagos.collector.checks import delegation
+from pelagos.collector.checks.runner import _ha_groups
+from pelagos.collector.events import EventSink
+from pelagos.collector.main import Backends, Collector
+from pelagos.collector.series import SeriesStore, connect
+from pelagos.domain import AlertKind, AlertState, Family, Reservation, ReservationIdType, Severity
+from tests.unit.collector.fakes import PEER, FakeDhcpBackend, FakeDnsBackend, FakePeerClient
+
+pytestmark = pytest.mark.unit
+
+
+class Clock:
+    def __init__(self, now=1_800_000_000.0):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+
+@pytest.fixture
+def rig(node_ctx):
+    conn = connect(node_ctx.paths.series_db)
+    store = SeriesStore(conn)
+    node = node_ctx.node.id
+    backends = Backends(dns=FakeDnsBackend(node), kea4=FakeDhcpBackend(Family.V4, node))
+    clock = Clock()
+    collector = Collector(
+        node_ctx, store, backends, FakePeerClient(), EventSink(node_ctx.paths.events_sock, node), clock=clock
+    )
+    collector.findings_source = lambda _ctx: []
+    yield collector, backends, clock
+    conn.close()
+
+
+def open_of(collector, kind):
+    return {a.subject: a for a in collector.alerts.open_alerts() if a.kind is kind}
+
+
+def test_restart_loop_opens_after_three_restarts_and_resolves_when_they_age_out(rig):
+    collector, _, clock = rig
+    node = collector.node_id
+    uptime = 600
+    for _ in range(4):
+        # Each poll finds the daemon freshly started: uptime back to a few seconds.
+        collector.store.write_snapshot(node, "kea4", "status", int(clock.now), {"uptime": uptime})
+        collector.health()
+        clock.now += 120
+        uptime = 20
+    alert = open_of(collector, AlertKind.RESTART_LOOP)["engine:kea4"]
+    assert alert.details["restarts"] == 3
+    clock.now += 2000
+    collector.store.write_snapshot(node, "kea4", "status", int(clock.now), {"uptime": 2100})
+    collector.health()
+    assert open_of(collector, AlertKind.RESTART_LOOP) == {}
+
+
+def test_restart_loop_stays_open_on_unchanged_snapshot_and_while_down(rig):
+    collector, _, clock = rig
+    node = collector.node_id
+    uptime = 600
+    for _ in range(4):
+        collector.store.write_snapshot(node, "kea4", "status", int(clock.now), {"uptime": uptime})
+        collector.health()
+        clock.now += 120
+        uptime = 20
+    first = open_of(collector, AlertKind.RESTART_LOOP)["engine:kea4"]
+    for _ in range(2):  # poller has not refreshed the snapshot
+        clock.now += 30
+        collector.health()
+    again = open_of(collector, AlertKind.RESTART_LOOP)["engine:kea4"]
+    assert again.id == first.id
+
+
+def test_advisory_alert_survives_a_stopped_daemon(rig):
+    collector, _, _ = rig
+    node = collector.node_id
+    collector.store.write_snapshot(node, "bind", "capabilities", 1, {"running": True, "version": "9.18.10"})
+    collector.health()
+    first = open_of(collector, AlertKind.SECURITY_ADVISORY)["bind:CVE-2023-50387"]
+    collector.store.write_snapshot(node, "bind", "capabilities", 2, {"running": False, "version": "9.18.10"})
+    collector.health()
+    assert open_of(collector, AlertKind.SECURITY_ADVISORY)["bind:CVE-2023-50387"].id == first.id
+
+
+def test_risky_reservation_and_peer_difference(rig):
+    collector, backends, clock = rig
+    kea = backends.kea4
+    kea.reservations = [
+        Reservation(
+            subnet_id=1,
+            id_type=ReservationIdType.HW_ADDRESS,
+            identifier="aa:bb:cc:00:00:01",
+            ip_address="203.0.113.9",
+            hostname="web",
+        ),
+        Reservation(
+            subnet_id=1,
+            id_type=ReservationIdType.HW_ADDRESS,
+            identifier="aa:bb:cc:00:00:02",
+            ip_address="192.0.2.30",
+            hostname="db",
+        ),
+    ]
+    brief = [
+        {
+            "subnet_id": 1,
+            "id_type": "hw-address",
+            "identifier": "aa:bb:cc:00:00:02",
+            "ips": ["192.0.2.31"],
+            "hostname": "db",
+        },
+    ]
+    collector.store.write_snapshot(PEER, "kea4", "reservations", int(clock.now), brief)
+    collector.store.write_snapshot(PEER, "kea4", "subnets", int(clock.now), [{"id": 1}])
+    collector.store.write_snapshot(collector.node_id, "kea4", "subnets", int(clock.now), [{"id": 1}])
+    collector.health_audit()
+    found = open_of(collector, AlertKind.RESERVATION_RISK)
+    assert set(found) == {
+        "kea4:outside-subnet:203.0.113.9",
+        "kea4:peer:hw-address=aa:bb:cc:00:00:01",
+        "kea4:peer:hw-address=aa:bb:cc:00:00:02",
+    }
+    assert found["kea4:peer:hw-address=aa:bb:cc:00:00:01"].node_id is None
+    kea.reservations = []
+    collector.health_audit()
+    assert all(a.state is AlertState.OPEN for a in open_of(collector, AlertKind.RESERVATION_RISK).values())
+    assert "kea4:outside-subnet:203.0.113.9" not in open_of(collector, AlertKind.RESERVATION_RISK)
+
+
+def test_big_audit_log_and_backups_raise_file_growth(rig, monkeypatch):
+    collector, _, _ = rig
+    paths = collector.ctx.paths
+    paths.audit_log.parent.mkdir(parents=True, exist_ok=True)
+    with open(paths.audit_log, "wb") as f:
+        f.truncate(600 * 1024 * 1024)  # sparse file
+    collector.health_audit()
+    found = open_of(collector, AlertKind.FILE_GROWTH)
+    assert f"file:{paths.audit_log}" in found
+    paths.audit_log.write_text("")
+    collector.health_audit()
+    assert open_of(collector, AlertKind.FILE_GROWTH) == {}
+
+
+def test_version_mismatch_between_kea_peers_and_advisory_for_an_old_bind(rig):
+    collector, _, _ = rig
+    node = collector.node_id
+    for who, version in ((node, "2.6.3"), (PEER, "3.0.1")):
+        collector.store.write_snapshot(who, "kea4", "capabilities", 1, {"running": True, "version": version})
+    collector.store.write_snapshot(node, "bind", "capabilities", 1, {"running": True, "version": "9.18.10"})
+    collector.health()
+    assert open_of(collector, AlertKind.VERSION_MISMATCH)["kea4:version"].node_id is None
+    assert "bind:CVE-2023-50387" in open_of(collector, AlertKind.SECURITY_ADVISORY)
+    collector.store.write_snapshot(node, "bind", "capabilities", 2, {"running": True, "version": "9.20.26"})
+    collector.health()
+    assert open_of(collector, AlertKind.SECURITY_ADVISORY) == {}
+
+
+def test_declined_addresses_from_utilization(rig):
+    collector, _, _ = rig
+    rows = [
+        {"subnet_id": 1, "pool": "192.0.2.100 - 192.0.2.199", "total": 100, "assigned": 20, "declined": 6}
+    ]
+    collector.store.write_snapshot(collector.node_id, "kea4", "utilization", 1, rows)
+    collector.health()
+    assert set(open_of(collector, AlertKind.DECLINED_ADDRESSES)) == {"kea4:subnet:1"}
+
+
+def test_delegation_failure_needs_two_passes_and_peers_follow_ha_groups(rig):
+    collector, _, _ = rig
+    message = {"key": "alert.ns_silent", "params": {"zone": "z", "ns": "ns2.", "address": "192.0.2.2"}}
+    alert = delegation._alert("n1", Severity.WARNING, "ns-silent:z:ns2.", message, {})
+    assert collector.checks._confirmed([alert], 2) == []
+    assert collector.checks._confirmed([alert], 2) == [alert]
+    assert collector.checks._confirmed([], 2) == []
+    assert collector.checks._confirmed([alert], 2) == []
+    assert _ha_groups({"a", "b", "c"}, {}) == [["a", "b", "c"]]
+    assert _ha_groups({"a", "b", "c"}, {"a": {"x", "y"}, "b": {"y", "x"}}) == [["a", "b"]]

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pelagos.connectors.bind.rndc import strip_rndc_noise
 from pelagos.core.paths import Paths
 from pelagos.installer import keaconf
 from pelagos.platform import (
@@ -139,7 +140,7 @@ class Tools:
         if conf is not None:
             argv += ["-c", str(conf)]
         res = self.env.runner.run([*argv, *args], privileged=True, check=False, mutates=False, timeout=30)
-        return res.ok, res.output
+        return res.ok, strip_rndc_noise(res.output)
 
     def http_get(self, url: str, timeout: float = 5.0) -> tuple[int, str]:
         try:

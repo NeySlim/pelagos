@@ -462,3 +462,14 @@ def test_new_primary_falls_back_to_the_default_ns_setting(tmp_root: Path, conf_t
     plan = backend.plan_zone_change(Change(ChangeOp.ADD, "_default/d.example.lan", after={"kind": "primary"}))
     assert plan.state is PlanState.VALIDATED, plan.error
     assert plan.changes[0].after["ns"] == ["ns1.example.net.", "ns2.example.net."]
+
+
+def test_strip_rndc_noise_removes_the_default_configuration_warning():
+    from pelagos.connectors.bind.rndc import strip_rndc_noise
+
+    raw = (
+        "WARNING: key file (/etc/bind/rndc.key) exists, but using default configuration file "
+        "(/etc/bind/rndc.conf)\nzone reload queued\n"
+    )
+    assert strip_rndc_noise(raw).strip() == "zone reload queued"
+    assert strip_rndc_noise("plain") == "plain"

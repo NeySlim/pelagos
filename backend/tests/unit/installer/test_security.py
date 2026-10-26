@@ -108,6 +108,21 @@ def test_audit_from_printed_config_matches_user_files(tmp_path):
     assert kinds == {k.split(":")[1] for k in LEGACY_IDS}
 
 
+def _stats_kinds(inet: str) -> set[str]:
+    text = f"statistics-channels {{ {inet} }};\n"
+    files = bindconf.ConfigFiles(root=Path("s.conf"), order=["s.conf"])
+    files.statements["s.conf"] = bindconf.parse(text)
+    files.texts["s.conf"] = text
+    return {f.kind for f in audit_bind(BindAuditInput(files=files))}
+
+
+def test_stats_channel_on_loopback_is_not_a_finding():
+    assert _stats_kinds("inet 127.0.0.1 port 8053 allow { any; };") == set()
+    assert _stats_kinds("inet ::1 port 8053 allow { any; };") == set()
+    assert _stats_kinds("inet 192.0.2.53 port 8053 allow { 127.0.0.1; };") == {"stats_nonlocal"}
+    assert _stats_kinds("inet * port 8053 allow { any; };") == {"stats_nonlocal"}
+
+
 def test_clean_default_has_no_finding(tmp_path):
     env = debian_tree(tmp_path)
     assert run_audit(env) == []

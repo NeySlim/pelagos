@@ -22,6 +22,14 @@ class RndcNotFound(ConnectorError):
     """rndc answered but the zone (or view) does not exist."""
 
 
+_KEY_FILE_NOISE = re.compile(r"^WARNING: key file \(.*\) exists, but using default .*$", re.M)
+
+
+def strip_rndc_noise(text: str) -> str:
+    """Drop rndc's known 'key file exists, but using default configuration file' warning."""
+    return _KEY_FILE_NOISE.sub("", text).strip("\n") if text else text
+
+
 def find_binary(name: str) -> str | None:
     """PATH first, then the sbin directories a non-root user usually lacks."""
     found = shutil.which(name)
@@ -76,7 +84,7 @@ class RndcClient:
         except subprocess.TimeoutExpired as exc:
             raise ConnectorTimeout(f"rndc {' '.join(args)} timed out") from exc
         if proc.returncode != 0:
-            err = (proc.stderr + proc.stdout).strip()
+            err = strip_rndc_noise(proc.stderr + proc.stdout).strip()
             low = err.lower()
             if "connection refused" in low or "connect failed" in low or "timed out" in low:
                 raise ConnectorUnavailable(err)
@@ -85,7 +93,7 @@ class RndcClient:
             if "not found" in low or "no matching zone" in low or "no matching view" in low:
                 raise RndcNotFound(err)
             raise ConnectorError(err or f"rndc exited {proc.returncode}")
-        return proc.stdout
+        return strip_rndc_noise(proc.stdout)
 
     def status(self) -> dict[str, str]:
         return parse_kv(self.run("status"))

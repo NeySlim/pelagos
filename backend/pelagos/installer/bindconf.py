@@ -10,6 +10,7 @@ backup. Anything it does not understand is kept as opaque words.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 import subprocess
 from collections.abc import Callable, Iterator
@@ -325,7 +326,13 @@ class Listener:
 
     @property
     def local(self) -> bool:
-        return self.address.split("/")[0] in ("127.0.0.1", "::1", "localhost")
+        host = self.address.split("/")[0].strip('"')
+        if host == "localhost":
+            return True
+        try:
+            return ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            return False
 
 
 def inet_listeners(stmt: Statement | None) -> list[Listener]:

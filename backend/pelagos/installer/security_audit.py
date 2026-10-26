@@ -319,7 +319,8 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
                 break
     for stmt in (s for s in top if s.name == "statistics-channels"):
         for lst in bindconf.inet_listeners(stmt):
-            if _nonlocal_listener(lst):
+            # A channel bound to loopback is unreachable from outside whatever its allow list says.
+            if not lst.local:
                 findings.append(
                     Finding.of(
                         finding_id("bind", "stats_nonlocal", lst.address),

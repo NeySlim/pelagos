@@ -4,7 +4,7 @@
 #
 # Usage: rollback.sh <vmid|name|all> [--list] [--no-start] [--no-wait]
 #   all          every target VM (lab-ns1, lab-ns2, lab-rpm, lab-client, lab-pkg-rpm,
-#                lab-docker), never lab-dev nor the gateway
+#                lab-docker, lab-arm64), never lab-dev nor the gateway
 #   --list       show the snapshots of the VM(s) and exit
 #   --no-start   leave the VM stopped after the rollback
 #   --no-wait    do not wait for ssh and cloud-init after the start
@@ -36,6 +36,7 @@ VMS=(
   "9114:lab-client:clean:10.99.0.14"
   "9116:lab-pkg-rpm:rpmbuild:10.99.0.16"
   "9117:lab-docker:docker:10.99.0.17"
+  "9118:lab-arm64:emul:10.99.0.18"
 )
 # "all" targets only the disposable test VMs; the gateway (9110) is never rolled back.
 ALL_TARGETS=(9111 9112 9113 9114 9116 9117)

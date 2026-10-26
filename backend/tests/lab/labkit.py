@@ -32,6 +32,7 @@ RPM = ("lab-rpm", "10.99.0.13")
 CLIENT = ("lab-client", "10.99.0.14")
 PKG_RPM = ("lab-pkg-rpm", "10.99.0.16")
 DOCKER = ("lab-docker", "10.99.0.17")
+ARM64 = ("lab-arm64", "10.99.0.18")
 
 
 def ssh_argv(host: str) -> list[str]:
@@ -127,7 +128,8 @@ def deb_package() -> Path:
     for old in (REPO / "build" / "deb").glob("pelagos_*.deb"):
         old.unlink()
     make("deb")
-    (deb,) = (REPO / "build" / "deb").glob("pelagos_*_amd64.deb")
+    arch = subprocess.run(["dpkg", "--print-architecture"], capture_output=True, text=True, check=True).stdout
+    (deb,) = (REPO / "build" / "deb").glob(f"pelagos_*_{arch.strip()}.deb")
     return deb
 
 

@@ -17,6 +17,7 @@ rolled back at will; nothing outside these VMs is ever a target.
 | `lab-pkg-rpm` | 9116 | 10.99.0.16 | Rocky 10, rpm build and install tests | `clean`, `rpmbuild` |
 | `lab-docker` | 9117 | 10.99.0.17 | Debian 13, Docker host for compose tests | `clean`, `docker` |
 | `lab-ucm` | 9122 | 10.99.0.22 | Debian 13 (4 GB), Docker, UCM built from git (`ucm.sh`) for the certificate tests | none: `ucm.sh` rebuilds it |
+| `lab-arm64` | 9118 | 10.99.0.18 | Debian 13 (amd64), arm64 by emulation: Docker with qemu-user binfmt, qemu-system-aarch64, the Debian 13 arm64 cloud image cached | `emul` |
 
 All VMs: user `lab`, passwordless sudo, key authentication. The ssh aliases
 are configured on lab-dev (`~/.ssh/config`, key `~/.ssh/id_ed25519`, which
@@ -35,8 +36,9 @@ scripts/lab/rollback.sh lab-ns1 --list               # show snapshots
 `rollback.sh` needs `curl`, `jq`, `python3`, the Proxmox API token header
 value in `~/.config/pelagos-lab/pve-token` and the API base URL in
 `~/.config/pelagos-lab/pve-api` (or `PVE_API`). The real hostnames and the
-token never go into the repository. `lab-pkg-rpm` goes back to `rpmbuild` and
-`lab-docker` to `docker` (their tool snapshots), the others to `clean`. The
+token never go into the repository. `lab-pkg-rpm` goes back to `rpmbuild`,
+`lab-docker` to `docker` and `lab-arm64` to `emul` (their tool snapshots), the
+others to `clean`. The
 snapshots only authorize the workstation key: after the rollback the script
 adds `~/.ssh/id_ed25519.pub` of lab-dev (or `LAB_SSH_PUBKEY`) to the VM's
 cloud-init keys, which changes the instance id so cloud-init installs it at
@@ -61,6 +63,26 @@ the next boot; it then starts the VM, drops its stale host keys from
 - Parallel worktrees live under `~/pelagos/.claude/worktrees/<name>`; each has its own
   venv and node_modules. Fixtures pick free ports and private temp dirs so
   runs do not collide.
+
+## arm64 by emulation
+
+`lab-arm64` builds and runs arm64 without arm hardware. Its `emul` snapshot
+holds `docker.io`, `qemu-user-static` and `binfmt-support` (arm64 containers),
+`qemu-system-arm`, `qemu-efi-aarch64`, `cloud-image-utils` and `qemu-utils`
+(full arm64 VMs), and the Debian 13 arm64 cloud image in
+`~/.cache/pelagos-smoke` (checked against Debian's `SHA512SUMS` on each use).
+systemd cannot run its sandboxed units (namespaces, seccomp) under qemu-user, so
+installing and starting the deb needs the qemu-system VM; building it only
+needs the container. A privileged container booted with systemd unregisters
+the host's binfmt handlers when it stops unless `systemd-binfmt` is masked in
+it (the smoke image masks it); `sudo systemctl restart systemd-binfmt` brings
+them back.
+
+```sh
+ssh lab@10.99.0.18
+cd <checkout> && packaging/deb/container-build.sh arm64       # about 20 minutes
+SMOKE_MODE=vm packaging/tests/deb-systemd-smoke.sh build/deb/pelagos_*_arm64.deb
+```
 
 ## Reference pair
 
@@ -109,6 +131,7 @@ exists).
 | --- | --- | --- |
 | `test_ucm_lab.py` | lab-ucm | UCM built from git (below): the "UCM by API" source applied to a two node cluster running on lab-dev (one year certificates served by each node's gunicorn), forced renewal with the old certificates revoked in UCM, the collector's renewal 30 days before the end, then the private ACME profile against UCM's ACME server with DNS-01 |
 | `test_public_acme_lab.py` | none | Hetzner Cloud DNS API and Let's Encrypt staging, skipped without credentials (below) |
+| `test_arm64_lab.py` | lab-arm64 | the arm64 deb built from the checkout in an emulated Debian 13 container (`packaging/deb/container-build.sh arm64`), then installed and started on a Debian 13 arm64 VM under qemu-system next to BIND and Kea 2.6 from Debian (`packaging/tests/deb-systemd-smoke.sh`, `SMOKE_MODE=vm`): units, health, upgrade, import, Kea hooks by bare name, API. About 45 minutes |
 | `test_docker_lab.py` | lab-docker | the node image built from the checkout, `docker/compose.yaml` with the ISC BIND and Kea images (`packaging/tests/compose-smoke.sh`), `/api/v1/health` reached from lab-dev |
 | `test_installer_lab.py` | lab-ns1, lab-rpm, lab-pkg-rpm | Debian: a legacy server seeded, audited, imported and migrated, Kea 2.6 from Debian then ISC 3.2. Rocky: the rpm built on lab-pkg-rpm and installed, `pelagos install --init` with SELinux enforcing, the API (install endpoints through the root helper), then ISC Kea |
 | `test_kea26_lab.py` | lab-ns1, lab-ns2, lab-client | production as found: the reference pair (Kea 2.6.3 and BIND 9.20 from Debian 13) with four reservations written by hand in an order and spelling config-get does not keep (a client-id with colons) and kea-dhcp6 installed but disabled; the deb on both, ns2 enrolled, the import (kea6 left out), the security plan, a reservation through `config-set` on both peers (no host_cmds; the file keeps its order), no divergence alert for 150 s while file and peers differ only in order, a reservation changed by hand on ns2 (peer divergence naming it, `external.change` audit entry), a hook compiled by hand on ns1 against `kea-dev` (`custom_hook` with the built-in option, divergence naming the hook), then ns2's clock 90 s ahead with NTP off: both servers `terminated`, `ha_terminated` naming ns2, the repair plan refused, NTP back, the cause kept as fixed, "Repair HA" through the API and both back to `hot-standby` |

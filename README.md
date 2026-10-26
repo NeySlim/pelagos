@@ -97,9 +97,9 @@ Details: [user documentation](docs/user/README.md),
 
 | Item | Versions |
 | --- | --- |
-| deb package | Debian 13 (trixie), amd64 |
+| deb package | Debian 13 (trixie), amd64 and arm64 |
 | rpm package | RHEL, Rocky Linux, AlmaLinux 9 and 10, x86_64 |
-| Container images | node and all-in-one, amd64, built with `make docker` and `make docker-allinone` |
+| Container images | node and all-in-one, amd64 and arm64, built with `make docker` and `make docker-allinone` |
 | BIND | 9.20 |
 | Kea | 3.x (3.2 tested) with the `lease_cmds`, `host_cmds`, `subnet_cmds` and `stat_cmds` hooks; Kea 2.6 in a reduced mode (no `subnet_cmds` or `host_cmds`: subnet changes through `config-set`) |
 | Browsers | current Chromium, Firefox and Safari |

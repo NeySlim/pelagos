@@ -43,24 +43,26 @@ make docker                  # node image pelagos:<version> and pelagos:latest
 make docker-allinone         # all-in-one image pelagos-allinone:<version>
 ```
 
-Packages exist for `amd64` and `arm64` (the CI builds the deb natively on
-both). The package depends on compiled wheels, so build it on the target
-architecture: on an arm64 host `make deb` produces
-`pelagos_<version>_arm64.deb`. Without an arm64 machine, build in an
-emulated Debian 13 arm64 container:
+Packages exist for `amd64` and `arm64`: the CI builds each deb in a Debian
+13 container of its architecture, then installs and starts it in a Debian 13
+container booted with systemd next to BIND and Kea 2.6 from Debian
+(`packaging/tests/deb-systemd-smoke.sh`). The package depends on compiled
+wheels, so build it for the target architecture: on an arm64 host `make deb`
+produces `pelagos_<version>_arm64.deb`. Without an arm64 machine, build and
+test in an emulated Debian 13 arm64 container:
 
 ```sh
-sudo apt install qemu-user-static binfmt-support    # once
-docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src debian:trixie sh -c '
-  apt-get update -q && apt-get install -y -q --no-install-recommends \
-    ca-certificates git make build-essential dpkg-dev debhelper fakeroot \
-    python3 python3-venv python3-pip && make deb'
+sudo apt install docker.io qemu-user-static binfmt-support    # once
+packaging/deb/container-build.sh arm64          # build/deb/pelagos_<version>_arm64.deb
+packaging/tests/deb-systemd-smoke.sh build/deb/pelagos_*_arm64.deb
 ```
 
 The emulated build is slow (several times the native time) but yields the
 same package. The node and all-in-one images are published for both
 architectures; `docker buildx build --platform linux/arm64 ...` builds them
-from a checkout on any host.
+from a checkout on any host. The compose stack of `docker/compose.yaml` runs
+the ISC BIND and Kea images, which exist for `amd64` only: on an arm64
+Docker host use the all-in-one image.
 
 Build dependencies are listed in `packaging/deb/README.md` and
 `packaging/rpm/README.md`. A deb or rpm depends on the exact Python minor

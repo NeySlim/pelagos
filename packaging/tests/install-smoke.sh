@@ -14,6 +14,8 @@ pkg="$(readlink -f "${1:?package file required}")"
 SUDO=""
 [[ $(id -u) -eq 0 ]] || SUDO="sudo -n"
 failures=0
+# Seconds the units get to answer (longer under emulation).
+wait="${SMOKE_WAIT:-30}"
 
 ok() { echo "ok:   $*"; }
 fail() { echo "FAIL: $*"; failures=$((failures + 1)); }
@@ -55,7 +57,7 @@ $SUDO env PELAGOS_ADMIN_PASSWORD=Smoke-Test-Password-1 pelagos init --name smoke
 $SUDO systemctl start pelagos.service pelagos-collector.service
 
 health=""
-for _ in $(seq 1 30); do
+for _ in $(seq 1 "$wait"); do
   health="$(curl -fsk https://127.0.0.1:8443/api/v1/health 2>/dev/null || true)"
   [[ -n "$health" ]] && break
   sleep 1
@@ -77,7 +79,10 @@ check "/ serves the UI or the API-only notice" bash -c \
   "curl -fsk https://127.0.0.1:8443/ | grep -qiE 'Pelagos|<div id=\"root\"'"
 
 $SUDO systemctl restart pelagos.service
-sleep 3
+for _ in $(seq 1 "$wait"); do
+  curl -fsk https://127.0.0.1:8443/api/v1/health >/dev/null 2>&1 && break
+  sleep 1
+done
 check "health after restart" curl -fsk https://127.0.0.1:8443/api/v1/health
 
 # Upgrade path: reinstalling the package must restart both running units on the new payload.
@@ -88,7 +93,7 @@ case "$pkg" in
   *.rpm) $SUDO dnf reinstall -y -q "$pkg" ;;
 esac
 version=""
-for _ in $(seq 1 30); do
+for _ in $(seq 1 "$wait"); do
   version="$(curl -fsk https://127.0.0.1:8443/api/v1/version 2>/dev/null || true)"
   [[ -n "$version" ]] && break
   sleep 1

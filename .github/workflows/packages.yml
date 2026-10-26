@@ -70,37 +70,44 @@ jobs:
           if-no-files-found: error
 
   deb:
+    name: deb (${{ matrix.arch }})
     needs: frontend
-    # Native builds: the package is architecture dependent (compiled wheels), no emulation.
+    # The package is architecture dependent (compiled wheels): it is built and tested in a
+    # Debian 13 container of its architecture, natively on the arm runner. The repository
+    # variable ARM64_RUNNER=ubuntu-24.04 moves arm64 to an x86 runner under qemu instead.
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-24.04
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
-    container: debian:trixie
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && (vars.ARM64_RUNNER || 'ubuntu-24.04-arm') || 'ubuntu-24.04' }}
+    timeout-minutes: 120
     steps:
-      - name: Build dependencies
-        run: |
-          apt-get update -q
-          apt-get install -y -q --no-install-recommends \
-            ca-certificates git make build-essential dpkg-dev debhelper fakeroot lintian \
-            python3 python3-venv python3-pip
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: frontend-dist
           path: frontend/dist
-      - name: make deb
-        run: make deb
+      - name: Runner
+        run: echo "runner $(uname -m), package ${{ matrix.arch }}"
+      - name: qemu (arm64 package on an x86 runner)
+        if: matrix.arch == 'arm64' && runner.arch != 'ARM64'
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+        with:
+          platforms: arm64
+      - name: qemu-system (the emulated install test boots an arm64 VM)
+        if: matrix.arch == 'arm64' && runner.arch != 'ARM64'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends qemu-system-arm qemu-efi-aarch64 cloud-image-utils qemu-utils
+      - name: make deb (Debian 13 container)
+        run: packaging/deb/container-build.sh ${{ matrix.arch }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: deb-${{ matrix.arch }}
           path: build/deb/*.deb
           if-no-files-found: error
+      - name: Install and start (Debian 13 with systemd, BIND and Kea 2.6 from Debian)
+        run: packaging/tests/deb-systemd-smoke.sh build/deb/pelagos_*_${{ matrix.arch }}.deb
 
   rpm:
     needs: frontend
@@ -131,11 +138,20 @@ jobs:
           if-no-files-found: error
 
   docker:
+    name: docker (${{ matrix.arch }})
     needs: frontend
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            compose: true
+          # The ISC images of the compose stack (internetsystemsconsortium/bind9,
+          # docker.cloudsmith.io/isc/docker/kea-*) are published for linux/amd64 only.
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            compose: false
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -146,21 +162,17 @@ jobs:
       - name: make docker
         run: make docker
       - name: Compose smoke test
+        if: matrix.compose
         # The runner's resolver holds port 53: the smoke test publishes DNS on 5300.
         run: packaging/tests/compose-smoke.sh pelagos:latest
-      - name: make docker-allinone
+      - name: make docker-allinone (Kea 3.2 from ISC)
         run: make docker-allinone
-      - name: All-in-one smoke test
-        run: |
-          docker run -d --name aio -e PELAGOS_ADMIN_PASSWORD=Ci-Smoke-Password-1 -p 9443:8443 pelagos-allinone:latest
-          for _ in $(seq 1 60); do
-            if curl -fsk https://127.0.0.1:9443/api/v1/health; then ok=1; break; fi
-            sleep 2
-          done
-          # Exit status 3 while a program is still STARTING: informational only.
-          docker exec aio supervisorctl status || true
-          [ "${ok:-0}" = 1 ] || { docker logs aio; exit 1; }
-          docker rm -f aio
+      - name: All-in-one smoke test (Kea 3.2 from ISC)
+        run: packaging/tests/allinone-smoke.sh pelagos-allinone:latest
+      - name: make docker-allinone (Kea 2.6 from Debian)
+        run: make docker-allinone KEA_SOURCE=distro IMAGE=pelagos-distro
+      - name: All-in-one smoke test (Kea 2.6 from Debian, bare hook names)
+        run: packaging/tests/allinone-smoke.sh pelagos-distro-allinone:latest
 
   publish:
     # Only a tag publishes; the images are rebuilt by buildx from the tested sources.

@@ -22,6 +22,7 @@ from pelagos.core.keadoc import KeaDocument, patch_text
 from pelagos.core.write_pipeline import FileChange, WritePipeline
 from pelagos.domain import ValidationResult
 from pelagos.installer import keaconf, keaselinux
+from pelagos.platform.distro import find_binary
 
 SOCKET_NAMES: dict[str, str] = {
     "kea4": "kea4-ctrl-socket",
@@ -390,8 +391,10 @@ def ensure_apparmor_write(env: Any, daemon: str, conf: Path) -> str:
     local.parent.mkdir(parents=True, exist_ok=True)
     sep = "\n" if text and not text.endswith("\n") else ""
     local.write_text(f"{text}{sep}{APPARMOR_MARK}\n{rule}\n")
+    # Without the apparmor package no profile was loaded at boot: nothing confines Kea.
     enabled = Path("/sys/module/apparmor/parameters/enabled")
-    if Path(env.paths.root) == Path("/") and enabled.exists() and enabled.read_text().startswith("Y"):
+    loaded = enabled.exists() and enabled.read_text().startswith("Y") and find_binary("apparmor_parser")
+    if Path(env.paths.root) == Path("/") and loaded:
         env.runner.run(["apparmor_parser", "-r", str(profile)], privileged=True, check=False, timeout=60)
     return f"AppArmor: {daemon} may now write {conf} ({local})"
 

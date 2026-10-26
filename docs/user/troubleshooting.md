@@ -230,7 +230,7 @@ sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.named
 ## Certificate errors
 
 - **Browser warning on `:8443`**: the self-signed certificate. Install
-  your own ([Configuration: TLS](configuration.md#tls-certificates)). After a
+  your own ([Certificates](certificates.md)). After a
   trusted certificate was seen, HSTS makes browsers refuse an untrusted one
   for that name.
 - **`CA fingerprint ... does not match ...`** at enrollment: the URL does not
@@ -244,7 +244,10 @@ sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.named
 - **Node certificate expiry**: certificates last 2 years and the collector
   renews them 30 days before; check with `sudo openssl x509 -in
   /var/lib/pelagos/pki/node.crt -noout -enddate`. A node stopped past its
-  expiry must be enrolled again.
+  expiry must be enrolled again. The `cert_expiry` alert (subject
+  `cert:node`) warns 30 days before.
+- **Web certificate requests failing**: see
+  [Certificates: troubleshooting](certificates.md#troubleshooting).
 
 ## Common error messages
 

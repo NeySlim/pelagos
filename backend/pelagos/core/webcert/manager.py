@@ -378,6 +378,7 @@ class CertManager:
         actor: str,
         trigger: str,
         extra: dict[str, Any] | None = None,
+        audit_failure: bool = True,
     ) -> dict[str, Any]:
         """Install, record the state, audit (success and failure)."""
         assert report.leaf is not None
@@ -393,7 +394,8 @@ class CertManager:
         try:
             outcome = self.install(report)
         except CertFailure as exc:
-            self._audit("admin.cert.apply", actor, request, str(exc), ok=False)
+            if audit_failure:
+                self._audit("admin.cert.apply", actor, request, str(exc), ok=False)
             raise
         now = to_rfc3339(self.clock())
 
@@ -584,7 +586,7 @@ class CertManager:
             raise CertFailure(f"the issued certificate did not pass the checks: {check_text(report)}", report)
         previous = self.state().get("ucm_cert_id")
         extra = {"revision": src.get("revision"), "ucm_cert_id": ucm_id}
-        out = self._installed(report, source, actor, trigger, extra)
+        out = self._installed(report, source, actor, trigger, extra, audit_failure=False)
         kept = {"revision": src.get("revision"), **({"ucm_cert_id": ucm_id} if ucm_id else {})}
         self._update(lambda d: d.update(kept))
         if (

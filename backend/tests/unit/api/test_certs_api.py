@@ -130,6 +130,29 @@ def test_pkcs12_upload_and_self_signed(admin, node_ctx):
     assert _self(admin)["source"]["source"] == "self_signed"
 
 
+def test_settings_page_never_sees_the_sources(admin):
+    body = {"source": "ucm", "apply": False, "ucm": {"url": "https://ucm.example.lan", "ca_id": 1}}
+    body["secrets"] = {"ucm_api_key": "k-12345678"}
+    assert admin.put(f"{BASE}/cluster", json=body).status_code == 200
+    settings = admin.get("/api/v1/admin/settings").get_json()
+    assert settings["certificates"] == {
+        "ucm_renew_days": 30,
+        "retry_min_seconds": 300,
+        "retry_max_seconds": 21600,
+        "propagation_seconds": 180,
+    }
+    assert settings["alerts_cert_warning_days"] == 30 and settings["alerts_cert_critical_days"] == 7
+    r = admin.put("/api/v1/admin/settings", json={"certificates": {"cluster": {"source": "acme"}}})
+    assert r.status_code == 400
+    r = admin.put(
+        "/api/v1/admin/settings", json={"alerts_cert_warning_days": 5, "alerts_cert_critical_days": 7}
+    )
+    assert r.status_code == 400
+    r = admin.put("/api/v1/admin/settings", json={"certificates": {"ucm_renew_days": 45}})
+    assert r.status_code == 200 and r.get_json()["certificates"]["ucm_renew_days"] == 45
+    assert admin.get(BASE).get_json()["cluster"]["source"] == "ucm"
+
+
 def test_unknown_node_and_remote_tests(admin):
     assert admin.get(f"{BASE}/nope").status_code == 404
     r = admin.post(f"{BASE}/test/ucm", json={"ucm": {"url": "http://ucm.example.lan"}})

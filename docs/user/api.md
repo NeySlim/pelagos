@@ -262,6 +262,11 @@ the PTR in the default view.
 | `GET`, `POST /admin/roles`; `PUT`, `DELETE /admin/roles/{name}`; `GET /admin/permissions` | `admin:roles` | roles |
 | `GET`, `PUT /admin/settings` | `admin:settings` | settings |
 | `GET`, `PUT /admin/modules` | `admin:modules` | modules and engines per node |
+| `GET /admin/certificates`; `GET /admin/certificates/{node_id}` | `admin:certificates` | certificates, sources and renewal state of every node, or one |
+| `PUT`, `DELETE /admin/certificates/cluster`; `PUT /admin/certificates/{node_id}/source` | `admin:certificates` | source for all nodes, or one; `"apply": true` starts a job |
+| `POST /admin/certificates/{node_id}/renew`, `/self-signed`; `POST`, `DELETE .../request` | `admin:certificates` | renew now (job), new self-signed, key and CSR made on the node |
+| `POST /admin/certificates/{node_id}/check`, `/upload` | `admin:certificates` | checks, install (`also_node_ids` sends it to nodes it covers) |
+| `POST /admin/certificates/test/acme`, `/test/ucm`, `/test/dns`, `/dns01/plan` | `admin:certificates` | try a source; the DNS-01 setup plan |
 
 ## WebSocket
 

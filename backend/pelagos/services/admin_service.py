@@ -397,7 +397,7 @@ class AdminService:
     # Settings -----------------------------------------------------------
 
     def settings(self) -> dict[str, Any]:
-        return self.ctx.cluster().settings
+        return public_settings(self.ctx.cluster().settings)
 
     def update_settings(self, body: dict[str, Any], actor: str, client_ip: str | None) -> dict[str, Any]:
         if not isinstance(body, dict) or not body:
@@ -431,7 +431,7 @@ class AdminService:
         )
         self._apply_runtime(cfg.settings)
         self._audit("admin.settings.replace", "settings", actor, body, client_ip)
-        return cfg.settings
+        return public_settings(cfg.settings)
 
     def _apply_runtime(self, settings: dict[str, Any]) -> None:
         """Settings that live in memory of this process follow the file at once."""
@@ -580,6 +580,15 @@ class AdminService:
             self.ctx.config_store.save_node(self.ctx.node)
         self._audit("admin.settings.replace", "modules", actor, body, client_ip)
         return self.modules()
+
+
+def public_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    """[settings] as GET /admin/settings shows it: certificate sources belong to /admin/certificates."""
+    out = dict(settings)
+    certs = out.get("certificates")
+    if isinstance(certs, dict):
+        out["certificates"] = {k: v for k, v in certs.items() if k not in ("cluster", "nodes")}
+    return out
 
 
 def _bool(value: Any, field: str) -> bool:

@@ -310,7 +310,7 @@ NDJSON" downloads the filtered range (`GET /api/v1/audit/export`).
 Entries are never edited or purged; failed sign-ins and secret reveals are
 recorded too.
 
-## Users, roles, modules, settings
+## Users, roles, modules, certificates, settings
 
 Under Administration:
 
@@ -323,8 +323,11 @@ Under Administration:
 - **Modules** (`admin:modules`): cluster features (DHCPv6, Advanced editor)
   and the engines of each node
   ([Configuration: modules](configuration.md#modules)).
+- **Certificates** (`admin:certificates`): the HTTPS certificate of each
+  node, its source (self-signed, manual, ACME, UCM), upload with checks,
+  renewal, one source for all nodes ([Certificates](certificates.md)).
 - **Settings** (`admin:settings`): General, DNS, Kea, Alert thresholds,
-  Collector, Retention ([Configuration: settings](configuration.md#settings)).
+  Collector, Retention, Certificates ([Configuration: settings](configuration.md#settings)).
 
 ## Account
 

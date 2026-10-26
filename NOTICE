@@ -9,6 +9,11 @@ relicensed under Apache-2.0 for inclusion in this project:
     context, fonts, base UI components, application shell and layout)
   - backend patterns for session authentication, CSRF handling, rate
     limiting and secret encryption at rest
+  - web certificates (backend/pelagos/core/webcert): the ACME client (JWS
+    signing, external account binding, orders, DNS-01 and HTTP-01), the
+    extensible DNS provider layout with the Hetzner provider, certificate,
+    PKCS#12 and chain parsing and ordering, pre-install checks, and the
+    calls of UCM's REST API v2 (CSR upload and signing, export, revocation)
 
 Third-party components
 ----------------------

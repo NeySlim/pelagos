@@ -14,6 +14,7 @@ documentation names `ns1`, `ns2`, `example.lan`, `192.0.2.0/24` and
 | [DNS](dns.md) | zones, records, static and dynamic zones, views, resolver, ACLs and keys, secondaries, DNSSEC, RPZ, catalog zones, instances |
 | [RPZ block lists](rpz.md) | public lists by category and level, own lists, zone transfers, update rules, memory, exceptions, rewrite log, AdGuard Home |
 | [DHCP](dhcp.md) | subnets and pools, shared networks, options, client classes, leases, reservations, HA, DDNS, hooks, statistics |
+| [Certificates](certificates.md) | HTTPS certificate of each node: self-signed, manual (request made on the node, PEM, PKCS#12), ACME (Let's Encrypt, step-ca, UCM; DNS-01, HTTP-01), UCM API, all nodes at once, renewal, expiry alerts |
 | [Plans](plans.md) | preview, apply, expiry, rollback, plans across nodes |
 | [Operations](operations.md) | replication, redundancy, backup and restore, upgrade, uninstall, logs, metrics |
 | [CLI](cli.md) | every `pelagos` command and option |

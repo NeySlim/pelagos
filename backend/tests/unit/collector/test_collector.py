@@ -511,7 +511,7 @@ def test_collector_settings_reload_live(rig):
 
     def faster(cfg):
         cfg.settings["collector"].update(poll_seconds=10, peer_poll_seconds=5)
-        cfg.settings["alerts_pool_warning_percent"] = 50
+        cfg.settings["checks"]["pool_warning_percent"] = 50
 
     ctx.config_store.update_cluster(faster, updated_by=f"node:{ctx.node.id}")
     os.utime(ctx.paths.cluster_toml, ns=(5, 5))
@@ -523,7 +523,7 @@ def test_collector_settings_reload_live(rig):
     assert periods["poll_kea"].next_run < far  # a shorter period applies at once
     assert periods["consistency"].next_run == far
     assert handle.service.peer_poll_seconds == 5.0
-    assert all(p.settings["alerts_pool_warning_percent"] == 50 for p in collector.kea)
+    assert all(p.settings["checks"]["pool_warning_percent"] == 50 for p in collector.kea)
     assert reload_settings(collector, tasks, handle) == []
 
 

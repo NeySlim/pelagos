@@ -36,7 +36,7 @@ from tests.unit.collector.fakes import NODE, PEER, FakeDhcpBackend, FakeDnsBacke
 
 pytestmark = pytest.mark.unit
 
-SETTINGS = {"collector": {"poll_seconds": 60, "pool_sample_seconds": 300}, "alerts_ha_grace_seconds": 0}
+SETTINGS = {"collector": {"poll_seconds": 60, "pool_sample_seconds": 300}, "checks": {"ha_grace_seconds": 0}}
 
 
 class Clock:

@@ -142,11 +142,11 @@ def test_settings_page_never_sees_the_sources(admin):
         "retry_max_seconds": 21600,
         "propagation_seconds": 180,
     }
-    assert settings["alerts_cert_warning_days"] == 30 and settings["alerts_cert_critical_days"] == 7
+    assert settings["checks"]["cert_warning_days"] == 30 and settings["checks"]["cert_critical_days"] == 7
     r = admin.put("/api/v1/admin/settings", json={"certificates": {"cluster": {"source": "acme"}}})
     assert r.status_code == 400
     r = admin.put(
-        "/api/v1/admin/settings", json={"alerts_cert_warning_days": 5, "alerts_cert_critical_days": 7}
+        "/api/v1/admin/settings", json={"checks": {"cert_warning_days": 5, "cert_critical_days": 7}}
     )
     assert r.status_code == 400
     r = admin.put("/api/v1/admin/settings", json={"certificates": {"ucm_renew_days": 45}})

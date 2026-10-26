@@ -14,6 +14,7 @@ import logging
 import time
 from typing import Any
 
+from pelagos.core import settings_registry as reg
 from pelagos.core.context import NodeContext
 from pelagos.core.webcert import checks, manager, pem
 from pelagos.core.webcert import config as wc
@@ -122,8 +123,8 @@ class CertService:
                 k: v for k, v in wc.cert_settings(settings).items() if k not in ("cluster", "nodes")
             },
             "thresholds": {
-                "warning_days": int(settings.get("alerts_cert_warning_days", 30)),
-                "critical_days": int(settings.get("alerts_cert_critical_days", 7)),
+                "warning_days": int(reg.get(settings, "checks.cert_warning_days")),
+                "critical_days": int(reg.get(settings, "checks.cert_critical_days")),
             },
             "providers": _providers(),
             "acme_profiles": list(wc.ACME_PROFILES),

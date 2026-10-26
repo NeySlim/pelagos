@@ -44,7 +44,7 @@ def make_ctx(tmp: Path, **engine: Any) -> ConnectorContext:
         engine_config={"socket_dir": str(tmp), "dhcp4_conf": str(tmp / "kea-dhcp4.conf"), **engine},
         backup_root=tmp / "backups",
         get_secret=lambda name: None,
-        settings={"plan_ttl_seconds": 60},
+        settings={"plans": {"ttl_seconds": 60}},
     )
 
 

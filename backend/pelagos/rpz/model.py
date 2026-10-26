@@ -33,7 +33,7 @@ DEFAULTS: dict[str, Any] = {
     "shrink_percent": 50,
     "stale_factor": 3,
     "bytes_per_entry": 800,
-    "memory_warn_percent": 25,
+    "memory_warning_percent": 25,
     "small_node_mb": 4096,
     "max_download_mb": 256,
     "break_dnssec": True,

@@ -126,27 +126,57 @@ def test_roles(admin, login):
     assert set(_actions(admin, "admin.role")) == {"admin.role.add", "admin.role.replace", "admin.role.delete"}
 
 
+def test_settings_schema_and_former_names(admin, node_ctx):
+    schema = admin.get("/api/v1/admin/settings/schema").get_json()
+    keys = {s["key"] for s in schema["settings"]}
+    assert {"checks.ha_grace_seconds", "checks.custom_hooks_enabled", "rpz.memory_warning_percent"} <= keys
+    assert schema["renamed"]["alerts_d2_error_rate"] == "checks.d2_error_percent"
+    # An API client still on the former names: accepted, stored under the current ones.
+    r = admin.put("/api/v1/admin/settings", json={"alerts_d2_error_rate": 0.1, "require_totp": False})
+    assert r.status_code == 200, r.get_json()
+    settings = node_ctx.cluster().settings
+    assert settings["checks"]["d2_error_percent"] == 10.0 and settings["auth"]["require_totp"] is False
+    assert "alerts_d2_error_rate" not in settings and "require_totp" not in settings
+    r = admin.put("/api/v1/admin/settings", json={"rpz": {"categories": {}}, "certificates": {"nodes": {}}})
+    assert r.status_code == 400
+    assert {e["field"] for e in r.get_json()["errors"]} == {"rpz.categories", "certificates.nodes"}
+    # A map setting is replaced whole: a view removed in the form goes.
+    body = {"dns": {"view_keys": {"inside": "ddi-inside", "guest": {"admin": "g-admin", "read": "g-read"}}}}
+    assert admin.put("/api/v1/admin/settings", json=body).status_code == 200
+    body = {"dns": {"view_keys": {"inside": "ddi-inside"}}}
+    assert admin.put("/api/v1/admin/settings", json=body).get_json()["dns"]["view_keys"] == {
+        "inside": "ddi-inside"
+    }
+    r = admin.put("/api/v1/admin/settings", json={"dns": {"view_keys": {"_default": "x"}}})
+    assert r.status_code == 400
+
+
 def test_settings_validation_and_runtime(admin, node_ctx):
     settings = admin.get("/api/v1/admin/settings").get_json()
-    assert settings["plan_ttl_seconds"] == 600 and settings["dns"]["read_key"] == "ddi-read"
+    assert settings["plans"]["ttl_seconds"] == 600 and settings["dns"]["read_key"] == "ddi-read"
     r = admin.put(
         "/api/v1/admin/settings",
-        json={"plan_ttl_seconds": 5, "unknown": 1, "dns": {"read_key": ""}, "require_totp": "yes"},
+        json={
+            "plans": {"ttl_seconds": 5},
+            "unknown": 1,
+            "dns": {"read_key": ""},
+            "auth": {"require_totp": "yes"},
+        },
     )
     assert r.status_code == 400
     fields = {e["field"] for e in r.get_json()["errors"]}
-    assert fields == {"plan_ttl_seconds", "unknown", "dns.read_key", "require_totp"}
-    r = admin.put("/api/v1/admin/settings", json={"alerts_pool_warning_percent": 99})
+    assert fields == {"plans.ttl_seconds", "unknown", "dns.read_key", "auth.require_totp"}
+    r = admin.put("/api/v1/admin/settings", json={"checks": {"pool_warning_percent": 99}})
     assert r.status_code == 400  # warning must stay under critical
     r = admin.put(
-        "/api/v1/admin/settings", json={"plan_ttl_seconds": 1200, "collector": {"poll_seconds": 30}}
+        "/api/v1/admin/settings", json={"plans": {"ttl_seconds": 1200}, "collector": {"poll_seconds": 30}}
     )
     assert r.status_code == 200
     merged = r.get_json()
-    assert merged["plan_ttl_seconds"] == 1200 and merged["collector"]["poll_seconds"] == 30
+    assert merged["plans"]["ttl_seconds"] == 1200 and merged["collector"]["poll_seconds"] == 30
     assert merged["collector"]["peer_poll_seconds"] == 30  # untouched keys survive the merge
     assert node_ctx.plan_store.ttl == timedelta(seconds=1200)
-    assert node_ctx.cluster().settings["plan_ttl_seconds"] == 1200
+    assert node_ctx.cluster().settings["plans"]["ttl_seconds"] == 1200
     assert "admin.settings.replace" in _actions(admin, "admin.settings")
 
 

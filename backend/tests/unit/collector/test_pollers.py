@@ -46,9 +46,7 @@ def unreadable(path: Path) -> Iterator[None]:
 
 
 SETTINGS = {
-    "alerts_pool_warning_percent": 80,
-    "alerts_pool_critical_percent": 95,
-    "alerts_d2_error_rate": 0.05,
+    "checks": {"pool_warning_percent": 80, "pool_critical_percent": 95, "d2_error_percent": 5},
     "collector": {"pool_sample_seconds": 300},
 }
 
@@ -254,7 +252,7 @@ def test_kea_poller_pools_samples_and_alerts(store):
 def test_kea_poller_ha_transitions_and_alerts(store):
     clock = Clock()
     kea = FakeDhcpBackend()
-    settings = {**SETTINGS, "alerts_ha_grace_seconds": 0}
+    settings = {**SETTINGS, "checks": {**SETTINGS["checks"], "ha_grace_seconds": 0}}
     poller = KeaPoller(kea, NODE, store, settings, clock)
     out = poller.poll()
     assert next(e for e in out.events if e[0] == "ha")[2] is kea.ha

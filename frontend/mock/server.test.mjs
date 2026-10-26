@@ -128,7 +128,7 @@ const BODIES = {
   'POST /admin/users/{id}/reset-password': { password: 'Another-password-1' },
   'POST /admin/roles': { name: 'auditor', permissions: ['read:audit'] },
   'PUT /admin/roles/{name}': { description: 'changed' },
-  'PUT /admin/settings': { plan_ttl_seconds: 900 },
+  'PUT /admin/settings': { plans: { ttl_seconds: 900 } },
   'PUT /admin/modules': { cluster: { dhcpv6: true } },
   'PUT /admin/certificates/cluster': { source: 'acme', acme: { profile: 'letsencrypt-staging' }, apply: false },
   'PUT /admin/certificates/{id}/source': { source: 'self_signed' },
@@ -187,6 +187,25 @@ describe('mock server PTR and exceptions', () => {
     const created = await admin('POST', '/alerts/exceptions', { kind: 'insecure_key', key: alert.details.exception_keys[0], comment: 'legacy key, rotated next month' })
     expect(created.status).toBe(201)
     expect(alert.state).toBe('resolved')
+  })
+})
+
+describe('mock server settings', () => {
+  it('validates like the backend registry and accepts former names', async () => {
+    const admin = client(await login('admin', 'admin'))
+    const schema = (await admin('GET', '/admin/settings/schema')).data
+    expect(schema.settings.some((s) => s.key === 'checks.ha_grace_seconds')).toBe(true)
+    let r = await admin('PUT', '/admin/settings', { checks: { pool_warning_percent: 99 }, rpz: { categories: {} }, nope: 1 })
+    expect(r.status).toBe(400)
+    expect(r.data.errors.map((e) => e.field).sort()).toEqual(['checks.pool_warning_percent', 'nope', 'rpz.categories'])
+    r = await admin('PUT', '/admin/settings', { alerts_d2_error_rate: 0.02, plan_ttl_seconds: 900 })
+    expect(r.status).toBe(200)
+    expect(r.data.checks.d2_error_percent).toBe(2)
+    expect(r.data.plans.ttl_seconds).toBe(900)
+    expect(r.data.plan_ttl_seconds).toBeUndefined()
+    r = await admin('PUT', '/admin/settings', { dns: { view_keys: { inside: 'ddi-inside', lab: 'lab-key' } } })
+    r = await admin('PUT', '/admin/settings', { dns: { view_keys: { inside: 'ddi-inside' } } })
+    expect(r.data.dns.view_keys).toEqual({ inside: 'ddi-inside' })
   })
 })
 

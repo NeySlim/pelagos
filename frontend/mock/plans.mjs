@@ -51,7 +51,7 @@ const CONFIRM_SCOPES = new Set(['dhcp.ha', 'dhcp.lease', 'security'])
 //         requires_confirmation?, apply(), rollback?(), job? }
 export function createPlan(state, user, spec) {
   const created = Date.now()
-  const ttl = (state.settings.plan_ttl_seconds || 600) * 1000
+  const ttl = (state.settings.plans?.ttl_seconds || 600) * 1000
   const targets = spec.targets || [state.selfId]
   const validations =
     spec.validations ||
@@ -241,7 +241,7 @@ export function applyPlan(state, user, id, confirm, emit) {
   bumpConfigHashes(state, plan)
   plan.state = 'applied'
   // Rollback stays allowed for the plan TTL after apply.
-  plan.expires_at = iso(Date.now() + (state.settings.plan_ttl_seconds || 600) * 1000)
+  plan.expires_at = iso(Date.now() + (state.settings.plans?.ttl_seconds || 600) * 1000)
   // The node entry of section 6: its request names the entry kind and the verb.
   const entry = auditEntry(state, user, { action: `${plan.scope}.apply`, target: plan.changes[0]?.target || plan.scope, engine: plan.engine, plan_id: plan.id, diff: plan.diff, request: { entry: 'node', verb: 'apply' } })
   emit('audit', 'entry', entry)

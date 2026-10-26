@@ -93,6 +93,19 @@
     "revokeConfirm": "Révoquer l'exception pour {{key}} ? Le contrôle lève de nouveau son alerte à son prochain passage.",
     "revoked": "Exception révoquée",
     "empty": "Aucune exception",
-    "emptyHelp": "Ignorez une incohérence ou une alerte de contrôle de santé depuis son alerte, ou un PTR depuis la page des PTR orphelins."
+    "emptyHelp": "Ignorez une incohérence ou une alerte de contrôle de santé depuis son alerte, ou un PTR depuis la page des PTR orphelins.",
+    "new": "Nouvelle exception",
+    "newTitle": "Nouvelle exception",
+    "newHelp": "Garder un objet tel quel avant que son alerte ne soit levée : le contrôle ne lèvera rien pour lui.",
+    "kind": "Contrôle",
+    "key": "Clé de l'objet",
+    "keyHelp": "Telle que l'alerte la nomme, par exemple {{example}}",
+    "keyErrors": {
+      "required": "Obligatoire",
+      "format": "Forme attendue : {{example}}"
+    },
+    "summary": "Libellé (facultatif)",
+    "create": "Créer",
+    "created": "Exception enregistrée"
   }
 }

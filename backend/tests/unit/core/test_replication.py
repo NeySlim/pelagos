@@ -408,17 +408,17 @@ def test_concurrent_writes_on_two_nodes_are_both_kept(pair):
     assert _same_config(a, b)
     b.service.stop()
     _write(a, lambda c: c.users.append(User(id=new_id(), username="bob", password_hash="x")))
-    _write(b, lambda c: c.settings.__setitem__("plan_ttl_seconds", 321))
+    _write(b, lambda c: c.settings["plans"].__setitem__("ttl_seconds", 321))
     cfg_a, cfg_b = a.ctx.cluster(), b.ctx.cluster()
     # Same version on both sides: the former rule kept one file whole and dropped the other write.
     assert cfg_a.version == cfg_b.version
     legacy = cfg_a if cfg_a.wins_over(cfg_b) else cfg_b
-    assert legacy.user("bob") is None or legacy.settings["plan_ttl_seconds"] != 321
+    assert legacy.user("bob") is None or legacy.settings["plans"]["ttl_seconds"] != 321
 
     b.restart()  # pull (and push) on start
     for node in (a, b):
         cfg = node.ctx.cluster()
-        assert cfg.user("bob") is not None and cfg.settings["plan_ttl_seconds"] == 321
+        assert cfg.user("bob") is not None and cfg.settings["plans"]["ttl_seconds"] == 321
     assert _same_config(a, b)
     assert a.ctx.cluster().version == b.ctx.cluster().version > cfg_a.version
 
@@ -426,16 +426,18 @@ def test_concurrent_writes_on_two_nodes_are_both_kept(pair):
 def test_concurrent_writes_to_the_same_key_resolve_alike_everywhere(pair):
     a, b = pair
     b.service.stop()
-    _write(a, lambda c: c.settings.__setitem__("plan_ttl_seconds", 111))
-    _write(b, lambda c: c.settings.__setitem__("plan_ttl_seconds", 222))
+    _write(a, lambda c: c.settings["plans"].__setitem__("ttl_seconds", 111))
+    _write(b, lambda c: c.settings["plans"].__setitem__("ttl_seconds", 222))
     # Same counter on both: the greater node id wins, on whichever node merges.
     expected = 111 if a.id > b.id else 222
     b.restart()
-    assert a.ctx.settings()["plan_ttl_seconds"] == expected
-    assert b.ctx.settings()["plan_ttl_seconds"] == expected
+    assert a.ctx.settings()["plans"]["ttl_seconds"] == expected
+    assert b.ctx.settings()["plans"]["ttl_seconds"] == expected
     # A later write wins over both, whoever made the earlier ones.
-    _write(b, lambda c: c.settings.__setitem__("plan_ttl_seconds", 333))
-    wait_for(lambda: a.ctx.settings()["plan_ttl_seconds"] == 333, timeout=10, what="push of the newer write")
+    _write(b, lambda c: c.settings["plans"].__setitem__("ttl_seconds", 333))
+    wait_for(
+        lambda: a.ctx.settings()["plans"]["ttl_seconds"] == 333, timeout=10, what="push of the newer write"
+    )
     assert _same_config(a, b)
 
 
@@ -450,13 +452,13 @@ def test_deletions_are_tombstoned_and_beat_concurrent_edits(pair):
     # B edits the role A deleted and adds a module switch, all while disconnected.
     _write(b, lambda c: setattr(next(r for r in c.roles if r.name == "ops"), "description", "edited"))
     _write(b, lambda c: c.modules.__setitem__("dhcpv6", True))
-    _write(b, lambda c: c.settings.__setitem__("plan_ttl_seconds", 700))
+    _write(b, lambda c: c.settings["plans"].__setitem__("ttl_seconds", 700))
     b.restart()
     for node in (a, b):
         cfg = node.ctx.cluster()
         assert all(r.name != "ops" for r in cfg.roles), "the deleted role came back"
         assert "tsig/old" not in cfg.secrets
-        assert cfg.modules["dhcpv6"] is True and cfg.settings["plan_ttl_seconds"] == 700
+        assert cfg.modules["dhcpv6"] is True and cfg.settings["plans"]["ttl_seconds"] == 700
     assert _same_config(a, b)
     # A record created again after its deletion is live again.
     _write(b, lambda c: c.roles.append(Role(name="ops", permissions=["read:dhcp"])))

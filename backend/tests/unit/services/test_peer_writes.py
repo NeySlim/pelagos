@@ -293,7 +293,7 @@ def test_a_silent_peer_times_out(pair):
         assert time.monotonic() - started < 5
         # An operation the peer may still run: the answer and this node's audit say the outcome is unknown.
         pair.a.config_store.update_cluster(
-            lambda c: c.settings.__setitem__("peer_action_timeout_seconds", 1), updated_by="test"
+            lambda c: c.settings["peers"].__setitem__("action_timeout_seconds", 1), updated_by="test"
         )
         ops = OpsService(pair.a, ConnectorRegistry(), pair.gateway)
         with pytest.raises(EngineUnavailable) as err:

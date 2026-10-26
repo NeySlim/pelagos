@@ -19,7 +19,7 @@ from tests.unit.collector.fakes import NODE, PEER, FakePeerClient, snapshot_payl
 
 pytestmark = pytest.mark.unit
 
-SETTINGS = {"alerts_serial_divergence_seconds": 900}
+SETTINGS = {"checks": {"serial_divergence_seconds": 900}}
 
 
 class Clock:

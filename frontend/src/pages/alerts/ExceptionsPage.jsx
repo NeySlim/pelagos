@@ -3,7 +3,7 @@
 // Each one keeps its author, date and comment; revoking it lets the check raise again.
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowsClockwise, EyeSlash, Trash } from '@phosphor-icons/react'
+import { ArrowsClockwise, EyeSlash, Plus, Trash } from '@phosphor-icons/react'
 import { PageLayout, DataTable, Button, Badge } from '../../components'
 import { useApi } from '../../hooks'
 import { usePermission } from '../../hooks/usePermission'
@@ -12,6 +12,7 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { EXCEPTABLE_KINDS, INCONSISTENCY_KINDS } from './lib'
+import { NewExceptionDialog } from './NewExceptionDialog'
 
 export default function ExceptionsPage() {
   const { t } = useTranslation(['alerts', 'dashboard', 'common'])
@@ -19,6 +20,7 @@ export default function ExceptionsPage() {
   const { showSuccess, showError, showConfirm } = useNotification()
   const canWrite = hasPermission('write:alerts')
   const [kind, setKind] = useState('')
+  const [adding, setAdding] = useState(false)
   const list = useApi(() => api.alerts.exceptions(kind ? { kind } : undefined), [kind])
   const rows = useMemo(() => list.data?.items || [], [list.data])
 
@@ -73,10 +75,18 @@ export default function ExceptionsPage() {
       subtitle={t('exceptions.subtitle')}
       testId="page-alert-exceptions"
       actions={
-        <Button variant="secondary" size="sm" onClick={list.refetch} disabled={list.loading}>
-          <ArrowsClockwise size={14} />
-          {t('common:actions.refresh')}
-        </Button>
+        <>
+          <Button variant="secondary" size="sm" onClick={list.refetch} disabled={list.loading}>
+            <ArrowsClockwise size={14} />
+            {t('common:actions.refresh')}
+          </Button>
+          {canWrite && (
+            <Button size="sm" onClick={() => setAdding(true)} data-testid="exception-new">
+              <Plus size={14} />
+              {t('exceptions.new')}
+            </Button>
+          )}
+        </>
       }
     >
       <DataTable
@@ -91,6 +101,14 @@ export default function ExceptionsPage() {
         emptyDescription={t('exceptions.emptyHelp')}
         emptyIcon={EyeSlash}
         testId="exceptions-table"
+      />
+      <NewExceptionDialog
+        open={adding}
+        onClose={() => setAdding(false)}
+        onDone={() => {
+          showSuccess(t('exceptions.created'))
+          list.refetch()
+        }}
       />
     </PageLayout>
   )

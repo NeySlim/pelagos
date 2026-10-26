@@ -14,6 +14,7 @@ import threading
 import time
 from typing import Any
 
+from pelagos.core import settings_registry as reg
 from pelagos.core.context import NodeContext
 from pelagos.core.replication import (
     UNREACHABLE,
@@ -31,12 +32,12 @@ log = logging.getLogger(__name__)
 
 # A peer applies a plan synchronously: engine plans validate and reload (seconds to minutes),
 # installer plans install packages and restart services (many minutes). Settings may override.
-ENGINE_PLAN_TIMEOUT = 300.0
-INSTALLER_PLAN_TIMEOUT = 1800.0
+ENGINE_PLAN_TIMEOUT = float(reg.BY_KEY["peers.plan_timeout_seconds"].default)
+INSTALLER_PLAN_TIMEOUT = float(reg.BY_KEY["peers.installer_plan_timeout_seconds"].default)
 SYNC_TIMEOUT = 120.0
 # Writes a peer builds or runs for this node (POST /repl/v1/actions/<name>): plan builds read the
 # engine (config-get, showzone), runtime operations wait for rndc or the control socket.
-ACTION_TIMEOUT = 120.0
+ACTION_TIMEOUT = float(reg.BY_KEY["peers.action_timeout_seconds"].default)
 # Codes a peer may answer with that keep their meaning (and HTTP status) here.
 ACTION_CODES = frozenset(
     {
@@ -59,8 +60,8 @@ def plan_timeout(plan: Plan, settings: dict[str, Any] | None = None) -> float:
     """How long a peer may take to answer a plan apply or rollback before the call fails."""
     settings = settings or {}
     if plan.scope in INSTALLER_SCOPES:
-        return float(settings.get("installer_plan_timeout_seconds", INSTALLER_PLAN_TIMEOUT))
-    return float(settings.get("peer_plan_timeout_seconds", ENGINE_PLAN_TIMEOUT))
+        return float(reg.get(settings, "peers.installer_plan_timeout_seconds"))
+    return float(reg.get(settings, "peers.plan_timeout_seconds"))
 
 
 class PeerSilent(EngineUnavailable):
@@ -258,7 +259,7 @@ class PeerGateway:
                 settings = self.ctx.settings()
             except Exception:  # an unreadable cluster.toml must not block the call: defaults apply
                 settings = {}
-            timeout = float(settings.get("peer_action_timeout_seconds", ACTION_TIMEOUT))
+            timeout = float(reg.get(settings, "peers.action_timeout_seconds"))
         client = self._client_with_timeout(peer, timeout)
         if client is None:
             raise EngineUnavailable("node certificate not available")

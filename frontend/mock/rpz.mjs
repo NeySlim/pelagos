@@ -120,7 +120,7 @@ export function rpzHandlers(state, { createPlan, invalid, notFound }) {
       allow: rpz.allow,
       exempt_clients: rpz.exempt_clients,
       nodes: nodes().map((n) => ({ ...n, error: null, pending, log: '/var/cache/bind/pelagos/rpz/rpz.log' })),
-      settings: { check_seconds: 300, default_interval_hours: 24, shrink_percent: 50, bytes_per_entry: BYTES_PER_ENTRY, memory_warn_percent: 25, small_node_mb: 4096, break_dnssec: true },
+      settings: { check_seconds: 300, default_interval_hours: 24, shrink_percent: 50, bytes_per_entry: BYTES_PER_ENTRY, memory_warning_percent: 25, small_node_mb: 4096, break_dnssec: true },
       allow_zone: `pelagos-allow.${ZONE_SUFFIX}`,
     }
   }

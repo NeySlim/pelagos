@@ -10,6 +10,7 @@ import time
 
 import pytest
 
+from pelagos.core import settings_registry as reg
 from pelagos.core.write_pipeline import FileChange, WritePipeline
 from pelagos.domain import (
     Change,
@@ -22,7 +23,6 @@ from pelagos.domain import (
     PlanState,
     ValidationResult,
 )
-from pelagos.services.admin_service import SETTINGS_SCHEMA, _validate_settings
 from pelagos.services.container import Services
 from pelagos.services.events import EventHub, EventSocketListener, parse_event, send_event
 from pelagos.services.jobs import JobStore, step
@@ -342,14 +342,15 @@ def test_history_masks_secrets(node_ctx):
 
 
 def test_settings_schema_validation():
-    assert _validate_settings({"plan_ttl_seconds": 600}, SETTINGS_SCHEMA, "") == []
-    errors = _validate_settings(
-        {"plan_ttl_seconds": True, "retention": {"backups_days": 0}, "alerts_d2_error_rate": 2},
-        SETTINGS_SCHEMA,
-        "",
-    )
-    assert {e["field"] for e in errors} == {
-        "plan_ttl_seconds",
+    defaults = reg.defaults()
+    assert reg.validate({"plans": {"ttl_seconds": 600}}, defaults) == []
+    body = {
+        "plans": {"ttl_seconds": True},
+        "retention": {"backups_days": 0},
+        "checks": {"d2_error_percent": 200},
+    }
+    assert {f for f, _ in reg.validate(body, defaults)} == {
+        "plans.ttl_seconds",
         "retention.backups_days",
-        "alerts_d2_error_rate",
+        "checks.d2_error_percent",
     }

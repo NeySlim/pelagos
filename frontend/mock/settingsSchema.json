@@ -1,0 +1,862 @@
+{
+  "domains": [
+    "auth",
+    "plans",
+    "peers",
+    "checks",
+    "collector",
+    "retention",
+    "dns",
+    "kea",
+    "rpz",
+    "certificates"
+  ],
+  "settings": [
+    {
+      "key": "auth.session_ttl_seconds",
+      "type": "integer",
+      "default": 43200,
+      "min": 300,
+      "max": 2592000,
+      "unit": "seconds"
+    },
+    {
+      "key": "auth.session_idle_seconds",
+      "type": "integer",
+      "default": 1800,
+      "min": 60,
+      "max": 604800,
+      "unit": "seconds"
+    },
+    {
+      "key": "auth.login_rate_limit_per_minute",
+      "type": "integer",
+      "default": 10,
+      "min": 1,
+      "max": 1000,
+      "unit": "per_minute"
+    },
+    {
+      "key": "auth.require_totp",
+      "type": "boolean",
+      "default": false
+    },
+    {
+      "key": "plans.ttl_seconds",
+      "type": "integer",
+      "default": 600,
+      "min": 60,
+      "max": 86400,
+      "unit": "seconds"
+    },
+    {
+      "key": "peers.plan_timeout_seconds",
+      "type": "integer",
+      "default": 300,
+      "min": 10,
+      "max": 86400,
+      "unit": "seconds"
+    },
+    {
+      "key": "peers.installer_plan_timeout_seconds",
+      "type": "integer",
+      "default": 1800,
+      "min": 60,
+      "max": 86400,
+      "unit": "seconds"
+    },
+    {
+      "key": "peers.action_timeout_seconds",
+      "type": "integer",
+      "default": 120,
+      "min": 5,
+      "max": 3600,
+      "unit": "seconds"
+    },
+    {
+      "key": "checks.pool_warning_percent",
+      "type": "integer",
+      "default": 80,
+      "min": 1,
+      "max": 100,
+      "unit": "percent",
+      "group": "pools"
+    },
+    {
+      "key": "checks.pool_critical_percent",
+      "type": "integer",
+      "default": 95,
+      "min": 1,
+      "max": 100,
+      "unit": "percent",
+      "group": "pools"
+    },
+    {
+      "key": "checks.forecast_window_days",
+      "type": "integer",
+      "default": 7,
+      "min": 1,
+      "max": 365,
+      "unit": "days",
+      "group": "pools"
+    },
+    {
+      "key": "checks.forecast_warning_days",
+      "type": "integer",
+      "default": 14,
+      "min": 1,
+      "max": 365,
+      "unit": "days",
+      "group": "pools"
+    },
+    {
+      "key": "checks.forecast_critical_days",
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 365,
+      "unit": "days",
+      "group": "pools"
+    },
+    {
+      "key": "checks.declined_addresses_warning",
+      "type": "integer",
+      "default": 5,
+      "min": 1,
+      "max": 1000000,
+      "unit": "addresses",
+      "group": "pools"
+    },
+    {
+      "key": "checks.declined_received_warning",
+      "type": "integer",
+      "default": 5,
+      "min": 1,
+      "max": 1000000,
+      "unit": "declines_per_hour",
+      "group": "pools"
+    },
+    {
+      "key": "checks.d2_error_percent",
+      "type": "number",
+      "default": 5.0,
+      "min": 0,
+      "max": 100,
+      "unit": "percent",
+      "group": "ddns"
+    },
+    {
+      "key": "checks.serial_divergence_seconds",
+      "type": "integer",
+      "default": 900,
+      "min": 0,
+      "max": 604800,
+      "unit": "seconds",
+      "group": "secondaries"
+    },
+    {
+      "key": "checks.ha_grace_seconds",
+      "type": "integer",
+      "default": 45,
+      "min": 0,
+      "max": 3600,
+      "unit": "seconds",
+      "group": "ha"
+    },
+    {
+      "key": "checks.custom_hooks_enabled",
+      "type": "boolean",
+      "default": true,
+      "group": "kea"
+    },
+    {
+      "key": "checks.lfc_stale_factor",
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 100,
+      "unit": "factor",
+      "group": "kea"
+    },
+    {
+      "key": "checks.restart_loop_count",
+      "type": "integer",
+      "default": 3,
+      "min": 2,
+      "max": 1000,
+      "unit": "restarts",
+      "group": "kea"
+    },
+    {
+      "key": "checks.restart_loop_window_seconds",
+      "type": "integer",
+      "default": 1800,
+      "min": 60,
+      "max": 86400,
+      "unit": "seconds",
+      "group": "kea"
+    },
+    {
+      "key": "checks.clock_skew_warning_seconds",
+      "type": "integer",
+      "default": 5,
+      "min": 1,
+      "max": 3600,
+      "unit": "seconds",
+      "group": "clock"
+    },
+    {
+      "key": "checks.clock_skew_critical_seconds",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 3600,
+      "unit": "seconds",
+      "group": "clock"
+    },
+    {
+      "key": "checks.cert_warning_days",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 365,
+      "unit": "days",
+      "group": "certificates"
+    },
+    {
+      "key": "checks.cert_critical_days",
+      "type": "integer",
+      "default": 7,
+      "min": 1,
+      "max": 365,
+      "unit": "days",
+      "group": "certificates"
+    },
+    {
+      "key": "checks.disk_free_warning_percent",
+      "type": "integer",
+      "default": 15,
+      "min": 1,
+      "max": 99,
+      "unit": "percent",
+      "group": "disk"
+    },
+    {
+      "key": "checks.disk_free_critical_percent",
+      "type": "integer",
+      "default": 5,
+      "min": 1,
+      "max": 99,
+      "unit": "percent",
+      "group": "disk"
+    },
+    {
+      "key": "checks.log_max_mb",
+      "type": "integer",
+      "default": 1024,
+      "min": 1,
+      "max": 10000000,
+      "unit": "mb",
+      "group": "disk"
+    },
+    {
+      "key": "checks.lease_file_max_mb",
+      "type": "integer",
+      "default": 512,
+      "min": 1,
+      "max": 10000000,
+      "unit": "mb",
+      "group": "disk"
+    },
+    {
+      "key": "checks.journal_max_mb",
+      "type": "integer",
+      "default": 256,
+      "min": 1,
+      "max": 10000000,
+      "unit": "mb",
+      "group": "disk"
+    },
+    {
+      "key": "checks.backups_max_mb",
+      "type": "integer",
+      "default": 2048,
+      "min": 1,
+      "max": 10000000,
+      "unit": "mb",
+      "group": "disk"
+    },
+    {
+      "key": "checks.audit_max_mb",
+      "type": "integer",
+      "default": 512,
+      "min": 1,
+      "max": 10000000,
+      "unit": "mb",
+      "group": "disk"
+    },
+    {
+      "key": "checks.resolver_window_seconds",
+      "type": "integer",
+      "default": 900,
+      "min": 60,
+      "max": 86400,
+      "unit": "seconds",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.resolver_min_queries",
+      "type": "integer",
+      "default": 200,
+      "min": 1,
+      "max": 10000000,
+      "unit": "queries",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.resolver_servfail_warning_percent",
+      "type": "integer",
+      "default": 10,
+      "min": 1,
+      "max": 100,
+      "unit": "percent",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.resolver_servfail_critical_percent",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 100,
+      "unit": "percent",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.resolver_dnssec_failures",
+      "type": "integer",
+      "default": 10,
+      "min": 1,
+      "max": 1000000,
+      "unit": "failures",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.resolver_drop_percent",
+      "type": "integer",
+      "default": 80,
+      "min": 1,
+      "max": 100,
+      "unit": "percent",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.resolver_drop_min_qpm",
+      "type": "integer",
+      "default": 60,
+      "min": 1,
+      "max": 10000000,
+      "unit": "per_minute",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.resolver_roots_failures",
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 100,
+      "unit": "failures",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.delegation_timeout_seconds",
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 30,
+      "unit": "seconds",
+      "group": "delegation"
+    },
+    {
+      "key": "checks.delegation_max_zones",
+      "type": "integer",
+      "default": 200,
+      "min": 1,
+      "max": 100000,
+      "unit": "zones",
+      "group": "delegation"
+    },
+    {
+      "key": "checks.delegation_confirm_passes",
+      "type": "integer",
+      "default": 2,
+      "min": 1,
+      "max": 10,
+      "unit": "passes",
+      "group": "delegation"
+    },
+    {
+      "key": "checks.soa_refresh_min_seconds",
+      "type": "integer",
+      "default": 1200,
+      "min": 1,
+      "max": 2147483647,
+      "unit": "seconds",
+      "group": "soa"
+    },
+    {
+      "key": "checks.soa_refresh_max_seconds",
+      "type": "integer",
+      "default": 86400,
+      "min": 1,
+      "max": 2147483647,
+      "unit": "seconds",
+      "group": "soa"
+    },
+    {
+      "key": "checks.soa_retry_min_seconds",
+      "type": "integer",
+      "default": 120,
+      "min": 1,
+      "max": 2147483647,
+      "unit": "seconds",
+      "group": "soa"
+    },
+    {
+      "key": "checks.soa_retry_max_seconds",
+      "type": "integer",
+      "default": 7200,
+      "min": 1,
+      "max": 2147483647,
+      "unit": "seconds",
+      "group": "soa"
+    },
+    {
+      "key": "checks.soa_expire_min_seconds",
+      "type": "integer",
+      "default": 604800,
+      "min": 1,
+      "max": 2147483647,
+      "unit": "seconds",
+      "group": "soa"
+    },
+    {
+      "key": "checks.soa_expire_max_seconds",
+      "type": "integer",
+      "default": 2419200,
+      "min": 1,
+      "max": 2147483647,
+      "unit": "seconds",
+      "group": "soa"
+    },
+    {
+      "key": "checks.soa_minimum_min_seconds",
+      "type": "integer",
+      "default": 300,
+      "min": 0,
+      "max": 2147483647,
+      "unit": "seconds",
+      "group": "soa"
+    },
+    {
+      "key": "checks.soa_minimum_max_seconds",
+      "type": "integer",
+      "default": 86400,
+      "min": 0,
+      "max": 2147483647,
+      "unit": "seconds",
+      "group": "soa"
+    },
+    {
+      "key": "checks.advisories_enabled",
+      "type": "boolean",
+      "default": true,
+      "group": "advisories"
+    },
+    {
+      "key": "checks.advisories_fetch_enabled",
+      "type": "boolean",
+      "default": false,
+      "group": "advisories"
+    },
+    {
+      "key": "checks.advisories_url",
+      "type": "url",
+      "default": "",
+      "group": "advisories"
+    },
+    {
+      "key": "collector.poll_seconds",
+      "type": "integer",
+      "default": 60,
+      "min": 5,
+      "max": 3600,
+      "unit": "seconds"
+    },
+    {
+      "key": "collector.pool_sample_seconds",
+      "type": "integer",
+      "default": 300,
+      "min": 30,
+      "max": 86400,
+      "unit": "seconds"
+    },
+    {
+      "key": "collector.peer_poll_seconds",
+      "type": "integer",
+      "default": 30,
+      "min": 5,
+      "max": 3600,
+      "unit": "seconds"
+    },
+    {
+      "key": "collector.consistency_seconds",
+      "type": "integer",
+      "default": 900,
+      "min": 60,
+      "max": 604800,
+      "unit": "seconds"
+    },
+    {
+      "key": "collector.live_seconds",
+      "type": "integer",
+      "default": 5,
+      "min": 1,
+      "max": 300,
+      "unit": "seconds"
+    },
+    {
+      "key": "collector.lease_watch_max_leases",
+      "type": "integer",
+      "default": 50000,
+      "min": 0,
+      "max": 10000000,
+      "unit": "leases"
+    },
+    {
+      "key": "retention.pool_raw_days",
+      "type": "integer",
+      "default": 7,
+      "min": 1,
+      "max": 3650,
+      "unit": "days"
+    },
+    {
+      "key": "retention.pool_hourly_days",
+      "type": "integer",
+      "default": 365,
+      "min": 1,
+      "max": 3650,
+      "unit": "days"
+    },
+    {
+      "key": "retention.serial_days",
+      "type": "integer",
+      "default": 90,
+      "min": 1,
+      "max": 3650,
+      "unit": "days"
+    },
+    {
+      "key": "retention.ha_transition_days",
+      "type": "integer",
+      "default": 365,
+      "min": 1,
+      "max": 3650,
+      "unit": "days"
+    },
+    {
+      "key": "retention.alerts_resolved_days",
+      "type": "integer",
+      "default": 90,
+      "min": 1,
+      "max": 3650,
+      "unit": "days"
+    },
+    {
+      "key": "retention.backups_days",
+      "type": "integer",
+      "default": 90,
+      "min": 1,
+      "max": 3650,
+      "unit": "days"
+    },
+    {
+      "key": "dns.read_key",
+      "type": "string",
+      "default": "ddi-read",
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]{0,62}$"
+    },
+    {
+      "key": "dns.admin_key",
+      "type": "string",
+      "default": "ddi-admin",
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]{0,62}$"
+    },
+    {
+      "key": "dns.view_keys",
+      "type": "map",
+      "default": {},
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]{0,62}$"
+    },
+    {
+      "key": "dns.update_types_admin",
+      "type": "list",
+      "default": [
+        "A",
+        "AAAA",
+        "PTR",
+        "CNAME",
+        "TXT",
+        "SRV",
+        "MX",
+        "DHCID"
+      ],
+      "pattern": "^[A-Z][A-Z0-9]{0,9}$"
+    },
+    {
+      "key": "dns.update_types_kea",
+      "type": "list",
+      "default": [
+        "A",
+        "AAAA",
+        "PTR",
+        "DHCID"
+      ],
+      "pattern": "^[A-Z][A-Z0-9]{0,9}$"
+    },
+    {
+      "key": "dns.default_ns",
+      "type": "list",
+      "default": [],
+      "pattern": "^[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}\\.)*[A-Za-z0-9_-]{0,63}\\.?$"
+    },
+    {
+      "key": "dns.default_ttl_seconds",
+      "type": "integer",
+      "default": 3600,
+      "min": 0,
+      "max": 2147483647,
+      "unit": "seconds"
+    },
+    {
+      "key": "kea.ddns_key",
+      "type": "string",
+      "default": "kea-ddns",
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]{0,62}$"
+    },
+    {
+      "key": "rpz.check_seconds",
+      "type": "integer",
+      "default": 300,
+      "min": 30,
+      "max": 86400,
+      "unit": "seconds"
+    },
+    {
+      "key": "rpz.default_interval_hours",
+      "type": "integer",
+      "default": 24,
+      "min": 1,
+      "max": 720,
+      "unit": "hours"
+    },
+    {
+      "key": "rpz.min_interval_minutes",
+      "type": "integer",
+      "default": 60,
+      "min": 5,
+      "max": 10080,
+      "unit": "minutes"
+    },
+    {
+      "key": "rpz.shrink_percent",
+      "type": "integer",
+      "default": 50,
+      "min": 1,
+      "max": 100,
+      "unit": "percent"
+    },
+    {
+      "key": "rpz.stale_factor",
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 100,
+      "unit": "factor"
+    },
+    {
+      "key": "rpz.bytes_per_entry",
+      "type": "integer",
+      "default": 800,
+      "min": 50,
+      "max": 10000,
+      "unit": "bytes"
+    },
+    {
+      "key": "rpz.memory_warning_percent",
+      "type": "integer",
+      "default": 25,
+      "min": 1,
+      "max": 100,
+      "unit": "percent"
+    },
+    {
+      "key": "rpz.small_node_mb",
+      "type": "integer",
+      "default": 4096,
+      "min": 256,
+      "max": 1048576,
+      "unit": "mb"
+    },
+    {
+      "key": "rpz.max_download_mb",
+      "type": "integer",
+      "default": 256,
+      "min": 1,
+      "max": 4096,
+      "unit": "mb"
+    },
+    {
+      "key": "rpz.log_events",
+      "type": "integer",
+      "default": 200,
+      "min": 10,
+      "max": 100000,
+      "unit": "events"
+    },
+    {
+      "key": "rpz.break_dnssec",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "certificates.ucm_renew_days",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 365,
+      "unit": "days"
+    },
+    {
+      "key": "certificates.retry_min_seconds",
+      "type": "integer",
+      "default": 300,
+      "min": 30,
+      "max": 86400,
+      "unit": "seconds"
+    },
+    {
+      "key": "certificates.retry_max_seconds",
+      "type": "integer",
+      "default": 21600,
+      "min": 60,
+      "max": 604800,
+      "unit": "seconds"
+    },
+    {
+      "key": "certificates.propagation_seconds",
+      "type": "integer",
+      "default": 180,
+      "min": 10,
+      "max": 3600,
+      "unit": "seconds"
+    }
+  ],
+  "pairs": [
+    {
+      "lower": "auth.session_idle_seconds",
+      "higher": "auth.session_ttl_seconds",
+      "strict": false
+    },
+    {
+      "lower": "checks.pool_warning_percent",
+      "higher": "checks.pool_critical_percent",
+      "strict": true
+    },
+    {
+      "lower": "checks.forecast_critical_days",
+      "higher": "checks.forecast_warning_days",
+      "strict": true
+    },
+    {
+      "lower": "checks.clock_skew_warning_seconds",
+      "higher": "checks.clock_skew_critical_seconds",
+      "strict": true
+    },
+    {
+      "lower": "checks.cert_critical_days",
+      "higher": "checks.cert_warning_days",
+      "strict": true
+    },
+    {
+      "lower": "checks.disk_free_critical_percent",
+      "higher": "checks.disk_free_warning_percent",
+      "strict": true
+    },
+    {
+      "lower": "checks.resolver_servfail_warning_percent",
+      "higher": "checks.resolver_servfail_critical_percent",
+      "strict": true
+    },
+    {
+      "lower": "checks.soa_refresh_min_seconds",
+      "higher": "checks.soa_refresh_max_seconds",
+      "strict": true
+    },
+    {
+      "lower": "checks.soa_retry_min_seconds",
+      "higher": "checks.soa_retry_max_seconds",
+      "strict": true
+    },
+    {
+      "lower": "checks.soa_expire_min_seconds",
+      "higher": "checks.soa_expire_max_seconds",
+      "strict": true
+    },
+    {
+      "lower": "checks.soa_minimum_min_seconds",
+      "higher": "checks.soa_minimum_max_seconds",
+      "strict": true
+    },
+    {
+      "lower": "certificates.retry_min_seconds",
+      "higher": "certificates.retry_max_seconds",
+      "strict": false
+    }
+  ],
+  "renamed": {
+    "plan_ttl_seconds": "plans.ttl_seconds",
+    "session_ttl_seconds": "auth.session_ttl_seconds",
+    "session_idle_seconds": "auth.session_idle_seconds",
+    "login_rate_limit_per_minute": "auth.login_rate_limit_per_minute",
+    "require_totp": "auth.require_totp",
+    "peer_plan_timeout_seconds": "peers.plan_timeout_seconds",
+    "installer_plan_timeout_seconds": "peers.installer_plan_timeout_seconds",
+    "peer_action_timeout_seconds": "peers.action_timeout_seconds",
+    "alerts_pool_warning_percent": "checks.pool_warning_percent",
+    "alerts_pool_critical_percent": "checks.pool_critical_percent",
+    "alerts_serial_divergence_seconds": "checks.serial_divergence_seconds",
+    "alerts_d2_error_rate": "checks.d2_error_percent",
+    "alerts_ha_grace_seconds": "checks.ha_grace_seconds",
+    "alerts_custom_hooks": "checks.custom_hooks_enabled",
+    "alerts_clock_skew_warning_seconds": "checks.clock_skew_warning_seconds",
+    "alerts_clock_skew_critical_seconds": "checks.clock_skew_critical_seconds",
+    "alerts_cert_warning_days": "checks.cert_warning_days",
+    "alerts_cert_critical_days": "checks.cert_critical_days",
+    "checks.soa_refresh_min": "checks.soa_refresh_min_seconds",
+    "checks.soa_refresh_max": "checks.soa_refresh_max_seconds",
+    "checks.soa_retry_min": "checks.soa_retry_min_seconds",
+    "checks.soa_retry_max": "checks.soa_retry_max_seconds",
+    "checks.soa_expire_min": "checks.soa_expire_min_seconds",
+    "checks.soa_expire_max": "checks.soa_expire_max_seconds",
+    "checks.soa_minimum_min": "checks.soa_minimum_min_seconds",
+    "checks.soa_minimum_max": "checks.soa_minimum_max_seconds",
+    "checks.advisories_fetch": "checks.advisories_fetch_enabled",
+    "collector.lease_watch_max": "collector.lease_watch_max_leases",
+    "dns.default_ttl": "dns.default_ttl_seconds",
+    "rpz.memory_warn_percent": "rpz.memory_warning_percent"
+  },
+  "scaled": {
+    "alerts_d2_error_rate": 100
+  }
+}

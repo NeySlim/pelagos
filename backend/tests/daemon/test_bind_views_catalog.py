@@ -33,7 +33,7 @@ view "outside" {
 
 def settings(view_keys: dict | None = None) -> dict:
     return {
-        "plan_ttl_seconds": 600,
+        "plans": {"ttl_seconds": 600},
         "dns": {
             "read_key": "ddi-read",
             "admin_key": "ddi-admin",

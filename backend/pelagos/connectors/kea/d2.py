@@ -23,6 +23,7 @@ from pelagos.connectors.kea.configfile import ADOPT_FILE, ADOPT_TARGETS, KeaConf
 from pelagos.connectors.kea.control_socket import DEFAULT_COMMAND_TIMEOUT, KeaControlSocket
 from pelagos.connectors.kea.schema import config_schema
 from pelagos.connectors.kea.secrets import masked_refusal
+from pelagos.core import settings_registry as reg
 from pelagos.core.write_pipeline import FileChange
 from pelagos.domain import (
     Change,
@@ -149,7 +150,7 @@ class D2Backend(DdnsBackend):
         self.secret_dir = Path(cfg.get("d2_secret_dir", str(self.conf_path.parent)))
         self.secret_group: str | None = cfg.get("kea_group")
         self.backup_root = Path(ctx.backup_root) / "d2"
-        self.plan_ttl = int((ctx.settings or {}).get("plan_ttl_seconds", 600))
+        self.plan_ttl = int(reg.get(ctx.settings, "plans.ttl_seconds"))
         # Per plan id, never serialized; dropped once the plan can no longer be applied or rolled back.
         self._private: dict[str, _PlanPrivate] = {}
         self.file = KeaConfigFile(

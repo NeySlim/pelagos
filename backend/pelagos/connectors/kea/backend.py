@@ -64,6 +64,7 @@ from pelagos.connectors.kea.ha import (
 )
 from pelagos.connectors.kea.schema import config_schema
 from pelagos.connectors.kea.secrets import masked_refusal
+from pelagos.core import settings_registry as reg
 from pelagos.core.keadoc import KeaDocument
 from pelagos.domain import (
     Change,
@@ -111,7 +112,7 @@ LEASE_PAGE = 1000
 APPLIED_KEPT = 256
 HA_PEERS_TTL = 30.0  # seconds the configured HA peers are reused between config-get reads
 # HA repair: a reset server leaves `terminated` at once; the pair needs a few heartbeats (and a
-# lease sync) to serve again. Peers answer a plan within peer_plan_timeout_seconds (300).
+# lease sync) to serve again. Peers answer a plan within peers.plan_timeout_seconds (300).
 HA_RESET_STEP_SECONDS = 30.0
 HA_REPAIR_WAIT_SECONDS = 180.0
 HA_POLL_SECONDS = 1.0
@@ -157,7 +158,7 @@ class KeaBackend(DhcpBackend):
         )
         self.conf_path = Path(cfg.get(f"dhcp{n}_conf", f"/etc/kea/kea-dhcp{n}.conf"))
         self.backup_root = Path(ctx.backup_root) / self.engine_name
-        self.plan_ttl = int((ctx.settings or {}).get("plan_ttl_seconds", 600))
+        self.plan_ttl = int(reg.get(ctx.settings, "plans.ttl_seconds"))
         self._version: str | None = None
         self.file = KeaConfigFile(
             self.conf_path,

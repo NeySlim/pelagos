@@ -58,25 +58,25 @@ def test_flatten_paths_and_round_trip():
 
 def test_merge_is_commutative_and_idempotent():
     base = _base()
-    a = _write(base, "A", lambda c: c.settings.__setitem__("plan_ttl_seconds", 1))
+    a = _write(base, "A", lambda c: c.settings["plans"].__setitem__("ttl_seconds", 1))
     b = _write(base, "B", lambda c: c.roles.append(Role(name="ops", permissions=["read:dns"])))
     b = _write(b, "B", lambda c: c.users[0].roles.append("viewer"))
     ab, ba = merge_configs(a, b), merge_configs(b, a)
     assert ab.digest() == ba.digest() and ab.version == ba.version
     assert merge_configs(ab, ab).digest() == ab.digest()
     assert merge_configs(ab, a).digest() == ab.digest()
-    assert ab.settings["plan_ttl_seconds"] == 1
+    assert ab.settings["plans"]["ttl_seconds"] == 1
     assert [r.name for r in ab.roles] == ["ops"]
     assert ab.users[0].roles == ["admin", "viewer"]
 
 
 def test_same_key_conflict_greater_stamp_then_node_wins():
     base = _base()
-    a = _write(base, "A", lambda c: c.settings.__setitem__("plan_ttl_seconds", 1))
-    b = _write(base, "B", lambda c: c.settings.__setitem__("plan_ttl_seconds", 2))
-    assert merge_configs(a, b).settings["plan_ttl_seconds"] == 2  # same counter, "B" > "A"
-    a2 = _write(a, "A", lambda c: c.settings.__setitem__("plan_ttl_seconds", 3))
-    assert merge_configs(b, a2).settings["plan_ttl_seconds"] == 3  # higher counter
+    a = _write(base, "A", lambda c: c.settings["plans"].__setitem__("ttl_seconds", 1))
+    b = _write(base, "B", lambda c: c.settings["plans"].__setitem__("ttl_seconds", 2))
+    assert merge_configs(a, b).settings["plans"]["ttl_seconds"] == 2  # same counter, "B" > "A"
+    a2 = _write(a, "A", lambda c: c.settings["plans"].__setitem__("ttl_seconds", 3))
+    assert merge_configs(b, a2).settings["plans"]["ttl_seconds"] == 3  # higher counter
 
 
 def test_tombstones_delete_wins_and_prunes_fields():
@@ -103,7 +103,7 @@ def test_recreated_record_does_not_get_fields_of_its_former_incarnation():
         "A",
         lambda c: c.roles.append(Role(name="ops", description="old", permissions=["read:dns"])),
     )
-    stale = _write(base, "C", lambda c: c.settings.__setitem__("plan_ttl_seconds", 900))
+    stale = _write(base, "C", lambda c: c.settings["plans"].__setitem__("ttl_seconds", 900))
     deleted = _write(base, "A", lambda c: setattr(c, "roles", []))
     recreated = _write(deleted, "A", lambda c: c.roles.append(Role(name="ops")))
     third = _write(recreated, "B", lambda c: c.settings["collector"].__setitem__("poll_seconds", 15))
@@ -112,7 +112,7 @@ def test_recreated_record_does_not_get_fields_of_its_former_incarnation():
     for cfg in (final, other):
         assert [r.name for r in cfg.roles] == ["ops"]
         assert cfg.roles[0].description is None and cfg.roles[0].permissions == []
-        assert cfg.settings["plan_ttl_seconds"] == 900
+        assert cfg.settings["plans"]["ttl_seconds"] == 900
         assert cfg.settings["collector"]["poll_seconds"] == 15
     assert final.state().digest() == other.state().digest()
     stamps = {**final.stamps, **final.tombstones}

@@ -13,6 +13,7 @@ from typing import Any
 from pelagos.auth.rate_limit import RateLimiter
 from pelagos.auth.sessions import SessionStore
 from pelagos.core import clock
+from pelagos.core import settings_registry as reg
 from pelagos.core.audit_log import AuditLog
 from pelagos.core.config_store import ClusterConfig, ConfigStore, NodeConfig, atomic_write
 from pelagos.core.paths import Paths
@@ -117,16 +118,16 @@ class NodeContext:
             config_store=store,
             audit_log=audit_log,
             plan_store=PlanStore(
-                int(settings.get("plan_ttl_seconds", 600)),
+                int(reg.get(settings, "plans.ttl_seconds")),
                 tombstone_path=paths.plan_tombstones,
                 plans_dir=paths.plans_dir,
                 box=secrets,
             ),
             sessions=SessionStore(
-                int(settings.get("session_ttl_seconds", 43200)),
-                int(settings.get("session_idle_seconds", 1800)),
+                int(reg.get(settings, "auth.session_ttl_seconds")),
+                int(reg.get(settings, "auth.session_idle_seconds")),
             ),
-            login_limiter=RateLimiter(int(settings.get("login_rate_limit_per_minute", 10))),
+            login_limiter=RateLimiter(int(reg.get(settings, "auth.login_rate_limit_per_minute"))),
             secrets=secrets,
         )
 
@@ -135,6 +136,26 @@ class NodeContext:
 
     def settings(self) -> dict[str, Any]:
         return self.cluster().settings
+
+    def migrate_settings(self) -> list[tuple[str, str]]:
+        """Persist the rename of former settings names (an upgrade) once, with an audit entry."""
+        from pelagos.domain import AuditEntry, AuditResult
+
+        moved = self.config_store.migrate_settings(updated_by=f"node:{self.node.id}")
+        if moved:
+            self.audit_log.append(
+                AuditEntry(
+                    node_id=self.node.id,
+                    user="system",
+                    action="admin.settings.op",
+                    target="settings",
+                    request={"op": "migrate", "renamed": dict(moved)},
+                    response={"ok": True},
+                    result=AuditResult.OK,
+                    message=f"{len(moved)} settings renamed to the current names",
+                )
+            )
+        return moved
 
     def get_secret(self, name: str) -> str | None:
         token = self.cluster().secrets.get(name)

@@ -174,6 +174,7 @@ export const ENDPOINTS = [
   'GET /admin/permissions',
   'GET /admin/settings',
   'PUT /admin/settings',
+  'GET /admin/settings/schema',
   'GET /admin/modules',
   'PUT /admin/modules',
   // Administration > Certificates

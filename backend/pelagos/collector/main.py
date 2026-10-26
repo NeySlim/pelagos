@@ -29,6 +29,7 @@ from pelagos.collector.pollers.rpz import RpzPoller
 from pelagos.collector.snapshots import SnapshotProvider
 from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBackend, DhcpBackend, DnsBackend
 from pelagos.core import ha_maintenance
+from pelagos.core import settings_registry as reg
 from pelagos.core.context import NodeContext
 from pelagos.core.paths import Paths
 from pelagos.domain import (
@@ -52,7 +53,6 @@ log = logging.getLogger(__name__)
 LEASE_PAGE = 500
 # Live task defaults (settings.collector): fast HA reads and the lease watch.
 LIVE_SECONDS = 5.0
-LEASE_WATCH_MAX = 50000
 # A zone whose serial a peer announced is read again here after these delays, until it follows.
 ZONE_RECHECK_DELAYS = (2.0, 5.0, 15.0, 30.0)
 # Web certificate renewal and expiry checks (core.webcert): often enough for 24 h certificates.
@@ -298,7 +298,7 @@ class Collector:
     def watch_leases(self) -> None:
         """Walk the leases of a server that answered clients since the last walk; new and renewed
         ones go out as `leases` events and the latest ones to the "recent_leases" snapshot."""
-        limit = int(self.ctx.settings().get("collector", {}).get("lease_watch_max", LEASE_WATCH_MAX))
+        limit = int(reg.get(self.ctx.settings(), "collector.lease_watch_max_leases"))
         for poller in self.kea:
             with self.backend_lock:
                 acks = poller.ack_counter()
@@ -924,6 +924,12 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
         recover_in_place_writes(paths.backups_dir)
     except Exception:  # never blocks the start
         log.exception("in-place write recovery failed")
+    try:
+        moved = ctx.migrate_settings()
+        if moved:
+            log.info("settings renamed in cluster.toml: %s", ", ".join(f"{a} -> {b}" for a, b in moved))
+    except Exception:  # never blocks the start: every load migrates in memory anyway
+        log.exception("settings migration failed")
     if rebuild:
         log.info("rebuilding %s", paths.series_db)
         series_mod.rebuild(paths.series_db)

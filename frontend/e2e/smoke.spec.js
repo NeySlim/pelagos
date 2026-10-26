@@ -44,7 +44,7 @@ const PAGES = [
   ['/admin/users', 'page-admin-users', 'users-table'],
   ['/admin/roles', 'page-admin-roles', 'roles-list'],
   ['/admin/modules', 'page-admin-modules', 'modules-cluster'],
-  ['/admin/settings', 'page-admin-settings', 'settings-general'],
+  ['/admin/settings', 'page-admin-settings', 'settings-auth'],
   ['/account', 'page-account-account', 'account-profile'],
 ]
 

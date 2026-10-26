@@ -1162,7 +1162,7 @@ class DhcpService:
 
         Targets are the active servers of every relationship with a server in `terminated`
         (`server_name` narrows to that server's relationship). A node clock off by
-        alerts_clock_skew_warning_seconds or more fails the plan: a restart would terminate again.
+        checks.clock_skew_warning_seconds or more fails the plan: a restart would terminate again.
         Nothing to undo: a rollback leaves the servers as they are."""
         wanted = body.get("server_name")
         flat = ha_mod.flatten([s for s in self.ha() if s.enabled])

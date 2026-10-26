@@ -151,7 +151,7 @@ def test_a_lasting_wait_raises_after_the_grace_period(store):
 def test_grace_period_is_a_setting_and_terminated_is_never_absorbed(store):
     clock = Clock()
     kea = FakeDhcpBackend()
-    poller = KeaPoller(kea, NODE, store, {**SETTINGS, "alerts_ha_grace_seconds": 300}, clock)
+    poller = KeaPoller(kea, NODE, store, {**SETTINGS, "checks": {"ha_grace_seconds": 300}}, clock)
     poller.poll()
     clock.advance(10)
     kea.ha.state = "terminated"
@@ -161,7 +161,7 @@ def test_grace_period_is_a_setting_and_terminated_is_never_absorbed(store):
 def test_a_reload_done_by_pelagos_keeps_the_alerts_quiet(store):
     clock = Clock()
     kea = FakeDhcpBackend()
-    poller = KeaPoller(kea, NODE, store, {**SETTINGS, "alerts_ha_grace_seconds": 0}, clock)
+    poller = KeaPoller(kea, NODE, store, {**SETTINGS, "checks": {"ha_grace_seconds": 0}}, clock)
     poller.poll()
     poller.reloading = lambda _engine: True
     waiting(kea)
@@ -274,7 +274,7 @@ def test_a_hook_no_package_owns_raises_an_alert_with_the_builtin_option(store, t
     assert by_name["libkea_sanitize_hostname.so"].title_message["key"] == "alert.custom_hook_builtin"
     assert by_name["libcustom_audit.so"].title_message["key"] == "alert.custom_hook"
     assert by_name["libcustom_audit.so"].subject == "kea4:hook:libcustom_audit.so"
-    off = KeaPoller(kea, NODE, store, {**SETTINGS, "alerts_custom_hooks": False}, clock)
+    off = KeaPoller(kea, NODE, store, {**SETTINGS, "checks": {"custom_hooks_enabled": False}}, clock)
     off.ownership = poller.ownership
     assert [a for a in off.poll().alerts if a.kind is AlertKind.CUSTOM_HOOK] == []
 

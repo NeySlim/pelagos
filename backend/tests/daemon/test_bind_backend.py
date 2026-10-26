@@ -21,7 +21,7 @@ from tests.fixtures.ports import wait_for
 pytestmark = pytest.mark.daemon
 
 SETTINGS = {
-    "plan_ttl_seconds": 600,
+    "plans": {"ttl_seconds": 600},
     "dns": {
         "read_key": "ddi-read",
         "admin_key": "ddi-admin",

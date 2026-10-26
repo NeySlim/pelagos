@@ -13,6 +13,7 @@ from pelagos.api.security import client_ip, ctx, current_session, require, servi
 from pelagos.auth.passwords import dummy_hash, verify_password
 from pelagos.auth.rbac import resolve_permissions
 from pelagos.auth.sessions import COOKIE_NAME
+from pelagos.core import settings_registry as reg
 from pelagos.domain.audit import AuditEntry, AuditResult
 
 ns = Namespace("auth", description="Authentication and account", path="/auth")
@@ -72,7 +73,7 @@ class Login(Resource):
             if secret is None or not services().account.totp_guard.verify(user.id, secret, str(code)):
                 _audit("auth.login_failed", username, AuditResult.DENIED, "invalid one-time code")
                 raise ApiError("invalid_credentials", "invalid one-time code")
-        elif cluster.settings.get("require_totp"):
+        elif reg.get(cluster.settings, "auth.require_totp"):
             # The user may log in only to enroll; every other endpoint answers 403 until then.
             restriction = "totp_enrollment"
         if user.must_change_password and restriction is None:
@@ -100,7 +101,7 @@ class Login(Resource):
             secure=request.is_secure,
             samesite="Strict",
             path="/",
-            max_age=int(cluster.settings.get("session_ttl_seconds", 43200)),
+            max_age=int(reg.get(cluster.settings, "auth.session_ttl_seconds")),
         )
         return resp
 

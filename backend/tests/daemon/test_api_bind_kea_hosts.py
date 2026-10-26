@@ -74,4 +74,4 @@ def test_dashboard_reads_both_engines(api):
     assert summary["engines"]["bind"]["running"] and summary["engines"]["kea4"]["running"]
     assert any(p["subnet_id"] == 1 for p in summary["pools"])
     assert any(z["zone"] == "example.lan." for z in summary["zones"])
-    assert summary["thresholds"]["alerts_pool_warning_percent"] == 80
+    assert summary["thresholds"]["pool_warning_percent"] == 80

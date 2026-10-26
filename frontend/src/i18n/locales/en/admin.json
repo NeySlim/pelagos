@@ -121,23 +121,83 @@
   },
   "settings": {
     "saved": "Settings saved",
-    "number": "A number is expected",
+    "search": "Find a setting",
+    "noMatch": "No setting matches “{{query}}”",
+    "default": "Default: {{value}}",
+    "reset": "Reset to default",
+    "changed_one": "{{count}} change",
+    "changed_other": "{{count}} changes",
+    "invalidCount": "Fix the highlighted fields first",
+    "loadError": "Settings could not be read",
+    "on": "On",
+    "off": "Off",
+    "none": "none",
+    "errors": {
+      "boolean": "On or off expected",
+      "number": "A number is expected",
+      "integer": "A whole number is expected",
+      "range": "Between {{min}} and {{max}}",
+      "required": "Required",
+      "name": "Letters, digits, dot, dash or underscore",
+      "https": "An https:// URL, or empty",
+      "list": "A list of values is expected",
+      "item": "Invalid value: {{item}}",
+      "object": "A table of views is expected",
+      "viewName": "Invalid view name: {{view}}",
+      "viewKey": "View {{view}}: a valid update key is required",
+      "lower": "Must be lower than “{{other}}”",
+      "atMost": "Must not exceed “{{other}}”"
+    },
+    "units": {
+      "seconds": "s",
+      "minutes": "min",
+      "hours": "h",
+      "days": "days",
+      "percent": "%",
+      "mb": "MB",
+      "factor": "×",
+      "per_minute": "/min",
+      "addresses": "addresses",
+      "declines_per_hour": "/hour",
+      "restarts": "restarts",
+      "queries": "queries",
+      "failures": "failures",
+      "zones": "zones",
+      "passes": "passes",
+      "leases": "leases",
+      "events": "events",
+      "bytes": "bytes"
+    },
+    "duration": {
+      "minutes": "= {{count}} min",
+      "hours": "= {{count}} h",
+      "days_one": "= {{count}} day",
+      "days_other": "= {{count}} days"
+    },
+    "viewKeys": {
+      "view": "View",
+      "admin": "Update key",
+      "read": "Transfer key (optional)",
+      "add": "Add a view",
+      "remove": "Remove",
+      "empty": "No view key: only _default is managed"
+    },
     "sections": {
-      "general": {
-        "title": "General",
-        "help": "Sessions, sign-in and plans"
+      "auth": {
+        "title": "Sign-in",
+        "help": "Sessions, sign-in rate and two-factor"
       },
-      "dns": {
-        "title": "DNS",
-        "help": "TSIG keys used by Pelagos and record types they may update"
+      "plans": {
+        "title": "Plans",
+        "help": "How long a validated plan waits for apply"
       },
-      "kea": {
-        "title": "Kea",
-        "help": "Key used by kea-dhcp-ddns"
+      "peers": {
+        "title": "Peers",
+        "help": "How long another node may take to answer"
       },
-      "thresholds": {
+      "checks": {
         "title": "Alert thresholds",
-        "help": "When pools, DDNS and secondaries raise alerts"
+        "help": "When pools, DDNS, HA, clocks, certificates and health checks raise alerts"
       },
       "collector": {
         "title": "Collector",
@@ -147,111 +207,186 @@
         "title": "Retention",
         "help": "How long series, resolved alerts and backups are kept"
       },
-      "checks": {
-        "title": "Health checks",
-        "help": "Thresholds of the disk, reservation, resolver, delegation, forecast and advisory checks"
+      "dns": {
+        "title": "DNS",
+        "help": "TSIG keys used by Pelagos and record types they may update"
+      },
+      "kea": {
+        "title": "Kea",
+        "help": "Key used by kea-dhcp-ddns"
+      },
+      "rpz": {
+        "title": "Response policy zones",
+        "help": "Blocklist downloads, checks and memory estimate (subscriptions: DNS, RPZ)"
       },
       "certificates": {
         "title": "Certificates",
-        "help": "Renewal of the web certificates (Administration, Certificates)"
+        "help": "Renewal of the web certificates (sources: Administration, Certificates)"
       }
     },
+    "groups": {
+      "pools": "DHCP pools",
+      "ddns": "DDNS",
+      "secondaries": "Secondaries",
+      "ha": "High availability",
+      "kea": "Kea",
+      "clock": "Clocks",
+      "certificates": "Certificates",
+      "disk": "Disk and file sizes",
+      "resolver": "Resolver",
+      "delegation": "Delegation",
+      "soa": "SOA timers",
+      "advisories": "ISC security advisories"
+    },
     "fields": {
-      "require_totp": "Require two-factor for every user",
-      "session_idle_seconds": "Idle session timeout (seconds)",
-      "session_ttl_seconds": "Session lifetime (seconds)",
-      "login_rate_limit_per_minute": "Sign-in attempts per minute",
-      "plan_ttl_seconds": "Plan lifetime (seconds)",
-      "alerts_pool_warning_percent": "Pool warning (%)",
-      "alerts_pool_critical_percent": "Pool critical (%)",
-      "alerts_serial_divergence_seconds": "Serial divergence tolerated (seconds)",
-      "alerts_d2_error_rate": "DDNS error rate",
-      "alerts_ha_grace_seconds": "HA alert grace period (seconds)",
-      "alerts_custom_hooks": "Warn about Kea hooks no package owns",
-      "alerts_clock_skew_warning_seconds": "Clock skew warning (seconds)",
-      "alerts_clock_skew_critical_seconds": "Clock skew critical (seconds)",
+      "auth": {
+        "session_ttl_seconds": "Session lifetime",
+        "session_idle_seconds": "Idle session timeout",
+        "login_rate_limit_per_minute": "Sign-in attempts per minute",
+        "require_totp": "Require two-factor for every user"
+      },
+      "plans": {
+        "ttl_seconds": "Plan lifetime"
+      },
+      "peers": {
+        "plan_timeout_seconds": "Peer plan answer timeout",
+        "installer_plan_timeout_seconds": "Peer installer plan timeout",
+        "action_timeout_seconds": "Peer action timeout"
+      },
+      "checks": {
+        "pool_warning_percent": "Pool warning",
+        "pool_critical_percent": "Pool critical",
+        "forecast_window_days": "Forecast history",
+        "forecast_warning_days": "Forecast warning (days to full)",
+        "forecast_critical_days": "Forecast critical (days to full)",
+        "declined_addresses_warning": "Declined addresses per subnet",
+        "declined_received_warning": "Declines received per hour",
+        "d2_error_percent": "DDNS error share",
+        "serial_divergence_seconds": "Serial divergence tolerated",
+        "ha_grace_seconds": "HA alert grace period",
+        "custom_hooks_enabled": "Warn about Kea hooks no package owns",
+        "lfc_stale_factor": "LFC overdue after (intervals)",
+        "restart_loop_count": "Restarts that make a loop",
+        "restart_loop_window_seconds": "Restart loop window",
+        "clock_skew_warning_seconds": "Clock skew warning",
+        "clock_skew_critical_seconds": "Clock skew critical",
+        "cert_warning_days": "Certificate expiry warning",
+        "cert_critical_days": "Certificate expiry critical",
+        "disk_free_warning_percent": "Free disk space warning",
+        "disk_free_critical_percent": "Free disk space critical",
+        "log_max_mb": "named log size limit",
+        "lease_file_max_mb": "Kea lease file size limit",
+        "journal_max_mb": "Zone journal size limit",
+        "backups_max_mb": "Backups size limit",
+        "audit_max_mb": "Audit log size limit",
+        "resolver_window_seconds": "Resolver window",
+        "resolver_min_queries": "Resolver minimum answers",
+        "resolver_servfail_warning_percent": "SERVFAIL warning",
+        "resolver_servfail_critical_percent": "SERVFAIL critical",
+        "resolver_dnssec_failures": "DNSSEC failures per window",
+        "resolver_drop_percent": "Query drop",
+        "resolver_drop_min_qpm": "Query drop: minimum queries per minute",
+        "resolver_roots_failures": "Root probe failures in a row",
+        "delegation_timeout_seconds": "Delegation probe timeout",
+        "delegation_max_zones": "Zones checked for delegation",
+        "delegation_confirm_passes": "Delegation failures confirmed over passes",
+        "soa_refresh_min_seconds": "SOA refresh minimum",
+        "soa_refresh_max_seconds": "SOA refresh maximum",
+        "soa_retry_min_seconds": "SOA retry minimum",
+        "soa_retry_max_seconds": "SOA retry maximum",
+        "soa_expire_min_seconds": "SOA expire minimum",
+        "soa_expire_max_seconds": "SOA expire maximum",
+        "soa_minimum_min_seconds": "SOA negative TTL minimum",
+        "soa_minimum_max_seconds": "SOA negative TTL maximum",
+        "advisories_enabled": "Check ISC security advisories",
+        "advisories_fetch_enabled": "Fetch advisory data from the network",
+        "advisories_url": "Advisory data URL (https)"
+      },
+      "collector": {
+        "poll_seconds": "Engine poll",
+        "pool_sample_seconds": "Pool sample",
+        "peer_poll_seconds": "Peer poll",
+        "consistency_seconds": "Consistency pass",
+        "live_seconds": "Live pass: HA heartbeats and lease watch",
+        "lease_watch_max_leases": "Lease watch: largest lease table walked"
+      },
+      "retention": {
+        "pool_raw_days": "Raw pool series",
+        "pool_hourly_days": "Hourly pool series",
+        "serial_days": "Serial history",
+        "ha_transition_days": "HA transitions",
+        "alerts_resolved_days": "Resolved alerts",
+        "backups_days": "Write backups"
+      },
       "dns": {
         "read_key": "Transfer key",
         "admin_key": "Update key",
+        "view_keys": "Keys per view",
         "update_types_admin": "Record types Pelagos may update",
         "update_types_kea": "Record types Kea may update",
-        "default_ns": "Name servers of new primary zones"
+        "default_ns": "Name servers of new primary zones",
+        "default_ttl_seconds": "Default TTL of new records"
       },
       "kea": {
         "ddns_key": "DDNS key"
       },
-      "thresholds": {
-        "pool_warn_percent": "Pool warning (%)",
-        "pool_full_percent": "Pool full (%)",
-        "d2_errors_per_hour": "DDNS errors per hour",
-        "secondary_stale_seconds": "Secondary stale after (seconds)"
+      "rpz": {
+        "check_seconds": "List update check",
+        "default_interval_hours": "Default list refresh",
+        "min_interval_minutes": "Shortest list refresh allowed",
+        "shrink_percent": "Largest shrink accepted",
+        "stale_factor": "List stale after (intervals)",
+        "bytes_per_entry": "Memory per entry (estimate)",
+        "memory_warning_percent": "Memory warning",
+        "small_node_mb": "Small node below",
+        "max_download_mb": "Largest list download",
+        "log_events": "Events kept per node",
+        "break_dnssec": "Rewrite signed answers (break-dnssec)"
       },
-      "collector": {
-        "interval_seconds": "Poll interval (seconds)",
-        "poll_seconds": "Engine poll (seconds)",
-        "pool_sample_seconds": "Pool sample (seconds)",
-        "peer_poll_seconds": "Peer poll (seconds)",
-        "consistency_seconds": "Consistency pass (seconds)",
-        "live_seconds": "Live pass: HA heartbeats and lease watch (seconds)",
-        "lease_watch_max": "Lease watch: largest lease table walked"
+      "certificates": {
+        "ucm_renew_days": "UCM renewal before the end",
+        "retry_min_seconds": "First retry after a failed request",
+        "retry_max_seconds": "Longest delay between retries",
+        "propagation_seconds": "DNS-01 propagation wait"
+      }
+    },
+    "help": {
+      "auth": {
+        "session_ttl_seconds": "A session ends this long after sign-in, active or not.",
+        "session_idle_seconds": "At most the session lifetime.",
+        "login_rate_limit_per_minute": "Per client address; more get 429 until the minute ends.",
+        "require_totp": "Users without TOTP may only enrol until they do."
       },
-      "retention": {
-        "raw_days": "Raw series (days)",
-        "hourly_days": "Hourly series (days)",
-        "backups_days": "Backups (days)",
-        "audit_days": "Audit export window (days)",
-        "pool_raw_days": "Raw pool series (days)",
-        "pool_hourly_days": "Hourly pool series (days)",
-        "serial_days": "Serial series (days)",
-        "ha_transition_days": "HA transitions (days)",
-        "alerts_resolved_days": "Resolved alerts (days)"
+      "plans": {
+        "ttl_seconds": "A plan not applied within this delay expires."
+      },
+      "peers": {
+        "plan_timeout_seconds": "Engine plans applied or rolled back on another node.",
+        "installer_plan_timeout_seconds": "Install, import and security plans: packages and restarts take longer.",
+        "action_timeout_seconds": "Plan builds and runtime operations this node asks of another."
       },
       "checks": {
-        "disk_free_warning_percent": "Free disk space warning (%)",
-        "disk_free_critical_percent": "Free disk space critical (%)",
-        "log_max_mb": "named log size limit (MB)",
-        "lease_file_max_mb": "Kea lease file size limit (MB)",
-        "lfc_stale_factor": "LFC overdue after (intervals)",
-        "journal_max_mb": "Zone journal size limit (MB)",
-        "backups_max_mb": "Backups size limit (MB)",
-        "audit_max_mb": "Audit log size limit (MB)",
-        "declined_addresses_warning": "Declined addresses per subnet",
-        "declined_received_warning": "Declines received per hour",
-        "resolver_window_seconds": "Resolver window (seconds)",
-        "resolver_min_queries": "Resolver minimum answers",
-        "resolver_servfail_warning_percent": "SERVFAIL warning (%)",
-        "resolver_servfail_critical_percent": "SERVFAIL critical (%)",
-        "resolver_dnssec_failures": "DNSSEC failures per window",
-        "resolver_drop_percent": "Query drop (%)",
-        "resolver_drop_min_qpm": "Query drop: minimum queries per minute",
-        "resolver_roots_failures": "Root probe failures in a row",
-        "delegation_timeout_seconds": "Delegation probe timeout (seconds)",
-        "delegation_max_zones": "Zones checked for delegation",
-        "delegation_confirm_passes": "Delegation failures confirmed over passes",
-        "soa_refresh_min": "SOA refresh minimum (seconds)",
-        "soa_refresh_max": "SOA refresh maximum (seconds)",
-        "soa_retry_min": "SOA retry minimum (seconds)",
-        "soa_retry_max": "SOA retry maximum (seconds)",
-        "soa_expire_min": "SOA expire minimum (seconds)",
-        "soa_expire_max": "SOA expire maximum (seconds)",
-        "soa_minimum_min": "SOA negative TTL minimum (seconds)",
-        "soa_minimum_max": "SOA negative TTL maximum (seconds)",
-        "restart_loop_count": "Restarts that make a loop",
-        "restart_loop_window_seconds": "Restart loop window (seconds)",
-        "forecast_window_days": "Forecast history (days)",
-        "forecast_warning_days": "Forecast warning (days to full)",
-        "forecast_critical_days": "Forecast critical (days to full)",
-        "advisories_enabled": "Check ISC security advisories",
-        "advisories_fetch": "Fetch advisory data from the network",
-        "advisories_url": "Advisory data URL (https)"
+        "pool_warning_percent": "Use of a pool that raises pool_near_full; below the critical value.",
+        "forecast_window_days": "Days of pool samples the trend is computed from.",
+        "d2_error_percent": "Share of failed DNS updates of kea-dhcp-ddns that raises d2_errors.",
+        "serial_divergence_seconds": "A secondary may lag the primary this long before secondary_stale.",
+        "ha_grace_seconds": "A partner-down or degraded state shorter than this raises nothing (restarts, failovers).",
+        "clock_skew_warning_seconds": "Also the limit the HA repair plan checks before it restarts HA.",
+        "clock_skew_critical_seconds": "Kea terminates HA at 60 s: keep it below.",
+        "cert_warning_days": "Web, node and CA certificates; short-lived ones use a share of their lifetime.",
+        "resolver_min_queries": "Fewer answers in the window: no resolver alert.",
+        "advisories_fetch_enabled": "Off: the data shipped with the package, or a file placed by hand."
       },
-      "alerts_cert_warning_days": "Certificate expiry warning (days)",
-      "alerts_cert_critical_days": "Certificate expiry critical (days)",
-      "certificates": {
-        "ucm_renew_days": "UCM renewal before the end (days)",
-        "retry_min_seconds": "First retry after a failed request (seconds)",
-        "retry_max_seconds": "Longest delay between retries (seconds)",
-        "propagation_seconds": "DNS-01 propagation wait (seconds)"
+      "collector": {
+        "lease_watch_max_leases": "Larger tables are not watched live (0 turns the watch off)."
+      },
+      "dns": {
+        "view_keys": "A view other than _default is reached with its own TSIG key: the update key, and a transfer key when it differs.",
+        "default_ttl_seconds": "When a record is written without a TTL."
+      },
+      "rpz": {
+        "shrink_percent": "A download that removes more of a list is refused; the old file stays.",
+        "memory_warning_percent": "Estimated share of a node memory the lists may take."
       }
     }
   }

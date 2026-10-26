@@ -150,7 +150,7 @@ and the new copy of the zone. Pelagos uses 800 bytes per entry (setting
 `bytes_per_entry`) and shows, before you save, for each node: the estimated
 memory at peak and its share of the node's RAM. The warning says "tight" for a
 node of 4 GB or less when the share exceeds 12.5 %, and "too large" above 25 %
-(`memory_warn_percent`); in that case saving asks for an explicit
+(`memory_warning_percent`); in that case saving asks for an explicit
 acknowledgement. A node of 4 GB is fine with the light levels of advertising,
 malware and gambling; the large adult lists (about 950 000 names) do not belong
 on it.
@@ -197,7 +197,7 @@ settings API:
 | `shrink_percent` | 50 | a list that loses more than this is refused |
 | `stale_factor` | 3 | intervals without success before the stale alert |
 | `bytes_per_entry` | 800 | memory estimate per listed domain |
-| `memory_warn_percent` | 25 | "too large" threshold (half of it: "tight" on small nodes) |
+| `memory_warning_percent` | 25 | "too large" threshold (half of it: "tight" on small nodes) |
 | `small_node_mb` | 4096 | RAM at or under which a node counts as small |
 | `max_download_mb` | 256 | largest download accepted |
 | `break_dnssec` | true | rewrite answers to clients that ask for DNSSEC too |

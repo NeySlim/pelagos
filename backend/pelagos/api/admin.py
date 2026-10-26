@@ -135,6 +135,14 @@ class Settings(Resource):
         return admin().update_settings(json_body(), username(), client_ip())
 
 
+@ns.route("/settings/schema")
+class SettingsSchema(Resource):
+    @require("admin:settings")
+    @ns.response(200, "Every setting: key, type, default, bounds, unit, group; pairs; former names")
+    def get(self):
+        return admin().settings_schema()
+
+
 @ns.route("/modules")
 class Modules(Resource):
     @require("admin:modules")

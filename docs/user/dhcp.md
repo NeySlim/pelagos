@@ -171,7 +171,7 @@ Alerts:
 
 A short wait is not an incident: after a `config-reload` a server goes
 through `waiting` for 10 to 25 seconds. While a relationship is away from a
-normal state for less than `alerts_ha_grace_seconds` (default 45), none of
+normal state for less than `checks.ha_grace_seconds` (default 45), none of
 the three alerts above opens, and none opens for a reload or plan that
 Pelagos ran itself, for that long after it. `terminated` is never delayed.
 
@@ -276,7 +276,7 @@ shows that skew too ("clock +75 s (Kea)").
    agree now).
 2. "Repair HA" on the banner (`ops:dhcp.ha`) builds a plan that checks the
    node clocks first, read afresh (a node off by
-   `alerts_clock_skew_warning_seconds` or more, or two nodes that far apart,
+   `checks.clock_skew_warning_seconds` or more, or two nodes that far apart,
    fail the plan: a restart would terminate again), then restarts the
    HA service of each active server one after the other, the primary last.
    The restart is a `config-reload`, which reloads the hook libraries and
@@ -336,7 +336,7 @@ requests), the global `ddns-*` parameters ("Add parameter", JSON values
 such as `true`, `25` or `"example.lan."`, `write:dhcp.options`), and the D2
 statistics per node (sent, success, error, timeout). `d2_errors` is raised
 when (errors + timeouts) / sent over the last hour exceeds
-`alerts_d2_error_rate` (5 % by default).
+`checks.d2_error_percent` (5 % by default).
 
 The D2 configuration itself (forward and reverse domains, DNS servers,
 TSIG keys) is edited with the Kea editor (D2) or the security audit for the
@@ -397,4 +397,4 @@ A hook library that `dpkg -S` or `rpm -qf` does not attribute to a package
 the next upgrade. The alert `custom_hook` (warning) names it, and, when Kea
 has an equivalent, suggests it: `hostname-char-set` and
 `hostname-char-replacement` for a hook that sanitizes host names. Turn it
-off with `alerts_custom_hooks`.
+off with `checks.custom_hooks_enabled`.

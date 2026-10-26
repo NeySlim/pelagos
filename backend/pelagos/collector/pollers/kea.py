@@ -37,6 +37,7 @@ from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend
 from pelagos.connectors.kea.ha import partner_name
 from pelagos.core import clock as clock_mod
+from pelagos.core import settings_registry as reg
 from pelagos.core.keadoc import DEFAULT_CWD, KeaDocument, KeaFileUnreadable
 from pelagos.core.keafile import (
     KeaConfigError,
@@ -319,7 +320,7 @@ class KeaPoller:
         return out
 
     def _custom_hooks(self, running: dict[str, Any], out: PollOutcome) -> None:
-        if not self.settings.get("alerts_custom_hooks", True):
+        if not reg.get(self.settings, "checks.custom_hooks_enabled"):
             return
         for library in custom_libraries(kea_body(running), self.ownership):
             out.alerts.append(
@@ -408,7 +409,7 @@ class KeaPoller:
 
     @property
     def ha_grace(self) -> float:
-        return float(self.settings.get("alerts_ha_grace_seconds", 45))
+        return float(reg.get(self.settings, "checks.ha_grace_seconds"))
 
     def _track_ha(self, one: HAState, now: float) -> bool:
         """Records when this relationship is away from a normal state; True when it is."""
@@ -441,7 +442,7 @@ class KeaPoller:
     def terminated_cause(self, ha: HAState) -> dict[str, Any]:
         """rules.terminated_cause from what this node knows: the node clocks the peers poller
         measured ("node"/"clock" snapshots) and the shared configuration hashes of every node."""
-        warning = float(self.settings.get("alerts_clock_skew_warning_seconds", 5))
+        warning = float(reg.get(self.settings, "checks.clock_skew_warning_seconds"))
         skews: list[dict[str, Any]] = []
         for snap in self.store.snapshots(engine="node"):
             payload = snap["payload"]
@@ -623,8 +624,8 @@ class KeaPoller:
             log.debug("pool_utilization %s failed: %s", engine, exc)
             return
         self.store.write_snapshot(self.node_id, engine, "utilization", now, utilization)
-        warning = float(self.settings.get("alerts_pool_warning_percent", 80))
-        critical = float(self.settings.get("alerts_pool_critical_percent", 95))
+        warning = float(reg.get(self.settings, "checks.pool_warning_percent"))
+        critical = float(reg.get(self.settings, "checks.pool_critical_percent"))
         out.alerts.extend(
             rules.pool_alerts(
                 self.node_id,
@@ -769,7 +770,7 @@ class D2Poller:
         self.samples = [(ts, t) for ts, t in self.samples if ts >= now - 2 * D2_WINDOW_SECONDS]
         rate, deltas = rules.d2_error_rate(self.samples, D2_WINDOW_SECONDS, now)
         alert = rules.d2_errors(
-            self.node_id, rate, deltas, float(self.settings.get("alerts_d2_error_rate", 0.05))
+            self.node_id, rate, deltas, float(reg.get(self.settings, "checks.d2_error_percent")) / 100
         )
         if alert is not None:
             out.alerts.append(alert)

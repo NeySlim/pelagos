@@ -93,6 +93,19 @@
     "revokeConfirm": "Revoke the exception for {{key}}? The check raises its alert again at its next pass.",
     "revoked": "Exception revoked",
     "empty": "No exception",
-    "emptyHelp": "Ignore an inconsistency or a health check alert from its alert, or a PTR from the orphan PTR page."
+    "emptyHelp": "Ignore an inconsistency or a health check alert from its alert, or a PTR from the orphan PTR page.",
+    "new": "New exception",
+    "newTitle": "New exception",
+    "newHelp": "Keep an object as it is before its alert is raised: the check will raise nothing for it.",
+    "kind": "Check",
+    "key": "Object key",
+    "keyHelp": "As the alert names it, for example {{example}}",
+    "keyErrors": {
+      "required": "Required",
+      "format": "Expected like {{example}}"
+    },
+    "summary": "Label (optional)",
+    "create": "Create",
+    "created": "Exception recorded"
   }
 }

@@ -17,6 +17,8 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from pelagos.core import settings_registry as reg
+
 # Seconds a reading of the NTP state is reused (the status endpoint and the collector both ask).
 NTP_CACHE_SECONDS = 60.0
 COMMAND_TIMEOUT = 5.0
@@ -134,8 +136,8 @@ def skew_severity(floor: float | None, settings: dict[str, Any]) -> str | None:
     """ "critical", "warning" or None for a skew lower bound against the [settings] thresholds."""
     if floor is None:
         return None
-    if floor >= float(settings.get("alerts_clock_skew_critical_seconds", 30)):
+    if floor >= float(reg.get(settings, "checks.clock_skew_critical_seconds")):
         return "critical"
-    if floor >= float(settings.get("alerts_clock_skew_warning_seconds", 5)):
+    if floor >= float(reg.get(settings, "checks.clock_skew_warning_seconds")):
         return "warning"
     return None

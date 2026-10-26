@@ -53,6 +53,7 @@ from pelagos.connectors.bind.rndc import (
 from pelagos.connectors.bind.stats import StatsClient
 from pelagos.connectors.bind.viewkeys import global_key_name, view_key_name
 from pelagos.connectors.bind.zonefile import ZoneFileError
+from pelagos.core import settings_registry as reg
 from pelagos.core.write_pipeline import FileChange
 from pelagos.domain import (
     BindConfigTree,
@@ -167,7 +168,7 @@ class BindBackend(BindExtras, DnsBackend):
         return inherited_zone_lists(self._files())
 
     def _plan_ttl(self) -> int:
-        return int(self.ctx.settings.get("plan_ttl_seconds", 600))
+        return int(reg.get(self.ctx.settings, "plans.ttl_seconds"))
 
     def _new_plan(self, scope: PlanScope, summary: Message, created_by: str) -> Plan:
         plan = Plan(
@@ -394,7 +395,7 @@ class BindBackend(BindExtras, DnsBackend):
             changes,
             current,
             allowed_types=allowed,
-            default_ttl=int(self.dns_settings.get("default_ttl", 3600)),
+            default_ttl=int(self.dns_settings.get("default_ttl_seconds", 3600)),
         )
         plan.changes = [rr.to_change(zone, rc, view) for rc in resolved]
         plan.diff = rr.diff_text(resolved)

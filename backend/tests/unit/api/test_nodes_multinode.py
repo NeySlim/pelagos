@@ -137,7 +137,7 @@ def test_remove_node_revokes(admin, peer_b, node_ctx):
 def test_sync_from_peer(admin, peer_b, node_ctx):
     newer = node_ctx.cluster()
     newer.version += 10
-    newer.settings["plan_ttl_seconds"] = 900
+    newer.settings["plans"]["ttl_seconds"] = 900
     peer_b.config_toml = newer.dumps()
     peer_b.audit = [
         AuditEntry(
@@ -151,7 +151,7 @@ def test_sync_from_peer(admin, peer_b, node_ctx):
     body = r.get_json()
     assert r.status_code == 200 and body["config_adopted"] is True and body["audit_added"] == 3
     assert body["status"]["reachable"] is True and body["status"]["node_id"] == NODE_B
-    assert node_ctx.cluster().settings["plan_ttl_seconds"] == 900
+    assert node_ctx.cluster().settings["plans"]["ttl_seconds"] == 900
     # Both directions: the peer received this node's entries too.
     assert mine.id in {e["id"] for e in peer_b.audit}
     again = admin.post(f"/api/v1/nodes/{NODE_B}/sync").get_json()

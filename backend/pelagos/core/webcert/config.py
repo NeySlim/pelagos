@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
+from pelagos.core import settings_registry as reg
 from pelagos.core.webcert import acme, pem
 
 SELF_SIGNED, MANUAL, ACME, UCM, INHERIT = "self_signed", "manual", "acme", "ucm", "inherit"
@@ -184,11 +185,11 @@ def retry_delay(failures: int, settings: dict[str, Any]) -> float:
 
 
 def expiry_thresholds(lifetime: timedelta, settings: dict[str, Any]) -> tuple[timedelta, timedelta]:
-    """(warning, critical) left before expiry. alerts_cert_warning_days and _critical_days apply to
+    """(warning, critical) left before expiry. checks.cert_warning_days and cert_critical_days apply to
     ordinary certificates; a short-lived one (24 h step-ca) uses a third and a tenth of its lifetime,
     so it never alerts while its renewal is on time."""
-    warn = timedelta(days=int(settings.get("alerts_cert_warning_days", 30)))
-    crit = timedelta(days=int(settings.get("alerts_cert_critical_days", 7)))
+    warn = timedelta(days=int(reg.get(settings, "checks.cert_warning_days")))
+    crit = timedelta(days=int(reg.get(settings, "checks.cert_critical_days")))
     return min(warn, lifetime * ACME_RENEW_FRACTION), min(crit, lifetime / 10)
 
 

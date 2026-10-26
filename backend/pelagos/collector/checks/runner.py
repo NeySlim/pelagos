@@ -31,6 +31,7 @@ from pelagos.collector.checks.settings import CheckSettings
 from pelagos.collector.pollers import PollOutcome
 from pelagos.collector.rules import pool_subject
 from pelagos.connectors.base import ConnectorError
+from pelagos.core import settings_registry as reg
 from pelagos.domain import Alert, AlertKind, Engine, Family, LeaseState, ZoneKind
 from pelagos.domain.common import from_rfc3339
 
@@ -298,7 +299,7 @@ class HealthChecks:
     def _forecast(self) -> PollOutcome:
         cfg = self.cfg()
         now = int(self.clock())
-        warning = float(self.ctx.settings().get("alerts_pool_warning_percent", 80))
+        warning = float(reg.get(self.ctx.settings(), "checks.pool_warning_percent"))
         alerts: list[Alert] = []
         for backend in self.backends.dhcp:
             engine = backend.family.kea_engine.value
@@ -348,7 +349,8 @@ class HealthChecks:
             return PollOutcome(kinds=kinds, where=_mine(self.node_id))
         var = self.ctx.paths.var
         now = self.clock()
-        if cfg.advisories_fetch and cfg.advisories_url and now - self._fetched_at > ADVISORY_FETCH_SECONDS:
+        due = now - self._fetched_at > ADVISORY_FETCH_SECONDS
+        if cfg.advisories_fetch_enabled and cfg.advisories_url and due:
             self._fetched_at = now
             if advisories.fetch(cfg.advisories_url, var):
                 self._advisory_data = None

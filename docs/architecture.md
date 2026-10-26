@@ -682,7 +682,7 @@ class Plan(Model):
     target_node_ids: list[str]
     requires_confirmation: bool    # HA maintenance, dhcp-disable, key rotation, zone delete
     state: PlanState
-    expires_at: datetime           # created_at + settings.plan_ttl_seconds (default 600)
+    expires_at: datetime           # created_at + settings.plans.ttl_seconds (default 600)
     error: str | None = None
     summary_message: dict | None = None   # translatable summary, section 19 "Messages"
 
@@ -914,7 +914,7 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
    plans) builds a `Plan` in state `DRAFT`, runs cheap validation (parser,
    `config-test` when available, `named-checkconf` on a temp copy) and moves
    it to `VALIDATED` or `FAILED` with `validations` filled. Plans live in
-   memory on the node that created them for `settings.plan_ttl_seconds`.
+   memory on the node that created them for `settings.plans.ttl_seconds`.
 2. `POST /plans/{id}/apply` (section 17) checks: plan not expired, caller has
    the permission for the scope, `requires_confirmation` satisfied by body
    `{"confirm": true}`, every precondition still true (re-read now). Then
@@ -936,7 +936,7 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
    `BindBackend.details`, masked); peers write theirs when they apply a plan
    received over `/repl/v1/plans/apply`; the summary has `request.entry = "summary"`.
 4. `POST /plans/{id}/rollback` is allowed on `APPLIED` plans until the plan
-   expires from memory (`settings.plan_ttl_seconds` after apply), and on a
+   expires from memory (`settings.plans.ttl_seconds` after apply), and on a
    `FAILED` plan with `interrupted` (a restart caught it `APPLYING`): that
    rollback undoes the parts recorded `APPLIED`, and answers each node of an
    `interrupted` part with "check this node by hand" (state `FAILED`). After that,
@@ -1265,25 +1265,37 @@ description = "Records only"
 dhcpv6 = false                          # DHCPv6 module (hides v6 everywhere when false)
 advanced_editor = true
 
-[settings]
-plan_ttl_seconds = 600
+# [settings]: one table per domain, never a leaf at the root (naming: "Settings naming" below).
+# Every key, its bounds and its default: core/settings_registry.py, GET /admin/settings/schema.
+[settings.auth]
 session_ttl_seconds = 43200
 session_idle_seconds = 1800
 login_rate_limit_per_minute = 10
 require_totp = false
-alerts_pool_warning_percent = 80
-alerts_pool_critical_percent = 95
-alerts_serial_divergence_seconds = 900   # secondary may lag this long before SECONDARY_STALE
-alerts_d2_error_rate = 0.05
-alerts_clock_skew_warning_seconds = 5    # CLOCK_SKEW warning; also the bar of the HA repair plan
-alerts_clock_skew_critical_seconds = 30  # CLOCK_SKEW critical (Kea terminates HA at 60 s)
-alerts_cert_warning_days = 30           # web, node and CA certificate expiry (section 15)
-alerts_cert_critical_days = 7
 
-[settings.checks]
-# Thresholds of the health checks (item 19 to 28): defaults in core/config_store.py DEFAULT_SETTINGS
-disk_free_warning_percent = 15
+[settings.plans]
+ttl_seconds = 600
+
+[settings.peers]
+plan_timeout_seconds = 300               # a peer answers an engine plan apply or rollback within this
+installer_plan_timeout_seconds = 1800
+action_timeout_seconds = 120
+
+[settings.checks]                        # every threshold that raises an alert (section 15)
+pool_warning_percent = 80
+pool_critical_percent = 95
+serial_divergence_seconds = 900          # secondary may lag this long before SECONDARY_STALE
+d2_error_percent = 5.0
+ha_grace_seconds = 45
+custom_hooks_enabled = true
+clock_skew_warning_seconds = 5           # CLOCK_SKEW warning; also the bar of the HA repair plan
+clock_skew_critical_seconds = 30         # CLOCK_SKEW critical (Kea terminates HA at 60 s)
+cert_warning_days = 30                   # web, node and CA certificate expiry (section 15)
+cert_critical_days = 7
+disk_free_warning_percent = 15           # health checks (item 19 to 28) follow, see the registry
 disk_free_critical_percent = 5
+soa_refresh_min_seconds = 1200
+advisories_fetch_enabled = false
 
 [settings.dns]
 read_key = "ddi-read"
@@ -1301,7 +1313,7 @@ pool_sample_seconds = 300
 peer_poll_seconds = 30
 consistency_seconds = 900
 live_seconds = 5                         # HA heartbeats, lease watch (section 15)
-lease_watch_max = 50000                  # largest lease table the lease watch walks
+lease_watch_max_leases = 50000           # largest lease table the lease watch walks
 
 [settings.retention]                     # section 15
 pool_raw_days = 7
@@ -1318,10 +1330,13 @@ min_interval_minutes = 60
 shrink_percent = 50
 stale_factor = 3
 bytes_per_entry = 800
-memory_warn_percent = 25
+memory_warning_percent = 25
 small_node_mb = 4096
 max_download_mb = 256
+log_events = 200
 break_dnssec = true
+# categories, subscriptions, order, allow, exempt_clients: written by the RPZ screen (section 21)
+
 [settings.certificates]                  # web UI certificates (core.webcert.config)
 ucm_renew_days = 30                      # UCM source: renew this long before the end
 retry_min_seconds = 300                  # failed automatic request: retry after, doubling
@@ -1353,7 +1368,7 @@ created_at = "2026-10-26T10:00:00Z"
 node_id = "01JB0ZK4Q9X3M5N7P8R2T4V6W8"
 
 [replication]                            # written by ConfigStore, never by hand (section 13)
-stamps = { "settings/plan_ttl_seconds" = "43@01JB0ZK4Q9X3M5N7P8R2T4V6W8", "users/01JB.../roles" = "40@01JB..." }
+stamps = { "settings/plans/ttl_seconds" = "43@01JB0ZK4Q9X3M5N7P8R2T4V6W8", "users/01JB.../roles" = "40@01JB..." }
 tombstones = { "roles/old-role" = "41@01JB0ZK4Q9X3M5N7P8R2T4V6W8" }
 ```
 
@@ -1375,6 +1390,69 @@ class ConfigStore:
 Schema migrations: `schema_version` is bumped only by a Pelagos release; a
 node refuses to adopt a remote file with a higher `schema_version` than it
 knows and raises a `CONFIG_DIVERGENCE` alert ("upgrade this node").
+
+### Settings naming
+
+One convention for every setting, present and future
+(`core/settings_registry.py` is the only list; a new setting is one entry
+there plus its en and fr labels, and `make settings-schema` refreshes the
+copy the mock server serves):
+
+- A setting is a leaf of a domain table `[settings.<domain>]`, never a leaf
+  of `[settings]` itself. Domains: `auth`, `plans`, `peers`, `checks`,
+  `collector`, `retention`, `dns`, `kea`, `rpz`, `certificates`. A new
+  domain is added to `DOMAINS`.
+- Every threshold that raises an alert lives in `[settings.checks]`, whatever
+  raises it (a poller, a health check, the certificate manager).
+- Leaf names are snake_case `<subject>[_<qualifier>]_<unit>`. The unit is
+  spelled out: `_seconds`, `_minutes`, `_hours`, `_days`, `_percent`, `_mb`,
+  `_factor`, `_per_minute`; a count ends with the plural noun it counts
+  (`_queries`, `_failures`, `_zones`, `_passes`, `_leases`, `_events`) or
+  `_count`. A ratio is a percentage, never a fraction.
+- Severities are `<subject>_warning_<unit>` and `<subject>_critical_<unit>`,
+  bounds `<subject>_min_<unit>` and `<subject>_max_<unit>`.
+- A boolean is `<feature>_enabled`, or a policy verb (`require_totp`,
+  `break_dnssec`).
+- Entries a dedicated screen writes (`rpz.categories`, `rpz.subscriptions`,
+  `rpz.order`, `rpz.allow`, `rpz.exempt_clients`, `certificates.cluster`,
+  `certificates.nodes`) sit in their domain table but are not settings:
+  `PUT /admin/settings` refuses them ("set through its own screen").
+
+The registry gives each setting its type (`integer`, `number`, `boolean`,
+`string`, `url`, `list`, `map`), bounds, default, unit and screen group, and
+the ordered pairs (`warning < critical`, `min < max`, `session_idle <=
+session_ttl`). Readers go through `settings_registry.get(settings, "<domain>.<leaf>")`,
+which returns the default when the key is absent, never a literal default of
+their own. `test_settings_registry.py` checks every entry against the rules
+above and fails when code or the frontend still names a former key.
+
+Former names: `RENAMED` maps each former dotted path to its current key
+(and a factor when the unit changed: `alerts_d2_error_rate` 0.05 became
+`checks.d2_error_percent` 5). The release in production before the
+convention (2b86817) wrote `plan_ttl_seconds`, `session_ttl_seconds`,
+`session_idle_seconds`, `login_rate_limit_per_minute`, `require_totp` and
+`alerts_pool_*`, `alerts_serial_divergence_seconds`, `alerts_d2_error_rate`
+at the root, and `collector.lease_watch_max`. Migration:
+
+- `ClusterConfig.from_toml` migrates on every load, in memory: a local file
+  from an older release and a file replicated from a node still on one are
+  read under the current names. Deterministic, so two nodes migrating the
+  same file get the same entries, stamps and digest.
+- The renamed entry keeps the stamp of the write that set the former one,
+  and the former entry gets a tombstone at that stamp, so it never comes
+  back through a merge. When both names are present the newer stamp wins: a
+  value an older node writes under the former name after the upgrade still
+  lands; a former name an older node only filled from its defaults (no stamp)
+  never overrides the current one.
+- At start, the web service and the collector each call
+  `NodeContext.migrate_settings()`: when the file still holds former names it
+  is written once through `update_cluster` (replicated like any write) and
+  the audit log gets `admin.settings.op` with `request = {"op": "migrate",
+  "renamed": {old: new}}`, user `system`. Nothing to migrate: no write, no
+  entry. `schema_version` stays 1, so a node on the older release keeps
+  replicating with an upgraded one during a rolling upgrade.
+- `PUT /admin/settings` accepts former names too and stores them under the
+  current ones (the current name wins when a body carries both).
 
 ## 11. Audit log (JSONL)
 
@@ -1475,8 +1553,8 @@ the other peers. Live snapshot kinds wait at most 8 s for that lock, then
 answer `{"error": "busy: ..."}`; installer plans (`install`, `import`,
 `security`) run without it (`core.registry.UNLOCKED_SCOPES`). The web
 process's plan calls to peers (`services.peers.PeerGateway`) wait 300 s for
-engine plans and 1800 s for installer plans (`settings.peer_plan_timeout_seconds`,
-`settings.installer_plan_timeout_seconds` override), 120 s for a sync.
+engine plans and 1800 s for installer plans (`settings.peers.plan_timeout_seconds`,
+`settings.peers.installer_plan_timeout_seconds` override), 120 s for a sync.
 
 Engine snapshots (added by WP-API-AUTH): the snapshot endpoint takes
 `?kind=<kind>` plus kind parameters as query arguments, and the server
@@ -1531,7 +1609,7 @@ sets `target_node_ids` to the callee) and applied through `/plans/apply`,
 so both nodes audit the apply. A refusal keeps its section 19 code (the
 detail is prefixed with the peer's name); an offline peer is `503
 engine_unavailable` at once, a peer that does not answer within
-`settings.peer_action_timeout_seconds` (default 120) or answers 5xx is `503`
+`settings.peers.action_timeout_seconds` (default 120) or answers 5xx is `503`
 with `outcome_unknown: true` in the problem document (the peer may still run
 the action; for `ops.run` the detail and the caller's audit `response` say so,
 the peer's own audit tells the outcome), and a peer without the endpoint is
@@ -1713,7 +1791,7 @@ from `settings.collector`:
 | --- | --- | --- |
 | Poll local BIND (`rndc status`, zone statuses + SOA serials, statistics) | `poll_seconds` | `series_serial` on change, `DAEMON_DOWN`, `ZONE_ERROR` |
 | Poll local Kea 4/6 (`status-get`, HA, `statistic-get-all`, pool utilization) | `poll_seconds`; samples pools every `pool_sample_seconds` | `series_pool`, `ha_transitions`, `HA_*`, `POOL_*`, `DAEMON_DOWN` |
-| Poll local D2 | `poll_seconds` | `D2_ERRORS` when error rate over window exceeds `alerts_d2_error_rate` |
+| Poll local D2 | `poll_seconds` | `D2_ERRORS` when error rate over window exceeds `checks.d2_error_percent` |
 | Poll peers (`GET /repl/v1/status`, engine snapshots) | `peer_poll_seconds` | `PEER_OFFLINE`, `SERIAL_DIVERGENCE`, `SECONDARY_STALE`, `CONFIG_DIVERGENCE`, `CLOCK_SKEW`, `CLOCK_UNSYNCHRONIZED`, snapshots `node`/`clock` per node (`{"name","offset","uncertainty","ntp","reference"}`, this node's offset 0) |
 | Live pass: local Kea HA state (`status-get`, `ha-heartbeat`), lease watch, zone rechecks | `live_seconds` (5) | snapshots `ha` and `recent_leases`, events only (no alert) |
 | Consistency pass (`services.consistency.run`) | `consistency_seconds` | cross alerts |
@@ -1743,7 +1821,7 @@ on `events.sock`, through `collector.events.EventSink`:
   (`pkt4-ack-sent` / `pkt6-reply-sent` moved) and once per `poll_seconds`
   anyway (leases an HA partner sent), never sooner than three live passes
   or one second per 1000 leases after the previous walk, never on a table
-  larger than `lease_watch_max` (50000); it diffs the table against the previous walk
+  larger than `collector.lease_watch_max_leases` (50000); it diffs the table against the previous walk
   (address and client identifier, `cltt`) and keeps the 50 newest
   transactions as the `recent_leases` snapshot (`GET
   /dhcp/{family}/leases/recent`). Kea stores when an exchange completed
@@ -1872,16 +1950,16 @@ Alert kinds and rules (thresholds from `settings`):
 | Kind | Severity | Rule |
 | --- | --- | --- |
 | `pool_near_full` / `pool_full` | warning / critical | assigned/total >= warning percent / critical percent on two polls in a row; an open one holds until 5 points under its threshold (hysteresis) |
-| `serial_divergence` | warning | a secondary's SOA serial differs from the primary's for longer than `alerts_serial_divergence_seconds` |
+| `serial_divergence` | warning | a secondary's SOA serial differs from the primary's for longer than `checks.serial_divergence_seconds` |
 | `secondary_stale` | critical | secondary `expires` within 24 h, or AXFR refused |
 | `zone_error` | critical | `rndc zonestatus` fails or the zone is not loaded |
 | `ha_degraded` | warning | state not in {`hot-standby`, `load-balancing`, `passive-backup`, `backup`} for the configured mode |
 | `ha_partner_down` | critical | state `partner-down` or partner `in_touch == false`, outside an HA maintenance window started from Pelagos (then `ha_degraded`); the title names the partner server; a backup has no partner and never raises it |
 | `ha_backup_out_of_sync` | warning | a backup's assigned lease count differs from the primary's (an active server's when the primary is not read) by more than max(2, 1 %) for 5 minutes; raised by the peers poller from the `ha` and `utilization` snapshots, node = the backup, subject `ha-backup:<engine>` |
 | `ha_transition` | info | state changed since the last poll (also a `ha_transitions` row) |
-| `custom_hook` | warning | a Kea hook library that `dpkg -S` / `rpm -qf` says no package owns; raised by the Kea poller per library, subject `<engine>:hook:<file name>`; the title suggests the built-in option when one exists (`hostname-char-set` / `hostname-char-replacement` for a hostname sanitizing hook); off with `alerts_custom_hooks` |
-| `ha_terminated` | critical | state `terminated`, alone (no `ha_degraded` nor `ha_partner_down` for that relationship); details `cause` (`clock_skew`, `config`, `partner`, `unknown`) and `cause_details`, the title carries the cause as a nested message (`alert.ha_cause.*`): the partner's skew Kea measured (status-get `clock-skew`, `HAPartner.clock_skew`) of `alerts_clock_skew_warning_seconds` or more (`cause_details.fixed` and the message `alert.ha_cause.clock_skew_fixed` when every node serving the partner has a `clock` snapshot younger than 3 `peer_poll_seconds` under that threshold: Kea's reading predates the NTP fix), else a node `clock` snapshot that far off, else a shared configuration that differs between nodes (`kea_shared.divergent`), else the partner not in touch |
-| `clock_skew` | warning / critical | a peer's clock offset, minus its uncertainty, at least `alerts_clock_skew_warning_seconds` / `alerts_clock_skew_critical_seconds`; node = the peer, subject `clock`; details `offset`, `uncertainty`, `reference` (this node's name), `suspect` (the node whose NTP says unsynchronized when only one does), thresholds; kept from the last `clock` snapshot while the peer is out of reach, with `measured_at` |
+| `custom_hook` | warning | a Kea hook library that `dpkg -S` / `rpm -qf` says no package owns; raised by the Kea poller per library, subject `<engine>:hook:<file name>`; the title suggests the built-in option when one exists (`hostname-char-set` / `hostname-char-replacement` for a hostname sanitizing hook); off with `checks.custom_hooks_enabled` |
+| `ha_terminated` | critical | state `terminated`, alone (no `ha_degraded` nor `ha_partner_down` for that relationship); details `cause` (`clock_skew`, `config`, `partner`, `unknown`) and `cause_details`, the title carries the cause as a nested message (`alert.ha_cause.*`): the partner's skew Kea measured (status-get `clock-skew`, `HAPartner.clock_skew`) of `checks.clock_skew_warning_seconds` or more (`cause_details.fixed` and the message `alert.ha_cause.clock_skew_fixed` when every node serving the partner has a `clock` snapshot younger than 3 `peer_poll_seconds` under that threshold: Kea's reading predates the NTP fix), else a node `clock` snapshot that far off, else a shared configuration that differs between nodes (`kea_shared.divergent`), else the partner not in touch |
+| `clock_skew` | warning / critical | a peer's clock offset, minus its uncertainty, at least `checks.clock_skew_warning_seconds` / `checks.clock_skew_critical_seconds`; node = the peer, subject `clock`; details `offset`, `uncertainty`, `reference` (this node's name), `suspect` (the node whose NTP says unsynchronized when only one does), thresholds; kept from the last `clock` snapshot while the peer is out of reach, with `measured_at` |
 | `clock_unsynchronized` | warning | a node's `ntp` says `synchronized: false` or `ntp_enabled: false` (an unknown state never alerts); raised for this node and for each peer from its status, node = that node, subject `ntp` |
 
 The `ha_*` alerts above have subject `ha:<engine>`; a Kea 3 hub raises them
@@ -1914,7 +1992,7 @@ relationship with each other by `shared`. A node that publishes no
 `normalized`, then `hash`, across every node. Details: `hashes` (node ->
 hash of the divergent nodes) and `relationships` (`[{"servers",
 "hashes"}]`).
-| `d2_errors` | warning | `(update-error + update-timeout) / update-sent` over the last hour > `alerts_d2_error_rate` |
+| `d2_errors` | warning | `(update-error + update-timeout) / update-sent` over the last hour > `checks.d2_error_percent` |
 | `daemon_down` | critical | a configured local daemon does not answer |
 | `peer_offline` | warning | peer unreachable for 3 polls |
 | `config_divergence` | warning | what the Kea servers of an HA relationship must share differs (subject `<engine>:config-hash`, below), or a Kea file differs from `config-get` (subject `<engine>:config-file`, kea4, kea6, d2), or cluster.toml schema mismatch (subject `schema:<peer id>`) |
@@ -1936,7 +2014,7 @@ hash of the divergent nodes) and `relationships` (`[{"servers",
 | `restart_loop` | critical | `checks.restart_loop_count` restarts in `restart_loop_window_seconds`; subject `engine:<engine>` |
 | `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; subject is the pool subject |
 | `security_advisory` | info, warning | the upstream version of an installed BIND or Kea falls in a range of `pelagos/data/isc_advisories.json` (`ranges_preview` for `-S` versions); subject `<engine>:<CVE id>`; details `cve`, `version`, `fixed_in`, `url`, `cvss`, `dataset_verified` |
-| `cert_expiry` | warning / critical | the web certificate (subject `cert:web`), this node's replication certificate (`cert:node`) or the internal CA (`cert:ca`) expires within `alerts_cert_warning_days` / `alerts_cert_critical_days`, or within a third / a tenth of its lifetime when that is shorter (24 h certificates); details: `cert`, `not_after`, `days_left`, `fingerprint`, `issuer`, and for the web certificate `source` and `mode` |
+| `cert_expiry` | warning / critical | the web certificate (subject `cert:web`), this node's replication certificate (`cert:node`) or the internal CA (`cert:ca`) expires within `checks.cert_warning_days` / `checks.cert_critical_days`, or within a third / a tenth of its lifetime when that is shorter (24 h certificates); details: `cert`, `not_after`, `days_left`, `fingerprint`, `issuer`, and for the web certificate `source` and `mode` |
 | `cert_renewal_failed` | warning | the last automatic request of the web certificate failed (subject `cert:web:renewal`; details `failures`, `last_error`, `next_attempt_at`) |
 
 #### Consistency exceptions ("Ignore: admin's choice")
@@ -2014,17 +2092,17 @@ the PTR owner. Orphans use the `ptr_mismatch` exception key.
 
 Authentication: username + argon2id password (`argon2-cffi`, defaults
 m=64 MiB, t=3, p=4), optional TOTP (RFC 6238, 30 s, 6 digits, 1 step of
-drift) enforced cluster-wide by `settings.require_totp`. Each accepted time
+drift) enforced cluster-wide by `settings.auth.require_totp`. Each accepted time
 step is used once per user and node (`var/totp_steps.json`, kept across
 restarts, not replicated). Sessions are
 server-side in the web process memory (`auth.sessions`), keyed by a 32-byte
 random id in cookie `pelagos_session` (`HttpOnly`, `Secure`,
-`SameSite=Strict`, `Path=/`). Idle timeout `session_idle_seconds`, absolute
-`session_ttl_seconds`. Changing node means logging in again (sessions are
+`SameSite=Strict`, `Path=/`). Idle timeout `auth.session_idle_seconds`, absolute
+`auth.session_ttl_seconds`. Changing node means logging in again (sessions are
 not replicated). Every unsafe request (POST, PUT, PATCH, DELETE) must carry
 `X-CSRF-Token` equal to the token returned at login (per session, random,
 compared in constant time). Login is rate limited per client IP and per
-username (`login_rate_limit_per_minute`). WebAuthn is a documented future
+username (`auth.login_rate_limit_per_minute`). WebAuthn is a documented future
 option, not in this phase.
 
 Permissions are strings `<action>:<resource>`; `*` is admin. Resources:
@@ -2109,7 +2187,7 @@ User public fields: `id, username, roles, enabled, has_totp, must_change_passwor
 not replicated: a login never writes `cluster.toml`); the API shows the newest of that
 record and any older replicated value.
 
-Restricted sessions (added by WP-API-AUTH): when `settings.require_totp` is
+Restricted sessions (added by WP-API-AUTH): when `settings.auth.require_totp` is
 true and the user has no TOTP, or when `must_change_password` is set, login
 succeeds with `"restriction": "totp_enrollment" | "password_change"` (and
 `totp_required: true` for the first) and only `/auth/*` and `/account/*`
@@ -2134,7 +2212,7 @@ change revokes the user's other sessions.
 
 | Method, path | Permission | Response |
 | --- | --- | --- |
-| `GET /dashboard/summary` | any read | `{"nodes": [Node], "ha": [HAState], "pools": [{"node_id","engine","subnet_id","subnet","pool","total","assigned","percent"}], "zones": [{"zone","view","serials": {node_id: serial}, "divergent": bool}], "d2": [D2Stats], "alerts": {"open": n, "critical": n, "warning": n, "info": n}, "engines": {...capabilities summary}, "errors": {source: message}, "thresholds": {"alerts_pool_warning_percent", "alerts_pool_critical_percent", "alerts_serial_divergence_seconds", "alerts_d2_error_rate"}}` |
+| `GET /dashboard/summary` | any read | `{"nodes": [Node], "ha": [HAState], "pools": [{"node_id","engine","subnet_id","subnet","pool","total","assigned","percent"}], "zones": [{"zone","view","serials": {node_id: serial}, "divergent": bool}], "d2": [D2Stats], "alerts": {"open": n, "critical": n, "warning": n, "info": n}, "engines": {...capabilities summary}, "errors": {source: message}, "thresholds": {"pool_warning_percent", "pool_critical_percent", "serial_divergence_seconds", "d2_error_percent"}}` (the `[settings.checks]` values, readable without `admin:settings`) |
 | `GET /dashboard/layout` | any | `{"layout": [...react-grid-layout items]}` (per user, from preferences) |
 | `PUT /dashboard/layout` | any | same |
 
@@ -2217,7 +2295,7 @@ the API normalizes to the absolute form.
 | `GET /dhcp/{family}/stats?node_id=` | `read:dhcp` | | `{"node_id", "statistics": {...}}` |
 | `GET /dhcp/{family}/ha` | `read:dhcp` | | `{"items": [HAState], "relationships": [{"family","mode","servers":[{"name","role","url","auto_failover","node_id","node_name","state","scopes","unsent_update_count","partner","in_touch","collected_at","managed","leases","last_lease_at","receives_from"?,"lease_reference"?}],"active":[name],"backups":[name]}]}`: one relationship per entry (a hub's are separate); `leases` (assigned addresses) and `last_lease_at` (newest client transaction, on a backup the last lease update it received) come from the collector's `utilization` and `recent_leases` snapshots (null when unknown); a backup also has `receives_from` (the active servers) and `lease_reference` (`{"server","leases"}`, the primary of its relationship, never a hub, or null) |
 | `POST /dhcp/{family}/ha/setup/plan` | `write:dhcp.config` | `{"mode","servers":[{"name","url","role","auto_failover"?,"node_id"?}], tunables?, "hooks_dir"?}`, or `{"relationships": [{"mode","servers",tunables?}], "hooks_dir"?}` (Kea 3 hub and spoke: a node may run a server in several, names and URLs unique across them, field errors under `relationships[<i>].`; a Kea 2.x node in two is refused with `400`), or `{"remove": true, "node_ids"?}` (roles checked per mode as Kea does; one part per node with a `node_id`, built there over `dhcp.ha.plan`: its `hooks-libraries` with the `ha` hook under its own `this-server-name`, `lease_cmds` added when missing; `remove` drops the hook from `node_ids`, default every node where HA is on) | `Plan` (scope `dhcp.config`, `requires_confirmation`, applied part by part) |
-| `POST /dhcp/{family}/ha/repair/plan` | `ops:dhcp.ha` | `{"server_name"?}`: bring the relationships with a server in `terminated` back (`409 conflict` when none is). Targets: their active servers' nodes, the primary last (a partner no reachable Pelagos node reads: `400`). Validations `clock`, one per node: its offset against this node (`PeerStatus.clock_offset`, read afresh, not from the status cache) minus the uncertainty under `alerts_clock_skew_warning_seconds`, plus one on the spread between the highest and lowest offsets, else the plan is `failed`; refused like a config plan while a target's Kea file diverges (the restart loads it). One change `ha/restart` (`after = {"action":"restart","order":[node ids],"servers":{node: server name}}`): on each node the connector sends `config-reload` when a relationship of the server is `terminated` (a reload restarts the HA hook like a daemon restart, checked on Kea 3; a timeout names the manual daemon restart; `ha-reset` re-terminates on the skew measured before), then waits up to 30 s for it to leave `terminated`, the last node up to 180 s for `hot-standby`/`load-balancing` with its partner in touch. Rollback does nothing | `Plan` (`requires_confirmation`) |
+| `POST /dhcp/{family}/ha/repair/plan` | `ops:dhcp.ha` | `{"server_name"?}`: bring the relationships with a server in `terminated` back (`409 conflict` when none is). Targets: their active servers' nodes, the primary last (a partner no reachable Pelagos node reads: `400`). Validations `clock`, one per node: its offset against this node (`PeerStatus.clock_offset`, read afresh, not from the status cache) minus the uncertainty under `checks.clock_skew_warning_seconds`, plus one on the spread between the highest and lowest offsets, else the plan is `failed`; refused like a config plan while a target's Kea file diverges (the restart loads it). One change `ha/restart` (`after = {"action":"restart","order":[node ids],"servers":{node: server name}}`): on each node the connector sends `config-reload` when a relationship of the server is `terminated` (a reload restarts the HA hook like a daemon restart, checked on Kea 3; a timeout names the manual daemon restart; `ha-reset` re-terminates on the skew measured before), then waits up to 30 s for it to leave `terminated`, the last node up to 180 s for `hot-standby`/`load-balancing` with its partner in touch. Rollback does nothing | `Plan` (`requires_confirmation`) |
 | `POST /dhcp/{family}/ha/maintenance/plan` | `ops:dhcp.ha` | `{"node_id","action":"start"|"cancel"}` (`node_id`: the server that goes in-maintenance or leaves it; the plan is applied on its HA partner, found by server name among every node (a server shut down: the only active server left, or the one in `partner-in-maintenance` for a cancel), which stays up as `partner-in-maintenance`; a backup server is refused with `400`; for a hub, the plan goes to its partner in each relationship (`target_node_ids` = those nodes); when the partner is a hub, the diff notes that its other relationships enter maintenance too, Kea applying it server-wide) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/ha/transitions?from=&to=` | `read:dhcp` | | `{"items": [{"ts","node_id","server_name","from_state","to_state","partner_state"}]}` |
 | `POST /dhcp/{family}/service/plan` | `ops:dhcp.ha` | `{"node_id","enable": bool}` (applied on `node_id`, this node or a peer) | `Plan` (`requires_confirmation`) |
@@ -2401,7 +2479,8 @@ parts and put the reservation on every node that runs the Kea engine.
 | `DELETE /admin/roles/{name}` | `admin:roles` | | `204` (builtin: `409`) |
 | `GET /admin/permissions` | `admin:roles` | | `{"items": [str]}` |
 | `GET /admin/settings` | `admin:settings` | | `[settings]` as JSON |
-| `PUT /admin/settings` | `admin:settings` | partial | merged settings |
+| `PUT /admin/settings` | `admin:settings` | partial; former names accepted (section 10, "Settings naming"); a `map` setting (`dns.view_keys`) is replaced whole | merged settings; `400 validation_error` with one entry per bad field (bounds, type, pairs, unknown key, entry of a dedicated screen) |
+| `GET /admin/settings/schema` | `admin:settings` | | `{"domains": [..], "settings": [{"key","type","default","min"?,"max"?,"unit"?,"group"?,"pattern"?}], "pairs": [{"lower","higher","strict"}], "renamed": {old: new}, "scaled": {old: factor}}` |
 | `GET /admin/modules` | `admin:modules` | | `{"cluster": {dhcpv6, advanced_editor}, "nodes": {node_id: NodeModules}}` |
 | `PUT /admin/modules` | `admin:modules` | same shape, partial | merged |
 | `GET /admin/certificates` | `admin:certificates` | | `{"nodes": [status], "cluster", "settings", "thresholds", "providers", "acme_profiles", "key_types"}`; a node that does not answer shows the certificate its web listener presents |
@@ -2619,7 +2698,7 @@ Public block lists and RPZ feeds become policy zones that Pelagos manages in
   (300, the collector pass), `default_interval_hours` (24),
   `min_interval_minutes` (60, floor of any interval), `shrink_percent` (50),
   `stale_factor` (3), `bytes_per_entry` (800, measured on named 9.20: about 700
-  to 1000 bytes per listed domain, two rules each), `memory_warn_percent` (25),
+  to 1000 bytes per listed domain, two rules each), `memory_warning_percent` (25),
   `small_node_mb` (4096), `max_download_mb` (256), `break_dnssec` (true),
   `log_events` (200), `log_path` (a log file of your own, see below).
 - **Zones**: a catalog list or own URL becomes the primary zone
@@ -2672,7 +2751,7 @@ Public block lists and RPZ feeds become policy zones that Pelagos manages in
   `alert.rpz_stale`.
 - **Memory**: `estimate.assess` adds the largest list to the total (a reload
   holds both copies) and compares with `MemTotal`: `high` from
-  `memory_warn_percent`, `caution` from half of it on a node at or under
+  `memory_warning_percent`, `caution` from half of it on a node at or under
   `small_node_mb`. `POST /dns/rpz/estimate` gives it per node before saving.
 - **Exceptions**: the allow list and exempt clients are settings; the web
   process rewrites the allow zone on its node at once and the other collectors

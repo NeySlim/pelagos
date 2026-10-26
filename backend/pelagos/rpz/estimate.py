@@ -46,7 +46,7 @@ def assess(entries: list[int], ram_mb: int | None, cfg: dict[str, Any]) -> dict[
         return out
     percent = round(peak * 100 / ram_mb, 1)
     out["percent_of_ram"] = percent
-    warn = float(cfg.get("memory_warn_percent", model.DEFAULTS["memory_warn_percent"]))
+    warn = float(cfg.get("memory_warning_percent", model.DEFAULTS["memory_warning_percent"]))
     small = ram_mb <= int(cfg.get("small_node_mb", model.DEFAULTS["small_node_mb"]))
     if percent >= warn:
         out["level"] = "high"

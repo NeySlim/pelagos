@@ -240,6 +240,7 @@ export const admin = {
   permissions: () => apiClient.get('/admin/permissions'),
   settings: () => apiClient.get('/admin/settings'),
   updateSettings: (partial) => apiClient.put('/admin/settings', partial),
+  settingsSchema: () => apiClient.get('/admin/settings/schema'),
   modules: () => apiClient.get('/admin/modules'),
   updateModules: (partial) => apiClient.put('/admin/modules', partial),
 }

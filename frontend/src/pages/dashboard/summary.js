@@ -16,8 +16,8 @@ export function poolThresholds(summary, settings) {
   const fromSummary = summary?.thresholds || {}
   const pick = (...values) => values.find((v) => typeof v === 'number')
   return {
-    warn: pick(fromSummary.pool_warning_percent, fromSummary.alerts_pool_warning_percent, settings?.alerts_pool_warning_percent) ?? 80,
-    full: pick(fromSummary.pool_critical_percent, fromSummary.alerts_pool_critical_percent, settings?.alerts_pool_critical_percent) ?? 95,
+    warn: pick(fromSummary.pool_warning_percent, settings?.checks?.pool_warning_percent) ?? 80,
+    full: pick(fromSummary.pool_critical_percent, settings?.checks?.pool_critical_percent) ?? 95,
   }
 }
 

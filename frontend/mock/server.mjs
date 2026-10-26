@@ -18,6 +18,7 @@ import { opsHandlers } from './ops.mjs'
 import { rpzHandlers } from './rpz.mjs'
 import { ptrHelpers } from './ptr.mjs'
 import { certsHandlers } from './certs.mjs'
+import { SETTINGS_SCHEMA, setting, updateSettings } from './settings.mjs'
 import { heartbeatAge, liveCounters } from './live.mjs'
 import { createEvents, leaseBrief, poolHistoryKey, stopEventTimers, zoneEvents } from './events.mjs'
 
@@ -74,7 +75,7 @@ const PERMISSIONS = {
   'POST /admin/users/{id}/reset-password': 'admin:users', 'DELETE /admin/users/{id}/totp': 'admin:users',
   'GET /admin/roles': 'admin:roles', 'POST /admin/roles': 'admin:roles', 'PUT /admin/roles/{name}': 'admin:roles',
   'DELETE /admin/roles/{name}': 'admin:roles', 'GET /admin/permissions': 'admin:roles',
-  'GET /admin/settings': 'admin:settings', 'PUT /admin/settings': 'admin:settings',
+  'GET /admin/settings': 'admin:settings', 'PUT /admin/settings': 'admin:settings', 'GET /admin/settings/schema': 'admin:settings',
   'GET /admin/modules': 'admin:modules', 'PUT /admin/modules': 'admin:modules',
   'GET /dns/ops': 'read:dns',
 }
@@ -608,8 +609,10 @@ function summary(state) {
     errors: {},
     // Additive: the pool alert thresholds of [settings], so the tile needs no admin read.
     thresholds: {
-      pool_warning_percent: state.settings.alerts_pool_warning_percent,
-      pool_critical_percent: state.settings.alerts_pool_critical_percent,
+      pool_warning_percent: setting(state, 'checks.pool_warning_percent'),
+      pool_critical_percent: setting(state, 'checks.pool_critical_percent'),
+      serial_divergence_seconds: setting(state, 'checks.serial_divergence_seconds'),
+      d2_error_percent: setting(state, 'checks.d2_error_percent'),
     },
   }
 }
@@ -2013,7 +2016,7 @@ function buildHandlers(state, emit) {
       const validations = order.map((id) => {
         const clock = state.nodes.find((n) => n.peer.id === id)?.clock
         const offset = Number(clock?.offset ?? 0)
-        const ok = Math.abs(offset) - Number(clock?.uncertainty ?? 0) < (state.settings.alerts_clock_skew_warning_seconds ?? 5)
+        const ok = Math.abs(offset) - Number(clock?.uncertainty ?? 0) < (setting(state, 'checks.clock_skew_warning_seconds') ?? 5)
         const sign = offset >= 0 ? '+' : '-'
         return { ok, tool: 'clock', node_id: id, output: `${nodeName(state, id)}: clock ${sign}${Math.abs(offset).toFixed(1)} s${ok ? '' : ': synchronize the clocks (NTP) first'}` }
       })
@@ -2593,16 +2596,12 @@ function buildHandlers(state, emit) {
     },
     'GET /admin/permissions': () => ({ items: ALL_PERMISSIONS }),
     'GET /admin/settings': () => state.settings,
+    'GET /admin/settings/schema': () => SETTINGS_SCHEMA,
     'PUT /admin/settings': ({ body, user }) => {
-      const merge = (target, patch) => {
-        for (const [k, v] of Object.entries(patch)) {
-          if (v && typeof v === 'object' && !Array.isArray(v) && target[k] && typeof target[k] === 'object') merge(target[k], v)
-          else target[k] = v
-        }
-      }
-      merge(state.settings, body)
-      auditEntry(state, user, { action: 'settings.update', target: 'settings' })
-      return state.settings
+      if (!body || typeof body !== 'object' || !Object.keys(body).length) throw invalid('body', 'must be a non-empty object')
+      const result = updateSettings(state, body, (errors) => new Problem(400, 'validation_error', 'invalid settings', errors))
+      auditEntry(state, user, { action: 'admin.settings.replace', target: 'settings', request: result.body })
+      return result.settings
     },
     'GET /admin/modules': () => ({
       cluster: { ...state.modules.cluster },

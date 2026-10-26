@@ -56,7 +56,7 @@ In the UI: **Nodes and replication** (peers, versions, errors), **Alerts**,
 - `invalid username or password`: usernames are lowercase. Failed attempts
   are in the audit log (`auth.login_failed`).
 - `too many login attempts` (`429`): wait the `Retry-After` delay; the limit
-  is `login_rate_limit_per_minute` per address and per username.
+  is `auth.login_rate_limit_per_minute` per address and per username.
 - `invalid one-time code`: check the clock of the server and of the phone
   (one 30 s step of drift is accepted). A code works once per node.
 - Lost password or authenticator, on any node, as root:
@@ -261,7 +261,7 @@ sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.named
 | `password must have at least 12 characters` / `must mix at least three of ...` | password policy |
 | `the cluster needs at least one enabled admin` | keep one enabled account with the `admin` role |
 | `a node cannot remove itself; remove it from another node` | use another node's UI |
-| `plan_expired` (`410`) | the plan outlived `plan_ttl_seconds` or the web process restarted: recompute it |
+| `plan_expired` (`410`) | the plan outlived `plans.ttl_seconds` or the web process restarted: recompute it |
 | `precondition_failed` (`409`) | the state changed since the preview: preview again |
 | `config_divergence` (`409`) | a Kea file differs from the running configuration: adopt one side |
 | `engine_unavailable` (`503`) | the engine or the peer did not answer; with `outcome_unknown`, check the peer's audit log |

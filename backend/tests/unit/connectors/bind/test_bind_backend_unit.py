@@ -92,7 +92,7 @@ def make_backend(tmp_root: Path, etc: Path | None = None, ok: bool = True) -> tu
         },
         backup_root=tmp_root / "backups",
         get_secret={"tsig/ddi-read": "c2VjcmV0", "tsig/ddi-admin": "c2VjcmV0"}.get,
-        settings={"plan_ttl_seconds": 60, "dns": {"read_key": "ddi-read", "admin_key": "ddi-admin"}},
+        settings={"plans": {"ttl_seconds": 60}, "dns": {"read_key": "ddi-read", "admin_key": "ddi-admin"}},
     )
     backend = BindBackend(ctx)
     rec = Recorder()

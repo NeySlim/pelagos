@@ -140,7 +140,7 @@ def test_clock_skew_terminates_ha_and_the_repair_brings_it_back(skewed_pair, tmp
 
     conn = connect(tmp_root / "series.sqlite")
     try:
-        poller = KeaPoller(b1, "n1", SeriesStore(conn), {"alerts_clock_skew_warning_seconds": 5})
+        poller = KeaPoller(b1, "n1", SeriesStore(conn), {"checks": {"clock_skew_warning_seconds": 5}})
         alerts = [a for a in poller.poll().alerts if a.kind.value.startswith("ha_")]
     finally:
         conn.close()

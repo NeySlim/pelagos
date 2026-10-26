@@ -73,7 +73,7 @@ def backend(tmp_root: Path) -> BindBackend:
         },
         backup_root=tmp_root / "backups",
         get_secret={}.get,
-        settings={"plan_ttl_seconds": 60, "dns": {"read_key": "ddi-read", "admin_key": "ddi-admin"}},
+        settings={"plans": {"ttl_seconds": 60}, "dns": {"read_key": "ddi-read", "admin_key": "ddi-admin"}},
     )
     be = BindBackend(ctx)
     be.rndc = Recorder()  # type: ignore[assignment]

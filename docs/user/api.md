@@ -35,9 +35,9 @@ curl -sk -b jar -H "X-CSRF-Token: $CSRF" -X POST $NODE/api/v1/auth/logout   # wr
   `csrf_token` and `restriction`, and sets the cookie `pelagos_session`.
 - `401 totp_required`: the user has two-factor and no code was sent.
 - `429 rate_limited` with `Retry-After`: too many attempts per minute
-  (`login_rate_limit_per_minute`, per client address and per username).
+  (`auth.login_rate_limit_per_minute`, per client address and per username).
 - A session restricted to `password_change` or `totp_enrollment` (forced
-  password change, `require_totp`) only reaches `/auth/*` and `/account/*`;
+  password change, `auth.require_totp`) only reaches `/auth/*` and `/account/*`;
   every other endpoint answers `403 forbidden` with `"restriction"`.
 - Sessions belong to one node: sign in on each node you call.
 - `GET /auth/session` returns the current session (and a fresh view of the
@@ -89,7 +89,7 @@ Errors are RFC 7807 documents, `Content-Type: application/problem+json`:
 | `config_divergence` | 409 | a Kea file differs from the running configuration: adopt one side first (`divergences[]`) |
 | `precondition_failed` | 409 | something changed since the plan was built: preview again |
 | `plan_state` | 409 | the plan is not in a state that allows this (already applied, failed validation...) |
-| `plan_expired` | 410 | the plan outlived `plan_ttl_seconds`: build it again |
+| `plan_expired` | 410 | the plan outlived `plans.ttl_seconds`: build it again |
 | `engine_validation_failed` | 422 | `named-checkconf`, `named-checkzone` or `config-test` refused; the failed plan is in `plan` |
 | `confirmation_required` | 428 | the plan or operation needs `"confirm": true` |
 | `rate_limited` | 429 | too many sign-in attempts |
@@ -133,7 +133,7 @@ ID=$(jq -r .id plan.json)
 curl -sk -b jar -H "X-CSRF-Token: $CSRF" -H 'Content-Type: application/json' \
   -d '{"confirm": false}' $NODE/api/v1/plans/$ID/apply
 
-# 3. Roll back, within plan_ttl_seconds of the apply
+# 3. Roll back, within plans.ttl_seconds of the apply
 curl -sk -b jar -H "X-CSRF-Token: $CSRF" -X POST $NODE/api/v1/plans/$ID/rollback
 ```
 

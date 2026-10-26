@@ -20,7 +20,7 @@ from pelagos.domain import AlertKind, AlertState, Family
 
 pytestmark = pytest.mark.daemon
 
-ALERT_SETTINGS = {"alerts_pool_warning_percent": 1, "alerts_pool_critical_percent": 95}
+ALERT_SETTINGS = {"checks": {"pool_warning_percent": 1, "pool_critical_percent": 95}}
 
 
 def context(

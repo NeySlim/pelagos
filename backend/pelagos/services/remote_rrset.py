@@ -12,6 +12,7 @@ from datetime import timedelta
 from typing import Any
 
 from pelagos.connectors.bind import rrset as rr
+from pelagos.core import settings_registry as reg
 from pelagos.domain import (
     Change,
     Engine,
@@ -57,7 +58,7 @@ def plan_on_primary(
         changes,
         current,
         allowed_types=dns_settings.get("update_types_admin"),
-        default_ttl=int(dns_settings.get("default_ttl", 3600)),
+        default_ttl=int(dns_settings.get("default_ttl_seconds", 3600)),
     )
     if not resolved and not errors:
         errors.append("no change")
@@ -89,5 +90,5 @@ def plan_on_primary(
         state=PlanState.VALIDATED if ok else PlanState.FAILED,
         error=None if ok else "; ".join(errors),
     )
-    plan.expires_at = plan.created_at + timedelta(seconds=int(settings.get("plan_ttl_seconds", 600)))
+    plan.expires_at = plan.created_at + timedelta(seconds=int(reg.get(settings, "plans.ttl_seconds")))
     return plan

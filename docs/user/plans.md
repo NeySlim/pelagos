@@ -60,7 +60,7 @@ full diff (Audit log screen, filterable by plan).
 
 ## Expiry
 
-A plan lives `plan_ttl_seconds` (default 600 seconds, **Administration,
+A plan lives `plans.ttl_seconds` (default 600 seconds, **Administration,
 Settings**, "Plan lifetime"). Plans are kept in the memory of the web
 process of the node that built them:
 
@@ -72,7 +72,7 @@ process of the node that built them:
 
 ## Rollback
 
-An applied plan can be rolled back for `plan_ttl_seconds` after its apply,
+An applied plan can be rolled back for `plans.ttl_seconds` after its apply,
 from its result panel ("Roll back") or `POST /plans/{id}/rollback`. The
 rollback is a plan of its own: the inverse changes, with the same
 preconditions on the state the apply left, applied on every node that

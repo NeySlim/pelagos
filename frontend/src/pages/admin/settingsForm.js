@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// Settings and modules forms: describe the server's settings object as sections
-// of typed fields (whatever keys it carries) and compute the partial PUT body.
+// Settings and modules forms: partial PUT bodies and number parsing (the settings
+// screen itself is built from the server's schema, see settingsSchema.js).
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 
@@ -24,36 +24,6 @@ export function setClusterModule(modules, key, value) {
     next.nodes = Object.fromEntries(Object.entries(modules.nodes).map(([id, mods]) => [id, mods?.kea6 ? { ...mods, kea6: false } : mods]))
   }
   return next
-}
-
-export function fieldType(value) {
-  if (typeof value === 'boolean') return 'boolean'
-  if (Number.isInteger(value)) return 'integer'
-  if (typeof value === 'number') return 'number'
-  if (Array.isArray(value) && value.every((v) => typeof v === 'string')) return 'list'
-  if (typeof value === 'string') return 'string'
-  return 'json'
-}
-
-// Sections: top-level scalars under "general", then one section per nested object
-// (deeper objects flatten into their section with a dotted path).
-export function describeSettings(settings) {
-  const general = []
-  const sections = []
-  const walk = (obj, path, into) => {
-    for (const [key, value] of Object.entries(obj)) {
-      if (isObject(value)) walk(value, [...path, key], into)
-      else into.push({ path: [...path, key], key, type: fieldType(value) })
-    }
-  }
-  for (const [key, value] of Object.entries(settings || {})) {
-    if (isObject(value)) {
-      const fields = []
-      walk(value, [key], fields)
-      sections.push({ id: key, fields })
-    } else general.push({ path: [key], key, type: fieldType(value) })
-  }
-  return general.length ? [{ id: 'general', fields: general }, ...sections] : sections
 }
 
 export function getIn(obj, path) {

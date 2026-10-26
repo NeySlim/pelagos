@@ -98,5 +98,5 @@ def test_peer_offset_is_the_midpoint_within_half_the_round_trip():
     ],
 )
 def test_skew_severity_compares_the_lower_bound(offset, uncertainty, expected):
-    settings = {"alerts_clock_skew_warning_seconds": 5, "alerts_clock_skew_critical_seconds": 30}
+    settings = {"checks": {"clock_skew_warning_seconds": 5, "clock_skew_critical_seconds": 30}}
     assert clock.skew_severity(clock.skew_floor(offset, uncertainty), settings) == expected

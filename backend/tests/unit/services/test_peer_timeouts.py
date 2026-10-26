@@ -37,11 +37,12 @@ def test_plan_calls_get_a_timeout_by_scope(node_ctx, monkeypatch):
     assert gateway.rollback_plan(peer, records).ok
     assert client.seen == [peers_mod.INSTALLER_PLAN_TIMEOUT, peers_mod.ENGINE_PLAN_TIMEOUT]
     node_ctx.config_store.update_cluster(
-        lambda c: c.settings.update(installer_plan_timeout_seconds=7200), updated_by="node:a"
+        lambda c: c.settings.setdefault("peers", {}).update(installer_plan_timeout_seconds=7200),
+        updated_by="node:a",
     )
     gateway.apply_plan(peer, Plan(scope=PlanScope.SECURITY, node_id="a", summary="s"))
     assert client.seen[-1] == 7200.0
-    assert plan_timeout(records, {"peer_plan_timeout_seconds": 42}) == 42.0
+    assert plan_timeout(records, {"peers": {"plan_timeout_seconds": 42}}) == 42.0
 
 
 def test_sync_uses_the_longer_sync_timeout(node_ctx, monkeypatch):

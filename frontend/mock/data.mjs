@@ -5,6 +5,8 @@
 // tests and the server never share mutations. Scenarios: `pair` (ns1, ns2), `three`
 // (ns3 joins as a Kea HA backup and a BIND secondary), `four` (ns3 and ns4 both).
 
+import { makeSettings } from './settings.mjs'
+
 const NOW = Date.now()
 export const iso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const ago = (seconds) => iso(NOW - seconds * 1000)
@@ -964,35 +966,6 @@ function makeAudit() {
     })
   }
   return entries
-}
-
-function makeSettings() {
-  return {
-    require_totp: false,
-    session_idle_seconds: 1800,
-    session_ttl_seconds: 43200,
-    login_rate_limit_per_minute: 10,
-    plan_ttl_seconds: 600,
-    // cluster.toml [settings] as GET /admin/settings returns it (architecture section 10).
-    alerts_pool_warning_percent: 80,
-    alerts_pool_critical_percent: 95,
-    alerts_serial_divergence_seconds: 900,
-    alerts_d2_error_rate: 0.05,
-    alerts_ha_grace_seconds: 45,
-    alerts_custom_hooks: true,
-    alerts_cert_warning_days: 30,
-    alerts_cert_critical_days: 7,
-    dns: {
-      read_key: 'ddi-read',
-      admin_key: 'ddi-admin',
-      update_types_admin: ['A', 'AAAA', 'PTR', 'CNAME', 'TXT', 'SRV', 'MX', 'DHCID'],
-      update_types_kea: ['A', 'AAAA', 'PTR', 'DHCID'],
-    },
-    kea: { ddns_key: 'kea-ddns' },
-    collector: { poll_seconds: 60, pool_sample_seconds: 300, peer_poll_seconds: 30, consistency_seconds: 900 },
-    retention: { pool_raw_days: 7, pool_hourly_days: 365, serial_days: 90, ha_transition_days: 365, alerts_resolved_days: 90, backups_days: 90 },
-    certificates: { ucm_renew_days: 30, retry_min_seconds: 300, retry_max_seconds: 21600, propagation_seconds: 180 },
-  }
 }
 
 function makeHistory() {

@@ -101,7 +101,7 @@ synchronizes the leases.
 ### Plans across restarts
 
 A plan lives on the node that built it until it expires
-(`plan_ttl_seconds`, 10 minutes by default; an applied plan stays one more
+(`plans.ttl_seconds`, 10 minutes by default; an applied plan stays one more
 period for its rollback). Each one, with its parts for plans that span
 several nodes (HA setup, zone secondaries, hosts), is also kept in
 `/var/lib/pelagos/plans/<id>.plan` (0600, in a 0700 directory, encrypted
@@ -256,7 +256,7 @@ To update the data:
 4. On a node, a newer valid file placed at `/var/lib/pelagos/isc_advisories.json`
    wins (by `revision`) over the shipped one without upgrading Pelagos.
 
-Nodes that may reach the Internet can set `advisories_fetch = true` and
+Nodes that may reach the Internet can set `checks.advisories_fetch_enabled = true` and
 `advisories_url` (https only) in `[settings.checks]`: the collector fetches the
 file once a day, validates it and keeps it as that override. It is off by
 default because nodes may be offline.

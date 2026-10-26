@@ -16,7 +16,7 @@ IMAGE     ?= pelagos
 DOCKER    ?= docker
 
 .PHONY: dev venv npm lint lint-backend lint-frontend fmt test test-unit test-vitest test-daemon test-lab lab-demo test-e2e
-.PHONY: screenshots build-frontend run run-backend run-frontend clean messages-keys
+.PHONY: screenshots build-frontend run run-backend run-frontend clean messages-keys settings-schema
 .PHONY: deb rpm docker docker-allinone packages version lock wheels test-packaging
 
 dev: venv npm
@@ -53,6 +53,10 @@ test-vitest:
 # Regenerate the key list the frontend checks its catalogs against (after editing CATALOG).
 messages-keys:
 	cd $(BACKEND) && .venv/bin/python -m pelagos.domain.messages > ../$(FRONTEND)/src/i18n/backendMessageKeys.json
+
+# Regenerate the settings schema the mock server serves (after editing core/settings_registry.py).
+settings-schema:
+	cd $(BACKEND) && .venv/bin/python -m pelagos.core.settings_registry > ../$(FRONTEND)/mock/settingsSchema.json
 
 test-daemon:
 	cd $(BACKEND) && .venv/bin/pytest -m daemon $(PYTEST_ARGS)

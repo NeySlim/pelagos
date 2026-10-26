@@ -158,7 +158,7 @@ class RpzService:
                     "default_interval_hours",
                     "shrink_percent",
                     "bytes_per_entry",
-                    "memory_warn_percent",
+                    "memory_warning_percent",
                     "small_node_mb",
                     "break_dnssec",
                 )

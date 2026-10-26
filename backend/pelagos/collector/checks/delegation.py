@@ -146,7 +146,7 @@ def soa_alerts(node_id: str, zone: str, view: str, soa_text: str, cfg: CheckSett
     label = _zone_label(zone, view)
     out: list[Alert] = []
     for name in ("refresh", "retry", "expire", "minimum"):
-        low, high = getattr(cfg, f"soa_{name}_min"), getattr(cfg, f"soa_{name}_max")
+        low, high = getattr(cfg, f"soa_{name}_min_seconds"), getattr(cfg, f"soa_{name}_max_seconds")
         if low <= soa[name] <= high:
             continue
         out.append(

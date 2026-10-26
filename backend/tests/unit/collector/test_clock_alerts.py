@@ -20,9 +20,11 @@ from tests.unit.collector.test_peers import Clock, peer
 pytestmark = pytest.mark.unit
 
 SETTINGS = {
-    "alerts_serial_divergence_seconds": 900,
-    "alerts_clock_skew_warning_seconds": 5,
-    "alerts_clock_skew_critical_seconds": 30,
+    "checks": {
+        "serial_divergence_seconds": 900,
+        "clock_skew_warning_seconds": 5,
+        "clock_skew_critical_seconds": 30,
+    }
 }
 SYNCED = {"source": "chrony", "synchronized": True, "ntp_enabled": True, "offset": 0.0004, "stratum": 3}
 LOST = {"source": "timedatectl", "synchronized": False, "ntp_enabled": True, "offset": None, "stratum": None}

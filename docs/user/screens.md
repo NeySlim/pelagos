@@ -124,16 +124,16 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 | Kind | Severity | Raised when |
 | --- | --- | --- |
 | `pool_near_full`, `pool_full` | warning, critical | pool use at or above the warning or critical percent on two polls in a row |
-| `serial_divergence` | warning | a secondary's serial differs from the primary's longer than `alerts_serial_divergence_seconds` |
+| `serial_divergence` | warning | a secondary's serial differs from the primary's longer than `checks.serial_divergence_seconds` |
 | `secondary_stale` | critical | a secondary or mirror zone expires within 24 hours |
 | `zone_error` | critical | `rndc zonestatus` fails or the zone is not loaded |
 | `ha_degraded` | warning | an HA server outside its normal states, outside a maintenance |
 | `ha_partner_down` | critical | state `partner-down`, or partner not in touch |
 | `ha_transition` | info | an HA state change |
 | `ha_terminated` | critical | an HA server in `terminated`, with the probable cause (clock skew, configuration, partner; "the clocks agree now" once NTP is fixed and only the repair is left); repaired from the HA page ([DHCP](dhcp.md#repair-an-ha-in-terminated)) |
-| `clock_skew` | warning, critical | a peer's clock at least `alerts_clock_skew_warning_seconds` (critical: `alerts_clock_skew_critical_seconds`) off this node's, the measurement's margin subtracted; kept at its last reading while the peer is out of reach |
+| `clock_skew` | warning, critical | a peer's clock at least `checks.clock_skew_warning_seconds` (critical: `checks.clock_skew_critical_seconds`) off this node's, the measurement's margin subtracted; kept at its last reading while the peer is out of reach |
 | `clock_unsynchronized` | warning | a node reports that NTP does not discipline its clock (timedatectl, chrony) or that no time service runs |
-| `d2_errors` | warning | D2 error rate over the last hour above `alerts_d2_error_rate` |
+| `d2_errors` | warning | D2 error rate over the last hour above `checks.d2_error_percent` |
 | `daemon_down` | critical | a local engine does not answer |
 | `peer_offline` | warning | a peer unreachable for 3 polls |
 | `config_divergence` | warning | Kea configuration hash differs between HA partners, a Kea file differs from the running configuration, or a peer runs a newer `cluster.toml` schema |
@@ -178,6 +178,9 @@ its page revokes its exception after the apply. Each check has its own object: a
 pair for `ptr_mismatch`, the host name for `lease_without_record`, the
 owner and type for `record_without_lease`, the reservation and address
 for `reservation_mismatch`, the address for `duplicate_ip`.
+**New exception** (`write:alerts`) records one before any alert: pick the
+check, type the object key as the alert would name it (the form shows an
+example per check and refuses a key of the wrong shape) and say why.
 
 Health and audit alerts that can be a deliberate choice take an exception
 the same way: `insecure_key`, `insecure_listener`, `custom_hook`,
@@ -234,8 +237,8 @@ Every node: name, address (its web URL opens its UI), engines, status,
 version, configuration version, audit entries, clock, last seen, error.
 The clock is the node's offset against the node you are on ("reference"),
 measured on the last replication exchange (hover for the margin, half the
-round trip), in orange from `alerts_clock_skew_warning_seconds` and red from
-`alerts_clock_skew_critical_seconds`, with the NTP state the node reports
+round trip), in orange from `checks.clock_skew_warning_seconds` and red from
+`checks.clock_skew_critical_seconds`, with the NTP state the node reports
 (chrony when it runs, else timedatectl). Kea terminates HA past 60 s of
 skew, TSIG refuses updates past 300 s (fudge), and the node certificates
 need clocks that agree. The replication panel says "All peers in sync" or "Peers differ", with this
@@ -338,8 +341,16 @@ Under Administration:
 - **Certificates** (`admin:certificates`): the HTTPS certificate of each
   node, its source (self-signed, manual, ACME, UCM), upload with checks,
   renewal, one source for all nodes ([Certificates](certificates.md)).
-- **Settings** (`admin:settings`): General, DNS, Kea, Alert thresholds,
-  Collector, Retention, Certificates ([Configuration: settings](configuration.md#settings)).
+- **Settings** (`admin:settings`): one tab per table (Sign-in, Plans,
+  Peers, Alert thresholds, Collector, Retention, DNS, Kea, Response policy
+  zones, Certificates). Alert thresholds are grouped (DHCP pools, DDNS,
+  secondaries, high availability with its grace period, Kea with the custom
+  hook switch, clocks, certificates, disk, resolver, delegation, SOA timers,
+  ISC advisories). Each field shows its unit, its default, a duration in
+  hours or days where it helps, and **Reset to default**; a warning above
+  its critical value, or a value out of range, is flagged before saving;
+  DNS takes the keys per view as rows. A search box finds a setting in any
+  tab; `?section=<table>` opens one ([Configuration: settings](configuration.md#settings)).
 
 ## Account
 

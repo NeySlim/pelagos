@@ -1,0 +1,222 @@
+# SPDX-License-Identifier: Apache-2.0
+schema_version = 1
+version = 5
+updated_at = "2026-10-26T17:07:18.553Z"
+updated_by = "node:01M5WJWHTRSS2RN41BMK1JAAYT"
+cluster_id = "01M5WJWHS1WMHC34WD2MFXKJ46"
+revoked = []
+
+[[nodes]]
+id = "01M5WJWHS0KD470E4V0F1QXXSV"
+name = "ns1"
+url = "https://ns1.example.lan:9444"
+cert_fingerprint = "sha256:d425486fc798ddf3806ed4ee759361f9fa00c97c88d04d12828ef0681a2665f6"
+web_url = "https://ns1.example.lan:9443"
+enrolled_at = "2026-10-26T17:07:18.438Z"
+enrolled_by = "node:01M5WJWHS0KD470E4V0F1QXXSV"
+
+[nodes.modules]
+bind = true
+kea4 = true
+kea6 = false
+d2 = true
+
+[[nodes]]
+id = "01M5WJWHTRSS2RN41BMK1JAAYT"
+name = "ns2"
+url = "https://ns2.example.lan:9444"
+cert_fingerprint = "sha256:abababababababababababababababababababababababababababababababab"
+web_url = "https://ns2.example.lan:9443"
+enrolled_at = "2026-10-26T17:07:18.490Z"
+enrolled_by = "user:admin@node:01M5WJWHS0KD470E4V0F1QXXSV"
+
+[nodes.modules]
+bind = true
+kea4 = true
+kea6 = false
+d2 = true
+
+[[users]]
+id = "01M5WJWHS6BY0HM76KHJMT8WS9"
+username = "admin"
+password_hash = "$argon2id$v=19$m=65536,t=3,p=4$diDF0eMupU2k1ikVUyLt2A$rdivm6uKvHOhTxFOY2txzrqRHkmjOOyuNx+44DHjbBo"
+roles = [
+    "admin",
+]
+enabled = true
+must_change_password = false
+created_at = "2026-10-26T17:07:18.486Z"
+updated_at = "2026-10-26T17:07:18.486Z"
+
+[users.preferences]
+
+[[users]]
+id = "01M5WJWHTT97T50VTGQRFMB0AF"
+username = "alice"
+password_hash = "$argon2id$v=19$m=65536,t=3,p=4$297WWgdZgDiJqLPRCNkgVw$Ak9X+YE8/MoXU5ljMPhzM9bEwutcbkOXS870dceRvcM"
+roles = [
+    "operator",
+]
+enabled = true
+must_change_password = false
+created_at = "2026-10-26T17:07:18.537Z"
+updated_at = "2026-10-26T17:07:18.537Z"
+
+[users.preferences]
+
+[[roles]]
+name = "dns-records"
+permissions = [
+    "read:dns",
+    "write:dns.records",
+]
+builtin = false
+description = "Records"
+
+[modules]
+dhcpv6 = false
+advanced_editor = true
+
+[settings]
+plan_ttl_seconds = 900
+session_ttl_seconds = 43200
+session_idle_seconds = 3600
+login_rate_limit_per_minute = 10
+require_totp = false
+alerts_pool_warning_percent = 70
+alerts_pool_critical_percent = 90
+alerts_serial_divergence_seconds = 1200
+alerts_d2_error_rate = 0.1
+peer_plan_timeout_seconds = 600
+
+[settings.dns]
+read_key = "ddi-read"
+admin_key = "ddi-admin"
+update_types_admin = [
+    "A",
+    "AAAA",
+    "PTR",
+    "CNAME",
+    "TXT",
+    "SRV",
+    "MX",
+    "DHCID",
+]
+update_types_kea = [
+    "A",
+    "AAAA",
+    "PTR",
+    "DHCID",
+]
+default_ns = []
+
+[settings.dns.view_keys]
+inside = "ddi-inside"
+
+[settings.kea]
+ddns_key = "kea-ddns"
+
+[settings.collector]
+poll_seconds = 30
+pool_sample_seconds = 300
+peer_poll_seconds = 30
+consistency_seconds = 900
+live_seconds = 5
+lease_watch_max = 20000
+
+[settings.retention]
+pool_raw_days = 7
+pool_hourly_days = 365
+serial_days = 120
+ha_transition_days = 365
+alerts_resolved_days = 90
+backups_days = 60
+
+[secrets]
+"pelagos/probe" = "enc:v1:CE4t9la_K0CygFIRRt1ZEiRMjuvMrv1i-QmSYiRV64Wpm8_ohlUPweHyxWXwzZMCDr6v4k7K"
+"rndc/pelagos" = "enc:v1:45mhtPCrMZrQfg5_KpRBfs-UzJClkpc91ZXZplSzlAd-sbSeFpaHChatw0ubF9Q2pAI3h_khrRdShO_IxgB9SQ"
+"tsig/ddi-admin" = "enc:v1:THcQIh1hR2vGEkWOiDxyo_ol0vK53FWVlwvWP1aZXuRp5329F0g4icPXK1xd4lt2Y-6cekPR67bgi_BFiBDV7g"
+"tsig/ddi-read" = "enc:v1:KBI9-YuO7csgJg0JZB5SKjpb9WLtozkMCdJTo9U0NGQVbl6ia5T_0qF9ktchzq0oGL3U9wxJD_x6M_yfpCWi1Q"
+"tsig/kea-ddns" = "enc:v1:GcqO6_uzrOW1Hz52Qsry9e474nBMgizGAfD7Xu5ifaOTJ92hBssGb0inHj6LWkjMS_luq3MEkJIzfnc93BEP5Q"
+
+[replication.stamps]
+"modules/advanced_editor" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"modules/dhcpv6" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHS0KD470E4V0F1QXXSV" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHS0KD470E4V0F1QXXSV/cert_fingerprint" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHS0KD470E4V0F1QXXSV/enrolled_at" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHS0KD470E4V0F1QXXSV/enrolled_by" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHS0KD470E4V0F1QXXSV/modules/bind" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHS0KD470E4V0F1QXXSV/modules/d2" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHS0KD470E4V0F1QXXSV/modules/kea4" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHS0KD470E4V0F1QXXSV/modules/kea6" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHS0KD470E4V0F1QXXSV/name" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHS0KD470E4V0F1QXXSV/url" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHS0KD470E4V0F1QXXSV/web_url" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHTRSS2RN41BMK1JAAYT" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHTRSS2RN41BMK1JAAYT/cert_fingerprint" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHTRSS2RN41BMK1JAAYT/enrolled_at" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHTRSS2RN41BMK1JAAYT/enrolled_by" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHTRSS2RN41BMK1JAAYT/modules/bind" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHTRSS2RN41BMK1JAAYT/modules/d2" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHTRSS2RN41BMK1JAAYT/modules/kea4" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHTRSS2RN41BMK1JAAYT/modules/kea6" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHTRSS2RN41BMK1JAAYT/name" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHTRSS2RN41BMK1JAAYT/url" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"nodes/01M5WJWHTRSS2RN41BMK1JAAYT/web_url" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"roles/dns-records" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"roles/dns-records/builtin" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"roles/dns-records/description" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"roles/dns-records/permissions" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"secrets/pelagos%2Fprobe" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"secrets/rndc%2Fpelagos" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"secrets/tsig%2Fddi-admin" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"secrets/tsig%2Fddi-read" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"secrets/tsig%2Fkea-ddns" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/alerts_d2_error_rate" = "3@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/alerts_pool_critical_percent" = "3@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/alerts_pool_warning_percent" = "3@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/alerts_serial_divergence_seconds" = "3@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/collector/consistency_seconds" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/collector/lease_watch_max" = "3@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/collector/live_seconds" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/collector/peer_poll_seconds" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/collector/poll_seconds" = "3@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/collector/pool_sample_seconds" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/dns/admin_key" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/dns/default_ns" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/dns/read_key" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/dns/update_types_admin" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/dns/update_types_kea" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/dns/view_keys/inside" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/kea/ddns_key" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/login_rate_limit_per_minute" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/peer_plan_timeout_seconds" = "4@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/plan_ttl_seconds" = "3@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/require_totp" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/retention/alerts_resolved_days" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/retention/backups_days" = "3@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/retention/ha_transition_days" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/retention/pool_hourly_days" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/retention/pool_raw_days" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/retention/serial_days" = "5@01M5WJWHTRSS2RN41BMK1JAAYT"
+"settings/session_idle_seconds" = "3@01M5WJWHS0KD470E4V0F1QXXSV"
+"settings/session_ttl_seconds" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHS6BY0HM76KHJMT8WS9" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHS6BY0HM76KHJMT8WS9/created_at" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHS6BY0HM76KHJMT8WS9/enabled" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHS6BY0HM76KHJMT8WS9/must_change_password" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHS6BY0HM76KHJMT8WS9/password_hash" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHS6BY0HM76KHJMT8WS9/roles" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHS6BY0HM76KHJMT8WS9/updated_at" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHS6BY0HM76KHJMT8WS9/username" = "1@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHTT97T50VTGQRFMB0AF" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHTT97T50VTGQRFMB0AF/created_at" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHTT97T50VTGQRFMB0AF/enabled" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHTT97T50VTGQRFMB0AF/must_change_password" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHTT97T50VTGQRFMB0AF/password_hash" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHTT97T50VTGQRFMB0AF/roles" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHTT97T50VTGQRFMB0AF/updated_at" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+"users/01M5WJWHTT97T50VTGQRFMB0AF/username" = "2@01M5WJWHS0KD470E4V0F1QXXSV"
+
+[replication.tombstones]

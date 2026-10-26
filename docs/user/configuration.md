@@ -190,140 +190,239 @@ to change what it drives.
 
 ## Settings
 
-**Administration, Settings**, or `GET` and `PUT /api/v1/admin/settings`
-(partial updates). Values are validated (type and range). Alert, DNS, Kea,
-collector and retention settings apply on every node at once; the General
-settings (plan lifetime, session lifetimes, sign-in rate limit) apply at
-once on the node you changed them on and on the other nodes after
+**Administration, Settings** edits every setting below: one tab per table,
+each field with its unit, default and allowed range, a search box, and a
+"Reset to default" link. Values are checked as you type (type, range,
+warning below critical, minimum below maximum) and again by the server;
+Save sends only what changed. Nothing here needs `cluster.toml` by hand.
+`GET` and `PUT /api/v1/admin/settings` do the same (partial updates), and
+`GET /api/v1/admin/settings/schema` lists every key with its type, bounds,
+default and unit. A screen opens on one table with
+`/admin/settings?section=<table>` (for example `?section=rpz`).
+
+Alert, DNS, Kea, collector, retention, RPZ and certificate settings apply on
+every node at once; the sign-in and plan settings apply at once on the node
+you changed them on and on the other nodes after
 `sudo systemctl restart pelagos`.
 
-### General
+Names follow one rule: a table per domain, the unit at the end of the name
+(`_seconds`, `_days`, `_percent`, `_mb`), `_warning_`/`_critical_` for
+severities, `_enabled` for switches. Releases before this convention wrote
+some keys under other names (`plan_ttl_seconds`, `alerts_pool_warning_percent`,
+`alerts_d2_error_rate` as a fraction, ...): a node renames them in
+`cluster.toml` when it starts after the upgrade, keeps their values, and
+records an `admin.settings.op` entry (`migrate`) in the audit log. The API
+still accepts the former names. The full list is in `docs/architecture.md`,
+section 10, "Settings naming".
 
-| Key | Type | Default | Range | Effect |
-| --- | --- | --- | --- | --- |
-| `plan_ttl_seconds` | int | `600` | 60 to 86400 | lifetime of a plan before apply, and of an applied plan for rollback |
-| `session_ttl_seconds` | int | `43200` | 300 to 2592000 | absolute lifetime of a session |
-| `session_idle_seconds` | int | `1800` | 60 to 604800 | idle timeout of a session |
-| `login_rate_limit_per_minute` | int | `10` | 1 to 1000 | sign-in attempts per minute, per client address and per username |
-| `require_totp` | bool | `false` | | every user must enroll an authenticator; until then a sign-in only allows the enrollment |
+### Sign-in (`[settings.auth]`)
 
-### Alert thresholds
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `session_ttl_seconds` | `43200` | 300 to 2592000 s | absolute lifetime of a session |
+| `session_idle_seconds` | `1800` | 60 to 604800 s | idle timeout of a session; at most the lifetime |
+| `login_rate_limit_per_minute` | `10` | 1 to 1000 per minute | sign-in attempts per minute, per client address and per username |
+| `require_totp` | `off` |  | every user must enroll an authenticator; until then a sign-in only allows the enrollment |
 
-| Key | Type | Default | Range | Effect |
-| --- | --- | --- | --- | --- |
-| `alerts_pool_warning_percent` | int | `80` | 1 to 100 | `pool_near_full` at this use |
-| `alerts_pool_critical_percent` | int | `95` | 1 to 100 | `pool_full` at this use |
-| `alerts_serial_divergence_seconds` | int | `900` | 0 to 604800 | how long a secondary's serial may differ before `serial_divergence` |
-| `alerts_d2_error_rate` | float | `0.05` | 0.0 to 1.0 | `d2_errors` when (errors + timeouts) / sent over the last hour exceeds it |
-| `alerts_ha_grace_seconds` | int | `45` | 0 to 3600 | how long a Kea HA relationship may be away from a normal state (a `waiting` after a `config-reload`, say) before `ha_partner_down`, `ha_degraded` and `ha_transition` open; `terminated` is never delayed, and a reload done by Pelagos keeps them quiet for this long |
-| `alerts_custom_hooks` | bool | `true` | | raise `custom_hook` for a Kea hook library that no package owns |
-| `alerts_clock_skew_warning_seconds` | int | `5` | 1 to 3600 | `clock_skew` (warning) when a peer's clock is at least this far off; also the bar the HA repair plan checks |
-| `alerts_clock_skew_critical_seconds` | int | `30` | 1 to 3600 | `clock_skew` turns critical (Kea terminates HA at 60 s); must be above the warning |
-| `alerts_cert_warning_days` | int | `30` | 1 to 365 | `cert_expiry` warning this long before a web, node or CA certificate ends (a third of the lifetime when shorter) |
-| `alerts_cert_critical_days` | int | `7` | 1 to 365 | `cert_expiry` critical (a tenth of the lifetime when shorter); lower than the warning |
+### Plans (`[settings.plans]`)
 
-### Health checks (`[settings.checks]`)
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `ttl_seconds` | `600` | 60 to 86400 s | lifetime of a plan before apply, and of an applied plan for rollback |
 
-Every key is optional. Thresholds are read at each pass; the alerts are in
-`docs/user/screens.md`.
+### Peers (`[settings.peers]`)
 
-| Key | Default | Effect |
-| --- | --- | --- |
-| `disk_free_warning_percent`, `disk_free_critical_percent` | `15`, `5` | `disk_space` at or under this free share (critical must be lower) |
-| `log_max_mb`, `lease_file_max_mb`, `journal_max_mb`, `backups_max_mb`, `audit_max_mb` | `1024`, `512`, `256`, `2048`, `512` | `file_growth` at this size, critical at five times |
-| `lfc_stale_factor` | `3` | LFC overdue after this many `lfc-interval` periods |
-| `declined_addresses_warning`, `declined_received_warning` | `5`, `5` | declined addresses in a subnet, DHCPDECLINE per hour |
-| `resolver_window_seconds`, `resolver_min_queries` | `900`, `200` | window of the rate checks, answers needed before judging SERVFAIL |
-| `resolver_servfail_warning_percent`, `resolver_servfail_critical_percent` | `10`, `30` | SERVFAIL share of the answers |
-| `resolver_dnssec_failures` | `10` | validation failures per window |
-| `resolver_drop_percent`, `resolver_drop_min_qpm` | `80`, `60` | query drop against the two preceding windows, and the baseline needed to judge it |
-| `resolver_roots_failures` | `3` | failed root probes in a row |
-| `delegation_timeout_seconds`, `delegation_max_zones` | `2`, `200` | timeout per probe, primary zones checked per pass (every view, through the view's read key) |
-| `delegation_confirm_passes` | `2` | consecutive passes an unresolved or silent name server must fail before the alert opens |
-| `soa_refresh_min`/`max`, `soa_retry_min`/`max`, `soa_expire_min`/`max`, `soa_minimum_min`/`max` | `1200`/`86400`, `120`/`7200`, `604800`/`2419200`, `300`/`86400` | usual SOA ranges, `info` outside |
-| `restart_loop_count`, `restart_loop_window_seconds` | `3`, `1800` | restarts that make a loop |
-| `forecast_window_days`, `forecast_warning_days`, `forecast_critical_days` | `7`, `14`, `3` | history used for the trend, days to full that raise the alert |
-| `advisories_enabled` | `true` | compare installed versions with the advisory data |
-| `advisories_fetch`, `advisories_url` | `false`, empty | download the data file daily from this https address |
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `plan_timeout_seconds` | `300` | 10 to 86400 s | how long a peer may take to apply or roll back an engine plan |
+| `installer_plan_timeout_seconds` | `1800` | 60 to 86400 s | the same for install, import and security plans |
+| `action_timeout_seconds` | `120` | 5 to 3600 s | a write a peer builds or runs for this node |
 
-### DNS (`[settings.dns]`)
+### Alert thresholds (`[settings.checks]`)
 
-| Key | Default | Effect |
-| --- | --- | --- |
-| `read_key` | `ddi-read` | TSIG key Pelagos transfers zones with |
-| `admin_key` | `ddi-admin` | TSIG key Pelagos signs updates with |
-| `update_types_admin` | `A, AAAA, PTR, CNAME, TXT, SRV, MX, DHCID` | record types granted to the admin key in new update policies |
-| `update_types_kea` | `A, AAAA, PTR, DHCID` | record types granted to the Kea DDNS key |
-| `default_ns` | none | NS names of a new primary zone when the plan gives none (`["ns1.example.lan.", "ns2.example.lan."]`); without either the plan is refused, and `localhost.` always is |
-| `view_keys` | none | per view key names, written by the `view_key` remediation (`{ inside = "ddi-inside" }`) |
+Every threshold that raises an alert; the alerts are in
+[Screens](screens.md). Read at each pass.
 
-### Kea (`[settings.kea]`)
+DHCP pools:
 
-| Key | Default | Effect |
-| --- | --- | --- |
-| `ddns_key` | `kea-ddns` | TSIG key D2 signs updates with |
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `pool_warning_percent` | `80` | 1 to 100 % | `pool_near_full` at this use; lower than the critical value |
+| `pool_critical_percent` | `95` | 1 to 100 % | `pool_full` at this use |
+| `forecast_window_days` | `7` | 1 to 365 days | pool history the trend is computed from |
+| `forecast_warning_days` | `14` | 1 to 365 days | `pool_forecast` warning when the pool is full in fewer days |
+| `forecast_critical_days` | `3` | 1 to 365 days | `pool_forecast` critical; lower than the warning |
+| `declined_addresses_warning` | `5` | 1 to 1000000 addresses | `declined_addresses`: declined addresses in a subnet |
+| `declined_received_warning` | `5` | 1 to 1000000 per hour | `declined_addresses`: DHCPDECLINE received per hour |
+
+DDNS:
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `d2_error_percent` | `5` | 0 to 100 % | `d2_errors` when (errors + timeouts) / sent over the last hour exceeds this share |
+
+Secondaries:
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `serial_divergence_seconds` | `900` | 0 to 604800 s | how long a secondary's serial may differ before `serial_divergence` |
+
+High availability:
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `ha_grace_seconds` | `45` | 0 to 3600 s | how long a Kea HA relationship may be away from a normal state (a `waiting` after a `config-reload`, say) before `ha_partner_down`, `ha_degraded` and `ha_transition` open; `terminated` is never delayed, and a reload done by Pelagos keeps them quiet for this long |
+
+Kea:
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `custom_hooks_enabled` | `on` |  | raise `custom_hook` for a Kea hook library that no package owns |
+| `lfc_stale_factor` | `3` | 1 to 100 times | LFC overdue after this many `lfc-interval` periods |
+| `restart_loop_count` | `3` | 2 to 1000 restarts | `restart_loop`: restarts within the window that make a loop |
+| `restart_loop_window_seconds` | `1800` | 60 to 86400 s | window of the restart loop check |
+
+Clocks:
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `clock_skew_warning_seconds` | `5` | 1 to 3600 s | `clock_skew` (warning) when a peer's clock is at least this far off; also the bar the HA repair plan checks |
+| `clock_skew_critical_seconds` | `30` | 1 to 3600 s | `clock_skew` turns critical (Kea terminates HA at 60 s); above the warning |
+
+Certificates:
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `cert_warning_days` | `30` | 1 to 365 days | `cert_expiry` warning this long before a web, node or CA certificate ends (a third of the lifetime when shorter) |
+| `cert_critical_days` | `7` | 1 to 365 days | `cert_expiry` critical (a tenth of the lifetime when shorter); lower than the warning |
+
+Disk and file sizes:
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `disk_free_warning_percent` | `15` | 1 to 99 % | `disk_space` at or under this free share |
+| `disk_free_critical_percent` | `5` | 1 to 99 % | `disk_space` critical; lower than the warning |
+| `log_max_mb` | `1024` | 1 to 10000000 MB | `file_growth` for the named log at this size, critical at five times |
+| `lease_file_max_mb` | `512` | 1 to 10000000 MB | the same for the Kea lease file |
+| `journal_max_mb` | `256` | 1 to 10000000 MB | the same for a zone journal |
+| `backups_max_mb` | `2048` | 1 to 10000000 MB | the same for the write backups |
+| `audit_max_mb` | `512` | 1 to 10000000 MB | the same for the audit log |
+
+Resolver:
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `resolver_window_seconds` | `900` | 60 to 86400 s | window of the resolver rate checks |
+| `resolver_min_queries` | `200` | 1 to 10000000 queries | answers needed in the window before judging SERVFAIL |
+| `resolver_servfail_warning_percent` | `10` | 1 to 100 % | SERVFAIL share of the answers, warning |
+| `resolver_servfail_critical_percent` | `30` | 1 to 100 % | SERVFAIL share, critical; above the warning |
+| `resolver_dnssec_failures` | `10` | 1 to 1000000 failures | validation failures per window |
+| `resolver_drop_percent` | `80` | 1 to 100 % | query drop against the two preceding windows |
+| `resolver_drop_min_qpm` | `60` | 1 to 10000000 per minute | baseline needed to judge a drop |
+| `resolver_roots_failures` | `3` | 1 to 100 failures | failed root probes in a row |
+
+Delegation:
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `delegation_timeout_seconds` | `2` | 1 to 30 s | timeout per delegation probe |
+| `delegation_max_zones` | `200` | 1 to 100000 zones | zones checked per pass |
+| `delegation_confirm_passes` | `2` | 1 to 10 passes | consecutive passes an unresolved or silent name server must fail before the alert opens |
+
+SOA timers:
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `soa_refresh_min_seconds` | `1200` | 1 to 2147483647 s | usual SOA refresh range (with the maximum), `info` outside |
+| `soa_refresh_max_seconds` | `86400` | 1 to 2147483647 s | with the line above |
+| `soa_retry_min_seconds` | `120` | 1 to 2147483647 s | usual SOA retry range |
+| `soa_retry_max_seconds` | `7200` | 1 to 2147483647 s | with the line above |
+| `soa_expire_min_seconds` | `604800` | 1 to 2147483647 s | usual SOA expire range |
+| `soa_expire_max_seconds` | `2419200` | 1 to 2147483647 s | with the line above |
+| `soa_minimum_min_seconds` | `300` | 0 to 2147483647 s | usual SOA negative TTL range |
+| `soa_minimum_max_seconds` | `86400` | 0 to 2147483647 s | with the line above |
+
+ISC security advisories:
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `advisories_enabled` | `on` |  | compare installed versions with the ISC advisory data |
+| `advisories_fetch_enabled` | `off` |  | download the data file daily from `advisories_url` |
+| `advisories_url` | `empty` |  | https address of the advisory data (empty: the file shipped with the package) |
 
 ### Collector (`[settings.collector]`)
 
 | Key | Default | Range | Effect |
 | --- | --- | --- | --- |
-| `poll_seconds` | `60` | 5 to 3600 | poll of the local engines (status, zones, HA, statistics) |
-| `pool_sample_seconds` | `300` | 30 to 86400 | pool utilization sample |
-| `peer_poll_seconds` | `30` | 5 to 3600 | poll of the peers and replication anti-entropy |
-| `consistency_seconds` | `900` | 60 to 604800 | DNS/DHCP consistency pass and security audit |
-| `live_seconds` | `5` | 1 to 300 | live pass: HA heartbeats of the local Kea servers and the lease watch (new and renewed leases) |
-| `lease_watch_max` | `50000` | 0 to 10000000 | largest lease table the lease watch walks; above it only the lease counts move live |
+| `poll_seconds` | `60` | 5 to 3600 s | poll of the local engines (status, zones, HA, statistics) |
+| `pool_sample_seconds` | `300` | 30 to 86400 s | pool utilization sample |
+| `peer_poll_seconds` | `30` | 5 to 3600 s | poll of the peers and replication anti-entropy |
+| `consistency_seconds` | `900` | 60 to 604800 s | DNS/DHCP consistency pass and security audit |
+| `live_seconds` | `5` | 1 to 300 s | live pass: HA heartbeats of the local Kea servers and the lease watch |
+| `lease_watch_max_leases` | `50000` | 0 to 10000000 leases | largest lease table the lease watch walks; above it only the lease counts move live (0: off) |
 
 ### Retention (`[settings.retention]`)
 
-| Key | Default (days) | Effect |
-| --- | --- | --- |
-| `pool_raw_days` | `7` | raw pool samples, then aggregated hourly |
-| `pool_hourly_days` | `365` | hourly pool series |
-| `serial_days` | `90` | SOA serial history (the latest point per zone is always kept) |
-| `ha_transition_days` | `365` | HA state transitions |
-| `alerts_resolved_days` | `90` | resolved alerts |
-| `backups_days` | `90` | write pipeline backups under `/var/lib/pelagos/backups` |
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `pool_raw_days` | `7` | 1 to 3650 days | raw pool samples, then aggregated hourly |
+| `pool_hourly_days` | `365` | 1 to 3650 days | hourly pool series |
+| `serial_days` | `90` | 1 to 3650 days | SOA serial history (the latest point per zone is always kept) |
+| `ha_transition_days` | `365` | 1 to 3650 days | HA state transitions |
+| `alerts_resolved_days` | `90` | 1 to 3650 days | resolved alerts |
+| `backups_days` | `90` | 1 to 3650 days | write pipeline backups under `/var/lib/pelagos/backups` |
 
 The audit log is never purged.
+
+### DNS (`[settings.dns]`)
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `read_key` | `ddi-read` |  | TSIG key Pelagos transfers zones with |
+| `admin_key` | `ddi-admin` |  | TSIG key Pelagos signs updates with |
+| `view_keys` | `none` |  | per view key names: `{ inside = "ddi-inside" }` or `{ guest = { admin = "g-admin", read = "g-read" } }`; also written by the `view_key` remediation |
+| `update_types_admin` | `A, AAAA, PTR, CNAME, TXT, SRV, MX, DHCID` |  | record types granted to the admin key in new update policies |
+| `update_types_kea` | `A, AAAA, PTR, DHCID` |  | record types granted to the Kea DDNS key |
+| `default_ns` | `none` |  | NS names of a new primary zone when the plan gives none (`["ns1.example.lan.", "ns2.example.lan."]`); without either the plan is refused, and `localhost.` always is |
+| `default_ttl_seconds` | `3600` | 0 to 2147483647 s | TTL of a record written without one |
+
+### Kea (`[settings.kea]`)
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `ddns_key` | `kea-ddns` |  | TSIG key D2 signs updates with |
 
 ### RPZ block lists (`[settings.rpz]`)
 
 | Key | Default | Range | Effect |
 | --- | --- | --- | --- |
-| `check_seconds` | `300` | 30 to 86400 | how often each collector looks for lists that are due |
-| `default_interval_hours` | `24` | 1 to 720 | update interval of a new subscription |
-| `min_interval_minutes` | `60` | 5 to 10080 | no list is fetched more often |
-| `shrink_percent` | `50` | 1 to 100 | a new copy that lost more than this is refused and the old one kept |
-| `stale_factor` | `3` | 1 to 100 | intervals without a successful update before the `rpz_update` alert |
-| `bytes_per_entry` | `800` | 50 to 10000 | memory estimate of named per listed domain |
-| `memory_warn_percent` | `25` | 1 to 100 | share of the node's RAM, at peak, from which a subscription is "too large" |
-| `small_node_mb` | `4096` | 256 to 1048576 | RAM at or under which a node is small ("tight" from half the threshold) |
-| `max_download_mb` | `256` | 1 to 4096 | largest download accepted |
-| `break_dnssec` | `true` | | rewrite answers to DNSSEC clients as well |
+| `check_seconds` | `300` | 30 to 86400 s | how often each collector looks for lists that are due |
+| `default_interval_hours` | `24` | 1 to 720 h | update interval of a new subscription |
+| `min_interval_minutes` | `60` | 5 to 10080 min | no list is fetched more often |
+| `shrink_percent` | `50` | 1 to 100 % | a new copy that lost more than this is refused and the old one kept |
+| `stale_factor` | `3` | 1 to 100 times | intervals without a successful update before the `rpz_update` alert |
+| `bytes_per_entry` | `800` | 50 to 10000 bytes | memory estimate of named per listed domain |
+| `memory_warning_percent` | `25` | 1 to 100 % | share of the node's RAM, at peak, from which a subscription is "too large" |
+| `small_node_mb` | `4096` | 256 to 1048576 MB | RAM at or under which a node is small ("tight" from half the threshold) |
+| `max_download_mb` | `256` | 1 to 4096 MB | largest download accepted |
+| `log_events` | `200` | 10 to 100000 events | update events kept per node in the RPZ activity |
+| `break_dnssec` | `on` |  | rewrite answers to DNSSEC clients as well |
 
 The subscriptions themselves (`categories`, `subscriptions`, `order`, `allow`,
 `exempt_clients`) live in the same table and are managed from the RPZ screen;
-see [RPZ block lists](rpz.md).
+see [RPZ block lists](rpz.md). The settings API refuses them.
 
 ### Certificates (`[settings.certificates]`)
 
 | Key | Default | Range | Effect |
 | --- | --- | --- | --- |
-| `ucm_renew_days` | `30` | 1 to 365 | UCM source: renewal this long before the end |
-| `retry_min_seconds` | `300` | 30 to 86400 | first retry after a failed automatic request, then doubling |
-| `retry_max_seconds` | `21600` | 60 to 604800 | longest delay between retries |
-| `propagation_seconds` | `180` | 10 to 3600 | DNS-01: wait for the TXT on every authoritative server |
+| `ucm_renew_days` | `30` | 1 to 365 days | UCM source: renewal this long before the end |
+| `retry_min_seconds` | `300` | 30 to 86400 s | first retry after a failed automatic request, then doubling |
+| `retry_max_seconds` | `21600` | 60 to 604800 s | longest delay between retries |
+| `propagation_seconds` | `180` | 10 to 3600 s | DNS-01: wait for the TXT on every authoritative server |
 
-The certificate sources are set in [Administration, Certificates](certificates.md).
-
-### Timeouts read from cluster.toml
-
-Read when present, with these defaults; the settings API does not accept
-them in this version: `peer_plan_timeout_seconds` (300, a plan applied on a
-peer), `installer_plan_timeout_seconds` (1800, install, import and security
-plans on a peer), `peer_action_timeout_seconds` (120, a write a peer builds
-or runs).
+The certificate sources (`cluster`, `nodes`) are set in
+[Administration, Certificates](certificates.md); the settings API refuses them.
 
 ## Environment variables
 

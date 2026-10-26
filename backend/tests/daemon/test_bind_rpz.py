@@ -107,7 +107,7 @@ def rig(tmp_root: Path) -> Iterator[Rig]:
         },
         backup_root=tmp_root / "backups" / "bind",
         get_secret=lambda name: None,
-        settings={"plan_ttl_seconds": 600, "dns": {"read_key": "ddi-read", "admin_key": "ddi-admin"}},
+        settings={"plans": {"ttl_seconds": 600}, "dns": {"read_key": "ddi-read", "admin_key": "ddi-admin"}},
     )
     try:
         yield Rig(server, BindBackend(ctx), root)

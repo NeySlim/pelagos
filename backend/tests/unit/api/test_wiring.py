@@ -279,13 +279,13 @@ def test_raw_targets_name_managed_files_only(role_client, fake_registry):
 
 
 def test_dashboard_thresholds_and_zone_status(admin, role_client, node_ctx):
-    assert admin.put(f"{V1}/admin/settings", json={"alerts_pool_warning_percent": 70}).status_code == 200
+    assert admin.put(f"{V1}/admin/settings", json={"checks": {"pool_warning_percent": 70}}).status_code == 200
     summary = role_client("viewer").get(f"{V1}/dashboard/summary").get_json()
     assert summary["thresholds"] == {
-        "alerts_pool_warning_percent": 70,
-        "alerts_pool_critical_percent": 95,
-        "alerts_serial_divergence_seconds": 900,
-        "alerts_d2_error_rate": 0.05,
+        "pool_warning_percent": 70,
+        "pool_critical_percent": 95,
+        "serial_divergence_seconds": 900,
+        "d2_error_percent": 5.0,
     }
     zones = {z["zone"]["name"]: z for z in role_client("viewer").get(f"{V1}/dns/zones").get_json()["items"]}
     secondary = zones["corp.example."]["status"]

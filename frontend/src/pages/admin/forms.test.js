@@ -1,29 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { diffPatch, describeSettings, setIn, getIn, parseNumber, fieldType, setClusterModule, modulesPatch } from './settingsForm'
+import { diffPatch, setIn, getIn, parseNumber, setClusterModule, modulesPatch } from './settingsForm'
 import { passwordProblem, fieldErrors, groupPermissions, USERNAME_RE } from './validation'
 
 describe('settings form', () => {
-  const settings = { require_totp: false, plan_ttl_seconds: 600, dns: { read_key: 'ddi-read', update_types_kea: ['A', 'PTR'] }, retention: { backups_days: 90 } }
-
-  it('describes settings as typed sections', () => {
-    const sections = describeSettings(settings)
-    expect(sections.map((s) => s.id)).toEqual(['general', 'dns', 'retention'])
-    expect(sections[0].fields).toEqual([
-      { path: ['require_totp'], key: 'require_totp', type: 'boolean' },
-      { path: ['plan_ttl_seconds'], key: 'plan_ttl_seconds', type: 'integer' },
-    ])
-    expect(sections[1].fields.map((f) => f.type)).toEqual(['string', 'list'])
-    expect(fieldType(0.05)).toBe('number')
-    expect(fieldType({ a: 1 })).toBe('json')
-  })
+  const settings = { auth: { require_totp: false }, plans: { ttl_seconds: 600 }, dns: { read_key: 'ddi-read', update_types_kea: ['A', 'PTR'] }, retention: { backups_days: 90 } }
 
   it('sends only what changed', () => {
     expect(diffPatch(settings, settings)).toBe(null)
-    const edited = setIn(setIn(settings, ['retention', 'backups_days'], 30), ['require_totp'], true)
+    const edited = setIn(setIn(settings, ['retention', 'backups_days'], 30), ['auth', 'require_totp'], true)
     expect(getIn(edited, ['retention', 'backups_days'])).toBe(30)
     expect(settings.retention.backups_days).toBe(90)
-    expect(diffPatch(settings, edited)).toEqual({ require_totp: true, retention: { backups_days: 30 } })
+    expect(diffPatch(settings, edited)).toEqual({ auth: { require_totp: true }, retention: { backups_days: 30 } })
     expect(diffPatch(settings, setIn(settings, ['dns', 'update_types_kea'], ['A']))).toEqual({ dns: { update_types_kea: ['A'] } })
   })
 

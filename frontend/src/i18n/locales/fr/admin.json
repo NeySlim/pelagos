@@ -121,23 +121,83 @@
   },
   "settings": {
     "saved": "Paramètres enregistrés",
-    "number": "Un nombre est attendu",
+    "search": "Chercher un paramètre",
+    "noMatch": "Aucun paramètre ne correspond à « {{query}} »",
+    "default": "Défaut : {{value}}",
+    "reset": "Revenir au défaut",
+    "changed_one": "{{count}} modification",
+    "changed_other": "{{count}} modifications",
+    "invalidCount": "Corrigez d'abord les champs signalés",
+    "loadError": "Les paramètres ne peuvent pas être lus",
+    "on": "Activé",
+    "off": "Désactivé",
+    "none": "aucun",
+    "errors": {
+      "boolean": "Activé ou désactivé attendu",
+      "number": "Un nombre est attendu",
+      "integer": "Un nombre entier est attendu",
+      "range": "Entre {{min}} et {{max}}",
+      "required": "Obligatoire",
+      "name": "Lettres, chiffres, point, tiret ou souligné",
+      "https": "Une URL https://, ou vide",
+      "list": "Une liste de valeurs est attendue",
+      "item": "Valeur invalide : {{item}}",
+      "object": "Une table de vues est attendue",
+      "viewName": "Nom de vue invalide : {{view}}",
+      "viewKey": "Vue {{view}} : une clé de mise à jour valide est requise",
+      "lower": "Doit être inférieur à « {{other}} »",
+      "atMost": "Ne doit pas dépasser « {{other}} »"
+    },
+    "units": {
+      "seconds": "s",
+      "minutes": "min",
+      "hours": "h",
+      "days": "jours",
+      "percent": "%",
+      "mb": "Mo",
+      "factor": "×",
+      "per_minute": "/min",
+      "addresses": "adresses",
+      "declines_per_hour": "/heure",
+      "restarts": "redémarrages",
+      "queries": "requêtes",
+      "failures": "échecs",
+      "zones": "zones",
+      "passes": "passes",
+      "leases": "baux",
+      "events": "événements",
+      "bytes": "octets"
+    },
+    "duration": {
+      "minutes": "= {{count}} min",
+      "hours": "= {{count}} h",
+      "days_one": "= {{count}} jour",
+      "days_other": "= {{count}} jours"
+    },
+    "viewKeys": {
+      "view": "Vue",
+      "admin": "Clé de mise à jour",
+      "read": "Clé de transfert (facultative)",
+      "add": "Ajouter une vue",
+      "remove": "Retirer",
+      "empty": "Aucune clé de vue : seule _default est gérée"
+    },
     "sections": {
-      "general": {
-        "title": "Général",
-        "help": "Sessions, connexion et plans"
+      "auth": {
+        "title": "Connexion",
+        "help": "Sessions, rythme de connexion et second facteur"
       },
-      "dns": {
-        "title": "DNS",
-        "help": "Clés TSIG de Pelagos et types d'enregistrements qu'elles peuvent modifier"
+      "plans": {
+        "title": "Plans",
+        "help": "Combien de temps un plan validé attend son application"
       },
-      "kea": {
-        "title": "Kea",
-        "help": "Clé utilisée par kea-dhcp-ddns"
+      "peers": {
+        "title": "Pairs",
+        "help": "Combien de temps un autre nœud peut mettre à répondre"
       },
-      "thresholds": {
+      "checks": {
         "title": "Seuils d'alerte",
-        "help": "Quand les pools, le DDNS et les secondaires lèvent des alertes"
+        "help": "Quand les pools, le DDNS, la HA, les horloges, les certificats et les contrôles de santé lèvent des alertes"
       },
       "collector": {
         "title": "Collecteur",
@@ -147,111 +207,186 @@
         "title": "Rétention",
         "help": "Durée de conservation des séries, des alertes résolues et des sauvegardes"
       },
-      "checks": {
-        "title": "Contrôles de santé",
-        "help": "Seuils des contrôles disque, réservations, résolveur, délégation, prévision et avis"
+      "dns": {
+        "title": "DNS",
+        "help": "Clés TSIG de Pelagos et types d'enregistrements qu'elles peuvent modifier"
+      },
+      "kea": {
+        "title": "Kea",
+        "help": "Clé utilisée par kea-dhcp-ddns"
+      },
+      "rpz": {
+        "title": "Zones de politique de réponse",
+        "help": "Téléchargement, contrôles et estimation mémoire des listes de blocage (abonnements : DNS, RPZ)"
       },
       "certificates": {
         "title": "Certificats",
-        "help": "Renouvellement des certificats web (Administration, Certificats)"
+        "help": "Renouvellement des certificats web (sources : Administration, Certificats)"
       }
     },
+    "groups": {
+      "pools": "Pools DHCP",
+      "ddns": "DDNS",
+      "secondaries": "Secondaires",
+      "ha": "Haute disponibilité",
+      "kea": "Kea",
+      "clock": "Horloges",
+      "certificates": "Certificats",
+      "disk": "Disque et tailles de fichiers",
+      "resolver": "Résolveur",
+      "delegation": "Délégation",
+      "soa": "Temporisations SOA",
+      "advisories": "Avis de sécurité ISC"
+    },
     "fields": {
-      "require_totp": "Exiger le second facteur pour tous",
-      "session_idle_seconds": "Expiration d'inactivité (secondes)",
-      "session_ttl_seconds": "Durée de session (secondes)",
-      "login_rate_limit_per_minute": "Tentatives de connexion par minute",
-      "plan_ttl_seconds": "Durée de vie d'un plan (secondes)",
-      "alerts_pool_warning_percent": "Pool en alerte (%)",
-      "alerts_pool_critical_percent": "Pool critique (%)",
-      "alerts_serial_divergence_seconds": "Écart de numéro de série toléré (secondes)",
-      "alerts_d2_error_rate": "Taux d'erreur DDNS",
-      "alerts_ha_grace_seconds": "Délai de grâce des alertes HA (secondes)",
-      "alerts_custom_hooks": "Signaler les hooks Kea hors paquet",
-      "alerts_clock_skew_warning_seconds": "Décalage d'horloge en alerte (secondes)",
-      "alerts_clock_skew_critical_seconds": "Décalage d'horloge critique (secondes)",
+      "auth": {
+        "session_ttl_seconds": "Durée de session",
+        "session_idle_seconds": "Expiration d'inactivité",
+        "login_rate_limit_per_minute": "Tentatives de connexion par minute",
+        "require_totp": "Exiger le second facteur pour tous"
+      },
+      "plans": {
+        "ttl_seconds": "Durée de vie d'un plan"
+      },
+      "peers": {
+        "plan_timeout_seconds": "Délai de réponse d'un pair à un plan",
+        "installer_plan_timeout_seconds": "Délai d'un pair pour un plan d'installation",
+        "action_timeout_seconds": "Délai d'une action sur un pair"
+      },
+      "checks": {
+        "pool_warning_percent": "Pool en avertissement",
+        "pool_critical_percent": "Pool critique",
+        "forecast_window_days": "Historique de prévision",
+        "forecast_warning_days": "Prévision, avertissement (jours avant plein)",
+        "forecast_critical_days": "Prévision, critique (jours avant plein)",
+        "declined_addresses_warning": "Adresses déclinées par sous-réseau",
+        "declined_received_warning": "Refus reçus par heure",
+        "d2_error_percent": "Part d'erreurs DDNS",
+        "serial_divergence_seconds": "Écart de numéro de série toléré",
+        "ha_grace_seconds": "Délai de grâce des alertes HA",
+        "custom_hooks_enabled": "Signaler les hooks Kea hors paquet",
+        "lfc_stale_factor": "LFC en retard après (intervalles)",
+        "restart_loop_count": "Redémarrages qui font une boucle",
+        "restart_loop_window_seconds": "Fenêtre de boucle de redémarrage",
+        "clock_skew_warning_seconds": "Décalage d'horloge, avertissement",
+        "clock_skew_critical_seconds": "Décalage d'horloge, critique",
+        "cert_warning_days": "Expiration de certificat, avertissement",
+        "cert_critical_days": "Expiration de certificat, critique",
+        "disk_free_warning_percent": "Espace disque libre, avertissement",
+        "disk_free_critical_percent": "Espace disque libre, critique",
+        "log_max_mb": "Taille maximale du journal named",
+        "lease_file_max_mb": "Taille maximale du fichier de baux Kea",
+        "journal_max_mb": "Taille maximale d'un journal de zone",
+        "backups_max_mb": "Taille maximale des sauvegardes",
+        "audit_max_mb": "Taille maximale du journal d'audit",
+        "resolver_window_seconds": "Fenêtre du résolveur",
+        "resolver_min_queries": "Réponses minimales du résolveur",
+        "resolver_servfail_warning_percent": "SERVFAIL, avertissement",
+        "resolver_servfail_critical_percent": "SERVFAIL, critique",
+        "resolver_dnssec_failures": "Échecs DNSSEC par fenêtre",
+        "resolver_drop_percent": "Chute des requêtes",
+        "resolver_drop_min_qpm": "Chute des requêtes : minimum par minute",
+        "resolver_roots_failures": "Échecs de sonde des racines de suite",
+        "delegation_timeout_seconds": "Délai de la sonde de délégation",
+        "delegation_max_zones": "Zones vérifiées pour la délégation",
+        "delegation_confirm_passes": "Passes confirmant un échec de délégation",
+        "soa_refresh_min_seconds": "SOA refresh minimal",
+        "soa_refresh_max_seconds": "SOA refresh maximal",
+        "soa_retry_min_seconds": "SOA retry minimal",
+        "soa_retry_max_seconds": "SOA retry maximal",
+        "soa_expire_min_seconds": "SOA expire minimal",
+        "soa_expire_max_seconds": "SOA expire maximal",
+        "soa_minimum_min_seconds": "SOA TTL négatif minimal",
+        "soa_minimum_max_seconds": "SOA TTL négatif maximal",
+        "advisories_enabled": "Vérifier les avis de sécurité ISC",
+        "advisories_fetch_enabled": "Récupérer les données d'avis par le réseau",
+        "advisories_url": "URL des données d'avis (https)"
+      },
+      "collector": {
+        "poll_seconds": "Interrogation des moteurs",
+        "pool_sample_seconds": "Échantillon des pools",
+        "peer_poll_seconds": "Interrogation des pairs",
+        "consistency_seconds": "Passe de cohérence",
+        "live_seconds": "Passe rapide : battements HA et suivi des baux",
+        "lease_watch_max_leases": "Suivi des baux : plus grande table parcourue"
+      },
+      "retention": {
+        "pool_raw_days": "Séries brutes des pools",
+        "pool_hourly_days": "Séries horaires des pools",
+        "serial_days": "Historique des numéros de série",
+        "ha_transition_days": "Transitions HA",
+        "alerts_resolved_days": "Alertes résolues",
+        "backups_days": "Sauvegardes d'écriture"
+      },
       "dns": {
         "read_key": "Clé de transfert",
         "admin_key": "Clé de mise à jour",
+        "view_keys": "Clés par vue",
         "update_types_admin": "Types que Pelagos peut modifier",
         "update_types_kea": "Types que Kea peut modifier",
-        "default_ns": "Serveurs de noms des nouvelles zones primaires"
+        "default_ns": "Serveurs de noms des nouvelles zones primaires",
+        "default_ttl_seconds": "TTL par défaut des nouveaux enregistrements"
       },
       "kea": {
         "ddns_key": "Clé DDNS"
       },
-      "thresholds": {
-        "pool_warn_percent": "Pool en alerte (%)",
-        "pool_full_percent": "Pool plein (%)",
-        "d2_errors_per_hour": "Erreurs DDNS par heure",
-        "secondary_stale_seconds": "Secondaire en retard après (secondes)"
+      "rpz": {
+        "check_seconds": "Vérification des mises à jour de listes",
+        "default_interval_hours": "Rafraîchissement par défaut des listes",
+        "min_interval_minutes": "Rafraîchissement minimal permis",
+        "shrink_percent": "Réduction maximale acceptée",
+        "stale_factor": "Liste périmée après (intervalles)",
+        "bytes_per_entry": "Mémoire par entrée (estimation)",
+        "memory_warning_percent": "Mémoire, avertissement",
+        "small_node_mb": "Petit nœud en dessous de",
+        "max_download_mb": "Plus grand téléchargement de liste",
+        "log_events": "Événements gardés par nœud",
+        "break_dnssec": "Réécrire les réponses signées (break-dnssec)"
       },
-      "collector": {
-        "interval_seconds": "Intervalle d'interrogation (secondes)",
-        "poll_seconds": "Interrogation des moteurs (secondes)",
-        "pool_sample_seconds": "Échantillon des pools (secondes)",
-        "peer_poll_seconds": "Interrogation des pairs (secondes)",
-        "consistency_seconds": "Passe de cohérence (secondes)",
-        "live_seconds": "Passe rapide : battements HA et suivi des baux (secondes)",
-        "lease_watch_max": "Suivi des baux : plus grande table de baux parcourue"
+      "certificates": {
+        "ucm_renew_days": "Renouvellement UCM avant l'échéance",
+        "retry_min_seconds": "Premier nouvel essai après un échec",
+        "retry_max_seconds": "Délai maximal entre deux essais",
+        "propagation_seconds": "Attente de propagation DNS-01"
+      }
+    },
+    "help": {
+      "auth": {
+        "session_ttl_seconds": "Une session prend fin ce délai après la connexion, active ou non.",
+        "session_idle_seconds": "Au plus la durée de session.",
+        "login_rate_limit_per_minute": "Par adresse cliente ; au-delà, réponse 429 jusqu'à la fin de la minute.",
+        "require_totp": "Sans TOTP, un utilisateur ne peut que l'enrôler."
       },
-      "retention": {
-        "raw_days": "Séries brutes (jours)",
-        "hourly_days": "Séries horaires (jours)",
-        "backups_days": "Sauvegardes (jours)",
-        "audit_days": "Fenêtre d'export d'audit (jours)",
-        "pool_raw_days": "Séries brutes des pools (jours)",
-        "pool_hourly_days": "Séries horaires des pools (jours)",
-        "serial_days": "Historique des numéros de série (jours)",
-        "ha_transition_days": "Transitions HA (jours)",
-        "alerts_resolved_days": "Alertes résolues (jours)"
+      "plans": {
+        "ttl_seconds": "Un plan non appliqué dans ce délai expire."
+      },
+      "peers": {
+        "plan_timeout_seconds": "Plans de moteur appliqués ou annulés sur un autre nœud.",
+        "installer_plan_timeout_seconds": "Plans d'installation, d'import et de sécurité : paquets et redémarrages prennent plus de temps.",
+        "action_timeout_seconds": "Constructions de plan et opérations que ce nœud demande à un autre."
       },
       "checks": {
-        "disk_free_warning_percent": "Espace disque libre, avertissement (%)",
-        "disk_free_critical_percent": "Espace disque libre, critique (%)",
-        "log_max_mb": "Taille maximale du journal named (Mo)",
-        "lease_file_max_mb": "Taille maximale du fichier de baux Kea (Mo)",
-        "lfc_stale_factor": "LFC en retard après (intervalles)",
-        "journal_max_mb": "Taille maximale d'un journal de zone (Mo)",
-        "backups_max_mb": "Taille maximale des sauvegardes (Mo)",
-        "audit_max_mb": "Taille maximale du journal d'audit (Mo)",
-        "declined_addresses_warning": "Adresses déclinées par sous-réseau",
-        "declined_received_warning": "Refus reçus par heure",
-        "resolver_window_seconds": "Fenêtre du résolveur (secondes)",
-        "resolver_min_queries": "Réponses minimales du résolveur",
-        "resolver_servfail_warning_percent": "SERVFAIL, avertissement (%)",
-        "resolver_servfail_critical_percent": "SERVFAIL, critique (%)",
-        "resolver_dnssec_failures": "Échecs DNSSEC par fenêtre",
-        "resolver_drop_percent": "Chute des requêtes (%)",
-        "resolver_drop_min_qpm": "Chute des requêtes : minimum par minute",
-        "resolver_roots_failures": "Échecs de sonde des racines de suite",
-        "delegation_timeout_seconds": "Délai de la sonde de délégation (secondes)",
-        "delegation_max_zones": "Zones vérifiées pour la délégation",
-        "delegation_confirm_passes": "Passes confirmant un échec de délégation",
-        "soa_refresh_min": "SOA refresh minimal (secondes)",
-        "soa_refresh_max": "SOA refresh maximal (secondes)",
-        "soa_retry_min": "SOA retry minimal (secondes)",
-        "soa_retry_max": "SOA retry maximal (secondes)",
-        "soa_expire_min": "SOA expire minimal (secondes)",
-        "soa_expire_max": "SOA expire maximal (secondes)",
-        "soa_minimum_min": "SOA TTL négatif minimal (secondes)",
-        "soa_minimum_max": "SOA TTL négatif maximal (secondes)",
-        "restart_loop_count": "Redémarrages qui font une boucle",
-        "restart_loop_window_seconds": "Fenêtre de boucle de redémarrage (secondes)",
-        "forecast_window_days": "Historique de prévision (jours)",
-        "forecast_warning_days": "Prévision, avertissement (jours avant plein)",
-        "forecast_critical_days": "Prévision, critique (jours avant plein)",
-        "advisories_enabled": "Vérifier les avis de sécurité ISC",
-        "advisories_fetch": "Récupérer les données d'avis par le réseau",
-        "advisories_url": "URL des données d'avis (https)"
+        "pool_warning_percent": "Occupation d'un pool qui lève pool_near_full ; sous la valeur critique.",
+        "forecast_window_days": "Jours d'échantillons de pool qui servent à la tendance.",
+        "d2_error_percent": "Part des mises à jour DNS de kea-dhcp-ddns en échec qui lève d2_errors.",
+        "serial_divergence_seconds": "Un secondaire peut avoir ce retard sur le primaire avant secondary_stale.",
+        "ha_grace_seconds": "Un état partner-down ou dégradé plus court ne lève rien (redémarrages, bascules).",
+        "clock_skew_warning_seconds": "Aussi la limite que vérifie le plan de réparation HA avant de redémarrer la HA.",
+        "clock_skew_critical_seconds": "Kea arrête la HA à 60 s : rester en dessous.",
+        "cert_warning_days": "Certificats web, de nœud et de CA ; les certificats courts utilisent une part de leur durée.",
+        "resolver_min_queries": "Moins de réponses dans la fenêtre : pas d’alerte résolveur.",
+        "advisories_fetch_enabled": "Désactivé : les données livrées avec le paquet, ou un fichier posé à la main."
       },
-      "alerts_cert_warning_days": "Avertissement d'expiration des certificats (jours)",
-      "alerts_cert_critical_days": "Expiration critique des certificats (jours)",
-      "certificates": {
-        "ucm_renew_days": "Renouvellement UCM avant l'échéance (jours)",
-        "retry_min_seconds": "Premier nouvel essai après un échec (secondes)",
-        "retry_max_seconds": "Délai maximal entre deux essais (secondes)",
-        "propagation_seconds": "Attente de propagation DNS-01 (secondes)"
+      "collector": {
+        "lease_watch_max_leases": "Les tables plus grandes ne sont pas suivies en direct (0 désactive le suivi)."
+      },
+      "dns": {
+        "view_keys": "Une vue autre que _default est atteinte avec sa propre clé TSIG : la clé de mise à jour, et une clé de transfert si elle diffère.",
+        "default_ttl_seconds": "Quand un enregistrement est écrit sans TTL."
+      },
+      "rpz": {
+        "shrink_percent": "Un téléchargement qui retire davantage d'une liste est refusé ; l'ancien fichier reste.",
+        "memory_warning_percent": "Part estimée de la mémoire d'un nœud que les listes peuvent prendre."
       }
     }
   }

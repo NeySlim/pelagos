@@ -17,6 +17,7 @@ from typing import Any
 import tomli_w
 
 from pelagos.core import cluster_merge as cm
+from pelagos.core import settings_registry
 from pelagos.core.locks import FileLock
 from pelagos.domain.cluster import NodeModules, Peer, Role, User
 from pelagos.domain.common import from_rfc3339, new_id, to_rfc3339, utcnow
@@ -26,105 +27,8 @@ SCHEMA_VERSION = 1
 DEFAULT_WEB_LISTEN = "0.0.0.0:8443"
 DEFAULT_REPL_LISTEN = "0.0.0.0:8444"
 
-DEFAULT_SETTINGS: dict[str, Any] = {
-    "plan_ttl_seconds": 600,
-    "session_ttl_seconds": 43200,
-    "session_idle_seconds": 1800,
-    "login_rate_limit_per_minute": 10,
-    "require_totp": False,
-    "alerts_pool_warning_percent": 80,
-    "alerts_pool_critical_percent": 95,
-    "alerts_serial_divergence_seconds": 900,
-    "alerts_d2_error_rate": 0.05,
-    "alerts_ha_grace_seconds": 45,
-    "alerts_custom_hooks": True,
-    "alerts_clock_skew_warning_seconds": 5,
-    "alerts_clock_skew_critical_seconds": 30,
-    "alerts_cert_warning_days": 30,
-    "alerts_cert_critical_days": 7,
-    "dns": {
-        "read_key": "ddi-read",
-        "admin_key": "ddi-admin",
-        "update_types_admin": ["A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "DHCID"],
-        "update_types_kea": ["A", "AAAA", "PTR", "DHCID"],
-        "default_ns": [],
-    },
-    "kea": {"ddns_key": "kea-ddns"},
-    "collector": {
-        "poll_seconds": 60,
-        "pool_sample_seconds": 300,
-        "peer_poll_seconds": 30,
-        "consistency_seconds": 900,
-        "live_seconds": 5,
-        "lease_watch_max": 50000,
-    },
-    "checks": {
-        "disk_free_warning_percent": 15,
-        "disk_free_critical_percent": 5,
-        "log_max_mb": 1024,
-        "lease_file_max_mb": 512,
-        "lfc_stale_factor": 3,
-        "journal_max_mb": 256,
-        "backups_max_mb": 2048,
-        "audit_max_mb": 512,
-        "declined_addresses_warning": 5,
-        "declined_received_warning": 5,
-        "resolver_window_seconds": 900,
-        "resolver_min_queries": 200,
-        "resolver_servfail_warning_percent": 10,
-        "resolver_servfail_critical_percent": 30,
-        "resolver_dnssec_failures": 10,
-        "resolver_drop_percent": 80,
-        "resolver_drop_min_qpm": 60,
-        "resolver_roots_failures": 3,
-        "delegation_timeout_seconds": 2,
-        "delegation_max_zones": 200,
-        "delegation_confirm_passes": 2,
-        "soa_refresh_min": 1200,
-        "soa_refresh_max": 86400,
-        "soa_retry_min": 120,
-        "soa_retry_max": 7200,
-        "soa_expire_min": 604800,
-        "soa_expire_max": 2419200,
-        "soa_minimum_min": 300,
-        "soa_minimum_max": 86400,
-        "restart_loop_count": 3,
-        "restart_loop_window_seconds": 1800,
-        "forecast_window_days": 7,
-        "forecast_warning_days": 14,
-        "forecast_critical_days": 3,
-        "advisories_enabled": True,
-        "advisories_fetch": False,
-        "advisories_url": "",
-    },
-    "retention": {
-        "pool_raw_days": 7,
-        "pool_hourly_days": 365,
-        "serial_days": 90,
-        "ha_transition_days": 365,
-        "alerts_resolved_days": 90,
-        "backups_days": 90,
-    },
-    "rpz": {
-        "check_seconds": 300,
-        "default_interval_hours": 24,
-        "min_interval_minutes": 60,
-        "shrink_percent": 50,
-        "stale_factor": 3,
-        "bytes_per_entry": 800,
-        "memory_warn_percent": 25,
-        "small_node_mb": 4096,
-        "max_download_mb": 256,
-        "break_dnssec": True,
-    },
-    # Web UI certificates (core.webcert.config); the sources sit under "cluster" and "nodes".
-    "certificates": {
-        "ucm_renew_days": 30,
-        "retry_min_seconds": 300,
-        "retry_max_seconds": 21600,
-        "propagation_seconds": 180,
-    },
-}
+# Nested [settings] defaults; every setting, its bounds and former names: core.settings_registry.
+DEFAULT_SETTINGS: dict[str, Any] = settings_registry.defaults()
 
 DEFAULT_MODULES: dict[str, Any] = {"dhcpv6": False, "advanced_editor": True}
 
@@ -305,6 +209,8 @@ class ClusterConfig:
     stamps: dict[str, cm.Stamp] = field(default_factory=dict)
     tombstones: dict[str, cm.Stamp] = field(default_factory=dict)
     stamped: bool = False
+    # Former settings names this load renamed (core.settings_registry.migrate): (old, new).
+    migrated: list[tuple[str, str]] = field(default_factory=list)
 
     @classmethod
     def new(cls, created_by: str) -> ClusterConfig:
@@ -317,6 +223,7 @@ class ClusterConfig:
             raise ConfigError(
                 f"cluster.toml schema_version {schema} is newer than supported {SCHEMA_VERSION}"
             )
+        migrated = settings_registry.migrate(data)
         cfg = cls(
             cluster_id=data.get("cluster_id") or new_id(),
             version=int(data.get("version", 0)),
@@ -331,6 +238,7 @@ class ClusterConfig:
             revoked=list(data.get("revoked") or []),
             exceptions=[dict(e) for e in data.get("exceptions") or [] if isinstance(e, dict) and e.get("id")],
             schema_version=schema,
+            migrated=migrated,
         )
         repl = data.get("replication")
         if isinstance(repl, dict):
@@ -471,6 +379,16 @@ class ConfigStore:
         for cb in self._on_change:
             cb(cfg)
         return cfg
+
+    def migrate_settings(self, updated_by: str) -> list[tuple[str, str]]:
+        """Write cluster.toml once with former settings names renamed; [] when none was left.
+
+        Every load already migrates in memory; this write makes the file and its replicas match."""
+        if not self.cluster_path.exists() or not self.load_cluster().migrated:
+            return []
+        moved: list[tuple[str, str]] = []
+        self.update_cluster(lambda c: moved.extend(c.migrated), updated_by=updated_by)
+        return moved
 
     def merge_remote(self, toml_text: str) -> bool:
         """Merge a peer's cluster.toml entry by entry (section 13); True when the local file changed."""

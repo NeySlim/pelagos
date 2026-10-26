@@ -20,6 +20,7 @@ from pelagos.collector.pollers import PollOutcome
 from pelagos.collector.series import SeriesStore
 from pelagos.collector.snapshots import CACHE_KIND
 from pelagos.core import clock as clock_mod
+from pelagos.core import settings_registry as reg
 from pelagos.core.replication import PeerStatus, ReplicationClient, ReplicationError
 from pelagos.domain import Alert, AlertKind, Engine, Node, NodeStatus, Peer
 
@@ -280,7 +281,7 @@ class PeersPoller:
 
     def _peer_clock(self, peer: Peer, status: PeerStatus, now: int, out: PollOutcome) -> None:
         """clock_skew from the offset the status exchange measured, clock_unsynchronized from the
-        NTP state the peer reports. Thresholds: alerts_clock_skew_warning/critical_seconds."""
+        NTP state the peer reports. Thresholds: checks.clock_skew_warning/critical_seconds."""
         if rules.ntp_unsynchronized(status.ntp):
             out.alerts.append(rules.clock_unsynchronized(peer.id, peer.name, status.ntp or {}))
         if status.clock_offset is None:
@@ -317,8 +318,8 @@ class PeersPoller:
         elif rules.ntp_unsynchronized(mine) and not rules.ntp_unsynchronized(ntp):
             suspect = self.self_id
         thresholds = {
-            "warning_seconds": float(self.settings.get("alerts_clock_skew_warning_seconds", 5)),
-            "critical_seconds": float(self.settings.get("alerts_clock_skew_critical_seconds", 30)),
+            "warning_seconds": float(reg.get(self.settings, "checks.clock_skew_warning_seconds")),
+            "critical_seconds": float(reg.get(self.settings, "checks.clock_skew_critical_seconds")),
         }
         alert = rules.clock_skew(
             peer.id,
@@ -357,7 +358,7 @@ class PeersPoller:
 
     def _serial_divergence(self, now: int, out: PollOutcome) -> None:
         """Compare secondary and mirror copies of a zone with the primary; alert after the grace period."""
-        threshold = int(self.settings.get("alerts_serial_divergence_seconds", 900))
+        threshold = int(reg.get(self.settings, "checks.serial_divergence_seconds"))
         zones: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
         for snap in self.store.snapshots(engine=Engine.BIND.value):
             if snap["kind"] != "zones":

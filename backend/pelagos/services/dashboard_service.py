@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pelagos.core import settings_registry as reg
 from pelagos.core.context import NodeContext
 from pelagos.domain import Engine, Node
 from pelagos.services.alerts_service import AlertsService
@@ -13,13 +14,13 @@ from pelagos.services.dns_service import DnsService
 from pelagos.services.peers import PeerGateway
 from pelagos.services.registry import ConnectorRegistry
 
-# Same defaults as the collector's alert rules (section 10 [settings]).
-THRESHOLDS: dict[str, Any] = {
-    "alerts_pool_warning_percent": 80,
-    "alerts_pool_critical_percent": 95,
-    "alerts_serial_divergence_seconds": 900,
-    "alerts_d2_error_rate": 0.05,
-}
+# The alert thresholds the tiles color by, as named in [settings.checks].
+THRESHOLDS = (
+    "pool_warning_percent",
+    "pool_critical_percent",
+    "serial_divergence_seconds",
+    "d2_error_percent",
+)
 
 
 class DashboardService:
@@ -99,7 +100,7 @@ class DashboardService:
     def thresholds(self) -> dict[str, Any]:
         """The alert thresholds of [settings], so tiles color like the alerts without admin:settings."""
         settings = self.ctx.settings()
-        return {key: settings.get(key, default) for key, default in THRESHOLDS.items()}
+        return {key: reg.get(settings, f"checks.{key}") for key in THRESHOLDS}
 
     def _pools(self, dhcp: DhcpService) -> list[dict[str, Any]]:
         rows = []

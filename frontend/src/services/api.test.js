@@ -79,7 +79,7 @@ const invocations = [
   () => api.admin.users(), () => api.admin.createUser({}), () => api.admin.user('u1'), () => api.admin.updateUser('u1', {}),
   () => api.admin.deleteUser('u1'), () => api.admin.resetPassword('u1', 'pw'), () => api.admin.clearTotp('u1'),
   () => api.admin.roles(), () => api.admin.createRole({}), () => api.admin.updateRole('r', {}), () => api.admin.deleteRole('r'),
-  () => api.admin.permissions(), () => api.admin.settings(), () => api.admin.updateSettings({}),
+  () => api.admin.permissions(), () => api.admin.settings(), () => api.admin.updateSettings({}), () => api.admin.settingsSchema(),
   () => api.admin.modules(), () => api.admin.updateModules({}),
   () => api.certs.overview(), () => api.certs.node('n1'), () => api.certs.setSource('n1', { source: 'acme' }),
   () => api.certs.setCluster({ source: 'ucm' }), () => api.certs.clearCluster(), () => api.certs.renew('n1'),

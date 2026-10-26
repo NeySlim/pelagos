@@ -85,8 +85,8 @@ function AlertPressure({ alert }) {
   const points = (match?.points || []).filter((p) => p[2] > 0).map(([ts, assigned, total]) => [ts * 1000, (assigned / total) * 100])
   if (points.length < 2) return null
   const th = summary?.thresholds || {}
-  const warn = Number(th.alerts_pool_warning_percent ?? th.pool_warning_percent ?? 80)
-  const full = Number(th.alerts_pool_critical_percent ?? th.pool_critical_percent ?? 95)
+  const warn = Number(th.pool_warning_percent ?? 80)
+  const full = Number(th.pool_critical_percent ?? 95)
   const threshold = alert.kind === 'pool_full' ? full : warn
   const values = points.map((p) => p[1])
   const min = Math.max(0, Math.floor((Math.min(...values, warn) - 10) / 10) * 10)

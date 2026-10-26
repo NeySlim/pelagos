@@ -152,7 +152,7 @@ Deliverables:
   process; `GET /capabilities` filled.
 - Services: DNS, DHCP (v4/v6), hosts join, plan orchestration (self then
   peers through WP-CORE's client), dashboard summary.
-- Auth: password change, TOTP enroll/confirm/disable, `require_totp`,
+- Auth: password change, TOTP enroll/confirm/disable, `auth.require_totp`,
   account preferences, admin users/roles/settings/modules endpoints with
   validation and audit entries.
 - Pagination, filters, problem documents for every error path, 422

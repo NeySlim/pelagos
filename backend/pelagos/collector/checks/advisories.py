@@ -2,7 +2,7 @@
 """Item 28: ISC security advisories against the installed BIND and Kea versions.
 
 The data is a versioned file (pelagos/data/isc_advisories.json). A newer copy in the node's var
-directory (placed by hand or fetched when settings.checks.advisories_fetch is on) wins over it.
+directory (placed by hand or fetched when settings.checks.advisories_fetch_enabled is on) wins over it.
 Versions are compared as upstream versions: distribution backports are not seen. The data is
 rebuilt from kb.isc.org by scripts/update-isc-advisories.py.
 Subject: `<engine>:<CVE id>` (kind security_advisory).

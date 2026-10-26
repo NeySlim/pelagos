@@ -220,8 +220,8 @@ replaced by a renewal of the previous source.
 
 `cert_expiry` watches three certificates of each node: the web certificate
 (`cert:web`), the node's replication certificate (`cert:node`) and the
-internal CA (`cert:ca`). Warning at `alerts_cert_warning_days` (30) left,
-critical at `alerts_cert_critical_days` (7); for a short-lived certificate,
+internal CA (`cert:ca`). Warning at `checks.cert_warning_days` (30) left,
+critical at `checks.cert_critical_days` (7); for a short-lived certificate,
 at a third and a tenth of its lifetime when that is shorter, so a 24-hour
 certificate renewed on time never alerts. The alert names the source of the
 web certificate (manual: renew by hand).
@@ -232,8 +232,8 @@ In **Administration, Settings** (`cluster.toml [settings]`):
 
 | Key | Default | Effect |
 | --- | --- | --- |
-| `alerts_cert_warning_days` | `30` | `cert_expiry` warning |
-| `alerts_cert_critical_days` | `7` | `cert_expiry` critical |
+| `checks.cert_warning_days` | `30` | `cert_expiry` warning |
+| `checks.cert_critical_days` | `7` | `cert_expiry` critical |
 | `certificates.ucm_renew_days` | `30` | UCM renewal before the end |
 | `certificates.retry_min_seconds` | `300` | first retry after a failed automatic request |
 | `certificates.retry_max_seconds` | `21600` | longest delay between retries |

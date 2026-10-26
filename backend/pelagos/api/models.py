@@ -253,7 +253,7 @@ DashboardSummary = model(
         "alerts": fields.Raw,
         "engines": fields.Raw,
         "errors": fields.Raw(description="source -> message for tiles that could not be read"),
-        "thresholds": fields.Raw(description="alerts_pool_warning_percent and the other alert thresholds"),
+        "thresholds": fields.Raw(description="[settings.checks] thresholds the tiles use"),
     },
 )
 

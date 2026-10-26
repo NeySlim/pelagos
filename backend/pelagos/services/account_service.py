@@ -9,6 +9,7 @@ from typing import Any
 
 from pelagos.auth import totp as totp_mod
 from pelagos.auth.passwords import WeakPassword, check_strength, hash_password, verify_password
+from pelagos.core import settings_registry as reg
 from pelagos.core.config_store import ClusterConfig
 from pelagos.core.context import NodeContext
 from pelagos.domain import AuditEntry, AuditResult, User, utcnow
@@ -147,7 +148,7 @@ class AccountService:
             raise ServiceError("invalid_credentials", "password is wrong")
         if not user.totp_secret:
             raise Conflict("TOTP is not enabled")
-        if self.ctx.cluster().settings.get("require_totp"):
+        if reg.get(self.ctx.cluster().settings, "auth.require_totp"):
             raise Conflict("TOTP is required cluster-wide; an admin can reset it")
 
         def fn(u: User, c: ClusterConfig) -> None:

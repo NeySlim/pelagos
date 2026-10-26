@@ -30,7 +30,7 @@ Every zone of every view, from every node, with:
 - **Serial per node** and **Sync**: the SOA serial each node serves. A
   node behind the highest serial is highlighted; the zone counts as
   Divergent until the secondaries catch up (`serial_divergence` alert after
-  `alerts_serial_divergence_seconds`).
+  `checks.serial_divergence_seconds`).
 - **Mode**: Dynamic or Static (below).
 
 The counters on top give the totals: zones, primary, secondary, divergent,

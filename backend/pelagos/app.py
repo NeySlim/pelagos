@@ -43,6 +43,14 @@ def _recover_in_place_writes(paths: Paths) -> None:
         logging.getLogger(__name__).exception("in-place write recovery failed")
 
 
+def _migrate_settings(context: NodeContext) -> None:
+    """Former settings names (an upgrade) are renamed in cluster.toml once, audited."""
+    try:
+        context.migrate_settings()
+    except Exception:  # never blocks the start: every load migrates in memory anyway
+        logging.getLogger(__name__).exception("settings migration failed")
+
+
 def create_app(
     paths: Paths | None = None, context: NodeContext | None = None, static_dir: Path | None = None
 ) -> Flask:
@@ -50,6 +58,7 @@ def create_app(
     paths = paths or Paths.from_env()
     context = context or NodeContext.build(paths)
     _recover_in_place_writes(context.paths)
+    _migrate_settings(context)
     static_dir = static_dir or (paths.opt / "frontend" / "dist")
 
     # No Flask static route: its `/<path:filename>` rule would shadow the SPA catch-all below.

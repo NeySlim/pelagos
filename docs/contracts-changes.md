@@ -13,6 +13,50 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-26, settings lot: one naming convention, registry, migration of former keys
+- Section 10, "Settings naming": every setting is a leaf of a domain table
+  (`auth`, `plans`, `peers`, `checks`, `collector`, `retention`, `dns`,
+  `kea`, `rpz`, `certificates`), alert thresholds all in `[settings.checks]`,
+  units spelled out. `backend/pelagos/core/settings_registry.py` is the only
+  list (type, bounds, default, unit, group, pairs, former names);
+  `config_store.DEFAULT_SETTINGS` and the `PUT /admin/settings` validation
+  derive from it (`admin_service.SETTINGS_SCHEMA` and `_validate_settings`
+  are gone: use `settings_registry.validate`).
+- Renamed (former -> current): `plan_ttl_seconds` -> `plans.ttl_seconds`;
+  `session_ttl_seconds`, `session_idle_seconds`,
+  `login_rate_limit_per_minute`, `require_totp` -> under `auth.`;
+  `peer_plan_timeout_seconds`, `installer_plan_timeout_seconds`,
+  `peer_action_timeout_seconds` -> `peers.plan_timeout_seconds`,
+  `peers.installer_plan_timeout_seconds`, `peers.action_timeout_seconds`;
+  `alerts_<x>` -> `checks.<x>` with `alerts_d2_error_rate` 0.05 ->
+  `checks.d2_error_percent` 5 and `alerts_custom_hooks` ->
+  `checks.custom_hooks_enabled`; `checks.soa_<timer>_<min|max>` ->
+  `checks.soa_<timer>_<min|max>_seconds`; `checks.advisories_fetch` ->
+  `checks.advisories_fetch_enabled`; `collector.lease_watch_max` ->
+  `collector.lease_watch_max_leases`; `dns.default_ttl` ->
+  `dns.default_ttl_seconds`; `rpz.memory_warn_percent` ->
+  `rpz.memory_warning_percent`. New in the registry (read before, settable
+  only by hand): the three `peers.*`, `dns.default_ttl_seconds`,
+  `dns.view_keys`, `rpz.log_events`.
+- Migration: `ClusterConfig.from_toml` renames former keys on every load
+  (stamps carried over, former entries tombstoned, newer stamp wins);
+  `ConfigStore.migrate_settings()` and `NodeContext.migrate_settings()` write
+  it once at start with the audit action `admin.settings.op` (`op` =
+  `migrate`). `schema_version` unchanged. Tested on cluster.toml files written
+  by the code of 2b86817 and of 8ce8fae (`tests/unit/core/settings_data/`).
+- Section 17: new `GET /admin/settings/schema` (`admin:settings`); `PUT
+  /admin/settings` accepts former names and replaces a `map` setting whole;
+  `GET /dashboard/summary` `thresholds` keys are now `pool_warning_percent`,
+  `pool_critical_percent`, `serial_divergence_seconds`, `d2_error_percent`
+  (the frontend read those names already).
+- Every package: read settings with `settings_registry.get(settings,
+  "<domain>.<leaf>")`; a new setting is one `S(...)` entry in the registry,
+  its en and fr labels under `admin:settings.fields`, then `make
+  settings-schema`. `test_no_code_reads_a_former_name` fails on a former key
+  left in code (backend, frontend, mock); `CheckSettings` raises on an
+  unknown attribute. Lots merging after this one: rename their new keys to
+  the convention when they add settings, and add any rename to `RENAMED`.
+
 ## 2026-10-26, PTR lot: PTR in record plans, orphan PTRs, consistency exceptions
 - Section 10: `cluster.toml [[exceptions]]`, records keyed by `id`
   (`core.cluster_merge.RECORDS["exceptions"]`, `ClusterConfig.exceptions`),

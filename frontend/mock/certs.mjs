@@ -47,8 +47,8 @@ export function makeCerts(nodes) {
 
 export function certsHandlers(state, { Problem, invalid }) {
   const thresholds = () => ({
-    warning_days: state.settings.alerts_cert_warning_days ?? 30,
-    critical_days: state.settings.alerts_cert_critical_days ?? 7,
+    warning_days: state.settings.checks?.cert_warning_days ?? 30,
+    critical_days: state.settings.checks?.cert_critical_days ?? 7,
   })
   state.certs ||= {}
   state.certCluster ??= null
@@ -147,6 +147,12 @@ export function certsHandlers(state, { Problem, invalid }) {
         return
       }
       const id = ids[i]
+      // A node removed while the job runs is skipped: a timer must never throw.
+      if (!state.nodes.some((n) => n.peer.id === id)) {
+        i += 1
+        setTimeout(tick, 0).unref?.()
+        return
+      }
       const name = nodeOf(id).peer.name
       const out = issue(id, user)
       job.steps.push({ name: `cert/${id}`, label: `certificate of ${name}`, label_message: { key: 'job.step.cert_node', params: { node: name } }, node_id: id, state: out.ok ? 'done' : 'failed', output: out.ok ? { certificate: out.certificate } : out.error, started_at: iso(Date.now()), finished_at: iso(Date.now()) })

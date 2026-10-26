@@ -129,7 +129,7 @@ describe('DashboardPage', () => {
   })
 
   it('takes the pool thresholds from the alert settings', async () => {
-    settings = { alerts_pool_warning_percent: 95, alerts_pool_critical_percent: 99 }
+    settings = { checks: { pool_warning_percent: 95, pool_critical_percent: 99 } }
     renderPage()
     const pools = await screen.findByTestId('tile-pools')
     await waitFor(() => expect(within(pools).getByText('0 above threshold')).toBeInTheDocument())
@@ -137,7 +137,7 @@ describe('DashboardPage', () => {
 
   it('takes the pool thresholds from the summary without reading the settings', async () => {
     summaryExtra = { thresholds: { pool_warning_percent: 95, pool_critical_percent: 99 } }
-    settings = { alerts_pool_warning_percent: 10, alerts_pool_critical_percent: 20 }
+    settings = { checks: { pool_warning_percent: 10, pool_critical_percent: 20 } }
     renderPage()
     const pools = await screen.findByTestId('tile-pools')
     await waitFor(() => expect(within(pools).getByText('0 above threshold')).toBeInTheDocument())

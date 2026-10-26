@@ -8,7 +8,8 @@ from typing import Any
 
 from pelagos.auth.passwords import WeakPassword, check_strength, hash_password
 from pelagos.auth.rbac import BUILTIN_ROLES, PERMISSIONS
-from pelagos.core.config_store import DEFAULT_SETTINGS, ClusterConfig, deep_merge
+from pelagos.core import settings_registry as reg
+from pelagos.core.config_store import DEFAULT_SETTINGS, ClusterConfig
 from pelagos.core.context import NodeContext
 from pelagos.domain import AuditEntry, AuditResult, NodeModules, Role, User, new_id, utcnow
 from pelagos.services.errors import Conflict, NotFound, ServiceError, ValidationError, field_error
@@ -17,107 +18,6 @@ from pelagos.services.masking import masked
 USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,62}$")
 ROLE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 MODULE_KEYS = ("dhcpv6", "advanced_editor")
-
-# Settings validation: key -> (type, min, max) for scalars; nested tables list their keys.
-SETTINGS_SCHEMA: dict[str, Any] = {
-    "plan_ttl_seconds": (int, 60, 86400),
-    "session_ttl_seconds": (int, 300, 30 * 86400),
-    "session_idle_seconds": (int, 60, 7 * 86400),
-    "login_rate_limit_per_minute": (int, 1, 1000),
-    "require_totp": (bool, None, None),
-    "alerts_pool_warning_percent": (int, 1, 100),
-    "alerts_pool_critical_percent": (int, 1, 100),
-    "alerts_serial_divergence_seconds": (int, 0, 7 * 86400),
-    "alerts_d2_error_rate": (float, 0.0, 1.0),
-    "alerts_ha_grace_seconds": (int, 0, 3600),
-    "alerts_custom_hooks": (bool, None, None),
-    "alerts_clock_skew_warning_seconds": (int, 1, 3600),
-    "alerts_clock_skew_critical_seconds": (int, 1, 3600),
-    "alerts_cert_warning_days": (int, 1, 365),
-    "alerts_cert_critical_days": (int, 1, 365),
-    "dns": {
-        "read_key": (str, None, None),
-        "admin_key": (str, None, None),
-        "update_types_admin": (list, None, None),
-        "update_types_kea": (list, None, None),
-        "default_ns": (list, None, None),
-    },
-    "kea": {"ddns_key": (str, None, None)},
-    "collector": {
-        "poll_seconds": (int, 5, 3600),
-        "pool_sample_seconds": (int, 30, 86400),
-        "peer_poll_seconds": (int, 5, 3600),
-        "consistency_seconds": (int, 60, 7 * 86400),
-        "live_seconds": (int, 1, 300),
-        "lease_watch_max": (int, 0, 10_000_000),
-    },
-    "checks": {
-        "disk_free_warning_percent": (int, 1, 99),
-        "disk_free_critical_percent": (int, 1, 99),
-        "log_max_mb": (int, 1, 10000000),
-        "lease_file_max_mb": (int, 1, 10000000),
-        "lfc_stale_factor": (int, 1, 100),
-        "journal_max_mb": (int, 1, 10000000),
-        "backups_max_mb": (int, 1, 10000000),
-        "audit_max_mb": (int, 1, 10000000),
-        "declined_addresses_warning": (int, 1, 1000000),
-        "declined_received_warning": (int, 1, 1000000),
-        "resolver_window_seconds": (int, 60, 86400),
-        "resolver_min_queries": (int, 1, 10000000),
-        "resolver_servfail_warning_percent": (int, 1, 100),
-        "resolver_servfail_critical_percent": (int, 1, 100),
-        "resolver_dnssec_failures": (int, 1, 1000000),
-        "resolver_drop_percent": (int, 1, 100),
-        "resolver_drop_min_qpm": (int, 1, 10000000),
-        "resolver_roots_failures": (int, 1, 100),
-        "delegation_timeout_seconds": (int, 1, 30),
-        "delegation_max_zones": (int, 1, 100000),
-        "delegation_confirm_passes": (int, 1, 10),
-        "soa_refresh_min": (int, 1, 2147483648),
-        "soa_refresh_max": (int, 1, 2147483648),
-        "soa_retry_min": (int, 1, 2147483648),
-        "soa_retry_max": (int, 1, 2147483648),
-        "soa_expire_min": (int, 1, 2147483648),
-        "soa_expire_max": (int, 1, 2147483648),
-        "soa_minimum_min": (int, 0, 2147483648),
-        "soa_minimum_max": (int, 0, 2147483648),
-        "restart_loop_count": (int, 2, 1000),
-        "restart_loop_window_seconds": (int, 60, 86400),
-        "forecast_window_days": (int, 1, 365),
-        "forecast_warning_days": (int, 1, 365),
-        "forecast_critical_days": (int, 1, 365),
-        "advisories_enabled": (bool, None, None),
-        "advisories_fetch": (bool, None, None),
-        "advisories_url": (str, 0, None),
-    },
-    "retention": {
-        "pool_raw_days": (int, 1, 3650),
-        "pool_hourly_days": (int, 1, 3650),
-        "serial_days": (int, 1, 3650),
-        "ha_transition_days": (int, 1, 3650),
-        "alerts_resolved_days": (int, 1, 3650),
-        "backups_days": (int, 1, 3650),
-    },
-    "rpz": {
-        "check_seconds": (int, 30, 86400),
-        "default_interval_hours": (int, 1, 720),
-        "min_interval_minutes": (int, 5, 10080),
-        "shrink_percent": (int, 1, 100),
-        "stale_factor": (int, 1, 100),
-        "bytes_per_entry": (int, 50, 10000),
-        "memory_warn_percent": (int, 1, 100),
-        "small_node_mb": (int, 256, 1048576),
-        "max_download_mb": (int, 1, 4096),
-        "break_dnssec": (bool, None, None),
-    },
-    # The sources ("cluster", "nodes") are written by /admin/certificates only.
-    "certificates": {
-        "ucm_renew_days": (int, 1, 365),
-        "retry_min_seconds": (int, 30, 86400),
-        "retry_max_seconds": (int, 60, 7 * 86400),
-        "propagation_seconds": (int, 10, 3600),
-    },
-}
 
 
 class AdminService:
@@ -399,35 +299,20 @@ class AdminService:
     def settings(self) -> dict[str, Any]:
         return public_settings(self.ctx.cluster().settings)
 
+    def settings_schema(self) -> dict[str, Any]:
+        return reg.schema()
+
     def update_settings(self, body: dict[str, Any], actor: str, client_ip: str | None) -> dict[str, Any]:
+        """Partial update; former names (core.settings_registry.RENAMED) are accepted and renamed."""
         if not isinstance(body, dict) or not body:
             raise ValidationError("body must be a non-empty object")
-        errors = _validate_settings(body, SETTINGS_SCHEMA, "")
-        merged = deep_merge(self.ctx.cluster().settings, body)
-        if merged["alerts_pool_warning_percent"] >= merged["alerts_pool_critical_percent"]:
-            errors.append(
-                field_error("alerts_pool_warning_percent", "must be lower than alerts_pool_critical_percent")
-            )
-        errors.extend(_check_pairs(merged.get("checks", {})))
-        if merged.get("alerts_clock_skew_warning_seconds", 5) >= merged.get(
-            "alerts_clock_skew_critical_seconds", 30
-        ):
-            errors.append(
-                field_error(
-                    "alerts_clock_skew_warning_seconds",
-                    "must be lower than alerts_clock_skew_critical_seconds",
-                )
-            )
-        if merged["alerts_cert_critical_days"] >= merged["alerts_cert_warning_days"]:
-            errors.append(
-                field_error("alerts_cert_critical_days", "must be lower than alerts_cert_warning_days")
-            )
-        if merged["session_idle_seconds"] > merged["session_ttl_seconds"]:
-            errors.append(field_error("session_idle_seconds", "must not exceed session_ttl_seconds"))
+        body = reg.translate(body)
+        merged = reg.merge(self.ctx.cluster().settings, body)
+        errors = [field_error(f, m) for f, m in reg.validate(body, merged)]
         if errors:
             raise ValidationError("invalid settings", errors)
         cfg = self.ctx.config_store.update_cluster(
-            lambda c: c.settings.update(deep_merge(c.settings, body)), updated_by=self._by(actor)
+            lambda c: c.settings.update(reg.merge(c.settings, body)), updated_by=self._by(actor)
         )
         self._apply_runtime(cfg.settings)
         self._audit("admin.settings.replace", "settings", actor, body, client_ip)
@@ -437,10 +322,10 @@ class AdminService:
         """Settings that live in memory of this process follow the file at once."""
         from datetime import timedelta
 
-        self.ctx.plan_store.ttl = timedelta(seconds=int(settings["plan_ttl_seconds"]))
-        self.ctx.sessions.ttl = timedelta(seconds=int(settings["session_ttl_seconds"]))
-        self.ctx.sessions.idle = timedelta(seconds=int(settings["session_idle_seconds"]))
-        self.ctx.login_limiter.limit = int(settings["login_rate_limit_per_minute"])
+        self.ctx.plan_store.ttl = timedelta(seconds=int(reg.get(settings, "plans.ttl_seconds")))
+        self.ctx.sessions.ttl = timedelta(seconds=int(reg.get(settings, "auth.session_ttl_seconds")))
+        self.ctx.sessions.idle = timedelta(seconds=int(reg.get(settings, "auth.session_idle_seconds")))
+        self.ctx.login_limiter.limit = int(reg.get(settings, "auth.login_rate_limit_per_minute"))
 
     # Nodes --------------------------------------------------------------
 
@@ -605,64 +490,7 @@ def _opt_str(value: Any, field: str) -> str | None:
     return value.strip() or None
 
 
-def _validate_settings(body: dict[str, Any], schema: dict[str, Any], prefix: str) -> list[dict[str, str]]:
-    errors: list[dict[str, str]] = []
-    for key, value in body.items():
-        path = f"{prefix}{key}"
-        rule = schema.get(key)
-        if rule is None:
-            errors.append(field_error(path, "unknown setting"))
-            continue
-        if isinstance(rule, dict):
-            if not isinstance(value, dict):
-                errors.append(field_error(path, "object expected"))
-            else:
-                errors.extend(_validate_settings(value, rule, path + "."))
-            continue
-        kind, lo, hi = rule
-        if kind is bool:
-            if not isinstance(value, bool):
-                errors.append(field_error(path, "boolean expected"))
-        elif kind is int:
-            if not isinstance(value, int) or isinstance(value, bool):
-                errors.append(field_error(path, "integer expected"))
-            elif (lo is not None and value < lo) or (hi is not None and value > hi):
-                errors.append(field_error(path, f"must be between {lo} and {hi}"))
-        elif kind is float:
-            if not isinstance(value, int | float) or isinstance(value, bool):
-                errors.append(field_error(path, "number expected"))
-            elif (lo is not None and value < lo) or (hi is not None and value > hi):
-                errors.append(field_error(path, f"must be between {lo} and {hi}"))
-        elif kind is str:
-            if not isinstance(value, str) or (lo != 0 and not value.strip()):
-                errors.append(field_error(path, "non-empty string expected"))
-        elif kind is list:
-            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-                errors.append(field_error(path, "list of strings expected"))
-    return errors
-
-
-# (key that must be lower, key that must be higher) among the health check thresholds.
-CHECK_PAIRS = (
-    ("disk_free_critical_percent", "disk_free_warning_percent"),
-    ("resolver_servfail_warning_percent", "resolver_servfail_critical_percent"),
-    ("forecast_critical_days", "forecast_warning_days"),
-    ("soa_refresh_min", "soa_refresh_max"),
-    ("soa_retry_min", "soa_retry_max"),
-    ("soa_expire_min", "soa_expire_max"),
-    ("soa_minimum_min", "soa_minimum_max"),
-)
-
-
-def _check_pairs(checks: dict[str, Any]) -> list[dict[str, str]]:
-    return [
-        field_error(f"checks.{low}", f"must be lower than checks.{high}")
-        for low, high in CHECK_PAIRS
-        if low in checks and high in checks and checks[low] >= checks[high]
-    ]
-
-
-__all__ = ["DEFAULT_SETTINGS", "SETTINGS_SCHEMA", "AdminService"]
+__all__ = ["DEFAULT_SETTINGS", "AdminService"]
 
 
 def _enroll_error(exc: Any) -> ServiceError:

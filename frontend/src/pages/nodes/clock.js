@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // A node's clock as the nodes table shows it: the offset against the node serving the page
 // (measured on the last status exchange, within half its round trip) and the NTP state the
-// node reports. Tones follow the alert thresholds (settings alerts_clock_skew_*_seconds).
+// node reports. Tones follow the alert thresholds (settings checks.clock_skew_*_seconds).
 
 export const CLOCK_WARNING_SECONDS = 5
 export const CLOCK_CRITICAL_SECONDS = 30

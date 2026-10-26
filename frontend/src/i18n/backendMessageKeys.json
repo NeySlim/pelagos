@@ -93,6 +93,14 @@
     "fqdn",
     "rtype"
   ],
+  "alert.rpz_stale": [
+    "hours",
+    "name"
+  ],
+  "alert.rpz_update": [
+    "error",
+    "name"
+  ],
   "alert.schema_mismatch": [
     "node"
   ],

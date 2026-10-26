@@ -186,7 +186,8 @@ export default function ZonesPage() {
     onError: showError,
   })
 
-  const items = useMemo(() => data?.items || [], [data])
+  // Policy zones of the RPZ subscriptions hold whole public lists: they live on the RPZ screen.
+  const items = useMemo(() => (data?.items || []).filter((it) => it.zone.notes !== 'pelagos-rpz'), [data])
   const rows = useMemo(() => items.filter((it) => !sync || (sync === 'divergent' ? it.divergent : !it.divergent)), [items, sync])
   // View names come from an unfiltered list so the filter can switch views directly.
   const allZones = useApi(() => api.dns.zones(), [])

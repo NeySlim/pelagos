@@ -141,6 +141,7 @@
     "insecure_key": "insecure key",
     "custom_hook": "custom Kea hook",
     "insecure_listener": "insecure listener",
+    "rpz_update": "RPZ list update",
     "ha_backup_out_of_sync": "HA backup out of sync"
   },
   "live": {

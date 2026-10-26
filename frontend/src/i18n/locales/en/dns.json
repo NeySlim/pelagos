@@ -36,7 +36,7 @@
     },
     "rpz": {
       "title": "Response policy zones",
-      "subtitle": "RPZ and catalog zones"
+      "subtitle": "Public block lists by category, exceptions and policy zones"
     },
     "catalogs": {
       "title": "Catalog zones",
@@ -420,5 +420,196 @@
     },
     "zone": "Hand over the zone",
     "zoneHelp": "Moves the zone statement from your named.conf files to the Pelagos zones file so it can be edited here"
+  },
+  "rpzsub": {
+    "tabs": {
+      "catalog": "Subscriptions",
+      "exceptions": "Exceptions",
+      "activity": "Activity",
+      "zones": "Policy zones"
+    },
+    "managedZone": "subscription",
+    "estimate": {
+      "node": "{{name}}: about {{peak}} of memory at peak out of {{ram}} ({{percent}}%)",
+      "ok": "fine",
+      "caution": "tight",
+      "high": "too large",
+      "acknowledge": "I understand that named may run short of memory on this node"
+    },
+    "enable": "Enable {{name}}",
+    "level": "Level",
+    "levels": {
+      "light": "Light",
+      "normal": "Normal",
+      "strict": "Strict",
+      "custom": "Pick the lists"
+    },
+    "size": "{{entries}} entries, about {{memory}} of memory",
+    "license": "license {{license}}",
+    "addons": "Add-ons",
+    "ownUrls": "Your own lists in this category",
+    "ownUrlsHelp": "Hosts, domain list, adblock (||domain^) or RPZ files; press Enter to add",
+    "advanced": "Action, interval and nodes",
+    "action": "Action",
+    "actions": {
+      "nxdomain": "Block (NXDOMAIN)",
+      "nodata": "Empty answer (NODATA)",
+      "redirect": "Redirect",
+      "passthru": "Log only (passthru)"
+    },
+    "redirect": "Redirect to",
+    "redirectHelp": "An IP address, or a name for a block page",
+    "interval": "Update every (hours)",
+    "onNodes": "Nodes",
+    "allNodes": "Every node",
+    "remove": "Remove",
+    "save": "Save",
+    "sub": {
+      "title": "Add a subscription",
+      "submit": "Add",
+      "kind": "Source",
+      "kindUrl": "List downloaded from a URL",
+      "kindAxfr": "Zone transfer",
+      "id": "Identifier",
+      "idHelp": "Lowercase letters, digits and dashes",
+      "name": "Name",
+      "zone": "Zone to transfer",
+      "zoneHelp": "The policy zone name the provider gives",
+      "primaries": "Primary servers",
+      "tsigKey": "TSIG key name",
+      "tsigSecret": "TSIG secret",
+      "tsigSecretHelp": "Stored encrypted; never shown again",
+      "url": "URL",
+      "format": "Format"
+    },
+    "formats": {
+      "auto": "Detect",
+      "rpz": "RPZ zone",
+      "hosts": "Hosts file",
+      "domains": "Domain list",
+      "adblock": "Adblock (||domain^)"
+    },
+    "nothingToApply": "Saved. The nodes already match: nothing to apply.",
+    "refreshRequested": "Update requested; the collector downloads the list now.",
+    "refreshNow": "Update now",
+    "ram": "{{ram}} RAM",
+    "nodeError": "unreachable",
+    "pending": "configuration to apply",
+    "upToDate": "up to date",
+    "applyConfig": "Apply the configuration",
+    "catalogNote": "Catalog version {{version}}. Entry counts are estimates until the first download.",
+    "table": {
+      "list": "List",
+      "category": "Category",
+      "entries": "Entries",
+      "size": "Size",
+      "sourceDate": "Source date",
+      "lastUpdate": "Last update",
+      "nextCheck": "Next check",
+      "state": "State"
+    },
+    "status": {
+      "ok": "up to date",
+      "pending": "not downloaded",
+      "waiting_config": "waiting for the configuration",
+      "error": "error",
+      "rejected": "kept the old copy"
+    },
+    "own": {
+      "title": "Own lists and zone transfers",
+      "empty": "No own subscription",
+      "emptyHelp": "Add a list by URL, or a zone you transfer from a provider with a TSIG key",
+      "add": "Add a subscription"
+    },
+    "lists": {
+      "title": "Subscribed lists",
+      "empty": "No list subscribed yet"
+    },
+    "order": {
+      "title": "Order of the zones",
+      "help": "The first zone that matches decides. {{zone}} always comes first.",
+      "up": "Move up",
+      "down": "Move down"
+    },
+    "exceptions": {
+      "add": "Add",
+      "allowed": "{{domain}} is allowed",
+      "exempted": "{{cidr}} is exempt from every list",
+      "allowHelp": "Allowed domains are passed through in {{zone}}, which comes before every list, on every node.",
+      "domain": "Domain",
+      "note": "Note",
+      "by": "Added by",
+      "allowTitle": "Allowed domains",
+      "allowEmpty": "No allowed domain",
+      "clientsHelp": "A client address or network listed here is never rewritten, whatever the lists say.",
+      "client": "Address or network",
+      "clientsTitle": "Exempt clients",
+      "clientsEmpty": "No exempt client"
+    },
+    "why": {
+      "title": "Why is this domain blocked?",
+      "domain": "Domain",
+      "search": "Look up",
+      "verdict": {
+        "blocked": "blocked",
+        "allowed": "allowed",
+        "not_listed": "not in any list"
+      },
+      "allowIt": "Allow this domain",
+      "applied": "applies",
+      "shadowed": "shadowed",
+      "match": {
+        "exact": "the name itself",
+        "wildcard": "its subdomains"
+      }
+    },
+    "activity": {
+      "noLog": "No rewrite log yet",
+      "noLogHelp": "Pelagos reads the rpz log category of named. Without a logging statement of your own it adds one; if you have one, send the rpz category to a file and set rpz.log_path.",
+      "byCategory": "Rewritten answers by category",
+      "none": "Nothing rewritten yet",
+      "byList": "Rewritten answers by list",
+      "hits": "Answers",
+      "recent": "Latest rewritten answers",
+      "time": "Time",
+      "client": "Client",
+      "name": "Name",
+      "type": "Type",
+      "rule": "Rule"
+    },
+    "categories": {
+      "ads": {
+        "name": "Advertising and tracking",
+        "description": "Ad servers, trackers and telemetry domains"
+      },
+      "security": {
+        "name": "Malware, phishing and threats",
+        "description": "Malware, phishing, scams and threat intelligence feeds"
+      },
+      "adult": {
+        "name": "Adult content",
+        "description": "Pornography and adult sites"
+      },
+      "gambling": {
+        "name": "Gambling",
+        "description": "Betting and online casino sites"
+      },
+      "bypass": {
+        "name": "Filter bypass",
+        "description": "DNS-over-HTTPS resolvers, VPNs, proxies and dynamic DNS used to get around filtering"
+      },
+      "social": {
+        "name": "Social networks",
+        "description": "Social network domains"
+      },
+      "piracy": {
+        "name": "Piracy",
+        "description": "Piracy and illegal download sites"
+      },
+      "spam_tlds": {
+        "name": "Spam TLDs",
+        "description": "Top-level domains that mostly carry spam and abuse"
+      }
+    }
   }
 }

@@ -56,6 +56,7 @@ function concrete(spec, state) {
   return spec
     .split(' ')[1]
     .replace('{family}', 'v4')
+    .replace('{category}', 'ads')
     .replace('{zone}', zone)
     .replace('{name}', spec.includes('/keys/') ? 'ddi-admin' : 'helpdesk')
     .replace('{ip}', '192.0.2.100')
@@ -86,6 +87,12 @@ const BODIES = {
   'POST /dns/keys/plan': { change: { op: 'add', after: { name: 'new-key', algorithm: 'hmac-sha256' } } },
   'POST /dns/acls/plan': { change: { op: 'add', after: { name: 'lab', elements: ['192.0.2.0/28'] } } },
   'POST /dns/resolver/plan': { forwarders: ['192.0.2.1'] },
+  'PUT /dns/rpz/categories/{category}': { level: 'light', action: 'nodata' },
+  'PUT /dns/rpz/subscriptions/{id}': { url: 'https://lists.example.com/l.txt', format: 'hosts' },
+  'PUT /dns/rpz/order': { order: [] },
+  'POST /dns/rpz/estimate': { category: 'ads', level: 'light' },
+  'POST /dns/rpz/allow': { domain: 'ok.example.com' },
+  'POST /dns/rpz/exempt': { cidr: '192.0.2.7' },
   'POST /dns/catalog-zones/{zone}/members/plan': { op: 'add', member: 'new.example.lan' },
   'POST /dns/dnssec/policies/plan': { change: { op: 'add', target: 'dnssec-policy/slow', after: { statements: [{ name: 'keys', value: '{ csk lifetime unlimited algorithm ecdsap256sha256; }' }] } } },
   'POST /dns/zones/{zone}/dnssec/plan': { action: 'rollover', key_id: 48217 },
@@ -118,6 +125,13 @@ const BODIES = {
   'PUT /admin/roles/{name}': { description: 'changed' },
   'PUT /admin/settings': { plan_ttl_seconds: 900 },
   'PUT /admin/modules': { cluster: { dhcpv6: true } },
+}
+
+// Query strings of endpoints that take their input there.
+const QUERIES = {
+  'GET /dns/rpz/why': '?domain=ads.example.com',
+  'DELETE /dns/rpz/allow': '?domain=ok.example.com',
+  'DELETE /dns/rpz/exempt': '?cidr=192.0.2.7/32',
 }
 
 // Endpoints whose success status is not 200/201/202/204 with these inputs.
@@ -392,7 +406,7 @@ describe('mock server', () => {
     for (const spec of ordered) {
       if (spec === 'POST /auth/login' || spec === 'POST /auth/logout') continue
       const [method] = spec.split(' ')
-      const path = concrete(spec, mock.state)
+      const path = concrete(spec, mock.state) + (QUERIES[spec] || '')
       let body = BODIES[spec]
       if (spec === 'POST /auth/totp/confirm') await call('POST', '/auth/totp/enroll')
       if (method !== 'GET' && body === undefined) body = {}

@@ -36,7 +36,7 @@
     },
     "rpz": {
       "title": "Zones de politique de réponse",
-      "subtitle": "RPZ et zones catalogues"
+      "subtitle": "Listes publiques de blocage par catégorie, exceptions et zones de politique"
     },
     "catalogs": {
       "title": "Zones catalogues",
@@ -420,5 +420,196 @@
     },
     "zone": "Confier la zone",
     "zoneHelp": "Déplace la déclaration de la zone de vos fichiers named.conf vers le fichier de zones de Pelagos pour pouvoir la modifier ici"
+  },
+  "rpzsub": {
+    "tabs": {
+      "catalog": "Abonnements",
+      "exceptions": "Exceptions",
+      "activity": "Activité",
+      "zones": "Zones de politique"
+    },
+    "managedZone": "abonnement",
+    "estimate": {
+      "node": "{{name}} : environ {{peak}} de mémoire au pic sur {{ram}} ({{percent}} %)",
+      "ok": "correct",
+      "caution": "juste",
+      "high": "trop gros",
+      "acknowledge": "Je comprends que named peut manquer de mémoire sur ce nœud"
+    },
+    "enable": "Activer {{name}}",
+    "level": "Niveau",
+    "levels": {
+      "light": "Léger",
+      "normal": "Normal",
+      "strict": "Strict",
+      "custom": "Choisir les listes"
+    },
+    "size": "{{entries}} entrées, environ {{memory}} de mémoire",
+    "license": "licence {{license}}",
+    "addons": "Compléments",
+    "ownUrls": "Vos propres listes dans cette catégorie",
+    "ownUrlsHelp": "Fichiers hosts, liste de domaines, adblock (||domaine^) ou RPZ ; Entrée pour ajouter",
+    "advanced": "Action, intervalle et nœuds",
+    "action": "Action",
+    "actions": {
+      "nxdomain": "Bloquer (NXDOMAIN)",
+      "nodata": "Réponse vide (NODATA)",
+      "redirect": "Rediriger",
+      "passthru": "Journaliser seulement (passthru)"
+    },
+    "redirect": "Rediriger vers",
+    "redirectHelp": "Une adresse IP, ou un nom pour une page de blocage",
+    "interval": "Mettre à jour toutes les (heures)",
+    "onNodes": "Nœuds",
+    "allNodes": "Tous les nœuds",
+    "remove": "Retirer",
+    "save": "Enregistrer",
+    "sub": {
+      "title": "Ajouter un abonnement",
+      "submit": "Ajouter",
+      "kind": "Source",
+      "kindUrl": "Liste téléchargée depuis une URL",
+      "kindAxfr": "Transfert de zone",
+      "id": "Identifiant",
+      "idHelp": "Minuscules, chiffres et tirets",
+      "name": "Nom",
+      "zone": "Zone à transférer",
+      "zoneHelp": "Le nom de la zone de politique donné par le fournisseur",
+      "primaries": "Serveurs primaires",
+      "tsigKey": "Nom de la clé TSIG",
+      "tsigSecret": "Secret TSIG",
+      "tsigSecretHelp": "Stocké chiffré, jamais réaffiché",
+      "url": "URL",
+      "format": "Format"
+    },
+    "formats": {
+      "auto": "Détecter",
+      "rpz": "Zone RPZ",
+      "hosts": "Fichier hosts",
+      "domains": "Liste de domaines",
+      "adblock": "Adblock (||domaine^)"
+    },
+    "nothingToApply": "Enregistré. Les nœuds correspondent déjà : rien à appliquer.",
+    "refreshRequested": "Mise à jour demandée ; le collecteur télécharge la liste maintenant.",
+    "refreshNow": "Mettre à jour maintenant",
+    "ram": "{{ram}} de RAM",
+    "nodeError": "injoignable",
+    "pending": "configuration à appliquer",
+    "upToDate": "à jour",
+    "applyConfig": "Appliquer la configuration",
+    "catalogNote": "Catalogue version {{version}}. Les nombres d'entrées sont des estimations jusqu'au premier téléchargement.",
+    "table": {
+      "list": "Liste",
+      "category": "Catégorie",
+      "entries": "Entrées",
+      "size": "Taille",
+      "sourceDate": "Date de la source",
+      "lastUpdate": "Dernière mise à jour",
+      "nextCheck": "Prochaine vérification",
+      "state": "État"
+    },
+    "status": {
+      "ok": "à jour",
+      "pending": "pas encore téléchargée",
+      "waiting_config": "attend la configuration",
+      "error": "erreur",
+      "rejected": "ancienne copie conservée"
+    },
+    "own": {
+      "title": "Listes personnelles et transferts de zone",
+      "empty": "Aucun abonnement personnel",
+      "emptyHelp": "Ajoutez une liste par URL, ou une zone transférée depuis un fournisseur avec une clé TSIG",
+      "add": "Ajouter un abonnement"
+    },
+    "lists": {
+      "title": "Listes abonnées",
+      "empty": "Aucune liste abonnée pour l'instant"
+    },
+    "order": {
+      "title": "Ordre des zones",
+      "help": "La première zone qui correspond décide. {{zone}} passe toujours en premier.",
+      "up": "Monter",
+      "down": "Descendre"
+    },
+    "exceptions": {
+      "add": "Ajouter",
+      "allowed": "{{domain}} est autorisé",
+      "exempted": "{{cidr}} échappe à toutes les listes",
+      "allowHelp": "Les domaines autorisés passent sans réécriture dans {{zone}}, qui précède toutes les listes, sur chaque nœud.",
+      "domain": "Domaine",
+      "note": "Note",
+      "by": "Ajouté par",
+      "allowTitle": "Domaines autorisés",
+      "allowEmpty": "Aucun domaine autorisé",
+      "clientsHelp": "Une adresse ou un réseau client listé ici n'est jamais réécrit, quoi que disent les listes.",
+      "client": "Adresse ou réseau",
+      "clientsTitle": "Clients exemptés",
+      "clientsEmpty": "Aucun client exempté"
+    },
+    "why": {
+      "title": "Pourquoi ce domaine est-il bloqué ?",
+      "domain": "Domaine",
+      "search": "Rechercher",
+      "verdict": {
+        "blocked": "bloqué",
+        "allowed": "autorisé",
+        "not_listed": "dans aucune liste"
+      },
+      "allowIt": "Autoriser ce domaine",
+      "applied": "s'applique",
+      "shadowed": "masquée",
+      "match": {
+        "exact": "le nom lui-même",
+        "wildcard": "ses sous-domaines"
+      }
+    },
+    "activity": {
+      "noLog": "Pas encore de journal des réécritures",
+      "noLogHelp": "Pelagos lit la catégorie de journal rpz de named. Sans instruction logging à vous, il en ajoute une ; si vous en avez une, envoyez la catégorie rpz vers un fichier et renseignez rpz.log_path.",
+      "byCategory": "Réponses réécrites par catégorie",
+      "none": "Rien de réécrit pour l'instant",
+      "byList": "Réponses réécrites par liste",
+      "hits": "Réponses",
+      "recent": "Dernières réponses réécrites",
+      "time": "Heure",
+      "client": "Client",
+      "name": "Nom",
+      "type": "Type",
+      "rule": "Règle"
+    },
+    "categories": {
+      "ads": {
+        "name": "Publicité et pistage",
+        "description": "Serveurs de publicité, traqueurs et télémétrie"
+      },
+      "security": {
+        "name": "Malware, phishing et menaces",
+        "description": "Malware, hameçonnage, arnaques et flux de renseignement sur les menaces"
+      },
+      "adult": {
+        "name": "Contenu adulte",
+        "description": "Sites pornographiques et pour adultes"
+      },
+      "gambling": {
+        "name": "Jeux d'argent",
+        "description": "Sites de paris et de casinos en ligne"
+      },
+      "bypass": {
+        "name": "Contournement du filtrage",
+        "description": "Résolveurs DNS sur HTTPS, VPN, proxys et DNS dynamique utilisés pour contourner le filtrage"
+      },
+      "social": {
+        "name": "Réseaux sociaux",
+        "description": "Domaines des réseaux sociaux"
+      },
+      "piracy": {
+        "name": "Piratage",
+        "description": "Sites de piratage et de téléchargement illégal"
+      },
+      "spam_tlds": {
+        "name": "TLD à spam",
+        "description": "Domaines de premier niveau qui servent surtout au spam et aux abus"
+      }
+    }
   }
 }

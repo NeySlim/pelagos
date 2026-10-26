@@ -21,6 +21,8 @@
   "alert.reservation_mismatch": "reservation {{reservation}} ({{fqdn}}) disagrees with DNS: {{problems}}",
   "alert.reservation_mismatch.ptr": "PTR {{ip}} is {{targets}}",
   "alert.reservation_mismatch.records": "{{rtype}} {{fqdn}} is {{addresses}}",
+  "alert.rpz_stale": "RPZ list {{name}}: no successful update for {{hours}} h",
+  "alert.rpz_update": "RPZ list {{name}}: update failed ({{error}})",
   "alert.schema_mismatch": "cluster.toml schema differs with node {{node}}: upgrade the older node",
   "alert.secondary_stale": "secondary zone {{zone}} expires soon",
   "alert.serial_divergence": "zone {{zone}} serial {{serial}} differs from the primary ({{reference}})",

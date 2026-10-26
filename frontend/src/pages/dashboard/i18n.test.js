@@ -23,7 +23,7 @@ const ALERT_KINDS = [
   'pool_near_full', 'pool_full', 'serial_divergence', 'secondary_stale', 'zone_error', 'ha_degraded', 'ha_partner_down',
   'ha_transition', 'd2_errors', 'daemon_down', 'peer_offline', 'config_divergence', 'lease_without_record',
   'record_without_lease', 'reservation_mismatch', 'ptr_mismatch', 'duplicate_ip', 'insecure_key', 'insecure_listener',
-  'custom_hook',
+  'custom_hook', 'rpz_update',
 ]
 
 describe('dashboard i18n', () => {

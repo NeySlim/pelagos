@@ -21,6 +21,8 @@
   "alert.reservation_mismatch": "La réservation {{reservation}} ({{fqdn}}) ne concorde pas avec le DNS : {{problems}}",
   "alert.reservation_mismatch.ptr": "le PTR {{ip}} vaut {{targets}}",
   "alert.reservation_mismatch.records": "{{rtype}} {{fqdn}} vaut {{addresses}}",
+  "alert.rpz_stale": "Liste RPZ {{name}} : aucune mise à jour réussie depuis {{hours}} h",
+  "alert.rpz_update": "Liste RPZ {{name}} : mise à jour en échec ({{error}})",
   "alert.schema_mismatch": "Le schéma de cluster.toml diffère avec le nœud {{node}} : mettez à jour le nœud le plus ancien",
   "alert.secondary_stale": "La zone secondaire {{zone}} expire bientôt",
   "alert.serial_divergence": "Le numéro de série {{serial}} de la zone {{zone}} diffère de celui du primaire ({{reference}})",

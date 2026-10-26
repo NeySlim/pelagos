@@ -14,6 +14,7 @@ import { createState, iso, ulid, ALL_PERMISSIONS, SCENARIOS } from './data.mjs'
 import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, isExpired, auditEntry, configHash, isAdmin } from './plans.mjs'
 import { createWsHub } from './ws.mjs'
 import { opsHandlers } from './ops.mjs'
+import { rpzHandlers } from './rpz.mjs'
 import { heartbeatAge, liveCounters } from './live.mjs'
 import { createEvents, leaseBrief, poolHistoryKey, stopEventTimers, zoneEvents } from './events.mjs'
 
@@ -35,6 +36,12 @@ const PERMISSIONS = {
   'GET /dns/keys': 'read:dns', 'GET /dns/keys/{name}/secret': 'read:dns.secrets', 'POST /dns/keys/plan': 'write:dns.config',
   'GET /dns/acls': 'read:dns', 'POST /dns/acls/plan': 'write:dns.config', 'GET /dns/resolver': 'read:dns',
   'POST /dns/resolver/plan': 'write:dns.config', 'GET /dns/rpz': 'read:dns', 'GET /dns/catalog-zones': 'read:dns',
+  'GET /dns/rpz/overview': 'read:dns', 'GET /dns/rpz/catalog': 'read:dns', 'PUT /dns/rpz/categories/{category}': 'write:dns.config',
+  'DELETE /dns/rpz/categories/{category}': 'write:dns.config', 'PUT /dns/rpz/subscriptions/{id}': 'write:dns.config',
+  'DELETE /dns/rpz/subscriptions/{id}': 'write:dns.config', 'PUT /dns/rpz/order': 'write:dns.config', 'POST /dns/rpz/plan': 'write:dns.config',
+  'POST /dns/rpz/estimate': 'read:dns', 'POST /dns/rpz/refresh': 'write:dns.config', 'GET /dns/rpz/why': 'read:dns',
+  'GET /dns/rpz/activity': 'read:dns', 'POST /dns/rpz/allow': 'write:dns.config', 'DELETE /dns/rpz/allow': 'write:dns.config',
+  'POST /dns/rpz/exempt': 'write:dns.config', 'DELETE /dns/rpz/exempt': 'write:dns.config',
   'GET /dns/stats': 'read:dns', 'POST /dns/catalog-zones/{zone}/members/plan': 'write:dns.records',
   'GET /dns/dnssec/policies': 'read:dns', 'POST /dns/dnssec/policies/plan': 'write:dns.config',
   'POST /dns/zones/{zone}/dnssec/plan': 'write:dns.zones',
@@ -2439,6 +2446,7 @@ function buildHandlers(state, emit) {
       return { cluster: { ...state.modules.cluster }, nodes: Object.fromEntries(state.nodes.map((n) => [n.peer.id, n.peer.modules])) }
     },
     ...opsHandlers(state, { Problem, invalid, hasPermission, auditEntry }),
+    ...rpzHandlers(state, { createPlan, invalid, notFound }),
   }
 }
 

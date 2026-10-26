@@ -141,6 +141,7 @@
     "insecure_key": "clé faible",
     "custom_hook": "hook Kea hors paquet",
     "insecure_listener": "écoute non sûre",
+    "rpz_update": "mise à jour de liste RPZ",
     "ha_backup_out_of_sync": "secours HA désynchronisé"
   },
   "live": {

@@ -165,6 +165,9 @@ def start(exe: str, root: Path, resolver_port: int) -> StepCa:
         ],
         stdout=log,
         stderr=subprocess.STDOUT,
+        # Go's hybrid ML-KEM key share breaks the handshake with some OpenSSL 3.5 clients
+        # ("bad record MAC" on the server); plain X25519 and P-256 are all the tests need.
+        env={**os.environ, "GODEBUG": "tlsmlkem=0"},
     )
     server = StepCa(root, port, http01, root_cert.public_bytes(serialization.Encoding.PEM).decode(), proc)
     context = ssl.create_default_context(cadata=server.root_pem)

@@ -1,6 +1,8 @@
 {
   "alert.config_divergence": "La configuration {{engine}} diffère entre les nœuds",
   "alert.config_file_divergence": "{{path}} diffère de la configuration {{engine}} en service",
+  "alert.custom_hook": "{{engine}} charge {{library}}, qu'aucun paquet ne fournit : il cassera à la mise à jour de Kea",
+  "alert.custom_hook_builtin": "{{engine}} charge {{library}}, qu'aucun paquet ne fournit et qui cassera à la mise à jour de Kea : utiliser plutôt les options intégrées {{option}}",
   "alert.d2_errors": "Échecs des mises à jour DDNS : {{percent}} % sur la dernière heure",
   "alert.daemon_down": "{{engine}} ne répond pas",
   "alert.duplicate_lease": "{{ip}} est réservée pour {{identifier}} mais louée à {{lease}}",

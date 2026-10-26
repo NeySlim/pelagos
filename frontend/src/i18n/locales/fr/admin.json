@@ -157,6 +157,8 @@
       "alerts_pool_critical_percent": "Pool critique (%)",
       "alerts_serial_divergence_seconds": "Écart de numéro de série toléré (secondes)",
       "alerts_d2_error_rate": "Taux d'erreur DDNS",
+      "alerts_ha_grace_seconds": "Délai de grâce des alertes HA (secondes)",
+      "alerts_custom_hooks": "Signaler les hooks Kea hors paquet",
       "dns": {
         "read_key": "Clé de transfert",
         "admin_key": "Clé de mise à jour",

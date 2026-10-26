@@ -39,6 +39,7 @@ class AlertKind(enum.StrEnum):
     DUPLICATE_IP = "duplicate_ip"
     INSECURE_KEY = "insecure_key"
     INSECURE_LISTENER = "insecure_listener"
+    CUSTOM_HOOK = "custom_hook"
 
 
 INCONSISTENCY_KINDS = frozenset(

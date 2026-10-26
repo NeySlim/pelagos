@@ -9,7 +9,7 @@ export const KINDS = [
   'pool_near_full', 'pool_full', 'serial_divergence', 'secondary_stale', 'zone_error', 'ha_degraded',
   'ha_partner_down', 'ha_transition', 'ha_backup_out_of_sync', 'd2_errors', 'daemon_down', 'peer_offline', 'config_divergence',
   'lease_without_record', 'record_without_lease', 'reservation_mismatch', 'ptr_mismatch', 'duplicate_ip',
-  'insecure_key', 'insecure_listener',
+  'insecure_key', 'insecure_listener', 'custom_hook',
 ]
 export const INCONSISTENCY_KINDS = new Set(['lease_without_record', 'record_without_lease', 'reservation_mismatch', 'ptr_mismatch', 'duplicate_ip'])
 

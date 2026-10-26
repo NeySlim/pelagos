@@ -75,8 +75,43 @@ def close(paths: Paths, engine: str) -> None:
         record(paths, engine, "cancel")
 
 
+MARKS_FILE = "engine_marks.json"
+KEA_ENGINES = frozenset({"kea4", "kea6", "d2"})
+
+
+def mark(paths: Paths, engine: str, kind: str, now: float | None = None) -> None:
+    """Pelagos itself wrote (`write`) or reloaded (`reload`) this Kea engine just now: the collector
+    does not read the config change as external and keeps HA alerts quiet while the server settles."""
+    try:
+        paths.locks_dir.mkdir(parents=True, exist_ok=True)
+        with FileLock(paths.locks_dir / "engine_marks.lock"):
+            try:
+                data = json.loads((paths.var / MARKS_FILE).read_text())
+            except (OSError, ValueError):
+                data = {}
+            data.setdefault(engine, {})[kind] = now if now is not None else time.time()
+            paths.var.mkdir(parents=True, exist_ok=True)
+            atomic_write(paths.var / MARKS_FILE, json.dumps(data, sort_keys=True).encode(), mode=0o644)
+    except OSError as exc:
+        log.warning("%s mark of %s not recorded: %s", kind, engine, exc)
+
+
+def marked_at(paths: Paths, engine: str, kind: str) -> float | None:
+    try:
+        value = json.loads((paths.var / MARKS_FILE).read_text()).get(engine, {}).get(kind)
+    except (OSError, ValueError, AttributeError):
+        return None
+    return float(value) if isinstance(value, int | float) else None
+
+
 def record_plan(paths: Paths, plan: Any, ok: bool, verb: str = "apply") -> None:
-    """After a dhcp.ha plan ran on this node: its `ha/maintenance` change opens or closes the window."""
+    """After a plan ran on this node: its engine is marked as written (and reloaded, for Kea), and a
+    dhcp.ha plan's `ha/maintenance` change opens or closes the window."""
+    engine_name = getattr(getattr(plan, "engine", None), "value", None)
+    if engine_name:
+        mark(paths, engine_name, "write")
+    if engine_name in KEA_ENGINES:
+        mark(paths, engine_name, "reload")
     if not ok or getattr(getattr(plan, "scope", None), "value", None) != "dhcp.ha":
         return
     for change in getattr(plan, "changes", []) or []:

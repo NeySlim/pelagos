@@ -215,6 +215,8 @@ once on the node you changed them on and on the other nodes after
 | `alerts_pool_critical_percent` | int | `95` | 1 to 100 | `pool_full` at this use |
 | `alerts_serial_divergence_seconds` | int | `900` | 0 to 604800 | how long a secondary's serial may differ before `serial_divergence` |
 | `alerts_d2_error_rate` | float | `0.05` | 0.0 to 1.0 | `d2_errors` when (errors + timeouts) / sent over the last hour exceeds it |
+| `alerts_ha_grace_seconds` | int | `45` | 0 to 3600 | how long a Kea HA relationship may be away from a normal state (a `waiting` after a `config-reload`, say) before `ha_partner_down`, `ha_degraded` and `ha_transition` open; `terminated` is never delayed, and a reload done by Pelagos keeps them quiet for this long |
+| `alerts_custom_hooks` | bool | `true` | | raise `custom_hook` for a Kea hook library that no package owns |
 
 ### DNS (`[settings.dns]`)
 

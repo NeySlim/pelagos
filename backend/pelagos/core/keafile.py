@@ -130,8 +130,6 @@ KEA_IGNORED_TOP = frozenset({"loggers", "hash"})
 KEA_LOWERCASE = frozenset({"hw-address", "duid", "client-id", "circuit-id", "flex-id"})
 KEA_REDACTED = frozenset({"*****", "****", "***"})
 _RANGE = re.compile(r"\s*-\s*")
-# Lists Kea keeps as maps by name: config-get returns them sorted, whatever the file order.
-KEA_NAMED_SETS = frozenset({"ddns-domains", "tsig-keys"})
 
 
 def kea_body(config: dict[str, Any]) -> dict[str, Any]:
@@ -145,6 +143,10 @@ def _kea_scalar(key: str, value: Any) -> Any:
         return _pool_range(value) or _RANGE.sub("-", value.strip())
     if key in KEA_LOWERCASE:
         return value.strip().lower()
+    if key == "library":
+        return PurePosixPath(value).name  # the directory depends on the architecture
+    if key == "data" and "," in value:
+        return ",".join(part.strip() for part in value.split(","))
     return value
 
 
@@ -168,8 +170,8 @@ def is_sensitive_kea_key(key: str) -> bool:
     return key.endswith(("password", "secret"))
 
 
-_DIFF_PATH = re.compile(r"^(?P<path>[^:]*): ")
-_LAST_KEY = re.compile(r"/(?P<key>[^/\[]+)(?:\[\d+\])*$")
+_DIFF_PATH = re.compile(r"^(?P<path>.*?): ")
+_LAST_KEY = re.compile(r"/(?P<key>[^/\[]+)(?:\[[^\]]*\])*$")
 
 
 def redact_kea_difference(line: str) -> str:
@@ -195,12 +197,114 @@ def same_scalar(key: str, file_value: Any, running: Any) -> bool:
     return False
 
 
-def _by_name(items: list[Any]) -> list[Any]:
-    return sorted(items, key=lambda x: str(x.get("name", "")).lower())
+# Lists whose items are matched by identity, not position (config-get orders them as it likes).
+RESERVATION_IDS = ("hw-address", "client-id", "duid", "circuit-id", "flex-id")
+IDENTIFIED_LISTS = frozenset(
+    {
+        "reservations",
+        "subnet4",
+        "subnet6",
+        "pools",
+        "pd-pools",
+        "option-data",
+        "option-def",
+        "hooks-libraries",
+        "client-classes",
+        "shared-networks",
+        "ddns-domains",
+        "tsig-keys",
+        "dns-servers",
+        "peers",
+    }
+)
+_DEFAULT_SPACES = frozenset({"", "dhcp4", "dhcp6"})
+Ident = tuple[str, str]
 
 
-def _named_set(key: str, a: list[Any], b: list[Any]) -> bool:
-    return key in KEA_NAMED_SETS and all(isinstance(x, dict) for x in a + b)
+def _pool_text(value: str) -> str:
+    parsed = _pool_range(value)
+    if parsed is None:
+        return _RANGE.sub("-", value.strip())
+    version, first, last = parsed
+    addr = ipaddress.IPv4Address if version == 4 else ipaddress.IPv6Address
+    return f"{addr(first)}-{addr(last)}"
+
+
+def item_idents(key: str, item: dict[str, Any]) -> list[Ident]:
+    """The identities of one list item, preferred first: two items are the same when they share one."""
+    out: list[Ident] = []
+    if key == "reservations":
+        present = [(f, str(item[f]).strip().lower()) for f in RESERVATION_IDS if item.get(f)]
+        if present:
+            out.append((present[0][0], "+".join(v for _, v in present)))
+        for f in ("ip-address", "hostname"):
+            if item.get(f) and not present:
+                out.append((f, str(item[f]).lower()))
+    elif key in ("subnet4", "subnet6"):
+        if item.get("id") is not None:
+            out.append(("id", str(item["id"])))
+        if item.get("subnet"):
+            out.append(("subnet", str(item["subnet"]).strip().lower()))
+    elif key == "pools":
+        if isinstance(item.get("pool"), str):
+            out.append(("pool", _pool_text(item["pool"])))
+    elif key == "pd-pools":
+        if item.get("prefix") is not None:
+            out.append(("prefix", f"{item['prefix']}/{item.get('prefix-len', '')}"))
+    elif key in ("option-data", "option-def"):
+        space = str(item.get("space") or "")
+        pre = "" if space in _DEFAULT_SPACES else f"{space}."
+        if item.get("code") is not None:
+            out.append(("code", f"{pre}{item['code']}"))
+        if item.get("name"):
+            out.append(("name", f"{pre}{item['name']}"))
+    elif key == "hooks-libraries":
+        if item.get("library"):
+            out.append(("library", PurePosixPath(str(item["library"])).name))
+    elif key == "dns-servers":
+        if item.get("ip-address"):
+            out.append(("ip-address", str(item["ip-address"])))
+    elif item.get("name"):
+        out.append(("name", str(item["name"]).lower()))
+    return out or [("item", json.dumps(item, sort_keys=True))]
+
+
+def _identified(key: str, *lists: list[Any]) -> bool:
+    return key in IDENTIFIED_LISTS and all(isinstance(x, dict) for lst in lists for x in lst)
+
+
+def pair_items(key: str, a: list[Any], b: list[Any]) -> tuple[list[tuple[int, int]], list[int], list[int]]:
+    """(pairs of indexes, indexes only in a, indexes only in b), items matched by identity."""
+    index: dict[Ident, list[int]] = {}
+    for j, item in enumerate(b):
+        for ident in item_idents(key, item):
+            index.setdefault(ident, []).append(j)
+    used: set[int] = set()
+    pairs: list[tuple[int, int]] = []
+    only_a: list[int] = []
+    for i, item in enumerate(a):
+        hit = next(
+            (j for ident in item_idents(key, item) for j in index.get(ident, ()) if j not in used), None
+        )
+        if hit is None:
+            only_a.append(i)
+        else:
+            used.add(hit)
+            pairs.append((i, hit))
+    return pairs, only_a, [j for j in range(len(b)) if j not in used]
+
+
+def item_label(key: str, item: dict[str, Any]) -> str:
+    kind, value = item_idents(key, item)[0]
+    return f"{kind}={value}" if kind != "item" else "item"
+
+
+def _summary(key: str, item: dict[str, Any]) -> str:
+    """What a reservation is for, to read a difference without opening the file."""
+    if key != "reservations":
+        return ""
+    bits = [f"{k}={item[k]}" for k in ("hostname", "ip-address") if item.get(k)]
+    return f" ({', '.join(bits)})" if bits else ""
 
 
 def _kea_diff(file_value: Any, running: Any, path: str, key: str) -> Iterator[str]:
@@ -230,11 +334,22 @@ def _kea_diff(file_value: Any, running: Any, path: str, key: str) -> Iterator[st
     if isinstance(file_value, list):
         if not isinstance(running, list):
             yield f"{path}: list in the file, {type(running).__name__} running"
+        elif _identified(key, file_value, running):
+            pairs, only_file, only_running = pair_items(key, file_value, running)
+            for i in only_file:
+                item = file_value[i]
+                what = f"{path}[{item_label(key, item)}]: in the file{_summary(key, item)}"
+                yield f"{what}, absent from the running configuration"
+            for j in only_running:
+                item = running[j]
+                yield f"{path}[{item_label(key, item)}]: running{_summary(key, item)}, absent from the file"
+            for i, j in pairs:
+                yield from _kea_diff(
+                    file_value[i], running[j], f"{path}[{item_label(key, file_value[i])}]", key
+                )
         elif len(file_value) != len(running):
             yield f"{path}: {len(file_value)} item(s) in the file, {len(running)} running"
         else:
-            if _named_set(key, file_value, running):
-                file_value, running = _by_name(file_value), _by_name(running)
             for i, (a, b) in enumerate(zip(file_value, running, strict=True)):
                 yield from _kea_diff(a, b, f"{path}[{i}]", key)
         return
@@ -243,6 +358,46 @@ def _kea_diff(file_value: Any, running: Any, path: str, key: str) -> Iterator[st
             yield f"{path}: differs"
         else:
             yield f"{path}: {file_value!r} in the file, {running!r} running"
+
+
+def _sym_diff(a: Any, b: Any, path: str, key: str, na: str, nb: str) -> Iterator[str]:
+    if isinstance(a, dict) and isinstance(b, dict):
+        for k in [*a, *(k for k in b if k not in a)]:
+            sub = f"{path}/{k}"
+            if k not in b:
+                yield f"{sub}: only on {na}"
+            elif k not in a:
+                yield f"{sub}: only on {nb}"
+            else:
+                yield from _sym_diff(a[k], b[k], sub, k, na, nb)
+    elif isinstance(a, list) and isinstance(b, list):
+        if _identified(key, a, b):
+            pairs, only_a, only_b = pair_items(key, a, b)
+            for i in only_a:
+                yield f"{path}[{item_label(key, a[i])}]: only on {na}{_summary(key, a[i])}"
+            for j in only_b:
+                yield f"{path}[{item_label(key, b[j])}]: only on {nb}{_summary(key, b[j])}"
+            for i, j in pairs:
+                yield from _sym_diff(a[i], b[j], f"{path}[{item_label(key, a[i])}]", key, na, nb)
+        elif all(not isinstance(x, dict | list) for x in a + b):
+            for x in a:
+                if x not in b:
+                    yield f"{path}: {x!r} only on {na}"
+            for x in b:
+                if x not in a:
+                    yield f"{path}: {x!r} only on {nb}"
+        elif len(a) != len(b):
+            yield f"{path}: {len(a)} item(s) on {na}, {len(b)} on {nb}"
+        else:
+            for i, (x, y) in enumerate(zip(a, b, strict=True)):
+                yield from _sym_diff(x, y, f"{path}[{i}]", key, na, nb)
+    elif a != b:
+        yield f"{path}: {a!r} on {na}, {b!r} on {nb}"
+
+
+def view_differences(a: Any, b: Any, name_a: str, name_b: str) -> list[str]:
+    """Paths where two normalized views (collector.kea_shared) differ, lists matched by identity."""
+    return list(_sym_diff(a, b, "", "", name_a, name_b))
 
 
 def kea_config_differences(file_config: dict[str, Any], running_config: dict[str, Any]) -> list[str]:
@@ -344,20 +499,23 @@ def rebase(
                 out[k] = _strip_inherited(v, inherited) if nested else _children_stripped(v, inherited)
         return out
     if isinstance(file_value, list) and isinstance(before, list) and isinstance(after, list):
+        if _identified(key, file_value, before, after):
+            pairs, _, only_after = pair_items(key, file_value, after)
+            before_of = dict(pair_items(key, file_value, before)[0])
+            kept = [
+                rebase(
+                    file_value[i],
+                    before[before_of[i]] if i in before_of else after[j],
+                    after[j],
+                    key,
+                    inherited,
+                    True,
+                )
+                for i, j in pairs
+            ]
+            return kept + [_strip_inherited(after[j], inherited) for j in only_after]
         if len(file_value) != len(before):
             return _strip_inherited(after, inherited)
-        if _named_set(key, file_value + before, after):
-            files = {str(x.get("name", "")).lower(): x for x in file_value}
-            befores = {str(x.get("name", "")).lower(): x for x in before}
-            result = []
-            for item in after:
-                name = str(item.get("name", "")).lower()
-                if name in files and name in befores:
-                    result.append(rebase(files[name], befores[name], item, key, inherited, True))
-                else:
-                    result.append(_copy(item))
-            order = {str(x.get("name", "")).lower(): i for i, x in enumerate(file_value)}
-            return sorted(result, key=lambda x: order.get(str(x.get("name", "")).lower(), len(order)))
         a = [_item_id(x) for x in before]
         b = [_item_id(x) for x in after]
         result = []
@@ -400,15 +558,11 @@ def conform(file_value: Any, running: Any, key: str = "") -> Any:
             elif k in running:
                 out[k] = conform(v, running[k], k)
         return out
+    if isinstance(file_value, list) and isinstance(running, list) and _identified(key, file_value, running):
+        pairs, _, only_running = pair_items(key, file_value, running)
+        kept = [conform(file_value[i], running[j], key) for i, j in pairs]
+        return kept + [_copy(running[j]) for j in only_running]
     if isinstance(file_value, list) and isinstance(running, list) and len(file_value) == len(running):
-        if _named_set(key, file_value, running):
-            by = {str(x.get("name", "")).lower(): x for x in running}
-            return [
-                conform(x, by[str(x.get("name", "")).lower()], key)
-                if str(x.get("name", "")).lower() in by
-                else _copy(x)
-                for x in file_value
-            ]
         return [conform(a, b, key) for a, b in zip(file_value, running, strict=True)]
     if not isinstance(file_value, dict | list) and same_scalar(key, file_value, running):
         return _copy(file_value)

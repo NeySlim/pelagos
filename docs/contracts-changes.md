@@ -1206,3 +1206,16 @@ apply verifies the `named-checkconf -p` value after the reload, restoring the
 files otherwise. `GET /dns/handover` lists the statements that can move, with the
 nodes that have each. WP-FRONTEND shows it on the Resolver, ACLs and keys, Zones
 and zone screens.
+
+## 2026-10-26, WP-COLLECTOR: Kea file comparison by identity, peer differences, HA grace, custom hooks
+Additive. `AlertKind.CUSTOM_HOOK` (`custom_hook`, warning) with messages `alert.custom_hook` and
+`alert.custom_hook_builtin`; settings `alerts_ha_grace_seconds` (int, default 45) and
+`alerts_custom_hooks` (bool, default true). The `config_hash` snapshot gains `shared_view` (nodes in
+no relationship) and `view` in each `relationships` entry; the shared view lists hook libraries by
+file name. A `config_divergence` group in the alert details gains `differences`
+(`[{"nodes", "items", "count"}]`). `core.keafile` compares lists of objects by identity
+(`pair_items`) and exposes `view_differences`. `core.ha_maintenance` gains `mark` / `marked_at`
+(`engine_marks.json`): plans and `config-reload` mark the engine so the collector does not read the
+change as external and keeps HA alerts quiet. New audit action `external.change` (target
+`<engine>:config`, `diff` holds the differences) written by the collector. Affects WP-API-AUTH
+(settings schema, done in `admin_service`) and WP-FRONTEND (kind list, i18n).

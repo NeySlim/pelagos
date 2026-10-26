@@ -28,12 +28,20 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.collector import rules
+from pelagos.collector.external import ExternalChangeWatcher
+from pelagos.collector.hooks import HookOwnership, builtin_equivalent, custom_libraries
 from pelagos.collector.kea_shared import shared_hashes
 from pelagos.collector.pollers import PollOutcome, engine_filter
 from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend
 from pelagos.core.keadoc import DEFAULT_CWD, KeaDocument, KeaFileUnreadable
-from pelagos.core.keafile import KeaConfigError, kea_config_differences
+from pelagos.core.keafile import (
+    KeaConfigError,
+    kea_body,
+    kea_config_differences,
+    redact_kea_difference,
+    view_differences,
+)
 from pelagos.domain import Alert, AlertKind, Engine, Family, HAState, Lease, to_rfc3339
 
 log = logging.getLogger(__name__)
@@ -47,6 +55,7 @@ KEA_KINDS = frozenset(
         AlertKind.HA_PARTNER_DOWN.value,
         AlertKind.HA_TRANSITION.value,
         AlertKind.CONFIG_DIVERGENCE.value,
+        AlertKind.CUSTOM_HOOK.value,
     }
 )
 D2_KINDS = frozenset(
@@ -61,7 +70,7 @@ LEASE_WALK_RATE = 1000
 # Counters that move when this server hands out or renews a lease: a lease walk runs only then.
 ACK_COUNTERS = {Family.V4: "pkt4-ack-sent", Family.V6: "pkt6-reply-sent"}
 # A daemon that cannot be read says nothing about its file: its open file alert stays as it is.
-UNREAD_KINDS = frozenset({AlertKind.CONFIG_DIVERGENCE.value})
+UNREAD_KINDS = frozenset({AlertKind.CONFIG_DIVERGENCE.value, AlertKind.CUSTOM_HOOK.value})
 # Keys that legitimately differ between HA peers: dropped before hashing for config_divergence.
 PER_NODE_TOP_KEYS = frozenset({"interfaces-config", "control-socket", "control-sockets", "loggers", "hash"})
 PER_NODE_NESTED_KEYS = frozenset({"this-server-name"})
@@ -228,6 +237,12 @@ class KeaPoller:
         # True while Pelagos holds an HA maintenance window open on this engine (core.ha_maintenance).
         self.maintenance: Callable[[str], bool] = lambda _engine: False
         self.maintenance_done: Callable[[str], None] = lambda _engine: None
+        # True while Pelagos reloads this engine or did so within the grace period (HA waits then).
+        self.reloading: Callable[[str], bool] = lambda _engine: False
+        # Relationship -> [first, last] time its server or partner was seen away from a normal state.
+        self._excursions: dict[str, list[float]] = {}
+        self.external = ExternalChangeWatcher(self.engine.value, clock, locks_dir)
+        self.ownership = HookOwnership()
         # Last HA observation sent as an event: (state, partner state, in touch) and the unsent count.
         self._ha_seen: tuple[Any, ...] | None = None
         self._unsent_seen: tuple[int | None, ...] | None = None
@@ -284,6 +299,8 @@ class KeaPoller:
                 running = self.backend.config_get()
                 hashes = self._config_hash(running)
                 self.store.write_snapshot(self.node_id, engine, "config_hash", now, hashes)
+                self._detect_external(str(hashes["hash"]), running)
+                self._custom_hooks(running, out)
                 alert = self.file_check.check(str(hashes["hash"]), lambda: running)
                 if alert is not None:
                     out.alerts.append(alert)
@@ -295,6 +312,24 @@ class KeaPoller:
             except (ConnectorError, NotImplementedError) as exc:
                 log.debug("%s subnets failed: %s", engine, exc)
         return out
+
+    def _custom_hooks(self, running: dict[str, Any], out: PollOutcome) -> None:
+        if not self.settings.get("alerts_custom_hooks", True):
+            return
+        for library in custom_libraries(kea_body(running), self.ownership):
+            out.alerts.append(
+                rules.custom_hook(self.node_id, self.engine, library, builtin_equivalent(library))
+            )
+
+    def _detect_external(self, digest: str, running: dict[str, Any]) -> None:
+        """The running configuration changed and Pelagos wrote nothing since the previous poll."""
+        body = {k: v for k, v in kea_body(running).items() if k != "hash"}
+
+        def differences(before: Any, after: Any) -> list[str]:
+            return [redact_kea_difference(d) for d in view_differences(before, after, "previous", "current")]
+
+        writing = engine_write_in_progress(self.file_check.locks_dir, self.engine.value)
+        self.external.observe(digest, body, differences, writing)
 
     def _config_hash(self, running: dict[str, Any]) -> dict[str, Any]:
         """Raw config-hash-get (what /dhcp/{family}/servers shows) and the hash peers compare."""
@@ -328,7 +363,10 @@ class KeaPoller:
         for one in [ha, *ha.other_relationships]:
             is_first = one is ha
             before = previous if is_first else self.last_other_states.get(one.server_name or "")
-            alerts, transition = rules.ha_alerts(self.node_id, one, before, maintenance, first=is_first)
+            quiet = self._ha_quiet(one, now)
+            alerts, transition = rules.ha_alerts(
+                self.node_id, one, before, maintenance, first=is_first, quiet=quiet
+            )
             out.alerts.extend(alerts)
             if transition is not None:
                 self.store.write_ha_transition(
@@ -345,6 +383,38 @@ class KeaPoller:
         self.ha_events(ha, out)
         self.last_ha_state = ha.state
         self.last_other_states = {o.server_name or "": o.state for o in ha.other_relationships}
+
+    @property
+    def ha_grace(self) -> float:
+        return float(self.settings.get("alerts_ha_grace_seconds", 45))
+
+    def _track_ha(self, one: HAState, now: float) -> bool:
+        """Records when this relationship is away from a normal state; True when it is."""
+        away = one.state not in rules.HA_NORMAL_STATES or (
+            one.partner is not None and one.partner.in_touch is False
+        )
+        if away:
+            span = self._excursions.setdefault(one.server_name or "", [now, now])
+            span[1] = now
+        return away
+
+    def _ha_quiet(self, one: HAState, now: float) -> bool:
+        """True while a reload or a short wait is absorbed: Pelagos reloading the engine, a state
+        away from normal for less than the grace period, or an excursion that ended within it.
+        `terminated` is never absorbed."""
+        away = self._track_ha(one, now)
+        span = self._excursions.get(one.server_name or "")
+        if not away:
+            self._excursions.pop(one.server_name or "", None)
+        if one.state in rules.HA_NEVER_QUIET_STATES:
+            return False
+        if self.reloading(self.engine.value):
+            if span is not None:
+                span[0] = now  # the wait counts from the end of the reload
+            return True
+        if span is None:
+            return False
+        return (now - span[0] if away else span[1] - span[0]) < self.ha_grace
 
     def ha_events(self, ha: HAState, out: PollOutcome) -> None:
         """`state` when the server's or its partner's state or contact changed, `unsent` when only the
@@ -379,7 +449,10 @@ class KeaPoller:
             log.debug("ha_state %s failed: %s", self.engine.value, exc)
             return out
         if ha.enabled:
-            self.store.write_snapshot(self.node_id, self.engine.value, "ha", int(self.clock()), ha.to_dict())
+            now = self.clock()
+            for one in [ha, *ha.other_relationships]:
+                self._track_ha(one, now)  # sees waits shorter than a poll
+            self.store.write_snapshot(self.node_id, self.engine.value, "ha", int(now), ha.to_dict())
             self.ha_events(ha, out)
         return out
 

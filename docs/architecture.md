@@ -607,7 +607,7 @@ class AlertKind(str, Enum):
     DAEMON_DOWN="daemon_down"; PEER_OFFLINE="peer_offline"; CONFIG_DIVERGENCE="config_divergence"
     LEASE_WITHOUT_RECORD="lease_without_record"; RECORD_WITHOUT_LEASE="record_without_lease"
     RESERVATION_MISMATCH="reservation_mismatch"; PTR_MISMATCH="ptr_mismatch"; DUPLICATE_IP="duplicate_ip"
-    INSECURE_KEY="insecure_key"; INSECURE_LISTENER="insecure_listener"
+    INSECURE_KEY="insecure_key"; INSECURE_LISTENER="insecure_listener"; CUSTOM_HOOK="custom_hook"
 class AlertState(str, Enum): OPEN="open"; ACKED="acked"; RESOLVED="resolved"
 
 @dataclass(slots=True)
@@ -1810,6 +1810,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `ha_partner_down` | critical | state `partner-down` or partner `in_touch == false`, outside an HA maintenance window started from Pelagos (then `ha_degraded`); the title names the partner server; a backup has no partner and never raises it |
 | `ha_backup_out_of_sync` | warning | a backup's assigned lease count differs from the primary's (an active server's when the primary is not read) by more than max(2, 1 %) for 5 minutes; raised by the peers poller from the `ha` and `utilization` snapshots, node = the backup, subject `ha-backup:<engine>` |
 | `ha_transition` | info | state changed since the last poll (also a `ha_transitions` row) |
+| `custom_hook` | warning | a Kea hook library that `dpkg -S` / `rpm -qf` says no package owns; raised by the Kea poller per library, subject `<engine>:hook:<file name>`; the title suggests the built-in option when one exists (`hostname-char-set` / `hostname-char-replacement` for a hostname sanitizing hook); off with `alerts_custom_hooks` |
 
 The `ha_*` alerts above have subject `ha:<engine>`; a Kea 3 hub raises them
 for each relationship, the second one and later with subject

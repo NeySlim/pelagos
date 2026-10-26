@@ -1,6 +1,8 @@
 {
   "alert.config_divergence": "{{engine}} configuration differs between nodes",
   "alert.config_file_divergence": "{{path}} differs from the running {{engine}} configuration",
+  "alert.custom_hook": "{{engine}} loads {{library}}, which no package owns: it will break when Kea is upgraded",
+  "alert.custom_hook_builtin": "{{engine}} loads {{library}}, which no package owns and breaks on a Kea upgrade: use the built-in {{option}} options instead",
   "alert.d2_errors": "DDNS updates failing: {{percent}}% over the last hour",
   "alert.daemon_down": "{{engine}} does not answer",
   "alert.duplicate_lease": "{{ip}} is reserved for {{identifier}} but leased to {{lease}}",

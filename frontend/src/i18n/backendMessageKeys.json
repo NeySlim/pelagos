@@ -6,6 +6,15 @@
     "engine",
     "path"
   ],
+  "alert.custom_hook": [
+    "engine",
+    "library"
+  ],
+  "alert.custom_hook_builtin": [
+    "engine",
+    "library",
+    "option"
+  ],
   "alert.d2_errors": [
     "percent"
   ],

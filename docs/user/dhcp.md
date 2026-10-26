@@ -162,6 +162,12 @@ Alerts:
   for 5 minutes: it stopped receiving lease updates.
 - `ha_transition` (info): each state change, also kept as a series.
 
+A short wait is not an incident: after a `config-reload` a server goes
+through `waiting` for 10 to 25 seconds. While a relationship is away from a
+normal state for less than `alerts_ha_grace_seconds` (default 45), none of
+the three alerts above opens, and none opens for a reload or plan that
+Pelagos ran itself, for that long after it. `terminated` is never delayed.
+
 A hub raises these for each of its relationships (the second one and later
 carry the server name in their subject, `ha:kea4:<server name>`).
 
@@ -173,11 +179,17 @@ name), the same settings at the global level, global reservations, options,
 option definitions and client classes, and the relationship itself (mode, every
 peer's name, URL, role and auto-failover). Keys that differ by nature are
 left out: `this-server-name`, interfaces, control sockets, loggers, lease
-database, hook library paths, the HA hook's timers and multi-threading,
+database, hook library directories, the HA hook's timers and multi-threading,
 DDNS settings, and the defaults one Kea version writes and another does not
 (a backup on Kea 3.0 next to a pair on 2.6 is compared fine). Servers that
-belong to no relationship are compared with each other. The alert's details
-name the relationship and the hash of each node. The alert opens once the
+belong to no relationship are compared with each other. Hook libraries
+are compared by file name (the directory depends on the architecture), so a
+hook loaded on one server only is a difference. Lists are matched by
+identity, never by position: reservations by `hw-address`, `client-id`,
+`duid`, `circuit-id` or `flex-id`, subnets by id, pools by range, options by
+code and space, client classes and shared networks by name. The alert's
+details name the relationship, the hash of each node and the differences
+themselves (for example a reservation with another MAC on each server). The alert opens once the
 difference has lasted two minutes: right after a plan, each node reports its
 new configuration at its next poll.
 ### Set up or edit the relationship
@@ -315,3 +327,30 @@ adopted:
   running configuration, comments kept.
 
 Both are confirmed plans built on the node that holds the file.
+
+The comparison matches lists of objects by identity, not by position: Kea
+returns reservations, pools and options in an order of its own, and fills in
+defaults the file leaves out, neither is a difference. Reservations are
+matched by `hw-address`, `client-id`, `duid`, `circuit-id` or `flex-id`,
+subnets by id, pools by range, options by code and space, hook libraries by
+file name, client classes and shared networks by name. Each difference names
+its object, for example
+`/subnet4[id=1]/reservations[hw-address=aa:bb:cc:dd:ee:01]`.
+
+### Changes made outside Pelagos
+
+When the running configuration of a Kea server changes and Pelagos wrote
+nothing since the previous poll (a hand edit followed by `config-reload`, a
+direct `config-set`), the collector adds an audit entry "external change
+detected" (action `external.change`, target `<engine>:config`) holding the
+differences. A change made by a plan, an HA maintenance or the
+**config-reload** operation of the Operations screen is not reported.
+
+### Hook libraries no package owns
+
+A hook library that `dpkg -S` or `rpm -qf` does not attribute to a package
+(compiled by hand) is linked against one Kea version and stops loading at
+the next upgrade. The alert `custom_hook` (warning) names it, and, when Kea
+has an equivalent, suggests it: `hostname-char-set` and
+`hostname-char-replacement` for a hook that sanitizes host names. Turn it
+off with `alerts_custom_hooks`.

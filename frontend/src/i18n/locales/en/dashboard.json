@@ -139,6 +139,7 @@
     "ptr_mismatch": "PTR mismatch",
     "duplicate_ip": "duplicate IP",
     "insecure_key": "insecure key",
+    "custom_hook": "custom Kea hook",
     "insecure_listener": "insecure listener",
     "ha_backup_out_of_sync": "HA backup out of sync"
   },

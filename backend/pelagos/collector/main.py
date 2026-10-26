@@ -22,16 +22,19 @@ from pelagos.collector.alerts import ACK_ACTION, AlertStore
 from pelagos.collector.events import EventSink, SignalListener
 from pelagos.collector.pollers import PollOutcome
 from pelagos.collector.pollers.bind import BindPoller
-from pelagos.collector.pollers.kea import D2Poller, KeaPoller
+from pelagos.collector.pollers.kea import D2Poller, KeaPoller, engine_write_in_progress
 from pelagos.collector.pollers.peers import PeerClient, PeersPoller, ReplicationPeerClient
 from pelagos.collector.snapshots import SnapshotProvider
 from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBackend, DhcpBackend, DnsBackend
+from pelagos.core import ha_maintenance
 from pelagos.core.context import NodeContext
 from pelagos.core.paths import Paths
 from pelagos.domain import (
     INCONSISTENCY_KINDS,
     Alert,
     AuditEntry,
+    AuditResult,
+    Engine,
     Family,
     Lease,
     Reservation,
@@ -168,17 +171,20 @@ class Collector:
         self.node_id = ctx.node.id
         settings = ctx.settings()
         self.bind = BindPoller(backends.dns, self.node_id, store, clock) if backends.dns else None
+        if self.bind is not None:
+            self.bind.external.locks_dir = ctx.paths.locks_dir
+            self._watch_external(self.bind.external)
         locks = ctx.paths.locks_dir
         self.kea = [KeaPoller(b, self.node_id, store, settings, clock, locks) for b in backends.dhcp]
         self.d2 = D2Poller(backends.d2, self.node_id, store, settings, clock, locks) if backends.d2 else None
         self.peers = PeersPoller(
             peer_client, self.node_id, lambda: self.ctx.cluster().nodes, store, settings, clock
         )
-        from pelagos.core import ha_maintenance
-
         for poller in self.kea:
             poller.maintenance = lambda engine: ha_maintenance.active(ctx.paths, engine)
             poller.maintenance_done = lambda engine: ha_maintenance.close(ctx.paths, engine)
+            poller.reloading = self._reloading(poller)
+            self._watch_external(poller.external)
         # (zone, view) -> (serial announced by a peer, attempt, monotonic time of the next read).
         self.zone_rechecks: dict[tuple[str, str], tuple[int, int, float]] = {}
         self._zone_lock = threading.Lock()  # recheck_zone runs on replication threads
@@ -189,6 +195,38 @@ class Collector:
         self.findings_source: Callable[[NodeContext], list[dict[str, Any]] | None] = _collect_findings
         # Set by run(): the collector.sock listener other components register their handlers on.
         self.listener: SignalListener | None = None
+
+    def _reloading(self, poller: KeaPoller) -> Callable[[str], bool]:
+        """True while Pelagos writes or reloads the engine and for the grace period after."""
+
+        def reloading(engine: str) -> bool:
+            if engine_write_in_progress(self.ctx.paths.locks_dir, engine):
+                return True
+            at = ha_maintenance.marked_at(self.ctx.paths, engine, "reload")
+            return at is not None and self.clock() - at < poller.ha_grace
+
+        return reloading
+
+    def _watch_external(self, watcher: Any) -> None:
+        watcher.last_write = lambda engine: ha_maintenance.marked_at(self.ctx.paths, engine, "write")
+        watcher.emit = self._external_change
+
+    def _external_change(self, engine: str, details: dict[str, Any]) -> None:
+        """Audit entry for a configuration change nobody made through Pelagos."""
+        self.ctx.audit_log.append(
+            AuditEntry(
+                node_id=self.node_id,
+                user="collector",
+                action="external.change",
+                target=f"{engine}:config",
+                engine=Engine(engine),
+                request={},
+                response={"count": details["count"], "hash": details.get("hash")},
+                diff="\n".join(details["differences"]),
+                result=AuditResult.OK,
+                message="external change detected",
+            )
+        )
 
     # Tasks -----------------------------------------------------------------
 
@@ -311,8 +349,6 @@ class Collector:
         """A plan this node runs for a peer: its steps on this node's `plans` topic, and the HA
         maintenance window it opens or closes here."""
         if phase != "running" and result is not None:
-            from pelagos.core import ha_maintenance
-
             ha_maintenance.record_plan(self.ctx.paths, plan, bool(result.ok), verb)
         self.events.emit("plans", "step", plan_step(plan, self.node_id, origin, verb, phase, result))
 

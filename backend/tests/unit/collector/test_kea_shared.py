@@ -234,7 +234,9 @@ def test_hub_and_spoke_compares_each_relationship():
     configs["spoke2"]["Dhcp4"]["subnet4"][0]["pools"][0]["pool"] = "192.0.2.130 - 192.0.2.140"
     hashes, groups = divergent(payloads(**configs))
     assert set(hashes) == {"hub", "spoke2"}
-    assert groups == [{"servers": ["hub-b", "spoke2"], "hashes": hashes}]
+    assert [{k: g[k] for k in ("servers", "hashes")} for g in groups] == [
+        {"servers": ["hub-b", "spoke2"], "hashes": hashes}
+    ]
 
 
 def test_servers_without_ha_are_compared_with_each_other():

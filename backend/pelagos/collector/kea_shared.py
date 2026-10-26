@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import PurePosixPath
 from typing import Any
+
+from pelagos.core.keafile import view_differences
 
 OPTION_KEYS = ("code", "name", "space", "data", "csv-format", "always-send", "never-send")
 # Values Kea fills in when the option does not set them.
@@ -244,6 +247,16 @@ def _relationship(entry: dict[str, Any]) -> dict[str, Any]:
     return {"mode": entry.get("mode"), "peers": sorted(peers, key=lambda p: p["name"])}
 
 
+def _hooks(body: dict[str, Any]) -> list[str]:
+    """Hook libraries by file name: the directory depends on the architecture (x86_64 or aarch64)."""
+    names = (
+        PurePosixPath(str(h["library"])).name
+        for h in body.get("hooks-libraries") or []
+        if isinstance(h, dict) and h.get("library")
+    )
+    return sorted(set(names))
+
+
 def shared_view(body: dict[str, Any], names: frozenset[str] | None = None) -> dict[str, Any]:
     """The part of a Dhcp4/Dhcp6 body that HA servers must share; `names` keeps the subnets of
     one relationship (None keeps them all)."""
@@ -256,6 +269,7 @@ def shared_view(body: dict[str, Any], names: frozenset[str] | None = None) -> di
         "client-classes": [_with_options(_pick(c, CLASS_KEYS)) for c in body.get("client-classes") or []],
         "reservations": _reservations(body.get("reservations")),
         "global": {**_pick(body, LIFETIMES), **_behaviour(body, {})},
+        "hooks": _hooks(body),
     }
     top = _allocators(body, {})
     for key in ("subnet4", "subnet6"):
@@ -301,16 +315,21 @@ def shared_hashes(config: dict[str, Any]) -> dict[str, Any]:
     relationship's mode and peers. Servers of one relationship publish equal hashes."""
     body = body_of(config)
     entries = ha_entries(body)
-    out: dict[str, Any] = {"shared": _digest(shared_view(body)), "relationships": []}
+    view = shared_view(body)
+    out: dict[str, Any] = {"shared": _digest(view), "relationships": []}
+    if not entries:
+        out["shared_view"] = view
     for entry in entries:
         rel = _relationship(entry)
         names = frozenset(p["name"] for p in rel["peers"])
         scope = None if len(entries) == 1 else names
+        full = {"relationship": rel, "config": shared_view(body, scope)}
         out["relationships"].append(
             {
                 "this": entry.get("this-server-name"),
                 "servers": sorted(names),
-                "hash": _digest({"relationship": rel, "config": shared_view(body, scope)}),
+                "hash": _digest(full),
+                "view": full,  # kept so a peer can say what differs, not only that it does
             }
         )
     return out
@@ -321,20 +340,22 @@ def divergent(payloads: dict[str, dict[str, Any]]) -> tuple[dict[str, str | None
     the `config_hash` payloads of every node ({node: payload}). Relationships are joined when their
     server lists share a name, so a peers list that differs on one server is caught too. Nodes in no
     relationship are compared with each other. Returns ({node: hash}, [{"servers", "hashes"}])."""
-    entries: list[tuple[str, frozenset[str], str]] = []
+    entries: list[tuple[str, frozenset[str], str, Any]] = []
     standalone: dict[str, str] = {}
+    standalone_views: dict[str, Any] = {}
     for node, payload in payloads.items():
         rels = payload.get("relationships") or []
         if not rels and payload.get("shared"):
             standalone[node] = str(payload["shared"])
+            standalone_views[node] = payload.get("shared_view")
         for rel in rels:
             if isinstance(rel, dict) and rel.get("hash"):
-                entries.append((node, frozenset(rel.get("servers") or []), str(rel["hash"])))
+                entries.append((node, frozenset(rel.get("servers") or []), str(rel["hash"]), rel.get("view")))
     # Union of entries whose server lists intersect.
-    groups: list[tuple[set[str], list[tuple[str, str]]]] = []
-    for node, servers, digest in entries:
+    groups: list[tuple[set[str], list[tuple[str, str, Any]]]] = []
+    for node, servers, digest, view in entries:
         joined = [g for g in groups if g[0] & servers]
-        merged: tuple[set[str], list[tuple[str, str]]] = (set(servers), [(node, digest)])
+        merged: tuple[set[str], list[tuple[str, str, Any]]] = (set(servers), [(node, digest, view)])
         for g in joined:
             merged[0].update(g[0])
             merged[1].extend(g[1])
@@ -343,12 +364,41 @@ def divergent(payloads: dict[str, dict[str, Any]]) -> tuple[dict[str, str | None
     hashes: dict[str, str | None] = {}
     details: list[dict[str, Any]] = []
     for servers, members in groups:
-        nodes = {n for n, _ in members}
-        if len(nodes) > 1 and len({d for _, d in members}) > 1:
-            by_node = {n: d for n, d in members}
+        nodes = {m[0] for m in members}
+        if len(nodes) > 1 and len({m[1] for m in members}) > 1:
+            by_node = {m[0]: m[1] for m in members}
             hashes.update(by_node)
-            details.append({"servers": sorted(servers), "hashes": by_node})
+            detail: dict[str, Any] = {"servers": sorted(servers), "hashes": by_node}
+            detail["differences"] = _differences({m[0]: (m[1], m[2]) for m in members})
+            details.append(detail)
     if len(standalone) > 1 and len(set(standalone.values())) > 1:
         hashes.update(standalone)
-        details.append({"servers": [], "hashes": dict(standalone)})
+        details.append(
+            {
+                "servers": [],
+                "hashes": dict(standalone),
+                "differences": _differences(
+                    {n: (standalone[n], standalone_views.get(n)) for n in standalone}
+                ),
+            }
+        )
     return hashes, details
+
+
+DIFFERENCES_SHOWN = 20
+
+
+def _differences(members: dict[str, tuple[str, Any]]) -> list[dict[str, Any]]:
+    """What differs between the first node and each node whose hash is not its own: [{"nodes",
+    "items", "count"}]. Empty when a node published no view (an older version)."""
+    ordered = sorted(members)
+    ref = ordered[0]
+    out = []
+    for node in ordered[1:]:
+        if members[node][0] == members[ref][0]:
+            continue
+        if members[ref][1] is None or members[node][1] is None:
+            continue
+        items = view_differences(members[ref][1], members[node][1], ref, node)
+        out.append({"nodes": [ref, node], "items": items[:DIFFERENCES_SHOWN], "count": len(items)})
+    return out

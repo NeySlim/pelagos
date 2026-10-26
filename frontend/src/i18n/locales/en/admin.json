@@ -157,6 +157,8 @@
       "alerts_pool_critical_percent": "Pool critical (%)",
       "alerts_serial_divergence_seconds": "Serial divergence tolerated (seconds)",
       "alerts_d2_error_rate": "DDNS error rate",
+      "alerts_ha_grace_seconds": "HA alert grace period (seconds)",
+      "alerts_custom_hooks": "Warn about Kea hooks no package owns",
       "dns": {
         "read_key": "Transfer key",
         "admin_key": "Update key",

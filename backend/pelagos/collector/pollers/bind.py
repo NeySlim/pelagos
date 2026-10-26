@@ -11,14 +11,19 @@ Snapshots written under (node_id, "bind", kind):
 
 from __future__ import annotations
 
+import difflib
+import hashlib
 import logging
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from pelagos.collector import rules
+from pelagos.collector.external import ExternalChangeWatcher
 from pelagos.collector.pollers import PollOutcome, engine_filter
+from pelagos.collector.pollers.kea import engine_write_in_progress
 from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DnsBackend
 from pelagos.domain import AlertKind, Engine, Zone, ZoneKind, ZoneStatus
@@ -53,6 +58,7 @@ class BindPoller:
         self.clock = clock
         # (zone, view) -> (kind, serial) at the last read: a change is a `zones` event.
         self.serials: dict[tuple[str, str], tuple[ZoneKind | None, int | None]] = {}
+        self.external = ExternalChangeWatcher(Engine.BIND.value, clock)
 
     def poll(self) -> PollOutcome:
         out = PollOutcome(kinds=KINDS, where=engine_filter(self.node_id, Engine.BIND.value))
@@ -77,6 +83,7 @@ class BindPoller:
             log.warning("list_zones failed: %s", exc)
             zones = []
         self.store.write_snapshot(self.node_id, "bind", "zone_list", now, [z.to_dict() for z in zones])
+        self._watch_managed_files()
         statuses = [self._zone_status(z) for z in zones if z.kind in POLLED_KINDS]
         now_dt = datetime.fromtimestamp(now, tz=UTC)
         for st in statuses:
@@ -159,3 +166,33 @@ class BindPoller:
             ref = primary_serial(self.store, st.zone, st.view, exclude=self.node_id)
             divergent = ref is not None and st.serial is not None and st.serial != ref[1]
         self.store.write_serial_if_changed(now, st.zone, st.view, self.node_id, st.serial, divergent)
+
+    def _watch_managed_files(self) -> None:
+        """The managed include files (keys, ACLs, zones, options) changed without a Pelagos write."""
+        directory = getattr(self.backend, "include_dir", None)
+        if not isinstance(directory, Path):
+            return
+        texts: dict[str, str] = {}
+        try:
+            for path in sorted(directory.glob("*.conf")):
+                texts[path.name] = path.read_text(errors="replace")
+        except OSError as exc:
+            log.debug("managed files not read: %s", exc)
+            return
+        digest = hashlib.sha256(repr(sorted(texts.items())).encode()).hexdigest()
+        writing = engine_write_in_progress(self.external.locks_dir, Engine.BIND.value)
+        self.external.observe(digest, texts, managed_files_diff, writing)
+
+
+def managed_files_diff(before: dict[str, str], after: dict[str, str]) -> list[str]:
+    """Unified diff lines of the managed files that changed (a file's absence reads as empty)."""
+    out: list[str] = []
+    for name in sorted(before.keys() | after.keys()):
+        a, b = before.get(name, ""), after.get(name, "")
+        if a != b:
+            out.extend(
+                difflib.unified_diff(
+                    a.splitlines(), b.splitlines(), f"previous/{name}", f"current/{name}", lineterm=""
+                )
+            )
+    return out

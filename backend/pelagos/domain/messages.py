@@ -88,6 +88,13 @@ CATALOG: dict[str, str] = {
     ),
     "alert.ha_degraded": "{engine} HA is in state {state}",
     "alert.ha_transition": "{engine} HA moved from {from_state} to {to_state}",
+    "alert.custom_hook": (
+        "{engine} loads {library}, which no package owns: it will break when Kea is upgraded"
+    ),
+    "alert.custom_hook_builtin": (
+        "{engine} loads {library}, which no package owns and breaks on a Kea upgrade: "
+        "use the built-in {option} options instead"
+    ),
     "alert.d2_errors": "DDNS updates failing: {percent}% over the last hour",
     "alert.peer_offline": "node {node} is unreachable",
     "alert.serial_divergence": "zone {zone} serial {serial} differs from the primary ({reference})",

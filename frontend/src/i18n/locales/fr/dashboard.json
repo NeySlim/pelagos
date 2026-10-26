@@ -139,6 +139,7 @@
     "ptr_mismatch": "PTR incohérent",
     "duplicate_ip": "IP en double",
     "insecure_key": "clé faible",
+    "custom_hook": "hook Kea hors paquet",
     "insecure_listener": "écoute non sûre",
     "ha_backup_out_of_sync": "secours HA désynchronisé"
   },

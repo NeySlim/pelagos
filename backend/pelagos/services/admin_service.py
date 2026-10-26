@@ -29,6 +29,8 @@ SETTINGS_SCHEMA: dict[str, Any] = {
     "alerts_pool_critical_percent": (int, 1, 100),
     "alerts_serial_divergence_seconds": (int, 0, 7 * 86400),
     "alerts_d2_error_rate": (float, 0.0, 1.0),
+    "alerts_ha_grace_seconds": (int, 0, 3600),
+    "alerts_custom_hooks": (bool, None, None),
     "dns": {
         "read_key": (str, None, None),
         "admin_key": (str, None, None),

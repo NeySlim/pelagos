@@ -16,6 +16,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from pelagos.core import ha_maintenance
 from pelagos.core.context import NodeContext
 from pelagos.domain import AuditEntry, AuditResult, Engine
 from pelagos.services.engine_lock import engine_lock
@@ -561,6 +562,8 @@ class OpsService:
         try:
             with engine_lock(self.ctx.paths.locks_dir, engine.value):
                 output = call()
+            if engine.value in ha_maintenance.KEA_ENGINES and spec.name == "config-reload":
+                ha_maintenance.mark(self.ctx.paths, engine.value, "reload")
             result, message = AuditResult.OK, None
         except Exception as exc:
             output, result, message = None, AuditResult.ERROR, str(exc)

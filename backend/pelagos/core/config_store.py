@@ -36,6 +36,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "alerts_pool_critical_percent": 95,
     "alerts_serial_divergence_seconds": 900,
     "alerts_d2_error_rate": 0.05,
+    "alerts_ha_grace_seconds": 45,
+    "alerts_custom_hooks": True,
     "dns": {
         "read_key": "ddi-read",
         "admin_key": "ddi-admin",

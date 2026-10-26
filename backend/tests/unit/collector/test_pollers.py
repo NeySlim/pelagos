@@ -254,7 +254,8 @@ def test_kea_poller_pools_samples_and_alerts(store):
 def test_kea_poller_ha_transitions_and_alerts(store):
     clock = Clock()
     kea = FakeDhcpBackend()
-    poller = KeaPoller(kea, NODE, store, SETTINGS, clock)
+    settings = {**SETTINGS, "alerts_ha_grace_seconds": 0}
+    poller = KeaPoller(kea, NODE, store, settings, clock)
     out = poller.poll()
     assert next(e for e in out.events if e[0] == "ha")[2] is kea.ha
     assert store.counts()["ha_transitions"] == 0
@@ -283,7 +284,7 @@ def test_kea_poller_ha_transitions_and_alerts(store):
     assert poller.poll().alerts == []
     assert store.counts()["ha_transitions"] == 3
     # A new poller (collector restart) continues from the stored state: no spurious transition.
-    fresh = KeaPoller(kea, NODE, store, SETTINGS, clock)
+    fresh = KeaPoller(kea, NODE, store, settings, clock)
     clock.advance(60)
     assert fresh.poll().alerts == []
     kea.ha.enabled = False

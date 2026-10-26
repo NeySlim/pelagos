@@ -30,6 +30,8 @@ from pelagos.services.consistency import redact_kea_difference
 # Steady states per HA mode: anything else is degraded, except partner-down which has its own alert.
 HA_NORMAL_STATES = frozenset({"hot-standby", "load-balancing", "backup", "passive-backup"})
 HA_PARTNER_DOWN_STATES = frozenset({"partner-down"})
+# A terminated server stays so until restarted: a grace period would only delay a real fault.
+HA_NEVER_QUIET_STATES = frozenset({"terminated"})
 STALE_WINDOW = timedelta(hours=24)
 
 
@@ -177,7 +179,12 @@ def pool_alerts(
 
 
 def ha_alerts(
-    node_id: str, ha: HAState, previous_state: str | None, maintenance: bool = False, first: bool = True
+    node_id: str,
+    ha: HAState,
+    previous_state: str | None,
+    maintenance: bool = False,
+    first: bool = True,
+    quiet: bool = False,
 ) -> tuple[list[Alert], dict[str, Any] | None]:
     """HA alerts for one relationship of a Kea server plus the transition row to record when the
     state moved. The first relationship has subject `ha:<engine>`; a hub's other ones (Kea 3)
@@ -185,6 +192,8 @@ def ha_alerts(
 
     `maintenance`: Pelagos started an HA maintenance from this server, so its partner being
     away is expected; ha_partner_down gives way to ha_degraded until the window ends.
+    `quiet`: a config-reload or another transient wait is being absorbed (grace period): no
+    alert opens, the transition row is still returned for the history.
     """
     engine = ha.family.kea_engine
     subject = f"ha:{engine.value}" if first else f"ha:{engine.value}:{ha.server_name}"
@@ -207,7 +216,9 @@ def ha_alerts(
     if maintenance:
         base["maintenance"] = True
     partner_down = ha.state in HA_PARTNER_DOWN_STATES or (partner is not None and partner.in_touch is False)
-    if partner_down and not maintenance:
+    if quiet:
+        pass
+    elif partner_down and not maintenance:
         out.append(
             Alert(
                 kind=AlertKind.HA_PARTNER_DOWN,
@@ -246,19 +257,23 @@ def ha_alerts(
             "scopes": list(ha.scopes),
             "reason": None,
         }
-        out.append(
-            Alert(
-                kind=AlertKind.HA_TRANSITION,
-                severity=Severity.INFO,
-                node_id=node_id,
-                engine=engine,
-                subject=subject,
-                **_title(
-                    "alert.ha_transition", engine=engine.value, from_state=previous_state, to_state=ha.state
-                ),
-                details={**base, "from_state": previous_state},
+        if not quiet:
+            out.append(
+                Alert(
+                    kind=AlertKind.HA_TRANSITION,
+                    severity=Severity.INFO,
+                    node_id=node_id,
+                    engine=engine,
+                    subject=subject,
+                    **_title(
+                        "alert.ha_transition",
+                        engine=engine.value,
+                        from_state=previous_state,
+                        to_state=ha.state,
+                    ),
+                    details={**base, "from_state": previous_state},
+                )
             )
-        )
     return out, transition
 
 
@@ -405,4 +420,23 @@ def config_file_divergence(node_id: str, engine: Engine, path: str, differences:
         subject=f"{engine.value}:config-file",
         **_title("alert.config_file_divergence", path=path, engine=engine.value),
         details={"path": path, "differences": differences[:20], "count": len(differences), "cause": "file"},
+    )
+
+
+def custom_hook(node_id: str, engine: Engine, library: str, option: str | None) -> Alert:
+    """A hook library that no package owns: it is built for one Kea version and breaks at upgrade."""
+    name = library.rsplit("/", 1)[-1]
+    title = (
+        _title("alert.custom_hook_builtin", engine=engine.value, library=name, option=option)
+        if option
+        else _title("alert.custom_hook", engine=engine.value, library=name)
+    )
+    return Alert(
+        kind=AlertKind.CUSTOM_HOOK,
+        severity=Severity.WARNING,
+        node_id=node_id,
+        engine=engine,
+        subject=f"{engine.value}:hook:{name}",
+        **title,
+        details={"library": library, "builtin_option": option},
     )

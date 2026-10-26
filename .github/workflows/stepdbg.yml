@@ -29,4 +29,7 @@ jobs:
           useradd -m -G bind ci
           chown -R ci:ci "$GITHUB_WORKSPACE"
           runuser -u ci -- env HOME=/home/ci UV_CACHE_DIR=/home/ci/.cache/uv make venv PYTHON=3.13 UV="$(command -v uv)"
-      - run: runuser -u ci -- env HOME=/home/ci SV=$SV make test-daemon PYTEST_ARGS="-rs -s -k webcert" 2>&1 | grep -E "DIAG|passed|failed|error|bad record" | sort | uniq -c | head
+      - run: |
+          runuser -u ci -- env HOME=/home/ci SV=$SV make test-daemon PYTEST_ARGS="-rs -s -k webcert" > out.log 2>&1 || true
+          grep -E "^DIAG|passed|[0-9] failed|[0-9] error|bad record" out.log | sort | uniq -c | head -12
+          grep -c "bad record" out.log || true

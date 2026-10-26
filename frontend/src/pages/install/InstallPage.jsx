@@ -186,7 +186,7 @@ function Wizard({ detect, onDone }) {
                 <input type="checkbox" className="mt-0.5" checked={state.engines.includes(c.engine)} disabled={!c.selectable} onChange={() => setState((s) => toggleEngine(s, c.engine))} />
                 <span>
                   <span className="block text-sm font-medium text-text-primary">{t(`engines.${c.engine}`)}</span>
-                  <span className="block text-xs text-text-tertiary">{c.reason ? t(`wizard.engines.reason.${c.reason}`) : t(`wizard.engines.about.${c.engine}`)}</span>
+                  <span className="block text-xs text-text-tertiary">{c.reason || c.note ? t(`wizard.engines.reason.${c.reason || c.note}`) : t(`wizard.engines.about.${c.engine}`)}</span>
                 </span>
               </label>
             ))}

@@ -199,7 +199,7 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 
 def cmd_import(args: argparse.Namespace) -> int:
-    from pelagos.installer.detect import detect_env
+    from pelagos.installer.detect import detect_env, import_defaults
     from pelagos.installer.importer import build_import_plan
 
     env = _env(args)
@@ -210,7 +210,9 @@ def cmd_import(args: argparse.Namespace) -> int:
         except (CommandError, OSError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return EXIT_FAILED
-        engines = [e for e, d in found.items() if d["installed"] and d["config_exists"]]
+        engines, skipped = import_defaults(found)
+        for name, why in skipped.items():
+            print(f"skipped {name}: {why} (name it in --engines to adopt it anyway)", file=sys.stderr)
         if not engines:
             print("no installed engine with a configuration found", file=sys.stderr)
             return EXIT_USAGE
@@ -310,7 +312,10 @@ def add_parsers(sub: Any) -> None:
     i.set_defaults(func=cmd_install)
 
     m = sub.add_parser("import", help="adopt an existing BIND/Kea configuration without rewriting it")
-    m.add_argument("--engines", help="comma list (default: every installed engine with a configuration)")
+    m.add_argument(
+        "--engines",
+        help="comma list (default: installed engines with a configuration that run or are enabled)",
+    )
     _common(m)
     m.set_defaults(func=cmd_import)
 

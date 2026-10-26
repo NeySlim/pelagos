@@ -153,6 +153,14 @@
     "statement"
   ],
   "finding.open_recursion.risk": [],
+  "finding.query_refused.description": [
+    "address",
+    "zones"
+  ],
+  "finding.query_refused.proposal": [
+    "zones"
+  ],
+  "finding.query_refused.risk": [],
   "finding.rndc_nonlocal.description": [
     "address",
     "allowed"

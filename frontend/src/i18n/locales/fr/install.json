@@ -64,6 +64,7 @@
       "reason": {
         "installed": "Déjà installé : passez par l'import",
         "notInstalled": "Non installé : passez par l'installation",
+        "inactive": "Ni actif ni activé : ignoré par défaut",
         "module": "Le module DHCPv6 est désactivé"
       }
     },
@@ -115,6 +116,7 @@
       "dnssec_validation_off": "Validation DNSSEC coupée",
       "rndc_nonlocal": "rndc exposé",
       "stats_nonlocal": "Statistiques exposées",
+      "query_refused": "Zones qui refusent les requêtes",
       "update_without_admin_key": "Sans clé d'administration",
       "transfer_without_read_key": "Sans clé de lecture",
       "open_allow_transfer": "Transfert ouvert",

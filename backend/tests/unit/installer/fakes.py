@@ -93,6 +93,9 @@ class FakeTools:
         self.checkconf_ok = True
         self.socket_ok = True
         self.http_status = 200
+        self.addresses: list[str] = []
+        # (address, zone) pairs a fake named refuses; everything else answers.
+        self.refused: set[tuple[str, str]] = set()
         self.real_checkconf = find_binary("named-checkconf")
 
     def checkconf(self, named_conf: Path) -> tuple[bool, str]:
@@ -130,6 +133,13 @@ class FakeTools:
     def rndc(self, conf: Path | None, *args: str) -> tuple[bool, str]:
         self.calls.append(("rndc", *args))
         return True, ""
+
+    def soa_answered(self, address: str, port: int, zone: str) -> bool | None:
+        self.calls.append(("soa", address, zone))
+        return (address, zone) not in self.refused
+
+    def local_addresses(self) -> list[str]:
+        return list(self.addresses)
 
     def http_get(self, url: str, timeout: float = 5.0) -> tuple[int, str]:
         self.calls.append(("http_get", url))

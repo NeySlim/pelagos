@@ -30,7 +30,7 @@ from pelagos.domain import (
     Severity,
     messages,
 )
-from pelagos.domain.messages import Message, msg
+from pelagos.domain.messages import Message, join, msg
 from pelagos.installer import bindconf, bindsetup, keaconf, keasetup, managed, zone_audit
 from pelagos.installer.bindconf import ConfigFiles, Statement
 from pelagos.installer.jobs import Step
@@ -129,6 +129,8 @@ class BindAuditInput:
     rndc_key: str | None = None  # key name the control channel uses
     rndc_key_file: str | None = None
     kea_keys: set[str] = field(default_factory=set)  # TSIG key names D2 uses
+    query_address: str = "127.0.0.1"  # where Pelagos sends its queries
+    query_refused: list[str] = field(default_factory=list)  # zones named refuses a SOA query for there
     rndc_key_statements: list[bindconf.KeyDef] = field(
         default_factory=list
     )  # from rndc.key when not included
@@ -288,6 +290,21 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
 
     findings += _pelagos_access(files, top, {k.name for k in key_defs})
     findings += zone_audit.findings(files, top, {k.name for k in key_defs})
+    if inp.query_refused:
+        zones = sorted(inp.query_refused)
+        findings.append(
+            Finding.of(
+                finding_id("bind", "query_refused", inp.query_address),
+                "query_refused",
+                Severity.WARNING,
+                "bind",
+                inp.query_address,
+                msg("finding.query_refused.description", address=inp.query_address, zones=join(zones, ", ")),
+                msg("finding.query_refused.proposal", zones=join(zones, ", ")),
+                msg("finding.query_refused.risk"),
+                {"zones": zones, "address": inp.query_address, "remediable": False},
+            )
+        )
 
     for stmt in (s for s in top if s.name == "controls"):
         for lst in bindconf.inet_listeners(stmt):
@@ -687,9 +704,26 @@ def collect_bind(env: Any) -> BindAuditInput | None:
             rndc_stmts = bindconf.keys(bindconf.parse(Path(kf).read_text(), kf))
         except (OSError, bindconf.ParseError):
             rndc_stmts = []
+    address, refused = _probe_query_access(env, files)
     return BindAuditInput(
-        files=files, rndc_key=controls.get("key"), rndc_key_file=kf, rndc_key_statements=rndc_stmts
+        files=files,
+        rndc_key=controls.get("key"),
+        rndc_key_file=kf,
+        rndc_key_statements=rndc_stmts,
+        query_address=address,
+        query_refused=refused,
     )
+
+
+def _probe_query_access(env: Any, files: bindconf.ConfigFiles) -> tuple[str, list[str]]:
+    """The query address Pelagos uses and the zones named refuses a SOA query for from it."""
+    table = env.remote_bind() or {}
+    address = str(table.get("query_address") or "127.0.0.1")
+    port = int(table.get("query_port") or 53)
+    zones = bindsetup.served_zones(files)
+    if not zones or not bindsetup.named_running(env):
+        return address, []
+    return address, bindsetup.refused_zones(env, address, zones, port)
 
 
 def collect_kea(env: Any) -> KeaAuditInput | None:

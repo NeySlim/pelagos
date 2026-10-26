@@ -105,6 +105,23 @@ def pelagos_state(env: Any, engines: dict[str, EngineDetection]) -> dict[str, An
     }
 
 
+def import_defaults(found: dict[str, Any]) -> tuple[list[str], dict[str, str]]:
+    """Engines import adopts by default (installed, configured, running or enabled) and the others
+    with the reason they are skipped."""
+    selected: list[str] = []
+    skipped: dict[str, str] = {}
+    for engine, d in found.items():
+        if not d["installed"]:
+            continue
+        if not d["config_exists"]:
+            skipped[engine] = "no configuration file"
+        elif d.get("running") or d.get("enabled"):
+            selected.append(engine)
+        else:
+            skipped[engine] = "neither running nor enabled (only the package configuration exists)"
+    return selected, skipped
+
+
 def detect_env(env: Any) -> dict[str, Any]:
     engines = {"bind": detect_bind(env)}
     for engine in keasetup.DAEMONS:

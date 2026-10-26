@@ -142,6 +142,37 @@ class Tools:
         res = self.env.runner.run([*argv, *args], privileged=True, check=False, mutates=False, timeout=30)
         return res.ok, strip_rndc_noise(res.output)
 
+    def soa_answered(self, address: str, port: int, zone: str) -> bool | None:
+        """Whether named answers a SOA query for `zone` at address:port; False when it refuses
+        (allow-query), None when the answer says nothing about access (timeout, SERVFAIL)."""
+        import dns.exception
+        import dns.message
+        import dns.query
+        import dns.rcode
+
+        try:
+            res = dns.query.udp(dns.message.make_query(zone, "SOA"), address, port=port, timeout=3)
+        except (OSError, dns.exception.DNSException):
+            return None
+        if res.rcode() in (dns.rcode.REFUSED, dns.rcode.NOTAUTH):
+            return False
+        return True if res.rcode() in (dns.rcode.NOERROR, dns.rcode.NXDOMAIN) else None
+
+    def local_addresses(self) -> list[str]:
+        """Global IPv4 addresses of this host: a query sent to one of them arrives from it."""
+        res = self.env.runner.run(
+            [self.env.binary("ip") or "ip", "-o", "-4", "addr", "show", "scope", "global"],
+            check=False,
+            mutates=False,
+            timeout=10,
+        )
+        out: list[str] = []
+        for line in res.stdout.splitlines():
+            words = line.split()
+            if "inet" in words and words.index("inet") + 1 < len(words):
+                out.append(words[words.index("inet") + 1].split("/")[0])
+        return out
+
     def http_get(self, url: str, timeout: float = 5.0) -> tuple[int, str]:
         try:
             with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310 - local http only

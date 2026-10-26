@@ -15,6 +15,11 @@ export function stepsFor(mode) {
 }
 
 const installed = (detect, engine) => Boolean(detect?.engines?.[engine]?.installed)
+// Installed but neither running nor enabled (e.g. only the package default config exists).
+const inactive = (detect, engine) => {
+  const e = detect?.engines?.[engine]
+  return Boolean(e?.installed) && e.running === false && e.enabled === false
+}
 
 // What the node needs: nothing installed means install, anything installed means import.
 export function suggestMode(detect) {
@@ -28,12 +33,14 @@ export function engineChoices(mode, detect, modules = {}) {
     if (engine === 'kea6' && modules.dhcpv6 === false) reason = 'module'
     else if (mode === 'install' && installed(detect, engine)) reason = 'installed'
     else if (mode === 'import' && !installed(detect, engine)) reason = 'notInstalled'
-    return { engine, selectable: reason === null, reason }
+    const note = reason === null && mode === 'import' && inactive(detect, engine) ? 'inactive' : null
+    return { engine, selectable: reason === null, reason, note }
   })
 }
 
 export function defaultEngines(mode, detect, modules = {}) {
-  const selectable = engineChoices(mode, detect, modules).filter((c) => c.selectable).map((c) => c.engine)
+  // Import keeps only the daemons that run or are enabled; the others stay selectable but unchecked.
+  const selectable = engineChoices(mode, detect, modules).filter((c) => c.selectable && !c.note).map((c) => c.engine)
   // A fresh install proposes DNS, DHCPv4 and DDNS; DHCPv6 stays opt-in.
   return mode === 'install' ? selectable.filter((e) => e !== 'kea6') : selectable
 }

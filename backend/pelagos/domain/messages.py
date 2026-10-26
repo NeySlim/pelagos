@@ -158,6 +158,14 @@ CATALOG: dict[str, str] = {
     "finding.stats_nonlocal.risk": (
         "Remote collectors of the BIND statistics lose access; Pelagos reads them locally."
     ),
+    "finding.query_refused.description": (
+        "named refuses SOA queries from {address} for {zones}: allow-query excludes the address "
+        "Pelagos queries from."
+    ),
+    "finding.query_refused.proposal": "Add 127.0.0.1 to the allow-query of {zones}",
+    "finding.query_refused.risk": (
+        "Pelagos cannot read these zones through queries or transfers until an allowed address is set."
+    ),
     "finding.allowed.nothing": "nothing",
     "finding.allowed.all": "all",
     "finding.update_without_admin_key.description": (

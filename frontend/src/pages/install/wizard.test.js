@@ -32,6 +32,12 @@ describe('install wizard steps', () => {
     expect(imp.find((c) => c.engine === 'd2').reason).toBe('notInstalled')
   })
 
+  it('import leaves out installed daemons that neither run nor are enabled', () => {
+    const idle = { engines: { ...full.engines, kea6: { installed: true, running: false, enabled: false } } }
+    expect(defaultEngines('import', idle)).toEqual(['bind', 'kea4', 'd2'])
+    expect(engineChoices('import', idle).find((c) => c.engine === 'kea6')).toMatchObject({ selectable: true, note: 'inactive' })
+  })
+
   it('keeps DHCPv6 out when the module is disabled and opt-in for a fresh install', () => {
     expect(engineChoices('install', bare, { dhcpv6: false }).find((c) => c.engine === 'kea6')).toMatchObject({ selectable: false, reason: 'module' })
     expect(defaultEngines('install', bare)).toEqual(['bind', 'kea4', 'd2'])

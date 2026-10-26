@@ -335,12 +335,20 @@ def adopt(env: Any, named_conf: Path, opts: AdoptOptions) -> AdoptResult:
     else:
         out.append("rndc: no usable control channel found; see the security audit")
 
+    query_address = "127.0.0.1"
+    zones = served_zones(files)
+    if zones and named_running(env) and env.remote_bind() is None:
+        query_address, refused = choose_query_address(env, zones)
+        if query_address != "127.0.0.1":
+            out.append(f"query_address {query_address}: allow-query refuses 127.0.0.1 for some zones")
+        elif refused:
+            out.append(f"allow-query refuses SOA from this host for {', '.join(refused)}; see the audit")
     engine_config = {
         "named_conf": str(named_conf),
         "include_dir": str(include_dir),
         "rndc_conf": str(rndc_conf),
         "statistics_url": stats_url or "",
-        "query_address": "127.0.0.1",
+        "query_address": query_address,
         "query_port": 53,
         "group": paths.bind_group,
     }
@@ -449,6 +457,34 @@ def include_setup(env: Any, named_conf: Path, engine_config: dict[str, Any]) -> 
 
 def named_running(env: Any) -> bool:
     return env.services.is_active(env.bind_unit())
+
+
+def served_zones(files: bindconf.ConfigFiles) -> list[str]:
+    """Names of the zones a SOA probe makes sense for (not hints, forwards or the built-in ones)."""
+    from pelagos.installer.zone_audit import BUILTIN_ZONES
+
+    names = {
+        z.name
+        for z in bindconf.zones(list(files.top_level()))
+        if z.kind in ("primary", "master", "secondary", "slave") and z.name not in BUILTIN_ZONES
+    }
+    return sorted(names)
+
+
+def refused_zones(env: Any, address: str, zones: list[str], port: int = 53) -> list[str]:
+    return [z for z in zones if env.t.soa_answered(address, port, z) is False]
+
+
+def choose_query_address(env: Any, zones: list[str], port: int = 53) -> tuple[str, list[str]]:
+    """The address Pelagos queries: loopback unless allow-query refuses it, then the first host
+    address that every zone answers from. The second value lists zones still refused (loopback kept)."""
+    first = refused_zones(env, "127.0.0.1", zones, port)
+    if not first:
+        return "127.0.0.1", []
+    for address in env.t.local_addresses():
+        if not refused_zones(env, address, zones, port):
+            return address, []
+    return "127.0.0.1", first
 
 
 def bind_pipeline(

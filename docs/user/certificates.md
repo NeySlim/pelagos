@@ -87,7 +87,10 @@ and removes it from `cluster.toml`. A key made on the node never travels.
 **ACME server**:
 
 - **Let's Encrypt** and **Let's Encrypt staging** (use staging to try:
-  its certificates are not trusted, its limits are generous);
+  its certificates are not trusted, its limits are generous). The client is
+  tested on every change against Pebble, Let's Encrypt's own test server
+  (DNS-01 on a zone of a real named, 90 day certificates renewed with a
+  third left, nonces rejected at random as Let's Encrypt may);
 - **Private ACME (step-ca, UCM)**: the directory URL (for example
   `https://ca.example.lan/acme/acme/directory`) and the **trust root** used
   to reach the server (PEM, added to the system store);
@@ -131,9 +134,15 @@ another DNS host, either
   CNAME records the setup shows
   (`_acme-challenge.ns1.example.lan. CNAME ns1-example-lan.acme.example.lan.`),
   and the setup grants `ddi-acme` the whole delegation zone; or
-- let the node use the **DNS provider API**: Hetzner DNS (API token from
-  the Hetzner console). **Test** lists the zones the token sees. Providers are
-  modules of `core/webcert/dns01.py`: others can be added the same way.
+- let the node use the **DNS provider API**: Hetzner DNS, through the
+  Hetzner Cloud API (`https://api.hetzner.cloud/v1`), the only DNS API
+  Hetzner has served since the DNS Console API was shut down in May 2026.
+  Create the API token (read and write) in the Hetzner Console project that
+  holds the zone. The node finds the zone by name, adds the TXT record with
+  the `add_records` action of the RRSet, follows the action until it
+  succeeds and removes the record with `remove_records`. **Test** lists the
+  zones the token sees. Providers are modules of `core/webcert/dns01.py`:
+  others can be added the same way.
 
 ### HTTP-01
 
@@ -148,10 +157,17 @@ often taken: forward port 80 to this port, or route
 
 UCM signs a request made on the node; the key never leaves it.
 
-1. In UCM, create an API key (Account, API keys) allowed to upload and sign
-   CSRs and to read certificates (and to revoke them for the option below).
-2. Set **UCM URL**, **API key** and, when UCM's own certificate is not
-   publicly trusted, its **trust root**.
+1. In UCM, create an API key (Account, API keys) with the permissions
+   `read:cas`, `read:templates`, `read:csrs`, `write:csrs`,
+   `read:certificates` and `write:certificates` (the last one signs and
+   revokes); nothing more is needed.
+2. Set **UCM URL**, **API key** and the **trust root**: the root of the CA
+   that signs. UCM's export leaves a self-signed root out of the chain, so
+   the node needs it to check the chain, and it also serves to reach UCM
+   when UCM's own HTTPS certificate comes from that CA. UCM's first HTTPS
+   certificate names an IP address as a DNS name, which no client accepts:
+   give UCM a certificate for its name (or an IP SAN) before using its
+   address.
 3. **Test the connection** lists the CAs and templates: choose the
    **Signing CA**, a **Template** if any, and the **Validity** (365 days by
    default).
@@ -162,9 +178,18 @@ The calls are `POST /api/v2/csrs/upload`, `POST /api/v2/csrs/<id>/sign`,
 `GET /api/v2/certificates/<id>/export?format=pem&include_chain=true` and
 `POST /api/v2/certificates/<id>/revoke`, with the key in `X-API-Key`. A
 signing policy that requires approval in UCM fails the request with that
-message: approve it in UCM, then **Renew now**.
+message: approve it in UCM, then **Renew now**. A revocation queued for
+approval is logged as not done.
 
-UCM also serves ACME: the **Private ACME** profile works with it too.
+UCM also serves ACME: the **Private ACME** profile works with it too
+(directory `https://<ucm>:8443/acme/directory`, no EAB by default). For
+DNS-01 on a zone Pelagos serves, UCM must reach that zone's servers: in UCM,
+ACME settings, set the DNS-01 resolver mode to custom with those servers.
+
+Both were run against UCM 2.245 built from its repository, on a two node
+cluster: one year certificates on every node, forced renewal, the previous
+certificates revoked, the renewal due 30 days before the end, then the
+Private ACME profile with DNS-01 (lab tier, `tests/lab/test_ucm_lab.py`).
 
 ## All nodes at once
 
@@ -194,7 +219,11 @@ seconds. If it does not, the previous files come back.
 
 The web process reloads its TLS context without a restart: new connections
 get the new certificate, connections already open (WebSocket included) keep
-the old one, and sessions stay signed in. A certificate written by hand in
+the old one, and sessions stay signed in. A request still being received
+when the certificate changes completes normally (daemon tier,
+`test_renewal_hot_reload_keeps_inflight_request_and_websocket`: a renewal
+run by the web process while a login body trickles in and a WebSocket is
+open). A certificate written by hand in
 `/etc/pelagos/tls/` is picked up the same way within a second: no
 `systemctl restart` is needed.
 

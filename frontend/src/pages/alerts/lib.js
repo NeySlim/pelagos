@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Alert vocabulary (architecture section 15) and where an alert's subject leads.
 import { crossingTime, valueAt } from '../../components/motion/traceMath'
+import { EXCEPTABLE_KINDS, INCONSISTENCY_KINDS } from './kinds.js'
 
 export const SEVERITIES = ['critical', 'warning', 'info']
 export const STATES = ['open', 'acked', 'resolved']
@@ -13,14 +14,7 @@ export const KINDS = [
   'disk_space', 'file_growth', 'reservation_risk', 'declined_addresses',
   'resolver_health', 'delegation_issue', 'version_mismatch', 'restart_loop', 'pool_forecast', 'security_advisory', 'cert_expiry', 'cert_renewal_failed',
 ]
-export const INCONSISTENCY_KINDS = new Set(['lease_without_record', 'record_without_lease', 'reservation_mismatch', 'ptr_mismatch', 'duplicate_ip'])
-
-// Health and audit checks an admin may keep as they are (backend EXCEPTABLE_KINDS); never an outage.
-export const EXCEPTABLE_KINDS = new Set([
-  'insecure_key', 'insecure_listener', 'custom_hook', 'disk_space', 'file_growth', 'reservation_risk',
-  'declined_addresses', 'resolver_health', 'delegation_issue', 'version_mismatch', 'pool_forecast',
-  'security_advisory', 'clock_unsynchronized', 'cert_expiry',
-])
+export { EXCEPTABLE_KINDS, INCONSISTENCY_KINDS }
 
 // Objects of an alert that can be ignored as the admin's choice (details.exception_keys).
 export function exceptionItems(alert, summary) {

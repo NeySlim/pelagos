@@ -48,7 +48,7 @@ class ExceptionsService:
         if errors:
             raise ValidationError("invalid exception", errors)
         key = str(key).strip()
-        if any(e.get("kind") == kind and e.get("key") == key for e in self.ctx.cluster().exceptions):
+        if _same(self.ctx.cluster().exceptions, kind, key):
             raise Conflict(f"{kind} {key} is already an exception")
         record = {
             "id": new_id(),
@@ -61,9 +61,14 @@ class ExceptionsService:
         }
         if summary:
             record["summary"] = summary
-        self.ctx.config_store.update_cluster(
-            lambda c: c.exceptions.append(dict(record)), updated_by=self._by(actor)
-        )
+
+        # Checked again under the config lock: two concurrent requests never both write it.
+        def add(c: Any) -> None:
+            if _same(c.exceptions, kind, key):
+                raise Conflict(f"{kind} {key} is already an exception")
+            c.exceptions.append(dict(record))
+
+        self.ctx.config_store.update_cluster(add, updated_by=self._by(actor))
         self._audit("alert.exception.add", record, actor, client_ip, comment)
         self._recheck()
         return record
@@ -73,8 +78,13 @@ class ExceptionsService:
         if found is None:
             raise NotFound(f"exception {exception_id}")
 
+        # Every record of that (kind, key) goes: two nodes may each have written one.
         def drop(c: Any) -> None:
-            c.exceptions[:] = [e for e in c.exceptions if e.get("id") != exception_id]
+            c.exceptions[:] = [
+                e
+                for e in c.exceptions
+                if e.get("id") != exception_id and not _same([e], found.get("kind"), found.get("key"))
+            ]
 
         self.ctx.config_store.update_cluster(drop, updated_by=self._by(actor))
         self._audit("alert.exception.revoke", dict(found), actor, client_ip, None)
@@ -105,3 +115,7 @@ class ExceptionsService:
         from pelagos.collector.events import send_signal
 
         send_signal(self.ctx.paths.collector_sock, "consistency")
+
+
+def _same(entries: Any, kind: Any, key: Any) -> bool:
+    return any(e.get("kind") == kind and e.get("key") == key for e in entries)

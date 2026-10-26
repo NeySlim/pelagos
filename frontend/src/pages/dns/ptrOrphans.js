@@ -23,3 +23,8 @@ export function deleteBody(rows) {
 export function createBody(rows) {
   return { create: rows.map((r) => ({ ip: r.ip, target: r.target, ...viewOf(r) })) }
 }
+
+// Exceptions of rows a plan settles: once it applies, the PTR they covered is gone or matches.
+export function settledExceptions(rows) {
+  return [...new Set(rows.filter((r) => r.exception?.id).map((r) => r.exception.id))]
+}

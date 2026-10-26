@@ -52,6 +52,11 @@ function PtrOption({ mode, option, checked, onChange, loading }) {
           {t('editor.ptr.conflict', { ip: c.ip, targets: c.current.join(', ') })}
         </p>
       ))}
+      {!(checked && option.enabled) && !loading && option.stays.length > 0 && (
+        <p className="text-xs status-warning-text" data-testid="record-ptr-stays">
+          {t('editor.ptr.stays', { addresses: option.stays.join(', ') })}
+        </p>
+      )}
       {checked && option.enabled && option.uncovered.length > 0 && (
         <p className="text-xs text-text-tertiary" data-testid="record-ptr-uncovered">
           {t('editor.ptr.uncovered', { addresses: option.uncovered.join(', ') })}
@@ -121,7 +126,12 @@ export function RecordEditor({
 
   // Addresses whose PTR the option would write (or, on delete, remove), looked up after a pause.
   const ptrSubject = mode === 'delete' ? rrset : hasErrors ? null : after
-  const ptrAddresses = ptrSubject && isAddressType(ptrSubject.rtype) ? ptrSubject.rdata || [] : []
+  const subjectAddresses = ptrSubject && isAddressType(ptrSubject.rtype) ? ptrSubject.rdata || [] : []
+  // An edit also looks up the addresses it removes: their PTR goes with the option.
+  const removedAddresses = mode === 'edit' && rrset && isAddressType(rrset.rtype) && subjectAddresses.length
+    ? (rrset.rdata || []).filter((ip) => !subjectAddresses.includes(ip))
+    : []
+  const ptrAddresses = [...subjectAddresses, ...removedAddresses]
   const ptrKey = ptrAddresses.length ? `${ptrSubject.name}|${ptrAddresses.join(',')}` : ''
   const lookupCoverage = async () => {
     try {
@@ -150,7 +160,11 @@ export function RecordEditor({
   }, [open, ptrKey, view])
   // Coverage of other addresses than the form's is stale: never shown, never used.
   const currentCoverage = coverage?.key === ptrKey ? coverage.items : null
-  const ptr = useMemo(() => ptrOption({ mode, before: rrset, coverage: currentCoverage }), [mode, rrset, currentCoverage])
+  const ptr = useMemo(
+    () => ptrOption({ mode, before: rrset, after: subjectAddresses, coverage: currentCoverage }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mode, rrset, currentCoverage, ptrKey],
+  )
 
   const set = (field) => (e) => {
     const value = e?.target ? e.target.value : e
@@ -176,7 +190,7 @@ export function RecordEditor({
       // Submitted before the lookup answered: look the coverage up now, so the option is never lost.
       let option = ptr
       if (ptrKey && ptrChecked !== false && !currentCoverage) {
-        option = ptrOption({ mode, before: rrset, coverage: await lookupCoverage() })
+        option = ptrOption({ mode, before: rrset, after: subjectAddresses, coverage: await lookupCoverage() })
       }
       const ptrOn = Boolean(ptrKey) && ptrChecked !== false && option.enabled
       // A rename deletes the old RRset: its PTR goes with it when the option is on.

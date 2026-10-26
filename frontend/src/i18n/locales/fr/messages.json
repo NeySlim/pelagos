@@ -233,5 +233,6 @@
   "plan.ptr.cleanup": "Nettoyage des PTR : {{deleted}} cibles PTR retirées, {{created}} adresses ajoutées",
   "note.ptr_sync": "PTR dans {{zones}}",
   "note.ptr_overwrite": "le PTR de {{ip}} pointait vers {{targets}} et est remplacé",
+  "note.ptr_kept_elsewhere": "le PTR de {{ip}} pointe vers {{targets}} et reste inchangé",
   "note.ptr_not_covered": "aucune zone inverse servie pour {{addresses}}, PTR non écrit"
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { createBody, deleteBody, filterOrphans, orphanKey } from './ptrOrphans'
+import { createBody, deleteBody, filterOrphans, orphanKey, settledExceptions } from './ptrOrphans'
 import { ptrOption } from './records'
 
 const REV = '2.0.192.in-addr.arpa.'
@@ -40,6 +40,13 @@ describe('orphan PTR helpers', () => {
     expect(createBody([rows[1]])).toEqual({ create: [{ ip: '192.0.2.80', target: 'printer.example.lan.', view: 'inside' }] })
   })
 
+  it('lists the exceptions a plan settles, once each', () => {
+    const ex = { id: '01JBEXC0000000000000000001', comment: 'relay' }
+    const picked = [row('192.0.2.70', 'a.example.lan.', { exception: ex }), row('192.0.2.71', 'b.example.lan.', { exception: ex }), rows[0]]
+    expect(settledExceptions(picked)).toEqual([ex.id])
+    expect(settledExceptions([rows[0]])).toEqual([])
+  })
+
   it('keys a row by view, zone, owner and target', () => {
     expect(orphanKey(rows[0])).toBe('_default|2.0.192.in-addr.arpa.|70.2.0.192.in-addr.arpa.|moved.example.lan.')
     expect(new Set(rows.map(orphanKey)).size).toBe(4)
@@ -71,5 +78,13 @@ describe('ptrOption', () => {
   it('on delete, is on only when a PTR points to the name', () => {
     expect(ptrOption({ mode: 'delete', coverage: [item('192.0.2.10')] })).toMatchObject({ enabled: false, reason: 'noPtrHere' })
     expect(ptrOption({ mode: 'delete', coverage: [item('192.0.2.10', { points_here: true })] }).enabled).toBe(true)
+  })
+  it('in edit, looks at removed addresses too: conflicts and gaps only for kept ones', () => {
+    const coverage = [
+      { ip: '198.51.100.7', covered: false, reason: 'no_reverse_zone' },
+      item('192.0.2.10', { current: ['www.example.lan.'], conflict: true }),
+    ]
+    const opt = ptrOption({ mode: 'edit', before: { name: 'www.example.lan.', rdata: ['192.0.2.10'] }, after: ['198.51.100.7'], coverage })
+    expect(opt).toMatchObject({ enabled: true, conflicts: [], uncovered: ['198.51.100.7'], stays: ['192.0.2.10'] })
   })
 })

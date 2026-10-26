@@ -28,6 +28,7 @@ CATALOG: dict[str, str] = {
     "note.secret_files": "{count} secret files",
     "note.ptr_sync": "PTR in {zones}",
     "note.ptr_overwrite": "the PTR of {ip} pointed to {targets} and is replaced",
+    "note.ptr_kept_elsewhere": "the PTR of {ip} points to {targets} and is left as it is",
     "note.ptr_not_covered": "no reverse zone served for {addresses}, PTR left out",
     # Plan summaries.
     "plan.change": "{op} {target}",

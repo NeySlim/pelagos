@@ -32,7 +32,7 @@ What changed (file, symbol). Why. Which packages must react, and how.
   /alerts/exceptions/{id}`. Audit actions `alert.exception.add` and
   `alert.exception.revoke`.
 - Section 19: message keys `plan.ptr.cleanup`, `note.ptr_sync`,
-  `note.ptr_overwrite`, `note.ptr_not_covered`.
+  `note.ptr_overwrite`, `note.ptr_kept_elsewhere`, `note.ptr_not_covered`.
 
 ## 2026-10-26, WP-INSTALLER: init and enroll listen options, import defaults, query access
 - `pelagos init` and `pelagos enroll` (`cli.py`) take `--web-listen` and

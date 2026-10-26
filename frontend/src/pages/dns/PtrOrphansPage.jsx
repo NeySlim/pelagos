@@ -2,7 +2,7 @@
 // Orphan PTRs: PTR records whose target has no A/AAAA to their address (GET /dns/ptr/orphans).
 // Targets outside the managed zones are listed apart (not verifiable). Each row is deleted, gets
 // its missing address record, or is ignored as the admin's choice; deletes go in one plan.
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowsClockwise, LinkBreak, Trash, Plus, EyeSlash, Eye } from '@phosphor-icons/react'
 import { PageLayout, DataTable, Button, Badge } from '../../components'
@@ -15,7 +15,7 @@ import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { usePlanFlow } from '../dhcp/hooks'
 import { IgnoreDialog } from '../alerts/IgnoreDialog'
-import { CATEGORIES, deleteBody, createBody, filterOrphans, orphanKey } from './ptrOrphans'
+import { CATEGORIES, deleteBody, createBody, filterOrphans, orphanKey, settledExceptions } from './ptrOrphans'
 
 export default function PtrOrphansPage() {
   const { t } = useTranslation(['dns', 'common'])
@@ -31,7 +31,20 @@ export default function PtrOrphansPage() {
     setSelected(new Set())
     list.refetch()
   }
-  const flow = usePlanFlow({ onApplied: reload })
+  // Rows of the plan on screen: their exceptions are revoked once it applies, so none lingers.
+  const planned = useRef([])
+  const settle = async (res) => {
+    const ids = (res?.state || 'applied') === 'applied' && canIgnore ? settledExceptions(planned.current) : []
+    planned.current = []
+    if (ids.length) {
+      const results = await Promise.allSettled(ids.map((id) => api.alerts.revokeException(id)))
+      const failed = results.find((r) => r.status === 'rejected')
+      if (failed) showError(errorMessage(failed.reason))
+      else showSuccess(t('orphans.exceptionsRevoked', { count: ids.length }))
+    }
+    reload()
+  }
+  const flow = usePlanFlow({ onApplied: settle })
   const all = useMemo(() => list.data?.items || [], [list.data])
   const rows = useMemo(() => filterOrphans(all, category), [all, category])
   const counts = list.data?.counts || {}
@@ -49,7 +62,10 @@ export default function PtrOrphansPage() {
   const allChosen = rows.length > 0 && chosen.length === rows.length
   const toggleAll = () => setSelected(allChosen ? new Set() : new Set(rows.map(orphanKey)))
 
-  const plan = (body) => flow.build(() => api.dns.ptrOrphansPlan(body))
+  const plan = (body, rows) => {
+    planned.current = rows
+    return flow.build(() => api.dns.ptrOrphansPlan(body))
+  }
   const revoke = async (row) => {
     try {
       await api.alerts.revokeException(row.exception.id)
@@ -117,13 +133,13 @@ export default function PtrOrphansPage() {
       render: (r) => (
         <span className="inline-flex flex-wrap justify-end gap-1">
           {canWrite && r.fix === 'create_a' && (
-            <Button variant="ghost" size="xs" disabled={flow.building} onClick={() => plan(createBody([r]))} data-testid="orphan-create">
+            <Button variant="ghost" size="xs" disabled={flow.building} onClick={() => plan(createBody([r]), [r])} data-testid="orphan-create">
               <Plus size={14} />
               {t('orphans.create', { rtype: r.rtype })}
             </Button>
           )}
           {canWrite && (
-            <Button variant="ghost" size="xs" disabled={flow.building} onClick={() => plan(deleteBody([r]))} data-testid="orphan-delete">
+            <Button variant="ghost" size="xs" disabled={flow.building} onClick={() => plan(deleteBody([r]), [r])} data-testid="orphan-delete">
               <Trash size={14} />
               {t('orphans.delete')}
             </Button>
@@ -171,7 +187,7 @@ export default function PtrOrphansPage() {
             </Button>
           )}
           {canWrite && chosen.length > 0 && (
-            <Button variant="danger" size="sm" disabled={flow.building} onClick={() => plan(deleteBody(chosen))} data-testid="orphans-delete-selected">
+            <Button variant="danger" size="sm" disabled={flow.building} onClick={() => plan(deleteBody(chosen), chosen)} data-testid="orphans-delete-selected">
               <Trash size={14} />
               {t('orphans.deleteSelected', { count: chosen.length })}
             </Button>

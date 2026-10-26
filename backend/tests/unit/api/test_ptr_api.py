@@ -253,3 +253,83 @@ def test_exceptions_lifecycle(admin, role_client, node_ctx, fake_registry):
     assert node_ctx.cluster().exceptions == []
     actions = [e.action for e in node_ctx.audit_log.read()]
     assert "alert.exception.revoke" in actions
+
+
+DHCID = "AAIBY2/AuCccgoJbsaxcQc9TUapptP69lOjxfNuVAA2kjEA="
+
+
+def test_orphan_delete_takes_the_ddns_dhcid(admin, fake_registry):
+    dns = fake_registry.dns
+    rev = dns.rrsets[REV]
+    rev[(f"80.{REV}", "PTR")] = RRset(f"80.{REV}", "PTR", 300, ["gone.example.lan."])
+    rev[(f"80.{REV}", "DHCID")] = RRset(f"80.{REV}", "DHCID", 300, [DHCID])
+    plan = admin.post(
+        "/api/v1/dns/ptr/orphans/plan",
+        json={"delete": [{"zone": REV, "name": f"80.{REV}", "target": "gone.example.lan."}]},
+    ).get_json()
+    ops = {c["target"]: c["op"] for c in plan["changes"]}
+    assert ops == {f"{REV}/80.{REV}/PTR": "delete", f"{REV}/80.{REV}/DHCID": "delete"}
+    apply(admin, plan, confirm=True)
+    assert (f"80.{REV}", "PTR") not in rev and (f"80.{REV}", "DHCID") not in rev
+
+
+def test_orphan_delete_keeps_dhcid_while_a_ptr_target_stays(admin, fake_registry):
+    dns = fake_registry.dns
+    rev = dns.rrsets[REV]
+    rev[(f"80.{REV}", "PTR")] = RRset(f"80.{REV}", "PTR", 300, ["gone.example.lan.", "pc1.example.lan."])
+    rev[(f"80.{REV}", "DHCID")] = RRset(f"80.{REV}", "DHCID", 300, [DHCID])
+    plan = admin.post(
+        "/api/v1/dns/ptr/orphans/plan",
+        json={"delete": [{"zone": REV, "name": f"80.{REV}", "target": "gone.example.lan."}]},
+    ).get_json()
+    assert [c["target"] for c in plan["changes"]] == [f"{REV}/80.{REV}/PTR"]
+
+
+def test_record_delete_takes_the_ddns_dhcid(admin, fake_registry):
+    dns = fake_registry.dns
+    dns.rrsets[REV][(f"100.{REV}", "DHCID")] = RRset(f"100.{REV}", "DHCID", 300, [DHCID])
+    body = {"changes": [{"op": "delete", "target": "pc1/A"}], "ptr": {"sync": False, "delete": True}}
+    plan = admin.post(ZONE, json=body).get_json()
+    assert f"{REV}/100.{REV}/DHCID" in {c["target"] for c in plan["changes"]}
+    apply(admin, plan)
+    assert (f"100.{REV}", "DHCID") not in dns.rrsets[REV]
+
+
+def test_kept_address_pointing_elsewhere_is_noted(admin, fake_registry):
+    dns = fake_registry.dns
+    dns.rrsets[REV][(f"10.{REV}", "PTR")] = RRset(f"10.{REV}", "PTR", 300, ["web.example.lan."])
+    change = {"op": "replace", "target": "www/A", "after": {"ttl": 600, "rdata": ["192.0.2.10"]}}
+    plan = admin.post(ZONE, json={"changes": [change], "ptr": {"sync": True}}).get_json()
+    assert "web.example.lan." in plan["summary"] and plan["requires_confirmation"] is False
+    change["after"]["rdata"] = ["192.0.2.10", "192.0.2.12"]
+    plan = admin.post(ZONE, json={"changes": [change], "ptr": {"sync": True}}).get_json()
+    assert "web.example.lan." in plan["summary"] and plan["requires_confirmation"] is False
+
+
+def test_exception_duplicate_is_refused_under_the_lock(admin, node_ctx, monkeypatch):
+    from pelagos.services import exceptions_service
+
+    body = {"kind": "duplicate_ip", "key": "192.0.2.31", "comment": "two NICs of one host"}
+    assert admin.post("/api/v1/alerts/exceptions", json=body).status_code == 201
+    # A request that read the file before the first write passes the early check, not the locked one.
+    real = exceptions_service._same
+    calls: list[int] = []
+
+    def racing(entries, kind, key):
+        calls.append(1)
+        return False if len(calls) == 1 else real(entries, kind, key)
+
+    monkeypatch.setattr(exceptions_service, "_same", racing)
+    assert admin.post("/api/v1/alerts/exceptions", json=body).status_code == 409
+    assert len(calls) == 2 and len(node_ctx.cluster().exceptions) == 1
+
+
+def test_revoke_drops_every_record_of_the_pair(admin, node_ctx):
+    def add(c):
+        for i in ("a", "b"):
+            c.exceptions.append({"id": i, "kind": "duplicate_ip", "key": "192.0.2.31", "comment": "c"})
+        c.exceptions.append({"id": "c", "kind": "duplicate_ip", "key": "192.0.2.32", "comment": "c"})
+
+    node_ctx.config_store.update_cluster(add, updated_by="test")
+    assert admin.delete("/api/v1/alerts/exceptions/a").status_code == 204
+    assert [e["id"] for e in node_ctx.cluster().exceptions] == ["c"]

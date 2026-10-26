@@ -91,7 +91,9 @@ Click a zone to open it. Tabs:
   another host is shown in the editor and replaced only for an address the
   record set did not have: the plan then asks for confirmation and its
   checks name the old target. A kept address whose PTR names another host
-  is left alone. With views, the PTR goes to the same view as the records,
+  is left alone, and the plan says so. An edit also looks up the addresses
+  it removes: with the option off, the editor warns when their PTR still
+  names the record. Removing a PTR written by DDNS removes its DHCID too. With views, the PTR goes to the same view as the records,
   as in the host plan. In a record set of several addresses, each address
   gets its own PTR, and a PTR naming several hosts keeps the others.
 - **Status per node**: SOA serial, loaded serial, last loaded, next
@@ -302,6 +304,9 @@ A **DDNS** badge marks a PTR written by Kea (a DHCID sits next to it); its
 lease column shows when the client was last seen, or that the lease is
 gone. **Delete** works on one row or on the selected rows: one plan,
 previewed, confirmed and rolled back as any record plan (`write:dns.records`).
+Deleting the last target of a DDNS PTR also deletes the DHCID next to it,
+so a later DDNS update of that address is not refused. When a fixed row
+was ignored, its exception is revoked once the plan applies.
 
 **Ignore** keeps a PTR as it is on purpose: see
 [Consistency exceptions](screens.md#consistency-exceptions).

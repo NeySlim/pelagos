@@ -202,8 +202,8 @@ export const isAddressType = (rtype) => ADDRESS_TYPES.includes(String(rtype || '
 
 // The editor's PTR option from POST /dns/ptr/coverage items: enabled when a reverse zone served
 // by the cluster covers an address (on delete: when a PTR points to the name), else the reason.
-export function ptrOption({ mode, before, coverage }) {
-  if (!coverage) return { enabled: false, reason: null, conflicts: [], uncovered: [], zones: [] }
+export function ptrOption({ mode, before, after, coverage }) {
+  if (!coverage) return { enabled: false, reason: null, conflicts: [], uncovered: [], zones: [], stays: [] }
   const covered = coverage.filter((i) => i.covered)
   if (mode === 'delete') {
     const pointing = covered.filter((i) => i.points_here)
@@ -213,15 +213,21 @@ export function ptrOption({ mode, before, coverage }) {
       conflicts: [],
       uncovered: [],
       zones: [...new Set(pointing.map((i) => i.reverse_zone))],
+      stays: [],
     }
   }
   const kept = new Set(before?.rdata || [])
+  // Without `after`, every address of the coverage is one the record set will hold.
+  const wanted = after ? new Set(after) : null
+  const isWanted = (i) => !wanted || wanted.has(i.ip)
   return {
     enabled: covered.length > 0,
     reason: covered.length ? null : coverage.find((i) => i.reason)?.reason || 'no_reverse_zone',
     // Only a new address replaces a PTR naming another host; the plan then asks for confirmation.
-    conflicts: covered.filter((i) => i.conflict && !kept.has(i.ip)),
-    uncovered: coverage.filter((i) => !i.covered).map((i) => i.ip),
+    conflicts: covered.filter((i) => i.conflict && !kept.has(i.ip) && isWanted(i)),
+    uncovered: coverage.filter((i) => !i.covered && isWanted(i)).map((i) => i.ip),
     zones: [...new Set(covered.map((i) => i.reverse_zone))],
+    // Removed addresses whose PTR still names the record: left behind when the option is off.
+    stays: covered.filter((i) => !isWanted(i) && (i.current || []).includes(before?.name)).map((i) => i.ip),
   }
 }

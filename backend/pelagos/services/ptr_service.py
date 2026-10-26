@@ -111,6 +111,17 @@ class PtrService:
         rrsets, _node = self.dns.records(zone, view, rtype, name)
         return next((r for r in rrsets if normalize_name(r.name) == name and r.rtype == rtype), None)
 
+    def _dhcid_cleanup(self, zone: str, view: str | None, change: Change) -> list[Change]:
+        """A PTR RRset deleted at a DDNS owner takes its DHCID along: D2 would refuse a later
+        update of that address against a stale DHCID."""
+        if change.op is not ChangeOp.DELETE:
+            return []
+        name = change.target.split("/")[-2]
+        dhcid = self._rrset(zone, view, name, "DHCID")
+        if dhcid is None:
+            return []
+        return [Change(ChangeOp.DELETE, f"{zone}/{name}/DHCID", before=dhcid.to_dict())]
+
     # Coverage -----------------------------------------------------------
 
     def coverage(
@@ -203,6 +214,7 @@ class PtrService:
         zones = self._zones()
         by_zone: dict[str, list[Change]] = {}
         overwritten: list[dict[str, Any]] = []
+        elsewhere: list[dict[str, Any]] = []
         skipped: list[str] = []
         for ip in sorted(set(removals) | set(additions), key=_ip_sort):
             rzone, _reason = self.reverse_zone(ip, rview, zones)
@@ -212,14 +224,18 @@ class PtrService:
                 continue
             name = consistency.reverse_name(ip)
             current = self._rrset(rzone, rview, name, "PTR")
-            change, replaced = _ptr_change(
+            change, replaced, kept = _ptr_change(
                 rzone, name, current, removals.get(ip, set()), additions.get(ip, [])
             )
             if change is not None:
-                by_zone.setdefault(rzone, []).append(change)
+                by_zone.setdefault(rzone, []).extend([change, *self._dhcid_cleanup(rzone, rview, change)])
             if replaced:
                 overwritten.append({"ip": ip, "targets": replaced})
+            if kept:
+                elsewhere.append({"ip": ip, "targets": kept})
         if not by_zone:
+            for item in elsewhere:
+                messages.add_note(forward, "summary", messages.msg("note.ptr_kept_elsewhere", **item))
             if skipped:
                 messages.add_note(forward, "summary", messages.msg("note.ptr_not_covered", addresses=skipped))
             return self.ctx.plan_store.put(forward)
@@ -233,6 +249,8 @@ class PtrService:
         plan = self._combine(summary, parts, created_by)
         for item in overwritten:
             messages.add_note(plan, "summary", messages.msg("note.ptr_overwrite", **item))
+        for item in elsewhere:
+            messages.add_note(plan, "summary", messages.msg("note.ptr_kept_elsewhere", **item))
         if skipped:
             messages.add_note(plan, "summary", messages.msg("note.ptr_not_covered", addresses=skipped))
         if overwritten:
@@ -362,9 +380,10 @@ class PtrService:
             current = self._rrset(zone, view, name, "PTR")
             if current is None:
                 continue
-            change, _replaced = _ptr_change(zone, name, current, targets, [])
+            change, _replaced, _kept = _ptr_change(zone, name, current, targets, [])
             if change is not None:
-                by_zone.setdefault((zone, view), []).append(change)
+                cleanup = self._dhcid_cleanup(zone, view, change)
+                by_zone.setdefault((zone, view), []).extend([change, *cleanup])
         zones = self._zones() if add else []
         for (view, target, rtype), ips in sorted(
             add.items(), key=lambda kv: (kv[0][0] or "", kv[0][1], kv[0][2])
@@ -445,13 +464,14 @@ def _ptr_change(
     current: RRset | None,
     remove: set[str],
     add: list[tuple[str, int, bool]],
-) -> tuple[Change | None, list[str]]:
-    """The change of one PTR RRset and the targets a new address replaced. Removed targets go first;
-    a target added for a new address replaces the others, one for a kept address only fills an
-    empty RRset."""
+) -> tuple[Change | None, list[str], list[str]]:
+    """The change of one PTR RRset, the targets a new address replaced and the targets left in
+    place for a kept address. Removed targets go first; a target added for a new address replaces
+    the others, one for a kept address only fills an empty RRset."""
     have = [normalize_name(v) for v in (current.rdata if current else [])]
     want = [t for t in have if t not in remove]
     replaced: list[str] = []
+    kept: list[str] = []
     ttl = current.ttl if current else None
     for owner, owner_ttl, new in add:
         if owner in want:
@@ -463,16 +483,20 @@ def _ptr_change(
             want.append(owner)
         elif not want:
             want.append(owner)
+        else:
+            kept += [t for t in want if t not in kept]
+            continue
         ttl = ttl or owner_ttl
+    kept = [t for t in kept if t in want and t not in {o for o, _t, _n in add}]
     if sorted(want) == sorted(have):
-        return None, []
+        return None, [], kept
     target = f"{zone}/{name}/PTR"
     before = current.to_dict() if current else None
     if not want:
-        return Change(ChangeOp.DELETE, target, before=before), replaced
+        return Change(ChangeOp.DELETE, target, before=before), replaced, kept
     after = {"name": name, "rtype": "PTR", "ttl": ttl or 3600, "rdata": want}
     op = ChangeOp.REPLACE if current else ChangeOp.ADD
-    return Change(op, target, before=before, after=after), replaced
+    return Change(op, target, before=before, after=after), replaced, kept
 
 
 def _ips(rrset: Any) -> set[str]:

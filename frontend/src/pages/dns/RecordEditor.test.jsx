@@ -66,6 +66,24 @@ describe('RecordEditor PTR option', () => {
   const lookupFn = () => vi.fn().mockResolvedValue({ items: [] })
   const planFn = () => vi.fn().mockImplementation(async (_zone, changes) => makePlan(changes))
 
+  it('on edit, the PTR of a removed address is removed even when the new one is not covered', async () => {
+    const rrset = { name: 'www.example.lan.', rtype: 'A', ttl: 3600, rdata: ['192.0.2.10'] }
+    const coverageFn = vi.fn().mockResolvedValue({
+      items: [{ ip: '198.51.100.7', covered: false, reason: 'no_reverse_zone', current: [] }, covered('192.0.2.10', ['www.example.lan.'])],
+    })
+    const plan = planFn()
+    render(<RecordEditor open zone="example.lan." mode="edit" rrset={rrset} planFn={plan} lookupFn={vi.fn()} coverageFn={coverageFn} onClose={vi.fn()} />)
+    fill('record-rdata', '198.51.100.7')
+    await waitFor(() => expect(screen.getByTestId('record-ptr-sync')).toBeChecked())
+    expect(coverageFn).toHaveBeenLastCalledWith({ addresses: ['198.51.100.7', '192.0.2.10'], name: 'www.example.lan.' })
+    fireEvent.click(screen.getByTestId('record-ptr-sync'))
+    expect(screen.getByTestId('record-ptr-stays')).toHaveTextContent('192.0.2.10')
+    fireEvent.click(screen.getByTestId('record-ptr-sync'))
+    submit()
+    await waitFor(() => expect(plan).toHaveBeenCalled())
+    expect(plan.mock.calls[0][3]).toEqual({ sync: true, delete: true })
+  })
+
   it('is checked when a reverse zone covers the address and goes in the same plan', async () => {
     const coverageFn = vi.fn().mockResolvedValue({ items: [covered('192.0.2.80')] })
     const plan = planFn()

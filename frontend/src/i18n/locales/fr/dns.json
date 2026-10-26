@@ -181,6 +181,7 @@
       "in": "Dans {{zones}}, même plan que les enregistrements",
       "checking": "Recherche de la zone inverse",
       "conflict": "Le PTR de {{ip}} pointe vers {{targets}} : il est remplacé, le plan demande confirmation",
+      "stays": "Le PTR de {{addresses}} nomme encore cet enregistrement et reste en place",
       "uncovered": "Aucune zone inverse servie pour {{addresses}} : pas de PTR écrit pour elles",
       "reasons": {
         "no_reverse_zone": "Aucune zone inverse servie par le cluster ne couvre cette adresse",
@@ -656,6 +657,7 @@
     "delete": "Supprimer",
     "ignore": "Ignorer",
     "unignore": "Ne plus ignorer",
+    "exceptionsRevoked": "Exceptions révoquées avec la correction : {{count}}",
     "unignored": "Exception révoquée",
     "deleteSelected": "Supprimer {{count}} PTR",
     "ignoreSelected": "Ignorer {{count}}",

@@ -181,6 +181,7 @@
       "in": "In {{zones}}, same plan as the records",
       "checking": "Looking for the reverse zone",
       "conflict": "The PTR of {{ip}} points to {{targets}}: it is replaced, the plan asks for confirmation",
+      "stays": "The PTR of {{addresses}} still names this record and stays as it is",
       "uncovered": "No reverse zone served for {{addresses}}: no PTR written for them",
       "reasons": {
         "no_reverse_zone": "No reverse zone served by the cluster covers this address",
@@ -656,6 +657,7 @@
     "delete": "Delete",
     "ignore": "Ignore",
     "unignore": "Stop ignoring",
+    "exceptionsRevoked": "Exceptions revoked with the fix: {{count}}",
     "unignored": "Exception revoked",
     "deleteSelected": "Delete {{count}} PTR",
     "ignoreSelected": "Ignore {{count}}",

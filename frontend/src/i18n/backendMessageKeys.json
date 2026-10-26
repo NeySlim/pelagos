@@ -480,6 +480,10 @@
   ],
   "job.step.verify": [],
   "note.no_difference": [],
+  "note.ptr_kept_elsewhere": [
+    "ip",
+    "targets"
+  ],
   "note.ptr_not_covered": [
     "addresses"
   ],

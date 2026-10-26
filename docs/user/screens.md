@@ -169,7 +169,9 @@ object while it exists; the open alert resolves at the next pass.
 
 **Alerts, Exceptions** lists them by kind, object, comment, author and
 date; **Revoke** (`write:alerts`, audited `alert.exception.revoke`) lets
-the check raise again. Each check has its own object: an (address, name)
+the check raise again; it removes every record of that object, should two
+nodes have added the same one at once. Fixing an ignored orphan PTR from
+its page revokes its exception after the apply. Each check has its own object: an (address, name)
 pair for `ptr_mismatch`, the host name for `lease_without_record`, the
 owner and type for `record_without_lease`, the reservation and address
 for `reservation_mismatch`, the address for `duplicate_ip`.

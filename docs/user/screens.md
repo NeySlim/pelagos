@@ -130,8 +130,8 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 | `ha_degraded` | warning | an HA server outside its normal states, outside a maintenance |
 | `ha_partner_down` | critical | state `partner-down`, or partner not in touch |
 | `ha_transition` | info | an HA state change |
-| `ha_terminated` | critical | an HA server in `terminated`, with the probable cause (clock skew, configuration, partner); repaired from the HA page ([DHCP](dhcp.md#repair-an-ha-in-terminated)) |
-| `clock_skew` | warning, critical | a peer's clock at least `alerts_clock_skew_warning_seconds` (critical: `alerts_clock_skew_critical_seconds`) off this node's, the measurement's margin subtracted |
+| `ha_terminated` | critical | an HA server in `terminated`, with the probable cause (clock skew, configuration, partner; "the clocks agree now" once NTP is fixed and only the repair is left); repaired from the HA page ([DHCP](dhcp.md#repair-an-ha-in-terminated)) |
+| `clock_skew` | warning, critical | a peer's clock at least `alerts_clock_skew_warning_seconds` (critical: `alerts_clock_skew_critical_seconds`) off this node's, the measurement's margin subtracted; kept at its last reading while the peer is out of reach |
 | `clock_unsynchronized` | warning | a node reports that NTP does not discipline its clock (timedatectl, chrony) or that no time service runs |
 | `d2_errors` | warning | D2 error rate over the last hour above `alerts_d2_error_rate` |
 | `daemon_down` | critical | a local engine does not answer |

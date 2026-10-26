@@ -136,8 +136,7 @@ cause, `clock_skew` and `clock_unsynchronized` for the clocks.
 
 By hand: fix the clocks, then `systemctl restart kea-dhcp4-server` (the unit
 name depends on the distribution) on one server, then on the other. A
-restarted server waits in `waiting` until its partner restarts too, and
-goes back to `terminated` after 10 minutes if it does not.
+restarted server stays in `waiting` until its partner restarts too.
 
 ## Permissions on zone and Kea files
 

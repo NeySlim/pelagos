@@ -72,6 +72,10 @@
     "partner",
     "seconds"
   ],
+  "alert.ha_cause.clock_skew_fixed": [
+    "partner",
+    "seconds"
+  ],
   "alert.ha_cause.config": [],
   "alert.ha_cause.node_clock": [
     "node",

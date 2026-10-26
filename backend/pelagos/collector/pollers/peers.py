@@ -211,6 +211,18 @@ class PeersPoller:
                 node.config_version = last[1].get("config_version")
                 node.audit_count = last[1].get("audit_count")
             self._node_event(node, out)
+            # The skew that may have terminated HA stays raised while the node is out of reach.
+            clock = self.store.snapshot(peer.id, "node", "clock")
+            if clock is not None and isinstance(clock[1], dict) and clock[1].get("offset") is not None:
+                payload = clock[1]
+                self._skew_alert(
+                    peer,
+                    payload["offset"],
+                    payload.get("uncertainty") or 0.0,
+                    payload.get("ntp"),
+                    out,
+                    clock[0],
+                )
             return
         self.store.write_snapshot(
             peer.id,
@@ -282,33 +294,45 @@ class PeersPoller:
             "reference": self.self_id,
         }
         self.store.write_snapshot(peer.id, "node", "clock", now, payload)
-        severity = clock_mod.skew_severity(
-            clock_mod.skew_floor(status.clock_offset, uncertainty), self.settings
-        )
+        self._skew_alert(peer, status.clock_offset, uncertainty, status.ntp, out)
+
+    def _skew_alert(
+        self,
+        peer: Peer,
+        offset: float,
+        uncertainty: float,
+        ntp: dict[str, Any] | None,
+        out: PollOutcome,
+        measured_at: int | None = None,
+    ) -> None:
+        """clock_skew when the offset passes a threshold; `measured_at` marks a last known reading
+        of a node out of reach."""
+        severity = clock_mod.skew_severity(clock_mod.skew_floor(offset, uncertainty), self.settings)
         if severity is None:
             return
         mine = self._self_ntp
         suspect = None
-        if rules.ntp_unsynchronized(status.ntp) and not rules.ntp_unsynchronized(mine):
+        if rules.ntp_unsynchronized(ntp) and not rules.ntp_unsynchronized(mine):
             suspect = peer.id
-        elif rules.ntp_unsynchronized(mine) and not rules.ntp_unsynchronized(status.ntp):
+        elif rules.ntp_unsynchronized(mine) and not rules.ntp_unsynchronized(ntp):
             suspect = self.self_id
         thresholds = {
             "warning_seconds": float(self.settings.get("alerts_clock_skew_warning_seconds", 5)),
             "critical_seconds": float(self.settings.get("alerts_clock_skew_critical_seconds", 30)),
         }
-        out.alerts.append(
-            rules.clock_skew(
-                peer.id,
-                peer.name,
-                self._self_name or self.self_id,
-                status.clock_offset,
-                uncertainty,
-                severity,
-                thresholds,
-                suspect,
-            )
+        alert = rules.clock_skew(
+            peer.id,
+            peer.name,
+            self._self_name or self.self_id,
+            offset,
+            uncertainty,
+            severity,
+            thresholds,
+            suspect,
         )
+        if measured_at is not None:
+            alert.details["measured_at"] = measured_at
+        out.alerts.append(alert)
 
     def _node_event(self, node: Node, out: PollOutcome) -> None:
         """`nodes`/`status` when a peer comes, goes or changes; `system`/`replication` when its

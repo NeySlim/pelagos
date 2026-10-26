@@ -1229,16 +1229,20 @@ class DhcpService:
     def _repair_clock_checks(
         self, order: list[str], involved: list[HAState], names: dict[str, str]
     ) -> list[ValidationResult]:
-        """One `clock` validation per node of the repair: its clock against this node's, from the
-        latest status exchange (this node is the reference)."""
+        """One `clock` validation per node of the repair: its clock against this node's, from a
+        fresh status exchange (this node is the reference), plus one on the spread between them
+        (Kea measures the skew pairwise)."""
         settings = self.ctx.settings()
         out: list[ValidationResult] = []
+        measured: list[tuple[str, float, float]] = []
         for node_id in order:
             name = names.get(node_id, node_id)
             if node_id == self.ctx.node.id:
                 offset, uncertainty = 0.0, 0.0
             else:
                 peer = self.peers.peer(node_id)
+                # The cached status may predate the NTP fix the repair follows.
+                self.peers.forget(node_id)
                 status = self.peers.status(peer) if peer is not None else None
                 if status is None or status.clock_offset is None:
                     out.append(
@@ -1248,6 +1252,7 @@ class DhcpService:
                     )
                     continue
                 offset, uncertainty = status.clock_offset, status.clock_uncertainty or 0.0
+            measured.append((name, offset, uncertainty))
             floor = clock_mod.skew_floor(offset, uncertainty)
             if clock_mod.skew_severity(floor, settings) is not None:
                 out.append(
@@ -1260,6 +1265,19 @@ class DhcpService:
                 )
             else:
                 out.append(ValidationResult(ok=True, tool="clock", output=f"{name}: clock {offset:+.1f} s"))
+        if len(measured) >= 2 and all(v.ok for v in out):
+            low = min(measured, key=lambda m: m[1])
+            high = max(measured, key=lambda m: m[1])
+            spread = clock_mod.skew_floor(high[1] - low[1], high[2] + low[2])
+            if clock_mod.skew_severity(spread, settings) is not None:
+                out.append(
+                    ValidationResult(
+                        ok=False,
+                        tool="clock",
+                        output=f"{high[0]}: clock {high[1] - low[1]:+.1f} s off {low[0]}:"
+                        " synchronize the clocks (NTP) first, a restart would terminate again",
+                    )
+                )
         stale = [
             f"{s.server_name}: Kea last measured {s.partner.clock_skew} s with its partner"
             for s in involved

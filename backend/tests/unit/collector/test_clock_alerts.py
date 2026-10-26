@@ -182,3 +182,50 @@ def test_kea_poller_raises_ha_terminated_instead_of_degraded(store):
     store.write_snapshot(PEER, "node", "clock", 1, {"name": "ns2", "offset": 64.0, "uncertainty": 0.02})
     alert = next(a for a in p.poll().alerts if a.kind is AlertKind.HA_TERMINATED)
     assert alert.details["cause"] == "clock_skew" and alert.details["cause_details"]["source"] == "nodes"
+
+
+def test_clock_skew_stays_raised_while_the_peer_is_out_of_reach(store):
+    client = SkewedClient()
+    p = poller(store, client)
+    client.offset = 75.0
+    measured = p.clock.now
+    assert any(a.kind is AlertKind.CLOCK_SKEW for a in p.poll().alerts)
+    client.reachable[PEER] = False
+    for _ in range(4):
+        p.clock.now += 30
+        out = p.poll()
+    skew = next(a for a in out.alerts if a.kind is AlertKind.CLOCK_SKEW)
+    assert skew.severity is Severity.CRITICAL and skew.details["measured_at"] == measured
+    assert any(a.kind is AlertKind.PEER_OFFLINE for a in out.alerts)
+    # Back in reach with NTP fixed: the fresh reading resolves it.
+    client.reachable[PEER], client.offset = True, 0.1
+    assert not any(a.kind is AlertKind.CLOCK_SKEW for a in p.poll().alerts)
+
+
+def test_kea_skew_is_marked_fixed_once_the_node_clocks_agree(store):
+    ha = ha_state_from_status(NODE, Family.V4, TERMINATED_STATUS)
+    found = rules.terminated_cause(ha, [], False, 5, clocks_agree=True)
+    assert found["cause"] == "clock_skew" and found["details"]["fixed"] is True
+    assert messages.render(found["message"]) == (
+        "clock skew of 75 s with server2 before it terminated, the clocks agree now: repair HA"
+    )
+
+    kea = FakeDhcpBackend()
+    kea.ha = ha
+    clock = Clock()
+    p = KeaPoller(kea, NODE, store, {**SETTINGS, "collector": {"peer_poll_seconds": 30}}, clock)
+    partner = {**ha.to_dict(), "server_name": "server2", "role": "standby"}
+    store.write_snapshot(PEER, "kea4", "ha", clock.now, partner)
+    agreed = {"name": "ns2", "offset": 0.4, "uncertainty": 0.01, "reference": NODE}
+    store.write_snapshot(PEER, "node", "clock", clock.now - 20, agreed)
+    alert = next(a for a in p.poll().alerts if a.kind is AlertKind.HA_TERMINATED)
+    assert alert.details["cause_details"]["fixed"] is True
+    assert alert.title.endswith("the clocks agree now: repair HA")
+    # A reading older than three peer polls proves nothing: Kea's skew stands as measured.
+    store.write_snapshot(PEER, "node", "clock", clock.now - 200, agreed)
+    alert = next(a for a in p.poll().alerts if a.kind is AlertKind.HA_TERMINATED)
+    assert alert.details["cause_details"]["fixed"] is False
+    assert alert.title == "kea4 HA is terminated on server1: clock skew of 75 s with server2"
+    store.write_snapshot(PEER, "node", "clock", clock.now, {**agreed, "offset": 64.0})
+    alert = next(a for a in p.poll().alerts if a.kind is AlertKind.HA_TERMINATED)
+    assert alert.details["cause_details"]["fixed"] is False

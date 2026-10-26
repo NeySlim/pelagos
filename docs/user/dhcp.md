@@ -272,21 +272,24 @@ shows that skew too ("clock +75 s (Kea)").
    offset against the node you are on and its NTP state (`clock_skew` and
    `clock_unsynchronized` alerts, see [Screens](screens.md)). Kea's own
    reading stays at its last value while the HA service is terminated:
-   trust the Nodes page once NTP is back.
+   trust the Nodes page once NTP is back (the alert then says the clocks
+   agree now).
 2. "Repair HA" on the banner (`ops:dhcp.ha`) builds a plan that checks the
-   node clocks first (a node off by `alerts_clock_skew_warning_seconds` or
-   more fails the plan: a restart would terminate again), then restarts the
+   node clocks first, read afresh (a node off by
+   `alerts_clock_skew_warning_seconds` or more, or two nodes that far apart,
+   fail the plan: a restart would terminate again), then restarts the
    HA service of each active server one after the other, the primary last.
    The restart is a `config-reload`, which reloads the hook libraries and
-   starts the HA service afresh like a restart of the daemon; `ha-reset` is
-   not enough, the state machine terminates again on the skew it measured
-   before. The plan is refused while a Kea file differs from the running
+   starts the HA service afresh like a restart of the daemon (checked on
+   Kea 3; on Kea 2.6, restart the daemons by hand if the plan fails);
+   `ha-reset` is not enough, the state machine terminates again on the skew
+   it measured before. The plan is refused while a Kea file differs from the running
    configuration (the reload would load the file).
 3. Each server leaves `terminated` (`waiting`), the last one waits until
    both serve again (`hot-standby` or `load-balancing`, about a minute,
    leases synchronized from the partner). The plan's steps show each
    server; a server that does not come back within 3 minutes fails it with
-   its current state. Nothing to roll back: a rollback leaves the servers as
+   its current state and the manual fallback below. Nothing to roll back: a rollback leaves the servers as
    they are.
 
 Without Pelagos, the same repair is: fix the clocks, then restart

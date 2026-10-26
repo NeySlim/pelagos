@@ -11,6 +11,7 @@
   "alert.duplicate_reservation": "{{ip}} est réservée deux fois",
   "alert.ha_backup_out_of_sync": "Le serveur de secours HA {{server}} de {{engine}} est désynchronisé de {{reference}} ({{count}} baux diffèrent)",
   "alert.ha_cause.clock_skew": "décalage d'horloge de {{seconds}} s avec {{partner}}",
+  "alert.ha_cause.clock_skew_fixed": "décalage d'horloge de {{seconds}} s avec {{partner}} avant l'arrêt, les horloges concordent maintenant : réparer la HA",
   "alert.ha_cause.config": "la configuration HA diffère entre les serveurs",
   "alert.ha_cause.node_clock": "l'horloge du nœud {{node}} est décalée de {{seconds}} s",
   "alert.ha_cause.partner": "{{partner}} est injoignable",

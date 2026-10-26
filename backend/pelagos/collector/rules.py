@@ -184,22 +184,30 @@ def pool_alerts(
 
 
 def terminated_cause(
-    ha: HAState, node_skews: list[dict[str, Any]], config_divergent: bool, warning_seconds: float = 5
+    ha: HAState,
+    node_skews: list[dict[str, Any]],
+    config_divergent: bool,
+    warning_seconds: float = 5,
+    clocks_agree: bool = False,
 ) -> dict[str, Any]:
     """Probable cause of an HA service in `terminated`: {"cause", "message", "details"}.
 
     Kea terminates when the partners' clocks drift 60 s apart, so clock skew comes first: the
     partner's skew Kea measured (status-get `clock-skew`), else a node clock Pelagos measured
     (`node_skews`: {"node_id", "name", "offset", "floor"}); then a configuration that differs
-    between the servers, then a partner out of reach; "unknown" otherwise."""
+    between the servers, then a partner out of reach; "unknown" otherwise.
+
+    Kea keeps its last reading while terminated: `clocks_agree` (fresh node clocks below the
+    warning) marks it fixed, the servers then only need the HA repair."""
     partner = ha.partner
     other = partner_name(ha) or messages.msg("common.the_partner")
     kea_skew = partner.clock_skew if partner is not None else None
     if kea_skew is not None and abs(kea_skew) >= warning_seconds:
+        key = "alert.ha_cause.clock_skew_fixed" if clocks_agree else "alert.ha_cause.clock_skew"
         return {
             "cause": "clock_skew",
-            "message": messages.msg("alert.ha_cause.clock_skew", partner=other, seconds=abs(kea_skew)),
-            "details": {"source": "kea", "partner": other, "clock_skew": kea_skew},
+            "message": messages.msg(key, partner=other, seconds=abs(kea_skew)),
+            "details": {"source": "kea", "partner": other, "clock_skew": kea_skew, "fixed": clocks_agree},
         }
     skewed = [s for s in node_skews if (s.get("floor") or 0) >= warning_seconds]
     if skewed:

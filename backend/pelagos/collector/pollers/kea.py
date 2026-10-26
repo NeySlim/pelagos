@@ -35,6 +35,7 @@ from pelagos.collector.kea_shared import shared_hashes
 from pelagos.collector.pollers import PollOutcome, engine_filter
 from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend
+from pelagos.connectors.kea.ha import partner_name
 from pelagos.core import clock as clock_mod
 from pelagos.core.keadoc import DEFAULT_CWD, KeaDocument, KeaFileUnreadable
 from pelagos.core.keafile import (
@@ -463,7 +464,33 @@ class KeaPoller:
         divergent = False
         if len(payloads) > 1 and all("relationships" in p for p in payloads.values()):
             divergent = bool(divergent_nodes(payloads)[0])
-        return rules.terminated_cause(ha, skews, divergent, warning)
+        return rules.terminated_cause(ha, skews, divergent, warning, self.partner_clock_agrees(ha, warning))
+
+    def partner_clock_agrees(self, ha: HAState, warning: float) -> bool:
+        """True when every node serving the partner has a fresh clock reading (peers poller, this
+        node as reference) below `warning`: Kea's clock-skew then predates an NTP fix."""
+        other = partner_name(ha)
+        nodes = [
+            s["node_id"]
+            for s in self.store.snapshots(engine=self.engine.value)
+            if s["kind"] == "ha"
+            and s["node_id"] != self.node_id
+            and isinstance(s["payload"], dict)
+            and other is not None
+            and s["payload"].get("server_name") == other
+        ]
+        fresh = 3 * float((self.settings.get("collector") or {}).get("peer_poll_seconds", 30))
+        now = self.clock()
+        for node_id in nodes:
+            snap = self.store.snapshot(node_id, "node", "clock")
+            if snap is None or now - snap[0] > fresh or not isinstance(snap[1], dict):
+                return False
+            if snap[1].get("reference") not in (None, self.node_id):
+                return False
+            floor = clock_mod.skew_floor(snap[1].get("offset"), snap[1].get("uncertainty"))
+            if floor is None or floor >= warning:
+                return False
+        return bool(nodes)
 
     def ha_events(self, ha: HAState, out: PollOutcome) -> None:
         """`state` when the server's or its partner's state or contact changed, `unsent` when only the

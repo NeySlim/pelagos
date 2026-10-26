@@ -1073,7 +1073,8 @@ class KeaBackend(DhcpBackend):
             if time.monotonic() >= deadline:
                 raise ConnectorError(
                     f"HA of {state.server_name} still {state.state} after {seconds:.0f} s"
-                    f" (partner {state.partner.state if state.partner else 'unknown'})"
+                    f" (partner {state.partner.state if state.partner else 'unknown'}):"
+                    " restart the Kea daemon on both servers by hand, this one last"
                 )
             time.sleep(HA_POLL_SECONDS)
 

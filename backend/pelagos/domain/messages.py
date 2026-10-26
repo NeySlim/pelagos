@@ -103,6 +103,8 @@ CATALOG: dict[str, str] = {
     ),
     "alert.ha_terminated": "{engine} HA is terminated on {server}: {cause}",
     "alert.ha_cause.clock_skew": "clock skew of {seconds} s with {partner}",
+    "alert.ha_cause.clock_skew_fixed": "clock skew of {seconds} s with {partner} before it terminated,"
+    " the clocks agree now: repair HA",
     "alert.ha_cause.node_clock": "clock of node {node} is {seconds} s off",
     "alert.ha_cause.config": "the HA configuration differs between the servers",
     "alert.ha_cause.partner": "{partner} is out of reach",

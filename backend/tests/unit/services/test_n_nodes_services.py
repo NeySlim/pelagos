@@ -244,6 +244,41 @@ def test_ha_repair_refuses_while_a_node_clock_is_off(four, monkeypatch):
     assert [v.ok for v in plan.validations if v.tool == "clock"] == [False, True]
 
 
+def test_ha_repair_reads_the_clocks_afresh(four):
+    dhcp, _ = four.dhcp(0)
+    _, ns2, *_ = four.nodes
+    _terminate_pair(four)
+    peer = dhcp.peers.peer(ns2.id)
+    dhcp.peers.cache_seconds = 3600
+    # A status cached before NTP was fixed must not fail the plan.
+    stale = dhcp.peers.status(peer)
+    stale.clock_offset, stale.clock_uncertainty = 75.0, 0.01
+    assert dhcp.peers.status(peer).clock_offset == 75.0
+    plan = dhcp.plan("ha_repair", {}, "alice")
+    assert plan.state is PlanState.VALIDATED, plan.error
+
+
+def test_ha_repair_refuses_nodes_apart_from_each_other(four, monkeypatch):
+    dhcp, _ = four.dhcp(2)  # built on ns3, which is not in the repair
+    ns1, ns2, *_ = four.nodes
+    _terminate_pair(four)
+    real = dhcp.peers.status
+    offsets = {ns1.id: 4.5, ns2.id: -4.5}
+
+    def skewed(peer):
+        status = real(peer)
+        if peer.id in offsets:
+            status.clock_offset, status.clock_uncertainty = offsets[peer.id], 0.01
+        return status
+
+    monkeypatch.setattr(dhcp.peers, "status", skewed)
+    plan = dhcp.plan("ha_repair", {}, "alice")
+    # Each within 5 s of ns3, yet 9 s apart: Kea measures the pair.
+    assert plan.state is PlanState.FAILED
+    assert plan.error.startswith("ns1: clock +9.0 s off ns2: synchronize the clocks (NTP) first")
+    assert [v.ok for v in plan.validations if v.tool == "clock"] == [True, True, False]
+
+
 def test_maintenance_cancel_finds_the_partner_when_the_server_is_down(four):
     dhcp, _ = four.dhcp(2)
     ns1, ns2, *_ = four.nodes

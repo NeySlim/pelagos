@@ -151,13 +151,13 @@ def test_big_audit_log_and_backups_raise_file_growth(rig, monkeypatch):
 def test_version_mismatch_between_kea_peers_and_advisory_for_an_old_bind(rig):
     collector, _, _ = rig
     node = collector.node_id
-    for who, version in ((node, "2.6.3"), (PEER, "3.0.1")):
+    for who, version in ((node, "2.6.5"), (PEER, "3.0.3")):
         collector.store.write_snapshot(who, "kea4", "capabilities", 1, {"running": True, "version": version})
     collector.store.write_snapshot(node, "bind", "capabilities", 1, {"running": True, "version": "9.18.10"})
     collector.health()
     assert open_of(collector, AlertKind.VERSION_MISMATCH)["kea4:version"].node_id is None
     assert "bind:CVE-2023-50387" in open_of(collector, AlertKind.SECURITY_ADVISORY)
-    collector.store.write_snapshot(node, "bind", "capabilities", 2, {"running": True, "version": "9.20.26"})
+    collector.store.write_snapshot(node, "bind", "capabilities", 2, {"running": True, "version": "9.20.30"})
     collector.health()
     assert open_of(collector, AlertKind.SECURITY_ADVISORY) == {}
 

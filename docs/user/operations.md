@@ -221,20 +221,39 @@ collector restarts and judge only after a full window.
 ### Security advisories
 
 `security_advisory` alerts compare the installed BIND and Kea versions with
-`backend/pelagos/data/isc_advisories.json` (shipped with Pelagos). Distribution
-packages often carry a fix without changing the version: read the vendor
-changelog before acting, and acknowledge the alert when the fix is there.
+`backend/pelagos/data/isc_advisories.json` (shipped with Pelagos). The check
+works on the **upstream** version only. Distributions (Debian, Ubuntu, RHEL
+and others) backport security fixes without changing the upstream version, so
+`9.20.26-1~deb13u1` may already be fixed for a CVE that ISC lists for 9.20.26.
+Before acting, look the CVE up in your distribution's security tracker (for
+Debian, `https://security-tracker.debian.org/tracker/<CVE id>`) and compare
+with the installed package version; when the fix is there, acknowledge the
+alert or add an exception. Pelagos does not query distribution trackers
+itself: nodes may be offline and the trackers are large.
+
+The file holds one entry per ISC advisory that affects BIND 9.18 or later, or
+Kea 2.4 or later: `id` (CVE), `engine` (`bind` or `kea`), `severity` and
+`cvss` as published by ISC, `summary`, `source` (the ISC advisory on
+`kb.isc.org`), `ranges` (open source edition: `from` and `to` inclusive,
+`fixed`) and `ranges_preview` (BIND Supported Preview Edition, matched only for
+versions such as `9.20.11-S1`). The top-level `verified` is the date the data
+was checked against ISC, `sources` lists the pages used.
 
 To update the data:
 
-1. Read ISC's matrices (`https://kb.isc.org/docs/aa-00913` for BIND, the Kea
-   security page on `https://www.isc.org/` for Kea) and add one entry per CVE:
-   `id`, `engine` (`bind` or `kea`), `severity` (`high`, `medium` or `low`),
-   `summary`, `url` and `ranges` (`from`, `to` inclusive, `fixed`).
-2. Set `updated` to the date of the ISC matrix you checked (not today) and raise `revision`
-   (an integer): an override wins only when its `revision` is not lower than the shipped one.
-   The alert text and details show the dataset date, so stale data is visible. Run `make test`: a test validates the file.
-3. On a node, a newer valid file placed at `/var/lib/pelagos/isc_advisories.json`
+1. Run `scripts/update-isc-advisories.py` (Python 3, no dependency, needs
+   Internet access). It reads the Markdown export of the BIND matrices, the
+   BIND and Kea advisory lists and every advisory they name on `kb.isc.org`,
+   rebuilds the file and prints a diff against the shipped one. Add
+   `--cache DIR` to keep the fetched pages and rerun offline.
+2. Review the diff against the ISC advisories (the parsing is best effort),
+   then rerun with `--write`: it sets `verified` and `updated` to today and
+   raises `revision` when entries changed. An override wins only when its
+   `revision` is not lower than the shipped one.
+3. Run `make test`: tests check that every entry has a CVE id and an ISC
+   source, that its ranges parse, and which advisories the reference versions
+   match (update those expected lists with the new advisories).
+4. On a node, a newer valid file placed at `/var/lib/pelagos/isc_advisories.json`
    wins (by `revision`) over the shipped one without upgrading Pelagos.
 
 Nodes that may reach the Internet can set `advisories_fetch = true` and

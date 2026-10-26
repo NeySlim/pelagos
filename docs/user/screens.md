@@ -154,7 +154,7 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 | `version_mismatch` | info, warning | nodes run different versions of BIND or Kea |
 | `restart_loop` | critical | a daemon restarted several times in a short period |
 | `pool_forecast` | warning, critical | a pool is on course to be full in a few days |
-| `security_advisory` | info, warning | an installed BIND or Kea version is listed in an ISC security advisory |
+| `security_advisory` | info, warning | the upstream version of an installed BIND or Kea is listed in an ISC security advisory (distribution packages may carry the fix: check your distribution's security tracker) |
 
 Alerts resolve by themselves when the condition goes away; resolved alerts
 are kept `alerts_resolved_days` (90).

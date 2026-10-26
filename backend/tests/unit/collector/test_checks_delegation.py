@@ -102,27 +102,19 @@ def test_zone_in_a_view_has_the_view_in_its_subject():
 def test_packaged_advisories_are_valid_and_match_versions():
     data = advisories.load()
     assert advisories.valid(data)
-    kea = advisories.affected("kea", "2.6.2", data)
-    assert {e["id"] for e in kea} >= {"CVE-2025-32801"} and kea[0]["fixed"] == "2.6.3"
-    assert advisories.affected("kea", "2.6.3", data) == []
-    assert advisories.affected("bind", "9.20.26-1~deb13u1", data) == []
-    old = advisories.affected("bind", "9.20.4", data)
-    assert {e["id"] for e in old} == {
-        "CVE-2024-11187",
-        "CVE-2024-12705",
-        "CVE-2025-40775",
-        "CVE-2025-40778",
-        "CVE-2025-40780",
-    }
+    kea = {e["id"]: e for e in advisories.affected("kea", "2.6.2", data)}
+    assert kea["CVE-2025-32801"]["fixed"] == "2.6.3"
+    assert advisories.affected("bind", "9.20.30", data) == []
     assert advisories.affected("bind", None, data) == []
 
 
 def test_advisory_alerts_per_installed_engine():
     data = advisories.load()
-    alerts = advisories.advisory_alerts("n1", {Engine.BIND: "9.18.10", Engine.KEA4: "2.6.3"}, data)
+    alerts = advisories.advisory_alerts("n1", {Engine.BIND: "9.18.10", Engine.KEA4: "3.0.3"}, data)
     assert alerts and all(a.engine is Engine.BIND for a in alerts)
     assert {a.subject for a in alerts} >= {"bind:CVE-2023-50387"}
-    assert all("Distribution packages" in a.details["note"] for a in alerts)
+    assert all("security tracker" in a.details["note"] for a in alerts)
+    assert all(a.details["url"].startswith("https://kb.isc.org/docs/cve-") for a in alerts)
 
 
 def test_override_wins_only_when_valid_and_not_older(tmp_path):

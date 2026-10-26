@@ -3,6 +3,8 @@
 
 The data is a versioned file (pelagos/data/isc_advisories.json). A newer copy in the node's var
 directory (placed by hand or fetched when settings.checks.advisories_fetch is on) wins over it.
+Versions are compared as upstream versions: distribution backports are not seen. The data is
+rebuilt from kb.isc.org by scripts/update-isc-advisories.py.
 Subject: `<engine>:<CVE id>` (kind security_advisory).
 """
 
@@ -10,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -22,6 +25,7 @@ log = logging.getLogger(__name__)
 PACKAGED = Path(__file__).resolve().parents[2] / "data" / "isc_advisories.json"
 OVERRIDE_NAME = "isc_advisories.json"
 MAX_BYTES = 2_000_000
+_PREVIEW = re.compile(r"\s*(?:BIND\s+)?\d+(?:\.\d+)*-S\d")
 SEVERITIES = {
     "critical": Severity.CRITICAL,
     "high": Severity.WARNING,
@@ -36,7 +40,7 @@ def valid(data: Any) -> bool:
     for e in data["entries"]:
         if not isinstance(e, dict) or e.get("engine") not in ("bind", "kea") or not e.get("id"):
             return False
-        for r in e.get("ranges") or []:
+        for r in (e.get("ranges") or []) + (e.get("ranges_preview") or []):
             if version_tuple(r.get("from")) is None or version_tuple(r.get("to")) is None:
                 return False
     return True
@@ -62,15 +66,17 @@ def load(var_dir: Path | None = None, packaged: Path = PACKAGED) -> dict[str, An
 
 
 def affected(engine: str, version: str | None, data: dict[str, Any]) -> list[dict[str, Any]]:
-    """Entries of `engine` ("bind" or "kea") whose ranges contain `version`."""
+    """Entries of `engine` ("bind" or "kea") whose upstream ranges contain `version`. A BIND
+    Supported Preview Edition version ("9.20.11-S1") is matched against `ranges_preview` only."""
     current = version_tuple(version)
     if current is None:
         return []
+    key = "ranges_preview" if _PREVIEW.match(version or "") else "ranges"
     out = []
     for entry in data.get("entries", []):
         if entry["engine"] != engine:
             continue
-        for r in entry.get("ranges", []):
+        for r in entry.get(key) or []:
             if version_tuple(r["from"]) <= current <= version_tuple(r["to"]):  # type: ignore[operator]
                 out.append({**entry, "fixed": r.get("fixed")})
                 break
@@ -97,17 +103,20 @@ def advisory_alerts(node_id: str, installed: dict[Engine, str | None], data: dic
                             version=version,
                             cve=entry["id"],
                             summary=entry.get("summary", ""),
-                            dataset=data.get("updated") or "?",
+                            dataset=data.get("verified") or data.get("updated") or "?",
                         ),
                     ),
                     details={
                         "cve": entry["id"],
                         "version": version,
                         "fixed_in": entry.get("fixed"),
-                        "url": entry.get("url"),
+                        "url": entry.get("source") or entry.get("url"),
+                        "cvss": entry.get("cvss"),
                         "dataset_updated": data.get("updated"),
+                        "dataset_verified": data.get("verified"),
                         "dataset_revision": data.get("revision"),
-                        "note": "Distribution packages may carry the fix without changing the version.",
+                        "note": "Upstream version check: distribution packages may carry the fix without "
+                        "changing the version, check your distribution's security tracker.",
                     },
                 )
             )

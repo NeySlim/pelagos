@@ -1,166 +1,1456 @@
 {
   "schema": 1,
-  "revision": 2,
-  "updated": "2025-10-22",
-  "source": "ISC security advisories and version matrices, https://kb.isc.org/docs/aa-00913",
-  "notice": "Seed compiled without network access and last extended with the advisories of 2025-10-22: later advisories and Kea development series (2.5.x, 2.7.x) are not covered. Check every range against the ISC matrices before relying on it, see docs/user/operations.md.",
+  "revision": 3,
+  "updated": "2026-10-26",
+  "notes": "Upstream versions affected per ISC advisory, inclusive: open source edition in ranges, Supported Preview Edition (-S1) in ranges_preview. Distribution packages often carry fixes without changing the upstream version: check the distribution's security tracker. Regenerate with scripts/update-isc-advisories.py (prints a diff, --write replaces this file) and review the diff, see docs/user/operations.md.",
+  "verified": "2026-10-26",
+  "sources": [
+    "https://kb.isc.org/docs/aa-00913",
+    "https://kb.isc.org/docs/bind-9-software-vulnerability-matrix-9-18",
+    "https://kb.isc.org/docs/all-bind-advisories",
+    "https://kb.isc.org/docs/all-kea-advisories"
+  ],
   "entries": [
     {
-      "id": "CVE-2023-3341",
-      "engine": "bind",
-      "severity": "high",
-      "summary": "control channel message parsing can exhaust the stack",
-      "url": "https://kb.isc.org/docs/cve-2023-3341",
-      "ranges": [
-        {"from": "9.2.0", "to": "9.16.43", "fixed": "9.16.44"},
-        {"from": "9.18.0", "to": "9.18.18", "fixed": "9.18.19"},
-        {"from": "9.19.0", "to": "9.19.16", "fixed": "9.19.17"}
-      ]
-    },
-    {
-      "id": "CVE-2023-50387",
-      "engine": "bind",
-      "severity": "high",
-      "summary": "DNSSEC validation can use excessive CPU (KeyTrap)",
-      "url": "https://kb.isc.org/docs/cve-2023-50387",
-      "ranges": [
-        {"from": "9.0.0", "to": "9.16.46", "fixed": "9.16.48"},
-        {"from": "9.18.0", "to": "9.18.23", "fixed": "9.18.24"},
-        {"from": "9.19.0", "to": "9.19.20", "fixed": "9.19.21"}
-      ]
-    },
-    {
-      "id": "CVE-2023-50868",
-      "engine": "bind",
-      "severity": "high",
-      "summary": "NSEC3 closest encloser proof can use excessive CPU",
-      "url": "https://kb.isc.org/docs/cve-2023-50868",
-      "ranges": [
-        {"from": "9.0.0", "to": "9.16.46", "fixed": "9.16.48"},
-        {"from": "9.18.0", "to": "9.18.23", "fixed": "9.18.24"},
-        {"from": "9.19.0", "to": "9.19.20", "fixed": "9.19.21"}
-      ]
-    },
-    {
-      "id": "CVE-2024-1737",
-      "engine": "bind",
-      "severity": "high",
-      "summary": "a name with very many records slows down the cache and zone database",
-      "url": "https://kb.isc.org/docs/cve-2024-1737",
-      "ranges": [
-        {"from": "9.11.0", "to": "9.16.50", "fixed": "9.18.28"},
-        {"from": "9.18.0", "to": "9.18.27", "fixed": "9.18.28"},
-        {"from": "9.19.0", "to": "9.19.24", "fixed": "9.20.0"}
-      ]
-    },
-    {
-      "id": "CVE-2024-1975",
-      "engine": "bind",
-      "severity": "high",
-      "summary": "validating SIG(0) signed requests can use excessive CPU",
-      "url": "https://kb.isc.org/docs/cve-2024-1975",
-      "ranges": [
-        {"from": "9.0.0", "to": "9.16.50", "fixed": "9.18.28"},
-        {"from": "9.18.0", "to": "9.18.27", "fixed": "9.18.28"},
-        {"from": "9.19.0", "to": "9.19.24", "fixed": "9.20.0"}
-      ]
-    },
-    {
-      "id": "CVE-2024-11187",
-      "engine": "bind",
-      "severity": "high",
-      "summary": "many records in the additional section can use excessive CPU",
-      "url": "https://kb.isc.org/docs/cve-2024-11187",
-      "ranges": [
-        {"from": "9.11.0", "to": "9.16.50", "fixed": "9.18.33"},
-        {"from": "9.18.0", "to": "9.18.32", "fixed": "9.18.33"},
-        {"from": "9.20.0", "to": "9.20.4", "fixed": "9.20.5"},
-        {"from": "9.21.0", "to": "9.21.3", "fixed": "9.21.4"}
-      ]
-    },
-    {
-      "id": "CVE-2024-12705",
-      "engine": "bind",
-      "severity": "high",
-      "summary": "DNS over HTTPS query flooding can exhaust CPU and memory",
-      "url": "https://kb.isc.org/docs/cve-2024-12705",
-      "ranges": [
-        {"from": "9.18.0", "to": "9.18.32", "fixed": "9.18.33"},
-        {"from": "9.20.0", "to": "9.20.4", "fixed": "9.20.5"},
-        {"from": "9.21.0", "to": "9.21.3", "fixed": "9.21.4"}
-      ]
-    },
-    {
-      "id": "CVE-2025-40775",
-      "engine": "bind",
-      "severity": "high",
-      "summary": "a DNS message with an invalid TSIG algorithm makes named exit",
-      "url": "https://kb.isc.org/docs/cve-2025-40775",
-      "ranges": [
-        {"from": "9.20.0", "to": "9.20.8", "fixed": "9.20.9"},
-        {"from": "9.21.0", "to": "9.21.7", "fixed": "9.21.8"}
-      ]
-    },
-    {
-      "id": "CVE-2025-40778",
-      "engine": "bind",
-      "severity": "high",
-      "summary": "unsolicited resource records can poison the resolver cache",
-      "url": "https://kb.isc.org/docs/cve-2025-40778",
-      "ranges": [
-        {"from": "9.11.0", "to": "9.16.50", "fixed": "9.18.41"},
-        {"from": "9.18.0", "to": "9.18.40", "fixed": "9.18.41"},
-        {"from": "9.20.0", "to": "9.20.14", "fixed": "9.20.15"},
-        {"from": "9.21.0", "to": "9.21.13", "fixed": "9.21.14"}
-      ]
-    },
-    {
-      "id": "CVE-2025-40780",
-      "engine": "bind",
-      "severity": "high",
-      "summary": "weak pseudo-random generator makes the source port and query ID predictable (cache poisoning)",
-      "url": "https://kb.isc.org/docs/cve-2025-40780",
-      "ranges": [
-        {"from": "9.16.0", "to": "9.16.50", "fixed": "9.18.41"},
-        {"from": "9.18.0", "to": "9.18.40", "fixed": "9.18.41"},
-        {"from": "9.20.0", "to": "9.20.14", "fixed": "9.20.15"},
-        {"from": "9.21.0", "to": "9.21.13", "fixed": "9.21.14"}
-      ]
-    },
-    {
-      "id": "CVE-2025-32801",
+      "id": "CVE-2026-3608",
       "engine": "kea",
       "severity": "high",
-      "summary": "a malicious hook library can lead to local privilege escalation",
-      "url": "https://kb.isc.org/docs/cve-2025-32801",
+      "cvss": 7.5,
+      "published": "2026-03-25",
+      "summary": "Stack overflow in Kea daemons",
+      "url": "https://kb.isc.org/docs/cve-2026-3608",
+      "source": "https://kb.isc.org/docs/cve-2026-3608",
       "ranges": [
-        {"from": "2.4.0", "to": "2.4.1", "fixed": "2.4.2"},
-        {"from": "2.6.0", "to": "2.6.2", "fixed": "2.6.3"},
-        {"from": "3.0.0", "to": "3.0.0", "fixed": "3.0.1"}
+        {"from": "2.6.0", "to": "2.6.4", "fixed": "2.6.5"},
+        {"from": "3.0.0", "to": "3.0.2", "fixed": "3.0.3"}
       ]
     },
     {
-      "id": "CVE-2025-32802",
+      "id": "CVE-2025-11232",
       "engine": "kea",
-      "severity": "medium",
-      "summary": "insecure handling of file paths allows local file overwrite",
-      "url": "https://kb.isc.org/docs/cve-2025-32802",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2025-10-29",
+      "summary": "Invalid characters cause assert",
+      "url": "https://kb.isc.org/docs/cve-2025-11232",
+      "source": "https://kb.isc.org/docs/cve-2025-11232",
       "ranges": [
-        {"from": "2.4.0", "to": "2.4.1", "fixed": "2.4.2"},
-        {"from": "2.6.0", "to": "2.6.2", "fixed": "2.6.3"},
-        {"from": "3.0.0", "to": "3.0.0", "fixed": "3.0.1"}
+        {"from": "3.0.1", "to": "3.0.1", "fixed": "3.0.2"},
+        {"from": "3.1.1", "to": "3.1.2", "fixed": "3.1.3"}
+      ]
+    },
+    {
+      "id": "CVE-2025-40779",
+      "engine": "kea",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2025-08-27",
+      "summary": "Kea crash upon interaction between specific client options and subnet selection",
+      "url": "https://kb.isc.org/docs/cve-2025-40779",
+      "source": "https://kb.isc.org/docs/cve-2025-40779",
+      "ranges": [
+        {"from": "2.7.1", "to": "2.7.9", "fixed": "3.0.1"},
+        {"from": "3.0.0", "to": "3.0.0", "fixed": "3.0.1"},
+        {"from": "3.1.0", "to": "3.1.0", "fixed": "3.1.1"}
       ]
     },
     {
       "id": "CVE-2025-32803",
       "engine": "kea",
       "severity": "medium",
-      "summary": "insecure file permissions on log and lease files",
+      "cvss": 4.0,
+      "published": "2025-05-28",
+      "summary": "Insecure file permissions can result in confidential information leakage",
       "url": "https://kb.isc.org/docs/cve-2025-32803",
+      "source": "https://kb.isc.org/docs/cve-2025-32803",
       "ranges": [
         {"from": "2.4.0", "to": "2.4.1", "fixed": "2.4.2"},
         {"from": "2.6.0", "to": "2.6.2", "fixed": "2.6.3"},
-        {"from": "3.0.0", "to": "3.0.0", "fixed": "3.0.1"}
+        {"from": "2.7.0", "to": "2.7.8", "fixed": "2.7.9"}
+      ]
+    },
+    {
+      "id": "CVE-2025-32802",
+      "engine": "kea",
+      "severity": "medium",
+      "cvss": 6.1,
+      "published": "2025-05-28",
+      "summary": "Insecure handling of file paths allows multiple local attacks",
+      "url": "https://kb.isc.org/docs/cve-2025-32802",
+      "source": "https://kb.isc.org/docs/cve-2025-32802",
+      "ranges": [
+        {"from": "2.4.0", "to": "2.4.1", "fixed": "2.4.2"},
+        {"from": "2.6.0", "to": "2.6.2", "fixed": "2.6.3"},
+        {"from": "2.7.0", "to": "2.7.8", "fixed": "2.7.9"}
+      ]
+    },
+    {
+      "id": "CVE-2025-32801",
+      "engine": "kea",
+      "severity": "high",
+      "cvss": 7.8,
+      "published": "2025-05-28",
+      "summary": "Loading a malicious hook library can lead to local privilege escalation",
+      "url": "https://kb.isc.org/docs/cve-2025-32801",
+      "source": "https://kb.isc.org/docs/cve-2025-32801",
+      "ranges": [
+        {"from": "2.4.0", "to": "2.4.1", "fixed": "2.4.2"},
+        {"from": "2.6.0", "to": "2.6.2", "fixed": "2.6.3"},
+        {"from": "2.7.0", "to": "2.7.8", "fixed": "2.7.9"}
+      ]
+    },
+    {
+      "id": "CVE-2026-97313",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-10-21",
+      "summary": "Specific RPZ configurations and query patterns may result in an unexpected exit",
+      "url": "https://kb.isc.org/docs/cve-2026-97313",
+      "source": "https://kb.isc.org/docs/cve-2026-97313",
+      "ranges": [
+        {"from": "9.16.0", "to": "9.18.50", "fixed": "9.20.30"},
+        {"from": "9.20.0", "to": "9.20.29", "fixed": "9.20.30"},
+        {"from": "9.21.0", "to": "9.21.26", "fixed": "9.21.27"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.30-S1"},
+        {"from": "9.20.9", "to": "9.20.29", "fixed": "9.20.30-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-96888",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-10-21",
+      "summary": "Named may terminate unexpectedly when a redirect zone is used with strict QNAME minimization",
+      "url": "https://kb.isc.org/docs/cve-2026-96888",
+      "source": "https://kb.isc.org/docs/cve-2026-96888",
+      "ranges": [
+        {"from": "9.16.0", "to": "9.18.50", "fixed": "9.20.30"},
+        {"from": "9.20.0", "to": "9.20.29", "fixed": "9.20.30"},
+        {"from": "9.21.0", "to": "9.21.26", "fixed": "9.21.27"}
+      ],
+      "ranges_preview": [
+        {"from": "9.16.8", "to": "9.18.50", "fixed": "9.20.30-S1"},
+        {"from": "9.20.9", "to": "9.20.29", "fixed": "9.20.30-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-94300",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 8.1,
+      "published": "2026-10-21",
+      "summary": "Concurrent GSS-TSIG messages corrupt memory",
+      "url": "https://kb.isc.org/docs/cve-2026-94300",
+      "source": "https://kb.isc.org/docs/cve-2026-94300",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.30"},
+        {"from": "9.20.0", "to": "9.20.29", "fixed": "9.20.30"},
+        {"from": "9.21.0", "to": "9.21.26", "fixed": "9.21.27"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.30-S1"},
+        {"from": "9.20.9", "to": "9.20.29", "fixed": "9.20.30-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-19630",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-10-21",
+      "summary": "Amplified resource exhaustion in inbound message processing",
+      "url": "https://kb.isc.org/docs/cve-2026-19630",
+      "source": "https://kb.isc.org/docs/cve-2026-19630",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.30"},
+        {"from": "9.20.0", "to": "9.20.29", "fixed": "9.20.30"},
+        {"from": "9.21.0", "to": "9.21.26", "fixed": "9.21.27"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.30-S1"},
+        {"from": "9.20.9", "to": "9.20.29", "fixed": "9.20.30-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-81736",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-09-16",
+      "summary": "Remote CPU denial of service through cached SVCB/HTTPS AliasMode trees",
+      "url": "https://kb.isc.org/docs/cve-2026-81736",
+      "source": "https://kb.isc.org/docs/cve-2026-81736",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.50", "fixed": "9.20.29"},
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"},
+        {"from": "9.21.0", "to": "9.21.25", "fixed": "9.21.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.18.11", "to": "9.18.50", "fixed": "9.20.29-S1"},
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-81563",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-09-16",
+      "summary": "SVCB AliasMode additional-data error leaks qpcache references",
+      "url": "https://kb.isc.org/docs/cve-2026-81563",
+      "source": "https://kb.isc.org/docs/cve-2026-81563",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.50", "fixed": "9.20.29"},
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"},
+        {"from": "9.21.0", "to": "9.21.25", "fixed": "9.21.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.18.11", "to": "9.18.50", "fixed": "9.20.29-S1"},
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-80274",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-09-16",
+      "summary": "Validating resolver can abort while caching a mismatched NOQNAME proof",
+      "url": "https://kb.isc.org/docs/cve-2026-80274",
+      "source": "https://kb.isc.org/docs/cve-2026-80274",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.29"},
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"},
+        {"from": "9.21.0", "to": "9.21.25", "fixed": "9.21.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.29-S1"},
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-78301",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 5.8,
+      "published": "2026-09-16",
+      "summary": "Out-of-zone database nodes can become authoritative zone cuts",
+      "url": "https://kb.isc.org/docs/cve-2026-78301",
+      "source": "https://kb.isc.org/docs/cve-2026-78301",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.29"},
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"},
+        {"from": "9.21.0", "to": "9.21.25", "fixed": "9.21.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.29-S1"},
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-77692",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-09-16",
+      "summary": "Unauthenticated remote crash of named via a single DoH SIG(0) request",
+      "url": "https://kb.isc.org/docs/cve-2026-77692",
+      "source": "https://kb.isc.org/docs/cve-2026-77692",
+      "ranges": [
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"},
+        {"from": "9.21.0", "to": "9.21.25", "fixed": "9.21.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-77119",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 5.9,
+      "published": "2026-09-16",
+      "summary": "NSEC3 insecure-referral proof can use unrelated cached NSEC3 RRsets",
+      "url": "https://kb.isc.org/docs/cve-2026-77119",
+      "source": "https://kb.isc.org/docs/cve-2026-77119",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.29"},
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"},
+        {"from": "9.21.0", "to": "9.21.25", "fixed": "9.21.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.29-S1"},
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-76163",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-09-16",
+      "summary": "named aborts on a TKEY query when the user configuration has no global options statement",
+      "url": "https://kb.isc.org/docs/cve-2026-76163",
+      "source": "https://kb.isc.org/docs/cve-2026-76163",
+      "ranges": [
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"},
+        {"from": "9.21.0", "to": "9.21.25", "fixed": "9.21.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-75029",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 5.3,
+      "published": "2026-09-16",
+      "summary": "Message parser retains every identical singleton RDATA, enabling wire-to-work amplification",
+      "url": "https://kb.isc.org/docs/cve-2026-75029",
+      "source": "https://kb.isc.org/docs/cve-2026-75029",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.29"},
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"},
+        {"from": "9.21.0", "to": "9.21.25", "fixed": "9.21.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.29-S1"},
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-19941",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 5.9,
+      "published": "2026-09-16",
+      "summary": "checkwildcard() accepts an out-of-zone NSEC as a wildcard-nonexistence proof",
+      "url": "https://kb.isc.org/docs/cve-2026-19941",
+      "source": "https://kb.isc.org/docs/cve-2026-19941",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.29"},
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"},
+        {"from": "9.21.0", "to": "9.21.25", "fixed": "9.21.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.29-S1"},
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-19668",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 5.3,
+      "published": "2026-09-16",
+      "summary": "Resource Exhaustion via Excessive DNSSEC Cryptographic Material Matching",
+      "url": "https://kb.isc.org/docs/cve-2026-19668",
+      "source": "https://kb.isc.org/docs/cve-2026-19668",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.29"},
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"},
+        {"from": "9.21.0", "to": "9.21.25", "fixed": "9.21.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.29-S1"},
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-19667",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-09-16",
+      "summary": "Remote assertion failure via 16-bit length truncation in `dns_ncache_add()`",
+      "url": "https://kb.isc.org/docs/cve-2026-19667",
+      "source": "https://kb.isc.org/docs/cve-2026-19667",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.29"},
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"},
+        {"from": "9.21.0", "to": "9.21.25", "fixed": "9.21.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.29-S1"},
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-19666",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-09-16",
+      "summary": "Use-after-free in query_addnoqnameproof() via the DNS64 filter64 path",
+      "url": "https://kb.isc.org/docs/cve-2026-19666",
+      "source": "https://kb.isc.org/docs/cve-2026-19666",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.29"},
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"},
+        {"from": "9.21.0", "to": "9.21.25", "fixed": "9.21.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.29-S1"},
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-19662",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 5.9,
+      "published": "2026-09-16",
+      "summary": "qpcache NOQNAME proof use-after-free crashes recursive resolver",
+      "url": "https://kb.isc.org/docs/cve-2026-19662",
+      "source": "https://kb.isc.org/docs/cve-2026-19662",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.29"},
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.29-S1"},
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-19033",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 6.5,
+      "published": "2026-09-16",
+      "summary": "Unauthenticated IXFR deltas are applied to the live zone before TSIG verification",
+      "url": "https://kb.isc.org/docs/cve-2026-19033",
+      "source": "https://kb.isc.org/docs/cve-2026-19033",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.29"},
+        {"from": "9.20.0", "to": "9.20.27", "fixed": "9.20.29"},
+        {"from": "9.21.0", "to": "9.21.25", "fixed": "9.21.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.29-S1"},
+        {"from": "9.20.9", "to": "9.20.27", "fixed": "9.20.29-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-13321",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 8.6,
+      "published": "2026-07-22",
+      "summary": "DNSSEC Validation Bypass via Out-of-Zone NSEC Next Field",
+      "url": "https://kb.isc.org/docs/cve-2026-13321",
+      "source": "https://kb.isc.org/docs/cve-2026-13321",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.26"},
+        {"from": "9.20.0", "to": "9.20.24", "fixed": "9.20.26"},
+        {"from": "9.21.0", "to": "9.21.23", "fixed": "9.21.24"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.26-S1"},
+        {"from": "9.20.9", "to": "9.20.24", "fixed": "9.20.26-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-13204",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-07-22",
+      "summary": "Unexpected exit in certain situations with NSEC and NSEC3 both present",
+      "url": "https://kb.isc.org/docs/cve-2026-13204",
+      "source": "https://kb.isc.org/docs/cve-2026-13204",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.26"},
+        {"from": "9.20.0", "to": "9.20.24", "fixed": "9.20.26"},
+        {"from": "9.21.0", "to": "9.21.23", "fixed": "9.21.24"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.26-S1"},
+        {"from": "9.20.9", "to": "9.20.24", "fixed": "9.20.26-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-12617",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-07-22",
+      "summary": "Record ordering based unexpected exit with CNAME or DNAME",
+      "url": "https://kb.isc.org/docs/cve-2026-12617",
+      "source": "https://kb.isc.org/docs/cve-2026-12617",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.50", "fixed": "9.20.26"},
+        {"from": "9.20.0", "to": "9.20.24", "fixed": "9.20.26"}
+      ],
+      "ranges_preview": [
+        {"from": "9.18.11", "to": "9.18.50", "fixed": "9.20.26-S1"},
+        {"from": "9.20.9", "to": "9.20.24", "fixed": "9.20.26-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-11721",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-07-22",
+      "summary": "Cache poisoning possible with label count discrepancy, RRSIG, and wildcards",
+      "url": "https://kb.isc.org/docs/cve-2026-11721",
+      "source": "https://kb.isc.org/docs/cve-2026-11721",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.26"},
+        {"from": "9.20.0", "to": "9.20.24", "fixed": "9.20.26"},
+        {"from": "9.21.0", "to": "9.21.23", "fixed": "9.21.24"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.26-S1"},
+        {"from": "9.20.9", "to": "9.20.24", "fixed": "9.20.26-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-11622",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-07-22",
+      "summary": "Potential memory usage beyond configured limits",
+      "url": "https://kb.isc.org/docs/cve-2026-11622",
+      "source": "https://kb.isc.org/docs/cve-2026-11622",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.18.50", "fixed": "9.20.26"},
+        {"from": "9.20.0", "to": "9.20.24", "fixed": "9.20.26"},
+        {"from": "9.21.0", "to": "9.21.23", "fixed": "9.21.24"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.26-S1"},
+        {"from": "9.20.9", "to": "9.20.24", "fixed": "9.20.26-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-11605",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-07-22",
+      "summary": "Unnecessary validation of DNSSEC signed records",
+      "url": "https://kb.isc.org/docs/cve-2026-11605",
+      "source": "https://kb.isc.org/docs/cve-2026-11605",
+      "ranges": [
+        {"from": "9.20.0", "to": "9.20.24", "fixed": "9.20.26"},
+        {"from": "9.21.0", "to": "9.21.23", "fixed": "9.21.24"}
+      ],
+      "ranges_preview": [
+        {"from": "9.20.9", "to": "9.20.24", "fixed": "9.20.26-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-11331",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-07-22",
+      "summary": "Potential wildcard CNAME RPZ policy bypass",
+      "url": "https://kb.isc.org/docs/cve-2026-11331",
+      "source": "https://kb.isc.org/docs/cve-2026-11331",
+      "ranges": [
+        {"from": "9.16.0", "to": "9.18.50", "fixed": "9.20.26"},
+        {"from": "9.20.0", "to": "9.20.24", "fixed": "9.20.26"},
+        {"from": "9.21.0", "to": "9.21.23", "fixed": "9.21.24"}
+      ],
+      "ranges_preview": [
+        {"from": "9.16.8", "to": "9.18.50", "fixed": "9.20.26-S1"},
+        {"from": "9.20.9", "to": "9.20.24", "fixed": "9.20.26-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-10822",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 6.5,
+      "published": "2026-07-22",
+      "summary": "Key Record using PRIVATEDNS algorithm may lead to unexpected exit",
+      "url": "https://kb.isc.org/docs/cve-2026-10822",
+      "source": "https://kb.isc.org/docs/cve-2026-10822",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.50", "fixed": "9.20.26"},
+        {"from": "9.20.0", "to": "9.20.24", "fixed": "9.20.26"},
+        {"from": "9.21.0", "to": "9.21.23", "fixed": "9.21.24"}
+      ],
+      "ranges_preview": [
+        {"from": "9.18.11", "to": "9.18.50", "fixed": "9.20.26-S1"},
+        {"from": "9.20.9", "to": "9.20.24", "fixed": "9.20.26-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-10723",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 6.8,
+      "published": "2026-07-22",
+      "summary": "Incorrect acceptance of NSEC3 records",
+      "url": "https://kb.isc.org/docs/cve-2026-10723",
+      "source": "https://kb.isc.org/docs/cve-2026-10723",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.50", "fixed": "9.20.26"},
+        {"from": "9.20.0", "to": "9.20.24", "fixed": "9.20.26"},
+        {"from": "9.21.0", "to": "9.21.23", "fixed": "9.21.24"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.18.50", "fixed": "9.20.26-S1"},
+        {"from": "9.20.9", "to": "9.20.24", "fixed": "9.20.26-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-5950",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 5.3,
+      "published": "2026-05-20",
+      "summary": "Unbounded resend loop in BIND 9 resolver",
+      "url": "https://kb.isc.org/docs/cve-2026-5950",
+      "source": "https://kb.isc.org/docs/cve-2026-5950",
+      "ranges": [
+        {"from": "9.18.36", "to": "9.18.48", "fixed": "9.18.49"},
+        {"from": "9.20.8", "to": "9.20.22", "fixed": "9.20.23"},
+        {"from": "9.21.7", "to": "9.21.21", "fixed": "9.21.22"}
+      ],
+      "ranges_preview": [
+        {"from": "9.18.36", "to": "9.18.48", "fixed": "9.18.49-S1"},
+        {"from": "9.20.9", "to": "9.20.22", "fixed": "9.20.23-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-5947",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-05-20",
+      "summary": "SIG(0) validation during query flood may lead to undefined behavior",
+      "url": "https://kb.isc.org/docs/cve-2026-5947",
+      "source": "https://kb.isc.org/docs/cve-2026-5947",
+      "ranges": [
+        {"from": "9.20.0", "to": "9.20.22", "fixed": "9.20.23"},
+        {"from": "9.21.0", "to": "9.21.21", "fixed": "9.21.22"}
+      ],
+      "ranges_preview": [
+        {"from": "9.20.9", "to": "9.20.22", "fixed": "9.20.23-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-5946",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-05-20",
+      "summary": "Invalid handling of CLASS != IN",
+      "url": "https://kb.isc.org/docs/cve-2026-5946",
+      "source": "https://kb.isc.org/docs/cve-2026-5946",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.16.50", "fixed": "9.18.49"},
+        {"from": "9.18.0", "to": "9.18.48", "fixed": "9.18.49"},
+        {"from": "9.20.0", "to": "9.20.22", "fixed": "9.20.23"},
+        {"from": "9.21.0", "to": "9.21.21", "fixed": "9.21.22"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.16.50", "fixed": "9.18.49-S1"},
+        {"from": "9.18.11", "to": "9.18.48", "fixed": "9.18.49-S1"},
+        {"from": "9.20.9", "to": "9.20.22", "fixed": "9.20.23-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-3593",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.4,
+      "published": "2026-05-20",
+      "summary": "Heap use-after-free vulnerability in BIND 9 DNS-over-HTTPS implementation",
+      "url": "https://kb.isc.org/docs/cve-2026-3593",
+      "source": "https://kb.isc.org/docs/cve-2026-3593",
+      "ranges": [
+        {"from": "9.20.0", "to": "9.20.22", "fixed": "9.20.23"},
+        {"from": "9.21.0", "to": "9.21.21", "fixed": "9.21.22"}
+      ],
+      "ranges_preview": [
+        {"from": "9.20.9", "to": "9.20.22", "fixed": "9.20.23-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-3592",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 5.3,
+      "published": "2026-05-20",
+      "summary": "Amplification vulnerabilities via self-pointed glue records",
+      "url": "https://kb.isc.org/docs/cve-2026-3592",
+      "source": "https://kb.isc.org/docs/cve-2026-3592",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.16.50", "fixed": "9.18.49"},
+        {"from": "9.18.0", "to": "9.18.48", "fixed": "9.18.49"},
+        {"from": "9.20.0", "to": "9.20.22", "fixed": "9.20.23"},
+        {"from": "9.21.0", "to": "9.21.21", "fixed": "9.21.22"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.16.50", "fixed": "9.18.49-S1"},
+        {"from": "9.18.11", "to": "9.18.48", "fixed": "9.18.49-S1"},
+        {"from": "9.20.9", "to": "9.20.22", "fixed": "9.20.23-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-3039",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-05-20",
+      "summary": "BIND 9 server memory exhaustion during GSS-API TKEY negotiation",
+      "url": "https://kb.isc.org/docs/cve-2026-3039",
+      "source": "https://kb.isc.org/docs/cve-2026-3039",
+      "ranges": [
+        {"from": "9.0.0", "to": "9.16.50", "fixed": "9.18.49"},
+        {"from": "9.18.0", "to": "9.18.48", "fixed": "9.18.49"},
+        {"from": "9.20.0", "to": "9.20.22", "fixed": "9.20.23"},
+        {"from": "9.21.0", "to": "9.21.21", "fixed": "9.21.22"}
+      ],
+      "ranges_preview": [
+        {"from": "9.9.3", "to": "9.16.50", "fixed": "9.18.49-S1"},
+        {"from": "9.18.11", "to": "9.18.48", "fixed": "9.18.49-S1"},
+        {"from": "9.20.9", "to": "9.20.22", "fixed": "9.20.23-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-3591",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 5.4,
+      "published": "2026-03-25",
+      "summary": "A stack use-after-return flaw in SIG(0) handling code may enable ACL bypass",
+      "url": "https://kb.isc.org/docs/cve-2026-3591",
+      "source": "https://kb.isc.org/docs/cve-2026-3591",
+      "ranges": [
+        {"from": "9.20.0", "to": "9.20.20", "fixed": "9.20.21"},
+        {"from": "9.21.0", "to": "9.21.19", "fixed": "9.21.20"}
+      ],
+      "ranges_preview": [
+        {"from": "9.20.9", "to": "9.20.20", "fixed": "9.20.21-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-3119",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 6.5,
+      "published": "2026-03-25",
+      "summary": "Authenticated query containing a TKEY record may cause named to terminate unexpectedly",
+      "url": "https://kb.isc.org/docs/cve-2026-3119",
+      "source": "https://kb.isc.org/docs/cve-2026-3119",
+      "ranges": [
+        {"from": "9.20.0", "to": "9.20.20", "fixed": "9.20.21"},
+        {"from": "9.21.0", "to": "9.21.19", "fixed": "9.21.20"}
+      ],
+      "ranges_preview": [
+        {"from": "9.20.9", "to": "9.20.20", "fixed": "9.20.21-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-3104",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-03-25",
+      "summary": "Memory leak in code preparing DNSSEC proofs of non-existence",
+      "url": "https://kb.isc.org/docs/cve-2026-3104",
+      "source": "https://kb.isc.org/docs/cve-2026-3104",
+      "ranges": [
+        {"from": "9.20.0", "to": "9.20.20", "fixed": "9.20.21"},
+        {"from": "9.21.0", "to": "9.21.19", "fixed": "9.21.20"}
+      ],
+      "ranges_preview": [
+        {"from": "9.20.9", "to": "9.20.20", "fixed": "9.20.21-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2026-1519",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-03-25",
+      "summary": "Excessive NSEC3 iterations cause high CPU load during insecure delegation validation",
+      "url": "https://kb.isc.org/docs/cve-2026-1519",
+      "source": "https://kb.isc.org/docs/cve-2026-1519",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.16.50", "fixed": "9.18.47"},
+        {"from": "9.18.0", "to": "9.18.46", "fixed": "9.18.47"},
+        {"from": "9.20.0", "to": "9.20.20", "fixed": "9.20.21"},
+        {"from": "9.21.0", "to": "9.21.19", "fixed": "9.21.20"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.16.50", "fixed": "9.18.47-S1"},
+        {"from": "9.18.11", "to": "9.18.46", "fixed": "9.18.47-S1"},
+        {"from": "9.20.9", "to": "9.20.20", "fixed": "9.20.21-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2025-13878",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2026-01-21",
+      "summary": "Malformed BRID/HHIT records can cause named to terminate unexpectedly",
+      "url": "https://kb.isc.org/docs/cve-2025-13878",
+      "source": "https://kb.isc.org/docs/cve-2025-13878",
+      "ranges": [
+        {"from": "9.18.40", "to": "9.18.43", "fixed": "9.18.44"},
+        {"from": "9.20.13", "to": "9.20.17", "fixed": "9.20.18"},
+        {"from": "9.21.12", "to": "9.21.16", "fixed": "9.21.17"}
+      ],
+      "ranges_preview": [
+        {"from": "9.18.40", "to": "9.18.43", "fixed": "9.18.44-S1"},
+        {"from": "9.20.13", "to": "9.20.17", "fixed": "9.20.18-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2025-8677",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2025-10-22",
+      "summary": "Resource exhaustion via malformed DNSKEY handling",
+      "url": "https://kb.isc.org/docs/cve-2025-8677",
+      "source": "https://kb.isc.org/docs/cve-2025-8677",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.39", "fixed": "9.18.41"},
+        {"from": "9.20.0", "to": "9.20.13", "fixed": "9.20.15"},
+        {"from": "9.21.0", "to": "9.21.12", "fixed": "9.21.14"}
+      ],
+      "ranges_preview": [
+        {"from": "9.18.11", "to": "9.18.39", "fixed": "9.18.41-S1"},
+        {"from": "9.20.9", "to": "9.20.13", "fixed": "9.20.15-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2025-40780",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 8.6,
+      "published": "2025-10-22",
+      "summary": "Cache poisoning due to weak PRNG",
+      "url": "https://kb.isc.org/docs/cve-2025-40780",
+      "source": "https://kb.isc.org/docs/cve-2025-40780",
+      "ranges": [
+        {"from": "9.16.0", "to": "9.16.50", "fixed": "9.18.41"},
+        {"from": "9.18.0", "to": "9.18.39", "fixed": "9.18.41"},
+        {"from": "9.20.0", "to": "9.20.13", "fixed": "9.20.15"},
+        {"from": "9.21.0", "to": "9.21.12", "fixed": "9.21.14"}
+      ],
+      "ranges_preview": [
+        {"from": "9.16.8", "to": "9.16.50", "fixed": "9.18.41-S1"},
+        {"from": "9.18.11", "to": "9.18.39", "fixed": "9.18.41-S1"},
+        {"from": "9.20.9", "to": "9.20.13", "fixed": "9.20.15-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2025-40778",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 8.6,
+      "published": "2025-10-22",
+      "summary": "Cache poisoning attacks with unsolicited RRs",
+      "url": "https://kb.isc.org/docs/cve-2025-40778",
+      "source": "https://kb.isc.org/docs/cve-2025-40778",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.16.50", "fixed": "9.18.41"},
+        {"from": "9.18.0", "to": "9.18.39", "fixed": "9.18.41"},
+        {"from": "9.20.0", "to": "9.20.13", "fixed": "9.20.15"},
+        {"from": "9.21.0", "to": "9.21.12", "fixed": "9.21.14"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.16.50", "fixed": "9.18.41-S1"},
+        {"from": "9.18.11", "to": "9.18.39", "fixed": "9.18.41-S1"},
+        {"from": "9.20.9", "to": "9.20.13", "fixed": "9.20.15-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2025-40777",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2025-07-16",
+      "summary": "A possible assertion failure when using the 'stale-answer-client-timeout 0' option",
+      "url": "https://kb.isc.org/docs/cve-2025-40777",
+      "source": "https://kb.isc.org/docs/cve-2025-40777",
+      "ranges": [
+        {"from": "9.20.0", "to": "9.20.10", "fixed": "9.20.11"},
+        {"from": "9.21.0", "to": "9.21.9", "fixed": "9.21.10"}
+      ],
+      "ranges_preview": [
+        {"from": "9.20.9", "to": "9.20.10", "fixed": "9.20.11-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2025-40776",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 8.6,
+      "published": "2025-07-16",
+      "summary": "Birthday Attack against Resolvers supporting ECS",
+      "url": "https://kb.isc.org/docs/cve-2025-40776",
+      "source": "https://kb.isc.org/docs/cve-2025-40776",
+      "ranges": [],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.16.50", "fixed": "9.18.38-S1"},
+        {"from": "9.18.11", "to": "9.18.37", "fixed": "9.18.38-S1"},
+        {"from": "9.20.9", "to": "9.20.10", "fixed": "9.20.11-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2025-40775",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2025-05-21",
+      "summary": "DNS message with invalid TSIG causes an assertion failure",
+      "url": "https://kb.isc.org/docs/cve-2025-40775",
+      "source": "https://kb.isc.org/docs/cve-2025-40775",
+      "ranges": [
+        {"from": "9.20.0", "to": "9.20.8", "fixed": "9.20.9"},
+        {"from": "9.21.0", "to": "9.21.7", "fixed": "9.21.8"}
+      ]
+    },
+    {
+      "id": "CVE-2024-12705",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2025-01-29",
+      "summary": "DNS-over-HTTPS implementation suffers from multiple issues under heavy query load",
+      "url": "https://kb.isc.org/docs/cve-2024-12705",
+      "source": "https://kb.isc.org/docs/cve-2024-12705",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.32", "fixed": "9.18.33"},
+        {"from": "9.20.0", "to": "9.20.4", "fixed": "9.20.5"},
+        {"from": "9.21.0", "to": "9.21.3", "fixed": "9.21.4"}
+      ],
+      "ranges_preview": [
+        {"from": "9.18.11", "to": "9.18.32", "fixed": "9.18.33-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2024-11187",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2025-01-29",
+      "summary": "Many records in the additional section cause CPU exhaustion",
+      "url": "https://kb.isc.org/docs/cve-2024-11187",
+      "source": "https://kb.isc.org/docs/cve-2024-11187",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.11.37", "fixed": "9.18.33"},
+        {"from": "9.16.0", "to": "9.16.50", "fixed": "9.18.33"},
+        {"from": "9.18.0", "to": "9.18.32", "fixed": "9.18.33"},
+        {"from": "9.20.0", "to": "9.20.4", "fixed": "9.20.5"},
+        {"from": "9.21.0", "to": "9.21.3", "fixed": "9.21.4"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.11.37", "fixed": "9.18.33-S1"},
+        {"from": "9.16.8", "to": "9.16.50", "fixed": "9.18.33-S1"},
+        {"from": "9.18.11", "to": "9.18.32", "fixed": "9.18.33-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2024-4076",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2024-07-23",
+      "summary": "Assertion failure when serving both stale cache data and authoritative zone content",
+      "url": "https://kb.isc.org/docs/cve-2024-4076",
+      "source": "https://kb.isc.org/docs/cve-2024-4076",
+      "ranges": [
+        {"from": "9.16.13", "to": "9.16.50", "fixed": "9.18.28"},
+        {"from": "9.18.0", "to": "9.18.27", "fixed": "9.18.28"},
+        {"from": "9.19.0", "to": "9.19.24", "fixed": "9.20.0"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.33", "to": "9.11.37", "fixed": "9.18.28-S1"},
+        {"from": "9.16.13", "to": "9.16.50", "fixed": "9.18.28-S1"},
+        {"from": "9.18.11", "to": "9.18.27", "fixed": "9.18.28-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2024-1975",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2024-07-23",
+      "summary": "SIG(0) can be used to exhaust CPU resources",
+      "url": "https://kb.isc.org/docs/cve-2024-1975",
+      "source": "https://kb.isc.org/docs/cve-2024-1975",
+      "ranges": [
+        {"from": "9.0.0", "to": "9.11.37", "fixed": "9.18.28"},
+        {"from": "9.16.0", "to": "9.16.50", "fixed": "9.18.28"},
+        {"from": "9.18.0", "to": "9.18.27", "fixed": "9.18.28"},
+        {"from": "9.19.0", "to": "9.19.24", "fixed": "9.20.0"}
+      ],
+      "ranges_preview": [
+        {"from": "9.9.3", "to": "9.11.37", "fixed": "9.18.28-S1"},
+        {"from": "9.16.8", "to": "9.16.49", "fixed": "9.18.28-S1"},
+        {"from": "9.18.11", "to": "9.18.27", "fixed": "9.18.28-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2024-1737",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2024-07-23",
+      "summary": "BIND's database will be slow if a very large number of RRs exist at the same name",
+      "url": "https://kb.isc.org/docs/cve-2024-1737",
+      "source": "https://kb.isc.org/docs/cve-2024-1737",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.11.37", "fixed": "9.18.28"},
+        {"from": "9.16.0", "to": "9.16.50", "fixed": "9.18.28"},
+        {"from": "9.18.0", "to": "9.18.27", "fixed": "9.18.28"},
+        {"from": "9.19.0", "to": "9.19.24", "fixed": "9.20.0"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.4", "to": "9.11.37", "fixed": "9.18.28-S1"},
+        {"from": "9.16.8", "to": "9.16.50", "fixed": "9.18.28-S1"},
+        {"from": "9.18.11", "to": "9.18.27", "fixed": "9.18.28-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2024-0760",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2024-07-23",
+      "summary": "A flood of DNS messages over TCP may make the server unstable",
+      "url": "https://kb.isc.org/docs/cve-2024-0760",
+      "source": "https://kb.isc.org/docs/cve-2024-0760",
+      "ranges": [
+        {"from": "9.18.1", "to": "9.18.27", "fixed": "9.18.28"},
+        {"from": "9.19.0", "to": "9.19.24", "fixed": "9.20.0"}
+      ],
+      "ranges_preview": [
+        {"from": "9.18.11", "to": "9.18.27", "fixed": "9.18.28-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2023-5680",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 5.3,
+      "published": "2024-02-13",
+      "summary": "Cleaning an ECS-enabled cache may cause excessive CPU load",
+      "url": "https://kb.isc.org/docs/cve-2023-5680",
+      "source": "https://kb.isc.org/docs/cve-2023-5680",
+      "ranges": [],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.11.37", "fixed": "9.16.48-S1"},
+        {"from": "9.16.8", "to": "9.16.45", "fixed": "9.16.48-S1"},
+        {"from": "9.18.11", "to": "9.18.21", "fixed": "9.18.24-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2023-5679",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2024-02-13",
+      "summary": "Enabling both DNS64 and serve-stale may cause an assertion failure during recursive resolution",
+      "url": "https://kb.isc.org/docs/cve-2023-5679",
+      "source": "https://kb.isc.org/docs/cve-2023-5679",
+      "ranges": [
+        {"from": "9.16.12", "to": "9.16.45", "fixed": "9.16.48"},
+        {"from": "9.18.0", "to": "9.18.21", "fixed": "9.18.24"},
+        {"from": "9.19.0", "to": "9.19.19", "fixed": "9.19.21"}
+      ],
+      "ranges_preview": [
+        {"from": "9.16.12", "to": "9.16.45", "fixed": "9.16.48-S1"},
+        {"from": "9.18.11", "to": "9.18.21", "fixed": "9.18.24-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2023-5517",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2024-02-13",
+      "summary": "Querying RFC 1918 reverse zones may cause an assertion failure when nxdomain-redirect is enabled",
+      "url": "https://kb.isc.org/docs/cve-2023-5517",
+      "source": "https://kb.isc.org/docs/cve-2023-5517",
+      "ranges": [
+        {"from": "9.12.0", "to": "9.16.45", "fixed": "9.16.48"},
+        {"from": "9.18.0", "to": "9.18.21", "fixed": "9.18.24"},
+        {"from": "9.19.0", "to": "9.19.19", "fixed": "9.19.21"}
+      ],
+      "ranges_preview": [
+        {"from": "9.16.8", "to": "9.16.45", "fixed": "9.16.48-S1"},
+        {"from": "9.18.11", "to": "9.18.21", "fixed": "9.18.24-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2023-50868",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2024-02-13",
+      "summary": "Preparing an NSEC3 closest encloser proof can exhaust CPU resources",
+      "url": "https://kb.isc.org/docs/cve-2023-50868",
+      "source": "https://kb.isc.org/docs/cve-2023-50868",
+      "ranges": [
+        {"from": "9.0.0", "to": "9.16.46", "fixed": "9.16.48"},
+        {"from": "9.18.0", "to": "9.18.22", "fixed": "9.18.24"},
+        {"from": "9.19.0", "to": "9.19.20", "fixed": "9.19.21"}
+      ],
+      "ranges_preview": [
+        {"from": "9.9.3", "to": "9.16.46", "fixed": "9.16.48-S1"},
+        {"from": "9.18.11", "to": "9.18.22", "fixed": "9.18.24-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2023-50387",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2024-02-13",
+      "summary": "KeyTrap - Extreme CPU consumption in DNSSEC validator",
+      "url": "https://kb.isc.org/docs/cve-2023-50387",
+      "source": "https://kb.isc.org/docs/cve-2023-50387",
+      "ranges": [
+        {"from": "9.0.0", "to": "9.16.46", "fixed": "9.16.48"},
+        {"from": "9.18.0", "to": "9.18.22", "fixed": "9.18.24"},
+        {"from": "9.19.0", "to": "9.19.20", "fixed": "9.19.21"}
+      ],
+      "ranges_preview": [
+        {"from": "9.9.3", "to": "9.16.46", "fixed": "9.16.48-S1"},
+        {"from": "9.18.11", "to": "9.18.22", "fixed": "9.18.24-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2023-4408",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2024-02-13",
+      "summary": "Parsing large DNS messages may cause excessive CPU load",
+      "url": "https://kb.isc.org/docs/cve-2023-4408",
+      "source": "https://kb.isc.org/docs/cve-2023-4408",
+      "ranges": [
+        {"from": "9.0.0", "to": "9.16.45", "fixed": "9.16.48"},
+        {"from": "9.18.0", "to": "9.18.21", "fixed": "9.18.24"},
+        {"from": "9.19.0", "to": "9.19.19", "fixed": "9.19.21"}
+      ],
+      "ranges_preview": [
+        {"from": "9.9.3", "to": "9.11.37", "fixed": "9.16.48-S1"},
+        {"from": "9.16.8", "to": "9.16.45", "fixed": "9.16.48-S1"},
+        {"from": "9.18.11", "to": "9.18.21", "fixed": "9.18.24-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2023-4236",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2023-09-20",
+      "summary": "named may terminate unexpectedly under high DNS-over-TLS query load",
+      "url": "https://kb.isc.org/docs/cve-2023-4236",
+      "source": "https://kb.isc.org/docs/cve-2023-4236",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.18", "fixed": "9.18.19"}
+      ],
+      "ranges_preview": [
+        {"from": "9.18.11", "to": "9.18.18", "fixed": "9.18.19-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2023-3341",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2023-09-20",
+      "summary": "A stack exhaustion flaw in control channel code may cause named to terminate unexpectedly",
+      "url": "https://kb.isc.org/docs/cve-2023-3341",
+      "source": "https://kb.isc.org/docs/cve-2023-3341",
+      "ranges": [
+        {"from": "9.2.0", "to": "9.16.43", "fixed": "9.16.44"},
+        {"from": "9.18.0", "to": "9.18.18", "fixed": "9.18.19"},
+        {"from": "9.19.0", "to": "9.19.16", "fixed": "9.19.17"}
+      ],
+      "ranges_preview": [
+        {"from": "9.9.3", "to": "9.16.43", "fixed": "9.16.44-S1"},
+        {"from": "9.18.0", "to": "9.18.18", "fixed": "9.18.19-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2023-2911",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2023-06-21",
+      "summary": "Exceeding the recursive-clients quota may cause named to terminate unexpectedly when stale-answer-client-timeout is set to 0",
+      "url": "https://kb.isc.org/docs/cve-2023-2911",
+      "source": "https://kb.isc.org/docs/cve-2023-2911",
+      "ranges": [
+        {"from": "9.16.33", "to": "9.16.41", "fixed": "9.16.42"},
+        {"from": "9.18.7", "to": "9.18.15", "fixed": "9.18.16"}
+      ],
+      "ranges_preview": [
+        {"from": "9.16.33", "to": "9.16.41", "fixed": "9.16.42-S1"},
+        {"from": "9.18.11", "to": "9.18.15", "fixed": "9.18.16-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2023-2829",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2023-06-21",
+      "summary": "Malformed NSEC records can cause named to terminate unexpectedly when synth-from-dnssec is enabled",
+      "url": "https://kb.isc.org/docs/cve-2023-2829",
+      "source": "https://kb.isc.org/docs/cve-2023-2829",
+      "ranges": [],
+      "ranges_preview": [
+        {"from": "9.16.8", "to": "9.16.41", "fixed": "9.16.42-S1"},
+        {"from": "9.18.11", "to": "9.18.15", "fixed": "9.18.16-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2023-2828",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2023-06-21",
+      "summary": "named's configured cache size limit can be significantly exceeded",
+      "url": "https://kb.isc.org/docs/cve-2023-2828",
+      "source": "https://kb.isc.org/docs/cve-2023-2828",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.16.41", "fixed": "9.16.42"},
+        {"from": "9.18.0", "to": "9.18.15", "fixed": "9.18.16"},
+        {"from": "9.19.0", "to": "9.19.13", "fixed": "9.19.14"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.3", "to": "9.16.41", "fixed": "9.16.42-S1"},
+        {"from": "9.18.11", "to": "9.18.15", "fixed": "9.18.16-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2022-3924",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2023-01-25",
+      "summary": "named configured to answer from stale cache may terminate unexpectedly at recursive-clients soft quota",
+      "url": "https://kb.isc.org/docs/cve-2022-3924",
+      "source": "https://kb.isc.org/docs/cve-2022-3924",
+      "ranges": [
+        {"from": "9.16.12", "to": "9.16.36", "fixed": "9.16.37"},
+        {"from": "9.18.0", "to": "9.18.10", "fixed": "9.18.11"},
+        {"from": "9.19.0", "to": "9.19.8", "fixed": "9.19.9"}
+      ],
+      "ranges_preview": [
+        {"from": "9.16.12", "to": "9.16.36", "fixed": "9.16.37-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2022-3736",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2023-01-25",
+      "summary": "named configured to answer from stale cache may terminate unexpectedly while processing RRSIG queries",
+      "url": "https://kb.isc.org/docs/cve-2022-3736",
+      "source": "https://kb.isc.org/docs/cve-2022-3736",
+      "ranges": [
+        {"from": "9.16.12", "to": "9.16.36", "fixed": "9.16.37"},
+        {"from": "9.18.0", "to": "9.18.10", "fixed": "9.18.11"},
+        {"from": "9.19.0", "to": "9.19.8", "fixed": "9.19.9"}
+      ],
+      "ranges_preview": [
+        {"from": "9.16.12", "to": "9.16.36", "fixed": "9.16.37-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2022-3094",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2023-01-25",
+      "summary": "An UPDATE message flood may cause named to exhaust all available memory",
+      "url": "https://kb.isc.org/docs/cve-2022-3094",
+      "source": "https://kb.isc.org/docs/cve-2022-3094",
+      "ranges": [
+        {"from": "9.16.0", "to": "9.16.36", "fixed": "9.16.37"},
+        {"from": "9.18.0", "to": "9.18.10", "fixed": "9.18.11"},
+        {"from": "9.19.0", "to": "9.19.8", "fixed": "9.19.9"}
+      ],
+      "ranges_preview": [
+        {"from": "9.16.8", "to": "9.16.36", "fixed": "9.16.37-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2022-38178",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2022-09-21",
+      "summary": "Memory leaks in EdDSA DNSSEC verification code",
+      "url": "https://kb.isc.org/docs/cve-2022-38178",
+      "source": "https://kb.isc.org/docs/cve-2022-38178",
+      "ranges": [
+        {"from": "9.9.12", "to": "9.9.13", "fixed": "9.16.33"},
+        {"from": "9.10.7", "to": "9.10.8", "fixed": "9.16.33"},
+        {"from": "9.11.3", "to": "9.16.32", "fixed": "9.16.33"},
+        {"from": "9.18.0", "to": "9.18.6", "fixed": "9.18.7"},
+        {"from": "9.19.0", "to": "9.19.4", "fixed": "9.19.5"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.4", "to": "9.11.37", "fixed": "9.16.33-S1"},
+        {"from": "9.16.8", "to": "9.16.32", "fixed": "9.16.33-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2022-3080",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2022-09-21",
+      "summary": "BIND 9 resolvers configured to answer from stale cache with zero stale-answer-client-timeout may terminate unexpectedly",
+      "url": "https://kb.isc.org/docs/cve-2022-3080",
+      "source": "https://kb.isc.org/docs/cve-2022-3080",
+      "ranges": [
+        {"from": "9.16.14", "to": "9.16.32", "fixed": "9.16.33"},
+        {"from": "9.18.0", "to": "9.18.6", "fixed": "9.18.7"},
+        {"from": "9.19.0", "to": "9.19.4", "fixed": "9.19.5"}
+      ],
+      "ranges_preview": [
+        {"from": "9.16.14", "to": "9.16.32", "fixed": "9.16.33-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2022-2906",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.5,
+      "published": "2022-09-21",
+      "summary": "Memory leaks in code handling Diffie-Hellman key exchange via TKEY RRs (OpenSSL 3.0.0+ only)",
+      "url": "https://kb.isc.org/docs/cve-2022-2906",
+      "source": "https://kb.isc.org/docs/cve-2022-2906",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.6", "fixed": "9.18.7"},
+        {"from": "9.19.0", "to": "9.19.4", "fixed": "9.19.5"}
+      ]
+    },
+    {
+      "id": "CVE-2022-2881",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 5.5,
+      "published": "2022-09-21",
+      "summary": "Buffer overread in statistics channel code",
+      "url": "https://kb.isc.org/docs/cve-2022-2881",
+      "source": "https://kb.isc.org/docs/cve-2022-2881",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.6", "fixed": "9.18.7"},
+        {"from": "9.19.0", "to": "9.19.4", "fixed": "9.19.5"}
+      ]
+    },
+    {
+      "id": "CVE-2022-2795",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 5.3,
+      "published": "2022-09-21",
+      "summary": "Processing large delegations may severely degrade resolver performance",
+      "url": "https://kb.isc.org/docs/cve-2022-2795",
+      "source": "https://kb.isc.org/docs/cve-2022-2795",
+      "ranges": [
+        {"from": "9.0.0", "to": "9.16.32", "fixed": "9.16.33"},
+        {"from": "9.18.0", "to": "9.18.6", "fixed": "9.18.7"},
+        {"from": "9.19.0", "to": "9.19.4", "fixed": "9.19.5"}
+      ],
+      "ranges_preview": [
+        {"from": "9.9.3", "to": "9.11.37", "fixed": "9.16.33-S1"},
+        {"from": "9.16.8", "to": "9.16.32", "fixed": "9.16.33-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2022-1183",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.0,
+      "published": "2022-05-18",
+      "summary": "Destroying a TLS session early causes assertion failure",
+      "url": "https://kb.isc.org/docs/cve-2022-1183",
+      "source": "https://kb.isc.org/docs/cve-2022-1183",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.2", "fixed": "9.18.3"},
+        {"from": "9.19.0", "to": "9.19.0", "fixed": "9.19.1"}
+      ]
+    },
+    {
+      "id": "CVE-2022-0667",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.0,
+      "published": "2022-03-16",
+      "summary": "Assertion failure on delayed DS lookup",
+      "url": "https://kb.isc.org/docs/cve-2022-0667",
+      "source": "https://kb.isc.org/docs/cve-2022-0667",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.0", "fixed": "9.18.1"}
+      ]
+    },
+    {
+      "id": "CVE-2022-0635",
+      "engine": "bind",
+      "severity": "high",
+      "cvss": 7.0,
+      "published": "2022-03-16",
+      "summary": "DNAME insist with synth-from-dnssec enabled",
+      "url": "https://kb.isc.org/docs/cve-2022-0635",
+      "source": "https://kb.isc.org/docs/cve-2022-0635",
+      "ranges": [
+        {"from": "9.18.0", "to": "9.18.0", "fixed": "9.18.1"}
+      ]
+    },
+    {
+      "id": "CVE-2022-0396",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 4.9,
+      "published": "2022-03-16",
+      "summary": "DoS from specifically crafted TCP packets",
+      "url": "https://kb.isc.org/docs/cve-2022-0396",
+      "source": "https://kb.isc.org/docs/cve-2022-0396",
+      "ranges": [
+        {"from": "9.16.11", "to": "9.16.26", "fixed": "9.16.27"},
+        {"from": "9.17.0", "to": "9.18.0", "fixed": "9.18.1"}
+      ],
+      "ranges_preview": [
+        {"from": "9.16.11", "to": "9.16.26", "fixed": "9.16.27-S1"}
+      ]
+    },
+    {
+      "id": "CVE-2021-25220",
+      "engine": "bind",
+      "severity": "medium",
+      "cvss": 6.2,
+      "published": "2022-03-16",
+      "summary": "DNS forwarders - cache poisoning vulnerability",
+      "url": "https://kb.isc.org/docs/cve-2021-25220",
+      "source": "https://kb.isc.org/docs/cve-2021-25220",
+      "ranges": [
+        {"from": "9.11.0", "to": "9.11.36", "fixed": "9.11.37"},
+        {"from": "9.12.0", "to": "9.16.26", "fixed": "9.16.27"},
+        {"from": "9.17.0", "to": "9.18.0", "fixed": "9.18.1"}
+      ],
+      "ranges_preview": [
+        {"from": "9.11.4", "to": "9.11.36", "fixed": "9.11.37-S1"},
+        {"from": "9.16.8", "to": "9.16.26", "fixed": "9.16.27-S1"}
       ]
     }
   ]

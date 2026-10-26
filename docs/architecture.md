@@ -1935,7 +1935,7 @@ hash of the divergent nodes) and `relationships` (`[{"servers",
 | `version_mismatch` | info, warning | nodes run different versions of BIND, kea4 or kea6 (warning when the series differs); cluster-wide, subject `<engine>:version` |
 | `restart_loop` | critical | `checks.restart_loop_count` restarts in `restart_loop_window_seconds`; subject `engine:<engine>` |
 | `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; subject is the pool subject |
-| `security_advisory` | info, warning | an installed BIND or Kea version falls in a range of `pelagos/data/isc_advisories.json`; subject `<engine>:<CVE id>` |
+| `security_advisory` | info, warning | the upstream version of an installed BIND or Kea falls in a range of `pelagos/data/isc_advisories.json` (`ranges_preview` for `-S` versions); subject `<engine>:<CVE id>`; details `cve`, `version`, `fixed_in`, `url`, `cvss`, `dataset_verified` |
 | `cert_expiry` | warning / critical | the web certificate (subject `cert:web`), this node's replication certificate (`cert:node`) or the internal CA (`cert:ca`) expires within `alerts_cert_warning_days` / `alerts_cert_critical_days`, or within a third / a tenth of its lifetime when that is shorter (24 h certificates); details: `cert`, `not_after`, `days_left`, `fingerprint`, `issuer`, and for the web certificate `source` and `mode` |
 | `cert_renewal_failed` | warning | the last automatic request of the web certificate failed (subject `cert:web:renewal`; details `failures`, `last_error`, `next_attempt_at`) |
 

@@ -163,7 +163,10 @@ CATALOG: dict[str, str] = {
     "alert.version_mismatch": "{engine} versions differ between nodes: {versions}",
     "alert.restart_loop": "{engine} restarted {count} times in the last {minutes} minutes",
     "alert.pool_forecast": "pool {pool} of subnet {subnet_id} should be full in about {days} days",
-    "alert.security_advisory": "{engine} {version} is affected by {cve}: {summary} (ISC data of {dataset})",
+    "alert.security_advisory": (
+        "upstream {engine} {version} is affected by {cve}: {summary}; distribution packages may carry"
+        " the fix, check your distribution's security tracker (ISC data of {dataset})"
+    ),
     "alert.cert_expiry": "{cert} certificate expires on {not_after}",
     "alert.cert_expired": "{cert} certificate expired on {not_after}",
     "alert.cert_renewal_failed": "web certificate renewal failed {failures} times: {error}",

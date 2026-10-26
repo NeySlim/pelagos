@@ -1335,3 +1335,13 @@ also runs `Collector.apply_exceptions` to resolve newly excepted open alerts. WP
 `EXCEPTABLE_KINDS` in `pages/alerts/lib.js` (the "Ignore" action and the exceptions
 filter). Rolling upgrade: a node on an older version keeps raising these alerts until
 it is upgraded.
+
+## 2026-10-26, ISC advisory data verified at the source
+Additive. `pelagos/data/isc_advisories.json` (schema 1, revision 3) gains the
+top-level `verified` and `sources`, and per entry `source`, `cvss`, `published`
+and `ranges_preview` (BIND Supported Preview Edition, matched only for `-S`
+versions). WP-COLLECTOR: `checks/advisories.py` reads them; alert details gain
+`cvss` and `dataset_verified`. Contract (`domain/messages.py`): the text of
+`alert.security_advisory` says the check is on the upstream version and points to
+the distribution's security tracker (same placeholders). WP-FRONTEND: the `en` and
+`fr` catalogs carry the new text. Older nodes ignore the new fields.

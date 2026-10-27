@@ -75,6 +75,14 @@ def client_address() -> str | None:
 
 def renew_client() -> None:
     """Releases the lease and asks again: a real DISCOVER/REQUEST from lab-client."""
+    # A Kea reload sends the HA pair through WAITING and SYNCING (about 12 s) with DHCP disabled:
+    # a DISCOVER sent meanwhile is dropped and the client backs off for longer than the wait.
+    wait_for(
+        "both Kea serving",
+        lambda: all(kea_command(h, "ha-heartbeat")["arguments"]["state"] == "hot-standby" for h in (A1, A2)),
+        timeout=120,
+        interval=2,
+    )
     nic, _ = client_nic()
     ssh(AC, f"sudo networkctl down {nic}; sleep 1; sudo networkctl up {nic}")
 

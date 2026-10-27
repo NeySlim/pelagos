@@ -178,12 +178,22 @@ class TestReferencePair:
         assert ssh(A1, "/usr/sbin/kea-dhcp4 -v")[1].startswith("2.6")
         wait_for("lab-client lease", client_address, timeout=60)
         # The first lease may predate D2 or the HA sync of provisioning (no update sent): ask again
-        # once the pair serves, so an update with the md5 key is certain to happen.
-        renew_client()
-        wait_for("lab-client lease again", client_address, timeout=90)
-        addr = client_address()
-        for host in (A1, A2):
-            wait_for(f"DDNS record on {host}", lambda h=host: dig(h, "lab-client.example.lan") == addr)
+        # until an update with the md5 key lands, three attempts at most.
+        for attempt in range(3):
+            renew_client()
+            wait_for("lab-client lease again", client_address, timeout=90)
+            addr = client_address()
+            try:
+                for host in (A1, A2):
+                    wait_for(
+                        f"DDNS record on {host}",
+                        lambda h=host, a=addr: dig(h, "lab-client.example.lan") == a,
+                        timeout=60,
+                    )
+                break
+            except AssertionError:
+                if attempt == 2:
+                    raise
         d2 = json.loads(sudo_cat(A2, "/etc/kea/kea-dhcp-ddns.conf"))["DhcpDdns"]
         assert d2["tsig-keys"][0]["algorithm"] == "HMAC-MD5"
         assert kea_command(A1, "ha-heartbeat")["arguments"]["state"] == "hot-standby"

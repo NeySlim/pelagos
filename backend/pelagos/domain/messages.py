@@ -176,6 +176,18 @@ CATALOG: dict[str, str] = {
         "upstream {engine} {version} is affected by {cve}: {summary}; distribution packages may carry"
         " the fix, check your distribution's security tracker (ISC data of {dataset})"
     ),
+    "alert.security_advisories_open": (
+        "{engine} {version} is affected by {count} ISC advisories ({cves}) and the distribution "
+        "package {package} {installed} has no fix yet (ISC data of {dataset})"
+    ),
+    "alert.security_advisories_update": (
+        "{engine} {version} is affected by {count} ISC advisories ({cves}): update the "
+        "package {package}, version {candidate} carries the fix (ISC data of {dataset})"
+    ),
+    "alert.security_advisories_upstream": (
+        "upstream {engine} {version} is affected by {count} ISC advisories ({cves}); no "
+        "distribution security data, check your distribution's security tracker (ISC data of {dataset})"
+    ),
     "alert.cert_expiry": "{cert} certificate expires on {not_after}",
     "alert.cert_expired": "{cert} certificate expired on {not_after}",
     "alert.cert_renewal_failed": "web certificate renewal failed {failures} times: {error}",

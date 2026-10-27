@@ -300,7 +300,9 @@
         "soa_minimum_max_seconds": "SOA negative TTL maximum",
         "advisories_enabled": "Check ISC security advisories",
         "advisories_fetch_enabled": "Fetch advisory data from the network",
-        "advisories_url": "Advisory data URL (https)"
+        "advisories_url": "Advisory data URL (https)",
+        "distro_tracker_enabled": "Use the Debian security tracker for distribution fixes",
+        "distro_tracker_url": "Debian security tracker URL (https)"
       },
       "collector": {
         "poll_seconds": "Engine poll",
@@ -377,7 +379,8 @@
         "clock_skew_critical_seconds": "Kea terminates HA at 60 s: keep it below.",
         "cert_warning_days": "Web, node and CA certificates; short-lived ones use a share of their lifetime.",
         "resolver_min_queries": "Fewer answers in the window: no resolver alert.",
-        "advisories_fetch_enabled": "Off: the data shipped with the package, or a file placed by hand."
+        "advisories_fetch_enabled": "Off: the data shipped with the package, or a file placed by hand.",
+        "distro_tracker_enabled": "Debian nodes: download the tracker daily (about 14 MB) and keep the BIND and Kea entries. Off or unreachable: upstream versions only."
       },
       "collector": {
         "lease_watch_max_leases": "Larger tables are not watched live (0 turns the watch off)."

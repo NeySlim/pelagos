@@ -3,9 +3,9 @@
 
 The data is a versioned file (pelagos/data/isc_advisories.json). A newer copy in the node's var
 directory (placed by hand or fetched when settings.checks.advisories_fetch_enabled is on) wins over it.
-Versions are compared as upstream versions: distribution backports are not seen. The data is
-rebuilt from kb.isc.org by scripts/update-isc-advisories.py.
-Subject: `<engine>:<CVE id>` (kind security_advisory).
+Versions are compared as upstream versions; distribution backports come from distro.py (item 37). The
+data is rebuilt from kb.isc.org by scripts/update-isc-advisories.py.
+Subject: `<engine>:advisories` (kind security_advisory), one alert per engine with the CVE list.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from pelagos.collector.checks import distro
 from pelagos.collector.checks.versions import version_tuple
 from pelagos.domain import Alert, AlertKind, Engine, Severity, messages
 
@@ -83,43 +84,128 @@ def affected(engine: str, version: str | None, data: dict[str, Any]) -> list[dic
     return out
 
 
-def advisory_alerts(node_id: str, installed: dict[Engine, str | None], data: dict[str, Any]) -> list[Alert]:
+_RANK = {Severity.INFO: 0, Severity.WARNING: 1, Severity.CRITICAL: 2}
+NOTE_UPSTREAM = (
+    "Upstream version check: distribution packages may carry the fix without changing the version, "
+    "check your distribution's security tracker."
+)
+
+
+def _short(ids: list[str]) -> str:
+    return ", ".join(ids[:3]) + (f" +{len(ids) - 3}" if len(ids) > 3 else "")
+
+
+def engine_advisories(
+    engine: Engine,
+    version: str | None,
+    data: dict[str, Any],
+    pkg: distro.Package | None = None,
+    tracker: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """The ISC entries that match `version`, each with its distribution verdict (`status`), and why
+    the distribution data does not apply (None when it does)."""
+    family = "bind" if engine is Engine.BIND else "kea"
+    entries = affected(family, version, data)
+    if pkg is not None and distro.upstream_of(pkg.installed) != version_tuple(version):
+        # The running daemon is not the installed package (not restarted yet, or built elsewhere).
+        found, reason = {e["id"]: {"status": distro.UNKNOWN} for e in entries}, "package_differs"
+    else:
+        found, reason = distro.verdicts([e["id"] for e in entries], pkg, tracker)
+    return [{**e, **found[e["id"]]} for e in entries], reason
+
+
+def _cve_details(e: dict[str, Any]) -> dict[str, Any]:
+    out = {
+        "cve": e["id"],
+        "status": e["status"],
+        "severity": e.get("severity"),
+        "cvss": e.get("cvss"),
+        "summary": e.get("summary", ""),
+        "fixed_in": e.get("fixed"),
+        "url": e.get("source") or e.get("url"),
+    }
+    if e.get("fixed_version"):
+        out["distribution_fixed_version"] = e["fixed_version"]
+    if e.get("package"):
+        out["distribution_package"] = e["package"]
+    return out
+
+
+def _source(pkg: distro.Package | None, tracker: dict[str, Any] | None, reason: str | None) -> dict[str, Any]:
+    if reason is not None or pkg is None:
+        return {"name": None, "reason": reason}
+    if pkg.manager == "rpm":
+        return {"name": "dnf updateinfo"}
+    return {
+        "name": "Debian security tracker",
+        "url": (tracker or {}).get("source"),
+        "fetched": (tracker or {}).get("fetched"),
+    }
+
+
+def advisory_alerts(
+    node_id: str,
+    installed: dict[Engine, str | None],
+    data: dict[str, Any],
+    packages: dict[Engine, distro.Package | None] | None = None,
+    tracker: dict[str, Any] | None = None,
+) -> list[Alert]:
+    """One alert per engine with the CVEs that still apply. A CVE the distribution package fixes
+    is listed under `fixed_by_distribution` and raises nothing on its own."""
     out: list[Alert] = []
+    dataset = data.get("verified") or data.get("updated") or "?"
     for engine, version in installed.items():
-        family = "bind" if engine is Engine.BIND else "kea"
-        for entry in affected(family, version, data):
-            out.append(
-                Alert(
-                    kind=AlertKind.SECURITY_ADVISORY,
-                    severity=SEVERITIES.get(str(entry.get("severity", "")).lower(), Severity.WARNING),
-                    node_id=node_id,
-                    engine=engine,
-                    subject=f"{engine.value}:{entry['id']}",
-                    **messages.fields(
-                        "title",
-                        messages.msg(
-                            "alert.security_advisory",
-                            engine=engine.value,
-                            version=version,
-                            cve=entry["id"],
-                            summary=entry.get("summary", ""),
-                            dataset=data.get("verified") or data.get("updated") or "?",
-                        ),
-                    ),
-                    details={
-                        "cve": entry["id"],
-                        "version": version,
-                        "fixed_in": entry.get("fixed"),
-                        "url": entry.get("source") or entry.get("url"),
-                        "cvss": entry.get("cvss"),
-                        "dataset_updated": data.get("updated"),
-                        "dataset_verified": data.get("verified"),
-                        "dataset_revision": data.get("revision"),
-                        "note": "Upstream version check: distribution packages may carry the fix without "
-                        "changing the version, check your distribution's security tracker.",
-                    },
-                )
+        pkg = (packages or {}).get(engine)
+        entries, reason = engine_advisories(engine, version, data, pkg, tracker)
+        remaining = [e for e in entries if e["status"] != distro.FIXED]
+        if not remaining:
+            continue
+        ids = [e["id"] for e in remaining]
+        statuses = {e["status"] for e in remaining}
+        common = {"engine": engine.value, "version": version, "count": len(ids), "cves": _short(ids)}
+        if distro.OPEN in statuses and pkg is not None:
+            message = messages.msg(
+                "alert.security_advisories_open",
+                **common,
+                package=pkg.name,
+                installed=pkg.installed,
+                dataset=dataset,
             )
+        elif distro.UPDATE in statuses and pkg is not None:
+            message = messages.msg(
+                "alert.security_advisories_update",
+                **common,
+                package=pkg.name,
+                candidate=pkg.candidate or "?",
+                dataset=dataset,
+            )
+        else:
+            message = messages.msg("alert.security_advisories_upstream", **common, dataset=dataset)
+        severity = max(
+            (SEVERITIES.get(str(e.get("severity", "")).lower(), Severity.WARNING) for e in remaining),
+            key=_RANK.__getitem__,
+        )
+        out.append(
+            Alert(
+                kind=AlertKind.SECURITY_ADVISORY,
+                severity=severity,
+                node_id=node_id,
+                engine=engine,
+                subject=f"{engine.value}:advisories",
+                **messages.fields("title", message),
+                details={
+                    "version": version,
+                    "cves": [_cve_details(e) for e in remaining],
+                    "fixed_by_distribution": [e["id"] for e in entries if e["status"] == distro.FIXED],
+                    "package": pkg.to_dict() if pkg else None,
+                    "distribution_data": _source(pkg, tracker, reason),
+                    "dataset_updated": data.get("updated"),
+                    "dataset_verified": data.get("verified"),
+                    "dataset_revision": data.get("revision"),
+                    **({"note": NOTE_UPSTREAM} if statuses == {distro.UNKNOWN} else {}),
+                },
+            )
+        )
     return out
 
 

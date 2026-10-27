@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from pelagos.collector.checks import delegation
@@ -83,10 +85,64 @@ def test_advisory_alert_survives_a_stopped_daemon(rig):
     node = collector.node_id
     collector.store.write_snapshot(node, "bind", "capabilities", 1, {"running": True, "version": "9.18.10"})
     collector.health()
-    first = open_of(collector, AlertKind.SECURITY_ADVISORY)["bind:CVE-2023-50387"]
-    collector.store.write_snapshot(node, "bind", "capabilities", 2, {"running": False, "version": "9.18.10"})
+    first = open_of(collector, AlertKind.SECURITY_ADVISORY)["bind:advisories"]
+    assert "CVE-2023-50387" in {c["cve"] for c in first.details["cves"]}
+    # named stopped for an upgrade: no version in the snapshot, the alert stays as it is.
+    collector.store.write_snapshot(node, "bind", "capabilities", 2, {"running": False, "version": None})
     collector.health()
-    assert open_of(collector, AlertKind.SECURITY_ADVISORY)["bind:CVE-2023-50387"].id == first.id
+    assert open_of(collector, AlertKind.SECURITY_ADVISORY)["bind:advisories"].id == first.id
+
+
+def test_restart_rereads_the_package_and_closes_fixed_advisories(rig, tmp_path):
+    """Item 39: an upgrade restarts the daemon; the package is read again and the alert re-evaluated."""
+    from pelagos.collector.checks import distro
+
+    collector, _, clock = rig
+    node = collector.node_id
+    installed = ["1:9.20.26-1~deb13u1"]
+    reads = []
+
+    def read_package(engine):
+        reads.append(engine)
+        return distro.Package("deb", "bind9", "bind9", installed[0], installed[0], "trixie")
+
+    collector.checks.read_package = read_package
+    tracker = {
+        "bind9": {
+            "CVE-2026-19033": {"trixie": {"status": "resolved", "fixed_version": "1:9.20.29-1~deb13u1"}}
+        }
+    }
+    var = collector.ctx.paths.var
+    (var / distro.TRACKER_NAME).write_text(json.dumps({"schema": 1, "packages": tracker}))
+
+    def poll(version, boot):
+        collector.store.write_snapshot(
+            node, "bind", "capabilities", int(clock.now), {"running": True, "version": version}
+        )
+        collector.store.write_snapshot(node, "bind", "stats", int(clock.now), {"boot_time": boot})
+        collector.health()
+        clock.now += 60
+
+    poll("9.20.26", "2026-10-27T10:00:00Z")
+    poll("9.20.26", "2026-10-27T10:00:00Z")
+    assert len(reads) == 1  # cached between polls
+    alert = open_of(collector, AlertKind.SECURITY_ADVISORY)["bind:advisories"]
+    assert {c["cve"]: c["status"] for c in alert.details["cves"]}["CVE-2026-19033"] == "open"
+    # A Debian security upload with the same upstream version, named restarted by the upgrade.
+    installed[0] = "1:9.20.26-1~deb13u2"
+    tracker["bind9"]["CVE-2026-19033"]["trixie"]["fixed_version"] = "1:9.20.26-1~deb13u2"
+    (var / distro.TRACKER_NAME).write_text(json.dumps({"schema": 1, "packages": tracker}))
+    poll("9.20.26", "2026-10-27T10:05:00Z")
+    assert len(reads) == 2
+    alert = open_of(collector, AlertKind.SECURITY_ADVISORY)["bind:advisories"]
+    assert "CVE-2026-19033" in alert.details["fixed_by_distribution"]
+    snap = collector.store.snapshot(node, "bind", "advisories")[1]
+    assert snap["cves"]["CVE-2026-19033"] == "fixed" and snap["package"]["installed"] == "1:9.20.26-1~deb13u2"
+    # An upstream upgrade changes the version: read again too, and nothing applies any more.
+    installed[0] = "1:9.20.30-1~deb13u1"
+    poll("9.20.30", "2026-10-27T10:05:00Z")
+    assert len(reads) == 3
+    assert open_of(collector, AlertKind.SECURITY_ADVISORY) == {}
 
 
 def test_risky_reservation_and_peer_difference(rig):
@@ -156,7 +212,7 @@ def test_version_mismatch_between_kea_peers_and_advisory_for_an_old_bind(rig):
     collector.store.write_snapshot(node, "bind", "capabilities", 1, {"running": True, "version": "9.18.10"})
     collector.health()
     assert open_of(collector, AlertKind.VERSION_MISMATCH)["kea4:version"].node_id is None
-    assert "bind:CVE-2023-50387" in open_of(collector, AlertKind.SECURITY_ADVISORY)
+    assert "bind:advisories" in open_of(collector, AlertKind.SECURITY_ADVISORY)
     collector.store.write_snapshot(node, "bind", "capabilities", 2, {"running": True, "version": "9.20.30"})
     collector.health()
     assert open_of(collector, AlertKind.SECURITY_ADVISORY) == {}
@@ -219,3 +275,18 @@ def test_local_addresses_come_from_procfs_when_ip_cannot_run(tmp_path, monkeypat
     monkeypatch.setattr(runner.subprocess, "run", no_netlink)
     assert runner.local_addresses(tmp_path) == {"192.0.2.11", "127.0.0.1", "2001:db8::11", "::1"}
     assert runner.local_addresses(tmp_path / "missing") == set()
+
+
+def test_a_poll_that_sees_a_new_daemon_version_reevaluates_advisories_at_once(rig):
+    """Item 39: the upgrade is acted on right after the poll, not at the next health pass."""
+    collector, _, _ = rig
+    node = collector.node_id
+    collector.store.write_snapshot(node, "bind", "capabilities", 1, {"running": True, "version": "9.20.26"})
+    collector.health()
+    assert collector.checks.daemons_changed() is None  # first look: nothing to compare with
+    assert "bind:advisories" in open_of(collector, AlertKind.SECURITY_ADVISORY)
+    collector._daemons_changed()
+    assert "bind:advisories" in open_of(collector, AlertKind.SECURITY_ADVISORY)
+    collector.store.write_snapshot(node, "bind", "capabilities", 2, {"running": True, "version": "9.20.30"})
+    collector._daemons_changed()
+    assert open_of(collector, AlertKind.SECURITY_ADVISORY) == {}

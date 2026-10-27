@@ -485,6 +485,18 @@
       "group": "advisories"
     },
     {
+      "key": "checks.distro_tracker_enabled",
+      "type": "boolean",
+      "default": true,
+      "group": "advisories"
+    },
+    {
+      "key": "checks.distro_tracker_url",
+      "type": "url",
+      "default": "https://security-tracker.debian.org/tracker/data/json",
+      "group": "advisories"
+    },
+    {
       "key": "collector.poll_seconds",
       "type": "integer",
       "default": 60,

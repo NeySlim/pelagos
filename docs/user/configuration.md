@@ -349,6 +349,8 @@ ISC security advisories:
 | `advisories_enabled` | `on` |  | compare installed versions with the ISC advisory data |
 | `advisories_fetch_enabled` | `off` |  | download the data file daily from `advisories_url` |
 | `advisories_url` | `empty` |  | https address of the advisory data (empty: the file shipped with the package) |
+| `distro_tracker_enabled` | `on` |  | Debian nodes: download the Debian security tracker daily to see the fixes of the distribution packages |
+| `distro_tracker_url` | Debian tracker JSON |  | https address of the tracker data |
 
 ### Collector (`[settings.collector]`)
 

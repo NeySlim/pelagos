@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from pelagos.collector.alerts import ack_entry
+from pelagos.collector.checks import distro
 from pelagos.collector.events import EventSink
 from pelagos.collector.main import Backends, Collector
 from pelagos.collector.series import SeriesStore, connect
@@ -16,9 +17,17 @@ from pelagos.connectors.base import ConnectorContext
 from pelagos.connectors.bind import BindBackend
 from pelagos.connectors.kea.backend import KeaBackend
 from pelagos.connectors.kea.d2 import D2Backend
-from pelagos.domain import AlertKind, AlertState, Family
+from pelagos.domain import AlertKind, AlertState, Engine, Family
 
 pytestmark = pytest.mark.daemon
+
+
+@pytest.fixture(autouse=True)
+def _no_package_reads(monkeypatch):
+    """The host's packages and the Debian tracker stay out of these tests."""
+    monkeypatch.setattr(distro, "read_package", lambda engine, run=None: None)
+    monkeypatch.setattr(distro, "fetch_debian_tracker", lambda url, var_dir, timeout=60.0: False)
+
 
 ALERT_SETTINGS = {"checks": {"pool_warning_percent": 1, "pool_critical_percent": 95}}
 
@@ -185,3 +194,28 @@ def test_live_pass_on_real_daemons(rig, named_server):
     collector.poll_bind()
     zones = [d for t, e, d in seen if t == "zones" and e == "serial"]
     assert [z["zone"] for z in zones] == ["example.lan."] and zones[0]["serial"] > zones[0]["previous"]
+
+
+def test_kea_restart_rereads_the_package_and_advisories_after_the_poll(rig):
+    """Item 39: a restarted daemon (new pid) has its package read again right after the poll."""
+    from tests.fixtures.kea import start_kea
+
+    collector, kea = rig
+    reads = []
+    collector.checks.read_package = lambda engine: reads.append(engine)
+    collector.poll_kea()
+    collector.health()
+    assert reads.count(Engine.KEA4) == 1
+    collector.poll_kea()
+    collector.health()
+    assert reads.count(Engine.KEA4) == 1  # same daemon: the package read is cached
+    pid = kea.ok("status-get")["pid"]
+    kea.stop()
+    fresh = start_kea(kea.name, kea.root, json.loads(kea.config_path.read_text()))
+    kea.process = fresh.process
+    assert kea.ok("status-get")["pid"] != pid
+    collector.poll_kea()
+    assert reads.count(Engine.KEA4) == 2
+    node = collector.node_id
+    snap = collector.store.snapshot(node, "kea4", "advisories")[1]
+    assert snap["version"] == collector.store.snapshot(node, "kea4", "capabilities")[1]["version"]

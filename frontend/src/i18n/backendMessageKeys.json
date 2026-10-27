@@ -282,6 +282,31 @@
   "alert.secondary_stale": [
     "zone"
   ],
+  "alert.security_advisories_open": [
+    "count",
+    "cves",
+    "dataset",
+    "engine",
+    "installed",
+    "package",
+    "version"
+  ],
+  "alert.security_advisories_update": [
+    "candidate",
+    "count",
+    "cves",
+    "dataset",
+    "engine",
+    "package",
+    "version"
+  ],
+  "alert.security_advisories_upstream": [
+    "count",
+    "cves",
+    "dataset",
+    "engine",
+    "version"
+  ],
   "alert.security_advisory": [
     "cve",
     "dataset",

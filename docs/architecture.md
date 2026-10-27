@@ -1297,6 +1297,7 @@ disk_free_warning_percent = 15           # health checks (item 19 to 28) follow,
 disk_free_critical_percent = 5
 soa_refresh_min_seconds = 1200
 advisories_fetch_enabled = false
+distro_tracker_enabled = true            # Debian security tracker: fixes of the distribution packages
 
 [settings.dns]
 read_key = "ddi-read"

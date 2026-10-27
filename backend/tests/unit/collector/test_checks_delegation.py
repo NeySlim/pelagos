@@ -217,10 +217,10 @@ def test_packaged_advisories_are_valid_and_match_versions():
 def test_advisory_alerts_per_installed_engine():
     data = advisories.load()
     alerts = advisories.advisory_alerts("n1", {Engine.BIND: "9.18.10", Engine.KEA4: "3.0.3"}, data)
-    assert alerts and all(a.engine is Engine.BIND for a in alerts)
-    assert {a.subject for a in alerts} >= {"bind:CVE-2023-50387"}
-    assert all("security tracker" in a.details["note"] for a in alerts)
-    assert all(a.details["url"].startswith("https://kb.isc.org/docs/cve-") for a in alerts)
+    assert [a.subject for a in alerts] == ["bind:advisories"]
+    assert "CVE-2023-50387" in {c["cve"] for c in alerts[0].details["cves"]}
+    assert "security tracker" in alerts[0].details["note"]
+    assert all(c["url"].startswith("https://kb.isc.org/docs/cve-") for c in alerts[0].details["cves"])
 
 
 def test_override_wins_only_when_valid_and_not_older(tmp_path):

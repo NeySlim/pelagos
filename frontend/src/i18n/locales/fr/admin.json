@@ -300,7 +300,9 @@
         "soa_minimum_max_seconds": "SOA TTL négatif maximal",
         "advisories_enabled": "Vérifier les avis de sécurité ISC",
         "advisories_fetch_enabled": "Récupérer les données d'avis par le réseau",
-        "advisories_url": "URL des données d'avis (https)"
+        "advisories_url": "URL des données d'avis (https)",
+        "distro_tracker_enabled": "Utiliser le suivi de sécurité Debian pour les correctifs de la distribution",
+        "distro_tracker_url": "URL du suivi de sécurité Debian (https)"
       },
       "collector": {
         "poll_seconds": "Interrogation des moteurs",
@@ -377,7 +379,8 @@
         "clock_skew_critical_seconds": "Kea arrête la HA à 60 s : rester en dessous.",
         "cert_warning_days": "Certificats web, de nœud et de CA ; les certificats courts utilisent une part de leur durée.",
         "resolver_min_queries": "Moins de réponses dans la fenêtre : pas d’alerte résolveur.",
-        "advisories_fetch_enabled": "Désactivé : les données livrées avec le paquet, ou un fichier posé à la main."
+        "advisories_fetch_enabled": "Désactivé : les données livrées avec le paquet, ou un fichier posé à la main.",
+        "distro_tracker_enabled": "Nœuds Debian : télécharge le suivi chaque jour (environ 14 Mo) et garde les entrées BIND et Kea. Désactivé ou injoignable : versions amont seulement."
       },
       "collector": {
         "lease_watch_max_leases": "Les tables plus grandes ne sont pas suivies en direct (0 désactive le suivi)."

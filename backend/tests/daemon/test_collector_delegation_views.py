@@ -10,12 +10,20 @@ from types import SimpleNamespace
 
 import pytest
 
-from pelagos.collector.checks import delegation
+from pelagos.collector.checks import delegation, distro
 from pelagos.collector.checks.runner import HealthChecks
 from tests.daemon import bind_custom
 from tests.daemon.test_bind_backend import make_backend
 
 pytestmark = pytest.mark.daemon
+
+
+@pytest.fixture(autouse=True)
+def _no_package_reads(monkeypatch):
+    """The host's packages and the Debian tracker stay out of these tests."""
+    monkeypatch.setattr(distro, "read_package", lambda engine, run=None: None)
+    monkeypatch.setattr(distro, "fetch_debian_tracker", lambda url, var_dir, timeout=60.0: False)
+
 
 VIEWS = """
 view "inside" {

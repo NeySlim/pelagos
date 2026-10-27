@@ -61,6 +61,8 @@ class Setting:
         return out
 
 
+# Source and format checked on 2026-10-27, see pelagos/collector/checks/distro.py.
+DEBIAN_TRACKER = "https://security-tracker.debian.org/tracker/data/json"
 S = Setting
 DAY = 86400
 BIG = 2147483647
@@ -128,6 +130,9 @@ REGISTRY: tuple[Setting, ...] = (
     S("checks.advisories_enabled", "boolean", True, group="advisories"),
     S("checks.advisories_fetch_enabled", "boolean", False, group="advisories"),
     S("checks.advisories_url", "url", "", group="advisories"),
+    # Debian security tracker: which CVEs the installed distribution package fixes (item 37).
+    S("checks.distro_tracker_enabled", "boolean", True, group="advisories"),
+    S("checks.distro_tracker_url", "url", DEBIAN_TRACKER, group="advisories"),
     # Collector periods
     S("collector.poll_seconds", "integer", 60, 5, 3600, "seconds"),
     S("collector.pool_sample_seconds", "integer", 300, 30, DAY, "seconds"),

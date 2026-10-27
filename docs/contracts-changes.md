@@ -13,6 +13,19 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-27, WP-COLLECTOR: advisories grouped per engine, distribution fixes
+Contract (`domain/messages.py`): messages `alert.security_advisories_open`,
+`alert.security_advisories_update`, `alert.security_advisories_upstream` (placeholders
+`engine`, `version`, `count`, `cves`, `dataset`, plus `package`, `installed` or `candidate`);
+`alert.security_advisory` stays for alerts stored by older nodes. Settings
+`checks.distro_tracker_enabled` (true) and `checks.distro_tracker_url` (the Debian security
+tracker JSON). WP-COLLECTOR: one `security_advisory` alert per node and engine, subject
+`<engine>:advisories`, the CVEs in `details.cves` with their distribution verdict
+(`fixed`, `update`, `open`, `unknown`), `details.fixed_by_distribution`, `details.package`,
+`details.distribution_data`; the former `<engine>:<CVE>` alerts resolve on the first pass.
+Snapshot `(node, engine, "advisories")` keeps every verdict. WP-FRONTEND: the three messages
+and the two setting labels in `en` and `fr`.
+
 ## 2026-10-26, final review fixes: SSRF guard, secrets bound to targets, exception permissions
 - Settings: `rpz.max_download_seconds` (600), `rpz.private_sources_enabled` (false). Renamed
   (former path kept in RENAMED): `checks.declined_addresses_warning` ->

@@ -266,6 +266,16 @@ class Collector:
             with self.backend_lock:
                 outcome = self.bind.poll()
             self._finish(outcome)
+            self._daemons_changed()
+
+    def _daemons_changed(self) -> None:
+        try:
+            outcome = self.checks.daemons_changed()
+        except Exception:
+            log.exception("advisories after a daemon change failed")
+            return
+        if outcome is not None:
+            self._finish(outcome)
 
     def poll_rpz(self) -> None:
         if self.rpz is not None:
@@ -279,6 +289,7 @@ class Collector:
             with self.backend_lock:
                 outcome = poller.poll()
             self._finish(outcome)
+        self._daemons_changed()
 
     def poll_d2(self) -> None:
         if self.d2 is not None:

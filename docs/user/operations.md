@@ -246,15 +246,36 @@ collector restarts and judge only after a full window.
 ### Security advisories
 
 `security_advisory` alerts compare the installed BIND and Kea versions with
-`backend/pelagos/data/isc_advisories.json` (shipped with Pelagos). The check
-works on the **upstream** version only. Distributions (Debian, Ubuntu, RHEL
-and others) backport security fixes without changing the upstream version, so
-`9.20.26-1~deb13u1` may already be fixed for a CVE that ISC lists for 9.20.26.
-Before acting, look the CVE up in your distribution's security tracker (for
-Debian, `https://security-tracker.debian.org/tracker/<CVE id>`) and compare
-with the installed package version; when the fix is there, acknowledge the
-alert or add an exception. Pelagos does not query distribution trackers
-itself: nodes may be offline and the trackers are large.
+`backend/pelagos/data/isc_advisories.json` (shipped with Pelagos). There is one
+alert per node and engine (subject `bind:advisories`, `kea4:advisories`), with
+the matching CVEs in `details.cves`.
+
+ISC lists **upstream** versions. Distributions backport security fixes without
+changing the upstream version, so `9.20.26-1~deb13u1` may already be fixed for a
+CVE that ISC lists for 9.20.26. The collector therefore reads the package that
+provides the daemon and asks the distribution:
+
+- Debian and derivatives: `dpkg-query` and `apt-cache policy` give the installed
+  and candidate versions; the Debian security tracker
+  (`https://security-tracker.debian.org/tracker/data/json`, setting
+  `checks.distro_tracker_url`) gives the version that fixes each CVE in the
+  node's release. The collector downloads it once a day (about 14 MB
+  compressed, read as a stream) and keeps only the `bind9` and `isc-kea`
+  entries in `/var/lib/pelagos/debian_security_tracker.json`.
+- RPM distributions: `dnf -C updateinfo list --with-cve --all`, from the local
+  metadata cache (refreshed by `dnf makecache`), lists the CVE fixes installed
+  or available for `bind` and `kea`. dnf 5 (`dnf advisory`) is not read yet.
+
+Each CVE gets a verdict: `fixed` (the installed package carries the fix: no
+alert, listed in `details.fixed_by_distribution`), `update` (the candidate
+package has it: the alert says to update the package), `open` (no fix in the
+distribution yet) or `unknown`. Without distribution data (no package, ISC or
+self-built packages, tracker unreachable or `checks.distro_tracker_enabled =
+false`), the alert says it is an upstream-only check; `details.distribution_data.reason`
+says why. A daemon that still runs the version from before the package upgrade
+gets no credit until it restarts. The package is read again every hour, and at
+once when the collector sees the daemon restart or change version (named
+`boot-time`, Kea pid); the advisories are re-evaluated right after that poll.
 
 The file holds one entry per ISC advisory that affects BIND 9.18 or later, or
 Kea 2.4 or later: `id` (CVE), `engine` (`bind` or `kea`), `severity` and

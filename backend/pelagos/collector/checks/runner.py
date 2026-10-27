@@ -9,6 +9,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 import re
+import shutil
 import subprocess
 import time
 from collections.abc import Callable
@@ -20,6 +21,7 @@ from pelagos.collector.checks import (
     declined,
     delegation,
     disk,
+    distro,
     forecast,
     reservations,
     resolver,
@@ -41,6 +43,8 @@ DECLINE_WINDOW = 3600
 DECLINE_COUNTERS = {"kea4": "pkt4-decline-received", "kea6": "pkt6-decline-received"}
 ADDRESS_CACHE_SECONDS = 900
 ADVISORY_FETCH_SECONDS = 86400
+# Installed package versions are read again this often, and at once when the daemon restarts.
+PACKAGE_READ_SECONDS = 3600
 LOGROTATE_FILES = ("/etc/logrotate.conf", "/etc/logrotate.d")
 
 
@@ -140,6 +144,13 @@ class HealthChecks:
         self._addresses: dict[str, tuple[float, dict[int, list[str]]]] = {}
         self._advisory_data: tuple[float, dict[str, Any]] | None = None
         self._fetched_at = 0.0
+        self._tracker_fetched_at = 0.0
+        self._tracker: tuple[float, dict[str, Any] | None] | None = None  # (file mtime, data)
+        # engine -> (read at, running version then, package); dropped when the daemon restarts.
+        self._packages: dict[Engine, tuple[float, str | None, distro.Package | None]] = {}
+        self._known_versions: dict[Engine, str] = {}
+        self._daemon_marks: dict[Engine, tuple[str | None, Any]] = {}
+        self.read_package: Callable[[Engine], distro.Package | None] = distro.read_package
 
     # Helpers ---------------------------------------------------------------------
 
@@ -181,8 +192,8 @@ class HealthChecks:
         judged: set[str] = set()
         for engine in (Engine.BIND, Engine.KEA4, Engine.KEA6, Engine.D2):
             started = self._start_time(engine)
-            if started is not None:
-                self.restarts.observe(engine.value, started, now)
+            if started is not None and self.restarts.observe(engine.value, started, now):
+                self._packages.pop(engine, None)  # an upgrade restarts the daemon: read the package again
             if engine.value not in self.restarts.started:
                 continue  # never observed: no verdict, an open alert is left alone
             judged.add(f"engine:{engine.value}")
@@ -359,22 +370,103 @@ class HealthChecks:
         installed: dict[Engine, str | None] = {}
         for engine in (Engine.BIND, Engine.KEA4, Engine.KEA6):
             caps = self._snapshot(engine.value, "capabilities")
-            # A stopped daemon keeps its last known version: its alerts must not close and reopen.
             if isinstance(caps, dict) and caps.get("version"):
-                installed[engine] = caps["version"]
-        alerts = advisories.advisory_alerts(self.node_id, installed, self._advisory_data[1])
+                self._known_versions[engine] = caps["version"]
+            elif not isinstance(caps, dict) or caps.get("running"):
+                continue
+            # A stopped daemon (an upgrade in progress) keeps its last known version and its alerts.
+            if engine in self._known_versions:
+                installed[engine] = self._known_versions[engine]
+        packages = {e: self._package(e, v, now) for e, v in installed.items()}
+        tracker = self._load_tracker(var) if cfg.distro_tracker_enabled else None
+        data = self._advisory_data[1]
+        alerts = advisories.advisory_alerts(self.node_id, installed, data, packages, tracker)
+        self._record_advisories(installed, packages, tracker, data, now)
         return PollOutcome(alerts=alerts, kinds=kinds, where=_mine(self.node_id))
+
+    def daemons_changed(self) -> PollOutcome | None:
+        """Advisories again right after a poll that saw a daemon restart or change version (item 39),
+        instead of at the next health pass. None when nothing changed."""
+        changed = False
+        for engine in (Engine.BIND, Engine.KEA4, Engine.KEA6):
+            caps = self._snapshot(engine.value, "capabilities")
+            if engine is Engine.BIND:
+                boot = (self._snapshot("bind", "stats") or {}).get("boot_time")
+            else:
+                boot = (self._snapshot(engine.value, "status") or {}).get("pid")
+            mark = ((caps or {}).get("version") if isinstance(caps, dict) else None, boot)
+            if mark[0] is None:
+                continue  # stopped or unread: wait for the daemon to come back
+            before = self._daemon_marks.get(engine)
+            self._daemon_marks[engine] = mark
+            if before is not None and before != mark:
+                self._packages.pop(engine, None)
+                changed = True
+        return self._advisories() if changed else None
+
+    def _package(self, engine: Engine, version: str | None, now: float) -> distro.Package | None:
+        """The installed package, read again after an hour, a daemon restart or a version change."""
+        cached = self._packages.get(engine)
+        if cached and cached[1] == version and now - cached[0] < PACKAGE_READ_SECONDS:
+            return cached[2]
+        try:
+            pkg = self.read_package(engine)
+        except Exception:
+            log.exception("package of %s not read", engine.value)
+            pkg = None
+        self._packages[engine] = (now, version, pkg)
+        return pkg
+
+    def _load_tracker(self, var: Path) -> dict[str, Any] | None:
+        try:
+            mtime = (var / distro.TRACKER_NAME).stat().st_mtime
+        except OSError:
+            return None
+        if self._tracker is None or self._tracker[0] != mtime:
+            self._tracker = (mtime, distro.load_tracker(var))
+        return self._tracker[1]
+
+    def _record_advisories(
+        self,
+        installed: dict[Engine, str | None],
+        packages: dict[Engine, distro.Package | None],
+        tracker: dict[str, Any] | None,
+        data: dict[str, Any],
+        now: float,
+    ) -> None:
+        """Per engine snapshot of every matching CVE and its distribution verdict, fixed ones included."""
+        for engine, version in installed.items():
+            pkg = packages.get(engine)
+            entries, reason = advisories.engine_advisories(engine, version, data, pkg, tracker)
+            payload = {
+                "version": version,
+                "package": pkg.to_dict() if pkg else None,
+                "reason": reason,
+                "cves": {e["id"]: e["status"] for e in entries},
+            }
+            self.store.write_snapshot(self.node_id, engine.value, "advisories", int(now), payload)
 
     # Slow checks -----------------------------------------------------------------
 
     def slow(self) -> list[PollOutcome]:
         out = []
-        for check in (self._disk, self._reservations, self._delegation, self._roots):
+        for check in (self._disk, self._reservations, self._delegation, self._roots, self._fetch_tracker):
             try:
                 out.append(check())
             except Exception:
                 log.exception("health check %s failed", check.__name__)
         return out
+
+    def _fetch_tracker(self) -> PollOutcome:
+        """Daily download of the Debian security tracker, on Debian nodes only (slow thread)."""
+        cfg = self.cfg()
+        now = self.clock()
+        debian = shutil.which("dpkg-query") is not None
+        if cfg.advisories_enabled and cfg.distro_tracker_enabled and cfg.distro_tracker_url and debian:
+            if now - self._tracker_fetched_at > ADVISORY_FETCH_SECONDS:
+                self._tracker_fetched_at = now
+                distro.fetch_debian_tracker(cfg.distro_tracker_url, self.ctx.paths.var)
+        return PollOutcome()
 
     def _disk(self) -> PollOutcome:
         cfg = self.cfg()

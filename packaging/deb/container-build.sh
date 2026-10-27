@@ -4,7 +4,8 @@
 # architecture, emulated through qemu-user-static (binfmt) otherwise. Run from any directory.
 #
 # Usage: container-build.sh <amd64|arm64> [output dir]   (default: build/deb at the repository root)
-# Environment: DOCKER (default docker), DEBIAN_IMAGE (default debian:trixie).
+# Environment: DOCKER (default docker), DEBIAN_IMAGE (default debian:trixie), LINTIAN=no to skip
+# the lintian report (slow under qemu).
 set -euo pipefail
 
 arch="${1:?architecture required (amd64 or arm64)}"
@@ -22,13 +23,13 @@ epoch="${SOURCE_DATE_EPOCH:-$(git -C "$src" log -1 --format=%ct 2>/dev/null || d
 # and the output comes back owned by the caller.
 $DOCKER run --rm --platform "linux/$arch" \
   -v "$src:/src:ro" -v "$out:/out" -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
-  -e SOURCE_DATE_EPOCH="$epoch" -e PELAGOS_SNAPSHOT="$PELAGOS_SNAPSHOT" \
+  -e SOURCE_DATE_EPOCH="$epoch" -e PELAGOS_SNAPSHOT="$PELAGOS_SNAPSHOT" -e LINTIAN="${LINTIAN:-yes}" \
   "${DEBIAN_IMAGE:-debian:trixie}" bash -euo pipefail -c '
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -q
     apt-get install -y -q --no-install-recommends \
-      ca-certificates git make build-essential dpkg-dev debhelper fakeroot lintian \
-      python3 python3-venv python3-pip >/dev/null
+      ca-certificates git make build-essential dpkg-dev debhelper fakeroot \
+      python3 python3-venv python3-pip $([ "$LINTIAN" = no ] || echo lintian) >/dev/null
     echo "build host: $(uname -m), dpkg $(dpkg --print-architecture)"
     mkdir /build
     tar -C /src --exclude=./.git --exclude=./build --exclude=./frontend/node_modules \

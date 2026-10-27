@@ -64,7 +64,9 @@ echo "release: $version from $(git rev-parse --short "$ref") in $work" >&2
 read -ra arches <<<"$ARCHES"
 pids=()
 for arch in "${arches[@]}"; do
-  SOURCE_DATE_EPOCH="$epoch" PELAGOS_SNAPSHOT="" DOCKER="$DOCKER" \
+  # lintian under qemu takes longer than the build: the amd64 report covers the same contents.
+  lint=yes; [[ "$arch" == "$(dpkg --print-architecture)" ]] || lint=no
+  SOURCE_DATE_EPOCH="$epoch" PELAGOS_SNAPSHOT="" DOCKER="$DOCKER" LINTIAN="$lint" \
     "$work/packaging/deb/container-build.sh" "$arch" "$work/out" >"$work/build-$arch.log" 2>&1 &
   pids+=("$!")
 done
@@ -78,7 +80,7 @@ rm -rf "$dest"
 mkdir -p "$dest"
 for arch in "${arches[@]}"; do
   deb="$work/out/pelagos_${debver}_$arch.deb"
-  [[ "$(dpkg-deb -f "$deb" Version Architecture | tr '\n' ' ')" == "$debver $arch " ]] ||
+  [[ "$(dpkg-deb -f "$deb" Version) $(dpkg-deb -f "$deb" Architecture)" == "$debver $arch" ]] ||
     { echo "release: $deb has unexpected control fields" >&2; exit 1; }
   cp "$deb" "$dest/"
 done

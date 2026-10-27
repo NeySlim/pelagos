@@ -73,12 +73,14 @@ except Exception as e:
     out("health", f"unreachable({type(e).__name__})")
 try:
     text = open("/var/lib/pelagos/cluster.toml").read()
-    head, _, body = text.partition("\n[")
-    out("cluster_version", (re.search(r"^version\s*=\s*(\d+)", head, re.M) or [None, "?"])[1])
-    # The header (version, updated_at, updated_by) may differ between nodes with equal content.
-    kept = "\n".join(l for l in head.splitlines() if not re.match(r"(version|updated_at|updated_by)\s*=", l))
-    out("cluster_hash", hashlib.sha256((kept + "\n[" + body).encode()).hexdigest()[:16])
-except OSError:
+    import tomllib
+    doc = tomllib.loads(text)
+    out("cluster_version", doc.get("version", "?"))
+    # Parsed content, not text: a mixed-version pair orders keys differently; the header may differ.
+    for k in ("version", "updated_at", "updated_by"):
+        doc.pop(k, None)
+    out("cluster_hash", hashlib.sha256(json.dumps(doc, sort_keys=True, default=str).encode()).hexdigest()[:16])
+except (OSError, ValueError):
     out("cluster_version", "none"); out("cluster_hash", "none")
 try:
     with open("/var/lib/pelagos/audit/audit.jsonl", "rb") as f:

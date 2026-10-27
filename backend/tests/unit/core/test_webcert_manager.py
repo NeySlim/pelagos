@@ -147,7 +147,8 @@ def test_expiry_alerts_scale_with_lifetime(ctx, pki):
     mgr = manager.CertManager(ctx, clock=clock)
 
     def install(lifetime: timedelta, start: timedelta) -> None:
-        leaf, key = make_leaf(pki.inter, [HOST], start=start, lifetime=lifetime)
+        # Validity hangs off the test clock, so slow key generation cannot shift days_left.
+        leaf, key = make_leaf(pki.inter, [HOST], start=start, lifetime=lifetime, now=clock.now)
         mgr.cert_path.write_text(pem_of(leaf) + pem_of(pki.inter.cert))
         mgr.key_path.write_text(key_pem_of(key))
 
@@ -158,7 +159,7 @@ def test_expiry_alerts_scale_with_lifetime(ctx, pki):
     assert web_alert() is None or web_alert().severity is Severity.WARNING
     install(timedelta(days=90), timedelta(days=-70))  # 20 days left
     assert web_alert().severity is Severity.WARNING
-    install(timedelta(days=90), timedelta(days=-85))  # 5 days left
+    install(timedelta(days=90), timedelta(days=-85, hours=-1))  # 4 days 23 hours left
     alert = web_alert()
     assert alert.severity is Severity.CRITICAL and alert.details["days_left"] == 4
     assert alert.title_message["key"] == "alert.cert_expiry"

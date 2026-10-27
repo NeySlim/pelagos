@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from cryptography import x509
@@ -67,9 +67,10 @@ def make_leaf(
     lifetime: timedelta = timedelta(days=90),
     eku: list[x509.ObjectIdentifier] | None = None,
     key: Any = None,
+    now: datetime | None = None,
 ) -> tuple[x509.Certificate, Any]:
     key = key or ec.generate_private_key(ec.SECP256R1())
-    now = utcnow()
+    now = now or utcnow()
     builder = (
         x509.CertificateBuilder()
         .subject_name(_name(names[0]))

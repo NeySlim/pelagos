@@ -337,8 +337,21 @@ class TestReferencePair:
             assert any(r["identifier"] == mac and r["ip_address"] == "10.99.1.50" for r in res), address
             conf = sudo_cat(address, "/etc/kea/kea-dhcp4.conf")
             assert "10.99.1.50" in conf
-        renew_client()
-        wait_for("lab-client gets its reserved address", lambda: client_address() == "10.99.1.50", timeout=90)
+        # The apply reloads Kea on each node and the HA pair resynchronizes after each reload: a
+        # request landing in between is answered from the old lease. Ask again until the reload
+        # settled, a reservation that is never honoured still fails after the last attempt.
+        for attempt in range(4):
+            renew_client()
+            try:
+                wait_for(
+                    "lab-client gets its reserved address",
+                    lambda: client_address() == "10.99.1.50",
+                    timeout=40,
+                )
+                break
+            except AssertionError:
+                if attempt == 3:
+                    raise
 
         def joined() -> dict | None:
             hosts = api(A1).get("/hosts?q=labhost")["items"]

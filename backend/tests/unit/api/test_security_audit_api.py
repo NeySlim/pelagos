@@ -134,6 +134,7 @@ def test_one_plan_fixes_findings_picked_on_two_nodes(admin, node_ctx, two_nodes)
     assert [(p.node_id, [c.target for c in p.changes]) for p in peers.sent] == [
         ("node-b", [f"security/{DNSSEC}"])
     ]
+    assert all(p.engine is not None for p in peers.sent)  # the peer's registry routes by engine
     after = _findings(admin, "all")
     assert (me, RECURSION) not in after and ("node-b", DNSSEC) not in after
     assert (me, DNSSEC) in after and ("node-b", RECURSION) in after

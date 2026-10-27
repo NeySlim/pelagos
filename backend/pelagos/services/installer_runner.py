@@ -66,7 +66,8 @@ def sub_plan(plan: Plan, changes: list[Change], phase: str, keep_preconditions: 
     """The part of `plan` one phase runs; its preconditions are checked once, before the first phase."""
     part = Plan.from_dict(plan.to_dict())
     part.changes = [Change.from_dict(c.to_dict()) for c in changes]
-    part.engine = STEP_ENGINE.get(phase, plan.engine)
+    # A security plan has no engine; the peer's registry routes a plan by engine, so name BIND.
+    part.engine = STEP_ENGINE.get(phase, plan.engine or Engine.BIND)
     part.target_node_ids = sorted({n for c in changes for n in c.node_ids})
     if not keep_preconditions:
         part.preconditions = []

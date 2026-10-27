@@ -2,7 +2,8 @@
 // Pure helpers for the record editor: owner names, rdata validation per type,
 // presentation text of an RRset and the Change sent to POST .../records/plan.
 
-// Types the editor offers; SOA and DNSSEC types stay with BIND (design section 4).
+// Types the editor offers; SOA and DNSSEC types stay with BIND (design section 4). Must equal
+// ADMIN_UPDATE_TYPES (backend/pelagos/domain/zone_updates.py), the grant the audit installs.
 export const EDITABLE_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'PTR', 'NS', 'CAA', 'DHCID']
 export const READ_ONLY_TYPES = ['SOA', 'RRSIG', 'NSEC', 'NSEC3', 'NSEC3PARAM', 'DNSKEY', 'CDS', 'CDNSKEY', 'TYPE65534']
 export const SINGLETON_TYPES = ['CNAME']

@@ -118,6 +118,7 @@
       "stats_nonlocal": "Statistiques exposées",
       "query_refused": "Zones qui refusent les requêtes",
       "update_without_admin_key": "Sans clé d'administration",
+      "update_types_narrow": "Types d'enregistrement non accordés",
       "transfer_without_read_key": "Sans clé de lecture",
       "open_allow_transfer": "Transfert ouvert",
       "kea_ctrl_agent_http": "Agent de contrôle Kea",

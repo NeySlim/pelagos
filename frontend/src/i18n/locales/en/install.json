@@ -118,6 +118,7 @@
       "stats_nonlocal": "Exposed statistics",
       "query_refused": "Zones refuse queries",
       "update_without_admin_key": "No admin key",
+      "update_types_narrow": "Record types not granted",
       "transfer_without_read_key": "No read key",
       "open_allow_transfer": "Open transfer",
       "kea_ctrl_agent_http": "Kea control agent",

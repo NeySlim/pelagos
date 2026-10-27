@@ -112,7 +112,8 @@ def write_primary_conf(
         else "notify no;"
     )
     policy = (
-        "grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX DHCID; grant kea-ddns zonesub A AAAA PTR DHCID;"
+        "grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX NS CAA DHCID; "
+        "grant kea-ddns zonesub A AAAA PTR DHCID;"
     )
     ptr_policy = "grant ddi-admin zonesub PTR; grant kea-ddns zonesub PTR DHCID;"
 

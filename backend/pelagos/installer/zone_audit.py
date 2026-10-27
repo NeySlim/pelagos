@@ -17,7 +17,7 @@ from pelagos.domain import Severity, zone_updates
 from pelagos.installer import bindconf, managed
 from pelagos.installer.bindconf import ConfigFiles, Statement
 
-UPDATE_TYPES = ("A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "DHCID")
+UPDATE_TYPES = zone_updates.ADMIN_UPDATE_TYPES
 
 
 def view_key_name(view: str) -> str:

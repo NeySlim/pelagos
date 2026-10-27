@@ -102,7 +102,7 @@ BIND est piloté par ses canaux natifs, tous locaux au nœud : UPDATE signé TSI
 
 - Une zone dynamique ne se modifie que par UPDATE. `rndc freeze` / `thaw` est réservé à un mode maintenance explicite, jamais utilisé par l'éditeur.
 - L'outil a ses propres clés TSIG, distinctes de `kea-ddns`. Le primaire passe de `allow-update { key kea-ddns; }` à un `update-policy` qui nomme les deux clés.
-- `update-policy` décidé : `grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX DHCID;` et `grant kea-ddns zonesub A AAAA PTR DHCID;`. DHCID est inclus pour `ddi-admin` : sans lui, l'outil ne peut pas nettoyer un nom laissé par un bail. Jamais SOA ni les types DNSSEC : ils restent à BIND.
+- `update-policy` décidé : `grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX NS CAA DHCID;` (exactement les types de l'éditeur de zone ; NS et CAA ajoutés en 0.1.2, l'audit élargit les règles plus anciennes) et `grant kea-ddns zonesub A AAAA PTR DHCID;`. DHCID est inclus pour `ddi-admin` : sans lui, l'outil ne peut pas nettoyer un nom laissé par un bail. Jamais SOA ni les types DNSSEC : ils restent à BIND.
 - Aperçu du diff : l'outil lit le RRset courant, construit l'UPDATE avec ses prérequis, affiche avant / après, envoie, journalise la requête et le code de réponse.
 - La synchro primaire / secondaire se mesure par le serial SOA interrogé sur chaque serveur, pas par le fichier.
 - Les erreurs DDNS se lisent côté Kea D2 (section 5) et, en option, dans la catégorie `update` du journal de `named`.

@@ -300,3 +300,12 @@ def test_builtin_and_empty_zones_are_not_checked_but_real_reverse_zones_are():
         "168.192.in-addr.arpa.",
         "example.lan.",
     }
+
+
+def test_primary_missing_from_its_ns_set_fires_and_clears():
+    found = run(FakeNet(HOSTS), ["ns2.example.lan."])
+    alert = found["ns-primary:example.lan"]
+    assert alert.severity is Severity.INFO and alert.details["ns"] == ["ns2.example.lan."]
+    assert "ns-primary:example.lan" not in run(FakeNet(HOSTS), ["ns1.example.lan.", "ns2.example.lan."])
+    # An NS that does not resolve may be this server: no verdict.
+    assert "ns-primary:example.lan" not in run(FakeNet(HOSTS), ["ns2.example.lan.", "ns9.example.lan."])

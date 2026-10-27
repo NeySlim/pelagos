@@ -294,6 +294,7 @@ The collector runs the same audit every `consistency_seconds` and raises
 | `stats_nonlocal` | warning | statistics channel moved to the loopback; raised only when it listens beyond loopback (a loopback channel with `allow { any; }` is not a finding) |
 | `query_refused` | warning | none automatic: add `127.0.0.1` to the `allow-query` of the zones that refuse the SOA query Pelagos sends |
 | `update_without_admin_key` | warning | `ddi-admin` (or the view key) added to the zone's `update-policy` or `allow-update` |
+| `update_types_narrow` | warning | missing record types (NS, CAA after a 0.1.x install) appended to the `zonesub` grant of `ddi-admin` (or the view key) |
 | `transfer_without_read_key` | warning | `key ddi-read` added to `allow-transfer` |
 | `open_allow_transfer` | warning | `any` replaced by `key ddi-read` (other elements kept) |
 | `kea_ctrl_agent_http` | critical, warning when local | `kea-ctrl-agent` stopped and disabled (Pelagos uses the Unix sockets) |

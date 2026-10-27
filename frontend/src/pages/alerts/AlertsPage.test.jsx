@@ -156,6 +156,8 @@ describe('alert subjects', () => {
     expect(subjectLink({ subject: 'ip:2001:db8::1' }).to).toBe('/hosts?q=2001%3Adb8%3A%3A1')
     expect(subjectLink({ subject: 'name:pc1.example.lan./A' }).to).toBe('/hosts?q=pc1.example.lan')
     expect(subjectLink({ subject: 'zone:example.lan.@internal' }).to).toBe('/dns/zones/example.lan?view=internal')
+    expect(subjectLink({ subject: 'ns-silent:example.lan@internal:ns3.example.lan.' }).to).toBe('/dns/zones/example.lan?view=internal')
+    expect(subjectLink({ subject: 'ns-primary:2.0.192.in-addr.arpa' }).to).toBe('/dns/zones/2.0.192.in-addr.arpa')
     expect(subjectLink({ subject: 'kea6:subnet:1:pool:2001:db8::/64' }).to).toBe('/dhcp/v6/subnets')
     expect(subjectLink({ subject: 'peer:01JB' }).to).toBe('/nodes')
     expect(subjectLink({ subject: 'engine:bind' })).toBeNull()

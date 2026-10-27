@@ -25,7 +25,7 @@ SETTINGS = {
     "dns": {
         "read_key": "ddi-read",
         "admin_key": "ddi-admin",
-        "update_types_admin": ["A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "DHCID"],
+        "update_types_admin": ["A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "NS", "CAA", "DHCID"],
     },
 }
 

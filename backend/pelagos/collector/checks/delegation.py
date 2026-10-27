@@ -2,11 +2,11 @@
 """Item 24: delegation and SOA sanity of the primary zones this node serves.
 
 Subjects (kind delegation_issue, `<z>` is `zone` or `zone@view`): `ns-unresolved:<z>:<ns>`,
-`ns-silent:<z>:<ns>`, `ns-transfer:<z>:<ns>`, `ns-extra:<address>` (grouped over the zones by
-`group_extra`), `soa-range:<z>` (one per zone, every out of range field in its details),
-`view-unchecked:<view>` (no read key selects the view). Built-in and automatic empty zones are
-skipped by the caller (`builtin_zones`). Every view is checked through its own read key; also-notify
-and allow-transfer are the effective
+`ns-silent:<z>:<ns>`, `ns-transfer:<z>:<ns>`, `ns-primary:<z>` (no NS reaches this primary),
+`ns-extra:<address>` (grouped over the zones by `group_extra`), `soa-range:<z>` (one per zone, every
+out of range field in its details), `view-unchecked:<view>` (no read key selects the view). Built-in
+and automatic empty zones are skipped by the caller (`builtin_zones`). Every view is checked through
+its own read key; also-notify and allow-transfer are the effective
 lists (zone, else view, else options).
 """
 
@@ -258,6 +258,17 @@ def delegation_alerts(
                     {"zone": label, "ns": ns, "addresses": foreign},
                 )
             )
+    if ns_names and not unresolved and not ns_addresses & own_addresses:
+        names = sorted({n.lower().rstrip(".") + "." for n in ns_names})
+        out.append(
+            _alert(
+                node_id,
+                Severity.INFO,
+                f"ns-primary:{label}",
+                messages.msg("alert.primary_not_ns", zone=label, ns=", ".join(names)),
+                {"zone": label, "ns": names},
+            )
+        )
     listed: set[str] = set()
     for net_ in [*notify_nets, *transfer_nets]:
         if net_.num_addresses == 1:  # a single host: a CIDR block is an access rule, not a server

@@ -24,6 +24,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from pelagos.domain import zone_updates
+
 # TSIG key names, view names, record types: what BIND accepts unquoted, and nothing that breaks TOML.
 NAME_PATTERN = r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,62}$"
 RRTYPE_PATTERN = r"^[A-Z][A-Z0-9]{0,9}$"
@@ -154,10 +156,10 @@ REGISTRY: tuple[Setting, ...] = (
     S(
         "dns.update_types_admin",
         "list",
-        ["A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "DHCID"],
+        list(zone_updates.ADMIN_UPDATE_TYPES),
         pattern=RRTYPE_PATTERN,
     ),
-    S("dns.update_types_kea", "list", ["A", "AAAA", "PTR", "DHCID"], pattern=RRTYPE_PATTERN),
+    S("dns.update_types_kea", "list", list(zone_updates.KEA_UPDATE_TYPES), pattern=RRTYPE_PATTERN),
     S("dns.default_ns", "list", [], pattern=HOST_PATTERN),
     S("dns.default_ttl_seconds", "integer", 3600, 0, BIG, "seconds"),
     # Kea
@@ -407,6 +409,13 @@ def migrate(data: dict[str, Any]) -> list[tuple[str, str]]:
                 repl["tombstones"] = {old_entry: text}
                 tombs = repl["tombstones"]
         moved.append((old, new))
+    # 0.1.x stored its admin grant as the default: that exact list still means "the default".
+    dns = settings.get("dns")
+    types = dns.get("update_types_admin") if isinstance(dns, dict) else None
+    legacy_types = sorted(zone_updates.LEGACY_ADMIN_UPDATE_TYPES)
+    if isinstance(types, list) and sorted(str(t).upper() for t in types) == legacy_types:
+        dns["update_types_admin"] = list(zone_updates.ADMIN_UPDATE_TYPES)
+        moved.append(("dns.update_types_admin", "dns.update_types_admin"))
     return moved
 
 

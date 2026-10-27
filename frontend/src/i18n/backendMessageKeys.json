@@ -176,6 +176,10 @@
     "pool",
     "subnet_id"
   ],
+  "alert.primary_not_ns": [
+    "ns",
+    "zone"
+  ],
   "alert.ptr_mismatch": [
     "ip",
     "problems"
@@ -441,6 +445,16 @@
   "finding.transfer_without_read_key.where_zone": [
     "zone"
   ],
+  "finding.update_types_narrow.description": [
+    "key",
+    "types",
+    "zone"
+  ],
+  "finding.update_types_narrow.proposal": [
+    "key",
+    "types"
+  ],
+  "finding.update_types_narrow.risk": [],
   "finding.update_without_admin_key.description": [
     "key",
     "zone"

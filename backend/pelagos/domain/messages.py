@@ -157,7 +157,14 @@ CATALOG: dict[str, str] = {
     "alert.resolver_dnssec": "{count} DNSSEC validation failures over the last {minutes} minutes",
     "alert.resolver_drop": "queries fell by {percent}%: {recent} per minute against {baseline}",
     "alert.ns_unresolved": "zone {zone}: name server {ns} does not resolve",
-    "alert.ns_silent": "zone {zone}: name server {ns} ({address}) does not answer for the zone",
+    "alert.ns_silent": (
+        "zone {zone}: name server {ns} ({address}) does not answer for the zone; remove its NS record "
+        "if it is retired"
+    ),
+    "alert.primary_not_ns": (
+        "zone {zone}: this primary is not among its name servers ({ns}); add an NS record for it, or an "
+        "exception if it is a hidden primary"
+    ),
     "alert.ns_no_transfer": "zone {zone}: name server {ns} ({address}) is not allowed to transfer the zone",
     "alert.ns_not_listed": "{address} gets notifies or transfers for {zones} but is not a name server",
     "alert.soa_range": "zone {zone}: SOA values outside the usual range: {fields}",
@@ -277,6 +284,14 @@ CATALOG: dict[str, str] = {
     "finding.update_without_admin_key.risk_inherited": (
         "None: the keys allowed today keep their rights. Every zone inheriting that allow-update accepts "
         "the key too."
+    ),
+    "finding.update_types_narrow.description": (
+        "The update-policy of zone {zone} does not grant {types} to {key}: Pelagos edits of these "
+        "records are refused."
+    ),
+    "finding.update_types_narrow.proposal": "Add {types} to the zonesub grant of {key}",
+    "finding.update_types_narrow.risk": (
+        "Pelagos may then change the zone's name servers (NS) and CAA records, always through a plan."
     ),
     "finding.transfer_without_read_key.description": (
         "Transfers allowed by {where} leave {key} out: Pelagos cannot read the zone records."

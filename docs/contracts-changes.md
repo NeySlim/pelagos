@@ -1485,3 +1485,15 @@ conflict rules) and a node would take security verdicts from a peer's download, 
 a compromised or stale peer able to hide an advisory on every node. The extract is small
 (about 100 kilobytes), the download is daily, and a failure is now logged and shown, so
 each node keeps fetching on its own.
+
+## 2026-10-27, Admin update types: one list, NS and CAA granted
+Contract (`domain/zone_updates.py`): `ADMIN_UPDATE_TYPES` (A AAAA PTR CNAME TXT SRV MX NS CAA
+DHCID, equal to the zone editor's `EDITABLE_TYPES`, a unit test compares them),
+`LEGACY_ADMIN_UPDATE_TYPES` and `KEA_UPDATE_TYPES`. SOA and DNSSEC types stay with named. WP-CORE:
+`dns.update_types_admin` defaults to that list; `settings_registry.migrate` upgrades a stored
+list equal to the 0.1.x default. WP-INSTALLER: audit kind `update_types_narrow`, remediation
+`update_types_widen`. WP-BIND: a REPLACE adds the new RRset before deleting the dropped rdata
+(named ignores deleting the last apex NS), deleting the apex NS set is refused, an UPDATE
+REFUSED points to the update-policy. WP-COLLECTOR: delegation subject `ns-primary:<zone>`
+(message `alert.primary_not_ns`); `alert.ns_silent` suggests removing the NS. WP-FRONTEND:
+delegation alerts link to the zone. `tests/fixtures/named.py` grants the new list.

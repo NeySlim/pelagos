@@ -75,7 +75,7 @@ def test_legacy_findings(tmp_path):
     assert findings["bind:weak_rndc_key:rndc-key"].details["file"].endswith("rndc.key")
     upd = findings["bind:allow_update_by_address:_default/example.lan."]
     assert upd.details["kea_key"] == "kea-ddns"
-    assert "grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX DHCID;" in upd.proposal
+    assert "grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX NS CAA DHCID;" in upd.proposal
     assert 'grant "kea-ddns" zonesub A AAAA PTR DHCID;' in upd.proposal
     for f in findings.values():
         d = f.to_dict()
@@ -202,7 +202,9 @@ def test_remediate_bind_hardening(tmp_path):
     assert xfr.algorithm == "hmac-sha256" and len(xfr.secret) == 44
     zone = next(z for z in bindconf.zones(top) if z.name == "2.0.192.in-addr.arpa.")
     assert zone.elements("allow-update") == []
-    assert zone.elements("update-policy") == ["grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX DHCID"]
+    assert zone.elements("update-policy") == [
+        "grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX NS CAA DHCID"
+    ]
     opts = next(s for s in top if s.name == "options")
     assert bindconf.option_value(opts, "allow-transfer") == ["key ddi-read"]
     assert bindconf.option_value(opts, "allow-recursion") == ["localhost", "localnets"]
@@ -236,7 +238,7 @@ def test_pelagos_access_findings_appear_after_import_and_are_fixed(tmp_path):
     zones = {z.name: z for z in bindconf.zones(top)}
     assert zones["corp.example.lan."].elements("update-policy") == [
         "grant kea-ddns zonesub ANY",
-        "grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX DHCID",
+        "grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX NS CAA DHCID",
     ]
     assert zones["corp.example.lan."].elements("allow-transfer") == ["key ddi-read", "key legacy-xfr"]
     assert zones["2.0.192.in-addr.arpa."].elements("allow-transfer") == [
@@ -456,7 +458,9 @@ def test_static_zone_conversion_to_dynamic(tmp_path):
     assert job.state is JobState.DONE, job.error
     top = list(bindconf.load_files(tmp_path / "etc/bind/named.conf").top_level())
     zone = {z.name: z for z in bindconf.zones(top)}["static.example.lan."]
-    assert zone.elements("update-policy") == ["grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX DHCID"]
+    assert zone.elements("update-policy") == [
+        "grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX NS CAA DHCID"
+    ]
     assert zone.elements("allow-update") == []
     assert run_audit(env) == []
 

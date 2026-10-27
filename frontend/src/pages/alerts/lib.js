@@ -39,6 +39,12 @@ export function subjectLink(alert) {
     const path = `/dns/zones/${encodeURIComponent(zone.replace(/\.$/, ''))}`
     return { to: view ? `${path}?view=${encodeURIComponent(view)}` : path, label: 'openZone' }
   }
+  // Delegation subjects "ns-silent:<zone>[@view]:<ns>": the fix is an NS edit in the zone.
+  if (['ns-silent', 'ns-unresolved', 'ns-transfer', 'ns-primary'].includes(kind) && rest[0]) {
+    const [zone, view] = rest[0].split('@')
+    const path = `/dns/zones/${encodeURIComponent(zone.replace(/\.$/, ''))}`
+    return { to: view ? `${path}?view=${encodeURIComponent(view)}` : path, label: 'openZone' }
+  }
   if ((kind === 'kea4' || kind === 'kea6') && rest[0] === 'subnet') return { to: `/dhcp/${kind === 'kea6' ? 'v6' : 'v4'}/subnets`, label: null }
   if ((kind === 'ha' || kind === 'ha-backup') && value) return { to: `/dhcp/${value === 'kea6' ? 'v6' : 'v4'}/ha`, label: null }
   if (kind === 'peer' || kind === 'clock' || kind === 'ntp') return { to: '/nodes', label: null }

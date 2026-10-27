@@ -6,6 +6,13 @@ Shared by the BIND connector (zone mode) and the installer audit so both classif
 
 from __future__ import annotations
 
+# What the admin key may write: exactly the types the zone editor offers. SOA and DNSSEC records
+# stay with named (serial, signing): an update-policy never grants them to Pelagos.
+ADMIN_UPDATE_TYPES = ("A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "NS", "CAA", "DHCID")
+# The grant of 0.1.x: zones and settings still carrying it are upgraded to ADMIN_UPDATE_TYPES.
+LEGACY_ADMIN_UPDATE_TYPES = ("A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "DHCID")
+KEA_UPDATE_TYPES = ("A", "AAAA", "PTR", "DHCID")
+
 
 def _norm(element: str) -> str:
     return element.replace('"', "").replace(" ", "").lower()

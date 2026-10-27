@@ -159,7 +159,7 @@ def test_update_policy_proposals_are_not_applied(tmp_path):
     prop = next(c for c in plan.changes if c.target.startswith("import/bind/update-policy/"))
     assert prop.target == "import/bind/update-policy/_default/example.lan."
     assert prop.after["proposal"] == (
-        "update-policy { grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX DHCID; "
+        "update-policy { grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX NS CAA DHCID; "
         'grant "kea-ddns" zonesub A AAAA PTR DHCID; };'
     )
     assert prop.after["applied"] is False

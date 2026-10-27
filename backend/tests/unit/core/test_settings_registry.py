@@ -20,6 +20,7 @@ import pytest
 from pelagos.core import settings_registry as reg
 from pelagos.core.config_store import DEFAULT_SETTINGS, ClusterConfig, ConfigStore, merge_configs
 from pelagos.core.secrets import SecretBox
+from pelagos.domain import zone_updates
 
 pytestmark = pytest.mark.unit
 
@@ -287,7 +288,10 @@ def test_migration_is_written_once_and_is_idempotent(tmp_path, release):
     for old, new in moved:
         old_entry = "settings/" + old.replace(".", "/")
         new_entry = "settings/" + new.replace(".", "/")
-        if old_entry in raw["replication"]["stamps"]:
+        if old == new:
+            # A value upgrade, not a rename: the 0.1.x admin grant becomes the current default.
+            assert data["settings"]["dns"]["update_types_admin"] == list(zone_updates.ADMIN_UPDATE_TYPES)
+        elif old_entry in raw["replication"]["stamps"]:
             # The rename keeps the original write's stamp; the former entry is tombstoned at it.
             stamp = raw["replication"]["stamps"][old_entry]
             assert data["replication"]["tombstones"][old_entry] == stamp
@@ -355,3 +359,14 @@ def test_node_context_audits_the_migration(node_ctx):
     assert entries[0].request["renamed"]["plan_ttl_seconds"] == "plans.ttl_seconds"
     assert node_ctx.migrate_settings() == []
     assert len([e for e in node_ctx.audit_log.read() if e.action == "admin.settings.op"]) == 1
+
+
+def test_legacy_admin_types_are_upgraded_custom_lists_kept():
+    legacy = {
+        "settings": {"dns": {"update_types_admin": list(reversed(zone_updates.LEGACY_ADMIN_UPDATE_TYPES))}}
+    }
+    assert reg.migrate(legacy) == [("dns.update_types_admin", "dns.update_types_admin")]
+    assert legacy["settings"]["dns"]["update_types_admin"] == list(zone_updates.ADMIN_UPDATE_TYPES)
+    assert reg.migrate(legacy) == []
+    custom = {"settings": {"dns": {"update_types_admin": ["A", "AAAA"]}}}
+    assert reg.migrate(custom) == [] and custom["settings"]["dns"]["update_types_admin"] == ["A", "AAAA"]

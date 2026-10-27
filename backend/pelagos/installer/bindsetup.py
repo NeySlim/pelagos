@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.core.write_pipeline import FileChange, WritePipeline
-from pelagos.domain import ValidationResult
+from pelagos.domain import ValidationResult, zone_updates
 from pelagos.installer import bindconf, managed
 from pelagos.installer.bindconf import ConfigFiles, Statement
 from pelagos.platform import PELAGOS_USER
@@ -133,9 +133,9 @@ def all_keys(files: ConfigFiles) -> dict[str, str]:
 
 def update_policy_proposal(zone: bindconf.ZoneDef, kea_key: str | None) -> str:
     """The update-policy of design section 4 for a primary zone, keeping the Kea key if one updates it."""
-    lines = [f"grant {managed.ADMIN_KEY} zonesub A AAAA PTR CNAME TXT SRV MX DHCID;"]
+    lines = [f"grant {managed.ADMIN_KEY} zonesub {' '.join(zone_updates.ADMIN_UPDATE_TYPES)};"]
     if kea_key:
-        lines.append(f'grant "{kea_key}" zonesub A AAAA PTR DHCID;')
+        lines.append(f'grant "{kea_key}" zonesub {" ".join(zone_updates.KEA_UPDATE_TYPES)};')
     return "update-policy { " + " ".join(lines) + " };"
 
 

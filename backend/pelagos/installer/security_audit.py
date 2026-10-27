@@ -29,6 +29,7 @@ from pelagos.domain import (
     PreconditionKind,
     Severity,
     messages,
+    zone_updates,
 )
 from pelagos.domain.messages import Message, join, msg
 from pelagos.installer import bindconf, bindsetup, keaconf, keasetup, managed, zone_audit
@@ -417,6 +418,45 @@ def _grants_effective(z: bindconf.ZoneDef, key: str, top: list[Statement]) -> bo
     return f"key {key}" in _unquoted(zone_audit.update_rules(z, top) or [])
 
 
+def _narrow_grant(z: bindconf.ZoneDef, key: str) -> tuple[Statement, list[str]] | None:
+    """The first `zonesub` grant of `key` and the editable types its grants leave out, if any."""
+    pol = z.stmt.sub("update-policy")
+    if pol is None or pol.block is None:
+        return None
+    first: Statement | None = None
+    granted: set[str] = set()
+    for rule in pol.block.statements:
+        words = [w.strip('"') for w in rule.words]
+        if rule.name != "grant" or words[:2] != [key, "zonesub"]:
+            continue
+        types = {w.upper() for w in words[2:]}
+        if not types or "ANY" in types:
+            return None
+        first = first or rule
+        granted |= types
+    missing = [t for t in UPDATE_TYPES_ADMIN if t not in granted]
+    return (first, missing) if first is not None and missing else None
+
+
+def _narrow_grant_finding(subject: str, z: bindconf.ZoneDef, key: str) -> Finding | None:
+    """A grant older than the editor's type list: writing the missing types would be REFUSED."""
+    narrow = _narrow_grant(z, key)
+    if narrow is None:
+        return None
+    _rule, missing = narrow
+    return Finding.of(
+        finding_id("bind", "update_types_narrow", subject),
+        "update_types_narrow",
+        Severity.WARNING,
+        "bind",
+        subject,
+        msg("finding.update_types_narrow.description", zone=z.name, key=key, types=" ".join(missing)),
+        msg("finding.update_types_narrow.proposal", key=key, types=" ".join(missing)),
+        msg("finding.update_types_narrow.risk"),
+        {"zone": z.name, "view": z.view, "key": key, **_locator(z.stmt), "remediation": "update_types_widen"},
+    )
+
+
 def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str]) -> list[Finding]:
     """Once adopted, Pelagos reads zones by AXFR with ddi-read and writes them by UPDATE with ddi-admin
     (with several views, the view's own key does both): zones whose transfer or update rules leave the
@@ -436,6 +476,8 @@ def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str
                 continue
             if dynamic and not _grants_effective(z, key, top):
                 findings.append(_update_key_finding(subject, z, key, top))
+            elif dynamic and (narrow := _narrow_grant_finding(subject, z, key)):
+                findings.append(narrow)
             xfr_stmt = z.stmt.sub("allow-transfer")
             if (dynamic or static or z.kind in COPY_KINDS) and xfr_stmt is not None:
                 xfr = z.elements("allow-transfer")
@@ -449,6 +491,8 @@ def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str
             own_rules = z.stmt.sub("update-policy") is not None or z.stmt.sub("allow-update") is not None
             if not own_rules and not _grants_effective(z, admin_key, top):
                 findings.append(_update_key_finding(subject, z, admin_key, top))
+            elif narrow := _narrow_grant_finding(subject, z, admin_key):
+                findings.append(narrow)
             elif own_rules and not by_address and not _grants_key(z, admin_key):
                 au = z.stmt.sub("allow-update") is not None
                 proposal = (
@@ -503,7 +547,7 @@ def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str
     return findings
 
 
-UPDATE_TYPES_ADMIN = ("A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "DHCID")
+UPDATE_TYPES_ADMIN = zone_updates.ADMIN_UPDATE_TYPES
 
 
 def _transfer_without_key(
@@ -1236,6 +1280,24 @@ def remediate_update_policy_grant(env: Any, d: dict[str, Any], ctx: dict[str, An
     )
 
 
+def remediate_update_types_widen(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
+    """Appends the missing editable types to the key's first zonesub grant, other rules untouched."""
+    files = _reload_files(env)
+    key = d.get("key") or managed.ADMIN_KEY
+    z = _zone_stmt(files, d["view"], d["zone"])
+    narrow = _narrow_grant(z, key)
+    if narrow is None:
+        return f"{key} already granted every editable type"
+    rule, missing = narrow
+    text = _file_text(files, str(rule.path))
+    old = text[rule.start : rule.end].rstrip().rstrip(";").rstrip()
+    return _run_bind(
+        env,
+        {str(rule.path): bindconf.replace_span(text, rule.start, rule.end, f"{old} {' '.join(missing)};")},
+        f"security-update-types-{d['zone']}",
+    )
+
+
 def remediate_update_key_add(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
     """Adds the key to the zone's update-policy, its allow-update, or the allow-update it inherits."""
     files = _reload_files(env)
@@ -1360,6 +1422,7 @@ REMEDIATIONS = {
     "allow_transfer": remediate_allow_transfer,
     "allow_transfer_add": remediate_allow_transfer_add,
     "update_policy_grant": remediate_update_policy_grant,
+    "update_types_widen": remediate_update_types_widen,
     "recursion": remediate_recursion,
     "dnssec_validation": remediate_dnssec,
     "controls": remediate_controls,

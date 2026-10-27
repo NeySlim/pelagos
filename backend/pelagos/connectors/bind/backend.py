@@ -24,6 +24,7 @@ from pelagos.connectors.base import (
 )
 from pelagos.connectors.bind import handover, ops, staticzone, zonefile
 from pelagos.connectors.bind import rrset as rr
+from pelagos.connectors.bind.builtin_zones import is_builtin_zone
 from pelagos.connectors.bind.configplan import (
     ConfigPlanner,
     RenderResult,
@@ -87,6 +88,8 @@ MAX_DETAILS = 256  # audit material kept per process; callers should pop_details
 
 RELOAD_WAIT = 30.0
 RELOAD_POLL = 0.2
+# A refused AXFR is not asked again for this long (a config change through a plan resets it).
+AXFR_RETRY_SECONDS = 6 * 3600.0
 
 
 def _zone_kind(change: Any) -> str | None:
@@ -116,6 +119,8 @@ class BindBackend(BindExtras, DnsBackend):
         self.reload_wait = float(cfg.get("reload_wait_seconds", RELOAD_WAIT))
         # Per plan: UPDATE text and rcode, pipeline steps, backup directory (for the caller's audit entry).
         self.details: dict[str, dict[str, Any]] = {}
+        # (zone, view) -> monotonic time of a refused AXFR; cleared when a plan changes the configuration.
+        self._axfr_refused: dict[tuple[str, str], float] = {}
 
     # Settings and keys -----------------------------------------------------------
 
@@ -283,17 +288,36 @@ class BindBackend(BindExtras, DnsBackend):
         return self.dns.soa_serial(zone, self._require_key("read", view))
 
     def read_zone(self, zone: str, view: str | None = None) -> list[RRset]:
+        local = self.config_zone(zone, view) if is_builtin_zone(zone) else None
+        if is_builtin_zone(zone) and (local is None or not local.dynamic):
+            # Distribution zones are local files and refuse transfers: never ask named for them.
+            if local is None or not local.file:
+                raise ConnectorDenied(f"{zone} is a built-in zone without a readable file")
+            return self._read_zone_file(local, zone)
+        key = (normalize_name(zone), view or DEFAULT_VIEW)
+        asked = self._axfr_refused.get(key)
+        if asked is not None and time.monotonic() - asked < AXFR_RETRY_SECONDS:
+            static = self.static_zone(zone, view)
+            if static is None:
+                raise ConnectorDenied(f"AXFR of {zone} was refused earlier, not asked again yet")
+            return self._read_zone_file(static, zone)
         try:
-            return self.dns.axfr(zone, self._require_key("read", view))
+            rrsets = self.dns.axfr(zone, self._require_key("read", view))
         except ConnectorDenied:
+            self._axfr_refused[key] = time.monotonic()
             # A static primary refusing the transfer is read from its file, as named loaded it.
             static = self.static_zone(zone, view)
             if static is None:
                 raise
-            try:
-                return staticzone.load(static, self._directory()).rrsets()
-            except (ZoneFileError, OSError):
-                raise ConnectorDenied(f"AXFR of {zone} refused and its zone file is not readable") from None
+            return self._read_zone_file(static, zone)
+        self._axfr_refused.pop(key, None)
+        return rrsets
+
+    def _read_zone_file(self, zone: Zone, name: str) -> list[RRset]:
+        try:
+            return staticzone.load(zone, self._directory()).rrsets()
+        except (ZoneFileError, OSError):
+            raise ConnectorDenied(f"AXFR of {name} refused and its zone file is not readable") from None
 
     # Zones as configured on this node --------------------------------------------------
 
@@ -708,6 +732,7 @@ class BindBackend(BindExtras, DnsBackend):
             label=plan.id,
         )
         outcome = pipeline.run(file_changes)
+        self._axfr_refused.clear()
         if outcome.ok and outcome.backup_dir:
             # What this plan wrote: rollback refuses to restore over a later change. Zone files are
             # left out: named rewrites them with dynamic updates.

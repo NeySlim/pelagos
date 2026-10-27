@@ -193,3 +193,42 @@ def test_large_static_zone_waits_for_the_queued_reload(named_server, tmp_root):
     assert result.ok and not result.rolled_back, result.message
     assert serial(named_server, "big.lan") == 2
     assert "mail\tIN\tA\t192.0.2.25" in path.read_text()
+
+
+def _count_axfr(backend):
+    asked: list[str] = []
+    real = backend.dns.axfr
+
+    def spy(zone, key=None):
+        asked.append(zone)
+        return real(zone, key)
+
+    backend.dns.axfr = spy
+    return asked
+
+
+def test_builtin_zone_is_read_from_its_file_without_a_transfer(named_server, tmp_root):
+    add_static_zone(named_server, "localhost", transfer=False)
+    backend = make_backend(named_server, tmp_root)
+    asked = _count_axfr(backend)
+    data = {(r.name, r.rtype) for r in backend.read_zone("localhost")}
+    assert ("www.localhost.", "A") in data
+    assert asked == []
+
+
+def test_refused_transfer_is_not_asked_again(named_server, tmp_root):
+    from pelagos.connectors.base import ConnectorDenied
+
+    add_static_zone(named_server, "quiet.lan", transfer=False)
+    backend = make_backend(named_server, tmp_root)
+    asked = _count_axfr(backend)
+    for _ in range(3):
+        assert backend.read_zone("quiet.lan")
+    assert asked == ["quiet.lan"]
+    backend._axfr_refused.clear()  # a configuration change asks once more
+    backend.read_zone("quiet.lan")
+    assert asked == ["quiet.lan", "quiet.lan"]
+    with pytest.raises(ConnectorDenied):  # no file to fall back on: denied from memory
+        backend._axfr_refused[("nofile.lan.", "_default")] = time.monotonic()
+        backend.read_zone("nofile.lan")
+    assert asked == ["quiet.lan", "quiet.lan"]

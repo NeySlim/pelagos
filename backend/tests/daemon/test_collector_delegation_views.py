@@ -89,13 +89,15 @@ def test_every_view_is_checked_with_its_own_key(split, tmp_root):
     assert set(found) == {
         "ns-unresolved:split.lan@inside:ns2.split.invalid.",
         "ns-silent:split.lan@inside:ns3.split.lan.",
-        "soa-range:split.lan@outside:refresh",
-        "soa-range:split.lan@outside:minimum",
+        "soa-range:split.lan@outside",
         "ns-extra:192.0.2.99",
         "view-unchecked:guest",
     }
     assert found["ns-silent:split.lan@inside:ns3.split.lan."].details["addresses"] == ["127.0.0.2"]
-    assert found["soa-range:split.lan@outside:refresh"].details["value"] == 60
+    assert [f["field"] for f in found["soa-range:split.lan@outside"].details["fields"]] == [
+        "refresh",
+        "minimum",
+    ]
     assert found["ns-extra:192.0.2.99"].details["zones"] == ["split.lan@outside"]
     assert found["view-unchecked:guest"].details["zones"] == 1
     assert found["view-unchecked:guest"].title_message["key"] == "alert.view_unchecked"

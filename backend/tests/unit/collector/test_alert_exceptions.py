@@ -78,10 +78,10 @@ def test_soa_range_info_kept_as_the_admins_choice():
         kind=AlertKind.DELEGATION_ISSUE,
         severity=Severity.INFO,
         node_id="n1",
-        subject="soa-range:example.lan:refresh",
+        subject="soa-range:example.lan",
         title="SOA refresh of example.lan is 60",
     )
-    assert c.apply_exceptions([soa], only(("delegation_issue", "soa-range:example.lan:refresh"))) == []
+    assert c.apply_exceptions([soa], only(("delegation_issue", "soa-range:example.lan"))) == []
 
 
 FINDINGS = [

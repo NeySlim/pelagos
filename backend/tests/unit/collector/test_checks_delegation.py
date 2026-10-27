@@ -83,18 +83,18 @@ def test_allow_transfer_with_keys_or_acls_is_not_judged():
     assert found == {}
 
 
-def test_soa_values_outside_usual_ranges_are_information():
-    soa = "ns1.example.lan. hostmaster.example.lan. 2026102601 60 600 1209600 60"
-    alerts = {a.subject: a for a in delegation.soa_alerts("n1", "example.lan.", "_default", soa, CFG)}
-    assert set(alerts) == {"soa-range:example.lan:refresh", "soa-range:example.lan:minimum"}
-    assert all(a.severity is Severity.INFO for a in alerts.values())
-    assert alerts["soa-range:example.lan:refresh"].details == {
-        "zone": "example.lan",
-        "field": "refresh",
-        "value": 60,
-        "low": 1200,
-        "high": 86400,
-    }
+def test_soa_values_outside_usual_ranges_make_one_alert_per_zone():
+    soa = "ns1.example.lan. hostmaster.example.lan. 2026102601 60 30 1209600 60"
+    alerts = delegation.soa_alerts("n1", "example.lan.", "_default", soa, CFG)
+    assert [a.subject for a in alerts] == ["soa-range:example.lan"]
+    assert alerts[0].severity is Severity.INFO
+    assert alerts[0].details["zone"] == "example.lan"
+    assert [(f["field"], f["value"]) for f in alerts[0].details["fields"]] == [
+        ("refresh", 60),
+        ("retry", 30),
+        ("minimum", 60),
+    ]
+    assert alerts[0].details["fields"][0] == {"field": "refresh", "value": 60, "low": 1200, "high": 86400}
     ok = "ns1.example.lan. hostmaster.example.lan. 1 7200 900 1209600 3600"
     assert delegation.soa_alerts("n1", "example.lan.", "_default", ok, CFG) == []
     assert delegation.soa_alerts("n1", "example.lan.", "_default", "garbage", CFG) == []
@@ -276,3 +276,27 @@ def test_a_silent_server_costs_one_timeout_per_pass_not_one_per_zone():
         assert elapsed < 1.0, elapsed  # 10 zones x 0.4 s unless the verdict is reused
     finally:
         sink.close()
+
+
+def test_builtin_and_empty_zones_are_not_checked_but_real_reverse_zones_are():
+    names = [
+        "localhost.",
+        "127.in-addr.arpa.",
+        "0.in-addr.arpa.",
+        "255.in-addr.arpa.",
+        "10.in-addr.arpa.",
+        "254.169.in-addr.arpa.",
+        "home.arpa.",
+        "168.192.in-addr.arpa.",
+        "example.lan.",
+    ]
+    backend = FakeBackend([Zone(name=n, kind=ZoneKind.PRIMARY, view="_default") for n in names])
+    ctx = SimpleNamespace(node=SimpleNamespace(id="n1"), settings=lambda: {"checks": {}})
+    checks = HealthChecks(ctx, None, SimpleNamespace(dns=backend), threading.Lock())
+    checks.net_factory = lambda b: FakeNet({})
+    checks._delegation()
+    assert {q[0] for q in backend.dns.queried} == {
+        "10.in-addr.arpa.",
+        "168.192.in-addr.arpa.",
+        "example.lan.",
+    }

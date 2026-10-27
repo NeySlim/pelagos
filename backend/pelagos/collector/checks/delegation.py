@@ -3,8 +3,8 @@
 
 Subjects (kind delegation_issue, `<z>` is `zone` or `zone@view`): `ns-unresolved:<z>:<ns>`,
 `ns-silent:<z>:<ns>`, `ns-transfer:<z>:<ns>`, `ns-extra:<address>` (grouped over the zones by
-`group_extra`), `soa-range:<z>:<field>`, `view-unchecked:<view>` (no read key selects the view).
-Every view is checked through its own read key; also-notify and allow-transfer are the effective
+`group_extra`), `soa-range:<z>` (one per zone, all out of range fields in its details), `view-unchecked:<view>` (no read key selects the view).
+Built-in and automatic empty zones are skipped by the caller (`builtin_zones`). Every view is checked through its own read key; also-notify and allow-transfer are the effective
 lists (zone, else view, else options).
 """
 
@@ -165,21 +165,23 @@ def soa_alerts(node_id: str, zone: str, view: str, soa_text: str, cfg: CheckSett
     if soa is None:
         return []
     label = _zone_label(zone, view)
-    out: list[Alert] = []
+    fields = []
     for name in ("refresh", "retry", "expire", "minimum"):
         low, high = getattr(cfg, f"soa_{name}_min_seconds"), getattr(cfg, f"soa_{name}_max_seconds")
-        if low <= soa[name] <= high:
-            continue
-        out.append(
-            _alert(
-                node_id,
-                Severity.INFO,
-                f"soa-range:{label}:{name}",
-                messages.msg("alert.soa_range", zone=label, field=name, value=soa[name], low=low, high=high),
-                {"zone": label, "field": name, "value": soa[name], "low": low, "high": high},
-            )
+        if not low <= soa[name] <= high:
+            fields.append({"field": name, "value": soa[name], "low": low, "high": high})
+    if not fields:
+        return []
+    text = ", ".join(f"{f['field']} {f['value']} ({f['low']} to {f['high']})" for f in fields)
+    return [
+        _alert(
+            node_id,
+            Severity.INFO,
+            f"soa-range:{label}",
+            messages.msg("alert.soa_range", zone=label, fields=text),
+            {"zone": label, "fields": fields},
         )
-    return out
+    ]
 
 
 def _alert(

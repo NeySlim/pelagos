@@ -160,7 +160,7 @@ CATALOG: dict[str, str] = {
     "alert.ns_silent": "zone {zone}: name server {ns} ({address}) does not answer for the zone",
     "alert.ns_no_transfer": "zone {zone}: name server {ns} ({address}) is not allowed to transfer the zone",
     "alert.ns_not_listed": "{address} gets notifies or transfers for {zones} but is not a name server",
-    "alert.soa_range": "zone {zone}: SOA {field} is {value}, usual range {low} to {high}",
+    "alert.soa_range": "zone {zone}: SOA values outside the usual range: {fields}",
     "alert.view_unchecked": (
         "view {view}: delegation and SOA are not checked (zones: {zones}), no read key selects the "
         "view (dns.view_keys)"

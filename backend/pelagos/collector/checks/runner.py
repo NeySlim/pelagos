@@ -33,6 +33,7 @@ from pelagos.collector.checks.settings import CheckSettings
 from pelagos.collector.pollers import PollOutcome
 from pelagos.collector.rules import pool_subject
 from pelagos.connectors.base import ConnectorError
+from pelagos.connectors.bind.builtin_zones import is_builtin_zone
 from pelagos.core import settings_registry as reg
 from pelagos.domain import Alert, AlertKind, Engine, Family, LeaseState, ZoneKind
 from pelagos.domain.common import from_rfc3339
@@ -528,7 +529,7 @@ class HealthChecks:
             rotated = own or disk.logrotate_covers(path, rotation)
             files.append(disk.FileObs("log", path, size, {"rotated": rotated}))
         for zone in zones:
-            if zone.kind is not ZoneKind.PRIMARY or not zone.file:
+            if zone.kind is not ZoneKind.PRIMARY or not zone.file or is_builtin_zone(zone.name):
                 continue
             journal = Path(zone.file if Path(zone.file).is_absolute() else directory / zone.file)
             journal = journal.with_name(journal.name + ".jnl")
@@ -648,7 +649,11 @@ class HealthChecks:
         cfg = self.cfg()
         try:
             with self.lock:
-                zones = [z for z in backend.list_zones() if z.kind is ZoneKind.PRIMARY]
+                zones = [
+                    z
+                    for z in backend.list_zones()
+                    if z.kind is ZoneKind.PRIMARY and not is_builtin_zone(z.name)
+                ]
         except (ConnectorError, NotImplementedError):
             return PollOutcome()
         client = getattr(backend, "dns", None)

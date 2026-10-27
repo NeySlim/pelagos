@@ -320,10 +320,7 @@
     "zone"
   ],
   "alert.soa_range": [
-    "field",
-    "high",
-    "low",
-    "value",
+    "fields",
     "zone"
   ],
   "alert.version_mismatch": [

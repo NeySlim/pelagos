@@ -12,23 +12,12 @@ import stat
 from pathlib import Path
 from typing import Any
 
+from pelagos.connectors.bind.builtin_zones import BUILTIN_ZONES
 from pelagos.domain import Severity, zone_updates
 from pelagos.installer import bindconf, managed
 from pelagos.installer.bindconf import ConfigFiles, Statement
 
 UPDATE_TYPES = ("A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "DHCID")
-# Zones every distribution ships (named.conf.default-zones, named.rfc1912.zones): never written.
-BUILTIN_ZONES = frozenset(
-    {
-        "localhost.",
-        "localhost.localdomain.",
-        "127.in-addr.arpa.",
-        "1.0.0.127.in-addr.arpa.",
-        "0.in-addr.arpa.",
-        "255.in-addr.arpa.",
-        "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa.",
-    }
-)
 
 
 def view_key_name(view: str) -> str:

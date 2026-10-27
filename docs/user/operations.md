@@ -126,6 +126,7 @@ them in **Advanced, History**.
 
 ## Upgrade
 
+The full procedure, with rollback, is in [Upgrade and rollback](upgrade.md).
 Read the release notes first. Upgrade one node at a time:
 
 ```sh

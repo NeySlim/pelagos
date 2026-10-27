@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # Provision the reference pair, without Pelagos, from lab-dev (idempotent).
 #
-# Usage: provision.sh [all|three|ns1|ns2|rpm|client] [--force]
+# Usage: provision.sh [all|pair|three|ns1|ns2|rpm|client] [--force]
 #
 #   lab-ns1   BIND primary for example.lan, 0.99.10.in-addr.arpa and 1.99.10.in-addr.arpa
 #             (dynamic, updates signed by the hmac-md5 key kea-ddns), Kea DHCPv4 HA primary
 #             (hot-standby), D2 sending updates to the primary with kea-ddns.
 #   lab-ns2   BIND secondary of the same zones, Kea DHCPv4 HA standby, D2 like ns1.
 #   lab-client DHCP client (systemd-networkd through netplan) on its second NIC.
+#   pair      the pair alone, without the DHCP client. PROV_NS1, PROV_NS2, PROV_NS1_IP, PROV_NS2_IP and
+#             PROV_IFACE (the DHCP interface, default eth0) point it at other hosts (upgrade tests).
 #   three     the same pair plus lab-rpm (Rocky 10, BIND 9.18 and Kea 3.0 from Rocky): a Kea HA
 #             backup server (ns3) of the pair and a second BIND secondary; the pair's peer list,
 #             allow-transfer and also-notify name it. `rpm` provisions lab-rpm alone (after three).
@@ -20,12 +22,13 @@
 # --force rewrites the configurations even when Pelagos manages the host already.
 set -euo pipefail
 
-NS1=lab-ns1
-NS2=lab-ns2
+NS1=${PROV_NS1:-lab-ns1}
+NS2=${PROV_NS2:-lab-ns2}
 NS3=lab-rpm
 CLIENT=lab-client
-NS1_IP=10.99.0.11
-NS2_IP=10.99.0.12
+NS1_IP=${PROV_NS1_IP:-10.99.0.11}
+NS2_IP=${PROV_NS2_IP:-10.99.0.12}
+IFACE=${PROV_IFACE:-eth0}
 NS3_IP=10.99.0.13
 RPM_HOOKS=/usr/lib64/kea/hooks
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
@@ -200,7 +203,7 @@ kea_dhcp4() {
   cat <<EOF | put "$host" /etc/kea/kea-dhcp4.conf 0640 "$owner"
 {
   "Dhcp4": {
-    "interfaces-config": { "interfaces": [ "eth0" ] },
+    "interfaces-config": { "interfaces": [ "$IFACE" ] },
     "control-socket": { "socket-type": "unix", "socket-name": "kea4-ctrl-socket" },
     "lease-database": { "type": "memfile", "lfc-interval": 3600 },
     "valid-lifetime": 3600,
@@ -244,7 +247,7 @@ $peers
       {
         "id": 1,
         "subnet": "10.99.1.0/24",
-        "interface": "eth0",
+        "interface": "$IFACE",
         "pools": [ { "pool": "10.99.1.100 - 10.99.1.199" } ],
         "option-data": [
           { "name": "domain-name", "data": "example.lan" },
@@ -455,7 +458,7 @@ wait_backup() {
 }
 
 case "$target" in
-  all | three | ns1 | ns2) ;;
+  all | pair | three | ns1 | ns2) ;;
   rpm) guard "$NS3"; provision_rpm; wait_backup; exit 0 ;;
   client) provision_client; exit 0 ;;
   *) sed -n '3,23p' "$0"; exit 2 ;;
@@ -482,7 +485,7 @@ if [[ "$target" != ns1 ]]; then
   provision_ns "$NS2" ns2 "$secret"
 fi
 [[ "$target" == three ]] && provision_rpm
-[[ "$target" == all || "$target" == three ]] && wait_ha
+[[ "$target" == all || "$target" == pair || "$target" == three ]] && wait_ha
 [[ "$target" == three ]] && wait_backup
 [[ "$target" == all || "$target" == three ]] && provision_client
 echo "provisioned: $target"

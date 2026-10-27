@@ -17,6 +17,7 @@ documentation names `ns1`, `ns2`, `example.lan`, `192.0.2.0/24` and
 | [Certificates](certificates.md) | HTTPS certificate of each node: self-signed, manual (request made on the node, PEM, PKCS#12), ACME (Let's Encrypt, step-ca, UCM; DNS-01, HTTP-01), UCM API, all nodes at once, renewal, expiry alerts |
 | [Plans](plans.md) | preview, apply, expiry, rollback, plans across nodes |
 | [Operations](operations.md) | replication, redundancy, backup and restore, upgrade, uninstall, logs, metrics |
+| [Upgrade](upgrade.md) | node by node upgrade of a cluster, what changes in the files, running two versions, rollback |
 | [CLI](cli.md) | every `pelagos` command and option |
 | [API](api.md) | authentication, conventions, problem documents, messages, endpoints, WebSocket |
 | [Troubleshooting](troubleshooting.md) | services, sign-in, named, Kea, permissions, AppArmor, SELinux, replication, certificates, error messages |

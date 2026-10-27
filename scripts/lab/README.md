@@ -18,6 +18,9 @@ rolled back at will; nothing outside these VMs is ever a target.
 | `lab-docker` | 9117 | 10.99.0.17 | Debian 13, Docker host for compose tests | `clean`, `docker` |
 | `lab-ucm` | 9122 | 10.99.0.22 | Debian 13 (4 GB), Docker, UCM built from git (`ucm.sh`) for the certificate tests | none: `ucm.sh` rebuilds it |
 | `lab-arm64` | 9118 | 10.99.0.18 | Debian 13 (amd64), arm64 by emulation: Docker with qemu-user binfmt, qemu-system-aarch64, the Debian 13 arm64 cloud image cached | `emul` |
+| `lab-up1` | 9124 | 10.99.0.24 | Debian 13 (amd64), upgrade test node ns1 (BIND, Kea 2.6.3 from Debian) | none |
+| `lab-up2` | 9125 | 10.99.0.25 | Debian 13 (7 GB), qemu-system-aarch64 host, Docker with qemu-user (arm64 deb builds) | none |
+| `lab-up3` | none | 10.99.0.26 | Debian 13 arm64 guest under qemu on lab-up2 (`emul-node.sh`), upgrade test node ns2 | none |
 
 All VMs: user `lab`, passwordless sudo, key authentication. The ssh aliases
 are configured on lab-dev (`~/.ssh/config`, key `~/.ssh/id_ed25519`, which
@@ -215,3 +218,21 @@ credentials: `PELAGOS_HETZNER_TOKEN` and `PELAGOS_HETZNER_ZONE` (a TXT
 record through the Hetzner Cloud API, seen on Hetzner's servers), plus
 `PELAGOS_LE_STAGING_NAME` (and `PELAGOS_LE_DELEGATION_ZONE` when its
 `_acme-challenge` is a CNAME) for a certificate from Let's Encrypt staging.
+
+## Upgrade test cluster
+
+`backend/tests/lab/test_upgrade_lab.py` installs the packages of an older commit
+(2b86817) on `lab-up1` (amd64) and `lab-up3` (arm64, emulated), builds a two-node
+cluster with Kea 2.6.3 HA, upgrades the arm64 node then the amd64 node to the current
+packages and rolls both back (`docs/user/upgrade.md`). It needs the four debs in
+`$PELAGOS_UPGRADE_DEBS/{old,new}` (default `build/upgrade`) and is skipped without them.
+
+```sh
+# arm64 guest, run on lab-up2 (copy emul-node.sh there first); the macvtap gives it a lab address
+./emul-node.sh start lab-up3 10.99.0.26 --mem 3072 --cpus 4
+# debs: amd64 with packaging/deb/build.sh, arm64 with packaging/deb/container-build.sh arm64 on lab-up2
+```
+
+`provision.sh pair` (with `PROV_NS1`, `PROV_NS2`, `PROV_NS1_IP`, `PROV_NS2_IP`) builds the
+legacy BIND and Kea HA pair on any two hosts. The guest is not part of any snapshot: after a
+restart of `lab-up2`, start it again.

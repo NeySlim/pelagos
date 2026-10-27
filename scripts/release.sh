@@ -58,7 +58,7 @@ trap 'rm -rf "$work"' EXIT
 git archive "$ref" | tar -C "$work" -xf -
 [[ "$tag_it" == 1 ]] || set_version "$work" "$version"
 epoch="$(git log -1 --format=%ct "$ref")"
-echo "release: $version from $(git rev-parse --short "$ref") in $work" >&2
+echo "release: $version from $(git rev-parse --short "$ref^{commit}") in $work" >&2
 
 (cd "$work/frontend" && npm ci --no-fund --no-audit --loglevel=error && npm run build --silent) >&2
 read -ra arches <<<"$ARCHES"
@@ -89,7 +89,7 @@ done
 {
   echo "# Pelagos $version"
   echo
-  echo "Commit $(git rev-parse --short "$ref"), $(git log -1 --format=%cs "$ref")${since:+, changes since $since}."
+  echo "Commit $(git rev-parse --short "$ref^{commit}"), $(git log -1 --format=%cs "$ref")${since:+, changes since $since}."
   range="${since:+$since..}$ref"
   for kind in feat fix; do
     lines="$(git log --no-merges --format=%s "$range" | grep -E "^$kind(\(|:)" || true)"

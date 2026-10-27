@@ -1483,5 +1483,5 @@ Replication only carries `cluster.toml` and the audit log, entry by entry under 
 stamp, so it would need a new replicated artifact (a new endpoint, size limits, freshness and
 conflict rules) and a node would take security verdicts from a peer's download, which makes
 a compromised or stale peer able to hide an advisory on every node. The extract is small
-(a few hundred kilobytes), the download is daily, and a failure is now logged and shown, so
+(about 100 kilobytes), the download is daily, and a failure is now logged and shown, so
 each node keeps fetching on its own.

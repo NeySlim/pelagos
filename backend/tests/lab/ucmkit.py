@@ -133,6 +133,12 @@ class UcmAdmin:
         return self.raw(f"/api/v2/cas/{ca_id}/export?format=pem").decode()
 
     def api_key(self, name: str) -> str:
+        # UCM keeps at most 10 active keys per user and every run leaves one: revoke the earlier
+        # runs' keys (same name without the trailing number) first.
+        prefix = name.rstrip("0123456789")
+        for key in self.call("GET", "/api/v2/account/apikeys")["data"]:
+            if key["name"].startswith(prefix) and key["is_active"] and not key["is_expired"]:
+                self.call("DELETE", f"/api/v2/account/apikeys/{key['id']}")
         out = self.call(
             "POST",
             "/api/v2/account/apikeys",

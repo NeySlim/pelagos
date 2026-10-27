@@ -1,37 +1,118 @@
 # SPDX-License-Identifier: Apache-2.0
-# Tests on every push and pull request: backend lint and unit tier (Python 3.12 and 3.13),
-# frontend lint, vitest and build, the daemon tier against real BIND 9.20 and ISC Kea 3.2,
-# and the Playwright end-to-end suite against the mock server.
+# Every push and pull request runs one fast job (lint, unit tier in parallel, vitest, frontend
+# build). The heavy jobs run only when their inputs changed: the daemon tier for the connectors
+# and fixtures, a Playwright smoke for the frontend. Release tags, the nightly run (when main
+# moved in the last day) and a manual run take the full suite: unit tier on Python 3.12 too,
+# daemon tier, every Playwright spec.
 name: ci
 
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
+  schedule:
+    - cron: "17 2 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   # A newer push supersedes the running one; release tags always run to the end.
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
-  commits:
-    name: commit messages
+  scope:
     runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.mode.outputs.run }}
+      full: ${{ steps.mode.outputs.full }}
+      daemon: ${{ steps.mode.outputs.full == 'true' || steps.paths.outputs.daemon == 'true' }}
+      frontend: ${{ steps.mode.outputs.full == 'true' || steps.paths.outputs.frontend == 'true' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
-      - name: Subjects of 72 characters at most, one line, no trailer, no em dash
+      - name: Commit messages (72 characters, one line, no trailer, no em dash)
+        if: github.event_name == 'push' && github.ref_type == 'branch' || github.event_name == 'pull_request'
         run: scripts/check-commits.sh "${{ github.event.pull_request.base.sha || github.event.before }}" "${{ github.sha }}"
-  backend:
-    name: backend (python ${{ matrix.python }})
-    # The unit tier validates generated configs with named-checkconf, so it runs on Debian 13
-    # (BIND 9.20 tools, the version the parser and grammar target).
+      - name: Mode
+        id: mode
+        run: |
+          run=true full=false
+          case "$GITHUB_EVENT_NAME/$GITHUB_REF_TYPE" in
+            schedule/*) full=true; [ -n "$(git log -1 --since=25.hours --format=%h)" ] || run=false ;;
+            workflow_dispatch/*|push/tag) full=true ;;
+          esac
+          printf 'run=%s\nfull=%s\n' "$run" "$full" | tee -a "$GITHUB_OUTPUT"
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: paths
+        if: steps.mode.outputs.full != 'true'
+        with:
+          filters: |
+            daemon:
+              - backend/pelagos/connectors/**
+              - backend/tests/daemon/**
+              - backend/tests/fixtures/**
+              - backend/tests/conftest.py
+              - .github/workflows/ci.yml
+            frontend:
+              - frontend/**
+              - .github/workflows/ci.yml
+
+  fast:
+    name: fast (lint, unit, vitest, build)
+    needs: scope
+    if: needs.scope.outputs.run == 'true'
+    # The unit tier validates generated configs with named-checkconf: Debian 13 has BIND 9.20.
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    timeout-minutes: 20
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: BIND tools and the toolchain
+        run: |
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends ca-certificates curl git make zstd bind9-utils
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/pyproject.toml
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        id: node-modules
+        with:
+          path: frontend/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+      - name: Virtualenv (wheels from the uv cache)
+        run: make venv PYTHON=3.13 UV=uv
+      - name: npm ci
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        working-directory: frontend
+        run: npm ci --no-fund --no-audit
+      - name: Lint
+        run: make lint
+      - name: Unit tier (parallel)
+        run: make test-unit PYTEST_ARGS="-n auto"
+      - name: Vitest
+        run: make test-vitest
+      - name: Build
+        run: make build-frontend
+
+  unit-312:
+    name: unit (python 3.12)
+    needs: scope
+    if: needs.scope.outputs.full == 'true' && needs.scope.outputs.run == 'true'
     runs-on: ubuntu-24.04
     container: debian:trixie
     env:
@@ -39,51 +120,27 @@ jobs:
     defaults:
       run:
         shell: bash
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.12", "3.13"]
     steps:
       - name: BIND tools and the toolchain
         run: |
           apt-get update -q
-          apt-get install -y -q --no-install-recommends \
-            ca-certificates curl git make bind9-utils
+          apt-get install -y -q --no-install-recommends ca-certificates curl git make zstd bind9-utils
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: astral-sh/setup-uv@e92bafb6253dcd438e0484186d7669ea7a8ca1cc # v6.4.3
         with:
           enable-cache: true
           cache-dependency-glob: backend/pyproject.toml
       - name: Virtualenv
-        run: make venv PYTHON=${{ matrix.python }} UV=uv
-      - name: Lint
-        run: make lint-backend
-      - name: Unit tier
-        run: make test-unit
-
-  frontend:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Install
-        working-directory: frontend
-        run: npm ci --no-fund --no-audit
-      - name: Lint
-        run: make lint-frontend
-      - name: Vitest
-        run: make test-vitest
-      - name: Build
-        run: make build-frontend
+        run: make venv PYTHON=3.12 UV=uv
+      - name: Unit tier (parallel)
+        run: make test-unit PYTEST_ARGS="-n auto"
 
   daemon:
     # Debian 13 ships BIND 9.20; Kea 3.2 comes from the ISC Cloudsmith repository. Inside the
     # container named runs under Docker's default AppArmor profile, not the distribution one
     # that confines /usr/sbin/named to /etc/bind (the fixtures use a temporary directory).
+    needs: scope
+    if: needs.scope.outputs.run == 'true' && needs.scope.outputs.daemon == 'true'
     runs-on: ubuntu-24.04
     container: debian:trixie
     env:
@@ -127,21 +184,31 @@ jobs:
           grep -Eq '[0-9]+ passed' daemon.log
 
   e2e:
+    name: e2e (${{ needs.scope.outputs.full == 'true' && 'full' || 'smoke' }})
+    needs: scope
+    if: needs.scope.outputs.run == 'true' && needs.scope.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        id: node-modules
+        with:
+          path: frontend/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
       - name: Install
         working-directory: frontend
         run: |
-          npm ci --no-fund --no-audit
+          [ "${{ steps.node-modules.outputs.cache-hit }}" = true ] || npm ci --no-fund --no-audit
           npx playwright install --with-deps chromium
       - name: Playwright against the mock server
-        run: make test-e2e
+        run: make ${{ needs.scope.outputs.full == 'true' && 'test-e2e' || 'test-e2e-smoke' }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:

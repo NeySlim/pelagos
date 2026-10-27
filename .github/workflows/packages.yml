@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Release artifacts: the deb (Debian 13), the rpms (RHEL 9 and 10), the node and all-in-one
-# images with their smoke tests. They are built on version tags, on demand, and on pull requests
-# and pushes to main touching packaging inputs. Only a version tag pushes the images to
-# ghcr.io/<owner>/pelagos and ghcr.io/<owner>/pelagos-allinone and creates a GitHub release
-# carrying the packages. ghcr packages start private: make them public once (package settings)
-# before documenting a ghcr.io image for users.
+# images with their smoke tests. A push or pull request touching packaging/ or docker/ builds the
+# amd64 set only (deb, rpm el10, images). Version tags, the nightly run (when main moved in the
+# last day) and a manual run build everything, arm64 included. Only a version tag pushes the
+# images to ghcr.io/<owner>/pelagos and ghcr.io/<owner>/pelagos-allinone and creates a GitHub
+# release carrying the packages and SHA256SUMS. ghcr packages start private: make them public
+# once (package settings) before documenting a ghcr.io image for users.
 name: packages
 
 on:
@@ -14,23 +15,18 @@ on:
     paths: &packaging-paths
       - packaging/**
       - docker/**
-      - "**/Dockerfile*"
-      - "**/compose*.yaml"
-      - "**/compose*.yml"
-      - Makefile
-      - backend/pyproject.toml
-      - frontend/package.json
-      - frontend/package-lock.json
       - .github/workflows/packages.yml
   pull_request:
     paths: *packaging-paths
+  schedule:
+    - cron: "47 2 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: packages-${{ github.ref }}
+  group: packages-${{ github.ref }}-${{ github.event_name }}
   # A newer push supersedes the running one; release tags always run to the end.
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
@@ -40,8 +36,24 @@ jobs:
     outputs:
       image_tag: ${{ steps.version.outputs.image_tag }}
       prerelease: ${{ steps.version.outputs.prerelease }}
+      run: ${{ steps.mode.outputs.run }}
+      arches: ${{ steps.mode.outputs.arches }}
+      els: ${{ steps.mode.outputs.els }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Mode (full set on tags, nightly and manual runs)
+        id: mode
+        run: |
+          run=true arches='["amd64"]' els='[10]'
+          case "$GITHUB_EVENT_NAME/$GITHUB_REF_TYPE" in
+            schedule/*|workflow_dispatch/*|push/tag) arches='["amd64","arm64"]' els='[9,10]' ;;
+          esac
+          if [ "$GITHUB_EVENT_NAME" = schedule ] && [ -z "$(git log -1 --since=25.hours --format=%h)" ]; then
+            run=false
+          fi
+          printf 'run=%s\narches=%s\nels=%s\n' "$run" "$arches" "$els" | tee -a "$GITHUB_OUTPUT"
       - name: Version (a tag must match backend/pelagos/__init__.py)
         id: version
         run: |
@@ -55,16 +67,19 @@ jobs:
           # PEP 440 pre-releases (dev, a, b, rc) carry a dash in the image tag.
           case "$image_tag" in *-*) echo "prerelease=true" ;; *) echo "prerelease=false" ;; esac >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: steps.mode.outputs.run == 'true'
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Build frontend
+        if: steps.mode.outputs.run == 'true'
         working-directory: frontend
         run: |
           npm ci --no-fund --no-audit
           npm run build
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.mode.outputs.run == 'true'
         with:
           name: frontend-dist
           path: frontend/dist
@@ -73,6 +88,7 @@ jobs:
   deb:
     name: deb (${{ matrix.arch }})
     needs: frontend
+    if: needs.frontend.outputs.run == 'true'
     # The package is architecture dependent (compiled wheels): it is built and tested in a
     # Debian 13 container of its architecture. arm64 runs under qemu on an x86 runner by
     # default (always available); the repository variable ARM64_RUNNER=ubuntu-24.04-arm opts
@@ -80,7 +96,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(needs.frontend.outputs.arches) }}
     runs-on: ${{ matrix.arch == 'arm64' && (vars.ARM64_RUNNER || 'ubuntu-24.04') || 'ubuntu-24.04' }}
     timeout-minutes: 120
     steps:
@@ -119,20 +135,18 @@ jobs:
         run: packaging/tests/deb-systemd-smoke.sh build/deb/pelagos_*_${{ matrix.arch }}.deb
 
   rpm:
+    name: rpm (el${{ matrix.el }})
     needs: frontend
+    if: needs.frontend.outputs.run == 'true'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - el: 9
-            python: python3.12 python3.12-pip
-          - el: 10
-            python: python3 python3-pip
+        el: ${{ fromJSON(needs.frontend.outputs.els) }}
     container: rockylinux/rockylinux:${{ matrix.el }}
     steps:
       - name: Build dependencies
-        run: dnf install -y -q git make findutils rpm-build systemd-rpm-macros ${{ matrix.python }}
+        run: dnf install -y -q git make findutils rpm-build systemd-rpm-macros ${{ matrix.el == 9 && 'python3.12 python3.12-pip' || 'python3 python3-pip' }}
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -149,20 +163,15 @@ jobs:
   docker:
     name: docker (${{ matrix.arch }})
     needs: frontend
+    if: needs.frontend.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-24.04
-            compose: true
-          # The ISC images of the compose stack (internetsystemsconsortium/bind9,
-          # docker.cloudsmith.io/isc/docker/kea-*) are published for linux/amd64 only.
-          # arm64 runs under qemu on an x86 runner unless ARM64_RUNNER opts in to the arm one.
-          - arch: arm64
-            runner: ${{ vars.ARM64_RUNNER || 'ubuntu-24.04' }}
-            compose: false
-    runs-on: ${{ matrix.runner }}
+        arch: ${{ fromJSON(needs.frontend.outputs.arches) }}
+    # The ISC images of the compose stack (internetsystemsconsortium/bind9,
+    # docker.cloudsmith.io/isc/docker/kea-*) are published for linux/amd64 only: compose runs on
+    # amd64. arm64 runs under qemu on an x86 runner unless ARM64_RUNNER opts in to the arm one.
+    runs-on: ${{ matrix.arch == 'arm64' && (vars.ARM64_RUNNER || 'ubuntu-24.04') || 'ubuntu-24.04' }}
     timeout-minutes: 120
     env:
       DOCKER_DEFAULT_PLATFORM: linux/${{ matrix.arch }}
@@ -183,7 +192,7 @@ jobs:
       - name: make docker
         run: make docker
       - name: Compose smoke test
-        if: matrix.compose
+        if: matrix.arch == 'amd64'
         # The runner's resolver holds port 53: the smoke test publishes DNS on 5300.
         run: packaging/tests/compose-smoke.sh pelagos:latest
       - name: make docker-allinone (Kea 3.2 from ISC)
@@ -255,6 +264,8 @@ jobs:
           path: dist
           pattern: "{deb-*,rpm-*}"
           merge-multiple: true
+      - name: SHA256SUMS
+        run: cd dist && sha256sum -- *.deb *.rpm > SHA256SUMS && cat SHA256SUMS
       - name: GitHub release with the packages
         env:
           GH_TOKEN: ${{ github.token }}
@@ -264,8 +275,8 @@ jobs:
           [ "$IS_PRERELEASE" = true ] && prerelease="--prerelease"
           # Idempotent: a re-run after a partial failure replaces the assets.
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm \
+            gh release create "$GITHUB_REF_NAME" dist/*.deb dist/*.rpm dist/SHA256SUMS \
               --repo "$GITHUB_REPOSITORY" --title "Pelagos ${GITHUB_REF_NAME#v}" --generate-notes $prerelease
           fi

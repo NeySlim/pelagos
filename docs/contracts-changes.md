@@ -1456,3 +1456,7 @@ once per view per pass and `delegation_max_zones` only counts zones that can be 
 (`domain/messages.py`): messages `alert.view_unchecked` (no key in `dns.view_keys`) and
 `alert.view_key_missing` (key configured, secret absent on the node), key list regenerated with
 `make messages-keys`. WP-FRONTEND: both messages in `en` and `fr`.
+
+## 2026-10-27, pytest-xdist in the dev dependencies
+Additive. `backend/pyproject.toml`: `pytest-xdist` joins the `dev` extra so CI runs the unit
+tier with `pytest -n auto`. No runtime dependency, `packaging/requirements.lock` unchanged.

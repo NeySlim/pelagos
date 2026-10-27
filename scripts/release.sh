@@ -108,6 +108,6 @@ if [[ "$tag_it" == 1 ]]; then
   if [[ "$version" =~ (a|b|rc) ]]; then next="$major.$minor.$patch.dev0"; else next="$major.$minor.$((patch + 1)).dev0"; fi
   set_version . "$next"
   git commit -q -m "chore(release): open $next" -- "$init"
-  echo "release: tagged $tag, main moves to $next. Publish with: git push origin main $tag" >&2
+  echo "release: tagged $tag, main moves to $next. Push main; the tag and any publication wait for the owner's approval." >&2
 fi
 ls -l "$dest" >&2

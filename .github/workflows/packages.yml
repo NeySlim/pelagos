@@ -21,6 +21,11 @@ on:
   schedule:
     - cron: "47 2 * * *"
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the GitHub release and images (only on a v* tag, with the owner's approval)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -205,8 +210,8 @@ jobs:
         run: packaging/tests/allinone-smoke.sh pelagos-distro-allinone:latest
 
   publish:
-    # Only a tag publishes; the images are rebuilt by buildx from the tested sources.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Only a manual run on a tag with publish set publishes; a pushed tag never does.
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'workflow_dispatch' && inputs.publish
     needs: [frontend, deb, rpm, docker]
     runs-on: ubuntu-24.04
     permissions:
@@ -253,7 +258,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'workflow_dispatch' && inputs.publish
     needs: [frontend, deb, rpm, docker]
     runs-on: ubuntu-24.04
     permissions:

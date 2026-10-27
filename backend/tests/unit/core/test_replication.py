@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import os
 import socket
+import ssl
 import time
 import tomllib
 from collections.abc import Iterator
@@ -991,3 +994,32 @@ def test_a_node_every_peer_refuses_reports_isolated(pair):
     # The remaining node is fine: it simply has no peer left.
     a.service._after_exchange(a.service.replicator.pull_all())
     assert a.service.state == "ready"
+
+
+def test_probe_noise_is_one_short_line_each(pair, caplog):
+    a, _b = pair
+    server = ReplicationServer(a.service.app, "127.0.0.1:0", a.service.server_context)
+    server.start()
+    port = server.address[1]
+    try:
+        with caplog.at_level(logging.INFO):
+            with socket.create_connection(("127.0.0.1", port)) as s:  # plain HTTP on the TLS port
+                s.sendall(b"GET / HTTP/1.0\r\n\r\n")
+                with contextlib.suppress(OSError):
+                    s.recv(100)
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with socket.create_connection(("127.0.0.1", port)) as raw, ctx.wrap_socket(raw) as tls:
+                tls.sendall(b"BAD\x00REQUEST\r\n\r\n")  # no client certificate, garbage request
+                with contextlib.suppress(OSError):
+                    tls.recv(200)
+            time.sleep(0.3)
+    finally:
+        server.stop()
+    tls_lines = [r for r in caplog.records if r.name == "pelagos.tls"]
+    assert tls_lines and all(r.levelno == logging.INFO and not r.exc_info for r in tls_lines)
+    errors = [r for r in caplog.records if r.name == "pelagos.repl.error"]
+    assert errors, "the garbage request must reach the error log"
+    assert all("socket" not in r.getMessage() and "0x" not in r.getMessage() for r in errors)
+    assert all(r.levelno < logging.ERROR and not r.exc_info for r in errors)

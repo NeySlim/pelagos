@@ -19,7 +19,8 @@ ExecStart=/opt/pelagos/venv/bin/pelagos collector
 Restart=on-failure
 RestartSec=5
 # 75: the engines changed (import or install), restart cleanly to load the new connectors.
-SuccessExitStatus=75
+# TERM: a stop during ExecStartPre (package upgrade) is a clean stop, not "Failed with result signal".
+SuccessExitStatus=75 TERM
 RestartForceExitStatus=75
 RuntimeDirectory=pelagos
 RuntimeDirectoryPreserve=yes

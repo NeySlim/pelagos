@@ -20,7 +20,7 @@ ExecStart=/opt/pelagos/venv/bin/gunicorn -c /opt/pelagos/gunicorn_conf.py 'pelag
 Restart=on-failure
 RestartSec=3
 # 75: restart asked after a supplementary group change; not a failure.
-SuccessExitStatus=75
+SuccessExitStatus=75 TERM
 RestartForceExitStatus=75
 RuntimeDirectory=pelagos
 RuntimeDirectoryPreserve=yes

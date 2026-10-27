@@ -39,6 +39,7 @@ from pelagos.core.context import (
 from pelagos.core.enrollment import EnrollError, EnrollmentService, EnrollRequest, install_certificate
 from pelagos.core.paths import Paths
 from pelagos.core.plan_secrets import hand_secrets_to_backend
+from pelagos.core.quiet_tls import quiet_handshakes
 from pelagos.core.registry import UNLOCKED_SCOPES, ConnectorRegistry, EngineNotConfigured
 from pelagos.core.repl_http import ConnectFailed, TransportError, request_json
 from pelagos.core.retention import purge_backups
@@ -725,7 +726,7 @@ class ReplicationServer:
         host = host.strip("[]")  # "[::]:8444" binds "::"
         try:
             # An empty host binds every interface, which is the node.toml default.
-            self._server = pywsgi.WSGIServer(
+            self._server = quiet_handshakes(pywsgi.WSGIServer)(
                 (host, int(port)),
                 _offloaded(self.app),
                 handler_class=_handler_class(),
@@ -804,6 +805,14 @@ def _handler_class() -> type:
 
         def log_request(self) -> None:
             log.debug("%s", self.format_request())
+
+        def log_error(self, msg: str, *args: Any) -> None:
+            # pywsgi prefixes the socket repr (an object dump): say who and what, nothing else.
+            try:
+                text = msg % args if args else msg
+            except (TypeError, ValueError):
+                text = f"{msg} {args}"
+            logging.getLogger("pelagos.repl.error").warning("replication request refused: %s", text)
 
     _handler_cache.append(Handler)
     return Handler

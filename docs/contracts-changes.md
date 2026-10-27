@@ -13,6 +13,17 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-27, WP-API-AUTH: cluster view of the alerts (item 46)
+Additive. Contract (`domain/alerts.py`): `Alert.reported_by: list[str]` (empty in the cache,
+filled by the API). WP-API-AUTH: `GET /alerts`, `GET /alerts/summary`, the dashboard alert
+counts and the inconsistencies of `GET /hosts` are the cluster's, read from every peer over the
+new peer action `alerts.list` (no backend lock); `meta.unavailable` and `unavailable` name the
+peers not read (degraded mode); an ack finds a peer's alert. Why: a secondary holds no zone
+checks, so it showed a clean cluster while the primary had dozens of alerts; the API reads the
+owner instead of replicating rows (section 15 says why). WP-FRONTEND: node or "Cluster via"
+column and detail, partial view notice on the alerts page and the dashboard tile, `en` and `fr`.
+A node on an older release answers `not_supported` to `alerts.list`: listed as unavailable.
+
 ## 2026-10-27, WP-COLLECTOR: advisories grouped per engine, distribution fixes
 Contract (`domain/messages.py`): messages `alert.security_advisories_open`,
 `alert.security_advisories_update`, `alert.security_advisories_upstream` (placeholders

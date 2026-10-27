@@ -28,10 +28,10 @@ FILTERS = {
 class Alerts(Resource):
     @require("read:alerts")
     @ns.doc(params=FILTERS)
-    @ns.response(200, "Alerts, newest first", m.AlertPage)
+    @ns.response(200, "Alerts of every node, newest first; meta.unavailable: nodes not read", m.AlertPage)
     def get(self):
         page, per_page = pagination()
-        rows, total = services().alerts.query(
+        rows, total, unavailable = services().alerts.page(
             kind=arg("kind"),
             severity=arg("severity"),
             state=arg("state"),
@@ -40,13 +40,14 @@ class Alerts(Resource):
             page=page,
             per_page=per_page,
         )
-        return paged(rows, page, per_page, total)
+        # Nodes whose alerts could not be read: the list is partial (degraded mode).
+        return paged(rows, page, per_page, total, {"unavailable": unavailable})
 
 
 @ns.route("/summary")
 class Summary(Resource):
     @require("read:alerts")
-    @ns.response(200, "Counts of open and acknowledged alerts", m.AlertSummary)
+    @ns.response(200, "Counts of the cluster's open and acknowledged alerts", m.AlertSummary)
     def get(self):
         return services().alerts.summary()
 

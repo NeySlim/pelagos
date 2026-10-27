@@ -51,6 +51,8 @@ class EventHub:
         self._subscribers: set[Subscriber] = set()
         self._lock = threading.Lock()
         self.published = 0
+        # In-process observers of every dispatched message (cache invalidation), called before sockets.
+        self.listeners: list[Any] = []
 
     def subscribe(self, topics: set[str] | None = None) -> Subscriber:
         sub = Subscriber()
@@ -82,6 +84,8 @@ class EventHub:
         return self.dispatch(msg)
 
     def dispatch(self, msg: dict[str, Any]) -> int:
+        for listener in list(self.listeners):
+            listener(msg)
         with self._lock:
             # `system` (pong, replication, security counts, coalesced notices) reaches every socket.
             targets = [s for s in self._subscribers if msg["topic"] in s.topics or msg["topic"] == "system"]

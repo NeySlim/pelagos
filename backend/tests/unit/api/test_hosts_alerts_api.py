@@ -168,7 +168,7 @@ def test_alerts_list_summary_ack(role_client, alert_db):
     assert summary["open"] == 3 and summary["by_severity"]["critical"] == 1
     assert summary["by_kind"]["pool_near_full"] == 1
     dash = viewer.get("/api/v1/dashboard/summary").get_json()["alerts"]
-    assert dash == {"open": 3, "critical": 1, "warning": 2, "info": 0}
+    assert dash == {"open": 3, "critical": 1, "warning": 2, "info": 0, "unavailable": []}
 
     target = alert_db["ha_partner_down"]
     assert viewer.post(f"/api/v1/alerts/{target.id}/ack", json={}).status_code == 403

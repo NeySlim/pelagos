@@ -48,7 +48,7 @@ class Services:
         self.events = EventHub(ctx.node.id)
         self.jobs = JobStore(self.events)
         self.cache = SeriesCache(ctx.paths.series_db)
-        self.alerts = AlertsService(ctx, self.cache, self.events)
+        self.alerts = AlertsService(ctx, self.cache, self.events, self.peers)
         self.series = SeriesService(self.cache)
         self.dns = DnsService(ctx, self.registry.dns, self.peers)
         self.rpz = RpzService(ctx, self.dns, self.peers)

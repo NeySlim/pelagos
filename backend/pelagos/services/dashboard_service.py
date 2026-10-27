@@ -92,6 +92,7 @@ class DashboardService:
                 "critical": sev.get("critical", 0),
                 "warning": sev.get("warning", 0),
                 "info": sev.get("info", 0),
+                "unavailable": summary.get("unavailable", []),
             }
         out["engines"] = guarded("engines", self.engines, {})
         out["thresholds"] = guarded("thresholds", self.thresholds, {})

@@ -637,6 +637,7 @@ class Alert(Model):
     acked_by: str | None = None; acked_at: datetime | None = None
     resolved_at: datetime | None = None
     title_message: dict | None = None   # translatable title, section 19 "Messages"
+    reported_by: list[str] = []    # nodes whose collector holds it: filled by the API's cluster view
 ```
 
 `Inconsistency` is not a separate class: it is an `Alert` whose kind is one
@@ -1605,8 +1606,10 @@ run under the collector's backend lock):
 | `certs.check` | `{"certs_pem", "key_sealed"?, "use_pending_key"?}` | the check report; `key_sealed` is `SecretBox.encrypt("certs/upload/<this node>", key)` |
 | `certs.upload` | same, plus `"actor"` | `{"installed": true, ...}` or `{"installed": false, "error", "checks"}` |
 | `certs.self_signed` | `{"actor"}` | a new self-signed certificate installed here |
+| `alerts.list` | `{"include_resolved", "resolved_limit", "kind"?, "severity"?, "engine"?}` | `{"node_id", "alerts": [Alert], "resolved_total"}`: every unresolved alert this node's collector holds (at most 5000), then its most recent resolved ones up to `resolved_limit` (section 15, cluster view) |
 
-The `certs.*` actions never touch an engine and run without the backend lock.
+The `certs.*`, `security.*` and `alerts.list` actions never touch an engine and run without the
+backend lock.
 
 A plan built this way is stored by the caller (`PeerGateway.build_plan`
 stamps the callee's id on preconditions and validations without one and
@@ -1938,6 +1941,34 @@ entry `alert.ack`, which is how the acknowledgement replicates: every
 collector applies `alert.ack` entries from the audit log to its own table
 when it sees them. An `ACKED` alert that resolves and then returns opens
 again as `OPEN`.
+
+Cluster view of the alerts: each collector keeps the alerts it evaluates in
+its own cache (the zone checks and the DNS/DHCP inconsistencies on the node
+that holds the primary zones, health on each node), and the API shows the
+cluster's. `GET /alerts`, `GET /alerts/summary`, the dashboard counts and the
+inconsistencies attached to hosts read this node's cache plus every peer's
+over the `alerts.list` peer action (section 13; 4 s per peer, answers cached
+5 s, a failed peer is not asked again for 15 s, a relayed `alerts` event of a
+peer drops its cache). One row per alert id: a cluster-wide alert (`node_id`
+null, for example `version_mismatch` or an inconsistency) that several nodes
+hold is merged (an unresolved copy wins over a resolved one, an ack on any
+copy shows) and `reported_by` lists every node holding it; a node alert keeps
+its `node_id`. So every node lists the same alerts with the same counts. A
+peer that does not answer is named in `unavailable` (`meta.unavailable` of
+`GET /alerts`, `unavailable` of the summary and of the dashboard's `alerts`)
+and its alerts are missing: the view says it is partial instead of failing.
+The `node_id` filter keeps the node's alerts and the cluster-wide ones it
+reports. An ack of a peer's alert is the same `alert.ack` audit entry: it
+replicates and the peer's collector applies it. Exceptions live in
+`cluster.toml`, so they apply on every node.
+
+Why aggregation by the API rather than replicating alert rows: the cache is
+derived, per node and rebuildable (`collector --rebuild`); replicating rows
+would need a second merge protocol with ownership and resolution rules, while
+reading the owner keeps one writer per row, keeps node alerts attributed to
+their node, and degrades visibly when a peer is down. Running the zone checks
+on every node instead would compare secondary copies and each node's leases,
+and give different answers whenever a transfer or a lease sync lags.
 
 Kea file versus running configuration: the file (comments and trailing
 commas allowed, includes resolved: an unreadable included file keeps the
@@ -2362,8 +2393,8 @@ configuration; the problem document carries `"engine"` and `"divergences":
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
-| `GET /alerts?kind=&severity=&state=&node_id=&engine=&page=&per_page=` | `read:alerts` | | paginated `Alert` |
-| `GET /alerts/summary` | `read:alerts` | | `{"open","acked","by_severity": {...}, "by_kind": {...}}` |
+| `GET /alerts?kind=&severity=&state=&node_id=&engine=&page=&per_page=` | `read:alerts` | | paginated `Alert` of the whole cluster, `reported_by` set, `meta.unavailable`: `[{"node_id","name","error"}]` (section 15, cluster view) |
+| `GET /alerts/summary` | `read:alerts` | | `{"open","acked","by_severity": {...}, "by_kind": {...}, "unavailable": [...]}` over the cluster |
 | `POST /alerts/{id}/ack` | `write:alerts` | `{"comment"?}` | `Alert` |
 | `POST /alerts/consistency/run` | `write:alerts` | | `202 {"job_id"}` |
 | `GET /alerts/exceptions?kind=` | `read:alerts` | | `{"items": [{"id","kind","key","comment","summary"?,"created_by","created_at","node_id"}]}` (newest first) |

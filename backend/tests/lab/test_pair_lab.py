@@ -549,6 +549,35 @@ class TestReferencePair:
         assert any("retransfer" in json.dumps(e) for e in here), here
         wait_for("ns2 serves the zone again", lambda: dig(A2, "www.example.lan") == "10.99.0.80", timeout=60)
 
+    def test_12c_same_alerts_from_both_nodes(self):
+        """Item 46: the secondary shows the primary's zone checks; counts and rows match on both."""
+        n1, n2 = node_id(A1), node_id(A2)
+
+        def view(address: str) -> tuple[dict, list[tuple[str, str, tuple[str, ...]]]]:
+            summary = api(address).get("/alerts/summary")
+            rows = api(address).get("/alerts?state=open&per_page=500")["items"]
+            return summary, sorted((a["id"], a["state"], tuple(a["reported_by"])) for a in rows)
+
+        def same() -> bool:
+            (s1, r1), (s2, r2) = view(A1), view(A2)
+            return not s1["unavailable"] and not s2["unavailable"] and (s1, r1) == (s2, r2)
+
+        wait_for("same alerts on ns1 and ns2", same, timeout=180, interval=5)
+        rows = api(A2).get("/alerts?state=open&per_page=500")["items"]
+        assert rows, "the pair has no open alert to compare"
+        assert {r for a in rows for r in a["reported_by"]} >= {n1, n2}
+        for alert in rows:
+            assert alert["node_id"] in (None, *alert["reported_by"])
+        # Acknowledged from the secondary, applied by the primary's collector that holds the alert.
+        owned = next(a for a in rows if a["reported_by"] == [n1] and a["node_id"] == n1)
+        api(A2).call("POST", f"/alerts/{owned['id']}/ack", {"comment": "lab item 46"})
+
+        def acked() -> bool:
+            return owned["id"] in {a["id"] for a in api(A1).get("/alerts?state=acked&per_page=500")["items"]}
+
+        wait_for("ack applied by ns1", acked, timeout=120, interval=3)
+        wait_for("same alerts after the ack", same, timeout=120, interval=5)
+
     def test_13_demo_state(self):
         api(A1).call(
             "PUT",

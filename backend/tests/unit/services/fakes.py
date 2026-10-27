@@ -1883,7 +1883,7 @@ class FakeReplicationClient:
             self.peer_audit = audit
             self._stand_in = SimpleNamespace(
                 node=SimpleNamespace(id=self.node_id, name=f"peer-{self.node_id[-4:]}"),
-                paths=SimpleNamespace(locks_dir=root),
+                paths=SimpleNamespace(locks_dir=root, series_db=root / "series.sqlite"),
                 audit_log=SimpleNamespace(append=audit.append),
                 secrets=self.secrets,
                 settings=lambda: {},

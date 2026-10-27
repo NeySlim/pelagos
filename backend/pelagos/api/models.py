@@ -458,7 +458,13 @@ ApplyBody = model("ApplyBody", {"confirm": fields.Boolean(default=False)})
 AlertPage = page_of(Alert, "AlertPage")
 AlertSummary = model(
     "AlertSummary",
-    {"open": fields.Integer, "acked": fields.Integer, "by_severity": fields.Raw, "by_kind": fields.Raw},
+    {
+        "open": fields.Integer,
+        "acked": fields.Integer,
+        "by_severity": fields.Raw,
+        "by_kind": fields.Raw,
+        "unavailable": fields.Raw(description="nodes whose alerts could not be read: node_id, name, error"),
+    },
 )
 AckBody = model("AckBody", {"comment": fields.String})
 ConsistencyException = model(

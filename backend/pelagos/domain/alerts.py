@@ -143,6 +143,8 @@ class Alert(Model):
     resolved_at: datetime | None = None
     # Translatable form of `title` (domain.messages).
     title_message: dict[str, Any] | None = None
+    # Nodes whose collector holds this alert, filled by the API's cluster view (empty in the cache).
+    reported_by: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.id:

@@ -54,6 +54,8 @@ CERTS_SELF_SIGNED = "certs.self_signed"
 # Security audit of this node (services.install_service): findings, and a plan for some of them.
 SECURITY_AUDIT = "security.audit"
 SECURITY_PLAN = "security.plan"
+# This node's alerts, for a peer's cluster view (services.alerts_service).
+ALERTS_LIST = "alerts.list"
 CERTS_ACTIONS = frozenset(
     {CERTS_STATUS, CERTS_RUN, CERTS_REQUEST, CERTS_CHECK, CERTS_UPLOAD, CERTS_SELF_SIGNED}
 )
@@ -80,13 +82,14 @@ class PeerActions:
             CERTS_SELF_SIGNED: self.certs_self_signed,
             SECURITY_AUDIT: self.security_audit,
             SECURITY_PLAN: self.security_plan,
+            ALERTS_LIST: self.alerts_list,
         }
 
     def __call__(self, name: str, body: dict[str, Any], caller: str) -> Any:
         handler = self.handlers.get(name)
         if handler is None:
             raise PeerActionError("not_supported", f"this node does not serve action {name}")
-        if name in CERTS_ACTIONS or name in (SECURITY_AUDIT, SECURITY_PLAN):
+        if name in CERTS_ACTIONS or name in (SECURITY_AUDIT, SECURITY_PLAN, ALERTS_LIST):
             # Certificates and the security audit never use the engine connectors: no engine lock,
             # so a long poll never waits on it.
             try:
@@ -111,6 +114,43 @@ class PeerActions:
             raise refusal from None
         finally:
             self.lock.release()
+
+    # Reads ---------------------------------------------------------------------------------
+
+    def alerts_list(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """Alerts this node's collector holds; filters as AlertsService.cluster takes them."""
+        import sqlite3
+
+        from pelagos.collector import series as series_mod
+        from pelagos.services.alerts_service import node_alerts
+
+        def text(name: str) -> str | None:
+            value = body.get(name)
+            return str(value) if value not in (None, "") else None
+
+        path = self.ctx.paths.series_db
+        if not path.exists():
+            return {"node_id": self.ctx.node.id, "alerts": [], "resolved_total": 0}
+        try:
+            conn = series_mod.connect(path, readonly=True)
+        except sqlite3.Error as exc:
+            raise PeerActionError("engine_unavailable", f"alert cache unreadable: {exc}") from None
+        try:
+            rows, resolved_total = node_alerts(
+                conn,
+                include_resolved=bool(body.get("include_resolved")),
+                resolved_limit=int(body.get("resolved_limit") or 0),
+                kind=text("kind"),
+                severity=text("severity"),
+                engine=text("engine"),
+            )
+        finally:
+            conn.close()
+        return {
+            "node_id": self.ctx.node.id,
+            "alerts": [a.to_dict() for a in rows],
+            "resolved_total": resolved_total,
+        }
 
     # Plan builds ----------------------------------------------------------------------------
 

@@ -77,9 +77,19 @@ def create_root(cluster_id: str) -> KeyPair:
             x509.KeyUsage(False, False, False, False, False, True, True, False, False), critical=True
         )
         .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()), critical=False)
         .sign(key, hashes.SHA256())
     )
     return KeyPair(_key_pem(key), cert.public_bytes(serialization.Encoding.PEM))
+
+
+def _authority_key_id(ca_cert: x509.Certificate) -> x509.AuthorityKeyIdentifier:
+    """The issuer's SKI as the leaf's AKI (RFC 5280 4.2.1.1; OpenSSL strict mode requires it)."""
+    try:
+        ski = ca_cert.extensions.get_extension_for_class(x509.SubjectKeyIdentifier).value
+        return x509.AuthorityKeyIdentifier.from_issuer_subject_key_identifier(ski)
+    except x509.ExtensionNotFound:
+        return x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_cert.public_key())  # type: ignore[arg-type]
 
 
 def node_csr(node_id: str, name: str, dns_names: list[str]) -> tuple[bytes, bytes]:
@@ -134,6 +144,11 @@ def sign_node(ca: KeyPair, csr_pem: bytes, days: int = NODE_DAYS) -> bytes:
         .not_valid_after(now + timedelta(days=days))
         .add_extension(san, critical=False)
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(
+            x509.KeyUsage(True, False, False, False, False, False, False, False, False), critical=True
+        )
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(csr.public_key()), critical=False)  # type: ignore[arg-type]
+        .add_extension(_authority_key_id(ca_cert), critical=False)
         .add_extension(
             x509.ExtendedKeyUsage(
                 [x509.oid.ExtendedKeyUsageOID.SERVER_AUTH, x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH]

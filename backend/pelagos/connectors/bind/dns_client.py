@@ -131,7 +131,8 @@ class DnsClient:
             raise ConnectorUnavailable(str(exc)) from exc
         rcode = dns.rcode.to_text(resp.rcode())
         if rcode in ("REFUSED", "NOTAUTH", "BADKEY", "BADSIG"):
-            raise ConnectorDenied(f"UPDATE to {zone} refused: {rcode}")
+            hint = " (does the zone's update-policy grant these types to the key? see the security audit)"
+            raise ConnectorDenied(f"UPDATE to {zone} refused: {rcode}" + (hint if rcode == "REFUSED" else ""))
         return rcode
 
 

@@ -156,6 +156,9 @@ def resolve_changes(
             elif op is ChangeOp.DELETE:
                 if existing is None:
                     raise RRsetError(f"{owner} {rtype} does not exist")
+                if rtype == "NS" and owner == normalize_name(zone):
+                    # named silently ignores deleting the last apex NS (RFC 2136 3.4.2.4).
+                    raise RRsetError(f"{owner} NS: the zone apex keeps its name servers; replace them")
                 after = None
             if claimed is not None and existing is not None and claimed.rdata != existing.rdata:
                 raise RRsetError(f"{owner} {rtype} changed since it was read")
@@ -238,6 +241,14 @@ def _rdataset(rtype: str, ttl: int, rdata: list[str]) -> dns.rdataset.Rdataset:
     return dns.rdataset.from_text_list(dns.rdataclass.IN, dns.rdatatype.from_text(rtype), ttl, rdata)
 
 
+def _gone(rc: RRsetChange) -> list[str]:
+    """Rdata of a REPLACE's former RRset that its new RRset drops."""
+    if rc.before is None or rc.after is None:
+        return []
+    kept = set(rc.after.rdata)
+    return [rd for rd in rc.before.rdata if rd not in kept]
+
+
 def build_update(msg: dns.update.Update, rcs: list[RRsetChange]) -> None:
     """Prerequisites first (nxrrset, or yxrrset with the exact rdata), then the changes, in one message."""
     for rc in rcs:
@@ -248,10 +259,16 @@ def build_update(msg: dns.update.Update, rcs: list[RRsetChange]) -> None:
             # Value-dependent prerequisite: RFC 2136 wants TTL 0 there.
             msg.present(rc.owner, _rdataset(rc.rtype, 0, rc.before.rdata))
     for rc in rcs:
-        if rc.op in (ChangeOp.REPLACE, ChangeOp.DELETE):
+        if rc.op is ChangeOp.DELETE:
             msg.delete(rc.owner, rc.rtype)
-        if rc.after is not None:
-            msg.add(rc.owner, _rdataset(rc.rtype, rc.after.ttl, rc.after.rdata))
+            continue
+        assert rc.after is not None
+        # Add before removing: named ignores deleting the last apex NS, so a REPLACE of the apex NS
+        # set must never empty it on the way. Adding with the new TTL retimes the whole RRset.
+        msg.add(rc.owner, _rdataset(rc.rtype, rc.after.ttl, rc.after.rdata))
+        gone = _gone(rc)
+        if gone:
+            msg.delete(rc.owner, _rdataset(rc.rtype, 0, gone))
 
 
 def update_text(zone: str, rcs: list[RRsetChange]) -> str:
@@ -264,10 +281,12 @@ def update_text(zone: str, rcs: list[RRsetChange]) -> str:
             assert rc.before is not None
             lines.extend(f"prereq yxrrset {rc.owner} IN {rc.rtype} {rd}" for rd in rc.before.rdata)
     for rc in rcs:
-        if rc.op in (ChangeOp.REPLACE, ChangeOp.DELETE):
+        if rc.op is ChangeOp.DELETE:
             lines.append(f"update delete {rc.owner} IN {rc.rtype}")
-        if rc.after is not None:
-            lines.extend(f"update add {rc.owner} {rc.after.ttl} IN {rc.rtype} {rd}" for rd in rc.after.rdata)
+            continue
+        assert rc.after is not None
+        lines.extend(f"update add {rc.owner} {rc.after.ttl} IN {rc.rtype} {rd}" for rd in rc.after.rdata)
+        lines.extend(f"update delete {rc.owner} IN {rc.rtype} {rd}" for rd in _gone(rc))
     lines.append("send")
     return "\n".join(lines)
 

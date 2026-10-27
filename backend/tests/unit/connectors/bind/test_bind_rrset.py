@@ -121,16 +121,16 @@ def test_update_message_and_text() -> None:
     update = sorted(r.to_text() for r in msg.update)
     assert update == [
         "pc1.example.lan. 600 IN A 192.0.2.42",
+        "www.example.lan. 0 NONE A 192.0.2.10",
         "www.example.lan. 300 IN A 192.0.2.11",
-        "www.example.lan. ANY A",
     ]
     assert rr.update_text(ZONE, resolved) == (
         "zone example.lan.\n"
         "prereq nxrrset pc1.example.lan. IN A\n"
         "prereq yxrrset www.example.lan. IN A 192.0.2.10\n"
         "update add pc1.example.lan. 600 IN A 192.0.2.42\n"
-        "update delete www.example.lan. IN A\n"
         "update add www.example.lan. 300 IN A 192.0.2.11\n"
+        "update delete www.example.lan. IN A 192.0.2.10\n"
         "send"
     )
 
@@ -151,3 +151,18 @@ def test_inverse_and_plan_round_trip() -> None:
     assert inv[0].before == resolved[0].after and inv[1].after == resolved[1].before
     assert inv[2].after == resolved[2].before
     assert [rr.inverse(i) for i in inv] == resolved
+
+
+def test_apex_ns_is_replaced_never_emptied() -> None:
+    """named ignores deleting the last apex NS: the new set goes in first, then the old ones leave."""
+    current = [*CURRENT, RRset(name=ZONE, rtype="NS", ttl=3600, rdata=["ns-old.example.lan."])]
+    resolved, errors = rr.resolve_changes(
+        ZONE, [change("replace", "example.lan/@/NS", {"rdata": ["ns1.example.lan."]})], current
+    )
+    assert not errors
+    assert rr.update_text(ZONE, resolved).splitlines()[2:4] == [
+        "update add example.lan. 3600 IN NS ns1.example.lan.",
+        "update delete example.lan. IN NS ns-old.example.lan.",
+    ]
+    _, errors = rr.resolve_changes(ZONE, [change("delete", "example.lan/@/NS")], current)
+    assert errors and "apex" in errors[0]

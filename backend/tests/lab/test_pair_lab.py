@@ -177,6 +177,10 @@ class TestReferencePair:
     def test_01_pair_works_without_pelagos(self):
         assert ssh(A1, "/usr/sbin/kea-dhcp4 -v")[1].startswith("2.6")
         wait_for("lab-client lease", client_address, timeout=60)
+        # The first lease may predate D2 or the HA sync of provisioning (no update sent): ask again
+        # once the pair serves, so an update with the md5 key is certain to happen.
+        renew_client()
+        wait_for("lab-client lease again", client_address, timeout=90)
         addr = client_address()
         for host in (A1, A2):
             wait_for(f"DDNS record on {host}", lambda h=host: dig(h, "lab-client.example.lan") == addr)

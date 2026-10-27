@@ -42,6 +42,11 @@
       "default": false
     },
     {
+      "key": "auth.api_docs_public_enabled",
+      "type": "boolean",
+      "default": false
+    },
+    {
       "key": "plans.ttl_seconds",
       "type": "integer",
       "default": 600,

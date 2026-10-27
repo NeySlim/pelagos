@@ -243,7 +243,8 @@
         "session_ttl_seconds": "Session lifetime",
         "session_idle_seconds": "Idle session timeout",
         "login_rate_limit_per_minute": "Sign-in attempts per minute",
-        "require_totp": "Require two-factor for every user"
+        "require_totp": "Require two-factor for every user",
+        "api_docs_public_enabled": "Public API description"
       },
       "plans": {
         "ttl_seconds": "Plan lifetime"
@@ -359,7 +360,8 @@
         "session_ttl_seconds": "A session ends this long after sign-in, active or not.",
         "session_idle_seconds": "At most the session lifetime.",
         "login_rate_limit_per_minute": "Per client address; more get 429 until the minute ends.",
-        "require_totp": "Users without TOTP may only enrol until they do."
+        "require_totp": "Users without TOTP may only enrol until they do.",
+        "api_docs_public_enabled": "Serve /api/v1/docs and /api/v1/swagger.json without a session."
       },
       "plans": {
         "ttl_seconds": "A plan not applied within this delay expires."

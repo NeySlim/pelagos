@@ -18,13 +18,14 @@ from pelagos.domain import Alert, AlertKind, Severity
 pytestmark = pytest.mark.unit
 
 
-def test_csp_limits_connections_to_the_origin(client):
-    csp = client.get("/api/v1/swagger.json").headers["Content-Security-Policy"]
+def test_csp_limits_connections_to_the_origin(admin_client):
+    csp = admin_client.get("/api/v1/swagger.json").headers["Content-Security-Policy"]
     connect = next(d for d in csp.split(";") if d.strip().startswith("connect-src"))
     assert connect.split() == ["connect-src", "'self'"]
 
 
-def test_swagger_document(client):
+def test_swagger_document(admin_client):
+    client = admin_client
     r = client.get("/api/v1/swagger.json")
     assert r.status_code == 200
     doc = r.get_json()
@@ -256,3 +257,15 @@ def test_session_peek_leaves_idle_timer_alone(node_ctx):
     assert store.peek(session.id) is session and session.last_seen == before
     session.last_seen = before - store.idle
     assert store.peek(session.id) is None and store.get(session.id) is None
+
+
+def test_api_description_needs_a_session_unless_exposed(client, admin_client, node_ctx):
+    anon = client.application.test_client()
+    for path in ("/api/v1/docs", "/api/v1/swagger.json"):
+        r = anon.get(path)
+        assert r.status_code == 401 and r.get_json()["code"] == "unauthenticated", path
+        assert admin_client.get(path).status_code == 200, path
+    r = admin_client.put("/api/v1/admin/settings", json={"auth": {"api_docs_public_enabled": True}})
+    assert r.status_code == 200, r.get_json()
+    for path in ("/api/v1/docs", "/api/v1/swagger.json"):
+        assert anon.get(path).status_code == 200, path

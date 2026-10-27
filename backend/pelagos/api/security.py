@@ -14,6 +14,7 @@ from pelagos.api.errors import ApiError
 from pelagos.auth import csrf as csrf_mod
 from pelagos.auth.rbac import has_permission
 from pelagos.auth.sessions import COOKIE_NAME, CSRF_HEADER, Session
+from pelagos.core import settings_registry as reg
 from pelagos.core.context import NodeContext
 
 PREFIX = f"/api/{API_VERSION}"
@@ -34,10 +35,20 @@ def services():
     return Services.of(ctx())
 
 
+# The API description lists every route: it needs a session unless auth.api_docs_public_enabled.
+DOC_PATHS = (f"{PREFIX}/docs", f"{PREFIX}/swagger.json")
+
+
 def load_session() -> None:
     """before_request: attach the live session (or None), enforce CSRF and the syncing write ban."""
     session = ctx().sessions.get(request.cookies.get(COOKIE_NAME))
     g.session = session
+    if (
+        session is None
+        and request.path in DOC_PATHS
+        and not reg.get(ctx().settings(), "auth.api_docs_public_enabled")
+    ):
+        raise ApiError("unauthenticated")
     if session is not None and not csrf_mod.check(
         session, request.method, request.path, request.headers.get(CSRF_HEADER)
     ):

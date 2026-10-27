@@ -149,7 +149,7 @@ def test_spa_deep_links_and_api_404(node_paths, node_ctx, services, tmp_path):
     assert r.status_code == 404 and r.mimetype == "application/problem+json"
     assert r.get_json()["code"] == "not_found"
     assert c.get("/api/v1/health").get_json()["status"] == "ok"
-    assert c.get("/api/v1/docs").status_code == 200
+    assert c.get("/api/v1/docs").status_code == 401
 
 
 def test_spa_without_frontend_build(client):

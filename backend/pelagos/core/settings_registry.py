@@ -75,6 +75,7 @@ REGISTRY: tuple[Setting, ...] = (
     S("auth.session_idle_seconds", "integer", 1800, 60, 7 * DAY, "seconds"),
     S("auth.login_rate_limit_per_minute", "integer", 10, 1, 1000, "per_minute"),
     S("auth.require_totp", "boolean", False),
+    S("auth.api_docs_public_enabled", "boolean", False),
     # Plans and peers
     S("plans.ttl_seconds", "integer", 600, 60, DAY, "seconds"),
     S("peers.plan_timeout_seconds", "integer", 300, 10, DAY, "seconds"),

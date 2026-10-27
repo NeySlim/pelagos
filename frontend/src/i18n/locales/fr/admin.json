@@ -243,7 +243,8 @@
         "session_ttl_seconds": "Durée de session",
         "session_idle_seconds": "Expiration d'inactivité",
         "login_rate_limit_per_minute": "Tentatives de connexion par minute",
-        "require_totp": "Exiger le second facteur pour tous"
+        "require_totp": "Exiger le second facteur pour tous",
+        "api_docs_public_enabled": "Description de l'API publique"
       },
       "plans": {
         "ttl_seconds": "Durée de vie d'un plan"
@@ -359,7 +360,8 @@
         "session_ttl_seconds": "Une session prend fin ce délai après la connexion, active ou non.",
         "session_idle_seconds": "Au plus la durée de session.",
         "login_rate_limit_per_minute": "Par adresse cliente ; au-delà, réponse 429 jusqu'à la fin de la minute.",
-        "require_totp": "Sans TOTP, un utilisateur ne peut que l'enrôler."
+        "require_totp": "Sans TOTP, un utilisateur ne peut que l'enrôler.",
+        "api_docs_public_enabled": "Sert /api/v1/docs et /api/v1/swagger.json sans session."
       },
       "plans": {
         "ttl_seconds": "Un plan non appliqué dans ce délai expire."

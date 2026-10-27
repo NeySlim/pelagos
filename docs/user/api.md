@@ -3,7 +3,8 @@
 The UI uses the same REST API as your scripts. Base URL:
 `https://<node>:8443/api/v1`. Every node serves the whole cluster. The
 interactive OpenAPI documentation is at `https://<node>:8443/api/v1/docs`
-(Swagger UI) and its document at `/api/v1/swagger.json`. The detailed
+(Swagger UI) and its document at `/api/v1/swagger.json`. Both need a session
+unless `auth.api_docs_public_enabled` is on. The detailed
 contract of every endpoint is in [architecture.md, section 17](../architecture.md#17-rest-api).
 
 - [Authentication](#authentication)

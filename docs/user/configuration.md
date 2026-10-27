@@ -223,6 +223,7 @@ section 10, "Settings naming".
 | `session_idle_seconds` | `1800` | 60 to 604800 s | idle timeout of a session; at most the lifetime |
 | `login_rate_limit_per_minute` | `10` | 1 to 1000 per minute | sign-in attempts per minute, per client address and per username |
 | `require_totp` | `off` |  | every user must enroll an authenticator; until then a sign-in only allows the enrollment |
+| `api_docs_public_enabled` | `off` |  | serve `/api/v1/docs` and `/api/v1/swagger.json` without a session; by default they need one |
 
 ### Plans (`[settings.plans]`)
 

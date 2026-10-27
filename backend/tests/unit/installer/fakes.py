@@ -277,6 +277,7 @@ def debian_tree(tmp: Path, name: str = "debian") -> InstallerEnv:
         'zone "." {\n\ttype hint;\n\tfile "/usr/share/dns/root.hints";\n};\n'
     )
     (etc / "rndc.key").write_text('key "rndc-key" {\n\talgorithm hmac-sha256;\n\tsecret "c2VjcmV0";\n};\n')
+    _package_modes(tmp)
     return env
 
 
@@ -288,7 +289,18 @@ def legacy_tree(tmp: Path) -> InstallerEnv:
     for f in (DATA / "bind" / "legacy").iterdir():
         if f.is_file():
             (etc / f.name).write_text(_in_tree(f.read_text(), tmp))
+    _package_modes(tmp)
     return env
+
+
+def _package_modes(tmp: Path) -> None:
+    """Modes a package install leaves whatever the umask: files with secrets 0640, nothing else
+    writable by group or others (the security audit checks them)."""
+    for p in [tmp / "etc", *(tmp / "etc").rglob("*"), *(tmp / "var").rglob("*")]:
+        if p.is_dir():
+            p.chmod(0o755)
+        elif p.is_file():
+            p.chmod(0o640 if "secret" in p.read_text(errors="replace") else 0o644)
 
 
 def copy_kea(tmp: Path, mapping: dict[str, str]) -> None:

@@ -95,7 +95,7 @@ def test_install_service_delegates_when_unprivileged(served, node_ctx, tmp_path)
     plan = svc.plan_import({"engines": ["bind"]}, "alice")
     assert node_ctx.plan_store.get(plan.id) is not None
     findings = svc.security()
-    assert findings == []
+    assert [f["kind"] for f in findings] == ["version_disclosed"]
     from pelagos.domain import Job
 
     job = Job(plan_id=plan.id)

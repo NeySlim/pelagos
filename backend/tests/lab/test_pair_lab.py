@@ -24,11 +24,14 @@ import pytest
 from pelagos.installer import keaconf
 from tests.lab.labkit import (
     CLIENT,
+    MANUAL_KINDS,
     NS1,
     NS2,
     Api,
     ApiError,
     deb_package,
+    fixable,
+    left,
     rollback,
     run_script,
     scp,
@@ -270,19 +273,19 @@ class TestReferencePair:
         findings = api(A1).get("/install/security")["findings"]
         kinds = {f["kind"] for f in findings}
         assert {"weak_shared_kea_key", "update_without_admin_key", "transfer_without_read_key"} <= kinds
-        plan = api(A1).post("/install/security/plan", {"finding_ids": [f["id"] for f in findings]})
+        plan = api(A1).post("/install/security/plan", {"finding_ids": fixable(findings)})
         switch = next(c for c in plan["changes"] if c["target"].endswith("/2-d2-switch"))
         assert sorted(switch["node_ids"]) == sorted([ids1, ids2])
         since = int(time.time())
         job = api(A1).apply(plan, timeout=900)
         names = [s["name"] for s in job["steps"]]
         assert "2-d2-switch/ns2" in names and names[-1].endswith("3-bind-remove")
-        assert api(A1).get("/install/security")["findings"] == []
+        assert left(api(A1).get("/install/security")["findings"]) == []
         # ns2 holds secondary copies only: its finding opens transfers to ddi-read.
         rest = api(A2).get("/install/security")["findings"]
-        assert [f["kind"] for f in rest] == ["transfer_without_read_key"]
-        api(A2).apply(api(A2).post("/install/security/plan", {"finding_ids": [f["id"] for f in rest]}))
-        assert api(A2).get("/install/security")["findings"] == []
+        assert {f["kind"] for f in rest} - MANUAL_KINDS == {"transfer_without_read_key", "version_disclosed"}
+        api(A2).apply(api(A2).post("/install/security/plan", {"finding_ids": fixable(rest)}))
+        assert left(api(A2).get("/install/security")["findings"]) == []
         # md5 is gone everywhere; both D2 sign with the sha256 key BIND accepts.
         for host in (A1, A2):
             d2 = json.loads(sudo_cat(host, "/etc/kea/kea-dhcp-ddns.conf"))["DhcpDdns"]
@@ -439,7 +442,7 @@ class TestReferencePair:
         assert [f["subject"] for f in static] == [f"_default/{STATIC_ZONE}."], findings
         plan = api(A1).post("/install/security/plan", {"finding_ids": [static[0]["id"]]})
         api(A1).apply(plan)
-        assert api(A1).get("/install/security")["findings"] == []
+        assert left(api(A1).get("/install/security")["findings"]) == []
         assert api(A1).get(f"/dns/zones/{STATIC_ZONE}")["mode"] == "dynamic"
         change = {"op": "add", "target": "dyn/A", "after": {"ttl": 300, "rdata": ["10.99.0.83"]}}
         plan = api(A1).post(f"/dns/zones/{STATIC_ZONE}/records/plan", {"changes": [change]})

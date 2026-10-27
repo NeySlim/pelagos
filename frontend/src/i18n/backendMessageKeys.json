@@ -385,6 +385,32 @@
   "finding.allow_update_by_address.risk": [],
   "finding.allowed.all": [],
   "finding.allowed.nothing": [],
+  "finding.bind_file_mode.category.config_dir": [],
+  "finding.bind_file_mode.category.config_file": [],
+  "finding.bind_file_mode.category.key_file": [],
+  "finding.bind_file_mode.category.log_file": [],
+  "finding.bind_file_mode.category.zone_dir": [],
+  "finding.bind_file_mode.category.zone_file": [],
+  "finding.bind_file_mode.description": [
+    "items",
+    "what"
+  ],
+  "finding.bind_file_mode.item": [
+    "group",
+    "mode",
+    "owner",
+    "path",
+    "reasons"
+  ],
+  "finding.bind_file_mode.proposal": [
+    "commands"
+  ],
+  "finding.bind_file_mode.reason.group": [],
+  "finding.bind_file_mode.reason.group_writable": [],
+  "finding.bind_file_mode.reason.owner": [],
+  "finding.bind_file_mode.reason.readable_by_everyone": [],
+  "finding.bind_file_mode.reason.world_writable": [],
+  "finding.bind_file_mode.risk": [],
   "finding.dnssec_validation_off.description": [],
   "finding.dnssec_validation_off.risk": [],
   "finding.kea_ctrl_agent_http.description": [
@@ -532,6 +558,10 @@
     "location"
   ],
   "finding.update_without_admin_key.where_policy": [],
+  "finding.version_disclosed.description": [
+    "version"
+  ],
+  "finding.version_disclosed.risk": [],
   "finding.view_key.description": [
     "admin_key",
     "clients",

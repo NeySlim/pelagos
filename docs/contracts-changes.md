@@ -1529,3 +1529,9 @@ WP-CORE/WP-COLLECTOR: new alert kind `config_syntax_warning` (domain/alerts.py, 
 `KeaDocument.syntax_warnings()`; `syntax_warnings` in the items of `GET /dhcp/{family}/config/file`.
 WP-FRONTEND: notice on the file status banner, `en` and `fr`. Also `SuccessExitStatus=75 TERM` in
 the two service units and the web worker `pelagos.web_worker.QuietWebSocketWorker`.
+
+## 2026-10-27, BIND file modes and version.bind in the security audit
+Additive. WP-INSTALLER: findings `bind_file_mode` (module `installer/bind_files.py`, remediation
+`file_modes`) and `version_disclosed` (remediation `version_hide`). Contract
+(`domain/messages.py`): the `finding.bind_file_mode.*` and `finding.version_disclosed.*` keys.
+WP-FRONTEND: kind labels and catalog entries, `en` and `fr`.

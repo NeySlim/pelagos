@@ -121,6 +121,8 @@
       "update_types_narrow": "Record types not granted",
       "transfer_without_read_key": "No read key",
       "open_allow_transfer": "Open transfer",
+      "bind_file_mode": "File modes",
+      "version_disclosed": "Version disclosed",
       "kea_ctrl_agent_http": "Kea control agent",
       "kea_http_socket_plain": "Clear HTTP socket",
       "kea_ha_listener_open": "Open HA listener",

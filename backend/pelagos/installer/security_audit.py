@@ -32,7 +32,16 @@ from pelagos.domain import (
     zone_updates,
 )
 from pelagos.domain.messages import Message, join, msg
-from pelagos.installer import bindconf, bindsetup, ha_listener, keaconf, keasetup, managed, zone_audit
+from pelagos.installer import (
+    bind_files,
+    bindconf,
+    bindsetup,
+    ha_listener,
+    keaconf,
+    keasetup,
+    managed,
+    zone_audit,
+)
 from pelagos.installer.bindconf import ConfigFiles, Statement
 from pelagos.installer.jobs import Step
 
@@ -170,6 +179,69 @@ class BindAuditInput:
     rndc_key_statements: list[bindconf.KeyDef] = field(
         default_factory=list
     )  # from rndc.key when not included
+    file_issues: list[bind_files.FileIssue] = field(default_factory=list)
+    named_version: str | None = None
+
+
+def _file_findings(issues: list[bind_files.FileIssue]) -> list[Finding]:
+    """One finding per category of BIND files whose mode or owner is wrong."""
+    findings: list[Finding] = []
+    for category in bind_files.CATEGORIES:
+        mine = [i for i in issues if i.category == category]
+        if not mine:
+            continue
+        items = [
+            msg(
+                "finding.bind_file_mode.item",
+                path=i.path,
+                mode=f"{i.mode:04o}",
+                owner=bind_files._user(i.uid),
+                group=bind_files._group(i.gid),
+                reasons=join(
+                    [msg(f"finding.bind_file_mode.reason.{r}") for r in i.reasons],
+                    ", ",
+                ),
+            )
+            for i in mine
+        ]
+        findings.append(
+            Finding.of(
+                finding_id("bind", "bind_file_mode", category),
+                "bind_file_mode",
+                Severity.CRITICAL if any(i.critical for i in mine) else Severity.WARNING,
+                "bind",
+                category,
+                msg(
+                    "finding.bind_file_mode.description",
+                    what=msg(f"finding.bind_file_mode.category.{category}"),
+                    items=join(items, "; "),
+                ),
+                msg("finding.bind_file_mode.proposal", commands=join([i.command() for i in mine], "; ")),
+                msg("finding.bind_file_mode.risk"),
+                {"category": category, "files": [i.to_dict() for i in mine], "remediation": "file_modes"},
+            )
+        )
+    return findings
+
+
+def _version_finding(options: Statement | None, named_version: str | None) -> Finding | None:
+    """version.bind (CHAOS TXT) answers the exact version unless the options set another string."""
+    value = bindconf.option_value(options, "version") if options is not None else None
+    if value:
+        shown = value[0].strip('"')
+        if not named_version or named_version.split("-")[0] not in shown:
+            return None
+    return Finding.of(
+        finding_id("bind", "version_disclosed", "options"),
+        "version_disclosed",
+        Severity.WARNING,
+        "bind",
+        "options",
+        msg("finding.version_disclosed.description", version=named_version or "?"),
+        'version "none";',
+        msg("finding.version_disclosed.risk"),
+        {**(_locator(options) if options is not None else {}), "remediation": "version_hide"},
+    )
 
 
 def _locator(stmt: Statement) -> dict[str, Any]:
@@ -326,6 +398,9 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
 
     findings += _pelagos_access(files, top, {k.name for k in key_defs})
     findings += zone_audit.findings(files, top, {k.name for k in key_defs})
+    findings += _file_findings(inp.file_issues)
+    if options is not None and (version := _version_finding(options, inp.named_version)):
+        findings.append(version)
     if inp.query_refused:
         zones = sorted(inp.query_refused)
         findings.append(
@@ -863,6 +938,7 @@ def collect_bind(env: Any) -> BindAuditInput | None:
         except (OSError, bindconf.ParseError):
             rndc_stmts = []
     address, refused = _probe_query_access(env, files)
+    extra_keys = [p for p in (kf, str(env.paths.rndc_conf_pelagos), str(env.paths.keys_conf)) if p]
     return BindAuditInput(
         files=files,
         rndc_key=controls.get("key"),
@@ -870,6 +946,8 @@ def collect_bind(env: Any) -> BindAuditInput | None:
         rndc_key_statements=rndc_stmts,
         query_address=address,
         query_refused=refused,
+        file_issues=bind_files.issues(env, bind_files.paths_by_category(env, files, extra_keys)),
+        named_version=env.t.named_version(),
     )
 
 
@@ -1474,6 +1552,29 @@ def remediate_recursion(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str
     )
 
 
+def remediate_file_modes(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
+    return bind_files.apply(env, d.get("files") or [])
+
+
+def remediate_version_hide(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
+    """`version "none";` in the options: version.bind answers "none" instead of the release."""
+    files = _reload_files(env)
+    options = bindsetup.find_options(files)
+    if options is None or options.block is None:
+        raise RuntimeError("no options block found any more")
+    current = options.sub("version")
+    text = _file_text(files, str(options.path))
+    if current is not None:
+        text = bindconf.replace_span(text, current.start, current.end, 'version "none";')
+    else:
+        end = options.block.end
+        line = '\tversion "none";\n'
+        if not text[:end].endswith("\n"):
+            line = "\n" + line
+        text = text[:end] + line + text[end:]
+    return _run_bind(env, {str(options.path): text}, "security-version")
+
+
 def remediate_dnssec(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
     return _replace_stmt(
         env,
@@ -1648,6 +1749,8 @@ REMEDIATIONS = {
     "socket_dir": remediate_socket_dir,
     "secret_file": remediate_secret_file,
     "ha_listener": remediate_ha_listener,
+    "file_modes": remediate_file_modes,
+    "version_hide": remediate_version_hide,
     "convert_dynamic": zone_audit.remediate_convert_dynamic,
     "update_key_add": remediate_update_key_add,
     "view_key": zone_audit.remediate_view_key,

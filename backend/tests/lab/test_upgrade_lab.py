@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.lab.labkit import REPO, SCRIPTS, Api, scp, ssh, sudo_cat, wait_for
+from tests.lab.labkit import REPO, SCRIPTS, Api, fixable, left, scp, ssh, sudo_cat, wait_for
 
 A1, A2 = "10.99.0.24", "10.99.0.26"  # lab-up1 (amd64), lab-up3 (arm64)
 ARCH = {A1: "amd64", A2: "arm64"}
@@ -224,13 +224,13 @@ class TestUpgrade:
         client = api(A1)
         findings = client.get("/install/security")["findings"]
         assert {f["kind"] for f in findings} >= {"weak_shared_kea_key", "update_without_admin_key"}
-        plan = client.post("/install/security/plan", {"finding_ids": [f["id"] for f in findings]})
+        plan = client.post("/install/security/plan", {"finding_ids": fixable(findings)})
         client.apply(plan, timeout=900)
-        rest = api(A2).get("/install/security")["findings"]
+        rest = fixable(api(A2).get("/install/security")["findings"])
         if rest:
-            api(A2).apply(api(A2).post("/install/security/plan", {"finding_ids": [f["id"] for f in rest]}))
+            api(A2).apply(api(A2).post("/install/security/plan", {"finding_ids": rest}))
         for address in (A1, A2):
-            assert api(address).get("/install/security")["findings"] == []
+            assert left(api(address).get("/install/security")["findings"]) == []
         policy = ssh(A1, "sudo grep -rh update-policy /etc/bind /var/lib/bind 2>/dev/null | head -3")[1]
         assert "update-policy" in policy or "ddi-admin" in ssh(A1, "sudo named-checkconf -p")[1]
 

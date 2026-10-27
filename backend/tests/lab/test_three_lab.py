@@ -26,6 +26,8 @@ from tests.lab.labkit import (
     Api,
     ApiError,
     deb_package,
+    fixable,
+    left,
     rollback,
     rpm_package,
     run_script,
@@ -204,15 +206,13 @@ class TestThreeNodes:
     def test_05_security_plans(self):
         """The pair's md5 key and transfers, as on the reference pair; ns3 reads its copies with ddi-read."""
         findings = api(A1).get("/install/security")["findings"]
-        plan = api(A1).post("/install/security/plan", {"finding_ids": [f["id"] for f in findings]})
+        plan = api(A1).post("/install/security/plan", {"finding_ids": fixable(findings)})
         api(A1).apply(plan, timeout=900)
         for address in (A2, A3):
-            rest = api(address).get("/install/security")["findings"]
+            rest = fixable(api(address).get("/install/security")["findings"])
             if rest:
-                api(address).apply(
-                    api(address).post("/install/security/plan", {"finding_ids": [f["id"] for f in rest]})
-                )
-            assert api(address).get("/install/security")["findings"] == [], address
+                api(address).apply(api(address).post("/install/security/plan", {"finding_ids": rest}))
+            assert left(api(address).get("/install/security")["findings"]) == [], address
 
     def test_06_replication_across_three(self):
         api(A3).call("PUT", "/admin/settings", {"alerts_pool_warning_percent": 79})

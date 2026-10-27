@@ -380,7 +380,8 @@ class TestRocky:
         # Install, import and audit endpoints run as root through the helper, SELinux enforcing.
         detect = client.get("/install/detect")
         assert detect["distro"]["id"] == "rocky" and detect["pelagos"]["include_present"]
-        assert client.get("/install/security")["findings"] == []
+        # A stock named.conf answers version.bind: the only finding left after the import.
+        assert [f["kind"] for f in client.get("/install/security")["findings"]] == ["version_disclosed"]
         mods = client.get("/nodes/self")["peer"]["modules"]
         assert mods == {"bind": True, "kea4": True, "kea6": False, "d2": True}
         zones = client.get("/dns/zones")["items"]

@@ -35,7 +35,13 @@ LEGACY_IDS = {
     "bind:dnssec_validation_off:options",
     "bind:rndc_nonlocal:*",
     "bind:stats_nonlocal:0.0.0.0",
+    "bind:version_disclosed:options",
 }
+
+
+def _others(findings: list) -> list:
+    """Findings other than version_disclosed, which every stock options block gets."""
+    return [f for f in findings if f.kind != "version_disclosed"]
 
 
 def _d2_with_md5(tmp: Path, version_key: str = "secret") -> Path:
@@ -129,10 +135,10 @@ def test_stats_channel_on_loopback_is_not_a_finding():
 
 def test_clean_default_has_no_finding(tmp_path):
     env = debian_tree(tmp_path)
-    assert run_audit(env) == []
+    assert _others(run_audit(env)) == []
     rocky = bindconf.parse((DATA / "bind" / "rocky-default-p.conf").read_text())
     files = bindconf.ConfigFiles(root=Path("r"), order=["r"], statements={"r": rocky}, texts={"r": ""})
-    assert audit_bind(BindAuditInput(files=files)) == []
+    assert _others(audit_bind(BindAuditInput(files=files))) == []
 
 
 def test_kea_findings():
@@ -267,7 +273,7 @@ def test_secondary_without_transfer_rules_gets_one_in_options(tmp_path):
     top = bindconf.load_files(tmp_path / "etc/bind/named.conf").top_level()
     opts = next(s for s in top if s.name == "options")
     assert bindconf.option_value(opts, "allow-transfer") == ["key ddi-read"]
-    assert run_audit(env) == []
+    assert _others(run_audit(env)) == []
 
 
 def test_remediation_needs_import_keys(tmp_path):
@@ -449,9 +455,9 @@ def test_static_zone_conversion_to_dynamic(tmp_path):
         "\tallow-update { none; };\n};\n"
         'zone "static.example.lan" {\n\ttype primary;\n\tfile "db.static";\n\tallow-update { none; };\n};\n'
     )
-    assert run_audit(env) == []  # before the import: no Pelagos key, nothing to propose
+    assert _others(run_audit(env)) == []  # before the import: no Pelagos key to propose
     assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
-    found = {f.kind: f for f in run_audit(env)}
+    found = {f.kind: f for f in _others(run_audit(env))}
     # The distribution's localhost zone is left alone; the static zone is read and may be converted.
     assert set(found) == {"static_zone", "transfer_without_read_key"}
     static = found["static_zone"]
@@ -466,7 +472,7 @@ def test_static_zone_conversion_to_dynamic(tmp_path):
         "grant ddi-admin zonesub A AAAA PTR CNAME TXT SRV MX NS CAA DHCID"
     ]
     assert zone.elements("allow-update") == []
-    assert run_audit(env) == []
+    assert _others(run_audit(env)) == []
 
 
 def test_conversion_refuses_a_directory_named_cannot_write(tmp_path):
@@ -544,7 +550,7 @@ def test_views_get_one_key_each(tmp_path):
         .startswith("grant ddi-inside zonesub")
     )
     assert {k.name for k in bindconf.keys(top)} >= {"ddi-inside", "ddi-outside"}
-    assert run_audit(env) == []
+    assert _others(run_audit(env)) == []
 
 
 def _views_env(tmp_path, options_extra: str = ""):
@@ -572,7 +578,7 @@ def test_view_key_keeps_the_transfer_clients_of_the_options(tmp_path):
         "192.0.2.12",
         "key ddi-read",
     ]
-    assert run_audit(env) == []
+    assert _others(run_audit(env)) == []
 
 
 def test_zone_added_to_a_keyed_view_gets_the_view_key(tmp_path):
@@ -597,7 +603,7 @@ def test_zone_added_to_a_keyed_view_gets_the_view_key(tmp_path):
     new = zones[("inside", "new.example.lan.")]
     assert new.elements("update-policy")[-1].startswith("grant ddi-inside zonesub")
     assert new.elements("allow-transfer") == ["key ddi-inside", "key partner"]
-    assert run_audit(env) == []
+    assert _others(run_audit(env)) == []
 
 
 def test_inherited_allow_update_makes_a_zone_dynamic(tmp_path):

@@ -278,3 +278,18 @@ class Api:
             out = wait_for(f"job {job_id}", done, timeout=timeout, interval=2)
             assert out["state"] == "done", json.dumps(out, indent=2)
         return out
+
+
+# Security findings no plan closes on the lab VMs: the Kea HA listener needs TLS by hand (and nft for
+# its guard, which the cloud image lacks).
+MANUAL_KINDS = frozenset({"kea_ha_listener_open"})
+
+
+def fixable(findings: list[dict[str, Any]]) -> list[str]:
+    """Ids of the findings a security plan can fix."""
+    return [f["id"] for f in findings if f.get("remediable", True)]
+
+
+def left(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Findings still open after a plan, the manual ones aside."""
+    return [f for f in findings if f.get("remediable", True) or f["kind"] not in MANUAL_KINDS]

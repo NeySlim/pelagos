@@ -60,7 +60,7 @@ def test_apply_needs_confirmation_without_tty(monkeypatch, tmp_path, capsys):
 def test_apply_needs_root(monkeypatch, tmp_path, capsys):
     _patch_env(monkeypatch, debian_tree(tmp_path))
     monkeypatch.setattr(icli.os, "geteuid", lambda: 1000)
-    assert cli.main(["audit", "--fix-all", "--yes"]) == icli.EXIT_OK  # nothing to fix on the default config
+    assert cli.main(["audit", "--fix-all", "--yes"]) == icli.EXIT_USAGE  # version.bind, as root only
     assert cli.main(["import", "--engines", "bind", "--yes"]) == icli.EXIT_USAGE
     assert "needs root" in capsys.readouterr().err
 

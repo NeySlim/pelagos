@@ -27,6 +27,8 @@ from tests.lab.labkit import (
     Api,
     ApiError,
     deb_package,
+    fixable,
+    left,
     rollback,
     run_script,
     scp,
@@ -264,14 +266,12 @@ class TestKea26DebianPair:
         findings = api(A1).get("/install/security")["findings"]
         kinds = {f["kind"] for f in findings}
         assert {"weak_shared_kea_key", "update_without_admin_key"} <= kinds, kinds
-        api(A1).apply(
-            api(A1).post("/install/security/plan", {"finding_ids": [f["id"] for f in findings]}), 900
-        )
-        assert api(A1).get("/install/security")["findings"] == []
-        rest = api(A2).get("/install/security")["findings"]
+        api(A1).apply(api(A1).post("/install/security/plan", {"finding_ids": fixable(findings)}), 900)
+        assert left(api(A1).get("/install/security")["findings"]) == []
+        rest = fixable(api(A2).get("/install/security")["findings"])
         if rest:
-            api(A2).apply(api(A2).post("/install/security/plan", {"finding_ids": [f["id"] for f in rest]}))
-        assert api(A2).get("/install/security")["findings"] == []
+            api(A2).apply(api(A2).post("/install/security/plan", {"finding_ids": rest}))
+        assert left(api(A2).get("/install/security")["findings"]) == []
         wait_for("HA back in hot-standby", both_hot_standby, timeout=180, interval=5)
 
     def test_05_reordered_reservations_raise_nothing(self):

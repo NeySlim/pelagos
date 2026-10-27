@@ -2495,6 +2495,22 @@ guard's counters for up to 2.5 heartbeats and removes it again when only drops
 grow. TLS (a certificate per peer from the cluster CA, `require-client-certs`)
 stays a manual action: it must switch on both peers together, standby first.
 
+The audit also checks the modes and owners of the BIND files
+(`installer/bind_files.py`, finding `bind_file_mode`, one per category:
+`config_dir`, `config_file`, `key_file` for files that define a key with its
+secret, rndc.key and keys.conf included, `zone_dir`, `zone_file`, `log_file` for
+the files of `logging` channels). Nothing may be writable by everyone, a key file
+readable by everyone or by a group other than root or BIND's is critical,
+configuration and keys writable by a group other than root's is a warning, and
+an owner other than root or BIND is reported. The remediation `file_modes` sets
+the package default of the category (Debian: `/etc/bind` 2755, `named.conf*`
+0644, keys 0640; RPM: `/etc/named` 0750, `named.conf` and keys 0640, chown
+root and chgrp to BIND's group where needed) or only removes the wrong bits
+(zones, logs), checks each path with `runuser -u <bind user> -- test`, and
+restores every mode and owner of the step when a check fails. `version_disclosed`
+(warning) reports options without a `version` string other than the release:
+the remediation `version_hide` writes `version "none";` in the options block.
+
 Records of a zone that this node holds as a secondary (or mirror) are planned
 here and applied on the peer that holds it as primary (`target_node_ids`), so
 the UPDATE reaches the primary's named; host plans do the same for their DNS

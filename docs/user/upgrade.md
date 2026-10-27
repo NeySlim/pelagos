@@ -7,6 +7,7 @@ one arm64 node) with Kea 2.6 from Debian in HA, dynamic zones, the security
 plan applied, ports 9443/9444 and `query_address` set, upgraded from an older
 commit and brought back.
 
+- [What was verified](#what-was-verified)
 - [Before you start](#before-you-start)
 - [Upgrade one node](#upgrade-one-node)
 - [Order and pace](#order-and-pace)
@@ -14,6 +15,17 @@ commit and brought back.
 - [While two versions run](#while-two-versions-run)
 - [Rollback](#rollback)
 - [Check list](#check-list)
+
+## What was verified
+
+The lab test upgrades a two-node cluster from the commit 2b86817 to the
+current release and back, on Debian 13 with BIND 9.20 and Kea 2.6.3 from
+Debian in hot-standby HA, on one amd64 node and one arm64 node (emulated).
+At every step it checks that no audit entry is lost (each line hashed before
+and after), that `node.toml` keeps its ports and `query_address`, that the
+settings are migrated, that records written through the old node reach the
+new one and the other way round, that the engines and the Kea reservation are
+untouched, and that no error is logged by the collector after a rollback.
 
 ## Before you start
 

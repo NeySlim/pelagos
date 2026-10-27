@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import re
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -26,6 +27,15 @@ KEY_TYPES = ("ec-p256", "rsa-3072")
 DEFAULT_KEY_TYPE = "ec-p256"
 MAX_CHAIN = 10
 MAX_INPUT = 256 * 1024
+
+def quietly(loader, data):
+    """Run a cryptography certificate loader (or serial_number read) and drop its warning about a non-positive serial number
+    (RFC 5280 forbids it, some roots still carry it). cryptography has announced it will reject such
+    certificates (changelog 36.0.0, 43.0.0): the loader's ValueError then reaches the caller."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=".*serial number.*", category=Warning)
+        return loader(data)
+
 
 PrivateKey = Any  # cryptography private key types
 _PEM_BLOCK = re.compile(r"-----BEGIN ([A-Z0-9 ]+)-----\s.*?-----END \1-----", re.S)
@@ -92,7 +102,7 @@ def _parse_pem(raw: bytes, password: str | None, out: Material) -> None:
         found = True
         if kind in ("CERTIFICATE", "TRUSTED CERTIFICATE"):
             try:
-                out.certs.append(x509.load_pem_x509_certificate(block.replace(b"TRUSTED ", b"")))
+                out.certs.append(quietly(x509.load_pem_x509_certificate, block.replace(b"TRUSTED ", b"")))
             except ValueError as exc:
                 raise CertError(f"unreadable certificate: {exc}") from exc
         elif kind.endswith("PRIVATE KEY"):
@@ -110,7 +120,7 @@ def _parse_pem(raw: bytes, password: str | None, out: Material) -> None:
 
 def _parse_binary(raw: bytes, password: str | None, out: Material) -> None:
     try:
-        out.certs.append(x509.load_der_x509_certificate(raw))
+        out.certs.append(quietly(x509.load_der_x509_certificate, raw))
         return
     except ValueError:
         pass
@@ -410,7 +420,7 @@ def info(cert: x509.Certificate) -> dict[str, Any]:
         "issuer": cert.issuer.rfc4514_string(),
         "common_name": common_name(cert.subject),
         "issuer_common_name": common_name(cert.issuer),
-        "serial": format(cert.serial_number, "x"),
+        "serial": format(quietly(lambda c: c.serial_number, cert), "x"),
         "not_before": to_rfc3339(not_before(cert)),
         "not_after": to_rfc3339(not_after(cert)),
         "san": san_names(cert),

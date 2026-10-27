@@ -187,7 +187,7 @@ class CertManager:
 
     def _read(self, path: Path) -> list[x509.Certificate]:
         try:
-            return x509.load_pem_x509_certificates(path.read_bytes())
+            return pem.quietly(x509.load_pem_x509_certificates, path.read_bytes())
         except (OSError, ValueError):
             return []
 

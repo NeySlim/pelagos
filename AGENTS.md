@@ -37,13 +37,14 @@ literally.
   `fix`, `docs`, `test`, `chore`, `refactor`, `build`, `ci`. Scope is the
   work package or directory (`bind`, `kea`, `core`, `api`, `frontend`,
   `installer`, `packaging`, `lab`, `docs`).
-- Work on `main` directly from your worktree. Before pushing:
-  `make lint test` must pass (and `make test-daemon` when you touched a
-  connector or the fixtures), then `git pull --rebase origin main`, re-run
-  the tests if the rebase pulled changes into your files, then `git push`.
+- Work on `main` directly from your worktree. Before pushing: `make lint`
+  and the tests of the modules you touched (see [When to run what](#when-to-run-what)),
+  then `git pull --rebase origin main`, re-run those tests if the rebase
+  pulled changes into your files, then `git push`. CI runs the whole unit
+  tier.
 - Never force-push `main`. Never rewrite published history.
 - Push a finished batch of commits at once, not each commit as it lands:
-  every push to `main` runs the full CI, and Actions minutes are limited.
+  Actions minutes are limited.
 
 ## Module ownership
 
@@ -121,6 +122,43 @@ Every test file carries exactly one marker at module level
 (`pytestmark = pytest.mark.unit`). New behavior comes with tests in the
 owning package's test directory.
 
+### When to run what
+
+- **While developing:** only the tests of the modules you touch, for
+  instance `make test-unit PYTEST_ARGS="tests/unit/connectors/kea"`, plus
+  `make test-daemon` (or the matching `tests/daemon/` files) when the module
+  talks to BIND or Kea, plus `npx vitest run <files>` for the frontend. No
+  full suite on every commit.
+- **CI on push and pull request:** one fast job (lint, unit tier with
+  `pytest -n auto`, vitest, frontend build, under 10 minutes). The daemon
+  tier runs when `backend/pelagos/connectors/` or the fixtures change, a
+  Playwright smoke (`make test-e2e-smoke`) when `frontend/` changes, the
+  amd64 packages when `packaging/` or `docker/` change. Release tags and the
+  nightly run take the full suite (unit on Python 3.12 and 3.13, daemon
+  tier, every Playwright spec, packages amd64 and arm64). One green run is
+  enough.
+- **Lab tier:** the full `make test-lab` runs once a week. Before a release,
+  run only the lab scenarios the change touches (`make test-lab
+  LAB_ARGS=tests/lab/<file>`) and an install and upgrade smoke
+  (`tests/lab/test_upgrade_lab.py`).
+- **Repetitions** (`--count`, loops of 20 or 50 runs) only to prove the fix
+  of one specific flaky test, never as routine.
+- Unit tests run in parallel (`pytest-xdist`): never share a fixed path, port
+  or global state between tests; use `tmp_path`, `free_port()` and fixtures.
+
+### Releases
+
+`make release VERSION=0.1.1 SINCE=<previous tag or commit>
+RELEASE_DIR=<dir>` sets `backend/pelagos/__init__.py` (the only source of
+the version), commits and tags `v0.1.1`, builds the amd64 and arm64 debs in
+Debian 13 containers (arm64 through qemu binfmt), writes
+`<dir>/0.1.1/` with the debs, `SHA256SUMS` and `NOTES.md`, then moves `main`
+to the next `.dev0`. Nothing is pushed: `git push origin main v0.1.1` then
+runs the full CI and the packages workflow, which publishes the GitHub
+release. `NO_TAG=1` builds a throwaway version from `HEAD` without touching
+git. `scripts/deploy-prod.sh` rolls a release directory out node by node
+(`docs/user/upgrade.md`).
+
 ### Local daemon fixtures
 
 `backend/tests/fixtures/named.py` and `backend/tests/fixtures/kea.py` start
@@ -197,9 +235,11 @@ All of these run on the development host, in the checkout or worktree:
 make dev            # venv + npm install
 make lint           # ruff check + ruff format --check + eslint
 make fmt            # ruff format + eslint --fix
-make test           # unit tier
+make test           # unit tier + vitest (PYTEST_ARGS="-n auto" for the parallel run)
 make test-daemon    # daemon tier
+make test-e2e-smoke # a few Playwright specs (make test-e2e: all of them)
 make test-lab       # lab tier (PELAGOS_LAB=1)
+make release VERSION=X.Y.Z  # tag and build the release debs (see Releases)
 make build-frontend # vite build
 make run            # backend dev server + vite dev server
 ```

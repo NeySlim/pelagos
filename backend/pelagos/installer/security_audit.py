@@ -32,7 +32,7 @@ from pelagos.domain import (
     zone_updates,
 )
 from pelagos.domain.messages import Message, join, msg
-from pelagos.installer import bindconf, bindsetup, keaconf, keasetup, managed, zone_audit
+from pelagos.installer import bindconf, bindsetup, ha_listener, keaconf, keasetup, managed, zone_audit
 from pelagos.installer.bindconf import ConfigFiles, Statement
 from pelagos.installer.jobs import Step
 
@@ -92,6 +92,8 @@ class Finding:
             "proposal": self.proposal,
             "risk": self.risk,
             "remediable": remediable,
+            # A firewall rule already keeps other hosts off what the finding exposes.
+            "mitigated": bool(self.details.get("mitigated")),
             "description_message": self.messages.get("description"),
             "proposal_message": self.messages.get("proposal"),
             "risk_message": self.messages.get("risk"),
@@ -649,10 +651,89 @@ class KeaAuditInput:
     socket_dir: str | None = None
     socket_dir_mode: int | None = None
     bind_keys: set[str] = field(default_factory=set)
+    firewall: ha_listener.Firewall | None = None  # read only when an HA listener is off loopback
+    nft: bool = False  # nft is installed: the guard of the HA listener can be set up
+
+
+def _ha_findings(inp: KeaAuditInput) -> list[Finding]:
+    """HA listeners off loopback that take a client without a certificate (kea_ha_listener_open)."""
+    findings: list[Finding] = []
+    fw = inp.firewall or ha_listener.Firewall()
+    for engine, cfg in inp.configs.items():
+        version = inp.versions.get(engine)
+        for lst in ha_listener.listeners(engine, cfg, version):
+            if not lst.open:
+                continue
+            guard = fw.guard(lst.port)
+            can_restrict = ha_listener.supports_restrict(version)
+            needs_restrict = can_restrict and not lst.restrict_commands
+            remediable = needs_restrict or (guard is None and inp.nft)
+            exposure = (
+                "finding.kea_ha_listener_open.tls_optional"
+                if lst.tls
+                else "finding.kea_ha_listener_open.restricted"
+                if lst.restrict_commands
+                else "finding.kea_ha_listener_open.unrestricted"
+            )
+            params = {"engine": engine, "address": lst.address}
+            description = (
+                msg(
+                    "finding.kea_ha_listener_open.description_mitigated",
+                    **params,
+                    exposure=msg(exposure),
+                    guard=guard.source,
+                    allowed=join(guard.allowed or ["?"], ", "),
+                )
+                if guard
+                else msg("finding.kea_ha_listener_open.description", **params, exposure=msg(exposure))
+            )
+            peers = join(lst.peers or ["?"], ", ")
+            steps = []
+            if needs_restrict:
+                steps.append(msg("finding.kea_ha_listener_open.step_restrict"))
+            if guard is None:
+                steps.append(
+                    msg("finding.kea_ha_listener_open.step_guard", peers=peers, port=lst.port)
+                    if inp.nft
+                    else msg("finding.kea_ha_listener_open.step_guard_manual", peers=peers, port=lst.port)
+                )
+            tls = msg("finding.kea_ha_listener_open.manual_tls", engine=engine)
+            by_hand = [s for s in steps if s["key"].endswith("step_guard_manual")] + [tls]
+            findings.append(
+                Finding.of(
+                    finding_id("kea", "kea_ha_listener_open", f"{engine}:{lst.address}"),
+                    "kea_ha_listener_open",
+                    Severity.WARNING if guard else Severity.CRITICAL,
+                    "kea",
+                    f"{engine} HA {lst.server} {lst.address}",
+                    description,
+                    msg("finding.kea_ha_listener_open.proposal", steps=join([*steps, tls], " ")),
+                    msg("finding.kea_ha_listener_open.risk"),
+                    {
+                        "engine": engine,
+                        "server": lst.server,
+                        "address": lst.host,
+                        "port": lst.port,
+                        "peers": lst.peers,
+                        "tls": lst.tls,
+                        "restrict_commands": lst.restrict_commands,
+                        "mitigated": guard is not None,
+                        "guard": guard.source if guard else None,
+                        "guard_allowed": guard.allowed if guard else [],
+                        "kea_version": version,
+                        "remediable": remediable,
+                        "manual": by_hand[0]
+                        if len(by_hand) == 1
+                        else msg("finding.kea_ha_listener_open.proposal", steps=join(by_hand, " ")),
+                        "remediation": "ha_listener",
+                    },
+                )
+            )
+    return findings
 
 
 def audit_kea(inp: KeaAuditInput) -> list[Finding]:
-    findings: list[Finding] = []
+    findings: list[Finding] = _ha_findings(inp)
     if inp.ctrl_agent is not None:
         for lst in keaconf.http_listeners(inp.ctrl_agent):
             plain = lst["socket-type"] == "http"
@@ -833,6 +914,11 @@ def collect_kea(env: Any) -> KeaAuditInput | None:
         pass
     if not configs and agent is None:
         return None
+    exposed = any(
+        lst.open
+        for engine, cfg in configs.items()
+        for lst in ha_listener.listeners(engine, cfg, versions[engine])
+    )
     return KeaAuditInput(
         configs=configs,
         versions=versions,
@@ -840,6 +926,8 @@ def collect_kea(env: Any) -> KeaAuditInput | None:
         ctrl_agent_unit=agent_unit,
         socket_dir=str(paths.kea_socket_dir),
         socket_dir_mode=mode,
+        firewall=ha_listener.read_firewall(env) if exposed else None,
+        nft=env.binary("nft") is not None,
     )
 
 
@@ -1449,6 +1537,101 @@ def remediate_secret_file(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> s
     return "\n".join(out)
 
 
+def _ha_open_listeners(env: Any) -> list[ha_listener.HAListener]:
+    out: list[ha_listener.HAListener] = []
+    for engine in ("kea4", "kea6"):
+        daemon = keasetup.DAEMONS[engine]
+        conf = env.paths.kea_conf(daemon)
+        try:
+            config = keaconf.loads(conf.read_text(), str(conf))
+        except (OSError, keaconf.KeaConfigError):
+            continue
+        out += [x for x in ha_listener.listeners(engine, config, env.t.kea_version(daemon)) if x.open]
+    return out
+
+
+def _ha_restrict(env: Any, engine: str) -> str:
+    """restrict-commands true in every HA relationship of `engine`: the peer only sends HA commands."""
+    daemon = keasetup.DAEMONS[engine]
+    conf = env.paths.kea_conf(daemon)
+    version = env.t.kea_version(daemon)
+    if not ha_listener.supports_restrict(version):
+        return f"Kea {version} has no restrict-commands: kept as is"
+    config = keaconf.loads(conf.read_text(), str(conf))
+    new, changed = ha_listener.with_restrict_commands(config)
+    if not changed:
+        return f"{daemon}: restrict-commands already true"
+    files = keasetup.edited_files(conf, new)
+    return keasetup.write_files(env, engine, conf, files, f"security-ha-restrict-{engine}", restart=False)
+
+
+def _ha_guard(env: Any) -> str:
+    """Loads the nft guard for every open HA listener of this node, then watches the peers' packets:
+    if only drops grow, the guard is removed again and the step fails."""
+    open_listeners = _ha_open_listeners(env)
+    fw = ha_listener.read_firewall(env)
+    ports = sorted({x.port for x in open_listeners})
+    if not ports or all(fw.guard(p) is not None for p in ports):
+        return "every HA listener port already has a firewall guard"
+    nft = env.binary("nft")
+    if nft is None:
+        raise RuntimeError("nft not found: install nftables, or restrict the HA port to the peers by hand")
+    peers = sorted({p for x in open_listeners for p in x.peers})
+    if not peers:
+        raise RuntimeError("no HA peer address in the configuration: the guard would cut the pair")
+    rules = env.node_paths.etc / ha_listener.GUARD_FILE
+    unit = env.paths.systemd_dir / ha_listener.GUARD_UNIT
+    text = ha_listener.render_guard(ports, peers)
+    if env.dry_run:
+        return f"dry run: would load {rules} through {ha_listener.GUARD_UNIT}"
+    before = {p: (p.read_text() if p.exists() else None) for p in (rules, unit)}
+    rules.parent.mkdir(parents=True, exist_ok=True)
+    rules.write_text(text)
+    os.chmod(rules, 0o640)
+    unit.parent.mkdir(parents=True, exist_ok=True)
+    unit.write_text(ha_listener.render_unit(nft, rules))
+    os.chmod(unit, 0o644)
+    env.services.daemon_reload()
+    env.services.enable_now(ha_listener.GUARD_UNIT)
+    env.services.restart(ha_listener.GUARD_UNIT)
+    wait = min(30.0, max(5.0, 2.5 * max(x.heartbeat_ms for x in open_listeners) / 1000))
+    seen = ha_listener.watch_peers(env, wait, _sleep)
+    if seen == "blocked":
+        env.services.disable_now(ha_listener.GUARD_UNIT)
+        env.runner.run(
+            [nft, "delete", "table", "inet", ha_listener.GUARD_TABLE], privileged=True, check=False
+        )
+        for path, old in before.items():
+            if old is None:
+                path.unlink(missing_ok=True)
+            else:
+                path.write_text(old)
+        env.services.daemon_reload()
+        raise RuntimeError(
+            f"packets to port(s) {ports} were dropped and none came from {', '.join(peers)} within "
+            f"{wait:.0f}s: guard removed (a peer may reach this node from another address)"
+        )
+    note = "peer traffic seen through it" if seen == "peers" else "no HA traffic yet, nothing dropped"
+    return f"{ha_listener.GUARD_UNIT}: only {', '.join(peers)} reach port(s) {ports} ({note})"
+
+
+def _sleep(seconds: float) -> None:
+    import time
+
+    time.sleep(seconds)
+
+
+def remediate_ha_listener(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
+    """restrict-commands first (the peer only sends HA commands), then the peers-only firewall guard:
+    neither cuts the pair, so each node is fixed on its own. TLS stays a manual step for both peers."""
+    out = [_ha_restrict(env, d["engine"])]
+    if env.binary("nft") is not None:
+        out.append(_ha_guard(env))
+    elif not d.get("mitigated"):
+        out.append("nft not found: restrict the HA port to the peers by hand")
+    return "\n".join(out)
+
+
 REMEDIATIONS = {
     "tsig_key": remediate_tsig_key,
     "rndc_key": remediate_rndc_key,
@@ -1464,6 +1647,7 @@ REMEDIATIONS = {
     "ctrl_agent": remediate_ctrl_agent,
     "socket_dir": remediate_socket_dir,
     "secret_file": remediate_secret_file,
+    "ha_listener": remediate_ha_listener,
     "convert_dynamic": zone_audit.remediate_convert_dynamic,
     "update_key_add": remediate_update_key_add,
     "view_key": zone_audit.remediate_view_key,

@@ -89,6 +89,7 @@ def test_legacy_findings(tmp_path):
             "proposal",
             "risk",
             "remediable",
+            "mitigated",
             "description_message",
             "proposal_message",
             "risk_message",

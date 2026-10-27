@@ -1515,3 +1515,9 @@ Contract (`domain/alerts.py`): `AlertKind.DDNS_ADVICE` (`ddns_advice`, exceptabl
 `alert.update_denied`, `alert.update_denied_other`; setting `checks.update_denied_warning_per_hour`
 and `auth.api_docs_public_enabled`. WP-COLLECTOR: `checks/ddns.py`. WP-FRONTEND: kind label, setting
 labels, messages in `en` and `fr`.
+
+## 2026-10-27, Kea HA listener in the security audit
+Additive. WP-INSTALLER: finding `kea_ha_listener_open` (module `installer/ha_listener.py`),
+remediation `ha_listener`, `Finding.to_dict()` adds `mitigated`. WP-COLLECTOR: the finding is an
+`insecure_listener` alert unless `mitigated`. Contract (`domain/messages.py`): the
+`finding.kea_ha_listener_open.*` keys. WP-FRONTEND: kind label and catalog entries, `en` and `fr`.

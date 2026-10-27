@@ -2421,7 +2421,7 @@ confirmation_required` without `"confirm": true`.
 | `GET /install/detect` | `admin:install` | | `{"distro": {...}, "engines": {"bind": {"installed","version","service","running","config","paths"}, "kea4": ..., "kea6": ..., "d2": ...}, "pelagos": {"include_present", "sockets_ok", "keys_present"}}` |
 | `POST /install/plan` | `admin:install` | `{"engines": ["bind","kea4",...], "source": "distro"|"isc", "isc_series"?: "3.2"}` | `Plan` (scope `install`; apply returns a `Job`) |
 | `POST /install/import/plan` | `admin:install` | `{"engines": [...]}` | `Plan` (scope `import`: include lines, sockets, statistics channel, keys to create, what was read) |
-| `GET /install/security` | `admin:install` | `?node=<id>\|all` (this node when absent) | `{"findings": [{"id","kind","severity","engine","subject","description","proposal","risk","remediable","description_message","proposal_message","risk_message","manual_action","manual_action_message","node_id","node_name","exception_keys","exception"}], "nodes": [{"id","name","ok","error"}], "node_choices": [{"id","name"}], "local_node_id"}` (`remediable` false: no plan can fix it, `--fix-all` and the UI skip it, `manual_action` says what to do by hand; `exception`: the `security_finding` record that keeps it, else null; a peer's findings come over the `security.audit` peer action; `*_message`: section 19) |
+| `GET /install/security` | `admin:install` | `?node=<id>\|all` (this node when absent) | `{"findings": [{"id","kind","severity","engine","subject","description","proposal","risk","remediable","mitigated","description_message","proposal_message","risk_message","manual_action","manual_action_message","node_id","node_name","exception_keys","exception"}], "nodes": [{"id","name","ok","error"}], "node_choices": [{"id","name"}], "local_node_id"}` (`remediable` false: no plan can fix it, `--fix-all` and the UI skip it, `manual_action` says what to do by hand; `exception`: the `security_finding` record that keeps it, else null; a peer's findings come over the `security.audit` peer action; `*_message`: section 19) |
 | `POST /install/security/plan` | `admin:install` | `{"finding_ids": [...]}` (this node) or `{"selection": {"<node id>": [...]}}` | `Plan` (scope `security`; the Kea shared key rotation is one finding whose steps are: add new key to BIND `update-policy`, switch D2 on every node, remove old key; with `selection` each node builds its part through the `security.plan` peer action, its shared key switch limited to itself, and the parts run in order as one job) |
 
 Every endpoint of this table runs through the privileged helper (section 2)
@@ -2475,6 +2475,23 @@ key to the inherited `allow-update`. The connector uses the same rule
 (`pelagos.domain.zone_updates`) and also treats a zone as dynamic when
 `rndc zonestatus` says so. The distribution's own zones (localhost,
 127/0/255.in-addr.arpa) are never reported.
+
+The security audit reports `kea_ha_listener_open` for each dedicated HA listener
+(HA+MT, `http-dedicated-listener` true, the defaults) bound off loopback that takes
+a client without a certificate (no TLS, or TLS with `require-client-certs` false).
+That listener checks no basic authentication (Kea 2.6.3 to 3.2.0) and, before Kea
+3.0.0, `restrict-commands` defaults to false. A firewall rule that drops the port
+for every source but some (nftables, `iptables-save`, or an active
+`kea-ha-guard.service` when the rule set cannot be read) makes it a warning with
+`mitigated` true, and the collector raises no `insecure_listener` alert for it.
+The remediation `ha_listener` runs on each node on its own, neither step cutting
+the pair: `restrict-commands: true` in every HA relationship (lossless edit,
+`config-reload`), then, without a guard and with `nft` installed, the table
+`inet pelagos_kea_ha_guard` (loopback and the peers' URL addresses accepted, the
+rest dropped) loaded by `pelagos-kea-ha-guard.service`; the step watches the
+guard's counters for up to 2.5 heartbeats and removes it again when only drops
+grow. TLS (a certificate per peer from the cluster CA, `require-client-certs`)
+stays a manual action: it must switch on both peers together, standby first.
 
 Records of a zone that this node holds as a secondary (or mirror) are planned
 here and applied on the peer that holds it as primary (`target_node_ids`), so

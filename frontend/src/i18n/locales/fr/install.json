@@ -123,6 +123,7 @@
       "open_allow_transfer": "Transfert ouvert",
       "kea_ctrl_agent_http": "Agent de contrôle Kea",
       "kea_http_socket_plain": "Socket HTTP en clair",
+      "kea_ha_listener_open": "Listener HA ouvert",
       "kea_socket_dir_mode": "Droits du dossier des sockets",
       "kea_tsig_clear_secret": "Secret D2 en clair",
       "static_zone": "Zone statique",

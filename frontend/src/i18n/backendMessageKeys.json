@@ -388,6 +388,37 @@
   ],
   "finding.kea_ctrl_agent_http.proposal": [],
   "finding.kea_ctrl_agent_http.risk": [],
+  "finding.kea_ha_listener_open.description": [
+    "address",
+    "engine",
+    "exposure"
+  ],
+  "finding.kea_ha_listener_open.description_mitigated": [
+    "address",
+    "allowed",
+    "engine",
+    "exposure",
+    "guard"
+  ],
+  "finding.kea_ha_listener_open.manual_tls": [
+    "engine"
+  ],
+  "finding.kea_ha_listener_open.proposal": [
+    "steps"
+  ],
+  "finding.kea_ha_listener_open.restricted": [],
+  "finding.kea_ha_listener_open.risk": [],
+  "finding.kea_ha_listener_open.step_guard": [
+    "peers",
+    "port"
+  ],
+  "finding.kea_ha_listener_open.step_guard_manual": [
+    "peers",
+    "port"
+  ],
+  "finding.kea_ha_listener_open.step_restrict": [],
+  "finding.kea_ha_listener_open.tls_optional": [],
+  "finding.kea_ha_listener_open.unrestricted": [],
   "finding.kea_http_socket_plain.description": [
     "address",
     "engine"

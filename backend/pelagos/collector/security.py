@@ -19,7 +19,13 @@ log = logging.getLogger(__name__)
 
 KEY_KINDS = frozenset({"weak_rndc_key", "weak_shared_kea_key", "weak_tsig_key"})
 LISTENER_KINDS = frozenset(
-    {"rndc_nonlocal", "stats_nonlocal", "kea_ctrl_agent_http", "kea_http_socket_plain"}
+    {
+        "rndc_nonlocal",
+        "stats_nonlocal",
+        "kea_ctrl_agent_http",
+        "kea_http_socket_plain",
+        "kea_ha_listener_open",
+    }
 )
 ALERT_KINDS = frozenset({AlertKind.INSECURE_KEY.value, AlertKind.INSECURE_LISTENER.value})
 
@@ -50,7 +56,7 @@ def security_outcome(
 
     alerts: list[Alert] = []
     for f in mark_exceptions(findings, node_id, exceptions or []):
-        if f["exception"] is not None:
+        if f["exception"] is not None or f.get("mitigated"):
             continue
         kind = str(f.get("kind") or "")
         if kind in KEY_KINDS:

@@ -219,7 +219,7 @@ class TestThreeNodes:
         for address in (A1, A2):
             wait_for(
                 f"the setting written on ns3 reaches {address}",
-                lambda a=address: api(a).get("/admin/settings")["alerts_pool_warning_percent"] == 79,
+                lambda a=address: api(a).get("/admin/settings")["checks"]["pool_warning_percent"] == 79,
                 timeout=60,
             )
 

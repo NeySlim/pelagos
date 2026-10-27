@@ -394,7 +394,7 @@ class TestReferencePair:
             return me["config_version"] >= own["config_version"] and me["audit_count"] >= own["audit_count"]
 
         wait_for("ns2 catches up", caught_up, timeout=180, interval=5)
-        assert api(A2).get("/admin/settings")["alerts_pool_warning_percent"] == 81
+        assert api(A2).get("/admin/settings")["checks"]["pool_warning_percent"] == 81
         audit = api(A2).get("/audit?action=dns.rrset")["items"]
         assert any(e.get("plan_id") == plan["id"] for e in audit)
         wait_for("peer back online", lambda: not open_alerts(A1, "peer_offline"), timeout=180, interval=5)

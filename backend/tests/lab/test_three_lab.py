@@ -106,22 +106,13 @@ class TestThreeNodes:
         assert ssh(A3, "/usr/sbin/kea-dhcp4 -v")[1].startswith("3.")
         assert ha_state(A1) == ha_state(A2) == "hot-standby"
         assert ha_state(A3) == "backup"
-        wait_for("lab-client lease", client_address, timeout=90)
-        # The first lease may be older than the HA sync with the backup (no update sent): ask
-        # again now that the three servers run, three attempts at most.
-        for attempt in range(3):
-            renew_client()
-            addr = wait_for("lab-client lease again", client_address, timeout=90)
-            try:
-                wait_for(
-                    "the backup holds the client's lease",
-                    lambda a=addr: kea_command(A3, "lease4-get", {"ip-address": a})["result"] == 0,
-                    timeout=40,
-                )
-                break
-            except AssertionError:
-                if attempt == 2:
-                    raise
+        addr = wait_for("lab-client lease", client_address, timeout=90)
+        # The active server sends every lease update to the backup too.
+        wait_for(
+            "the backup holds the client's lease",
+            lambda: kea_command(A3, "lease4-get", {"ip-address": addr})["result"] == 0,
+            timeout=90,
+        )
         for host in (A2, A3):
             wait_for(f"the zones on {host}", lambda h=host: dig(h, "ns1.example.lan") == A1, timeout=90)
 

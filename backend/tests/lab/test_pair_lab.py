@@ -177,23 +177,9 @@ class TestReferencePair:
     def test_01_pair_works_without_pelagos(self):
         assert ssh(A1, "/usr/sbin/kea-dhcp4 -v")[1].startswith("2.6")
         wait_for("lab-client lease", client_address, timeout=60)
-        # The first lease may predate D2 or the HA sync of provisioning (no update sent): ask again
-        # until an update with the md5 key lands, three attempts at most.
-        for attempt in range(3):
-            renew_client()
-            wait_for("lab-client lease again", client_address, timeout=90)
-            addr = client_address()
-            try:
-                for host in (A1, A2):
-                    wait_for(
-                        f"DDNS record on {host}",
-                        lambda h=host, a=addr: dig(h, "lab-client.example.lan") == a,
-                        timeout=60,
-                    )
-                break
-            except AssertionError:
-                if attempt == 2:
-                    raise
+        addr = client_address()
+        for host in (A1, A2):
+            wait_for(f"DDNS record on {host}", lambda h=host: dig(h, "lab-client.example.lan") == addr)
         d2 = json.loads(sudo_cat(A2, "/etc/kea/kea-dhcp-ddns.conf"))["DhcpDdns"]
         assert d2["tsig-keys"][0]["algorithm"] == "HMAC-MD5"
         assert kea_command(A1, "ha-heartbeat")["arguments"]["state"] == "hot-standby"
@@ -347,21 +333,8 @@ class TestReferencePair:
             assert any(r["identifier"] == mac and r["ip_address"] == "10.99.1.50" for r in res), address
             conf = sudo_cat(address, "/etc/kea/kea-dhcp4.conf")
             assert "10.99.1.50" in conf
-        # The apply reloads Kea on each node and the HA pair resynchronizes after each reload: a
-        # request landing in between is answered from the old lease. Ask again until the reload
-        # settled, a reservation that is never honoured still fails after the last attempt.
-        for attempt in range(4):
-            renew_client()
-            try:
-                wait_for(
-                    "lab-client gets its reserved address",
-                    lambda: client_address() == "10.99.1.50",
-                    timeout=40,
-                )
-                break
-            except AssertionError:
-                if attempt == 3:
-                    raise
+        renew_client()
+        wait_for("lab-client gets its reserved address", lambda: client_address() == "10.99.1.50", timeout=90)
 
         def joined() -> dict | None:
             hosts = api(A1).get("/hosts?q=labhost")["items"]

@@ -66,7 +66,8 @@
     "distroUnavailable": "Distribution security data unavailable since {{since}} ({{reason}})",
     "noDetails": "No details",
     "pressure": "Pool use",
-    "full": "full"
+    "full": "full",
+    "reportedBy": "Reported by"
   },
   "inconsistency": "Inconsistency",
   "empty": "No alert",
@@ -108,5 +109,14 @@
     "summary": "Label (optional)",
     "create": "Create",
     "created": "Exception recorded"
+  },
+  "origin": {
+    "cluster": "Cluster",
+    "clusterHelp": "Cluster-wide alert reported by {{nodes}}",
+    "via": "via {{nodes}}"
+  },
+  "unavailable": {
+    "title": "Partial view",
+    "body": "Alerts of {{nodes}} are not shown: {{error}}. Lists and counts cover the nodes that answered."
   }
 }

@@ -267,6 +267,13 @@ function routeOf(method, path) {
   return best
 }
 
+// The cluster view of GET /alerts: an alert only an unreadable node reports is not listed.
+function visibleAlerts(state) {
+  const gone = new Set((state.alertsUnavailable || []).map((u) => u.node_id))
+  if (!gone.size) return state.alerts
+  return state.alerts.filter((a) => !(a.reported_by || []).length || a.reported_by.some((n) => !gone.has(n)))
+}
+
 function paginate(items, query, meta = {}) {
   const page = Math.max(1, parseInt(query.get('page') || '1', 10) || 1)
   const perPage = Math.min(500, Math.max(1, parseInt(query.get('per_page') || '50', 10) || 50))
@@ -613,7 +620,7 @@ function summary(state) {
       pools.push({ node_id: state.selfId, engine: family === 'v4' ? 'kea4' : 'kea6', subnet_id: row.subnet_id, subnet: row.subnet, pool: row.pool, kind: row.kind, total: row.total, assigned: row.assigned, declined: row.declined, percent: row.percent })
     }
   }
-  const open = state.alerts.filter((a) => a.state === 'open')
+  const open = visibleAlerts(state).filter((a) => a.state === 'open')
   return {
     nodes: state.nodes,
     ha: [...state.ha.v4, ...state.ha.v6].map((h) => liveHa(h)),
@@ -625,6 +632,7 @@ function summary(state) {
       critical: open.filter((a) => a.severity === 'critical').length,
       warning: open.filter((a) => a.severity === 'warning').length,
       info: open.filter((a) => a.severity === 'info').length,
+      unavailable: state.alertsUnavailable || [],
     },
     engines: capabilities(state).engines,
     errors: {},
@@ -2323,13 +2331,16 @@ function buildHandlers(state, emit) {
     // Alerts and series
     'GET /alerts': ({ query }) => {
       const f = (key, value) => !query.get(key) || value === query.get(key)
-      const items = state.alerts.filter((a) => f('kind', a.kind) && f('severity', a.severity) && f('state', a.state) && f('node_id', a.node_id) && f('engine', a.engine))
-      return paginate(items, query)
+      // A node's alerts plus the cluster-wide ones it reports; alerts of unreadable nodes are missing.
+      const onNode = (a) => !query.get('node_id') || a.node_id === query.get('node_id') || (!a.node_id && (a.reported_by || []).includes(query.get('node_id')))
+      const items = visibleAlerts(state).filter((a) => f('kind', a.kind) && f('severity', a.severity) && f('state', a.state) && onNode(a) && f('engine', a.engine))
+      return paginate(items, query, { unavailable: state.alertsUnavailable || [] })
     },
     'GET /alerts/summary': () => {
-      const open = state.alerts.filter((a) => a.state === 'open')
+      const alerts = visibleAlerts(state)
+      const open = alerts.filter((a) => a.state === 'open')
       const count = (list, key) => list.reduce((acc, a) => ({ ...acc, [a[key]]: (acc[a[key]] || 0) + 1 }), {})
-      return { open: open.length, acked: state.alerts.filter((a) => a.state === 'acked').length, by_severity: count(open, 'severity'), by_kind: count(open, 'kind') }
+      return { open: open.length, acked: alerts.filter((a) => a.state === 'acked').length, by_severity: count(open, 'severity'), by_kind: count(open, 'kind'), unavailable: state.alertsUnavailable || [] }
     },
     'POST /alerts/{id}/ack': ({ params, body, user }) => {
       const alert = state.alerts.find((a) => a.id === params.id)

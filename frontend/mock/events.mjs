@@ -5,7 +5,7 @@
 // POST /api/v1/_mock/events {"kind": ...} runs one (mock only, no session needed).
 import { iso, ulid } from './data.mjs'
 
-export const EVENT_KINDS = ['lease', 'alert', 'alert-resolve', 'replication', 'transfer', 'ha-failover', 'ha-failback', 'heartbeat']
+export const EVENT_KINDS = ['lease', 'alert', 'alert-resolve', 'replication', 'transfer', 'ha-failover', 'ha-failback', 'heartbeat', 'alerts-peer']
 
 const POOL = { family: 'v4', subnetId: 3, pool: '192.0.2.200 - 192.0.2.219', subject: 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219' }
 
@@ -101,6 +101,15 @@ export function createEvents(state, h) {
   }
 
   const handlers = {
+    // A peer whose alerts cannot be read (down: true) or again readable: the cluster view degrades.
+    'alerts-peer'({ node = 'ns2', down = true } = {}) {
+      const peer = state.nodes.find((n) => n.peer.name === node)
+      if (!peer) return null
+      state.alertsUnavailable = (state.alertsUnavailable || []).filter((u) => u.node_id !== peer.peer.id)
+      if (down) state.alertsUnavailable.push({ node_id: peer.peer.id, name: node, error: `node ${node} is offline: unreachable` })
+      h.emit('alerts', 'updated', {})
+      return { ok: true, unavailable: state.alertsUnavailable }
+    },
     lease() {
       let subnetId = 1
       let ip = freeAddress(1)
@@ -139,6 +148,7 @@ export function createEvents(state, h) {
         title_message: { key: 'alert.pool_usage', params: { pool: '192.0.2.200-192.0.2.219', subnet_id: 3, percent: '100' } },
         details: { subnet_id: 3, assigned: 20, total: 20, percent: 100 },
         first_seen: iso(now()), last_seen: iso(now()), acked_by: null, acked_at: null, resolved_at: null,
+        reported_by: [state.selfId],
       }
       state.alerts.unshift(alert)
       h.emit('alerts', 'opened', alert)

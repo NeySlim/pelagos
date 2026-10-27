@@ -3,11 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { StrictMode } from 'react'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { subjectLink, jobResult, exceptionItems } from './lib'
+import { subjectLink, jobResult, exceptionItems, alertOrigin, unavailableNodes } from './lib'
 
 const N1 = '01JB0000000000000000NS1AAA'
+const N2 = '01JB0000000000000000NS2BBB'
 const ALERTS = [
-  { id: 'A1', kind: 'ptr_mismatch', severity: 'warning', state: 'open', node_id: null, engine: null, subject: 'ip:192.0.2.106', title: 'PTR of 192.0.2.106 names another host', details: { ip: '192.0.2.106', exception_keys: ['192.0.2.106|pc7.example.lan.'] }, first_seen: '2026-10-24T10:00:00Z', last_seen: '2026-10-24T11:00:00Z' },
+  { id: 'A1', kind: 'ptr_mismatch', severity: 'warning', state: 'open', node_id: null, engine: null, subject: 'ip:192.0.2.106', title: 'PTR of 192.0.2.106 names another host', details: { ip: '192.0.2.106', exception_keys: ['192.0.2.106|pc7.example.lan.'] }, reported_by: [N1, N2], first_seen: '2026-10-24T10:00:00Z', last_seen: '2026-10-24T11:00:00Z' },
   { id: 'A2', kind: 'pool_full', severity: 'critical', state: 'open', node_id: N1, engine: 'kea4', subject: 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219', title: 'Pool is full', details: {}, first_seen: '2026-10-24T10:00:00Z', last_seen: '2026-10-24T11:00:00Z' },
   { id: 'A3', kind: 'security_advisory', severity: 'warning', state: 'open', node_id: N1, engine: 'kea4', subject: 'kea4:advisories', title: 'upstream kea4 2.6.3 is affected', details: { distribution_data: { name: null, reason: 'no_tracker', unavailable: { since: '2026-10-27T10:00:00Z', reason: 'download deadline exceeded' } } }, first_seen: '2026-10-24T10:00:00Z', last_seen: '2026-10-24T11:00:00Z' },
 ]
@@ -15,6 +16,7 @@ const ALERTS = [
 const calls = { list: vi.fn(), ack: vi.fn(), run: vi.fn(), addException: vi.fn() }
 const notify = { showSuccess: vi.fn(), showError: vi.fn(), showInfo: vi.fn(), showPrompt: vi.fn() }
 let canWrite = true
+let listMeta = {}
 
 vi.mock('../../services/api', () => {
   const api = {
@@ -22,7 +24,7 @@ vi.mock('../../services/api', () => {
       summary: async () => ({ open: 2, acked: 1, by_severity: { critical: 1, warning: 1, info: 0 }, by_kind: {} }),
       list: async (q) => {
         calls.list(q)
-        return { items: ALERTS, page: 1, per_page: 50, total: 2, meta: {} }
+        return { items: ALERTS, page: 1, per_page: 50, total: 2, meta: listMeta }
       },
       ack: async (id, comment) => {
         calls.ack(id, comment)
@@ -38,7 +40,7 @@ vi.mock('../../services/api', () => {
       },
     },
     jobs: { get: async () => ({ id: 'J1', state: 'done', steps: [{ name: 'consistency', state: 'done' }, { name: 'result', output: { found: 3 } }] }) },
-    nodes: { list: async () => ({ items: [{ peer: { id: N1, name: 'ns1' }, is_self: true }] }) },
+    nodes: { list: async () => ({ items: [{ peer: { id: N1, name: 'ns1' }, is_self: true }, { peer: { id: N2, name: 'ns2' }, is_self: false }] }) },
   }
   return { api, default: api }
 })
@@ -56,10 +58,34 @@ const renderPage = (url = '/alerts') =>
 
 beforeEach(() => {
   canWrite = true
+  listMeta = {}
   for (const fn of [...Object.values(calls), ...Object.values(notify)]) fn.mockReset()
 })
 
 describe('AlertsPage', () => {
+  it('names the node of each alert, or the nodes reporting a cluster-wide one', async () => {
+    renderPage()
+    const table = await screen.findByTestId('alerts-table')
+    await waitFor(() => expect(within(table).getAllByTestId('alert-origin').length).toBe(3))
+    const origins = within(table).getAllByTestId('alert-origin').map((e) => e.textContent)
+    expect(origins).toContain('Clustervia ns1, ns2')
+    expect(origins).toContain('ns1')
+    expect(screen.queryByTestId('alerts-unavailable')).toBeNull()
+  })
+
+  it('says which nodes are missing from a partial view', async () => {
+    listMeta = { unavailable: [{ node_id: N2, name: 'ns2', error: 'node ns2 is offline: unreachable' }] }
+    renderPage()
+    const notice = await screen.findByTestId('alerts-unavailable')
+    expect(notice).toHaveTextContent('Alerts of ns2 are not shown: node ns2 is offline: unreachable')
+  })
+
+  it('filters by node', async () => {
+    renderPage(`/alerts?node_id=${N2}`)
+    await screen.findByText('Pool is full')
+    expect(calls.list.mock.calls.at(-1)[0].node_id).toBe(N2)
+  })
+
   it('lists open alerts by default with their counts', async () => {
     renderPage()
     const table = await screen.findByTestId('alerts-table')
@@ -185,5 +211,18 @@ describe('alert subjects', () => {
   it('reads the result step of a job', () => {
     expect(jobResult({ steps: [{ name: 'result', output: { found: 2 } }] })).toEqual({ found: 2 })
     expect(jobResult({ steps: [] })).toBeNull()
+  })
+})
+
+describe('cluster origin helpers', () => {
+  it('reads the node or the reporters of an alert', () => {
+    expect(alertOrigin({ node_id: 'a', reported_by: ['a'] })).toEqual({ node: 'a', reporters: ['a'] })
+    expect(alertOrigin({ node_id: null })).toEqual({ node: null, reporters: [] })
+  })
+
+  it('merges the unavailable nodes of the list and the summary', () => {
+    const u = { node_id: 'b', name: 'ns2', error: 'down' }
+    expect(unavailableNodes([u], [u], undefined)).toEqual([u])
+    expect(unavailableNodes(null)).toEqual([])
   })
 })

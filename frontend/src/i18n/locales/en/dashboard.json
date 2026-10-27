@@ -35,7 +35,8 @@
       "title": "Alerts",
       "open": "{{count}} open",
       "open_one": "{{count}} open",
-      "none": "Nothing open"
+      "none": "Nothing open",
+      "unavailable": "Not counted: {{nodes}} (no answer)"
     },
     "zones": {
       "title": "Zone sync",

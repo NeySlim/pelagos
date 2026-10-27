@@ -2,7 +2,9 @@
 // Alerts and inconsistencies: counts from GET /alerts/summary, the filtered and
 // paginated alert list (open by default, filters in the URL), the alert detail
 // with a link to the host or zone it is about, acknowledgement with an optional
-// comment, and an on-demand consistency pass run as a job.
+// comment, and an on-demand consistency pass run as a job. The list and counts are the cluster's:
+// each alert names its node (or the nodes reporting a cluster-wide one), and a node whose alerts
+// could not be read is named above the table.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -16,7 +18,7 @@ import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
-import { ENGINES, INCONSISTENCY_KINDS, KINDS, exceptionItems, PRESSURE_AFTER_MS, PRESSURE_BEFORE_MS, SEVERITIES, STATES, jobResult, poolSeriesQuery, pressureLatches, subjectLink } from './lib'
+import { ENGINES, INCONSISTENCY_KINDS, KINDS, alertOrigin, unavailableNodes, exceptionItems, PRESSURE_AFTER_MS, PRESSURE_BEFORE_MS, SEVERITIES, STATES, jobResult, poolSeriesQuery, pressureLatches, subjectLink } from './lib'
 import { adoptCall, fileAlertEngine } from '../dhcp/keaFile'
 import { IncidentTrace } from '../../components/motion'
 import { IgnoreDialog } from './IgnoreDialog'
@@ -26,6 +28,33 @@ import { useNodeNames, usePlanFlow } from '../dhcp/hooks'
 const FILTERS = ['state', 'severity', 'kind', 'engine', 'node_id']
 const JOB_POLL_MS = 1000
 const JOB_TIMEOUT_MS = 120000
+
+// The node an alert belongs to, or "Cluster" with the nodes that report it.
+function AlertOrigin({ alert, nodeName }) {
+  const { t } = useTranslation('alerts')
+  const { node, reporters } = alertOrigin(alert)
+  if (node) {
+    return <Badge variant="outline" size="sm" data-testid="alert-origin">{nodeName(node)}</Badge>
+  }
+  const names = reporters.map(nodeName).join(', ')
+  return (
+    <span className="inline-flex items-center gap-1 min-w-0" title={names ? t('origin.clusterHelp', { nodes: names }) : undefined} data-testid="alert-origin">
+      <Badge variant="purple" size="sm">{t('origin.cluster')}</Badge>
+      {names && <span className="text-2xs text-text-tertiary truncate">{t('origin.via', { nodes: names })}</span>}
+    </span>
+  )
+}
+
+function UnavailableNotice({ nodes }) {
+  const { t } = useTranslation('alerts')
+  if (!nodes.length) return null
+  return (
+    <div role="status" className="rounded-lg border status-warning-bg status-warning-border px-3 py-2 text-xs status-warning-text" data-testid="alerts-unavailable">
+      <p className="font-semibold">{t('unavailable.title')}</p>
+      <p className="text-text-secondary">{t('unavailable.body', { nodes: nodes.map((n) => n.name || n.node_id).join(', '), error: nodes.map((n) => n.error).filter(Boolean).join('; ') || '-' })}</p>
+    </div>
+  )
+}
 
 function Field({ label, children }) {
   return (
@@ -141,7 +170,8 @@ function AlertDetail({ alert, nodeName, canAck, onAck, onIgnore, onClose }) {
           </div>
           <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <Field label={t('columns.subject')}><span className="font-mono">{alert.subject}</span></Field>
-            <Field label={t('columns.node')}>{alert.node_id ? nodeName(alert.node_id) : null}</Field>
+            <Field label={t('columns.node')}><AlertOrigin alert={alert} nodeName={nodeName} /></Field>
+            {alertOrigin(alert).reporters.length > 0 && <Field label={t('detail.reportedBy')}>{alertOrigin(alert).reporters.map(nodeName).join(', ')}</Field>}
             <Field label={t('filters.engine')}>{alert.engine}</Field>
             <Field label={t('detail.firstSeen')}>{formatDate(alert.first_seen)}</Field>
             <Field label={t('detail.lastSeen')}>{formatDate(alert.last_seen)}</Field>
@@ -294,7 +324,7 @@ export default function AlertsPage() {
     },
     { key: 'kind', label: t('columns.kind'), render: (a) => <span className="text-xs text-text-secondary">{t(`dashboard:kinds.${a.kind}`, { defaultValue: a.kind })}</span> },
     { key: 'subject', label: t('columns.subject'), mono: true, truncate: true },
-    { key: 'node_id', label: t('columns.node'), render: (a) => <span className="text-xs">{a.node_id ? nodeName(a.node_id) : '-'}</span> },
+    { key: 'node_id', label: t('columns.node'), render: (a) => <AlertOrigin alert={a} nodeName={nodeName} /> },
     { key: 'last_seen', label: t('columns.lastSeen'), render: (a) => <span className="whitespace-nowrap text-xs">{formatDate(a.last_seen)}</span> },
     { key: 'state', label: t('columns.state'), render: (a) => <StatusBadge status={a.state} dot={false} /> },
     ...(canWrite
@@ -322,6 +352,7 @@ export default function AlertsPage() {
     ...(nodes.length > 1 ? [{ key: 'node_id', label: t('filters.node'), value: filters.node_id, onChange: (v) => setFilter('node_id', v), options: nodes.map((n) => option(n.peer.id, n.peer.name)) }] : []),
   ]
   const selected = list.items.find((a) => a.id === selectedId) || null
+  const missing = unavailableNodes(list.meta?.unavailable, counts.unavailable)
 
   return (
     <PageLayout
@@ -349,6 +380,7 @@ export default function AlertsPage() {
       }
     >
       <div className="space-y-3">
+        <UnavailableNotice nodes={missing} />
         <RichStatsBar stats={stats} />
         <DataTable
           columns={columns}

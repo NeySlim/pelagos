@@ -35,7 +35,8 @@
       "title": "Alertes",
       "open": "{{count}} ouvertes",
       "open_one": "{{count}} ouverte",
-      "none": "Rien d'ouvert"
+      "none": "Rien d'ouvert",
+      "unavailable": "Non comptés : {{nodes}} (pas de réponse)"
     },
     "zones": {
       "title": "Synchro des zones",

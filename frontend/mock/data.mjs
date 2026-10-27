@@ -860,6 +860,8 @@ function makeAlerts(names) {
     acked_at: null,
     resolved_at: null,
     ...extra,
+    // Nodes whose collector holds the alert: the API's cluster view (cluster-wide ones from the primary).
+    reported_by: extra.reported_by || [extra.node_id || NODE_IDS.ns1],
   })
   return [
     a('ALRT0000000000000000000001', 'pool_near_full', 'warning', 'open', 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219', 'pool 192.0.2.200-192.0.2.219 of subnet 3 is 95% used', {

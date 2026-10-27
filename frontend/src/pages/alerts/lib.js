@@ -79,3 +79,17 @@ export function pressureLatches(alert, points, threshold) {
   }
   return out
 }
+
+// Where an alert comes from in the cluster view: its node, or none for a cluster-wide alert, which
+// the nodes in `reported_by` hold.
+export function alertOrigin(alert) {
+  const reporters = Array.isArray(alert?.reported_by) ? alert.reported_by : []
+  return { node: alert?.node_id || null, reporters }
+}
+
+// Nodes whose alerts the API could not read (meta.unavailable of GET /alerts, or the summary's).
+export function unavailableNodes(...sources) {
+  const seen = new Map()
+  for (const list of sources) for (const u of Array.isArray(list) ? list : []) if (u?.node_id && !seen.has(u.node_id)) seen.set(u.node_id, u)
+  return [...seen.values()]
+}

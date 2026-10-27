@@ -227,6 +227,11 @@ export function InconsistenciesTile({ summary, alerts, editing }) {
           </Link>
         ))}
       </div>
+      {counts.unavailable?.length > 0 && (
+        <p className="text-2xs status-warning-text mb-2" data-testid="tile-alerts-unavailable">
+          {t('tiles.inconsistencies.unavailable', { nodes: counts.unavailable.map((u) => u.name || u.node_id).join(', ') })}
+        </p>
+      )}
       {alerts === null ? null : alerts.length === 0 ? (
         <p className="text-xs text-text-tertiary italic">{t('tiles.inconsistencies.none')}</p>
       ) : (

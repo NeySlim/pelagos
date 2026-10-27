@@ -3,8 +3,10 @@
 
 Subjects (kind delegation_issue, `<z>` is `zone` or `zone@view`): `ns-unresolved:<z>:<ns>`,
 `ns-silent:<z>:<ns>`, `ns-transfer:<z>:<ns>`, `ns-extra:<address>` (grouped over the zones by
-`group_extra`), `soa-range:<z>` (one per zone, all out of range fields in its details), `view-unchecked:<view>` (no read key selects the view).
-Built-in and automatic empty zones are skipped by the caller (`builtin_zones`). Every view is checked through its own read key; also-notify and allow-transfer are the effective
+`group_extra`), `soa-range:<z>` (one per zone, every out of range field in its details),
+`view-unchecked:<view>` (no read key selects the view). Built-in and automatic empty zones are
+skipped by the caller (`builtin_zones`). Every view is checked through its own read key; also-notify
+and allow-transfer are the effective
 lists (zone, else view, else options).
 """
 

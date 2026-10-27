@@ -63,6 +63,7 @@
     "ackedAt": "Acquittée le",
     "resolvedAt": "Résolue le",
     "details": "Détails",
+    "distroUnavailable": "Données de sécurité de la distribution indisponibles depuis le {{since}} ({{reason}})",
     "noDetails": "Aucun détail",
     "pressure": "Occupation du pool",
     "full": "plein"

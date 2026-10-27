@@ -131,16 +131,26 @@ def _cve_details(e: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _source(pkg: distro.Package | None, tracker: dict[str, Any] | None, reason: str | None) -> dict[str, Any]:
+def _source(
+    pkg: distro.Package | None,
+    tracker: dict[str, Any] | None,
+    reason: str | None,
+    tracker_error: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if reason is not None or pkg is None:
-        return {"name": None, "reason": reason}
-    if pkg.manager == "rpm":
+        out: dict[str, Any] = {"name": None, "reason": reason}
+    elif pkg.manager == "rpm":
         return {"name": "dnf updateinfo"}
-    return {
-        "name": "Debian security tracker",
-        "url": (tracker or {}).get("source"),
-        "fetched": (tracker or {}).get("fetched"),
-    }
+    else:
+        out = {
+            "name": "Debian security tracker",
+            "url": (tracker or {}).get("source"),
+            "fetched": (tracker or {}).get("fetched"),
+        }
+    if tracker_error and pkg is not None and pkg.manager == "deb":
+        # The download keeps failing: the data is missing or stale since `since`, for `reason`.
+        out["unavailable"] = {"since": tracker_error.get("since"), "reason": tracker_error.get("reason")}
+    return out
 
 
 def advisory_alerts(
@@ -149,6 +159,7 @@ def advisory_alerts(
     data: dict[str, Any],
     packages: dict[Engine, distro.Package | None] | None = None,
     tracker: dict[str, Any] | None = None,
+    tracker_error: dict[str, Any] | None = None,
 ) -> list[Alert]:
     """One alert per engine with the CVEs that still apply. A CVE the distribution package fixes
     is listed under `fixed_by_distribution` and raises nothing on its own."""
@@ -198,7 +209,7 @@ def advisory_alerts(
                     "cves": [_cve_details(e) for e in remaining],
                     "fixed_by_distribution": [e["id"] for e in entries if e["status"] == distro.FIXED],
                     "package": pkg.to_dict() if pkg else None,
-                    "distribution_data": _source(pkg, tracker, reason),
+                    "distribution_data": _source(pkg, tracker, reason, tracker_error),
                     "dataset_updated": data.get("updated"),
                     "dataset_verified": data.get("verified"),
                     "dataset_revision": data.get("revision"),

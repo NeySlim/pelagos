@@ -12,12 +12,12 @@ CVE fixes installed (`i`) or available for the packages. A CVE it does not list 
 
 from __future__ import annotations
 
-import gzip
 import json
 import logging
 import re
 import shutil
 import subprocess
+import time
 import urllib.request
 import zlib
 from collections.abc import Callable, Iterable
@@ -33,6 +33,9 @@ log = logging.getLogger(__name__)
 
 DEBIAN_TRACKER_URL = "https://security-tracker.debian.org/tracker/data/json"
 TRACKER_NAME = "debian_security_tracker.json"
+TRACKER_STATUS_NAME = "debian_security_tracker.status.json"
+TRACKER_DEADLINE_SECONDS = 600.0  # the whole download; production needed ~25 s on a slow node
+_ALLOW_HTTP = False  # tests serve the tracker from a local plain HTTP server
 TRACKER_SOURCES = ("bind9", "isc-kea")
 MAX_TRACKER_BYTES = 400_000_000
 DEB_PACKAGES = {Engine.BIND: "bind9", Engine.KEA4: "kea-dhcp4-server", Engine.KEA6: "kea-dhcp6-server"}
@@ -289,36 +292,77 @@ def trim(entries: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _gunzip_stream(resp: Any, limit: int) -> Iterable[bytes]:
+class TrackerError(Exception):
+    """The tracker download failed; the text is the reason shown to the operator."""
+
+
+def _gunzip_stream(resp: Any, limit: int, deadline: float) -> Iterable[bytes]:
     gz = resp.headers.get("Content-Encoding", "") == "gzip"
     inflate = zlib.decompressobj(16 + zlib.MAX_WBITS) if gz else None
     total = 0
     while True:
-        raw = resp.read(1 << 20)
+        if time.monotonic() > deadline:
+            raise TrackerError("download deadline exceeded")
+        raw = resp.read1(1 << 16)  # one socket read: a trickle cannot outlast the deadline
         if not raw:
             break
         data = inflate.decompress(raw) if inflate else raw
         total += len(data)
         if total > limit:
-            raise ValueError("tracker data too large")
+            raise TrackerError("tracker data too large")
         yield data
 
 
-def fetch_debian_tracker(url: str, var_dir: Path, timeout: float = 60.0) -> bool:
-    """Download the tracker (https only) and keep the BIND and Kea entries in `var_dir`."""
-    if not url.startswith("https://"):
-        return False
-    req = urllib.request.Request(url, headers={"Accept-Encoding": "gzip"})  # noqa: S310 (https checked)
+def tracker_status(var_dir: Path) -> dict[str, Any] | None:
+    """{"since", "reason", "last_attempt"} while the last downloads fail, None when they work."""
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (https checked above)
-            entries = extract_sources(_gunzip_stream(resp, MAX_TRACKER_BYTES), TRACKER_SOURCES)
-            modified = resp.headers.get("Last-Modified")
-    except (OSError, ValueError, zlib.error, gzip.BadGzipFile) as exc:
-        log.warning("Debian security tracker not fetched: %s", exc)
+        data = json.loads((var_dir / TRACKER_STATUS_NAME).read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) and data.get("reason") else None
+
+
+def _record_status(var_dir: Path, reason: str | None) -> None:
+    """`since` stays at the first failure of a run of failures; a success clears the file."""
+    target = var_dir / TRACKER_STATUS_NAME
+    if reason is None:
+        target.unlink(missing_ok=True)
+        return
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    previous = tracker_status(var_dir)
+    body = {"since": (previous or {}).get("since", now), "reason": reason, "last_attempt": now}
+    try:
+        target.write_text(json.dumps(body))
+    except OSError as exc:
+        log.warning("Debian security tracker status not written: %s", exc)
+
+
+def fetch_debian_tracker(
+    url: str, var_dir: Path, timeout: float = 30.0, deadline: float = TRACKER_DEADLINE_SECONDS
+) -> bool:
+    """Download the tracker (https only) and keep the BIND and Kea entries in `var_dir`. `timeout`
+    bounds each read, `deadline` the whole download. One log line and a status file on failure."""
+    try:
+        _download(url, var_dir, timeout, deadline)
+    except Exception as exc:
+        reason = f"{type(exc).__name__}: {exc}" if not isinstance(exc, TrackerError) else str(exc)
+        log.warning("Debian security tracker not fetched from %s: %s", url, reason)
+        _record_status(var_dir, reason)
         return False
+    _record_status(var_dir, None)
+    return True
+
+
+def _download(url: str, var_dir: Path, timeout: float, deadline: float) -> None:
+    if not url.startswith("https://") and not (url.startswith("http://") and _ALLOW_HTTP):
+        raise TrackerError("only https URLs are fetched")
+    req = urllib.request.Request(url, headers={"Accept-Encoding": "gzip"})  # noqa: S310 (scheme checked)
+    end = time.monotonic() + deadline
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (scheme checked above)
+        entries = extract_sources(_gunzip_stream(resp, MAX_TRACKER_BYTES, end), TRACKER_SOURCES)
+        modified = resp.headers.get("Last-Modified")
     if not entries:
-        log.warning("Debian security tracker from %s has no BIND or Kea entry", url)
-        return False
+        raise TrackerError("no BIND or Kea entry in the data")
     body = {
         "schema": 1,
         "source": url,
@@ -330,7 +374,6 @@ def fetch_debian_tracker(url: str, var_dir: Path, timeout: float = 60.0) -> bool
     tmp = target.with_suffix(".tmp")
     tmp.write_text(json.dumps(body, separators=(",", ":")))
     tmp.replace(target)
-    return True
 
 
 def load_tracker(var_dir: Path) -> dict[str, Any] | None:

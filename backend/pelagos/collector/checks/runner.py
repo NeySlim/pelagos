@@ -381,8 +381,9 @@ class HealthChecks:
         packages = {e: self._package(e, v, now) for e, v in installed.items()}
         tracker = self._load_tracker(var) if cfg.distro_tracker_enabled else None
         data = self._advisory_data[1]
-        alerts = advisories.advisory_alerts(self.node_id, installed, data, packages, tracker)
-        self._record_advisories(installed, packages, tracker, data, now)
+        error = distro.tracker_status(var) if cfg.distro_tracker_enabled else None
+        alerts = advisories.advisory_alerts(self.node_id, installed, data, packages, tracker, error)
+        self._record_advisories(installed, packages, tracker, data, now, error)
         return PollOutcome(alerts=alerts, kinds=kinds, where=_mine(self.node_id))
 
     def daemons_changed(self) -> PollOutcome | None:
@@ -434,6 +435,7 @@ class HealthChecks:
         tracker: dict[str, Any] | None,
         data: dict[str, Any],
         now: float,
+        tracker_error: dict[str, Any] | None = None,
     ) -> None:
         """Per engine snapshot of every matching CVE and its distribution verdict, fixed ones included."""
         for engine, version in installed.items():
@@ -443,6 +445,7 @@ class HealthChecks:
                 "version": version,
                 "package": pkg.to_dict() if pkg else None,
                 "reason": reason,
+                "tracker_error": tracker_error,
                 "cves": {e["id"]: e["status"] for e in entries},
             }
             self.store.write_snapshot(self.node_id, engine.value, "advisories", int(now), payload)

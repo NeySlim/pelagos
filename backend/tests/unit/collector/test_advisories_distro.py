@@ -3,7 +3,12 @@
 
 from __future__ import annotations
 
+import gzip
+import http.server
 import json
+import logging
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -15,6 +20,7 @@ pytestmark = pytest.mark.unit
 
 EXCERPT = Path(__file__).parent / "data" / "debian_tracker_excerpt.json"
 DATA = advisories.load()
+REAL_FETCH = distro.fetch_debian_tracker  # a conftest fixture replaces the module attribute
 
 
 def tracker(tmp_path: Path) -> dict:
@@ -205,3 +211,71 @@ def test_rpm_cves_from_dnf_updateinfo():
 def test_fetch_refuses_plain_http(tmp_path):
     assert distro.fetch_debian_tracker("http://example.lan/json", tmp_path) is False
     assert distro.load_tracker(tmp_path) is None
+
+
+@pytest.fixture
+def slow_tracker(monkeypatch):
+    """A plain HTTP server that sends the gzipped tracker in 40 pieces, 25 ms apart (about 1 s, the
+    25 s of the arm64 node scaled down)."""
+    body = gzip.compress(EXCERPT.read_bytes())
+    step = max(1, len(body) // 40)
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            try:
+                for i in range(0, len(body), step):
+                    self.wfile.write(body[i : i + step])
+                    self.wfile.flush()
+                    time.sleep(0.025)
+            except OSError:
+                pass
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setattr(distro, "_ALLOW_HTTP", True)
+    yield f"http://127.0.0.1:{server.server_port}/json"
+    server.shutdown()
+    server.server_close()
+
+
+def test_slow_download_succeeds_within_the_deadline_and_clears_the_status(tmp_path, slow_tracker):
+    distro._record_status(tmp_path, "earlier failure")
+    # The read timeout is shorter than the whole download: only the total deadline bounds it.
+    assert REAL_FETCH(slow_tracker, tmp_path, timeout=0.5, deadline=30) is True
+    assert distro.load_tracker(tmp_path)["packages"]["isc-kea"]
+    assert distro.tracker_status(tmp_path) is None
+
+
+def test_download_past_the_deadline_is_logged_and_recorded(tmp_path, slow_tracker, caplog):
+    with caplog.at_level(logging.WARNING):
+        assert REAL_FETCH(slow_tracker, tmp_path, timeout=0.5, deadline=0.2) is False
+    lines = [r for r in caplog.records if "Debian security tracker not fetched" in r.message]
+    assert len(lines) == 1 and "deadline" in lines[0].message
+    first = distro.tracker_status(tmp_path)
+    assert first["reason"] == "download deadline exceeded"
+    time.sleep(1.1)
+    REAL_FETCH(slow_tracker, tmp_path, timeout=0.5, deadline=0.2)
+    assert distro.tracker_status(tmp_path)["since"] == first["since"]  # `since` is the first failure
+
+
+def test_unreachable_tracker_gives_a_reason(tmp_path, monkeypatch):
+    monkeypatch.setattr(distro, "_ALLOW_HTTP", True)
+    assert REAL_FETCH("http://127.0.0.1:9/json", tmp_path, timeout=0.5) is False
+    assert "Connection refused" in distro.tracker_status(tmp_path)["reason"]
+    assert REAL_FETCH("http://example.lan/json", tmp_path) is False
+
+
+def test_alert_says_since_when_the_distribution_data_is_unavailable():
+    pkg = deb("kea-dhcp4-server", "isc-kea", "2.6.3-1+deb13u1")
+    error = {"since": "2026-10-27T10:00:00Z", "reason": "download deadline exceeded"}
+    (alert,) = advisories.advisory_alerts("n1", {Engine.KEA4: "2.6.3"}, DATA, {Engine.KEA4: pkg}, None, error)
+    assert alert.details["distribution_data"]["unavailable"] == error
+    (plain,) = advisories.advisory_alerts("n1", {Engine.KEA4: "2.6.3"}, DATA, {Engine.KEA4: pkg}, None)
+    assert "unavailable" not in plain.details["distribution_data"]

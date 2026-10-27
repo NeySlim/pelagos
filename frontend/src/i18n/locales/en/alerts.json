@@ -63,6 +63,7 @@
     "ackedAt": "Acknowledged at",
     "resolvedAt": "Resolved at",
     "details": "Details",
+    "distroUnavailable": "Distribution security data unavailable since {{since}} ({{reason}})",
     "noDetails": "No details",
     "pressure": "Pool use",
     "full": "full"

@@ -9,6 +9,7 @@ const N1 = '01JB0000000000000000NS1AAA'
 const ALERTS = [
   { id: 'A1', kind: 'ptr_mismatch', severity: 'warning', state: 'open', node_id: null, engine: null, subject: 'ip:192.0.2.106', title: 'PTR of 192.0.2.106 names another host', details: { ip: '192.0.2.106', exception_keys: ['192.0.2.106|pc7.example.lan.'] }, first_seen: '2026-10-24T10:00:00Z', last_seen: '2026-10-24T11:00:00Z' },
   { id: 'A2', kind: 'pool_full', severity: 'critical', state: 'open', node_id: N1, engine: 'kea4', subject: 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219', title: 'Pool is full', details: {}, first_seen: '2026-10-24T10:00:00Z', last_seen: '2026-10-24T11:00:00Z' },
+  { id: 'A3', kind: 'security_advisory', severity: 'warning', state: 'open', node_id: N1, engine: 'kea4', subject: 'kea4:advisories', title: 'upstream kea4 2.6.3 is affected', details: { distribution_data: { name: null, reason: 'no_tracker', unavailable: { since: '2026-10-27T10:00:00Z', reason: 'download deadline exceeded' } } }, first_seen: '2026-10-24T10:00:00Z', last_seen: '2026-10-24T11:00:00Z' },
 ]
 
 const calls = { list: vi.fn(), ack: vi.fn(), run: vi.fn(), addException: vi.fn() }
@@ -87,6 +88,14 @@ describe('AlertsPage', () => {
     fireEvent.click(await screen.findByText('PTR of 192.0.2.106 names another host'))
     const detail = await screen.findByTestId('alert-detail')
     expect(within(detail).getByTestId('alert-open-subject')).toHaveTextContent('Open the host')
+  })
+
+  it('says since when the distribution security data is unavailable', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByText('upstream kea4 2.6.3 is affected'))
+    const detail = await screen.findByTestId('alert-detail')
+    expect(within(detail).getByTestId('distro-data-unavailable')).toHaveTextContent('unavailable since')
+    expect(within(detail).getByTestId('distro-data-unavailable')).toHaveTextContent('download deadline exceeded')
   })
 
   it('ignores the objects of an inconsistency with a mandatory comment', async () => {

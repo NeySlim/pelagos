@@ -63,6 +63,17 @@ function FileAdoptActions({ alert }) {
 
 const POOL_KINDS = new Set(['pool_near_full', 'pool_full'])
 // The pool's use over the incident against the fixed thresholds, with its latches.
+function DistroDataNotice({ alert }) {
+  const { t } = useTranslation('alerts')
+  const gone = alert.kind === 'security_advisory' ? alert.details?.distribution_data?.unavailable : null
+  if (!gone) return null
+  return (
+    <p className="text-xs rounded-lg border border-border bg-bg-secondary p-2" data-testid="distro-data-unavailable">
+      {t('detail.distroUnavailable', { since: formatDate(gone.since), reason: gone.reason })}
+    </p>
+  )
+}
+
 function AlertPressure({ alert }) {
   const { t } = useTranslation(['alerts', 'common'])
   const query = poolSeriesQuery(alert)
@@ -139,6 +150,7 @@ function AlertDetail({ alert, nodeName, canAck, onAck, onIgnore, onClose }) {
             {alert.resolved_at && <Field label={t('detail.resolvedAt')}>{formatDate(alert.resolved_at)}</Field>}
           </dl>
           {POOL_KINDS.has(alert.kind) && <AlertPressure alert={alert} />}
+          <DistroDataNotice alert={alert} />
           <div>
             <h4 className="ui-label text-2xs uppercase tracking-wider text-text-tertiary mb-1">{t('detail.details')}</h4>
             {Object.keys(alert.details || {}).length ? (

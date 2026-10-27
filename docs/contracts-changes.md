@@ -1460,3 +1460,28 @@ once per view per pass and `delegation_max_zones` only counts zones that can be 
 ## 2026-10-27, pytest-xdist in the dev dependencies
 Additive. `backend/pyproject.toml`: `pytest-xdist` joins the `dev` extra so CI runs the unit
 tier with `pytest -n auto`. No runtime dependency, `packaging/requirements.lock` unchanged.
+
+## 2026-10-27, Built-in zones skipped, one SOA alert per zone, tracker status
+Additive except the `soa-range` subject. WP-BIND: `connectors/bind/builtin_zones.py` is the one
+list of zones that come with the distribution or with named (Debian `db.local` zones and the
+automatic empty zones of BIND 9.20 that are not private address space, source and date in the
+file); `installer/zone_audit.BUILTIN_ZONES` now points to it and `is_builtin_zone(name)` is for
+every zone check. WP-COLLECTOR: delegation, SOA and journal checks skip those zones; the alert
+`soa-range:<zone>` replaces the per-field `soa-range:<zone>:<field>` (details `zone`, `fields`
+list of `field`, `value`, `low`, `high`), the old alerts close on the next pass, and an
+exception recorded on an old subject no longer matches. `domain/messages.py`: `alert.soa_range`
+takes `zone` and `fields` instead of `field`, `value`, `low`, `high`; keys regenerated. The
+Debian tracker download has a per-read timeout and a total deadline, logs one line with the
+reason on failure and keeps `debian_security_tracker.status.json` (`since`, `reason`,
+`last_attempt`) in the var directory. `security_advisory` alerts carry
+`details.distribution_data.unavailable` (`since`, `reason`) while it fails, and the
+`advisories` snapshot carries `tracker_error`. WP-FRONTEND: the alert detail shows
+"distribution security data unavailable since ..." (`alerts:detail.distroUnavailable`).
+
+Not done, by design: sharing the extracted tracker data between nodes through replication.
+Replication only carries `cluster.toml` and the audit log, entry by entry under the writer's
+stamp, so it would need a new replicated artifact (a new endpoint, size limits, freshness and
+conflict rules) and a node would take security verdicts from a peer's download, which makes
+a compromised or stale peer able to hide an advisory on every node. The extract is small
+(a few hundred kilobytes), the download is daily, and a failure is now logged and shown, so
+each node keeps fetching on its own.

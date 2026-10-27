@@ -71,6 +71,8 @@ distribution's `python3` on RHEL 10): build on the release you install on.
 
 ## Debian 13 (deb)
 
+An existing node is upgraded node by node, see [Upgrade and rollback](upgrade.md).
+
 ### 1. Install BIND and Kea (optional)
 
 Skip this step to let Pelagos install them (step 3, `pelagos install`).

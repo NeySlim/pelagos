@@ -227,6 +227,18 @@ sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.named
 - **A node was down for a while**: nothing to do; it pulls the newer
   `cluster.toml` and the missing audit entries when it comes back.
 
+## After a rollback
+
+- **The collector logs `'<kind>' is not a valid AlertKind` and every poll
+  fails**: the previous release started over the series cache of the newer
+  one. Stop both units, delete the cache and start again:
+  `sudo sh -c 'rm -f /var/lib/pelagos/series.sqlite*'` (the `sh -c` expands
+  the `*` as root). It is rebuilt from the engines. See
+  [Upgrade and rollback](upgrade.md#rollback).
+- **Customised thresholds are back at their defaults**: expected, the older
+  release does not read the new setting tables. Enter the values printed by
+  `pelagos settings --legacy` before the rollback.
+
 ## Certificate errors
 
 - **Browser warning on `:8443`**: the self-signed certificate. Install

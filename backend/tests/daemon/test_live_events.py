@@ -156,6 +156,11 @@ def test_collector_and_web_events_reach_a_websocket_client(live_node):
         ws.send({"action": "subscribe", "topics": TOPICS})
         ws.until(lambda m: m.get("event") == "subscribed")
         try:
+            # The first lease walk only records the table: a lease added before it is never "new".
+            wait_for(
+                lambda: http.get(f"http://127.0.0.1:{port}{V1}/dhcp/v4/leases/recent").json()["as_of"],
+                timeout=30,
+            )
             # A client takes a lease: the collector's lease watch publishes it (with its walk period).
             kea.ok(
                 "lease4-add",

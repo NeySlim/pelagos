@@ -919,6 +919,9 @@ class Replicator:
         """
         # A peer without a digest (older release) is always merged both ways.
         if status.config_digest is not None and status.config_digest == self.config_store.digest():
+            # Same entries, higher header on the peer: take it so versions converge too.
+            if (status.config_version or 0) > self.config_store.cluster_version()[0]:
+                return self.config_store.merge_remote(client.fetch_config()["toml"])
             return False
         adopted = self.config_store.merge_remote(client.fetch_config()["toml"])
         if status.config_digest is None or self.config_store.digest() != status.config_digest:

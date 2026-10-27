@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import socket
 import time
+import tomllib
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import timedelta
@@ -13,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import tomli_w
 
 from pelagos.collector.events import SignalListener
 from pelagos.core import ca as ca_mod
@@ -421,6 +423,37 @@ def test_concurrent_writes_on_two_nodes_are_both_kept(pair):
         assert cfg.user("bob") is not None and cfg.settings["plans"]["ttl_seconds"] == 321
     assert _same_config(a, b)
     assert a.ctx.cluster().version == b.ctx.cluster().version > cfg_a.version
+
+
+def _with_former_setting(node: LiveNode, version: int, stamp: str) -> None:
+    """The node's file as an upgrade finds it: a former settings name, its own version header."""
+    path = node.ctx.paths.cluster_toml
+    data = tomllib.loads(path.read_text())
+    data["version"] = version
+    data["settings"]["plan_ttl_seconds"] = 777
+    data["settings"].get("plans", {}).pop("ttl_seconds", None)
+    data["replication"]["stamps"].pop("settings/plans/ttl_seconds", None)
+    data["replication"]["stamps"]["settings/plan_ttl_seconds"] = stamp
+    path.write_text(tomli_w.dumps(data))
+
+
+def test_settings_migrated_on_each_node_converge_on_one_version(pair):
+    """Both nodes upgrade and migrate on their own (headers 11 and 12): same entries, same version."""
+    a, b = pair
+    b.service.stop()
+    stamp = f"9@{a.id}"
+    _with_former_setting(a, 11, stamp)
+    _with_former_setting(b, 12, stamp)
+    assert a.ctx.migrate_settings() and b.ctx.migrate_settings()
+    # The migration renames without a new version: each header stays where it was.
+    assert (a.ctx.cluster().version, b.ctx.cluster().version) == (11, 12)
+    assert _same_config(a, b) and a.ctx.settings()["plans"]["ttl_seconds"] == 777
+    b.restart()  # B pulls from A: same entries, A is lower, nothing to take
+    a.service.replicator.pull_all()  # A sees B's higher header with the same entries
+    assert a.ctx.cluster().version == b.ctx.cluster().version == 12
+    assert _same_config(a, b)
+    a.service.replicator.pull_all()
+    assert a.ctx.cluster().version == 12, "aligned once, then nothing to do"
 
 
 def test_concurrent_writes_to_the_same_key_resolve_alike_everywhere(pair):

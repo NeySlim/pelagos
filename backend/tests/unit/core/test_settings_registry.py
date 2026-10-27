@@ -300,6 +300,19 @@ def test_migration_is_written_once_and_is_idempotent(tmp_path, release):
 
 
 @pytest.mark.parametrize("release", ["2b86817", "8ce8fae"])
+def test_two_nodes_migrating_the_same_file_end_identical(tmp_path, release):
+    stores = [_store(tmp_path / n, release) for n in ("n1", "n2") if (tmp_path / n).mkdir() is None]
+    version = _raw(release)["version"]
+    for i, store in enumerate(stores):
+        assert store.migrate_settings(updated_by=f"node:n{i + 1}")
+    first, second = (s.load_cluster() for s in stores)
+    assert first.version == second.version == version, "a rename is not a new version"
+    assert first.digest() == second.digest()
+    merged = merge_configs(first, second)
+    assert merged.version == version and merged.digest() == first.digest()
+
+
+@pytest.mark.parametrize("release", ["2b86817", "8ce8fae"])
 def test_replication_with_a_node_still_on_the_former_file(tmp_path, release):
     store = _store(tmp_path, release)
     store.migrate_settings(updated_by="node:n1")

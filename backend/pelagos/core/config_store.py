@@ -383,12 +383,22 @@ class ConfigStore:
     def migrate_settings(self, updated_by: str) -> list[tuple[str, str]]:
         """Write cluster.toml once with former settings names renamed; [] when none was left.
 
-        Every load already migrates in memory; this write makes the file and its replicas match."""
-        if not self.cluster_path.exists() or not self.load_cluster().migrated:
+        Every load already migrates in memory; this write makes the file match, version unchanged."""
+        if not self.cluster_path.exists():
             return []
-        moved: list[tuple[str, str]] = []
-        self.update_cluster(lambda c: moved.extend(c.migrated), updated_by=updated_by)
-        return moved
+        with self.lock:
+            cfg = self.load_cluster()
+            if not cfg.migrated:
+                return []
+            # The rename keeps every entry and stamp: no new version, so peers migrating the same
+            # file on their own end on the same header (a bump would never converge, digests equal).
+            if cfg.stamped:
+                state = cfg.state()
+                cfg.stamps, cfg.tombstones = state.stamps, state.tombstones
+            atomic_write(self.cluster_path, cfg.dumps().encode())
+        for cb in self._on_change:
+            cb(cfg)
+        return list(cfg.migrated)
 
     def merge_remote(self, toml_text: str) -> bool:
         """Merge a peer's cluster.toml entry by entry (section 13); True when the local file changed."""

@@ -49,6 +49,37 @@ def test_audit_reports_refused_zones_with_the_query_address(tmp_path):
     assert "127.0.0.1" in f.proposal
 
 
+def _local_bind_table(env, **extra):
+    from pelagos.core.config_store import ConfigStore, NodeConfig
+
+    env.node_paths.ensure()
+    table = {"rndc_address": "127.0.0.1", "rndc_port": 953, **extra}
+    ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml).save_node(
+        NodeConfig(id=env.node_id, name=env.node_id, engines={"bind": table})
+    )
+
+
+def test_audit_uses_query_address_of_a_local_named(tmp_path):
+    env = _env(tmp_path)
+    _local_bind_table(env, query_address="192.0.2.10", query_port=53)
+    env.t.refused = {("127.0.0.1", "example.lan.")}
+    assert env.remote_bind() is None
+    inp = collect_bind(env)
+    assert inp is not None and inp.query_address == "192.0.2.10" and inp.query_refused == []
+    assert not [f for f in audit_bind(inp) if f.kind == "query_refused"]
+
+
+def test_refused_proposal_suggests_query_address(tmp_path):
+    env = _env(tmp_path)
+    _local_bind_table(env, query_address="192.0.2.10")
+    env.t.refused = {("192.0.2.10", "example.lan.")}
+    inp = collect_bind(env)
+    assert inp is not None and inp.query_refused == ["example.lan."]
+    (f,) = [f for f in audit_bind(inp) if f.kind == "query_refused"]
+    assert f.id == "bind:query_refused:192.0.2.10"
+    assert "query_address" in f.proposal and "192.0.2.10" in f.proposal
+
+
 def test_audit_silent_when_named_is_stopped(tmp_path):
     env = legacy_tree(tmp_path)
     env.t.refused = {("127.0.0.1", "example.lan.")}

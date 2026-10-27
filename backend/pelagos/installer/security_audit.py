@@ -300,7 +300,7 @@ def audit_bind(inp: BindAuditInput) -> list[Finding]:
                 "bind",
                 inp.query_address,
                 msg("finding.query_refused.description", address=inp.query_address, zones=join(zones, ", ")),
-                msg("finding.query_refused.proposal", zones=join(zones, ", ")),
+                msg("finding.query_refused.proposal", address=inp.query_address, zones=join(zones, ", ")),
                 msg("finding.query_refused.risk"),
                 {"zones": zones, "address": inp.query_address, "remediable": False},
             )
@@ -716,8 +716,9 @@ def collect_bind(env: Any) -> BindAuditInput | None:
 
 
 def _probe_query_access(env: Any, files: bindconf.ConfigFiles) -> tuple[str, list[str]]:
-    """The query address Pelagos uses and the zones named refuses a SOA query for from it."""
-    table = env.remote_bind() or {}
+    """The query address Pelagos uses (same [engines.bind] source as the collector, local named
+    included) and the zones named refuses a SOA query for from it."""
+    table = env.bind_table() or {}
     address = str(table.get("query_address") or "127.0.0.1")
     port = int(table.get("query_port") or 53)
     zones = bindsetup.served_zones(files)

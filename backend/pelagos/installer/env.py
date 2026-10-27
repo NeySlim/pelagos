@@ -304,20 +304,30 @@ class InstallerEnv:
     def bind_unit(self) -> str:
         return self.paths.bind_service
 
-    def remote_bind(self) -> dict[str, Any] | None:
-        """node.toml [engines.bind] (or the parked table) of a named on another host, such as the
-        BIND container of docker/compose.yaml: rndc and the statistics channel go there."""
+    def _bind_tables(self) -> list[dict[str, Any]]:
+        """node.toml [engines.bind] then the parked [engines.disabled.bind], those that are tables."""
         try:
             if not self.node_paths.node_toml.exists():
-                return None
+                return []
             from pelagos.core.config_store import ConfigStore
 
             engines = ConfigStore(self.node_paths.node_toml, self.node_paths.cluster_toml).load_node().engines
         except (OSError, ValueError):
-            return None
+            return []
         disabled = engines.get("disabled")
-        for table in (engines.get("bind"), disabled.get("bind") if isinstance(disabled, dict) else None):
-            if isinstance(table, dict) and str(table.get("rndc_address") or "") not in LOCAL_ADDRESSES:
+        tables = (engines.get("bind"), disabled.get("bind") if isinstance(disabled, dict) else None)
+        return [t for t in tables if isinstance(t, dict)]
+
+    def bind_table(self) -> dict[str, Any] | None:
+        """Where Pelagos reaches named, local or not: the table the collector reads its query address from."""
+        tables = self._bind_tables()
+        return tables[0] if tables else None
+
+    def remote_bind(self) -> dict[str, Any] | None:
+        """node.toml [engines.bind] (or the parked table) of a named on another host, such as the
+        BIND container of docker/compose.yaml: rndc and the statistics channel go there."""
+        for table in self._bind_tables():
+            if str(table.get("rndc_address") or "") not in LOCAL_ADDRESSES:
                 return table
         return None
 

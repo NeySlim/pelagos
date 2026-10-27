@@ -404,6 +404,7 @@
     "zones"
   ],
   "finding.query_refused.proposal": [
+    "address",
     "zones"
   ],
   "finding.query_refused.risk": [],

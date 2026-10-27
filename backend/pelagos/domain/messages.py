@@ -254,7 +254,10 @@ CATALOG: dict[str, str] = {
         "named refuses SOA queries from {address} for {zones}: allow-query excludes the address "
         "Pelagos queries from."
     ),
-    "finding.query_refused.proposal": "Add 127.0.0.1 to the allow-query of {zones}",
+    "finding.query_refused.proposal": (
+        "Set [engines.bind] query_address in node.toml to an address allow-query accepts, "
+        "or add {address} to the allow-query of {zones}"
+    ),
     "finding.query_refused.risk": (
         "Pelagos cannot read these zones through queries or transfers until an allowed address is set."
     ),

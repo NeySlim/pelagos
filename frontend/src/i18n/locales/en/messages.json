@@ -9,6 +9,7 @@
   "alert.cert_renewal_failed": "web certificate renewal failed {{failures}} times: {{error}}",
   "alert.config_divergence": "{{engine}} configuration differs between nodes",
   "alert.config_file_divergence": "{{path}} differs from the running {{engine}} configuration",
+  "alert.config_syntax_warning": "{{path}} line {{line}}: {{message}} ({{count}} in the {{engine}} configuration)",
   "alert.custom_hook": "{{engine}} loads {{library}}, which no package owns: it will break when Kea is upgraded",
   "alert.custom_hook_builtin": "{{engine}} loads {{library}}, which no package owns and breaks on a Kea upgrade: use the built-in {{option}} options instead",
   "alert.d2_errors": "DDNS updates failing: {{percent}}% over the last hour",

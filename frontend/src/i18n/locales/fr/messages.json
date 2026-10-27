@@ -9,6 +9,7 @@
   "alert.cert_renewal_failed": "le renouvellement du certificat web a échoué {{failures}} fois : {{error}}",
   "alert.config_divergence": "La configuration {{engine}} diffère entre les nœuds",
   "alert.config_file_divergence": "{{path}} diffère de la configuration {{engine}} en service",
+  "alert.config_syntax_warning": "{{path}} ligne {{line}} : {{message}} ({{count}} dans la configuration {{engine}})",
   "alert.custom_hook": "{{engine}} charge {{library}}, qu'aucun paquet ne fournit : il cassera à la mise à jour de Kea",
   "alert.custom_hook_builtin": "{{engine}} charge {{library}}, qu'aucun paquet ne fournit et qui cassera à la mise à jour de Kea : utiliser plutôt les options intégrées {{option}}",
   "alert.d2_errors": "Échecs des mises à jour DDNS : {{percent}} % sur la dernière heure",

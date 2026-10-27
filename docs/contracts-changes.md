@@ -1521,3 +1521,11 @@ Additive. WP-INSTALLER: finding `kea_ha_listener_open` (module `installer/ha_lis
 remediation `ha_listener`, `Finding.to_dict()` adds `mitigated`. WP-COLLECTOR: the finding is an
 `insecure_listener` alert unless `mitigated`. Contract (`domain/messages.py`): the
 `finding.kea_ha_listener_open.*` keys. WP-FRONTEND: kind label and catalog entries, `en` and `fr`.
+
+## 2026-10-27, Kea syntax warnings
+
+WP-CORE/WP-COLLECTOR: new alert kind `config_syntax_warning` (domain/alerts.py, message
+`alert.config_syntax_warning`), per node, subject `<engine>:config-syntax`;
+`KeaDocument.syntax_warnings()`; `syntax_warnings` in the items of `GET /dhcp/{family}/config/file`.
+WP-FRONTEND: notice on the file status banner, `en` and `fr`. Also `SuccessExitStatus=75 TERM` in
+the two service units and the web worker `pelagos.web_worker.QuietWebSocketWorker`.

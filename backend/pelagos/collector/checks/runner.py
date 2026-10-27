@@ -16,6 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from pelagos.collector import rules
 from pelagos.collector.checks import (
     advisories,
     ddns,
@@ -504,7 +505,14 @@ class HealthChecks:
 
     def slow(self) -> list[PollOutcome]:
         out = []
-        for check in (self._disk, self._reservations, self._delegation, self._roots, self._fetch_tracker):
+        for check in (
+            self._disk,
+            self._kea_syntax,
+            self._reservations,
+            self._delegation,
+            self._roots,
+            self._fetch_tracker,
+        ):
             try:
                 out.append(check())
             except Exception:
@@ -639,6 +647,30 @@ class HealthChecks:
             cfg,
         )
         return [alert] if alert else []
+
+    def _kea_syntax(self) -> PollOutcome:
+        """Syntax warnings Kea prints when it parses the file (an extra comma): one alert per engine."""
+        alerts: list[Alert] = []
+        read_any = False
+        for backend in [*self.backends.dhcp, self.backends.d2]:
+            file = getattr(backend, "file", None)
+            engine = getattr(file, "engine", None)
+            if file is None or not isinstance(engine, str):
+                continue
+            try:
+                with self.lock:
+                    doc = file.document()
+            except (ConnectorError, NotImplementedError):
+                continue
+            read_any = True
+            warnings = doc.syntax_warnings() if doc is not None else []
+            if warnings:
+                alerts.append(rules.config_syntax_warning(self.node_id, Engine(engine), warnings))
+        if not read_any:
+            return PollOutcome()
+        return PollOutcome(
+            alerts=alerts, kinds=frozenset({AlertKind.CONFIG_SYNTAX_WARNING.value}), where=_mine(self.node_id)
+        )
 
     def _reservations(self) -> PollOutcome:
         alerts: list[Alert] = []

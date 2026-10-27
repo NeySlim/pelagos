@@ -344,3 +344,27 @@ def test_ddns_advice_from_d2_targets_and_refused_updates(rig, monkeypatch):
     zone["dns-servers"].append({"ip-address": "192.0.2.2"})
     collector.health()
     assert set(open_of(collector, AlertKind.DDNS_ADVICE)) == {"bind:update-denied"}
+
+
+def test_kea_syntax_warning_opens_with_the_line_and_closes_when_fixed(rig):
+    from pelagos.core.keadoc import KeaDocument
+
+    collector, backends, _ = rig
+    state = {"text": '{ "Dhcp4": {\n  "interfaces-config": { "interfaces": [ "*" ], },\n} }'}
+
+    class File:
+        engine = "kea4"
+
+        def document(self):
+            return KeaDocument.from_text(state["text"], "/etc/kea/kea-dhcp4.conf")
+
+    backends.kea4.file = File()
+    collector.health_audit()
+    found = open_of(collector, AlertKind.CONFIG_SYNTAX_WARNING)
+    assert set(found) == {"kea4:config-syntax"}
+    alert = found["kea4:config-syntax"]
+    assert alert.severity is Severity.WARNING and alert.node_id == collector.node_id
+    assert alert.details["warnings"][0]["line"] == 2 and alert.details["count"] == 2
+    state["text"] = '{ "Dhcp4": {\n  "interfaces-config": { "interfaces": [ "*" ] }\n} }'
+    collector.health_audit()
+    assert not open_of(collector, AlertKind.CONFIG_SYNTAX_WARNING)

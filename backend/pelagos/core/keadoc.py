@@ -24,6 +24,7 @@ from pelagos.core.keafile import KeaConfigError
 INCLUDE_RE = re.compile(r'<\?\s*include\s+"([^"\n]+)"\s*\?>')
 _LITERAL = re.compile(r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null")
 MAX_INCLUDE_DEPTH = 16
+EXTRANEOUS_COMMA = "Extraneous comma. A piece of configuration may have been omitted."
 # Kea opens a relative include against its working directory, `/` under systemd.
 DEFAULT_CWD = Path("/")
 # Keys that identify a list item, tried in order, so a list diff follows items rather than positions.
@@ -277,6 +278,23 @@ class KeaDocument:
         return {self.tokens[m.key].value: self._to_value(m.value) for m in node.members}
 
     # Introspection ---------------------------------------------------------
+
+    def syntax_warnings(self) -> list[dict[str, Any]]:
+        """What Kea warns about while it parses (DHCPx_CONFIG_SYNTAX_WARNING): a comma before `}` or
+        `]`. Each entry has path, line, column (the comma, 1-based as Kea counts) and message."""
+        out: list[dict[str, Any]] = []
+        for k, tok in enumerate(self.tokens[:-1]):
+            if tok.kind == "," and self.tokens[k + 1].kind in ("}", "]"):
+                text = self.texts[tok.file]
+                out.append(
+                    {
+                        "path": str(self.paths[tok.file]),
+                        "line": _line(text, tok.start),
+                        "column": tok.start - _line_start(text, tok.start) + 1,
+                        "message": EXTRANEOUS_COMMA,
+                    }
+                )
+        return out
 
     @property
     def has_includes(self) -> bool:

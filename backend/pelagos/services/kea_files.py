@@ -130,6 +130,7 @@ def status(alerts: Any, engine: Engine, self_id: str, local: Any) -> list[dict[s
             item["readable"] = doc is not None
             if doc is not None:
                 item["files"] = [str(p) for p in file.files(doc)]
+                item["syntax_warnings"] = doc.syntax_warnings()
                 item["includes"] = doc.has_includes
                 diffs = file.differences(local.config_get(), doc)
                 item["differences"] = diffs[:50]
@@ -140,6 +141,7 @@ def status(alerts: Any, engine: Engine, self_id: str, local: Any) -> list[dict[s
         alert = by_node.pop(self_id, None)
         item["alert_id"] = alert.id if alert else None
         item.setdefault("diverged", False)
+        item.setdefault("syntax_warnings", [])
         out.append(item)
     for node_id, alert in by_node.items():
         out.append(

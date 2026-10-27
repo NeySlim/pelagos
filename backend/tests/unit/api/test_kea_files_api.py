@@ -63,7 +63,7 @@ class StubFile:
         self.path = "/etc/kea/kea-dhcp4.conf"
 
     def document(self):
-        return SimpleNamespace(has_includes=False)
+        return SimpleNamespace(has_includes=False, syntax_warnings=lambda: [])
 
     def differences(self, running, doc):
         return list(self.diffs)

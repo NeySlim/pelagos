@@ -159,6 +159,7 @@
     "clock_unsynchronized": "horloge non synchronisée",
     "cert_expiry": "expiration de certificat",
     "cert_renewal_failed": "renouvellement de certificat en échec",
+    "config_syntax_warning": "avertissement de syntaxe de configuration",
     "security_finding": "constat d'audit de sécurité"
   },
   "live": {

@@ -516,6 +516,27 @@ def config_file_divergence(node_id: str, engine: Engine, path: str, differences:
     )
 
 
+def config_syntax_warning(node_id: str, engine: Engine, warnings: list[dict[str, Any]]) -> Alert:
+    """Kea parses the configuration file but warns (DHCPx_CONFIG_SYNTAX_WARNING), e.g. an extra comma."""
+    first = warnings[0]
+    return Alert(
+        kind=AlertKind.CONFIG_SYNTAX_WARNING,
+        severity=Severity.WARNING,
+        node_id=node_id,
+        engine=engine,
+        subject=f"{engine.value}:config-syntax",
+        **_title(
+            "alert.config_syntax_warning",
+            path=first["path"],
+            line=first["line"],
+            message=first["message"],
+            count=len(warnings),
+            engine=engine.value,
+        ),
+        details={"warnings": warnings[:20], "count": len(warnings), "path": first["path"]},
+    )
+
+
 def custom_hook(node_id: str, engine: Engine, library: str, option: str | None) -> Alert:
     """A hook library that no package owns: it is built for one Kea version and breaks at upgrade."""
     name = library.rsplit("/", 1)[-1]

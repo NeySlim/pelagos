@@ -117,6 +117,7 @@ CATALOG: dict[str, str] = {
     "alert.config_divergence": "{engine} configuration differs between nodes",
     "alert.schema_mismatch": "cluster.toml schema differs with node {node}: upgrade the older node",
     "alert.config_file_divergence": "{path} differs from the running {engine} configuration",
+    "alert.config_syntax_warning": "{path} line {line}: {message} ({count} in the {engine} configuration)",
     "alert.lease_without_record": "lease {ip} ({fqdn}) has no {rtype} record in {zone}",
     "alert.record_without_lease": "{rtype} record {name} ({addresses}) has a DHCID but no lease",
     "alert.reservation_mismatch": "reservation {reservation} ({fqdn}) disagrees with DNS: {problems}",

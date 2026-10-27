@@ -22,6 +22,18 @@ export function fileAlertEngine(alert) {
   return match ? ENGINES[match[1]] : null
 }
 
+// Files whose Kea syntax warnings (an extra comma, with file, line and column) were found.
+export function warnedFiles(items) {
+  return (items || []).filter((item) => item && item.syntax_warnings?.length > 0)
+}
+
+// The engine a config_syntax_warning alert is about (subject `<engine>:config-syntax`), else null.
+export function syntaxAlertEngine(alert) {
+  if (!alert || alert.kind !== 'config_syntax_warning') return null
+  const match = /^(kea4|kea6|d2):config-syntax$/.exec(alert.subject || '')
+  return match ? ENGINES[match[1]] : null
+}
+
 // Where a diverged file is: 'here' (this node), 'other' (a peer builds the plan), or 'unknown'
 // while the node list has not loaded (no adopt button then: the target node is not known).
 export function adoptPlace(item, selfId) {
@@ -30,9 +42,9 @@ export function adoptPlace(item, selfId) {
 }
 
 // Whether an `alerts` WebSocket message can change the file status of `engine`: only
-// config_divergence alerts about that engine's file (pool alerts update every poll).
+// config_divergence and config_syntax_warning alerts about that engine's file (pool alerts update every poll).
 export function affectsFileStatus(message, engine) {
   const alert = message?.data
   if (!alert || typeof alert !== 'object') return false
-  return fileAlertEngine(alert) === engine
+  return fileAlertEngine(alert) === engine || syntaxAlertEngine(alert) === engine
 }

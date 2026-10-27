@@ -36,6 +36,13 @@
     "engine",
     "path"
   ],
+  "alert.config_syntax_warning": [
+    "count",
+    "engine",
+    "line",
+    "message",
+    "path"
+  ],
   "alert.custom_hook": [
     "engine",
     "library"

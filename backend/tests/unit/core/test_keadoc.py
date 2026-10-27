@@ -210,3 +210,27 @@ def test_missing_include_is_reported(tmp_path):
     main = write(tmp_path / "main.conf", '{ "Dhcp4": { <?include "/nonexistent/x.json"?> } }')
     with pytest.raises(KeaEditError, match="cannot read"):
         KeaDocument(main)
+
+
+def test_syntax_warnings_name_each_extra_comma_with_line_and_column(tmp_path):
+    text = (
+        "{\n"
+        '  "Dhcp4": {\n'
+        '    "interfaces-config": { "interfaces": [ "*" ], }, // trailing\n'
+        '    "subnet4": [ { "id": 1, "subnet": "192.0.2.0/24", }, ],\n'
+        '    "note": "a, }",\n'
+        "  }\n"
+        "}\n"
+    )
+    found = KeaDocument.from_text(text).syntax_warnings()
+    assert [(w["line"], w["column"]) for w in found] == [(3, 49), (4, 53), (4, 56), (5, 19)]
+    assert all(w["message"].startswith("Extraneous comma") for w in found)
+
+
+def test_syntax_warnings_follow_includes_and_stay_empty_on_clean_files(tmp_path):
+    (tmp_path / "sub.json").write_text('{ "id": 1, "subnet": "192.0.2.0/24",\n}')
+    main = tmp_path / "kea.conf"
+    main.write_text('{ "Dhcp4": { "subnet4": [ <?include "sub.json"?> ] } }')
+    found = KeaDocument(main, cwd=tmp_path).syntax_warnings()
+    assert [(Path(w["path"]).name, w["line"], w["column"]) for w in found] == [("sub.json", 1, 36)]
+    assert KeaDocument.from_text('{ "a": [1, 2], "b": {} }').syntax_warnings() == []

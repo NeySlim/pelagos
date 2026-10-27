@@ -11,7 +11,7 @@ import { useApi } from '../../hooks/useApi'
 import { useWsTopic } from '../../hooks/useWebSocket'
 import { api } from '../../services/api'
 import { useNodeNames, usePlanFlow } from './hooks'
-import { adoptCall, adoptPlace, affectsFileStatus, divergedFiles } from './keaFile'
+import { adoptCall, adoptPlace, affectsFileStatus, divergedFiles, warnedFiles } from './keaFile'
 
 // The status read runs a config-get plus a parse of the file tree: bursts of alerts read it once.
 const REFETCH_DEBOUNCE_MS = 2000
@@ -37,6 +37,7 @@ export function KeaFileBanner({ engine }) {
   )
   const selfId = nodes.find((n) => n.is_self)?.peer?.id
   const diverged = divergedFiles(status.data?.items)
+  const warned = warnedFiles(status.data?.items)
   // The modal keeps its place whether the banner shows or not: a refetch that clears the
   // divergence mid-review must not remount it and drop its state.
   return (
@@ -83,6 +84,25 @@ export function KeaFileBanner({ engine }) {
           })}
         </div>
       )}
+      {warned.map((item) => (
+        <div
+          key={`syntax-${item.node_id}`}
+          role="status"
+          className="flex items-start gap-2 rounded-lg border status-warning-bg status-warning-border px-3 py-2 text-xs status-warning-text"
+          data-testid={`kea-syntax-banner-${engine}`}
+        >
+          <FileX size={16} weight="fill" className="shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">{t('keaFile.syntaxTitle', { path: item.path || '-', node: nameOf(item.node_id) })}</p>
+            <ul className="mt-1 font-mono text-2xs text-text-secondary list-disc pl-4 break-all" data-testid="kea-syntax-warnings">
+              {item.syntax_warnings.slice(0, 5).map((w) => (
+                <li key={`${w.path}:${w.line}:${w.column}`}>{t('keaFile.syntaxAt', { path: w.path, line: w.line, column: w.column, message: w.message })}</li>
+              ))}
+              {item.syntax_warnings.length > 5 && <li>{t('keaFile.more', { n: item.syntax_warnings.length - 5 })}</li>}
+            </ul>
+          </div>
+        </div>
+      ))}
       {flow.modal}
     </>
   )

@@ -382,6 +382,8 @@
   },
   "keaFile": {
     "title": "{{path}} on {{node}} differs from the running configuration",
+    "syntaxTitle": "Kea reads {{path}} on {{node}} with syntax warnings",
+    "syntaxAt": "{{path}} line {{line}}, column {{column}}: {{message}}",
     "blocked": "Kea changes through Pelagos are blocked until one side is adopted.",
     "more": "and {{n}} more",
     "adoptFile": "Adopt the file",

@@ -8,7 +8,7 @@ vi.mock('../../services/api', () => ({
   },
 }))
 
-import { adoptCall, adoptPlace, affectsFileStatus, divergedFiles, fileAlertEngine } from './keaFile'
+import { adoptCall, adoptPlace, affectsFileStatus, divergedFiles, fileAlertEngine, syntaxAlertEngine, warnedFiles } from './keaFile'
 import { nextCursor, previousCursor } from './lib'
 
 describe('kea file divergence', () => {
@@ -60,5 +60,17 @@ describe('affectsFileStatus', () => {
     expect(affectsFileStatus(file, 'd2')).toBe(false)
     expect(affectsFileStatus({ data: { kind: 'pool_full', subject: 'kea4:subnet:1:pool:p' } }, 'v4')).toBe(false)
     expect(affectsFileStatus({}, 'v4')).toBe(false)
+  })
+})
+
+describe('kea syntax warnings', () => {
+  it('lists the files with warnings and the engine a warning alert is about', () => {
+    const items = [{ node_id: 'a', syntax_warnings: [{ path: '/etc/kea/k.conf', line: 56, column: 3 }] }, { node_id: 'b', syntax_warnings: [] }, { node_id: 'c' }]
+    expect(warnedFiles(items).map((i) => i.node_id)).toEqual(['a'])
+    expect(syntaxAlertEngine({ kind: 'config_syntax_warning', subject: 'kea6:config-syntax' })).toBe('v6')
+    expect(syntaxAlertEngine({ kind: 'config_divergence', subject: 'kea6:config-syntax' })).toBe(null)
+    const warned = { topic: 'alerts', data: { kind: 'config_syntax_warning', subject: 'kea4:config-syntax' } }
+    expect(affectsFileStatus(warned, 'v4')).toBe(true)
+    expect(affectsFileStatus(warned, 'v6')).toBe(false)
   })
 })

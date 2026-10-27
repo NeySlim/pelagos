@@ -14,7 +14,8 @@
 # restart); `pelagos import` adopts BIND and Kea; the API reads zones and Kea leases.
 # Environment: SMOKE_MODE (auto, container or vm), DOCKER (default docker), DEBIAN_IMAGE
 # (default debian:trixie), SMOKE_CACHE (cloud image cache, default ~/.cache/pelagos-smoke),
-# KEEP=1 leaves the container or VM running. vm needs qemu-system-arm, qemu-efi-aarch64,
+# KEEP=1 leaves the container or VM running, SMOKE_CPUS and SMOKE_MEM size the VM (default 4
+# and 3072 MiB). vm needs qemu-system-arm, qemu-efi-aarch64, ipxe-qemu (virtio NIC boot ROM),
 # cloud-image-utils and qemu-utils.
 set -euo pipefail
 

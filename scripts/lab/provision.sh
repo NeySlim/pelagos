@@ -8,7 +8,8 @@
 #             (dynamic, updates signed by the hmac-md5 key kea-ddns), Kea DHCPv4 HA primary
 #             (hot-standby), D2 sending updates to the primary with kea-ddns.
 #   lab-ns2   BIND secondary of the same zones, Kea DHCPv4 HA standby, D2 like ns1.
-#   lab-client DHCP client (systemd-networkd through netplan) on its second NIC.
+#   lab-client DHCP client (systemd-networkd through netplan) on its second NIC, taking offers
+#             from ns1 and ns2 only.
 #   pair      the pair alone, without the DHCP client. PROV_NS1, PROV_NS2, PROV_NS1_IP, PROV_NS2_IP and
 #             PROV_IFACE (the DHCP interface, default eth0) point it at other hosts (upgrade tests).
 #   three     the same pair plus lab-rpm (Rocky 10, BIND 9.18 and Kea 3.0 from Rocky): a Kea HA
@@ -404,7 +405,8 @@ EOF
 }
 
 provision_client() {
-  on "$CLIENT" <<'EOF'
+  # Other lab hosts run Kea on the same bridge (the upgrade pair): offers from them are ignored.
+  { printf 'allow="%s %s"\n' "$NS1_IP" "$NS2_IP"; cat; } <<'EOF' | on "$CLIENT"
 set -e
 nic="$(ip -o link show | awk -F': ' '$2 != "lo" && $2 != "eth0" {print $2; exit}')"
 [ -n "$nic" ] || { echo "no second NIC" >&2; exit 1; }
@@ -428,6 +430,8 @@ network:
       link-local: []
 NETPLAN
 chmod 0600 /etc/netplan/60-lab-dhcp.yaml
+mkdir -p /etc/systemd/network/10-netplan-lab-dhcp.network.d
+printf '[DHCPv4]\nAllowList=%s\n' "$allow" > /etc/systemd/network/10-netplan-lab-dhcp.network.d/allow.conf
 netplan apply
 echo "$nic $mac"
 EOF

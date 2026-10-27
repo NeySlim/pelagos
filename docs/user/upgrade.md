@@ -10,6 +10,7 @@ commit and brought back.
 - [What was verified](#what-was-verified)
 - [Before you start](#before-you-start)
 - [Upgrade one node](#upgrade-one-node)
+- [Scripted upgrade](#scripted-upgrade)
 - [Order and pace](#order-and-pace)
 - [What the upgrade changes](#what-the-upgrade-changes)
 - [While two versions run](#while-two-versions-run)
@@ -68,6 +69,36 @@ rather than applying one built before the upgrade.
 BIND and Kea are not touched: no query or lease is interrupted by the
 package, only the Pelagos web and collector processes restart (a few
 seconds, a few tens of seconds on slow arm64 hardware).
+
+## Scripted upgrade
+
+A release comes as a directory (`make release`, or the assets of the GitHub
+release): `pelagos_<version>_amd64.deb`, `pelagos_<version>_arm64.deb`,
+`SHA256SUMS` and `NOTES.md`. `scripts/deploy-prod.sh` applies this page to
+Debian nodes one at a time, from any machine that reaches them over ssh with
+a key and passwordless `sudo`:
+
+```sh
+scripts/deploy-prod.sh --dry-run ./0.1.1 ns2 ns1    # checks only, changes nothing
+scripts/deploy-prod.sh ./0.1.1 ns2 ns1              # standby first, primary last
+```
+
+The hosts are ssh destinations, upgraded in the order given. Before the
+first node it checks the checksums, ssh and `sudo`, the deb of each node's
+architecture, and that the cluster is healthy: both units active,
+`/api/v1/health` ok, the same `cluster.toml` content and audit count on
+every node, Kea HA in a normal state. Then, per node: copy the deb and check
+its SHA256 on the node, save `/etc/pelagos` and `/var/lib/pelagos` to
+`/root/pelagos-state-<date>-<old version>.tar.gz` (services stopped for the
+copy), `apt-get install`, check the installed version, let the collector
+poll (`--settle`, 30 s), wait (`--timeout`, 300 s by default) until every node is healthy and `cluster.toml` and the
+audit log converged, check that the audit count did not go down, Kea HA and
+that the journal of the node has no `ERROR` line since the install. The
+first failure stops the run with the node and the reason; the nodes already
+done stay on the new version, which is a supported mixed state (below). A
+node already on the target version is skipped, so the same command resumes
+after a fix; a node on a newer version stops the run (a rollback stays a
+manual step, below). Only Debian nodes are handled.
 
 ## Order and pace
 

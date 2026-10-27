@@ -208,11 +208,14 @@ export default function NodesPage() {
                 {formatOffset(n.clock?.offset)}
               </span>
             )}
-            {ntp !== 'unknown' && (
-              <Badge variant={ntp === 'synced' ? 'success' : 'warning'} size="sm" title={n.clock?.ntp?.source || undefined}>
-                {t(`clock.${ntp}`)}
-              </Badge>
-            )}
+            <Badge
+              variant={ntp === 'synced' ? 'success' : ntp === 'unsynced' ? 'warning' : 'default'}
+              size="sm"
+              title={n.clock?.ntp?.source || undefined}
+              data-testid="node-ntp"
+            >
+              {t(`clock.${ntp}`)}
+            </Badge>
           </span>
         )
       },

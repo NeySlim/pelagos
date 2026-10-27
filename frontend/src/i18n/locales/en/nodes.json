@@ -27,7 +27,8 @@
     "reference": "reference",
     "within": "measured within {{seconds}} s",
     "synced": "NTP synchronized",
-    "unsynced": "NTP not synchronized"
+    "unsynced": "NTP not synchronized",
+    "unknown": "NTP state unknown"
   },
   "list": {
     "empty": "No node",

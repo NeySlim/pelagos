@@ -27,7 +27,8 @@
     "reference": "référence",
     "within": "mesuré à {{seconds}} s près",
     "synced": "NTP synchronisé",
-    "unsynced": "NTP non synchronisé"
+    "unsynced": "NTP non synchronisé",
+    "unknown": "État NTP inconnu"
   },
   "list": {
     "empty": "Aucun nœud",

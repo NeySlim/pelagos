@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -38,6 +40,23 @@ def fake_run(outputs):
     return run
 
 
+def no_kernel():
+    return None
+
+
+MISSING = Path("/nonexistent/pelagos-timesync")
+# ntpq -pn on a node that follows a server (the * line) and on one that has not picked one yet.
+NTPQ_OK = """     remote           refid      st t when poll reach   delay   offset  jitter
+==============================================================================
++192.0.2.2       192.0.2.9        2 u   33   64  377    0.512    0.210   0.044
+*192.0.2.1       198.51.100.7     2 u   35   64  377    0.431   -1.500   0.032
+"""
+NTPQ_LOST = """     remote           refid      st t when poll reach   delay   offset  jitter
+==============================================================================
+ 192.0.2.1       .INIT.          16 u    -   64    0    0.000    0.000   0.000
+"""
+
+
 def test_timedatectl_and_chrony_parsing():
     assert clock.parse_timedatectl(TIMEDATECTL) == {"ntp_enabled": True, "synchronized": True}
     assert clock.parse_timedatectl("NTP=no\nNTPSynchronized=no\n") == {
@@ -57,7 +76,7 @@ def test_read_ntp_state_prefers_chrony_and_survives_missing_tools():
     assert both["source"] == "chrony" and both["synchronized"] is False and both["ntp_enabled"] is True
     only = clock.read_ntp_state(fake_run({"timedatectl": "NTP=no\nNTPSynchronized=no\n"}))
     assert only["source"] == "timedatectl" and only["synchronized"] is False and only["offset"] is None
-    none = clock.read_ntp_state(fake_run({}))
+    none = clock.read_ntp_state(fake_run({}), no_kernel, MISSING)
     assert none["source"] is None and none["synchronized"] is None
 
 
@@ -68,11 +87,59 @@ def test_ntp_cache_reads_once_per_period():
         calls.append(argv[0])
         return TIMEDATECTL if argv[0] == "timedatectl" else None
 
-    cache = clock.NtpCache(run=run, ttl=60)
+    cache = clock.NtpCache(run=run, ttl=60, kernel=no_kernel, timesync_marker=MISSING)
     assert cache.get()["synchronized"] is True
     cache.get()["synchronized"] = False  # a copy: callers cannot change the cached value
     assert cache.get()["synchronized"] is True
     assert calls == ["timedatectl", "chronyc"]
+
+
+def test_ntpq_fallback_without_dbus_or_chrony():
+    ok = clock.read_ntp_state(fake_run({"ntpq": NTPQ_OK}), no_kernel, MISSING)
+    assert ok["source"] == "ntpq" and ok["synchronized"] is True and ok["ntp_enabled"] is True
+    assert ok["reference"] == "192.0.2.1" and ok["stratum"] == 2 and ok["offset"] == pytest.approx(-0.0015)
+    lost = clock.read_ntp_state(fake_run({"ntpq": NTPQ_LOST}), no_kernel, MISSING)
+    assert lost["source"] == "ntpq" and lost["synchronized"] is False
+    assert clock.parse_ntpq_peers("ntpq: read: Connection refused") is None
+
+
+def test_timesyncd_marker_fallback(tmp_path):
+    marker = tmp_path / "synchronized"
+    assert clock.read_ntp_state(fake_run({}), no_kernel, marker)["synchronized"] is None
+    marker.touch()
+    state = clock.read_ntp_state(fake_run({}), no_kernel, marker)
+    assert state["source"] == "timesyncd" and state["synchronized"] is True and state["ntp_enabled"] is True
+
+
+def test_adjtimex_fallback_is_the_last_resort():
+    seen = {"synchronized": False, "offset": 0.25}
+    state = clock.read_ntp_state(fake_run({}), lambda: seen, MISSING)
+    assert state["source"] == "kernel" and state["synchronized"] is False and state["ntp_enabled"] is None
+    # A service that answers wins over the kernel.
+    both = clock.read_ntp_state(fake_run({"timedatectl": TIMEDATECTL}), lambda: seen, MISSING)
+    assert both["source"] == "timedatectl" and both["synchronized"] is True
+
+
+def test_adjtimex_parsing():
+    assert clock.parse_adjtimex(0, 0x2001, 1500)["synchronized"] is True
+    assert clock.parse_adjtimex(0, 0x2001, 1500)["offset"] == pytest.approx(1.5e-6)
+    assert clock.parse_adjtimex(0, 0x0001, 1500)["offset"] == pytest.approx(1.5e-3)
+    assert clock.parse_adjtimex(0, 0x0041, 0)["synchronized"] is False  # STA_UNSYNC
+    assert clock.parse_adjtimex(clock.TIME_ERROR, 0, 0)["synchronized"] is False
+
+
+def test_read_kernel_state_calls_the_real_syscall():
+    state = clock.read_kernel_state()
+    assert state is None or isinstance(state["synchronized"], bool)
+
+
+def test_unknown_state_is_logged_once(caplog):
+    cache = clock.NtpCache(run=fake_run({}), ttl=0, kernel=no_kernel, timesync_marker=MISSING)
+    with caplog.at_level(logging.WARNING, logger="pelagos.core.clock"):
+        cache.get()
+        cache.get()
+    assert [r.getMessage() for r in caplog.records].count(caplog.records[0].getMessage()) == 1
+    assert len(caplog.records) == 1 and "NTP state unknown" in caplog.records[0].getMessage()
 
 
 def test_peer_offset_is_the_midpoint_within_half_the_round_trip():

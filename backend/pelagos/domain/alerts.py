@@ -56,6 +56,7 @@ class AlertKind(enum.StrEnum):
     SECURITY_ADVISORY = "security_advisory"
     CERT_EXPIRY = "cert_expiry"
     CERT_RENEWAL_FAILED = "cert_renewal_failed"
+    DDNS_ADVICE = "ddns_advice"
 
 
 INCONSISTENCY_KINDS = frozenset(
@@ -87,6 +88,7 @@ EXCEPTABLE_KINDS = frozenset(
         AlertKind.SECURITY_ADVISORY,
         AlertKind.CLOCK_UNSYNCHRONIZED,
         AlertKind.CERT_EXPIRY,
+        AlertKind.DDNS_ADVICE,
     }
 )
 

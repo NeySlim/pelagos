@@ -150,6 +150,7 @@
     "resolver_health": "resolver health",
     "delegation_issue": "delegation or SOA",
     "version_mismatch": "version mismatch",
+    "ddns_advice": "ddns advice",
     "restart_loop": "restart loop",
     "pool_forecast": "pool forecast",
     "security_advisory": "security advisory",

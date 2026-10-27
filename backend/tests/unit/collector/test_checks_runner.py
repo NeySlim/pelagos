@@ -312,3 +312,35 @@ def test_tracker_download_retries_after_an_hour_and_skips_a_fresh_file(rig, monk
     clock.now += 100_000
     collector.checks._fetch_tracker()
     assert len(calls) == 2
+
+
+def test_ddns_advice_from_d2_targets_and_refused_updates(rig, monkeypatch):
+    from pelagos.collector.checks.runner import HealthChecks
+    from pelagos.domain.dns import BindInstanceStats
+    from tests.unit.collector.fakes import FakeDdnsBackend
+
+    collector, backends, clock = rig
+    backends.d2 = FakeDdnsBackend(collector.node_id)
+    zone = {"name": "example.lan.", "dns-servers": [{"ip-address": "192.0.2.1"}]}
+    monkeypatch.setattr(
+        backends.d2, "config_get", lambda: {"DhcpDdns": {"forward-ddns": {"ddns-domains": [zone]}}}
+    )
+    monkeypatch.setattr(HealthChecks, "_dns_nodes", lambda self: 2)
+    rejected = {"n": 0}
+
+    def stats():
+        return BindInstanceStats(
+            node_id=collector.node_id, version="9.20.30", nsstats={"UpdateRej": rejected["n"]}
+        )
+
+    monkeypatch.setattr(backends.dns, "instance_stats", stats)
+    collector.health()
+    assert set(open_of(collector, AlertKind.DDNS_ADVICE)) == {"d2:dns-servers"}
+    for _ in range(3):  # three hours, 300 refused updates an hour
+        clock.now += 3600
+        rejected["n"] += 300
+        collector.health()
+    assert set(open_of(collector, AlertKind.DDNS_ADVICE)) == {"d2:dns-servers", "bind:update-denied"}
+    zone["dns-servers"].append({"ip-address": "192.0.2.2"})
+    collector.health()
+    assert set(open_of(collector, AlertKind.DDNS_ADVICE)) == {"bind:update-denied"}

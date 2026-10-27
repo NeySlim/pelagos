@@ -90,6 +90,7 @@ REGISTRY: tuple[Setting, ...] = (
     S("checks.declined_addresses_warning_count", "integer", 5, 1, 1_000_000, "addresses", "pools"),
     S("checks.declined_received_warning_per_hour", "integer", 5, 1, 1_000_000, "per_hour", "pools"),
     S("checks.d2_error_percent", "number", 5.0, 0, 100, "percent", "ddns"),
+    S("checks.update_denied_warning_per_hour", "integer", 10, 1, 1_000_000, "per_hour", "ddns"),
     S("checks.serial_divergence_seconds", "integer", 900, 0, 7 * DAY, "seconds", "secondaries"),
     S("checks.ha_grace_seconds", "integer", 45, 0, 3600, "seconds", "ha"),
     S("checks.custom_hooks_enabled", "boolean", True, group="kea"),

@@ -195,6 +195,18 @@ CATALOG: dict[str, str] = {
         "upstream {engine} {version} is affected by {count} ISC advisories ({cves}); no "
         "distribution security data, check your distribution's security tracker (ISC data of {dataset})"
     ),
+    "alert.d2_single_target": (
+        "kea-dhcp-ddns has one DNS server per domain ({servers}, {count} domains: {domains}) and DDNS "
+        "stops if it is down; list a second server in dns-servers, D2 tries them first to last"
+    ),
+    "alert.update_denied": (
+        "named refused {count} dynamic updates in {hours} hours, usually clients updating DNS "
+        "themselves; set {settings} in Kea (Dhcp4 and Dhcp6) so that it updates DNS for them"
+    ),
+    "alert.update_denied_other": (
+        "named refused {count} dynamic updates in {hours} hours although Kea already overrides client "
+        "updates: find the sources in the named log and check allow-update or update-policy of the zones"
+    ),
     "alert.cert_expiry": "{cert} certificate expires on {not_after}",
     "alert.cert_expired": "{cert} certificate expired on {not_after}",
     "alert.cert_renewal_failed": "web certificate renewal failed {failures} times: {error}",

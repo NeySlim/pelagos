@@ -620,7 +620,7 @@ class AlertKind(str, Enum):
     DISK_SPACE="disk_space"; FILE_GROWTH="file_growth"; RESERVATION_RISK="reservation_risk"
     DECLINED_ADDRESSES="declined_addresses"; RESOLVER_HEALTH="resolver_health"
     DELEGATION_ISSUE="delegation_issue"; VERSION_MISMATCH="version_mismatch"
-    RESTART_LOOP="restart_loop"; POOL_FORECAST="pool_forecast"; SECURITY_ADVISORY="security_advisory"
+    DDNS_ADVICE="ddns_advice"; RESTART_LOOP="restart_loop"; POOL_FORECAST="pool_forecast"; SECURITY_ADVISORY="security_advisory"
     CERT_EXPIRY="cert_expiry"; CERT_RENEWAL_FAILED="cert_renewal_failed"
 class AlertState(str, Enum): OPEN="open"; ACKED="acked"; RESOLVED="resolved"
 
@@ -1985,6 +1985,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `resolver_health` | warning, critical | SERVFAIL share, DNSSEC validation failures, query drop against the baseline, root servers unreachable; subjects `resolver:servfail`, `resolver:dnssec`, `resolver:queries`, `resolver:roots` |
 | `delegation_issue` | info, warning | NS name that does not resolve or answer for the zone, NS not allowed to transfer, address in also-notify/allow-transfer that is not an NS, SOA value outside the usual range (info); subjects `ns-unresolved:<zone>:<ns>`, `ns-silent:...`, `ns-transfer:...`, `ns-primary:<zone>` (info: no NS of the zone resolves to this primary), `ns-extra:<address>` (one per address, all zones grouped), `soa-range:<zone>` (one per zone, every out of range field in its details; built-in and automatic empty zones are skipped), `view-unchecked:<view>` (info: no read key in `dns.view_keys` selects the view, or its secret is not on the node; such zones do not count toward `delegation_max_zones`); `<zone>` is `zone@view` outside the default view, each view is queried and its name servers probed with its read key, and also-notify/allow-transfer are the effective lists (zone, else view, else options) |
 | `version_mismatch` | info, warning | nodes run different versions of BIND, kea4 or kea6 (warning when the series differs); cluster-wide, subject `<engine>:version` |
+| `ddns_advice` | warning, info | kea-dhcp-ddns lists a single DNS server for a domain while two or more nodes serve DNS (warning, subject `d2:dns-servers`; D2 uses the servers of a domain first to last, Kea 2.6 ARM "DNS Servers"); named `UpdateRej` over the last day at or above `checks.update_denied_warning_per_hour` (info, subject `bind:update-denied`; suggests `ddns-override-client-update` and `ddns-replace-client-name`) |
 | `restart_loop` | critical | `checks.restart_loop_count` restarts in `restart_loop_window_seconds`; subject `engine:<engine>` |
 | `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; subject is the pool subject |
 | `security_advisory` | info, warning | the upstream version of an installed BIND or Kea falls in a range of `pelagos/data/isc_advisories.json` (`ranges_preview` for `-S` versions); subject `<engine>:<CVE id>`; details `cve`, `version`, `fixed_in`, `url`, `cvss`, `dataset_verified` |

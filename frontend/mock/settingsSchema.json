@@ -151,6 +151,15 @@
       "group": "ddns"
     },
     {
+      "key": "checks.update_denied_warning_per_hour",
+      "type": "integer",
+      "default": 10,
+      "min": 1,
+      "max": 1000000,
+      "unit": "per_hour",
+      "group": "ddns"
+    },
+    {
       "key": "checks.serial_divergence_seconds",
       "type": "integer",
       "default": 900,

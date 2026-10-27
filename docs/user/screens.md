@@ -152,6 +152,7 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 | `resolver_health` | warning, critical | many SERVFAIL answers, DNSSEC validation failures, a sudden drop of queries, or the root servers unreachable |
 | `delegation_issue` | info, warning | an NS name that does not resolve or answer, a secondary that cannot transfer, an address notified but not an NS, SOA timers outside the usual range, or a view no read key selects (every view is checked with its own key) |
 | `version_mismatch` | info, warning | nodes run different versions of BIND or Kea |
+| `ddns_advice` | warning, info | the DDNS daemon can reach one DNS server only (updates stop with it), or named refuses many dynamic updates, usually from clients updating DNS themselves |
 | `restart_loop` | critical | a daemon restarted several times in a short period |
 | `pool_forecast` | warning, critical | a pool is on course to be full in a few days |
 | `security_advisory` | info, warning, critical | one alert per engine: ISC security advisories that match the running BIND or Kea and that the installed distribution package does not fix (the details list each CVE, and say when updating the package fixes it) |

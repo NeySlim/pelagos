@@ -48,6 +48,11 @@
   "alert.d2_errors": [
     "percent"
   ],
+  "alert.d2_single_target": [
+    "count",
+    "domains",
+    "servers"
+  ],
   "alert.daemon_down": [
     "engine"
   ],
@@ -326,6 +331,15 @@
   "alert.soa_range": [
     "fields",
     "zone"
+  ],
+  "alert.update_denied": [
+    "count",
+    "hours",
+    "settings"
+  ],
+  "alert.update_denied_other": [
+    "count",
+    "hours"
   ],
   "alert.version_mismatch": [
     "engine",

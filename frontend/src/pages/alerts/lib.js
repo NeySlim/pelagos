@@ -12,7 +12,7 @@ export const KINDS = [
   'lease_without_record', 'record_without_lease', 'reservation_mismatch', 'ptr_mismatch', 'duplicate_ip',
   'insecure_key', 'insecure_listener', 'custom_hook', 'rpz_update',
   'disk_space', 'file_growth', 'reservation_risk', 'declined_addresses',
-  'resolver_health', 'delegation_issue', 'version_mismatch', 'restart_loop', 'pool_forecast', 'security_advisory', 'cert_expiry', 'cert_renewal_failed',
+  'resolver_health', 'delegation_issue', 'version_mismatch', 'restart_loop', 'pool_forecast', 'security_advisory', 'cert_expiry', 'cert_renewal_failed', 'ddns_advice',
 ]
 export { EXCEPTABLE_KINDS, INCONSISTENCY_KINDS }
 

@@ -18,6 +18,7 @@ from typing import Any
 
 from pelagos.collector.checks import (
     advisories,
+    ddns,
     declined,
     delegation,
     disk,
@@ -138,6 +139,8 @@ class HealthChecks:
         self._status_seen: dict[str, int] = {}
         self.monitor: resolver.ResolverMonitor | None = None
         self.declines: dict[str, CounterSeries] = {}
+        self.rejected_updates = CounterSeries(2 * ddns.DENIED_WINDOW)
+        self._nsstats: dict[str, int] | None = None
         self.root_failures = 0
         self._deleg_fails: dict[str, int] = {}
         self.net_factory: Callable[[Any], delegation.Net] | None = None
@@ -176,6 +179,8 @@ class HealthChecks:
             self._restarts,
             self._resolver,
             self._declined,
+            self._ddns_targets,
+            self._update_denied,
             self._forecast,
             self._versions,
             self._advisories,
@@ -243,6 +248,7 @@ class HealthChecks:
         except (ConnectorError, NotImplementedError):
             return PollOutcome()  # no verdict: current alerts stay
         now = int(self.clock())
+        self._nsstats = stats.nsstats
         self.monitor.add(
             now, resolver.counters_of(stats.rcodes, resolver.resolver_stats(stats.raw), stats.nsstats)
         )
@@ -277,6 +283,50 @@ class HealthChecks:
                 )
             )
         return PollOutcome(alerts=alerts, kinds=kinds, where=_mine(self.node_id))
+
+    def _ddns_targets(self) -> PollOutcome:
+        d2 = self.backends.d2
+        if d2 is None:
+            return PollOutcome()
+        try:
+            with self.lock:
+                config = d2.config_get()
+        except (ConnectorError, NotImplementedError):
+            return PollOutcome()
+        alert = ddns.single_target_alert(self.node_id, config, self._dns_nodes())
+        return PollOutcome(
+            alerts=[alert] if alert else [],
+            kinds=frozenset({AlertKind.DDNS_ADVICE.value}),
+            where=_mine(self.node_id, lambda s: s == "d2:dns-servers"),
+        )
+
+    def _dns_nodes(self) -> int:
+        try:
+            return sum(1 for p in self.ctx.cluster().nodes if p.modules.bind)
+        except Exception:
+            return 0
+
+    def _update_denied(self) -> PollOutcome:
+        """Rejected dynamic updates of named over the last day, with Kea's client-update settings."""
+        if self._nsstats is None or ddns.UPDATE_REJECT_COUNTER not in self._nsstats:
+            return PollOutcome()
+        now = int(self.clock())
+        self.rejected_updates.add(now, int(self._nsstats[ddns.UPDATE_REJECT_COUNTER]))
+        count, covered = self.rejected_updates.increase(now - ddns.DENIED_WINDOW, now)
+        kea: dict[str, Any] | None = None
+        for backend in self.backends.dhcp:
+            try:
+                with self.lock:
+                    kea = ddns.ddns_client_settings(backend.config_get())
+                break
+            except (ConnectorError, NotImplementedError):
+                continue
+        alert = ddns.update_denied_alert(self.node_id, count, covered, kea, self.cfg())
+        return PollOutcome(
+            alerts=[alert] if alert else [],
+            kinds=frozenset({AlertKind.DDNS_ADVICE.value}),
+            where=_mine(self.node_id, lambda s: s == "bind:update-denied"),
+        )
 
     def _decline_count(self, backend: Any, engine: str, series: CounterSeries, now: int) -> int | None:
         name = DECLINE_COUNTERS[engine]

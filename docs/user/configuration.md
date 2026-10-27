@@ -260,6 +260,7 @@ DDNS:
 
 | Key | Default | Range | Effect |
 | --- | --- | --- | --- |
+| `update_denied_warning_per_hour` | `10` | 1 to 1000000 per hour | `ddns_advice`: dynamic updates refused by named per hour over the last day |
 | `d2_error_percent` | `5` | 0 to 100 % | `d2_errors` when (errors + timeouts) / sent over the last hour exceeds this share |
 
 Secondaries:

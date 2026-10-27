@@ -1507,3 +1507,11 @@ by `POST /alerts/exceptions` (`admin:settings`). WP-COLLECTOR: no `insecure_*` a
 excepted finding. Contract (`domain/messages.py`): `finding.manual.remote_listener`, new
 `finding.query_refused.proposal` parameters. WP-FRONTEND: node choice, exceptions and the
 selection plan on the security page, `en` and `fr`.
+
+## 2026-10-27, round 4: DDNS advice
+
+Contract (`domain/alerts.py`): `AlertKind.DDNS_ADVICE` (`ddns_advice`, exceptable), subjects
+`d2:dns-servers` and `bind:update-denied`; `domain/messages.py`: `alert.d2_single_target`,
+`alert.update_denied`, `alert.update_denied_other`; setting `checks.update_denied_warning_per_hour`
+and `auth.api_docs_public_enabled`. WP-COLLECTOR: `checks/ddns.py`. WP-FRONTEND: kind label, setting
+labels, messages in `en` and `fr`.

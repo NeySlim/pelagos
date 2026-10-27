@@ -28,6 +28,7 @@ DEFAULT_KEY_TYPE = "ec-p256"
 MAX_CHAIN = 10
 MAX_INPUT = 256 * 1024
 
+
 def quietly(loader, data):
     """Run a cryptography certificate loader (or serial_number read) and drop its warning about a non-positive serial number
     (RFC 5280 forbids it, some roots still carry it). cryptography has announced it will reject such

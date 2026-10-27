@@ -221,7 +221,7 @@ def test_status_exchange_measures_each_peer_clock(four):
     node = dhcp.peers.node(dhcp.peers.peer(four.nodes[1].id))
     # Same host, same clock: the offset is well within the round trip.
     assert node.clock is not None and abs(node.clock["offset"]) <= node.clock["uncertainty"] + 0.05
-    assert node.clock["ntp"]["source"] is None  # the test host's NTP state reads as unknown
+    assert "source" in node.clock["ntp"]  # the NTP state travels with the clock; its value is the host's
     assert four.nodes[0].ctx.self_node().clock["offset"] == 0.0
 
 

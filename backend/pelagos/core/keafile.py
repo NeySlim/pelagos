@@ -127,7 +127,15 @@ def included_files(path: Path) -> list[Path]:
 KEA_ROOTS = ("Dhcp4", "Dhcp6", "DhcpDdns")
 # Not compared: logging is not service behavior, and Kea 3.x rewrites log paths under its log dir.
 KEA_IGNORED_TOP = frozenset({"loggers", "hash"})
-KEA_LOWERCASE = frozenset({"hw-address", "duid", "client-id", "circuit-id", "flex-id"})
+# Hex byte strings: config-get prints them in its own case and separators (Kea 2.6.3, lab check).
+KEA_LOWERCASE = frozenset(
+    {"hw-address", "duid", "client-id", "circuit-id", "flex-id", "identifier", "hex-data"}
+)
+# Addresses and prefixes: config-get prints the compressed lower-case form.
+KEA_ADDRESSES = frozenset(
+    {"ip-address", "ip-addresses", "prefixes", "excluded-prefixes", "subnet", "prefix", "excluded-prefix"}
+    | {"next-server", "server-ip", "dhcp4o6-source-address"}
+)
 KEA_REDACTED = frozenset({"*****", "****", "***"})
 _RANGE = re.compile(r"\s*-\s*")
 
@@ -143,6 +151,8 @@ def _kea_scalar(key: str, value: Any) -> Any:
         return _pool_range(value) or _RANGE.sub("-", value.strip())
     if key in KEA_LOWERCASE:
         return kea_identifier(value)
+    if key in KEA_ADDRESSES:
+        return kea_address(value)
     if key == "library":
         return PurePosixPath(value).name  # the directory depends on the architecture
     if key == "data" and "," in value:
@@ -168,6 +178,24 @@ def kea_identifier(value: str) -> str:
                 return "".join(p.zfill(2) for p in parts)
             return low
     return f"0{low}" if len(low) % 2 else low
+
+
+def kea_address(value: str) -> str:
+    """An address or prefix in Kea's printed form (`2001:0DB8::0010` is `2001:db8::10`)."""
+    text = value.strip()
+    try:
+        return str(ipaddress.ip_interface(text) if "/" in text else ipaddress.ip_address(text))
+    except ValueError:
+        return text
+
+
+def scalar_key(key: str, k: str, item: dict[str, Any], running: Any) -> str:
+    """The normalization key of `item[k]`: option data with csv-format false is a hex byte string."""
+    if key == "option-data" and k == "data":
+        csv = running.get("csv-format") if isinstance(running, dict) else None
+        if (item.get("csv-format") if csv is None else csv) is False:
+            return "hex-data"
+    return k
 
 
 def _pool_range(value: str) -> tuple[int, int, int] | None:
@@ -259,18 +287,19 @@ def item_idents(key: str, item: dict[str, Any]) -> list[Ident]:
             out.append((present[0][0], "+".join(v for _, v in present)))
         for f in ("ip-address", "hostname"):
             if item.get(f) and not present:
-                out.append((f, str(item[f]).lower()))
+                value = str(item[f])
+                out.append((f, kea_address(value) if f == "ip-address" else value.lower()))
     elif key in ("subnet4", "subnet6"):
         if item.get("id") is not None:
             out.append(("id", str(item["id"])))
         if item.get("subnet"):
-            out.append(("subnet", str(item["subnet"]).strip().lower()))
+            out.append(("subnet", kea_address(str(item["subnet"]))))
     elif key == "pools":
         if isinstance(item.get("pool"), str):
             out.append(("pool", _pool_text(item["pool"])))
     elif key == "pd-pools":
         if item.get("prefix") is not None:
-            out.append(("prefix", f"{item['prefix']}/{item.get('prefix-len', '')}"))
+            out.append(("prefix", f"{kea_address(str(item['prefix']))}/{item.get('prefix-len', '')}"))
     elif key in ("option-data", "option-def"):
         space = str(item.get("space") or "")
         pre = "" if space in _DEFAULT_SPACES else f"{space}."
@@ -283,7 +312,7 @@ def item_idents(key: str, item: dict[str, Any]) -> list[Ident]:
             out.append(("library", PurePosixPath(str(item["library"])).name))
     elif key == "dns-servers":
         if item.get("ip-address"):
-            out.append(("ip-address", str(item["ip-address"])))
+            out.append(("ip-address", kea_address(str(item["ip-address"]))))
     elif item.get("name"):
         out.append(("name", str(item["name"]).lower()))
     return out or [("item", json.dumps(item, sort_keys=True))]
@@ -354,7 +383,7 @@ def _kea_diff(file_value: Any, running: Any, path: str, key: str) -> Iterator[st
             if k not in running:
                 yield f"{sub}: in the file, absent from the running configuration"
                 continue
-            yield from _kea_diff(v, running[k], sub, k)
+            yield from _kea_diff(v, running[k], sub, scalar_key(key, k, file_value, running))
         return
     if isinstance(file_value, list):
         if not isinstance(running, list):
@@ -581,7 +610,7 @@ def conform(file_value: Any, running: Any, key: str = "") -> Any:
                 else:
                     out["control-sockets"] = _copy(running["control-sockets"])
             elif k in running:
-                out[k] = conform(v, running[k], k)
+                out[k] = conform(v, running[k], scalar_key(key, k, file_value, running))
         return out
     if isinstance(file_value, list) and isinstance(running, list) and _identified(key, file_value, running):
         pairs, _, only_running = pair_items(key, file_value, running)

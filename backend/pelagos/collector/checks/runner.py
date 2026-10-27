@@ -465,7 +465,11 @@ class HealthChecks:
         if cfg.advisories_enabled and cfg.distro_tracker_enabled and cfg.distro_tracker_url and debian:
             if now - self._tracker_fetched_at > ADVISORY_FETCH_SECONDS:
                 self._tracker_fetched_at = now
-                distro.fetch_debian_tracker(cfg.distro_tracker_url, self.ctx.paths.var)
+                target = self.ctx.paths.var / distro.TRACKER_NAME
+                # A restart does not download again while the file is fresh; a failure retries in an hour.
+                fresh = target.exists() and time.time() - target.stat().st_mtime < ADVISORY_FETCH_SECONDS
+                if not fresh and not distro.fetch_debian_tracker(cfg.distro_tracker_url, self.ctx.paths.var):
+                    self._tracker_fetched_at = now - ADVISORY_FETCH_SECONDS + 3600
         return PollOutcome()
 
     def _disk(self) -> PollOutcome:

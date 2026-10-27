@@ -290,3 +290,25 @@ def test_a_poll_that_sees_a_new_daemon_version_reevaluates_advisories_at_once(ri
     collector.store.write_snapshot(node, "bind", "capabilities", 2, {"running": True, "version": "9.20.30"})
     collector._daemons_changed()
     assert open_of(collector, AlertKind.SECURITY_ADVISORY) == {}
+
+
+def test_tracker_download_retries_after_an_hour_and_skips_a_fresh_file(rig, monkeypatch):
+    from pelagos.collector.checks import distro, runner
+
+    collector, _, clock = rig
+    calls = []
+    monkeypatch.setattr(runner.shutil, "which", lambda _n: "/usr/bin/dpkg-query")
+    monkeypatch.setattr(
+        distro, "fetch_debian_tracker", lambda url, var, timeout=60.0: calls.append(url) or False
+    )
+    collector.checks._fetch_tracker()
+    clock.now += 1800
+    collector.checks._fetch_tracker()
+    assert len(calls) == 1  # failed: not again within the hour
+    clock.now += 1900
+    collector.checks._fetch_tracker()
+    assert len(calls) == 2
+    (collector.ctx.paths.var / distro.TRACKER_NAME).write_text("{}")  # fresh file: no download
+    clock.now += 100_000
+    collector.checks._fetch_tracker()
+    assert len(calls) == 2

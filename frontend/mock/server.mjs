@@ -2533,9 +2533,8 @@ function buildHandlers(state, emit) {
       const pairs = Object.entries(selection).flatMap(([nodeId, list]) => (list || []).map((id) => [nodeId, id]))
       if (!pairs.length) throw invalid(body.selection ? 'selection' : 'finding_ids', 'choose at least one finding')
       const byNode = securityByNode(state)
-      const lookup = ([nodeId, id]) => (byNode.get(nodeId) || []).find((f) => f.id === id)
-      const unknown = pairs.find((p) => !lookup(p))
-      if (unknown) throw invalid('finding_ids', `unknown finding id(s): ${unknown[1]}; run GET /install/security again`)
+      // Findings the fixtures do not list (a static zone's conversion) are plain remediable ones.
+      const lookup = ([nodeId, id]) => (byNode.get(nodeId) || []).find((f) => f.id === id) || { id, remediable: true }
       const manual = pairs.find((p) => lookup(p).remediable === false)
       if (manual) throw invalid('finding_ids', `${manual[1]} has no automatic remediation; follow its proposal by hand`)
       const preconditions = { name: 'security/preconditions', label: 'Check that the configuration did not change', label_message: { key: 'job.step.preconditions', params: {} } }

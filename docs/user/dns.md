@@ -302,12 +302,15 @@ to their address, in every reverse zone the cluster serves:
 
 A **DDNS** badge marks a PTR written by Kea (a DHCID sits next to it); its
 lease column shows when the client was last seen, or that the lease is
-gone. **Delete** works on one row or on the selected rows: one plan,
+gone. The **Origin** filter keeps only the PTRs set by DDNS (DHCID) or only
+the others, to clean up the records of departed DHCP clients in one go.
+**Delete** works on one row or on the selected rows (up to 500): one plan,
 previewed, confirmed and rolled back as any record plan (`write:dns.records`).
 Deleting the last target of a DDNS PTR also deletes the DHCID next to it,
 so a later DDNS update of that address is not refused. When a fixed row
 was ignored, its exception is revoked once the plan applies.
 
-**Ignore** keeps a PTR as it is on purpose: see
+**Ignore** keeps a PTR as it is on purpose, on one row or on the selected
+rows: see
 [Alert exceptions](screens.md#alert-exceptions).
 

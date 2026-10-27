@@ -15,7 +15,7 @@ import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { usePlanFlow } from '../dhcp/hooks'
 import { IgnoreDialog } from '../alerts/IgnoreDialog'
-import { CATEGORIES, deleteBody, createBody, filterOrphans, orphanKey, settledExceptions } from './ptrOrphans'
+import { CATEGORIES, ORIGINS, deleteBody, createBody, filterOrphans, orphanKey, settledExceptions } from './ptrOrphans'
 
 export default function PtrOrphansPage() {
   const { t } = useTranslation(['dns', 'common'])
@@ -24,6 +24,7 @@ export default function PtrOrphansPage() {
   const canWrite = hasPermission('write:dns.records')
   const canIgnore = hasPermission('write:alerts')
   const [category, setCategory] = useState('orphan')
+  const [origin, setOrigin] = useState('all')
   const [selected, setSelected] = useState(() => new Set())
   const [ignoring, setIgnoring] = useState(null)
   const list = useApi(() => api.dns.ptrOrphans(), [])
@@ -46,7 +47,7 @@ export default function PtrOrphansPage() {
   }
   const flow = usePlanFlow({ onApplied: settle })
   const all = useMemo(() => list.data?.items || [], [list.data])
-  const rows = useMemo(() => filterOrphans(all, category), [all, category])
+  const rows = useMemo(() => filterOrphans(all, category, origin), [all, category, origin])
   const counts = list.data?.counts || {}
   const errors = Object.entries(list.data?.errors || {})
 
@@ -77,7 +78,7 @@ export default function PtrOrphansPage() {
   }
 
   const columns = [
-    ...(canWrite
+    ...(canWrite || canIgnore
       ? [{
           key: 'select',
           label: <input type="checkbox" aria-label={t('orphans.selectAll')} checked={allChosen} onChange={toggleAll} data-testid="orphans-select-all" />,
@@ -220,6 +221,15 @@ export default function PtrOrphansPage() {
               setSelected(new Set())
             },
             options: CATEGORIES.map((c) => ({ value: c, label: t(`orphans.categories.${c}`) })),
+          }, {
+            key: 'origin',
+            label: t('orphans.columns.origin'),
+            value: origin,
+            onChange: (v) => {
+              setOrigin(v || 'all')
+              setSelected(new Set())
+            },
+            options: ORIGINS.map((o) => ({ value: o, label: t(`orphans.origins.${o}`) })),
           }]}
           emptyTitle={t('orphans.empty')}
           emptyDescription={t('orphans.emptyHelp')}

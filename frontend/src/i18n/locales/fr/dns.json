@@ -639,13 +639,19 @@
       "target": "Cible",
       "zone": "Zone inverse",
       "category": "Catégorie",
-      "age": "Bail"
+      "age": "Bail",
+      "origin": "Origine"
     },
     "categories": {
       "orphan": "Orphelin",
       "external": "Cible externe, non vérifiable",
       "excepted": "Ignorés",
       "all": "Tous"
+    },
+    "origins": {
+      "all": "Toute origine",
+      "ddns": "Posé par le DDNS (DHCID)",
+      "manual": "Pas posé par le DDNS"
     },
     "targetHas": "a {{addresses}}",
     "targetNone": "aucun enregistrement d'adresse",

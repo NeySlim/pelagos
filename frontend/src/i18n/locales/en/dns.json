@@ -639,13 +639,19 @@
       "target": "Target",
       "zone": "Reverse zone",
       "category": "Category",
-      "age": "Lease"
+      "age": "Lease",
+      "origin": "Origin"
     },
     "categories": {
       "orphan": "Orphan",
       "external": "External target, not verifiable",
       "excepted": "Ignored",
       "all": "All"
+    },
+    "origins": {
+      "all": "Any origin",
+      "ddns": "Set by DDNS (DHCID)",
+      "manual": "Not set by DDNS"
     },
     "targetHas": "has {{addresses}}",
     "targetNone": "no address record",

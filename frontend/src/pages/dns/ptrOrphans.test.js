@@ -30,6 +30,14 @@ describe('orphan PTR helpers', () => {
     expect(filterOrphans(rows, 'all')).toHaveLength(4)
   })
 
+  it('filters by origin: set by DDNS (DHCID) or not', () => {
+    const mixed = [...rows, row('192.0.2.71', 'gone.example.lan.', { ddns: true }), row('192.0.2.72', 'old.example.lan.', { ddns: true, excepted: true })]
+    expect(filterOrphans(mixed, 'orphan', 'ddns').map((r) => r.ip)).toEqual(['192.0.2.71'])
+    expect(filterOrphans(mixed, 'all', 'ddns').map((r) => r.ip)).toEqual(['192.0.2.71', '192.0.2.72'])
+    expect(filterOrphans(mixed, 'orphan', 'manual').map((r) => r.ip)).toEqual(['192.0.2.70', '192.0.2.80'])
+    expect(filterOrphans(mixed, 'all', 'all')).toHaveLength(6)
+  })
+
   it('builds the plan bodies with the view of non-default rows', () => {
     expect(deleteBody(rows.slice(0, 2))).toEqual({
       delete: [

@@ -98,7 +98,7 @@ given. `three` builds the same pair plus lab-rpm as a third server (below).
 | --- | --- |
 | lab-ns1 | BIND 9.20 (Debian) primary for `example.lan`, `0.99.10.in-addr.arpa` and `1.99.10.in-addr.arpa`, dynamic with `allow-update { key kea-ddns; }` (hmac-md5, generated on ns1, copied to ns2), transfers and notifies to ns2 by address; Kea DHCPv4 2.6 (Debian) HA primary, hot-standby, `lease_cmds`, `stat_cmds`, `ha`; D2 sending every update to ns1 with `kea-ddns` |
 | lab-ns2 | BIND secondary of the three zones; Kea DHCPv4 HA standby; D2 like ns1 |
-| lab-client | systemd-networkd DHCP client on its second NIC (`/etc/netplan/60-lab-dhcp.yaml`, hostname `lab-client`) |
+| lab-client | systemd-networkd DHCP client on its second NIC (`/etc/netplan/60-lab-dhcp.yaml`, hostname `lab-client`), taking offers from ns1 and ns2 only (`AllowList=` in `/etc/systemd/network/10-netplan-lab-dhcp.network.d/allow.conf`) |
 | lab-rpm (`three` only) | BIND 9.18 (Rocky) secondary of the three zones (`/var/named/slaves`), named in the primary's `allow-transfer` and `also-notify`; Kea DHCPv4 3.0 (Rocky) HA backup server `ns3` (`http://10.99.0.13:8001/`, no interface: a backup answers no client), named in the pair's peer list; the HA port is labelled `kea_port_t` for SELinux and opened in firewalld (permanent rules) when it runs; the Kea 2.6 pair with a 3.0 backup is the mix this scenario exercises |
 
 DHCP segment: lab-client's second NIC sits on the lab bridge too, so the Kea
@@ -108,6 +108,12 @@ not by address. The HA peers talk to the dedicated HTTP listener of each
 kea-dhcp4 (`http://10.99.0.11:8001/`, `http://10.99.0.12:8001/`,
 `http-dedicated-listener`), so no control agent runs. Leases get `<host>.example.lan` forward and
 `1.99.10.in-addr.arpa` reverse records through D2.
+
+Every Kea provisioned on the bridge answers lab-client: the upgrade pair on
+`lab-up1` and `lab-up3` keeps serving the same subnet after its test. Without
+the allow list the client takes whichever offer comes first, and a lease from
+that pair leaves no record on ns1 and no lease on the reference pair. To see
+who answers: `ssh lab-client journalctl -u systemd-networkd | grep acquired`.
 
 Debian's Kea 2.6.3 is confined by AppArmor to reading `/etc/kea`, and root
 cannot read `/etc/kea` (`_kea 0750`) without the DAC override the profile

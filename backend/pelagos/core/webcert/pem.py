@@ -30,9 +30,9 @@ MAX_INPUT = 256 * 1024
 
 
 def quietly(loader, data):
-    """Run a cryptography certificate loader (or serial_number read) and drop its warning about a non-positive serial number
-    (RFC 5280 forbids it, some roots still carry it). cryptography has announced it will reject such
-    certificates (changelog 36.0.0, 43.0.0): the loader's ValueError then reaches the caller."""
+    """Run a certificate loader (or a serial_number read) without cryptography's warning about a
+    non-positive serial (RFC 5280 forbids it, some roots carry it). cryptography will reject such
+    certificates (changelog 36.0.0, 43.0.0): the ValueError then reaches the caller."""
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", message=".*serial number.*", category=Warning)
         return loader(data)

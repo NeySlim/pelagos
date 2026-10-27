@@ -105,7 +105,7 @@ def update_denied_alert(
         **messages.fields(
             "title",
             messages.msg(
-                "alert.update_denied" if todo else "alert.update_denied_other",
+                "alert.update_denied" if todo else "alert.update_denied_set",
                 count=rejected,
                 hours=max(covered_seconds // 3600, 1),
                 **({"settings": todo} if todo else {}),

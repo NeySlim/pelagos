@@ -203,7 +203,7 @@ CATALOG: dict[str, str] = {
         "named refused {count} dynamic updates in {hours} hours, usually clients updating DNS "
         "themselves; set {settings} in Kea (Dhcp4 and Dhcp6) so that it updates DNS for them"
     ),
-    "alert.update_denied_other": (
+    "alert.update_denied_set": (
         "named refused {count} dynamic updates in {hours} hours although Kea already overrides client "
         "updates: find the sources in the named log and check allow-update or update-policy of the zones"
     ),

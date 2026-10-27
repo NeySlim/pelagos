@@ -337,7 +337,7 @@
     "hours",
     "settings"
   ],
-  "alert.update_denied_other": [
+  "alert.update_denied_set": [
     "count",
     "hours"
   ],

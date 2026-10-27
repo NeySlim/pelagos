@@ -121,6 +121,16 @@ def test_foreign_owner_is_reported_with_chown(tmp_path, monkeypatch):
     assert "owned by another user" in f.description and "chown root:" in f.proposal
 
 
+def test_service_account_owner_is_trusted(tmp_path, monkeypatch):
+    if os.getuid() == 0:
+        pytest.skip("root owns the tree, and root is always trusted")
+    env = debian_tree(tmp_path)
+    owner = os.getuid()
+    monkeypatch.setattr(bind_files.os, "getuid", lambda: 4242)
+    monkeypatch.setattr(bind_files, "_uid", lambda n: owner if n == "pelagos" else None)
+    assert "bind:bind_file_mode:config_dir" not in _files(env)
+
+
 def test_failed_access_check_restores_every_change(tmp_path, monkeypatch):
     env = debian_tree(tmp_path)
     etc = tmp_path / "etc/bind"

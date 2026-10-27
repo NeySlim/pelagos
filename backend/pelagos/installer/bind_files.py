@@ -175,9 +175,11 @@ def issues(env: Any, by_category: dict[str, set[Path]]) -> list[FileIssue]:
     """Paths whose mode or owner breaks the rules of their category; missing paths are skipped."""
     debian = env.distro.is_debian
     bind_uid, bind_gid = _uid(env.paths.bind_user), _gid(env.paths.bind_group)
-    # Root, BIND, and whoever runs the audit (an unprivileged test tree) are trusted owners.
-    trusted_uids = {0, os.getuid(), *([bind_uid] if bind_uid is not None else [])}
-    trusted_gids = {0, os.getgid(), *([bind_gid] if bind_gid is not None else [])}
+    # Root, BIND, the pelagos service account (it writes its own includes) and whoever runs the
+    # audit (an unprivileged test tree) are trusted owners.
+    svc_uid, svc_gid = _uid("pelagos"), _gid("pelagos")
+    trusted_uids = {0, os.getuid(), *(u for u in (bind_uid, svc_uid) if u is not None)}
+    trusted_gids = {0, os.getgid(), *(g for g in (bind_gid, svc_gid) if g is not None)}
     out: list[FileIssue] = []
     seen: set[Path] = set()
     for category in CATEGORIES:

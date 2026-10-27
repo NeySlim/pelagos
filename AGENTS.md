@@ -42,6 +42,8 @@ literally.
   connector or the fixtures), then `git pull --rebase origin main`, re-run
   the tests if the rebase pulled changes into your files, then `git push`.
 - Never force-push `main`. Never rewrite published history.
+- Push a finished batch of commits at once, not each commit as it lands:
+  every push to `main` runs the full CI, and Actions minutes are limited.
 
 ## Module ownership
 

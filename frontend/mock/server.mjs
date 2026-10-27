@@ -139,6 +139,7 @@ const finding = (engine, kind, subject, severity, texts, remediable = true) => (
   description: texts.description, proposal: texts.proposal, risk: texts.risk,
   description_message: texts.description_message || null, proposal_message: texts.proposal_message || null,
   risk_message: texts.risk_message || null,
+  manual_action: remediable ? null : texts.proposal, manual_action_message: remediable ? null : texts.proposal_message || null,
 })
 const SECURITY_FINDINGS = [
   finding('bind', 'weak_rndc_key', 'rndc-key', 'critical', {
@@ -194,6 +195,26 @@ const SECURITY_FINDINGS = [
   }, false),
 ]
 const isDualKey = (f) => f?.kind === 'weak_shared_kea_key'
+// Findings per node, as each node's audit reports them; peers carry three plain ones.
+const PEER_FINDING_KINDS = ['weak_rndc_key', 'stats_nonlocal', 'open_allow_transfer']
+const securityByNode = (state) => {
+  if (!state.security) {
+    state.security = new Map(state.nodes.map((n) => [n.peer.id, n.peer.id === state.selfId
+      ? SECURITY_FINDINGS.map((f) => ({ ...f }))
+      : SECURITY_FINDINGS.filter((f) => PEER_FINDING_KINDS.includes(f.kind)).map((f) => ({ ...f }))]))
+  }
+  return state.security
+}
+const SECURITY_EXCEPTION_KIND = 'security_finding'
+const markedFindings = (state, nodeId) => {
+  const exceptions = state.ptr.exceptions().filter((e) => e.kind === SECURITY_EXCEPTION_KIND)
+  const name = state.nodes.find((n) => n.peer.id === nodeId)?.peer.name || nodeId
+  return (securityByNode(state).get(nodeId) || []).map((f) => {
+    const keys = [`${nodeId}|${f.id}`, f.id]
+    const exception = keys.map((k) => exceptions.find((e) => e.key === k)).find(Boolean) || null
+    return { ...f, node_id: nodeId, node_name: name, exception_keys: keys, exception }
+  })
+}
 const PASSWORD_RULE ='must have at least 12 characters and three of: lowercase, uppercase, digits, symbols'
 const checkPassword = (field, value) => {
   if (passwordProblem(value)) throw invalid(field, PASSWORD_RULE)
@@ -449,7 +470,7 @@ function reverseToIp(name) {
 const ipSortKey = (ip = '') => (ip.includes(':') ? [6, v6Nibbles(ip)] : [4, String(ipToInt(ip)).padStart(12, '0')])
 
 // Kinds that take an admin exception: consistency checks and the exceptable health checks.
-const EXCEPTION_KINDS = new Set([...INCONSISTENCY_KINDS, ...EXCEPTABLE_KINDS])
+const EXCEPTION_KINDS = new Set([...INCONSISTENCY_KINDS, ...EXCEPTABLE_KINDS, 'security_finding'])
 
 // The join of the hosts service: hosts merge on a shared MAC, then IP, then name,
 // over v4 and (when the module is on) v6 leases, reservations, A/AAAA and PTR records.
@@ -2494,25 +2515,49 @@ function buildHandlers(state, emit) {
         targets: [state.selfId], tool: 'named-checkconf', job: steps,
       })
     },
-    'GET /install/security': () => ({ findings: SECURITY_FINDINGS }),
+    'GET /install/security': ({ query }) => {
+      const node = query.get('node')
+      const ids = state.nodes.map((n) => n.peer.id).sort((a, b) => (a !== state.selfId) - (b !== state.selfId))
+      if (node && node !== 'all' && !ids.includes(node)) throw invalid('node', 'a node id or all')
+      const targets = !node ? [state.selfId] : node === 'all' ? ids : [node]
+      const name = (id) => state.nodes.find((n) => n.peer.id === id)?.peer.name || id
+      return {
+        findings: targets.flatMap((id) => markedFindings(state, id)),
+        nodes: targets.map((id) => ({ id, name: name(id), ok: true, error: null })),
+        node_choices: ids.map((id) => ({ id, name: name(id) })),
+        local_node_id: state.selfId,
+      }
+    },
     'POST /install/security/plan': ({ body, user }) => {
-      const ids = body.finding_ids || []
-      if (!ids.length) throw invalid('finding_ids', 'choose at least one finding')
-      const manual = ids.find((id) => SECURITY_FINDINGS.find((f) => f.id === id)?.remediable === false)
-      if (manual) throw invalid('finding_ids', `${manual} has no automatic remediation; follow its proposal by hand`)
+      const selection = body.selection || (body.finding_ids ? { [state.selfId]: body.finding_ids } : {})
+      const pairs = Object.entries(selection).flatMap(([nodeId, list]) => (list || []).map((id) => [nodeId, id]))
+      if (!pairs.length) throw invalid(body.selection ? 'selection' : 'finding_ids', 'choose at least one finding')
+      const byNode = securityByNode(state)
+      const lookup = ([nodeId, id]) => (byNode.get(nodeId) || []).find((f) => f.id === id)
+      const unknown = pairs.find((p) => !lookup(p))
+      if (unknown) throw invalid('finding_ids', `unknown finding id(s): ${unknown[1]}; run GET /install/security again`)
+      const manual = pairs.find((p) => lookup(p).remediable === false)
+      if (manual) throw invalid('finding_ids', `${manual[1]} has no automatic remediation; follow its proposal by hand`)
       const preconditions = { name: 'security/preconditions', label: 'Check that the configuration did not change', label_message: { key: 'job.step.preconditions', params: {} } }
-      const steps = [preconditions, ...ids.flatMap((id) =>
-        isDualKey(SECURITY_FINDINGS.find((f) => f.id === id))
+      const steps = [preconditions, ...pairs.flatMap((p) =>
+        isDualKey(lookup(p))
           ? ['add the new key to BIND update-policy', 'switch D2 to the new key on every node', 'remove the old key']
-          : [`remediate ${id}`],
+          : [`remediate ${p[1]}`],
       )]
+      const nodes = [...new Set(pairs.map(([n]) => n))]
       return createPlan(state, user, {
-        scope: 'security', engine: null, summary: `security remediation: ${ids.length} finding${ids.length === 1 ? '' : 's'}`,
-        summary_message: { key: 'plan.security', params: { count: ids.length } },
-        changes: ids.map((id) => ({ op: 'replace', target: `security/${id}`, before: null, after: null, node_ids: [] })),
+        scope: 'security', engine: null, summary: `security remediation: ${pairs.length} finding${pairs.length === 1 ? '' : 's'}`,
+        summary_message: { key: 'plan.security', params: { count: pairs.length } },
+        changes: pairs.map(([nodeId, id]) => ({ op: 'replace', target: `security/${id}`, before: null, after: null, node_ids: [nodeId] })),
         diff: unifiedDiff('key "rndc-key" {\n\talgorithm hmac-md5;\n};', 'key "rndc-key" {\n\talgorithm hmac-sha256;\n};', '/etc/bind/rndc.key'),
-        targets: state.nodes.map((n) => n.peer.id), tool: 'named-checkconf', requires_confirmation: true, job: steps,
-        apply: () => { state.alerts.filter((a) => a.kind === 'insecure_key').forEach((a) => { a.state = 'resolved'; a.resolved_at = iso(Date.now()) }) },
+        targets: nodes, tool: 'named-checkconf', requires_confirmation: true, job: steps,
+        apply: () => {
+          // A peer's fixed findings go; this node's stay, as other specs read them.
+          for (const [nodeId, id] of pairs) {
+            if (nodeId !== state.selfId) byNode.set(nodeId, (byNode.get(nodeId) || []).filter((f) => f.id !== id))
+          }
+          state.alerts.filter((a) => a.kind === 'insecure_key').forEach((a) => { a.state = 'resolved'; a.resolved_at = iso(Date.now()) })
+        },
       })
     },
 

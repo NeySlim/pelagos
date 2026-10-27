@@ -221,8 +221,9 @@ export const install = {
   detect: () => apiClient.get('/install/detect'),
   plan: (body) => apiClient.post('/install/plan', body),
   importPlan: (engines) => apiClient.post('/install/import/plan', { engines }),
-  security: () => apiClient.get('/install/security'),
-  securityPlan: (finding_ids) => apiClient.post('/install/security/plan', { finding_ids }),
+  security: (node) => apiClient.get(`/install/security${node ? buildQueryString({ node }) : ''}`),
+  // A list of finding ids of this node, or a selection {node id: [finding ids]} across nodes.
+  securityPlan: (selection) => apiClient.post('/install/security/plan', Array.isArray(selection) ? { finding_ids: selection } : { selection }),
 }
 
 export const admin = {

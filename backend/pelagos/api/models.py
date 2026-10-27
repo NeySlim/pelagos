@@ -540,7 +540,13 @@ InstallBody = model(
         "isc_series": fields.String(example="3.2"),
     },
 )
-FindingIds = model("FindingIds", {"finding_ids": fields.List(fields.String, required=True)})
+FindingIds = model(
+    "FindingIds",
+    {
+        "finding_ids": fields.List(fields.String, description="Findings of this node"),
+        "selection": fields.Raw(description="Findings by node: {node id: [finding ids]}, one plan for all"),
+    },
+)
 
 # Administration -------------------------------------------------------------
 

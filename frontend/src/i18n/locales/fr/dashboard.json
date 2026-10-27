@@ -157,7 +157,8 @@
     "clock_skew": "décalage d'horloge",
     "clock_unsynchronized": "horloge non synchronisée",
     "cert_expiry": "expiration de certificat",
-    "cert_renewal_failed": "renouvellement de certificat en échec"
+    "cert_renewal_failed": "renouvellement de certificat en échec",
+    "security_finding": "constat d'audit de sécurité"
   },
   "live": {
     "label": "Direct",

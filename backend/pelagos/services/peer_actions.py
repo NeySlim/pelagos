@@ -51,6 +51,9 @@ CERTS_REQUEST = "certs.request"
 CERTS_CHECK = "certs.check"
 CERTS_UPLOAD = "certs.upload"
 CERTS_SELF_SIGNED = "certs.self_signed"
+# Security audit of this node (services.install_service): findings, and a plan for some of them.
+SECURITY_AUDIT = "security.audit"
+SECURITY_PLAN = "security.plan"
 CERTS_ACTIONS = frozenset(
     {CERTS_STATUS, CERTS_RUN, CERTS_REQUEST, CERTS_CHECK, CERTS_UPLOAD, CERTS_SELF_SIGNED}
 )
@@ -75,14 +78,17 @@ class PeerActions:
             CERTS_CHECK: self.certs_check,
             CERTS_UPLOAD: self.certs_upload,
             CERTS_SELF_SIGNED: self.certs_self_signed,
+            SECURITY_AUDIT: self.security_audit,
+            SECURITY_PLAN: self.security_plan,
         }
 
     def __call__(self, name: str, body: dict[str, Any], caller: str) -> Any:
         handler = self.handlers.get(name)
         if handler is None:
             raise PeerActionError("not_supported", f"this node does not serve action {name}")
-        if name in CERTS_ACTIONS:
-            # Certificates never touch the engines: no engine lock, so a long poll never waits on it.
+        if name in CERTS_ACTIONS or name in (SECURITY_AUDIT, SECURITY_PLAN):
+            # Certificates and the security audit never use the engine connectors: no engine lock,
+            # so a long poll never waits on it.
             try:
                 return handler(body, caller)
             except PeerActionError:
@@ -187,6 +193,20 @@ class PeerActions:
     def _plan(self, plan: Plan) -> dict[str, Any]:
         plan.target_node_ids = [self.ctx.node.id]
         return {"plan": plan.to_dict()}
+
+    # Security audit -------------------------------------------------------------------------
+
+    def security_audit(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        from pelagos.services.install_service import InstallService
+
+        return {"findings": InstallService(self.ctx).security()}
+
+    def security_plan(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """This node's part of a security plan; the shared key switch stays on this node."""
+        from pelagos.services.install_service import InstallService
+
+        service = InstallService(self.ctx)
+        return self._plan(service.build_security_part(body.get("finding_ids"), _created_by(body), False))
 
     # Runtime operations ---------------------------------------------------------------------
 

@@ -390,6 +390,9 @@
   ],
   "finding.kea_tsig_clear_secret.proposal": [],
   "finding.kea_tsig_clear_secret.risk": [],
+  "finding.manual.remote_listener": [
+    "subject"
+  ],
   "finding.open_allow_transfer.description_options": [],
   "finding.open_allow_transfer.description_zone": [
     "zone"

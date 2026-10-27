@@ -16,7 +16,7 @@ from typing import Any
 from pelagos.core.context import NodeContext
 from pelagos.domain import Job, Plan
 from pelagos.installer import helper
-from pelagos.services.errors import ValidationError, field_error
+from pelagos.services.errors import ServiceError, ValidationError, field_error
 from pelagos.services.installer_runner import InstallerRunner, installer_env
 
 ENGINES = ("bind", "kea4", "kea6", "d2")
@@ -107,6 +107,7 @@ class InstallService:
         return self.ctx.plan_store.put(plan)
 
     def security(self) -> list[dict[str, Any]]:
+        """This node's findings, as the installer reports them."""
         from pelagos.installer.security_audit import run_audit
 
         client = self.helper()
@@ -120,6 +121,52 @@ class InstallService:
             self._findings = {f.id: f for f in findings}
         return [f.to_dict() for f in findings]
 
+    def security_report(self, node: str | None = None) -> dict[str, Any]:
+        """Findings of this node, of one node (`node` = id) or of every node (`node` = "all"), each
+        with its node and the exception that silences it; `nodes` says which nodes answered."""
+        from pelagos.installer.security_audit import mark_exceptions
+
+        cluster = self.ctx.cluster()
+        me = self.ctx.node.id
+        known = {n.id: n.name for n in cluster.nodes}
+        known.setdefault(me, self.ctx.node.name)
+        if node in (None, "", me):
+            targets = [me]
+        elif node == "all":
+            targets = sorted(known, key=lambda n: (n != me, known[n]))
+        elif node in known:
+            targets = [node]
+        else:
+            raise ValidationError(f"unknown node {node}", [field_error("node", "a node id or all")])
+        findings: list[dict[str, Any]] = []
+        nodes: list[dict[str, Any]] = []
+        for node_id in targets:
+            entry: dict[str, Any] = {"id": node_id, "name": known[node_id], "ok": True, "error": None}
+            try:
+                found = self.security() if node_id == me else self._peer_findings(node_id)
+            except ServiceError as exc:
+                entry.update(ok=False, error=exc.detail)
+                found = []
+            findings += [
+                {**f, "node_name": known[node_id]}
+                for f in mark_exceptions(found, node_id, cluster.exceptions)
+            ]
+            nodes.append(entry)
+        choices = [{"id": n, "name": known[n]} for n in sorted(known, key=lambda n: (n != me, known[n]))]
+        return {"findings": findings, "nodes": nodes, "node_choices": choices, "local_node_id": me}
+
+    def _peer(self, node_id: str) -> Any:
+        peer = self.peers.peer(node_id) if self.peers is not None else None
+        if peer is None:
+            raise ValidationError(f"node {node_id} is not enrolled", [field_error("node", "unknown node")])
+        return peer
+
+    def _peer_findings(self, node_id: str) -> list[dict[str, Any]]:
+        from pelagos.services.peer_actions import SECURITY_AUDIT
+
+        result = self.peers.action(self._peer(node_id), SECURITY_AUDIT, {})
+        return list(result.get("findings") or []) if isinstance(result, dict) else []
+
     def d2_node_ids(self) -> list[str] | None:
         """Every enrolled node that runs D2, for step 2 of the shared key switch; None when no node
         declares D2, so the installer looks at this host's own configuration."""
@@ -127,18 +174,72 @@ class InstallService:
         return nodes or None
 
     def plan_security(self, body: dict[str, Any], created_by: str) -> Plan:
+        """One plan for the selected findings: `finding_ids` on this node, or `selection`
+        {node id: [finding ids]} across nodes, each node's part built by that node."""
+        selection = body.get("selection")
+        if selection is None:
+            return self.ctx.plan_store.put(self.build_security_part(body.get("finding_ids"), created_by))
+        me = self.ctx.node.id
+        if (
+            not isinstance(selection, dict)
+            or not selection
+            or not all(isinstance(k, str) and isinstance(v, list) and v for k, v in selection.items())
+        ):
+            raise ValidationError(
+                "selection must map node ids to non-empty lists of finding ids",
+                [field_error("selection", "invalid")],
+            )
+        parts: list[Plan] = []
+        for node_id in sorted(selection, key=lambda n: (n != me, n)):
+            ids = selection[node_id]
+            if node_id == me:
+                parts.append(self.build_security_part(ids, created_by))
+            else:
+                from pelagos.services.peer_actions import SECURITY_PLAN
+
+                body = {"finding_ids": ids, "created_by": created_by}
+                parts.append(self.peers.build_plan(self._peer(node_id), SECURITY_PLAN, body))
+        if len(parts) == 1:
+            return self.ctx.plan_store.put(parts[0])
+        return self._composite(parts, created_by, sum(len(set(v)) for v in selection.values()))
+
+    def _composite(self, parts: list[Plan], created_by: str, count: int) -> Plan:
+        from pelagos.domain import PlanScope, PlanState, messages
+        from pelagos.services.composite import merge_parts
+
+        summary = messages.msg("plan.security", count=count)
+        plan = Plan(
+            scope=PlanScope.SECURITY,
+            node_id=self.ctx.node.id,
+            summary=messages.render(summary),
+            summary_message=summary,
+            created_by=created_by,
+            requires_confirmation=True,
+        )
+        names = {n.id: n.name for n in self.ctx.cluster().nodes}
+        merge_parts(plan, parts, names)
+        # merge_parts tags every change with its part's targets; keep each change's own nodes.
+        plan.changes = [c for p in parts for c in p.changes]
+        plan.state = PlanState.VALIDATED
+        self.ctx.plan_store.put(plan)
+        self.ctx.plan_store.set_parts(plan.id, parts)
+        return plan
+
+    def build_security_part(self, ids: Any, created_by: str, cluster_d2: bool = True) -> Plan:
+        """This node's security plan, not stored. Without `cluster_d2` the shared key switch stays on
+        this node (a part built for another node's plan: only this node's own steps)."""
         from pelagos.installer.security_audit import build_security_plan
 
-        ids = body.get("finding_ids")
         if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
             raise ValidationError(
                 "finding_ids must be a non-empty list", [field_error("finding_ids", "invalid")]
             )
+        ids = list(dict.fromkeys(ids))
+        d2 = self.d2_node_ids() if cluster_d2 else None
         client = self.helper()
         if client is not None:
-            args = {"finding_ids": list(dict.fromkeys(ids)), "d2_node_ids": self.d2_node_ids()}
             try:
-                return self.ctx.plan_store.put(client.plan("plan_security", created_by, **args))
+                return client.plan("plan_security", created_by, finding_ids=ids, d2_node_ids=d2)
             except helper.HelperError as exc:
                 if exc.kind != "value":
                     raise
@@ -146,14 +247,11 @@ class InstallService:
                     f"{exc}; run GET /install/security again", [field_error("finding_ids", "invalid")]
                 ) from None
         try:
-            plan = build_security_plan(
-                self.env_factory(), list(dict.fromkeys(ids)), created_by, self.d2_node_ids()
-            )
+            return build_security_plan(self.env_factory(), ids, created_by, d2)
         except ValueError as exc:
             raise ValidationError(
                 f"{exc}; run GET /install/security again", [field_error("finding_ids", "invalid")]
             ) from None
-        return self.ctx.plan_store.put(plan)
 
     def runner(self, _scope: Any = None) -> Callable[[Plan, Job, Any], Any]:
         return InstallerRunner(self.ctx, self.peers, self.env_factory, helper=self.helper())

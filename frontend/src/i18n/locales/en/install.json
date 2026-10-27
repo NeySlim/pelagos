@@ -104,7 +104,7 @@
     "risk": "Risk",
     "planTitle": "Remediation plan",
     "planHelp": "Selected findings are fixed one after the other, never at once: backup, write, validation, reload, check, and rollback if a step fails.",
-    "build": "Build the remediation plan",
+    "build": "Fix the selection",
     "selected_one": "{{count}} finding selected",
     "selected_other": "{{count}} findings selected",
     "kind": {
@@ -133,7 +133,28 @@
       "switch": "Switch kea-dhcp-ddns to the new key on every node",
       "remove": "Remove the old key from BIND and Kea"
     },
-    "manual": "Manual",
-    "manualHelp": "No automatic remediation: follow the proposal by hand, then audit again."
+    "manual": "Manual fix",
+    "manualHelp": "Pelagos cannot fix this one automatically: apply the manual action, then audit again.",
+    "manualAction": "Manual action",
+    "except": "Exception",
+    "node": "Node",
+    "thisNode": "This node",
+    "allNodes": "All nodes",
+    "nodeError": "{{node}} did not answer the audit: {{error}}",
+    "exception": {
+      "title": "Keep this finding as it is",
+      "submit": "Add the exception",
+      "scope": "Applies to",
+      "onNode": "{{node}} only",
+      "everyNode": "Every node",
+      "reason": "Reason",
+      "reasonHelp": "Kept in cluster.toml with your name and the date; the finding stops raising alerts until the exception is removed.",
+      "reasonRequired": "Say why this finding is left as it is",
+      "revoke": "Remove the exception",
+      "by": "{{user}}, {{date}}",
+      "listTitle_one": "{{count}} finding kept as an exception",
+      "listTitle_other": "{{count}} findings kept as exceptions",
+      "listHelp": "Admin's choices: removing an exception lists the finding again."
+    }
   }
 }

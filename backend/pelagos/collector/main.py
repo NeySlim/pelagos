@@ -473,7 +473,7 @@ class Collector:
         findings = self.findings_source(self.ctx)
         if findings is None:
             return []
-        outcome = security_outcome(findings, self.node_id)
+        outcome = security_outcome(findings, self.node_id, list(self.ctx.cluster().exceptions))
         self._finish(outcome)
         seen = frozenset(a.subject for a in outcome.alerts)
         if self._findings_seen is not None and seen != self._findings_seen:

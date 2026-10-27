@@ -104,7 +104,7 @@
     "risk": "Risque",
     "planTitle": "Plan de correction",
     "planHelp": "Les constats choisis sont corrigés l'un après l'autre, jamais d'un bloc : sauvegarde, écriture, validation, rechargement, vérification, et retour arrière si une étape échoue.",
-    "build": "Construire le plan de correction",
+    "build": "Corriger la sélection",
     "selected_one": "{{count}} constat sélectionné",
     "selected_other": "{{count}} constats sélectionnés",
     "kind": {
@@ -133,7 +133,28 @@
       "switch": "Basculer kea-dhcp-ddns sur la nouvelle clé sur chaque nœud",
       "remove": "Retirer l'ancienne clé de BIND et de Kea"
     },
-    "manual": "Manuel",
-    "manualHelp": "Pas de correction automatique : appliquer la proposition à la main, puis relancer l'audit."
+    "manual": "Correction manuelle",
+    "manualHelp": "Pelagos ne peut pas corriger ce constat automatiquement : appliquer l'action manuelle, puis relancer l'audit.",
+    "manualAction": "Action manuelle",
+    "except": "Exception",
+    "node": "Nœud",
+    "thisNode": "Ce nœud",
+    "allNodes": "Tous les nœuds",
+    "nodeError": "{{node}} n'a pas répondu à l'audit : {{error}}",
+    "exception": {
+      "title": "Garder ce constat tel quel",
+      "submit": "Ajouter l'exception",
+      "scope": "S'applique à",
+      "onNode": "{{node}} seulement",
+      "everyNode": "Tous les nœuds",
+      "reason": "Motif",
+      "reasonHelp": "Conservé dans cluster.toml avec votre nom et la date ; le constat ne lève plus d'alerte tant que l'exception existe.",
+      "reasonRequired": "Indiquer pourquoi ce constat reste tel quel",
+      "revoke": "Retirer l'exception",
+      "by": "{{user}}, {{date}}",
+      "listTitle_one": "{{count}} constat gardé en exception",
+      "listTitle_other": "{{count}} constats gardés en exception",
+      "listHelp": "Choix de l'administrateur : retirer une exception fait réapparaître le constat."
+    }
   }
 }

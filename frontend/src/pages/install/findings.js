@@ -21,4 +21,26 @@ export const isDualKey = (finding) => finding?.kind === 'weak_shared_kea_key'
 // The backend refuses a plan that includes a finding without automatic remediation.
 export const isRemediable = (finding) => finding?.remediable !== false
 
-export const remediableIds = (findings) => findings.filter(isRemediable).map((f) => f.id)
+// A finding is unique per node: the same id may be reported by several nodes.
+export const findingKey = (finding) => `${finding.node_id || ''}|${finding.id}`
+
+export const isExcepted = (finding) => Boolean(finding?.exception)
+
+// Selectable on the page: fixable automatically and not kept as the admin's choice.
+export const remediableIds = (findings) => findings.filter((f) => isRemediable(f) && !isExcepted(f)).map(findingKey)
+
+// The body of POST /install/security/plan for the selected keys: {node id: [finding ids]}, or the
+// plain id list when the findings carry no node (this node only).
+export function planSelection(findings, keys) {
+  const chosen = findings.filter((f) => keys.includes(findingKey(f)))
+  if (chosen.every((f) => !f.node_id)) return chosen.map((f) => f.id)
+  const out = {}
+  for (const f of chosen) (out[f.node_id] ||= []).push(f.id)
+  return out
+}
+
+// The exception key for one finding: this node only (first key) or every node (the bare id).
+export const exceptionKey = (finding, everyNode) => {
+  const keys = finding.exception_keys || [finding.id]
+  return everyNode ? keys[keys.length - 1] : keys[0]
+}

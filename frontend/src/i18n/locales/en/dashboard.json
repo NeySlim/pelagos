@@ -157,7 +157,8 @@
     "clock_skew": "clock skew",
     "clock_unsynchronized": "clock not synchronized",
     "cert_expiry": "certificate expiry",
-    "cert_renewal_failed": "certificate renewal failed"
+    "cert_renewal_failed": "certificate renewal failed",
+    "security_finding": "security audit finding"
   },
   "live": {
     "label": "Live",

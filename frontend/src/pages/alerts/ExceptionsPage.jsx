@@ -66,7 +66,7 @@ export default function ExceptionsPage() {
       : []),
   ]
 
-  const kindOptions = [...INCONSISTENCY_KINDS, ...EXCEPTABLE_KINDS].map((k) => ({ value: k, label: t(`dashboard:kinds.${k}`, { defaultValue: k }) }))
+  const kindOptions = [...INCONSISTENCY_KINDS, ...EXCEPTABLE_KINDS, 'security_finding'].map((k) => ({ value: k, label: t(`dashboard:kinds.${k}`, { defaultValue: k }) }))
 
   return (
     <PageLayout

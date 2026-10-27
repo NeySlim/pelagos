@@ -268,6 +268,10 @@ CATALOG: dict[str, str] = {
     "finding.query_refused.risk": (
         "Pelagos cannot read these zones through queries or transfers until an allowed address is set."
     ),
+    "finding.manual.remote_listener": (
+        "Restrict {subject} by hand (allow list or firewall) on the BIND host: Pelagos reaches it "
+        "over the network, so moving it to 127.0.0.1 would cut Pelagos off."
+    ),
     "finding.allowed.nothing": "nothing",
     "finding.allowed.all": "all",
     "finding.update_without_admin_key.description": (

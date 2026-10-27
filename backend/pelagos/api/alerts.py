@@ -9,6 +9,7 @@ from pelagos.api import models as m
 from pelagos.api.common import arg, json_body, paged, pagination
 from pelagos.api.security import check_permission, client_ip, require, services, username
 from pelagos.domain import SECURITY_EXCEPTION_KINDS
+from pelagos.services.exceptions_service import FINDING_EXCEPTION_KIND
 
 ns = Namespace("alerts", description="Alerts and DNS/DHCP inconsistencies", path="/alerts")
 
@@ -61,7 +62,7 @@ class RunConsistency(Resource):
 
 
 def _require_for_kind(kind: str) -> None:
-    if kind in {k.value for k in SECURITY_EXCEPTION_KINDS}:
+    if kind in {k.value for k in SECURITY_EXCEPTION_KINDS} or kind == FINDING_EXCEPTION_KIND:
         check_permission("admin:settings")
 
 

@@ -51,6 +51,7 @@
   "finding.allow_update_by_address.proposal": "Remplacer allow-update par {{policy}}",
   "finding.allow_update_by_address.risk": "Les clients qui mettent à jour par adresse seule sont ensuite refusés ; il leur faut une clé TSIG.",
   "finding.allowed.all": "tout le monde",
+  "finding.manual.remote_listener": "Restreindre {{subject}} à la main (liste d'accès ou pare-feu) sur l'hôte BIND : Pelagos l'atteint par le réseau, le déplacer sur 127.0.0.1 couperait Pelagos.",
   "finding.allowed.nothing": "personne",
   "finding.dnssec_validation_off.description": "La validation DNSSEC est désactivée.",
   "finding.dnssec_validation_off.risk": "Les réponses des zones signées cassées ou mal configurées deviennent SERVFAIL pour les clients récursifs.",

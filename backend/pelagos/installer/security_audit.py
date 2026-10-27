@@ -80,6 +80,8 @@ class Finding:
         return cls(id, kind, severity, engine, subject, **texts, details=details or {}, messages=kept)
 
     def to_dict(self) -> dict[str, Any]:
+        remediable = bool(self.details.get("remediable", True))
+        manual = self.details.get("manual") if isinstance(self.details.get("manual"), dict) else None
         return {
             "id": self.id,
             "kind": self.kind,
@@ -89,15 +91,46 @@ class Finding:
             "description": self.description,
             "proposal": self.proposal,
             "risk": self.risk,
-            "remediable": bool(self.details.get("remediable", True)),
+            "remediable": remediable,
             "description_message": self.messages.get("description"),
             "proposal_message": self.messages.get("proposal"),
             "risk_message": self.messages.get("risk"),
+            # What the operator does by hand when no plan can fix it: a specific text, else the proposal.
+            "manual_action": None if remediable else messages.render(manual) if manual else self.proposal,
+            "manual_action_message": None if remediable else manual or self.messages.get("proposal"),
         }
 
 
 def finding_id(engine: str, kind: str, subject: str) -> str:
     return f"{engine}:{kind}:{subject}"
+
+
+# Exceptions ([[exceptions]] of cluster.toml) on audit findings: kind EXCEPTION_KIND, key
+# "<node>|<finding id>" for that node only or the bare finding id for every node.
+EXCEPTION_KIND = "security_finding"
+
+
+def exception_keys(node_id: str | None, fid: str) -> list[str]:
+    """The keys an exception may name for finding `fid` of `node_id`, this node's first."""
+    return [f"{node_id}|{fid}", fid] if node_id else [fid]
+
+
+def mark_exceptions(
+    findings: list[dict[str, Any]], node_id: str | None, exceptions: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Finding dicts with `node_id`, `exception_keys` and `exception` (the record that excepts the
+    finding, else None); excepted findings stay listed so the exception remains visible and revocable."""
+    records = {
+        str(e["key"]): e
+        for e in exceptions
+        if isinstance(e, dict) and e.get("kind") == EXCEPTION_KIND and e.get("key") is not None
+    }
+    out = []
+    for f in findings:
+        keys = exception_keys(node_id, str(f.get("id")))
+        found = next((records[k] for k in keys if k in records), None)
+        out.append({**f, "node_id": node_id, "exception_keys": keys, "exception": found})
+    return out
 
 
 def _is_address(element: str) -> bool:
@@ -829,6 +862,7 @@ def run_audit(env: Any) -> list[Finding]:
             for f in findings:
                 if f.kind in ("rndc_nonlocal", "stats_nonlocal"):
                     f.details["remediable"] = False
+                    f.details["manual"] = msg("finding.manual.remote_listener", subject=f.subject)
     if kea_in is not None:
         kea_in.bind_keys = bind_keys
         findings += audit_kea(kea_in)

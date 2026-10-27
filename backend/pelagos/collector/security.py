@@ -41,10 +41,17 @@ def collect_findings(ctx: Any) -> list[dict[str, Any]] | None:
         return None
 
 
-def security_outcome(findings: list[dict[str, Any]], node_id: str) -> PollOutcome:
-    """Alerts for the findings that are weak keys or open listeners, reconciled for this node only."""
+def security_outcome(
+    findings: list[dict[str, Any]], node_id: str, exceptions: list[dict[str, Any]] | None = None
+) -> PollOutcome:
+    """Alerts for the findings that are weak keys or open listeners, reconciled for this node only;
+    a finding excepted on the audit page raises none."""
+    from pelagos.installer.security_audit import mark_exceptions
+
     alerts: list[Alert] = []
-    for f in findings:
+    for f in mark_exceptions(findings, node_id, exceptions or []):
+        if f["exception"] is not None:
+            continue
         kind = str(f.get("kind") or "")
         if kind in KEY_KINDS:
             alert_kind = AlertKind.INSECURE_KEY

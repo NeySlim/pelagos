@@ -114,6 +114,17 @@ class InstallerRunner:
         self.helper = helper
 
     def __call__(self, plan: Plan, job: Job, progress: Callable[[Job], None]) -> dict[str, Any]:
+        store = getattr(self.ctx, "plan_store", None)
+        parts = store.parts(plan.id) if store is not None else None
+        if parts:
+            # A plan across nodes (security): each node's part as that node built it, in order.
+            done = []
+            for part in parts:
+                done += self._run(part, job, progress)["phases"]
+            return {"phases": done}
+        return self._run(plan, job, progress)
+
+    def _run(self, plan: Plan, job: Job, progress: Callable[[Job], None]) -> dict[str, Any]:
         me = self.ctx.node.id
         env = None
         done: list[dict[str, Any]] = []

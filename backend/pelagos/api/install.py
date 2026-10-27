@@ -6,7 +6,7 @@ from __future__ import annotations
 from flask_restx import Namespace, Resource
 
 from pelagos.api import models as m
-from pelagos.api.common import json_body, plan_answer
+from pelagos.api.common import arg, json_body, plan_answer
 from pelagos.api.security import require, services, username
 
 ns = Namespace("install", description="Detect, install, import, security audit", path="/install")
@@ -43,10 +43,11 @@ class ImportPlan(Resource):
 @ns.route("/security")
 class Security(Resource):
     @require("admin:install")
-    @ns.response(200, "Security findings of the local configuration")
+    @ns.doc(params={"node": "a node id, or all; this node when absent"})
+    @ns.response(200, "Security findings with their node and exception, and the nodes that answered")
     @ns.response(400, "validation_error", m.Problem)
     def get(self):
-        return {"findings": services().install.security()}
+        return services().install.security_report(arg("node"))
 
 
 @ns.route("/security/plan")

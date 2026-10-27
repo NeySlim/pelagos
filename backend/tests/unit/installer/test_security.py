@@ -92,8 +92,11 @@ def test_legacy_findings(tmp_path):
             "description_message",
             "proposal_message",
             "risk_message",
+            "manual_action",
+            "manual_action_message",
         }
         assert d["description"] and d["proposal"] and d["risk"]
+        assert (d["manual_action"] is None) == d["remediable"]
 
 
 def test_audit_from_printed_config_matches_user_files(tmp_path):

@@ -51,6 +51,7 @@
   "finding.allow_update_by_address.proposal": "Replace allow-update by {{policy}}",
   "finding.allow_update_by_address.risk": "Clients updating by address only are refused afterwards; they need a TSIG key.",
   "finding.allowed.all": "all",
+  "finding.manual.remote_listener": "Restrict {{subject}} by hand (allow list or firewall) on the BIND host: Pelagos reaches it over the network, so moving it to 127.0.0.1 would cut Pelagos off.",
   "finding.allowed.nothing": "nothing",
   "finding.dnssec_validation_off.description": "DNSSEC validation is disabled.",
   "finding.dnssec_validation_off.risk": "Answers from broken or misconfigured signed zones become SERVFAIL for recursive clients.",

@@ -1497,3 +1497,13 @@ list equal to the 0.1.x default. WP-INSTALLER: audit kind `update_types_narrow`,
 REFUSED points to the update-policy. WP-COLLECTOR: delegation subject `ns-primary:<zone>`
 (message `alert.primary_not_ns`); `alert.ns_silent` suggests removing the NS. WP-FRONTEND:
 delegation alerts link to the zone. `tests/fixtures/named.py` grants the new list.
+## 2026-10-27, security audit across nodes and exceptions on findings
+Additive. WP-INSTALLER: `Finding.to_dict()` adds `manual_action` and `manual_action_message`;
+`security_audit.EXCEPTION_KIND` (`security_finding`), `exception_keys()` and `mark_exceptions()`;
+`InstallerEnv.bind_table()` (the `[engines.bind]` table local or not, so the audit probes from
+`query_address`). WP-API-AUTH: `GET /install/security?node=`, `POST /install/security/plan`
+with `selection`, peer actions `security.audit` and `security.plan`, `security_finding` accepted
+by `POST /alerts/exceptions` (`admin:settings`). WP-COLLECTOR: no `insecure_*` alert for an
+excepted finding. Contract (`domain/messages.py`): `finding.manual.remote_listener`, new
+`finding.query_refused.proposal` parameters. WP-FRONTEND: node choice, exceptions and the
+selection plan on the security page, `en` and `fr`.

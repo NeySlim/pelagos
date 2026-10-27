@@ -20,13 +20,15 @@ from pelagos.domain import (
     to_rfc3339,
     utcnow,
 )
+from pelagos.installer.security_audit import EXCEPTION_KIND as FINDING_EXCEPTION_KIND
 from pelagos.services.errors import Conflict, NotFound, ValidationError, field_error
 
 MAX_COMMENT = 1000
 MAX_KEY = 512
 MAX_SUMMARY = 300
-# Consistency kinds and the health or audit checks an admin may keep as they are; never an outage.
-KINDS = frozenset(k.value for k in INCONSISTENCY_KINDS | EXCEPTABLE_KINDS)
+# Consistency kinds, the health checks and the security audit findings an admin may keep as they
+# are; never an outage.
+KINDS = frozenset(k.value for k in INCONSISTENCY_KINDS | EXCEPTABLE_KINDS) | {FINDING_EXCEPTION_KIND}
 
 
 class ExceptionsService:

@@ -83,3 +83,12 @@ The package depends on the exact `python3.X` the venv was built with.
 package, checks user, modes, enabled but inactive units, runs `pelagos init`,
 checks both units, `/api/v1/health` over HTTPS and `/`, restarts and removes
 the package.
+
+## Upgrade and downgrade
+
+`apt install ./pelagos_<new>.deb` restarts both units and keeps `node.toml`,
+`pelagos.env`, the certificates and the state. A downgrade needs
+`--allow-downgrades`, and the series cache of the newer release must be
+removed first (`sudo sh -c 'rm -f /var/lib/pelagos/series.sqlite*'`), see
+`docs/user/upgrade.md`. `backend/tests/lab/test_upgrade_lab.py` exercises both
+on an amd64 and an arm64 node.

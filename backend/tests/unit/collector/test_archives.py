@@ -474,3 +474,37 @@ def test_kea_check_falls_back_to_dash_t(node_ctx, runner, engines) -> None:
     runner.run()
     what = {c["what"]: c["ok"] for c in runner.store.load_state().test_restore["checks"]}
     assert what["kea-dhcp4 -t"] is None and what["kea-dhcp-ddns config-test"] is True
+
+
+def test_kea_dash_t_denied_by_apparmor_is_not_a_failure(
+    node_ctx, runner, engines, monkeypatch, tmp_path
+) -> None:
+    cluster_identity(node_ctx)
+
+    def down(_value):
+        raise ConnectorUnavailable("socket closed")
+
+    engines.kea4.config_test = down
+    real_run = archives_mod._run
+
+    def run(argv):
+        if argv[0] == "/fake/kea-dhcp4":
+            return False, "failed to open /run/pelagos/x/kea-dhcp4.conf: Permission denied"
+        return real_run(argv)
+
+    real_find = archives_mod.find_binary
+    monkeypatch.setattr(
+        archives_mod, "find_binary", lambda t: "/fake/kea-dhcp4" if t == "kea-dhcp4" else real_find(t)
+    )
+    monkeypatch.setattr(archives_mod, "_run", run)
+    monkeypatch.setattr(archives_mod, "APPARMOR", str(tmp_path))
+    runner.run()
+    result = runner.store.load_state().test_restore
+    check = next(c for c in result["checks"] if c["what"] == "kea-dhcp4 -t")
+    assert check["ok"] is None and "AppArmor" in check["output"]
+    assert result["ok"] is True
+    monkeypatch.setattr(archives_mod, "APPARMOR", str(tmp_path / "absent"))
+    runner.clock_.advance(hours=24 * 8)
+    runner.run()
+    check = next(c for c in runner.store.load_state().test_restore["checks"] if c["what"] == "kea-dhcp4 -t")
+    assert check["ok"] is False

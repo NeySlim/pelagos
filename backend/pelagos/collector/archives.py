@@ -51,6 +51,7 @@ ARCHIVE_KINDS = frozenset(
 # A run is cancelled before writing when free space is under the last archive's size plus this.
 DISK_MARGIN = 1.10
 CHECK_TIMEOUT = 120.0
+APPARMOR = "/sys/kernel/security/apparmor"
 KEA_BINARIES = {"kea4": "kea-dhcp4", "kea6": "kea-dhcp6", "d2": "kea-dhcp-ddns"}
 KEA_ROOTS = {"kea4": "Dhcp4", "kea6": "Dhcp6", "d2": "DhcpDdns"}
 # (engine, root object) -> (ok, output), or None when the daemon cannot be asked.
@@ -161,6 +162,10 @@ def _run(argv: list[str]) -> tuple[bool, str]:
     return proc.returncode == 0, (proc.stdout + proc.stderr).strip()[-4000:]
 
 
+def _confined_denial(output: str) -> bool:
+    return "ermission denied" in output and Path(APPARMOR).exists()
+
+
 def test_restore(
     archive: Path,
     identities: list[str],
@@ -245,6 +250,13 @@ def test_restore(
             checks.append({"what": f"{tool} config-test", "ok": answer[0], "output": answer[1][-4000:]})
         else:
             record(f"{tool} -t", binary(tool), ["-t", str(copy_of(conf))])
+            last = checks[-1]
+            if last["ok"] is False and _confined_denial(last["output"]):
+                # Debian confines the Kea daemons: -t cannot read a copy outside /etc/kea.
+                last["ok"] = None
+                last["output"] = (
+                    f"not checked: AppArmor keeps {tool} -t from reading the copy ({last['output'][-300:]})"
+                )
     ran = [c for c in checks if c["ok"] is not None]
     return {"ok": all(c["ok"] for c in ran), "checks": checks}
 

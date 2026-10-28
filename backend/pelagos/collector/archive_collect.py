@@ -354,6 +354,8 @@ class Builder:
         label = zone.name.rstrip(".") or "."
         try:
             with self._backend():
+                # A refusal the polls remember (after a key change) must not leave the archive without it.
+                getattr(self.backends.dns, "_axfr_refused", {}).pop((zone.name, zone.view), None)
                 rrsets = self.backends.dns.read_zone(zone.name, zone.view)
             text, serial = zone_text(rrsets)
         except Exception as exc:

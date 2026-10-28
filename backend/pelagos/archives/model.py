@@ -96,6 +96,8 @@ class Manifest:
     created_at: datetime
     versions: dict[str, str] = field(default_factory=dict)
     engines: list[str] = field(default_factory=list)
+    # `config-hash-get` of each Kea daemon at archive time (engine -> hash).
+    hashes: dict[str, str] = field(default_factory=dict)
     files: list[ManifestFile] = field(default_factory=list)
     zones: list[ManifestZone] = field(default_factory=list)
     unreadable: list[str] = field(default_factory=list)
@@ -111,6 +113,7 @@ class Manifest:
             "created_at": to_rfc3339(self.created_at),
             "versions": dict(self.versions),
             "engines": list(self.engines),
+            "hashes": dict(self.hashes),
             "files": [f.to_dict() for f in self.files],
             "zones": [z.to_dict() for z in self.zones],
             "unreadable": list(self.unreadable),
@@ -130,6 +133,7 @@ class Manifest:
             created_at=from_rfc3339(d["created_at"]),
             versions={str(k): str(v) for k, v in (d.get("versions") or {}).items()},
             engines=[str(e) for e in d.get("engines") or []],
+            hashes={str(k): str(v) for k, v in (d.get("hashes") or {}).items()},
             files=[ManifestFile.from_dict(f) for f in d.get("files") or []],
             zones=[ManifestZone.from_dict(z) for z in d.get("zones") or []],
             unreadable=[str(p) for p in d.get("unreadable") or []],

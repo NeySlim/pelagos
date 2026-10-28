@@ -98,6 +98,11 @@ class Paths:
         return self.var / "notify"
 
     @property
+    def archives_dir(self) -> Path:
+        """Scheduled archives (section 23): `local/`, `peers/`, `state.json` (0700)."""
+        return self.var / "archives"
+
+    @property
     def enroll_tokens(self) -> Path:
         return self.var / "enroll_tokens.json"
 

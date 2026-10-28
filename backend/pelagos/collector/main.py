@@ -60,6 +60,8 @@ ZONE_RECHECK_DELAYS = (2.0, 5.0, 15.0, 30.0)
 CERT_SECONDS = 60.0
 # Channel failures and state changes the dispatcher thread reports, taken in by the loop.
 NOTIFY_SECONDS = 10.0
+# Archive schedule check (collector.archives): the build itself runs on its own thread.
+ARCHIVE_SECONDS = 60.0
 META_LAST_ACK = "last_ack_audit_id"
 META_ACK_OFFSET = "ack_scan_offset"
 META_ACK_INODE = "ack_scan_inode"
@@ -226,6 +228,10 @@ class Collector:
         self._slow_lock = threading.Lock()
         # Set by run(): the notification dispatcher (collector.notify), ticking on its own thread.
         self.notifier: Any = None
+        from pelagos.collector.archives import ArchiveRunner
+
+        # Scheduled archives of this node (section 23); run() moves the builds to their own thread.
+        self.archives = ArchiveRunner(ctx, backends, self.backend_lock, clock)
 
     def _reloading(self, poller: KeaPoller) -> Callable[[str], bool]:
         """True while Pelagos writes or reloads the engine and for the grace period after."""
@@ -581,6 +587,10 @@ class Collector:
             self.events.emit("system", "notify", change, key=f"system:notify:{change['channel_id']}")
         return alerts
 
+    def archive(self) -> None:
+        """Starts a scheduled or requested archive, then the archive alerts of this node."""
+        self._finish(self.archives.tick())
+
     def retention(self) -> dict[str, int]:
         now = int(self.clock())
         retention = self.ctx.settings().get("retention", {})
@@ -607,6 +617,7 @@ class Collector:
             ("health_audit", self.health_audit),
             ("certificates", self.certificates),
             ("notify_alerts", self.notify_alerts),
+            ("archive", self.archive),
             ("retention", self.retention),
         ):
             try:
@@ -639,6 +650,7 @@ class Collector:
             Task("health_audit_ready", poll, self.health_audit_ready),
             Task("certificates", CERT_SECONDS, self.certificates),
             Task("notify_alerts", NOTIFY_SECONDS, self.notify_alerts),
+            Task("archive", ARCHIVE_SECONDS, self.archive),
             Task("retention", 3600.0, self.retention),
         ]
 
@@ -1073,6 +1085,7 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
         return 1 if report.errors else 0
 
     collector.slow_background = True
+    collector.archives.background = True
     tasks = collector.tasks()
     listener = SignalListener(paths.collector_sock)
     # One replay per batch of datagrams, run by the loop after listener.wait().
@@ -1088,6 +1101,13 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
             rpz_due.set()
 
     listener.on("rpz", rpz_request)
+    archive_due = threading.Event()
+
+    def archive_request(_msg: dict[str, Any]) -> None:
+        collector.archives.request("manual")
+        archive_due.set()
+
+    listener.on("archive", archive_request)
     collector.listener = listener
     try:
         listener.open()
@@ -1154,6 +1174,11 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
                 rpz_due.clear()
                 for task in tasks:
                     if task.name == "poll_rpz":
+                        task.next_run = min(task.next_run, time.monotonic() + 1.0)
+            if archive_due.is_set():
+                archive_due.clear()
+                for task in tasks:
+                    if task.name == "archive":
                         task.next_run = min(task.next_run, time.monotonic() + 1.0)
             if bind_due.is_set():
                 bind_due.clear()

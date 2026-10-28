@@ -207,6 +207,7 @@ Pelagos paths (identical on every distro, overridable in `node.toml`
 | `/var/lib/pelagos/backups/<engine>/<timestamp>-<plan id>/` | write pipeline backups | pelagos, 0750 |
 | `/var/lib/pelagos/plans/` | one encrypted file per plan built on this node, `<id>.plan` (section 6) | 0700, files 0600 |
 | `/var/lib/pelagos/webcert/` | web certificate state of this node: `state.json` (renewal, log), `pending.key` (key of a request made here) | 0700, files 0600 |
+| `/var/lib/pelagos/archives/` | scheduled archives (section 23): `local/` (this node's, with `.sha256` and `.json` sidecars), `peers/<origin>/`, `state.json` | 0700, files 0600 |
 | `/var/lib/pelagos/plan_tombstones.json` | ids of plans built here and when they expire (section 6) | pelagos, 0600 |
 | `/run/pelagos/` | pid files, Unix socket of the web process when used behind a proxy | pelagos, 0750 |
 
@@ -3109,8 +3110,10 @@ screen, N5 daemon and lab tests.
 Design: `design.md` 13.2. Code: `pelagos.archives` (`archives/age.py` age
 v1 X25519 over `cryptography`, `archives/bundle.py` tar and manifest,
 `archives/model.py` Manifest, ArchiveMeta and file names, `archives/keys.py`
-recipients and the cluster identity, `archives/destinations/`), `collector/archives.py` (schedule, retention,
-verification, test restore), `services/archive_service.py`,
+recipients and the cluster identity, `archives/schedule.py`, `archives/retention.py`,
+`archives/store.py` the node's archive folder and run state, `archives/destinations/`),
+`collector/archive_collect.py` (what an archive holds), `collector/archives.py` (runner,
+retention, verification, test restore, alerts), `installer/archive_read.py` (helper read), `services/archive_service.py`,
 `api/archives.py`, CLI `pelagos backup` and `pelagos restore` (B5).
 Batches: B1 format, B2 collection, B3 destinations, B4 restore, B5
 command line, B6 API and screen, B7 lab.
@@ -3162,7 +3165,7 @@ command line, B6 API and screen, B7 lab.
   mismatch, unsafe names and non-regular members.
 - **Manifest** `manifest.json`:
   `{"format": 1,"archive_id","node_id","node_name","created_at","versions":
-  {"pelagos","bind","kea"},"engines","files": [{"path","mode" ("0640"),"owner"
+  {"pelagos","bind","kea"},"engines","hashes","files": [{"path","mode" ("0640"),"owner"
   ("user:group"),"sha256","part","size"}],"zones": [{"view","zone","serial",
   "source": "axfr"|"file","sha256" (of the stored snapshot, "" for "file")}],
   "unreadable": [path],"complete"}`.
@@ -3174,6 +3177,53 @@ command line, B6 API and screen, B7 lab.
   `bind.user_files` (only with `include_user_files`), `kea4.config`,
   `kea6.config`, `d2.config`, `kea.leases` (command line only),
   `pelagos.settings:<section>`, `pelagos.audit` (merged by id).
+- **Collection** (B2, `collector/archive_collect.py`), manifest `part` of each file:
+  `bind.user_files` (named.conf and every file it includes outside the managed folder, rndc
+  key), `bind.managed` (the managed folder, included or not, and `rndc-pelagos.conf`),
+  `bind.zone:<view>/<zone>` (the file of a static primary; for a dynamic primary whose AXFR
+  failed, its file and `.jnl`), `bind.dnssec` (`K<zone>.+*` in `directory` and every
+  `key-directory`, for zones with a `dnssec-policy` other than `none` or `inline-signing`),
+  `kea4.config`, `kea6.config`, `d2.config` (each configuration with its `<?include?>` files,
+  D2 `secret-file`s), `kea.leases` (memfile `name`, `.1`, `.2`, unless
+  `include_leases_enabled` is false or `persist` is false), `pelagos` (`node.toml`,
+  `master.key`, `tls/`, `cluster.toml`, `audit/`, `pki/`, `webcert/`). Dynamic primaries are
+  taken by AXFR with the read key (`zones[].source` `axfr`, SOA first, absolute names) outside
+  the engine lock; secondaries and RPZ zones (files under the RPZ folder) are not archived. Each
+  engine's files are read under `engine_lock` (section 6, 300 s). A dynamic zone whose AXFR
+  fails is listed as `axfr:<view>/<zone>` in `unreadable`. Manifest `hashes`: `config-hash-get`
+  of each Kea daemon (`{"kea4": ...}`).
+- **Helper read**: a file the `pelagos` user cannot open goes, in one batch per engine, through
+  the helper operation `archive_read` (`{"paths": [abs], "patterns": [{"dir","glob"}]}` ->
+  `{"files": [{"path","data" (base64),"mode","owner"}],"unreadable"}`): only regular files whose
+  real path is under the layout's folders (`PlatformPaths`: named.conf's folder unless `/etc`,
+  managed folder and its parent, zone folders, `/var/lib/bind`, Kea configuration and lease
+  folders) or is named.conf, the rndc key or `rndc-pelagos.conf`; 256 MiB per file. What
+  remains unreadable is listed in `unreadable` and the archive is `complete: false`.
+- **Local store** (`archives/store.py`): `local/<file>`, `<file>.sha256` and `<file>.json`
+  (the ArchiveMeta); `state.json` (0600): `{"since","last_attempt","last_success",
+  "last_archive_id","last_error","complete","unreadable","failures": {destination: consecutive
+  count},"errors": {destination: text},"next_run","running","last_test_restore",
+  "test_restore": {"ok" (null when skipped),"at","archive_id","checks": [{"what","ok","output"}],
+  "skipped"?}}`. B3 and B6 read it; only the collector writes it.
+- **Schedule**: slots at `start_time` local time (the host's zone with its DST rules, wall-clock
+  arithmetic) plus `stagger_minutes` x rank, then every `interval_hours`, anchored again each
+  day. A run is due when a slot passed since the last attempt (since the schedule was enabled for
+  the first one), so a node that was down catches up once. The collector task `archive` (60 s)
+  checks it; the build runs on its own thread. `collector.sock` event `{"event": "archive"}`
+  asks for a run now (B6 sends it for `POST /admin/archives/run`).
+- **Run**: refused without any valid recipient (`archive_failed` on `local`), and before writing
+  when free space is under the last archive's size plus 10 %. With `verify_enabled` the written
+  file is checked against its `.sha256` (`verified_at`). Local retention: the
+  `local_keep_count` newest; while no other destination is enabled, also the daily, weekly and
+  monthly ones of `keep_*_count` (the local folder is then the only copy). `.part` files older
+  than a day are removed.
+- **Test restore** (every `test_restore_days`, after a successful run): the new archive is
+  opened with the cluster identities in a temporary folder under `/run/pelagos` (engine parts
+  and zones only, never the Pelagos keys), includes are pointed at the copies, then
+  `named-checkconf`, `named-checkzone` per zone and, for Kea, `config-test` of the copy on the
+  running daemon (`kea-* -t` when the daemon does not answer: the Debian AppArmor profiles and
+  Kea 3's path rules keep it from reading files outside `/etc/kea`). The result goes to
+  `state.json` and the `archive.create` audit entry.
 - **Replication** (mTLS, section 13): `POST /repl/v1/archives` (body the
   encrypted file, headers `X-Pelagos-Archive-Id`, `X-Pelagos-Origin`,
   `X-Pelagos-Sha256`; `413` over `max_archive_mb`), `GET

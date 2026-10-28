@@ -53,6 +53,7 @@ OPERATIONS = (
     "plan_import",
     "plan_security",
     "plan_ha_tls",
+    "archive_read",
     "apply",
 )
 INSTALLER_SCOPES = (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY)
@@ -99,6 +100,10 @@ def handle(request: dict[str, Any], env_factory: Callable[[], Any], emit: Callab
             from pelagos.installer.ha_guard import status
 
             return status(env)
+        if op == "archive_read":
+            from pelagos.installer.archive_read import read
+
+            return read(request, env.paths)
         if op == "plan_install":
             from pelagos.installer.install import build_install_plan
 
@@ -591,6 +596,10 @@ class HelperClient:
 
     def ha_guard(self) -> dict[str, Any]:
         return self.call("ha_guard")
+
+    def archive_read(self, paths: list[str], patterns: list[dict[str, str]] | None = None) -> dict[str, Any]:
+        """Engine files this process cannot read, for the archive (installer.archive_read)."""
+        return self.call("archive_read", paths=list(paths), patterns=list(patterns or []))
 
     def plan(self, op: str, created_by: str, **args: Any) -> Plan:
         return Plan.from_dict(self.call(op, created_by=created_by, **args))

@@ -1614,6 +1614,17 @@ manifest, `filename` in ArchiveMeta, retired identities re-sealed under their ow
 unit jobs install `age` for the interoperability tests. Affects B2 to B6, which build on
 `ArchiveWriter`, `read_manifest`, `read_members`, `extract` and the `keys` helpers.
 
+## 2026-10-28, archives batch B2: collection and schedule
+Additive. Architecture sections 3 and 23: what an archive holds and its manifest parts, manifest
+`hashes`, the helper operation `archive_read`, the local store (`<file>.json` sidecar,
+`state.json`), schedule and catch-up, local retention, test restore, the `archive` event on
+`collector.sock`. WP-CORE: `Paths.archives_dir`, `archives/schedule.py`, `archives/retention.py`,
+`archives/store.py`. WP-COLLECTOR: `collector/archives.py`, `collector/archive_collect.py`, task
+`archive`. WP-INSTALLER: `installer/archive_read.py`, helper operation `archive_read` and
+`HelperClient.archive_read`. Affects B3 (destinations update `state.json` failures per
+destination and the ArchiveMeta sidecars), B5 (`pelagos backup` can call `ArchiveRunner.run`) and
+B6 (reads `state.json` and the sidecars, sends the `archive` event).
+
 ## 2026-10-28, notification dispatcher (batch N1)
 Additive. WP-CORE: `core/cluster_alerts.py` (the cluster alert view moved out of
 `services/alerts_service.py`, which re-exports its names), `Paths.notify_dir`. WP-COLLECTOR:

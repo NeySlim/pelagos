@@ -1219,6 +1219,7 @@
   "problem.preflight_failed": [],
   "problem.rate_limited": [],
   "problem.replication_syncing": [],
+  "problem.second_factor_required": [],
   "problem.totp_required": [],
   "problem.unauthenticated": [],
   "problem.validation_error": []

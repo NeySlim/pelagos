@@ -5,16 +5,17 @@ import AccountPage from './AccountPage'
 import { api } from '../../services/api'
 
 const updateUser = vi.fn()
+const checkSession = vi.fn()
 const setThemeFamily = vi.fn()
 let user
-vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user, updateUser, node: { peer: { name: 'ns1' } } }) }))
+vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user, updateUser, checkSession, node: { peer: { name: 'ns1' } } }) }))
 vi.mock('../../contexts/ThemeContext', () => ({
   useTheme: () => ({ themeFamily: 'pelagic', setThemeFamily, mode: 'system', setMode: vi.fn(), themes: [{ id: 'pelagic', name: 'Pelagic', accent: '#2DD4BF' }, { id: 'sunset', name: 'Sunset', accent: '#F97316' }] }),
 }))
 vi.mock('../../contexts/NotificationContext', () => ({ useNotification: () => ({ showSuccess: vi.fn(), showError: vi.fn() }) }))
 vi.mock('../../stores/preferencesStore', () => ({ persistPreference: vi.fn() }))
 vi.mock('../../services/api', () => {
-  const api = { auth: { changePassword: vi.fn(), totpEnroll: vi.fn(), totpConfirm: vi.fn(), totpDisable: vi.fn() } }
+  const api = { auth: { changePassword: vi.fn(), totpEnroll: vi.fn(), totpConfirm: vi.fn(), totpDisable: vi.fn(), keys: vi.fn(() => Promise.resolve({ items: [], available: false, reason: 'ip_address' })) } }
   return { api, default: api }
 })
 

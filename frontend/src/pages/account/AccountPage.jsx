@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Account: profile, password change, TOTP enrollment (QR code of the otpauth URL,
-// manual secret, confirmation code) or removal, and preferences (theme family,
-// mode, language, animations) saved to the server through the preferences store.
+// manual secret, confirmation code) or removal, security keys and passkeys, and
+// preferences (theme family, mode, language, animations) saved to the server.
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { UserCircle, Key, ShieldCheck, Palette } from '@phosphor-icons/react'
@@ -17,6 +17,7 @@ import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { passwordProblem } from '../../lib/password'
 import { TotpQr } from './TotpQr'
+import { SecurityKeysSection } from './SecurityKeysSection'
 
 function Section({ icon: Icon, title, children, testId }) {
   return (
@@ -80,7 +81,7 @@ function PasswordSection() {
 
 function TotpSection() {
   const { t } = useTranslation('account')
-  const { user, updateUser } = useAuth()
+  const { user, updateUser, checkSession } = useAuth()
   const { showSuccess } = useNotification()
   const [enrollment, setEnrollment] = useState(null)
   const [code, setCode] = useState('')
@@ -107,6 +108,7 @@ function TotpSection() {
     return run(async () => {
       await api.auth.totpConfirm(code)
       updateUser({ has_totp: true })
+      checkSession()
       setEnrollment(null)
       setCode('')
       showSuccess(t('totp.enabledToast'))
@@ -222,8 +224,9 @@ function PreferencesSection() {
 
 export default function AccountPage() {
   const { t } = useTranslation(['account', 'common'])
-  const { user, node } = useAuth()
+  const { user, node, restriction } = useAuth()
   const mustChange = Boolean(user?.must_change_password)
+  const enroll = restriction === 'webauthn_enrollment' || restriction === 'totp_enrollment' ? restriction : null
 
   return (
     <PageLayout icon={UserCircle} title={t('pages.account.title')} subtitle={t('pages.account.subtitle')} testId="page-account-account">
@@ -231,6 +234,11 @@ export default function AccountPage() {
         {mustChange && (
           <div className="rounded-lg border status-warning-border status-warning-bg px-3 py-2 text-sm status-warning-text" role="status" data-testid="account-must-change">
             {t('password.mustChange')}
+          </div>
+        )}
+        {enroll && (
+          <div className="rounded-lg border status-warning-border status-warning-bg px-3 py-2 text-sm status-warning-text" role="status" data-testid="account-enroll">
+            {t(enroll === 'webauthn_enrollment' ? 'keys.mustEnroll' : 'totp.mustEnroll')}
           </div>
         )}
         <Section icon={UserCircle} title={t('profile.title')} testId="account-profile">
@@ -256,6 +264,7 @@ export default function AccountPage() {
         </Section>
         <PasswordSection />
         <TotpSection />
+        <SecurityKeysSection Section={Section} />
         <PreferencesSection />
       </div>
     </PageLayout>

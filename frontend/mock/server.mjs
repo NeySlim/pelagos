@@ -24,12 +24,16 @@ import { ddnsFailoverHandlers } from './ddnsFailover.mjs'
 import { resolverHandlers } from './resolver.mjs'
 import { keaMigrationHandlers } from './keaMigration.mjs'
 import { ipv6Handlers } from './ipv6.mjs'
+import { keyCount, secondFactor, webauthnHandlers } from './webauthn.mjs'
 import { SETTINGS_SCHEMA, setting, updateSettings } from './settings.mjs'
 import { heartbeatAge, liveCounters } from './live.mjs'
 import { createEvents, leaseBrief, poolHistoryKey, stopEventTimers, zoneEvents } from './events.mjs'
 
 const API = '/api/v1'
-const ANON = new Set(['GET /health', 'GET /version', 'POST /auth/login'])
+const ANON = new Set([
+  'GET /health', 'GET /version', 'POST /auth/login',
+  'GET /auth/webauthn', 'POST /auth/webauthn/login/options', 'POST /auth/webauthn/login/verify',
+])
 const LOGIN_MAX_FAILURES = 5
 const LOGIN_WINDOW_MS = 60_000
 
@@ -81,6 +85,8 @@ const PERMISSIONS = {
   'GET /admin/users': 'admin:users', 'POST /admin/users': 'admin:users', 'GET /admin/users/{id}': 'admin:users',
   'PUT /admin/users/{id}': 'admin:users', 'DELETE /admin/users/{id}': 'admin:users',
   'POST /admin/users/{id}/reset-password': 'admin:users', 'DELETE /admin/users/{id}/totp': 'admin:users',
+  'GET /admin/users/{id}/webauthn': 'admin:users', 'DELETE /admin/users/{id}/webauthn': 'admin:users',
+  'DELETE /admin/users/{id}/webauthn/{credential_id}': 'admin:users', 'GET /admin/webauthn': 'admin:users',
   'GET /admin/roles': 'admin:roles', 'POST /admin/roles': 'admin:roles', 'PUT /admin/roles/{name}': 'admin:roles',
   'DELETE /admin/roles/{name}': 'admin:roles', 'GET /admin/permissions': 'admin:roles',
   'GET /admin/settings': 'admin:settings', 'PUT /admin/settings': 'admin:settings', 'GET /admin/settings/schema': 'admin:settings',
@@ -243,7 +249,7 @@ const checkPassword = (field, value) => {
 }
 
 const TITLES = {
-  validation_error: 'Validation error', invalid_credentials: 'Invalid credentials', totp_required: 'TOTP code required',
+  validation_error: 'Validation error', invalid_credentials: 'Invalid credentials', totp_required: 'TOTP code required', second_factor_required: 'Second factor required',
   unauthenticated: 'Authentication required', forbidden: 'Forbidden', csrf_failed: 'CSRF check failed',
   not_found: 'Not found', module_disabled: 'Module disabled', method_not_allowed: 'Method not allowed',
   conflict: 'Conflict', precondition_failed: 'Precondition failed', plan_expired: 'Plan expired', plan_state: 'Plan state',
@@ -361,7 +367,7 @@ function permissionsOf(state, user) {
 
 function publicUser(user, state) {
   const { password: _password, totp: _totp, ...rest } = user
-  return { ...rest, preferences: state.preferences.get(user.id) || user.preferences || {} }
+  return { ...rest, webauthn_count: keyCount(state, user.id), preferences: state.preferences.get(user.id) || user.preferences || {} }
 }
 
 function nodeName(state, id) {
@@ -1233,6 +1239,16 @@ async function replayPaced(queued, pace, emit) {
 }
 
 function buildHandlers(state, emit) {
+  // Session, cookie and login answer shared by the password and the security key logins.
+  const openSession = (user, res) => {
+    const sid = randomBytes(32).toString('hex')
+    const csrf = randomBytes(24).toString('hex')
+    state.sessions.set(sid, { userId: user.id, csrf, created: Date.now() })
+    user.last_login = iso(Date.now())
+    res.setHeader('Set-Cookie', `pelagos_session=${sid}; HttpOnly; SameSite=Strict; Path=/`)
+    auditEntry(state, user, { action: 'auth.login', target: `user:${user.username}` })
+    return { user: publicUser(user, state), permissions: permissionsOf(state, user), csrf_token: csrf, totp_required: false, restriction: null }
+  }
   // A record plan changed the zone on this node: its secondaries lag until the transfer.
   const markTransfer = (planId) => {
     const plan = state.plans.get(planId)?.plan
@@ -1264,7 +1280,7 @@ function buildHandlers(state, emit) {
     'GET /capabilities': () => capabilities(state),
 
     // Auth and account
-    'POST /auth/login': ({ body, res }) => {
+    'POST /auth/login': ({ body, res, req }) => {
       const failures = recentFailures(body.username)
       if (failures.length >= LOGIN_MAX_FAILURES) {
         res.setHeader('Retry-After', String(Math.ceil((LOGIN_WINDOW_MS - (Date.now() - failures[0])) / 1000)))
@@ -1277,6 +1293,8 @@ function buildHandlers(state, emit) {
         auditEntry(state, null, { action: 'auth.login', target: `user:${body.username}`, result: 'denied', message: 'invalid credentials' })
         throw new Problem(401, 'invalid_credentials', 'Invalid username or password')
       }
+      const keyStep = secondFactor(state, user, req, body, Problem)
+      if (keyStep) throw keyStep
       if (user.has_totp) {
         if (!body.totp_code) throw new Problem(401, 'totp_required', 'A TOTP code is required')
         if (body.totp_code !== (user.totp || '123456')) {
@@ -1285,13 +1303,7 @@ function buildHandlers(state, emit) {
         }
       }
       loginFailures.delete(body.username)
-      const sid = randomBytes(32).toString('hex')
-      const csrf = randomBytes(24).toString('hex')
-      state.sessions.set(sid, { userId: user.id, csrf, created: Date.now() })
-      user.last_login = iso(Date.now())
-      res.setHeader('Set-Cookie', `pelagos_session=${sid}; HttpOnly; SameSite=Strict; Path=/`)
-      auditEntry(state, user, { action: 'auth.login', target: `user:${user.username}` })
-      return { user: publicUser(user, state), permissions: permissionsOf(state, user), csrf_token: csrf, totp_required: false }
+      return openSession(user, res)
     },
     'POST /auth/logout': ({ sid, res }) => {
       state.sessions.delete(sid)
@@ -2730,6 +2742,7 @@ function buildHandlers(state, emit) {
     ...rpzHandlers(state, { createPlan, invalid, notFound }),
     ...certsHandlers(state, { Problem, invalid }),
     ...notifyHandlers(state, { Problem, invalid }),
+    ...webauthnHandlers(state, { Problem, invalid, openSession }),
     ...archivesHandlers(state, { Problem, invalid, createPlan }),
     ...ddnsFailoverHandlers(state, { Problem, invalid, createPlan, hasPermission }),
     ...resolverHandlers(state, { Problem, invalid, createPlan }),

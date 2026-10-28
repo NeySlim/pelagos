@@ -25,6 +25,15 @@ export const auth = {
   totpEnroll: () => apiClient.post('/auth/totp/enroll'),
   totpConfirm: (code) => apiClient.post('/auth/totp/confirm', { code }),
   totpDisable: (password) => apiClient.delete('/auth/totp', { password }),
+  // Security keys and passkeys (section 16): options JSON in, PublicKeyCredential JSON out.
+  webauthnSite: () => apiClient.get('/auth/webauthn'),
+  passkeyOptions: () => apiClient.post('/auth/webauthn/login/options'),
+  webauthnLogin: (ceremony, credential) => apiClient.post('/auth/webauthn/login/verify', { ceremony, credential }),
+  keys: () => apiClient.get('/auth/webauthn/credentials'),
+  keyRegisterOptions: () => apiClient.post('/auth/webauthn/register/options'),
+  keyRegister: (ceremony, credential, name) => apiClient.post('/auth/webauthn/register/verify', { ceremony, credential, name }),
+  keyRename: (id, name) => apiClient.patch(`/auth/webauthn/credentials/${enc(id)}`, { name }),
+  keyRemove: (id, password) => apiClient.delete(`/auth/webauthn/credentials/${enc(id)}`, { password }),
 }
 
 export const account = {
@@ -240,6 +249,10 @@ export const admin = {
   deleteUser: (id) => apiClient.delete(`/admin/users/${enc(id)}`),
   resetPassword: (id, password) => apiClient.post(`/admin/users/${enc(id)}/reset-password`, { password }),
   clearTotp: (id) => apiClient.delete(`/admin/users/${enc(id)}/totp`),
+  userKeys: (id) => apiClient.get(`/admin/users/${enc(id)}/webauthn`),
+  removeUserKeys: (id) => apiClient.delete(`/admin/users/${enc(id)}/webauthn`),
+  removeUserKey: (id, keyId) => apiClient.delete(`/admin/users/${enc(id)}/webauthn/${enc(keyId)}`),
+  webauthn: () => apiClient.get('/admin/webauthn'),
   roles: () => apiClient.get('/admin/roles'),
   createRole: (role) => apiClient.post('/admin/roles', role),
   updateRole: (name, body) => apiClient.put(`/admin/roles/${enc(name)}`, body),

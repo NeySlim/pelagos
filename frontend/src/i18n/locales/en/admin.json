@@ -65,6 +65,25 @@
       "passwordShort": "At least 12 characters",
       "passwordClasses": "Use three of: lowercase, uppercase, digits, symbols",
       "roles": "Choose at least one role"
+    },
+    "keys": "Keys",
+    "keysManage": "Security keys",
+    "keysTitle": "Security keys of {{name}}",
+    "keysHelp": "Removing a key stops it signing in on every node. A user whose role requires a key must add one at the next sign-in.",
+    "keysNone": "No security key.",
+    "keysSynced": "Synced passkey",
+    "keysMeta": "{{rp}} · added {{created}} · last used on this node {{used}}",
+    "keyRemoved": "{{name}} removed",
+    "keysRemoved": "Every key of {{name}} removed",
+    "keysRemoveAll": "Remove every key",
+    "rp": {
+      "setting": "Security keys belong to {{rp}} (setting).",
+      "common_domain": "Security keys belong to {{rp}}, the domain the nodes share.",
+      "request_host": "Security keys belong to the name each node is opened by.",
+      "warning": {
+        "no_common_domain": "The nodes share no DNS domain: a key works only on the node it was added on. Set auth.webauthn_rp_id or give the nodes names in one domain.",
+        "node_outside_rp_id": "Outside that domain, keys do not work on: {{nodes}}."
+      }
     }
   },
   "roles": {
@@ -276,7 +295,9 @@
         "session_idle_seconds": "Idle session timeout",
         "login_rate_limit_per_minute": "Sign-in attempts per minute",
         "require_totp": "Require two-factor for every user",
-        "api_docs_public_enabled": "Public API description"
+        "api_docs_public_enabled": "Public API description",
+        "webauthn_rp_id": "Security key domain (rpId)",
+        "require_webauthn_roles": "Roles that require a security key"
       },
       "plans": {
         "ttl_seconds": "Plan lifetime"
@@ -453,7 +474,9 @@
         "session_idle_seconds": "At most the session lifetime.",
         "login_rate_limit_per_minute": "Per client address; more get 429 until the minute ends.",
         "require_totp": "Users without TOTP may only enrol until they do.",
-        "api_docs_public_enabled": "Serve /api/v1/docs and /api/v1/swagger.json without a session."
+        "api_docs_public_enabled": "Serve /api/v1/docs and /api/v1/swagger.json without a session.",
+        "webauthn_rp_id": "auto: the DNS domain the nodes share. Or a domain such as example.lan; keys registered under another domain stop working.",
+        "require_webauthn_roles": "Members of these roles sign in with a security key; TOTP alone is not enough."
       },
       "plans": {
         "ttl_seconds": "A plan not applied within this delay expires."

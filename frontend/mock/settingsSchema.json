@@ -52,6 +52,18 @@
       "default": false
     },
     {
+      "key": "auth.webauthn_rp_id",
+      "type": "string",
+      "default": "auto",
+      "pattern": "^[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}\\.)*[A-Za-z0-9_-]{0,63}\\.?$"
+    },
+    {
+      "key": "auth.require_webauthn_roles",
+      "type": "list",
+      "default": [],
+      "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]{0,62}$"
+    },
+    {
       "key": "plans.ttl_seconds",
       "type": "integer",
       "default": 600,

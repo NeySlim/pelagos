@@ -165,6 +165,12 @@ const QUERIES = {
 
 // Endpoints whose success status is not 200/201/202/204 with these inputs.
 const EXPECTED = {
+  // No browser here: no key answers, so the ceremony steps refuse and no key exists.
+  'POST /auth/webauthn/login/verify': 401,
+  'POST /auth/webauthn/register/verify': 400,
+  'PATCH /auth/webauthn/credentials/{id}': 404,
+  'DELETE /auth/webauthn/credentials/{id}': 401,
+  'DELETE /admin/users/{id}/webauthn/{credential_id}': 404,
   'POST /dns/zones/{zone}/retransfer': 409, // example.lan is a primary zone
   'POST /admin/archives/upload': 400, // a JSON body, not multipart
   'POST /dns/catalog-zones/{zone}/members/plan': 404, // example.lan is not a catalog

@@ -28,6 +28,8 @@ function applyPreferences(prefs) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [permissions, setPermissions] = useState([])
+  // "totp_enrollment" | "webauthn_enrollment" | "password_change" | null (section 17).
+  const [restriction, setRestriction] = useState(null)
   const [node, setNode] = useState(null)
   const [capabilities, setCapabilities] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -36,6 +38,7 @@ export function AuthProvider({ children }) {
   const clearSession = useCallback(() => {
     setUser(null)
     setPermissions([])
+    setRestriction(null)
     setCapabilities(null)
     apiClient.clearCsrfToken()
     setPrefsAuthenticated(false)
@@ -61,6 +64,7 @@ export function AuthProvider({ children }) {
     (data) => {
       setUser(data.user || null)
       setPermissions(data.permissions || [])
+      setRestriction(data.restriction || null)
       if (data.csrf_token) apiClient.setCsrfToken(data.csrf_token)
       if (data.node) setNode(data.node)
       setPrefsAuthenticated(true)
@@ -109,6 +113,16 @@ export function AuthProvider({ children }) {
     [adoptSession],
   )
 
+  // A security key answer: the second factor of a password login, or a passkey login.
+  const loginWithKey = useCallback(
+    async (ceremony, credential) => {
+      const data = await api.auth.webauthnLogin(ceremony, credential)
+      adoptSession(data)
+      return data
+    },
+    [adoptSession],
+  )
+
   const logout = useCallback(async () => {
     try {
       await api.auth.logout()
@@ -135,6 +149,8 @@ export function AuthProvider({ children }) {
     () => ({
       user,
       permissions,
+      restriction,
+      setRestriction,
       node,
       capabilities,
       modules: capabilities?.modules || { dhcpv6: false, advanced_editor: false },
@@ -144,13 +160,14 @@ export function AuthProvider({ children }) {
       loading,
       sessionChecked,
       login,
+      loginWithKey,
       logout,
       checkSession,
       refreshCapabilities: loadCapabilities,
       hasPermission,
       updateUser: (patch) => setUser((prev) => (prev ? { ...prev, ...patch } : prev)),
     }),
-    [user, permissions, node, capabilities, loading, sessionChecked, login, logout, checkSession, loadCapabilities, hasPermission],
+    [user, permissions, restriction, node, capabilities, loading, sessionChecked, login, loginWithKey, logout, checkSession, loadCapabilities, hasPermission],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

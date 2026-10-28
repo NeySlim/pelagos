@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-// Users: list with roles, state and two-factor status; create, edit roles and
-// flags, reset the password, clear TOTP, delete. Users replicate to every node.
+// Users: list with roles, state, two-factor status and security keys; create,
+// edit roles and flags, reset the password, clear TOTP, remove keys, delete.
+// Users replicate to every node. The rpId banner says where keys work.
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Users, Plus, PencilSimple, Key, ShieldSlash, Trash, ArrowsClockwise } from '@phosphor-icons/react'
+import { Users, Plus, PencilSimple, Key, ShieldSlash, Trash, ArrowsClockwise, Fingerprint } from '@phosphor-icons/react'
 import { PageLayout, DataTable, Button, Badge, StatusBadge, FormModal, Input, ConfirmDialog, ToggleSwitch } from '../../components'
 import { useApi } from '../../hooks'
 import { useAuth } from '../../contexts/AuthContext'
@@ -13,6 +14,7 @@ import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { RoleChecklist } from './RoleChecklist'
 import { USERNAME_RE, passwordProblem, fieldErrors } from './validation'
+import { UserKeys, WebAuthnStatus } from './UserKeys'
 
 function UserForm({ open, user, roles, onClose, onSaved }) {
   const { t } = useTranslation(['admin', 'common'])
@@ -98,6 +100,7 @@ export default function UsersPage() {
   const roles = rolesQ.data?.items || []
   const [editing, setEditing] = useState(null) // user object, or 'new'
   const [resetting, setResetting] = useState(null)
+  const [keysOf, setKeysOf] = useState(null)
   const [confirm, setConfirm] = useState(null) // { kind: 'delete' | 'totp', user }
   const [busy, setBusy] = useState(false)
 
@@ -121,6 +124,7 @@ export default function UsersPage() {
     { key: 'roles', label: t('users.roles'), render: (u) => <div className="flex flex-wrap gap-1">{u.roles.map((r) => <Badge key={r} variant={r === 'admin' ? 'primary' : 'secondary'} size="sm">{r}</Badge>)}</div> },
     { key: 'enabled', label: t('users.state'), render: (u) => <StatusBadge status={u.enabled ? 'enabled' : 'disabled'} /> },
     { key: 'has_totp', label: t('users.totp'), render: (u) => <StatusBadge status={u.has_totp ? 'true' : 'false'} label={u.has_totp ? t('users.totpOn') : t('users.totpOff')} /> },
+    { key: 'webauthn_count', label: t('users.keys'), render: (u) => (u.webauthn_count ? <Badge size="sm" variant="secondary" data-testid="user-key-count">{u.webauthn_count}</Badge> : '') },
     { key: 'must_change_password', label: t('users.mustChangeShort'), render: (u) => (u.must_change_password ? <Badge variant="warning" size="sm">{t('users.pending')}</Badge> : '') },
     { key: 'last_login', label: t('users.lastLogin'), sortable: true, render: (u) => <span className="text-xs">{u.last_login ? formatDate(u.last_login) : t('users.never')}</span> },
     {
@@ -131,6 +135,7 @@ export default function UsersPage() {
         <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
           <Button size="xs" variant="ghost" title={t('common:actions.edit')} onClick={() => setEditing(u)} data-testid="user-edit"><PencilSimple size={14} /></Button>
           <Button size="xs" variant="ghost" title={t('users.reset')} onClick={() => setResetting(u)}><Key size={14} /></Button>
+          {u.webauthn_count > 0 && <Button size="xs" variant="ghost" title={t('users.keysManage')} onClick={() => setKeysOf(u)} data-testid="user-keys"><Fingerprint size={14} /></Button>}
           {u.has_totp && <Button size="xs" variant="ghost" title={t('users.clearTotp')} onClick={() => setConfirm({ kind: 'totp', user: u })}><ShieldSlash size={14} /></Button>}
           {u.id !== me?.id && <Button size="xs" variant="ghost" title={t('common:actions.delete')} onClick={() => setConfirm({ kind: 'delete', user: u })} data-testid="user-delete"><Trash size={14} className="status-danger-text" /></Button>}
         </div>
@@ -157,6 +162,7 @@ export default function UsersPage() {
         </>
       }
     >
+      <WebAuthnStatus />
       <DataTable columns={columns} rows={usersQ.data?.items || []} loading={usersQ.loading} error={usersQ.error} onRetry={usersQ.refetch} clientSort onRowClick={setEditing} testId="users-table" />
       {editing && (
         <UserForm
@@ -169,6 +175,13 @@ export default function UsersPage() {
             setEditing(null)
             usersQ.refetch()
           }}
+        />
+      )}
+      {keysOf && (
+        <UserKeys
+          user={keysOf}
+          onClose={() => setKeysOf(null)}
+          onChanged={() => usersQ.refetch()}
         />
       )}
       {resetting && (

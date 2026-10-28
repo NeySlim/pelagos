@@ -50,12 +50,41 @@
     "errors": {
       "code": "Enter the 6 digits shown by the app",
       "password": "Enter your password"
-    }
+    },
+    "mustEnroll": "Your account needs two-factor authentication: set up an authenticator or a security key to continue."
   },
   "preferences": {
     "title": "Preferences",
     "help": "Saved to your account and applied on every node.",
     "animationsHelp": "Reduced keeps short fades and stops looping effects. Your system's reduced motion setting always applies.",
     "ambientHelp": "Ambient backgrounds are a faint graticule and live traces under the data. They stand still unless animations are full."
+  },
+  "keys": {
+    "title": "Security keys and passkeys",
+    "help": "Sign in with a hardware key (YubiKey, Titan) or a passkey of your phone or computer, as a second factor or without a password. A key opens every node of the cluster.",
+    "none": "No security key yet.",
+    "name": "Key name",
+    "namePlaceholder": "YubiKey 5 on my keyring",
+    "add": "Add a key",
+    "added": "Security key added",
+    "rename": "Rename",
+    "remove": "Remove",
+    "removeTitle": "Remove {{name}}?",
+    "removeHelp": "Enter your password to remove this key. It can no longer sign in on any node.",
+    "removed": "{{name}} removed",
+    "synced": "Synced passkey",
+    "meta": "{{rp}} · added {{created}} · last used here {{used}}",
+    "neverHere": "never",
+    "mustEnroll": "Your role requires a security key: add one to continue.",
+    "errors": {
+      "name": "Give the key a name",
+      "cancelled": "The browser prompt was closed"
+    },
+    "unavailable": {
+      "browser": "This browser does not support security keys.",
+      "ip_address": "Security keys need the node's DNS name: open Pelagos by its name, not its IP address.",
+      "insecure": "Security keys need HTTPS.",
+      "outside_rp_id": "Security keys of this cluster belong to {{rp}}: open the node by a name under that domain."
+    }
   }
 }

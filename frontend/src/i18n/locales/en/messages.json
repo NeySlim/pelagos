@@ -269,6 +269,7 @@
   "problem.rate_limited": "Too many requests",
   "problem.replication_syncing": "Replication in progress",
   "problem.totp_required": "One-time code required",
+  "problem.second_factor_required": "Second factor required",
   "problem.unauthenticated": "Authentication required",
   "problem.validation_error": "Validation error",
   "alert.disk_space": "{{path}} has {{percent}}% free space ({{free}} free)",

@@ -23,11 +23,15 @@ export function PageLoader() {
   )
 }
 
+const ENROLLMENT = ['totp_enrollment', 'webauthn_enrollment']
+
 export function Protected({ permission, anyPermission, module, children }) {
-  const { isAuthenticated, loading, hasPermission, modules, capabilities } = useAuth()
+  const { isAuthenticated, loading, hasPermission, modules, capabilities, restriction } = useAuth()
   const location = useLocation()
   if (loading) return <PageLoader />
   if (!isAuthenticated) return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  // An enrollment session reaches only the account page until a second factor is set up.
+  if (ENROLLMENT.includes(restriction) && location.pathname !== '/account') return <Navigate to="/account" replace />
   if (!permitted({ permission, anyPermission }, hasPermission)) return <RouteStatus kind="forbidden" />
   if (module && !capabilities) return <PageLoader />
   if (module && !modules?.[module]) return <RouteStatus kind="module_disabled" />

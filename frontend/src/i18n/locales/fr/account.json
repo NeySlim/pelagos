@@ -50,12 +50,41 @@
     "errors": {
       "code": "Saisissez les 6 chiffres affichés par l'application",
       "password": "Saisissez votre mot de passe"
-    }
+    },
+    "mustEnroll": "Votre compte exige une double authentification : configurez une application d'authentification ou une clé de sécurité pour continuer."
   },
   "preferences": {
     "title": "Préférences",
     "help": "Enregistrées dans votre compte et appliquées sur chaque nœud.",
     "animationsHelp": "Réduites garde de courts fondus et arrête les effets en boucle. Le réglage système de réduction des animations s'applique toujours.",
     "ambientHelp": "Les fonds animés sont un graticule discret et des traces en direct sous les données. Ils restent fixes sauf si les animations sont complètes."
+  },
+  "keys": {
+    "title": "Clés de sécurité et passkeys",
+    "help": "Connectez-vous avec une clé matérielle (YubiKey, Titan) ou une passkey de votre téléphone ou ordinateur, en second facteur ou sans mot de passe. Une clé ouvre tous les nœuds du cluster.",
+    "none": "Aucune clé de sécurité.",
+    "name": "Nom de la clé",
+    "namePlaceholder": "YubiKey 5 du trousseau",
+    "add": "Ajouter une clé",
+    "added": "Clé de sécurité ajoutée",
+    "rename": "Renommer",
+    "remove": "Supprimer",
+    "removeTitle": "Supprimer {{name}} ?",
+    "removeHelp": "Saisissez votre mot de passe pour supprimer cette clé. Elle ne pourra plus ouvrir aucun nœud.",
+    "removed": "{{name}} supprimée",
+    "synced": "Passkey synchronisée",
+    "meta": "{{rp}} · ajoutée le {{created}} · dernier usage ici {{used}}",
+    "neverHere": "jamais",
+    "mustEnroll": "Votre rôle exige une clé de sécurité : ajoutez-en une pour continuer.",
+    "errors": {
+      "name": "Donnez un nom à la clé",
+      "cancelled": "La demande du navigateur a été fermée"
+    },
+    "unavailable": {
+      "browser": "Ce navigateur ne gère pas les clés de sécurité.",
+      "ip_address": "Les clés de sécurité demandent le nom DNS du nœud : ouvrez Pelagos par son nom, pas par son adresse IP.",
+      "insecure": "Les clés de sécurité demandent HTTPS.",
+      "outside_rp_id": "Les clés de sécurité de ce cluster appartiennent à {{rp}} : ouvrez le nœud par un nom de ce domaine."
+    }
   }
 }

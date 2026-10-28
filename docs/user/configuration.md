@@ -451,6 +451,9 @@ A mounted folder must be writable by the `pelagos` user. For example, NFS with
 `ns-archive.example.lan:/srv/archives /mnt/archives nfs4 rw,hard 0 0`, or SMB with
 `//nas.example.lan/archives /mnt/archives cifs credentials=/root/.smb-archives,uid=pelagos,gid=pelagos,file_mode=0600,dir_mode=0700 0 0`
 in `/etc/fstab`; a folder that is not mounted is refused rather than filled on the local disk.
+The packaged services may write under `/mnt` and `/media` only (systemd `ProtectSystem=strict`):
+mount the folder there, or allow its directory with a `ReadWritePaths=` drop-in on both units
+([Troubleshooting](troubleshooting.md)).
 
 SFTP pins the server's host key: give the fingerprint `ssh-keygen -lf
 /etc/ssh/ssh_host_ed25519_key.pub` prints on the server (never one read over the network). The
@@ -466,8 +469,8 @@ Match User pelagos-archive
 ```
 
 with `/srv/sftp/pelagos-archive` owned by root and a writable `data` folder inside it (then
-`path = "data"`). Nodes with an SFTP destination need the OpenSSH client (`openssh-client`,
-`openssh-clients` on RHEL).
+`path = "data"`). The packages and the Docker image depend on the OpenSSH client
+(`openssh-client`, `openssh-clients` on RHEL) for this.
 
 A retired archive key (after a rotation) is kept until no archive encrypted with it is left
 anywhere: in the local folders, on the peers and at every destination.

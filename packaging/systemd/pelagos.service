@@ -39,6 +39,8 @@ ReadWritePaths=/var/lib/pelagos /run/pelagos /etc/pelagos
 # Static zone files live next to the user's zones; file permissions still decide.
 ReadWritePaths=-/etc/bind -/etc/named -/etc/kea
 ReadWritePaths=-/var/cache/bind -/var/lib/bind -/var/named
+# Mounted archive destinations (NFS, SMB) the operator mounts there.
+ReadWritePaths=-/mnt -/media
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes

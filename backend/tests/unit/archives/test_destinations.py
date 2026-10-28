@@ -189,6 +189,15 @@ def test_mounted_refuses_a_folder_that_is_not_mounted(tmp_path) -> None:
         mounted(tmp_path / "absent", mount=False).probe()
 
 
+def test_mounted_folder_read_only_in_the_sandbox_names_the_drop_in(tmp_path, monkeypatch) -> None:
+    """A mount the systemd sandbox sees read-only (outside ReadWritePaths) says how to allow it."""
+    from pelagos.core import writable
+
+    monkeypatch.setattr(writable, "read_only_mount", lambda p: p == tmp_path)
+    with pytest.raises(DestinationError, match="ReadWritePaths="):
+        mounted(tmp_path).probe()
+
+
 def test_mounted_list_skips_foreign_sidecars(tmp_path) -> None:
     root = tmp_path / "nas"
     target = mounted(root)

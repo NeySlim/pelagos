@@ -25,6 +25,7 @@ from pelagos.archives.destinations.base import (
 from pelagos.archives.destinations.config import DestinationConfig
 from pelagos.archives.model import ArchiveMeta
 from pelagos.archives.store import META_SUFFIX
+from pelagos.core import writable
 
 _CHUNK = 1024 * 1024
 
@@ -48,6 +49,9 @@ class MountedTarget(Target):
     def _check(self) -> None:
         if not self.ismount(str(self.root)):
             raise DestinationError(f"{self.root} is not a mount point (mount it first)")
+        problem = writable.read_only_problem([self.root], "folder")
+        if problem:
+            raise DestinationError(problem)
         if not os.access(self.root, os.W_OK | os.X_OK):
             raise DestinationError(f"{self.root} is not writable by this node")
 

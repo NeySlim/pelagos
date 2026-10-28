@@ -40,6 +40,8 @@ BuildRequires:  findutils
 Requires:       %{pelagos_pypkg} >= 3.12
 Requires:       python(abi) = %{pelagos_pyver}
 Requires:       openssl
+# OpenSSH client: SFTP archive destinations (sftp, ssh-keyscan).
+Requires:       openssh-clients
 # setpriv: pelagos-prestart drops to the service user inside its own tree.
 Requires:       /usr/bin/setpriv
 Requires:       shadow-utils

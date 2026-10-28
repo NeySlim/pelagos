@@ -9,7 +9,7 @@ Rules-Requires-Root: no
 
 Package: pelagos
 Architecture: any
-Depends: ${misc:Depends}, ${pelagos:Python}, libc6, adduser, openssl
+Depends: ${misc:Depends}, ${pelagos:Python}, libc6, adduser, openssl, openssh-client
 Suggests: bind9, bind9-utils, kea-dhcp4-server, kea-dhcp6-server, kea-dhcp-ddns-server
 Description: DNS and DHCP management for BIND 9 and Kea
  Pelagos manages BIND 9 zones and Kea DHCP subnets, reservations and leases

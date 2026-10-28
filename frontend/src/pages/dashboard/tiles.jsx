@@ -19,6 +19,7 @@ import { SWEEP_MAX_STEPS, SWEEP_STEP_MS, TileRefresh } from './tileRefresh'
 import { dhcpFamily, mergePools, poolThresholds, formatErrorRate } from './summary'
 import { PoolPressure } from './poolPressure'
 import { flattenHa } from '../dhcp/haSetup'
+import { DdnsFailoverLine } from './ddnsFailoverLine'
 
 // `ambient` is a canvas layer under the body. The marks ping on the tile's domain events
 // and the sweep follows refreshes (TileRefresh); all are absent unless ambient layers are on.
@@ -365,6 +366,7 @@ export function D2Tile({ summary, editing, nameOf }) {
       editing={editing}
       status={d2.length > 0 && <StatusBadge status={total ? 'warning' : 'ok'} label={t('tiles.d2.errors', { count: total })} />}
     >
+      <DdnsFailoverLine />
       {d2.length === 0 ? (
         <Empty icon={Lightning} title={t('tiles.d2.empty')} />
       ) : (

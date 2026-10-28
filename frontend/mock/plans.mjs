@@ -152,6 +152,7 @@ export const SCOPE_PERMISSIONS = {
   'dhcp.ha': 'ops:dhcp.ha',
   'dhcp.config': 'write:dhcp.config',
   'd2.config': 'write:dhcp.config',
+  'dns.failover': 'write:dns.zones',
   host: 'write:hosts',
   install: 'admin:install',
   import: 'admin:install',
@@ -170,6 +171,8 @@ export function isAdmin(user) {
 // Unknown scopes fall back to admin only.
 function scopeDenied(user, plan) {
   const permission = SCOPE_PERMISSIONS[plan.scope]
+  // A DDNS failover plan also rewrites D2 (api/plans.py).
+  if (plan.scope === 'dns.failover' && !can(user, 'write:dhcp.config') && !isAdmin(user)) return { status: 403, code: 'forbidden', detail: 'requires write:dhcp.config' }
   if (permission ? can(user, permission) : isAdmin(user)) return null
   return { status: 403, code: 'forbidden', detail: `requires ${permission || 'admin'}` }
 }

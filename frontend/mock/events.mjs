@@ -5,8 +5,9 @@
 // POST /api/v1/_mock/events {"kind": ...} runs one (mock only, no session needed).
 import { iso, ulid } from './data.mjs'
 import { notifyState } from './notify.mjs'
+import { ddnsFailoverEvents } from './ddnsFailover.mjs'
 
-export const EVENT_KINDS = ['lease', 'alert', 'alert-resolve', 'replication', 'transfer', 'ha-failover', 'ha-failback', 'heartbeat', 'alerts-peer', 'notify-fail', 'notify-recover']
+export const EVENT_KINDS = ['lease', 'alert', 'alert-resolve', 'replication', 'transfer', 'ha-failover', 'ha-failback', 'heartbeat', 'alerts-peer', 'notify-fail', 'notify-recover', 'ddns-outage', 'ddns-return', 'ddns-demote']
 
 const POOL = { family: 'v4', subnetId: 3, pool: '192.0.2.200 - 192.0.2.219', subject: 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219' }
 
@@ -301,6 +302,8 @@ export function createEvents(state, h) {
       return { ok: true }
     },
   }
+
+  Object.assign(handlers, ddnsFailoverEvents(state, { emit: h.emit, ulid }))
 
   return {
     run(kind, args = {}) {

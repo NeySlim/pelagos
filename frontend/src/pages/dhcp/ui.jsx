@@ -139,7 +139,7 @@ export function Stat({ label, value, tone }) {
 
 // Page frame of every DHCP, hosts and nodes screen: title and subtitle from
 // `<ns>:pages.<page>`, the family badge on DHCP pages, refresh plus extra actions.
-export function AreaPage({ ns, page, icon, family, actions, onRefresh, loading, children }) {
+export function AreaPage({ ns, page, icon, family, actions, onRefresh, loading, tabs, activeTab, onTabChange, children }) {
   const { t } = useTranslation([ns, 'common'])
   return (
     <PageLayout
@@ -154,6 +154,9 @@ export function AreaPage({ ns, page, icon, family, actions, onRefresh, loading, 
         ) : undefined
       }
       testId={`page-${ns}-${page}`}
+      tabs={tabs}
+      activeTab={activeTab}
+      onTabChange={onTabChange}
       actions={
         <div className="flex items-center gap-2">
           {actions}

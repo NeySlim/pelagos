@@ -69,7 +69,7 @@ slower; without it they keep polling.
   pair, with the busier server's view), and the fill of the
   hottest pool over the last hour against the thresholds; an alert on it
   closes a red latch where it opened and a green one where it resolved.
-- **DDNS updates**: D2 success, errors, timeouts and error rate.
+- **DDNS updates**: D2 success, errors, timeouts and error rate, and the DDNS failover state (zones ready, primary down, old primary serving, leases to replay).
 
 "Edit layout" lets you move and resize tiles; "Save layout" keeps it in
 your account, "Default layout" restores it. Each tile opens its screen.
@@ -161,6 +161,9 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 | `restart_loop` | critical | a daemon restarted several times in a short period |
 | `pool_forecast` | warning, critical | a pool is on course to be full in a few days |
 | `notification_failed` | warning | a notification channel has failed every send for `checks.notification_failure_warning_minutes` (30); sent through the other channels |
+| `ddns_outage` | critical | the active primary of a dynamic zone receives no DDNS update (named stopped or node offline); opens DHCP > DDNS > Failover to promote a copy |
+| `dns_stale_primary` | critical | a node still serves as primary a zone whose role went to another node; cleared once it is demoted |
+| `ddns_replay` | warning | leases of the last DDNS outage lack their DNS records; the Failover tab replays them |
 | `security_advisory` | info, warning, critical | one alert per engine: ISC security advisories that match the running BIND or Kea and that the installed distribution package does not fix (the details list each CVE, and say when updating the package fixes it) |
 
 Alerts resolve by themselves when the condition goes away; resolved alerts

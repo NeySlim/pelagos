@@ -368,7 +368,11 @@
     "sent": "Envoyées",
     "success": "Réussies",
     "timeout": "Délai dépassé",
-    "valueHint": "Valeur JSON : true, 25, \"example.lan.\""
+    "valueHint": "Valeur JSON : true, 25, \"example.lan.\"",
+    "tabs": {
+      "settings": "Réglages",
+      "failover": "Reprise"
+    }
   },
   "hooks": {
     "add": "Charger un hook",
@@ -413,5 +417,107 @@
     "dayAgo": "-24 h",
     "utilization": "Usage",
     "subnetUse": "Adresses utilisées du sous-réseau {{id}}"
+  },
+  "ddnsFailover": {
+    "denied": "Lire la reprise DDNS demande read:dhcp et read:dns.",
+    "offline": "Ne répondent pas : {{nodes}}. Leurs zones et leurs listes D2 ne peuvent pas être vérifiées ; le plan de préparation les attend.",
+    "prepareAll": "Préparer ({{count}})",
+    "switchoverAll": "Rendre le rôle",
+    "prepare": "Préparer",
+    "promote": "Promouvoir une copie",
+    "switchover": "Rendre le rôle",
+    "preparedAt": "préparée {{when}}",
+    "zonesTitle": "Zones dynamiques",
+    "noZones": "Aucune zone dynamique",
+    "noZonesHint": "Les zones mises à jour par D2 apparaissent ici dès que BIND les sert.",
+    "cols": {
+      "zone": "Zone",
+      "primary": "Primaire actif",
+      "epoch": "Époque",
+      "since": "Depuis",
+      "copies": "Copies",
+      "state": "État"
+    },
+    "state": {
+      "outage": "Primaire en panne",
+      "stale": "Ancien primaire encore actif",
+      "blocked": "Ne peut pas être préparée",
+      "not_prepared": "Non préparée",
+      "ready": "Prête"
+    },
+    "blockerAction": {
+      "adopt": "Confier la zone à Pelagos",
+      "openZone": "Ouvrir la zone"
+    },
+    "outage": {
+      "title": "Panne DDNS depuis {{since}} ({{ago}})",
+      "cause": {
+        "named_down": "{{zone}} : named sur {{node}} ne répond pas, aucune mise à jour DNS n'est appliquée.",
+        "peer_offline": "{{zone}} : {{node}} est hors ligne, aucune mise à jour DNS n'est appliquée."
+      },
+      "d2Only": "D2 signale des mises à jour en échec ; aucun primaire actif n'est encore vu en panne.",
+      "promoteHint": "Promouvez une copie pour reprendre les mises à jour, puis rejouez les baux de la panne.",
+      "replayOnly": "Aucune zone touchée n'est préparée : seul le rattrapage est possible au retour du primaire.",
+      "promote": "Promouvoir une copie ({{count}})"
+    },
+    "stale": {
+      "title": "Un ancien primaire sert encore des zones cédées",
+      "zone": "{{zone}} : {{nodes}} la sert en primaire, le rôle appartient à {{primary}} (époque {{epoch}}).",
+      "auto": "Pelagos la rétrograde en copie automatiquement.",
+      "conflict": "Même époque des deux côtés : Pelagos ne tranche pas seul, vérifiez les deux nœuds."
+    },
+    "replay": {
+      "title": "Rattrapage des mises à jour perdues",
+      "help": "Baux actifs pendant la fenêtre de panne dont l'A, l'AAAA ou le PTR manque ou diffère. Le plan les renvoie par lease4/6-resend-ddns.",
+      "open": "Rejouer",
+      "from": "Début",
+      "to": "Fin",
+      "candidates": "Baux à rejouer",
+      "source": {
+        "open": "Panne en cours",
+        "outage": "Dernière panne",
+        "default": "Aucune panne connue",
+        "request": "Fenêtre choisie"
+      },
+      "dialogTitle": "Rejouer les mises à jour DDNS",
+      "dialogHelp": "{{count}} baux de la fenêtre par défaut n'ont pas leurs enregistrements. Modifiez la fenêtre si besoin ; le plan liste chaque bail avant tout envoi.",
+      "toHint": "Vide : jusqu'à maintenant",
+      "family": "Famille",
+      "allFamilies": "DHCPv4 et DHCPv6",
+      "limit": "Nombre maximal de baux",
+      "limitHint": "Vide : ddns.replay_max_leases",
+      "badFrom": "Le début n'est pas une date valide",
+      "badTo": "La fin n'est pas une date valide",
+      "order": "Le début doit précéder la fin",
+      "tooLong": "La fenêtre dépasse ce que permet ddns.replay_window_max_hours (72 heures par défaut)",
+      "badLimit": "Le maximum doit être un entier positif"
+    },
+    "d2": {
+      "title": "Listes de serveurs de D2",
+      "help": "D2 essaie les serveurs dans l'ordre : le primaire actif doit venir en premier, une copie qui répond REFUSED termine la requête.",
+      "none": "Aucun D2 n'a répondu.",
+      "domain": "Domaine",
+      "servers": "Serveurs dans l'ordre",
+      "forward": "directe",
+      "reverse": "inverse",
+      "role": {
+        "primary": "primaire",
+        "secondary": "copie"
+      }
+    },
+    "role": {
+      "failoverTitle": "Promouvoir une copie",
+      "switchoverTitle": "Rendre le rôle de primaire",
+      "failoverHelp": "La copie est réécrite en zone primaire avec la politique de mise à jour enregistrée, les listes de D2 la placent en premier et l'époque avance. L'ancien primaire est rétrogradé à son retour.",
+      "switchoverHelp": "Les deux nœuds sont en ligne : la zone est gelée quelques secondes sur le primaire actif, la cible attend le même serial, prend le rôle, et l'ancien primaire devient sa copie.",
+      "zones": "Zones",
+      "scopeOne": "{{zone}} seulement",
+      "scopeListed": "Les {{count}} zones listées",
+      "scopeAll": "Toutes les zones préparées ({{count}})",
+      "target": "Nouveau primaire",
+      "auto": "Automatique : la copie au serial le plus haut",
+      "noTarget": "Aucun nœud en ligne ne porte une copie de chaque zone choisie.",
+      "failoverRisk": "Si les nœuds se sont seulement perdus de vue, les deux pourraient devenir primaires : ne promouvez que si l'ancien primaire est vraiment arrêté."
+    }
   }
 }

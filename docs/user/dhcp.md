@@ -410,6 +410,41 @@ key. Kea 3.x refuses clear TSIG secrets in the D2 configuration: Pelagos
 writes them to secret files (mode 0640, Kea group) under the Kea
 configuration directory.
 
+### The Failover tab
+
+DHCP > DDNS > **Failover** (`/dhcp/v4/ddns?tab=failover`, `read:dhcp` and
+`read:dns`) shows every dynamic zone D2 updates:
+
+- **Dynamic zones**: the active primary, the epoch and since when, the
+  copies, and a state: *Ready*, *Not prepared*, *Cannot be prepared* (with
+  the reasons below), *Primary down* (an open `ddns_outage`) or *Old
+  primary still serving* (a stale primary, see below). A zone declared in
+  your own files links to its zone page, where "Hand over to Pelagos"
+  moves it into the managed files; a zone whose transfers the read key
+  cannot make links to its zone page too.
+- **Prepare** (one zone) or **Prepare (n)** (every zone that only lacks the
+  preparation), **Promote a copy** on a zone whose primary is down, and
+  **Hand over** / **Hand the role over** for a planned switchover. Each
+  opens the usual plan preview; promotion and switchover ask for a
+  confirmation. The dialog picks the new primary (for a promotion,
+  "Automatic" takes the copy at the highest serial).
+- A red banner while the active primary receives no update, with the cause
+  per zone (named stopped or node offline) and the promotion button; a
+  second banner while an old primary still serves a zone given away, saying
+  whether Pelagos demotes it alone.
+- **Replay of lost updates**: the window (outage in progress, last outage,
+  or the default window), the number of leases whose records are missing
+  and the zones that could not be read. **Replay** opens the window,
+  family and maximum, then the plan.
+- **D2 server lists**: each D2's domains with their servers in the order D2
+  tries them and the role of each (primary, copy).
+
+The `ddns_outage`, `dns_stale_primary` and `ddns_replay` alerts, and the
+`ddns_advice` about a single DNS server, link to this tab. The dashboard's
+DDNS tile shows a failover line (zones ready, primary down, old primary
+serving, leases to replay), and the page of a prepared zone shows "active
+primary on ns2 since ... (epoch n)".
+
 ### Catch-up after a DNS outage
 
 D2 keeps no queue: an update that fails while the primary DNS server is

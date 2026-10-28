@@ -170,6 +170,9 @@ const EXPECTED = {
   'GET /jobs/{id}': 404,
   'POST /dhcp/d2/config/plan': 409, // the mock D2 file diverges until adopted
   'DELETE /alerts/exceptions/{id}': 404, // an alert id, not an exception id
+  'POST /dhcp/ddns/failover/plan': 409, // nothing prepared, the primary answers
+  'POST /dhcp/ddns/switchover/plan': 409, // nothing prepared
+  'POST /dhcp/ddns/replay/plan': 409, // no outage: no lease lacks its records
 }
 
 describe('mock server PTR and exceptions', () => {
@@ -221,8 +224,55 @@ describe('mock server notifications, archives and DDNS failover', () => {
     expect(ids.data.recipients.map((r) => r.kind)).toEqual(['cluster', 'operator'])
     const dns = client(await login('alice', 'alice'))
     expect((await dns('POST', '/dhcp/ddns/failover/plan', { to_node_id: mock.state.nodeIds.ns2 })).status).toBe(403)
-    const plan = await admin('POST', '/dhcp/ddns/failover/plan', { to_node_id: mock.state.nodeIds.ns2 })
-    expect(plan.data).toMatchObject({ scope: 'dns.failover', requires_confirmation: true })
+  })
+
+  it('walks prepare, outage, promotion, return and replay like the real service', async () => {
+    const admin = client(await login('admin', 'admin'))
+    const { ns1, ns2 } = mock.state.nodeIds
+    const res = await admin('GET', '/dhcp/ddns/resilience')
+    expect(Object.keys(res.data).sort()).toEqual(['d2', 'offline', 'outage', 'replay', 'zones'])
+    const zone = (data, name) => data.zones.find((z) => z.zone === name)
+    expect(zone(res.data, 'example.lan.').blockers[0]).toMatchObject({ key: 'ddns.blocker.not_managed', params: { zone: 'example.lan.', node: 'ns1' } })
+    expect(zone(res.data, '100.51.198.in-addr.arpa.').blockers[0].key).toBe('ddns.blocker.no_transfer')
+    expect(zone(res.data, 'corp.example.lan.')).toMatchObject({ view: 'internal', ready: false, epoch: 0, primary_node_id: ns1, copies: [ns2], stale: [], prepared_at: null })
+    expect(res.data.replay).toMatchObject({ source: 'default', candidates: 0, notes: [] })
+    expect(res.data.d2[0].domains[0].servers[0]).toMatchObject({ node_id: ns1, role: 'primary', port: 53 })
+    expect((await admin('POST', '/dhcp/ddns/resilience/plan', { zones: ['example.lan'] })).status).toBe(400)
+    const prep = await admin('POST', '/dhcp/ddns/resilience/plan', {})
+    expect(prep.data.summary_message).toMatchObject({ key: 'plan.ddns.prepare', params: { count: 2 } })
+    expect((await admin('POST', `/plans/${prep.data.id}/apply`, {})).status).toBeLessThan(300)
+    await new Promise((r) => setTimeout(r, 100))
+    const ready = await admin('GET', '/dhcp/ddns/resilience')
+    expect(zone(ready.data, 'corp.example.lan.')).toMatchObject({ ready: true, epoch: 1, blockers: [] })
+    expect(ready.data.d2[0].domains.find((d) => d.name === 'corp.example.lan.').servers.map((s) => s.role)).toEqual(['primary', 'secondary'])
+    expect((await admin('POST', '/dhcp/ddns/resilience/plan', {})).status).toBe(409)
+    expect((await admin('POST', '/dhcp/ddns/failover/plan', { to_node_id: ns2 })).status).toBe(409)
+    const switchover = await admin('POST', '/dhcp/ddns/switchover/plan', { to_node_id: ns2, zones: ['internal/corp.example.lan.'] })
+    expect(switchover.data).toMatchObject({ scope: 'dns.failover', requires_confirmation: true })
+    expect(switchover.data.changes[0].target).toBe('op:freeze/internal/corp.example.lan.')
+    await fetch(`${base}/_mock/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ddns-outage' }) })
+    const down = await admin('GET', '/dhcp/ddns/resilience')
+    expect(down.data.outage.zones).toContain('internal/corp.example.lan.')
+    expect(down.data.replay).toMatchObject({ source: 'open', candidates: 3 })
+    expect(mock.state.alerts.find((a) => a.kind === 'ddns_outage' && a.state === 'open').details).toMatchObject({ cause: 'named_down', remediation: 'ddns_failover' })
+    expect((await admin('POST', '/dhcp/ddns/switchover/plan', { to_node_id: ns2 })).status).toBe(409)
+    const plan = await admin('POST', '/dhcp/ddns/failover/plan', {})
+    expect(plan.data.summary_message).toMatchObject({ key: 'plan.ddns.failover', params: { node: 'ns2', previous: 'ns1', epoch: 2 } })
+    expect((await admin('POST', `/plans/${plan.data.id}/apply`, { confirm: true })).status).toBeLessThan(300)
+    await new Promise((r) => setTimeout(r, 100))
+    await fetch(`${base}/_mock/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ddns-return' }) })
+    const back = await admin('GET', '/dhcp/ddns/resilience')
+    expect(zone(back.data, 'corp.example.lan.')).toMatchObject({ primary_node_id: ns2, epoch: 2, stale: [ns1] })
+    expect(back.data.replay).toMatchObject({ source: 'outage', candidates: 3 })
+    expect(mock.state.alerts.some((a) => a.kind === 'dns_stale_primary' && a.state === 'open')).toBe(true)
+    expect((await admin('POST', '/dhcp/ddns/replay/plan', { from: '2020-01-01T00:00:00Z', to: '2020-02-01T00:00:00Z' })).status).toBe(400)
+    const replay = await admin('POST', '/dhcp/ddns/replay/plan', { limit: 2 })
+    expect(replay.data).toMatchObject({ scope: 'dhcp.lease', requires_confirmation: true })
+    expect(replay.data.changes).toHaveLength(2)
+    expect(replay.data.validations.some((v) => v.output_message?.key === 'ddns.replay.more')).toBe(true)
+    await fetch(`${base}/_mock/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ddns-demote' }) })
+    expect(zone((await admin('GET', '/dhcp/ddns/resilience')).data, 'corp.example.lan.').stale).toEqual([])
+    delete mock.state.ddnsFailover
   })
 })
 

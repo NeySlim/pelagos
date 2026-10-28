@@ -38,6 +38,7 @@ import { KeyValue, ListValue, ModeBadge, SourceBadge } from './common'
 import { useNodeNames, usePlanFlow, laggingNodes, SECONDARY_KINDS } from './helpers'
 import { RecordEditor } from './RecordEditor'
 import { handoverChanges, zoneHandover } from './handover'
+import { FailoverBadge } from './FailoverBadge'
 import { EDITABLE_TYPES, READ_ONLY_TYPES, absZone, isEditableType, relativeName } from './records'
 import { ZoneEditModal } from './ZoneEditModal'
 import { clearLists } from '../../lib/listCache'
@@ -481,6 +482,7 @@ export default function ZoneDetailPage() {
           <span className="inline-flex items-center gap-1.5">
             <StatusBadge status={zone.kind} label={t(`kind.${zone.kind}`, { defaultValue: zone.kind })} dot={false} />
             <ModeBadge mode={mode} />
+            <FailoverBadge zone={zone} />
           </span>
         )
       }

@@ -244,7 +244,8 @@
       "plan": "Planifier les secondaires",
       "hint": "Les nœuds cochés transfèrent la zone depuis le primaire avec la clé de lecture ; le primaire notifie chacun d'eux. Les copies décochées sont retirées.",
       "transfers": "Transferts depuis le primaire sur {{node}}"
-    }
+    },
+    "failover": "primaire actif sur {{node}} depuis {{since}} (époque {{epoch}})"
   },
   "resolver": {
     "recursion": "Récursion",

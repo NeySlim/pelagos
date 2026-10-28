@@ -151,6 +151,15 @@ describe('AlertsPage', () => {
     expect(subjectLink({ subject: 'notify:01JCH' })).toEqual({ to: '/admin/notifications?channel=01JCH', label: 'openChannel' })
   })
 
+  it('links the DDNS failover alerts and the D2 advice to the failover tab', () => {
+    const tab = '/dhcp/v4/ddns?tab=failover'
+    expect(subjectLink({ subject: 'ddns:_default/example.lan.' })).toEqual({ to: `${tab}&zone=_default%2Fexample.lan.`, label: 'openFailover' })
+    expect(subjectLink({ subject: 'ddns:stale:internal/corp.example.lan.' }).to).toBe(`${tab}&zone=internal%2Fcorp.example.lan.`)
+    expect(subjectLink({ subject: 'ddns:replay' })).toEqual({ to: tab, label: 'openFailover' })
+    expect(subjectLink({ subject: 'd2:dns-servers' }).to).toBe(tab)
+    expect(subjectLink({ subject: 'd2:updates' }).to).toBe('/dhcp/v4/ddns')
+  })
+
   it('shows the detail with a link to the host', async () => {
     renderPage()
     fireEvent.click(await screen.findByText('PTR of 192.0.2.106 names another host'))

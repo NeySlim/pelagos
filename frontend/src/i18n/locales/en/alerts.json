@@ -43,7 +43,8 @@
     "adoptOn": "On {{node}}, the node that holds the file",
     "ignore": "Ignore: admin's choice",
     "openCertificates": "Open the certificates",
-    "openChannel": "Open the channel"
+    "openChannel": "Open the channel",
+    "openFailover": "Open DDNS failover"
   },
   "ack": {
     "title": "Acknowledge the alert",

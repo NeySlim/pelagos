@@ -64,6 +64,13 @@
         "update-error": "Erreurs",
         "update-timeout": "Expirées",
         "ncr-error": "Requêtes en erreur"
+      },
+      "failover": {
+        "label": "Reprise",
+        "ready": "{{ready}}/{{total}} zones prêtes",
+        "outage": "primaire en panne",
+        "stale": "ancien primaire actif : {{count}}",
+        "replay": "{{count}} à rejouer"
       }
     },
     "radar": {

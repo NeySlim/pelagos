@@ -64,6 +64,13 @@
         "update-error": "Errors",
         "update-timeout": "Timeouts",
         "ncr-error": "Request errors"
+      },
+      "failover": {
+        "label": "Failover",
+        "ready": "{{ready}}/{{total}} zones ready",
+        "outage": "primary down",
+        "stale": "old primary serving: {{count}}",
+        "replay": "{{count}} to replay"
       }
     },
     "radar": {

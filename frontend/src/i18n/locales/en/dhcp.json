@@ -368,7 +368,11 @@
     "sent": "Sent",
     "success": "Success",
     "timeout": "Timeout",
-    "valueHint": "JSON value: true, 25, \"example.lan.\""
+    "valueHint": "JSON value: true, 25, \"example.lan.\"",
+    "tabs": {
+      "settings": "Settings",
+      "failover": "Failover"
+    }
   },
   "hooks": {
     "add": "Load a hook",
@@ -413,5 +417,107 @@
     "dayAgo": "-24 h",
     "utilization": "Use",
     "subnetUse": "Subnet {{id}} address use"
+  },
+  "ddnsFailover": {
+    "denied": "Reading the DDNS failover needs read:dhcp and read:dns.",
+    "offline": "Not answering: {{nodes}}. Their zones and D2 lists cannot be checked; the prepare plan waits for them.",
+    "prepareAll": "Prepare ({{count}})",
+    "switchoverAll": "Hand the role over",
+    "prepare": "Prepare",
+    "promote": "Promote a copy",
+    "switchover": "Hand over",
+    "preparedAt": "prepared {{when}}",
+    "zonesTitle": "Dynamic zones",
+    "noZones": "No dynamic zone",
+    "noZonesHint": "Zones updated by D2 appear here once BIND serves them.",
+    "cols": {
+      "zone": "Zone",
+      "primary": "Active primary",
+      "epoch": "Epoch",
+      "since": "Since",
+      "copies": "Copies",
+      "state": "State"
+    },
+    "state": {
+      "outage": "Primary down",
+      "stale": "Old primary still serving",
+      "blocked": "Cannot be prepared",
+      "not_prepared": "Not prepared",
+      "ready": "Ready"
+    },
+    "blockerAction": {
+      "adopt": "Hand the zone over to Pelagos",
+      "openZone": "Open the zone"
+    },
+    "outage": {
+      "title": "DDNS outage since {{since}} ({{ago}})",
+      "cause": {
+        "named_down": "{{zone}}: named on {{node}} does not answer, no DNS update is applied.",
+        "peer_offline": "{{zone}}: {{node}} is offline, no DNS update is applied."
+      },
+      "d2Only": "D2 reports failed updates; no active primary is known to be down yet.",
+      "promoteHint": "Promote a copy to take the updates again, then replay the leases of the outage.",
+      "replayOnly": "No affected zone is prepared: only the replay is possible once the primary is back.",
+      "promote": "Promote a copy ({{count}})"
+    },
+    "stale": {
+      "title": "An old primary still serves zones handed over",
+      "zone": "{{zone}}: {{nodes}} serves it as primary, the role belongs to {{primary}} (epoch {{epoch}}).",
+      "auto": "Pelagos demotes it into a copy automatically.",
+      "conflict": "Same epoch on both sides: Pelagos does not decide alone, check both nodes."
+    },
+    "replay": {
+      "title": "Replay of lost updates",
+      "help": "Leases active during the outage window whose A, AAAA or PTR is missing or differs. The plan resends them with lease4/6-resend-ddns.",
+      "open": "Replay",
+      "from": "From",
+      "to": "To",
+      "candidates": "Leases to replay",
+      "source": {
+        "open": "Outage in progress",
+        "outage": "Last outage",
+        "default": "No outage known",
+        "request": "Chosen window"
+      },
+      "dialogTitle": "Replay the DDNS updates",
+      "dialogHelp": "{{count}} leases of the default window lack their records. Change the window if needed; the plan lists every lease before anything is sent.",
+      "toHint": "Empty: until now",
+      "family": "Family",
+      "allFamilies": "DHCPv4 and DHCPv6",
+      "limit": "Maximum leases",
+      "limitHint": "Empty: ddns.replay_max_leases",
+      "badFrom": "The start is not a valid date",
+      "badTo": "The end is not a valid date",
+      "order": "The start must be before the end",
+      "tooLong": "The window is longer than ddns.replay_window_max_hours allows (72 hours by default)",
+      "badLimit": "The maximum must be a positive whole number"
+    },
+    "d2": {
+      "title": "D2 server lists",
+      "help": "D2 tries the servers in order: the active primary must come first, a copy that answers REFUSED ends the request.",
+      "none": "No D2 answered.",
+      "domain": "Domain",
+      "servers": "Servers in order",
+      "forward": "forward",
+      "reverse": "reverse",
+      "role": {
+        "primary": "primary",
+        "secondary": "copy"
+      }
+    },
+    "role": {
+      "failoverTitle": "Promote a copy",
+      "switchoverTitle": "Hand the primary role over",
+      "failoverHelp": "The copy is rewritten as a primary zone with the recorded update policy, the D2 lists put it first and the epoch moves on. The old primary is demoted when it comes back.",
+      "switchoverHelp": "Both nodes are online: the zone is frozen on the active primary for a few seconds, the target waits for the same serial, takes the role, and the old primary becomes its copy.",
+      "zones": "Zones",
+      "scopeOne": "{{zone}} only",
+      "scopeListed": "The {{count}} listed zones",
+      "scopeAll": "Every prepared zone ({{count}})",
+      "target": "New primary",
+      "auto": "Automatic: the copy with the highest serial",
+      "noTarget": "No online node holds a copy of every selected zone.",
+      "failoverRisk": "If the nodes only lost sight of each other, both may end up primary: promote only when the old primary is really down."
+    }
   }
 }

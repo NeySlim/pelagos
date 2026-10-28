@@ -244,7 +244,8 @@
       "plan": "Plan the secondaries",
       "hint": "Ticked nodes transfer the zone from the primary with the read key; the primary notifies each of them. Unticked copies are removed.",
       "transfers": "Transfers from the primary on {{node}}"
-    }
+    },
+    "failover": "active primary on {{node}} since {{since}} (epoch {{epoch}})"
   },
   "resolver": {
     "recursion": "Recursion",

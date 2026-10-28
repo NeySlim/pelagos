@@ -2,6 +2,7 @@
 // Alert vocabulary (architecture section 15) and where an alert's subject leads.
 import { crossingTime, valueAt } from '../../components/motion/traceMath'
 import { EXCEPTABLE_KINDS, INCONSISTENCY_KINDS } from './kinds.js'
+import { failoverPath } from '../dhcp/ddnsFailover.js'
 
 export const SEVERITIES = ['critical', 'warning', 'info']
 export const STATES = ['open', 'acked', 'resolved']
@@ -49,6 +50,13 @@ export function subjectLink(alert) {
   if ((kind === 'kea4' || kind === 'kea6') && rest[0] === 'subnet') return { to: `/dhcp/${kind === 'kea6' ? 'v6' : 'v4'}/subnets`, label: null }
   if ((kind === 'ha' || kind === 'ha-backup') && value) return { to: `/dhcp/${value === 'kea6' ? 'v6' : 'v4'}/ha`, label: null }
   if (kind === 'peer' || kind === 'clock' || kind === 'ntp') return { to: '/nodes', label: null }
+  // DDNS failover: "ddns:<view>/<zone>" (outage), "ddns:stale:<view>/<zone>", "ddns:replay";
+  // the D2 advice "d2:dns-servers" proposes the prepare plan there.
+  if (kind === 'ddns') {
+    if (rest[0] === 'replay') return { to: failoverPath(), label: 'openFailover' }
+    return { to: failoverPath(rest[0] === 'stale' ? rest.slice(1).join(':') : value), label: 'openFailover' }
+  }
+  if (subject === 'd2:dns-servers') return { to: failoverPath(), label: 'openFailover' }
   if (kind === 'd2') return { to: '/dhcp/v4/ddns', label: null }
   if (kind === 'notify' && value) return { to: `/admin/notifications?channel=${encodeURIComponent(value)}`, label: 'openChannel' }
   return null

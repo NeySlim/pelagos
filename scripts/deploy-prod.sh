@@ -11,7 +11,8 @@
 #   --settle     seconds to let the restarted collector poll before checking (default 30)
 # For each node: copy the deb and check its SHA256 there, back up /etc/pelagos and
 # /var/lib/pelagos to /root, apt install, wait for health, wait until cluster.toml and the audit
-# log converge on every node, check Kea HA and the journal. The first problem stops the run.
+# log converge on every node, check Kea HA and the journal of the restarted processes (ERROR lines
+# of the processes from before the install are only reported). The first problem stops the run.
 set -euo pipefail
 
 dry=0 timeout=300 settle=30 ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10)
@@ -21,7 +22,7 @@ while [[ $# -gt 0 ]]; do
     --timeout) timeout="${2:?--timeout needs seconds}"; shift ;;
     --settle) settle="${2:?--settle needs seconds}"; shift ;;
     --ssh-option) ssh_opts+=(-o "${2:?--ssh-option needs an option}"); shift ;;
-    -h|--help) sed -n '3,15p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,16p' "$0"; exit 0 ;;
     -*) echo "deploy: unknown option $1" >&2; exit 2 ;;
     *) break ;;
   esac
@@ -36,7 +37,8 @@ die() { printf '\nSTOP: %s\n' "$*" >&2; exit 1; }
 field() { sed -n "s/^$1=//p" <<<"$2" | head -n 1; }
 sha256() { if command -v sha256sum >/dev/null; then sha256sum "$@"; else shasum -a 256 "$@"; fi; }
 
-# Runs as root on a node and prints key=value lines; argument: epoch for the journal count.
+# Runs as root on a node and prints key=value lines. Arguments: epoch for the journal count (0: none)
+# and the comma-separated invocation ids of the units before the install.
 read -r -d '' PROBE <<'PY' || true
 import json, re, socket, ssl, subprocess, sys, hashlib, urllib.request
 
@@ -56,6 +58,7 @@ out("version", run("dpkg-query", "-W", "-f=${Version}", "pelagos") or "none")
 out("arch", run("dpkg", "--print-architecture") or "unknown")
 units = {u: run("systemctl", "is-active", u) or "inactive" for u in ("pelagos", "pelagos-collector")}
 out("units", ",".join(f"{u}:{s}" for u, s in units.items()))
+out("invocations", ",".join(run("systemctl", "show", "-p", "InvocationID", "--value", u) or "-" for u in units))
 out("units_ok", "yes" if all(s == "active" for s in units.values()) else "no")
 try:
     node = open("/etc/pelagos/node.toml").read()
@@ -107,11 +110,27 @@ if toml_value(node, "engines", "kea4") == "true":
         ha = f"unreachable({type(e).__name__}):bad"
 out("ha", ha)
 since = sys.argv[1] if len(sys.argv) > 1 else "0"
-log = run("journalctl", "-u", "pelagos", "-u", "pelagos-collector", "--since", f"@{since}", "--no-pager")
-out("errors", sum(1 for l in log.splitlines() if " ERROR " in l))
+old = set(filter(None, (sys.argv[2] if len(sys.argv) > 2 else "").split(",")))
+# Lines of a process started before the install (old code, possibly fed newer data by a peer) are
+# counted apart: a unit run keeps one invocation id from start to stop.
+errors = {"new": 0, "old": 0}
+if since != "0":
+    log = run("journalctl", "-u", "pelagos", "-u", "pelagos-collector", "--since", f"@{since}", "-o", "json",
+              "--output-fields=MESSAGE,_SYSTEMD_INVOCATION_ID", "--no-pager")
+    for line in log.splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        msg = entry.get("MESSAGE")
+        msg = bytes(msg).decode("utf-8", "replace") if isinstance(msg, list) else str(msg or "")
+        if " ERROR " in msg:
+            errors["old" if entry.get("_SYSTEMD_INVOCATION_ID") in old else "new"] += 1
+out("errors", errors["new"])
+out("errors_old", errors["old"])
 PY
 
-probe() { ssh "${ssh_opts[@]}" "$1" "sudo -n python3 - ${2:-0}" <<<"$PROBE"; }
+probe() { ssh "${ssh_opts[@]}" "$1" "sudo -n python3 - ${2:-0} ${3:-}" <<<"$PROBE"; }
 remote() { local h="$1"; shift; ssh "${ssh_opts[@]}" "$h" "$@"; }
 
 # Every node healthy, same cluster.toml content and audit count, Kea HA in a normal state.
@@ -201,6 +220,7 @@ for h in "${hosts[@]}"; do
   say "$h: state saved in $backup"
 
   since="$(remote "$h" date +%s)"
+  old_runs="$(field invocations "$(probe "$h")")"
   remote "$h" "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -q $tmp/$deb" >/dev/null ||
     die "$h: apt install failed. Backup: $backup"
   remote "$h" "rm -rf $tmp"
@@ -210,10 +230,15 @@ for h in "${hosts[@]}"; do
   say "$h: installed, waiting ${settle}s, then for health and convergence (up to ${timeout}s)"
   sleep "$settle"
   wait_cluster
-  p="$(probe "$h" "$since")"
+  p="$(probe "$h" "$since" "$old_runs")"
   (($(field audit "$p") >= audit_before)) || die "$h: audit count went down ($audit_before -> $(field audit "$p"))"
+  for run in ${old_runs//,/ }; do
+    [[ "$run" == - || ",$(field invocations "$p")," != *",$run,"* ]] || die "$h: a unit still runs the process from before the install"
+  done
+  [[ "$(field errors_old "$p")" == 0 ]] ||
+    say "$h: $(field errors_old "$p") ERROR lines from the $before processes before their restart (not counted)"
   [[ "$(field errors "$p")" == 0 ]] ||
-    die "$h: $(field errors "$p") ERROR lines in the journal since the install (journalctl -u pelagos -u pelagos-collector)"
+    die "$h: $(field errors "$p") ERROR lines in the journal of the $target processes (journalctl -u pelagos -u pelagos-collector)"
   printf '%s' "$state_lines"
   say "$h: done"
 done

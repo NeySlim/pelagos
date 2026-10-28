@@ -93,8 +93,11 @@ its SHA256 on the node, save `/etc/pelagos` and `/var/lib/pelagos` to
 `/root/pelagos-state-<date>-<old version>.tar.gz` (services stopped for the
 copy), `apt-get install`, check the installed version, let the collector
 poll (`--settle`, 30 s), wait (`--timeout`, 300 s by default) until every node is healthy and `cluster.toml` and the
-audit log converged, check that the audit count did not go down, Kea HA and
-that the journal of the node has no `ERROR` line since the install. The
+audit log converged, check that the audit count did not go down, Kea HA, that
+both units were restarted by the install and that the processes they now run
+logged no `ERROR` line (journal entries of the unit run, `_SYSTEMD_INVOCATION_ID`).
+`ERROR` lines of the old processes during the install are reported, not counted:
+the old code may fail on data of the already upgraded nodes (below). The
 first failure stops the run with the node and the reason; the nodes already
 done stay on the new version, which is a supported mixed state (below). A
 node already on the target version is skipped, so the same command resumes
@@ -155,6 +158,11 @@ Limits while versions differ:
   upgrade first.
 - The `cluster.toml` header (`version`, `updated_by`) differs between nodes;
   the entries are the same.
+- Up to 0.2.0, a node that meets an alert kind it does not know (raised by a
+  newer node, or left in its cache by a newer version before a rollback)
+  logs `ERROR ... is not a valid AlertKind` on `alerts.list` and lists that
+  peer as unavailable on the Alerts page, until it is upgraded. From 0.2.1
+  such an alert is listed with its kind and title as they are.
 
 ## Rollback
 
@@ -218,7 +226,9 @@ After every node, on that node:
 ```sh
 dpkg-query -W pelagos                                   # expected version
 systemctl is-active pelagos pelagos-collector named kea-dhcp4-server kea-dhcp-ddns-server
-sudo journalctl -u pelagos -u pelagos-collector --since -10min | grep -c ' ERROR '    # 0
+for u in pelagos pelagos-collector; do                  # 0 and 0: the processes started by the install
+  sudo journalctl _SYSTEMD_INVOCATION_ID="$(systemctl show -p InvocationID --value $u)" | grep -c ' ERROR '
+done
 sudo wc -l /var/lib/pelagos/audit/audit.jsonl           # not lower than before
 dig +short @127.0.0.1 ns1.example.lan                   # engines still answer
 ```

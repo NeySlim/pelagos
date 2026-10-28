@@ -1620,8 +1620,9 @@ run under the collector's backend lock):
 | `certs.upload` | same, plus `"actor"` | `{"installed": true, ...}` or `{"installed": false, "error", "checks"}` |
 | `certs.self_signed` | `{"actor"}` | a new self-signed certificate installed here |
 | `alerts.list` | `{"include_resolved", "resolved_limit", "kind"?, "severity"?, "engine"?}` | `{"node_id", "alerts": [Alert], "resolved_total"}`: every unresolved alert this node's collector holds (at most 5000), then its most recent resolved ones up to `resolved_limit` (section 15, cluster view) |
+| `notify.state` | `{}` | this node's notification dispatcher state (`collector.notify.read_state`, `{}` before its first pass; section 22) |
 
-The `certs.*`, `security.*` and `alerts.list` actions never touch an engine and run without the
+The `certs.*`, `security.*`, `alerts.list` and `notify.state` actions never touch an engine and run without the
 backend lock.
 
 A plan built this way is stored by the caller (`PeerGateway.build_plan`
@@ -2669,15 +2670,15 @@ and come back as booleans only.
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
-| `GET /admin/notifications` | `admin:notifications` | | `{"channels": [Channel], "settings", "sender": {"node_id","since","order"}, "mute": Mute|null, "queue": {"pending","failing"}}` |
-| `POST /admin/notifications/channels` | `admin:notifications` | `Channel` without `id`, `status`; `secrets` | `201 Channel` |
-| `PUT /admin/notifications/channels/{id}` | `admin:notifications` | partial `Channel`; `secrets` | `Channel` |
+| `GET /admin/notifications` | `admin:notifications` | | `{"channels": [Channel], "settings", "sender": {"node_id","since","order"}, "mute": Mute|null, "queue": {"pending","failing","node_id"}}` (`sender` and `queue` from the sender's dispatcher state, read over the `notify.state` peer action when the sender is another node, this node's state when it does not answer; `queue.node_id` names whose state it is; `order` is always the current setting) |
+| `POST /admin/notifications/channels` | `admin:notifications` | `Channel` without `id`, `status`; `secrets` | `201 Channel` (`400` lists every invalid field: common fields, filters, schedule, then `transports.validate` errors) |
+| `PUT /admin/notifications/channels/{id}` | `admin:notifications` | partial `Channel` (`params` replaced whole, `filters` and `schedule` merged over the stored ones, `type` cannot change); `secrets` | `Channel` (`400` on `secrets.<name>` when the target server changes, `params.host`, `url` or `homeserver`, while a stored secret is neither entered again nor cleared) |
 | `DELETE /admin/notifications/channels/{id}` | `admin:notifications` | | `204` |
-| `POST /admin/notifications/test` | `admin:notifications` | `{"channel_id"}`, or an unsaved `Channel` whose `scope` (a channel id) names the stored secrets it reuses | `{"ok","node_id","duration_ms","status"?,"error"?}`: a real send from this node; 6 per minute per user (`429`) |
+| `POST /admin/notifications/test` | `admin:notifications` | `{"channel_id"}`, or an unsaved `Channel` whose `scope` (a channel id) names the stored secrets it reuses (only for the same type and target server; `secrets` given in the body override them) | `{"ok","node_id","duration_ms","status"?,"error"?}`: a real send from this node (a failed send is `200` with `ok` false); 6 per minute per user (`429` with `Retry-After`); audited `admin.notify.op` `test`, not in the history |
 | `PUT /admin/notifications/order` | `admin:notifications` | `{"node_ids"}`: every node once | `{"order"}` |
 | `PUT /admin/notifications/mute` | `admin:notifications` | `{"until","comment"}`: `until` in the future, at most 24 h ahead, `comment` required | `{"mute": Mute}` |
-| `DELETE /admin/notifications/mute` | `admin:notifications` | | `204` |
-| `GET /admin/notifications/history?channel_id=&result=&from=&to=&page=&per_page=` | `admin:notifications` | | paginated `{"id","ts","channel_id","node_id","events","result": "ok"|"failed","error"}` read from the audit (`notify.*`) |
+| `DELETE /admin/notifications/mute` | `admin:notifications` | | `204`: the mute ends now (the entry stays with `until` = now and `ended_by`, so the dispatcher sends its closing digest; `GET` shows `mute` null once `until` is past) |
+| `GET /admin/notifications/history?channel_id=&result=&alert_id=&from=&to=&page=&per_page=` | `admin:notifications` | | paginated, newest first, `{"id","ts","channel_id","channel_name","node_id","batch_id","reason","events","result": "ok"|"failed","status","duration_ms","error"}` read from the audit (`notify.sent`, `notify.failed`); `alert_id` keeps the batches that carried that alert (the alert detail's "notified at ... by ...") |
 
 ### Archives
 
@@ -3004,8 +3005,11 @@ screen, N5 daemon and lab tests.
   `mute` (`Mute`, absent when none).
 - **Channel**: `{"id": ULID, "type": "email"|"ntfy"|"gotify"|"matrix"|"webhook"|"home_assistant",
   "name", "enabled", "language": "en"|"fr", "params", "filters", "schedule"}`;
-  the API adds `"secrets": {name: bool}` and `"status": {"state":
-  "ok"|"failing"|"disabled", "since", "last_sent_at", "last_error"}`.
+  the API adds `"secrets": {name: bool}`, `"status": {"state":
+  "ok"|"failing"|"disabled", "since", "last_sent_at", "last_error"}` (from the sender's
+  dispatcher state; `last_sent_at` also from the newest `notify.sent` of 7 days) and
+  `"warnings": [{"field","message"}]` (the `warning` issues of `transports.validate`, such as
+  plain `http` carrying a secret). Stored tables keep no null (absent means default).
   `filters`: `severity_min` (`warning`), `kinds_include` ([] = all),
   `kinds_exclude` (`["ha_transition"]` plus the `info` inconsistency kinds),
   `node_ids`, `engines` ([] = all). `schedule`: `reminder_hours` (12, 0 =

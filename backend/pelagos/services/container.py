@@ -24,6 +24,7 @@ from pelagos.services.group_watch import GroupWatch
 from pelagos.services.hosts_service import HostsService
 from pelagos.services.install_service import InstallService
 from pelagos.services.jobs import JobStore
+from pelagos.services.notify_service import NotifyService
 from pelagos.services.ops_service import OpsService
 from pelagos.services.peers import PeerGateway
 from pelagos.services.plan_service import PlanService
@@ -78,6 +79,7 @@ class Services:
         self.ops = OpsService(ctx, self.registry, self.peers)
         self.install = InstallService(ctx, self.dns, self.dhcp4, self.peers)
         self.certs = CertService(ctx, self.peers, self.jobs, self.dns)
+        self.notifications = NotifyService(ctx, self.peers)
         self.last_login = LastLoginStore(
             ctx.paths.var / "last_login.json", ctx.paths.locks_dir / "last_login.lock"
         )

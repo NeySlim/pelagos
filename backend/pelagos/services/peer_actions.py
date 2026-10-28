@@ -58,9 +58,13 @@ SECURITY_PLAN = "security.plan"
 SECURITY_HA_GUARD = "security.ha_guard"
 # This node's alerts, for a peer's cluster view (services.alerts_service).
 ALERTS_LIST = "alerts.list"
+# The notification dispatcher state of this node (collector.notify.read_state).
+NOTIFY_STATE = "notify.state"
 CERTS_ACTIONS = frozenset(
     {CERTS_STATUS, CERTS_RUN, CERTS_REQUEST, CERTS_CHECK, CERTS_UPLOAD, CERTS_SELF_SIGNED}
 )
+# Actions that never use the engine connectors: they run without the engine lock.
+LOCKLESS = frozenset({SECURITY_AUDIT, SECURITY_PLAN, SECURITY_HA_GUARD, ALERTS_LIST, NOTIFY_STATE})
 
 
 class PeerActions:
@@ -86,13 +90,14 @@ class PeerActions:
             SECURITY_PLAN: self.security_plan,
             SECURITY_HA_GUARD: self.security_ha_guard,
             ALERTS_LIST: self.alerts_list,
+            NOTIFY_STATE: self.notify_state,
         }
 
     def __call__(self, name: str, body: dict[str, Any], caller: str) -> Any:
         handler = self.handlers.get(name)
         if handler is None:
             raise PeerActionError("not_supported", f"this node does not serve action {name}")
-        if name in CERTS_ACTIONS or name in (SECURITY_AUDIT, SECURITY_PLAN, SECURITY_HA_GUARD, ALERTS_LIST):
+        if name in CERTS_ACTIONS or name in LOCKLESS:
             # Certificates and the security audit never use the engine connectors: no engine lock,
             # so a long poll never waits on it.
             try:
@@ -154,6 +159,12 @@ class PeerActions:
             "alerts": [a.to_dict() for a in rows],
             "resolved_total": resolved_total,
         }
+
+    def notify_state(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """This node's dispatcher state, for the overview of a node that is not the sender."""
+        from pelagos.collector.notify import read_state
+
+        return read_state(self.ctx.paths)
 
     # Plan builds ----------------------------------------------------------------------------
 

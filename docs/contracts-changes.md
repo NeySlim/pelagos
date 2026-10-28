@@ -13,6 +13,17 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-28, WP-API-AUTH (N3): notifications API details
+Additive. `docs/architecture.md` sections 13 and 17 to 22: peer action `notify.state` (the
+dispatcher state of a node, so any node shows the sender's channel status and queue);
+`queue.node_id` in `GET /admin/notifications`; `warnings` on every `Channel`; `PUT` merges
+`filters` and `schedule`, replaces `params`, keeps `type`, and asks for a stored secret again
+when the target server changes (the test send reuses stored secrets under the same rule);
+`DELETE /admin/notifications/mute` ends the mute now and keeps the entry so the closing digest
+leaves; history gains the `alert_id` filter and `channel_name`, `batch_id`, `reason`, `status`,
+`duration_ms`. WP-FRONTEND (N4): the mock follows; the alert detail reads
+`history?alert_id=<id>`; show `warnings` on the channel card and form.
+
 ## 2026-10-28, WP-CORE (N2): notification transport interface
 Additive. `docs/architecture.md` section 22: the transport interface of `pelagos.notify`
 (`model.Batch`, `transports.send` returning `SendResult` with the retry decision,

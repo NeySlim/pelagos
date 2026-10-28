@@ -25,7 +25,7 @@ export function notifyHandlers(state, { Problem, invalid }) {
     channels: [
       {
         id: 'ch-ntfy', type: 'ntfy', name: 'Phone (ntfy)', enabled: true, language: 'en',
-        params: { url: 'https://ntfy.example.lan', topic: 'pelagos', ca_pem: null },
+        params: { url: 'https://ntfy.example.lan', topic: 'pelagos' },
         filters: { ...DEFAULT_FILTERS }, schedule: { ...DEFAULT_SCHEDULE },
         secrets: { token: 'tk_mock' }, status: { state: 'ok', since: iso(now - 86400000), last_sent_at: iso(now - 3600000), last_error: null },
       },
@@ -33,15 +33,34 @@ export function notifyHandlers(state, { Problem, invalid }) {
     order: null,
     mute: null,
     history: [
-      { id: ulid(now - 3600000), ts: iso(now - 3600000), channel_id: 'ch-ntfy', node_id: state.selfId, events: [{ event: 'opened', alert_id: 'A1', kind: 'ha_partner_down', severity: 'critical' }], result: 'ok', error: null },
+      {
+        id: ulid(now - 3600000), ts: iso(now - 3600000), channel_id: 'ch-ntfy', channel_name: 'Phone (ntfy)', node_id: state.selfId,
+        batch_id: ulid(now - 3600000), reason: 'events', alert_ids: ['A1'],
+        events: [{ event: 'opened', alert_id: 'A1', kind: 'ha_partner_down', severity: 'critical', first_seen: iso(now - 3700000) }],
+        result: 'ok', status: 200, duration_ms: 87, error: null,
+      },
     ],
   }
   const n = state.notify
   const order = () => n.order || state.nodes.map((node) => node.peer.id)
+  // Same targets as the server: a stored secret never follows a channel to another server.
+  const TARGET = { email: 'host', matrix: 'homeserver' }
+  const targetKey = (c) => TARGET[c.type] || 'url'
+  const targetOf = (c) => String(c.params?.[targetKey(c)] || '').trim().replace(/\/+$/, '').toLowerCase()
+  const warningsOf = (c) => {
+    const url = c.params?.[targetKey(c)]
+    const hasSecret = Object.values(c.secrets || {}).some(Boolean)
+    return typeof url === 'string' && url.startsWith('http://') && hasSecret
+      ? [{ field: `params.${targetKey(c)}`, message: 'plain http carries the secret unencrypted' }]
+      : []
+  }
+  const dropNull = (o) => Object.fromEntries(Object.entries(o || {}).filter(([, v]) => v !== null && v !== undefined))
   const publicChannel = (c) => ({
     ...c,
     secrets: Object.fromEntries((CHANNEL_SECRETS[c.type] || []).map((k) => [k, Boolean(c.secrets?.[k])])),
+    warnings: warningsOf(c),
   })
+  const publicHistory = ({ alert_ids: _ids, ...h }) => h
   const channelOf = (id) => {
     const c = n.channels.find((x) => x.id === id)
     if (!c) throw new Problem(404, 'not_found', `channel ${id} not found`)
@@ -67,12 +86,12 @@ export function notifyHandlers(state, { Problem, invalid }) {
       settings: { ...state.settings.notifications },
       sender: { node_id: order()[0], since: iso(now - 86400000), order: order() },
       mute: n.mute,
-      queue: { pending: 0, failing: n.channels.filter((c) => c.status.state === 'failing').length },
+      queue: { pending: 0, failing: n.channels.filter((c) => c.status.state === 'failing').length, node_id: order()[0] },
     }),
     'POST /admin/notifications/channels': ({ body, user, res }) => {
       const c = {
         id: ulid(), type: body.type, name: body.name, enabled: body.enabled ?? true, language: body.language || 'en',
-        params: body.params || {}, filters: { ...DEFAULT_FILTERS, ...(body.filters || {}) },
+        params: dropNull(body.params), filters: { ...DEFAULT_FILTERS, ...(body.filters || {}) },
         schedule: { ...DEFAULT_SCHEDULE, ...(body.schedule || {}) }, secrets: {},
         status: { state: 'ok', since: iso(Date.now()), last_sent_at: null, last_error: null },
       }
@@ -85,9 +104,16 @@ export function notifyHandlers(state, { Problem, invalid }) {
     },
     'PUT /admin/notifications/channels/{id}': ({ params, body, user }) => {
       const c = channelOf(params.id)
-      const next = { ...c }
-      for (const k of ['name', 'enabled', 'language', 'params', 'filters', 'schedule']) if (k in body) next[k] = body[k]
+      if ('type' in body && body.type !== c.type) throw invalid('type', 'a channel keeps its type: create a new one')
+      const next = { ...c, secrets: { ...c.secrets } }
+      for (const k of ['name', 'enabled', 'language']) if (k in body) next[k] = body[k]
+      if ('params' in body) next.params = dropNull(body.params)
+      for (const k of ['filters', 'schedule']) if (k in body) next[k] = { ...c[k], ...body[k] }
       check(next)
+      if (targetOf(next) !== targetOf(c)) {
+        const kept = Object.keys(c.secrets || {}).filter((k) => c.secrets[k] && !(k in (body.secrets || {})))
+        if (kept.length) throw invalid(`secrets.${kept[0]}`, 'enter it again or clear it: the server changed')
+      }
       applySecrets(next, body.secrets)
       if (!next.enabled) next.status = { ...next.status, state: 'disabled' }
       else if (next.status.state === 'disabled') next.status = { ...next.status, state: 'ok' }
@@ -101,12 +127,11 @@ export function notifyHandlers(state, { Problem, invalid }) {
       auditEntry(state, user, { action: 'admin.notify.delete', target: `notify:${params.id}` })
       return null
     },
-    'POST /admin/notifications/test': ({ body }) => {
+    // A real send on the server, audited as admin.notify.op (op test), never in the history.
+    'POST /admin/notifications/test': ({ body, user }) => {
       const c = body.channel_id ? channelOf(body.channel_id) : body
-      if (!body.channel_id) check({ language: 'en', ...c })
-      const started = Date.now()
-      const entry = { id: ulid(), ts: iso(started), channel_id: body.channel_id || null, node_id: state.selfId, events: [{ event: 'test' }], result: 'ok', error: null }
-      n.history.unshift(entry)
+      if (!body.channel_id) check({ language: 'en', name: 'test', ...c })
+      auditEntry(state, user, { action: 'admin.notify.op', target: `notify:${body.channel_id || body.scope || 'test'}`, request: { op: 'test', type: c.type } })
       return { ok: true, node_id: state.selfId, duration_ms: 42, status: 200 }
     },
     'PUT /admin/notifications/order': ({ body, user }) => {
@@ -134,8 +159,12 @@ export function notifyHandlers(state, { Problem, invalid }) {
     'GET /admin/notifications/history': ({ query }) => {
       let items = n.history
       if (query.get('channel_id')) items = items.filter((h) => h.channel_id === query.get('channel_id'))
-      if (query.get('result')) items = items.filter((h) => h.result === query.get('result'))
-      return paginate(items, query)
+      const result = query.get('result')
+      if (result && !['ok', 'failed'].includes(result)) throw invalid('result', 'ok or failed')
+      if (result) items = items.filter((h) => h.result === result)
+      if (query.get('alert_id')) items = items.filter((h) => (h.alert_ids || []).includes(query.get('alert_id')))
+      const out = paginate(items, query)
+      return { ...out, items: out.items.map(publicHistory) }
     },
   }
 }

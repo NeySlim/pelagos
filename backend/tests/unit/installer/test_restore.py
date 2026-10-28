@@ -351,3 +351,17 @@ def test_backup_command_output_and_list(node_paths, monkeypatch, capsys, tmp_pat
 class _NoEngines:
     dns = kea4 = kea6 = d2 = None
     dhcp: list = []
+
+
+def test_kea2_socket_dropin_written_again(rig):
+    """Kea 2.x: the socket drop-in Pelagos installed is not archived, the restore writes it again."""
+    env = rig["env"]
+    env.tools.version = "2.6.3"
+    with _restore(rig) as r:
+        result = r.apply(r.prepare())
+    assert result.ok, result.errors
+    dropin = env.paths.systemd_dir / "kea-dhcp4-server.service.d" / "pelagos-socket.conf"
+    assert "chmod g+w" in dropin.read_text()
+    calls = env.service_manager.calls
+    reload_at = calls.index(("daemon_reload", ""))
+    assert reload_at < calls.index(("enable_now", "kea-dhcp4-server.service"))

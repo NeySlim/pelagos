@@ -610,6 +610,7 @@ class OfflineRestore:
             p = self.env.node_paths
             give_tree_to(PELAGOS_USER, [p.audit_log.parent], skip=[p.etc / "pelagos.env"])
         result.ok = True
+        self._socket_access(plan, result)
         if start:
             for unit in plan.units:
                 if unit in PELAGOS_UNITS and not self.env.node_paths.node_toml.exists():
@@ -622,6 +623,18 @@ class OfflineRestore:
                     result.ok = False
                     result.errors.append(f"{unit} did not start: {exc}")
         return result
+
+    def _socket_access(self, plan: RestorePlan, result: RestoreResult) -> None:
+        """The Kea 2.x socket drop-in is not in an archive (it is not the node's data): written again
+        before the units start, else Pelagos cannot reach the restored daemons."""
+        from pelagos.installer import keasetup
+
+        for engine in self._kea_engines(plan):
+            try:
+                version = self.env.t.kea_version(DAEMONS[engine])
+                self.log(keasetup.ensure_socket_access(self.env, engine, version))
+            except Exception as exc:
+                result.errors.append(f"{DAEMONS[engine]} socket drop-in not written: {exc}")
 
     def _audit(self, plan: RestorePlan, result: RestoreResult) -> None:
         from pelagos.core.audit_log import AuditLog

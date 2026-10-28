@@ -124,8 +124,9 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
         self.reload_wait = float(cfg.get("reload_wait_seconds", RELOAD_WAIT))
         # Per plan: UPDATE text and rcode, pipeline steps, backup directory (for the caller's audit entry).
         self.details: dict[str, dict[str, Any]] = {}
-        # (zone, view) -> monotonic time of a refused AXFR; cleared when a plan changes the configuration.
-        self._axfr_refused: dict[tuple[str, str], float] = {}
+        # (zone, view) -> monotonic time of a refused AXFR and named's "last configured" then; cleared
+        # when a plan of this process changes the configuration.
+        self._axfr_refused: dict[tuple[str, str], tuple[float, str | None]] = {}
 
     # Settings and keys -----------------------------------------------------------
 
@@ -302,7 +303,12 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
             return self._read_zone_file(local, zone)
         key = (normalize_name(zone), view or DEFAULT_VIEW)
         asked = self._axfr_refused.get(key)
-        if asked is not None and time.monotonic() - asked < AXFR_RETRY_SECONDS:
+        # A reconfig (a plan from another process granting the transfer) makes the refusal stale.
+        if (
+            asked is not None
+            and time.monotonic() - asked[0] < AXFR_RETRY_SECONDS
+            and asked[1] == self._last_configured()
+        ):
             static = self.static_zone(zone, view)
             if static is None:
                 raise ConnectorDenied(f"AXFR of {zone} was refused earlier, not asked again yet")
@@ -310,7 +316,7 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
         try:
             rrsets = self.dns.axfr(zone, self._require_key("read", view))
         except ConnectorDenied:
-            self._axfr_refused[key] = time.monotonic()
+            self._axfr_refused[key] = (time.monotonic(), self._last_configured())
             # A static primary refusing the transfer is read from its file, as named loaded it.
             static = self.static_zone(zone, view)
             if static is None:
@@ -318,6 +324,12 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
             return self._read_zone_file(static, zone)
         self._axfr_refused.pop(key, None)
         return rrsets
+
+    def _last_configured(self) -> str | None:
+        try:
+            return self.rndc.status().get("last configured")
+        except ConnectorError:
+            return None
 
     def _read_zone_file(self, zone: Zone, name: str) -> list[RRset]:
         try:

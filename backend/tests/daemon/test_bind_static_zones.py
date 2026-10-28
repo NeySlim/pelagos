@@ -228,7 +228,13 @@ def test_refused_transfer_is_not_asked_again(named_server, tmp_root):
     backend._axfr_refused.clear()  # a configuration change asks once more
     backend.read_zone("quiet.lan")
     assert asked == ["quiet.lan", "quiet.lan"]
+    # A reconfig by another process (a security plan granting the transfer) asks once more too.
+    time.sleep(1.1)
+    named_server.rndc("reconfig")
+    backend.read_zone("quiet.lan")
+    backend.read_zone("quiet.lan")
+    assert asked == ["quiet.lan", "quiet.lan", "quiet.lan"]
     with pytest.raises(ConnectorDenied):  # no file to fall back on: denied from memory
-        backend._axfr_refused[("nofile.lan.", "_default")] = time.monotonic()
+        backend._axfr_refused[("nofile.lan.", "_default")] = (time.monotonic(), backend._last_configured())
         backend.read_zone("nofile.lan")
-    assert asked == ["quiet.lan", "quiet.lan"]
+    assert asked == ["quiet.lan", "quiet.lan", "quiet.lan"]

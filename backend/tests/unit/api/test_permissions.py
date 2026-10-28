@@ -380,7 +380,7 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("POST", "/dns/ops", "/dns/ops", {"op": "flush"}, "ops:dns"),
     ("GET", "/dhcp/<string:family>/ops", "/dhcp/v4/ops", None, "read:dhcp"),
     ("POST", "/dhcp/<string:family>/ops", "/dhcp/v4/ops", {"command": "ha-sync"}, "ops:dhcp.ha"),
-    # Notifications, archives and DDNS failover (sections 22 to 24): 501 until built.
+    # Notifications, archives and DDNS failover (sections 22 to 24).
     ("GET", "/admin/notifications", "/admin/notifications", None, "admin:notifications"),
     ("POST", "/admin/notifications/channels", "/admin/notifications/channels", {}, "admin:notifications"),
     (
@@ -409,6 +409,7 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("DELETE", "/admin/notifications/mute", "/admin/notifications/mute", None, "admin:notifications"),
     ("GET", "/admin/notifications/history", "/admin/notifications/history", None, "admin:notifications"),
     ("GET", "/admin/archives", "/admin/archives", None, "admin:archives"),
+    ("PUT", "/admin/archives/settings", "/admin/archives/settings", {}, "admin:archives"),
     ("POST", "/admin/archives/destinations", "/admin/archives/destinations", {}, "admin:archives"),
     ("POST", "/admin/archives/destinations/test", "/admin/archives/destinations/test", {}, "admin:archives"),
     (

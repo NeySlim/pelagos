@@ -654,7 +654,8 @@ Trois modes, du plus courant au plus rare :
 | `POST /admin/archives/upload` | `admin:archives` | multipart : archive venue d'ailleurs | l'archive inscrite |
 | `POST /admin/archives/{id}/inspect` | `admin:archives` | `{"identity"?}` | `{"manifest","parts": [{"id","engine","node_id","files","diff_summary"}]}` |
 | `POST /admin/archives/{id}/restore/plan` | `admin:archives` plus l'écriture de chaque partie | `{"target_node_id","parts": [...],"identity"?,"include_user_files"?}` | `Plan` (scope `restore`, `requires_confirmation`), appliqué par `POST /plans/{id}/apply` en `202 Job` |
-| `POST /admin/archives/identity` | `admin:archives` | `{"op": "generate"|"rotate"|"add_recipient"|"remove_recipient","recipient"?,"label"?,"password"?}` | `{"recipients","identity"?}` (l'identité du cluster une seule fois) |
+| `POST /admin/archives/identity` | `admin:archives` | `{"op": "generate"|"rotate"|"add_recipient"|"remove_recipient"|"prune_retired","recipient"?,"label"?,"password"?}` | `{"recipients","identity"?}` (l'identité du cluster une seule fois) |
+| `PUT /admin/archives/settings` | `admin:archives` | réglages partiels de `[settings.archives]` | `{"settings"}` ; planification refusée sans destinataire |
 
 Réplication : `POST /repl/v1/archives` (dépôt, taille bornée par `max_archive_mb`), `GET /repl/v1/archives?origin=` (liste), `GET /repl/v1/archives/<id>` (lecture). Nouvelle permission `admin:archives`. Nouveau scope de plan `restore`. Audit : `admin.archive.*`, `archive.create`, `archive.restore.apply|rollback`.
 

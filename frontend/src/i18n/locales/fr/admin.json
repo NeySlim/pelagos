@@ -5,7 +5,8 @@
     "modules": "Modules",
     "settings": "Paramètres",
     "certificates": "Certificats",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "archives": "Sauvegardes"
   },
   "pages": {
     "users": {

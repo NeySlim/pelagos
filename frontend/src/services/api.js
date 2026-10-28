@@ -288,6 +288,8 @@ export const notifications = {
 // Encrypted archives and restore (Administration > Backups, section 23).
 export const archives = {
   overview: () => apiClient.get('/admin/archives'),
+  // Partial [settings.archives]: schedule, retention, checks (refused: scheduling with no recipient).
+  updateSettings: (partial) => apiClient.put('/admin/archives/settings', partial),
   createDestination: (destination) => apiClient.post('/admin/archives/destinations', destination),
   updateDestination: (id, partial) => apiClient.put(`/admin/archives/destinations/${enc(id)}`, partial),
   deleteDestination: (id) => apiClient.delete(`/admin/archives/destinations/${enc(id)}`),
@@ -295,11 +297,18 @@ export const archives = {
   run: (node_ids) => apiClient.post('/admin/archives/run', node_ids ? { node_ids } : {}),
   list: (params) => apiClient.get(`/admin/archives/list${buildQueryString(params)}`),
   downloadUrl: (id) => `${API_BASE_URL}/admin/archives/${enc(id)}/download`,
-  download: (id) => apiClient.get(`/admin/archives/${enc(id)}/download`),
-  upload: (body) => apiClient.post('/admin/archives/upload', body),
-  // {op: generate|rotate|add_recipient|remove_recipient, recipient?, label?, password?}
+  download: (id) => apiClient.get(`/admin/archives/${enc(id)}/download`, { responseType: 'blob' }),
+  // A .tar.gz.age file made elsewhere, with an identity that opens it when the cluster's do not.
+  upload: (file, identity) => {
+    const form = new FormData()
+    if (file) form.append('file', file)
+    if (identity) form.append('identity', identity)
+    return apiClient.post('/admin/archives/upload', form)
+  },
+  // {op: generate|rotate|add_recipient|remove_recipient|prune_retired, recipient?, label?, password?}
   identity: (body) => apiClient.post('/admin/archives/identity', body),
-  inspect: (id, identity) => apiClient.post(`/admin/archives/${enc(id)}/inspect`, identity ? { identity } : {}),
+  // {identity?, target_node_id?, substitute?, ha_tls?}
+  inspect: (id, body) => apiClient.post(`/admin/archives/${enc(id)}/inspect`, body || {}),
   restorePlan: (id, body) => apiClient.post(`/admin/archives/${enc(id)}/restore/plan`, body),
 }
 

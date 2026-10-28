@@ -208,6 +208,7 @@ export const ENDPOINTS = [
   'GET /admin/notifications/history',
   // Administration > Backups (section 23)
   'GET /admin/archives',
+  'PUT /admin/archives/settings',
   'POST /admin/archives/destinations',
   'POST /admin/archives/destinations/test',
   'PUT /admin/archives/destinations/{id}',

@@ -83,7 +83,9 @@ const BODIES = {
   'PUT /admin/notifications/mute': () => ({ until: new Date(Date.now() + 3600000).toISOString(), comment: 'maintenance' }),
   'POST /admin/archives/destinations': { type: 'mounted', name: 'NAS', params: { path: '/mnt/backup' } },
   'POST /admin/archives/destinations/test': { destination_id: 'dst-peer' },
-  'POST /admin/archives/identity': { op: 'rotate' },
+  'POST /admin/archives/identity': { op: 'prune_retired' },
+  'PUT /admin/archives/settings': { start_time: '02:30' },
+  'POST /admin/archives/{id}/restore/plan': { parts: ['pelagos.settings:settings'] },
   'POST /dhcp/ddns/failover/plan': (state) => ({ to_node_id: state.nodeIds.ns2 }),
   'POST /dhcp/ddns/switchover/plan': (state) => ({ to_node_id: state.nodeIds.ns2 }),
   'POST /dhcp/{family}/ha/setup/plan': { remove: true },
@@ -159,6 +161,7 @@ const QUERIES = {
 // Endpoints whose success status is not 200/201/202/204 with these inputs.
 const EXPECTED = {
   'POST /dns/zones/{zone}/retransfer': 409, // example.lan is a primary zone
+  'POST /admin/archives/upload': 400, // a JSON body, not multipart
   'POST /dns/catalog-zones/{zone}/members/plan': 404, // example.lan is not a catalog
   'POST /dhcp/{family}/ha/maintenance/plan': 404, // node_id missing on purpose
   'POST /dhcp/{family}/ha/repair/plan': 409, // no server is terminated in the pair scenario

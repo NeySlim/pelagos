@@ -63,11 +63,26 @@ SECURITY_HA_GUARD = "security.ha_guard"
 ALERTS_LIST = "alerts.list"
 # The notification dispatcher state of this node (collector.notify.read_state).
 NOTIFY_STATE = "notify.state"
+# Archives of this node (services.archive_service): run state, a run now, a probe file.
+ARCHIVE_STATE = "archive.state"
+ARCHIVE_RUN = "archive.run"
+ARCHIVE_PROBE = "archive.probe"
 CERTS_ACTIONS = frozenset(
     {CERTS_STATUS, CERTS_RUN, CERTS_REQUEST, CERTS_CHECK, CERTS_UPLOAD, CERTS_SELF_SIGNED}
 )
 # Actions that never use the engine connectors: they run without the engine lock.
-LOCKLESS = frozenset({SECURITY_AUDIT, SECURITY_PLAN, SECURITY_HA_GUARD, ALERTS_LIST, NOTIFY_STATE})
+LOCKLESS = frozenset(
+    {
+        SECURITY_AUDIT,
+        SECURITY_PLAN,
+        SECURITY_HA_GUARD,
+        ALERTS_LIST,
+        NOTIFY_STATE,
+        ARCHIVE_STATE,
+        ARCHIVE_RUN,
+        ARCHIVE_PROBE,
+    }
+)
 
 
 class PeerActions:
@@ -96,6 +111,9 @@ class PeerActions:
             SECURITY_HA_GUARD: self.security_ha_guard,
             ALERTS_LIST: self.alerts_list,
             NOTIFY_STATE: self.notify_state,
+            ARCHIVE_STATE: self.archive_state,
+            ARCHIVE_RUN: self.archive_run,
+            ARCHIVE_PROBE: self.archive_probe,
         }
 
     def __call__(self, name: str, body: dict[str, Any], caller: str) -> Any:
@@ -170,6 +188,30 @@ class PeerActions:
         from pelagos.collector.notify import read_state
 
         return read_state(self.ctx.paths)
+
+    def archive_state(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """This node's archive run state and newest archive (Administration > Backups)."""
+        from pelagos.services.archive_service import node_state
+
+        return node_state(self.ctx)
+
+    def archive_run(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """Asks this node's archive runner for a run now (the `archive` event of collector.sock)."""
+        from pelagos.core.signals import signal_collector
+        from pelagos.services.archive_service import EVENT_ARCHIVE
+
+        if not signal_collector(self.ctx.paths.collector_sock, EVENT_ARCHIVE):
+            raise PeerActionError("engine_unavailable", "the archive runner of this node is not listening")
+        return {"requested": True}
+
+    def archive_probe(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """Writes, reads back and deletes a probe file where this node keeps its peers' archives."""
+        from pelagos.services.archive_service import probe_local
+
+        try:
+            return probe_local(self.ctx)
+        except OSError as exc:
+            raise PeerActionError("engine_unavailable", f"archive folder not writable: {exc}") from None
 
     # Plan builds ----------------------------------------------------------------------------
 

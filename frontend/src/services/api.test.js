@@ -92,7 +92,7 @@ const invocations = [
   () => api.notifications.test({ channel_id: 'c1' }), () => api.notifications.setOrder(['n1']),
   () => api.notifications.mute('2026-10-28T12:00:00Z', 'maintenance'), () => api.notifications.unmute(),
   () => api.notifications.history({ channel_id: 'c1' }),
-  () => api.archives.overview(), () => api.archives.createDestination({ type: 'sftp' }),
+  () => api.archives.overview(), () => api.archives.updateSettings({ start_time: '02:30' }), () => api.archives.createDestination({ type: 'sftp' }),
   () => api.archives.updateDestination('d1', {}), () => api.archives.deleteDestination('d1'),
   () => api.archives.testDestination({ destination_id: 'd1' }), () => api.archives.run(['n1']),
   () => api.archives.list({ node_id: 'n1' }), () => api.archives.download('a1'), () => api.archives.upload({}),

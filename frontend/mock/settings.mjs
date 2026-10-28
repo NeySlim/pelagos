@@ -6,7 +6,7 @@ import { defaultsOf, translateLegacy, unknownKeys, validateSettings } from '../s
 
 export const SETTINGS_SCHEMA = JSON.parse(readFileSync(new URL('./settingsSchema.json', import.meta.url), 'utf8'))
 
-const MANAGED = { rpz: ['categories', 'subscriptions', 'order', 'allow', 'exempt_clients'], certificates: ['cluster', 'nodes'] }
+const MANAGED = { rpz: ['categories', 'subscriptions', 'order', 'allow', 'exempt_clients'], certificates: ['cluster', 'nodes'], archives: ['destinations', 'recipients'] }
 
 export function makeSettings() {
   return defaultsOf(SETTINGS_SCHEMA)
@@ -55,6 +55,8 @@ export function updateSettings(state, rawBody, invalidMany) {
   const merged = merge(state.settings, body)
   const checked = validateSettings(SETTINGS_SCHEMA, merged)
   for (const [field, err] of Object.entries(checked)) errors.push({ field, message: MESSAGES[err.code]?.(err.params || {}) || err.code })
+  const recipients = (state.archives?.recipients || []).length
+  if (body.archives?.schedule_enabled === true && !recipients) errors.push({ field: 'archives.schedule_enabled', message: 'no archive recipient' })
   if (errors.length) throw invalidMany(errors)
   state.settings = merged
   return { settings: merged, body }

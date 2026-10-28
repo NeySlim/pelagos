@@ -1646,8 +1646,11 @@ run under the collector's backend lock):
 | `certs.self_signed` | `{"actor"}` | a new self-signed certificate installed here |
 | `alerts.list` | `{"include_resolved", "resolved_limit", "kind"?, "severity"?, "engine"?}` | `{"node_id", "alerts": [Alert], "resolved_total"}`: every unresolved alert this node's collector holds (at most 5000), then its most recent resolved ones up to `resolved_limit` (section 15, cluster view) |
 | `notify.state` | `{}` | this node's notification dispatcher state (`collector.notify.read_state`, `{}` before its first pass; section 22) |
+| `archive.state` | `{}` | `{"node_id", "state": state.json, "last_archive": ArchiveMeta|null, "count"}` of this node's archives (section 23) |
+| `archive.run` | `{}` | `{"requested": true}`: sends the `archive` event to this node's collector (section 23) |
+| `archive.probe` | `{}` | `{"ok", "node_id", "free_bytes", "max_bytes", "fits"}`: a 64 KiB probe file written, read back and deleted in this node's archive folder (`.incoming/`) |
 
-The `certs.*`, `security.*`, `alerts.list` and `notify.state` actions never touch an engine and run without the
+The `certs.*`, `security.*`, `alerts.list`, `notify.state` and `archive.state|run|probe` actions never touch an engine and run without the
 backend lock.
 
 A plan built this way is stored by the caller (`PeerGateway.build_plan`
@@ -2712,16 +2715,17 @@ Section 23.
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
-| `GET /admin/archives` | `admin:archives` | | `{"settings","recipients": [Recipient],"identity": {"stored","downloaded_at"},"destinations": [Destination],"nodes": [{"node_id","last_success","last_error","next_run","running","complete"}]}` |
+| `GET /admin/archives` | `admin:archives` | | `{"settings","recipients": [Recipient],"identity": {"stored","recipient","downloaded_at","retired": [recipient]},"destinations": [Destination],"nodes": [{"node_id","name","reachable","error","last_attempt","last_success","last_error","last_archive","count","next_run","running","complete","unreadable","failures","errors","last_test_restore","test_restore"}]}` (each node's `state.json`, a peer's over the `archive.state` action; `Destination` adds `secrets: {"ssh_key": bool}` for `sftp`, `error` (the entry does not validate) and `status: [{"node_id","failures","error"}]` of the nodes failing to write there) |
+| `PUT /admin/archives/settings` | `admin:archives` | partial `[settings.archives]` without the screen entries | `{"settings"}`; `400` on `schedule_enabled: true` with no valid recipient (also refused by `PUT /admin/settings`) |
 | `POST /admin/archives/destinations` | `admin:archives` | `Destination` without `id`; `secrets` | `201 Destination` |
 | `PUT /admin/archives/destinations/{id}` | `admin:archives` | partial; `secrets` | `Destination` |
 | `DELETE /admin/archives/destinations/{id}` | `admin:archives` | | `204` |
-| `POST /admin/archives/destinations/test` | `admin:archives` | `{"destination_id"}` or an unsaved `Destination` | `{"ok","node_id","error"?}`: writes, reads back and deletes a probe file from this node |
-| `POST /admin/archives/run` | `admin:archives` | `{"node_ids"?}` (default every node) | `202 Job`, one step per node |
-| `GET /admin/archives/list?node_id=&destination_id=&page=&per_page=` | `admin:archives` | | paginated `ArchiveMeta` of every node, absent nodes included (read from whoever holds them) |
+| `POST /admin/archives/destinations/test` | `admin:archives` | `{"destination_id"}` or an unsaved `Destination` (`scope`: the saved id whose SSH key it may use while host, port and user are unchanged) | `{"ok","node_id","error"?,"targets": [{"label","ok","error"?,"node_id"?,"note"?}]}`: writes, reads back and deletes a probe file from this node; a `peer` destination lists each target node's archives then runs its `archive.probe` action; at most 6 per user and minute (`429`) |
+| `POST /admin/archives/run` | `admin:archives` | `{"node_ids"?}` (default every node) | `202 Job`, one step `archive:<node name>` per node (`node_id`, output `{"archive_id","size","complete","errors"}`), done when that node's run finished; `409` with no recipient |
+| `GET /admin/archives/list?node_id=&destination_id=&page=&per_page=` | `admin:archives` | | paginated `ArchiveMeta` of every node plus `node_name` and `held_by` (node ids holding a copy), merged by id from every reachable node, absent nodes included (read from whoever holds them); `meta.unreachable`: node ids that did not answer; `destination_id` `local`, `upload` or a destination id |
 | `GET /admin/archives/{id}/download` | `admin:archives` | | `application/octet-stream`, the encrypted file; audited |
-| `POST /admin/archives/upload` | `admin:archives` | multipart, field `file` (`.tar.gz.age`), optional `sha256` | `201 ArchiveMeta` |
-| `POST /admin/archives/identity` | `admin:archives` | `{"op": "generate"|"rotate", "password"}` or `{"op": "add_recipient", "recipient", "label"?}` or `{"op": "remove_recipient", "recipient"}` | `{"recipients", "identity"?}`: `identity` (`AGE-SECRET-KEY-1...`) only in the answer of `generate` and `rotate`, never again; `409` to remove the cluster recipient |
+| `POST /admin/archives/upload` | `admin:archives` | multipart, field `file` (`.tar.gz.age`), optional `identity` | `201 ArchiveMeta` (`destinations: ["upload"]`); opened to read its manifest, kept under `peers/<its node id>/` of this node; `409` when already held |
+| `POST /admin/archives/identity` | `admin:archives` | `{"op": "generate"|"rotate", "password"}` or `{"op": "add_recipient", "recipient", "label"?}` or `{"op": "remove_recipient", "recipient"}` or `{"op": "prune_retired"}` | `{"recipients", "identity_state", "identity"?, "dropped"?, "kept_because"?}`: `identity` (`AGE-SECRET-KEY-1...`) only in the answer of `generate` and `rotate`, never again; a wrong `password` is `401 invalid_credentials`; `409` to generate twice, to rotate nothing, or to remove the last recipient while scheduling is on |
 | `POST /admin/archives/{id}/inspect` | `admin:archives` | `{"identity"?,"target_node_id"?,"substitute"?,"ha_tls"?}` (an operator identity when the cluster has none that opens it) | `{"manifest","archive","target_node_id","parts": [{"id","engine","node_id","files","permission","diff_summary",...}],"warnings"}` (section 23, online restore) |
 | `POST /admin/archives/{id}/restore/plan` | `admin:archives` and the write permission of each part | `{"target_node_id","parts": [part id],"identity"?,"include_user_files"?}` | `Plan` (scope `restore`, `requires_confirmation`), applied with `POST /plans/{id}/apply` (`202 Job`) |
 
@@ -3371,9 +3375,19 @@ command line, B6 API and screen, B7 lab.
   starts the stopped units again), audit `restore.apply` (`request.mode` `offline`), then each
   unit `enable --now`. `--dry-run` checks a copy as the test restore does (Kea copies under
   AppArmor reported not checked).
+- **API and screen** (B6, `services/archive_service.py`, `api/archives.py`, Administration >
+  Backups): settings, destinations (validated by `destinations.config.parse`, `id` a lowercase
+  ULID, the SFTP key in `secrets.ssh_key`: a string sets it, null clears it, absent keeps it, never
+  returned; a stored key does not follow a change of host, port or user), the destination test, runs
+  through the `archive` event (this node) or the `archive.run` peer action, the merged list, download
+  (a peer's copy fetched into `archives/.restore/` and removed once sent) and upload. `generate` and
+  `rotate` need the caller's password; `prune_retired` applies the rule of the retired identities
+  above from the web process and says why nothing was dropped (`kept_because`). Scheduling is refused
+  without a valid recipient (`PUT /admin/archives/settings`, `PUT /admin/settings`), and removing the
+  last recipient while it is on.
 - **Audit**: `admin.archive.add|replace|delete` (destinations),
   `admin.archive.op` (`request.op`: `generate`, `rotate`, `add_recipient`,
-  `remove_recipient`, `download`, `upload`, `run`), `archive.create` (one
+  `remove_recipient`, `prune_retired`, `download`, `upload`, `run`, `test`), `archive.create` (one
   per node and run, `result`), `restore.apply` and `restore.rollback`.
 
 ## 24. DDNS failover and catch-up

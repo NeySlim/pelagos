@@ -1733,3 +1733,14 @@ and control socket TLS files). Contract (`cli.py`): the commands are registered 
 `ServiceManager.stop` (and the supervisord and external variants). WP-COLLECTOR:
 `archive_collect.tls_files`, archived with each Kea configuration so a rebuilt node keeps its
 HA TLS identity. No new dependency.
+
+## 2026-10-28, archives batch B6: API and screen
+Additive. Architecture sections 13 (peer actions `archive.state`, `archive.run`, `archive.probe`), 17
+(the archive routes as built, new `PUT /admin/archives/settings`, identity op `prune_retired`,
+`identity_state` in its answer, the test answer `targets`, the list `held_by`, `node_name` and
+`meta.unreachable`, upload field `identity`) and 23 (B6 rules). WP-API-AUTH:
+`services/archive_service.py`, every route of `api/archives.py` built (none answers 501),
+`PUT /admin/settings` refuses `archives.schedule_enabled` with no recipient. WP-FRONTEND:
+Administration > Backups (`pages/admin/archives/`), namespace `archives`, `api.archives.updateSettings`,
+`upload(file, identity)`, `inspect(id, body)`, the mock shaped like the service, PlanPreview follows
+a `restore` plan as a job. The peer destination test now writes a probe file on each target node.

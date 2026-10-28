@@ -2835,7 +2835,8 @@ export function createMockServer({ quiet = false, jobStepMs, live = false, apply
       }
       const raw = await readBody(req)
       let body = {}
-      if (raw) {
+      // A multipart upload (archives) is not JSON: handlers read its headers only.
+      if (raw && !String(req.headers['content-type'] || '').startsWith('multipart/form-data')) {
         try {
           body = JSON.parse(raw)
         } catch {

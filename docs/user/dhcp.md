@@ -488,6 +488,50 @@ automatic promotion. With two nodes, a network cut between them cannot be
 told from a crash: keep the promotion manual there unless the network
 between the nodes is redundant.
 
+### Return of the old primary
+
+When the old primary comes back (its named restarted, its node back
+online), it still serves its own, older copy of the zone as primary. Its
+collector compares the zones it serves as primary with `ddns.roles` once
+the replication has exchanged the cluster configuration: a zone whose role
+went to another node at a later epoch is a stale primary. With
+`ddns.demote_on_return_enabled` (on by default) the node demotes it at
+once: the zone becomes a copy of the recorded primary in a new file
+(`<zone>.e<epoch>.copy`), the old zone file and its journal are moved to
+the plan backup, named is reconfigured and transfers the whole zone from
+the new primary. The first check after the collector starts also puts the
+recorded primary first in this node's own D2 lists (a D2 that did not
+answer during the promotion). Each demotion is audited as
+`dns.failover.op` by `system`.
+
+Until it is done, `dns_stale_primary` (critical, subject
+`ddns:stale:<view>/<zone>`) stays open, and the resilience screen lists the
+node under `stale`. A file written by a promotion carries its epoch in its
+name: a node that serves the zone from a file of a later epoch than
+`ddns.roles` is not stale (the role entry has not reached it yet), and a
+node at the same epoch as the recorded one raises the alert but is never
+demoted automatically. An update the old primary accepted before its
+demotion is lost with its file and comes back through the catch-up plan.
+
+### Giving the role back
+
+`POST /dhcp/ddns/switchover/plan` (same permissions, body
+`{"to_node_id"?, "zones"?}`) moves the role while both nodes answer, for
+instance back to `ns1` once it has been demoted:
+
+1. `rndc freeze` of each zone on the active primary (updates are refused
+   for a few seconds);
+2. on the target, named refreshes its copy until it serves the frozen
+   serial, then the copy is promoted as above;
+3. the old primary becomes a copy of the target, its files moved to the
+   backup as for a return;
+4. every D2 lists the target first, `ddns.roles` moves to the next epoch.
+
+The answer is `409` when the active primary does not answer (use the
+failover plan) or when no zone is prepared. Rolling the plan back thaws
+the zone on the old primary and restores its files. Run the catch-up plan
+afterwards for the updates refused during the freeze.
+
 ## Hooks
 
 The loaded hook libraries with their parameters; "used by Pelagos" marks

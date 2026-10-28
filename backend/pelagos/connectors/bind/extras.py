@@ -222,6 +222,25 @@ class BindExtras:
             node_id=node, ok=True, message=output.strip() or f"rndc {' '.join(args[:2])} done"
         )
 
+    def _rollback_op(self, plan: Plan) -> NodeApplyResult:
+        """Only a freeze has an inverse (thaw): the first step of a planned DDNS switchover."""
+        node = self.ctx.node_id
+        try:
+            name, view, zone = ops.parse_target(plan.changes[0].target)
+        except ops.OpError as exc:
+            return NodeApplyResult(node_id=node, ok=False, message=str(exc))
+        if name != "freeze":
+            return NodeApplyResult(node_id=node, ok=False, message="an rndc operation cannot be rolled back")
+        args = ops.rndc_args("thaw", zone, view, {})
+        try:
+            output = self.rndc.run(*args)
+        except ConnectorError as exc:
+            return NodeApplyResult(node_id=node, ok=False, message=f"rndc thaw failed: {exc}")
+        self._plan_details(plan.id)["rollback"] = {"rndc": args, "output": output}
+        return NodeApplyResult(
+            node_id=node, ok=True, message=output.strip() or "rndc thaw done", rolled_back=True
+        )
+
     # Zones added with rndc addzone ----------------------------------------------------------
 
     def _allow_new_zones(self, view: str) -> bool:

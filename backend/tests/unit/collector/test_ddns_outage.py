@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -168,3 +169,88 @@ def test_automatic_promotion_is_off_by_default_then_waits(rig, monkeypatch):
     now["t"] += 400
     collector.ddns_outage()
     assert promoted == [[KEY]]
+
+
+# Return of an old primary (batch D4) --------------------------------------------------------------
+
+
+def stale_alerts(collector) -> list[Alert]:
+    return [a for a in collector.alerts.open_alerts() if a.kind is AlertKind.DNS_STALE_PRIMARY]
+
+
+def given_away(ctx, epoch: int = 2, **ddns) -> None:
+    def mutate(cluster):
+        cluster.settings["ddns"] = {**ddns, "roles": {KEY: {"primary": "n2", "epoch": epoch}}}
+
+    ctx.config_store.update_cluster(mutate, updated_by="test")
+
+
+def test_stale_primary_alert_stays_while_demotion_is_off(rig, monkeypatch):
+    collector, _backend = rig
+    calls: list[list[str]] = []
+    monkeypatch.setattr(collector, "_demote_self", lambda found: calls.append([s.key for s in found]))
+    assert collector.ddns_return() == []
+    given_away(collector.ctx, demote_on_return_enabled=False)
+    [alert] = collector.ddns_return()
+    assert alert.severity is Severity.CRITICAL and alert.node_id == collector.node_id
+    assert alert.subject == "ddns:stale:" + KEY and alert.title_message["key"] == "alert.dns_stale_primary"
+    assert alert.details["primary_node_id"] == "n2" and alert.details["demotable"] is True
+    assert calls == [] and len(stale_alerts(collector)) == 1
+
+
+def test_stale_primary_demoted_on_return(rig, monkeypatch):
+    collector, backend = rig
+    calls: list[list[str]] = []
+
+    def demote(found):
+        calls.append([s.key for s in found])
+        if found:
+            backend.zones[0] = backend.zones[0].replace(kind=ZoneKind.SECONDARY, primaries=["192.0.2.2"])
+        return bool(found)
+
+    monkeypatch.setattr(collector, "_demote_self", demote)
+    given_away(collector.ctx)
+    assert collector.ddns_return() == []  # demoted at once: no alert left
+    assert calls == [[KEY]] and stale_alerts(collector) == []
+    collector.ddns_return()
+    assert calls == [[KEY]]  # nothing stale any more, and the start check is done
+
+
+def test_a_later_local_promotion_is_not_stale(rig, monkeypatch):
+    collector, backend = rig
+    calls: list[list[str]] = []
+    monkeypatch.setattr(collector, "_demote_self", lambda found: calls.append(found) or False)
+    backend.zones[0] = backend.zones[0].replace(file="/z/example.lan.e3.db")
+    given_away(collector.ctx, epoch=2)
+    assert collector.ddns_return() == []
+    assert calls == [[]]  # only the start check (its D2 lists)
+    given_away(collector.ctx, epoch=3)  # same epoch on both sides: alert, never demoted alone
+    [alert] = collector.ddns_return()
+    assert alert.details["demotable"] is False and alert.details["local_epoch"] == 3
+    assert len(calls) == 1
+
+
+def test_waits_for_the_first_replication_exchange(rig):
+    collector, _backend = rig
+    given_away(collector.ctx, demote_on_return_enabled=False)
+    collector.peers.liveness = type("L", (), {"peer_statuses": lambda self: []})()
+    collector.ctx.config_store.update_cluster(
+        lambda c: c.nodes.append(
+            c.nodes[0].__class__(id="n2", name="ns2", url="https://192.0.2.2:8444", cert_fingerprint="x")
+        ),
+        updated_by="test",
+    )
+    assert collector.ddns_return() == []
+    collector.peers.liveness = None
+    assert len(collector.ddns_return()) == 1
+
+
+def test_no_return_check_while_named_is_stopped(rig, monkeypatch):
+    collector, backend = rig
+    calls: list[Any] = []
+    monkeypatch.setattr(collector, "_demote_self", lambda found: calls.append(found) or False)
+    given_away(collector.ctx)
+    backend.running = False
+    assert collector.ddns_return() == [] and calls == []
+    backend.running = True
+    assert len(collector.ddns_return()) == 1 and len(calls) == 1

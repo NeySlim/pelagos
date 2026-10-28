@@ -84,6 +84,7 @@ class RenderResult:
     changes: list[Change] = field(default_factory=list)  # normalized, before filled
     errors: list[str] = field(default_factory=list)
     zone_files: dict[Path, str] = field(default_factory=dict)  # new zone files (subset of texts)
+    removed: list[Path] = field(default_factory=list)  # zone files moved to the backup (demotion)
     requires_confirmation: bool = False
 
     def changed_paths(self) -> list[Path]:
@@ -104,6 +105,7 @@ class RenderResult:
                     )
                 )
             )
+        chunks += [f"--- {p}\n+++ /dev/null (moved to the plan backup)\n" for p in self.removed]
         return "".join(c if c.endswith("\n") else c + "\n" for c in chunks if c)
 
     def preconditions(self, node_id: str | None) -> list[Precondition]:
@@ -320,12 +322,15 @@ class ConfigPlanner:
                 "notes": raw.get("notes"),
             }
         promote = failover.promotion(raw)
-        skip = ("ns", "records", "secondary", failover.PROMOTE)
+        demote = failover.demotion(raw)
+        skip = ("ns", "records", "secondary", failover.PROMOTE, failover.DEMOTE)
         zone = Zone.from_dict({k: v for k, v in raw.items() if k not in skip})
         zone.source = ZoneSource.PELAGOS
         zone.config_path = str(path)
         if promote is not None:
             self._promote(zone, op, before, promote)
+        if demote is not None:
+            self._demote(zone, op, before, demote)
         if zone.kind in (ZoneKind.SECONDARY, ZoneKind.STUB, ZoneKind.MIRROR) and not zone.primaries:
             if zone.kind is not ZoneKind.MIRROR:
                 raise PlanError(f"a {zone.kind.value} zone needs primaries")
@@ -349,6 +354,8 @@ class ConfigPlanner:
             after["secondary"] = secondary  # every node renders its own side of the pair
         if promote is not None:
             after[failover.PROMOTE] = dict(promote)
+        if demote is not None:
+            after[failover.DEMOTE] = dict(demote)
         self.result.changes.append(
             Change(op, change.target, before=before, after=after, node_ids=change.node_ids)
         )
@@ -378,6 +385,27 @@ class ConfigPlanner:
         text = failover.zone_text(zone.name, rrsets)
         self._set_text(path, text)
         self.result.zone_files[path] = text
+        self.result.requires_confirmation = True
+
+    def _demote(self, zone: Zone, op: ChangeOp, before: dict[str, Any] | None, demote: dict) -> None:
+        """The stale primary becomes a copy in a new, empty file; its zone file and journal leave."""
+        was = (before or {}).get("kind")
+        if op is not ChangeOp.REPLACE or zone.kind is not ZoneKind.SECONDARY:
+            raise PlanError("a demotion replaces a primary zone with a copy")
+        epoch = int(demote.get("epoch") or 0)
+        target = failover.copy_path(self.zone_dir, zone.name, epoch)
+        zone.file = str(self._zone_file_path(Zone(name=zone.name, kind=zone.kind, file=str(target))))
+        if was == ZoneKind.SECONDARY.value and before is not None and before.get("file") == zone.file:
+            return  # demoted already
+        if was != ZoneKind.PRIMARY.value:
+            raise PlanError(f"zone {zone.name} is not a primary here ({was}): nothing to demote")
+        # Checked again at apply time: named may have written a journal since the plan.
+        stale = [
+            p if p.is_absolute() else self._directory() / p
+            for p in failover.stale_files((before or {}).get("file"))
+        ]
+        stale = [p for p in stale if p.exists()]
+        self.result.removed += [p for p in stale if p not in self.result.removed]
         self.result.requires_confirmation = True
 
     def _check_zone_includes(self, view: str) -> None:

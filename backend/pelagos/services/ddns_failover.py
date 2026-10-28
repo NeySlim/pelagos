@@ -131,6 +131,7 @@ class ZoneState:
     unordered: list[str] = field(default_factory=list)  # D2 nodes whose list is not primary first
     policy: list[str] = field(default_factory=list)
     options: dict[str, Any] = field(default_factory=dict)
+    stale: list[str] = field(default_factory=list)  # nodes still serving as primary a zone given away
 
     @property
     def ready(self) -> bool:
@@ -148,6 +149,7 @@ class ZoneState:
             "copies": list(self.copies),
             "ready": self.ready,
             "blockers": list(self.blockers),
+            "stale": list(self.stale),
         }
 
 
@@ -242,6 +244,8 @@ def assess(inv: Inventory, settings: dict[str, Any]) -> list[ZoneState]:
         primary = role_primary if role_primary in primaries else (primaries[0] if primaries else role_primary)
         copies = [n for n, z in holders.items() if z.kind is ZoneKind.SECONDARY and n != primary]
         st = ZoneState(key, name, view, primary, copies, role)
+        if role_primary is not None and role_primary == primary:
+            st.stale = [n for n in primaries if n != primary]
         zone = holders.get(primary) if primary else None
         node = lambda n: inv.names.get(n, n)  # noqa: E731
         hard: list[dict[str, Any]] = []
@@ -350,6 +354,47 @@ def d2_lists(inv: Inventory, states: list[ZoneState]) -> list[dict[str, Any]]:
                 {"direction": direction, "name": name, "zone": st.key if st else None, "servers": servers}
             )
         out.append({"node_id": d2.node_id, "domains": items})
+    return out
+
+
+@dataclass(slots=True)
+class Stale:
+    """A zone this node serves as primary although `ddns.roles` gives the role to another node."""
+
+    key: str
+    zone: str
+    view: str
+    primary: str  # the recorded primary
+    epoch: int  # the recorded epoch
+    local_epoch: int | None  # epoch of the file this node serves (`<zone>.e<epoch>.db`), None: original
+
+    @property
+    def demotable(self) -> bool:
+        """The role moved on after this node got it: an original file counts as epoch 1."""
+        return self.epoch > (self.local_epoch or 1)
+
+
+def stale_primaries(roles: dict[str, Any], zones: list[Zone], me: str) -> list[Stale]:
+    """Zones of `ddns.roles` this node serves as primary while the role names another node. A file
+    from a later promotion than the recorded epoch is not stale: ddns.roles has not caught up yet."""
+    out: list[Stale] = []
+    for key, role in roles.items():
+        if not isinstance(role, dict) or not role.get("primary") or str(role["primary"]) == me:
+            continue
+        view, _, name = str(key).partition("/")
+        if not name:
+            continue
+        name = normalize_name(name)
+        zone = next(
+            (z for z in zones if z.name == name and z.view == view and z.kind is ZoneKind.PRIMARY), None
+        )
+        if zone is None:
+            continue
+        epoch = int(role.get("epoch") or 0)
+        local = bind_failover.file_epoch(zone.file)
+        if local is not None and local > epoch:
+            continue
+        out.append(Stale(str(key), name, view, str(role["primary"]), epoch, local))
     return out
 
 
@@ -681,33 +726,12 @@ class DdnsFailoverService:
         """Promote a copy primary of the prepared zones whose active primary no longer answers: the
         copy rewritten as text and declared primary with the recorded policy, the other copies
         repointed, every reachable D2 list with the new primary first, `ddns.roles` at the next
-        epoch. 409 while the active primary still serves a zone (a switchover, batch D4)."""
+        epoch. 409 while the active primary still serves a zone (the switchover plan does that)."""
         inv = self.inventory()
         names = inv.names
         states = self._failover_zones(assess(inv, self.ctx.settings()), body.get("zones"))
         to = self._target(inv, states, body.get("to_node_id"))
-        for st in states:
-            if st.primary == to:
-                raise ValidationError(
-                    f"{names.get(to, to)} is already the active primary of {st.zone}",
-                    [field_error("to_node_id", "already primary")],
-                )
-            if to not in st.copies:
-                raise ValidationError(
-                    f"{names.get(to, to)} holds no copy of {st.zone}", [field_error("to_node_id", "no copy")]
-                )
-            if st.missing_keys.get(to):
-                raise ValidationError(
-                    f"{st.zone} is not prepared on {names.get(to, to)}: keys "
-                    + ", ".join(st.missing_keys[to])
-                    + " missing; prepare the zone first",
-                    [field_error("zones", st.zone)],
-                )
-            if self._serial(inv, to, st) is None:
-                raise ValidationError(
-                    f"the copy of {st.zone} on {names.get(to, to)} is not served: nothing to promote",
-                    [field_error("to_node_id", "copy not loaded")],
-                )
+        self._check_target(inv, states, to)
         answering = [st for st in states if st.primary is not None and self.primary_answers(inv, st)]
         if answering:
             st = answering[0]
@@ -969,6 +993,253 @@ class DdnsFailoverService:
             state=PlanState.VALIDATED,
             validations=[ValidationResult(ok=True, tool="ddns.roles", output=f"{len(changes)} entries")],
         )
+
+    # Switchover plan (batch D4) -------------------------------------------------------------------
+
+    def switchover_plan(self, body: dict[str, Any], created_by: str) -> Plan:
+        """Give the role of the prepared zones to a copy while the active primary still serves them:
+        freeze on the primary, promotion of the target once its copy has the frozen serial, demotion
+        of the old primary into a copy of the target, D2 lists target first, `ddns.roles` at the next
+        epoch. Every part is undone in reverse order when one fails (the freeze by a thaw)."""
+        inv = self.inventory()
+        names = inv.names
+        states = self._failover_zones(assess(inv, self.ctx.settings()), body.get("zones"))
+        to = self._target(inv, states, body.get("to_node_id"))
+        self._check_target(inv, states, to)
+        for st in states:
+            if str(st.primary) not in inv.dns or not self.primary_answers(inv, st):
+                raise Conflict(
+                    f"{names.get(str(st.primary), st.primary)} does not serve {st.zone}: promote the copy"
+                    " with the failover plan instead"
+                )
+        olds = sorted({str(st.primary) for st in states})
+        epochs = {st.key: int((st.role or {}).get("epoch") or 0) + 1 for st in states}
+        endpoints = inv.endpoints()
+        target = _endpoint(endpoints, to)
+        if target is None or not target.address:
+            raise ValidationError(
+                f"cannot tell the address of {names.get(to, to)}: its URL names no address",
+                [field_error("to_node_id", "no address")],
+            )
+        parts: list[Plan] = [self._freeze_part(str(st.primary), st, created_by) for st in states]
+        promote: list[Change] = []
+        for st in states:
+            change = self._promote_change(inv, st, to, epochs[st.key])
+            old = _endpoint(endpoints, str(st.primary))
+            if old is None or not old.address:
+                raise ValidationError(
+                    f"cannot tell the address of {names.get(str(st.primary), st.primary)}",
+                    [field_error("zones", st.zone)],
+                )
+            # The target waits until its copy serves the frozen primary's serial before reading it.
+            change.after["promote"]["sync"] = {"address": old.address, "port": old.port}
+            promote.append(change)
+        per_node: dict[str, list[Change]] = {to: promote}
+        for st in states:
+            old = str(st.primary)
+            per_node.setdefault(old, []).append(self._demote_change(inv, st, old, to, epochs[st.key]))
+            for n in st.copies:
+                if n not in (to, old):
+                    change = self._repoint_change(inv, st, n, target)
+                    if change is not None:
+                        per_node.setdefault(n, []).append(change)
+        for n, changes in per_node.items():
+            parts.append(self._zone_part(n, changes, created_by))
+        parts += self._d2_parts(inv, states, lambda st: [to, str(st.primary), *st.copies], created_by)
+        notes = [
+            _note(f"{names.get(n, n)} does not answer: its copies and its D2 list are fixed on its return")
+            for n in inv.offline
+        ]
+        parts.append(self._promoted_roles(states, to, epochs, created_by))
+        notes.append(
+            _note(
+                "the zones are frozen on "
+                + ", ".join(names.get(o, o) for o in olds)
+                + " until the copy has their serial: DNS updates are refused for a few seconds;"
+                " replay them afterwards (POST /dhcp/ddns/replay/plan)"
+            )
+        )
+        zones = [st.zone for st in states]
+        summary = messages.msg(
+            "plan.ddns.switchover",
+            node=names.get(to, to),
+            previous=", ".join(names.get(o, o) for o in olds),
+            count=len(zones),
+            zones=zones,
+            epoch=max(epochs.values()),
+        )
+        return self._composite(summary, parts, notes, names, created_by)
+
+    def _check_target(self, inv: Inventory, states: list[ZoneState], to: str) -> None:
+        names = inv.names
+        for st in states:
+            if st.primary == to:
+                raise ValidationError(
+                    f"{names.get(to, to)} is already the active primary of {st.zone}",
+                    [field_error("to_node_id", "already primary")],
+                )
+            if to not in st.copies:
+                raise ValidationError(
+                    f"{names.get(to, to)} holds no copy of {st.zone}", [field_error("to_node_id", "no copy")]
+                )
+            if st.missing_keys.get(to):
+                raise ValidationError(
+                    f"{st.zone} is not prepared on {names.get(to, to)}: keys "
+                    + ", ".join(st.missing_keys[to])
+                    + " missing; prepare the zone first",
+                    [field_error("zones", st.zone)],
+                )
+            if self._serial(inv, to, st) is None:
+                raise ValidationError(
+                    f"the copy of {st.zone} on {names.get(to, to)} is not served: nothing to promote",
+                    [field_error("to_node_id", "copy not loaded")],
+                )
+
+    def _composite(
+        self,
+        summary: Any,
+        parts: list[Plan],
+        notes: list[ValidationResult],
+        names: dict[str, str],
+        created_by: str,
+    ) -> Plan:
+        plan = Plan(
+            scope=PlanScope.DNS_FAILOVER,
+            node_id=self.ctx.node.id,
+            **messages.fields("summary", summary),
+            created_by=created_by,
+        )
+        merge_parts(plan, parts, names)
+        plan.validations.extend(notes)
+        plan.requires_confirmation = True
+        self.plans.register_composite(plan, parts)
+        return self.ctx.plan_store.put(plan)
+
+    def _freeze_part(self, node_id: str, st: ZoneState, created_by: str) -> Plan:
+        """`rndc freeze` of the zone on its primary, as a plan part (its rollback thaws it)."""
+        from pelagos.connectors.bind import ops
+
+        view = None if st.view == DEFAULT_VIEW else st.view
+        target = ops.target("freeze", st.zone, view)
+        node = self._names().get(node_id, node_id)
+        return Plan(
+            scope=PlanScope.DNS_ZONE,
+            node_id=self.ctx.node.id,
+            **messages.fields(
+                "summary", messages.msg("plan.zone.rndc_on", zone=st.zone, op="freeze", node=node)
+            ),
+            created_by=created_by,
+            engine=Engine.BIND,
+            changes=[Change(ChangeOp.REPLACE, target, after={})],
+            diff=ops.command_text("freeze", st.zone, view, {}) + "\n",
+            target_node_ids=[node_id],
+            state=PlanState.VALIDATED,
+        )
+
+    def _demote_change(self, inv: Inventory, st: ZoneState, node_id: str, to: str, epoch: int) -> Change:
+        """The primary statement on `node_id` replaced by a copy of `to`'s zone."""
+        zone = next((z for z in inv.dns[node_id].zones if z.name == st.zone and z.view == st.view), None)
+        if zone is None or zone.kind is not ZoneKind.PRIMARY:
+            raise ValidationError(
+                f"{st.zone} is not served as primary on {inv.names.get(node_id, node_id)}",
+                [field_error("zones", st.zone)],
+            )
+        entry = self._primaries_entry(inv, to, st.view)
+        after = bind_failover.demoted_after(zone, [entry], {"to": to, "epoch": epoch})
+        return Change(ChangeOp.REPLACE, st.key, after=after)
+
+    def _primaries_entry(self, inv: Inventory, node_id: str, view: str) -> str:
+        """`<address>[ port N] key <read key>`: how a copy transfers the zone from `node_id`."""
+        ep = _endpoint(inv.endpoints(), node_id)
+        address = ep.address if ep and ep.address else next(iter(self.dns._addresses_of(node_id)), "")
+        if not address:
+            raise ValidationError(
+                f"cannot tell the address of {inv.names.get(node_id, node_id)}: its URL names no address",
+                [field_error("to_node_id", "no address")],
+            )
+        port = ep.port if ep else d2order.DEFAULT_PORT
+        entry = address + (f" port {port}" if port != d2order.DEFAULT_PORT else "")
+        return entry + f" key {_key(self.ctx.settings(), 'read', view)}"
+
+    def _d2_parts(
+        self,
+        inv: Inventory,
+        states: list[ZoneState],
+        nodes_of: Callable[[ZoneState], list[str]],
+        created_by: str,
+    ) -> list[Plan]:
+        """One `d2.config` part per reachable D2 whose lists of the zones change to `nodes_of`."""
+        chosen = {st.zone: st for st in states}
+        mapping = domain_zones(inv)
+        endpoints = inv.endpoints()
+        parts: list[Plan] = []
+        for d2 in inv.d2.values():
+
+            def order_of(direction: str, name: str, d2: D2Node = d2) -> list[d2order.Endpoint] | None:
+                st = chosen.get(mapping.get((d2.node_id, direction, name), ""))
+                if st is None:
+                    return None
+                seen: list[str] = []
+                for n in nodes_of(st):
+                    if n not in seen:
+                        seen.append(n)
+                return [e for e in (_endpoint(endpoints, n) for n in seen) if e]
+
+            try:
+                config, changed = d2order.reorder(d2.config, order_of, endpoints, d2.node_id)
+            except d2order.UnknownAddress as exc:
+                n = str(exc)
+                raise ValidationError(
+                    f"cannot tell the address of {inv.names.get(n, n)} for the D2 of {d2.name}",
+                    [field_error("zones", n)],
+                ) from None
+            if changed:
+                parts.append(self._d2_part(d2.node_id, config, created_by))
+        return parts
+
+    # Return of an old primary (batch D4) ----------------------------------------------------------
+
+    def return_plan(self, created_by: str = "system", d2: bool = True) -> Plan | None:
+        """What this node must change after coming back: the zones it still serves as primary although
+        `ddns.roles` gave them to another node at a later epoch become copies of that node, and (with
+        `d2`) its own D2 lists put the recorded primary first. None when nothing differs."""
+        me = self.ctx.node.id
+        inv = self.inventory()
+        if me not in inv.dns:
+            return None
+        names = inv.names
+        states = {st.key: st for st in assess(inv, self.ctx.settings())}
+        found = [s for s in stale_primaries(inv.roles, inv.dns[me].zones, me) if s.demotable]
+        parts: list[Plan] = []
+        demoted: list[ZoneState] = []
+        changes: list[Change] = []
+        for s in found:
+            st = states.get(s.key)
+            if st is None:
+                continue
+            changes.append(self._demote_change(inv, st, me, s.primary, s.epoch))
+            demoted.append(st)
+        if changes:
+            parts.append(self._zone_part(me, changes, created_by))
+        if d2 and me in inv.d2:
+            # Only towards a recorded primary that answers: the order is then known for every node.
+            recorded = [st for st in states.values() if st.role and str(st.role.get("primary")) in inv.dns]
+            local = Inventory(dns=inv.dns, d2={me: inv.d2[me]}, roles=inv.roles, names=names)
+
+            def nodes_of(st: ZoneState) -> list[str]:
+                primary = str((st.role or {}).get("primary"))
+                holders = [n for n, node in inv.dns.items() if any(z.name == st.zone for z in node.zones)]
+                return [primary, *(n for n in holders if n != primary)]
+
+            parts += self._d2_parts(local, recorded, nodes_of, created_by)
+        if not parts:
+            return None
+        zones = [st.zone for st in demoted]
+        primary = ", ".join(sorted({names.get(s.primary, s.primary) for s in found})) or "-"
+        summary = messages.msg(
+            "plan.ddns.demote", node=names.get(me, me), primary=primary, count=len(zones), zones=zones
+        )
+        return self._composite(summary, parts, [], names, created_by)
 
 
 _KEY_RE = re.compile(r"\bkey\s+\"?([^\s\";]+)")

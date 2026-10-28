@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """DDNS failover checks (section 24): `ddns_outage` when the active primary of a zone of
-`ddns.roles` stops serving it, and the decision of the optional automatic promotion.
+`ddns.roles` stops serving it, the decision of the optional automatic promotion, and
+`dns_stale_primary` when an old primary is back serving a zone whose role went to another node.
 
 Each collector judges with what it sees: the primary itself asks its own named, a node holding a
 copy asks the primary named in its `primaries`, every node knows when the primary's node is offline.
@@ -17,7 +18,9 @@ from typing import Any
 from pelagos.domain import Alert, AlertKind, AlertState, Engine, Severity, messages, to_rfc3339
 
 KINDS = frozenset({AlertKind.DDNS_OUTAGE.value})
+STALE_KINDS = frozenset({AlertKind.DNS_STALE_PRIMARY.value})
 SUBJECT_PREFIX = "ddns:"
+STALE_PREFIX = "ddns:stale:"
 _ENTRY_RE = re.compile(r"^\s*\"?([0-9A-Fa-f:.]+)\"?(?:\s+port\s+(\d+))?")
 CAUSES = ("named_down", "peer_offline")
 
@@ -124,3 +127,33 @@ def auto_due(
     if any(n not in alert.reported_by for n in witnesses):
         return "another node still sees the primary"
     return None
+
+
+def stale_alert(stale: Any, me: str, names: dict[str, str]) -> Alert:
+    """`dns_stale_primary` of one zone this node serves as primary (`stale`: services Stale)."""
+    return Alert(
+        kind=AlertKind.DNS_STALE_PRIMARY,
+        severity=Severity.CRITICAL,
+        node_id=me,
+        engine=Engine.BIND,
+        subject=STALE_PREFIX + stale.key,
+        **messages.fields(
+            "title",
+            messages.msg(
+                "alert.dns_stale_primary",
+                zone=stale.zone,
+                node=names.get(me, me),
+                primary=names.get(stale.primary, stale.primary),
+                epoch=stale.epoch,
+            ),
+        ),
+        details={
+            "zone": stale.zone,
+            "view": stale.view,
+            "primary_node_id": stale.primary,
+            "epoch": stale.epoch,
+            "local_epoch": stale.local_epoch,
+            # False: same epoch on both sides, a conflict Pelagos never resolves alone.
+            "demotable": stale.demotable,
+        },
+    )

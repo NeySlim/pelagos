@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """DDNS without a single point of failure (section 24): resilience state, prepare, failover,
 switchover and replay plans.
-
-Registered by the contract batch; the switchover answers 501 until batch D4 builds it.
 """
 
 from __future__ import annotations
@@ -11,14 +9,9 @@ from flask_restx import Namespace, Resource
 
 from pelagos.api import models as m
 from pelagos.api.common import json_body, plan_answer
-from pelagos.api.errors import not_implemented
 from pelagos.api.security import check_permission, require, services, username
 
 ns = Namespace("ddns-failover", description="DDNS failover and replay", path="/dhcp/ddns")
-
-
-def _todo(batch: str):
-    raise not_implemented(f"batch {batch}")
 
 
 @ns.route("/resilience")
@@ -53,10 +46,11 @@ class Failover(Resource):
 @ns.route("/switchover/plan")
 class Switchover(Resource):
     @require("write:dns.zones")
-    @ns.response(200, "Composite plan (requires_confirmation)")
+    @ns.response(200, "Composite plan (requires_confirmation)", m.Plan)
+    @ns.response(409, "conflict: the active primary does not answer, or no zone is prepared", m.Problem)
     def post(self):
         check_permission("write:dhcp.config")
-        _todo("D4")
+        return plan_answer(services().ddns_failover.switchover_plan(json_body(required=False), username()))
 
 
 @ns.route("/replay/plan")

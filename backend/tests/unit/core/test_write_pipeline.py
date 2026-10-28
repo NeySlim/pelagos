@@ -202,3 +202,58 @@ def test_file_this_process_may_not_write_goes_through_privileged_writer(tmp_root
     )
     failed = plain.run([FileChange(user, b"# moved\n")])
     assert not failed.ok and "Permission denied" in (failed.error or "")
+
+
+def test_a_removed_file_lives_in_the_backup_and_comes_back_on_restore(tmp_root):
+    zone = tmp_root / "zones" / "example.lan.db"
+    zone.parent.mkdir()
+    zone.write_text("stale\n")
+    conf = tmp_root / "zones.conf"
+    conf.write_text("old\n")
+    verified = {"ok": True}
+    pipe = WritePipeline(
+        tmp_root / "backups",
+        validate=lambda: ValidationResult(ok=True, tool="named-checkconf"),
+        reload=lambda: "ok",
+        verify=lambda: verified["ok"],
+        label="demote",
+    )
+    changes = [FileChange(conf, b"new\n"), FileChange(zone, b"", create_dirs=False, remove=True)]
+    result = pipe.run(changes)
+    assert result.ok and not zone.exists() and conf.read_text() == "new\n"
+    assert (result.backup_dir / "1.bak").read_text() == "stale\n"
+    assert pipe.restore(result.backup_dir).ok
+    assert zone.read_text() == "stale\n" and conf.read_text() == "old\n"
+    verified["ok"] = False  # a failed apply puts the file back by itself
+    failed = pipe.run(changes)
+    assert not failed.ok and failed.rolled_back and zone.read_text() == "stale\n"
+
+
+def test_a_restored_file_of_another_owner_stays_writable_by_its_group(tmp_root, monkeypatch):
+    import os
+
+    from pelagos.core import write_pipeline as wp
+
+    zone = tmp_root / "example.lan.db"
+    zone.write_text("stale\n")
+    zone.chmod(0o644)
+    pipe = WritePipeline(
+        tmp_root / "backups",
+        validate=lambda: ValidationResult(ok=True, tool="named-checkconf"),
+        reload=lambda: "ok",
+        label="demote",
+    )
+    result = pipe.run([FileChange(zone, b"", create_dirs=False, remove=True)])
+    manifest = json.loads((result.backup_dir / "manifest.json").read_text())
+    manifest["files"][0]["uid"] = os.getuid() + 4242  # named's user, which this process cannot chown to
+    (result.backup_dir / "manifest.json").write_text(json.dumps(manifest))
+    real = os.chown
+
+    def chown(path, uid, gid):
+        if uid != -1:
+            raise PermissionError("not root")
+        real(path, uid, gid)
+
+    monkeypatch.setattr(wp.os, "chown", chown)
+    assert pipe.restore(result.backup_dir).ok
+    assert zone.read_text() == "stale\n" and oct(zone.stat().st_mode & 0o777) == "0o664"

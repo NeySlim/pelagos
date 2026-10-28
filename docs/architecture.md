@@ -3375,11 +3375,36 @@ return and switchover, D5 screen, D6 lab.
   other node running BIND (a node whose alerts cannot be read blocks it;
   the old primary must report it or be unreachable); the plan runs as
   `system` from the collector.
-- **Return**: after the replication sync at start, a collector serving as
+- **Return** (batch D4): after the replication sync at start, a collector serving as
   primary a zone that `ddns.roles` gives to another node at a later epoch
   demotes it (with `demote_on_return_enabled`): zone file and journal moved
   to the pipeline backup, `type secondary` of the new primary, `rndc
   reconfig`, `rndc retransfer`, audit `dns.failover.op` by `system`.
+  The local epoch is the one in the served file name (`<zone>.e<epoch>.db`,
+  an original file counts as epoch 1): a later local epoch is not stale
+  (ddns.roles not replicated yet), an equal one raises the alert without
+  demoting. Task `ddns_return` (period `collector.poll_seconds`), skipped
+  while named is stopped. The demotion is a `dns.zone` replace whose
+  `after` carries `demote: {"to": node id, "epoch": int}`: kind secondary,
+  `primaries` = the new primary with the view's read key, file
+  `<zone_dir>/<zone>.e<epoch>.copy`; the connector removes the old file
+  and its `.jnl` through the write pipeline (`FileChange.remove`: kept in
+  the backup, put back by a rollback). The first check after start also
+  applies the node's own D2 lists (recorded primary first). Composite
+  summary `plan.ddns.demote`. `dns_stale_primary` (critical, node = the
+  stale node, subject `ddns:stale:<view>/<zone>`, details `zone`, `view`,
+  `primary_node_id`, `epoch`, `local_epoch`, `demotable`) stays open until
+  the zone is a copy. `GET /dhcp/ddns/resilience` zones add `stale` (nodes
+  still serving the zone as primary).
+- **Switchover** (batch D4, `POST /dhcp/ddns/switchover/plan`, `409` when
+  the active primary does not answer): parts in order: one `rndc freeze`
+  op plan per zone on the active primary (`op:freeze/<view>/<zone>`, its
+  rollback is `rndc thaw`), the target's promotion whose `promote` adds
+  `sync: {"address","port"}` (the connector waits up to 30 s, with `rndc
+  refresh`, until its copy serves the serial of the frozen primary before
+  reading it), the old primary's demotion and other copies repointed, D2
+  lists target, old primary, other copies, `ddns.roles` at the next epoch.
+  Summary `plan.ddns.switchover`.
 - **Replay**: active leases with `cltt` in the window, a hostname and a
   `fqdn_fwd` or `fqdn_rev` flag, whose A, AAAA or PTR is missing or differs;
   one change per lease (`resend/<ip>`) sent as `lease4-resend-ddns` /

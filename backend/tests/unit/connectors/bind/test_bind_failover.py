@@ -148,3 +148,50 @@ def test_promotion_refusals(tmp_root):
         path.write_text(text)
     _p, result = render(conf, inc, zone_dir, promote_change(zone_dir, epoch=3))
     assert "not a copy here (primary)" in result.errors[0]
+
+
+def primary_tree(root: Path, file: str) -> tuple[Path, Path, Path]:
+    conf, inc, zone_dir = make_tree(root)
+    (inc / "zones.conf").write_text(
+        "# pelagos:managed v1\n"
+        f'zone "ddns.lan" {{ type primary; file "{file}"; allow-transfer {{ key ddi-read; }};'
+        " update-policy { grant kea-ddns zonesub A AAAA DHCID; }; };\n"
+    )
+    return conf, inc, zone_dir
+
+
+def demote_change(epoch: int = 2) -> Change:
+    zone = Zone(name="ddns.lan.", kind=ZoneKind.PRIMARY, allow_transfer=["key ddi-read"])
+    after = failover.demoted_after(zone, ["192.0.2.2 key ddi-read"], {"to": "n2", "epoch": epoch})
+    return Change(ChangeOp.REPLACE, "_default/ddns.lan.", after=after)
+
+
+def test_file_epoch_and_copy_path(tmp_path):
+    assert failover.file_epoch("/z/ddns.lan.e12.db") == 12
+    assert failover.file_epoch("/z/ddns.lan.db") is None and failover.file_epoch(None) is None
+    assert failover.copy_path(tmp_path, "ddns.lan.", 3) == tmp_path / "ddns.lan.e3.copy"
+
+
+def test_demotion_declares_a_copy_and_moves_the_zone_files_out(tmp_root):
+    zone_file = tmp_root / "var" / "ddns.lan.db"
+    conf, inc, zone_dir = primary_tree(tmp_root, "ddns.lan.db")  # relative to `directory`
+    zone_file.write_text("stale\n")
+    Path(f"{zone_file}.jnl").write_text("journal\n")
+    planner, result = render(conf, inc, zone_dir, demote_change())
+    assert result.errors == []
+    assert result.removed == [zone_file, Path(f"{zone_file}.jnl")]
+    zones = " ".join(result.texts[inc / "zones.conf"].split())
+    assert "type secondary;" in zones and f'file "{zone_dir}/ddns.lan.e2.copy";' in zones
+    assert "primaries { 192.0.2.2 key ddi-read; };" in zones and "update-policy" not in zones
+    assert result.requires_confirmation and "+++ /dev/null (moved to the plan backup)" in result.diff()
+    [change] = result.changes
+    assert change.before["kind"] == "primary" and change.after["demote"] == {"to": "n2", "epoch": 2}
+    checks = validate_render(planner, find_binary("named-checkconf"), find_binary("named-checkzone"))
+    assert all(v.ok for v in checks), [v.output for v in checks]
+    # Applied: a replay finds nothing more to change; a primary is required otherwise.
+    for path, text in result.texts.items():
+        path.write_text(text)
+    _p, again = render(conf, inc, zone_dir, demote_change())
+    assert again.errors == [] and again.changed_paths() == [] and again.removed == []
+    _p, other = render(conf, inc, zone_dir, demote_change(epoch=3))
+    assert "not a primary here (secondary)" in other.errors[0]

@@ -1673,6 +1673,18 @@ snapshot of a stopped named skips its SOA queries. WP-API-AUTH: `POST /dhcp/ddns
 Contract (`domain/messages.py`): `plan.ddns.failover`. WP-FRONTEND: its en and fr texts; the
 failover entry point stays with batch D5.
 
+## 2026-10-28, batch D4: DDNS return and switchover
+Additive. Architecture section 24 (return, switchover). WP-CORE: `FileChange.remove` in the write
+pipeline (the file is backed up then unlinked, a restore writes it back; a restored file of
+another owner keeps its group's write access). WP-BIND: a `dns.zone` replace whose `after` holds
+`demote` declares the zone a copy in a new file and moves the old zone file and journal out;
+`promote.sync` waits for the frozen primary's serial; the rollback of a `freeze` op plan thaws.
+WP-API-AUTH: `POST /dhcp/ddns/switchover/plan` built (was 501), `DdnsFailoverService.switchover_plan`,
+`return_plan`, `stale_primaries`; resilience zones add `stale`. WP-COLLECTOR: task `ddns_return`
+and `dns_stale_primary`. Contract (`domain/messages.py`): `plan.ddns.switchover`,
+`plan.ddns.demote`. WP-FRONTEND: their en and fr texts; the switchover action and the `stale`
+state stay with batch D5.
+
 ## 2026-10-28, archives batch B3: destinations
 Additive. Architecture section 23: destination layout and run (catch-up, read back, retention per
 destination, retention on receipt by a peer), the `sftp` mechanism (OpenSSH client, host key

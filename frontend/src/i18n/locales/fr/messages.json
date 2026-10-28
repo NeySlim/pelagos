@@ -339,5 +339,7 @@
   "plan.ddns.prepare": "préparer la reprise du DDNS de {{count}} zones : {{zones}}",
   "plan.ddns.roles": "enregistrer le primaire actif de {{count}} zones dans ddns.roles",
   "ddns.prepare.no_secret": "le secret de la clé TSIG {{key}} n'est pas connu sur ce nœud : construisez le plan sur un nœud qui le détient",
-  "plan.ddns.failover": "promouvoir {{node}} primaire de {{count}} zones à la place de {{previous}} (époque {{epoch}}) : {{zones}}"
+  "plan.ddns.failover": "promouvoir {{node}} primaire de {{count}} zones à la place de {{previous}} (époque {{epoch}}) : {{zones}}",
+  "plan.ddns.switchover": "rendre le rôle de primaire de {{count}} zones à {{node}} depuis {{previous}} (époque {{epoch}}) : {{zones}}",
+  "plan.ddns.demote": "{{node}} devient copie de {{primary}} pour {{count}} zones qu'il servait en primaire : {{zones}}"
 }

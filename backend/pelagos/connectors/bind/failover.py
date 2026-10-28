@@ -1,15 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
-"""DDNS failover on one BIND node (section 24): promote a copy to primary.
+"""DDNS failover on one BIND node (section 24): promote a copy to primary, demote a stale primary.
 
 A promotion is a `dns.zone` replace of the copy whose `after` carries `promote`
 (`{"from": node id, "epoch": int}`): the copy is read by a local AXFR and written as text in the
 Pelagos zone directory (a transferred file is `raw` by default, BIND 9.20 ARM `masterfile-format`),
 then the zone is declared `type primary` with the recorded policy. The AXFR runs again at apply time,
-so the file holds what the copy serves then.
+so the file holds what the copy serves then; with `sync` it first waits until the copy serves the
+serial of the old primary (a planned switchover, the old primary frozen).
+
+A demotion is a `dns.zone` replace of a primary whose `after` carries `demote`
+(`{"to": node id, "epoch": int}`): the zone becomes a copy of the new primary in a new file, and the
+old zone file and its journal are moved to the plan backup, so nothing of the stale data is served or
+kept as a local serial; `rndc retransfer` follows the reconfig.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -17,6 +24,8 @@ from typing import Any
 from pelagos.domain.dns import RRset, Zone, ZoneKind, normalize_name
 
 PROMOTE = "promote"
+DEMOTE = "demote"
+_EPOCH_RE = re.compile(r"\.e(\d+)\.db$")
 # Statements that only make sense on a transferred zone: dropped when the copy becomes primary.
 COPY_ONLY = frozenset(
     {
@@ -45,6 +54,42 @@ ZoneReader = Callable[[str, str], list[RRset]]
 def promotion(raw: dict[str, Any]) -> dict[str, Any] | None:
     found = raw.get(PROMOTE)
     return found if isinstance(found, dict) else None
+
+
+def demotion(raw: dict[str, Any]) -> dict[str, Any] | None:
+    found = raw.get(DEMOTE)
+    return found if isinstance(found, dict) else None
+
+
+def demoted_after(zone: Zone, primaries: list[str], marker: dict[str, Any]) -> dict[str, Any]:
+    """`after` of the replace that turns a stale primary into a copy of `primaries`: what a copy
+    created by Pelagos holds (transfers granted as on the primary), no update policy."""
+    return {
+        "kind": ZoneKind.SECONDARY.value,
+        "primaries": list(primaries),
+        "allow_transfer": list(zone.allow_transfer),
+        "notes": zone.notes,
+        DEMOTE: dict(marker),
+    }
+
+
+def copy_path(zone_dir: Path, zone: str, epoch: int) -> Path:
+    """A new file for the demoted copy: named starts it empty and takes the zone by a full transfer."""
+    stem = normalize_name(zone).rstrip(".") or "root"
+    return zone_dir / f"{stem}.e{int(epoch)}.copy"
+
+
+def file_epoch(path: str | None) -> int | None:
+    """Epoch of a primary zone file written by a promotion (`<zone>.e<epoch>.db`), else None."""
+    found = _EPOCH_RE.search(path or "")
+    return int(found.group(1)) if found else None
+
+
+def stale_files(path: str | None) -> list[Path]:
+    """The files a demoted primary leaves: its zone file and named's journal of it."""
+    if not path:
+        return []
+    return [Path(path), Path(path + ".jnl")]
 
 
 def promoted_after(copy: Zone, policy: list[str], options: dict[str, Any], marker: dict[str, Any]) -> dict:

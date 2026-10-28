@@ -245,6 +245,10 @@ CATALOG: dict[str, str] = {
     "plan.ddns.failover": (
         "promote {node} primary of {count} zones in place of {previous} (epoch {epoch}): {zones}"
     ),
+    "plan.ddns.switchover": (
+        "give the primary role of {count} zones back to {node} from {previous} (epoch {epoch}): {zones}"
+    ),
+    "plan.ddns.demote": "{node} becomes a copy of {primary} for {count} zones it served as primary: {zones}",
     "ddns.prepare.no_secret": (
         "the secret of TSIG key {key} is not known on this node: build the plan on a node that holds it"
     ),

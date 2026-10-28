@@ -22,7 +22,7 @@ from pelagos.connectors.base import (
     NotSupported,
     PreconditionFailed,
 )
-from pelagos.connectors.bind import handover, ops, staticzone, zonefile
+from pelagos.connectors.bind import failover, handover, ops, staticzone, zonefile
 from pelagos.connectors.bind import rrset as rr
 from pelagos.connectors.bind.builtin_zones import is_builtin_zone
 from pelagos.connectors.bind.configplan import (
@@ -88,6 +88,9 @@ MAX_DETAILS = 256  # audit material kept per process; callers should pop_details
 
 RELOAD_WAIT = 30.0
 PROBE_TIMEOUT = 2.0
+# A planned promotion waits this long for the copy to reach the frozen primary's serial.
+SYNC_WAIT = 30.0
+SYNC_POLL = 0.5
 RELOAD_POLL = 0.2
 # A refused AXFR is not asked again for this long (a config change through a plan resets it).
 AXFR_RETRY_SECONDS = 6 * 3600.0
@@ -711,9 +714,14 @@ class BindBackend(BindExtras, DnsBackend):
 
     def _apply_files(self, plan: Plan) -> NodeApplyResult:
         self._check_file_preconditions(plan)
+        if plan.scope is PlanScope.DNS_ZONE:
+            self._sync_promoted(plan.changes)
         _, result = self._render(plan.scope, plan.changes, replay=True)
         if result.errors:
             return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message="; ".join(result.errors))
+        demoted = [c for c in result.changes if isinstance(c.after, dict) and failover.DEMOTE in c.after]
+        for change in demoted:
+            self._ensure_zone_dir(Path(str(change.after["file"])).parent)
         paths = result.changed_paths()
         if not paths:
             return NodeApplyResult(
@@ -734,6 +742,9 @@ class BindBackend(BindExtras, DnsBackend):
                     create_dirs=not is_zone,
                 )
             )
+        file_changes += [
+            FileChange(path=p, content=b"", create_dirs=False, remove=True) for p in result.removed
+        ]
         verify = self._verify(plan)
         moved = [c.target for c in plan.changes if handover.is_handover(c)]
         if moved:
@@ -769,9 +780,12 @@ class BindBackend(BindExtras, DnsBackend):
             },
         )
         if outcome.ok:
-            return NodeApplyResult(
-                node_id=self.ctx.node_id, ok=True, message=f"{len(paths)} file(s) written, reconfig done"
-            )
+            message = f"{len(paths)} file(s) written, reconfig done"
+            if result.removed:
+                message += f", {len(result.removed)} stale zone file(s) moved to the backup"
+            for change in demoted:
+                message += "; " + self._retransfer(change.target)
+            return NodeApplyResult(node_id=self.ctx.node_id, ok=True, message=message)
         return NodeApplyResult(
             node_id=self.ctx.node_id,
             ok=False,
@@ -798,6 +812,44 @@ class BindBackend(BindExtras, DnsBackend):
             )
         except helper.HelperError as exc:
             raise PermissionError(f"cannot write {path} through the privileged helper: {exc}") from None
+
+    def _retransfer(self, target: str) -> str:
+        """A demoted copy takes the zone again from the new primary (the reconfig started it empty)."""
+        view, _, name = target.partition("/")
+        try:
+            self.retransfer(name, None if view in ("", DEFAULT_VIEW) else view)
+            return f"retransfer of {name} started"
+        except ConnectorError as exc:  # the empty copy asks its primary at load anyway
+            return f"retransfer of {name} not started: {exc}"
+
+    def _sync_promoted(self, changes: list[Change]) -> None:
+        """Before a planned promotion reads its copy: wait until the copy serves the serial of the
+        frozen old primary (`promote.sync`), asking named to refresh it meanwhile."""
+        for change in changes:
+            promote = failover.promotion(change.after) if isinstance(change.after, dict) else None
+            sync = promote.get("sync") if promote else None
+            if not isinstance(sync, dict):
+                continue
+            view, _, name = change.target.partition("/")
+            view = None if view in ("", DEFAULT_VIEW) else view
+            client = DnsClient(str(sync.get("address")), int(sync.get("port") or 53), timeout=PROBE_TIMEOUT)
+            target = client.soa_serial(name, self.read_key(view) if view else None)
+            if target is None:
+                raise ConnectorError(f"the old primary does not serve {name}: cannot wait for its serial")
+            deadline = time.monotonic() + SYNC_WAIT
+            while True:
+                if self.soa_serial(name, view) == target:
+                    break
+                if time.monotonic() > deadline:
+                    raise ConnectorError(
+                        f"the copy of {name} did not reach serial {target} of the old primary"
+                        f" within {SYNC_WAIT:g} s"
+                    )
+                try:
+                    self.rndc.run("refresh", *zone_args(name, view))
+                except ConnectorError:
+                    pass
+                time.sleep(SYNC_POLL)
 
     def _verify_handover(self, verify: Any, targets: list[str]) -> Any:
         """After the reload the effective value of every moved statement must be what it was."""
@@ -893,9 +945,7 @@ class BindBackend(BindExtras, DnsBackend):
         self.forget_extra_zones()
         try:
             if plan.scope is PlanScope.DNS_ZONE and plan.changes and ops.is_op(plan.changes[0]):
-                return NodeApplyResult(
-                    node_id=self.ctx.node_id, ok=False, message="an rndc operation cannot be rolled back"
-                )
+                return self._rollback_op(plan)
             if plan.scope is PlanScope.DNS_ZONE and _added_zone_plan(plan):
                 return self._apply_added_zone(plan, rollback=True)
             if plan.scope is PlanScope.DNS_RRSET:

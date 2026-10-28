@@ -32,6 +32,8 @@ class FileChange:
     mode: int | None = None
     group: str | None = None
     create_dirs: bool = True
+    # The file is moved out: kept in the backup only (restored by a rollback), then unlinked.
+    remove: bool = False
 
 
 @dataclass(slots=True)
@@ -312,10 +314,7 @@ class WritePipeline:
                     self._write(
                         path, (backup_dir / f"{entry['index']}.bak").read_bytes(), entry["mode"], None
                     )
-                    try:
-                        os.chown(path, entry["uid"], entry["gid"])
-                    except PermissionError:
-                        pass
+                    _restore_owner(path, entry)
             self._step(result, "rollback", lambda: "restored")
             if reload:
                 self._step(result, "reload", self.reload)
@@ -339,6 +338,9 @@ class WritePipeline:
 
         def write_all() -> str:
             for c in changes:
+                if c.remove:
+                    c.path.unlink(missing_ok=True)
+                    continue
                 self._write(c.path, c.content, c.mode, c.group)
             return f"{len(changes)} file(s)"
 
@@ -365,6 +367,25 @@ class WritePipeline:
                 if restored.error:
                     result.error += "; " + restored.error
             return result
+
+
+def _restore_owner(path: Path, entry: dict[str, Any]) -> None:
+    """Owner and group as backed up. A file of another user that was removed (a zone file named
+    writes) comes back as ours: then its group keeps the owner's write access."""
+    try:
+        os.chown(path, entry["uid"], entry["gid"])
+        return
+    except PermissionError:
+        pass
+    st = path.stat()
+    if st.st_uid == entry["uid"]:
+        return
+    try:
+        os.chown(path, -1, entry["gid"])
+    except PermissionError:
+        return
+    if entry["mode"] & stat.S_IWUSR:
+        os.chmod(path, (entry["mode"] | stat.S_IWGRP) & 0o777)
 
 
 def _text(value: Any) -> str:

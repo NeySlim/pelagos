@@ -810,6 +810,12 @@
     "op",
     "target"
   ],
+  "plan.ddns.demote": [
+    "count",
+    "node",
+    "primary",
+    "zones"
+  ],
   "plan.ddns.failover": [
     "count",
     "epoch",
@@ -833,6 +839,13 @@
   ],
   "plan.ddns.roles": [
     "count"
+  ],
+  "plan.ddns.switchover": [
+    "count",
+    "epoch",
+    "node",
+    "previous",
+    "zones"
   ],
   "plan.ha_guard.set": [
     "peers",

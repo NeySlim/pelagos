@@ -266,6 +266,8 @@
   "plan.certs.dns01_setup": "DNS-01 pour les certificats web : clé {{key}} et update-policy sur {{zones}}",
   "plan.change": "{{op}} de {{target}}",
   "plan.ddns.failover": "promouvoir {{node}} primaire de {{count}} zones à la place de {{previous}} (époque {{epoch}}) : {{zones}}",
+  "plan.ddns.switchover": "rendre le rôle de primaire de {{count}} zones à {{node}} depuis {{previous}} (époque {{epoch}}) : {{zones}}",
+  "plan.ddns.demote": "{{node}} devient copie de {{primary}} pour {{count}} zones qu'il servait en primaire : {{zones}}",
   "plan.ddns.prepare": "préparer la reprise du DDNS de {{count}} zones : {{zones}}",
   "plan.ddns.replay": "renvoyer les mises à jour DNS de {{count}} baux actifs du {{start}} au {{end}}",
   "plan.ddns.replay_on": "renvoyer les mises à jour DNS de {{count}} baux {{engine}} sur {{node}}",

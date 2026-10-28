@@ -43,6 +43,7 @@ from pelagos.domain import (
     Family,
     Lease,
     PlanScope,
+    PlanState,
     Reservation,
     RRset,
     Severity,
@@ -54,6 +55,8 @@ from pelagos.services.masking import masked_text
 log = logging.getLogger(__name__)
 
 DEFAULT_VIEW = "_default"
+# A failed demotion of a stale DDNS primary is tried again after this long (the alert stays open).
+DEMOTE_RETRY_SECONDS = 300.0
 LEASE_PAGE = 500
 # Live task defaults (settings.collector): fast HA reads and the lease watch.
 LIVE_SECONDS = 5.0
@@ -224,6 +227,9 @@ class Collector:
         self.certs = CertManager(ctx)
         self.cert_background = True
         self._cert_thread: threading.Thread | None = None
+        # DDNS return (section 24): the first check after the start also fixes this node's D2 lists.
+        self._return_checked = False
+        self._demote_retry_at = 0.0
         # run() turns this on: the slow checks probe the network, never inside the polling loop.
         self.slow_background = False
         self._slow_thread: threading.Thread | None = None
@@ -610,7 +616,8 @@ class Collector:
         if due:
             self._promote_self(due, gateway)
 
-    def _promote_self(self, zones: list[str], gateway: Any) -> None:
+    def _failover_services(self, gateway: Any) -> tuple[Any, Any]:
+        """(DdnsFailoverService, PlanService) of this node, for plans the collector runs as `system`."""
         from pelagos.services.ddns_failover import DdnsFailoverService, RolesWriter
         from pelagos.services.dns_service import DnsService
         from pelagos.services.plan_service import PlanService
@@ -618,16 +625,114 @@ class Collector:
 
         b = self.backends
         registry = ServiceRegistry(dns=b.dns, kea4=b.kea4, kea6=b.kea6, d2=b.d2)
+        dns_svc = DnsService(self.ctx, b.dns, gateway)
+        plans = PlanService(self.ctx, registry, gateway)
+        plans.cluster_parts[PlanScope.DNS_FAILOVER] = RolesWriter(self.ctx)
+        dns_svc.plans = plans
+        return DdnsFailoverService(self.ctx, dns_svc, registry, gateway, plans, None), plans
+
+    def _promote_self(self, zones: list[str], gateway: Any) -> None:
         with self.backend_lock:
-            dns_svc = DnsService(self.ctx, b.dns, gateway)
-            plans = PlanService(self.ctx, registry, gateway)
-            plans.cluster_parts[PlanScope.DNS_FAILOVER] = RolesWriter(self.ctx)
-            dns_svc.plans = plans
-            failover = DdnsFailoverService(self.ctx, dns_svc, registry, gateway, plans, None)
+            failover, plans = self._failover_services(gateway)
             plan = failover.failover_plan({"to_node_id": self.node_id, "zones": zones}, "system")
             result = plans.apply(plan, "system", confirm=True)
         log.warning("automatic DDNS failover of %s to this node: %s", ", ".join(zones), result.state.value)
         self.events.emit("dns", "failover", {"zones": zones, "plan_id": plan.id, "state": result.state.value})
+
+    def ddns_return(self) -> list[Alert]:
+        """`dns_stale_primary` for the zones of `ddns.roles` this node serves as primary although the
+        role went to another node; with `ddns.demote_on_return_enabled`, the demotion (and, once
+        after the start, this node's D2 lists) applied as `system` (section 24, return)."""
+        from pelagos.services.ddns_failover import stale_primaries
+
+        settings = self.ctx.settings()
+        roles = dfo.roles_of(settings)
+        backend = self.backends.dns
+        if backend is None or not roles:
+            self._finish(PollOutcome(alerts=[], kinds=dfo.STALE_KINDS))
+            return []
+        if not self._replication_synced():
+            return []  # ddns.roles as the peers know it is not here yet
+        try:
+            with self.backend_lock:
+                if not backend.capabilities().running:
+                    return []  # a stopped named serves nothing: the check runs once it is back
+                found = stale_primaries(roles, backend.list_zones(), self.node_id)
+        except ConnectorError as exc:
+            log.debug("zones not read for the DDNS return check: %s", exc)
+            return []
+        first, self._return_checked = not self._return_checked, True
+        due = reg.get(settings, "ddns.demote_on_return_enabled") and (
+            first or any(s.demotable for s in found)
+        )
+        if due and time.monotonic() >= self._demote_retry_at:
+            try:
+                if self._demote_self(found):
+                    with self.backend_lock:
+                        found = stale_primaries(roles, backend.list_zones(), self.node_id)
+            except Exception:
+                log.exception("DDNS return check failed")
+                self._demote_retry_at = time.monotonic() + DEMOTE_RETRY_SECONDS
+        names = {n.id: n.name for n in self.ctx.cluster().nodes}
+        alerts = [dfo.stale_alert(s, self.node_id, names) for s in found]
+        self._finish(PollOutcome(alerts=alerts, kinds=dfo.STALE_KINDS))
+        return alerts
+
+    def _replication_synced(self) -> bool:
+        """True once the replication has exchanged cluster.toml with a peer (or tried every peer)."""
+        liveness = getattr(self.peers, "liveness", None)
+        statuses = getattr(liveness, "peer_statuses", None)
+        if not callable(statuses):
+            return True
+        others = [n for n in self.ctx.cluster().nodes if n.id != self.node_id]
+        seen = statuses()
+        return not others or any(s.reachable for s in seen) or len(seen) >= len(others)
+
+    def _demote_self(self, found: list[Any]) -> bool:
+        """Applies the return plan of this node; True when one was applied."""
+        from pelagos.services.peers import PeerGateway
+
+        with self.backend_lock:
+            failover, plans = self._failover_services(PeerGateway(self.ctx))
+            plan = failover.return_plan("system")
+            if plan is None:
+                return False
+            result = plans.apply(plan, "system", confirm=True)
+        demoted = [s for s in found if s.demotable]
+        ok = result.state is PlanState.APPLIED
+        if not ok:
+            self._demote_retry_at = time.monotonic() + DEMOTE_RETRY_SECONDS
+        log.warning(
+            "DDNS return: %s (%s)",
+            ", ".join(f"{s.key} demoted to a copy of {s.primary}" for s in demoted) or "D2 lists fixed",
+            result.state.value,
+        )
+        self.ctx.audit_log.append(
+            AuditEntry(
+                node_id=self.node_id,
+                user="system",
+                action="dns.failover.op",
+                target="zones:" + ",".join(s.key for s in demoted),
+                engine=Engine.BIND,
+                request={
+                    "op": "demote",
+                    "zones": [s.key for s in demoted],
+                    "from_node_id": self.node_id,
+                    "to_node_id": demoted[0].primary if demoted else None,
+                    "epoch": max((s.epoch for s in demoted), default=None),
+                    "plan_id": plan.id,
+                },
+                response={"state": result.state.value},
+                result=AuditResult.OK if ok else AuditResult.ERROR,
+                message=None if ok else (plan.error or "the return plan failed"),
+            )
+        )
+        self.events.emit(
+            "dns",
+            "failover",
+            {"zones": [s.key for s in demoted], "plan_id": plan.id, "state": result.state.value},
+        )
+        return ok
 
     def apply_exceptions(self) -> list[Alert]:
         """Resolve at once the open alerts an admin exception now names, without waiting for their check."""
@@ -751,6 +856,7 @@ class Collector:
             ("apply_acks", self.apply_acks),
             ("consistency", self.consistency),
             ("ddns_outage", self.ddns_outage),
+            ("ddns_return", self.ddns_return),
             ("security_audit", self.security_audit),
             ("health", self.health),
             ("health_audit", self.health_audit),
@@ -784,6 +890,7 @@ class Collector:
             Task("apply_acks", poll, self.apply_acks),
             Task("consistency", consistency_period, self.consistency),
             Task("ddns_outage", poll, self.ddns_outage),
+            Task("ddns_return", poll, self.ddns_return),
             Task("security_audit", consistency_period, self.security_audit),
             Task("health", poll, self.health),
             Task("health_audit", consistency_period, self.health_audit),

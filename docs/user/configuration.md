@@ -165,7 +165,7 @@ replication stamp (`[replication]`) and a hand edit is not stamped.
 | --- | --- |
 | header | `schema_version`, `version` (a counter raised by every write), `updated_at`, `updated_by`, `cluster_id` |
 | `[[nodes]]` | one per node: `id`, `name`, `url`, `web_url`, `cert_fingerprint`, `modules` (`bind`, `kea4`, `kea6`, `d2`), `enrolled_at`, `enrolled_by` |
-| `[[users]]` | `id`, `username`, `password_hash` (argon2id), `roles`, `enabled`, `totp_secret` (encrypted), `must_change_password`, `preferences`, `created_at`, `updated_at` |
+| `[[users]]` | `id`, `username`, `password_hash` (argon2id), `roles`, `enabled`, `totp_secret` (encrypted), `webauthn` (security keys: public key, name, rpId), `must_change_password`, `preferences`, `created_at`, `updated_at` |
 | `[[roles]]` | custom roles: `name`, `permissions`, `description` |
 | `[modules]` | cluster features: `dhcpv6` (default `false`), `advanced_editor` (default `true`) |
 | `[settings]` | see [Settings](#settings) |
@@ -222,7 +222,9 @@ section 10, "Settings naming".
 | `session_ttl_seconds` | `43200` | 300 to 2592000 s | absolute lifetime of a session |
 | `session_idle_seconds` | `1800` | 60 to 604800 s | idle timeout of a session; at most the lifetime |
 | `login_rate_limit_per_minute` | `10` | 1 to 1000 per minute | sign-in attempts per minute, per client address and per username |
-| `require_totp` | `off` |  | every user must enroll an authenticator; until then a sign-in only allows the enrollment |
+| `require_totp` | `off` |  | every user must enroll an authenticator or a security key; until then a sign-in only allows the enrollment |
+| `webauthn_rp_id` | `auto` | a DNS name | domain security keys belong to; `auto` takes the domain the nodes' web URLs share; keys registered under another domain stop working when it changes |
+| `require_webauthn_roles` | `[]` | role names | members of these roles sign in with a security key; without one, a sign-in only allows adding one; the TOTP code alone is refused |
 | `api_docs_public_enabled` | `off` |  | serve `/api/v1/docs` and `/api/v1/swagger.json` without a session; by default they need one |
 
 ### Plans (`[settings.plans]`)
@@ -605,6 +607,17 @@ be deleted: remove it from those users first (the error names them).
 - **Two-factor**: TOTP (RFC 6238, 6 digits, 30 s). Each code is accepted once
   per node. An administrator can clear a user's enrollment; the CLI can too
   (`pelagos user disable-totp`).
+- **Security keys and passkeys** (WebAuthn): several per user, added on the
+  Account screen. Once a user has a key, a password sign-in asks for it
+  (or for the TOTP code when the user has one and no role requires a key);
+  a passkey signs in without a password. Keys are stored with the user in
+  `cluster.toml`, so a key opens every node whose name is under the rpId:
+  by default the DNS domain the nodes' web URLs share (`ns1.example.lan`
+  and `ns2.example.lan` give `example.lan`), or `auth.webauthn_rp_id`.
+  Browsers allow keys only over HTTPS with a certificate they trust and
+  only on a name, never on an IP address. Administration, Users warns when
+  the nodes share no domain; an administrator can remove a user's keys,
+  and so can `pelagos user remove-keys`.
 - **Sessions**: server side, in the web process memory, cookie
   `pelagos_session` (`HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS).
   They are per node and do not survive `systemctl restart pelagos`. Idle
@@ -618,7 +631,8 @@ be deleted: remove it from those users first (the error names them).
   `PATCH` and `DELETE`. Give scripts their own account with a role limited
   to what they need. See [API](api.md).
 - **Recovery**: `sudo pelagos user reset-password <name>` and
-  `sudo pelagos user disable-totp <name>` on any node ([CLI](cli.md#pelagos-user)).
+  `sudo pelagos user disable-totp <name>` and
+  `sudo pelagos user remove-keys <name>` on any node ([CLI](cli.md#pelagos-user)).
 
 ## Languages, themes and animations
 

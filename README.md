@@ -52,8 +52,8 @@ tested against real `named` and Kea daemons; expect rough edges.
   others, dark and light; animations at three levels and optional ambient
   backgrounds, both following the reduced-motion setting), English and French,
   dashboard with a live cluster trace, DNS and DHCP rates, nodes, HA, zone
-  sync, pool usage and DDNS errors, live updates over WebSocket, roles and
-  TOTP.
+  sync, pool usage and DDNS errors, live updates over WebSocket, roles,
+  TOTP, security keys and passkeys.
 
 | Zone record with its plan | DHCP subnets |
 | --- | --- |

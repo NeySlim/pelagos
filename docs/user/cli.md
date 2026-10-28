@@ -241,6 +241,7 @@ entry by `local-recovery`.
 ```sh
 sudo pelagos user reset-password admin     # prompts twice, or reads PELAGOS_NEW_PASSWORD
 sudo pelagos user disable-totp admin
+sudo pelagos user remove-keys admin        # every security key and passkey
 ```
 
 `reset-password` sets the new password, enables the account again and asks

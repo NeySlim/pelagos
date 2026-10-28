@@ -20,11 +20,15 @@ DHCP screens are described in [DNS](dns.md) and [DHCP](dhcp.md).
 
 ## Sign-in
 
-Username and password, then the 6-digit code when two-factor is on. Two
-cases limit the session until they are done: an administrator asked for a
+Username and password, then the 6-digit code when two-factor is on, or the
+security key when the account has one ("Use my security key"; "Use an
+authentication code instead" when both exist). "Sign in with a passkey"
+signs in without a username or password; it shows only on a node opened by
+a name under the cluster's key domain, over HTTPS. Three cases limit the session until they are done: an administrator asked for a
 new password ("An administrator asks you to choose a new password"), or
-two-factor is required for everyone and you have none yet (the Account
-screen opens on the enrollment). Sessions belong to the node you signed in
+two-factor is required for everyone and you have none yet, or your role
+requires a security key and you have none (the Account screen opens on the
+enrollment). Sessions belong to the node you signed in
 on; opening another node's UI asks you to sign in there.
 
 The indicator in the header shows the live updates (WebSocket): "Live
@@ -342,7 +346,9 @@ Under Administration:
 
 - **Users** (`admin:users`): create (username, initial password, roles),
   edit roles, enable or disable, "Must change the password", "Reset
-  password", "Clear two-factor", delete. A disabled account cannot sign in
+  password", "Clear two-factor", the security keys of a user (column Keys,
+  remove one or all), delete. A banner names the domain keys belong to and
+  warns when the nodes share none. A disabled account cannot sign in
   on any node; a deleted one keeps its audit entries.
 - **Roles** (`admin:roles`): built-in roles (read only) and custom roles,
   with permissions grouped by family.
@@ -380,6 +386,8 @@ Under Administration:
 
 Profile (username, roles, last sign-in, node), password change, two-factor
 (set up with a QR code or the secret, confirm with a code; turn off with
-your password, unless required for everyone), and preferences: language,
+your password, unless required for everyone), security keys and passkeys
+(add with a name through the browser prompt, rename, remove with your
+password; the date of last use is the one this node saw), and preferences: language,
 theme family, mode, animations (full, reduced, off) and ambient backgrounds
 (on, off).

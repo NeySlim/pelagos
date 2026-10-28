@@ -35,10 +35,16 @@ curl -sk -b jar -H "X-CSRF-Token: $CSRF" -X POST $NODE/api/v1/auth/logout   # wr
   two-factor, `totp_code`; it answers the user, its permissions,
   `csrf_token` and `restriction`, and sets the cookie `pelagos_session`.
 - `401 totp_required`: the user has two-factor and no code was sent.
+- `401 second_factor_required`: the user has a security key. The answer
+  carries `methods`, `ceremony` and `options` for `navigator.credentials.get()`;
+  the browser's answer goes to `POST /auth/webauthn/login/verify`
+  (`{"ceremony", "credential"}`), or the login is sent again with `totp_code`
+  when `methods` offers `totp`. A script account should not hold a key.
 - `429 rate_limited` with `Retry-After`: too many attempts per minute
   (`auth.login_rate_limit_per_minute`, per client address and per username).
-- A session restricted to `password_change` or `totp_enrollment` (forced
-  password change, `auth.require_totp`) only reaches `/auth/*` and `/account/*`;
+- A session restricted to `password_change`, `totp_enrollment` or
+  `webauthn_enrollment` (forced password change, `auth.require_totp`,
+  `auth.require_webauthn_roles`) only reaches `/auth/*` and `/account/*`;
   every other endpoint answers `403 forbidden` with `"restriction"`.
 - Sessions belong to one node: sign in on each node you call.
 - `GET /auth/session` returns the current session (and a fresh view of the
@@ -80,6 +86,7 @@ Errors are RFC 7807 documents, `Content-Type: application/problem+json`:
 | `validation_error` | 400 | the request is invalid; `errors[]` names the fields |
 | `invalid_credentials` | 401 | wrong username, password or one-time code |
 | `totp_required` | 401 | a one-time code is needed |
+| `second_factor_required` | 401 | a security key (or the one-time code) is needed |
 | `unauthenticated` | 401 | no session, or it expired |
 | `forbidden` | 403 | missing permission, or a restricted session |
 | `csrf_failed` | 403 | `X-CSRF-Token` missing or wrong |
@@ -163,6 +170,8 @@ Permissions are those of [Configuration: roles](configuration.md#roles-and-permi
 | `POST /auth/login`, `POST /auth/logout`, `GET /auth/session` | none, any, any | sessions |
 | `POST /auth/password` | any | `{"current_password", "new_password"}` |
 | `POST /auth/totp/enroll`, `POST /auth/totp/confirm`, `DELETE /auth/totp` | any | two-factor enrollment (`{"code"}`), removal (`{"password"}`) |
+| `GET /auth/webauthn`, `POST /auth/webauthn/login/options`, `POST /auth/webauthn/login/verify` | anon | whether keys work on this host, passkey sign-in |
+| `GET /auth/webauthn/credentials`, `POST /auth/webauthn/register/options`, `POST /auth/webauthn/register/verify`, `PATCH`, `DELETE /auth/webauthn/credentials/{id}` | any | the caller's security keys: list, add, rename, remove (`{"password"}`) |
 | `GET`, `PUT /account/preferences` | any | `theme_family`, `theme_mode`, `language`, `animations`, `ambient`, `dashboard_layout` |
 | `GET`, `PUT /dashboard/layout`, `GET /dashboard/summary` | any | dashboard |
 
@@ -260,6 +269,7 @@ the PTR in the default view.
 | `GET /install/security`, `POST /install/security/plan` | `admin:install` | `{"findings": [...]}` (not `items`); `{"finding_ids": [...]}` |
 | `GET`, `POST /admin/users`; `GET`, `PUT`, `DELETE /admin/users/{id}` | `admin:users` | accounts |
 | `POST /admin/users/{id}/reset-password`, `DELETE /admin/users/{id}/totp` | `admin:users` | password reset, two-factor removal |
+| `GET`, `DELETE /admin/users/{id}/webauthn`, `DELETE /admin/users/{id}/webauthn/{credential_id}`, `GET /admin/webauthn` | `admin:users` | a user's security keys, their removal, the cluster's rpId |
 | `GET`, `POST /admin/roles`; `PUT`, `DELETE /admin/roles/{name}`; `GET /admin/permissions` | `admin:roles` | roles |
 | `GET`, `PUT /admin/settings` | `admin:settings` | settings |
 | `GET`, `PUT /admin/modules` | `admin:modules` | modules and engines per node |

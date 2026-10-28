@@ -21,6 +21,8 @@ rolled back at will; nothing outside these VMs is ever a target.
 | `lab-up1` | 9124 | 10.99.0.24 | Debian 13 (amd64), upgrade test node ns1 (BIND, Kea 2.6.3 from Debian) | none |
 | `lab-up2` | 9125 | 10.99.0.25 | Debian 13 (7 GB), qemu-system-aarch64 host, Docker with qemu-user (arm64 deb builds) | none |
 | `lab-up3` | none | 10.99.0.26 | Debian 13 arm64 guest under qemu on lab-up2 (`emul-node.sh`), upgrade test node ns2 | none |
+| `lab-ad1` | 9131 | 10.99.0.31 | Debian 13, a Pelagos pair with lab-ad2 (BIND, Kea 2.6 HA, D2 from Debian): adoption, notification and DDNS replay scenarios | `pre_n5` |
+| `lab-ad2` | 9132 | 10.99.0.32 | Debian 13, second node of that pair | `pre_n5` |
 
 All VMs: user `lab`, passwordless sudo, key authentication. The ssh aliases
 are configured on lab-dev (`~/.ssh/config`, key `~/.ssh/id_ed25519`, which

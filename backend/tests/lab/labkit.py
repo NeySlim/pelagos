@@ -86,10 +86,15 @@ def sudo_cat(host: str, path: str) -> str:
     return ssh(host, f"sudo cat {shlex.quote(path)}")[1]
 
 
-def run_script(name: str, *args: str, timeout: int = 1800) -> str:
+def run_script(name: str, *args: str, timeout: int = 1800, env: dict[str, str] | None = None) -> str:
     """Runs scripts/lab/<name> from lab-dev; raises with its output on failure."""
     res = subprocess.run(
-        [str(SCRIPTS / name), *args], capture_output=True, text=True, timeout=timeout, check=False
+        [str(SCRIPTS / name), *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+        env={**os.environ, **(env or {})},
     )
     if res.returncode != 0:
         raise AssertionError(f"{name} {' '.join(args)} exited {res.returncode}\n{res.stdout}\n{res.stderr}")
@@ -100,6 +105,30 @@ def rollback(*vms: str) -> None:
     """Restores the VMs to their base snapshot (scripts/lab/rollback.sh), waiting for ssh."""
     for vm in vms:
         run_script("rollback.sh", vm, timeout=900)
+
+
+def pve_vm(vmid: int, action: str) -> None:
+    """Powers a lab VM on or off (`start`, `stop`) through the Proxmox API, as rollback.sh does."""
+    conf = Path(os.path.expanduser("~/.config/pelagos-lab"))
+    base = os.environ.get("PVE_API") or (conf / "pve-api").read_text().strip()
+    header = (conf / "pve-token").read_text().strip()
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    def call(method: str, path: str) -> Any:
+        req = urllib.request.Request(base + path, method=method, headers={"Authorization": header})  # noqa: S310
+        with urllib.request.urlopen(req, timeout=30, context=ctx) as res:  # noqa: S310 - lab API only
+            return json.loads(res.read())["data"]
+
+    node = next(r["node"] for r in call("GET", "/cluster/resources?type=vm") if r.get("vmid") == vmid)
+    call("POST", f"/nodes/{node}/qemu/{vmid}/status/{action}")
+    want = "running" if action == "start" else "stopped"
+    wait_for(
+        f"VM {vmid} {want}",
+        lambda: call("GET", f"/nodes/{node}/qemu/{vmid}/status/current")["status"] == want,
+        timeout=180,
+    )
 
 
 def keep() -> bool:

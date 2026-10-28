@@ -78,7 +78,8 @@ class Kea:
             return {"result": 0}
         local = {"server-name": self.server, "state": "waiting" if self.broken else "hot-standby"}
         remote = {"server-name": self.partner, "in-touch": not self.broken, "last-state": "hot-standby"}
-        return {"result": 0, "arguments": {"high-availability": [{"ha-servers": {"local": local, "remote": remote}}]}}
+        entry = {"ha-servers": {"local": local, "remote": remote}}
+        return {"result": 0, "arguments": {"high-availability": [entry]}}
 
 
 def node(tmp: Path, node_id: str, me: str, partner: str, conf: dict) -> Any:
@@ -208,7 +209,8 @@ def test_switch_of_the_pair(pair):
         rel = rel_of(env)
         tls = env.paths.kea_conf_dir / "tls"
         assert rel["trust-anchor"] == str(tls / "ca.crt")
-        assert rel["cert-file"] == str(tls / f"{server}.crt") and rel["key-file"] == str(tls / f"{server}.key")
+        assert rel["cert-file"] == str(tls / f"{server}.crt")
+        assert rel["key-file"] == str(tls / f"{server}.key")
         assert rel["require-client-certs"] is True
         assert [p["url"] for p in rel["peers"]] == [f"https://{A1}:8001/", f"https://{A2}:8001/"]
         cert = (tls / f"{server}.crt").read_bytes()

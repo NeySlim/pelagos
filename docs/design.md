@@ -456,3 +456,372 @@ Deux décisions bloquent la phase 0 : le parseur de `named.conf` et l'autorité 
 * Rétention par défaut des séries dérivées (baux, serials, états HA). -> oui
 * `update-policy` : tu choisis le mieux
 * pour les themes garder les existant, ajouter des nouveaux dont un style PELAGIC : Ocean Mission Control UI
+
+## 13. Sixième passe : notifications, sauvegardes, DDNS sans point unique de panne
+
+Trois fonctions de priorité 1, spécifiées ici avant tout code (points 56, 57 et 58 du relevé de production), puis les fonctions 59 à 63 sous forme de questions ouvertes. Les contrats techniques (schémas, routes exactes, champs) iront dans `docs/architecture.md` par le premier lot de chaque fonction, avec une entrée dans `docs/contracts-changes.md` ; ce chapitre fixe le besoin, les écrans, les décisions et le découpage.
+
+Règles communes aux trois :
+
+- Une modification d'un moteur (BIND, Kea, D2) passe par un plan : aperçu, validations, confirmation, application nœud par nœud, retour arrière (architecture, sections 6 et 7). Un réglage propre à Pelagos (`cluster.toml`) suit le modèle des réglages existants : écrit par `update_cluster`, répliqué, audité avec l'état d'avant, donc réversible, sans plan.
+- Nouveaux domaines de réglages : `notifications`, `archives`, `ddns` (ajoutés à `DOMAINS` du registre, nommage de la section 10 de l'architecture). Les seuils qui lèvent une alerte vont dans `[settings.checks]`. Les entrées écrites par un écran dédié (canaux, destinations, rôles DNS) sont refusées par `PUT /admin/settings`, comme celles du RPZ.
+- Secrets dans `cluster.toml [secrets]`, chiffrés par la clé maître, jamais renvoyés par l'API (booléens « défini »), masqués dans les plans, l'audit et les journaux.
+- Chaque nouvelle alerte a sa clé de message (`alert.*`) en anglais et en français, et figure dans la table des alertes de la section 15 de l'architecture.
+- Tests : les trois niveaux d'AGENTS.md. Le niveau unitaire n'ouvre aucun réseau : les transports sont injectés et remplacés par des faux en mémoire.
+
+### 13.1 Notifications sortantes (point 56)
+
+**Besoin**
+
+Une alerte n'est vue que si quelqu'un ouvre l'interface : en production la HA Kea est restée `terminated` plusieurs jours sans que personne le sache. Pelagos doit pousser les alertes vers les canaux que l'administrateur lit déjà (e-mail, téléphone, domotique), sans doublon dans le cluster, sans tempête de messages, et continuer à prévenir quand le nœud qui envoie d'habitude est justement celui qui est tombé.
+
+**Ce qui existe et sur quoi on s'appuie**
+
+- Chaque collecteur évalue ses alertes et les garde dans son cache SQLite (`collector/alerts.py`, `AlertStore.reconcile`) ; l'identifiant d'une alerte est stable (genre, nœud, sujet), donc le même d'un passage à l'autre.
+- La vue de cluster existe déjà : l'API agrège les alertes de chaque nœud par l'action de pair `alerts.list` (`services/alerts_service.py`), fusionne les copies d'une alerte de cluster et signale les nœuds injoignables (`unavailable`).
+- Les acquittements et les exceptions sont répliqués (audit `alert.ack`, `[[exceptions]]`) : une alerte acquittée ou exceptée n'a pas à être rappelée.
+- Le réplicateur sait quels pairs sont hors ligne (`Replicator.offline_peers()`, 3 sondages manqués).
+
+**Décisions**
+
+1. Un seul expéditeur à la fois, sans élection : chaque collecteur fait tourner le répartiteur, mais seul envoie le premier nœud de l'ordre d'envoi (par défaut l'ordre d'enrôlement de `[[nodes]]`, réglable dans l'écran) parmi ceux que ce collecteur voit en ligne. Quand l'expéditeur tombe, le suivant le constate au bout de 3 sondages de pairs (90 s par défaut) et prend le relais. En cas de coupure réseau entre nœuds, chaque côté se croit premier et envoie : un doublon vaut mieux qu'un silence, et c'est dit dans l'écran.
+2. La file est dérivée, pas répliquée : un événement à envoyer est une transition d'alerte (ouverte, aggravée, résolue, rappel) qui n'a pas encore d'entrée d'audit `notify.sent` pour ce canal. Chaque envoi réussi écrit une entrée d'audit par lot (canal, identifiants d'alertes, événements, nœud expéditeur), répliquée comme le reste. Un nouvel expéditeur relit ces entrées des 7 derniers jours pour savoir ce qui est déjà parti : rien n'est perdu au relais, au pire un lot est renvoyé une fois (au moins une fois, jamais zéro). La file locale (`/var/lib/pelagos/notify/`, 0700) ne garde que l'état des nouvelles tentatives.
+3. Événements : `opened` (alerte nouvelle au-dessus du seuil du canal), `escalated` (gravité en hausse), `resolved` (si le canal le demande), `reminder` (toujours ouverte, non acquittée, après le délai de rappel), `test`. Une alerte ouverte puis résolue dans la fenêtre de regroupement ne part pas. Un délai de confirmation (défaut 60 s, 0 pour `critical`) évite les alertes d'une seule passe.
+4. Regroupement : un message par canal et par fenêtre (`group_seconds`, défaut 60 s) qui liste tous les événements de la fenêtre, triés par gravité, avec le compte des alertes encore ouvertes. Plafond par canal (`messages_max_per_hour`, défaut 30) : au-delà, un seul message « N événements de plus, voir l'interface ».
+5. Heures calmes par canal (début, fin, fuseau IANA, jours) : les événements retenus partent en un résumé à la fin de la période, sans ceux résolus entre-temps ; `critical` passe quand même sauf si le canal le refuse.
+6. Silence global (« maintenance jusqu'à ») réglable depuis l'écran, avec motif obligatoire et fin obligatoire (24 h au plus), audité ; à la fin, un résumé des alertes encore ouvertes part.
+7. Langue par canal (français ou anglais) : le rendu utilise les clés de message (`title_message`) avec les catalogues de l'interface, empaquetés côté serveur (`pelagos/data/i18n/<langue>.json`, produits par une cible `make` à partir des fichiers du frontend, un seul jeu de traductions).
+8. Pas de plan : un canal est un réglage de Pelagos, il ne touche aucun moteur.
+
+**Canaux** (API vérifiées le 2026-10-28)
+
+| Canal | Envoi | Authentification | Remarques |
+| --- | --- | --- | --- |
+| E-mail (SMTP) | `smtplib`, texte brut (HTML plus tard) | STARTTLS (587) ou TLS implicite (465), identifiant et mot de passe optionnels | Sans TLS seulement vers une adresse de bouclage, avec avertissement ; destinataires multiples ; sujet `[Pelagos] 2 critical, 1 warning : ...` |
+| ntfy | JSON `POST` sur la racine du serveur, champs `topic`, `message`, `title`, `tags`, `priority` (1 à 5), `click` ([docs ntfy, Publish as JSON](https://docs.ntfy.sh/publish/)) | `Authorization: Bearer tk_...` ou Basic | Gravité vers priorité : critical 5, warning 4, info 3, résolution 2 ; `click` vers la page de l'alerte ; message limité à 4 096 octets, au-delà ntfy en fait une pièce jointe |
+| Gotify | `POST /message`, JSON `title`, `message`, `priority`, `extras` ([spec Gotify](https://github.com/gotify/server/blob/master/docs/spec.json)) | jeton d'application dans `X-Gotify-Key` (jamais en paramètre d'URL) | Priorités réglables, défaut 8, 5, 2 |
+| Matrix | `PUT /_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId}`, `msgtype` `m.text`, `format` `org.matrix.custom.html` ([spec Matrix v1.11](https://spec.matrix.org/v1.11/client-server-api/)) | `Authorization: Bearer` d'un compte robot | `txnId` = identifiant du lot : un renvoi est idempotent côté serveur |
+| Webhook générique | `POST` JSON, schéma `pelagos.notification.v1` (ci-dessous) | en-têtes libres, signature HMAC-SHA256 optionnelle | Aucune redirection suivie ; `X-Pelagos-Delivery` = identifiant du lot pour dédoublonner |
+| Home Assistant | préréglage du webhook : `POST /api/webhook/<webhook_id>`, charge lue dans `trigger.json` ([HA, Webhook trigger](https://www.home-assistant.io/docs/automation/trigger/)) | l'identifiant du webhook est le secret | HA n'accepte par défaut que le réseau local (`local_only`), ce qui convient ; l'identifiant est stocké comme un secret |
+
+Charge du webhook (v1, champs ajoutés sans changer de version) :
+
+```json
+{"schema": "pelagos.notification.v1", "id": "<ULID du lot>", "cluster_id": "...", "sent_at": "2026-10-28T10:00:00Z",
+ "sender": {"node_id": "...", "name": "ns1"}, "reason": "events" | "digest" | "test",
+ "events": [{"event": "opened" | "escalated" | "resolved" | "reminder",
+             "alert": {"id", "kind", "severity", "state", "node_id", "node_name", "engine", "subject",
+                       "title", "title_message", "first_seen", "last_seen", "resolved_at", "url"}}],
+ "open": {"critical": 1, "warning": 3, "info": 0}}
+```
+
+Signature : `X-Pelagos-Timestamp: <secondes Unix>` et `X-Pelagos-Signature: sha256=<hex>` = HMAC-SHA256 du secret sur `<timestamp>.<corps>` ; le récepteur refuse un horodatage de plus de 5 minutes.
+
+**Écrans**
+
+- Administration, Notifications : en tête, l'expéditeur actuel (nœud, depuis quand), le silence en cours, le nombre d'événements en attente ou en échec. Puis une carte par canal : type, nom, état (ok, en échec depuis, désactivé), dernier envoi, boutons Tester, Modifier, Désactiver.
+- Formulaire de canal (`FormModal`) : champs propres au type ; filtres (gravité minimale, défaut `warning` ; genres inclus ou exclus en `FilterChips`, défaut sans les incohérences `info` ni `ha_transition` ; nœuds ; moteurs) ; regroupement, rappel (défaut 12 h, 0 = jamais), résolution oui ou non, délai de confirmation, heures calmes, langue. « Tester » envoie un message réel depuis le nœud courant avant même l'enregistrement et affiche la réponse du service.
+- Historique : table paginée des lots envoyés ou en échec (lue dans l'audit `notify.*`), filtre par canal, détail du lot.
+- Ordre d'envoi : liste ordonnable des nœuds.
+- Page Alertes : dans le détail d'une alerte, « notifiée à 10:32 par ntfy, e-mail » ; bannière quand un silence est actif.
+
+**API** (préfixe `/api/v1`, conventions de la section 17)
+
+| Méthode, chemin | Permission | Requête | Réponse |
+| --- | --- | --- | --- |
+| `GET /admin/notifications` | `admin:notifications` | | `{"channels": [Channel], "settings", "sender": {"node_id","since","order"}, "mute": {...}|null, "queue": {"pending","failing"}}` (secrets en booléens) |
+| `POST /admin/notifications/channels` | `admin:notifications` | `Channel` sans `id`, `secrets`: `{name: str}` | `201 Channel` |
+| `PUT /admin/notifications/channels/{id}` | `admin:notifications` | partiel ; `secrets`: `{name: str|null}` (`null` efface) | `Channel` |
+| `DELETE /admin/notifications/channels/{id}` | `admin:notifications` | | `204` |
+| `POST /admin/notifications/test` | `admin:notifications` | `{"channel_id"}` ou un `Channel` non enregistré (`scope` nomme les secrets déjà stockés) | `{"ok","node_id","duration_ms","status"?,"error"?}` |
+| `PUT /admin/notifications/order` | `admin:notifications` | `{"node_ids": [...]}` | `{"order"}` |
+| `PUT /admin/notifications/mute` | `admin:notifications` | `{"until","comment"}` ; `DELETE` lève le silence | `{"mute"}` |
+| `GET /admin/notifications/history?channel_id=&result=&from=&to=&page=&per_page=` | `admin:notifications` | | paginé `{"id","ts","channel_id","node_id","events","result","error"}` |
+
+Nouvelle permission `admin:notifications` (dans le rôle administrateur). Audit : `admin.notify.add|replace|delete|op` pour les réglages, `notify.sent` et `notify.failed` pour les envois (sans corps ni secret). Événement WebSocket `system` / `notify` quand un canal change d'état.
+
+**Réglages**
+
+`[settings.notifications]` : `dispatch_enabled` (vrai), `group_seconds` (60), `confirm_seconds` (60), `messages_max_per_hour` (30), `retry_max_hours` (24), `send_timeout_seconds` (15). Écrits par l'écran : `notifications.channels` (liste de tables : `id`, `type`, `name`, `enabled`, `params`, `filters`, `schedule`, `language`), `notifications.order`, `notifications.mute`. Secrets : `notify/<id du canal>/<password|token|webhook_id|hmac_secret>`. Seuil dans `[settings.checks]` : `notification_failure_warning_minutes` (30).
+
+**Plusieurs nœuds**
+
+L'expéditeur lit la vue de cluster par `alerts.list` (même code que l'API, déplacé dans un module partagé par l'API et le collecteur). Un nœud injoignable n'empêche pas l'envoi : ses alertes manquent, et le `peer_offline` levé par les autres est justement ce qu'on veut recevoir. Une entrée `notify.sent` qui arrive par la réplication pendant qu'un lot est en attente sur un autre nœud annule ce lot. Les nœuds d'une version antérieure n'envoient rien : seule la version qui connaît le répartiteur envoie.
+
+**Sécurité**
+
+- Vérification TLS toujours active ; CA supplémentaire réglable par canal (PEM), pour un ntfy ou un Gotify signés par une CA privée.
+- Schémas `https` et `http` seulement ; `http` avec un secret affiche un avertissement ; pas de redirection suivie ; délai d'envoi borné ; corps de réponse lu sur 4 Kio au plus.
+- Le contenu ne porte jamais de détail brut d'alerte : titre rendu, nœud, moteur, sujet, lien. Les noms venus des moteurs (noms d'hôtes DHCP) sont tronqués et échappés (HTML de Matrix et du futur e-mail HTML).
+- Seul `admin:notifications` lit ou change un canal ; « Tester » est limité à 6 envois par minute par utilisateur.
+
+**Pannes**
+
+| Panne | Comportement |
+| --- | --- |
+| Service injoignable, 5xx, délai dépassé | Nouvel essai à 30 s, puis délai doublé jusqu'à 30 min, pendant `retry_max_hours` ; puis abandon audité (`notify.failed`) |
+| 4xx (jeton refusé, sujet inconnu) | Pas de nouvel essai automatique ; canal marqué en échec |
+| Canal en échec depuis le seuil | Alerte `notification_failed` (warning, sujet `notify:<id>`), envoyée par les autres canaux |
+| Expéditeur tombé | Relais au suivant après `offline_peers`, relecture de l'audit, renvoi de ce qui n'est pas marqué envoyé |
+| Coupure entre nœuds | Les deux côtés envoient ; doublons possibles, signalés dans l'écran |
+| Collecteur redémarré | État des tentatives relu dans `/var/lib/pelagos/notify/`, événements recalculés depuis le cache et l'audit |
+| Horloge du nœud fausse | Les heures calmes suivent l'horloge locale ; `clock_unsynchronized` existe déjà |
+
+**Tests**
+
+- Unitaires : choix de l'expéditeur (ordre, pairs hors ligne, coupure) ; dérivation des événements depuis deux états de cluster successifs ; regroupement, annulation d'une alerte brève, délai de confirmation, aggravation ; rappels arrêtés par l'acquittement et l'exception ; heures calmes avec fuseau et changement d'heure (`zoneinfo`) ; plafond horaire ; relais (relecture de `notify.sent`, pas de doublon) ; rendu de chaque canal (corps, en-têtes, priorités, HMAC, `txnId`) contre des transports factices ; masquage des secrets dans l'audit et les erreurs ; réglages au registre ; API (permissions, secrets jamais renvoyés).
+- Démons : deux collecteurs réels (fixture `test_n_nodes_daemons.py`) et un récepteur HTTP local : une alerte réelle (`daemon_down` en arrêtant named) donne exactement un lot ; arrêt du collecteur expéditeur, relais par l'autre, aucun doublon.
+- Labo : sur la VM Docker du labo, conteneurs ntfy, Gotify, Mailpit (SMTP) et un récepteur de webhook ; scénario `tests/lab/test_notify_lab.py` : panne HA provoquée (arrêt de Kea sur un nœud), réception sur chaque canal, résolution, arrêt de la VM expéditrice et relais. Matrix (Conduit) et Home Assistant en option dans le même scénario.
+
+### 13.2 Sauvegardes planifiées et restauration (point 57)
+
+**Besoin**
+
+Perdre un nœud ne doit pas faire perdre la configuration de BIND, de Kea et de Pelagos. Aujourd'hui seules existent les sauvegardes du pipeline d'écriture (`/var/lib/pelagos/backups/<engine>/`, une par écriture, sur le nœud lui-même, purgées après `retention.backups_days`) : elles disparaissent avec le disque et ne couvrent ni les zones dynamiques, ni les fichiers de l'utilisateur, ni l'état de Pelagos. Il faut une archive régulière, chiffrée, copiée hors du nœud, vérifiée, et une restauration depuis l'interface ou, pour un nœud perdu, depuis la ligne de commande.
+
+Vocabulaire : « archive » pour cette fonction (code `pelagos.archives`, réglages `[settings.archives]`, dossier `/var/lib/pelagos/archives/`), pour ne pas confondre avec les sauvegardes du pipeline. L'interface dit « Sauvegardes ».
+
+**Contenu d'une archive** (une par nœud et par passage)
+
+| Partie | Contenu | Source |
+| --- | --- | --- |
+| BIND, configuration | `named.conf` et tout fichier inclus (lus par le parseur, comme l'arbre de l'éditeur avancé), fichiers de clés (TSIG, rndc), `pelagos/*.conf` | fichiers |
+| BIND, zones primaires dynamiques | contenu de chaque zone au format texte, pris par AXFR avec la clé de lecture (instantané cohérent à un serial, sans `freeze` qui bloquerait les mises à jour) | AXFR local |
+| BIND, zones primaires statiques | fichier de zone tel quel | fichier |
+| BIND, DNSSEC | dossier des clés (`key-directory`, fichiers `K*.key`, `.private`, `.state`) quand une `dnssec-policy` est active | fichiers |
+| Kea | `kea-dhcp4.conf`, `kea-dhcp6.conf`, `kea-dhcp-ddns.conf` et leurs inclusions, fichiers de secrets de D2, empreinte `config-hash-get` | fichiers, socket |
+| Kea, baux | fichiers memfile (`kea-leases4.csv`, `.6`) si `include_leases_enabled` | fichiers |
+| Pelagos | `node.toml`, `cluster.toml`, `audit.jsonl`, `pki/`, `master.key`, `tls/`, état du certificat web | fichiers |
+| Manifeste | `manifest.json` : nœud, horodatage, versions (Pelagos, BIND, Kea), moteurs, chemin, mode, propriétaire et sha256 de chaque fichier, serial de chaque zone, fichiers illisibles | |
+
+Les copies secondaires, le cache de séries et les listes RPZ ne sont pas archivés : ils se reconstruisent. Les zones secondaires reviennent par transfert.
+
+**Format et chiffrement**
+
+- `tar` compressé par gzip (bibliothèque standard), chiffré au format age v1 avec un destinataire X25519 ([spécification age v1](https://age-encryption.org/v1), consultée le 2026-10-28 : en-tête avec une strophe X25519, charge découpée en morceaux de 64 Kio chiffrés par ChaCha20-Poly1305). Implémenté avec `cryptography` (déjà une dépendance), aucune dépendance nouvelle ; interopérable avec l'outil `age` (paquet Debian `age` 1.2.1 dans trixie), ce qui permet d'ouvrir une archive sans Pelagos en cas de désastre.
+- Fichier `<nœud>-<horodatage>.tar.gz.age` et, à côté, `.sha256` du fichier chiffré : l'intégrité se vérifie sans la clé.
+- Clé de l'archive : Pelagos génère une identité X25519 à la mise en place ; la clé publique (`age1...`) est dans `cluster.toml`, l'identité privée dans `[secrets]` (`archives/identity`), chiffrée par la clé maître, pour que n'importe quel nœud puisse restaurer. Elle est proposée au téléchargement une fois, avec l'avertissement « sans elle, la perte de tout le cluster est irrécupérable ». Variante : l'administrateur fournit sa propre clé publique et Pelagos ne garde aucune identité ; la restauration demande alors de déposer l'identité. L'archive contient `master.key` et `ca.key` : elle n'est donc jamais stockée en clair, nulle part.
+
+**Destinations**
+
+| Destination | Mécanisme | Remarques |
+| --- | --- | --- |
+| Local | `/var/lib/pelagos/archives/local/`, les `local_keep_count` dernières | Toujours active ; sert de tampon si la destination distante échoue |
+| Autre nœud du cluster | `POST /repl/v1/archives` en mTLS, rangée chez le pair dans `/var/lib/pelagos/archives/peers/<nœud d'origine>/` | Défaut dès qu'il y a deux nœuds ; couvre la perte d'un nœud, pas celle du site |
+| Dossier monté | un chemin local que l'administrateur monte lui-même (NFS, SMB/CIFS par fstab ou automount systemd) | Pelagos ne monte rien et ne garde aucun mot de passe SMB ; il vérifie que le chemin est un point de montage et inscriptible |
+| SFTP | client OpenSSH (`sftp -b`), clé privée dédiée stockée en secret, empreinte de la clé d'hôte épinglée | Pas de dépendance Python nouvelle |
+| S3 compatible | question ouverte (ci-dessous) | |
+
+Chaque destination a sa rétention : `keep_daily_count` (7), `keep_weekly_count` (4), `keep_monthly_count` (6), appliquée par le nœud qui écrit ; un pair applique aussi celle des archives qu'il reçoit.
+
+**Planification**
+
+Le collecteur de chaque nœud lance son archive à l'heure réglée (`start_time`, défaut 03:15 heure locale) décalée de `stagger_minutes` par rang du nœud, puis toutes les `interval_hours`. Le passage prend brièvement le verrou du moteur (section 6 de l'architecture) le temps de lire les fichiers de Kea et de BIND, pour ne pas archiver une écriture à moitié faite ; l'AXFR se fait hors verrou. Les fichiers que l'utilisateur `pelagos` ne peut pas lire passent par une opération en lecture seule de l'assistant privilégié (`pelagos helper`, liste fermée de chemins tirée de la disposition du système), sinon ils sont listés dans le manifeste et l'archive est marquée incomplète. Après l'envoi, l'archive est relue sur la destination et sa somme comparée (`verify_enabled`). Tous les `test_restore_days` jours, une restauration à blanc ouvre la dernière archive dans un dossier temporaire et passe `named-checkconf`, `named-checkzone` et `kea-dhcp4 -t` / `kea-dhcp6 -t` / `kea-dhcp-ddns -t` dessus.
+
+**Restauration**
+
+Trois modes, du plus courant au plus rare :
+
+1. Restauration partielle depuis l'interface, sur un nœud qui tourne. L'administrateur choisit une archive, puis ce qu'il veut reprendre ; Pelagos montre le diff avec l'état actuel et construit un plan composite (scope `restore`, exécuté comme un job, une partie par moteur) :
+   - fichiers gérés par Pelagos (`pelagos/*.conf`) : pipeline d'écriture, `named-checkconf`, `rndc reconfig`, retour arrière ;
+   - contenu d'une zone dynamique : diff entre l'instantané et la zone actuelle, appliqué par UPDATE signé (`ddi-admin`, par lots), donc dans les types que `update-policy` autorise ; SOA et types DNSSEC ne sont jamais rejoués ; un type refusé est signalé avant l'application ;
+   - zone entière en remplacement (option, pour une zone corrompue) : `rndc freeze`, remplacement du fichier, suppression du journal, `rndc thaw`, en mode maintenance explicite ;
+   - Kea et D2 : `config-test` puis `config-set` et `config-write` par les plans existants (`plan_config_replace`), secrets de D2 scellés comme aujourd'hui ; pour une configuration partagée par la HA, la partie du pair est proposée dans le même plan ;
+   - réglages de Pelagos : sections choisies de `cluster.toml` (réglages, exceptions, rôles, utilisateurs, canaux, RPZ), écrites par `update_cluster` donc répliquées ; l'audit de l'archive est fusionné par identifiant (sans risque, en ajout seul) ;
+   - fichiers de l'utilisateur (`named.conf`, `named.conf.options`) : seulement sur case cochée explicitement, par le pipeline d'écriture, avec double confirmation, car Pelagos ne les réécrit jamais autrement.
+   Chaque partie a son retour arrière (sauvegarde du pipeline, UPDATE inverse, configuration Kea capturée, valeurs d'avant de `cluster.toml`).
+2. Restaurer les moteurs d'un nœud perdu sur un nœud neuf : le nœud neuf est enrôlé normalement (nouvelle identité), puis « Restaurer depuis l'archive de ns2 » reprend les fichiers BIND et Kea de l'ancien nœud (archive lue chez le pair qui la garde) ; Pelagos signale les adresses de l'ancien nœud présentes dans les configurations (`listen-on`, HA, D2) pour qu'on les adapte avant d'appliquer ; l'ancien nœud est ensuite retiré du cluster.
+3. Reconstruction à l'identique, en ligne de commande, sur une machine vierge : `pelagos restore --archive <fichier> --identity <fichier> [--only bind,kea,pelagos] [--dry-run]` (root) remet `node.toml`, la PKI, la clé maître, les fichiers des moteurs, les zones (écrites en texte, journaux supprimés) et les baux, avant le premier démarrage des services ; le nœud revient avec son identité, se resynchronise avec ses pairs et reprend sa place. La procédure est écrite dans la documentation d'exploitation et jouée au labo.
+
+**Écrans**
+
+- Administration, Sauvegardes : par nœud, dernière archive réussie (date, taille, serials, complète ou non), prochaine, dernier échec ; bouton « Sauvegarder maintenant ».
+- Destinations : liste, formulaire par type, « Tester » (écriture, relecture, suppression d'un fichier témoin).
+- Clé : clé publique affichée, état de l'identité (gardée par le cluster ou non), téléchargement unique, rotation (les anciennes archives restent lisibles avec l'ancienne identité, gardée tant qu'une archive en dépend).
+- Archives : table filtrable par nœud et destination, détail (manifeste), téléchargement (audité).
+- Restaurer : assistant en trois étapes (archive, choix des parties avec le diff de chacune, aperçu du plan) puis la progression du job, comme les plans d'installation.
+
+**API**
+
+| Méthode, chemin | Permission | Requête | Réponse |
+| --- | --- | --- | --- |
+| `GET /admin/archives` | `admin:archives` | | `{"settings","recipient","identity": {"stored"},"destinations","nodes": [{"node_id","last_success","last_error","next_run","running","complete"}]}` |
+| `POST`, `PUT`, `DELETE /admin/archives/destinations[/{id}]` | `admin:archives` | destination, `secrets` | destination / `204` |
+| `POST /admin/archives/destinations/test` | `admin:archives` | `{"destination_id"}` ou une destination non enregistrée | `{"ok","node_id","error"?}` |
+| `POST /admin/archives/run` | `admin:archives` | `{"node_ids"?}` | `202 Job` |
+| `GET /admin/archives/list?node_id=&destination_id=&page=&per_page=` | `admin:archives` | | paginé `{"id","node_id","created_at","size","sha256","destinations","complete","versions","verified_at"}` |
+| `GET /admin/archives/{id}/download` | `admin:archives` | | flux `application/octet-stream` (fichier chiffré), audité |
+| `POST /admin/archives/upload` | `admin:archives` | multipart : archive venue d'ailleurs | l'archive inscrite |
+| `POST /admin/archives/{id}/inspect` | `admin:archives` | `{"identity"?}` | `{"manifest","parts": [{"id","engine","node_id","files","diff_summary"}]}` |
+| `POST /admin/archives/{id}/restore/plan` | `admin:archives` plus l'écriture de chaque partie | `{"target_node_id","parts": [...],"identity"?,"include_user_files"?}` | `Plan` (scope `restore`, `requires_confirmation`), appliqué par `POST /plans/{id}/apply` en `202 Job` |
+| `POST /admin/archives/identity` | `admin:archives` | `{"op": "generate"|"rotate"|"import","recipient"?}` | `{"recipient","identity_pem"?}` (une seule fois) |
+
+Réplication : `POST /repl/v1/archives` (dépôt, taille bornée par `max_archive_mb`), `GET /repl/v1/archives?origin=` (liste), `GET /repl/v1/archives/<id>` (lecture). Nouvelle permission `admin:archives`. Nouveau scope de plan `restore`. Audit : `admin.archive.*`, `archive.create`, `archive.restore.apply|rollback`.
+
+**Réglages**
+
+`[settings.archives]` : `schedule_enabled` (faux tant qu'aucune clé n'existe), `start_time` (`"03:15"`), `interval_hours` (24), `stagger_minutes` (15), `keep_daily_count` (7), `keep_weekly_count` (4), `keep_monthly_count` (6), `local_keep_count` (3), `include_leases_enabled` (vrai), `verify_enabled` (vrai), `test_restore_days` (7, 0 = jamais), `max_archive_mb` (512). Écrits par l'écran : `archives.destinations`, `archives.recipient`. Secrets : `archives/identity`, `archives/dest/<id>/<ssh_key|access_key|secret_key>`. Seuils dans `[settings.checks]` : `archive_stale_factor` (2 : alerte quand la dernière archive réussie a plus de 2 intervalles), `archive_failures_critical_count` (3).
+
+Alertes : `archive_failed` (warning, critical après le nombre d'échecs consécutifs ; sujet `archive:<destination>`), `archive_stale` (warning ; sujet `archive:last`), `archive_incomplete` (info ; fichiers illisibles listés).
+
+**Plusieurs nœuds**
+
+Chaque nœud archive ce qu'il porte ; `cluster.toml` et l'audit, identiques partout, sont dans chaque archive (peu de place, et n'importe quelle archive suffit à refaire le cluster). Le décalage `stagger_minutes` évite deux AXFR et deux envois en même temps. Un nœud garde les archives de ses pairs : la page liste aussi celles d'un nœud absent, lues chez qui les détient.
+
+**Sécurité**
+
+- Archives toujours chiffrées avant de quitter la mémoire du processus (le tar n'est jamais écrit en clair sur disque) ; fichiers 0600, dossiers 0700.
+- Identité gardée par le cluster : chiffrée par la clé maître comme les autres secrets ; son téléchargement demande le mot de passe de l'utilisateur et est audité.
+- SFTP : empreinte de la clé d'hôte obligatoire, pas de `StrictHostKeyChecking=no` ; clé dédiée, à restreindre côté serveur (`ForceCommand internal-sftp`, chroot), exemple dans la documentation.
+- Restauration : `requires_confirmation`, permission d'écriture de chaque partie en plus de `admin:archives`, aucun secret dans l'aperçu (secrets masqués comme dans les plans).
+
+**Pannes**
+
+| Panne | Comportement |
+| --- | --- |
+| Destination injoignable | Archive gardée en local, nouvel essai au passage suivant, `archive_failed` |
+| Disque plein | Passage annulé avant écriture si l'espace libre est sous la taille de la dernière archive plus 10 % ; `disk_space` existe déjà |
+| Démon arrêté | Fichiers archivés quand même ; zones dynamiques prises dans le fichier et le journal (signalé) ; archive marquée incomplète |
+| Somme différente à la relecture | Archive distante supprimée, nouvel essai, alerte |
+| Restauration qui échoue sur une partie | Retour arrière de la partie puis des précédentes (plans composites existants) |
+| Identité perdue | Archives illisibles : l'écran le dit tant qu'aucune identité n'est gardée ni confirmée téléchargée |
+
+**Tests**
+
+- Unitaires : format age (vecteurs de test officiels de la suite CCTV d'age, aller-retour, morceaux de 64 Kio, archive tronquée refusée) ; interopérabilité avec le binaire `age` quand il est présent (sinon test sauté, CI qui l'installe) ; construction du manifeste sur une arborescence dans `tmp_path` ; rétention quotidienne, hebdomadaire et mensuelle ; planification avec décalage et changement d'heure ; diff d'une zone et découpage en UPDATE ; plan de restauration (parties, permissions, refus de types) ; destinations locale et SFTP avec un faux `sftp` ; API.
+- Démons : named et Kea réels ; archive pendant que des UPDATE arrivent (serial cohérent dans l'instantané) ; restauration d'une zone par diff et par remplacement ; restauration de la configuration Kea avec `config-test` ; échange entre deux nœuds (`/repl/v1/archives`).
+- Labo : `tests/lab/test_archives_lab.py` : destination SFTP (conteneur sur la VM Docker du labo) et pair ; destruction du nœud ns2 (retour à l'instantané `clean`), installation du paquet, `pelagos restore` depuis l'archive gardée par ns1, retour dans le cluster, convergence, HA Kea et transferts de zone vérifiés ; puis le mode 2 (nœud neuf enrôlé, moteurs restaurés).
+
+### 13.3 DDNS sans point unique de panne (point 58)
+
+**Besoin**
+
+D2 n'envoie qu'au primaire DNS : si le serveur qui porte le primaire tombe, la HA Kea continue de distribuer des baux mais plus aucun nom n'est créé ni retiré, et rien n'est rattrapé à son retour. L'alerte `ddns_advice` (sujet `d2:dns-servers`, `collector/checks/ddns.py`) le signale déjà ; il manque la solution.
+
+**Faits vérifiés** (sources consultées le 2026-10-28)
+
+- D2 essaie les serveurs d'un domaine du premier au dernier et passe au suivant quand l'essai échoue, jusqu'à réussir ou épuiser la liste ([Kea 2.6.3 ARM, DHCP-DDNS](https://kea.readthedocs.io/en/kea-2.6.3/arm/ddns.html)). Il passe au suivant sur erreur de communication (`DHCP_DDNS_FORWARD_ADD_IO_ERROR` : « will retry against the same server or others »), pas sur un refus : un RCODE comme REFUSED termine la requête (`DHCP_DDNS_FORWARD_ADD_REJECTED`, [messages Kea 2.6.3](https://kea.readthedocs.io/en/kea-2.6.3/kea-messages.html)). Conséquence : un serveur qui refuse ne doit jamais être devant celui qui accepte.
+- D2 ne garde pas ses requêtes : la file est perdue à l'arrêt (même page, « DHCP-DDNS Server Limitations »), et une requête qui a épuisé la liste n'est pas rejouée.
+- `lease4-resend-ddns` et `lease6-resend-ddns` (hook `lease_cmds`, présent en 2.6.3) régénèrent la requête DNS d'un bail existant, si le DDNS est actif, que le bail a un nom et un drapeau `fqdn_fwd` ou `fqdn_rev` ([Kea 2.6.3 ARM, Lease Commands](https://kea.readthedocs.io/en/kea-2.6.3/arm/hooks.html)). C'est l'outil de rattrapage : Kea reste la vérité des baux.
+- `allow-update-forwarding` sur un secondaire transmet l'UPDATE au primaire ([ARM BIND 9.20](https://bind9.readthedocs.io/en/v9.20.0/reference.html)) : si le primaire est arrêté, la transmission échoue aussi. Cette option ne supprime donc pas le point unique de panne ; elle n'est pas retenue.
+- Les zones secondaires sont écrites par défaut au format `raw` (`masterfile-format`, même ARM) : une copie promue doit être réécrite en texte ou déclarée `masterfile-format raw`.
+
+**Décisions**
+
+1. Pas de multi-primaire. BIND n'a pas de réplication entre primaires : deux primaires d'une même zone divergent (serials, DHCID) sans moyen de fusion. Le document le dit, et Pelagos refuse cette configuration.
+2. Un primaire actif par zone, un secondaire prêt à être promu, et une bascule de rôle par plan. L'état « qui est primaire de quelle zone, à quelle époque » vit dans `cluster.toml` (`ddns.roles`, une entrée par `<vue>/<zone>` : `primary`, `epoch`, `since`, `by`), répliqué.
+3. Préparation, quand tout va bien (plan « Préparer la reprise du DDNS ») :
+   - prérequis : la zone est déclarée dans les fichiers gérés par Pelagos sur chaque nœud (sinon l'écran propose d'abord « Confier la zone à Pelagos », point 33, déjà livré), elle n'est pas signée par une `dnssec-policy` (limite de la première version : les clés ne sont que sur le primaire), elle est dans la vue par défaut ou dans une vue que la clé `kea-ddns` sélectionne ;
+   - les clés `kea-ddns` et `ddi-admin` déclarées sur chaque secondaire (sans effet tant qu'il est secondaire) ;
+   - dans la configuration de chaque D2, `dns-servers` de chaque domaine = primaire d'abord, puis chaque secondaire ;
+   - l'entrée `ddns.roles` de la zone, avec la politique `update-policy` et les options à remettre en cas de promotion.
+   Tant que le primaire répond, rien ne change pour les clients. S'il ne répond plus, D2 essaie le secondaire, qui refuse (REFUSED) : la requête échoue, mais l'erreur est visible et comptée par D2.
+4. Bascule (plan « Promouvoir ns2 primaire de example.lan », proposé par l'alerte `ddns_outage`) : sur le secondaire, la copie est relue par AXFR locale et écrite en texte dans le dossier des zones de Pelagos, la zone redéclarée `type primary` avec sa politique, `rndc reconfig` ; sur chaque D2 joignable, l'ordre de `dns-servers` est inversé (nouveau primaire d'abord) ; `ddns.roles` passe à l'époque suivante. Puis le plan de rattrapage est proposé. Le plan refuse de promouvoir si l'ancien primaire répond encore (c'est alors un changement planifié, ci-dessous).
+5. Retour de l'ancien primaire, sans double primaire : au démarrage, après la synchronisation de la réplication, le collecteur compare les zones primaires qu'il sert à `ddns.roles`. Une zone dont le rôle a été donné à un autre nœud à une époque plus récente est rétrogradée automatiquement (`demote_on_return_enabled`, défaut vrai) : déclaration `type secondary` du nouveau primaire, fichier et journal déplacés dans la sauvegarde du pipeline avant le `rndc reconfig`, de sorte que la copie n'a plus de serial local et reprend la zone du nouveau primaire par transfert complet (`rndc retransfer` à la suite), entrée d'audit `system`. Entre le démarrage de named et ce contrôle, l'ancien primaire est deuxième dans les listes de D2 et ne reçoit donc rien tant que le nouveau répond ; une mise à jour qu'il aurait acceptée dans cet intervalle est perdue à la rétrogradation et reprise par le rattrapage. L'alerte `dns_stale_primary` (critical) reste levée tant que la rétrogradation n'est pas faite.
+6. Changement planifié (plan « Rendre le rôle à ns1 », les deux nœuds en ligne) : `rndc freeze` de la zone sur le primaire actuel (les UPDATE sont refusés pendant quelques secondes), attente que la copie de la cible ait le même serial, promotion de la cible, rétrogradation de l'autre, inversion des listes de D2, `ddns.roles` à l'époque suivante, puis rattrapage des baux de la fenêtre.
+7. Rattrapage (plan « Rejouer le DDNS ») : fenêtre = début et fin de la panne (premier `update-timeout` ou `peer_offline` du primaire, jusqu'à la bascule ou au retour). Pelagos liste les baux actifs dont `cltt` tombe dans la fenêtre, qui ont un nom et un drapeau fqdn, et dont l'A, l'AAAA ou le PTR manque ou diffère (même jointure que les incohérences `lease_without_record`) ; le plan envoie `lease4-resend-ddns` / `lease6-resend-ddns` pour chacun sur un nœud dont Kea sert, par lots. Les noms dont le bail a disparu pendant la panne sont déjà levés par `record_without_lease` et les PTR orphelins, avec leurs plans existants. Un renvoi sur un nom déjà juste est sans effet (résolution de conflit par DHCID).
+8. Automatisme : la bascule reste manuelle par défaut, avec notification (13.1) dès que l'alerte s'ouvre ; `failover_auto_enabled` permet de la faire seule après `failover_after_seconds` d'indisponibilité vue par tous les autres nœuds. Le rattrapage automatique (`replay_auto_enabled`) est désactivé par défaut et borné par `replay_max_leases`.
+
+**Écrans**
+
+- DHCP, DDNS, nouvel onglet « Reprise » : par zone dynamique, le primaire actif, l'époque, les copies, l'état (prête, non préparée avec la raison, en panne depuis, ancien primaire à rétrograder) ; par D2, la liste ordonnée des serveurs de chaque domaine avec le rôle de chacun. Actions : Préparer, Promouvoir, Rendre le rôle, Rejouer (nombre de baux concernés et fenêtre affichés avant le plan).
+- Fiche de zone : badge « primaire actif sur ns2 depuis ... (époque 3) ».
+- Tableau de bord : tuile DDNS avec l'état de reprise.
+- Chaque action ouvre l'aperçu de plan habituel (diff de chaque nœud, `named-checkconf`, `config-test` de D2, confirmation).
+
+**API**
+
+| Méthode, chemin | Permission | Requête | Réponse |
+| --- | --- | --- | --- |
+| `GET /dhcp/ddns/resilience` | `read:dhcp` et `read:dns` | | `{"zones": [{"zone","view","primary_node_id","epoch","since","copies","ready","blockers": [message]}], "d2": [{"node_id","domains": [{"direction","name","servers": [{"address","node_id","role"}]}]}], "outage": {"since","zones"}|null, "replay": {"from","to","candidates"}}` |
+| `POST /dhcp/ddns/resilience/plan` | `write:dns.zones`, `write:dhcp.config` | `{"zones"?}` (défaut : toutes les zones dynamiques) | `Plan` composite (clés sur les secondaires, listes de D2, `ddns.roles`) |
+| `POST /dhcp/ddns/failover/plan` | `write:dns.zones`, `write:dhcp.config` | `{"to_node_id","zones"?}` | `Plan` (`requires_confirmation` ; `409` si l'ancien primaire répond) |
+| `POST /dhcp/ddns/switchover/plan` | `write:dns.zones`, `write:dhcp.config` | `{"to_node_id","zones"?}` | `Plan` (`requires_confirmation`) |
+| `POST /dhcp/ddns/replay/plan` | `ops:dhcp.leases` | `{"from"?,"to"?,"family"?,"limit"?}` | `Plan` (une modification par bail, cible `dhcp.lease` `resend/<ip>`) |
+
+Les opérations `lease4-resend-ddns` et `lease6-resend-ddns` entrent aussi dans la liste autorisée de `/dhcp/{family}/ops` (permission `ops:dhcp.leases`). Les plans de bascule sont des composites (`PlanService.register_composite`) dont les parties sont des plans BIND (`dns.zone`, `dns.config`) et D2 (`d2.config`) déjà connus ; le nouveau scope `dns.failover` ne sert qu'à la ligne d'audit de synthèse. Une partie destinée à un pair est construite chez lui par l'action de pair `dns.zone.plan` existante.
+
+**Réglages**
+
+`[settings.ddns]` : `failover_auto_enabled` (faux), `failover_after_seconds` (300), `demote_on_return_enabled` (vrai), `replay_auto_enabled` (faux), `replay_max_leases` (2000), `replay_window_max_hours` (72). Écrit par l'écran : `ddns.roles`. Pas de secret nouveau : les clés existent déjà.
+
+Alertes : `ddns_outage` (critical ; sujet `ddns:<vue>/<zone>` ; le primaire actif ne reçoit plus de mises à jour : D2 en `update-timeout`, nœud hors ligne ou named arrêté ; propose la promotion), `ddns_replay` (warning ; sujet `ddns:replay` ; des baux de la dernière panne n'ont pas leurs enregistrements ; propose le rattrapage), `dns_stale_primary` (critical ; sujet `ddns:stale:<vue>/<zone>` ; un nœud sert en primaire une zone que `ddns.roles` donne à un autre). `ddns_advice` (`d2:dns-servers`) propose désormais le plan de préparation.
+
+**Plusieurs nœuds**
+
+Avec trois nœuds ou plus, chaque secondaire est dans les listes de D2 et peut être promu ; le plan de promotion choisit la cible (défaut : la copie au serial le plus haut). Les autres secondaires sont repointés vers le nouveau primaire (`primaries`) dans le même plan. Les D2 injoignables pendant la bascule (celui du nœud tombé) sont corrigés à leur retour par le même contrôle que la rétrogradation (liste de D2 différente de `ddns.roles` : plan proposé, ou appliqué seul si `demote_on_return_enabled`).
+
+**Sécurité**
+
+- Aucune clé nouvelle ni élargie : `kea-ddns` garde exactement ses types sur la zone promue (la politique est recopiée, pas reconstruite) ; `ddi-admin` de même.
+- Pas d'`allow-update-forwarding`, pas de mise à jour par adresse IP.
+- La rétrogradation automatique ne touche que les zones listées dans `ddns.roles`, jamais une zone de l'utilisateur non préparée.
+- Promotion, retour et rattrapage sont audités, avec l'époque.
+
+**Pannes**
+
+| Panne | Comportement |
+| --- | --- |
+| Primaire arrêté, rien de préparé | `ddns_advice` puis `ddns_outage` ; seule action possible : rattrapage au retour |
+| Primaire arrêté, préparé | `ddns_outage`, notification, promotion (manuelle ou automatique), rattrapage |
+| Ancien primaire revenu | Rétrogradation automatique, `retransfer`, rattrapage de l'intervalle |
+| Coupure réseau entre nœuds (les deux vivants) | Pas de promotion automatique tant qu'un nœud voit encore le primaire ; manuelle seulement avec confirmation qui rappelle le risque |
+| Copie du secondaire en retard | Le plan affiche l'écart de serial ; les noms perdus reviennent par le rattrapage |
+| D2 d'un nœud injoignable pendant la bascule | Corrigé à son retour (ci-dessus) |
+| Zone signée | Préparation refusée avec la raison (limite de la première version) |
+| `lease_cmds` non chargé | Rattrapage indisponible, dit dans l'écran, proposition de charger le hook (plan existant) |
+
+**Tests**
+
+- Unitaires : contrôle de préparation (zone non gérée, signée, vue) ; construction des plans de préparation, de promotion (réécriture en texte, politique recopiée, listes de D2 inversées) et de retour ; décision de rétrogradation à partir de `ddns.roles` et des époques ; fenêtre de panne depuis les statistiques de D2 et les états des pairs ; sélection des baux à rejouer ; alertes nouvelles ; API.
+- Démons : deux named réels (primaire et secondaire sur des ports libres), un D2 et un `kea-dhcp4` réels avec `lease_cmds` : préparation ; arrêt du primaire, D2 passe au secondaire (compteurs) ; promotion ; mise à jour acceptée par le nouveau primaire ; redémarrage de l'ancien, rétrogradation, serials égaux ; `lease4-add` d'un bail nommé puis `lease4-resend-ddns`, enregistrement créé.
+- Labo : `tests/lab/test_ddns_failover_lab.py` sur la paire Kea 2.6.3 Debian (ns1, ns2 et le client DHCP du labo) : préparation ; arrêt de la VM du primaire par l'API Proxmox ; bail obtenu par le client, promotion, A et PTR créés sur le nouveau primaire ; retour de la VM, rétrogradation, rattrapage ; changement planifié pour rendre le rôle ; aucune entrée perdue de bout en bout.
+
+### 13.4 Fonctions suivantes (points 59 à 63) : questions ouvertes
+
+Rien n'est décidé ici ; chaque point sera spécifié comme ci-dessus avant d'être codé.
+
+- **59, assistant de migration Kea 2.6 vers 3.x** : une paire HA 2.6 / 3.x mixte est-elle prise en charge par ISC le temps de la bascule, ou faut-il une fenêtre courte ? Paquets ISC (Cloudsmith) sur Debian et Rocky, ou distribution quand elle passera en 3.x ? Que faire des hooks chargés et de `kea-ctrl-agent` (supprimé en 3.1.8) : conversion automatique en `control-sockets` HTTP/TLS ou seulement sockets Unix ? Retour arrière en 2.6 avec les baux écrits par 3.x : possible ?
+- **60, surveillance du résolveur** : quels seuils par défaut (SERVFAIL, échecs DNSSEC, latence) sans données de référence ? Bascule temporaire vers des forwarders : automatique ou seulement proposée ? Quels forwarders proposer, et faut-il un retour automatique ?
+- **61, mise à jour depuis l'interface** : source des versions (dépôt apt/dnf de Pelagos, release GitHub) et vérification des signatures ; qui exécute la mise à jour du paquet (l'assistant privilégié) et comment l'interface survit au redémarrage de son propre service ; retour arrière vers la version précédente quand le schéma de `cluster.toml` a changé ? Mises à jour BIND et Kea de la distribution dans le même écran ou à part ?
+- **62, IPv6 AAAA et PTR** : source des adresses observées (table des voisins d'un routeur par API, OPNsense en premier ? journaux ? DHCPv6 seulement ?) ; règle d'exclusion des adresses temporaires de confidentialité ; création automatique ou toujours par plan choisi hôte par hôte ?
+- **63, Home Assistant** : webhook seul (livré par 13.1), API en lecture avec jeton dédié, ou MQTT discovery (et alors quel courtier, avec quelle authentification) ? Quels capteurs en premier ? Présence d'un appareil par ses baux : quel délai pour « absent » ?
+
+### 13.5 Lots d'implémentation
+
+Un lot = un agent, un worktree, ses tests, un commit poussé après `make lint` et les tests des modules touchés. Les lots « contrat » touchent `docs/architecture.md`, `domain/`, le registre des réglages et `docs/contracts-changes.md` ; ils passent en premier et un seul à la fois.
+
+| Lot | Contenu | Paquets | Dépend de |
+| --- | --- | --- | --- |
+| C1 | Contrat des trois fonctions : sections nouvelles de l'architecture (notifications, archives, reprise DDNS), domaines `notifications`, `archives`, `ddns` et leurs réglages, permissions `admin:notifications` et `admin:archives`, scopes `restore` et `dns.failover`, genres d'alertes, clés de message, routes enregistrées en `501` | contrat, WP-CORE | |
+| N1 | Répartiteur : choix de l'expéditeur, événements, regroupement, confirmation, rappels, heures calmes, plafond, file et nouveaux essais, audit `notify.*`, alerte `notification_failed` ; module partagé de vue de cluster | WP-COLLECTOR, WP-CORE | C1 |
+| N2 | Transports et rendu : SMTP, ntfy, Gotify, webhook signé, préréglage Home Assistant, Matrix ; catalogues de messages empaquetés côté serveur | WP-CORE | C1 |
+| N3 | API des notifications (canaux, test, ordre, silence, historique) | WP-API-AUTH | C1, N2 |
+| N4 | Écran Notifications, bannière de silence, « notifiée » dans le détail d'une alerte, en et fr | WP-FRONTEND | C1 (serveur factice), N3 pour l'intégration |
+| N5 | Démons et labo : deux collecteurs et relais ; conteneurs ntfy, Gotify, Mailpit, récepteur de webhook ; scénario de panne HA | WP-LAB-E2E | N1 à N3 |
+| D1 | Rattrapage seul : opérations `lease4/6-resend-ddns`, sélection des baux d'une fenêtre, plan « Rejouer », alerte `ddns_replay` (utile même sans bascule) | WP-KEA, WP-API-AUTH | C1 |
+| D2 | Préparation : contrôle des prérequis, plan composite (clés sur les secondaires, listes de D2, `ddns.roles`), `ddns_advice` qui le propose | WP-BIND, WP-KEA, WP-API-AUTH | C1 |
+| D3 | Promotion : réécriture de la copie en texte, déclaration primaire, inversion des listes de D2, autres secondaires repointés, alerte `ddns_outage`, option automatique | WP-BIND, WP-KEA, WP-COLLECTOR | D2 |
+| D4 | Retour et changement planifié : rétrogradation au démarrage, `dns_stale_primary`, plan « Rendre le rôle » | WP-COLLECTOR, WP-BIND | D3 |
+| D5 | Onglet Reprise, tuile du tableau de bord, badge de zone | WP-FRONTEND | D1 à D4 (serveur factice dès C1) |
+| D6 | Démons et labo de la bascule | WP-LAB-E2E | D1 à D4 |
+| B1 | Format : age X25519 avec `cryptography`, vecteurs CCTV, interopérabilité avec `age`, tar et manifeste, sommes | WP-CORE | C1 |
+| B2 | Collecte et planification : lecture des fichiers et AXFR, opération en lecture de l'assistant privilégié, verrou, stockage local, rétention, vérification, restauration à blanc, alertes | WP-COLLECTOR, WP-INSTALLER | B1 |
+| B3 | Destinations : pair (`/repl/v1/archives`), dossier monté, SFTP ; S3 selon la réponse à la question ouverte | WP-CORE, WP-COLLECTOR | B1 |
+| B4 | Restauration en ligne : inspection, diff par partie, plan composite `restore` (fichiers gérés, zones par UPDATE ou remplacement, Kea et D2, sections de `cluster.toml`, fusion de l'audit) | WP-API-AUTH, WP-BIND, WP-KEA | B1, B2 |
+| B5 | Reconstruction : `pelagos restore` et `pelagos backup` en ligne de commande, documentation d'exploitation | contrat (`cli.py`), WP-INSTALLER | B1, B4 |
+| B6 | API et écran Sauvegardes | WP-API-AUTH, WP-FRONTEND | B2 à B4 |
+| B7 | Démons et labo : SFTP sur la VM Docker du labo, reconstruction de ns2 | WP-LAB-E2E | B2 à B5 |
+
+Ordre proposé : C1 ; puis en parallèle N1, N2, D1, B1 ; puis N3, N4, D2, B2, B3 ; puis N5 (release 0.2.0 : notifications et rattrapage DDNS) ; D3, D4, D5, D6 (0.2.1 : reprise DDNS) ; B4, B5, B6, B7 (0.2.2 : sauvegardes). Les notifications passent d'abord parce que la bascule DDNS et les sauvegardes s'appuient sur elles pour prévenir.
+
+**Questions ouvertes pour ces trois fonctions** (choix de l'utilisateur)
+
+- [ ] Canaux de la première version : e-mail, ntfy, Gotify, webhook et Home Assistant, avec Matrix dans le même lot ou plus tard ?
+- [ ] Sauvegardes vers S3 : nécessaires dès la première version ? Si oui, dépendance `boto3` (lourde) ou client S3 minimal écrit à la main (signature v4, PUT, GET, LIST) ?
+- [ ] Clé des archives : identité gardée par le cluster (chiffrée par la clé maître) et téléchargée une fois, ou clé publique de l'administrateur seulement, sans identité sur les nœuds ?
+- [ ] Bascule DDNS : manuelle par défaut avec notification, ou automatique après 5 minutes ?
+- [ ] Rétrogradation automatique de l'ancien primaire à son retour : d'accord pour l'activer par défaut ?
+- [ ] Rattrapage DDNS automatique après une panne, ou toujours par plan confirmé ?
+- [ ] Les zones de production déclarées dans les fichiers de l'utilisateur doivent d'abord être confiées à Pelagos (point 33) pour être préparées : d'accord ?
+- [ ] Baux Kea dans les archives par défaut (utile pour un nœud seul, redondant avec la HA) ?

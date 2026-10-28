@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+import dataclasses
+import grp
 import io
 import json
 import os
+import pwd
 import shutil
 import stat
 from pathlib import Path
@@ -129,6 +132,11 @@ def rig(tmp_path):
         shutil.rmtree(host / d, ignore_errors=True)
     (host / "var/lib/bind").mkdir(parents=True)
     env = make_env(host)
+    # Zone files get the BIND account: the caller's here, so no host account is needed (CI as root).
+    me = pwd.getpwuid(os.getuid())
+    env.paths = dataclasses.replace(
+        env.paths, bind_user=me.pw_name, bind_group=grp.getgrgid(os.getgid()).gr_name
+    )
     env.service_manager.units = set(UNITS)
     env.service_manager.active = {"named.service", "kea-dhcp4-server.service"}
     return {

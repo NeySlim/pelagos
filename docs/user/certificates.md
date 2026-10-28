@@ -7,7 +7,8 @@ needs the `admin:certificates` permission (the `admin` role has it).
 
 The replication certificates (internal CA and node certificates on `:8444`)
 stay separate: their expiry raises alerts on this screen's behalf, they are
-never replaced here.
+never replaced here. The certificates of the Kea HA listeners are listed
+here too and renewed by a plan ([Kea HA certificates](#kea-ha-certificates)).
 
 - [The screen](#the-screen)
 - [Sources](#sources)
@@ -17,6 +18,7 @@ never replaced here.
 - [All nodes at once](#all-nodes-at-once)
 - [Install, hot reload, rollback](#install-hot-reload-rollback)
 - [Renewal and alerts](#renewal-and-alerts)
+- [Kea HA certificates](#kea-ha-certificates)
 - [Settings](#settings)
 - [Audit and secrets](#audit-and-secrets)
 - [Troubleshooting](#troubleshooting)
@@ -257,6 +259,32 @@ critical at `checks.cert_critical_days` (7); for a short-lived certificate,
 at a third and a tenth of its lifetime when that is shorter, so a 24-hour
 certificate renewed on time never alerts. The alert names the source of the
 web certificate (manual: renew by hand).
+
+## Kea HA certificates
+
+The card **Kea HA certificates** lists, per node, the certificates its Kea
+configuration names for HA TLS (`cert-file` and `trust-anchor` of each
+relationship, or of a peer when set there), read from the files: issuer,
+names (SAN), expiry with the days left, and whether the issuer is the
+cluster CA ("cluster CA", "other CA"). "TLS incomplete" marks a relationship
+with only some of the three files. Certificates issued by hand with the
+cluster CA key (as before Pelagos did it) are listed and renewed like the
+ones Pelagos issued.
+
+`cert_expiry` watches them with the same thresholds as the other
+certificates (subject `cert:kea_ha:<path>`); a trust anchor other than the
+cluster CA is watched as well, the cluster CA itself by its own `cert:ca`
+alert.
+
+**Plan the renewal (every peer)** builds one plan for the whole HA set
+(`POST /install/security/ha-tls/plan`): new certificates from the cluster CA
+at the same paths on every node, then one `config-reload` per node (Kea
+reloads the files its hooks name on every reload), each node checked with
+`status-get` before the next. The HA stays up: no restart, no switch back
+to clear HTTP. Certificates from another CA are renewed by hand, or
+replaced by the cluster CA's through the same plan. How the HA listener is
+switched to TLS in the first place:
+[DHCP: securing the HA listener](dhcp.md#securing-the-ha-listener).
 
 ## Settings
 

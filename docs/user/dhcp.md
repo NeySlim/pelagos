@@ -332,6 +332,69 @@ resume answering clients on one server, as confirmed plans. The HA mode and
 the peer list change only through the relationship form above or the Kea
 configuration ([Getting started: HA pair](getting-started.md#7-a-kea-ha-pair)).
 
+### Securing the HA listener
+
+With HA and multi-threading (the default in Kea 2.6 and 3.x) each server opens
+its own HTTP listener at its peer `url` (port 8001 in the examples). That
+listener checks no basic authentication (Kea 2.6.3 to 3.2.0) and, before Kea
+3.0, accepts every command of the daemon (`config-set`, `dhcp-disable`, lease
+deletion) unless `restrict-commands` is true. The security audit
+(**Administration, Security audit**) reports each listener off loopback that
+takes a client without a certificate as `kea_ha_listener_open`: critical, or
+a warning marked "mitigated" when a firewall rule lets only some addresses
+reach the port. Its plan has three parts, each safe for the pair:
+
+1. **Restriction**: `restrict-commands: true` in every HA relationship of the
+   node (lossless edit, `config-reload`). The peers only send HA commands, so
+   nothing changes for them.
+2. **Guard**: with `nft` installed and no guard yet, the table
+   `inet pelagos_kea_ha_guard`, loaded by `pelagos-kea-ha-guard.service` from
+   `/etc/pelagos/kea-ha-guard.nft`, lets loopback and the peers' addresses
+   reach the port and drops the rest. The step watches the guard's counters
+   for up to 2.5 heartbeats: if only drops grow (a peer reaching the node from
+   another address), the guard is removed again and the step fails.
+3. **TLS**: a certificate per server from the cluster CA (EC P-256, the
+   server's HA addresses as SAN, serverAuth and clientAuth), `trust-anchor`,
+   `cert-file` and `key-file` in the relationship, the peer URLs in `https`,
+   `require-client-certs: true`. It switches every peer of the HA set in one
+   plan, built on a node that holds the cluster CA key: certificates
+   deposited on every node, then the standby, secondary and backup servers,
+   then the primaries, then a check on every node that `status-get` shows
+   each relationship back in its normal state and in touch (60 to 240 s).
+   A failed switch or check puts the previous files and configuration back
+   on every node. **Administration, Security audit** adds this part to a plan
+   that selects `kea_ha_listener_open`; `POST /install/security/ha-tls/plan`
+   builds it alone. An HA already in TLS with the cluster CA is reported
+   closed, and the same plan then renews its certificates
+   ([Certificates: Kea HA](certificates.md#kea-ha-certificates)).
+
+**The guard as an object.** The card **HA listener guard** of the security
+audit page shows, for the node picked at the top: the HA listeners, the
+addresses Pelagos set, the addresses the loaded table admits, and what
+differs. Edit the allowed addresses (one per line: HA peers, backups,
+prefixes such as `198.51.100.0/24`), then **Plan the change**: the plan loads
+the new list atomically and is watched like the first load, so a list that
+cuts a peer is put back as it was. **Use these** fills in the peers of the
+HA configuration.
+
+**A guard set up by hand** under the names `inet kea_ha_guard` and
+`kea-ha-guard.service` (rules in `/etc/nftables.d/kea-ha-guard.nft` or the
+file its `ExecStart` loads) is reported as `kea_ha_guard_unmanaged` (info)
+and shown on the card as "Set up by hand". **Adopt the hand-made guard**
+(or the finding's plan) loads the same addresses into Pelagos's table
+first, then disables the old unit, deletes the old table and moves its files
+to `/var/lib/pelagos/backups/ha-guard-adopt-<time>/`. The old unit is
+stopped only when its `ExecStop` deletes nothing but its own table (a
+`flush ruleset` there would also remove Pelagos's table). Both tables admit
+the same addresses while they overlap, so the listener is never open; if a
+step fails, the old guard is put back before Pelagos's is removed.
+Adopting twice does nothing.
+
+**Changed outside Pelagos.** Once Pelagos manages the guard and the HA
+relationship, a hand edit that contradicts them gives a `managed_drift`
+finding and alert (see
+[Kea file and running configuration](#changes-made-outside-pelagos)).
+
 ## DDNS
 
 The `dhcp-ddns` connection of the server (where it sends name change
@@ -392,6 +455,30 @@ direct `config-set`), the collector adds an audit entry "external change
 detected" (action `external.change`, target `<engine>:config`) holding the
 differences. A change made by a plan, an HA maintenance or the
 **config-reload** operation of the Operations screen is not reported.
+
+A hand edit that contradicts what Pelagos manages also gives a
+`managed_drift` finding in the security audit and an alert of the same kind
+on the node, naming what differs. Pelagos tracks, per node:
+
+- the HA listener guard: its rules file and unit, the addresses and ports of
+  the loaded table, the unit being enabled, and a hand-made guard coming
+  back after its adoption;
+- each Kea HA relationship: mode, timings, `trust-anchor`, `cert-file`,
+  `key-file`, `require-client-certs`, `restrict-commands`, and per peer the
+  URL, role, `auto-failover`, TLS files and basic-auth user (never a
+  password). Pelagos takes a relationship as it finds it the first time,
+  and again after each of its own writes to that engine, unless the audit
+  had already reported that same difference before the write;
+- the files Pelagos owns whole (the Kea 2.x socket drop-ins).
+
+Each finding offers two plans: **Adopt** keeps the node as it is and makes
+it Pelagos's state (nothing changes on the node); **Restore** applies
+Pelagos's state again (a Kea configuration through the usual test, reload
+and rollback; a guard watched like any guard change). Pick the action on
+the finding, select it, then **Build the plan**. With the API, a
+`managed_drift` id takes the suffix `#adopt` or `#restore`
+(`POST /install/security/plan`). What Pelagos last set is kept in
+`/var/lib/pelagos/managed_state.json` (root, 0600).
 
 ### Hook libraries no package owns
 

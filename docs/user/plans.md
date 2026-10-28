@@ -110,6 +110,8 @@ holds the data:
 | DHCP service enable or disable | this node | the node you pick |
 | Host (records and reservation) | this node | the primary of each zone, every node running Kea |
 | Security remediation of the shared Kea DDNS key | this node | BIND on this node, D2 on every node |
+| Kea HA TLS (switch or renewal of the certificates) | a node holding the cluster CA key | every node of the HA set: certificates first, then standby and backups, then primaries, then a check on each |
+| HA listener guard, adoption of a hand-made guard, `managed_drift` adopt or restore | the node the guard or object belongs to | that node only |
 
 When the plan is built by a peer (a zone it owns, a Kea file it holds), this
 node asks it over the replication channel, stores the plan, and applies it

@@ -15,6 +15,7 @@ commit and brought back.
 - [What the upgrade changes](#what-the-upgrade-changes)
 - [While two versions run](#while-two-versions-run)
 - [Rollback](#rollback)
+- [After the upgrade: adopt what was done by hand](#after-the-upgrade-adopt-what-was-done-by-hand)
 - [Check list](#check-list)
 
 ## What was verified
@@ -191,6 +192,24 @@ What to expect afterwards:
 
 A cluster in which only some nodes are rolled back is as valid as a
 cluster in the middle of an upgrade (previous section).
+
+## After the upgrade: adopt what was done by hand
+
+The audit of the new release recognizes the HA security work done by hand
+on 0.1.2 nodes and offers to take it over:
+
+- **HA TLS set up by hand** with certificates from the cluster CA: the
+  `kea_ha_listener_open` finding is closed, the certificates appear under
+  **Administration, Certificates, Kea HA certificates** with their expiry
+  alerts, and their renewal is a plan
+  ([Certificates](certificates.md#kea-ha-certificates)).
+- **A firewall guard set up by a script** (`inet kea_ha_guard`,
+  `kea-ha-guard.service`): finding `kea_ha_guard_unmanaged`, adopted by plan
+  into Pelagos's guard without leaving the listener open, then editable
+  ([DHCP: securing the HA listener](dhcp.md#securing-the-ha-listener)).
+- **The HA relationships** are recorded as found on the first audit after the
+  upgrade; a later hand edit gives a `managed_drift` finding to adopt or
+  restore ([DHCP: changes made outside Pelagos](dhcp.md#changes-made-outside-pelagos)).
 
 ## Check list
 

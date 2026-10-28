@@ -9,6 +9,7 @@ then every D2 switches, then the old key goes).
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -20,6 +21,7 @@ from pelagos.services.errors import ServiceError, ValidationError, field_error
 from pelagos.services.installer_runner import InstallerRunner, installer_env
 
 ENGINES = ("bind", "kea4", "kea6", "d2")
+log = logging.getLogger(__name__)
 
 
 class InstallService:
@@ -95,6 +97,8 @@ class InstallService:
         from pelagos.installer.importer import build_import_plan
 
         engines = self._engines(body.get("engines"))
+        if "bind" in engines:
+            self._pull_shared_keys()
         client = self.helper()
         if client is not None:
             return self.ctx.plan_store.put(
@@ -105,6 +109,26 @@ class InstallService:
         except ValueError as exc:
             raise ValidationError(str(exc)) from None
         return self.ctx.plan_store.put(plan)
+
+    def _pull_shared_keys(self) -> None:
+        """Every node signs with the same read and admin keys: when a peer's import stored them and
+        replication has not brought them yet, merge its cluster.toml now, or this import makes others."""
+        from pelagos.core import settings_registry as reg
+
+        settings = self.ctx.settings()
+        wanted = {f"tsig/{reg.get(settings, 'dns.read_key')}", f"tsig/{reg.get(settings, 'dns.admin_key')}"}
+        if self.peers is None or wanted <= set(self.ctx.cluster().secrets):
+            return
+        for peer in self.peers.peers():
+            client = self.peers.client(peer)
+            if client is None:
+                return
+            try:
+                self.ctx.config_store.merge_remote(client.fetch_config()["toml"])
+            except Exception as exc:  # the import still works alone, with keys of its own
+                log.warning("cluster.toml of %s not merged before the import: %s", peer.name, exc)
+            if wanted <= set(self.ctx.cluster().secrets):
+                return
 
     def security(self) -> list[dict[str, Any]]:
         """This node's findings, as the installer reports them."""

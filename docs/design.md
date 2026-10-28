@@ -938,7 +938,7 @@ Les routes de lecture agrègent les nœuds par une action de pair `resolver.heal
 
 **Réglages**
 
-`[settings.resolver]` (nouveau domaine) : `probe_interval_seconds` (300), `probe_tlds` (`["com","net","org","arpa"]`, plus les TLD servis), `probe_ipv6_enabled` (vrai), `fallback_auto_enabled` (faux), `fallback_after_seconds` (600), `fallback_max_hours` (24), `fallback_auto_return_enabled` (vrai), `fallback_return_healthy_minutes` (15). Écrit par l'écran : `resolver.fallback`, `resolver.presets`. Seuils dans `[settings.checks]` : `resolver_latency_p95_warning_ms` (800), `resolver_latency_p95_critical_ms` (1 600), `resolver_timeouts_warning_percent` (10), `resolver_timeouts_critical_percent` (30), `resolver_tld_failures` (3), `resolver_mismatch_warning_count` (100 par fenêtre), `resolver_lru_info_per_minute` (100). Rétention : `retention.resolver_raw_days` (7), `retention.resolver_hourly_days` (90).
+`[settings.resolver]` (nouveau domaine) : `probe_interval_seconds` (300), `probe_tlds` (`["com","net","org","arpa"]`, plus les TLD servis), `probe_ipv6_enabled` (vrai), `fallback_auto_enabled` (faux), `fallback_after_seconds` (600), `fallback_max_hours` (24), `fallback_auto_return_enabled` (vrai), `fallback_return_healthy_minutes` (15). Écrit par l'écran : `resolver.fallback`, `resolver.presets`. Seuils dans `[settings.checks]` : `resolver_latency_warning_milliseconds` (800, sur le p95), `resolver_latency_critical_milliseconds` (1 600), `resolver_timeouts_warning_percent` (10), `resolver_timeouts_critical_percent` (30), `resolver_tld_failures` (3), `resolver_mismatch_warning_count` (100 par fenêtre), `resolver_lru_info_per_minute` (100). Rétention : `retention.resolver_raw_days` (7), `retention.resolver_hourly_days` (90).
 
 **Plusieurs nœuds**
 
@@ -1321,11 +1321,13 @@ Ordre et releases proposés (la 0.2.1 en cours garde les correctifs des points 6
 - **0.2.4** : C4 ; puis H1, V4 en parallèle ; H2 ; H3, V5 ; H4 ; H5. Propositions IPv6 et Home Assistant.
 - **0.3.0** : C5 ; K3 ; K4 ; K5 ; K6 et K7. Migration Kea 3.x. Le numéro mineur change parce que la release change la façon de faire tourner Kea en production (série ISC par défaut, paquets remplacés) ; la production passe en Kea 3.2 avec cette release, au moment choisi par l'utilisateur.
 
-### 13.11 Points 59 à 63 : questions à trancher et défauts retenus
+### 13.11 Points 59 à 63 : décisions
 
-Chaque question a un défaut, appliqué tant que l'utilisateur n'a pas tranché ; le travail peut commencer avec ces défauts.
+Décidé le 2026-10-28 : chaque défaut recommandé est retenu tel quel.
 
-| Point | Question | Défaut recommandé |
+Action de l'utilisateur avant la 0.2.3 (point 61) : générer la clé Ed25519 de signature des releases et la garder hors du dépôt ; seule la clé publique entre dans le paquet. Sans elle, le lot U1 ne peut pas signer et l'interface refuse toute mise à jour.
+
+| Point | Question | Décision |
 | --- | --- | --- |
 | 59 | Source et série cible de Kea | ISC Cloudsmith `kea-3-2` (3.2.1 pour trixie amd64 et arm64) ; backports Debian 3.0 et ISC 3.0 proposés en second choix |
 | 59 | Paire HA mixte 2.6 / 3.x pendant la bascule | Non (exclue par ISC) : fenêtre courte de moins d'une minute, fichier de baux copié, `partner-down` accéléré |

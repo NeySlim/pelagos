@@ -10,7 +10,7 @@ export default [
   js.configs.recommended,
   // Node scripts: the mock server and the Playwright suite
   {
-    files: ['mock/**/*.{js,mjs}', 'e2e/**/*.{js,mjs}', 'playwright.config.js', 'vite.config.js', 'vitest.config.js'],
+    files: ['mock/**/*.{js,mjs}', 'e2e/**/*.{js,mjs}', 'e2e-lab/**/*.{js,mjs}', 'playwright.config.js', 'vite.config.js', 'vitest.config.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
@@ -22,7 +22,7 @@ export default [
   },
   // Playwright callbacks passed to page.evaluate run in the browser.
   {
-    files: ['e2e/**/*.{js,mjs}'],
+    files: ['e2e/**/*.{js,mjs}', 'e2e-lab/**/*.{js,mjs}'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   // Test files: vitest globals

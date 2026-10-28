@@ -37,6 +37,9 @@ VMS=(
   "9116:lab-pkg-rpm:rpmbuild:10.99.0.16"
   "9117:lab-docker:docker:10.99.0.17"
   "9118:lab-arm64:emul:10.99.0.18"
+  "9171:lab-d3a:legacy:10.99.0.71"
+  "9172:lab-d3b:legacy:10.99.0.72"
+  "9173:lab-d3c:legacy:10.99.0.73"
 )
 # "all" targets only the disposable test VMs; the gateway (9110) is never rolled back.
 ALL_TARGETS=(9111 9112 9113 9114 9116 9117)

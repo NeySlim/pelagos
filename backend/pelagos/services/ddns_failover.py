@@ -94,9 +94,12 @@ class Inventory:
     bind_nodes: int = 0  # nodes of the cluster running BIND, reachable or not
     roles: dict[str, Any] = field(default_factory=dict)
     names: dict[str, str] = field(default_factory=dict)
+    # Unreachable BIND nodes, by the address of their URL: a stopped primary keeps its D2 entries.
+    unreachable: dict[str, d2order.Endpoint] = field(default_factory=dict)
 
     def endpoints(self) -> list[d2order.Endpoint]:
-        return [n.endpoint for n in self.dns.values() if n.endpoint is not None]
+        found = [n.endpoint for n in self.dns.values() if n.endpoint is not None]
+        return found + [ep for n, ep in self.unreachable.items() if n not in self.dns]
 
 
 def listen_port(options: dict[str, str]) -> int:
@@ -468,16 +471,32 @@ class DdnsFailoverService:
             inv.dns[me] = self._dns_node(me, local.read_config(), local.list_zones())
         for peer in self.peers.peers_running(Engine.BIND):
             summary = self._snapshot(peer, Engine.BIND, "summary")
-            config = self._snapshot(peer, Engine.BIND, "config")
+            ok = summary and not summary.get("error")
+            config = self._snapshot(peer, Engine.BIND, "config") if ok else None
             if not summary or summary.get("error") or not config or config.get("error"):
                 if peer.id not in inv.offline:
                     inv.offline.append(peer.id)
+                endpoint = self._unreachable_endpoint(inv, peer.id)
+                if endpoint is not None:
+                    inv.unreachable[peer.id] = endpoint
                 continue
             zones = [Zone.from_dict(z) for z in summary.get("zones") or []]
             inv.dns[peer.id] = self._dns_node(peer.id, BindConfigTree.from_dict(config["config"]), zones)
             serials = summary.get("serials")
             inv.dns[peer.id].serials = dict(serials) if isinstance(serials, dict) else {}
         return inv
+
+    def _unreachable_endpoint(self, inv: Inventory, node_id: str) -> d2order.Endpoint | None:
+        """The node's URL address, with the port a D2 entry gives that address (53 when none does)."""
+        addresses = self.dns._addresses_of(node_id)
+        if not addresses:
+            return None
+        for d2 in inv.d2.values():
+            for _direction, domain in d2order.domains(d2.config):
+                for server in domain.get("dns-servers") or []:
+                    if isinstance(server, dict) and str(server.get("ip-address") or "") == addresses[0]:
+                        return d2order.Endpoint(node_id, addresses[0], d2order.server_port(server))
+        return d2order.Endpoint(node_id, addresses[0])
 
     def _snapshot(self, peer: Any, engine: Engine, kind: str) -> dict[str, Any] | None:
         """A peer's snapshot, asked again while its collector holds the engine (a named that stopped

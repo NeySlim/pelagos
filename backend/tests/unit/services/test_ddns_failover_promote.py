@@ -211,3 +211,36 @@ def test_zones_of_one_node_share_one_part(monkeypatch):
         PlanScope.DNS_ZONE,
         PlanScope.DNS_FAILOVER,
     ]
+
+
+def test_a_primary_whose_named_is_down_keeps_its_place_in_the_d2_lists(monkeypatch):
+    """Its BIND snapshot fails: the address of its URL still names its D2 entries, so the zone stays
+    prepared and the promotion puts the old primary second."""
+    inv = three_nodes()
+    del inv.dns[N1]
+    inv.offline = [N1]
+    svc, rec = service(inv, monkeypatch=monkeypatch)
+    svc.dns._addresses_of = lambda n: ["192.0.2.1"] if n == N1 else []
+    inv.unreachable[N1] = svc._unreachable_endpoint(inv, N1)
+    assert inv.unreachable[N1] == df.d2order.Endpoint(N1, "192.0.2.1", 53)
+    [st] = df.assess(inv, {})
+    assert st.primary == N1 and st.ready, st.blockers
+    servers = df.d2_lists(inv, [st])[0]["domains"][0]["servers"]
+    assert [(s["node_id"], s["role"]) for s in servers] == [
+        (N1, "primary"),
+        (N2, "secondary"),
+        (N3, "secondary"),
+    ]
+    svc.inventory = lambda: copy.deepcopy(inv)  # type: ignore[method-assign]
+    svc.failover_plan({}, "alice")
+    servers = rec.peers.built[-1][2]["config"]["forward-ddns"]["ddns-domains"][0]["dns-servers"]
+    assert [s["ip-address"] for s in servers] == ["192.0.2.3", "192.0.2.1", "192.0.2.2"]
+
+
+def test_an_unreachable_node_takes_the_port_its_d2_entries_give(monkeypatch):
+    inv = three_nodes()
+    inv.d2[N2].config["forward-ddns"]["ddns-domains"][0]["dns-servers"][0]["port"] = 5353
+    svc, _ = service(inv, monkeypatch=monkeypatch)
+    svc.dns._addresses_of = lambda n: ["192.0.2.1"] if n == N1 else []
+    assert svc._unreachable_endpoint(inv, N1) == df.d2order.Endpoint(N1, "192.0.2.1", 5353)
+    assert svc._unreachable_endpoint(inv, N2) is None

@@ -337,3 +337,15 @@ def test_success_after_the_last_failure_closes_in_the_same_poll():
         "update-success": "2026-10-28 11:17:23.59",
         "update-error": "2026-10-28 09:27:27.06",
     }
+
+
+def test_a_copy_refusing_after_the_primary_timed_out_keeps_the_window_open():
+    """Kea counts the REFUSED of a copy as update-success, a few ms after the primary's timeout:
+    every poll of a long outage has both, and the window must keep its start."""
+    s = dr.track_outage({"open": None, "last": None, "good_at": 100}, totals(), totals(1, 0, 1), 160)
+    stamps = {"update-success": "2026-10-28 17:57:57.295217", "update-timeout": "2026-10-28 17:57:57.291759"}
+    for i, now in enumerate((170, 180, 190)):
+        s = dr.track_outage(s, totals(1 + i, i, 1 + i), totals(2 + i, 1 + i, 2 + i), now, stamps=stamps)
+        assert s["open"] is not None and s["open"]["since"] == 100 and s["last"] is None
+    s = dr.track_outage(s, totals(4, 3, 4), totals(5, 4, 4), 200)  # a success and no failure
+    assert s["open"] is None and s["last"] == {"from": 100, "to": 200}

@@ -46,6 +46,8 @@ OUTAGE_KIND = "outage"  # d2 engine snapshot written by the D2 poller, copied to
 FAILURES = ("update-timeout", "update-error")
 # An open window with no new failure for this long is over: the next lost update opens another.
 QUIET_CLOSE_SECONDS = 900
+# A copy answers within a round trip of the primary's timeout; a recovered primary much later.
+RECOVERY_GAP_SECONDS = 2.0
 REVERSE_SUFFIXES = ("in-addr.arpa.", "ip6.arpa.")
 DEFAULT_VIEW = "_default"
 
@@ -104,11 +106,17 @@ def track_outage(
 
 
 def _recovered(stamps: dict[str, str] | None) -> bool:
-    """The latest success is newer than the latest failure (Kea's sample times, one clock)."""
+    """The latest success came well after the latest failure (Kea's sample times, one clock). Kea
+    counts any well-formed answer as a success, the REFUSED of a copy tried right after a primary
+    that timed out too: only a success `RECOVERY_GAP_SECONDS` later shows the primary is back."""
     if not stamps or not stamps.get("update-success"):
         return False
-    failed = [str(stamps[k]) for k in FAILURES if stamps.get(k)]
-    return bool(failed) and str(stamps["update-success"]) > max(failed)
+    try:
+        success = datetime.fromisoformat(str(stamps["update-success"]))
+        failed = [datetime.fromisoformat(str(stamps[k])) for k in FAILURES if stamps.get(k)]
+    except ValueError:
+        return False
+    return bool(failed) and (success - max(failed)).total_seconds() > RECOVERY_GAP_SECONDS
 
 
 def sample_stamps(raw: dict[str, Any]) -> dict[str, str]:

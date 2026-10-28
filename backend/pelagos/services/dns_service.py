@@ -139,9 +139,14 @@ class DnsService(DnsExtras):
         serials: dict[str, dict[str, int | None]] = {}
         if backend is not None:
             zones = backend.list_zones(view)
+            # A stopped named lets each SOA query wait for its timeout: its serials are unknown.
+            try:
+                running = backend.capabilities().running
+            except Exception:
+                running = False
             for zone in zones:
                 try:
-                    serial = backend.soa_serial(zone.name, zone.view)
+                    serial = backend.soa_serial(zone.name, zone.view) if running else None
                 except Exception:
                     serial = None
                 serials.setdefault(f"{zone.view}/{zone.name}", {})[self.ctx.node.id] = serial

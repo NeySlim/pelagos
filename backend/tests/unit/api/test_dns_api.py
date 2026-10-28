@@ -373,3 +373,12 @@ def test_handover_lists_user_statements(role_client, fake_dns):
     assert rows["handover/options/recursion"]["nodes"] == [fake_dns.node_id]
     assert rows["handover/options/recursion"]["managed_file"] == "options.conf"
     assert "handover/keys/ddi-admin" not in rows  # managed already
+
+
+def test_zones_of_a_stopped_named_list_without_soa_queries(admin, fake_dns, node_ctx, monkeypatch):
+    """Each SOA query to a stopped named would wait for its timeout: the serials are just unknown."""
+    fake_dns.running = False
+    monkeypatch.setattr(fake_dns, "soa_serial", lambda *a, **k: pytest.fail("SOA query to a stopped named"))
+    items = admin.get(Z).get_json()["items"]
+    ex = next(i for i in items if i["zone"]["name"] == "example.lan.")
+    assert ex["serials"] == {node_ctx.node.id: None}

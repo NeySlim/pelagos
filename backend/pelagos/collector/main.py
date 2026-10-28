@@ -511,6 +511,10 @@ class Collector:
         current = {a.subject: a for a in open_alerts if a.kind is AlertKind.DDNS_OUTAGE}
         now = datetime.fromtimestamp(self.clock(), tz=UTC)
         alerts: list[Alert] = []
+        # A stopped named lets each SOA query wait for its timeout, under the lock peers wait on.
+        running = (
+            self._named_running() if any(str(r["primary"]) == self.node_id for r in roles.values()) else None
+        )
         for key, role in roles.items():
             primary = str(role["primary"])
             view, zone = dfo.split_key(key)
@@ -518,7 +522,7 @@ class Collector:
             cause = dfo.outage_cause(
                 primary,
                 self.node_id,
-                local_serves=self._serves(zone, view) if mine else None,
+                local_serves=(self._serves(zone, view) if running else running) if mine else None,
                 peer_offline=primary in offline,
                 probe=None if mine else self._probe_primary(zone, view),
             )
@@ -535,6 +539,16 @@ class Collector:
             except Exception:
                 log.exception("automatic DDNS failover failed")
         return alerts
+
+    def _named_running(self) -> bool | None:
+        backend = self.backends.dns
+        if backend is None:
+            return None
+        try:
+            with self.backend_lock:
+                return bool(backend.capabilities().running)
+        except ConnectorError:
+            return False
 
     def _serves(self, zone: str, view: str) -> bool | None:
         backend = self.backends.dns

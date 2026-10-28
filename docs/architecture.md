@@ -3449,7 +3449,9 @@ return and switchover, D5 screen, D6 lab.
   entry changed since the plan, its rollback puts `before` back. The entry keeps the epoch and
   `since` of a recorded primary that is still the one, else starts at epoch 1. Applying the
   composite also needs `write:dhcp.config`. `GET /dhcp/ddns/resilience` adds `offline` (nodes
-  running BIND or D2 that did not answer; the plan refuses while any is listed), each zone's
+  running BIND or D2 that did not answer; the plan refuses while any is listed; a BIND node among
+  them keeps the address of its URL, with the port a D2 entry gives that address, so a stopped
+  primary still names its D2 entries and its zones stay prepared), each zone's
   `prepared_at`, each D2 domain's `zone` and each server's `port`; `replay` is the D1 selection
   over its default window (`{"from","to","source","candidates","notes"}`, notes naming zones that
   could not be read). `ddns_advice` (`d2:dns-servers`) carries `details.remediation =
@@ -3517,8 +3519,10 @@ return and switchover, D5 screen, D6 lab.
   like the other snapshots. A window opens at the last good poll when
   `update-timeout` or `update-error` grows, or when D2 is down (its queue is
   lost); it closes at the first poll with `update-success` and no new
-  failure or whose latest success sample (Kea's sample time) is newer than
-  its latest failure, after 900 s without failure, or when D2 comes back
+  failure or whose latest success sample (Kea's sample time) is more than
+  2 s newer than its latest failure (Kea counts any well-formed answer as
+  `update-success`, the REFUSED of a copy tried right after the primary
+  timed out too), after 900 s without failure, or when D2 comes back
   clean. Every
   lost update is counted by D2, so the leases to replay all fall inside.
 - **Replay plan**: `from`/`to` default to the open window (until now), else

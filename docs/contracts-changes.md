@@ -1751,3 +1751,23 @@ unknown kind as a pseudo-member with its raw value, `AlertKind.known`, and `Aler
 reads an unknown severity, state or engine as `warning`, `open`, `None`. A node no longer fails
 `alerts.list`, the cluster view, the API or the notification dispatcher on a kind added by a newer
 peer during a rolling upgrade. No package has to change its code.
+
+## 2026-10-28, DDNS failover batch D6: lab findings
+Behavior fixes, no interface change. Section 24: the D2 outage window no longer closes on a
+success sample less than 2 s after the latest failure (`services/ddns_replay.py`,
+`RECOVERY_GAP_SECONDS`): with the copies after the primary in the D2 lists, every lost update ends
+with the copy's REFUSED, which Kea counts as `update-success` (Kea-2.6.3 `src/lib/d2srv/dns_client.cc`,
+`DNSClientImpl::operator()`, gitlab.isc.org/isc-projects/kea, read 2026-10-28), and the window closed at
+each poll, keeping only the last poll of a long outage. `GET /dhcp/ddns/resilience` keeps a BIND
+node whose snapshot fails at the address of its URL (`Inventory.unreachable`), so during an outage
+the zones stay prepared and the D2 servers keep their node and role. WP-COLLECTOR: `ddns_outage`
+on the primary asks named's state once instead of one SOA query per zone (each waited 10 s
+for a stopped named while holding the engine lock peers wait on).
+WP-API-AUTH: an import plan with BIND first merges the peers' cluster.toml when this node lacks the
+`tsig/<read key>` or `tsig/<admin key>` secret (`InstallService._pull_shared_keys`): a node imported
+before replication brought a peer's keys made its own, and after the merge one node's named no
+longer matched the cluster secret (the promoted copy refused the demoted node's transfers).
+WP-API-AUTH: `GET /dns/zones` asks this node's named for serials only while it runs (a stopped named
+made each SOA query wait 10 s, 40 s for the Failover tab on the stopped primary). WP-FRONTEND: the
+Failover tab ignores a `ddns_outage` whose node is no longer the zone's primary, and runs one reload
+at a time (alert events at every poll used to supersede each slow resilience read).

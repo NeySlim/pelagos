@@ -126,6 +126,16 @@ def test_the_primary_reports_its_own_named(rig):
     assert collector.ddns_outage() == [] and open_outages(collector) == []
 
 
+def test_a_stopped_named_is_known_without_waiting_on_soa_queries(rig, monkeypatch):
+    """Each SOA query to a stopped named waits for its timeout under the lock peers wait on."""
+    collector, backend = rig
+    set_roles(collector.ctx, collector.node_id)
+    backend.running = False
+    monkeypatch.setattr(backend, "soa_serial", lambda *a, **k: pytest.fail("SOA query to a stopped named"))
+    [alert] = collector.ddns_outage()
+    assert alert.details["cause"] == "named_down"
+
+
 def test_a_copy_asks_the_primary_it_transfers_from(rig, monkeypatch):
     from pelagos.services import ddns_failover as service
 

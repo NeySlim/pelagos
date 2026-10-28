@@ -57,6 +57,9 @@ class ServiceManager:
     def start(self, unit: str) -> str:
         return self.runner.run([self.systemctl, "start", unit], privileged=True).output
 
+    def stop(self, unit: str) -> str:
+        return self.runner.run([self.systemctl, "stop", unit], privileged=True).output
+
     def daemon_reload(self) -> str:
         return self.runner.run([self.systemctl, "daemon-reload"], privileged=True).output
 
@@ -113,6 +116,9 @@ class SupervisorServices(ServiceManager):
     def disable_now(self, unit: str) -> str:
         return self._ctl("stop", supervisor_program(unit)).output
 
+    def stop(self, unit: str) -> str:
+        return self._ctl("stop", supervisor_program(unit)).output
+
     def restart(self, unit: str) -> str:
         return self._ctl("restart", supervisor_program(unit)).output
 
@@ -154,6 +160,9 @@ class ExternalServices(ServiceManager):
         return self._elsewhere(unit)
 
     def disable_now(self, unit: str) -> str:
+        raise RuntimeError(f"{unit} runs in its own container: stop it there")
+
+    def stop(self, unit: str) -> str:
         raise RuntimeError(f"{unit} runs in its own container: stop it there")
 
     def restart(self, unit: str) -> str:

@@ -192,6 +192,14 @@ class FakeServices:
     def restart(self, unit: str) -> str:
         return self._do("restart", unit)
 
+    def start(self, unit: str) -> str:
+        self.active.add(unit)
+        return self._do("start", unit)
+
+    def stop(self, unit: str) -> str:
+        self.active.discard(unit)
+        return self._do("stop", unit)
+
     def daemon_reload(self) -> str:
         return self._do("daemon_reload", "")
 

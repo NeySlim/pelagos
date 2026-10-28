@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""`pelagos install`, `pelagos import` and `pelagos audit`: plan, show, confirm, run as a Job."""
+"""`pelagos install`, `pelagos import` and `pelagos audit`: plan, show, confirm, run as a Job.
+
+`pelagos backup` and `pelagos restore` live in `archive_cli`."""
 
 from __future__ import annotations
 
@@ -324,3 +326,7 @@ def add_parsers(sub: Any) -> None:
     a.add_argument("--fix-all", action="store_true", help="remediate every finding that has a remediation")
     _common(a)
     a.set_defaults(func=cmd_audit)
+
+    from pelagos.installer.archive_cli import add_parsers as add_archive_parsers
+
+    add_archive_parsers(sub)

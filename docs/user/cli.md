@@ -24,6 +24,8 @@ pelagos [--home DIR] [-v] <command> [options]
 | [`install`](#pelagos-install) | install BIND and Kea, then adopt them |
 | [`import`](#pelagos-import) | adopt an existing BIND and Kea configuration |
 | [`audit`](#pelagos-audit) | security audit and its remediation |
+| [`backup`](#pelagos-backup) | archive this node now, or list its archives |
+| [`restore`](#pelagos-restore) | rebuild this node from an archive |
 | [`user`](#pelagos-user) | local account recovery |
 | [`serve`](#pelagos-serve) | development web server |
 | [`collector`](#pelagos-collector) | run the collector |
@@ -168,6 +170,67 @@ sudo pelagos audit --fix-all --yes
 Exit status of `install`, `import` and `audit`: `0` done, `1` failed (the
 plan or a step), `2` usage error (also: applying without root), `3` not
 confirmed (no `--yes` and no terminal, or answered no).
+
+## pelagos backup
+
+Without options, archives this node now, like the scheduled run: the
+running collector does it (local folder, every destination, audit) and the
+command waits for the result; when no collector runs, the archive is made by
+the command itself.
+
+| Option | Effect |
+| --- | --- |
+| `--list` | list the archives on this node: its own and those it holds for its peers |
+| `--output DIR` | write one archive to `DIR` only: no local copy, no destination, no schedule state |
+| `--recipient AGE1` | with `--output`, also encrypt to this age public key (repeatable) |
+| `--no-leases` | with `--output`, leave the Kea lease files out |
+| `--strict` | with `--output`, exit `1` when the archive is incomplete |
+| `--timeout SECONDS` | how long to wait for the collector (default 900) |
+| `--json` | machine-readable output |
+
+```sh
+sudo pelagos backup
+sudo pelagos backup --list
+sudo pelagos backup --output /root/before-reinstall --recipient age1...
+```
+
+Archives are encrypted to `archives.recipients` (the cluster key first);
+without any recipient the command fails: create the cluster key first, or
+give `--recipient` with `--output`.
+
+## pelagos restore
+
+Rebuilds this node from one of its archives, identically: `node.toml`, the
+master key, the PKI and the Pelagos state, the BIND and Kea files, the
+zones and the DNSSEC keys, the Kea leases. For a node that is lost: the
+other nodes do not need to be running. See
+[Rebuilding a lost node](operations.md#rebuilding-a-lost-node).
+
+| Option | Effect |
+| --- | --- |
+| `--archive FILE` | the `.tar.gz.age` file; its `.sha256` beside it is checked when present |
+| `--identity FILE` | age identity file (`AGE-SECRET-KEY-1...` lines, `#` comments): the cluster key or an operator key; `-` reads it from stdin; repeatable. Without it, the cluster keys this node still holds |
+| `--only LIST` | comma list among `bind`, `kea`, `pelagos` (default: all three) |
+| `--dry-run` | show what would be written and check a copy of the configurations; changes nothing |
+| `--no-start` | leave the services stopped afterwards |
+| `--force` | replace the identity of another node already initialized on this host |
+| `--workdir DIR` | where the archive is opened (default `/run` when it has room, else the temporary folder) |
+| `--backup-dir DIR` | where the files it replaces are saved (default `/var/backups`) |
+| `--yes`, `-y`, `--json` | as for `install` |
+
+Steps: the archive is decrypted and every member checked against the
+manifest; the services of the parts restored (`named`, the Kea daemons,
+`pelagos`, `pelagos-collector`) are stopped; each file goes back to its path
+with its mode and owner (the files it replaces are copied to
+`/var/backups/pelagos-restore-<time>/` first); a dynamic zone is written from
+its AXFR snapshot, without the records a `dnssec-policy` signs again, and
+its journal is removed; `named-checkconf -z` and `kea-* -t` check the files
+in place (a failure puts every previous file back and starts the services
+again); then the services start.
+
+Exit status: `0` done, `1` failed (archive unreadable, plan errors such as a
+missing engine or account, a check, a service), `2` usage error (also:
+applying without root), `3` not confirmed.
 
 ## pelagos user
 

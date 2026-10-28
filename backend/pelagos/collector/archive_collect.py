@@ -394,6 +394,8 @@ class Builder:
                 for key in value.get("tsig-keys") or []:
                     if isinstance(key, dict) and key.get("secret-file"):
                         src.add(str(key["secret-file"]), part)
+            for path in tls_files(value):
+                src.add(path, part)
             src.flush()
         if include_leases and engine in ("kea4", "kea6"):
             for name in _lease_files(engine, value, backend):
@@ -433,6 +435,27 @@ def _lease_files(engine: str, value: dict[str, Any], backend: Any) -> list[str]:
         lease_dir = backend.ctx.engine_config.get("lease_dir", DEFAULT_LEASE_DIR)
         name = f"{lease_dir}/kea-leases{engine[-1]}.csv"
     return [str(name)]
+
+
+TLS_KEYS = ("trust-anchor", "cert-file", "key-file")
+
+
+def tls_files(value: dict[str, Any]) -> list[str]:
+    """TLS files a Kea configuration loads (HA relationships and peers, HTTP control sockets), so a
+    rebuilt node gets them back; a trust anchor that is a folder is skipped by `FileSource.add`."""
+    entries: list[Any] = []
+    for hook in value.get("hooks-libraries") or []:
+        if isinstance(hook, dict) and "libdhcp_ha" in str(hook.get("library", "")):
+            for rel in (hook.get("parameters") or {}).get("high-availability") or []:
+                if isinstance(rel, dict):
+                    entries += [rel, *(rel.get("peers") or [])]
+    sockets = value.get("control-sockets") or []
+    entries += [value.get("control-socket"), *(sockets if isinstance(sockets, list) else [])]
+    out: list[str] = []
+    for entry in entries:
+        if isinstance(entry, dict):
+            out += [str(entry[k]) for k in TLS_KEYS if str(entry.get(k) or "").startswith("/")]
+    return list(dict.fromkeys(out))
 
 
 _INCLUDE_BIND = re.compile(r'(include\s+")(/[^"]+)(")')

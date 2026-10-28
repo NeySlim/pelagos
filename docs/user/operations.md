@@ -63,40 +63,63 @@ How it behaves:
 
 ## Backup and restore
 
-What to save on each node:
+Each node archives itself on a schedule (`[settings.archives]`, see
+[Configuration](configuration.md#archive-destinations-archivesdestinations)):
+one encrypted file per run, `<node>-<time>.tar.gz.age` with its `.sha256`,
+in `/var/lib/pelagos/archives/local/` and copied to the destinations (a peer
+node by default, a mounted folder, SFTP). An archive holds the BIND files
+(named.conf and its includes, the managed folder, static zone files, the
+dynamic zones as an AXFR snapshot, the DNSSEC keys), the Kea files
+(configurations and includes, D2 secret files, HA TLS files, the lease
+files) and the Pelagos files (`node.toml`, `master.key`, `tls/`,
+`cluster.toml`, `audit/`, `pki/`, `webcert/`). `sudo pelagos backup` makes
+one now; `sudo pelagos backup --list` lists those a node keeps.
 
-| Path | Content | Notes |
-| --- | --- | --- |
-| `/etc/pelagos/` | `node.toml`, `master.key`, `tls/`, `pelagos.env` | `master.key` decrypts every secret of the cluster: keep the copy offline and encrypted |
-| `/var/lib/pelagos/` | `cluster.toml`, `audit/`, `pki/`, `backups/`, `series.sqlite` | `pki/ca.key` exists on CA nodes only; `series.sqlite` can be left out (rebuilt) |
-| BIND | `named.conf`, the include directory, zone files and journals | distribution layout |
-| Kea | `/etc/kea/*.conf` and secret files, leases in `/var/lib/kea/` | |
+Archives are encrypted with [age](https://age-encryption.org/v1) to the
+cluster key and to the operator keys added to `archives.recipients`. The
+cluster key is shown once when it is created: keep it offline, it is the
+only way to open the archives once every node is gone. An operator key made
+with `age-keygen` works the same way and never leaves your hands. The
+archive holds `master.key`: never store its key next to it.
 
-A consistent copy of the Pelagos state:
+`age -d -i key.txt ns2-20261028T031500Z.tar.gz.age | tar tz` lists an
+archive without Pelagos.
 
-```sh
-sudo systemctl stop pelagos pelagos-collector
-sudo sh -c 'umask 077; tar -C / -czf pelagos-ns1-$(date +%F).tar.gz etc/pelagos var/lib/pelagos'
-sudo systemctl start pelagos pelagos-collector
-```
+### Rebuilding a lost node
 
-The archive holds `master.key`: `umask 077` keeps it readable by root
-only (a plain `sudo tar` writes it world-readable).
+The node comes back with its identity, its zones, its DNSSEC keys and its
+leases; its peers need not be running.
 
-For dynamic zones, run `sudo rndc sync -clean` first so the zone files hold
-the journal's changes. With compose, back up the `pelagos-etc` and
-`pelagos-var` volumes (and the BIND and Kea volumes) the same way, with the
-stack stopped.
+1. Install the operating system with the node's former name and addresses.
+2. Install the engines it ran from the same source (on Debian
+   `apt install bind9 bind9-utils kea-dhcp4-server kea-dhcp-ddns-server`)
+   and the Pelagos package of the same version. Do not run `pelagos init`,
+   `enroll` or `import`.
+3. Copy the latest archive and its `.sha256` to the host: from the peer that
+   holds it (`/var/lib/pelagos/archives/peers/<node id>/`), the mounted
+   folder or the SFTP server.
+4. Check, then restore:
 
-**Restore on a rebuilt server**: install the same Pelagos version and the
-engines with their configuration, extract the archive to `/`, start the
-units (`pelagos-prestart` gives the files back to the `pelagos` user).
+   ```sh
+   sudo pelagos restore --archive ns2-20261028T031500Z.tar.gz.age --identity cluster-key.txt --dry-run
+   sudo pelagos restore --archive ns2-20261028T031500Z.tar.gz.age --identity cluster-key.txt
+   ```
 
-**Rebuild one node of a cluster** instead: remove it from **Nodes** on
-another node, reinstall, enroll it again with a new token, run
-`pelagos import`. It receives `cluster.toml`, the master key and the audit
-log from its peers; BIND transfers its secondary zones and Kea HA
-synchronizes the leases.
+5. The services start on the restored files. Kea HA synchronizes the leases
+   with the partner and the pair goes back to `hot-standby`; the node
+   catches up on the cluster changes made since the archive; secondary zones
+   transfer again.
+
+Changes the node received after the archive (DNS updates on its primary
+zones, leases it alone handed out) are lost: archive often enough. A zone
+the node was primary for restarts from the archived serial: a secondary that
+received a higher serial before the loss keeps its copy until the primary's
+serial passes it.
+
+**Rebuild instead of restoring**: remove the node from **Nodes** on another
+node, reinstall, enroll it again with a new token, run `pelagos import`. It
+receives `cluster.toml`, the master key and the audit log from its peers;
+BIND transfers its secondary zones and Kea HA synchronizes the leases.
 
 ### Plans across restarts
 

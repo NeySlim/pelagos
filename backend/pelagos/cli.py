@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The `pelagos` command: serve, collector, version, init, install, import, audit, enroll, helper, user."""
+"""The `pelagos` command: serve, collector, version, init, install, import, audit, backup, restore,
+enroll, helper, user."""
 
 from __future__ import annotations
 

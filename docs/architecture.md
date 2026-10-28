@@ -3293,7 +3293,8 @@ command line, B6 API and screen, B7 lab.
   failed, its file and `.jnl`), `bind.dnssec` (`K<zone>.+*` in `directory` and every
   `key-directory`, for zones with a `dnssec-policy` other than `none` or `inline-signing`),
   `kea4.config`, `kea6.config`, `d2.config` (each configuration with its `<?include?>` files,
-  D2 `secret-file`s), `kea.leases` (memfile `name`, `.1`, `.2`, unless
+  D2 `secret-file`s, the absolute `trust-anchor`, `cert-file` and `key-file` of the HA
+  relationships, their peers and the control sockets), `kea.leases` (memfile `name`, `.1`, `.2`, unless
   `include_leases_enabled` is false or `persist` is false), `pelagos` (`node.toml`,
   `master.key`, `tls/`, `cluster.toml`, `audit/`, `pki/`, `webcert/`). Dynamic primaries are
   taken by AXFR with the read key (`zones[].source` `axfr`, SOA first, absolute names) outside
@@ -3347,6 +3348,29 @@ command line, B6 API and screen, B7 lab.
   holds plus `"in_use": [recipient]` and `"in_use_known"`), `GET /repl/v1/archives/<id>` (the
   file, `application/octet-stream`, own or held, streamed). Client: `ReplicationClient.put_archive`,
   `list_archives`, `fetch_archive` over `repl_http.request_stream`.
+- **Command line** (B5, `installer/archive_cli.py`, `installer/restore.py`): `pelagos backup`
+  asks the running collector for a run (`archive` event) and waits for `state.json`, or runs
+  `ArchiveRunner.run("cli")` itself when no collector listens; `--list` (own and held
+  archives), `--output DIR` (one archive written there only, `--recipient` adds age keys).
+  `pelagos restore --archive F [--identity F]... [--only bind,kea,pelagos] [--dry-run]
+  [--no-start] [--force] [--workdir D] [--backup-dir D] [--yes] [--json]` (root): the `.sha256`
+  is checked when present, the archive extracted with the identities given (age identity files,
+  `-` for stdin; else the cluster identities of the node) into a 0700 folder under `/run` when it
+  has room, removed afterwards. Plan: every manifest file of the groups chosen (`bind.*`,
+  `kea4|kea6|d2.config` and `kea.leases`, `pelagos`) back to its path, mode and owner (`user:group`
+  must exist when root, else the plan fails); each `axfr` zone written to the `file` of the
+  archived configuration (resolved against its `directory`), 0644 `bind_user:bind_group`, its
+  DNSSEC records (RRSIG, NSEC, NSEC3, NSEC3PARAM, DNSKEY, CDS, CDNSKEY, TYPE65534) left out for a
+  zone with a `dnssec-policy`; `.jnl`, `.signed`, `.signed.jnl` beside a restored zone file
+  removed unless archived; the engines' binaries must be installed; a host already initialized
+  as another node needs `--force`. Apply: the units of the groups (`named`, Kea units, then
+  `pelagos.service`, `pelagos-collector.service`) stopped when active, replaced files copied to
+  `<backup-dir>/pelagos-restore-<UTC time>/`, files written through a temporary name and
+  renamed, missing folders created 0750 with the file's owner, SELinux relabelled,
+  `named-checkconf -z` and `kea-* -t` in place (a failure restores every previous file and
+  starts the stopped units again), audit `restore.apply` (`request.mode` `offline`), then each
+  unit `enable --now`. `--dry-run` checks a copy as the test restore does (Kea copies under
+  AppArmor reported not checked).
 - **Audit**: `admin.archive.add|replace|delete` (destinations),
   `admin.archive.op` (`request.op`: `generate`, `rotate`, `add_recipient`,
   `remove_recipient`, `download`, `upload`, `run`), `archive.create` (one

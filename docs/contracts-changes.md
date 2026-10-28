@@ -1725,3 +1725,11 @@ test restore denied by AppArmor is reported not checked instead of failed. Contr
 (`domain/messages.py`): `plan.restore`, `plan.restore.bind_files`, `plan.restore.zone_replace`,
 `plan.restore.pelagos`. WP-FRONTEND: their en and fr texts; the restore screen is batch B6.
 User files go through `bind_user_write` like a handover when the web process cannot write them.
+
+## 2026-10-28, archives batch B5: `pelagos backup` and `pelagos restore`
+Additive. Architecture section 23 (command line; the Kea parts of an archive also hold the HA
+and control socket TLS files). Contract (`cli.py`): the commands are registered by
+`installer/cli.add_parsers`. WP-INSTALLER: `installer/archive_cli.py`, `installer/restore.py`,
+`ServiceManager.stop` (and the supervisord and external variants). WP-COLLECTOR:
+`archive_collect.tls_files`, archived with each Kea configuration so a rebuilt node keeps its
+HA TLS identity. No new dependency.

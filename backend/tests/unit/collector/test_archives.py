@@ -508,3 +508,32 @@ def test_kea_dash_t_denied_by_apparmor_is_not_a_failure(
     runner.run()
     check = next(c for c in runner.store.load_state().test_restore["checks"] if c["what"] == "kea-dhcp4 -t")
     assert check["ok"] is False
+
+
+def test_kea_tls_files_are_archived_with_the_configuration():
+    from pelagos.collector.archive_collect import tls_files
+
+    ha = {
+        "library": "/usr/lib/kea/hooks/libdhcp_ha.so",
+        "parameters": {
+            "high-availability": [
+                {
+                    "trust-anchor": "/etc/kea/tls/ca.crt",
+                    "cert-file": "/etc/kea/tls/ns1.crt",
+                    "key-file": "/etc/kea/tls/ns1.key",
+                    "peers": [{"name": "ns2", "cert-file": "/etc/kea/tls/ns1.crt"}],
+                }
+            ]
+        },
+    }
+    value = {
+        "hooks-libraries": [{"library": "/usr/lib/kea/hooks/libdhcp_lease_cmds.so"}, ha],
+        "control-sockets": [{"socket-type": "https", "key-file": "/etc/kea/tls/api.key", "cert-file": "rel"}],
+    }
+    assert tls_files(value) == [
+        "/etc/kea/tls/ca.crt",
+        "/etc/kea/tls/ns1.crt",
+        "/etc/kea/tls/ns1.key",
+        "/etc/kea/tls/api.key",
+    ]
+    assert tls_files({}) == []

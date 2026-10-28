@@ -316,7 +316,7 @@ export default function AlertsPage() {
       key: 'title',
       label: t('columns.title'),
       render: (a) => (
-        <span className="inline-flex items-center gap-1.5 min-w-0 max-w-[28rem]" title={msg(a.title_message, a.title)}>
+        <span className="inline-flex items-center gap-1.5 min-w-0 max-w-[24rem]" title={msg(a.title_message, a.title)}>
           <span className="truncate text-text-primary">{msg(a.title_message, a.title)}</span>
           {INCONSISTENCY_KINDS.has(a.kind) && <Badge variant="purple" size="sm" className="shrink-0">{t('inconsistency')}</Badge>}
         </span>

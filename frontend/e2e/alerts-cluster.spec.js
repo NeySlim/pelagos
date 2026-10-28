@@ -2,6 +2,7 @@
 // Item 46: the alerts page is the cluster's. Each row names its node, or "Cluster" with the
 // nodes reporting it; the node filter keeps a node's alerts and the cluster-wide ones it reports;
 // a node whose alerts cannot be read is named above the table and on the dashboard tile.
+// Every state is listed: an earlier spec's security plan resolves the rndc-key alert.
 import { test, expect } from '@playwright/test'
 import { signIn } from './family'
 
@@ -19,7 +20,7 @@ test.afterEach(async ({ page }) => {
 
 test('every alert says where it comes from and the node filter keeps that node', async ({ page }) => {
   await signIn(page)
-  await page.goto('/alerts')
+  await page.goto('/alerts?state=')
   const table = page.getByTestId('alerts-table')
   const rsa = table.locator('tr', { hasText: 'rndc-key' })
   await expect(rsa.getByTestId('alert-origin')).toHaveText('ns2')
@@ -27,7 +28,7 @@ test('every alert says where it comes from and the node filter keeps that node',
   await expect(ptr.getByTestId('alert-origin')).toContainText('Cluster')
   await expect(ptr.getByTestId('alert-origin')).toContainText('via ns1')
   const all = await table.getByTestId('alert-origin').count()
-  await page.goto('/alerts?node_id=' + (await nodeId(page, 'ns2')))
+  await page.goto('/alerts?state=&node_id=' + (await nodeId(page, 'ns2')))
   await expect(table.locator('tr', { hasText: 'rndc-key' })).toHaveCount(1)
   await expect(table.locator('tr', { hasText: '192.0.2.106' })).toHaveCount(0)
   expect(await table.getByTestId('alert-origin').count()).toBeLessThan(all)
@@ -35,7 +36,7 @@ test('every alert says where it comes from and the node filter keeps that node',
 
 test('a node that does not answer is named and its alerts are left out of the counts', async ({ page }) => {
   await signIn(page)
-  await page.goto('/alerts')
+  await page.goto('/alerts?state=')
   const table = page.getByTestId('alerts-table')
   await expect(table.locator('tr', { hasText: 'rndc-key' })).toHaveCount(1)
   await event(page, 'alerts-peer', { node: 'ns2', down: true })

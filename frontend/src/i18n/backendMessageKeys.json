@@ -114,6 +114,9 @@
   "alert.duplicate_reservation": [
     "ip"
   ],
+  "alert.forwarders_divergence": [
+    "zone"
+  ],
   "alert.ha_backup_out_of_sync": [
     "count",
     "engine",
@@ -155,6 +158,9 @@
     "engine",
     "from_state",
     "to_state"
+  ],
+  "alert.hints_divergence": [
+    "zone"
   ],
   "alert.ipv6_missing_aaaa": [
     "count",
@@ -354,6 +360,14 @@
     "count",
     "engine",
     "minutes"
+  ],
+  "alert.root_hints_old": [
+    "file",
+    "version"
+  ],
+  "alert.root_hints_renumbered": [
+    "file",
+    "version"
   ],
   "alert.rpz_stale": [
     "hours",

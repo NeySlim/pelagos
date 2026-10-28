@@ -28,7 +28,7 @@ const ALERT_KINDS = [
   'version_mismatch', 'restart_loop', 'pool_forecast', 'security_advisory',
   'ha_terminated', 'clock_skew', 'clock_unsynchronized',
   'notification_failed', 'archive_failed', 'archive_stale', 'archive_incomplete', 'ddns_outage', 'ddns_replay', 'dns_stale_primary',
-  'kea_series_obsolete', 'ipv6_missing_aaaa', 'ipv6_reverse_missing', 'ipv6_stale_aaaa',
+  'kea_series_obsolete', 'ipv6_missing_aaaa', 'ipv6_reverse_missing', 'ipv6_stale_aaaa', 'root_hints_stale',
 ]
 
 describe('dashboard i18n', () => {

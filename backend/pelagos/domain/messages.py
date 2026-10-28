@@ -223,6 +223,12 @@ CATALOG: dict[str, str] = {
     "alert.dns_stale_primary": (
         "zone {zone} is served as primary on {node} but the primary role belongs to {primary} (epoch {epoch})"
     ),
+    "alert.forwarders_divergence": "forward zone {zone}: forwarders or forward mode differ between nodes",
+    "alert.hints_divergence": "root hints of zone {zone} differ between nodes",
+    "alert.root_hints_renumbered": (
+        "root hints file {file} (version {version}) predates the last root server renumbering"
+    ),
+    "alert.root_hints_old": "root hints file {file} is old (version {version})",
     # DDNS failover: why a zone is not ready (section 24).
     "ddns.blocker.not_managed": (
         "zone {zone} is declared in your own files on {node}: adopt it into Pelagos first"

@@ -647,6 +647,7 @@ class AlertKind(str, Enum):
     DDNS_OUTAGE="ddns_outage"; DDNS_REPLAY="ddns_replay"; DNS_STALE_PRIMARY="dns_stale_primary"
     KEA_SERIES_OBSOLETE="kea_series_obsolete"
     IPV6_MISSING_AAAA="ipv6_missing_aaaa"; IPV6_REVERSE_MISSING="ipv6_reverse_missing"; IPV6_STALE_AAAA="ipv6_stale_aaaa"
+    ROOT_HINTS_STALE="root_hints_stale"
 class AlertState(str, Enum): OPEN="open"; ACKED="acked"; RESOLVED="resolved"
 
 @dataclass(slots=True)
@@ -2046,7 +2047,7 @@ Alert kinds and rules (thresholds from `settings`):
 | Kind | Severity | Rule |
 | --- | --- | --- |
 | `pool_near_full` / `pool_full` | warning / critical | assigned/total >= warning percent / critical percent on two polls in a row; an open one holds until 5 points under its threshold (hysteresis) |
-| `serial_divergence` | warning | a secondary's SOA serial differs from the primary's for longer than `checks.serial_divergence_seconds` |
+| `serial_divergence` | warning | a secondary's SOA serial differs from the primary's for longer than `checks.serial_divergence_seconds`. Serials are compared only for zones a node is authoritative for (primary, secondary, mirror): the SOA of a hint or forward zone is a resolver's cached copy, never read nor compared |
 | `secondary_stale` | critical | secondary `expires` within 24 h, or AXFR refused |
 | `zone_error` | critical | `rndc zonestatus` fails or the zone is not loaded |
 | `ha_degraded` | warning | state not in {`hot-standby`, `load-balancing`, `passive-backup`, `backup`} for the configured mode |
@@ -2061,7 +2062,8 @@ Alert kinds and rules (thresholds from `settings`):
 | `d2_errors` | warning | `(update-error + update-timeout) / update-sent` over the last hour > `checks.d2_error_percent` |
 | `daemon_down` | critical | a configured local daemon does not answer |
 | `peer_offline` | warning | peer unreachable for 3 polls |
-| `config_divergence` | warning | what the Kea servers of an HA relationship must share differs (subject `<engine>:config-hash`, below), or a Kea file differs from `config-get` (subject `<engine>:config-file`, kea4, kea6, d2), or cluster.toml schema mismatch (subject `schema:<peer id>`) |
+| `config_divergence` | warning | what the Kea servers of an HA relationship must share differs (subject `<engine>:config-hash`, below), or a Kea file differs from `config-get` (subject `<engine>:config-file`, kea4, kea6, d2), or cluster.toml schema mismatch (subject `schema:<peer id>`), or, engine bind and cluster-wide, a forward zone's mode and forwarders (subject `zone:<zone>[@<view>]:forwarders`) or a hint zone's hints file records (sha256 of the records, header comments ignored; subject `zone:<zone>[@<view>]:hints`) differ between the nodes that declare it, for `CONFIG_DIVERGENCE_GRACE_SECONDS`; details `aspect`, `nodes` |
+| `root_hints_stale` | warning, info | this node's hints file predates the last root server renumbering (related version before 2023112700: warning) or is more than 5 years old (info); subject `zone:<zone>[@<view>]:hints`; details `reason` (`renumbered` or `old`), `file`, `related_version`, `last_update` |
 | `lease_without_record` | info | active lease with `fqdn_fwd` true and no A/AAAA for its hostname in the forward zone |
 | `record_without_lease` | info | A/AAAA with a DHCID whose lease no longer exists |
 | `reservation_mismatch` | warning | reservation hostname/IP disagrees with the A/PTR records |
@@ -2347,7 +2349,7 @@ change revokes the user's other sessions.
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
 | `GET /dns/instances` | `read:dns` | | `{"items": [{"node_id", "capabilities": DnsCapabilities, "status": {rndc status fields}}]}` |
-| `GET /dns/zones?view=&kind=&q=` | `read:dns` | | `{"items": [{"zone": Zone, "serials": {node_id: int|null}, "divergent": bool, "status": {node_id: ZoneStatus}}]}` (`status` filled for secondary, mirror and stub zones with the read node's status, kept `peer_poll_seconds`, else `{}`) |
+| `GET /dns/zones?view=&kind=&q=` | `read:dns` | | `{"items": [{"zone": Zone, "serials": {node_id: int|null}, "divergent": bool, "status": {node_id: ZoneStatus}, "hints"?: {node_id: {"file","sha256","related_version","last_update","error"}}, "forwarders"?: {node_id: {"forward","forwarders"}}}]}` (`status` filled for secondary, mirror and stub zones with the read node's status, kept `peer_poll_seconds`, else `{}`; `serials` only for primary, secondary, mirror and stub zones; `divergent` compares serials for primary, secondary and mirror zones, `hints` digests for hint zones, `forwarders` for forward zones, and is false for other kinds) |
 | `GET /dns/zones/{zone}?view=` | `read:dns` | | `{"zone": Zone, "status": {node_id: ZoneStatus}, "mode": "dynamic"|"static"|<kind>, "views": [view names holding this zone], "copies": {node_id: {"kind","source"}}}` (`copies`: every reachable node holding the zone in that view) |
 | `POST /dns/zones/{zone}/secondaries/plan` | `write:dns.zones` | `{"view"?, "node_ids": [...], "primaries"?, "also_notify"?}` (`node_ids`: every node to hold a secondary copy of the zone's primary node; one part per node: the primary's `also-notify` set to their addresses (other entries kept; a zone in a user file keeps its own), a secondary added on each new node (`primaries` default `<primary address> key <read key>`, `allow-transfer` of the primary), the copy removed from each node left out; `409` when nothing changes) | `Plan` (`requires_confirmation` when a copy is removed) |
 | `POST /dns/zones/plan` | `write:dns.zones` | `{"change": Change, "node_ids"?: [...], "node_id"?}` (`node_id`: the node that holds the zone and builds the plan, default this node, else the first node running BIND; a peer builds it over `dns.zone.plan`; target `<view>/<zone>`, `after` = Zone; `after.source: "addzone"` adds it with `rndc addzone`, and a zone whose source is `addzone` is changed with `rndc modzone`/`delzone`; with `node_ids` a new primary also lands on those peers as a secondary of this node, `after.secondary.primaries` saying where they transfer from) | `Plan` |

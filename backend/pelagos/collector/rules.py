@@ -19,6 +19,8 @@ on every pass:
   config_divergence  cluster-wide, engine    "<engine>:config-hash"
   config_divergence  peer node, no engine    "schema:<peer id>" (cluster.toml schema mismatch)
   config_divergence  node, kea4|kea6|d2      "<engine>:config-file" (file on disk vs config-get)
+  config_divergence  cluster-wide, bind      "zone:<zone>[@<view>]:forwarders" or ":hints"
+  root_hints_stale   node, bind              "zone:<zone>[@<view>]:hints"
 """
 
 from __future__ import annotations
@@ -486,6 +488,39 @@ def config_divergence(
         subject=f"{engine}:config-hash",
         **_title("alert.config_divergence", engine=engine),
         details=details,
+    )
+
+
+def zone_config_divergence(zone: str, view: str, aspect: str, nodes: dict[str, Any]) -> Alert:
+    """`aspect` "forwarders" (forward zone: mode and forwarders) or "hints" (hint zone: hints file
+    records); `nodes` holds what each node has."""
+    return Alert(
+        kind=AlertKind.CONFIG_DIVERGENCE,
+        severity=Severity.WARNING,
+        node_id=None,
+        engine=Engine.BIND,
+        subject=f"{zone_subject(zone, view)}:{aspect}",
+        **_title(f"alert.{aspect}_divergence", zone=zone),
+        details={"view": view, "aspect": aspect, "nodes": nodes, "cause": aspect},
+    )
+
+
+def root_hints_stale(node_id: str, zone: str, view: str, info: dict[str, Any], reason: str) -> Alert:
+    """`reason` "renumbered" (the file lists root server addresses retired since) or "old"."""
+    return Alert(
+        kind=AlertKind.ROOT_HINTS_STALE,
+        severity=Severity.WARNING if reason == "renumbered" else Severity.INFO,
+        node_id=node_id,
+        engine=Engine.BIND,
+        subject=f"{zone_subject(zone, view)}:hints",
+        **_title(
+            f"alert.root_hints_{reason}", file=str(info.get("file")), version=str(info.get("related_version"))
+        ),
+        details={
+            "view": view,
+            "reason": reason,
+            **{k: info.get(k) for k in ("file", "related_version", "last_update")},
+        },
     )
 
 

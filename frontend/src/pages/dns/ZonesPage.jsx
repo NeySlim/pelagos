@@ -23,7 +23,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
-import { ModeBadge, SerialCells, SourceBadge } from './common'
+import { ConfigCells, ModeBadge, SerialCells, SourceBadge } from './common'
 import { HandoverCard } from './HandoverCard'
 import { handoverItems } from './handover'
 import { useNodeNames, usePlanFlow, zoneHref, resynchronizeZone, SECONDARY_KINDS } from './helpers'
@@ -31,6 +31,8 @@ import { validDomainName } from './records'
 import { ADDZONE_KINDS, CREATABLE_KINDS, ROOT_KINDS, defaultNameServers, newZoneAfter, splitList, zoneMode, zoneStats } from './zoneTools'
 
 const KINDS = ['primary', 'secondary', 'stub', 'static-stub', 'forward', 'mirror', 'hint', 'redirect']
+// Kinds whose nodes compare configuration, not a serial (their SOA is a resolver's cached copy).
+const CONFIG_KINDS = ['hint', 'forward']
 const LIST_ERRORS = {
   list: 'zones.new.listError', required: 'zones.new.fileRequired', fileOrPrimaries: 'zones.new.fileOrPrimaries',
   nsName: 'zones.new.nsName', nsLocalhost: 'zones.new.nsLocalhost', nsAddress: 'zones.new.nsAddress', nsGlue: 'zones.new.nsGlue',
@@ -235,20 +237,19 @@ export default function ZonesPage() {
     { key: 'mode', label: t('zones.mode'), render: (row) => <ModeBadge mode={zoneMode(row)} /> },
     { key: 'zone.view', label: t('zones.view'), sortable: true, mono: true },
     { key: 'zone.source', label: t('zones.source'), render: (row) => <SourceBadge source={row.zone.source} /> },
-    { key: 'serials', label: t('zones.serials'), render: (row) => (row.zone.kind === 'forward' ? <span className="text-text-tertiary">-</span> : <SerialCells serials={row.serials} nameOf={nameOf} />) },
     {
-      key: 'divergent',
-      label: t('zones.sync'),
-      sortable: true,
+      key: 'serials',
+      label: t('zones.serials'),
       render: (row) =>
-        row.zone.kind === 'forward' ? <span className="text-text-tertiary">-</span> : <StatusBadge status={row.divergent ? 'divergent' : 'in-sync'} />,
+        CONFIG_KINDS.includes(row.zone.kind) ? <ConfigCells zone={row} nameOf={nameOf} divergent={row.divergent} /> : <SerialCells serials={row.serials} nameOf={nameOf} />,
     },
+    { key: 'divergent', label: t('zones.sync'), sortable: true, render: (row) => <StatusBadge status={row.divergent ? 'divergent' : 'in-sync'} /> },
     {
       key: 'actions',
       label: '',
       align: 'right',
       render: (row) =>
-        canOps && row.zone.kind !== 'forward' ? (
+        canOps && !CONFIG_KINDS.includes(row.zone.kind) ? (
           <Button
             variant={row.divergent ? 'warning-soft' : 'secondary'}
             size="xs"

@@ -62,6 +62,26 @@ describe('RollingNumber', () => {
     expect(container.querySelectorAll('.fx-roll-in')).toHaveLength(3)
   })
 
+  it('holds the value once in its text at rest, digit cells only while rolling', () => {
+    vi.useFakeTimers()
+    try {
+      const { container, rerender } = render(<RollingNumber value={2026102801} />)
+      const roll = () => container.querySelector('.fx-roll')
+      expect(container.textContent).toBe('2026102801')
+      expect(roll()).toHaveClass('is-static')
+      expect(container.querySelectorAll('.fx-roll-ch')).toHaveLength(0)
+      rerender(<RollingNumber value={2026102802} />)
+      expect(container.querySelectorAll('.fx-roll-ch')).toHaveLength(10)
+      expect(roll()).not.toHaveClass('is-static')
+      act(() => vi.advanceTimersByTime(1000))
+      expect(container.textContent).toBe('2026102802')
+      expect(roll()).toHaveClass('is-static')
+      expect(roll()).toHaveAttribute('data-value', '2026102802')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('a unit is part of the text and rolls with it', () => {
     const { container, rerender } = render(<RollingNumber value="837 /s" />)
     rerender(<RollingNumber value="1.24 k/s" />)

@@ -22,7 +22,7 @@ from pelagos.connectors.base import (
     NotSupported,
     PreconditionFailed,
 )
-from pelagos.connectors.bind import failover, handover, ops, staticzone, zonefile, zonerestore
+from pelagos.connectors.bind import failover, handover, hints, ops, staticzone, zonefile, zonerestore
 from pelagos.connectors.bind import rrset as rr
 from pelagos.connectors.bind.builtin_zones import is_builtin_zone
 from pelagos.connectors.bind.configplan import (
@@ -66,6 +66,7 @@ from pelagos.domain import (
     Plan,
     RRset,
     Zone,
+    ZoneKind,
     ZoneStatus,
     messages,
 )
@@ -366,6 +367,19 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
             if entry.name == "directory" and entry.value.strip():
                 return Path(entry.value.strip().strip('"'))
         return self.named_conf.parent
+
+    def root_hints(self, zones: list[Zone] | None = None) -> dict[str, dict[str, Any]]:
+        """Hints file of each `type hint` zone, keyed "<view>/<zone>" (connectors.bind.hints.read)."""
+        zones = self.list_zones() if zones is None else zones
+        found = [z for z in zones if z.kind is ZoneKind.HINT and z.file]
+        if not found:
+            return {}
+        directory = self._directory()
+        out = {}
+        for zone in found:
+            path = Path(zone.file)  # type: ignore[arg-type]
+            out[f"{zone.view}/{zone.name}"] = hints.read(path if path.is_absolute() else directory / path)
+        return out
 
     def rpz_dir(self) -> Path:
         """Where the RPZ zone files and the rewrite log live (the plan creates it with the first zone)."""

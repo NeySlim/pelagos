@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from pelagos.collector import zone_config
 from pelagos.connectors.base import DnsBackend
 from pelagos.connectors.bind import handover
 from pelagos.core.context import NodeContext
@@ -137,6 +138,8 @@ class DnsService(DnsExtras):
         read, keyed by node id: next_refresh and expires without one request per zone."""
         backend, peer = self._read_node(None)
         serials: dict[str, dict[str, int | None]] = {}
+        # Per "<view>/<zone>": each node's hints info (hint zones) or forward signature (forward zones).
+        configs: dict[str, dict[str, dict[str, Any]]] = {}
         if backend is not None:
             zones = backend.list_zones(view)
             # A stopped named lets each SOA query wait for its timeout: its serials are unknown.
@@ -144,7 +147,12 @@ class DnsService(DnsExtras):
                 running = backend.capabilities().running
             except Exception:
                 running = False
+            self._zone_configs(
+                configs, self.ctx.node.id, [z.to_dict() for z in zones], _hints_of(backend, zones)
+            )
             for zone in zones:
+                if zone.kind.value not in zone_config.SHOWN_SERIAL_KINDS:
+                    continue
                 try:
                     serial = backend.soa_serial(zone.name, zone.view) if running else None
                 except Exception:
@@ -155,6 +163,7 @@ class DnsService(DnsExtras):
             zones = [Zone.from_dict(z) for z in snap.get("zones", [])]
             for key, serial in (snap.get("serials") or {}).items():
                 serials.setdefault(key, {})[peer.id] = serial  # type: ignore[union-attr]
+            self._zone_configs(configs, peer.id, snap.get("zones") or [], snap.get("hints") or {})  # type: ignore[union-attr]
         for other in self.peers.peers_running(Engine.BIND):
             if peer is not None and other.id == peer.id:
                 continue
@@ -163,6 +172,7 @@ class DnsService(DnsExtras):
                 continue
             for key, serial in (snap.get("serials") or {}).items():
                 serials.setdefault(key, {})[other.id] = serial
+            self._zone_configs(configs, other.id, snap.get("zones") or [], snap.get("hints") or {})
         out = []
         for zone in zones:
             if view and zone.view != view:
@@ -171,18 +181,38 @@ class DnsService(DnsExtras):
                 continue
             if q and q.lower() not in zone.name:
                 continue
-            per_node = serials.get(f"{zone.view}/{zone.name}", {})
-            known = {s for s in per_node.values() if s is not None}
+            key = f"{zone.view}/{zone.name}"
+            # A peer on an older version still reports the cached SOA of hint and forward zones.
+            per_node = serials.get(key, {}) if zone.kind.value in zone_config.SHOWN_SERIAL_KINDS else {}
+            config = configs.get(key, {})
             item = {
                 "zone": zone.to_dict(),
                 "serials": per_node,
-                "divergent": len(known) > 1,
+                "divergent": zone_config.divergent(zone.kind.value, per_node, config),
                 "mode": zone_mode(zone),
             }
+            if zone.kind.value == zone_config.HINT:
+                item["hints"] = config
+            elif zone.kind.value == zone_config.FORWARD:
+                item["forwarders"] = config
             if status:
                 item["status"] = self._transfer_status(backend, peer, zone)
             out.append(item)
         return out
+
+    @staticmethod
+    def _zone_configs(
+        configs: dict[str, dict[str, dict[str, Any]]],
+        node_id: str,
+        zones: list[dict[str, Any]],
+        hints: dict[str, dict[str, Any]],
+    ) -> None:
+        for z in zones:
+            key = f"{z.get('view', '_default')}/{normalize_name(z['name'])}"
+            if z.get("kind") == zone_config.FORWARD:
+                configs.setdefault(key, {})[node_id] = zone_config.forward_signature(z)
+            elif z.get("kind") == zone_config.HINT and key in hints:
+                configs.setdefault(key, {})[node_id] = hints[key]
 
     def _transfer_status(self, backend: DnsBackend | None, peer: Peer | None, zone: Zone) -> dict[str, Any]:
         if zone.kind not in TRANSFER_KINDS:
@@ -694,6 +724,16 @@ class DnsService(DnsExtras):
         if result is AuditResult.ERROR:
             raise EngineUnavailable(f"rndc {op} failed: {message}")
         return output
+
+
+def _hints_of(backend: DnsBackend, zones: list[Zone]) -> dict[str, dict[str, Any]]:
+    read = getattr(backend, "root_hints", None)
+    if read is None or not any(z.kind is ZoneKind.HINT for z in zones):
+        return {}
+    try:
+        return read(zones)
+    except Exception:
+        return {}  # an unreadable hints file never fails the zone list
 
 
 def parse_change(raw: Any, where: str) -> Change:

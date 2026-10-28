@@ -1792,3 +1792,15 @@ WP-API-AUTH: the routes are registered (`api/resolver_health.py`, `api/kea_migra
 WP-INSTALLER: helper operation `kea_dry_run` (K1). WP-FRONTEND: `api.resolverHealth`,
 `api.keaMigration`, `api.ipv6`, the mock serves every new endpoint, labels of the settings,
 kinds and scope in en and fr.
+
+## 2026-10-28, hint and forward zones compared by configuration
+Additive. Architecture section on alerts: `AlertKind.ROOT_HINTS_STALE`, `config_divergence` with
+engine bind for forward zones (mode and forwarders) and hint zones (hints file digest), serials
+read and compared only for primary, secondary and mirror zones (stub serials still shown). Contract
+(`domain/messages.py`): `alert.forwarders_divergence`, `alert.hints_divergence`,
+`alert.root_hints_renumbered`, `alert.root_hints_old`. WP-BIND: `BindBackend.root_hints`
+(`connectors/bind/hints.py`). WP-COLLECTOR: `collector/zone_config.py`, BIND snapshot kind
+`hints`. WP-API-AUTH: the BIND summary snapshot carries `hints` and no serial for hint or forward
+zones; `GET /dns/zones` items carry `hints` or `forwarders` per node and their `divergent` follows
+them. WP-FRONTEND: the zones table shows them; RollingNumber draws its resting value from
+`data-value` so copied text holds each serial once.

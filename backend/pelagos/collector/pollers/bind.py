@@ -7,6 +7,7 @@ Snapshots written under (node_id, "bind", kind):
   "zone_list"     [Zone dict]
   "zones"         [ZoneStatus dict]   (kind, serial, expires, error per zone; peers read this one)
   "stats"         BindInstanceStats dict without raw
+  "hints"         {"<view>/<zone>": hints file info} of the hint zones (peers compare the digests)
 """
 
 from __future__ import annotations
@@ -27,11 +28,19 @@ from pelagos.collector.pollers import PollOutcome, engine_filter
 from pelagos.collector.pollers.kea import engine_write_in_progress
 from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DnsBackend
+from pelagos.connectors.bind import hints
 from pelagos.domain import AlertKind, Engine, Zone, ZoneKind, ZoneStatus
 
 log = logging.getLogger(__name__)
 
-KINDS = frozenset({AlertKind.DAEMON_DOWN.value, AlertKind.ZONE_ERROR.value, AlertKind.SECONDARY_STALE.value})
+KINDS = frozenset(
+    {
+        AlertKind.DAEMON_DOWN.value,
+        AlertKind.ZONE_ERROR.value,
+        AlertKind.SECONDARY_STALE.value,
+        AlertKind.ROOT_HINTS_STALE.value,
+    }
+)
 POLLED_KINDS = frozenset({ZoneKind.PRIMARY, ZoneKind.SECONDARY, ZoneKind.MIRROR, ZoneKind.STUB})
 
 
@@ -85,6 +94,7 @@ class BindPoller:
             zones = []
         self.store.write_snapshot(self.node_id, "bind", "zone_list", now, [z.to_dict() for z in zones])
         self._watch_managed_files()
+        self._root_hints(zones, now, out)
         statuses = [self._zone_status(z) for z in zones if z.kind in POLLED_KINDS]
         now_dt = datetime.fromtimestamp(now, tz=UTC)
         for st in statuses:
@@ -103,6 +113,22 @@ class BindPoller:
         except (ConnectorError, NotImplementedError) as exc:
             log.debug("instance_stats failed: %s", exc)
         return out
+
+    def _root_hints(self, zones: list[Zone], now: int, out: PollOutcome) -> None:
+        read = getattr(self.backend, "root_hints", None)
+        if read is None:
+            return
+        try:
+            found = read(zones)
+        except (ConnectorError, OSError) as exc:
+            log.debug("root hints not read: %s", exc)
+            return
+        self.store.write_snapshot(self.node_id, "bind", "hints", now, found)
+        for key, info in found.items():
+            reason = hints.staleness(info, datetime.fromtimestamp(now, tz=UTC))
+            if reason is not None:
+                view, zone = key.split("/", 1)
+                out.alerts.append(rules.root_hints_stale(self.node_id, zone, view, info, reason))
 
     def holds_copy(self, zone: str, view: str) -> bool:
         """This node holds the zone as a transferred copy (secondary or mirror) at the last read."""

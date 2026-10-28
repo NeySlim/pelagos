@@ -180,7 +180,8 @@
     "kea_series_obsolete": "Kea series no longer maintained",
     "ipv6_missing_aaaa": "IPv6 hosts without AAAA",
     "ipv6_reverse_missing": "IPv6 reverse zone missing",
-    "ipv6_stale_aaaa": "stale AAAA records"
+    "ipv6_stale_aaaa": "stale AAAA records",
+    "root_hints_stale": "stale root hints"
   },
   "live": {
     "label": "Live",

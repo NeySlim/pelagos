@@ -275,6 +275,8 @@ ZoneItem = model(
         "serials": fields.Raw,
         "divergent": fields.Boolean,
         "status": fields.Raw(description="node id -> ZoneStatus, secondary, mirror and stub zones only"),
+        "hints": fields.Raw(description="hint zones: node id -> hints file (sha256, related_version, file)"),
+        "forwarders": fields.Raw(description="forward zones: node id -> {forward, forwarders}"),
     },
 )
 ZoneList = items_of(ZoneItem, "ZoneList")

@@ -8,6 +8,9 @@ import { useMotionLevel } from '../../contexts/MotionContext'
 import { cn } from '../../lib/utils'
 import { rollCells, rollDirection } from './primitives'
 
+// Longer than the roll (--d-panel) and the hairline (--d-moment) of motion.css.
+const SETTLE_MS = 700
+
 export function RollingNumber({ value, format, direction, className, delta = true, 'data-testid': testId, ...props }) {
   const level = useMotionLevel()
   const text = value === null || value === undefined ? '' : String(format ? format(value) : value)
@@ -21,14 +24,23 @@ export function RollingNumber({ value, format, direction, className, delta = tru
     setState((s) => ({ text, previous, dir: rollDirection(previous, text, direction), gen: s.gen + 1 }))
   }, [text, direction])
 
+  // Per-character cells exist only while a change rolls: at rest the visible value is drawn by
+  // CSS from data-value, so copied text and innerText hold the value once, not one digit per line.
+  const [settled, setSettled] = useState(0)
+  useEffect(() => {
+    if (!state.gen) return undefined
+    const done = setTimeout(() => setSettled(state.gen), SETTLE_MS)
+    return () => clearTimeout(done)
+  }, [state.gen])
   const animate = level !== 'off' && state.gen > 0 && state.previous !== ''
-  const cells = rollCells(animate ? state.previous : state.text, state.text)
+  const rolling = animate && settled !== state.gen
+  const cells = rolling ? rollCells(state.previous, state.text) : []
   return (
     <span className={cn('fx-roll-wrap', className)} data-testid={testId} {...props}>
       <span className="sr-only">{state.text}</span>
       <span
         key={state.gen}
-        className={cn('fx-roll', state.dir === 'down' && 'is-down', animate && delta && 'is-delta')}
+        className={cn('fx-roll', !rolling && 'is-static', state.dir === 'down' && 'is-down', animate && delta && 'is-delta')}
         aria-hidden="true"
         data-value={state.text}
       >

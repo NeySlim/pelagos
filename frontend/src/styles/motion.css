@@ -50,6 +50,7 @@
 /* ============ Rolling number: only the characters that change move ============ */
 .fx-roll { display: inline-flex; position: relative; overflow: hidden; vertical-align: bottom; font-variant-numeric: tabular-nums; white-space: pre; }
 .fx-roll-ch { display: inline-grid; }
+.fx-roll.is-static::before { content: attr(data-value); }
 .fx-roll-ch > span { grid-area: 1 / 1; display: block; }
 .fx-roll-ch > .fx-roll-out { animation: fx-roll-out var(--d-panel) var(--settle) both; }
 .fx-roll-ch > .fx-roll-in { animation: fx-roll-in var(--d-panel) var(--settle) both; }

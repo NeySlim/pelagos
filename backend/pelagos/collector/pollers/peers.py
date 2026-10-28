@@ -15,7 +15,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
-from pelagos.collector import kea_shared, rules
+from pelagos.collector import kea_shared, rules, zone_config
 from pelagos.collector.pollers import PollOutcome
 from pelagos.collector.series import SeriesStore
 from pelagos.collector.snapshots import CACHE_KIND
@@ -145,6 +145,7 @@ class PeersPoller:
         self.divergent_since: dict[tuple[str, str, str], int] = {}
         self.backup_since: dict[tuple[str, str], int] = {}
         self.config_since: dict[str, int] = {}
+        self.zone_config_since: dict[str, int] = {}
         self._unimplemented_logged = False
         # Last node state sent per peer: (status, version, config_version, audit_count, error).
         self._node_seen: dict[str, tuple[Any, ...]] = {}
@@ -167,6 +168,7 @@ class PeersPoller:
             self._poll_peer(peer, now, out)
         self._serial_divergence(now, out)
         self._config_divergence(now, out)
+        self._zone_config_divergence(now, out)
         self._backup_sync(now, out)
         return out
 
@@ -420,6 +422,42 @@ class PeersPoller:
         field = "normalized" if all(p.get("normalized") for p in payloads.values()) else "hash"
         old: dict[str, str | None] = {n: p.get(field) for n, p in payloads.items()}
         return rules.config_divergence(engine, old) if len({h for h in old.values() if h}) > 1 else None
+
+    def _zone_config_divergence(self, now: int, out: PollOutcome) -> None:
+        """Forward zones: mode and forwarders; hint zones: digest of the hints file. Each node's own
+        reads ("zone_list", "hints"), compared between the nodes that declare the zone."""
+        forward: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
+        hint: dict[tuple[str, str], dict[str, dict[str, Any]]] = {}
+        for snap in self.store.snapshots(engine=Engine.BIND.value):
+            payload = snap["payload"]
+            if snap["kind"] == "zone_list" and isinstance(payload, list):
+                for z in payload:
+                    if isinstance(z, dict) and z.get("kind") == zone_config.FORWARD:
+                        key = (str(z.get("name")), str(z.get("view") or "_default"))
+                        forward.setdefault(key, {})[snap["node_id"]] = zone_config.forward_signature(z)
+            elif snap["kind"] == "hints" and isinstance(payload, dict):
+                for name, info in payload.items():
+                    view, zone = name.split("/", 1)
+                    hint.setdefault((zone, view), {})[snap["node_id"]] = info
+        found: list[Alert] = []
+        for (zone, view), by_node in forward.items():
+            if zone_config.forwarders_divergent(by_node):
+                found.append(rules.zone_config_divergence(zone, view, "forwarders", by_node))
+        for (zone, view), by_node in hint.items():
+            if zone_config.hints_divergent(by_node):
+                nodes = {
+                    n: {k: h.get(k) for k in ("file", "sha256", "related_version")}
+                    for n, h in by_node.items()
+                }
+                found.append(rules.zone_config_divergence(zone, view, "hints", nodes))
+        active = {a.subject for a in found}
+        for alert in found:
+            since = self.zone_config_since.setdefault(alert.subject, now)
+            if now - since >= CONFIG_DIVERGENCE_GRACE_SECONDS:
+                out.alerts.append(alert)
+        for subject in list(self.zone_config_since):
+            if subject not in active:
+                del self.zone_config_since[subject]
 
     def _backup_sync(self, now: int, out: PollOutcome) -> None:
         """Compare each Kea HA backup's lease count with its primary's (an active server's otherwise):

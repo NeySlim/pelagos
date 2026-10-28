@@ -70,6 +70,7 @@ class AlertKind(enum.StrEnum):
     IPV6_MISSING_AAAA = "ipv6_missing_aaaa"
     IPV6_REVERSE_MISSING = "ipv6_reverse_missing"
     IPV6_STALE_AAAA = "ipv6_stale_aaaa"
+    ROOT_HINTS_STALE = "root_hints_stale"
 
     @classmethod
     def _missing_(cls, value: object) -> AlertKind | None:

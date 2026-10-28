@@ -380,5 +380,9 @@
   "kea_migration.node_unreachable": "node {{node}} did not answer: its configuration is not analyzed",
   "alert.ipv6_missing_aaaa": "zone {{zone}}: {{count}} hosts have a stable IPv6 address and no AAAA record",
   "alert.ipv6_reverse_missing": "no reverse zone is served for the watched IPv6 prefix {{prefix}}",
-  "alert.ipv6_stale_aaaa": "zone {{zone}}: {{count}} AAAA records hold addresses not seen for {{days}} days"
+  "alert.ipv6_stale_aaaa": "zone {{zone}}: {{count}} AAAA records hold addresses not seen for {{days}} days",
+  "alert.forwarders_divergence": "forward zone {{zone}}: forwarders or forward mode differ between nodes",
+  "alert.hints_divergence": "root hints of zone {{zone}} differ between nodes",
+  "alert.root_hints_renumbered": "root hints file {{file}} (version {{version}}) predates the last root server renumbering",
+  "alert.root_hints_old": "root hints file {{file}} is old (version {{version}})"
 }

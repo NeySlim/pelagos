@@ -380,5 +380,9 @@
   "kea_migration.node_unreachable": "le nœud {{node}} n'a pas répondu : sa configuration n'est pas analysée",
   "alert.ipv6_missing_aaaa": "zone {{zone}} : {{count}} hôtes ont une adresse IPv6 stable et pas d'enregistrement AAAA",
   "alert.ipv6_reverse_missing": "aucune zone inverse n'est servie pour le préfixe IPv6 surveillé {{prefix}}",
-  "alert.ipv6_stale_aaaa": "zone {{zone}} : {{count}} enregistrements AAAA portent des adresses plus vues depuis {{days}} jours"
+  "alert.ipv6_stale_aaaa": "zone {{zone}} : {{count}} enregistrements AAAA portent des adresses plus vues depuis {{days}} jours",
+  "alert.forwarders_divergence": "zone forward {{zone}} : les forwarders ou le mode forward diffèrent entre les nœuds",
+  "alert.hints_divergence": "les indices racine de la zone {{zone}} diffèrent entre les nœuds",
+  "alert.root_hints_renumbered": "le fichier d’indices racine {{file}} (version {{version}}) est antérieur à la dernière renumérotation d’un serveur racine",
+  "alert.root_hints_old": "le fichier d’indices racine {{file}} est ancien (version {{version}})"
 }

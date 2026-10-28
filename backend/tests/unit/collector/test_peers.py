@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+from pelagos.collector import zone_config
 from pelagos.collector.alerts import AlertStore
 from pelagos.collector.pollers.peers import (
     CONFIG_DIVERGENCE_GRACE_SECONDS,
@@ -282,3 +283,50 @@ def test_peers_reconcile_leaves_kea_file_divergence_alone(store):
     out = poller.poll()
     _, _, resolved = alerts.reconcile(out.alerts, set(out.kinds), out.where)
     assert resolved == []
+
+
+def test_hint_and_forward_zones_compare_their_configuration_not_serials(store):
+    clock = Clock()
+    client = FakePeerClient()
+    fwd = {"name": "fwd.example.lan.", "view": "_default", "kind": "forward", "forward": "only"}
+    root = {"name": ".", "view": "_default", "kind": "hint", "file": "/usr/share/dns/root.hints"}
+    hint = {"file": "/usr/share/dns/root.hints", "sha256": "aa", "related_version": 2024041801}
+    store.write_snapshot(NODE, "bind", "zone_list", clock.now, [root, {**fwd, "forwarders": ["192.0.2.53"]}])
+    store.write_snapshot(NODE, "bind", "hints", clock.now, {"_default/.": hint})
+    peer_list = [root, {**fwd, "forwarders": ["192.0.2.53"]}]
+    peer_hints = {"_default/.": dict(hint)}
+    client.snapshots[(PEER, "bind")] = snapshot_payload(
+        PEER, "bind", {"zone_list": peer_list, "hints": peer_hints}, ts=clock.now
+    )
+    poller = make(store, client, clock, [peer()])
+    assert poller.poll().alerts == [] and poller.zone_config_since == {}
+
+    peer_list[1]["forwarders"] = ["192.0.2.54"]
+    peer_hints["_default/."]["sha256"] = "bb"
+    assert poller.poll().alerts == []  # within the grace
+    clock.now += CONFIG_DIVERGENCE_GRACE_SECONDS
+    alerts = {a.subject: a for a in poller.poll().alerts}
+    assert set(alerts) == {"zone:fwd.example.lan.:forwarders", "zone:.:hints"}
+    fwd_alert = alerts["zone:fwd.example.lan.:forwarders"]
+    assert fwd_alert.kind is AlertKind.CONFIG_DIVERGENCE and fwd_alert.node_id is None
+    assert fwd_alert.details["nodes"][PEER] == {"forward": "only", "forwarders": ["192.0.2.54"]}
+    assert alerts["zone:.:hints"].details["nodes"][NODE]["sha256"] == "aa"
+
+    peer_list[1]["forwarders"] = ["192.0.2.53"]
+    peer_hints["_default/."]["sha256"] = "aa"
+    assert poller.poll().alerts == [] and poller.zone_config_since == {}
+    peer_list[1]["forward"] = "first"  # same forwarders, another mode
+    assert poller.poll().alerts == []
+    clock.now += CONFIG_DIVERGENCE_GRACE_SECONDS
+    assert [a.subject for a in poller.poll().alerts] == ["zone:fwd.example.lan.:forwarders"]
+
+
+def test_forward_signature_defaults_to_first_and_ignores_order():
+    a = zone_config.forward_signature({"forwarders": ["192.0.2.2", "192.0.2.1 port 5353"]})
+    b = zone_config.forward_signature(
+        {"forward": "first", "forwarders": ["192.0.2.1  port 5353", "192.0.2.2"]}
+    )
+    assert a == b == {"forward": "first", "forwarders": ["192.0.2.1 port 5353", "192.0.2.2"]}
+    assert not zone_config.divergent("hint", {"n1": 2026102801, "n2": 2026102800}, {})
+    assert not zone_config.divergent("forward", {"n1": 1, "n2": 2}, {"n1": a, "n2": b})
+    assert zone_config.divergent("secondary", {"n1": 1, "n2": 2}, {})

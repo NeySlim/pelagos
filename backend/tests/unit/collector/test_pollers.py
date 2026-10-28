@@ -138,6 +138,34 @@ def test_bind_poller_daemon_down(store):
     assert kinds(out) == {AlertKind.DAEMON_DOWN} and "not running" in out.alerts[0].details["error"]
 
 
+class WithHints(FakeDnsBackend):
+    def __init__(self) -> None:
+        super().__init__()
+        self.hints: dict[str, dict] = {}
+
+    def root_hints(self, zones):
+        return self.hints
+
+
+def test_bind_poller_root_hints_snapshot_and_staleness(store):
+    clock = Clock(int(datetime(2026, 10, 28, tzinfo=UTC).timestamp()))
+    dns = WithHints()
+    dns.hints["_default/."] = {
+        "file": "/usr/share/dns/root.hints",
+        "sha256": "aa",
+        "related_version": 2024041801,
+    }
+    poller = BindPoller(dns, NODE, store, clock)
+    assert poller.poll().alerts == []
+    assert store.snapshot(NODE, "bind", "hints")[1]["_default/."]["sha256"] == "aa"
+    dns.hints["_default/."]["related_version"] = 2019010101
+    out = poller.poll()
+    (alert,) = out.alerts
+    assert alert.kind is AlertKind.ROOT_HINTS_STALE and alert.subject == "zone:.:hints"
+    assert alert.severity is Severity.WARNING and alert.details["reason"] == "renumbered"
+    assert out.where(alert)
+
+
 class NoZoneStatus(FakeDnsBackend):
     """A connector that does not implement zonestatus yet."""
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pelagos.collector import zone_config
 from pelagos.connectors.base import DdnsBackend, DhcpBackend, DnsBackend
 from pelagos.domain import Engine, normalize_name
 from pelagos.services.registry import ConnectorRegistry
@@ -82,6 +83,8 @@ def _bind(backend: DnsBackend, kind: str, params: dict[str, Any]) -> dict[str, A
         serials: dict[str, int | None] = {}
         for zone in zones:
             # named stopped: each SOA query would wait for its timeout, and the answer is known.
+            if zone.kind.value not in zone_config.SHOWN_SERIAL_KINDS:
+                continue
             if not caps.running:
                 serials[f"{zone.view}/{zone.name}"] = None
                 continue
@@ -94,6 +97,7 @@ def _bind(backend: DnsBackend, kind: str, params: dict[str, Any]) -> dict[str, A
             "status": backend.server_status(),
             "zones": [z.to_dict() for z in zones],
             "serials": serials,
+            "hints": _root_hints(backend, zones),
         }
     if kind == "rpz":
         return backend.rpz_node_state()  # type: ignore[attr-defined]
@@ -112,6 +116,11 @@ def _bind(backend: DnsBackend, kind: str, params: dict[str, Any]) -> dict[str, A
     if kind == "tree":
         return {"tree": backend.config_files_tree()}  # type: ignore[attr-defined]
     return {"config": backend.read_config().to_dict()}
+
+
+def _root_hints(backend: DnsBackend, zones: list[Any]) -> dict[str, Any]:
+    read = getattr(backend, "root_hints", None)
+    return read(zones) if read is not None else {}
 
 
 def _kea(backend: DhcpBackend, kind: str, params: dict[str, Any]) -> dict[str, Any]:

@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 
 from pelagos.connectors.base import ConnectorUnavailable
-from pelagos.domain import AuditEntry, AuditResult, Family, NodeModules, Peer, ZoneKind
+from pelagos.domain import AuditEntry, AuditResult, Family, NodeModules, Peer, Zone, ZoneKind
 from pelagos.services.registry import ConnectorRegistry
 from tests.unit.services.fakes import (
     FakeDdnsBackend,
@@ -59,6 +59,33 @@ def test_nodes_and_replication(admin, peer_b, node_ctx):
     admin.application.extensions["pelagos"].extra["services"].peers.forget()
     rep = admin.get("/api/v1/nodes/replication").get_json()
     assert rep["peers"][0]["reachable"] is False and "unreachable" in rep["peers"][0]["error"]
+
+
+def test_hint_and_forward_zones_never_diverge_on_cached_serials(role_client, peer_b, services):
+    local = services.registry.dns
+    remote = peer_b.registry.dns
+    hint = {"file": "/usr/share/dns/root.hints", "sha256": "aa", "related_version": 2024041801}
+    for backend, serial in ((local, 2026102801), (remote, 2026102800)):
+        backend.add_zone(Zone(name=".", kind=ZoneKind.HINT, file="/usr/share/dns/root.hints"), [], serial)
+        backend.add_zone(
+            Zone(name="fwd.example.lan.", kind=ZoneKind.FORWARD, forward="only", forwarders=["192.0.2.53"]),
+            [],
+            serial,
+        )
+        backend.root_hints = lambda zones, h=dict(hint): {"_default/.": h}
+    c = role_client("viewer")
+    zones = {z["zone"]["name"]: z for z in c.get("/api/v1/dns/zones").get_json()["items"]}
+    assert zones["."]["divergent"] is False and zones["."]["serials"] == {}
+    assert set(zones["."]["hints"]) == {services.ctx.node.id, NODE_B}
+    assert zones["fwd.example.lan."]["divergent"] is False and zones["fwd.example.lan."]["serials"] == {}
+
+    remote.zones["fwd.example.lan."].forwarders = ["192.0.2.54"]
+    remote.root_hints = lambda zones: {"_default/.": {**hint, "sha256": "bb"}}
+    services.peers.forget()
+    zones = {z["zone"]["name"]: z for z in c.get("/api/v1/dns/zones").get_json()["items"]}
+    assert zones["."]["divergent"] is True
+    fwd = zones["fwd.example.lan."]
+    assert fwd["divergent"] is True and fwd["forwarders"][NODE_B]["forwarders"] == ["192.0.2.54"]
 
 
 def test_reads_on_peer_and_divergence(role_client, peer_b, node_ctx):

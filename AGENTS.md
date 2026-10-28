@@ -59,7 +59,7 @@ change on their side.
 | --- | --- |
 | WP-BIND | `backend/pelagos/connectors/bind/`, `backend/tests/unit/connectors/bind/`, `backend/tests/daemon/test_bind_*.py` |
 | WP-KEA | `backend/pelagos/connectors/kea/`, `backend/tests/unit/connectors/kea/`, `backend/tests/daemon/test_kea_*.py` |
-| WP-CORE | `backend/pelagos/core/`, `backend/tests/unit/core/` |
+| WP-CORE | `backend/pelagos/core/`, `backend/pelagos/archives/`, `backend/tests/unit/core/`, `backend/tests/unit/archives/` |
 | WP-COLLECTOR | `backend/pelagos/collector/`, `backend/pelagos/services/consistency.py`, `backend/tests/unit/collector/` |
 | WP-API-AUTH | `backend/pelagos/api/`, `backend/pelagos/auth/`, `backend/pelagos/services/` (except `consistency.py`), `backend/pelagos/app.py`, `backend/tests/unit/api/`, `backend/tests/unit/auth/`, `backend/tests/unit/services/` |
 | WP-FRONTEND | `frontend/` |

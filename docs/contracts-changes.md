@@ -1582,3 +1582,11 @@ thresholds `checks.notification_failure_warning_minutes`, `checks.archive_stale_
 `api/archives.py`, `api/ddns_failover.py`) and answer 501 until batches N3, B4, B6, D1 to D4
 build them. WP-FRONTEND: `api.notifications`, `api.archives`, `api.ddnsFailover`, the mock
 serves every new endpoint, labels of the settings, kinds and scopes in en and fr.
+
+## 2026-10-28, archives batch B1: format, manifest, keys
+Additive. Architecture section 23: modules `archives/model.py` and `archives/keys.py`, the tar
+layout inside the age file, the error classes, `files[].size` and `zones[].sha256` in the
+manifest, `filename` in ArchiveMeta, retired identities re-sealed under their own name. WP-CORE:
+`deep_merge` returns a deep copy, so mutating loaded settings never alters the defaults. CI: the
+unit jobs install `age` for the interoperability tests. Affects B2 to B6, which build on
+`ArchiveWriter`, `read_manifest`, `read_members`, `extract` and the `keys` helpers.

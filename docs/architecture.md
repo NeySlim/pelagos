@@ -3058,7 +3058,8 @@ screen, N5 daemon and lab tests.
 
 Design: `design.md` 13.2. Code: `pelagos.archives` (`archives/age.py` age
 v1 X25519 over `cryptography`, `archives/bundle.py` tar and manifest,
-`archives/destinations/`), `collector/archives.py` (schedule, retention,
+`archives/model.py` Manifest, ArchiveMeta and file names, `archives/keys.py`
+recipients and the cluster identity, `archives/destinations/`), `collector/archives.py` (schedule, retention,
 verification, test restore), `services/archive_service.py`,
 `api/archives.py`, CLI `pelagos backup` and `pelagos restore` (B5).
 Batches: B1 format, B2 collection, B3 destinations, B4 restore, B5
@@ -3081,6 +3082,10 @@ command line, B6 API and screen, B7 lab.
   former identity stays as `archives/retired/<recipient>` while an archive
   still needs it. Operator recipients keep no identity on the nodes; a
   restore then takes one in the request (`identity`), never stored.
+  Archives are encrypted to every valid entry, cluster first. A retired
+  identity is re-sealed under its own secret name (the name is the AEAD
+  associated data) and dropped by `keys.prune_retired` once no kept archive
+  uses its recipient. Removing the `cluster` entry retires its identity too.
 - **Destination**: `{"id","type": "peer"|"mounted"|"sftp","name","enabled",
   "params","keep": null|{"daily","weekly","monthly"}}`; `local` is implicit
   and always written. `peer` `{"node_ids": []}` ([] = every other node);
@@ -3088,16 +3093,32 @@ command line, B6 API and screen, B7 lab.
   nothing); `sftp` `{"host","port","username","path","host_key_fingerprint":
   "SHA256:..."}`, secret `archives/dest/<id>/ssh_key`, run through `sftp -b`
   with the pinned key. S3 is not in the first version (decision 2).
-- **File**: `<node name>-<YYYYMMDDTHHMMSSZ>.tar.gz.age` and `<same>.sha256`
-  (sum of the encrypted file); the tar never touches the disk in clear;
-  files 0600, directories 0700 under `/var/lib/pelagos/archives/`
-  (`local/`, `peers/<origin node id>/`). `manifest.json` inside:
+- **File**: `<node name>-<YYYYMMDDTHHMMSSZ>.tar.gz.age` (UTC) and
+  `<same>.sha256` (sum of the encrypted file, `sha256sum -c` format); the tar
+  never touches the disk in clear (gzip tar streamed into age, written under a
+  temporary name then renamed); files 0600, directories 0700 under
+  `/var/lib/pelagos/archives/` (`local/`, `peers/<origin node id>/`).
+- **Format** (B1): age v1 ([age-encryption.org/v1](https://age-encryption.org/v1),
+  C2SP `age.md` fetched 2026-10-28), binary (no armor), X25519 stanzas only,
+  one per recipient; checked against the C2SP CCTV vectors
+  (`tests/unit/archives/data/cctv_age/`) and the `age` tool (1.2.1), so `age
+  -d -i <identity> <file> | tar xz` opens an archive without Pelagos. Errors:
+  `AgeHeaderError`, `AgeNoMatchError` (wrong identity), `AgeHmacError`,
+  `AgePayloadError` (truncated or tampered), `AgeKeyError`; `ArchiveError` for
+  the tar layer. Members: `files/<absolute path without the leading slash>`,
+  `zones/<view>/<zone>.zone` (AXFR text, names percent-encoded), then
+  `manifest.json` last (it carries every member's sum, so reading it decrypts
+  the whole archive); a reader refuses members outside the manifest, a sum
+  mismatch, unsafe names and non-regular members.
+- **Manifest** `manifest.json`:
   `{"format": 1,"archive_id","node_id","node_name","created_at","versions":
-  {"pelagos","bind","kea"},"engines","files": [{"path","mode","owner","sha256","part"}],
-  "zones": [{"view","zone","serial","source": "axfr"|"file"}],"unreadable": [path],
-  "complete"}`.
+  {"pelagos","bind","kea"},"engines","files": [{"path","mode" ("0640"),"owner"
+  ("user:group"),"sha256","part","size"}],"zones": [{"view","zone","serial",
+  "source": "axfr"|"file","sha256" (of the stored snapshot, "" for "file")}],
+  "unreadable": [path],"complete"}`.
 - **ArchiveMeta**: `{"id","node_id","created_at","size","sha256",
-  "destinations": [destination id, "local"],"complete","versions","verified_at"}`.
+  "destinations": [destination id, "local"],"complete","versions","verified_at",
+  "filename"}`.
 - **Parts** (inspect and restore): `bind.managed`, `bind.zone:<view>/<zone>`
   (`mode`: `diff` by signed UPDATE, or `replace` in maintenance),
   `bind.user_files` (only with `include_user_files`), `kea4.config`,

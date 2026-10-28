@@ -331,5 +331,11 @@
   "plan.ddns.replay_on": "renvoyer les mises à jour DNS de {{count}} baux {{engine}} sur {{node}}",
   "ddns.replay.more": "{{count}} autres baux sont concernés : relancez le rattrapage une fois ce plan appliqué",
   "ddns.replay.unread": "baux de {{node}} non lus ({{engine}}) : {{error}}",
-  "ddns.replay.no_lease_cmds": "{{engine}} sur {{node}} ne charge pas lease_cmds : ses baux ne peuvent pas être renvoyés"
+  "ddns.replay.no_lease_cmds": "{{engine}} sur {{node}} ne charge pas lease_cmds : ses baux ne peuvent pas être renvoyés",
+  "ddns.blocker.no_copy": "la zone {{zone}} n'a pas de copie sur un autre nœud : ajoutez d'abord un secondaire",
+  "ddns.blocker.no_transfer": "la zone {{zone}} sur {{node}} n'autorise pas les transferts signés avec {{key}} : Pelagos ne peut ni vérifier le rattrapage ni promouvoir la copie",
+  "ddns.blocker.role_mismatch": "la zone {{zone}} est servie en primaire par {{node}} mais ddns.roles donne le rôle à {{primary}} (époque {{epoch}})",
+  "plan.ddns.prepare": "préparer la reprise du DDNS de {{count}} zones : {{zones}}",
+  "plan.ddns.roles": "enregistrer le primaire actif de {{count}} zones dans ddns.roles",
+  "ddns.prepare.no_secret": "le secret de la clé TSIG {{key}} n'est pas connu sur ce nœud : construisez le plan sur un nœud qui le détient"
 }

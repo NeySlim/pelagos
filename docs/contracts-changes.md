@@ -1642,3 +1642,15 @@ written by the D2 poller, `ddns_replay` raised by the consistency pass. WP-API-A
 (`domain/messages.py`): `plan.ddns.replay`, `plan.ddns.replay_on`, `ddns.replay.more`,
 `ddns.replay.unread`, `ddns.replay.no_lease_cmds`. WP-FRONTEND: their en and fr texts; the
 replay entry point stays with batch D5.
+
+## 2026-10-28, batch D2: DDNS failover preparation
+Additive. Architecture section 24 (prepare rules, blockers, the `dns.failover` part without an
+engine) and the peer action `dns.config.plan`. WP-API-AUTH: `services/ddns_failover.py`,
+`PlanService.cluster_parts` (a part with no engine applied by a writer of cluster.toml),
+`GET /dhcp/ddns/resilience` and `POST /dhcp/ddns/resilience/plan` built (were 501), applying a
+`dns.failover` plan also needs `write:dhcp.config`. WP-KEA: `connectors/kea/d2order.py`. Contract
+(`domain/messages.py`): `ddns.blocker.no_copy`, `ddns.blocker.no_transfer`,
+`ddns.blocker.role_mismatch`, `plan.ddns.prepare`, `plan.ddns.roles`, `ddns.prepare.no_secret`.
+WP-COLLECTOR: `ddns_advice` (`d2:dns-servers`) has `details.remediation = "ddns_prepare"`.
+WP-FRONTEND: en and fr texts of the keys; the resilience answer adds `offline`, `prepared_at`,
+`domains[].zone`, `servers[].port`, `replay.source` and `replay.notes` (batch D5).

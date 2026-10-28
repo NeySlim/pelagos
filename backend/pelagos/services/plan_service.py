@@ -67,6 +67,8 @@ class PlanService:
         self.events = events
         self._lock = threading.Lock()
         self._in_flight = 0  # applies and rollbacks running in this process
+        # Parts without an engine, applied here by a writer of cluster.toml (ddns.roles).
+        self.cluster_parts: dict[PlanScope, Any] = {}
 
     def busy(self) -> bool:
         return self._in_flight > 0
@@ -121,6 +123,8 @@ class PlanService:
             )
 
     def _backend(self, plan: Plan) -> DnsBackend | DhcpBackend | DdnsBackend | None:
+        if plan.engine is None and plan.scope in self.cluster_parts:
+            return self.cluster_parts[plan.scope]
         return self.registry.backend(plan.engine)
 
     def _engine_lock(self, plan: Plan) -> Any:

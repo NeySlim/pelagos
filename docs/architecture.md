@@ -1610,6 +1610,7 @@ run under the collector's backend lock):
 | Action | Body | Result |
 | --- | --- | --- |
 | `dns.zone.plan` | `{"change": Change, "created_by"}` | `{"plan": Plan}` built by this node's BIND (`plan_zone_change`) |
+| `dns.config.plan` | `{"changes": [Change], "created_by"}` | `{"plan": Plan}` built by this node's BIND (`plan_config_change`); targets `keys/`, `acls/` and `options/` only |
 | `dhcp.adopt.plan` | `{"engine": "kea4"|"kea6"|"d2", "source": "file"|"running", "created_by"}` | `{"plan": Plan}` (`plan_adopt` of this node's file) |
 | `dhcp.config.plan` | `{"engine", "config", "created_by"}` | `{"plan": Plan}` (whole-configuration replace of this node; D2 secrets sealed in the plan) |
 | `dhcp.ha.plan` | `{"engine": "kea4"|"kea6", "spec": {...} | null, "this_server", "created_by"}` | `{"plan": Plan}` (this node's part of an HA setup: `plan_ha_setup`; `spec` null removes the hook; a hub gets `spec = {"relationships": [{..., "this_server"}]}` and `this_server` null, a node in one relationship the single-relationship form every version takes) |
@@ -2032,7 +2033,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `resolver_health` | warning, critical | SERVFAIL share, DNSSEC validation failures, query drop against the baseline, root servers unreachable; subjects `resolver:servfail`, `resolver:dnssec`, `resolver:queries`, `resolver:roots` |
 | `delegation_issue` | info, warning | NS name that does not resolve or answer for the zone, NS not allowed to transfer, address in also-notify/allow-transfer that is not an NS, SOA value outside the usual range (info); subjects `ns-unresolved:<zone>:<ns>`, `ns-silent:...`, `ns-transfer:...`, `ns-primary:<zone>` (info: no NS of the zone resolves to this primary), `ns-extra:<address>` (one per address, all zones grouped), `soa-range:<zone>` (one per zone, every out of range field in its details; built-in and automatic empty zones are skipped), `view-unchecked:<view>` (info: no read key in `dns.view_keys` selects the view, or its secret is not on the node; such zones do not count toward `delegation_max_zones`); `<zone>` is `zone@view` outside the default view, each view is queried and its name servers probed with its read key, and also-notify/allow-transfer are the effective lists (zone, else view, else options) |
 | `version_mismatch` | info, warning | nodes run different versions of BIND, kea4 or kea6 (warning when the series differs); cluster-wide, subject `<engine>:version` |
-| `ddns_advice` | warning, info | kea-dhcp-ddns lists a single DNS server for a domain while two or more nodes serve DNS (warning, subject `d2:dns-servers`; D2 uses the servers of a domain first to last, Kea 2.6 ARM "DNS Servers"); named `UpdateRej` over the last day at or above `checks.update_denied_warning_per_hour` (info, subject `bind:update-denied`; suggests `ddns-override-client-update` and `ddns-replace-client-name`) |
+| `ddns_advice` | warning, info | kea-dhcp-ddns lists a single DNS server for a domain while two or more nodes serve DNS (warning, subject `d2:dns-servers`; D2 uses the servers of a domain first to last, Kea 2.6 ARM "DNS Servers"; `details.remediation` `ddns_prepare` offers the prepare plan of section 24); named `UpdateRej` over the last day at or above `checks.update_denied_warning_per_hour` (info, subject `bind:update-denied`; suggests `ddns-override-client-update` and `ddns-replace-client-name`) |
 | `config_syntax_warning` | warning | Kea parses its configuration file but warns (`DHCPx_CONFIG_SYNTAX_WARNING`, e.g. `Extraneous comma`); read from the file tree with the file, line and column Kea reports; per node, subject `<engine>:config-syntax`; details `warnings`, `count`, `path`; also listed in the `syntax_warnings` of `GET /dhcp/{family}/config/file` |
 | `managed_drift` | warning | Something Pelagos manages was changed outside it (security audit finding `managed_drift`, section 15): the HA listener guard, a Kea HA relationship, a file Pelagos owns; per node, subject `kea:<object>`; details `finding_id`, `proposal`; resolved when the object matches again (adopt or restore plan) |
 | `restart_loop` | critical | `checks.restart_loop_count` restarts in `restart_loop_window_seconds`; subject `engine:<engine>` |
@@ -3265,6 +3266,33 @@ return and switchover, D5 screen, D6 lab.
   primary is always first). Promotion rewrites the copy as text in the
   Pelagos zone directory and redeclares it `type primary` with the recorded
   `policy`; `ddns.roles` moves to the next epoch.
+- **Prepare** (batch D2, `services/ddns_failover.py`): the dynamic primary zones some D2
+  domain names (the domain or its closest enclosing zone; every dynamic primary zone when no D2
+  configuration was read), plus every `ddns.roles` zone. More blockers:
+  `ddns.blocker.no_copy` (no secondary on another node), `ddns.blocker.no_transfer` (a node
+  holding the zone does not let the view's read key transfer it: zone `allow-transfer`, else the
+  `options` one through named ACLs, else none as in BIND 9.20; Pelagos reads zones by AXFR with
+  that key for the replay and the promotion), `ddns.blocker.role_mismatch` (the zone is served as
+  primary by a node `ddns.roles` does not name). A zone with none of these is `not_prepared`
+  until its `ddns.roles` entry names the serving primary, every copy declares the D2 key of its
+  domains (default `kea.ddns_key`) and the view's admin key, and every D2 lists the primary first
+  then each copy. A D2 server maps to a node by address and port (the address of the node URL,
+  the port of its `listen-on`, 53 by default), else a loopback address names the D2's own node;
+  servers of no node stay after them, entries already there are kept as they are. The plan
+  (`POST /dhcp/ddns/resilience/plan`, default every zone without such a blocker; a named zone
+  with one is a `400`, nothing left to change a `409`): one `dns.key` part per copy missing a key
+  (built there by the `dns.config.plan` peer action, secret from `[secrets] tsig/<key>` or this
+  node's named), one `d2.config` part per D2 whose list changes, then a part of scope
+  `dns.failover` with no engine whose changes `ddns.roles/<view>/<zone>` (`before`, `after`) are
+  written to cluster.toml by `RolesWriter` (`PlanService.cluster_parts`); its apply fails when an
+  entry changed since the plan, its rollback puts `before` back. The entry keeps the epoch and
+  `since` of a recorded primary that is still the one, else starts at epoch 1. Applying the
+  composite also needs `write:dhcp.config`. `GET /dhcp/ddns/resilience` adds `offline` (nodes
+  running BIND or D2 that did not answer; the plan refuses while any is listed), each zone's
+  `prepared_at`, each D2 domain's `zone` and each server's `port`; `replay` is the D1 selection
+  over its default window (`{"from","to","source","candidates","notes"}`, notes naming zones that
+  could not be read). `ddns_advice` (`d2:dns-servers`) carries `details.remediation =
+  "ddns_prepare"`.
 - **Return**: after the replication sync at start, a collector serving as
   primary a zone that `ddns.roles` gives to another node at a later epoch
   demotes it (with `demote_on_return_enabled`): zone file and journal moved

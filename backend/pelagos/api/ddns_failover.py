@@ -25,19 +25,19 @@ def _todo(batch: str):
 class Resilience(Resource):
     @require("read:dhcp")
     @ns.response(200, "Active primary per dynamic zone, D2 server lists, outage, replay candidates")
-    @ns.response(501, "not_implemented", m.Problem)
     def get(self):
         check_permission("read:dns")
-        _todo("D2")
+        return services().ddns_failover.resilience()
 
 
 @ns.route("/resilience/plan")
 class Prepare(Resource):
     @require("write:dns.zones")
-    @ns.response(200, "Composite plan: keys on the secondaries, D2 lists, ddns.roles")
+    @ns.response(200, "Composite plan: keys on the secondaries, D2 lists, ddns.roles", m.Plan)
+    @ns.response(409, "conflict: every selected zone is prepared, or none can be", m.Problem)
     def post(self):
         check_permission("write:dhcp.config")
-        _todo("D2")
+        return plan_answer(services().ddns_failover.plan(json_body(required=False), username()))
 
 
 @ns.route("/failover/plan")

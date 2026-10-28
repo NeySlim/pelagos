@@ -8,13 +8,14 @@ import threading
 
 from pelagos.auth.last_login import LastLoginStore
 from pelagos.core.context import NodeContext
-from pelagos.domain import Family
+from pelagos.domain import Family, PlanScope
 from pelagos.services.account_service import AccountService
 from pelagos.services.admin_service import AdminService
 from pelagos.services.advanced_service import AdvancedService
 from pelagos.services.alerts_service import AlertsService, SeriesCache, SeriesService
 from pelagos.services.cert_service import CertService
 from pelagos.services.dashboard_service import DashboardService
+from pelagos.services.ddns_failover import DdnsFailoverService, RolesWriter
 from pelagos.services.ddns_replay import DdnsReplayService
 from pelagos.services.dhcp_service import DhcpService
 from pelagos.services.dns_service import DnsService
@@ -69,6 +70,10 @@ class Services:
         self.ddns_replay = DdnsReplayService(
             ctx, self.dns, self.hosts._dhcp_services, self.plans, lambda: self.cache.store
         )
+        self.ddns_failover = DdnsFailoverService(
+            ctx, self.dns, self.registry, self.peers, self.plans, self.ddns_replay
+        )
+        self.plans.cluster_parts[PlanScope.DNS_FAILOVER] = RolesWriter(ctx)
         self.exceptions = ExceptionsService(ctx)
         self.dashboard = DashboardService(
             ctx, self.registry, self.peers, self.dns, self.dhcp4, self.dhcp6, self.alerts

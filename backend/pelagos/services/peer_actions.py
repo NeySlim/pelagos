@@ -40,6 +40,7 @@ DHCP_ENGINES = {"kea4": Engine.KEA4, "kea6": Engine.KEA6, "d2": Engine.D2}
 OPS_ENGINES = ("bind", "v4", "v6", "d2")
 
 ZONE_PLAN = "dns.zone.plan"
+DNS_CONFIG_PLAN = "dns.config.plan"
 ADOPT_PLAN = "dhcp.adopt.plan"
 CONFIG_PLAN = "dhcp.config.plan"
 HA_PLAN = "dhcp.ha.plan"
@@ -76,6 +77,7 @@ class PeerActions:
         self.lock = lock if lock is not None else threading.RLock()
         self.handlers: dict[str, Callable[[dict[str, Any], str], Any]] = {
             ZONE_PLAN: self.zone_plan,
+            DNS_CONFIG_PLAN: self.dns_config_plan,
             ADOPT_PLAN: self.adopt_plan,
             CONFIG_PLAN: self.config_plan,
             HA_PLAN: self.ha_plan,
@@ -176,6 +178,25 @@ class PeerActions:
             raise EngineUnavailable("this node does not run BIND")
         change = parse_change(body.get("change"), "change")
         return self._plan(backend.plan_zone_change(change, _created_by(body)))
+
+    def dns_config_plan(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """Key, ACL and option changes rendered into this node's managed files (never raw files)."""
+        from pelagos.services.dns_service import parse_change
+
+        backend = self.registry.dns
+        if backend is None:
+            raise EngineUnavailable("this node does not run BIND")
+        raw = body.get("changes")
+        if not isinstance(raw, list) or not raw:
+            raise ValidationError("changes must be a non-empty list", [field_error("changes", "required")])
+        changes = [parse_change(c, f"changes[{i}]") for i, c in enumerate(raw)]
+        for i, change in enumerate(changes):
+            if change.target.split("/", 1)[0] not in ("keys", "acls", "options"):
+                raise ValidationError(
+                    "only keys/, acls/ and options/ changes are built for a peer",
+                    [field_error(f"changes[{i}].target", "not allowed")],
+                )
+        return self._plan(backend.plan_config_change(changes, _created_by(body)))
 
     def adopt_plan(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
         _engine, backend = self._dhcp_backend(body)

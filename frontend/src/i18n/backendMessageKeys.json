@@ -409,11 +409,25 @@
     "note",
     "text"
   ],
+  "ddns.blocker.no_copy": [
+    "zone"
+  ],
+  "ddns.blocker.no_transfer": [
+    "key",
+    "node",
+    "zone"
+  ],
   "ddns.blocker.not_managed": [
     "node",
     "zone"
   ],
   "ddns.blocker.not_prepared": [],
+  "ddns.blocker.role_mismatch": [
+    "epoch",
+    "node",
+    "primary",
+    "zone"
+  ],
   "ddns.blocker.signed": [
     "zone"
   ],
@@ -422,6 +436,9 @@
     "key",
     "view",
     "zone"
+  ],
+  "ddns.prepare.no_secret": [
+    "key"
   ],
   "ddns.replay.more": [
     "count"
@@ -792,6 +809,10 @@
     "op",
     "target"
   ],
+  "plan.ddns.prepare": [
+    "count",
+    "zones"
+  ],
   "plan.ddns.replay": [
     "count",
     "end",
@@ -801,6 +822,9 @@
     "count",
     "engine",
     "node"
+  ],
+  "plan.ddns.roles": [
+    "count"
   ],
   "plan.ha_guard.set": [
     "peers",

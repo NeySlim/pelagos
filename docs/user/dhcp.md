@@ -430,6 +430,27 @@ answer is `409` when no lease of the window lacks its records. The replay
 is never automatic, and its rollback sends nothing: D2 settles names by
 their DHCID record.
 
+### Preparing DDNS failover
+
+D2 sends updates only to the servers listed for a domain, first to last,
+and moves to the next one only when a server does not answer: a server
+that refuses ends the request. A zone is ready to fail over when
+`ddns.roles` names its active primary, every secondary copy declares the
+D2 key and the admin key, and every D2 lists the primary first, then each
+copy. `GET /dhcp/ddns/resilience` (`read:dhcp` and `read:dns`) shows each
+dynamic zone D2 updates with its primary, copies and blockers, and each D2
+list with the role of every server.
+
+`POST /dhcp/ddns/resilience/plan` (`write:dns.zones` and
+`write:dhcp.config`, body `{"zones"?}`) builds one plan: the keys on the
+copies, the D2 lists, then the `ddns.roles` entries. Nothing changes for
+clients while the primary answers. If it stops, D2 tries the copy, which
+still refuses the update until it is promoted. A zone cannot be prepared
+when it is declared in your own files on a node (hand it over to Pelagos
+first), signed by a `dnssec-policy`, in a view that does not grant the D2
+key, without a copy on another node, or when a node holding it does not
+let the read key (`ddi-read`) transfer it.
+
 ## Hooks
 
 The loaded hook libraries with their parameters; "used by Pelagos" marks

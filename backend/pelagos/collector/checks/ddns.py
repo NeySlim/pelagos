@@ -66,7 +66,13 @@ def single_target_alert(node_id: str, d2_config: dict[str, Any], dns_nodes: int)
             "title",
             messages.msg("alert.d2_single_target", count=len(single), domains=single[:5], servers=servers),
         ),
-        details={"domains": single, "servers": servers, "dns_nodes": dns_nodes},
+        # The prepare plan (POST /dhcp/ddns/resilience/plan) lists every copy after the primary.
+        details={
+            "domains": single,
+            "servers": servers,
+            "dns_nodes": dns_nodes,
+            "remediation": "ddns_prepare",
+        },
     )
 
 

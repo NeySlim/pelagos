@@ -230,6 +230,20 @@ CATALOG: dict[str, str] = {
     "ddns.blocker.view": "zone {zone} is in view {view}, which the key {key} does not select",
     "ddns.blocker.single_node": "only one node serves DNS: there is no copy to promote",
     "ddns.blocker.not_prepared": "not prepared: no copy is ready to be promoted",
+    "ddns.blocker.no_copy": "zone {zone} has no copy on another node: add a secondary first",
+    "ddns.blocker.no_transfer": (
+        "zone {zone} on {node} does not allow transfers signed with {key}: Pelagos can neither check"
+        " the replay nor promote the copy"
+    ),
+    "ddns.blocker.role_mismatch": (
+        "zone {zone} is served as primary by {node} but ddns.roles gives the role to {primary}"
+        " (epoch {epoch})"
+    ),
+    "plan.ddns.prepare": "prepare the DDNS failover of {count} zones: {zones}",
+    "plan.ddns.roles": "record the active primary of {count} zones in ddns.roles",
+    "ddns.prepare.no_secret": (
+        "the secret of TSIG key {key} is not known on this node: build the plan on a node that holds it"
+    ),
     # DDNS catch-up (section 24): lease4/6-resend-ddns per lease of the outage window.
     "plan.ddns.replay": "resend the DNS updates of {count} leases active from {start} to {end}",
     "plan.ddns.replay_on": "resend the DNS updates of {count} {engine} leases on {node}",

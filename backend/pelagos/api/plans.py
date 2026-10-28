@@ -42,6 +42,9 @@ def _check_scope(plan: Plan) -> None:
         allowed = has_permission(perms, plan.permission)
     if not allowed:
         raise ApiError("forbidden", f"requires {plan.permission}")
+    # A DDNS failover plan writes the D2 configuration too (section 24).
+    if plan.scope is PlanScope.DNS_FAILOVER and not has_permission(perms, "write:dhcp.config"):
+        raise ApiError("forbidden", "requires write:dhcp.config")
 
 
 @ns.route("/plans/<string:plan_id>")

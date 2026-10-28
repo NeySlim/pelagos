@@ -331,5 +331,11 @@
   "plan.ddns.replay_on": "resend the DNS updates of {{count}} {{engine}} leases on {{node}}",
   "ddns.replay.more": "{{count}} more leases qualify: replay again once this plan is applied",
   "ddns.replay.unread": "leases of {{node}} not read ({{engine}}): {{error}}",
-  "ddns.replay.no_lease_cmds": "{{engine}} on {{node}} does not load lease_cmds: its leases cannot be resent"
+  "ddns.replay.no_lease_cmds": "{{engine}} on {{node}} does not load lease_cmds: its leases cannot be resent",
+  "ddns.blocker.no_copy": "zone {{zone}} has no copy on another node: add a secondary first",
+  "ddns.blocker.no_transfer": "zone {{zone}} on {{node}} does not allow transfers signed with {{key}}: Pelagos can neither check the replay nor promote the copy",
+  "ddns.blocker.role_mismatch": "zone {{zone}} is served as primary by {{node}} but ddns.roles gives the role to {{primary}} (epoch {{epoch}})",
+  "plan.ddns.prepare": "prepare the DDNS failover of {{count}} zones: {{zones}}",
+  "plan.ddns.roles": "record the active primary of {{count}} zones in ddns.roles",
+  "ddns.prepare.no_secret": "the secret of TSIG key {{key}} is not known on this node: build the plan on a node that holds it"
 }

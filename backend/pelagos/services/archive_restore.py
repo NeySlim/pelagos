@@ -28,7 +28,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pelagos.archives import bundle, keys
-from pelagos.archives.age import AgeError, is_identity
+from pelagos.archives.age import AgeError, AgeKeyError, AgeNoMatchError, is_identity
 from pelagos.archives.inbox import ArchiveInbox
 from pelagos.archives.model import ArchiveError, ArchiveMeta, Manifest
 from pelagos.core import settings_registry as reg
@@ -524,9 +524,13 @@ class ArchiveRestoreService:
     def _located(self, archive_id: str) -> Any:
         """(file, meta): held here, else fetched into a 0600 temporary file from a node holding it."""
         found = self._inbox().find(archive_id)
-        if found is not None:
+        if found is not None and bundle.sha256_file(found[0]) == found[1].sha256:
             yield found
             return
+        damaged = found is not None
+        if damaged:
+            # A damaged copy here: another node may hold a good one.
+            log.warning("archive %s: the copy in %s does not match its sum", archive_id, found[0])
         work = self.ctx.paths.archives_dir / ".restore"
         work.mkdir(parents=True, exist_ok=True, mode=0o700)
         for peer in self.peers.peers():
@@ -547,6 +551,7 @@ class ArchiveRestoreService:
                 with os.fdopen(fd, "wb") as sink:
                     client.fetch_archive(archive_id, sink)
                 if bundle.sha256_file(tmp) != meta.sha256:
+                    damaged = True
                     raise ArchiveError(f"the copy of {archive_id} on {peer.name} does not match its sum")
                 yield tmp, meta
                 return
@@ -555,6 +560,8 @@ class ArchiveRestoreService:
                 continue
             finally:
                 tmp.unlink(missing_ok=True)
+        if damaged:
+            raise ServiceError("conflict", f"archive {archive_id} is damaged: no copy matches its sum")
         raise NotFound(f"archive {archive_id}: held by no reachable node")
 
     def _identities(self, identity: Any) -> list[str]:
@@ -583,11 +590,11 @@ class ArchiveRestoreService:
                 manifest = bundle.read_manifest(path, identities)
                 parts_of = {bundle.file_member(f.path): f.part for f in manifest.files}
                 manifest, members = bundle.read_members(path, identities, lambda n: _wanted(n, parts_of))
-            except AgeError as exc:
+            except (AgeNoMatchError, AgeKeyError) as exc:
                 raise ValidationError(
                     f"the archive cannot be opened: {exc}", [field_error("identity", type(exc).__name__)]
                 ) from None
-            except ArchiveError as exc:
+            except (AgeError, ArchiveError) as exc:
                 raise ServiceError("conflict", f"archive {archive_id} is damaged: {exc}") from None
         return Opened(path, meta, manifest, members)
 

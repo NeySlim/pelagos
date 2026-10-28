@@ -209,6 +209,18 @@ def test_refusals(rig) -> None:
         service.plan(archive_id, {"parts": ["bind.zone:_default/example.lan"]}, "admin", lambda _p: True)
 
 
+def test_damaged_copy_is_reported_as_damage_not_as_a_wrong_identity(rig) -> None:
+    ctx, service, _plans = rig
+    archive_id = _archive(ctx, OLD, _cluster_text(ctx, 1800), {})
+    (path,) = ArchiveStore(ctx.paths.archives_dir).local.glob("*.tar.gz.age")
+    data = bytearray(path.read_bytes())
+    data[-100] ^= 0xFF
+    path.write_bytes(bytes(data))
+    # No other node holds it: the damage is named, the identity is not blamed.
+    with pytest.raises(ServiceError, match="damaged"):
+        service.inspect(archive_id, {}, "admin")
+
+
 def test_build_part_dispatch_and_kea_comparison(tmp_path: Path) -> None:
     class Kea:
         def __init__(self) -> None:

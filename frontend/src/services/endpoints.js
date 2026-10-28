@@ -161,6 +161,7 @@ export const ENDPOINTS = [
   'POST /install/security/plan',
   'GET /install/security/ha-guard',
   'POST /install/security/ha-guard/plan',
+  'POST /install/security/ha-tls/plan',
   // Administration
   'GET /admin/users',
   'POST /admin/users',

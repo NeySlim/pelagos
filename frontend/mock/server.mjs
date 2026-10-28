@@ -70,6 +70,8 @@ const PERMISSIONS = {
   'GET /advanced/history/{id}': 'read:advanced',
   'GET /install/detect': 'admin:install', 'POST /install/plan': 'admin:install', 'POST /install/import/plan': 'admin:install',
   'GET /install/security': 'admin:install', 'POST /install/security/plan': 'admin:install',
+  'GET /install/security/ha-guard': 'admin:install', 'POST /install/security/ha-guard/plan': 'admin:install',
+  'POST /install/security/ha-tls/plan': 'admin:install',
   'GET /admin/users': 'admin:users', 'POST /admin/users': 'admin:users', 'GET /admin/users/{id}': 'admin:users',
   'PUT /admin/users/{id}': 'admin:users', 'DELETE /admin/users/{id}': 'admin:users',
   'POST /admin/users/{id}/reset-password': 'admin:users', 'DELETE /admin/users/{id}/totp': 'admin:users',
@@ -2570,6 +2572,38 @@ function buildHandlers(state, emit) {
         },
       })
     },
+    // HA listener guard of a node: managed by Pelagos with its HA peer allowed.
+    'GET /install/security/ha-guard': ({ query }) => {
+      const node = query.get('node') || state.selfId
+      if (!state.nodes.some((n) => n.peer.id === node)) throw invalid('node', 'a node id')
+      state.haGuards ||= {}
+      const peers = state.haGuards[node] || ['192.0.2.12']
+      return {
+        node_id: node, nft: true, ports: [8001], suggested_peers: ['192.0.2.12'],
+        listeners: [{ engine: 'kea4', server: 'ns1', address: '192.0.2.11:8001', port: 8001, peers: ['192.0.2.12'] }],
+        managed: { table: 'inet pelagos_kea_ha_guard', unit: 'pelagos-kea-ha-guard.service', file: '/etc/pelagos/kea-ha-guard.nft', peers, ports: [8001], recorded_at: Date.now() / 1000, adopted_from: null, active: true },
+        loaded: { peers, ports: [8001] }, legacy: null, differences: [],
+      }
+    },
+    'POST /install/security/ha-guard/plan': ({ body, user }) => {
+      const peers = Array.isArray(body.peers) ? body.peers : []
+      if (!peers.length || peers.some((p) => !/^[0-9a-f.:/]+$/i.test(p))) throw invalid('peers', 'addresses or prefixes')
+      const node = body.node || state.selfId
+      state.haGuards ||= {}
+      return createPlan(state, user, {
+        scope: 'security', engine: null, summary: `HA listener guard: only ${peers.join(', ')} reach TCP 8001`,
+        changes: [{ op: 'replace', target: 'security/ha-guard', before: null, after: null, node_ids: [node] }],
+        diff: peers.map((p) => `+ ${p}`).join('\n') + '\n', targets: [node], tool: 'nft', requires_confirmation: true,
+        job: ['load the guard and watch the peers'],
+        apply: () => { state.haGuards[node] = peers },
+      })
+    },
+    'POST /install/security/ha-tls/plan': ({ user }) => createPlan(state, user, {
+      scope: 'security', engine: null, summary: 'Kea HA TLS on every peer',
+      changes: state.nodes.map((n) => ({ op: 'replace', target: 'security/ha-tls', before: null, after: null, node_ids: [n.peer.id] })),
+      diff: '', targets: state.nodes.map((n) => n.peer.id), tool: 'kea', requires_confirmation: true,
+      job: ['deposit the certificates', 'switch the standby', 'switch the primary', 'check status-get'],
+    }),
 
     // Administration
     'GET /admin/users': () => ({ items: state.users.map((u) => publicUser(u, state)) }),

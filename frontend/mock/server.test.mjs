@@ -123,6 +123,7 @@ const BODIES = {
   'POST /install/plan': { engines: ['bind'], source: 'distro' },
   'POST /install/import/plan': { engines: ['bind', 'kea4'] },
   'POST /install/security/plan': { finding_ids: ['bind:weak_rndc_key:rndc-key'] },
+  'POST /install/security/ha-guard/plan': { peers: ['192.0.2.12'] },
   'POST /admin/users': { username: 'carol', password: 'Carol-password-1', roles: ['viewer'] },
   'PUT /admin/users/{id}': { enabled: false },
   'POST /admin/users/{id}/reset-password': { password: 'Another-password-1' },

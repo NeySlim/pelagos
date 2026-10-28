@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from pelagos.collector.series import SeriesStore, connect
+from pelagos.connectors.base import ConnectorDenied
 from pelagos.domain import AlertKind, Engine, Family, Lease, LeaseState, PlanScope, PlanState, RRset
 from pelagos.services import ddns_replay as dr
 from pelagos.services.errors import Conflict, EngineUnavailable, ValidationError
@@ -197,6 +198,8 @@ class FakeDns:
 
     def records(self, zone, view):
         self.read.append(zone)
+        if self.data[zone] is None:
+            raise ConnectorDenied(f"AXFR of {zone} refused")
         return self.data[zone], "n1"
 
 
@@ -300,6 +303,18 @@ def test_plan_conflict_and_bad_body(node_ctx):
         svc.plan({"limit": 0}, "admin")
     with pytest.raises(ValidationError):
         svc.plan({"family": "v5"}, "admin")
+
+
+def test_unreadable_zone_is_not_judged_and_named_in_the_conflict(node_ctx):
+    me = node_ctx.node.id
+    svc, dns, _plans = make(node_ctx, [FakeDhcp(Family.V4, {me: [lease("192.0.2.102", "pc2.example.lan.")]})])
+    dns.data["2.0.192.in-addr.arpa."] = None
+    plan = svc.plan({"from": "2026-10-28T08:00:00Z"}, "admin")
+    assert "A differs" in plan.diff and "PTR" not in plan.diff
+    assert any("AXFR of 2.0.192.in-addr.arpa. refused" in v.output and not v.ok for v in plan.validations)
+    dns.data["example.lan."] = None
+    with pytest.raises(Conflict, match=r"records not checked, .*example\.lan\.: AXFR of example\.lan\."):
+        svc.plan({"from": "2026-10-28T08:00:00Z"}, "admin")
 
 
 def test_window_closes_after_a_quiet_period():

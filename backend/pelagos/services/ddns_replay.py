@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from pelagos.connectors.base import ConnectorError
 from pelagos.core import settings_registry as reg
 from pelagos.domain import (
     Alert,
@@ -379,9 +380,11 @@ class DdnsReplayService:
             view = zone.get("view") or DEFAULT_VIEW
             try:
                 rrsets, _node = self.dns.records(zone["name"], None if view == DEFAULT_VIEW else view)
-            except ServiceError as exc:
+            except (ServiceError, ConnectorError) as exc:
+                # A zone that cannot be read (AXFR refused) leaves its direction unjudged, never fails.
+                detail = exc.detail if isinstance(exc, ServiceError) else str(exc)
                 notes.append(
-                    ValidationResult(ok=True, tool="ddns-replay", output=f"{zone['name']}: {exc.detail}")
+                    ValidationResult(ok=False, tool="ddns-replay", output=f"{zone['name']}: {detail}")
                 )
                 continue
             (reverse if zone["name"].endswith(REVERSE_SUFFIXES) else forward).extend(rrsets)
@@ -406,10 +409,11 @@ class DdnsReplayService:
         limit = min(limit or max_leases, max_leases)
         win, found, notes = self.candidates(body)
         if not found:
-            raise Conflict(
-                f"no lease to replay from {to_rfc3339(win.start)} to {to_rfc3339(win.end)}: every lease of"
-                " the window has its records"
-            )
+            span = f"no lease to replay from {to_rfc3339(win.start)} to {to_rfc3339(win.end)}"
+            unread = [n.output for n in notes if not n.ok and n.output]
+            if unread:
+                raise Conflict(f"{span}: records not checked, " + "; ".join(unread))
+            raise Conflict(f"{span}: every lease of the window has its records")
         chosen = found[:limit]
         if len(found) > limit:
             notes.append(_note(True, "ddns.replay.more", count=len(found) - limit))

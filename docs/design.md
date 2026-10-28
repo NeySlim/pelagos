@@ -414,7 +414,7 @@ Apache-2.0, décidé. UCM est sous AGPL-3.0 ; son auteur, qui est aussi celui de
 
 Deux décisions bloquent la phase 0 : le parseur de `named.conf` et l'autorité de certification pour l'enrôlement mTLS. Le reste se tranche en cours de route. Les questions cochées sont tranchées par les commentaires en fin de document et reflétées dans le corps.
 
-- [ ] Kea 3.x par les paquets ISC : Debian 13 est couvert (dépôts Cloudsmith kea-3-0 et kea-3-2, distribution trixie). Reste à fixer quand migrer les deux pairs (la HA exige la même version des deux côtés).
+- [ ] Kea 3.x par les paquets ISC : Debian 13 est couvert (dépôts Cloudsmith kea-3-0 et kea-3-2, distribution trixie). Reste à fixer quand migrer les deux pairs (la HA exige la même version des deux côtés) : migration spécifiée en 13.4.
 - [ ] Parseur de `named.conf` : l'écrire à partir de la grammaire publiée dans les sources de BIND, avec `named-checkconf -p` comme oracle de non-perte ? Aucune bibliothèque Python maintenue n'a été identifiée.
 - [ ] Enrôlement mTLS : CA interne de l'outil par défaut, ou UCM quand il est présent ?
 - [ ] Format du fichier de configuration de l'outil (TOML ou JSON) et politique de version du schéma.
@@ -435,7 +435,7 @@ Deux décisions bloquent la phase 0 : le parseur de `named.conf` et l'autorité 
 - [x] Rétention des séries : table validée en section 6.
 - [x] Palette : Pelagic remplace Deep Sea, `gray`, `purple` et `sunset` restent (section 8).
 - [ ] Les `host_cmds` de Kea 3.x écrivent-ils dans la configuration en mémoire seulement ? Vérifier le couplage avec `config-write` avant la phase 3.
-- [ ] Kea 2.6 en mode dégradé : jusqu'à quand le maintenir une fois les deux pairs en 3.x ?
+- [ ] Kea 2.6 en mode dégradé : jusqu'à quand le maintenir une fois les deux pairs en 3.x ? Défaut proposé en 13.11.
 
 12. Commentaires de moi:
 
@@ -457,17 +457,18 @@ Deux décisions bloquent la phase 0 : le parseur de `named.conf` et l'autorité 
 * `update-policy` : tu choisis le mieux
 * pour les themes garder les existant, ajouter des nouveaux dont un style PELAGIC : Ocean Mission Control UI
 
-## 13. Sixième passe : notifications, sauvegardes, DDNS sans point unique de panne
+## 13. Sixième passe : fonctions nouvelles (points 56 à 63)
 
-Trois fonctions de priorité 1, spécifiées ici avant tout code (points 56, 57 et 58 du relevé de production), puis les fonctions 59 à 63 sous forme de questions ouvertes. Les contrats techniques (schémas, routes exactes, champs) iront dans `docs/architecture.md` par le premier lot de chaque fonction, avec une entrée dans `docs/contracts-changes.md` ; ce chapitre fixe le besoin, les écrans, les décisions et le découpage.
+Trois fonctions de priorité 1 (points 56, 57 et 58 du relevé de production, 13.1 à 13.3, livrées en 0.2.0), puis les fonctions 59 à 63 (13.4 à 13.8), spécifiées ici avant tout code. Les lots sont en 13.9 et 13.10, les questions des points 59 à 63 avec leur défaut en 13.11. Les contrats techniques (schémas, routes exactes, champs) iront dans `docs/architecture.md` par le premier lot de chaque fonction, avec une entrée dans `docs/contracts-changes.md` ; ce chapitre fixe le besoin, les écrans, les décisions et le découpage.
 
-Règles communes aux trois :
+Règles communes :
 
 - Une modification d'un moteur (BIND, Kea, D2) passe par un plan : aperçu, validations, confirmation, application nœud par nœud, retour arrière (architecture, sections 6 et 7). Un réglage propre à Pelagos (`cluster.toml`) suit le modèle des réglages existants : écrit par `update_cluster`, répliqué, audité avec l'état d'avant, donc réversible, sans plan.
-- Nouveaux domaines de réglages : `notifications`, `archives`, `ddns` (ajoutés à `DOMAINS` du registre, nommage de la section 10 de l'architecture). Les seuils qui lèvent une alerte vont dans `[settings.checks]`. Les entrées écrites par un écran dédié (canaux, destinations, rôles DNS) sont refusées par `PUT /admin/settings`, comme celles du RPZ.
+- Nouveaux domaines de réglages : `notifications`, `archives`, `ddns`, puis `resolver`, `updates`, `ipv6`, `integrations` (ajoutés à `DOMAINS` du registre, nommage de la section 10 de l'architecture). Les seuils qui lèvent une alerte vont dans `[settings.checks]`. Les entrées écrites par un écran dédié (canaux, destinations, rôles DNS) sont refusées par `PUT /admin/settings`, comme celles du RPZ.
 - Secrets dans `cluster.toml [secrets]`, chiffrés par la clé maître, jamais renvoyés par l'API (booléens « défini »), masqués dans les plans, l'audit et les journaux.
 - Chaque nouvelle alerte a sa clé de message (`alert.*`) en anglais et en français, et figure dans la table des alertes de la section 15 de l'architecture.
 - Tests : les trois niveaux d'AGENTS.md. Le niveau unitaire n'ouvre aucun réseau : les transports sont injectés et remplacés par des faux en mémoire.
+- Le « nœud de service » est celui de la décision 1 du 13.1 (premier nœud en ligne de l'ordre d'envoi) : il fait aussi ce qui ne doit être fait qu'une fois dans le cluster (vérification des versions disponibles, interrogation d'un routeur, publication MQTT).
 
 ### 13.1 Notifications sortantes (point 56)
 
@@ -778,17 +779,463 @@ Avec trois nœuds ou plus, chaque secondaire est dans les listes de D2 et peut �
 - Démons : deux named réels (primaire et secondaire sur des ports libres), un D2 et un `kea-dhcp4` réels avec `lease_cmds` : préparation ; arrêt du primaire, D2 passe au secondaire (compteurs) ; promotion ; mise à jour acceptée par le nouveau primaire ; redémarrage de l'ancien, rétrogradation, serials égaux ; `lease4-add` d'un bail nommé puis `lease4-resend-ddns`, enregistrement créé.
 - Labo : `tests/lab/test_ddns_failover_lab.py` sur la paire Kea 2.6.3 Debian (ns1, ns2 et le client DHCP du labo) : préparation ; arrêt de la VM du primaire par l'API Proxmox ; bail obtenu par le client, promotion, A et PTR créés sur le nouveau primaire ; retour de la VM, rétrogradation, rattrapage ; changement planifié pour rendre le rôle ; aucune entrée perdue de bout en bout.
 
-### 13.4 Fonctions suivantes (points 59 à 63) : questions ouvertes
+### 13.4 Migration de Kea 2.6 vers 3.x (point 59)
 
-Rien n'est décidé ici ; chaque point sera spécifié comme ci-dessus avant d'être codé.
+**Besoin**
 
-- **59, assistant de migration Kea 2.6 vers 3.x** : une paire HA 2.6 / 3.x mixte est-elle prise en charge par ISC le temps de la bascule, ou faut-il une fenêtre courte ? Paquets ISC (Cloudsmith) sur Debian et Rocky, ou distribution quand elle passera en 3.x ? Que faire des hooks chargés et de `kea-ctrl-agent` (supprimé en 3.1.8) : conversion automatique en `control-sockets` HTTP/TLS ou seulement sockets Unix ? Retour arrière en 2.6 avec les baux écrits par 3.x : possible ?
-- **60, surveillance du résolveur** : quels seuils par défaut (SERVFAIL, échecs DNSSEC, latence) sans données de référence ? Bascule temporaire vers des forwarders : automatique ou seulement proposée ? Quels forwarders proposer, et faut-il un retour automatique ?
-- **61, mise à jour depuis l'interface** : source des versions (dépôt apt/dnf de Pelagos, release GitHub) et vérification des signatures ; qui exécute la mise à jour du paquet (l'assistant privilégié) et comment l'interface survit au redémarrage de son propre service ; retour arrière vers la version précédente quand le schéma de `cluster.toml` a changé ? Mises à jour BIND et Kea de la distribution dans le même écran ou à part ?
-- **62, IPv6 AAAA et PTR** : source des adresses observées (table des voisins d'un routeur par API, OPNsense en premier ? journaux ? DHCPv6 seulement ?) ; règle d'exclusion des adresses temporaires de confidentialité ; création automatique ou toujours par plan choisi hôte par hôte ?
-- **63, Home Assistant** : webhook seul (livré par 13.1), API en lecture avec jeton dédié, ou MQTT discovery (et alors quel courtier, avec quelle authentification) ? Quels capteurs en premier ? Présence d'un appareil par ses baux : quel délai pour « absent » ?
+La production tourne sur Kea 2.6.3 de Debian 13, en HA hot-standby, avec D2. ISC ne maintient plus la série 2.6 depuis la sortie de 3.2.0 (« With the release of Kea 3.2.0 we obsoleted Kea 2.6 », [kea-announce, juillet 2026](https://lists.isc.org/pipermail/kea-announce/2026-July.txt), lu le 2026-10-28) ; seule la sécurité de Debian suit encore le paquet `2.6.3-1+deb13u1`. Passer en 3.x à la main est risqué : HA incompatible entre les deux séries, paquets qui se remplacent, chemins restreints, clés renommées, agent de contrôle retiré. Pelagos doit analyser la configuration, dire ce qui casse, produire la configuration 3.x, faire la bascule nœud par nœud avec la coupure DHCP la plus courte possible, et savoir revenir en 2.6.
 
-### 13.5 Lots d'implémentation
+**Ce qui existe et sur quoi on s'appuie**
+
+- Les connecteurs parlent aux deux séries : `connectors/kea/config.py` (`is_v3`, `normalize_root`, renommage `require-client-classes` / `evaluate-additional-classes` et `only-if-required` / `only-in-additional-list`, refus des clés 3.x vers un 2.6), `schema.py` (descriptions `kea-2.6.json` et `kea-3.json`), et la version est relue après un redémarrage (`backend.py`, « an in-place upgrade (2.6 to 3.x) changes the key names to write »).
+- L'installateur sait poser le dépôt ISC Cloudsmith d'une série (`platform/packages.py`, `isc_repo_files`, série par défaut `3.2`), installer les paquets ISC à la place de ceux de la distribution (`step_packages`, `replace=True`), désactiver les profils AppArmor laissés par les paquets Debian retirés (`disable_stale_apparmor`), poser la socket de contrôle sous la bonne forme (`keasetup.socket_key_for`, `control-sockets` dès 2.7.2) et passer les secrets TSIG de D2 en `secret-file` (`migrate_inline_secrets`).
+- La HA : fenêtres de maintenance (`core/ha_maintenance.py`, `ha-maintenance-start` / `cancel`), lecture des écouteurs HA et de `restrict-commands` (`installer/ha_listener.py`), TLS de la HA par la CA du cluster (`core/kea_ha_tls.py`, point 54).
+- Les sauvegardes (13.2) donnent une archive juste avant la migration ; le pipeline d'écriture garde la configuration d'avant chaque écriture.
+
+**Faits vérifiés** (sources lues le 2026-10-28)
+
+- HA : « All Kea HA partners must run Kea 2.7.0 or later », et le listener HA ne prend plus que les commandes de la HA ([KB ISC, Things to be aware of when upgrading to Kea 3.0.0](https://kb.isc.org/docs/things-to-be-aware-of-when-upgrading-to-kea-300)). Une paire mixte 2.6 / 3.x n'est donc pas prise en charge : pas de paire temporaire, une fenêtre courte est nécessaire. L'ARM documente la mise à niveau « un serveur après l'autre » à l'intérieur d'une même série compatible ([ARM Kea 3.2.1, hooks-ha.rst, Controlled Shutdown and Maintenance](https://gitlab.isc.org/isc-projects/kea/-/blob/Kea-3.2.1/doc/sphinx/arm/hooks-ha.rst)).
+- `restrict-commands` : la KB 3.0 dit qu'il vaut `true` par défaut depuis 3.0, la KB 3.2 dit que le défaut passe de `false` (3.0) à `true` (3.2) ([KB ISC, Kea 3.2](https://kb.isc.org/docs/things-to-be-aware-of-when-upgrading-to-kea-3-2)). Les deux se contredisent : la configuration générée l'écrit toujours explicitement à `true`.
+- Agent de contrôle : déprécié en 3.0, « no longer included in the Kea distribution » à partir de 3.2 (même article ; [KB ISC, Kea Control Agent migration](https://kb.isc.org/docs/kea-control-agent-migration) : « deprecated in Kea 3.0, and has been removed as of Kea 3.2 »). Le paquet `isc-kea-ctrl-agent` 3.2.1 de Cloudsmith n'est plus qu'un « transitional package, can be safely removed ». Chaque démon prend ses commandes par `control-sockets` (types `unix`, `http`, `https`), un port TCP par démon pour l'accès HTTP. Pelagos n'utilise que les sockets Unix : rien ne change pour lui.
+- Chemins restreints en 3.x : hooks seulement depuis le dossier des hooks, sockets dans un dossier 0750, baux et DUID dans le dossier de données, journaux dans le dossier des journaux, scripts de `run_script` dans `share/kea/scripts/` ; `-X` lève les restrictions avec un avertissement ; `-T` valide une configuration avant la mise à niveau, `-W` donne les dossiers compilés (KB 3.0).
+- Paramètres : `require-client-classes` devient `evaluate-additional-classes`, `only-if-required` devient `only-in-additional-list`, `client-class` cède la place à `client-classes` (pas les deux dans une même portée) ; les classes additionnelles sans test sont toujours ajoutées, sont évaluées dans l'ordre de `option-data`, et la priorité des options des classes modèles est inversée (KB 3.0). Le cache des baux est actif par défaut. MySQL et PostgreSQL passent dans des hooks (`libdhcp_mysql.so`, `libdhcp_pgsql.so`, paquets `isc-kea-mysql`, `isc-kea-pgsql`) ; les hooks RBAC et CB restent commerciaux. « There have been no incompatible changes to the lease file format » (KB 3.0) : le retour en 2.6 garde les baux memfile.
+- Kea 3.2 : les paquets ISC redémarrent les services Kea pendant une mise à niveau et systemd relance un démon qui sort en échec ; les exécutables sont `_kea:_kea` en 0750 (KB 3.2). Les clés TSIG de D2 exigent `secret-file` (règle des fixtures d'AGENTS.md, vérifiée sur 3.2.1).
+- Paquets pour Debian 13 (relevé le 2026-10-28) : dépôt ISC [`kea-3-2`](https://dl.cloudsmith.io/public/isc/kea-3-2/deb/debian/dists/trixie/Release), version 3.2.1-isc20260928103142, et `kea-3-0`, version 3.0.5-isc20261026134027, tous deux en amd64 et arm64 (paquets `isc-kea-dhcp4`, `isc-kea-dhcp6`, `isc-kea-dhcp-ddns`, `isc-kea-hooks`, `isc-kea-common`, `isc-kea-admin`). Debian : `kea-dhcp4-server` 2.6.3-1+deb13u1 dans trixie, 3.0.3-1~bpo13+1 dans trixie-backports, 3.0.4-2 dans forky et sid, amd64 et arm64 ([madison](https://qa.debian.org/madison.php?package=kea-dhcp4-server&text=on&a=arm64,amd64)). Les backports sont fournis « on an as-is basis », sans engagement de l'équipe de sécurité ([backports.debian.org](https://backports.debian.org/)). Le paquet ISC `isc-kea-dhcp4` déclare `Conflicts: kea-dhcp4-server` : l'un remplace l'autre.
+- Dossier des hooks des paquets ISC sur Debian : `/usr/lib/<multiarch>/kea/hooks` (relu par `kea-dhcp4 -W` sur 3.2.1), le même que celui des paquets Debian : les chemins `library` restent valides. Debian 2.6.3 livre `bootp`, `flex_option`, `ha`, `lease_cmds`, `mysql_cb`, `pgsql_cb`, `perfmon`, `run_script`, `stat_cmds` (contenu des paquets `kea-common` et `kea-dhcp4-server`) ; ISC 3.2.1 y ajoute notamment `host_cmds`, `subnet_cmds`, `class_cmds`, `lease_query`, `ping_check`, mais plus `mysql_cb` ni `pgsql_cb` (CB commercial).
+
+**Décisions**
+
+1. Cible par défaut : Kea 3.2 des dépôts ISC (Cloudsmith `kea-3-2`), la série que Pelagos teste déjà sur l'hôte de développement et que l'installateur pose par défaut. Les backports Debian (3.0) sont proposés comme seconde source, avec l'avertissement sur leur suivi de sécurité ; la série 3.0 d'ISC reste possible. Une seule série pour tout le cluster.
+2. Pas de paire HA mixte : la bascule est une fenêtre courte et contrôlée, sans dépendre d'une compatibilité que la KB exclut. Si les essais du labo montrent qu'un 3.x se synchronise quand même avec un 2.6, ce n'est pas utilisé.
+3. Analyse d'abord, sans rien changer (« Analyser la migration ») : lecture de la configuration de chaque démon de chaque nœud (fichier et `config-get`), puis un rapport de constats classés `bloquant`, `converti` (Pelagos le fait), `changement de comportement` (à lire), `info`. Règles :
+   - clés renommées ou remplacées (ci-dessus), `client-class` et `client-classes` dans une même portée, sous-réseau sans `subnet-id` ;
+   - hooks : chaque `library` doit exister sous le même nom dans le dossier des hooks de la cible ; `libdhcp_mysql_cb.so` ou `libdhcp_pgsql_cb.so` (CB, commercial) est bloquant ; une base de baux ou d'hôtes MySQL ou PostgreSQL ajoute le hook et le paquet `isc-kea-mysql` / `isc-kea-pgsql` ;
+   - chemins hors des dossiers autorisés (journaux, baux, sockets, scripts) : déplacés vers les dossiers de la cible quand c'est un fichier de Kea, bloquant pour un script de `run_script` hors de `share/kea/scripts/` ;
+   - `kea-ctrl-agent` actif : sa configuration est lue ; s'il ne sert qu'à Pelagos ou à rien, il est arrêté et désactivé ; si un client HTTP externe l'utilise (Stork, scripts), le rapport propose des `control-sockets` `https` par démon avec un certificat de la CA du cluster et `cert-required`, sinon `http` sur l'adresse de bouclage seulement ;
+   - HA : `restrict-commands` écrit à `true`, TLS de la HA conservé tel quel (mêmes clés en 3.x), contrôle que la configuration des deux pairs reste symétrique ;
+   - D2 : `secret` en clair converti en `secret-file`, `control-socket` converti en `control-sockets` ;
+   - classes additionnelles sans test, classes modèles avec options, absence de `lease-checks` explicites, cache des baux : `changement de comportement` ;
+   - la configuration produite passe `kea-dhcp4 -t` / `kea-dhcp6 -t` / `kea-dhcp-ddns -t` avec les binaires 3.x. Avant toute installation, ces binaires sont extraits des paquets téléchargés dans un dossier temporaire (`apt-get download`, `dpkg-deb -x`, `KEA_HOOKS_PATH` vers les hooks extraits) ; si cette validation à blanc n'est pas fiable (à prouver par le lot K1), la validation se fait sur le premier nœud migré, avant la fenêtre de coupure.
+4. Préparation (plan « Préparer la migration », sans coupure) : archive (13.2) de chaque nœud, téléchargement des paquets sur chaque nœud (`apt-get install --download-only`, `dnf download`) pour que la fenêtre ne dépende pas du réseau, configurations 3.x écrites à côté (`/var/lib/pelagos/kea-migration/<id>/`, jamais dans `/etc/kea` avant la bascule), sauvegarde des configurations 2.6 et de la liste des paquets installés avec leurs versions exactes.
+5. Bascule d'une paire hot-standby, primaire P, standby S, en trois temps (plan composite « Migrer vers Kea 3.2 », une étape par ligne du job, arrêt au premier échec) :
+   1. S d'abord, sans coupure : `ha-maintenance-start` envoyé à P (P sert seul) ; arrêt de Kea sur S ; installation des paquets ISC (qui retirent ceux de Debian) ; dépôt des configurations 3.x ; `kea-dhcp4 -t` réel ; S reste arrêté. La configuration de P est validée à son tour par les binaires de S, dans un dossier temporaire.
+   2. La fenêtre : arrêt de Kea sur P (la coupure DHCP commence) ; P fait son LFC, son fichier de baux est copié vers S par le canal de réplication (mTLS, somme vérifiée) et remplace celui de S, qui n'a pas vu les baux donnés pendant le temps 1 ; démarrage de S en 3.x ; S ne joint pas son partenaire et passe `partner-down` après la détection de panne. Pour raccourcir cette détection, la configuration 3.x de S porte pendant la migration un `max-response-delay` réduit (`migration_response_delay_ms`, défaut 10 000) et `max-unacked-clients: 0`, remis à leur valeur au temps 3. Fin de la coupure quand `status-get` de S dit `partner-down` et qu'un `lease4-get-all` répond. Durée visée : moins d'une minute, mesurée et affichée.
+   3. P ensuite, sans coupure : installation des paquets sur P, configuration 3.x, démarrage ; P se synchronise sur S par la HA normale (3.x des deux côtés) et la paire revient en `hot-standby` avec P qui sert ; remise des délais de détection d'origine sur les deux nœuds par `config-set` et `config-write` ; D2 démarré en 3.x sur chaque nœud dans le temps du nœud.
+   En `load-balancing`, même suite (le pair qui reste sert tout pendant le temps 1). Un nœud sans HA est migré seul, avec une coupure égale au redémarrage. Un serveur `backup` passe avant S.
+6. Retour arrière, par nœud et pour la paire :
+   - pendant le temps 1 ou 2 : S remis en 2.6 (paquets Debian aux versions notées, configurations d'avant, profils AppArmor réactivés), redémarré, `ha-maintenance-cancel` sur P ; le fichier de baux de S n'a pas changé de format ;
+   - après le temps 3 : retour de la paire entière (une paire mixte n'existe pas) par la même chorégraphie à l'envers, avec la même fenêtre courte ; proposé seulement tant que l'archive de préparation et les paquets 2.6 sont présents ;
+   - automatique si une étape de vérification échoue pendant les temps 1 et 2 (`auto_rollback_enabled`, défaut vrai), toujours manuel après la fin du temps 3.
+7. Après la migration : `config_divergence`, contrôles et écrans reprennent la série 3 sans action (version relue), les écritures par objet (`host_cmds`, `subnet_cmds`) deviennent disponibles et l'écran Hooks propose de les charger. Kea 2.6 reste lu et écrit en mode dégradé tant qu'un nœud du parc en a besoin (question 11 « Kea 2.6 en mode dégradé »).
+8. Nouvelle alerte `kea_series_obsolete` (info, sujet `kea:series`) : un nœud fait tourner une série qu'ISC ne maintient plus ; elle propose l'analyse. La date de fin est une donnée du fichier des avis ISC empaqueté (`scripts/update-isc-advisories.py`), pas du code.
+
+**Écrans**
+
+- Installation, nouvel onglet « Migration Kea » : série de chaque nœud, source des paquets (distribution, ISC, backports), série cible et source choisies, bouton « Analyser ».
+- Rapport : constats groupés par gravité, par nœud et par démon, chacun avec la ligne d'origine, ce que Pelagos fera et la référence ISC ; diff complet 2.6 vers 3.x par démon (même composant que les plans) ; liste des paquets qui seront retirés et installés ; durée de coupure estimée.
+- Assistant en trois étapes (préparer, migrer, vérifier) qui montre la frise des temps 1 à 3 avec l'état HA de chaque nœud en direct (événements WebSocket `ha` existants), le temps de coupure mesuré, et un bouton « Revenir en 2.6 » tant que c'est possible.
+- Bannière sur les pages DHCP quand `kea_series_obsolete` est ouverte.
+
+**API**
+
+| Méthode, chemin | Permission | Requête | Réponse |
+| --- | --- | --- | --- |
+| `GET /install/kea-migration` | `admin:install` | | `{"nodes": [{"node_id","engines": {"kea4": {"version","source","package"}}}], "targets": [{"series","source","version","available": bool}], "current": Migration|null}` |
+| `POST /install/kea-migration/analyze` | `admin:install` | `{"series","source","node_ids"?}` | `{"id","findings": [{"severity","code","node_id","engine","path","message","action"}],"diffs": {node_id: {engine: diff}},"packages": {node_id: {"remove","install"}},"blocking": bool}` |
+| `POST /install/kea-migration/{id}/plan` | `admin:install` et `ops:dhcp.ha` | `{"phase": "prepare"|"migrate"|"rollback","options"?: {"response_delay_ms","https_sockets"}}` | `Plan` composite (scope `kea.migration`, `requires_confirmation`) ; `409` si un constat bloquant reste ouvert |
+| `GET /install/kea-migration/{id}` | `admin:install` | | `Migration` : `{"id","series","source","state","phase","nodes": [{"node_id","step","ha_state","started_at","finished_at"}],"outage_seconds","rollback_possible"}` |
+
+Nouveau scope de plan `kea.migration`, permission `admin:install` plus `ops:dhcp.ha`. Audit : `kea.migration.analyze|prepare|step|rollback`. Les étapes qui touchent un pair passent par l'assistant privilégié du pair, scellées comme les étapes de la bascule TLS de la HA (`PEER_STEPS` de `installer/helper.py`).
+
+**Réglages**
+
+`[settings.kea]` : `migration_response_delay_ms` (10 000), `migration_auto_rollback_enabled` (vrai), `migration_outage_max_seconds` (180 : au-delà, retour arrière automatique pendant le temps 2). Pas de secret nouveau.
+
+**Plusieurs nœuds**
+
+Le plan est construit sur le nœud de l'administrateur ; chaque étape s'exécute sur son nœud par son assistant privilégié. Le fichier de baux passe par une nouvelle route de réplication `GET /repl/v1/kea/leases/<famille>` (mTLS, lecture seule, taille bornée). Le nœud qui pilote garde l'état de la migration dans `cluster.toml` (`kea.migration`), répliqué, pour qu'un autre nœud reprenne l'affichage ou le retour arrière si le pilote redémarre.
+
+**Sécurité**
+
+- Seuls les dépôts connus (ISC Cloudsmith, distribution) sont posés, avec leur clé de signature, comme l'installateur actuel. Les paquets téléchargés sont vérifiés par le gestionnaire de paquets (signature du dépôt), jamais installés depuis un chemin fourni par le client.
+- La copie du fichier de baux ne quitte pas le canal mTLS et n'est jamais écrite hors du dossier de données de Kea et du dossier de migration (0700).
+- Aucun `-X` en production. `restrict-commands: true` et TLS de la HA gardés ; `control-sockets` HTTP seulement sur demande, `https` avec `cert-required` par défaut.
+
+**Pannes**
+
+| Panne | Comportement |
+| --- | --- |
+| Paquet introuvable ou téléchargement en échec | Préparation en échec, rien n'est arrêté |
+| `kea-dhcp4 -t` refuse la configuration 3.x | Temps 1 arrêté avant la fenêtre ; S remis en 2.6 ; constat ajouté au rapport |
+| S ne passe pas `partner-down` dans `migration_outage_max_seconds` | Retour arrière automatique : arrêt de S, redémarrage de P en 2.6, `ha-maintenance-cancel` |
+| P ne revient pas en `hot-standby` au temps 3 | S continue de servir seul (`partner-down`) ; `ha_partner_down` levée, pas de coupure ; correction manuelle ou retour de la paire |
+| Nœud injoignable pendant la migration | Arrêt à l'étape en cours, état gardé dans `kea.migration`, reprise ou retour depuis l'autre nœud |
+| AppArmor confine les binaires ISC | Profils Debian désactivés comme à l'installation (`disable_stale_apparmor`), réactivés au retour en 2.6 |
+| Redémarrage automatique des services par le paquet ISC | Attendu : Kea est arrêté avant l'installation, la configuration est déjà en place |
+
+**Tests**
+
+- Unitaires : chaque règle de l'analyse sur des configurations réelles (Debian 2.6.3 de la production anonymisée en `example.lan`, HA TLS, D2 avec `secret`, `kea-ctrl-agent`) ; conversion idempotente ; liste des paquets selon la source ; construction du plan et de ses étapes ; retour arrière à chaque étape ; machine d'état de `kea.migration`.
+- Démons : `kea-dhcp4 -t` des configurations produites avec le Kea 3.2 de l'hôte de développement ; validation à blanc avec des binaires extraits d'un paquet ; fichier de baux écrit par 2.6 relu par 3.x et l'inverse (format memfile).
+- Labo : `tests/lab/test_kea_migration_lab.py` sur la paire ns1 / ns2 en Kea 2.6.3 Debian, HA hot-standby en TLS, D2, et le client DHCP du labo qui renouvelle en boucle : analyse, préparation, migration vers ISC 3.2 ; mesure de la coupure (aucun DHCPNAK, aucun doublon d'adresse, baux du temps 1 présents sur S) ; DDNS qui marche après ; retour arrière forcé au temps 2 ; migration complète puis retour de la paire en 2.6. Variante sur la VM Rocky avec les dépôts `el`.
+
+### 13.5 Surveillance du résolveur (point 60)
+
+**Besoin**
+
+La production résout en récursif, sans forwarder. Quand l'accès aux serveurs racine ou à un TLD se dégrade, ou que la validation DNSSEC échoue, tout le réseau le ressent avant que quelqu'un sache pourquoi. Pelagos doit montrer la santé du résolveur dans le temps, alerter avec des seuils raisonnables, et proposer un repli temporaire vers des forwarders choisis, puis le retour.
+
+**Ce qui existe et sur quoi on s'appuie**
+
+- Le point 23 a livré l'alerte `resolver_health` (`collector/checks/resolver.py`) : taux de SERVFAIL rendus aux clients, échecs de validation (`ValFail`), chute du nombre de requêtes, sonde de la racine (un TLD aléatoire demandé au résolveur local avec CD, sujet `resolver:roots`), avec les seuils `checks.resolver_*`.
+- Le statistics-channel est lu à chaque passage (`connectors/bind/stats.py`, `BindInstanceStats.resstats`, vues comprises) ; les compteurs cumulatifs passent par `CounterSeries`.
+- L'écran DNS, Résolveur (`ResolverPage.jsx`, `GET /dns/resolver`, `POST /dns/resolver/plan`) lit et écrit déjà `recursion`, `allow-recursion`, `forwarders`, `forward`, `dnssec-validation` par plan.
+
+**Faits vérifiés** (sources lues le 2026-10-28)
+
+- Compteurs du résolveur dans le statistics-channel ([ARM BIND 9.20, Resolver Statistics Counters](https://gitlab.isc.org/isc-projects/bind9/-/blob/bind-9.20/doc/arm/reference.rst)) : `Queryv4`, `Queryv6` (requêtes envoyées), `Responsev4`, `Responsev6`, `NXDOMAIN`, `SERVFAIL`, `REFUSED`, `FORMERR`, `OtherError` (réponses reçues des serveurs distants), `EDNS0Fail`, `Mismatch` (« may be an indication of a cache poisoning attempt »), `Truncated`, `Lame`, `Retry`, `QueryTimeout`, `ValAttempt`, `ValOk`, `ValNegOk`, `ValFail`, histogramme `QryRTTnn` (dernier seau `nn+`), `NumFetch`, `ZoneQuota`, `ServerQuota`, `ClientQuota`, `Priming`.
+- Cache, relevé sur le BIND 9.20 de l'hôte de développement (`/json/v1`, `views/<vue>/resolver/cachestats`) : `CacheHits`, `CacheMisses`, `QueryHits`, `QueryMisses`, `DeleteLRU`, `DeleteTTL`, `CoveringNSEC`, `CacheNodes`, `TreeMemInUse`, `HeapMemInUse`. Les noms de seaux `QryRTT` présents dépendent du trafic (seuls les seaux non nuls apparaissent).
+- `forward ( first | only )` et `forwarders [ port ] [ tls ] { adresse [ port ] [ tls nom ]; }` en 9.20 (même ARM) : un repli peut aussi passer par DNS sur TLS.
+- Adresses publiques de référence : Quad9 avec filtrage et DNSSEC `9.9.9.9`, `149.112.112.112`, `2620:fe::fe`, `2620:fe::9`, TLS `dns.quad9.net` ([Quad9](https://quad9.net/service/service-addresses-and-features/)) ; Cloudflare `1.1.1.1`, `1.0.0.1`, `2606:4700:4700::1111`, `2606:4700:4700::1001` ([Cloudflare](https://developers.cloudflare.com/1.1.1.1/ip-addresses/)).
+
+**Décisions**
+
+1. Mesures par nœud, à chaque passage, gardées comme séries (nouvelle table `resolver_samples` du cache SQLite, rétention `retention.resolver_raw_days` 7 puis moyennes horaires `retention.resolver_hourly_days` 90) :
+   - requêtes sortantes par seconde (`Queryv4` + `Queryv6`), délais dépassés (`QueryTimeout`) et nouvelles tentatives (`Retry`) en pourcentage des requêtes sortantes ;
+   - latence vers les serveurs distants : p50 et p95 estimés depuis l'histogramme `QryRTT` (interpolation dans le seau, borne haute du dernier seau prise à 2 × sa borne basse) ;
+   - SERVFAIL rendus aux clients (déjà mesuré) et reçus des serveurs distants, `Lame`, `EDNS0Fail` ;
+   - DNSSEC : `ValAttempt`, `ValOk`, `ValNegOk`, `ValFail` et le taux d'échec ;
+   - cache : taux de réussite `QueryHits / (QueryHits + QueryMisses)`, nœuds et mémoire du cache, expulsions `DeleteLRU` (un cache trop petit expulse) ;
+   - `Mismatch` (réponses qui ne correspondent pas, tentative d'empoisonnement possible), quotas atteints (`ZoneQuota`, `ServerQuota`, `ClientQuota`).
+2. Sondes actives, depuis le nœud, toutes les `probe_interval_seconds` (300) dans les contrôles lents (hors de la boucle de sondage) :
+   - racine : requête non récursive `. SOA` vers chaque serveur racine, en IPv4 et en IPv6 si le nœud a une route IPv6, adresses lues par le résolveur local (`. NS` puis A et AAAA), jamais codées en dur ; temps de réponse et joignabilité par lettre ;
+   - TLD : pour chaque TLD de `probe_tlds` (défaut : `com`, `net`, `org`, `arpa` et le TLD de chaque zone que le cluster sert), requête non récursive `<tld>. SOA` vers deux des serveurs du TLD ;
+   - la sonde existante du résolveur local (TLD aléatoire) reste celle qui lève `resolver:roots`.
+   Coût : une quarantaine de petites requêtes toutes les 5 minutes.
+3. Alertes (genre existant `resolver_health`, sujets nouveaux) : `resolver:latency` (p95 au-dessus du seuil), `resolver:timeouts` (part de délais dépassés), `resolver:tld:<tld>` (TLD injoignable sur tous ses serveurs sondés pendant `resolver_tld_failures` sondes), `resolver:root-letters` (info : une partie des serveurs racine ne répond pas), `resolver:mismatch` (avertissement au-delà d'un volume), `resolver:cache` (info : expulsions LRU continues). Les seuils par défaut sont prudents, sans données de référence (question 2), et l'écran montre pour chaque seuil la valeur observée sur 7 jours pour qu'on les règle.
+4. Repli vers des forwarders : un plan « Passer temporairement par des forwarders », proposé par les alertes `resolver:roots`, `resolver:tld:*`, `resolver:timeouts` et `resolver:latency` critiques, jamais appliqué seul (option `fallback_auto_enabled`, défaut faux). Le plan écrit `forward first` (le résolveur reprend la récursion si les forwarders tombent aussi) et les forwarders choisis dans les options gérées par Pelagos, sur les nœuds choisis (défaut : tous), avec une échéance obligatoire (`fallback_max_hours`, défaut 24). Préréglages : Quad9 (avec filtrage, DNSSEC), Quad9 sans filtrage, Cloudflare, et une liste libre (par exemple les serveurs du fournisseur d'accès) ; DNS sur TLS en option quand le préréglage le permet.
+5. Retour : l'état du repli vit dans `cluster.toml` (`resolver.fallback` : nœuds, forwarders, valeurs d'avant de `forward` et `forwarders`, début, échéance, auteur). Le retour est proposé dès que les sondes directes de la racine et des TLD sont saines depuis `fallback_return_healthy_minutes` (15), et appliqué seul à l'échéance (`fallback_auto_return_enabled`, défaut vrai) : la confirmation du plan de repli portait déjà l'échéance, le retour remet exactement les valeurs d'avant. Un changement manuel des forwarders pendant le repli annule le retour automatique (constat affiché).
+6. Les forwarders par zone (`type forward` dans `named.conf.local`) ne sont pas touchés ; le point 65 les compare entre nœuds.
+
+**Écrans**
+
+- DNS, Résolveur, nouvelle partie « Santé » en tête de la page existante : par nœud, tuiles (requêtes sortantes par seconde, p95, SERVFAIL, échecs DNSSEC, taux de cache), courbes sur 1 h, 24 h, 7 jours ; table des serveurs racine (lettre, IPv4, IPv6, temps de réponse, dernier échec) et des TLD sondés.
+- Bandeau quand un repli est actif : forwarders, nœuds, échéance, boutons « Revenir maintenant » et « Prolonger ».
+- Formulaire de repli (`FormModal`) : préréglage, adresses, `first` ou `only`, nœuds, durée.
+- Tableau de bord : tuile Résolveur (p95, SERVFAIL, état du repli).
+
+**API**
+
+| Méthode, chemin | Permission | Requête | Réponse |
+| --- | --- | --- | --- |
+| `GET /dns/resolver/health` | `read:dns` | `?node_id=` | `{"nodes": [{"node_id","sampled_at","rates": {"queries_out","timeouts_percent","servfail_out_percent","servfail_clients_percent","valfail_percent","cache_hit_percent"},"latency_ms": {"p50","p95"},"cache": {"nodes","memory_bytes","lru_per_minute"},"roots": [{"letter","address","rtt_ms","ok","last_failure"}],"tlds": [{"tld","servers","ok","rtt_ms","last_failure"}]}], "fallback": Fallback|null, "thresholds": {...}}` |
+| `GET /series/resolver` | `read:series` | `?node_id=&metric=&from=&to=&step=` | séries, même forme que `/series/pools` |
+| `POST /dns/resolver/fallback/plan` | `write:dns.config` | `{"forwarders": [...], "forward": "first"|"only", "node_ids"?, "hours", "preset"?, "tls_name"?}` | `Plan` composite (une partie BIND par nœud, `requires_confirmation`) |
+| `POST /dns/resolver/fallback/return/plan` | `write:dns.config` | `{}` | `Plan` qui remet les valeurs d'avant |
+| `PUT /dns/resolver/fallback` | `write:dns.config` | `{"until"}` | `{"fallback"}` (prolonger, borné par `fallback_max_hours`) |
+
+Les routes de lecture agrègent les nœuds par une action de pair `resolver.health` (même modèle que `alerts.list`). Audit : `dns.resolver.fallback|return|extend`.
+
+**Réglages**
+
+`[settings.resolver]` (nouveau domaine) : `probe_interval_seconds` (300), `probe_tlds` (`["com","net","org","arpa"]`, plus les TLD servis), `probe_ipv6_enabled` (vrai), `fallback_auto_enabled` (faux), `fallback_after_seconds` (600), `fallback_max_hours` (24), `fallback_auto_return_enabled` (vrai), `fallback_return_healthy_minutes` (15). Écrit par l'écran : `resolver.fallback`, `resolver.presets`. Seuils dans `[settings.checks]` : `resolver_latency_p95_warning_ms` (800), `resolver_latency_p95_critical_ms` (1 600), `resolver_timeouts_warning_percent` (10), `resolver_timeouts_critical_percent` (30), `resolver_tld_failures` (3), `resolver_mismatch_warning_count` (100 par fenêtre), `resolver_lru_info_per_minute` (100). Rétention : `retention.resolver_raw_days` (7), `retention.resolver_hourly_days` (90).
+
+**Plusieurs nœuds**
+
+Chaque nœud mesure et sonde pour lui-même (deux résolveurs peuvent ne pas avoir le même accès) ; l'API agrège. Le repli s'applique par nœud dans un plan composite ; le retour automatique est fait par le collecteur de chaque nœud concerné pour sa propre partie, à l'échéance lue dans `resolver.fallback` répliqué : un nœud hors ligne à l'échéance revient à son retour.
+
+**Sécurité**
+
+- Les sondes n'interrogent que la racine, les TLD et le résolveur local ; aucune donnée des clients n'en sort.
+- Le repli change l'endroit où partent toutes les requêtes du réseau : `requires_confirmation`, préréglages documentés (filtrage, journalisation de chaque service), DNS sur TLS proposé. `dnssec-validation` n'est jamais désactivé par le repli.
+
+**Pannes**
+
+| Panne | Comportement |
+| --- | --- |
+| Statistics-channel injoignable | Mesures absentes et dites dans l'écran ; `daemon_down` ou alerte de collecte existantes |
+| Pas de route IPv6 | Sondes IPv6 sautées, pas d'alerte |
+| Forwarders du repli injoignables aussi | `forward first` : la récursion reprend ; les alertes restent levées |
+| Nœud hors ligne à l'échéance du repli | Retour appliqué par son collecteur à son retour |
+| Horloge fausse | Échéance comparée à l'horloge locale ; `clock_unsynchronized` existe |
+
+**Tests**
+
+- Unitaires : percentiles depuis un histogramme `QryRTT` (seaux absents, dernier seau) ; taux sur des compteurs remis à zéro (redémarrage de named) ; règles d'alerte et seuils ; choix des TLD sondés ; sonde racine et TLD contre un faux serveur DNS en mémoire ; plan de repli et de retour (valeurs d'avant restituées à l'identique, absence d'origine) ; échéance et retour automatique ; agrégation de cluster ; API.
+- Démons : named réel récursif dont les « serveurs racine » sont un second named local (`hint` vers 127.0.0.1) : arrêt du faux serveur racine, `resolver:roots` levée, plan de repli vers un troisième named forwarder, résolution rétablie, retour automatique à l'échéance.
+- Labo : sur ns1 / ns2, coupure de l'accès DNS sortant par une règle nftables temporaire sur la VM, alertes, repli vers Quad9 bloqué puis rétabli, retour ; vérification que les seuils par défaut ne lèvent rien sur une semaine de trafic normal du labo (exécution hebdomadaire).
+
+### 13.6 Mise à jour de Pelagos depuis l'interface (point 61)
+
+**Besoin**
+
+Mettre à jour un cluster demande aujourd'hui `scripts/deploy-prod.sh` depuis une machine qui joint chaque nœud en ssh avec `sudo`. L'interface doit montrer la version disponible et ses notes, puis faire la même chose nœud par nœud : vérifier le paquet, sauvegarder l'état, installer, attendre la santé et la convergence, contrôler la HA et les journaux, s'arrêter au premier problème, et savoir revenir à la version précédente. La même mécanique doit servir aux mises à jour de sécurité des paquets BIND et Kea de la distribution.
+
+**Ce qui existe et sur quoi on s'appuie**
+
+- `scripts/deploy-prod.sh` et `docs/user/upgrade.md` fixent la procédure : sommes SHA256, sauvegarde de `/etc/pelagos` et `/var/lib/pelagos` hors `series.sqlite`, installation, `settle` de 30 s, attente de `/api/v1/health`, contenu de `cluster.toml` identique (empreinte du contenu analysé, sans l'en-tête), nombre d'entrées d'audit égal et jamais en baisse, unités relancées (identifiant d'invocation différent), aucune ligne `ERROR` des nouveaux processus, HA Kea dans un état normal ; nœuds non primaires d'abord ; refus d'une version plus ancienne (retour arrière manuel).
+- Le cas de deux versions dans le cluster est pris en charge et documenté (« While two versions run »).
+- L'assistant privilégié (`pelagos helper`, socket `root:pelagos` 0660) exécute déjà comme root, par une liste fermée d'opérations, les installations de paquets (`platform/packages.py`, apt et dnf).
+- Le point 37 lit la version installée et la candidate des paquets BIND et Kea (`collector/checks/distro.py`, `apt-cache policy`, `dnf updateinfo`) et le suivi de sécurité de Debian.
+- Les releases sont des répertoires `make release` : debs amd64 et arm64, `SHA256SUMS`, `NOTES.md`, joints à la release GitHub, sans signature aujourd'hui.
+
+**Décisions**
+
+1. Sources de version, au choix dans l'écran :
+   - dépôt de release téléversé : l'administrateur dépose les fichiers d'un répertoire de release (paquets, `SHA256SUMS`, `SHA256SUMS.sig`, `NOTES.md`) ; marche sans accès Internet et avec un dépôt privé ;
+   - URL de releases : l'API des releases GitHub (`GET /repos/{owner}/{repo}/releases/latest`), jeton optionnel pour un dépôt privé, rangé en secret ; vérifiée tous les `check_interval_hours` par le nœud de service (13.1, décision 1) ;
+   - dépôt apt ou dnf de Pelagos, quand il existera : lu par `apt-cache policy pelagos`, installé par le gestionnaire de paquets.
+2. Signature obligatoire : `make release` signe `SHA256SUMS` par une clé Ed25519 de release (`SHA256SUMS.sig`) ; les clés publiques acceptées sont livrées dans le paquet (`pelagos/data/release-keys/`, propriété de root) ; la vérification se fait dans l'assistant privilégié, jamais seulement dans le processus web : sinon le groupe `pelagos` pourrait faire installer un paquet quelconque par root. L'assistant refuse aussi tout paquet qui ne s'appelle pas `pelagos`, une architecture différente, ou une version qui n'est ni plus récente que l'installée ni la précédente notée pour un retour. Une nouvelle clé est livrée dans une release signée par l'ancienne. Pas d'installation non signée depuis l'interface ; `pelagos upgrade --allow-unsigned` en ligne de commande pour le développement seulement.
+3. Le déroulé est tiré, pas poussé : le plan « Mettre à jour vers 0.2.4 » écrit un déroulé dans `cluster.toml` (`updates.rollout` : identifiant, version, sommes des paquets par architecture, ordre des nœuds, état de chaque nœud, auteur, options). Le collecteur de chaque nœud regarde ce déroulé ; quand vient son tour (tous ceux d'avant `done`, cluster sain), il récupère les paquets chez le nœud qui les a (`GET /repl/v1/releases/<version>/<fichier>`, mTLS), les vérifie, et demande à son assistant privilégié de faire sa mise à jour. Aucun nœud ne pilote les autres : le redémarrage du nœud où l'administrateur a cliqué ne casse rien.
+4. Survivre à son propre redémarrage : l'assistant lance la mise à jour dans une unité transitoire (`systemd-run --unit=pelagos-upgrade-<id> pelagos upgrade apply --rollout <id>`), indépendante de `pelagos.service`, `pelagos-collector.service` et de la connexion à l'assistant. Elle écrit sa progression dans `/var/lib/pelagos/upgrade/<id>/<nœud>.json` (root, lisible par le groupe `pelagos`) : arrêt des services, sauvegarde de l'état, installation, version vérifiée. Les nouveaux processus relisent ce fichier, font les contrôles d'après installation et écrivent l'état du nœud dans `updates.rollout`. L'interface perd sa connexion quelques secondes, se reconnecte (`/health`), redemande la session si elle a été perdue, et reprend l'affichage depuis l'état répliqué.
+5. Contrôles par nœud, repris de `deploy-prod.sh` : avant (santé de tout le cluster, empreinte de `cluster.toml`, compte d'audit, HA Kea), sauvegarde (`/var/lib/pelagos/upgrade/backups/pelagos-state-<date>-<ancienne version>.tar.gz`, 0600 root, plus une archive 13.2 si une destination existe), installation, version installée, attente de `settle_seconds` puis jusqu'à `timeout_seconds` de la santé et de la convergence, audit jamais en baisse, unités relancées, aucune ligne `ERROR` des nouveaux processus (lue par l'assistant, opération `journal_errors`). Le nœud suivant attend `pause_seconds` (défaut 60) après le `done` du précédent.
+6. Ordre par défaut : les nœuds qui ne sont ni primaire DNS actif (`ddns.roles` et zones primaires) ni primaire de la HA Kea, puis ceux-là, le primaire DNS en dernier ; modifiable dans l'aperçu.
+7. Arrêt au premier problème : le nœud passe `failed` avec l'étape et la raison, les suivants ne démarrent pas ; alerte `update_failed` (critical) et notification (13.1). Actions : « Reprendre » (après correction), « Annuler le reste » (les nœuds faits restent sur la nouvelle version, état mixte pris en charge), « Revenir en arrière ».
+8. Retour arrière :
+   - automatique sur le nœud qui échoue après son installation (`auto_rollback_enabled`, défaut vrai) quand la release déclare la même version d'état que la précédente (`release.json`, champ `state_schema`) : réinstallation du paquet précédent, gardé dans `/var/lib/pelagos/upgrade/packages/` à chaque mise à jour, suppression de `series.sqlite` (cache), redémarrage, mêmes contrôles ;
+   - quand `state_schema` a changé (migration de réglages, de format) : pas de retour automatique ; l'écran donne la procédure de `upgrade.md` (`pelagos settings --legacy`, restauration de la sauvegarde d'état du nœud) et propose les étapes qu'il sait faire ;
+   - « Revenir en arrière » pour tout le cluster : déroulé inverse vers la version précédente, dans l'ordre inverse, sous les mêmes conditions.
+   Le tout premier passage par l'interface n'a pas de paquet précédent gardé si la version d'avant a été installée à la main : l'écran le dit et accepte le dépôt du paquet précédent.
+9. Paquets des moteurs (option demandée) : même déroulé, de genre `engine_packages`, pour une mise à jour dans la même série de la distribution (BIND 9.20.x, Kea 2.6.x de Debian, ou Kea de la même série ISC), proposée par `security_advisory` quand une version corrigée est candidate (point 37) ou manuellement. Ordre : secondaires DNS puis primaire ; pour Kea, `ha-maintenance-start` envoyé au pair avant l'installation et `ha-maintenance-cancel` après le retour en état normal, standby d'abord. Contrôles : version relue, `rndc status`, transferts de zone à jour, `status-get` de la HA, alertes nouvelles. Un changement de série de Kea passe par 13.4, jamais par ici.
+10. Docker : pas de mise à jour depuis l'interface ; l'écran donne la version de l'image et la commande `docker compose pull && docker compose up -d`.
+
+**Écrans**
+
+- Administration, Mises à jour : version de chaque nœud, version disponible (source, date, notes rendues depuis `NOTES.md`), état de la signature, bouton « Préparer la mise à jour ».
+- Aperçu : ordre des nœuds (réordonnable), contrôles qui seront faits, durée estimée, option de retour automatique, confirmation par mot de passe.
+- Déroulé : frise des nœuds avec l'étape de chacun en direct, journal des étapes, état des contrôles, boutons Reprendre, Annuler le reste, Revenir en arrière ; page qui se reconnecte seule après le redémarrage du nœud courant.
+- Onglet « Paquets des moteurs » : par nœud, BIND et Kea installés et candidats, CVE corrigées par la candidate, bouton « Mettre à jour » qui ouvre le même aperçu.
+- Historique : déroulés passés, par version et par nœud.
+
+**API**
+
+| Méthode, chemin | Permission | Requête | Réponse |
+| --- | --- | --- | --- |
+| `GET /admin/updates` | `admin:updates` | | `{"nodes": [{"node_id","version","arch","package_format","previous_kept"}],"available": [{"version","source","published_at","notes","signed","state_schema"}],"rollout": Rollout|null,"settings","engines": [{"node_id","engine","package","installed","candidate","cves"}]}` |
+| `POST /admin/updates/check` | `admin:updates` | | `{"available"}` (vérification immédiate) |
+| `POST /admin/updates/upload` | `admin:updates` | multipart : fichiers d'un répertoire de release | `{"version","files","signed": true}` ou `422` (signature, somme, nom) |
+| `POST /admin/updates/plan` | `admin:updates` | `{"kind": "pelagos"|"engine_packages"|"rollback","version"?,"packages"?,"order"?,"auto_rollback"?}` | `Plan` (scope `update`, `requires_confirmation`, mot de passe exigé à l'application) |
+| `GET /admin/updates/rollout` | `admin:updates` | | `Rollout` : `{"id","kind","version","state","order","nodes": [{"node_id","state","step","started_at","finished_at","error"}],"created_by"}` |
+| `POST /admin/updates/rollout/{id}/action` | `admin:updates` | `{"action": "resume"|"cancel"|"rollback"}` | `Rollout` |
+| `GET /admin/updates/history?page=&per_page=` | `admin:updates` | | paginé |
+
+Nouvelle permission `admin:updates` (rôle administrateur), nouveau scope de plan `update`. Réplication : `GET /repl/v1/releases/<version>/<fichier>` (mTLS, fichiers d'une release téléversée). Assistant privilégié, opérations nouvelles : `update_verify` (signature, sommes, nom, version), `update_start` (unité transitoire), `update_status`, `journal_errors`. Audit : `admin.update.plan|resume|cancel|rollback`, `update.node.start|done|failed|rolled_back`.
+
+**Réglages**
+
+`[settings.updates]` (nouveau domaine) : `check_enabled` (vrai), `check_interval_hours` (24), `source` (`"upload"`, `"github"` ou `"repository"`), `github_repository` (vide), `settle_seconds` (30), `timeout_seconds` (300), `pause_seconds` (60), `auto_rollback_enabled` (vrai), `keep_packages_count` (2). Écrit par l'écran : `updates.rollout`. Secret : `updates/github_token`. Alertes : `update_available` (info, sujet `update:pelagos`), `update_failed` (critical, sujet `update:<rollout>`), `update_stalled` (warning : un nœud n'a pas avancé depuis 2 × `timeout_seconds`), `version_mismatch` existante pendant le déroulé (sans nouvelle notification tant qu'un déroulé est actif).
+
+**Plusieurs nœuds**
+
+Le déroulé et les états sont dans `cluster.toml`, répliqués ; chaque nœud n'écrit que sa propre ligne (pas de conflit d'écriture). Les nœuds d'une version qui ne connaît pas `updates` ignorent la section ; la première version qui sait se mettre à jour s'installe donc à la main ou par `deploy-prod.sh`, qui reste l'outil de secours et le modèle des contrôles. Pendant le déroulé, deux versions coexistent ; les limites sont celles de `upgrade.md`.
+
+**Sécurité**
+
+- Signature et règles vérifiées par root dans l'assistant (décision 2) ; paquets rangés en 0600 root ; jamais d'installation depuis une URL donnée par le client.
+- `admin:updates` plus le mot de passe de l'utilisateur à la confirmation ; audit complet ; un seul déroulé actif à la fois.
+- Les sauvegardes d'état contiennent la clé maître et la CA : 0600 root, jamais copiées vers un pair, purgées après `keep_packages_count` mises à jour.
+- Jeton GitHub stocké chiffré, lecture seule recommandée (permission Contents en lecture).
+
+**Pannes**
+
+| Panne | Comportement |
+| --- | --- |
+| Signature ou somme invalide | Refus avant tout changement, alerte, audit |
+| Installation en échec | Nœud `failed` ; paquet précédent toujours en place (le gestionnaire n'a rien changé) ou retour automatique |
+| Nouveaux processus en échec (santé, `ERROR`, convergence) | Retour automatique si `state_schema` identique, sinon arrêt et procédure affichée |
+| Coupure de l'interface pendant le redémarrage | Reconnexion, état relu depuis `updates.rollout` ; rien ne dépend de la page |
+| Nœud injoignable pendant son tour | `update_stalled`, déroulé en attente ; « Annuler le reste » possible |
+| Redémarrage de la machine pendant l'installation | L'unité transitoire n'existe plus ; au démarrage, le collecteur trouve le fichier de progression inachevé et passe le nœud `failed` avec l'état du paquet relu (`dpkg --audit`, `rpm -V`) |
+| Deux déroulés lancés en même temps | Le second est refusé (`409 conflict`) ; une coupure réseau ne peut en créer deux que si deux administrateurs agissent chacun de son côté : le second voit l'autre à la reconnexion et est mis en attente |
+
+**Tests**
+
+- Unitaires : signature Ed25519 de `SHA256SUMS` (bonne, mauvaise, clé inconnue, rotation de clé) ; règles de l'assistant (nom, architecture, version, chemin) ; machine d'état du déroulé (tour de chaque nœud, arrêt, reprise, annulation, retour) ; contrôles d'après installation sur des états factices (repris des sondes de `deploy-prod.sh`) ; ordre par défaut ; lecture des releases GitHub sur un faux serveur ; API.
+- Démons : deux collecteurs réels et une fausse commande d'installation qui remplace le paquet par une version marquée : déroulé complet, échec provoqué sur le second nœud, retour automatique.
+- Labo : `tests/lab/test_upgrade_ui_lab.py` sur ns1 (amd64) et ns2 (arm64 émulé) : mise à jour d'une release construite par `make release NO_TAG=1` et signée par une clé de test, par l'API comme le ferait l'interface ; mêmes vérifications que `test_upgrade_lab.py` (audit, `node.toml`, réplication dans les deux sens, HA) ; puis un paquet volontairement cassé (unité qui ne démarre pas) et retour automatique ; puis paquets des moteurs : mise à jour de BIND d'une version Debian à la suivante (dépôt local du labo). Le même scénario sur la VM Rocky avec les rpm.
+
+### 13.7 IPv6 : AAAA et PTR (point 62)
+
+**Besoin**
+
+Les machines du réseau ont des adresses IPv6 globales obtenues par SLAAC, sans DHCPv6 : aucun AAAA ni PTR n'est créé pour elles, et rien ne le signale. Pelagos doit observer les adresses réellement utilisées, distinguer les adresses stables des adresses temporaires de confidentialité, dire quels hôtes connus en IPv4 n'ont pas d'AAAA, et proposer la création des AAAA et des PTR hôte par hôte, par plan.
+
+**Ce qui existe et sur quoi on s'appuie**
+
+- Les contrôles de cohérence (`services/consistency.py`) lèvent déjà `ptr_mismatch` pour un AAAA sans PTR quand la zone inverse IPv6 est gérée, et les PTR orphelins (vue « PTR orphelins »).
+- La vue Hôtes joint bail, réservation et enregistrements A, AAAA, PTR par MAC, puis adresse, puis nom (`services/hosts_service.py`) ; les plans d'hôte écrivent enregistrements et réservations.
+- Les exceptions génériques (`[[exceptions]]`) et le nœud de service (13.1, décision 1).
+- DHCPv6 est un module optionnel ; ses baux suivent déjà le chemin des baux IPv4.
+
+**Faits vérifiés** (sources lues le 2026-10-28)
+
+- Adresses temporaires (RFC 8981, section 3.8) : `TEMP_VALID_LIFETIME` 2 jours et `TEMP_PREFERRED_LIFETIME` 1 jour par défaut ([RFC 8981](https://www.rfc-editor.org/rfc/rfc8981.html)). Une adresse encore utilisée au-delà de sa durée de validité n'est donc pas une adresse temporaire aux réglages par défaut.
+- OPNsense expose la table des voisins IPv6 : `GET /api/diagnostics/interface/get_ndp` et `search_ndp`, authentification Basic par clé et secret d'API ([OPNsense, API core diagnostics](https://docs.opnsense.org/development/api/core/diagnostics.html)).
+
+**Décisions**
+
+1. Sources d'observation, chacune activable :
+   - table des voisins de chaque nœud (`ip -j -6 neigh show`, lisible sans privilège) : voit les machines qui parlent au nœud en IPv6 (requêtes DNS sur l'adresse IPv6 du nœud, découverte de voisins) ; active par défaut, aucun réglage ;
+   - routeur OPNsense par son API (`search_ndp`) : vue complète du lien ; interrogée par le nœud de service toutes les `poll_seconds` (300) ; d'autres routeurs pourront suivre (même interface `NeighborSource`) ;
+   - baux DHCPv6 (module DHCPv6) : déjà connus, utilisés tels quels.
+   Chaque observation est `(mac, adresse, source, nœud, premier vu, dernier vu, état)`, gardée dans le cache SQLite du nœud qui l'a faite (`ipv6_observations`, rétention `retention.ipv6_observation_days` 30).
+2. Filtre des adresses : lien local (`fe80::/10`), multicast, adresses hors des préfixes surveillés ignorés. Préfixes surveillés (`ipv6.prefixes`) : par défaut ceux des zones inverses IPv6 que le cluster sert et des sous-réseaux DHCPv6 ; les ULA (`fd00::/8`) seulement si un préfixe ULA est listé.
+3. Classement de chaque adresse :
+   - `eui64` : l'identifiant d'interface est l'EUI-64 de la MAC observée (bit U/L inversé, `ff:fe` au milieu) : stable ;
+   - `stable` : vue pour la même MAC depuis plus de `stable_min_days` (3 jours, au-dessus des 2 jours de validité d'une adresse temporaire) et encore vue dans les dernières 24 h ;
+   - `temporary` : plusieurs adresses pour la même MAC et le même préfixe, chacune vue moins longtemps, remplacées au fil des jours ; jamais proposée ;
+   - `unknown` : pas encore assez d'historique ; proposée seulement si l'administrateur la choisit.
+   Une MAC aléatoire (bit « localement administré ») est signalée : son nom peut changer de réseau en réseau.
+4. Rattachement à un nom : la MAC mène à l'hôte de la vue Hôtes (bail ou réservation IPv4, nom du bail, A existant). Le nom proposé est le propriétaire de l'A de l'hôte dans sa zone directe ; sans A ni nom de bail, l'adresse est listée « hôte inconnu », sans proposition.
+5. Contrôles (alertes groupées pour ne pas noyer la page) :
+   - `ipv6_missing_aaaa` (info, une alerte par zone directe, sujet `ipv6:aaaa:<zone>`) : hôtes avec une adresse stable observée et sans AAAA ; le détail liste les hôtes ;
+   - `ipv6_reverse_missing` (info, sujet `ipv6:reverse:<préfixe>`) : préfixe surveillé sans zone inverse servie ; propose la création de la zone (plan de zone existant, dynamique, `update-policy` comme les autres) ;
+   - `ipv6_stale_aaaa` (warning, sujet `ipv6:stale:<zone>`) : AAAA dans un préfixe surveillé dont l'adresse n'est plus observée depuis `stale_days` (14) alors que la MAC de l'hôte est vue avec une autre adresse stable ; cas typique : changement de préfixe chez le fournisseur d'accès, où l'alerte propose de remplacer en bloc tous les AAAA et PTR de l'ancien préfixe ;
+   - un AAAA sans PTR reste `ptr_mismatch`, rien de nouveau.
+   Un hôte connu en IPv4 sans aucune adresse IPv6 observée ne lève rien : il peut être en IPv4 seul.
+6. Création toujours par plan choisi hôte par hôte : la sélection produit un plan composite (AAAA dans la zone directe, PTR dans la zone inverse, `ddi-admin`, par lots), avec l'aperçu habituel. Un nom tenu par le DDNS (DHCID présent) est signalé : l'AAAA ajouté par Pelagos n'est pas retiré par D2 à l'expiration du bail IPv4 (D2 ne retire que les adresses de son bail), à vérifier au labo et dit dans l'aperçu. Pas de création automatique dans la première version (`auto_apply_enabled` existe, faux par défaut, réservé à la suite).
+7. Exceptions : par hôte (`ipv6_missing_aaaa`, clé `mac:<mac>`) ou par adresse, avec motif, par le mécanisme `[[exceptions]]` existant.
+
+**Écrans**
+
+- Hôtes, nouvel onglet « IPv6 » : une ligne par hôte avec MAC, IPv4, adresses IPv6 observées et leur classe (badge EUI-64, stable, temporaire, inconnue), source et dernière observation, AAAA et PTR actuels, case à cocher ; filtres (sans AAAA, sans PTR, obsolètes, inconnus) ; boutons « Créer AAAA et PTR de la sélection », « Exception ».
+- Fiche d'hôte : partie IPv6 avec l'historique des adresses observées.
+- Administration, Sources IPv6 : sources activées, formulaire OPNsense (URL, clé, secret, CA optionnelle, bouton Tester), préfixes surveillés.
+
+**API**
+
+| Méthode, chemin | Permission | Requête | Réponse |
+| --- | --- | --- | --- |
+| `GET /hosts/ipv6` | `read:hosts` | `?filter=&zone=&page=&per_page=` | paginé `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen"}],"aaaa","ptr","proposal": {"name","zone","reverse_zone"}|null,"excepted"}` |
+| `POST /hosts/ipv6/plan` | `write:dns.records` | `{"items": [{"host_key","address","name"?}]}` | `Plan` composite (AAAA et PTR) |
+| `POST /hosts/ipv6/replace-prefix/plan` | `write:dns.records` | `{"old_prefix","new_prefix","zones"?}` | `Plan` composite |
+| `GET /admin/ipv6` | `admin:settings` | | `{"sources": [...], "prefixes", "status": [{"source","node_id","last_poll","error","entries"}]}` (secrets en booléens) |
+| `PUT /admin/ipv6` | `admin:settings` | sources, préfixes, `secrets` | idem |
+| `POST /admin/ipv6/sources/test` | `admin:settings` | une source, enregistrée ou non | `{"ok","entries","error"?}` |
+
+Action de pair `ipv6.observations` (les observations de chaque nœud, agrégées par l'API). Audit : `admin.ipv6.*`, plans habituels.
+
+**Réglages**
+
+`[settings.ipv6]` (nouveau domaine) : `neighbors_enabled` (vrai), `poll_seconds` (300), `stable_min_days` (3), `stale_days` (14), `auto_apply_enabled` (faux). Écrit par l'écran : `ipv6.sources`, `ipv6.prefixes`. Secrets : `ipv6/source/<id>/api_key`, `api_secret`. Rétention : `retention.ipv6_observation_days` (30).
+
+**Plusieurs nœuds**
+
+Chaque nœud observe ses voisins ; le nœud de service interroge le routeur ; l'API fusionne par `(mac, adresse)` en gardant le premier et le dernier vu de toutes les sources. Un nœud hors ligne réduit la vue sans la fausser (l'écran dit quelles sources manquent).
+
+**Sécurité**
+
+- Les observations sont des données personnelles du réseau (adresses et MAC des appareils) : lisibles avec `read:hosts`, jamais envoyées hors du cluster, rétention bornée.
+- Clé OPNsense d'un utilisateur dédié limité à la lecture des diagnostics (privilège exact relevé au labo et donné dans la documentation), vérification TLS, CA privée réglable.
+- Les plans n'écrivent que `AAAA` et `PTR`, déjà dans les types de `ddi-admin`.
+
+**Pannes**
+
+| Panne | Comportement |
+| --- | --- |
+| Routeur injoignable ou clé refusée | Source en échec dans l'écran ; observations des nœuds seules ; pas d'alerte avant 24 h |
+| Changement de préfixe du fournisseur | `ipv6_stale_aaaa` et plan de remplacement en bloc |
+| Zone inverse IPv6 absente | `ipv6_reverse_missing`, création proposée ; les PTR de la sélection sont refusés avant le plan |
+| Hôte à MAC aléatoire | Signalé ; proposition possible, avec avertissement |
+
+**Tests**
+
+- Unitaires : analyse de `ip -j -6 neigh` et de la réponse OPNsense (relevée au labo) ; détection EUI-64 ; classement sur un historique synthétique (rotation quotidienne d'adresses temporaires, adresse stable opaque, changement de préfixe) ; rattachement MAC vers hôte ; contrôles et exceptions ; plans AAAA et PTR ; remplacement de préfixe ; fusion de cluster ; API.
+- Démons : named réel avec zone directe et zone inverse IPv6 dynamiques, application du plan, `ptr_mismatch` refermée.
+- Labo : le client du labo en SLAAC sur le réseau du labo (préfixe de documentation annoncé par radvd sur un nœud), adresses temporaires activées (`use_tempaddr=2`) : observation, classement après simulation du temps (horodatages injectés), création des AAAA et PTR de l'adresse stable seulement ; OPNsense en option dans une VM du pool si son image est disponible, sinon faux serveur d'API sur la VM Docker.
+
+### 13.8 Intégration Home Assistant (point 63)
+
+**Besoin**
+
+Le webhook du 13.1 pousse les alertes vers Home Assistant. Il manque l'état continu : HA Kea, alertes ouvertes par gravité, baux, occupation des pools, réplication, et la présence d'appareils choisis à partir de leurs baux et de leurs traces sur le réseau, pour s'en servir dans des tableaux et des automatisations.
+
+**Ce qui existe et sur quoi on s'appuie**
+
+- Préréglage Home Assistant du webhook (`notify/transports/webhook.py`, 13.1) ; nœud de service unique pour l'envoi (13.1, décision 1).
+- `GET /dashboard/summary` donne déjà HA, pools, zones, D2 et le compte des alertes ; `GET /nodes/replication` l'état de la réplication.
+- Pas de jeton d'API aujourd'hui : l'API ne connaît que la session par cookie et CSRF (architecture, sections 16 et 17).
+- Observations de voisins du 13.7.
+
+**Faits vérifiés** (sources lues le 2026-10-28)
+
+- Intégration REST de Home Assistant : `rest:` lit plusieurs capteurs depuis une seule ressource, en-têtes libres (jeton `Bearer` gardé dans `secrets.yaml`), `verify_ssl` (booléen), `scan_interval` 30 s par défaut, `value_template`, `json_attributes`, `json_attributes_path` ([HA, RESTful Sensor](https://www.home-assistant.io/integrations/sensor.rest/)).
+- MQTT discovery : sujet `<discovery_prefix>/<component>/[<node_id>/]<object_id>/config`, préfixe `homeassistant` ; découverte par appareil `homeassistant/device/<object_id>/config` avec `dev`, `o` et les entités sous `cmps` ; message de naissance `online` / `offline` sur `homeassistant/status`, sur lequel republier la découverte ; HA recommande cette republication plutôt que des configurations retenues (« ghost entities ») ; une configuration vide retenue supprime l'entité ([HA, MQTT](https://www.home-assistant.io/integrations/mqtt/)). `device_tracker` MQTT : charges `home` / `not_home`, `source_type` `router` parmi `gps`, `router`, `bluetooth`, `bluetooth_le` ([HA, MQTT device tracker](https://www.home-assistant.io/integrations/device_tracker.mqtt/)).
+- Intégration Python propre (`custom_components`) : HA recommande un coordinateur, une interrogation pour toutes les entités, et le push quand l'API le permet ([HA, Fetching data](https://contributors.home-assistant.io/core/integrations/fetching-data/)).
+- Client MQTT Python : `paho-mqtt` 2.1.0, licence « EPL-2.0 OR BSD-3-Clause » ([PyPI](https://pypi.org/project/paho-mqtt/)), paquet Debian `python3-paho-mqtt` 2.1.0-1 dans trixie.
+
+**Décisions**
+
+1. Deux chemins dans la première version, sans intégration Python à maintenir :
+   - REST : un point d'entrée en lecture `GET /integrations/homeassistant/state`, conçu pour `rest:` (une requête, tous les capteurs), avec un jeton d'API dédié ;
+   - MQTT discovery (option) : le nœud de service publie un appareil « Pelagos » et ses entités sur le courtier de l'utilisateur (Mosquitto de HA en général), et les traceurs de présence choisis comme `device_tracker` `source_type: router`.
+   Une intégration `custom_components` (HACS) n'est pas faite : elle suit le rythme des versions de HA ; à reconsidérer si REST et MQTT ne suffisent pas.
+2. Jetons d'API (nouveau, utile au-delà de HA) : `Authorization: Bearer pgt_<id>_<secret>` ; le secret (32 octets aléatoires) n'est montré qu'une fois ; `cluster.toml [[api_tokens]]` garde `id`, `name`, l'empreinte SHA-256 du secret (aléa suffisant, pas besoin d'argon2 à chaque requête), `permissions`, `cidrs` autorisés, `expires_at`, `created_by` ; dernier usage gardé par nœud, non répliqué. Un jeton n'appelle que des `GET`, pas de CSRF, et ne peut porter que des permissions de lecture ; le préréglage Home Assistant ne porte que la nouvelle permission `read:integrations`, qui n'ouvre que les routes `/integrations/*`.
+3. Contenu publié (le même en REST et en MQTT) :
+   - HA Kea par moteur et par relation : état local et du pair, `communication-interrupted` ;
+   - alertes ouvertes : nombre par gravité, la plus grave (titre rendu) ;
+   - baux actifs par famille, occupation de chaque pool en pourcentage (sujets stables `subnet_<id>`) ;
+   - réplication : pairs en ligne, retard de configuration et d'audit ;
+   - DDNS : erreurs D2 récentes, reprise (13.3) ;
+   - résolveur (13.5) : p95, SERVFAIL ;
+   - version de Pelagos, mise à jour disponible (13.6).
+   Les entités MQTT ont `availability` sur `pelagos/<cluster>/status` (`online`, `offline` par le testament MQTT du nœud expéditeur) ; un relais par un autre nœud republie `online`.
+4. Présence : seulement pour les appareils listés (`integrations.homeassistant.trackers` : MAC ou hôte, nom, icône), jamais pour tout le réseau. Un appareil est `home` quand l'un de ces signes date de moins de `away_after_seconds` (600) : paquet DHCP reçu (bail renouvelé, `cltt`), entrée de voisin IPv4 ou IPv6 joignable sur un nœud ou chez le routeur (13.7), requête DNS de son adresse dans le journal des requêtes si l'administrateur l'a activé. Un bail encore valide sans autre signe ne suffit pas (un bail dure des heures). Attributs publiés : `ip`, `ipv6`, `hostname`, `mac`, `last_seen`, `source`.
+5. Pas de commande depuis HA dans la première version : lecture seule. Les actions (acquitter, silence) restent dans l'interface ; un service MQTT d'acquittement pourra venir ensuite avec un jeton à permission d'écriture limitée.
+6. MQTT par `paho-mqtt` (dépendance ajoutée par le lot contrat ; sous licence BSD-3-Clause au choix, compatible Apache-2.0) : MQTT 3.1.1 ou 5, TLS, identifiant et mot de passe, QoS 1 pour les états, états retenus (dernier état connu à la reconnexion de HA), découverte non retenue republiée à chaque `online` de `homeassistant/status` et à la connexion.
+
+**Écrans**
+
+- Administration, Intégrations, carte Home Assistant : mode REST (créer un jeton, YAML prêt à coller avec l'URL du nœud et les capteurs), mode MQTT (courtier, port, TLS, identifiants, préfixe de découverte, Tester, état de la connexion et nœud expéditeur), liste des traceurs de présence (ajout depuis la vue Hôtes ou par MAC).
+- Administration, Jetons d'API : liste (nom, permissions, réseaux autorisés, échéance, dernier usage par nœud), création (secret montré une fois), révocation.
+- Vue Hôtes : action « Suivre la présence dans Home Assistant ».
+
+**API**
+
+| Méthode, chemin | Permission | Requête | Réponse |
+| --- | --- | --- | --- |
+| `GET /integrations/homeassistant/state` | `read:integrations` (jeton ou session) | | `{"cluster","generated_at","ha": [{"engine","relationship","local_state","partner_state","interrupted"}],"alerts": {"critical","warning","info","top"},"leases": {"v4","v6"},"pools": [{"key","subnet","percent"}],"replication": {"peers_online","peers_total","lag_seconds"},"ddns": {...},"resolver": {...},"version": {"installed","available"},"trackers": [{"key","name","home","last_seen","ip","ipv6","hostname","source"}]}` |
+| `GET /admin/integrations` | `admin:integrations` | | réglages HA, état MQTT (secrets en booléens) |
+| `PUT /admin/integrations/homeassistant` | `admin:integrations` | réglages, `trackers`, `secrets` | idem |
+| `POST /admin/integrations/homeassistant/test` | `admin:integrations` | réglages MQTT enregistrés ou non | `{"ok","node_id","error"?}` |
+| `GET /admin/api-tokens` | `admin:integrations` | | `{"items": [{"id","name","permissions","cidrs","expires_at","created_by","last_used": {node_id: ts}}]}` |
+| `POST /admin/api-tokens` | `admin:integrations` | `{"name","permissions","cidrs"?,"expires_at"?}` | `201 {"token"}` (une seule fois) et la ligne |
+| `DELETE /admin/api-tokens/{id}` | `admin:integrations` | | `204` |
+
+Nouvelles permissions `read:integrations` (dans aucun rôle humain par défaut) et `admin:integrations` (rôle administrateur). Audit : `admin.api_token.add|delete`, `admin.integrations.*` ; l'usage d'un jeton n'est pas audité par requête (une ligne par jeton et par jour au plus : premier usage). Limitation de débit par jeton (60 requêtes par minute). Architecture, section 16 : le jeton est un second mode d'authentification à côté de la session.
+
+**Réglages**
+
+`[settings.integrations]` (nouveau domaine) : `homeassistant_mqtt_enabled` (faux), `homeassistant_publish_seconds` (30), `homeassistant_away_after_seconds` (600), `homeassistant_discovery_prefix` (`"homeassistant"`), `homeassistant_topic_prefix` (`"pelagos"`). Écrit par l'écran : `integrations.homeassistant.mqtt` (hôte, port, TLS, identifiant), `integrations.homeassistant.trackers`, `api_tokens`. Secrets : `integrations/mqtt/password`, CA en clair (pas un secret).
+
+**Plusieurs nœuds**
+
+REST : chaque nœud répond avec la vue de cluster (agrégée comme `alerts.list`) ; l'utilisateur pointe HA vers un nœud, ou vers les deux avec deux ressources, et la documentation montre comment n'en garder qu'une. MQTT : seul le nœud de service publie ; au relais, le nouveau publie `online`, la découverte et tous les états ; une coupure entre nœuds peut faire publier les deux côtés, sans dommage (mêmes états, mêmes identifiants uniques).
+
+**Sécurité**
+
+- Jeton : secret aléatoire de 256 bits, empreinte seule stockée, réseaux autorisés (défaut : réseaux privés), échéance optionnelle, révocation immédiate répliquée, limitation de débit ; refus de tout verbe autre que `GET` ; jamais accepté sur `/repl/*`.
+- Le point d'entrée HA ne publie ni secret ni détail brut d'alerte, et la présence seulement des appareils listés.
+- MQTT : TLS recommandé, avertissement sans TLS hors adresse de bouclage, identifiants en secret, aucun abonnement autre que `homeassistant/status`.
+
+**Pannes**
+
+| Panne | Comportement |
+| --- | --- |
+| Courtier injoignable | Nouvel essai avec délai croissant ; état dans l'écran ; alerte `integration_failed` (warning) après `notification_failure_warning_minutes` |
+| Nœud expéditeur tombé | Testament MQTT : entités `unavailable` jusqu'au relais par le nœud suivant |
+| HA redémarre | Republication de la découverte sur `online` ; états retenus déjà là |
+| Jeton révoqué ou expiré | `401` ; HA montre les capteurs indisponibles |
+| Nœud consulté hors ligne (REST) | HA ne lit plus rien ; documenté (second nœud en secours) |
+
+**Tests**
+
+- Unitaires : jetons (création, empreinte, réseaux, échéance, verbes refusés, débit, révocation répliquée) ; forme de l'état publié ; présence (signes combinés, délai, bail seul insuffisant) ; messages de découverte MQTT (sujets, `cmps`, `unique_id`, disponibilité) contre un faux client ; relais et republication ; API.
+- Démons : courtier Mosquitto local lancé par une fixture si le binaire est présent (sinon sauté) : connexion, découverte, états, testament à l'arrêt du collecteur.
+- Labo : conteneurs Home Assistant et Mosquitto sur la VM Docker du labo (scénario `tests/lab/test_homeassistant_lab.py`) : configuration REST et MQTT appliquée par l'API de HA, entités créées, HA Kea cassée puis réparée vue dans HA, présence du client du labo (interface DHCP montée puis coupée) qui passe `home` puis `not_home`.
+- Documentation : `docs/user/home-assistant.md` (YAML `rest:`, réglages MQTT, automatisation sur le webhook du 13.1, exemple de carte), relue en suivant les pas dans le conteneur du labo.
+
+### 13.9 Lots d'implémentation des points 56 à 58
 
 Un lot = un agent, un worktree, ses tests, un commit poussé après `make lint` et les tests des modules touchés. Les lots « contrat » touchent `docs/architecture.md`, `domain/`, le registre des réglages et `docs/contracts-changes.md` ; ils passent en premier et un seul à la fois.
 
@@ -826,3 +1273,80 @@ Ordre proposé : C1 ; puis en parallèle N1, N2, D1, B1 ; puis N3, N4, D2, B2, B
 6. Rattrapage DDNS (`lease*-resend-ddns`) : toujours par un plan confirmé, jamais automatique.
 7. Préparer la reprise exige que les zones soient gérées par Pelagos (adoption, point 33) ; l'interface le dit et propose l'adoption.
 8. Baux Kea dans les archives par défaut.
+
+### 13.10 Lots des points 59 à 63
+
+Mêmes règles qu'en 13.9 : un lot = un agent, un worktree, ses tests, poussé après `make lint` et les tests des modules touchés ; un lot contrat par release, en premier et seul. Les lots d'écran travaillent sur un serveur factice dès que le contrat est posé.
+
+| Lot | Contenu | Paquets | Dépend de |
+| --- | --- | --- | --- |
+| C2 | Contrat de la 0.2.2 : sections nouvelles de l'architecture (santé du résolveur et repli, analyse de migration Kea, observations IPv6), domaines `resolver` et `ipv6`, réglages, seuils et rétentions, sujets de `resolver_health`, genres `kea_series_obsolete`, `ipv6_missing_aaaa`, `ipv6_reverse_missing`, `ipv6_stale_aaaa`, clés de message, actions de pair `resolver.health` et `ipv6.observations`, routes en `501` | contrat, WP-CORE | |
+| R1 | Mesures du résolveur : lecture des compteurs et du cache, percentiles `QryRTT`, table `resolver_samples` et rétention, `/series/resolver`, alertes `resolver:latency`, `timeouts`, `mismatch`, `cache` | WP-COLLECTOR, WP-BIND | C2 |
+| R2 | Sondes de la racine et des TLD (contrôles lents), alertes `resolver:tld:*`, `resolver:root-letters` | WP-COLLECTOR | C2 |
+| R3 | Repli et retour : plans composites, `resolver.fallback`, prolongation, retour automatique par le collecteur, `GET /dns/resolver/health` et l'agrégation | WP-API-AUTH, WP-BIND, WP-COLLECTOR | C2, R1 |
+| R4 | Écran Santé du résolveur, bandeau et formulaire du repli, tuile du tableau de bord, en et fr | WP-FRONTEND | C2 (factice), R3 |
+| R5 | Démons (faux serveurs racine, repli, retour) et labo du résolveur | WP-LAB-E2E | R1 à R3 |
+| K1 | Analyse de migration Kea : règles et conversion 2.6 vers 3.x, paquets à retirer et installer selon la source, validation à blanc par binaires extraits (ou repli documenté), rapport | WP-KEA, WP-INSTALLER | C2 |
+| K2 | API de l'analyse, alerte `kea_series_obsolete` et date de fin dans le fichier des avis ISC, écran « Migration Kea » en lecture (rapport, diffs) | WP-API-AUTH, WP-COLLECTOR, WP-FRONTEND | K1 |
+| V1 | Observations IPv6 : voisins des nœuds, source OPNsense (interface `NeighborSource`), table `ipv6_observations`, classement EUI-64 / stable / temporaire, rattachement aux hôtes | WP-COLLECTOR, WP-CORE | C2 |
+| V2 | Contrôles IPv6 et alertes, `GET /hosts/ipv6`, `/admin/ipv6` (sources, test, préfixes) | WP-COLLECTOR, WP-API-AUTH | V1 |
+| V3 | Onglet IPv6 de la vue Hôtes en lecture (filtres, exceptions), écran Sources IPv6 | WP-FRONTEND | C2 (factice), V2 |
+| C3 | Contrat de la 0.2.3 : section « mises à jour » de l'architecture, domaine `updates`, permission `admin:updates`, scope `update`, opérations de l'assistant, route `/repl/v1/releases`, `release.json` (`state_schema`) et format de `SHA256SUMS.sig`, alertes `update_*` | contrat, WP-CORE | |
+| U1 | Signature des releases : `make release` signe `SHA256SUMS` (clé lue hors du dépôt), clés publiques empaquetées, vérification Ed25519 avec `cryptography`, `release.json` | WP-PACKAGING, WP-CORE | C3 |
+| U2 | Assistant privilégié : `update_verify`, `update_start` (unité transitoire), `update_status`, `journal_errors`, sauvegarde d'état, `pelagos upgrade apply` | WP-INSTALLER, contrat (`cli.py`) | C3, U1 |
+| U3 | Déroulé : machine d'état dans `updates.rollout`, tour de chaque nœud, contrôles d'après installation repris de `deploy-prod.sh`, retour automatique, sources (dépôt téléversé, GitHub), distribution des paquets entre nœuds | WP-COLLECTOR, WP-CORE | C3, U2 |
+| U4 | Paquets des moteurs : déroulé `engine_packages` (BIND puis Kea sous maintenance HA), lien depuis `security_advisory` | WP-INSTALLER, WP-KEA, WP-BIND | U3 |
+| U5 | API des mises à jour (`/admin/updates*`) | WP-API-AUTH | C3, U3 |
+| U6 | Écran Mises à jour (disponible, aperçu, déroulé qui survit au redémarrage, paquets des moteurs, historique), mise à jour de `docs/user/upgrade.md` | WP-FRONTEND | C3 (factice), U5 |
+| U7 | Démons et labo : déroulé sur deux collecteurs, `test_upgrade_ui_lab.py` (deb amd64 et arm64, paquet cassé et retour, BIND de la distribution), variante rpm | WP-LAB-E2E | U2 à U5 |
+| C4 | Contrat de la 0.2.4 : jetons d'API (section 16 de l'architecture), domaine `integrations`, permissions `read:integrations` et `admin:integrations`, dépendance `paho-mqtt` (`make lock`), alerte `integration_failed`, routes `/hosts/ipv6/plan` et `/integrations/*` | contrat, WP-CORE | |
+| V4 | Plans IPv6 : AAAA et PTR de la sélection, remplacement de préfixe, création de la zone inverse proposée | WP-API-AUTH, WP-BIND | C4, V2 |
+| V5 | Sélection et plan dans l'onglet IPv6, partie IPv6 de la fiche d'hôte ; labo IPv6 (radvd, client SLAAC avec adresses temporaires) | WP-FRONTEND, WP-LAB-E2E | V4 |
+| H1 | Jetons d'API : authentification `Bearer`, empreintes, réseaux, échéance, débit, verbes, API `/admin/api-tokens` | WP-API-AUTH | C4 |
+| H2 | État Home Assistant et présence (`GET /integrations/homeassistant/state`, signes de présence depuis baux et voisins) | WP-API-AUTH, WP-COLLECTOR | C4, H1, V1 |
+| H3 | Publication MQTT : client `paho-mqtt`, découverte par appareil, traceurs, disponibilité et testament, relais par le nœud de service | WP-COLLECTOR, WP-CORE | C4, H2 |
+| H4 | Écrans Intégrations et Jetons d'API, action « Suivre la présence » | WP-FRONTEND | C4 (factice), H1 à H3 |
+| H5 | `docs/user/home-assistant.md`, démons (Mosquitto) et labo (conteneurs HA et Mosquitto) | WP-LAB-E2E | H1 à H3 |
+| C5 | Contrat de la 0.3.0 : scope `kea.migration`, état `kea.migration` de `cluster.toml`, route `/repl/v1/kea/leases`, étapes de pair de l'assistant, réglages `kea.migration_*` | contrat, WP-CORE | K1 |
+| K3 | Préparation de la migration : archive, téléchargement des paquets, configurations 3.x posées à côté, état noté (paquets et versions exactes) | WP-INSTALLER, WP-KEA | C5 |
+| K4 | Temps 1 et retour du temps 1 : maintenance HA, installation ISC sur le standby, validation réelle des deux configurations, retour en 2.6 du standby | WP-INSTALLER, WP-KEA | K3 |
+| K5 | Temps 2 et 3 : copie du fichier de baux par mTLS, démarrage en `partner-down` avec délais réduits, mesure de la coupure, retour automatique sur dépassement, primaire migré, délais remis ; retour de la paire entière | WP-INSTALLER, WP-KEA, WP-CORE | K4 |
+| K6 | Assistant de migration (frise des temps, HA en direct, coupure mesurée, retour) | WP-FRONTEND | C5 (factice), K5 |
+| K7 | Labo de la migration depuis la paire Kea 2.6.3 Debian (HA TLS, D2, client qui renouvelle), variante Rocky | WP-LAB-E2E | K3 à K5 |
+
+Ordre et releases proposés (la 0.2.1 en cours garde les correctifs des points 64 et 65, sans fonction nouvelle) :
+
+- **0.2.2** : C2 ; puis en parallèle R1, R2, K1, V1 ; puis R3, K2, V2 ; puis R4, V3, R5. Résolveur complet, analyse de migration Kea en lecture seule (utile tout de suite : elle dit ce qui casserait en production), contrôles IPv6.
+- **0.2.3** : C3 ; U1 ; U2 ; U3 ; puis U4, U5 en parallèle ; U6 ; U7. Mise à jour depuis l'interface et paquets des moteurs. La 0.2.3 s'installe encore par `deploy-prod.sh` ; les suivantes peuvent passer par l'interface.
+- **0.2.4** : C4 ; puis H1, V4 en parallèle ; H2 ; H3, V5 ; H4 ; H5. Propositions IPv6 et Home Assistant.
+- **0.3.0** : C5 ; K3 ; K4 ; K5 ; K6 et K7. Migration Kea 3.x. Le numéro mineur change parce que la release change la façon de faire tourner Kea en production (série ISC par défaut, paquets remplacés) ; la production passe en Kea 3.2 avec cette release, au moment choisi par l'utilisateur.
+
+### 13.11 Points 59 à 63 : questions à trancher et défauts retenus
+
+Chaque question a un défaut, appliqué tant que l'utilisateur n'a pas tranché ; le travail peut commencer avec ces défauts.
+
+| Point | Question | Défaut recommandé |
+| --- | --- | --- |
+| 59 | Source et série cible de Kea | ISC Cloudsmith `kea-3-2` (3.2.1 pour trixie amd64 et arm64) ; backports Debian 3.0 et ISC 3.0 proposés en second choix |
+| 59 | Paire HA mixte 2.6 / 3.x pendant la bascule | Non (exclue par ISC) : fenêtre courte de moins d'une minute, fichier de baux copié, `partner-down` accéléré |
+| 59 | Retour arrière automatique pendant la fenêtre | Oui, au-delà de 180 s ou sur un échec de contrôle ; manuel après la fin de la migration |
+| 59 | `kea-ctrl-agent` et sockets de contrôle HTTP(S) | Arrêté et désactivé ; sockets Unix seulement, `https` avec `cert-required` proposé uniquement si un client externe est trouvé |
+| 59 | Date de migration de la production | Après la 0.3.0 et sa répétition au labo, à une heure creuse choisie par l'utilisateur, bouton manuel |
+| 59 | Jusqu'à quand garder Kea 2.6 en mode dégradé | Tant que Debian 13 est la stable qui le livre ; retrait annoncé au plus tôt un an après la 0.3.0 |
+| 60 | Seuils par défaut | p95 800 ms / 1 600 ms, délais dépassés 10 % / 30 %, TLD en échec après 3 sondes, `Mismatch` 100 par fenêtre ; réglables, valeurs observées sur 7 jours affichées |
+| 60 | Repli vers des forwarders automatique ou proposé | Proposé seulement, avec notification ; option automatique désactivée |
+| 60 | Retour du repli | Automatique à l'échéance (24 h par défaut, fixée dans le plan confirmé), proposé dès 15 min de sondes saines |
+| 60 | Forwarders proposés | Préréglage Quad9 avec filtrage et DNSSEC (`9.9.9.9`, `149.112.112.112`, `2620:fe::fe`, `2620:fe::9`), `forward first` ; Quad9 sans filtrage, Cloudflare et liste libre en option |
+| 61 | Source des versions | Dépôt de release téléversé dans l'interface et releases GitHub (jeton en lecture seule) ; dépôt apt ou dnf de Pelagos plus tard |
+| 61 | Signature des releases | Ed25519 sur `SHA256SUMS`, clé privée générée et gardée par l'utilisateur hors du dépôt, lue par `make release` ; aucune installation non signée depuis l'interface |
+| 61 | Retour arrière | Automatique sur le nœud en échec quand `state_schema` ne change pas ; sinon arrêt et procédure guidée |
+| 61 | Paquets BIND et Kea de la distribution | Même écran, onglet « Paquets des moteurs », même déroulé, sans changement de série |
+| 62 | Sources des adresses observées | Table des voisins des nœuds, active ; OPNsense dès qu'une clé d'API en lecture est fournie ; baux DHCPv6 si le module est actif |
+| 62 | Exclusion des adresses temporaires | Proposition seulement pour EUI-64 ou adresse vue plus de 3 jours ; temporaires jamais proposées |
+| 62 | Création automatique ou par plan | Toujours par plan choisi hôte par hôte ; pas d'automatique dans la première version |
+| 63 | Mécanisme | API en lecture avec jeton dédié (`rest:`) et MQTT discovery en option ; pas d'intégration Python propre |
+| 63 | Courtier MQTT | Celui de l'utilisateur (Mosquitto de Home Assistant), TLS recommandé, identifiant dédié |
+| 63 | Capteurs en premier | HA Kea, alertes ouvertes par gravité, baux, occupation des pools, réplication, DDNS, résolveur, version |
+| 63 | Présence | Seulement les appareils listés ; absent après 10 min sans paquet DHCP ni trace de voisin |
+| 63 | Jetons d'API | Généraux (utiles hors Home Assistant), lecture seule dans la première version, réseaux privés par défaut |
+| tous | Ordre des releases | 0.2.2 résolveur, analyse Kea, contrôles IPv6 ; 0.2.3 mises à jour ; 0.2.4 IPv6 et Home Assistant ; 0.3.0 migration Kea |

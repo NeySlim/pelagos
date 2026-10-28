@@ -113,21 +113,26 @@ def parse_table(doc: Any, table: str) -> TableState | None:
         if rule.get("table") not in (None, table):
             continue
         rports: list[int] = []
-        addrs: list[str] = []
-        accept = False
+        allow: list[str] = []
+        deny_but: list[str] = []
+        verdict = None
         for e in rule.get("expr") or []:
             m = e.get("match") if isinstance(e, dict) else None
             if isinstance(m, dict) and isinstance(m.get("left"), dict):
                 payload = m["left"].get("payload")
                 if isinstance(payload, dict) and payload.get("field") == "dport":
                     rports += _ports(m.get("right"))
-                elif isinstance(payload, dict) and payload.get("field") == "saddr" and m.get("op") != "!=":
-                    addrs += ha_listener._addresses(m.get("right"))
-            elif isinstance(e, dict) and "accept" in e:
-                accept = True
+                elif isinstance(payload, dict) and payload.get("field") == "saddr":
+                    target = deny_but if m.get("op") == "!=" else allow
+                    target += ha_listener._addresses(m.get("right"))
+            elif isinstance(e, dict):
+                verdict = next((v for v in ("accept", "drop", "reject") if v in e), verdict)
         ports.update(rports)
-        if accept and rports and addrs:
-            peers += addrs
+        # `saddr X accept` and `saddr != X drop` both admit exactly X.
+        if rports and verdict == "accept":
+            peers += allow
+        elif rports and verdict in ("drop", "reject"):
+            peers += deny_but
     state.ports = sorted(ports)
     state.peers = _safe_peers(peers)
     return state
@@ -144,9 +149,11 @@ def parse_text(text: str) -> TableState:
         if not dport:
             continue
         ports.update(int(p) for p in re.findall(r"\d+", dport.group(1)))
-        saddr = re.search(r"ip6?\s+saddr\s+(\{[^}]*\}|\S+)", line)
-        if saddr and re.search(r"\baccept\b", line) and "!=" not in line:
-            peers += [a for a in re.split(r"[\s,{}]+", saddr.group(1)) if a]
+        saddr = re.search(r"ip6?\s+saddr\s+(!=\s*)?(\{[^}]*\}|\S+)", line)
+        negated = bool(saddr and saddr.group(1))
+        verdict = re.search(r"\b(accept|drop|reject)\b", line)
+        if saddr and verdict and (verdict.group(1) == "accept") != negated:
+            peers += [a for a in re.split(r"[\s,{}]+", saddr.group(2)) if a]
     state.ports = sorted(ports)
     state.peers = _safe_peers(peers)
     return state

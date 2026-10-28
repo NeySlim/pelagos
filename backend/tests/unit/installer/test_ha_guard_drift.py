@@ -45,6 +45,59 @@ ExecStop=/usr/sbin/nft delete table inet kea_ha_guard
 WantedBy=multi-user.target
 """
 ADOPT_ID = "kea:kea_ha_guard_unmanaged:kea_ha_guard"
+# The negative form a script set up in production (policy accept), as `nft -f` and `nft -j` show it.
+NEG_RULES = """table inet kea_ha_guard
+delete table inet kea_ha_guard
+table inet kea_ha_guard {
+\tchain input {
+\t\ttype filter hook input priority 0; policy accept;
+\t\ttcp dport 8001 ip daddr 192.0.2.11 ip saddr != { 192.0.2.12, 192.0.2.11 } counter drop
+\t\ttcp dport { 8001, 8002 } ip6 daddr 2001:db8::11 ip6 saddr != 2001:db8::12 counter drop
+\t}
+}
+"""
+
+
+def _neg_rule(handle: int, ports: object, fam: str, daddr: str, allowed: object) -> dict:
+    expr = [
+        {"match": {"op": "==", "left": {"payload": {"protocol": "tcp", "field": "dport"}}, "right": ports}},
+        {"match": {"op": "==", "left": {"payload": {"protocol": fam, "field": "daddr"}}, "right": daddr}},
+        {"match": {"op": "!=", "left": {"payload": {"protocol": fam, "field": "saddr"}}, "right": allowed}},
+        {"counter": {"packets": 0, "bytes": 0}},
+        {"drop": None},
+    ]
+    return {
+        "rule": {"family": "inet", "table": "kea_ha_guard", "chain": "input", "handle": handle, "expr": expr}
+    }
+
+
+NEG_GUARD = {
+    "nftables": [
+        {
+            "metainfo": {
+                "version": "1.1.3",
+                "release_name": "Commodore Bullmoose #4",
+                "json_schema_version": 1,
+            }
+        },
+        {"table": {"family": "inet", "name": "kea_ha_guard", "handle": 2}},
+        {
+            "chain": {
+                "family": "inet",
+                "table": "kea_ha_guard",
+                "name": "input",
+                "handle": 1,
+                "type": "filter",
+                "hook": "input",
+                "prio": 0,
+                "policy": "accept",
+            }
+        },
+        _neg_rule(3, 8001, "ip", "192.0.2.11", {"set": ["192.0.2.11", "192.0.2.12"]}),
+        _neg_rule(5, {"set": [8001, 8002]}, "ip6", "2001:db8::11", "2001:db8::12"),
+    ]
+}
+NEG_PEERS = ["192.0.2.11", "192.0.2.12", "2001:db8::12"]
 
 
 def _match(field: str, proto: str, right: object) -> dict:
@@ -86,8 +139,9 @@ class Host:
     """nft and systemd as far as the guards go: the legacy table until deleted, Pelagos's table loaded
     from its rules file while its unit is active."""
 
-    def __init__(self, env, legacy: bool = True) -> None:
+    def __init__(self, env, legacy: bool = True, doc: dict = PROD_GUARD, rules: str = LEGACY_RULES) -> None:
         self.env = env
+        self.doc = doc
         self.legacy_loaded = legacy
         env.runner.responses["nft -j list ruleset"] = lambda argv: CommandResult(argv, 0, "", "")
         env.runner.responses["nft -j list table inet kea_ha_guard"] = self.list_legacy
@@ -96,7 +150,7 @@ class Host:
         if legacy:
             root = Path(env.paths.root)
             (root / "etc/nftables.d").mkdir(parents=True, exist_ok=True)
-            (root / ha_guard.LEGACY_RULES).write_text(LEGACY_RULES)
+            (root / ha_guard.LEGACY_RULES).write_text(rules)
             env.paths.systemd_dir.mkdir(parents=True, exist_ok=True)
             (env.paths.systemd_dir / ha_guard.LEGACY_UNIT).write_text(
                 LEGACY_UNIT.replace("/etc/nftables.d", str(root / "etc/nftables.d"))
@@ -104,7 +158,7 @@ class Host:
             env.services.active.add(ha_guard.LEGACY_UNIT)
 
     def list_legacy(self, argv):
-        return CommandResult(argv, 0, json.dumps(PROD_GUARD) if self.legacy_loaded else "", "")
+        return CommandResult(argv, 0, json.dumps(self.doc) if self.legacy_loaded else "", "")
 
     def delete_legacy(self, argv):
         self.legacy_loaded = False
@@ -149,6 +203,30 @@ def test_tables_and_text_parse_alike():
     text = ha_listener.render_guard([8001, 8002], ["192.0.2.12", "2001:db8::12", "198.51.100.0/24"])
     st = ha_guard.parse_text(text)
     assert st.ports == [8001, 8002] and st.peers == ["192.0.2.12", "198.51.100.0/24", "2001:db8::12"]
+
+
+def test_negative_form_is_read_from_json_and_text():
+    for st in (ha_guard.parse_table(NEG_GUARD, "kea_ha_guard"), ha_guard.parse_text(NEG_RULES)):
+        assert st.ports == [8001, 8002] and st.peers == NEG_PEERS
+    # Neither a deny list nor a negated accept admits anything.
+    other = "tcp dport 8001 ip saddr 198.51.100.7 drop\ntcp dport 8001 ip saddr != 198.51.100.8 accept\n"
+    assert ha_guard.parse_text(other).peers == []
+
+
+def test_negative_hand_made_guard_is_adopted_with_its_addresses(tmp_path, quick):
+    env = _env(tmp_path, ha_dhcp4())
+    host = Host(env, doc=NEG_GUARD, rules=NEG_RULES)
+    (found,) = _kinds(env)["kea_ha_guard_unmanaged"]
+    assert found.details["peers"] == NEG_PEERS and found.details["ports"] == [8001, 8002]
+    assert found.details["remediable"] and "?" not in found.description
+    job = apply_plan(build_security_plan(env, [ADOPT_ID]), env)
+    assert job.state is JobState.DONE, job.error
+    assert not host.legacy_loaded
+    status = ha_guard.status(env)
+    assert status["legacy"] is None and status["managed"]["peers"] == NEG_PEERS
+    assert status["managed"]["ports"] == [8001, 8002] and status["differences"] == []
+    text = ha_guard.rules_path(env).read_text()
+    assert "ip saddr { 192.0.2.11, 192.0.2.12 }" in text and "ip6 saddr { 2001:db8::12 }" in text
 
 
 def test_hand_made_guard_is_reported_and_adopted(tmp_path, quick):

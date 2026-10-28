@@ -662,6 +662,12 @@ class Alert(Model):
 `Inconsistency` is not a separate class: it is an `Alert` whose kind is one
 of the DNS/DHCP cross kinds (`LEASE_WITHOUT_RECORD` ... `DUPLICATE_IP`).
 
+Forward compatibility: alerts written by a newer version (a peer's `alerts.list` answer, a cache
+kept across a downgrade) are read, never refused. `AlertKind(value)` accepts an unknown non-empty
+value as a pseudo-member that keeps the raw string (`kind.known` is false, it matches no member);
+`Alert.from_dict` reads an unknown severity as `warning`, state as `open` and engine as `None`.
+Readers render such an alert from its `title`.
+
 Plans (`domain/plan.py`):
 
 ```python

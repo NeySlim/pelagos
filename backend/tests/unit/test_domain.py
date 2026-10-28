@@ -111,3 +111,24 @@ def test_alert_id_is_deterministic():
     assert Alert(
         kind=AlertKind.PTR_MISMATCH, severity=Severity.WARNING, subject="x", title="x"
     ).is_inconsistency
+
+
+def test_alert_from_a_newer_version_is_read_not_refused():
+    data = {
+        "kind": "kind_of_a_newer_version",
+        "severity": "catastrophic",
+        "state": "muted",
+        "engine": "kea9",
+        "subject": "x:1",
+        "title": "new",
+        "id": "A1",
+    }
+    a = Alert.from_dict(data)
+    assert a.kind == "kind_of_a_newer_version" and not a.kind.known and AlertKind.POOL_FULL.known
+    assert a.kind not in set(AlertKind) and not a.is_inconsistency
+    assert a.severity is Severity.WARNING and a.state.value == "open" and a.engine is None
+    assert a.to_dict()["kind"] == "kind_of_a_newer_version"
+    assert Alert.from_dict(a.to_dict()) == a
+    assert alert_id(a.kind, None, "x:1") == alert_id(AlertKind("kind_of_a_newer_version"), None, "x:1")
+    with pytest.raises(ValueError):
+        AlertKind("")

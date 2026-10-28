@@ -9,7 +9,7 @@ import pytest
 
 from pelagos.collector import series as series_mod
 from pelagos.collector.alerts import AlertStore
-from pelagos.core.cluster_alerts import ClusterAlertView
+from pelagos.core.cluster_alerts import ClusterAlertView, node_alerts
 from pelagos.domain import Alert, AlertKind, AlertState, Severity
 
 pytestmark = pytest.mark.unit
@@ -51,4 +51,23 @@ def test_view_merges_nodes_and_skips_offline_peers(tmp_path):
     merged = by_kind[AlertKind.VERSION_MISMATCH]
     assert merged.reported_by == ["N1", "N2"] and merged.state is AlertState.ACKED
     assert by_kind[AlertKind.DAEMON_DOWN].reported_by == ["N2"]
+    conn.close()
+
+
+def test_kinds_of_a_newer_version_are_listed_not_fatal(tmp_path):
+    # A cache kept across a downgrade, and a peer on a newer version, both hold kinds unknown here.
+    conn = series_mod.connect(tmp_path / "series.sqlite")
+    AlertStore(conn).upsert(Alert(AlertKind.DAEMON_DOWN, Severity.CRITICAL, "bind", "down", node_id="N1"))
+    conn.execute("UPDATE alerts SET kind = 'kind_from_the_future', severity = 'severe'")
+    conn.commit()
+    rows, _ = node_alerts(conn, include_resolved=True, resolved_limit=10)
+    assert [(a.kind.value, a.severity) for a in rows] == [("kind_from_the_future", Severity.WARNING)]
+    newer = {**Alert(AlertKind.DISK_SPACE, Severity.INFO, "disk:/", "d", node_id="N2").to_dict()}
+    newer.update(kind="another_new_kind", engine="kea9", state="snoozed")
+    view = ClusterAlertView("N1", lambda: conn, Peers({"N2": {"alerts": [newer], "resolved_total": 0}}))
+    out = view.cluster()
+    assert out.unavailable == []
+    kinds = sorted(a.kind.value for a in out.alerts)
+    assert kinds == ["another_new_kind", "kind_from_the_future"]
+    assert all(not a.kind.known for a in out.alerts)
     conn.close()

@@ -1744,3 +1744,10 @@ Additive. Architecture sections 13 (peer actions `archive.state`, `archive.run`,
 Administration > Backups (`pages/admin/archives/`), namespace `archives`, `api.archives.updateSettings`,
 `upload(file, identity)`, `inspect(id, body)`, the mock shaped like the service, PlanPreview follows
 a `restore` plan as a job. The peer destination test now writes a probe file on each target node.
+
+## 2026-10-28, alerts of a newer version
+Additive. Architecture section on alerts (`domain/alerts.py`): `AlertKind._missing_` keeps an
+unknown kind as a pseudo-member with its raw value, `AlertKind.known`, and `Alert.from_dict`
+reads an unknown severity, state or engine as `warning`, `open`, `None`. A node no longer fails
+`alerts.list`, the cluster view, the API or the notification dispatcher on a kind added by a newer
+peer during a rolling upgrade. No package has to change its code.

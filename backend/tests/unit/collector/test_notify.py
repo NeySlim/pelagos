@@ -686,3 +686,17 @@ def test_collector_raises_and_resolves_notification_failed(node_ctx, tmp_path):
     collector.notify_alerts()
     assert [a.subject for a in collector.last_report.resolved] == ["notify:CH1"]
     conn.close()
+
+
+def test_alert_kind_of_a_newer_peer_is_sent_with_its_title(node, clock):
+    from pelagos.notify.render import render, webhook_payload
+
+    data = alert(severity=Severity.CRITICAL).to_dict()
+    data.update(kind="kind_from_the_future", title="something new", title_message={"key": "alert.unknown"})
+    node.alerts = [Alert.from_dict(data)]
+    clock.advance(60)
+    node.tick()
+    (batch,) = node.transport.batches
+    assert events_of(batch) == [("opened", "bind")]
+    assert render(batch, "en").lines[0] == "Opened: [critical] something new (n1)"
+    assert webhook_payload(batch)["events"][0]["alert"]["kind"] == "kind_from_the_future"

@@ -67,6 +67,22 @@ class AlertKind(enum.StrEnum):
     DDNS_REPLAY = "ddns_replay"
     DNS_STALE_PRIMARY = "dns_stale_primary"
 
+    @classmethod
+    def _missing_(cls, value: object) -> AlertKind | None:
+        # A kind written by a newer version (peer answer, cache kept across a downgrade): kept with its
+        # raw value, never a member, so every `is`/`in` test on known kinds stays false.
+        if not isinstance(value, str) or not value:
+            return None
+        member = str.__new__(cls, value)
+        member._name_ = value.upper()
+        member._value_ = value
+        return member
+
+    @property
+    def known(self) -> bool:
+        """False for a kind this version does not define (see _missing_)."""
+        return self._value_ in type(self)._value2member_map_
+
 
 INCONSISTENCY_KINDS = frozenset(
     {
@@ -128,6 +144,13 @@ class AlertState(enum.StrEnum):
     RESOLVED = "resolved"
 
 
+_LENIENT: tuple[tuple[str, type[enum.Enum], Any], ...] = (
+    ("severity", Severity, Severity.WARNING),
+    ("state", AlertState, AlertState.OPEN),
+    ("engine", Engine, None),
+)
+
+
 def alert_id(kind: AlertKind, node_id: str | None, subject: str) -> str:
     """Deterministic id so a re-evaluation updates the same alert."""
     digest = hashlib.sha256(f"{kind.value}|{node_id or ''}|{subject}".encode()).hexdigest()
@@ -158,6 +181,21 @@ class Alert(Model):
     def __post_init__(self) -> None:
         if not self.id:
             self.id = alert_id(self.kind, self.node_id, self.subject)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Alert:
+        """Never raises on a value from a newer node: an unknown kind is kept as it is, an unknown
+        severity reads as warning, state as open, engine as none."""
+        data = dict(data)
+        for name, enum_cls, default in _LENIENT:
+            value = data.get(name)
+            if value is None or isinstance(value, enum_cls):
+                continue
+            try:
+                enum_cls(value)
+            except ValueError:
+                data[name] = default
+        return Model.from_dict.__func__(cls, data)  # type: ignore[attr-defined,no-any-return]
 
     @property
     def is_inconsistency(self) -> bool:

@@ -270,3 +270,20 @@ def test_peer_alert_event_drops_its_cache(pair):
     svc.summary()
     assert pair.gw_b.calls == calls + 1
     svc.cache.close()
+
+
+def test_api_lists_and_acks_an_alert_kind_of_a_newer_peer(role_client, api_pair):
+    b = api_pair.b.node.id
+    _store(api_pair.b, [Alert(AlertKind.DISK_SPACE, Severity.WARNING, "disk:/var", "disk", node_id=b)])
+    conn = series_mod.connect(api_pair.b.paths.series_db)
+    conn.execute("UPDATE alerts SET kind = 'kind_from_the_future'")
+    conn.commit()
+    conn.close()
+    c = role_client("viewer")
+    page = c.get("/api/v1/alerts").get_json()
+    assert page["meta"]["unavailable"] == []
+    (item,) = page["items"]
+    assert item["kind"] == "kind_from_the_future" and item["title"] == "disk"
+    assert c.get("/api/v1/alerts/summary").get_json()["by_kind"] == {"kind_from_the_future": 1}
+    ack = role_client("admin").post(f"/api/v1/alerts/{item['id']}/ack", json={})
+    assert ack.status_code == 200 and ack.get_json()["kind"] == "kind_from_the_future"

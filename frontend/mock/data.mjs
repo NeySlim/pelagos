@@ -249,6 +249,18 @@ function makeZones() {
       config_path: '/etc/bind/named.conf.local',
       notes: 'Response policy zone',
     },
+    // The root hints every Debian named.conf declares: its row opens a detail page like any zone.
+    {
+      ...common,
+      name: '.',
+      kind: 'hint',
+      file: '/usr/share/dns/root.hints',
+      dynamic: false,
+      allow_transfer: [],
+      update_policy: [],
+      source: 'pelagos',
+      config_path: '/etc/bind/pelagos/zones.conf',
+    },
     {
       ...common,
       name: 'upstream.example.',

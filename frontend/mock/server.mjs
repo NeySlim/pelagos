@@ -274,6 +274,8 @@ function routeOf(method, path) {
         }
         try {
           params[name] = decodeURIComponent(segments[i])
+          // The root zone travels as "@" (backend api/dns.py root_zone_alias).
+          if (name === 'zone' && params.zone === '@') params.zone = '.'
         } catch {
           throw new Problem(400, 'validation_error', 'malformed path')
         }

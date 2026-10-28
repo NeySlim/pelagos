@@ -60,6 +60,7 @@ def register_api(app: Flask) -> Api:
 
     blueprint = Blueprint("api", __name__, url_prefix=API_PREFIX)
     blueprint.before_request(load_session)
+    blueprint.url_value_preprocessor(dns.root_zone_alias)
     api = PelagosApi(
         blueprint,
         version=__version__,

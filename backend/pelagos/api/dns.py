@@ -7,6 +7,8 @@ use the absolute lowercase form.
 
 from __future__ import annotations
 
+from typing import Any
+
 from flask_restx import Namespace, Resource, fields
 
 from pelagos.api import models as m
@@ -19,6 +21,15 @@ ns = Namespace("dns", description="Zones, records, BIND configuration", path="/d
 
 NODE = {"node_id": "node to read (default: this node, else the first node running BIND)"}
 VIEW = {"view": "BIND view (default: every view, or _default for one zone)"}
+# A browser drops a "." path segment (even as %2E): the root zone travels as "@", its origin.
+ROOT_SEGMENT = "@"
+
+
+def root_zone_alias(_endpoint: str | None, values: dict[str, Any] | None) -> None:
+    """URL value preprocessor: the `zone` segment "@" names the root zone "."."""
+    if values and values.get("zone") == ROOT_SEGMENT:
+        values["zone"] = "."
+
 
 CatalogMemberBody = ns.model(
     "CatalogMemberBody",
@@ -106,7 +117,7 @@ class ZonesPlan(Resource):
         return plan_answer(dns().plan_zone(_change(body), username(), node_ids or None, node_id))
 
 
-@ns.route("/zones/<string:zone>")
+@ns.route("/zones/<path:zone>")
 class OneZone(Resource):
     @require("read:dns")
     @ns.doc(params=VIEW)
@@ -124,7 +135,7 @@ class OneZone(Resource):
         }
 
 
-@ns.route("/zones/<string:zone>/secondaries/plan")
+@ns.route("/zones/<path:zone>/secondaries/plan")
 class ZoneSecondariesPlan(Resource):
     @require("write:dns.zones")
     @ns.expect(m.SecondariesBody)
@@ -146,7 +157,7 @@ class ZoneSecondariesPlan(Resource):
         )
 
 
-@ns.route("/zones/<string:zone>/records")
+@ns.route("/zones/<path:zone>/records")
 class Records(Resource):
     @require("read:dns")
     @ns.doc(
@@ -166,7 +177,7 @@ class Records(Resource):
         return page_of(rrsets, {"node_id": node_id})
 
 
-@ns.route("/zones/<string:zone>/records/plan")
+@ns.route("/zones/<path:zone>/records/plan")
 class RecordsPlan(Resource):
     @require("write:dns.records")
     @ns.expect(m.ChangesBody)
@@ -220,7 +231,7 @@ def _operation(op: str, zone: str):
     return {"output": output, "node_id": body.get("node_id") or services().ctx.node.id}
 
 
-@ns.route("/zones/<string:zone>/retransfer")
+@ns.route("/zones/<path:zone>/retransfer")
 class Retransfer(Resource):
     @require("ops:dns")
     @ns.expect(m.ZoneOp)
@@ -229,7 +240,7 @@ class Retransfer(Resource):
         return _operation("retransfer", zone)
 
 
-@ns.route("/zones/<string:zone>/notify")
+@ns.route("/zones/<path:zone>/notify")
 class Notify(Resource):
     @require("ops:dns")
     @ns.expect(m.ZoneOp)
@@ -238,7 +249,7 @@ class Notify(Resource):
         return _operation("notify", zone)
 
 
-@ns.route("/zones/<string:zone>/reload")
+@ns.route("/zones/<path:zone>/reload")
 class Reload(Resource):
     @require("ops:dns")
     @ns.expect(m.ZoneOp)
@@ -247,7 +258,7 @@ class Reload(Resource):
         return _operation("reload", zone)
 
 
-@ns.route("/zones/<string:zone>/dnssec")
+@ns.route("/zones/<path:zone>/dnssec")
 class Dnssec(Resource):
     @require("read:dns")
     @ns.doc(params={**VIEW, **NODE})
@@ -517,7 +528,7 @@ class CatalogZones(Resource):
         return items(dns().catalog_zones_live(arg("node_id")))
 
 
-@ns.route("/catalog-zones/<string:zone>/members/plan")
+@ns.route("/catalog-zones/<path:zone>/members/plan")
 class CatalogMembersPlan(Resource):
     @require("write:dns.records")
     @ns.expect(CatalogMemberBody)
@@ -547,7 +558,7 @@ class DnssecPoliciesPlan(Resource):
         return plan_answer(dns().plan_dnssec_policy(_change(json_body()), username()))
 
 
-@ns.route("/zones/<string:zone>/dnssec/plan")
+@ns.route("/zones/<path:zone>/dnssec/plan")
 class DnssecOperationPlan(Resource):
     @require("write:dns.zones")
     @ns.expect(DnssecOpBody)

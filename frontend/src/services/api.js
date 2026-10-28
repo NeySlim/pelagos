@@ -4,9 +4,10 @@
 // the parsed JSON (or null for 204). Plans come back as Plan objects and are
 // applied through api.plans.apply(id, confirm).
 import { apiClient, buildQueryString, API_BASE_URL } from './apiClient'
+import { zoneSegment } from '../lib/zonePath'
 
 const enc = encodeURIComponent
-const zonePath = (zone) => enc(String(zone).replace(/\.$/, ''))
+const zonePath = zoneSegment
 
 export const meta = {
   health: () => apiClient.get('/health'),

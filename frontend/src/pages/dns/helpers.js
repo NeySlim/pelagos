@@ -6,6 +6,7 @@ import { PlanPreviewModal } from '../../components/PlanPreview'
 import { useApi } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
+import { zoneSegment } from '../../lib/zonePath'
 
 // Node id -> { name, is_self, status }, from GET /nodes; ids stay readable if it fails.
 export function useNodeNames() {
@@ -20,7 +21,7 @@ export const stripDot = (name) => String(name || '').replace(/\.$/, '')
 
 // Zone path for the router: no trailing dot, the view as ?view= when not the default.
 export function zoneHref(zone, view) {
-  const base = `/dns/zones/${encodeURIComponent(stripDot(zone))}`
+  const base = `/dns/zones/${zoneSegment(zone)}`
   return view && view !== '_default' ? `${base}?view=${encodeURIComponent(view)}` : base
 }
 

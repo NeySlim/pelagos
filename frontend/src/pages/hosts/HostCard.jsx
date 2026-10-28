@@ -24,6 +24,7 @@ import { ClassChips, SectionError, UserContextView } from '../dhcp/ui'
 import { usePlanFlow, useNodeNames } from '../dhcp/hooks'
 import { absName, reservationTarget, zoneOf } from '../dhcp/lib'
 import { hostFacts, reservedIps } from './lib'
+import { zoneSegment } from '../../lib/zonePath'
 
 function Section({ icon: Icon, title, badge, actions, children, testId }) {
   return (
@@ -88,7 +89,7 @@ export function HostCard({ hostKey, onChanged }) {
   const family = lease?.family || (ip?.includes(':') ? 'v6' : 'v4')
   const canReserve = family === 'v6' ? Boolean(lease?.duid) : Boolean(lease?.hw_address)
   const forwardZone = zoneOf(h.hostname, zoneNames) || (h.hostname ? absName(h.hostname).split('.').slice(1).join('.') : null)
-  const zonePath = (name) => `/dns/zones/${encodeURIComponent(String(name).replace(/\.$/, ''))}`
+  const zonePath = (name) => `/dns/zones/${zoneSegment(name)}`
 
   const deleteLease = () => flow.build(() => api.dhcp.leaseDeletePlan(family, lease.ip_address, lease.node_id))
   const deleteReservation = () =>

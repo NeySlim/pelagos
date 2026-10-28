@@ -40,6 +40,30 @@ def test_zones_and_zone_detail(admin, node_ctx):
     assert r.status_code == 404 and r.get_json()["code"] == "not_found"
 
 
+def test_root_and_classless_zones_have_detail_pages(admin, fake_dns):
+    """The root zone travels as "@" (browsers drop a "." segment); an RFC 2317 name keeps its "/"."""
+    from pelagos.domain import Zone, ZoneKind
+
+    soa = RRset(name=".", rtype="SOA", ttl=3600, rdata=["a.root. h.root. 1 3600 900 1209600 300"])
+    fake_dns.add_zone(Zone(name=".", kind=ZoneKind.PRIMARY), [soa])
+    classless = "0/25.2.0.192.in-addr.arpa."
+    fake_dns.add_zone(
+        Zone(name=classless, kind=ZoneKind.PRIMARY),
+        [
+            RRset(
+                name=classless,
+                rtype="SOA",
+                ttl=3600,
+                rdata=["ns1.example.lan. h.example.lan. 1 3600 900 1209600 300"],
+            )
+        ],
+    )
+    assert admin.get(Z + "/@").get_json()["zone"]["name"] == "."
+    assert admin.get(Z + "/%40/records").get_json()["items"][0]["name"] == "."
+    assert admin.get(Z + "/0%2F25.2.0.192.in-addr.arpa").get_json()["zone"]["name"] == classless
+    assert admin.get(Z + "/0%2F25.2.0.192.in-addr.arpa/records").status_code == 200
+
+
 def test_records_pagination_and_filters(admin, node_ctx):
     r = admin.get(Z + "/example.lan/records?per_page=3").get_json()
     assert r["total"] == 8 and len(r["items"]) == 3 and r["page"] == 1 and r["per_page"] == 3

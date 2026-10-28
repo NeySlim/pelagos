@@ -3,6 +3,7 @@
 import { crossingTime, valueAt } from '../../components/motion/traceMath'
 import { EXCEPTABLE_KINDS, INCONSISTENCY_KINDS } from './kinds.js'
 import { failoverPath } from '../dhcp/ddnsFailover.js'
+import { zoneSegment } from '../../lib/zonePath.js'
 
 export const SEVERITIES = ['critical', 'warning', 'info']
 export const STATES = ['open', 'acked', 'resolved']
@@ -39,13 +40,13 @@ export function subjectLink(alert) {
   if (kind === 'name' && value) return { to: `/hosts?q=${encodeURIComponent(value.split('/')[0].replace(/\.$/, ''))}`, label: 'openHost' }
   if (kind === 'zone' && value) {
     const [zone, view] = value.split('@')
-    const path = `/dns/zones/${encodeURIComponent(zone.replace(/\.$/, ''))}`
+    const path = `/dns/zones/${zoneSegment(zone)}`
     return { to: view ? `${path}?view=${encodeURIComponent(view)}` : path, label: 'openZone' }
   }
   // Delegation subjects "ns-silent:<zone>[@view]:<ns>": the fix is an NS edit in the zone.
   if (['ns-silent', 'ns-unresolved', 'ns-transfer', 'ns-primary'].includes(kind) && rest[0]) {
     const [zone, view] = rest[0].split('@')
-    const path = `/dns/zones/${encodeURIComponent(zone.replace(/\.$/, ''))}`
+    const path = `/dns/zones/${zoneSegment(zone)}`
     return { to: view ? `${path}?view=${encodeURIComponent(view)}` : path, label: 'openZone' }
   }
   if ((kind === 'kea4' || kind === 'kea6') && rest[0] === 'subnet') return { to: `/dhcp/${kind === 'kea6' ? 'v6' : 'v4'}/subnets`, label: null }

@@ -35,7 +35,8 @@ import { ZoneSerialTrace } from './ZoneSerialTrace'
 import { useCatchUps } from './catchUp'
 import { useZoneEvents } from './zoneEvents'
 import { KeyValue, ListValue, ModeBadge, SourceBadge } from './common'
-import { useNodeNames, usePlanFlow, laggingNodes, SECONDARY_KINDS } from './helpers'
+import { useNodeNames, usePlanFlow, laggingNodes, zoneHref, SECONDARY_KINDS } from './helpers'
+import { zoneFromSegment } from '../../lib/zonePath'
 import { RecordEditor } from './RecordEditor'
 import { handoverChanges, zoneHandover } from './handover'
 import { FailoverBadge } from './FailoverBadge'
@@ -365,7 +366,7 @@ function ConfigTab({ zone }) {
 }
 
 export default function ZoneDetailPage() {
-  const { zone: zoneParam } = useParams()
+  const zoneParam = zoneFromSegment(useParams().zone)
   const [search] = useSearchParams()
   const view = search.get('view') || undefined
   const { t } = useTranslation(['dns', 'common'])
@@ -466,7 +467,7 @@ export default function ZoneDetailPage() {
   }
   // The security audit's remediation: a Job that rewrites the zone statement with an update-policy.
   const convertZone = () => flow.run(() => api.install.securityPlan([staticFindingId(zone)]))
-  const switchView = (v) => navigate(`/dns/zones/${encodeURIComponent(zoneParam)}${v && v !== '_default' ? `?view=${encodeURIComponent(v)}` : ''}`)
+  const switchView = (v) => navigate(zoneHref(zoneParam, v))
 
   return (
     <PageLayout

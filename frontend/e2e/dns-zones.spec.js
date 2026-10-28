@@ -185,3 +185,19 @@ test('the zone page names its zone and lists records as cards at phone width', a
   await expect(page.getByTestId('record-card').first()).toBeVisible()
   await expect(page.getByRole('button', { name: 'Status per node' })).toBeVisible()
 })
+
+test('the root zone row opens its own detail page', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/dns/zones')
+  const row = page.getByTestId('zones-table').getByTestId('data-table-row').filter({ has: page.getByText('.', { exact: true }) })
+  await row.first().click()
+  await expect(page).toHaveURL(/\/dns\/zones\/@$/)
+  const detail = page.getByTestId('page-dns-zoneDetail')
+  await expect(detail).toBeVisible()
+  await expect(detail.getByRole('heading').first()).toHaveText('.')
+  await expect(detail).toContainText('Hint')
+  // A reload keeps the page: the "@" segment survives where "." would be dropped.
+  await page.reload()
+  await expect(page.getByTestId('page-dns-zoneDetail')).toBeVisible()
+  await expect(page).toHaveURL(/\/dns\/zones\/@$/)
+})

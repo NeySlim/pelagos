@@ -50,6 +50,21 @@ def make_ca(cn: str, parent: Issuer | None = None, days: int = 3650) -> Issuer:
         .not_valid_after(now + timedelta(days=days))
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
         .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+        # Python 3.13 strict verification rejects a CA without key usage.
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=False,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=True,
+                crl_sign=True,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
+        )
     )
     signer = parent.key if parent else key
     if parent is not None:

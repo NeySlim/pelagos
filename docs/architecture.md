@@ -3147,6 +3147,33 @@ command line, B6 API and screen, B7 lab.
   nothing); `sftp` `{"host","port","username","path","host_key_fingerprint":
   "SHA256:..."}`, secret `archives/dest/<id>/ssh_key`, run through `sftp -b`
   with the pinned key. S3 is not in the first version (decision 2).
+- **Destinations** (B3, `archives/destinations/`: `config.py` validation, `factory.py`, one
+  `Target` per place, one per node for `peer`): a destination holds each node's archives under
+  `<path>/<origin node id>/`: the file, its `.sha256`, then the ArchiveMeta sidecar
+  `<file>.json` written last (a listing counts only files with a sidecar). After each successful
+  local run the runner sends, to every enabled destination, the local archives the destination's
+  retention keeps and it lacks (so a destination that was down catches up), reads each copy back
+  and compares its sum when `verify_enabled` (a mismatch deletes the copy and sends it once more),
+  then deletes at the destination its own archives the retention drops. `keep` null takes
+  `keep_*_count`. A peer applies the retention itself on receipt (the largest `keep` of the
+  enabled peer destinations that target it, the defaults when none). Errors go to
+  `state.failures`/`errors` under the destination id (`archive_failed`, subject
+  `archive:<id>`); an invalid entry fails as `invalid destination: ...`. The ArchiveMeta sidecars
+  in `local/` list the destination ids holding a copy. `mounted`: `os.path.ismount` and
+  writable, written through `.part` and rename with fsync, read back after
+  `POSIX_FADV_DONTNEED` so the sum is of what the server stores. `sftp`: the OpenSSH client
+  (`sftp -F none -b`), no Python SSH library: `ssh-keyscan` fetches the host keys, the one
+  matching `host_key_fingerprint` is the only known host key and the session runs with
+  `StrictHostKeyChecking=yes`, `BatchMode=yes`, `IdentitiesOnly=yes`; the private key is a 0600
+  file under `/run/pelagos` for the run only; copies are made 0600 and their folder 0700 when the
+  server allows `chmod`. `peer`: `/repl/v1/archives` below, as the node's mTLS identity.
+- **Retired identities** (B3): after a run, a node drops the retired identities
+  (`keys.prune_retired`) whose recipient no archive uses: its own archives and the copies it
+  holds, the archives listed at each destination (every origin), and what every other node
+  answers on `GET /repl/v1/archives` (`in_use`). Nothing is dropped while a node does not answer,
+  answers `in_use_known: false` (a destination never listed yet, an invalid entry) or reports an
+  archive without recorded recipients. Audit `admin.archive.op` with `request.op`
+  `prune_retired`, `response.dropped`.
 - **File**: `<node name>-<YYYYMMDDTHHMMSSZ>.tar.gz.age` (UTC) and
   `<same>.sha256` (sum of the encrypted file, `sha256sum -c` format); the tar
   never touches the disk in clear (gzip tar streamed into age, written under a
@@ -3172,7 +3199,8 @@ command line, B6 API and screen, B7 lab.
   "unreadable": [path],"complete"}`.
 - **ArchiveMeta**: `{"id","node_id","created_at","size","sha256",
   "destinations": [destination id, "local"],"complete","versions","verified_at",
-  "filename"}`.
+  "filename","recipients"}` (`recipients`: the age recipients the file is encrypted to, null for
+  an archive written before B3, which then keeps every retired identity).
 - **Parts** (inspect and restore): `bind.managed`, `bind.zone:<view>/<zone>`
   (`mode`: `diff` by signed UPDATE, or `replace` in maintenance),
   `bind.user_files` (only with `include_user_files`), `kea4.config`,
@@ -3205,7 +3233,10 @@ command line, B6 API and screen, B7 lab.
   "last_archive_id","last_error","complete","unreadable","failures": {destination: consecutive
   count},"errors": {destination: text},"next_run","running","last_test_restore",
   "test_restore": {"ok" (null when skipped),"at","archive_id","checks": [{"what","ok","output"}],
-  "skipped"?}}`. B3 and B6 read it; only the collector writes it.
+  "skipped"?},"in_use": {destination id: [recipient]},"run_recipients": [recipient]}`
+  (`in_use`: recipients of the archives each destination held when last listed, `"*"` for an
+  archive without recorded recipients; `run_recipients`: those of the run in progress). B3 and B6
+  read it; only the collector writes it.
 - **Schedule**: slots at `start_time` local time (the host's zone with its DST rules, wall-clock
   arithmetic) plus `stagger_minutes` x rank, then every `interval_hours`, anchored again each
   day. A run is due when a slot passed since the last attempt (since the schedule was enabled for
@@ -3227,9 +3258,15 @@ command line, B6 API and screen, B7 lab.
   `state.json` and the `archive.create` audit entry.
 - **Replication** (mTLS, section 13): `POST /repl/v1/archives` (body the
   encrypted file, headers `X-Pelagos-Archive-Id`, `X-Pelagos-Origin`,
-  `X-Pelagos-Sha256`; `413` over `max_archive_mb`), `GET
-  /repl/v1/archives?origin=` (`{"items": [ArchiveMeta]}`), `GET
-  /repl/v1/archives/<id>` (the file).
+  `X-Pelagos-Sha256`, `X-Pelagos-Meta` (the ArchiveMeta, compact JSON); `413` over
+  `max_archive_mb`, `403` when the origin or the meta's node is not the caller, `400`
+  `checksum_mismatch`; answer `{"stored": true, "archive": ArchiveMeta}`; a body over 1 MiB is
+  spooled to `archives/.incoming/` once the caller is authenticated, never held in memory; the
+  same id sent again replaces the copy), `GET /repl/v1/archives?origin=` (`{"items":
+  [ArchiveMeta]}`, the node's own archives for its own id; without `origin` every archive it
+  holds plus `"in_use": [recipient]` and `"in_use_known"`), `GET /repl/v1/archives/<id>` (the
+  file, `application/octet-stream`, own or held, streamed). Client: `ReplicationClient.put_archive`,
+  `list_archives`, `fetch_archive` over `repl_http.request_stream`.
 - **Audit**: `admin.archive.add|replace|delete` (destinations),
   `admin.archive.op` (`request.op`: `generate`, `rotate`, `add_recipient`,
   `remove_recipient`, `download`, `upload`, `run`), `archive.create` (one

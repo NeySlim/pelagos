@@ -153,6 +153,8 @@ class ArchiveMeta:
     versions: dict[str, str] = field(default_factory=dict)
     verified_at: datetime | None = None
     filename: str = ""
+    # age recipients the file is encrypted to; None for an archive written before they were recorded.
+    recipients: list[str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -166,11 +168,13 @@ class ArchiveMeta:
             "versions": dict(self.versions),
             "verified_at": to_rfc3339(self.verified_at) if self.verified_at else None,
             "filename": self.filename,
+            "recipients": None if self.recipients is None else list(self.recipients),
         }
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> ArchiveMeta:
         verified = d.get("verified_at")
+        recipients = d.get("recipients")
         return cls(
             id=str(d["id"]),
             node_id=str(d["node_id"]),
@@ -182,4 +186,5 @@ class ArchiveMeta:
             versions={str(k): str(v) for k, v in (d.get("versions") or {}).items()},
             verified_at=from_rfc3339(verified) if verified else None,
             filename=str(d.get("filename", "")),
+            recipients=[str(r) for r in recipients] if isinstance(recipients, list) else None,
         )

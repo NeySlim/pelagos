@@ -10,19 +10,22 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import ssl
+import tempfile
 import threading
 import time
 import urllib.parse
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from pelagos import __version__
+from pelagos.archives.inbox import ArchiveInbox, InboxError
 from pelagos.core import ca as ca_mod
 from pelagos.core import clock
 from pelagos.core import context as context_mod
@@ -41,7 +44,7 @@ from pelagos.core.paths import Paths
 from pelagos.core.plan_secrets import hand_secrets_to_backend
 from pelagos.core.quiet_tls import quiet_handshakes
 from pelagos.core.registry import UNLOCKED_SCOPES, ConnectorRegistry, EngineNotConfigured
-from pelagos.core.repl_http import ConnectFailed, TransportError, request_json
+from pelagos.core.repl_http import ConnectFailed, TransportError, request_json, request_stream
 from pelagos.core.retention import purge_backups
 from pelagos.core.secrets import SecretBox
 from pelagos.core.signals import EVENT_AUDIT, EVENT_CONFIG, SignalListener
@@ -56,6 +59,9 @@ REPL_PREFIX = "/repl/v1"
 AUDIT_PAGE = 500
 AUDIT_FETCH_MAX = 5000
 MAX_BODY = 64 * 1024 * 1024
+# Bodies above this may be spooled to disk by the route (archive uploads), see spool_dir.
+MAX_BODY_INLINE = 1024 * 1024
+STREAM_CHUNK = 256 * 1024
 PUSH_BACKOFF_SECONDS = (5.0, 30.0, 120.0)
 OFFLINE_AFTER_FAILURES = 3
 RENEWAL_CHECK_SECONDS = 6 * 3600
@@ -63,6 +69,9 @@ HOUSEKEEPING_SECONDS = 3600
 _ENGINE_RE = re.compile(r"^/engines/([a-z0-9]+)/snapshot$")
 SNAPSHOT_ENGINES = frozenset({"bind", "kea4", "kea6", "d2"})
 _ACTION_RE = re.compile(r"^/actions/([a-z0-9][a-z0-9_.-]{0,63})$")
+_ARCHIVE_RE = re.compile(r"^/archives/([A-Za-z0-9_-]{1,64})$")
+# Per socket operation: an archive transfer moves up to `archives.max_archive_mb`.
+ARCHIVE_TIMEOUT = 120.0
 # Event the collector receives when entries from a peer were merged into the local audit log.
 EVENT_AUDIT_MERGED = "audit_merged"
 
@@ -303,6 +312,55 @@ class ReplicationClient:
     def renew(self, csr_pem: bytes) -> bytes:
         return str(self._call("POST", "/renew", {"csr_pem": csr_pem.decode()})["cert_pem"]).encode()
 
+    # Archives (section 23) ---------------------------------------------------------------
+
+    def _stream(self, method: str, path: str, timeout: float, **kw: Any) -> Any:
+        try:
+            res = request_stream(
+                self.peer.url,
+                method,
+                REPL_PREFIX + path,
+                ssl_context=self.ssl_context,
+                timeout=timeout,
+                expect_node_id=self.peer.id,
+                **kw,
+            )
+        except TransportError as exc:
+            code = UNREACHABLE if isinstance(exc, ConnectFailed) else None
+            raise ReplicationError(str(exc), code=code) from exc
+        if not res.ok:
+            detail = code = None
+            if isinstance(res.body, dict):
+                detail, code = res.body.get("detail"), res.body.get("code")
+            raise ReplicationError(
+                f"{method} {path} on {self.peer.name}: {res.status} {detail or res.body}", res.status, code
+            )
+        return res.body
+
+    def put_archive(
+        self, path: Path, meta: dict[str, Any], timeout: float = ARCHIVE_TIMEOUT
+    ) -> dict[str, Any]:
+        """POST /archives: the encrypted file, checked against its sum by the peer on receipt."""
+        headers = {
+            "X-Pelagos-Archive-Id": str(meta["id"]),
+            "X-Pelagos-Origin": str(meta["node_id"]),
+            "X-Pelagos-Sha256": str(meta["sha256"]),
+            "X-Pelagos-Meta": json.dumps(meta, separators=(",", ":")),
+        }
+        return dict(self._stream("POST", "/archives", timeout, upload=path, headers=headers) or {})
+
+    def list_archives(self, origin: str | None = None) -> dict[str, Any]:
+        """GET /archives: {"items": [ArchiveMeta]}, plus `in_use` and `in_use_known` without origin."""
+        query = f"?{urllib.parse.urlencode({'origin': origin})}" if origin else ""
+        data = self._call("GET", f"/archives{query}")
+        if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+            raise ReplicationError(f"GET /archives on {self.peer.name}: malformed answer")
+        return data
+
+    def fetch_archive(self, archive_id: str, sink: BinaryIO, timeout: float = ARCHIVE_TIMEOUT) -> None:
+        """GET /archives/<id>: the encrypted file, written into `sink`."""
+        self._stream("GET", f"/archives/{urllib.parse.quote(archive_id, safe='')}", timeout, sink=sink)
+
 
 # Server -------------------------------------------------------------------
 
@@ -328,8 +386,11 @@ class ReplicationApp:
         snapshot: SnapshotProvider | None = None,
         secrets: SecretBox | None = None,
         actions: ActionHandler | None = None,
+        archives: ArchiveInbox | None = None,
     ) -> None:
         self.node = node
+        # Archives peers send this node and the ones it serves (section 23); None: not served.
+        self.archives = archives
         # Writes a peer asks this node to build or run (services.peer_actions); None: not served.
         self.actions = actions
         # Master key: unseals the secrets a plan built on another node carries (core.plan_secrets).
@@ -368,6 +429,12 @@ class ReplicationApp:
                 500,
                 {"code": "internal_error", "detail": "internal error, see the node's log", "status": 500},
             )
+        if isinstance(body, FileBody):
+            start_response(
+                f"{status} {_REASONS.get(status, 'Status')}",
+                [("Content-Type", "application/octet-stream"), ("Content-Length", str(body.size))],
+            )
+            return body
         data = json.dumps(body).encode()
         start_response(
             f"{status} {_REASONS.get(status, 'Status')}",
@@ -411,7 +478,74 @@ class ReplicationApp:
         m = _ACTION_RE.match(route)
         if m and method == "POST":
             return self._action(m.group(1), self._body(environ), caller)
+        if route == "/archives" and method == "POST":
+            return self._put_archive(environ, caller)
+        if route == "/archives" and method == "GET":
+            return self._list_archives(environ.get("QUERY_STRING", ""))
+        m = _ARCHIVE_RE.match(route)
+        if m and method == "GET":
+            return self._get_archive(m.group(1))
         raise _Refused(404, "not_found", f"{method} {route}")
+
+    # Archives (section 23) ---------------------------------------------------------------
+
+    def _inbox(self) -> ArchiveInbox:
+        if self.archives is None:
+            raise _Refused(404, "not_found", "archives are not served by this node")
+        return self.archives
+
+    def spool_dir(self, method: str, path: str, environ: dict[str, Any]) -> Path | None:
+        """Folder the raw body of an authenticated archive upload is spooled into before the
+        handler runs; None for every other request (and for a body over the limit, left unread)."""
+        if method != "POST" or path != REPL_PREFIX + "/archives" or self.archives is None:
+            return None
+        try:
+            self.authenticate(environ.get("pelagos.client_cert"))
+            length = int(environ.get("CONTENT_LENGTH") or 0)
+        except (_Refused, ValueError):
+            return None
+        if length <= 0 or length > self.archives.limit():
+            return None
+        return self.archives.spool_dir()
+
+    def _put_archive(self, environ: dict[str, Any], caller: str) -> tuple[int, Any]:
+        inbox = self._inbox()
+        try:
+            length = int(environ.get("CONTENT_LENGTH") or 0)
+        except ValueError:
+            length = 0
+        if length <= 0:
+            raise _Refused(400, "validation_error", "the archive is the request body")
+        if length > inbox.limit():
+            raise _Refused(413, "too_large", "archive larger than archives.max_archive_mb")
+        spooled = environ.get("pelagos.body_file")
+        if spooled is None:
+            spooled = _spool(environ["wsgi.input"], length, inbox.spool_dir())
+        headers = {
+            k: environ.get(f"HTTP_X_PELAGOS_{k.upper()}", "")
+            for k in ("archive_id", "origin", "sha256", "meta")
+        }
+        try:
+            meta = inbox.receive(caller, headers, Path(spooled), length)
+        except InboxError as exc:
+            raise _Refused(exc.status, exc.code, exc.detail) from None
+        finally:
+            Path(spooled).unlink(missing_ok=True)
+        return 200, {"stored": True, "archive": meta.to_dict()}
+
+    def _list_archives(self, query: str) -> tuple[int, Any]:
+        params = dict(urllib.parse.parse_qsl(query))
+        return 200, self._inbox().listing(params.get("origin") or None)
+
+    def _get_archive(self, archive_id: str) -> tuple[int, Any]:
+        found = self._inbox().find(archive_id)
+        if found is None:
+            raise _Refused(404, "not_found", f"no archive {archive_id} on this node")
+        path, _meta = found
+        try:
+            return 200, FileBody(path)
+        except OSError:
+            raise _Refused(404, "not_found", f"archive {archive_id} is gone") from None
 
     def _snapshot(self, engine: str, query: str) -> tuple[int, Any]:
         params = dict(urllib.parse.parse_qsl(query, keep_blank_values=True))
@@ -661,6 +795,39 @@ class ReplicationApp:
         return data
 
 
+class FileBody:
+    """A file answered as the response body, read in chunks by whoever iterates it."""
+
+    def __init__(self, path: Path) -> None:
+        self._fh = open(path, "rb")
+        self.size = os.fstat(self._fh.fileno()).st_size
+
+    def __iter__(self) -> Iterator[bytes]:
+        while data := self._fh.read(STREAM_CHUNK):
+            yield data
+
+    def close(self) -> None:
+        self._fh.close()
+
+
+def _spool(src: BinaryIO, length: int, folder: Path) -> str:
+    """Copies `length` bytes of a request body into a 0600 file of `folder`; returns its path."""
+    fd, name = tempfile.mkstemp(prefix=".upload-", suffix=".part", dir=folder)
+    try:
+        with os.fdopen(fd, "wb") as out:
+            left = length
+            while left > 0:
+                data = src.read(min(STREAM_CHUNK, left))
+                if not data:
+                    raise _Refused(400, "validation_error", "request body shorter than its length")
+                out.write(data)
+                left -= len(data)
+    except BaseException:
+        Path(name).unlink(missing_ok=True)
+        raise
+    return name
+
+
 _REASONS = {
     200: "OK",
     400: "Bad Request",
@@ -765,7 +932,26 @@ def _offloaded(app: Callable[..., Any]) -> Callable[..., Any]:
             length = int(environ.get("CONTENT_LENGTH") or 0)
         except ValueError:
             length = 0
-        body = environ["wsgi.input"].read(length) if 0 < length <= MAX_BODY else b""
+        pool = gevent.get_hub().threadpool
+        if pool.maxsize < HANDLER_THREADS:
+            pool.maxsize = HANDLER_THREADS
+        spool_dir = getattr(app, "spool_dir", None)
+        folder = None
+        if spool_dir is not None and length > MAX_BODY_INLINE:
+            folder = pool.apply(
+                spool_dir, (environ.get("REQUEST_METHOD", ""), environ.get("PATH_INFO", ""), environ)
+            )
+        spooled = None
+        if folder is not None:
+            # A large archive goes to disk on the hub, chunk by chunk, never whole in memory.
+            try:
+                spooled = _spool(environ["wsgi.input"], length, folder)
+            except (OSError, _Refused) as exc:
+                log.warning("archive upload not received: %s", exc)
+            environ["pelagos.body_file"] = spooled
+            body = b""
+        else:
+            body = environ["wsgi.input"].read(length) if 0 < length <= MAX_BODY else b""
         environ["wsgi.input"] = io.BytesIO(body)
         captured: dict[str, Any] = {}
 
@@ -775,14 +961,20 @@ def _offloaded(app: Callable[..., Any]) -> Callable[..., Any]:
             captured["status"], captured["headers"] = status, headers
             return lambda _data: None
 
-        pool = gevent.get_hub().threadpool
-        if pool.maxsize < HANDLER_THREADS:
-            pool.maxsize = HANDLER_THREADS
-        chunks = pool.apply(lambda: list(app(environ, capture)))
+        try:
+            result = pool.apply(lambda: _materialized(app(environ, capture)))
+        finally:
+            if spooled is not None:
+                Path(spooled).unlink(missing_ok=True)
         start_response(captured["status"], captured["headers"])
-        return chunks
+        # A file body is read on the hub as the client takes it.
+        return result
 
     return wsgi
+
+
+def _materialized(result: Any) -> Any:
+    return result if isinstance(result, FileBody) else list(result)
 
 
 _handler_cache: list[type] = []
@@ -1116,6 +1308,7 @@ class ReplicationService:
             snapshot=snapshot,
             secrets=ctx.secrets,
             actions=actions,
+            archives=ArchiveInbox(ctx.paths.archives_dir, ctx.node.id, ctx.settings),
         )
         self.app.on_peer_seen = self._on_peer_seen
         self.on_audit_merged = on_audit_merged

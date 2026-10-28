@@ -123,6 +123,7 @@ class ArchiveWriter:
         fd = os.open(self._tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         self._raw = os.fdopen(fd, "wb")
         self._out = _HashingWriter(self._raw)
+        self._recipients = list(recipients)
         self._enc = age.Encryptor(self._out, recipients)
         self._tar = tarfile.open(fileobj=self._enc, mode="w|gz", format=tarfile.PAX_FORMAT)  # type: ignore[arg-type]
         self._members: set[str] = set()
@@ -203,6 +204,7 @@ class ArchiveWriter:
             complete=self.manifest.complete,
             versions=dict(self.manifest.versions),
             filename=self.path.name,
+            recipients=list(self._recipients),
         )
 
     def abort(self) -> None:

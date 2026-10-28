@@ -4,7 +4,9 @@ retention, verification, test restore and the `archive_*` alerts.
 
 The collector ticks `ArchiveRunner.tick()`; a run due by the schedule or asked for (`request()`, the
 `archive` signal) builds the archive on its own thread, so the polling loop never waits on AXFR or
-on large lease files. Remote destinations (peer, mounted folder, SFTP) are not handled here.
+on large lease files. After the local copy, the run sends it to every enabled destination (peer,
+mounted folder, SFTP: `archives.destinations`), reads it back, applies each destination's retention
+and drops the retired archive identities no archive anywhere still needs.
 """
 
 from __future__ import annotations
@@ -23,6 +25,10 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.archives import bundle, keys, retention, schedule
+from pelagos.archives.destinations import config as dconf
+from pelagos.archives.destinations.base import DestinationError, DestinationMismatch, Target
+from pelagos.archives.destinations.factory import build_targets
+from pelagos.archives.inbox import UNKNOWN, ArchiveInbox, recipients_of
 from pelagos.archives.model import ArchiveError, ArchiveMeta, Manifest
 from pelagos.archives.store import ArchiveStore, RunState
 from pelagos.collector.archive_collect import KEA_PARTS, Builder, Collected, rewrite_includes
@@ -49,6 +55,8 @@ KEA_BINARIES = {"kea4": "kea-dhcp4", "kea6": "kea-dhcp6", "d2": "kea-dhcp-ddns"}
 KEA_ROOTS = {"kea4": "Dhcp4", "kea6": "Dhcp6", "d2": "DhcpDdns"}
 # (engine, root object) -> (ok, output), or None when the daemon cannot be asked.
 KeaTester = Callable[[str, dict[str, Any]], tuple[bool, str] | None]
+# (destination, node context, spool folder) -> the targets of that destination.
+TargetFactory = Callable[[dconf.DestinationConfig, NodeContext, Path], list[Target]]
 
 
 class ArchiveRefused(ArchiveError):
@@ -62,8 +70,7 @@ def _helper() -> Any:
 
 
 def remote_destinations(settings: dict[str, Any]) -> list[dict[str, Any]]:
-    entries = (settings.get("archives") or {}).get("destinations") or []
-    return [d for d in entries if isinstance(d, dict) and d.get("enabled", True) and d.get("type") != LOCAL]
+    return [d for d in dconf.entries(settings) if d.get("enabled", True)]
 
 
 def keep_local(metas: list[ArchiveMeta], settings: dict[str, Any], tz: tzinfo) -> set[str]:
@@ -254,6 +261,7 @@ class ArchiveRunner:
         clock: Callable[[], float] = time.time,
         helper: Callable[[], Any] = _helper,
         tz: tzinfo | None = None,
+        targets: TargetFactory = build_targets,
     ) -> None:
         self.ctx = ctx
         self.backends = backends
@@ -262,6 +270,7 @@ class ArchiveRunner:
         self.helper = helper
         self.tz = tz
         self.store = ArchiveStore(ctx.paths.archives_dir)
+        self.targets = targets
         # run() sets it: the build runs on its own thread, tests keep it inline.
         self.background = False
         self._thread: threading.Thread | None = None
@@ -336,15 +345,18 @@ class ArchiveRunner:
         cluster = self.ctx.cluster()
         settings = cluster.settings
         started = self._now()
+        recipients = keys.encryption_recipients(settings)
         with self._mutex:
             state = self.store.load_state()
             state.running = True
+            state.run_recipients = list(recipients)
             self._save(state)
         meta: ArchiveMeta | None = None
         collected: Collected | None = None
         error: str | None = None
+        sent: dict[str, str | None] = {}
+        in_use: dict[str, list[str]] = {}
         try:
-            recipients = keys.encryption_recipients(settings)
             if not recipients:
                 raise ArchiveRefused("no archive recipient: generate the cluster archive key first")
             self.store.ensure()
@@ -371,13 +383,31 @@ class ArchiveRunner:
             if not isinstance(exc, ArchiveError):
                 log.exception("archive run failed")
             error = str(exc) or type(exc).__name__
+        if error is None and meta is not None:
+            sent, in_use = self._destinations(settings)
+            meta = next((m for m in self.store.list() if m.id == meta.id), meta)
         test = None
         if error is None and meta is not None and collected is not None and self._test_due(settings, started):
             test = self._test_restore(cluster, meta, collected.manifest)
         with self._mutex:
             state = self.store.load_state()
             state.running = False
+            state.run_recipients = []
             state.last_attempt = started
+            known = {d.get("id") for d in dconf.entries(settings)}
+            for dest in [d for d in state.failures if d != LOCAL and d not in known]:
+                state.failures.pop(dest, None)
+                state.errors.pop(dest, None)
+            for dest in [d for d in state.in_use if d not in known]:
+                del state.in_use[dest]
+            state.in_use.update(in_use)
+            for dest, dest_error in sent.items():
+                if dest_error is None:
+                    state.failures.pop(dest, None)
+                    state.errors.pop(dest, None)
+                else:
+                    state.failures[dest] = state.failures.get(dest, 0) + 1
+                    state.errors[dest] = dest_error
             if error is None and meta is not None and collected is not None:
                 state.last_success = meta.created_at
                 state.last_archive_id = meta.id
@@ -396,8 +426,168 @@ class ArchiveRunner:
             if bool(reg.get(settings, "archives.schedule_enabled")):
                 state.next_run = schedule.next_run(started, settings, self._rank(), self._zone())
             self._save(state)
-        self._audit(trigger, meta, collected, error, test)
+        pruned = self._prune() if error is None else []
+        self._audit(trigger, meta, collected, error, test, sent, pruned)
         return meta if error is None else None
+
+    # Destinations ---------------------------------------------------------------------------
+
+    def _destinations(self, settings: dict[str, Any]) -> tuple[dict[str, str | None], dict[str, list[str]]]:
+        """Sends the local archives each enabled destination should keep and lacks; returns the
+        error of each destination (None: done) and the recipients each one's archives use."""
+        results: dict[str, str | None] = {}
+        in_use: dict[str, list[str]] = {}
+        configs, bad = dconf.configured(settings)
+        for dest_id, problem in bad.items():
+            results[dest_id] = f"invalid destination: {problem}"
+        verify = bool(reg.get(settings, "archives.verify_enabled"))
+        limit = int(reg.get(settings, "archives.max_archive_mb")) * 1024 * 1024
+        for config in configs:
+            try:
+                targets = self.targets(config, self.ctx, self.store.root)
+            except DestinationError as exc:
+                results[config.id] = str(exc)
+                continue
+            errors: list[str] = []
+            used: set[str] = set()
+            present_all: set[str] | None = None
+            for target in targets:
+                try:
+                    present, recipients = self._sync(target, config, settings, verify, limit)
+                    used |= recipients
+                    present_all = present if present_all is None else present_all & present
+                except (DestinationError, ArchiveError, OSError) as exc:
+                    log.warning("archive destination %s (%s) failed: %s", config.id, target.label, exc)
+                    errors.append(f"{target.label}: {exc}" if len(targets) > 1 else str(exc))
+                finally:
+                    target.close()
+            if errors:
+                results[config.id] = "; ".join(errors)
+                continue
+            results[config.id] = None
+            in_use[config.id] = sorted(used)
+            self._mark(config.id, present_all or set())
+        return results, in_use
+
+    def _sync(
+        self,
+        target: Target,
+        config: dconf.DestinationConfig,
+        settings: dict[str, Any],
+        verify: bool,
+        limit: int,
+    ) -> tuple[set[str], set[str]]:
+        me = self.ctx.node.id
+        listing = target.list(None)
+        own = [m for m in listing if m.node_id == me]
+        present = {m.id for m in own}
+        local = self.store.list()
+        daily, weekly, monthly = dconf.keep_counts(config, settings)
+        keep = retention.to_keep(
+            own + [m for m in local if m.id not in present], daily, weekly, monthly, tz=self._zone()
+        )
+        for meta in sorted(local, key=lambda m: m.created_at):
+            if meta.id in present or meta.id not in keep:
+                continue
+            if target.config.type == dconf.PEER and meta.size > limit:
+                raise DestinationError(f"archive of {meta.size} bytes over archives.max_archive_mb")
+            self._send(target, meta, verify)
+            present.add(meta.id)
+            own.append(meta)
+        if target.deletes:
+            for meta in own:
+                if meta.id not in keep:
+                    target.delete(meta)
+                    present.discard(meta.id)
+        remaining = [m for m in listing if m.node_id != me] + [m for m in own if m.id in present]
+        return present, recipients_of(remaining)
+
+    def _send(self, target: Target, meta: ArchiveMeta, verify: bool) -> None:
+        """Copies one archive; a copy that reads back different is removed and sent once more."""
+        path = self.store.path(meta)
+        for attempt in (1, 2):
+            target.put(path, meta)
+            if not verify:
+                return
+            try:
+                target.verify(meta)
+                return
+            except DestinationMismatch:
+                target.delete(meta)
+                if attempt == 2:
+                    raise
+
+    def _mark(self, dest_id: str, present: set[str]) -> None:
+        """Records in each local ArchiveMeta whether the destination holds a copy."""
+        for meta in self.store.list():
+            has = dest_id in meta.destinations
+            if has == (meta.id in present):
+                continue
+            if has:
+                meta.destinations.remove(dest_id)
+            else:
+                meta.destinations.append(dest_id)
+            try:
+                self.store.save_meta(meta)
+            except OSError as exc:
+                log.warning("archive meta not saved: %s", exc)
+
+    # Retired identities ---------------------------------------------------------------------
+
+    def _prune(self) -> list[str]:
+        """Drops the retired identities whose recipient no archive uses anywhere: this node's
+        archives and copies, its destinations, and what every other node reports. Any node or
+        destination that cannot tell keeps them all."""
+        cluster = self.ctx.cluster()
+        retired = [
+            n[len(keys.RETIRED_PREFIX) :] for n in cluster.secrets if n.startswith(keys.RETIRED_PREFIX)
+        ]
+        if not retired:
+            return []
+        me = self.ctx.node.id
+        listing = ArchiveInbox(self.store.root, me, self.ctx.settings).listing(None)
+        if not listing.get("in_use_known"):
+            return []
+        used = set(listing.get("in_use") or [])
+        others = [p for p in cluster.nodes if p.id != me]
+        if others:
+            try:
+                from pelagos.core.replication import ReplicationClient, client_ssl_context, node_tls_files
+
+                tls = client_ssl_context(*node_tls_files(self.ctx.paths))
+                for peer in others:
+                    answer = ReplicationClient(peer, tls, timeout=30.0).list_archives(None)
+                    if not answer.get("in_use_known"):
+                        return []
+                    used |= {str(r) for r in answer.get("in_use") or []}
+            except Exception as exc:
+                log.info("retired archive identities kept: %s", exc)
+                return []
+        if UNKNOWN in used or not [r for r in retired if r not in used]:
+            return []
+        dropped: list[str] = []
+        self.ctx.config_store.update_cluster(
+            lambda c: dropped.extend(keys.prune_retired(c, used)), updated_by=f"node:{me}"
+        )
+        if dropped:
+            from pelagos.core.signals import EVENT_CONFIG, signal_collector
+
+            signal_collector(self.ctx.paths.collector_sock, EVENT_CONFIG)
+            entry = AuditEntry(
+                node_id=me,
+                action="admin.archive.op",
+                target="archives:identity",
+                user="system",
+                request={"op": "prune_retired"},
+                response={"ok": True, "dropped": dropped},
+                result=AuditResult.OK,
+                message=f"{len(dropped)} retired archive identities no archive uses any more dropped",
+            )
+            try:
+                self.ctx.audit_log.append(entry)
+            except OSError as exc:
+                log.warning("audit append failed: %s", exc)
+        return dropped
 
     def _check_space(self) -> None:
         latest = self.store.list()
@@ -483,6 +673,8 @@ class ArchiveRunner:
         collected: Collected | None,
         error: str | None,
         test: dict[str, Any] | None,
+        sent: dict[str, str | None] | None = None,
+        pruned: list[str] | None = None,
     ) -> None:
         response: dict[str, Any] = {"ok": error is None}
         if meta is not None:
@@ -493,6 +685,10 @@ class ArchiveRunner:
                 response["notes"] = list(collected.notes)
         if error is not None:
             response["error"] = error
+        if sent:
+            response["sent"] = {dest: problem or "ok" for dest, problem in sent.items()}
+        if pruned:
+            response["pruned_recipients"] = list(pruned)
         if test is not None:
             response["test_restore"] = {k: v for k, v in test.items() if k != "checks"} | {
                 "failed": [c["what"] for c in test.get("checks") or [] if c.get("ok") is False]

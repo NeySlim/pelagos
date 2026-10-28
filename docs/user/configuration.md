@@ -430,6 +430,46 @@ see [RPZ block lists](rpz.md). The settings API refuses them.
 The certificate sources (`cluster`, `nodes`) are set in
 [Administration, Certificates](certificates.md); the settings API refuses them.
 
+### Archive destinations (`archives.destinations`)
+
+Every archive stays in `/var/lib/pelagos/archives/local/` and is copied to each enabled
+destination. Each destination keeps the newest archive of its last `keep.daily` days,
+`keep.weekly` weeks and `keep.monthly` months (`keep` absent: `archives.keep_*_count`); a copy
+is read back and its sum checked when `archives.verify_enabled` is on. At the destination, each
+node's archives sit in a folder named by its node id, with their `.sha256` and a `.json`
+description, so `sha256sum -c` checks them without any key.
+
+| Type | Parameters | Notes |
+| --- | --- | --- |
+| `peer` | `node_ids` (`[]`: every other node) | over the replication port; kept in `/var/lib/pelagos/archives/peers/<node id>/` |
+| `mounted` | `path` | a mount point you set up; Pelagos mounts nothing and stores no SMB password |
+| `sftp` | `host`, `port` (22), `username`, `path`, `host_key_fingerprint` | OpenSSH `sftp` client, dedicated key |
+
+A mounted folder must be writable by the `pelagos` user. For example, NFS with
+`ns-archive.example.lan:/srv/archives /mnt/archives nfs4 rw,hard 0 0`, or SMB with
+`//nas.example.lan/archives /mnt/archives cifs credentials=/root/.smb-archives,uid=pelagos,gid=pelagos,file_mode=0600,dir_mode=0700 0 0`
+in `/etc/fstab`; a folder that is not mounted is refused rather than filled on the local disk.
+
+SFTP pins the server's host key: give the fingerprint `ssh-keygen -lf
+/etc/ssh/ssh_host_ed25519_key.pub` prints on the server (never one read over the network). The
+private key is stored sealed in `cluster.toml`; on the server, restrict its account to SFTP in a
+chroot, for instance:
+
+```
+Match User pelagos-archive
+    ChrootDirectory /srv/sftp/%u
+    ForceCommand internal-sftp
+    AllowTcpForwarding no
+    PasswordAuthentication no
+```
+
+with `/srv/sftp/pelagos-archive` owned by root and a writable `data` folder inside it (then
+`path = "data"`). Nodes with an SFTP destination need the OpenSSH client (`openssh-client`,
+`openssh-clients` on RHEL).
+
+A retired archive key (after a rotation) is kept until no archive encrypted with it is left
+anywhere: in the local folders, on the peers and at every destination.
+
 ## Environment variables
 
 Set them in `/etc/pelagos/pelagos.env` (`KEY=value` lines, read by the units

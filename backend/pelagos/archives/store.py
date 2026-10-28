@@ -58,6 +58,10 @@ class RunState:
     running: bool = False
     last_test_restore: datetime | None = None
     test_restore: dict[str, Any] | None = None
+    # Recipients of the archives each destination held when last listed (destination id -> list).
+    in_use: dict[str, list[str]] = field(default_factory=dict)
+    # Recipients of the run in progress, so a retired identity is not dropped under it.
+    run_recipients: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -74,6 +78,8 @@ class RunState:
             "running": self.running,
             "last_test_restore": _iso(self.last_test_restore),
             "test_restore": self.test_restore,
+            "in_use": {k: list(v) for k, v in self.in_use.items()},
+            "run_recipients": list(self.run_recipients),
         }
 
     @classmethod
@@ -92,6 +98,10 @@ class RunState:
             running=bool(d.get("running", False)),
             last_test_restore=_dt(d.get("last_test_restore")),
             test_restore=d.get("test_restore"),
+            in_use={
+                str(k): [str(r) for r in v] for k, v in (d.get("in_use") or {}).items() if isinstance(v, list)
+            },
+            run_recipients=[str(r) for r in d.get("run_recipients") or []],
         )
 
 

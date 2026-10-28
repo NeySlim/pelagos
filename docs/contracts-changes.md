@@ -1654,3 +1654,18 @@ engine) and the peer action `dns.config.plan`. WP-API-AUTH: `services/ddns_failo
 WP-COLLECTOR: `ddns_advice` (`d2:dns-servers`) has `details.remediation = "ddns_prepare"`.
 WP-FRONTEND: en and fr texts of the keys; the resilience answer adds `offline`, `prepared_at`,
 `domains[].zone`, `servers[].port`, `replay.source` and `replay.notes` (batch D5).
+
+## 2026-10-28, archives batch B3: destinations
+Additive. Architecture section 23: destination layout and run (catch-up, read back, retention per
+destination, retention on receipt by a peer), the `sftp` mechanism (OpenSSH client, host key
+pinned through `ssh-keyscan`), `X-Pelagos-Meta` and the answers of `/repl/v1/archives`
+(`in_use`, `in_use_known`), ArchiveMeta `recipients`, `state.json` `in_use` and
+`run_recipients`, the rule and audit of `keys.prune_retired`. WP-CORE:
+`archives/destinations/`, `archives/inbox.py`, `ReplicationApp(archives=...)` and its routes,
+`ReplicationClient.put_archive|list_archives|fetch_archive`, `repl_http.request_stream`.
+WP-COLLECTOR: `ArchiveRunner(targets=...)`, destinations and pruning after each run. Affects B6
+(`destinations.config.parse` validates an entry, `factory.build_targets(...)[i].probe()` is the
+"Test" button, the SFTP key secret is `config.ssh_key_secret(id)`) and B4/B5 (an archive held by
+a peer is read with `ReplicationClient.fetch_archive`). The OpenSSH client (`openssh-client`,
+`openssh-clients` on RHEL) is needed only on nodes with an `sftp` destination.
+

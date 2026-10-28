@@ -137,13 +137,14 @@ class ArchiveWriter:
         info.size, info.mode, info.mtime = size, mode & 0o7777, int(mtime)
         return info
 
-    def add_file(self, path: Path | str, part: str) -> bool:
-        """Archives a regular file; False (listed as unreadable) when it cannot be opened."""
+    def add_file(self, path: Path | str, part: str, mark: bool = True) -> bool:
+        """Archives a regular file; False (listed as unreadable when `mark`) when it cannot be opened."""
         name = str(path)
         try:
             fh = open(name, "rb")
         except OSError:
-            self.mark_unreadable(name)
+            if mark:
+                self.mark_unreadable(name)
             return False
         with fh:
             st = os.fstat(fh.fileno())

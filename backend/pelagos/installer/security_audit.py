@@ -41,6 +41,7 @@ from pelagos.installer import (
     ha_guard,
     ha_listener,
     ha_tls,
+    kea_modes,
     keaconf,
     keasetup,
     managed,
@@ -614,17 +615,20 @@ def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str
                 findings.append(narrow)
             elif own_rules and not by_address and not _grants_key(z, admin_key):
                 au = z.stmt.sub("allow-update") is not None
-                proposal = (
-                    msg(
+                pol = z.stmt.sub("update-policy")
+                # `update-policy local` has no block to add a grant to, and rewriting it would drop its
+                # local-only rule: the operator decides.
+                local = not au and pol is not None and pol.block is None
+                statement = f"grant {admin_key} zonesub {' '.join(UPDATE_TYPES_ADMIN)};"
+                if au:
+                    proposal = msg(
                         "finding.update_without_admin_key.proposal_replace",
                         policy=bindsetup.update_policy_proposal(z, bindsetup.kea_key_of_zone(z)),
                     )
-                    if au
-                    else msg(
-                        "finding.update_without_admin_key.proposal_grant",
-                        statement=f"grant {admin_key} zonesub {' '.join(UPDATE_TYPES_ADMIN)};",
-                    )
-                )
+                elif local:
+                    proposal = msg("finding.update_without_admin_key.proposal_local", statement=statement)
+                else:
+                    proposal = msg("finding.update_without_admin_key.proposal_grant", statement=statement)
                 findings.append(
                     Finding.of(
                         finding_id("bind", "update_without_admin_key", subject),
@@ -640,6 +644,7 @@ def _pelagos_access(files: ConfigFiles, top: list[Statement], key_names: set[str
                             "view": z.view,
                             **_locator(z.stmt),
                             "remediation": "update_policy" if au else "update_policy_grant",
+                            **({"remediable": False} if local else {}),
                         },
                     )
                 )
@@ -737,6 +742,7 @@ class KeaAuditInput:
     bind_keys: set[str] = field(default_factory=set)
     firewall: ha_listener.Firewall | None = None  # read only when an HA listener is off loopback
     nft: bool = False  # nft is installed: the guard of the HA listener can be set up
+    unreadable: list[dict[str, Any]] = field(default_factory=list)  # kea_modes.issues()
 
 
 def _ha_findings(inp: KeaAuditInput) -> list[Finding]:
@@ -828,8 +834,28 @@ def _ha_findings(inp: KeaAuditInput) -> list[Finding]:
     return findings
 
 
+def _unreadable_finding(items: list[dict[str, Any]]) -> Finding:
+    paths = ", ".join(f"{i['path']} ({i['mode']} group {i['group']})" for i in items)
+    return Finding.of(
+        finding_id("kea", "kea_file_unreadable", "files"),
+        "kea_file_unreadable",
+        Severity.WARNING,
+        "kea",
+        "files",
+        msg("finding.kea_file_unreadable.description", files=paths),
+        msg(
+            "finding.kea_file_unreadable.proposal",
+            commands="; ".join(kea_modes.command(i) for i in items),
+        ),
+        msg("finding.kea_file_unreadable.risk"),
+        {"files": items, "remediation": "kea_modes"},
+    )
+
+
 def audit_kea(inp: KeaAuditInput) -> list[Finding]:
     findings: list[Finding] = _ha_findings(inp)
+    if inp.unreadable:
+        findings.append(_unreadable_finding(inp.unreadable))
     if inp.ctrl_agent is not None:
         for lst in keaconf.http_listeners(inp.ctrl_agent):
             plain = lst["socket-type"] == "http"
@@ -1011,7 +1037,8 @@ def collect_kea(env: Any) -> KeaAuditInput | None:
         mode = stat.S_IMODE(os.stat(paths.kea_socket_dir).st_mode)
     except OSError:
         pass
-    if not configs and agent is None:
+    unreadable = kea_modes.issues(env)
+    if not configs and agent is None and not unreadable:
         return None
     exposed = any(
         lst.open
@@ -1027,6 +1054,7 @@ def collect_kea(env: Any) -> KeaAuditInput | None:
         socket_dir_mode=mode,
         firewall=ha_listener.read_firewall(env) if exposed else None,
         nft=env.binary("nft") is not None,
+        unreadable=unreadable,
     )
 
 
@@ -1599,6 +1627,10 @@ def remediate_recursion(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str
     )
 
 
+def remediate_kea_modes(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
+    return kea_modes.apply(env, d.get("files") or [])
+
+
 def remediate_file_modes(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
     return bind_files.apply(env, d.get("files") or [])
 
@@ -1801,6 +1833,7 @@ REMEDIATIONS = {
     "ha_guard_adopt": ha_guard.remediate_adopt,
     "drift": drift.remediate,
     "file_modes": remediate_file_modes,
+    "kea_modes": remediate_kea_modes,
     "version_hide": remediate_version_hide,
     "convert_dynamic": zone_audit.remediate_convert_dynamic,
     "update_key_add": remediate_update_key_add,

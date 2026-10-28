@@ -217,7 +217,7 @@ CATALOG: dict[str, str] = {
     "alert.notification_failed": "notification channel {channel} has been failing since {since}: {error}",
     "alert.archive_failed": "archive to {destination} failed {failures} times in a row: {error}",
     "alert.archive_stale": "no successful archive of this node for {hours} h (every {interval} h expected)",
-    "alert.archive_incomplete": "the last archive is incomplete: {count} files could not be read",
+    "alert.archive_incomplete": "the last archive is incomplete: {count} files could not be read ({files})",
     "alert.ddns_outage": "zone {zone}: the active primary {node} has received no DDNS update since {since}",
     "alert.ddns_replay": "{count} leases of the DDNS outage from {start} to {end} lack their DNS records",
     "alert.dns_stale_primary": (
@@ -405,6 +405,10 @@ CATALOG: dict[str, str] = {
     "finding.update_without_admin_key.proposal": "Add {key} to {where}",
     "finding.update_without_admin_key.proposal_replace": "Replace allow-update by {policy}",
     "finding.update_without_admin_key.proposal_grant": "Add {statement} to its update-policy",
+    "finding.update_without_admin_key.proposal_local": (
+        "Replace update-policy local by update-policy {{ grant local-ddns zonesub any; {statement} }}; "
+        "by hand (the session key then works from other hosts too)"
+    ),
     "finding.update_without_admin_key.where_policy": "its update-policy",
     "finding.update_without_admin_key.where_allow_update": "its allow-update",
     "finding.update_without_admin_key.where_inherited": "the allow-update it inherits",
@@ -567,6 +571,14 @@ CATALOG: dict[str, str] = {
     "drift.object.kea_ha": "The {engine} HA relationship of {server}",
     "drift.object.file": "The file {path}",
     "plan.ha_guard.set": "HA listener guard: only {peers} reach TCP {ports}",
+    "finding.kea_file_unreadable.description": (
+        "Kea files the pelagos service cannot read: {files}. Plans that change them cannot back them up "
+        "and archives need the privileged helper."
+    ),
+    "finding.kea_file_unreadable.proposal": "Give them to the Kea group with group read: {commands}",
+    "finding.kea_file_unreadable.risk": (
+        "None: Kea keeps reading them as their owner, and the Kea group only gains read access."
+    ),
     "finding.kea_socket_dir_mode.description": (
         "The Kea socket directory {path} is mode {mode}: other users can reach the control sockets."
     ),

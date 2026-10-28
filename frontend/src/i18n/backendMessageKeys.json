@@ -5,7 +5,8 @@
     "failures"
   ],
   "alert.archive_incomplete": [
-    "count"
+    "count",
+    "files"
   ],
   "alert.archive_stale": [
     "hours",
@@ -612,6 +613,13 @@
   ],
   "finding.kea_http_socket_plain.proposal": [],
   "finding.kea_http_socket_plain.risk": [],
+  "finding.kea_file_unreadable.description": [
+    "files"
+  ],
+  "finding.kea_file_unreadable.proposal": [
+    "commands"
+  ],
+  "finding.kea_file_unreadable.risk": [],
   "finding.kea_socket_dir_mode.description": [
     "mode",
     "path"
@@ -717,6 +725,9 @@
     "where"
   ],
   "finding.update_without_admin_key.proposal_grant": [
+    "statement"
+  ],
+  "finding.update_without_admin_key.proposal_local": [
     "statement"
   ],
   "finding.update_without_admin_key.proposal_replace": [

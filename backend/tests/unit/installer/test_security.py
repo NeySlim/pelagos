@@ -670,3 +670,77 @@ def test_remote_named_keeps_its_network_listeners(tmp_path):
     assert found["bind:open_recursion:options"]["remediable"]
     with pytest.raises(ValueError, match="no automatic remediation"):
         build_security_plan(env, ["bind:rndc_nonlocal:*"])
+
+
+def test_update_policy_local_is_left_to_the_operator(tmp_path):
+    env = legacy_tree(tmp_path)
+    assert apply_plan(build_import_plan(env, ["bind"]), env).state is JobState.DONE
+    local = tmp_path / "etc/bind/named.conf.local"
+    zone_file = tmp_path / "var/lib/bind/db.local.example.lan"
+    local.write_text(
+        local.read_text()
+        + f'zone "local.example.lan" {{ type primary; file "{zone_file}"; update-policy local; }};\n'
+    )
+    finding = next(
+        f for f in run_audit(env) if f.id == "bind:update_without_admin_key:_default/local.example.lan."
+    )
+    out = finding.to_dict()
+    assert out["remediable"] is False
+    assert "update-policy local" in out["manual_action"] and "grant ddi-admin zonesub" in out["manual_action"]
+
+
+def test_kea_files_the_service_cannot_read(tmp_path, monkeypatch):
+    """Debian D2 files _kea:root 0640: reported, given to the Kea group with group read, mode kept."""
+    import os
+
+    from pelagos.installer import kea_modes
+
+    env = debian_tree(tmp_path)
+    _d2_with_md5(tmp_path)
+    folder = env.paths.kea_conf("kea-dhcp4").parent
+    names = ["kea-dhcp-ddns.conf", "tsig-keys.json", "kea-dhcp-ddns.conf.dpkg-dist"]
+    for name in names[1:]:
+        (folder / name).write_text("{}\n")
+    for name in names:
+        (folder / name).chmod(0o640)
+    (folder / "kea-dhcp-ddns.conf.dpkg-dist").chmod(0o600)
+    me, kea = os.getgid(), 4242
+    # The files' group (ours) is not one of the service's; the Kea group (ours, for chgrp) is.
+    monkeypatch.setattr(kea_modes, "service_ids", lambda: (os.getuid() + 1, {kea}))
+    monkeypatch.setattr(kea_modes, "kea_gid", lambda _env: kea)
+    finding = next(f for f in run_audit(env) if f.kind == "kea_file_unreadable")
+    paths = {i["path"]: i for i in finding.details["files"]}
+    assert set(paths) >= {str(folder / n) for n in names}
+    assert paths[str(folder / "kea-dhcp-ddns.conf.dpkg-dist")]["target_mode"] == "0640"
+    assert "chgrp" in finding.to_dict()["proposal"]
+    monkeypatch.setattr(kea_modes, "kea_gid", lambda _env: me)
+    monkeypatch.setattr(kea_modes, "service_ids", lambda: (os.getuid() + 1, {me}))
+    finding = next(f for f in run_audit(env) if f.kind == "kea_file_unreadable")
+    # Group ours already, but no group read on the 0600 copy: only that one is fixed.
+    assert [i["path"] for i in finding.details["files"]] == [str(folder / "kea-dhcp-ddns.conf.dpkg-dist")]
+    _plan, job = _apply(env, [finding.id])
+    assert job.state is JobState.DONE, job.error
+    assert (folder / "kea-dhcp-ddns.conf.dpkg-dist").stat().st_mode & 0o777 == 0o640
+    assert (folder / "kea-dhcp-ddns.conf").stat().st_mode & 0o777 == 0o640
+    assert not [f for f in run_audit(env) if f.kind == "kea_file_unreadable"]
+
+
+def test_kea_modes_apply_rolls_back(tmp_path, monkeypatch):
+    import os
+
+    from pelagos.installer import kea_modes
+
+    env = debian_tree(tmp_path)
+    a, b = tmp_path / "a.conf", tmp_path / "b.conf"
+    for p in (a, b):
+        p.write_text("{}")
+        p.chmod(0o600)
+    monkeypatch.setattr(kea_modes, "kea_gid", lambda _env: os.getgid())
+    monkeypatch.setattr(kea_modes, "_kea_reads", lambda _env, p: "kea cannot read" if p == str(b) else None)
+    items = [
+        {"path": str(p), "mode": "0600", "group": "x", "target_mode": "0640", "target_group": "y"}
+        for p in (a, b)
+    ]
+    with pytest.raises(RuntimeError, match="restored"):
+        kea_modes.apply(env, items)
+    assert a.stat().st_mode & 0o777 == 0o600 and b.stat().st_mode & 0o777 == 0o600

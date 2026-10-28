@@ -1,7 +1,7 @@
 {
  "messages": {
   "alert.archive_failed": "l'archive vers {{destination}} a échoué {{failures}} fois de suite : {{error}}",
-  "alert.archive_incomplete": "la dernière archive est incomplète : {{count}} fichiers n'ont pas pu être lus",
+  "alert.archive_incomplete": "la dernière archive est incomplète : {{count}} fichiers n'ont pas pu être lus ({{files}})",
   "alert.archive_stale": "aucune archive réussie de ce nœud depuis {{hours}} h (une toutes les {{interval}} h attendue)",
   "alert.audit_growth": "Le journal d'audit {{path}} fait {{size}} (limite {{limit}})",
   "alert.backups_growth": "Les sauvegardes de {{path}} occupent {{size}} (limite {{limit}})",
@@ -171,6 +171,9 @@
   "finding.kea_http_socket_plain.description": "{{engine}} expose son canal de contrôle en HTTP clair sur {{address}}.",
   "finding.kea_http_socket_plain.proposal": "Passer la socket en https avec trust-anchor, cert-file, key-file et cert-required, ou la lier à 127.0.0.1.",
   "finding.kea_http_socket_plain.risk": "Les clients distants de cette socket ont besoin de certificats.",
+  "finding.kea_file_unreadable.description": "Fichiers Kea que le service pelagos ne peut pas lire : {{files}}. Les plans qui les modifient ne peuvent pas les sauvegarder et les archives passent par l'assistant privilégié.",
+  "finding.kea_file_unreadable.proposal": "Les donner au groupe Kea avec lecture pour le groupe : {{commands}}",
+  "finding.kea_file_unreadable.risk": "Aucun : Kea continue de les lire en tant que propriétaire, et le groupe Kea ne gagne que la lecture.",
   "finding.kea_socket_dir_mode.description": "Le répertoire des sockets Kea {{path}} a le mode {{mode}} : d'autres utilisateurs peuvent atteindre les sockets de contrôle.",
   "finding.kea_socket_dir_mode.risk": "Les utilisateurs locaux hors du groupe Kea perdent l'accès aux sockets (c'est le but).",
   "finding.kea_tsig_clear_secret.description": "La clé D2 {{key}} a son secret en clair dans la configuration (Kea 3.x le refuse).",
@@ -212,6 +215,7 @@
   "finding.update_without_admin_key.description": "La zone {{zone}} n'accepte pas les mises à jour signées avec {{key}} : Pelagos ne peut pas écrire ses enregistrements.",
   "finding.update_without_admin_key.proposal": "Ajouter {{key}} à {{where}}",
   "finding.update_without_admin_key.proposal_grant": "Ajouter {{statement}} à son update-policy",
+  "finding.update_without_admin_key.proposal_local": "Remplacer update-policy local par update-policy { grant local-ddns zonesub any; {{statement}} }; à la main (la clé de session vaut alors aussi depuis d'autres hôtes)",
   "finding.update_without_admin_key.proposal_replace": "Remplacer allow-update par {{policy}}",
   "finding.update_without_admin_key.risk": "Aucun : les clés autorisées aujourd'hui gardent leurs droits.",
   "finding.update_without_admin_key.risk_inherited": "Aucun : les clés autorisées aujourd'hui gardent leurs droits. Toute zone qui hérite de cet allow-update accepte aussi la clé.",

@@ -90,8 +90,8 @@ class FileSource:
             return
         if os.path.isdir(name):
             return
-        if os.access(name, os.R_OK):
-            self.writer.add_file(name, part)
+        # Not opened here (permissions, a confinement os.access does not see): the helper tries it.
+        if os.access(name, os.R_OK) and self.writer.add_file(name, part, mark=False):
             self.added.add(name)
             return
         self._pending[name] = part

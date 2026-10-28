@@ -135,7 +135,8 @@ def archive_alerts(node_id: str, state: RunState, settings: dict[str, Any], now:
                 )
             )
     if state.complete is False and state.unreadable:
-        title = messages.msg("alert.archive_incomplete", count=len(state.unreadable))
+        named = ", ".join(state.unreadable[:5]) + (", ..." if len(state.unreadable) > 5 else "")
+        title = messages.msg("alert.archive_incomplete", count=len(state.unreadable), files=named)
         out.append(
             Alert(
                 kind=AlertKind.ARCHIVE_INCOMPLETE,
@@ -163,7 +164,9 @@ def _run(argv: list[str]) -> tuple[bool, str]:
 
 
 def _confined_denial(output: str) -> bool:
-    return "ermission denied" in output and Path(APPARMOR).exists()
+    # Kea 2.6 says only "Unable to open file" when AppArmor denies the copy it was given.
+    denied = "ermission denied" in output or "Unable to open file" in output
+    return denied and Path(APPARMOR).exists()
 
 
 def test_restore(

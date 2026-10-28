@@ -1,7 +1,7 @@
 {
  "messages": {
   "alert.archive_failed": "archive to {{destination}} failed {{failures}} times in a row: {{error}}",
-  "alert.archive_incomplete": "the last archive is incomplete: {{count}} files could not be read",
+  "alert.archive_incomplete": "the last archive is incomplete: {{count}} files could not be read ({{files}})",
   "alert.archive_stale": "no successful archive of this node for {{hours}} h (every {{interval}} h expected)",
   "alert.audit_growth": "audit log {{path}} is {{size}} (limit {{limit}})",
   "alert.backups_growth": "backups in {{path}} take {{size}} (limit {{limit}})",
@@ -171,6 +171,9 @@
   "finding.kea_http_socket_plain.description": "{{engine}} exposes its control channel in clear HTTP on {{address}}.",
   "finding.kea_http_socket_plain.proposal": "Switch the socket to https with trust-anchor, cert-file, key-file and cert-required, or bind it to 127.0.0.1.",
   "finding.kea_http_socket_plain.risk": "Remote clients of this socket need certificates.",
+  "finding.kea_file_unreadable.description": "Kea files the pelagos service cannot read: {{files}}. Plans that change them cannot back them up and archives need the privileged helper.",
+  "finding.kea_file_unreadable.proposal": "Give them to the Kea group with group read: {{commands}}",
+  "finding.kea_file_unreadable.risk": "None: Kea keeps reading them as their owner, and the Kea group only gains read access.",
   "finding.kea_socket_dir_mode.description": "The Kea socket directory {{path}} is mode {{mode}}: other users can reach the control sockets.",
   "finding.kea_socket_dir_mode.risk": "Local users outside the Kea group lose access to the sockets (intended).",
   "finding.kea_tsig_clear_secret.description": "D2 key {{key}} has its secret in clear in the configuration (Kea 3.x refuses this).",
@@ -212,6 +215,7 @@
   "finding.update_without_admin_key.description": "Zone {{zone}} does not accept updates signed with {{key}}: Pelagos cannot write its records.",
   "finding.update_without_admin_key.proposal": "Add {{key}} to {{where}}",
   "finding.update_without_admin_key.proposal_grant": "Add {{statement}} to its update-policy",
+  "finding.update_without_admin_key.proposal_local": "Replace update-policy local by update-policy { grant local-ddns zonesub any; {{statement}} }; by hand (the session key then works from other hosts too)",
   "finding.update_without_admin_key.proposal_replace": "Replace allow-update by {{policy}}",
   "finding.update_without_admin_key.risk": "None: the keys allowed today keep their rights.",
   "finding.update_without_admin_key.risk_inherited": "None: the keys allowed today keep their rights. Every zone inheriting that allow-update accepts the key too.",

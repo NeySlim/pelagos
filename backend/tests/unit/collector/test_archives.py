@@ -321,6 +321,42 @@ def test_unreadable_files_go_through_the_helper(node_ctx, engines, tmp_path) -> 
     assert alone.manifest.unreadable == [str(private)] and not alone.manifest.complete
 
 
+def test_debian_d2_files_the_service_cannot_open(node_ctx, engines, tmp_path, monkeypatch) -> None:
+    """Debian ships the D2 files _kea:root 0640: read through the helper; without it the archive is
+    still written, incomplete, and its alert names the file."""
+    from pelagos.archives.store import RunState
+    from pelagos.collector import archive_collect
+
+    cluster_identity(node_ctx)
+    d2_conf = str(engines.d2.file.path)
+    real_open = open
+
+    def denied(name, *a, **kw):
+        if str(name) == d2_conf:
+            raise PermissionError(13, "Permission denied", name)
+        return real_open(name, *a, **kw)
+
+    monkeypatch.setattr(bundle, "open", denied, raising=False)
+    monkeypatch.setattr(archive_collect.os, "access", lambda p, m: str(p) != d2_conf)
+
+    class Helper:
+        def archive_read(self, paths, patterns):
+            return {
+                "files": [{"path": p, "data": "e30=", "mode": 0o640, "owner": "_kea:root"} for p in paths]
+            }
+
+    recipients = keys.encryption_recipients(node_ctx.settings())
+    via = Builder(node_ctx, engines.backends, helper=Helper()).build(tmp_path / "a", recipients, True)
+    entry = next(f for f in via.manifest.files if f.path == d2_conf)
+    assert entry.owner == "_kea:root" and via.manifest.complete
+    alone = Builder(node_ctx, engines.backends).build(tmp_path / "b", recipients, True)
+    assert alone.manifest.unreadable == [d2_conf] and not alone.manifest.complete
+    assert any(f.path == str(engines.kea4.file.path) for f in alone.manifest.files)
+    state = RunState(complete=False, unreadable=list(alone.manifest.unreadable))
+    (alert,) = archives_mod.archive_alerts(node_ctx.node.id, state, node_ctx.settings(), datetime.now(UTC))
+    assert alert.kind is AlertKind.ARCHIVE_INCOMPLETE and d2_conf in alert.title
+
+
 def test_zone_text_orders_soa_first() -> None:
     text, serial = zone_text(
         [RRset("a.lan.", "A", 5, ["192.0.2.1"]), RRset("lan.", "SOA", 5, ["ns. h. 9 1 1 1 1"])]
@@ -489,7 +525,8 @@ def test_kea_dash_t_denied_by_apparmor_is_not_a_failure(
 
     def run(argv):
         if argv[0] == "/fake/kea-dhcp4":
-            return False, "failed to open /run/pelagos/x/kea-dhcp4.conf: Permission denied"
+            # What Kea 2.6 on Debian prints when AppArmor denies the copy.
+            return False, "Syntax check failed with: Unable to open file /run/pelagos/x/kea-dhcp4.conf"
         return real_run(argv)
 
     real_find = archives_mod.find_binary

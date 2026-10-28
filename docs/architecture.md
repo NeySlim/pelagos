@@ -32,6 +32,9 @@ Contents
 22. Outgoing notifications
 23. Scheduled archives and restore
 24. DDNS failover and catch-up
+25. Resolver health and forwarder fallback
+26. Kea 3.x migration analysis
+27. Observed IPv6 addresses
 
 ---
 
@@ -642,6 +645,8 @@ class AlertKind(str, Enum):
     NOTIFICATION_FAILED="notification_failed"
     ARCHIVE_FAILED="archive_failed"; ARCHIVE_STALE="archive_stale"; ARCHIVE_INCOMPLETE="archive_incomplete"
     DDNS_OUTAGE="ddns_outage"; DDNS_REPLAY="ddns_replay"; DNS_STALE_PRIMARY="dns_stale_primary"
+    KEA_SERIES_OBSOLETE="kea_series_obsolete"
+    IPV6_MISSING_AAAA="ipv6_missing_aaaa"; IPV6_REVERSE_MISSING="ipv6_reverse_missing"; IPV6_STALE_AAAA="ipv6_stale_aaaa"
 class AlertState(str, Enum): OPEN="open"; ACKED="acked"; RESOLVED="resolved"
 
 @dataclass(slots=True)
@@ -678,7 +683,7 @@ class PlanScope(str, Enum):
     DHCP_CLASS="dhcp.class"; DHCP_OPTIONS="dhcp.options"; DHCP_CONFIG="dhcp.config"; DHCP_LEASE="dhcp.lease"
     DHCP_HA="dhcp.ha"; DHCP_DDNS="dhcp.ddns"; D2_CONFIG="d2.config"
     HOST="host"; INSTALL="install"; IMPORT="import"; SECURITY="security"; ADMIN="admin"
-    RESTORE="restore"; DNS_FAILOVER="dns.failover"
+    RESTORE="restore"; DNS_FAILOVER="dns.failover"; DNS_RESOLVER="dns.resolver"
 class PlanState(str, Enum): DRAFT="draft"; VALIDATED="validated"; APPLYING="applying"; APPLIED="applied"; FAILED="failed"; ROLLED_BACK="rolled_back"; EXPIRED="expired"
 class PreconditionKind(str, Enum): CONFIG_HASH="config_hash"; SOA_SERIAL="soa_serial"; RRSET_EXISTS="rrset_exists"; RRSET_ABSENT="rrset_absent"; FILE_SHA256="file_sha256"; HA_STATE="ha_state"
 
@@ -1445,11 +1450,12 @@ copy the mock server serves):
 - A setting is a leaf of a domain table `[settings.<domain>]`, never a leaf
   of `[settings]` itself. Domains: `auth`, `plans`, `peers`, `checks`,
   `collector`, `retention`, `dns`, `kea`, `rpz`, `certificates`,
-  `notifications`, `archives`, `ddns`. A new domain is added to `DOMAINS`.
+  `notifications`, `archives`, `ddns`, `resolver`, `ipv6`. A new domain is
+  added to `DOMAINS`.
 - Every threshold that raises an alert lives in `[settings.checks]`, whatever
   raises it (a poller, a health check, the certificate manager).
 - Leaf names are snake_case `<subject>[_<qualifier>]_<unit>`. The unit is
-  spelled out: `_seconds`, `_minutes`, `_hours`, `_days`, `_percent`, `_mb`,
+  spelled out: `_milliseconds`, `_seconds`, `_minutes`, `_hours`, `_days`, `_percent`, `_mb`,
   `_bytes`, `_factor`, `_per_minute`, `_per_hour`; a count ends with the plural noun it counts
   (`_queries`, `_failures`, `_zones`, `_passes`, `_leases`, `_events`) or
   `_count`. A ratio is a percentage, never a fraction.
@@ -1461,7 +1467,8 @@ copy the mock server serves):
   `rpz.order`, `rpz.allow`, `rpz.exempt_clients`, `certificates.cluster`,
   `certificates.nodes`, `notifications.channels`, `notifications.order`,
   `notifications.mute`, `archives.destinations`, `archives.recipients`,
-  `ddns.roles`) sit in their domain table but are not settings:
+  `ddns.roles`, `resolver.fallback`, `resolver.presets`, `ipv6.sources`,
+  `ipv6.prefixes`) sit in their domain table but are not settings:
   `PUT /admin/settings` refuses them ("set through its own screen").
 - A time of day is a `string` `"HH:MM"` (`archives.start_time`), local time
   of the node.
@@ -1514,7 +1521,7 @@ One JSON object per line, UTF-8, `\n` terminated, never rewritten. File
 
 `action` vocabulary: `<scope>.<verb>` where scope is a `PlanScope` value or
 one of `auth`, `admin.user`, `admin.role`, `admin.settings`, `admin.node`, `admin.cert`,
-`admin.notify`, `admin.archive`, `notify`, `archive`, `alert`, `replication`, `collector`; verbs: `add`, `replace`, `delete`,
+`admin.notify`, `admin.archive`, `admin.ipv6`, `kea.migration`, `notify`, `archive`, `alert`, `replication`, `collector`; verbs: `add`, `replace`, `delete`,
 `apply`, `rollback`, `login`, `logout`, `login_failed`, `enroll`, `revoke`,
 `ack`, `raise`, `resolve`, `sync`, `sent`, `failed`, `create`, `op` (direct
 operations like retransfer, with the operation name in `request.op`).
@@ -1654,9 +1661,13 @@ run under the collector's backend lock):
 | `notify.state` | `{}` | this node's notification dispatcher state (`collector.notify.read_state`, `{}` before its first pass; section 22) |
 | `archive.state` | `{}` | `{"node_id", "state": state.json, "last_archive": ArchiveMeta|null, "count"}` of this node's archives (section 23) |
 | `archive.run` | `{}` | `{"requested": true}`: sends the `archive` event to this node's collector (section 23) |
+| `resolver.health` | `{}` | this node's entry of `GET /dns/resolver/health` (`nodes[]`, section 25), read from its series cache and probe table |
+| `ipv6.observations` | `{"since"?}` | `{"node_id","observations": [Observation],"sources": [SourceStatus]}`: what this node observed (section 27) |
+| `kea.migration.inventory` | `{}` | this node's entry of `GET /install/kea-migration` (`nodes[]`, section 26) |
+| `kea.migration.analyze` | `{"series","source","created_by"}` | `{"node_id","findings","diffs","packages","validation"}`: the analysis of this node's Kea files and running configurations (section 26) |
 | `archive.probe` | `{}` | `{"ok", "node_id", "free_bytes", "max_bytes", "fits"}`: a 64 KiB probe file written, read back and deleted in this node's archive folder (`.incoming/`) |
 
-The `certs.*`, `security.*`, `alerts.list`, `notify.state` and `archive.state|run|probe` actions never touch an engine and run without the
+The `certs.*`, `security.*`, `alerts.list`, `notify.state`, `archive.state|run|probe`, `resolver.health`, `ipv6.observations` and `kea.migration.inventory` actions never touch an engine and run without the
 backend lock.
 
 A plan built this way is stored by the caller (`PeerGateway.build_plan`
@@ -2063,7 +2074,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `file_growth` | warning, critical | named log, Kea lease file, `.jnl` journal, backups or audit log over its `checks.*_max_mb` (critical at 5 times), or Kea LFC not run for `lfc_stale_factor` intervals; subjects `file:<path>`, `lfc:<engine>` |
 | `reservation_risk` | info, warning | reservation inside a dynamic pool, outside its subnet, the same identifier or hostname twice, or missing or different between HA peers; subjects `<engine>:in-pool:<ip>`, `<engine>:outside-subnet:<ip>`, `<engine>:duplicate-id:<type>=<id>`, `<engine>:duplicate-host:<name>`, `<engine>:peer:<type>=<id>`, `<engine>:peer-id:<host or ip>` (same host or address under another identifier on each peer; peer subjects have no node) |
 | `declined_addresses` | warning | `declined-addresses` of a subnet or DHCPDECLINE packets per hour over their thresholds; subjects `<engine>:subnet:<id>`, `<engine>:decline-received` |
-| `resolver_health` | warning, critical | SERVFAIL share, DNSSEC validation failures, query drop against the baseline, root servers unreachable; subjects `resolver:servfail`, `resolver:dnssec`, `resolver:queries`, `resolver:roots` |
+| `resolver_health` | warning, critical | SERVFAIL share, DNSSEC validation failures, query drop against the baseline, root servers unreachable; subjects `resolver:servfail`, `resolver:dnssec`, `resolver:queries`, `resolver:roots`; from release 0.2.2 also `resolver:latency`, `resolver:timeouts`, `resolver:tld:<tld>`, `resolver:root-letters` (info), `resolver:mismatch`, `resolver:cache` (info), section 25 |
 | `delegation_issue` | info, warning | NS name that does not resolve or answer for the zone, NS not allowed to transfer, address in also-notify/allow-transfer that is not an NS, SOA value outside the usual range (info); subjects `ns-unresolved:<zone>:<ns>`, `ns-silent:...`, `ns-transfer:...`, `ns-primary:<zone>` (info: no NS of the zone resolves to this primary), `ns-extra:<address>` (one per address, all zones grouped), `soa-range:<zone>` (one per zone, every out of range field in its details; built-in and automatic empty zones are skipped), `view-unchecked:<view>` (info: no read key in `dns.view_keys` selects the view, or its secret is not on the node; such zones do not count toward `delegation_max_zones`); `<zone>` is `zone@view` outside the default view, each view is queried and its name servers probed with its read key, and also-notify/allow-transfer are the effective lists (zone, else view, else options) |
 | `version_mismatch` | info, warning | nodes run different versions of BIND, kea4 or kea6 (warning when the series differs); cluster-wide, subject `<engine>:version` |
 | `ddns_advice` | warning, info | kea-dhcp-ddns lists a single DNS server for a domain while two or more nodes serve DNS (warning, subject `d2:dns-servers`; D2 uses the servers of a domain first to last, Kea 2.6 ARM "DNS Servers"; `details.remediation` `ddns_prepare` offers the prepare plan of section 24); named `UpdateRej` over the last day at or above `checks.update_denied_warning_per_hour` (info, subject `bind:update-denied`; suggests `ddns-override-client-update` and `ddns-replace-client-name`) |
@@ -2080,6 +2091,10 @@ Alert kinds and rules (thresholds from `settings`):
 | `archive_incomplete` | info | the last archive lists files it could not read (subject `archive:incomplete`; details `files`); exceptable |
 | `ddns_outage` | critical | the active primary of a prepared dynamic zone receives no DDNS update: D2 `update-timeout` toward it, its node offline or its named down (cluster-wide, subject `ddns:<view>/<zone>`; details `primary_node_id`, `since`, `epoch`, `candidates`); proposes the failover plan; section 24 |
 | `ddns_replay` | warning | active leases whose `cltt` falls in the last outage window lack their A, AAAA or PTR (cluster-wide, subject `ddns:replay`; details `from`, `to`, `count`); proposes the replay plan |
+| `kea_series_obsolete` | info | a node runs a Kea series that ISC no longer maintains (date from `pelagos/data/isc_advisories.json`, section 26); per node, subject `kea:series`; details `engine`, `version`, `series`, `source`, `eol`, `successor`, `remediation: "kea_migration"`; exceptable with `admin:settings` |
+| `ipv6_missing_aaaa` | info | hosts with a stable observed IPv6 address and no AAAA in their forward zone (section 27); cluster-wide, one alert per zone, subject `ipv6:aaaa:<zone>`; details `zone`, `count`, `hosts: [{"host_key","name","mac","address"}]`, `exception_keys` |
+| `ipv6_reverse_missing` | info | a watched IPv6 prefix has no reverse zone served by the cluster; cluster-wide, subject `ipv6:reverse:<prefix>`; details `prefix`, `reverse_zone` (the zone to create) |
+| `ipv6_stale_aaaa` | warning | AAAA in a watched prefix whose address has not been observed for `ipv6.stale_days` while the host's MAC is seen with another stable address; cluster-wide, subject `ipv6:stale:<zone>`; details `zone`, `count`, `records: [{"name","address","mac","last_seen","current"}]`, `old_prefix`, `new_prefix` when every stale address moved to one other prefix, `exception_keys` |
 | `dns_stale_primary` | critical | a node serves as primary a zone that `ddns.roles` gives to another node at a later epoch (node = that node, subject `ddns:stale:<view>/<zone>`; details `primary_node_id`, `epoch`); resolved by the demotion |
 
 The `ha_*` alerts above have subject `ha:<engine>`; a Kea 3 hub raises them
@@ -2125,7 +2140,7 @@ revoking it lets the next pass raise again. Created and revoked through
 `POST /alerts/exceptions` and `DELETE /alerts/exceptions/{id}`
 (`write:alerts`, plus `admin:settings` when the kind is a security check:
 `insecure_key`, `insecure_listener`, `security_advisory`, `custom_hook`,
-`cert_expiry`; audit actions `alert.exception.add` and
+`cert_expiry`, `kea_series_obsolete`; audit actions `alert.exception.add` and
 `alert.exception.revoke`; the comment is mandatory), listed by
 `GET /alerts/exceptions` (`read:alerts`). Each change signals the local
 collector to run its consistency pass. A create checks for a duplicate
@@ -2143,6 +2158,8 @@ Object keys, written by every alert in `details.exception_keys` (a list:
 | `record_without_lease` | `<owner>/<A or AAAA>` |
 | `reservation_mismatch` | `<reservation key>|<ip>` |
 | `duplicate_ip` | `<ip>` |
+| `ipv6_missing_aaaa` | `mac:<mac>` (the host) or `addr:<address>` (one address) |
+| `ipv6_stale_aaaa` | `mac:<mac>` or `addr:<address>` |
 
 Every consistency check, present or future, consults the exceptions through
 one helper of `services.consistency`:
@@ -2165,7 +2182,9 @@ Health and audit checks use the same records without a key of their own.
 deliberate choice: `insecure_key`, `insecure_listener`, `custom_hook`,
 `disk_space`, `file_growth`, `reservation_risk`, `declined_addresses`,
 `resolver_health`, `delegation_issue`, `version_mismatch`, `pool_forecast`,
-`security_advisory`, `clock_unsynchronized`, `cert_expiry`. Outages
+`security_advisory`, `clock_unsynchronized`, `cert_expiry`, `ddns_advice`,
+`archive_incomplete`, `kea_series_obsolete`, `ipv6_missing_aaaa`,
+`ipv6_reverse_missing`, `ipv6_stale_aaaa`. Outages
 (`daemon_down`, `ha_*`, `clock_skew`, `restart_loop`, `peer_offline`,
 `cert_renewal_failed`, `rpz_update`, ...) never take an exception, and
 `POST /alerts/exceptions` refuses any kind outside these two lists. The key
@@ -2456,7 +2475,7 @@ configuration; the problem document carries `"engine"` and `"divergences":
 | `POST /alerts/{id}/ack` | `write:alerts` | `{"comment"?}` | `Alert` |
 | `POST /alerts/consistency/run` | `write:alerts` | | `202 {"job_id"}` |
 | `GET /alerts/exceptions?kind=` | `read:alerts` | | `{"items": [{"id","kind","key","comment","summary"?,"created_by","created_at","node_id"}]}` (newest first) |
-| `POST /alerts/exceptions` | `write:alerts`; `admin:settings` for `insecure_key`, `insecure_listener`, `security_advisory`, `custom_hook`, `cert_expiry` | `{"kind","key","comment","summary"?}` (`comment` mandatory) | `201` the exception (`409` when `(kind, key)` already is one) |
+| `POST /alerts/exceptions` | `write:alerts`; `admin:settings` for `insecure_key`, `insecure_listener`, `security_advisory`, `custom_hook`, `cert_expiry`, `kea_series_obsolete` | `{"kind","key","comment","summary"?}` (`comment` mandatory) | `201` the exception (`409` when `(kind, key)` already is one) |
 | `DELETE /alerts/exceptions/{id}` | `write:alerts`; `admin:settings` for the security kinds above | | `204` |
 | `GET /series/pools?engine=&subnet_id=&pool=&node_id=&from=&to=&step=` | `read:series` | | `{"series": [{"key": {...}, "points": [[ts, assigned, total]]}]}` |
 | `GET /series/serials?zone=&view=&from=&to=` | `read:series` | | `{"series": [{"node_id","points": [[ts, serial, divergent]]}]}` |
@@ -2747,6 +2766,43 @@ Section 24. Two permissions on the plan endpoints: both are required.
 | `POST /dhcp/ddns/switchover/plan` | `write:dns.zones` and `write:dhcp.config` | `{"to_node_id","zones"?}` | composite `Plan` (`requires_confirmation`) |
 | `POST /dhcp/ddns/replay/plan` | `ops:dhcp.leases` | `{"from"?,"to"?,"family"?,"limit"?}` | `Plan` (scope `dhcp.lease`, one change per lease, target `resend/<ip>`, `requires_confirmation`); `409` when no lease qualifies |
 
+### Resolver health
+
+Section 25. The read routes aggregate the nodes over the `resolver.health`
+peer action (4 s per peer); a node that does not answer is listed in
+`unavailable` (`[{"node_id","name","error"}]`).
+
+| Method, path | Permission | Request | Response |
+| --- | --- | --- | --- |
+| `GET /dns/resolver/health?node_id=` | `read:dns` | | `{"nodes": [NodeHealth], "unavailable", "fallback": Fallback|null, "return_ready": bool, "thresholds": {metric: {"warning"?,"critical"?,"info"?,"observed_max_7d"}}, "presets": [Preset]}` |
+| `GET /series/resolver?node_id=&metric=&from=&to=&step=` | `read:series` | | `{"series": [{"key": {"node_id","metric"}, "points": [[ts, value]]}]}`; `metric` is required and one of the metrics of section 25 (`400` otherwise); raw or hourly rows like `/series/pools` |
+| `POST /dns/resolver/fallback/plan` | `write:dns.config` | `{"forwarders"?: [address], "preset"?, "forward": "first"|"only", "node_ids"?, "hours", "tls"?: bool, "tls_name"?}` (`forwarders` or `preset`; `node_ids` default every node serving DNS; `hours` 1 to `resolver.fallback_max_hours`) | composite `Plan` (scope `dns.resolver`, one `dns.config` part per node, `requires_confirmation`); `409 conflict` while a fallback is active |
+| `POST /dns/resolver/fallback/return/plan` | `write:dns.config` | `{}` | composite `Plan` (scope `dns.resolver`) that puts back `forward` and `forwarders` of each node as recorded in `before`; `409` when no fallback is active |
+| `PUT /dns/resolver/fallback` | `write:dns.config` | `{"until"}`: in the future, at most `fallback_max_hours` from now | `{"fallback"}`; `409` when no fallback is active |
+
+### Kea migration analysis
+
+Section 26. Read-only in release 0.2.2: nothing is installed or written to
+`/etc/kea`. The prepare, migrate and rollback plans and `GET
+/install/kea-migration/{id}` come with release 0.3.0 (contract C5).
+
+| Method, path | Permission | Request | Response |
+| --- | --- | --- | --- |
+| `GET /install/kea-migration` | `admin:install` | | `{"nodes": [KeaInventory], "targets": [Target], "analysis": Report|null, "current": null}` (`analysis`: the last report this node produced; `current` stays null until 0.3.0) |
+| `POST /install/kea-migration/analyze` | `admin:install` | `{"series","source","node_ids"?}` (`series` and `source` one of `targets`; `node_ids` default every node running Kea) | `Report`; `400` on an unknown target or node; audited `kea.migration.analyze` |
+
+### IPv6 observations
+
+Section 27. Observations are personal data of the network: `read:hosts`
+only, never sent out of the cluster.
+
+| Method, path | Permission | Request | Response |
+| --- | --- | --- | --- |
+| `GET /hosts/ipv6?filter=&zone=&page=&per_page=` | `read:hosts` | | paginated `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen"}],"aaaa","ptr","proposal": {"name","zone","reverse_zone"}|null,"excepted"}`; `filter` one of `missing_aaaa`, `missing_ptr`, `stale`, `unknown`, `random_mac`; `meta.unavailable` lists the nodes and sources that did not answer |
+| `GET /admin/ipv6` | `admin:settings` | | `{"sources": [Source],"prefixes","effective_prefixes": [{"prefix","from": "setting"|"reverse_zone"|"dhcpv6"}],"settings","status": [SourceStatus]}` (secrets as booleans) |
+| `PUT /admin/ipv6` | `admin:settings` | `{"sources"?,"prefixes"?,"secrets"?: {source id: {"api_key"?,"api_secret"?}}}` (`sources` replaced whole; a source without `id` gets one; `null` clears a secret) | same as `GET`; audited `admin.ipv6.replace` |
+| `POST /admin/ipv6/sources/test` | `admin:settings` | `{"source_id"}` or an unsaved `Source` whose `scope` (a source id) names the stored secrets it reuses while `url` is unchanged | `{"ok","node_id","entries","error"?,"sample": [Observation]}` (at most 5); a failed poll is `200` with `ok` false; 6 per minute per user (`429`) |
+
 ## 18. WebSocket
 
 `GET /api/v1/ws` upgrades to a WebSocket on the same origin, authenticated
@@ -2931,6 +2987,14 @@ endpoints) do not bump it. `GET /version` reports the package version.
 - Lease `v6` module gating is cluster-wide (`modules.dhcpv6`), while which
   engines a node drives is per node (`node.toml [engines]` mirrored into
   `[[nodes]].modules`).
+- Resolver latency thresholds (design 13.5): named
+  `checks.resolver_latency_warning_milliseconds` and
+  `checks.resolver_latency_critical_milliseconds` (unit spelled out, section
+  10) instead of `resolver_latency_p95_*_ms`; they apply to the p95.
+- Kea migration (design 13.4): `GET /install/kea-migration` also returns the
+  last `analysis`, so the read-only screen of 0.2.2 can show a report again;
+  the analysis of a node runs on that node (`kea.migration.analyze` peer
+  action) because it needs its files, packages and architecture.
 
 ## 21. RPZ subscriptions
 
@@ -3541,3 +3605,267 @@ return and switchover, D5 screen, D6 lab.
   zones, over its leases, for the last closed window still inside
   `replay_window_max_hours`; resolved when every lease of it has its
   records.
+
+## 25. Resolver health and forwarder fallback
+
+Design: `design.md` 13.5 (counters checked in the BIND 9.20 ARM and on the
+development host on 2026-10-28). Code: the counters and percentiles in
+`connectors/bind/resolver_stats.py`, the samples and probes in
+`collector/resolver.py` and `collector/checks/resolver.py` (existing alert
+`resolver_health`), the fallback in `services/resolver_fallback.py`, the
+routes in `api/resolver_health.py`. Batches: R1 measures, R2 probes, R3
+fallback, return and the health route, R4 screen, R5 daemon and lab tests.
+
+- **Settings** `[settings.resolver]`: `probe_interval_seconds` (300),
+  `probe_tlds` (`["com","net","org","arpa"]`; the TLD of every zone the
+  cluster serves is probed too), `probe_ipv6_enabled` (true),
+  `fallback_auto_enabled` (false), `fallback_after_seconds` (600: how long a
+  proposing alert stays critical before an automatic fallback),
+  `fallback_max_hours` (24), `fallback_auto_return_enabled` (true),
+  `fallback_return_healthy_minutes` (15). Thresholds in `[settings.checks]`:
+  `resolver_latency_warning_milliseconds` (800) and
+  `resolver_latency_critical_milliseconds` (1600) on the p95,
+  `resolver_timeouts_warning_percent` (10), `resolver_timeouts_critical_percent`
+  (30), `resolver_tld_failures` (3), `resolver_mismatch_warning_count` (100
+  per `resolver_window_seconds`), `resolver_lru_info_per_minute` (100).
+  Retention: `retention.resolver_raw_days` (7), `retention.resolver_hourly_days`
+  (90). Screen entries: `fallback` (`Fallback`, absent when none), `presets`
+  (`[Preset]`, the operator's own).
+- **Metrics** (one name per series, computed per collector pass from the
+  statistics channel, every view summed; cumulative counters through
+  `CounterSeries`, a counter that goes down is a named restart and gives no
+  rate for that pass): `queries_out_per_second` (`Queryv4` + `Queryv6`),
+  `timeouts_percent` (`QueryTimeout` / queries out), `retries_percent`,
+  `latency_p50_ms`, `latency_p95_ms` (from the `QryRTT<n>` histogram: linear
+  inside the bucket, the upper bound of the last bucket `QryRTT<n>+` taken as
+  twice its lower bound, absent buckets are zero), `servfail_out_percent`
+  (`SERVFAIL` / `Responsev4` + `Responsev6`), `servfail_clients_percent` (the
+  existing measure), `lame_per_minute`, `edns0_fail_per_minute`,
+  `valfail_percent` (`ValFail` / `ValAttempt`), `cache_hit_percent`
+  (`QueryHits` / (`QueryHits` + `QueryMisses`) of `cachestats`),
+  `cache_nodes`, `cache_memory_bytes` (`TreeMemInUse` + `HeapMemInUse`),
+  `lru_per_minute` (`DeleteLRU`), `mismatch_per_minute`, `quota_per_minute`
+  (`ZoneQuota` + `ServerQuota` + `ClientQuota`).
+- **Series cache** (R1, `series.sqlite`): `resolver_samples (ts INTEGER,
+  node_id TEXT, metric TEXT, value REAL, PRIMARY KEY (ts, node_id,
+  metric))`; rows older than `resolver_raw_days` are averaged into
+  `resolver_hourly` (same columns, `ts` truncated to the hour, plus `max
+  REAL`) and deleted; hourly rows older than `resolver_hourly_days` are
+  deleted. `/series/resolver` reads hourly rows when `step` is 3600 or more.
+- **Probes** (R2, slow checks, every `probe_interval_seconds`, outside the
+  poll loop): `. SOA` without recursion to every root server (addresses read
+  through the local resolver: `. NS`, then A and AAAA, never hard-coded),
+  over IPv6 only when `probe_ipv6_enabled` and the node has a global IPv6
+  route; `<tld>. SOA` without recursion to two servers of each probed TLD.
+  Results in `resolver_probes (kind TEXT, name TEXT, address TEXT, family
+  INTEGER, ok INTEGER, rtt_ms REAL, checked_at INTEGER, last_failure INTEGER,
+  failures INTEGER, PRIMARY KEY (kind, name, address))` (`kind` `root`, name
+  the letter, or `tld`; `failures` consecutive), one row per target kept.
+  The existing random-TLD probe of the local resolver still raises
+  `resolver:roots`.
+- **NodeHealth** (the `resolver.health` peer action, R3): `{"node_id",
+  "sampled_at","error","rates": {"queries_out","timeouts_percent",
+  "servfail_out_percent","servfail_clients_percent","valfail_percent",
+  "cache_hit_percent"},"latency_ms": {"p50","p95"},"cache": {"nodes",
+  "memory_bytes","lru_per_minute"},"roots": [{"letter","address","family",
+  "rtt_ms","ok","last_failure"}],"tlds": [{"tld","servers","ok","rtt_ms",
+  "last_failure","served"}]}`; a value never measured is null, `error` says
+  why (`statistics-channel unreachable`, ...). `thresholds` keys:
+  `latency_p95_ms`, `timeouts_percent`, `tld_failures`, `mismatch_count`,
+  `lru_per_minute`, each with the setting values and `observed_max_7d`
+  (largest hourly value of the last 7 days over the cluster, null without
+  data).
+- **Alerts** (`resolver_health`, per node, R1 and R2): subject
+  `resolver:latency` (warning or critical on the p95 of the window; details
+  `p50`, `p95`, `threshold`), `resolver:timeouts` (details `percent`,
+  `minutes`), `resolver:tld:<tld>` (warning: no probed server of the TLD
+  answered for `resolver_tld_failures` probes; details `tld`, `failures`,
+  `servers`), `resolver:root-letters` (info: some root servers do not
+  answer; details `letters`, `count`, `total`), `resolver:mismatch` (warning;
+  details `count`, `minutes`), `resolver:cache` (info: `DeleteLRU` above
+  `resolver_lru_info_per_minute` for the whole window; details
+  `per_minute`). Titles `alert.resolver_latency|timeouts|tld|root_letters|
+  mismatch|cache`. `resolver:roots`, `resolver:tld:*` and the critical
+  `resolver:timeouts` and `resolver:latency` carry `details.remediation:
+  "resolver_fallback"`.
+- **Preset**: `{"id","name","forwarders": [address],"tls_name"|null,
+  "filtering": bool,"builtin": bool}`. Built in, from the providers' pages
+  (read on 2026-10-28): `quad9` (`9.9.9.9`, `149.112.112.112`, `2620:fe::fe`,
+  `2620:fe::9`, TLS `dns.quad9.net`, filtering,
+  https://quad9.net/service/service-addresses-and-features/),
+  `quad9_unfiltered` (`9.9.9.10`, `149.112.112.10`, `2620:fe::10`,
+  `2620:fe::fe:10`, TLS `dns10.quad9.net`), `cloudflare` (`1.1.1.1`,
+  `1.0.0.1`, `2606:4700:4700::1111`, `2606:4700:4700::1001`, TLS
+  `one.one.one.one`,
+  https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-tls/). Every
+  preset validates DNSSEC; the fallback never touches `dnssec-validation`.
+- **Fallback** (`[settings.resolver.fallback]`, written by the plan's apply,
+  replicated): `{"id": ULID,"node_ids","preset"|null,"forwarders","forward":
+  "first"|"only","tls_name"|null,"started_at","until","by","before": {node
+  id: {"forward": str|null,"forwarders": [str]|null}},"returned": [node id],
+  "manual_change": bool}`. `before` keeps exactly what each node had (null
+  for an absent statement) so the return restores it, absence included. With
+  `tls_name`, each forwarder is written `<address> port 853 tls <name>` and a
+  `tls <name> { remote-hostname "<name>"; };` block is added; the return
+  removes the block.
+- **Plans**: composites (`PlanService.register_composite`) of `dns.config`
+  parts on `options/forward` and `options/forwarders`, a peer's part built
+  there by the `dns.config.plan` peer action; summary `plan.resolver.fallback`
+  (`nodes`, `forwarders`, `forward`, `until`) or `plan.resolver.return`
+  (`nodes`). Audit: `dns.resolver.apply|rollback` (request `{"op":
+  "fallback"|"return","fallback_id","node_ids"}`), `dns.resolver.op` (`op`
+  `extend`, or `return` by `system` for an automatic return).
+- **Return**: offered (`return_ready` true in the health answer) once the
+  direct probes of the root and the TLDs are healthy on every node of the
+  fallback for `fallback_return_healthy_minutes`; applied by each node's
+  collector for its own part at `until` when `fallback_auto_return_enabled`
+  (a node offline then returns when it comes back), which adds the node to
+  `returned`; the last one removes `fallback`. A node whose `forward` or
+  `forwarders` no longer match the fallback (changed by hand) sets
+  `manual_change`, and the automatic return skips it.
+- **Automatic fallback** (`fallback_auto_enabled`, off by default): the
+  collector of the service node (section 22) builds and applies the fallback
+  plan with the first preset (`quad9`), `forward first`, `fallback_max_hours`,
+  when a proposing alert stayed critical on every node for
+  `fallback_after_seconds`; audit user `system`.
+
+## 26. Kea 3.x migration analysis
+
+Design: `design.md` 13.4 (ISC knowledge base, ARM 3.2.1 and the Debian and
+Cloudsmith package lists read on 2026-10-28). This contract covers the
+read-only analysis of release 0.2.2; the migration itself is contract C5
+(release 0.3.0). Code: rules and conversion in `connectors/kea/migration.py`
+(pure functions over configuration dicts, no I/O), packages per source, the
+hooks list of a target and the dry-run validation in
+`installer/kea_migration.py`, `services/kea_migration_service.py`, the
+`kea_series_obsolete` check in `collector/checks/kea_series.py`,
+`api/kea_migration.py`. Batches: K1 rules, conversion, packages and dry
+run; K2 API, alert and the read-only screen.
+
+- **KeaInventory** (the `kea.migration.inventory` peer action): `{"node_id",
+  "name","reachable","error","arch","distro": {"id","codename"},
+  "engines": {"kea4"|"kea6"|"d2": {"version","series","source": "distro"|
+  "isc"|"backports"|"unknown","package","maintained": bool}}}`; `series` is
+  `<major>.<minor>`, `source` from the package that owns the binary (`dpkg -S`,
+  `rpm -qf`) and its origin, `maintained` from the advisories data.
+- **Target**: `{"series","source","version","available","recommended",
+  "note"?}`: `3.2`/`isc` (recommended), `3.0`/`isc`, `3.0`/`backports`
+  (Debian only, `note` says backports have no security support
+  commitment). `available` is true when every node can install it (its
+  distribution, codename and architecture); a single target for the whole
+  cluster.
+- **Report**: `{"id": ULID,"created_at","created_by","series","source",
+  "target_version","node_ids","findings": [Finding],"diffs": {node id:
+  {engine: unified diff of the file, 2.6 to the target}},"packages": {node
+  id: {"remove": [{"name","version"}],"install": [{"name","version"}]}},
+  "validation": {node id: {engine: {"ok","mode": "dry_run"|"skipped",
+  "output"}}},"counts": {severity: n},"blocking": bool,"unreachable": [node
+  id],"outage_estimate_seconds"}`, kept on the node that ran it in
+  `/var/lib/pelagos/kea-migration/analysis.json` (0640, `pelagos`); the
+  converted configurations are not kept in 0.2.2.
+- **Finding**: `{"severity": "blocking"|"converted"|"behavior"|"info",
+  "code","node_id","engine","path","message": Message,"action": "convert"|
+  "add_hook"|"move_path"|"stop_service"|"propose"|"manual"|"none",
+  "reference": url|null}`. `path` is the JSON path in the file
+  (`Dhcp4/subnet4[3]/client-class`), empty for a node-wide finding. The
+  message key is `kea_migration.<code>`, with `path` among its parameters
+  when the key has it. Codes: `renamed_key` (converted: `old`, `new`),
+  `client_class_both` (blocking), `client_class` (converted),
+  `subnet_without_id` (blocking: `subnet`), `hook_missing` (blocking:
+  `library`, `series`, `source`), `hook_commercial` (blocking: `library`,
+  `series`; `libdhcp_mysql_cb.so`, `libdhcp_pgsql_cb.so`), `db_hook`
+  (converted: `backend`, `library`, `package`), `path_moved` (converted:
+  `file`, `target`), `script_path` (blocking: `file`, `directory`),
+  `ctrl_agent_stop` (converted), `ctrl_agent_clients` (behavior: `clients`),
+  `restrict_commands` (converted), `ha_asymmetric` (blocking: `engine`,
+  `node`, `partner`, `fields`), `d2_secret_file` (converted: `key`),
+  `control_socket` (converted), `additional_class` (behavior: `name`),
+  `template_class_options` (behavior: `name`), `lease_checks` (behavior:
+  `engine`), `lease_cache` (behavior: `engine`), `validation_failed`
+  (blocking: `engine`, `version`, `error`), `validation_skipped` (info:
+  `engine`, `reason`), `node_unreachable` (blocking: `node`). A new rule adds
+  a code and its message key.
+- **Analysis on a node** (the `kea.migration.analyze` peer action, run under
+  the backend lock): reads each Kea file (`configfile`) and `config-get`
+  (the running configuration wins when they differ, and a `config_divergence`
+  finding is not repeated here), the hooks of the target (the file list of
+  the target's hooks package, read from the downloaded `.deb` or `.rpm` in a
+  temporary directory, never installed), converts, then validates the
+  converted file with the target's `kea-dhcp4 -t`, `kea-dhcp6 -t`,
+  `kea-dhcp-ddns -t` extracted from the downloaded packages
+  (`apt-get download` and `dpkg-deb -x`, `dnf download` and `rpm2cpio`, with
+  `KEA_HOOKS_PATH` on the extracted hooks) through the privileged helper
+  operation `kea_dry_run` (read-only: a temporary directory, removed after).
+  When the dry run cannot run (no network, a missing binary), the validation
+  is `skipped` with a `validation_skipped` finding. HA symmetry is checked by
+  the caller over the reports of both peers.
+- **Alert** `kea_series_obsolete`: per node and engine family, subject
+  `kea:series`, raised by the collector when the installed series is not
+  maintained according to `pelagos/data/isc_advisories.json`, which gains
+  `"series": {"kea": {"<major.minor>": {"maintained": bool,"eol": date|null,
+  "successor","source": url,"checked_at"}}}` (written by
+  `scripts/update-isc-advisories.py` from the ISC announcements; 2.6 is
+  obsolete since the release of 3.2.0, kea-announce July 2026). A newer
+  data file only adds series.
+- **Audit**: `kea.migration.analyze` (target `kea-migration:<id>`, request
+  `{"series","source","node_ids"}`, response `{"blocking","counts"}`).
+
+## 27. Observed IPv6 addresses
+
+Design: `design.md` 13.7 (RFC 8981 and the OPNsense API read on
+2026-10-28). This contract covers the observations, the checks and the
+read routes of release 0.2.2; the AAAA and PTR plans (`POST /hosts/ipv6/plan`,
+`POST /hosts/ipv6/replace-prefix/plan`) are contract C4 (release 0.2.4).
+Code: sources in `collector/ipv6/` (`neighbors.py`, `opnsense.py`,
+interface `NeighborSource`), classification and host matching in
+`services/ipv6_hosts.py`, checks in `services/consistency.py`, routes in
+`api/ipv6.py`. Batches: V1 observations, V2 checks and API, V3 screens.
+
+- **Settings** `[settings.ipv6]`: `neighbors_enabled` (true), `poll_seconds`
+  (300, the router poll), `stable_min_days` (3), `stale_days` (14),
+  `auto_apply_enabled` (false, reserved). Retention
+  `retention.ipv6_observation_days` (30). Screen entries: `sources`
+  (`[Source]`), `prefixes` (watched prefixes, IPv6 CIDR strings; empty:
+  only the effective defaults). Secrets: `[secrets]
+  "ipv6/source/<id>/api_key"`, `"ipv6/source/<id>/api_secret"`.
+- **Source**: `{"id": ULID,"type": "opnsense","name","url","verify_tls":
+  true,"ca_pem"|null,"enabled"}`; the API adds `"secrets": {"api_key": bool,
+  "api_secret": bool}`. OPNsense is read with Basic authentication (key,
+  secret) on `/api/diagnostics/interface/search_ndp`, by the service node
+  only (section 22, sender election), every `poll_seconds`.
+- **NeighborSource** (V1): `kind: str`, `poll() -> list[Neighbor]` with
+  `Neighbor(mac, address, state)`; it raises `SourceError(message)` on any
+  failure. `neighbors` reads `ip -j -6 neigh show` on each node (no
+  privilege); `dhcpv6` takes the DHCPv6 leases when the module is on.
+- **Observation**: `{"mac","address","source": "neighbors"|"opnsense"|
+  "dhcpv6","source_id"|null,"node_id","first_seen","last_seen","state"}`,
+  kept in the observing node's cache: `ipv6_observations (mac TEXT, address
+  TEXT, source TEXT, source_id TEXT NOT NULL DEFAULT '', node_id TEXT,
+  first_seen INTEGER, last_seen INTEGER, state TEXT, PRIMARY KEY (mac,
+  address, source, source_id))`, rows with `last_seen` older than
+  `ipv6_observation_days` deleted. Link-local (`fe80::/10`), multicast and
+  addresses outside the watched prefixes are dropped before storage; MAC
+  lower-case, address compressed. **SourceStatus**: `{"source","source_id",
+  "node_id","last_poll","error","entries"}`.
+- **Watched prefixes** (`effective_prefixes`): the prefixes of the IPv6
+  reverse zones the cluster serves (`from: "reverse_zone"`), the DHCPv6
+  subnets (`dhcpv6`) and `ipv6.prefixes` (`setting`); ULA (`fd00::/8`) only
+  when listed.
+- **Classes** of an address, merged over every source by `(mac, address)`
+  with the earliest `first_seen` and latest `last_seen`: `eui64` (the
+  interface identifier is the modified EUI-64 of the MAC), `stable` (seen for
+  that MAC for more than `stable_min_days` and in the last 24 h), `temporary`
+  (several addresses of one MAC and prefix, each seen for less than
+  `stable_min_days`, replaced over the days), `unknown` (not enough history).
+  `mac_random`: the locally administered bit of the MAC is set.
+- **Host match**: by MAC to the hosts view (`services/hosts_service.py`:
+  lease or reservation, lease hostname, A record); `host_key` is the hosts
+  view key, `mac:<mac>` when the MAC is in no host. `proposal`: the owner
+  of the host's A in its forward zone and the reverse zone of the address,
+  for an `eui64` or `stable` address without AAAA; null otherwise.
+- **Checks** (V2, the consistency pass, cluster-wide): `ipv6_missing_aaaa`,
+  `ipv6_reverse_missing`, `ipv6_stale_aaaa` (section 15 table, keys in the
+  exception key table). A host known in IPv4 only raises nothing. The
+  source failure is shown in the screen, never alerted before 24 h.
+- **Audit**: `admin.ipv6.replace` (request `{"sources": [ids],"prefixes"}`,
+  never a secret).

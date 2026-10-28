@@ -1771,3 +1771,23 @@ WP-API-AUTH: `GET /dns/zones` asks this node's named for serials only while it r
 made each SOA query wait 10 s, 40 s for the Failover tab on the stopped primary). WP-FRONTEND: the
 Failover tab ignores a `ddns_outage` whose node is no longer the zone's primary, and runs one reload
 at a time (alert events at every poll used to supersede each slow resilience read).
+## 2026-10-28, contract C2: resolver health, Kea migration analysis, IPv6 observations
+Additive, release 0.2.2. Architecture sections 25 to 27 and their section 17 tables; peer
+actions `resolver.health`, `ipv6.observations`, `kea.migration.inventory`,
+`kea.migration.analyze` (section 13). Contract: settings domains `resolver` and `ipv6` with
+their defaults and screen entries (`resolver.fallback`, `resolver.presets`, `ipv6.sources`,
+`ipv6.prefixes`), thresholds `checks.resolver_latency_warning_milliseconds`,
+`resolver_latency_critical_milliseconds`, `resolver_timeouts_warning_percent`,
+`resolver_timeouts_critical_percent`, `resolver_tld_failures`, `resolver_mismatch_warning_count`,
+`resolver_lru_info_per_minute`, retentions `resolver_raw_days`, `resolver_hourly_days`,
+`ipv6_observation_days`, unit suffix `_milliseconds` (`core/settings_registry.py`); plan scope
+`dns.resolver` (`write:dns.config`); alert kinds `kea_series_obsolete` (exceptable with
+`admin:settings`), `ipv6_missing_aaaa`, `ipv6_reverse_missing`, `ipv6_stale_aaaa` (exceptable);
+new `resolver_health` subjects; keys `alert.resolver_*`, `plan.resolver.*`,
+`kea_migration.*`, `alert.ipv6_*`, `alert.kea_series_obsolete`. No new permission.
+WP-API-AUTH: the routes are registered (`api/resolver_health.py`, `api/kea_migration.py`,
+`api/ipv6.py`) and answer 501 until batches R1, R3, K2, V2 build them. WP-COLLECTOR: tables
+`resolver_samples`, `resolver_hourly`, `resolver_probes`, `ipv6_observations` (R1, R2, V1).
+WP-INSTALLER: helper operation `kea_dry_run` (K1). WP-FRONTEND: `api.resolverHealth`,
+`api.keaMigration`, `api.ipv6`, the mock serves every new endpoint, labels of the settings,
+kinds and scope in en and fr.

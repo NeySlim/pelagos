@@ -1,0 +1,43 @@
+{
+  "subject": {
+    "events": "[Pelagos] {{counts}}: {{first}}",
+    "events_more": "[Pelagos] {{counts}}: {{first}} (+{{more}})",
+    "resolved": "[Pelagos] resolved: {{first}}",
+    "resolved_more": "[Pelagos] {{count}} resolved: {{first}} (+{{more}})",
+    "digest": "[Pelagos] digest: {{counts}}",
+    "digest_empty": "[Pelagos] digest: no open alert",
+    "held_back": "[Pelagos] {{count}} more events held back",
+    "test": "[Pelagos] test from {{node}}"
+  },
+  "count": {
+    "critical_one": "{{count}} critical",
+    "critical_other": "{{count}} critical",
+    "warning_one": "{{count}} warning",
+    "warning_other": "{{count}} warnings",
+    "info_one": "{{count}} info",
+    "info_other": "{{count}} info"
+  },
+  "severity": {
+    "critical": "critical",
+    "warning": "warning",
+    "info": "info"
+  },
+  "event": {
+    "opened": "Opened",
+    "escalated": "Escalated",
+    "resolved": "Resolved",
+    "reminder": "Still open"
+  },
+  "body": {
+    "line": "{{event}}: [{{severity}}] {{title}}",
+    "line_node": "{{event}}: [{{severity}}] {{title}} ({{node}})",
+    "digest": "Digest of the alerts held back or still open.",
+    "held_back_one": "{{count}} more event was held back by the hourly limit: see the interface.",
+    "held_back_other": "{{count}} more events were held back by the hourly limit: see the interface.",
+    "open": "Still open: {{counts}}.",
+    "open_none": "No alert is open.",
+    "test": "Test message sent by {{node}}. If you can read it, this channel works.",
+    "sent_by": "Sent by {{node}} at {{time}}.",
+    "link": "Open in Pelagos: {{url}}"
+  }
+}

@@ -13,6 +13,18 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-28, WP-CORE (N2): notification transport interface
+Additive. `docs/architecture.md` section 22: the transport interface of `pelagos.notify`
+(`model.Batch`, `transports.send` returning `SendResult` with the retry decision,
+`transports.validate`, `SendContext` for injected I/O), the webhook payload gains `held_back`,
+alert links are `<web_url>/alerts?alert=<id>`, and the Matrix `txnId` becomes
+`<batch id>.<channel id>` (the spec scopes a transaction id to the access token, so two
+channels sharing a bot would otherwise collide; checked against Conduit). New namespace
+`frontend/src/i18n/locales/<lang>/notify.json` with the notification strings, copied with
+`messages` into `backend/pelagos/data/i18n/<lang>.json` by `make notify-catalogs`. WP-COLLECTOR
+(N1) builds batches and calls `send`; WP-API-AUTH (N3) uses `validate` and `send` for "Test";
+WP-FRONTEND (N4) may open `/alerts?alert=<id>` on the alert.
+
 ## 2026-10-27, WP-API-AUTH: cluster view of the alerts (item 46)
 Additive. Contract (`domain/alerts.py`): `Alert.reported_by: list[str]` (empty in the cache,
 filled by the API). WP-API-AUTH: `GET /alerts`, `GET /alerts/summary`, the dashboard alert

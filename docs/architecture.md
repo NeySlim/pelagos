@@ -3019,11 +3019,27 @@ screen, N5 daemon and lab tests.
   `{"url","topic","username"?}`, secret `token` (Bearer) or `password` (Basic
   with `username`); `gotify` `{"url","priorities": {"critical": 8,"warning": 5,"info": 2}}`,
   secret `token` (header `X-Gotify-Key`); `matrix` `{"homeserver","room_id"}`,
-  secret `token` (Bearer of a bot account; `txnId` = batch id); `webhook`
+  secret `token` (Bearer of a bot account; `txnId` = `<batch id>.<channel id>`); `webhook`
   `{"url","headers": {}}`, secret `hmac_secret` (optional);
   `home_assistant` `{"url"}`, secret `webhook_id` (posts to
-  `/api/webhook/<webhook_id>`). Secrets: `[secrets]
-  "notify/<channel id>/<name>"`.
+  `/api/webhook/<webhook_id>`; Home Assistant answers 200 to an unknown id, so a wrong id is
+  not detected). Secrets: `[secrets] "notify/<channel id>/<name>"`.
+- **Transport interface** (N2, `pelagos.notify`): the dispatcher builds a `model.Batch`
+  (`id` ULID, `cluster_id`, `sender_node_id`, `sender_name`, `reason`, `events: [BatchEvent(event,
+  alert, node_name)]`, `open` counts per severity, `held_back` events cut by the hourly cap,
+  `base_url` the sender's `web_url`, `sent_at`) and calls
+  `transports.send(channel, secrets, batch, ctx=None) -> SendResult`, where `channel` is a
+  channel table (or `model.Channel`) and `secrets` maps the secret names above to their clear
+  values. `send` never raises: `SendResult` has `ok`, `duration_ms`, `status` (HTTP or SMTP
+  code), `error` (secrets scrubbed) and `retry` (true for a network error, timeout, HTTP 5xx,
+  408, 425, 429 or SMTP 4yz; false for any other refusal, a redirect, a TLS verification
+  failure or a broken channel); `to_dict()` is the API's test answer. `SendContext` injects the
+  HTTP client, the smtplib factory, the timeout (`send_timeout_seconds`) and the clock.
+  `transports.validate(channel, set_secret_names) -> [Issue(field, message, level)]` checks a
+  channel for the API (`level` `error` refuses, `warning` is shown). `model.SECRET_NAMES` and
+  `model.secret_key(channel_id, name)` name the secrets. `render.render(batch, language)` gives
+  the subject, text and Matrix HTML; links are `<base_url>/alerts` and
+  `<base_url>/alerts?alert=<alert id>`.
 - **Mute**: `{"until","comment","by","at"}`; a digest of the alerts still
   open is sent when it ends.
 - **Sender**: every collector runs the dispatcher; only the first node of
@@ -3039,7 +3055,7 @@ screen, N5 daemon and lab tests.
   "reason": "events"|"digest"|"test","events": [{"event","alert": {"id","kind",
   "severity","state","node_id","node_name","engine","subject","title",
   "title_message","first_seen","last_seen","resolved_at","url"}}],
-  "open": {"critical","warning","info"}}`. Headers `X-Pelagos-Delivery`
+  "open": {"critical","warning","info"},"held_back": int}`. Headers `X-Pelagos-Delivery`
   (batch id), and with `hmac_secret` `X-Pelagos-Timestamp` (Unix seconds)
   and `X-Pelagos-Signature: sha256=<hex>` = HMAC-SHA256 over
   `<timestamp>.<body>`. No redirect followed, response read up to 4 KiB.

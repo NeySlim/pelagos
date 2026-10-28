@@ -1,0 +1,43 @@
+{
+  "subject": {
+    "events": "[Pelagos] {{counts}} : {{first}}",
+    "events_more": "[Pelagos] {{counts}} : {{first}} (+{{more}})",
+    "resolved": "[Pelagos] résolue : {{first}}",
+    "resolved_more": "[Pelagos] {{count}} résolues : {{first}} (+{{more}})",
+    "digest": "[Pelagos] résumé : {{counts}}",
+    "digest_empty": "[Pelagos] résumé : aucune alerte ouverte",
+    "held_back": "[Pelagos] {{count}} événements de plus retenus",
+    "test": "[Pelagos] test depuis {{node}}"
+  },
+  "count": {
+    "critical_one": "{{count}} critique",
+    "critical_other": "{{count}} critiques",
+    "warning_one": "{{count}} avertissement",
+    "warning_other": "{{count}} avertissements",
+    "info_one": "{{count}} info",
+    "info_other": "{{count}} infos"
+  },
+  "severity": {
+    "critical": "critique",
+    "warning": "avertissement",
+    "info": "info"
+  },
+  "event": {
+    "opened": "Ouverte",
+    "escalated": "Aggravée",
+    "resolved": "Résolue",
+    "reminder": "Toujours ouverte"
+  },
+  "body": {
+    "line": "{{event}} : [{{severity}}] {{title}}",
+    "line_node": "{{event}} : [{{severity}}] {{title}} ({{node}})",
+    "digest": "Résumé des alertes retenues ou encore ouvertes.",
+    "held_back_one": "{{count}} événement de plus a été retenu par la limite horaire : voir l'interface.",
+    "held_back_other": "{{count}} événements de plus ont été retenus par la limite horaire : voir l'interface.",
+    "open": "Encore ouvertes : {{counts}}.",
+    "open_none": "Aucune alerte ouverte.",
+    "test": "Message de test envoyé par {{node}}. S'il vous parvient, ce canal fonctionne.",
+    "sent_by": "Envoyé par {{node}} à {{time}}.",
+    "link": "Ouvrir dans Pelagos : {{url}}"
+  }
+}

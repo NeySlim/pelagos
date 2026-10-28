@@ -8,7 +8,13 @@ import tomllib
 import pytest
 
 from pelagos.core.bootstrap import bootstrap_first_node, dev_paths
-from pelagos.core.config_store import SCHEMA_VERSION, ClusterConfig, ConfigError, ConfigStore
+from pelagos.core.config_store import (
+    DEFAULT_SETTINGS,
+    SCHEMA_VERSION,
+    ClusterConfig,
+    ConfigError,
+    ConfigStore,
+)
 from pelagos.domain import User
 
 pytestmark = pytest.mark.unit
@@ -138,3 +144,10 @@ def test_atomic_write_as_root_keeps_the_owner(tmp_path, monkeypatch):
     calls.clear()
     config_store.atomic_write(tmp_path / "fresh.toml", b"x\n")
     assert calls == []  # a new file: the helper gives the tree back afterwards
+
+
+def test_settings_mutation_never_reaches_defaults():
+    cfg = ClusterConfig.new("test")
+    cfg.settings.setdefault("archives", {}).setdefault("recipients", []).append({"recipient": "x"})
+    assert "recipients" not in DEFAULT_SETTINGS["archives"]
+    assert "recipients" not in ClusterConfig.new("test").settings["archives"]

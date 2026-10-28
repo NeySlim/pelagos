@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import glob
 import os
 import re
@@ -38,7 +39,8 @@ class ConfigError(Exception):
 
 
 def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    out = dict(base)
+    # A copy: callers mutate the result in place (setdefault), which must never reach the defaults.
+    out = copy.deepcopy(base)
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(out.get(key), dict):
             out[key] = deep_merge(out[key], value)

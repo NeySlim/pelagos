@@ -28,11 +28,19 @@ export function alertsByZone(alerts = []) {
   return { outage, stale }
 }
 
+// The open ddns_outage of a zone, while it still names the active primary: once a copy is promoted
+// the old primary's alert lasts until the next collector poll.
+export function outageOf(zone, outage) {
+  const alert = outage?.get(zoneKey(zone))
+  if (!alert) return null
+  return !alert.node_id || !zone?.primary_node_id || alert.node_id === zone.primary_node_id ? alert : null
+}
+
 // One state per zone, worst first: the primary receives no update, an old primary still serves
 // the zone, a blocker the prepare plan cannot lift, not prepared yet, ready.
 export function zoneState(zone, { outage, stale } = {}) {
   const key = zoneKey(zone)
-  if (outage?.has(key)) return 'outage'
+  if (outageOf(zone, outage)) return 'outage'
   if ((zone.stale || []).length || stale?.has(key)) return 'stale'
   if (zone.ready) return 'ready'
   const blockers = zone.blockers || []
@@ -68,7 +76,7 @@ export function targetNodes(zones = [], offline = []) {
 
 // The primary nodes of zones in outage, from the open ddns_outage alerts.
 export function outageSummary(zones = [], outage = new Map()) {
-  const items = zones.filter((z) => outage.has(zoneKey(z))).map((z) => ({ zone: z, alert: outage.get(zoneKey(z)) }))
+  const items = zones.filter((z) => outageOf(z, outage)).map((z) => ({ zone: z, alert: outageOf(z, outage) }))
   const since = items.map((i) => i.alert.details?.since || i.alert.first_seen).filter(Boolean).sort()[0] || null
   return { items, since, promotable: items.filter((i) => isPrepared(i.zone)).map((i) => i.zone) }
 }

@@ -2,7 +2,7 @@
 // DDNS > Failover (architecture section 24): the active primary of each dynamic zone with its
 // copies, epoch and blockers, the D2 server lists, the outage and stale primary banners, and the
 // prepare, promote, switchover and replay plans through the usual plan preview.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { ArrowsCounterClockwise, ArrowUp, ShieldCheck, Swap, WarningOctagon } from '@phosphor-icons/react'
@@ -44,9 +44,24 @@ export function DdnsFailoverPanel({ selectedZone, refreshKey = 0 }) {
     [refreshKey],
     { enabled: canRead },
   )
-  const refetchAll = useCallback(() => {
-    res.refetch()
-    alerts.refetch()
+  // One reload at a time: during an outage the resilience read is slow and alert events come at
+  // every poll, so a reload that superseded the one in flight would never show a result.
+  const reloading = useRef({ running: false, again: false })
+  const refetchAll = useCallback(async () => {
+    const state = reloading.current
+    if (state.running) {
+      state.again = true
+      return
+    }
+    state.running = true
+    try {
+      do {
+        state.again = false
+        await Promise.all([res.refetch(), alerts.refetch()])
+      } while (state.again)
+    } finally {
+      state.running = false
+    }
   }, [res, alerts])
   useWsTopic(
     'alerts',

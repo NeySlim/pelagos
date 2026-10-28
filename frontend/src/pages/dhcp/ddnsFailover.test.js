@@ -29,6 +29,14 @@ describe('ddns failover helpers', () => {
     expect(zoneState(zone({ ready: false, blockers: [msg('ddns.blocker.signed', { zone: 'example.lan.' })] }))).toBe('blocked')
   })
 
+  it('drops the outage of a former primary once a copy holds the role', () => {
+    const alerts = alertsByZone([{ kind: 'ddns_outage', state: 'open', subject: 'ddns:_default/example.lan.', node_id: 'N1', details: { since: '2026-10-28T18:00:00Z' } }])
+    expect(zoneState(zone(), alerts)).toBe('outage')
+    expect(zoneState(zone({ primary_node_id: 'N2', copies: [] }), alerts)).not.toBe('outage')
+    expect(outageSummary([zone({ primary_node_id: 'N2' })], alerts.outage).items).toEqual([])
+    expect(outageSummary([zone()], alerts.outage).items).toHaveLength(1)
+  })
+
   it('tells prepared and preparable zones apart', () => {
     expect(isPrepared(zone())).toBe(true)
     expect(isPrepared(zone({ epoch: 0 }))).toBe(false)

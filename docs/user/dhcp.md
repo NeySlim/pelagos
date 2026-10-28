@@ -410,6 +410,26 @@ key. Kea 3.x refuses clear TSIG secrets in the D2 configuration: Pelagos
 writes them to secret files (mode 0640, Kea group) under the Kea
 configuration directory.
 
+### Catch-up after a DNS outage
+
+D2 keeps no queue: an update that fails while the primary DNS server is
+down is lost, and the lease keeps a name that DNS does not have. Pelagos
+records each outage seen by D2 (updates timing out or failing, or D2
+itself down) and, once updates succeed again, raises `ddns_replay` when
+active leases of that window lack their A, AAAA or PTR record.
+
+`POST /dhcp/ddns/replay/plan` (`ops:dhcp.leases`, body `{"from"?, "to"?,
+"family"?, "limit"?}`) builds a confirmed plan with one change per lease
+(`resend/<ip>`), sent as `lease4-resend-ddns` / `lease6-resend-ddns`
+(hook `lease_cmds`) on the node that holds the lease. Without `from` and
+`to` the window is the outage still going on, else the last one, else the
+last `ddns.replay_window_max_hours` (72). At most
+`ddns.replay_max_leases` (2000) leases go in one plan; the plan says when
+more are left. A lease that already has its records is never resent. The
+answer is `409` when no lease of the window lacks its records. The replay
+is never automatic, and its rollback sends nothing: D2 settles names by
+their DHCID record.
+
 ## Hooks
 
 The loaded hook libraries with their parameters; "used by Pelagos" marks

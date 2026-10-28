@@ -116,6 +116,10 @@ HA_PEERS_TTL = 30.0  # seconds the configured HA peers are reused between config
 HA_RESET_STEP_SECONDS = 30.0
 HA_REPAIR_WAIT_SECONDS = 180.0
 HA_POLL_SECONDS = 1.0
+# DDNS catch-up: resends go out in batches with a pause, so the server's queue toward D2 (dhcp-ddns
+# max-queue-size, 1024 by default) drains between them.
+RESEND_BATCH = 50
+RESEND_PAUSE_SECONDS = 0.5
 _PLAN_ID = re.compile(r"^[0-9A-Za-z_-]{1,64}$")
 # Target kinds (config.parse_target) each configuration plan scope may touch.
 SCOPE_TARGETS = {
@@ -177,6 +181,7 @@ class KeaBackend(DhcpBackend):
         # The configured HA relationships (monotonic read time, {this-server-name: peers}, first
         # relationship's peers): config-get is too heavy per live pass.
         self._ha_peers: tuple[float, dict[str, list[HAPeer]], list[HAPeer]] | None = None
+        self.sleep: Callable[[float], None] = time.sleep
 
     # Helpers ----------------------------------------------------------------------
 
@@ -954,6 +959,11 @@ class KeaBackend(DhcpBackend):
                     ),
                     observed,
                 )
+        if plan.scope is PlanScope.DHCP_LEASE and any(c.target.startswith("resend/") for c in plan.changes):
+            # A resent DNS update is not undone (D2 settles names by DHCID); there is nothing to revert.
+            return NodeApplyResult(
+                node_id=self.ctx.node_id, ok=True, message="DNS update requests are not undone"
+            )
         if any(c.target in ADOPT_TARGETS for c in plan.changes):
             result = self._rollback_adopt(plan, recorded[1] if recorded else None)
         else:
@@ -980,6 +990,8 @@ class KeaBackend(DhcpBackend):
             return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=str(exc))
 
     def _run_lease(self, changes: list[Change]) -> NodeApplyResult:
+        if changes and all(kcfg.parse_target(c.target).kind == "resend" for c in changes):
+            return self._run_resend(changes)
         messages = []
         for change in changes:
             t = kcfg.parse_target(change.target)
@@ -1002,6 +1014,32 @@ class KeaBackend(DhcpBackend):
             else:
                 raise ConnectorError(f"unsupported lease change {change.op.value}")
         return NodeApplyResult(node_id=self.ctx.node_id, ok=True, message="; ".join(messages))
+
+    def _run_resend(self, changes: list[Change]) -> NodeApplyResult:
+        """lease4/6-resend-ddns per lease (lease_cmds). Result 0 only means the request was queued
+        for D2; 3 means the lease is gone since the plan (nothing to send). Any error fails the node."""
+        command = f"lease{self.n}-resend-ddns"
+        sent, gone, failed = 0, [], []
+        for i, change in enumerate(changes):
+            if i and i % RESEND_BATCH == 0:
+                self.sleep(RESEND_PAUSE_SECONDS)
+            ip = str(kcfg.parse_target(change.target).name)
+            resp = self.socket.send(command, {"ip-address": ip})
+            result = int(resp.get("result", 1))
+            if result == 0:
+                sent += 1
+            elif result == EMPTY:
+                gone.append(ip)
+            else:
+                failed.append(f"{ip}: {resp.get('text', '')}")
+                if result == 2:  # command not supported: lease_cmds is not loaded
+                    break
+        parts = [f"{sent} DNS update requests queued for kea-dhcp-ddns"]
+        if gone:
+            parts.append(f"{len(gone)} leases gone: {', '.join(gone[:10])}")
+        if failed:
+            parts.append(f"{len(failed)} failed: {'; '.join(failed[:10])}")
+        return NodeApplyResult(node_id=self.ctx.node_id, ok=not failed, message="; ".join(parts))
 
     def _run_ha(self, changes: list[Change]) -> NodeApplyResult:
         messages = []

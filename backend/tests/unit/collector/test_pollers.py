@@ -452,3 +452,28 @@ def test_file_divergence_is_cached_until_the_file_or_hash_changes(store, tmp_roo
     poller.poll()
     poller.poll()
     assert len(parsed) == 5
+
+
+def test_d2_poller_records_the_outage_window(store):
+    clock = Clock()
+    d2 = FakeDdnsBackend()
+    poller = D2Poller(d2, NODE, store, SETTINGS, clock)
+    poller.poll()
+    clock.advance(60)
+    d2.totals.update({"update-sent": 2, "update-timeout": 2})
+    poller.poll()
+    opened = store.snapshot(NODE, "d2", "outage")[1]
+    assert opened["open"] == {"since": 1_000_000, "cause": "updates", "failed_at": 1_000_060}
+    # A collector restart keeps the open window from its snapshot.
+    poller = D2Poller(d2, NODE, store, SETTINGS, clock)
+    clock.advance(60)
+    poller.poll()
+    clock.advance(60)
+    d2.totals.update({"update-sent": 3, "update-success": 1})
+    poller.poll()
+    state = store.snapshot(NODE, "d2", "outage")[1]
+    assert state["open"] is None and state["last"] == {"from": 1_000_000, "to": 1_000_180}
+    d2.down = True
+    clock.advance(60)
+    poller.poll()
+    assert store.snapshot(NODE, "d2", "outage")[1]["open"]["cause"] == "d2_down"

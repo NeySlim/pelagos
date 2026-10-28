@@ -47,6 +47,7 @@ from pelagos.core.keafile import (
     view_differences,
 )
 from pelagos.domain import Alert, AlertKind, Engine, Family, HAState, Lease, to_rfc3339
+from pelagos.services import ddns_replay
 
 log = logging.getLogger(__name__)
 
@@ -783,6 +784,19 @@ class D2Poller:
         self.clock = clock
         self.samples: list[tuple[int, dict[str, int]]] = []
         self.file_check = FileDivergenceCache(backend, Engine.D2, node_id, locks_dir)
+        # DDNS outage window of this D2 (section 24), kept in its snapshot across collector restarts.
+        found = store.snapshot(node_id, "d2", ddns_replay.OUTAGE_KIND)
+        self.outage: dict[str, Any] | None = found[1] if found and isinstance(found[1], dict) else None
+        self._outage_prev: dict[str, int] | None = None
+
+    def _track_outage(
+        self, now: int, totals: dict[str, int] | None, stamps: dict[str, str] | None = None
+    ) -> None:
+        state = ddns_replay.track_outage(self.outage, self._outage_prev, totals, now, stamps=stamps)
+        self._outage_prev = dict(totals) if totals is not None else self._outage_prev
+        if state != self.outage:
+            self.store.write_snapshot(self.node_id, "d2", ddns_replay.OUTAGE_KIND, now, state)
+        self.outage = state
 
     def poll(self) -> PollOutcome:
         out = PollOutcome(kinds=D2_KINDS, where=engine_filter(self.node_id, Engine.D2.value))
@@ -794,6 +808,7 @@ class D2Poller:
             out.ok, out.error = False, str(exc)
             out.alerts.append(rules.daemon_down(self.node_id, Engine.D2, str(exc)))
             out.kinds = D2_KINDS - UNREAD_KINDS
+            self._track_outage(now, None)
             return out
         self.store.write_snapshot(self.node_id, "d2", "capabilities", now, caps)
         self.store.write_snapshot(self.node_id, "d2", "status", now, status)
@@ -801,6 +816,7 @@ class D2Poller:
             out.ok, out.error = False, "kea-dhcp-ddns is not running"
             out.alerts.append(rules.daemon_down(self.node_id, Engine.D2, out.error))
             out.kinds = D2_KINDS - UNREAD_KINDS
+            self._track_outage(now, None)
             return out
         try:
             stats = self.backend.stats()
@@ -821,6 +837,7 @@ class D2Poller:
         payload.pop("raw", None)
         self.store.write_snapshot(self.node_id, "d2", "stats", now, payload)
         self.samples.append((now, dict(stats.totals)))
+        self._track_outage(now, dict(stats.totals), ddns_replay.sample_stamps(stats.raw or {}))
         self.samples = [(ts, t) for ts, t in self.samples if ts >= now - 2 * D2_WINDOW_SECONDS]
         rate, deltas = rules.d2_error_rate(self.samples, D2_WINDOW_SECONDS, now)
         alert = rules.d2_errors(

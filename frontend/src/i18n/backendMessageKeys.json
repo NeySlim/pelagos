@@ -423,6 +423,18 @@
     "view",
     "zone"
   ],
+  "ddns.replay.more": [
+    "count"
+  ],
+  "ddns.replay.no_lease_cmds": [
+    "engine",
+    "node"
+  ],
+  "ddns.replay.unread": [
+    "engine",
+    "error",
+    "node"
+  ],
   "drift.object.file": [
     "path"
   ],
@@ -779,6 +791,16 @@
   "plan.change": [
     "op",
     "target"
+  ],
+  "plan.ddns.replay": [
+    "count",
+    "end",
+    "start"
+  ],
+  "plan.ddns.replay_on": [
+    "count",
+    "engine",
+    "node"
   ],
   "plan.ha_guard.set": [
     "peers",

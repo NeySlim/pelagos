@@ -568,11 +568,14 @@ _NETWORK_RE = re.compile(r"^shared-networks/(?P<name>.+)$")
 _CLASS_RE = re.compile(r"^client-classes/(?P<name>.+)$")
 _OPTION_RE = re.compile(r"^option-data/(?P<space>[^/]+)/(?P<key>[^/]+)$")
 _LEASE_RE = re.compile(r"^lease(?P<fam>[46])/(?P<ip>.+)$")
+# DDNS catch-up of one lease (section 24): lease4/6-resend-ddns, the family is the plan's.
+_RESEND_RE = re.compile(r"^resend/(?P<ip>[0-9A-Fa-f:.]+)$")
 
 
 @dataclass(slots=True)
 class Target:
-    # subnet | reservation | shared_network | client_class | option | key | config | lease | ha | service
+    # subnet | reservation | shared_network | client_class | option | key | config | lease | resend | ha
+    # | service
     kind: str
     subnet_id: int | None = None
     name: str | None = None  # network, class, top-level key, option name/code, lease ip
@@ -607,6 +610,8 @@ def parse_target(target: str) -> Target:
         return Target("option", space=m["space"], name=m["key"])
     if m := _LEASE_RE.match(target):
         return Target("lease", name=m["ip"])
+    if m := _RESEND_RE.match(target):
+        return Target("resend", name=m["ip"])
     if "/" not in target and target:
         return Target("key", name=target)
     raise ConnectorError(f"unknown change target {target!r}")

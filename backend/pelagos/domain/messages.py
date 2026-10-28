@@ -230,6 +230,12 @@ CATALOG: dict[str, str] = {
     "ddns.blocker.view": "zone {zone} is in view {view}, which the key {key} does not select",
     "ddns.blocker.single_node": "only one node serves DNS: there is no copy to promote",
     "ddns.blocker.not_prepared": "not prepared: no copy is ready to be promoted",
+    # DDNS catch-up (section 24): lease4/6-resend-ddns per lease of the outage window.
+    "plan.ddns.replay": "resend the DNS updates of {count} leases active from {start} to {end}",
+    "plan.ddns.replay_on": "resend the DNS updates of {count} {engine} leases on {node}",
+    "ddns.replay.more": "{count} more leases qualify: replay again once this plan is applied",
+    "ddns.replay.unread": "leases of {node} not read ({engine}): {error}",
+    "ddns.replay.no_lease_cmds": "{engine} on {node} does not load lease_cmds: its leases cannot be resent",
     "cert.kind.web": "Web UI",
     "cert.kind.node": "Node replication",
     "cert.kind.ca": "Internal CA",

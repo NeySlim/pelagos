@@ -1610,3 +1610,13 @@ Additive. WP-CORE: `core/cluster_alerts.py` (the cluster alert view moved out of
 of `notify.sent` and `notify.failed`, the dispatcher rules, its state file and the transport
 interface it calls. WP-API-AUTH (N3): read the sender, queue and channel states from
 `collector.notify.read_state` (the sender's file) and the history from the `notify.*` entries.
+
+## 2026-10-28, batch D1: DDNS catch-up
+Additive. Architecture section 24 (outage window, replay plan, `ddns_replay`). WP-KEA: change
+target `resend/<ip>` of scope `dhcp.lease` applied as `lease4-resend-ddns` /
+`lease6-resend-ddns` in batches, rollback a no-op. WP-COLLECTOR: engine snapshot `d2`/`outage`
+written by the D2 poller, `ddns_replay` raised by the consistency pass. WP-API-AUTH:
+`services/ddns_replay.py`, `POST /dhcp/ddns/replay/plan` built (was 501). Contract
+(`domain/messages.py`): `plan.ddns.replay`, `plan.ddns.replay_on`, `ddns.replay.more`,
+`ddns.replay.unread`, `ddns.replay.no_lease_cmds`. WP-FRONTEND: their en and fr texts; the
+replay entry point stays with batch D5.

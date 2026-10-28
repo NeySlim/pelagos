@@ -14,7 +14,7 @@ import time
 from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pelagos.collector import series as series_mod
@@ -46,7 +46,7 @@ from pelagos.domain import (
     Severity,
     ZoneKind,
 )
-from pelagos.services import consistency
+from pelagos.services import consistency, ddns_replay
 from pelagos.services.masking import masked_text
 
 log = logging.getLogger(__name__)
@@ -455,8 +455,35 @@ class Collector:
         )
         outcome = PollOutcome(alerts=observed, kinds=frozenset(k.value for k in INCONSISTENCY_KINDS))
         self._finish(outcome)
+        replay = self._ddns_replay(leases, forward, reverse)
+        if replay is not None:
+            self._finish(replay)
+            observed = observed + replay.alerts
         self.store.set_meta("last_run_consistency", str(int(self.clock())))
         return observed
+
+    def _ddns_replay(
+        self, leases: list[Lease], forward: dict[str, list[RRset]], reverse: list[RRset]
+    ) -> PollOutcome | None:
+        """`ddns_replay` from the last closed D2 outage window still inside replay_window_max_hours;
+        None (alerts kept) when this node holds no lease or no zone to judge with."""
+        if not leases or not (forward or reverse):
+            return None
+        window, _open = ddns_replay.outage_windows(ddns_replay.outage_states(self.store))
+        max_hours = int(reg.get(self.ctx.settings(), "ddns.replay_window_max_hours"))
+        now = datetime.fromtimestamp(self.clock(), tz=UTC)
+        if window is not None and window[1] < now - timedelta(hours=max_hours):
+            window = None
+        found = []
+        if window is not None:
+            rrsets = [r for rs in forward.values() for r in rs]
+            found = ddns_replay.select(leases, rrsets, reverse, window[0], window[1])
+        alert = ddns_replay.replay_alert(window, found)
+        return PollOutcome(
+            alerts=[alert] if alert else [],
+            kinds=frozenset({AlertKind.DDNS_REPLAY.value}),
+            where=lambda a: a.node_id is None,
+        )
 
     def apply_exceptions(self) -> list[Alert]:
         """Resolve at once the open alerts an admin exception now names, without waiting for their check."""

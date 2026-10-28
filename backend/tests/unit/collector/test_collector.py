@@ -591,3 +591,36 @@ def test_slow_checks_run_in_a_worker_and_the_loop_reconciles_them(rig, monkeypat
     assert seen == ["health-audit"] and len(collector._slow_ready) == 1
     collector.health_audit_ready()
     assert collector._slow_ready == []
+
+
+def test_ddns_replay_alert_for_the_last_outage(rig):
+    collector, backends, _ = rig
+    soa = "ns1.example.lan. root.example.lan. 1 2 3 4 5"
+    backends.dns.rrsets["example.lan."] = [RRset(name="example.lan.", rtype="SOA", ttl=3600, rdata=[soa])]
+    del backends.dns.rrsets["2.0.192.in-addr.arpa."]
+    now = utcnow()
+    backends.kea4.lease_list = [
+        Lease(
+            ip_address="192.0.2.30",
+            subnet_id=1,
+            family=Family.V4,
+            hostname="pc30.example.lan.",
+            fqdn_fwd=True,
+            cltt=now - timedelta(minutes=30),
+        )
+    ]
+    # No outage known: lease_without_record only.
+    assert [a.kind for a in collector.consistency()] == [AlertKind.LEASE_WITHOUT_RECORD]
+    start, end = int((now - timedelta(hours=1)).timestamp()), int((now - timedelta(minutes=5)).timestamp())
+    collector.store.write_snapshot(
+        "peer", "d2", "outage", end, {"last": {"from": start, "to": end}, "open": None}
+    )
+    observed = collector.consistency()
+    replay = [a for a in observed if a.kind is AlertKind.DDNS_REPLAY]
+    assert len(replay) == 1 and replay[0].node_id is None and replay[0].details["count"] == 1
+    assert AlertKind.DDNS_REPLAY in {a.kind for a in collector.alerts.open_alerts()}
+    backends.dns.rrsets["example.lan."].append(
+        RRset(name="pc30.example.lan.", rtype="A", ttl=300, rdata=["192.0.2.30"])
+    )
+    assert AlertKind.DDNS_REPLAY not in {a.kind for a in collector.consistency()}
+    assert AlertKind.DDNS_REPLAY not in {a.kind for a in collector.alerts.open_alerts()}

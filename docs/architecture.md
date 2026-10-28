@@ -3222,3 +3222,29 @@ return and switchover, D5 screen, D6 lab.
   `lease6-resend-ddns` (hook `lease_cmds`, also added to the allow-list of
   `/dhcp/{family}/ops` under `ops:dhcp.leases`), in batches, never more than
   `replay_max_leases`.
+- **Outage window** (batch D1): each D2 poller keeps the engine snapshot
+  `d2`/`outage` (`{"open": {"since","cause","failed_at"}|null, "last":
+  {"from","to"}|null, "good_at"}`, epoch seconds), copied to every peer
+  like the other snapshots. A window opens at the last good poll when
+  `update-timeout` or `update-error` grows, or when D2 is down (its queue is
+  lost); it closes at the first poll with `update-success` and no new
+  failure or whose latest success sample (Kea's sample time) is newer than
+  its latest failure, after 900 s without failure, or when D2 comes back
+  clean. Every
+  lost update is counted by D2, so the leases to replay all fall inside.
+- **Replay plan**: `from`/`to` default to the open window (until now), else
+  the last closed window within `replay_window_max_hours`, else the last
+  `replay_window_max_hours`; a longer window is a `400`. Leases are read on
+  every node running the engine (this node first, one copy per address) and
+  each is resent on the node it was read on; the records come from the
+  served zones holding the names. One part per (family, node): a single
+  part is the plan itself, several form a composite. A part whose node's
+  capabilities say `lease_cmds` is not loaded fails validation. Change
+  `before` is `{"records": [{"rtype","name","found"}]}`, `after` the
+  lease's name, flags and `cltt`. Apply: Kea result 0 (queued for D2) and 3
+  (lease gone since) are not failures; rollback sends nothing. More
+  candidates than `limit` add a validation note to replay again.
+- **`ddns_replay`**: raised by the consistency pass of a node holding the
+  zones, over its leases, for the last closed window still inside
+  `replay_window_max_hours`; resolved when every lease of it has its
+  records.

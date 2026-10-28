@@ -326,5 +326,10 @@
   "ddns.blocker.signed": "la zone {{zone}} est signée par une dnssec-policy : ses clés ne sont que sur le primaire",
   "ddns.blocker.view": "la zone {{zone}} est dans la vue {{view}}, que la clé {{key}} ne sélectionne pas",
   "ddns.blocker.single_node": "un seul nœud sert le DNS : aucune copie à promouvoir",
-  "ddns.blocker.not_prepared": "non préparée : aucune copie n'est prête à être promue"
+  "ddns.blocker.not_prepared": "non préparée : aucune copie n'est prête à être promue",
+  "plan.ddns.replay": "renvoyer les mises à jour DNS de {{count}} baux actifs du {{start}} au {{end}}",
+  "plan.ddns.replay_on": "renvoyer les mises à jour DNS de {{count}} baux {{engine}} sur {{node}}",
+  "ddns.replay.more": "{{count}} autres baux sont concernés : relancez le rattrapage une fois ce plan appliqué",
+  "ddns.replay.unread": "baux de {{node}} non lus ({{engine}}) : {{error}}",
+  "ddns.replay.no_lease_cmds": "{{engine}} sur {{node}} ne charge pas lease_cmds : ses baux ne peuvent pas être renvoyés"
 }

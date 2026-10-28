@@ -351,13 +351,24 @@ Une configuration reprise est d'abord auditée, puis durcie étape par étape, j
 
 **Dans l'outil**
 
-- Authentification et RBAC repris d'UCM (`backend/auth`, `backend/security`) : mots de passe argon2, TOTP, WebAuthn, sessions, limitation de débit. Les utilisateurs et rôles sont dans la configuration répliquée : le même compte ouvre chaque nœud.
+- Authentification et RBAC repris d'UCM (`backend/auth`, `backend/security`) : mots de passe argon2, TOTP, WebAuthn (clés de sécurité et passkeys, ci-dessous), sessions, limitation de débit. Les utilisateurs et rôles sont dans la configuration répliquée : le même compte ouvre chaque nœud.
 - Rôles minimaux : lecture, opérateur DNS, opérateur DHCP, administrateur. Un opérateur DNS ne voit pas les secrets Kea.
 - Entre nœuds : HTTPS mTLS, certificats émis à l'enrôlement par le premier nœud (CA interne de l'outil) ou par UCM si une CA existe déjà. Un nœud inconnu est refusé ; l'enrôlement passe par un jeton à usage unique.
 - Secrets chiffrés au repos dans la configuration de l'outil, clé maître hors du fichier, remise une fois à l'enrôlement, comme UCM.
 - Audit en ajout seul, fichier JSONL répliqué : utilisateur, nœud, horodatage, requête envoyée (UPDATE, commande Kea, fichier écrit), réponse reçue, diff avant / après. Toute écriture a son retour arrière préparé.
 - Chaque nœud n'écoute que sur le réseau d'administration, en HTTPS, derrière le même gunicorn TLS qu'UCM.
 - Les données lues chez BIND et Kea (noms d'hôtes DHCP, TXT, `user-context`) sont traitées comme non fiables : échappées à l'affichage, jamais interprétées.
+
+**Clés de sécurité et passkeys (point 66, 0.2.1)**
+
+Reprise d'UCM (`backend/api/v2/webauthn.py`, `backend/services/webauthn_service.py`, `backend/auth/twofa_enforcement.py`) avec la bibliothèque `webauthn` (py_webauthn, BSD-3-Clause), adaptée au stockage de Pelagos.
+
+- Plusieurs clés par utilisateur : nom (modifiable), date de création, nœud d'enregistrement, dernier usage, suppression. Les clés vivent dans l'enregistrement de l'utilisateur de `cluster.toml` (clé publique COSE, identifiant, transports, AAGUID, rpId) : répliquées, une clé enregistrée sur ns1 ouvre ns2. Le dernier usage et le compteur de signatures restent par nœud (comme `last_login`) : une connexion n'écrit jamais `cluster.toml`.
+- Deux usages. Second facteur : après le mot de passe, un utilisateur qui a une clé doit la présenter (ou son code TOTP s'il en a un et que son rôle n'exige pas de clé). Passkey sans mot de passe : clé découvrable avec vérification de l'utilisateur (PIN ou biométrie), sans nom d'utilisateur saisi, donc sans énumération des comptes.
+- Obligation par rôle : `auth.require_webauthn_roles` (ex. `["admin"]`). Un membre sans clé n'obtient qu'une session restreinte à l'enregistrement d'une clé ; un membre qui a une clé ne peut pas la remplacer par le TOTP ni supprimer sa dernière clé. `auth.require_totp` est aussi satisfait par une clé.
+- rpId : le domaine commun des noms des nœuds (`web_url`), par exemple `example.lan` pour `ns1.example.lan` et `ns2.example.lan`, ou le réglage `auth.webauthn_rp_id`. Sans domaine commun, l'écran d'administration avertit : les clés ne valent alors que pour le nœud où elles sont enregistrées. Une adresse IP ne peut pas porter de clé (règle des navigateurs), HTTPS avec un certificat valide est obligatoire.
+- TOTP et récupération locale conservés (Pelagos n'a pas de codes de secours) : l'administrateur retire les clés d'un utilisateur dans l'écran Utilisateurs, et `pelagos user remove-keys <nom>` le fait en local, comme `disable-totp`.
+- Écrans : section « Clés de sécurité » du profil (ajout, renommage, suppression), bouton « Se connecter avec une passkey » et étape « clé de sécurité » à la connexion, colonne et action dans Administration > Utilisateurs, état du rpId et avertissement dans le même écran.
 
 ## 10. Choix techniques et déploiement
 

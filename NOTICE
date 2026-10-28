@@ -14,6 +14,10 @@ relicensed under Apache-2.0 for inclusion in this project:
     extensible DNS provider layout with the Hetzner provider, certificate,
     PKCS#12 and chain parsing and ordering, pre-install checks, and the
     calls of UCM's REST API v2 (CSR upload and signing, export, revocation)
+  - security keys and passkeys (backend/pelagos/auth/webauthn.py,
+    backend/pelagos/auth/twofa.py, backend/pelagos/services/webauthn_service.py):
+    the WebAuthn ceremonies over py_webauthn, the signature counter rule and
+    the second factor enforcement policy
 
 Third-party components
 ----------------------

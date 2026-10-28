@@ -13,6 +13,17 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-28, WP-API-AUTH, WP-FRONTEND: security keys and passkeys (item 66)
+Additive. `domain/cluster.py`: `WebAuthnCredential` and `User.webauthn` (by credential id),
+`User.public()` gains `webauthn_count`. `docs/architecture.md` sections 4, 10, 12, 16, 17 and 19:
+settings `auth.webauthn_rp_id` and `auth.require_webauthn_roles`, the `/auth/webauthn/*`,
+`/admin/users/{id}/webauthn*` and `/admin/webauthn` endpoints, restriction `webauthn_enrollment`,
+error `second_factor_required`, `pelagos user remove-keys`. `backend/pyproject.toml`: dependency
+`webauthn>=3.0.1,<4` (py_webauthn, BSD-3-Clause, PyPI 3.0.1 of 2026-09-25, read 2026-10-28) with
+`cbor2`, `pyasn1`, `pyasn1-modules`, `pyopenssl` in the lock. A node of 0.2.0 drops
+`users[].webauthn` when it loads cluster.toml, so keys only work once every node runs 0.2.1.
+WP-FRONTEND: login passkey button and key step, profile and admin screens, mock endpoints.
+
 ## 2026-10-28, WP-BIND, WP-CORE, WP-INSTALLER: handover writes root-owned user files
 Additive. `docs/architecture.md` sections 2 and 7: helper operation `bind_user_write` and
 `WritePipeline.privileged`. A handover (and its rollback) edits a user file the `pelagos` user

@@ -600,6 +600,18 @@ class User(Model):
     preferences: dict[str, Any] = {}   # theme_family, theme_mode, language, animations, ambient, dashboard_layout
     created_at: datetime; updated_at: datetime
     last_login: datetime | None = None
+    webauthn: dict[str, WebAuthnCredential] = {}  # by credential id (base64url); public key only
+
+@dataclass(slots=True)
+class WebAuthnCredential(Model):
+    name: str                      # user-chosen label
+    public_key: str                # COSE public key, base64url
+    rp_id: str                     # the rpId it was registered for
+    sign_count: int = 0            # at registration; later counters are kept per node
+    transports: list[str] = []     # "usb", "nfc", "ble", "internal", "hybrid"
+    aaguid: str | None = None
+    backup_eligible: bool = False  # a synced passkey
+    created_at: datetime; created_on: str | None = None   # node id
 ```
 
 Audit (`domain/audit.py`):
@@ -1319,6 +1331,15 @@ created_at = "2026-10-24T09:00:00Z"
 updated_at = "2026-10-24T09:00:00Z"
 preferences = { theme_family = "instrument", theme_mode = "system", language = "en", animations = "full", ambient = "on" }
 
+[users.webauthn."pDp1bW9...base64url credential id"]   # optional, one table per key
+name = "YubiKey 5"
+public_key = "pQECAyYgASFYI..."
+rp_id = "example.lan"
+sign_count = 0
+transports = ["usb", "nfc"]
+created_at = "2026-10-28T09:00:00Z"
+created_on = "01JB0ZK4Q9X3M5N7P8R2T4V6W8"
+
 [[roles]]                               # custom roles only; builtin roles are code (section 16)
 name = "dns-readonly-plus"
 permissions = ["read:dns", "write:dns.records"]
@@ -1335,6 +1356,8 @@ session_ttl_seconds = 43200
 session_idle_seconds = 1800
 login_rate_limit_per_minute = 10
 require_totp = false
+webauthn_rp_id = "auto"                 # or a domain, e.g. "example.lan"
+require_webauthn_roles = []             # e.g. ["admin"]
 
 [settings.plans]
 ttl_seconds = 600
@@ -1577,7 +1600,8 @@ it is post-v1 (docs/roadmap.md).
 
 Local account recovery: `pelagos user reset-password <name>` (new password
 from the prompt or `PELAGOS_NEW_PASSWORD`, `must_change_password` set, the
-account enabled again) and `pelagos user disable-totp <name>`. Root only:
+account enabled again), `pelagos user disable-totp <name>` and
+`pelagos user remove-keys <name>` (every security key). Root only:
 root switches to the owner of `cluster.toml` before writing. Both go through
 `AdminService` (cluster.toml version bump, push to peers, audit entry
 `admin.user.replace` by `local-recovery`). Sessions already open stay valid
@@ -2246,8 +2270,42 @@ random id in cookie `pelagos_session` (`HttpOnly`, `Secure`,
 not replicated). Every unsafe request (POST, PUT, PATCH, DELETE) must carry
 `X-CSRF-Token` equal to the token returned at login (per session, random,
 compared in constant time). Login is rate limited per client IP and per
-username (`auth.login_rate_limit_per_minute`). WebAuthn is a documented future
-option, not in this phase.
+username (`auth.login_rate_limit_per_minute`).
+
+Security keys and passkeys (WebAuthn Level 2, `webauthn` py_webauthn 3.x,
+`auth/webauthn.py`, `auth/twofa.py`, `services/webauthn_service.py`; design
+from UCM). Credentials live in `users[].webauthn` (section 4), replicated, so
+a key registered on one node opens every node sharing the rpId. The rpId is
+`auth.webauthn_rp_id`, or with `"auto"` the longest common DNS suffix of at
+least two labels of the nodes' `web_url` host names (one node: its parent
+domain when that has two labels, else its host name); without one, the
+request host (keys then work on that node only, and `GET /admin/webauthn`
+warns). WebAuthn is available on a request only when its host is a name
+equal to the rpId or under it; an IP address never is. The expected origin
+is `https://<request host>` (`http://localhost` for development only).
+Registration asks for a resident key (preferred), user verification
+preferred, algorithms ES256, EdDSA, RS256, attestation `none`. Ceremonies
+(challenge, kind, user, rpId) are kept in process memory for 300 s, one
+use each, at most 1000 pending. Last use and the signature counter are kept
+per node in `var/webauthn_usage.json` (never replicated: a login does not
+write `cluster.toml`); an assertion whose counter is non-zero and not above
+the highest counter known on this node is refused (cloned key).
+
+Second factor policy (`auth/twofa.py`), after a correct password:
+- `required_key`: one of the user's roles is in `auth.require_webauthn_roles`.
+- The user has keys for this rpId: answer `401 second_factor_required`
+  with `methods` (`["webauthn"]`, plus `"totp"` when the user has TOTP and
+  no role requires a key), `ceremony` and `options`; the client finishes with
+  `POST /auth/webauthn/login/verify`, or posts `/auth/login` again with
+  `totp_code` when `"totp"` is offered.
+- The user has keys, none for this rpId: TOTP when offered as above,
+  otherwise `401 second_factor_required` with `methods: []` and `rp_ids`.
+- No key: TOTP as before; then, when `required_key`, the session is
+  restricted to `webauthn_enrollment`; when `auth.require_totp` and no TOTP,
+  to `totp_enrollment` (a key also lifts it).
+A passkey login (discoverable credential, user verification required, user
+found by its user handle, which is the user id) is complete by itself: no
+TOTP, no enrollment restriction other than `password_change`.
 
 Permissions are strings `<action>:<resource>`; `*` is admin. Resources:
 
@@ -2317,24 +2375,35 @@ Until a work package implements an endpoint it answers `501` with
 
 | Method, path | Auth | Request | Response |
 | --- | --- | --- | --- |
-| `POST /auth/login` | anon | `{"username","password","totp_code"?}` | `200 {"user": User (public fields), "permissions": [..], "csrf_token", "totp_required": false}` or `401 invalid_credentials` or `401 totp_required` (when code missing and user has TOTP) |
+| `POST /auth/login` | anon | `{"username","password","totp_code"?}` | `200 {"user": User (public fields), "permissions": [..], "csrf_token", "totp_required": false}` or `401 invalid_credentials` or `401 totp_required` (when code missing and user has TOTP and no key) or `401 second_factor_required` with `methods`, `ceremony`, `options`, `rp_ids` (section 16) |
 | `POST /auth/logout` | any | | `204` |
 | `GET /auth/session` | any | | `{"user", "permissions", "csrf_token", "node": Node}` |
 | `POST /auth/password` | any | `{"current_password","new_password"}` | `204` |
 | `POST /auth/totp/enroll` | any | | `{"secret","otpauth_url"}` (pending until confirmed) |
 | `POST /auth/totp/confirm` | any | `{"code"}` | `204` |
 | `DELETE /auth/totp` | any | `{"password"}` | `204` |
+| `GET /auth/webauthn` | anon | | `{"available", "rp_id", "reason"}`: WebAuthn on this request's host; `reason` is null, `ip_address`, `outside_rp_id` or `insecure` |
+| `POST /auth/webauthn/login/options` | anon | | `{"ceremony", "options"}` (passkey login, discoverable credentials, `PublicKeyCredentialRequestOptionsJSON`); `409 conflict` when unavailable; rate limited like login |
+| `POST /auth/webauthn/login/verify` | anon | `{"ceremony", "credential"}` (`PublicKeyCredential` JSON) | as `POST /auth/login` 200, or `401 invalid_credentials` |
+| `GET /auth/webauthn/credentials` | any | | `{"items": [Credential], "available", "rp_id", "reason"}` |
+| `POST /auth/webauthn/register/options` | any | | `{"ceremony", "options"}` (`PublicKeyCredentialCreationOptionsJSON`, the user's keys excluded) |
+| `POST /auth/webauthn/register/verify` | any | `{"ceremony", "credential", "name"}` | `201 Credential`; lifts `webauthn_enrollment` and `totp_enrollment` |
+| `PATCH /auth/webauthn/credentials/{id}` | any | `{"name"}` | `Credential` |
+| `DELETE /auth/webauthn/credentials/{id}` | any | `{"password"}` | `204`; `409 conflict` for the last key when a role requires one |
 | `GET /account/preferences` | any | | `{"theme_family","theme_mode","language","animations","ambient","dashboard_layout"}`; defaults `instrument`, `system`, `en`, `full`, `on`, `[]`; `animations` is one of `full`, `reduced`, `off`; `ambient` is `on` or `off` |
 | `PUT /account/preferences` | any | same keys, partial | the merged preferences |
 
-User public fields: `id, username, roles, enabled, has_totp, must_change_password, created_at, updated_at, last_login, preferences`.
+User public fields: `id, username, roles, enabled, has_totp, webauthn_count, must_change_password, created_at, updated_at, last_login, preferences`.
+Credential: `{"id", "name", "rp_id", "transports", "aaguid", "backup_eligible", "created_at", "created_on", "last_used_at"}`;
+`last_used_at` is the newest use seen by the node answering.
 `last_login` is recorded on the node that served the login (`/var/lib/pelagos/last_login.json`,
 not replicated: a login never writes `cluster.toml`); the API shows the newest of that
 record and any older replicated value.
 
 Restricted sessions (added by WP-API-AUTH): when `settings.auth.require_totp` is
-true and the user has no TOTP, or when `must_change_password` is set, login
-succeeds with `"restriction": "totp_enrollment" | "password_change"` (and
+true and the user has no TOTP, when a role in `auth.require_webauthn_roles`
+requires a key the user does not have, or when `must_change_password` is set, login
+succeeds with `"restriction": "totp_enrollment" | "webauthn_enrollment" | "password_change"` (and
 `totp_required: true` for the first) and only `/auth/*` and `/account/*`
 answer; every other endpoint returns `403 forbidden` with the extension
 member `"restriction"`. Confirming TOTP or changing the password lifts it.
@@ -2725,6 +2794,10 @@ parts and put the reservation on every node that runs the Kea engine.
 | `DELETE /admin/users/{id}` | `admin:users` | | `204` |
 | `POST /admin/users/{id}/reset-password` | `admin:users` | `{"password"}` | `204` |
 | `DELETE /admin/users/{id}/totp` | `admin:users` | | `204` |
+| `GET /admin/users/{id}/webauthn` | `admin:users` | | `{"items": [Credential]}` |
+| `DELETE /admin/users/{id}/webauthn` | `admin:users` | | `204` (every key of the user) |
+| `DELETE /admin/users/{id}/webauthn/{credential_id}` | `admin:users` | | `204` |
+| `GET /admin/webauthn` | `admin:users` | | `{"rp_id", "source": "setting"|"common_domain"|"request_host", "common_domain", "nodes": [{"id","name","host","covered"}], "warning": null|"no_common_domain"|"node_outside_rp_id"}` |
 | `GET /admin/roles` | `admin:roles` | | `{"items": [Role]}` (builtin + custom) |
 | `POST /admin/roles` | `admin:roles` | `Role` without `builtin` | `201 Role` |
 | `PUT /admin/roles/{name}` | `admin:roles` | `{"permissions","description"}` | `Role` |
@@ -2907,7 +2980,7 @@ Errors are RFC 7807 problem documents, `Content-Type: application/problem+json`:
 ```
 
 Codes and HTTP statuses: `validation_error` 400, `invalid_credentials` 401,
-`totp_required` 401, `unauthenticated` 401, `forbidden` 403,
+`totp_required` 401, `second_factor_required` 401, `unauthenticated` 401, `forbidden` 403,
 `csrf_failed` 403, `not_found` 404, `module_disabled` 404,
 `method_not_allowed` 405, `conflict` 409, `config_divergence` 409,
 `precondition_failed` 409, `preflight_failed` 409,

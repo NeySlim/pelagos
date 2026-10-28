@@ -346,8 +346,10 @@ def _mark_written(env: Any, engine: str) -> None:
     try:
         from pelagos.core import ha_maintenance
 
-        ha_maintenance.mark(env.paths, engine, "write")
-        ha_maintenance.mark(env.paths, engine, "reload")
+        # The marks live with Pelagos's state (node paths), not with the engine paths.
+        paths = getattr(env, "node_paths", None) or env.paths
+        ha_maintenance.mark(paths, engine, "write")
+        ha_maintenance.mark(paths, engine, "reload")
     except (AttributeError, TypeError):
         pass  # an environment without Pelagos paths (tests, dry setup)
 
@@ -485,6 +487,9 @@ def ensure_socket_access(env: Any, engine: str, version: str | None) -> str:
     dropin.write_text(content)
     os.chmod(dropin, 0o644)
     env.services.daemon_reload()
+    from pelagos.installer import drift
+
+    drift.record_file(env, dropin)
     return f"{dropin} written"
 
 

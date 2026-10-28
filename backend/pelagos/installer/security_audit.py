@@ -12,6 +12,7 @@ the plan; nothing is applied unless the user selected it.
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import re
 import stat
@@ -36,6 +37,8 @@ from pelagos.installer import (
     bind_files,
     bindconf,
     bindsetup,
+    drift,
+    ha_guard,
     ha_listener,
     keaconf,
     keasetup,
@@ -44,6 +47,8 @@ from pelagos.installer import (
 )
 from pelagos.installer.bindconf import ConfigFiles, Statement
 from pelagos.installer.jobs import Step
+
+log = logging.getLogger(__name__)
 
 WEAK_ALGORITHMS = frozenset({"hmac-md5", "hmac-md5.sig-alg.reg.int", "hmac-sha1"})
 NEW_ALGORITHM = "hmac-sha256"
@@ -109,6 +114,8 @@ class Finding:
             # What the operator does by hand when no plan can fix it: a specific text, else the proposal.
             "manual_action": None if remediable else messages.render(manual) if manual else self.proposal,
             "manual_action_message": None if remediable else manual or self.messages.get("proposal"),
+            # managed_drift: what differs and the plans offered (`<id>#adopt` or `<id>#restore`).
+            **{k: self.details[k] for k in ("differences", "actions") if k in self.details},
         }
 
 
@@ -1032,6 +1039,10 @@ def run_audit(env: Any) -> list[Finding]:
     if kea_in is not None:
         kea_in.bind_keys = bind_keys
         findings += audit_kea(kea_in)
+    try:
+        findings += drift.audit(env)
+    except Exception as exc:  # drift checks never hide the security findings
+        log.warning("drift checks not run: %s", exc)
     return findings
 
 
@@ -1043,6 +1054,13 @@ def build_security_plan(
 ) -> Plan:
     """One Change per selected finding; the dual-key switch expands into its three ordered changes."""
     findings = {f.id: f for f in run_audit(env)}
+    choices: dict[str, str] = {}
+    for i, raw in enumerate(finding_ids):
+        base, action = drift.split_choice(raw)
+        if action:
+            finding_ids[i] = base
+            choices[base] = action
+    finding_ids = list(dict.fromkeys(finding_ids))
     unknown = [i for i in finding_ids if i not in findings]
     if unknown:
         raise ValueError(f"unknown finding id(s): {', '.join(unknown)}")
@@ -1061,6 +1079,11 @@ def build_security_plan(
         if not f.details.get("remediable", True):
             raise ValueError(f"{fid} has no automatic remediation; follow its proposal by hand")
         payload = {"finding": f.to_dict(), "details": f.details}
+        if f.kind == drift.KIND:
+            action = choices.get(fid, "restore")
+            if action not in f.details.get("actions", []):
+                raise ValueError(f"{fid}: {action} is not offered for this object")
+            payload["details"] = {**f.details, "action": action}
         if f.kind == "weak_shared_kea_key":
             new = f.details["new_key"]
             bind_nodes = local if f.engine == "bind" else []
@@ -1101,7 +1124,12 @@ def build_security_plan(
                     ChangeOp.REPLACE,
                     f"security/{fid}",
                     before={"description": f.description},
-                    after={**payload, "summary": f.proposal},
+                    after={
+                        **payload,
+                        "summary": f"{payload['details']['action']} {f.subject}"
+                        if f.kind == drift.KIND
+                        else f.proposal,
+                    },
                     node_ids=[env.node_id],
                 )
             )
@@ -1749,6 +1777,9 @@ REMEDIATIONS = {
     "socket_dir": remediate_socket_dir,
     "secret_file": remediate_secret_file,
     "ha_listener": remediate_ha_listener,
+    "ha_guard_set": ha_guard.remediate_set,
+    "ha_guard_adopt": ha_guard.remediate_adopt,
+    "drift": drift.remediate,
     "file_modes": remediate_file_modes,
     "version_hide": remediate_version_hide,
     "convert_dynamic": zone_audit.remediate_convert_dynamic,

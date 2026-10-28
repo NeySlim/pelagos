@@ -623,6 +623,7 @@ class AlertKind(str, Enum):
     DDNS_ADVICE="ddns_advice"; RESTART_LOOP="restart_loop"; POOL_FORECAST="pool_forecast"; SECURITY_ADVISORY="security_advisory"
     CERT_EXPIRY="cert_expiry"; CERT_RENEWAL_FAILED="cert_renewal_failed"
     CONFIG_SYNTAX_WARNING="config_syntax_warning"
+    MANAGED_DRIFT="managed_drift"
 class AlertState(str, Enum): OPEN="open"; ACKED="acked"; RESOLVED="resolved"
 
 @dataclass(slots=True)
@@ -2019,6 +2020,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `version_mismatch` | info, warning | nodes run different versions of BIND, kea4 or kea6 (warning when the series differs); cluster-wide, subject `<engine>:version` |
 | `ddns_advice` | warning, info | kea-dhcp-ddns lists a single DNS server for a domain while two or more nodes serve DNS (warning, subject `d2:dns-servers`; D2 uses the servers of a domain first to last, Kea 2.6 ARM "DNS Servers"); named `UpdateRej` over the last day at or above `checks.update_denied_warning_per_hour` (info, subject `bind:update-denied`; suggests `ddns-override-client-update` and `ddns-replace-client-name`) |
 | `config_syntax_warning` | warning | Kea parses its configuration file but warns (`DHCPx_CONFIG_SYNTAX_WARNING`, e.g. `Extraneous comma`); read from the file tree with the file, line and column Kea reports; per node, subject `<engine>:config-syntax`; details `warnings`, `count`, `path`; also listed in the `syntax_warnings` of `GET /dhcp/{family}/config/file` |
+| `managed_drift` | warning | Something Pelagos manages was changed outside it (security audit finding `managed_drift`, section 15): the HA listener guard, a Kea HA relationship, a file Pelagos owns; per node, subject `kea:<object>`; details `finding_id`, `proposal`; resolved when the object matches again (adopt or restore plan) |
 | `restart_loop` | critical | `checks.restart_loop_count` restarts in `restart_loop_window_seconds`; subject `engine:<engine>` |
 | `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; subject is the pool subject |
 | `security_advisory` | info, warning | the upstream version of an installed BIND or Kea falls in a range of `pelagos/data/isc_advisories.json` (`ranges_preview` for `-S` versions); subject `<engine>:<CVE id>`; details `cve`, `version`, `fixed_in`, `url`, `cvss`, `dataset_verified` |
@@ -2455,7 +2457,9 @@ confirmation_required` without `"confirm": true`.
 | `POST /install/plan` | `admin:install` | `{"engines": ["bind","kea4",...], "source": "distro"|"isc", "isc_series"?: "3.2"}` | `Plan` (scope `install`; apply returns a `Job`) |
 | `POST /install/import/plan` | `admin:install` | `{"engines": [...]}` | `Plan` (scope `import`: include lines, sockets, statistics channel, keys to create, what was read) |
 | `GET /install/security` | `admin:install` | `?node=<id>\|all` (this node when absent) | `{"findings": [{"id","kind","severity","engine","subject","description","proposal","risk","remediable","mitigated","description_message","proposal_message","risk_message","manual_action","manual_action_message","node_id","node_name","exception_keys","exception"}], "nodes": [{"id","name","ok","error"}], "node_choices": [{"id","name"}], "local_node_id"}` (`remediable` false: no plan can fix it, `--fix-all` and the UI skip it, `manual_action` says what to do by hand; `exception`: the `security_finding` record that keeps it, else null; a peer's findings come over the `security.audit` peer action; `*_message`: section 19) |
-| `POST /install/security/plan` | `admin:install` | `{"finding_ids": [...]}` (this node) or `{"selection": {"<node id>": [...]}}` | `Plan` (scope `security`; the Kea shared key rotation is one finding whose steps are: add new key to BIND `update-policy`, switch D2 on every node, remove old key; with `selection` each node builds its part through the `security.plan` peer action, its shared key switch limited to itself, and the parts run in order as one job) |
+| `POST /install/security/plan` | `admin:install` | `{"finding_ids": [...]}` (this node) or `{"selection": {"<node id>": [...]}}` | `Plan` (scope `security`; the Kea shared key rotation is one finding whose steps are: add new key to BIND `update-policy`, switch D2 on every node, remove old key; with `selection` each node builds its part through the `security.plan` peer action, its shared key switch limited to itself, and the parts run in order as one job; a `managed_drift` id takes the suffix `#adopt` or `#restore`, restore when absent) |
+| `GET /install/security/ha-guard` | `admin:install` | `?node=<id>` (this node when absent) | `{"node_id","nft","listeners": [{"engine","server","address","port","peers"}],"ports","suggested_peers","managed": {"table","unit","file","peers","ports","recorded_at","adopted_from","active"}\|null,"loaded": {"peers","ports"}\|null,"legacy": {"table","unit","files","peers","ports"}\|null,"differences"}` (a peer's guard comes over the `security.ha_guard` peer action) |
+| `POST /install/security/ha-guard/plan` | `admin:install` | `{"node"?: "<id>", "peers": ["192.0.2.12", "198.51.100.0/24", ...]}` | `Plan` (scope `security`, change `security/ha-guard`: loads Pelagos's guard with these addresses on that node; refused while a hand-made guard is in place) |
 
 Every endpoint of this table runs through the privileged helper (section 2)
 on a packaged node. Once the Pelagos keys exist (after an import), the audit
@@ -2525,6 +2529,33 @@ rest dropped) loaded by `pelagos-kea-ha-guard.service`; the step watches the
 guard's counters for up to 2.5 heartbeats and removes it again when only drops
 grow. TLS (a certificate per peer from the cluster CA, `require-client-certs`)
 stays a manual action: it must switch on both peers together, standby first.
+
+The guard is an object Pelagos manages (`installer/ha_guard.py`). A guard set up
+by hand under the names the audit knows (table `inet kea_ha_guard`, unit
+`kea-ha-guard.service`, rules in `/etc/nftables.d/kea-ha-guard.nft` or the file
+its `ExecStart` loads) is reported as `kea_ha_guard_unmanaged` (info) with the
+remediation `ha_guard_adopt`: Pelagos's table is loaded with the same addresses
+first, then the old unit is disabled (stopped only when its `ExecStop` deletes
+nothing but its own table), the old table deleted and its files moved to the
+backup directory; a failure puts the old guard back before removing Pelagos's.
+`GET /install/security/ha-guard` shows the guard and `POST
+/install/security/ha-guard/plan` changes its addresses (remediation
+`ha_guard_set`, watched like the first load).
+
+What Pelagos last set is kept per node in `<var>/managed_state.json`
+(`installer/ledger.py`, root 0600): the guard (its files' text and hash, ports,
+addresses), each Kea HA relationship (mode, timings, TLS paths,
+`require-client-certs`, `restrict-commands`, and per peer the URL, role,
+`auto-failover`, TLS paths, basic-auth user; never a password) and the files
+Pelagos owns whole (the Kea socket drop-ins). The audit (`installer/drift.py`)
+reports a `managed_drift` finding per object that differs, its `differences`
+listed and its `actions` (`adopt`: the node's state becomes Pelagos's;
+`restore`: Pelagos's state is applied again, Kea configurations through the
+usual test, reload and rollback), raised as a `managed_drift` alert. An HA
+relationship is recorded when the audit first sees it and again after a Pelagos
+write of that engine (the engine write mark), except when the audit had already
+reported that same difference before the write. A guard loaded by the 0.1.2
+plan and a drop-in with the managed header are recorded as found.
 
 The audit also checks the modes and owners of the BIND files
 (`installer/bind_files.py`, finding `bind_file_mode`, one per category:

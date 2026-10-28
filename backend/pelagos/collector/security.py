@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Security audit findings as alerts (section 15): `insecure_key` and `insecure_listener`.
+"""Security audit findings as alerts (section 15): `insecure_key`, `insecure_listener`, `managed_drift`.
 
 The collector runs the installer's read-only security audit (through the privileged helper when it
 is not root) and turns weak keys and listeners off localhost into alerts every operator sees, with
@@ -27,7 +27,11 @@ LISTENER_KINDS = frozenset(
         "kea_ha_listener_open",
     }
 )
-ALERT_KINDS = frozenset({AlertKind.INSECURE_KEY.value, AlertKind.INSECURE_LISTENER.value})
+# Something Pelagos manages was changed outside it (installer.drift).
+DRIFT_KINDS = frozenset({"managed_drift"})
+ALERT_KINDS = frozenset(
+    {AlertKind.INSECURE_KEY.value, AlertKind.INSECURE_LISTENER.value, AlertKind.MANAGED_DRIFT.value}
+)
 
 
 def collect_findings(ctx: Any) -> list[dict[str, Any]] | None:
@@ -63,6 +67,8 @@ def security_outcome(
             alert_kind = AlertKind.INSECURE_KEY
         elif kind in LISTENER_KINDS:
             alert_kind = AlertKind.INSECURE_LISTENER
+        elif kind in DRIFT_KINDS:
+            alert_kind = AlertKind.MANAGED_DRIFT
         else:
             continue
         engine = str(f.get("engine") or "")

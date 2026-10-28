@@ -41,7 +41,7 @@ SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 # The only step a peer ever sends: BIND steps of a dual-key switch always run on their own node.
 PEER_STEPS = frozenset({"2-d2-switch"})
 SAFE_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-OPERATIONS = ("detect", "audit", "plan_install", "plan_import", "plan_security", "apply")
+OPERATIONS = ("detect", "audit", "ha_guard", "plan_install", "plan_import", "plan_security", "apply")
 INSTALLER_SCOPES = (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY)
 MAX_REQUEST = 4 << 20
 
@@ -82,6 +82,10 @@ def handle(request: dict[str, Any], env_factory: Callable[[], Any], emit: Callab
             from pelagos.installer.security_audit import run_audit
 
             return [f.to_dict() for f in run_audit(env)]
+        if op == "ha_guard":
+            from pelagos.installer.ha_guard import status
+
+            return status(env)
         if op == "plan_install":
             from pelagos.installer.install import build_install_plan
 
@@ -100,6 +104,12 @@ def handle(request: dict[str, Any], env_factory: Callable[[], Any], emit: Callab
         if op == "plan_security":
             from pelagos.installer.security_audit import build_security_plan
 
+            if request.get("ha_guard") is not None:
+                from pelagos.installer.ha_guard import build_plan
+
+                guard = request["ha_guard"]
+                peers = guard.get("peers") if isinstance(guard, dict) else None
+                return _record(build_plan(env, peers, created_by))
             d2 = request.get("d2_node_ids")
             return _record(
                 build_security_plan(
@@ -521,6 +531,9 @@ class HelperClient:
 
     def audit(self) -> list[dict[str, Any]]:
         return self.call("audit")
+
+    def ha_guard(self) -> dict[str, Any]:
+        return self.call("ha_guard")
 
     def plan(self, op: str, created_by: str, **args: Any) -> Plan:
         return Plan.from_dict(self.call(op, created_by=created_by, **args))

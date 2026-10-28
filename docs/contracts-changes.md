@@ -1546,3 +1546,16 @@ Additive. WP-INSTALLER: findings `bind_file_mode` (module `installer/bind_files.
 `file_modes`) and `version_disclosed` (remediation `version_hide`). Contract
 (`domain/messages.py`): the `finding.bind_file_mode.*` and `finding.version_disclosed.*` keys.
 WP-FRONTEND: kind labels and catalog entries, `en` and `fr`.
+
+## 2026-10-28, HA listener guard as a managed object, managed_drift
+Additive. WP-INSTALLER: modules `installer/ha_guard.py`, `installer/ledger.py`,
+`installer/drift.py`; findings `kea_ha_guard_unmanaged` (remediation
+`ha_guard_adopt`) and `managed_drift` (remediation `drift`, ids suffixed `#adopt`
+or `#restore` in a plan request); helper operation `ha_guard` and argument
+`ha_guard` of `plan_security`. Contract: `AlertKind.MANAGED_DRIFT`, the
+`finding.kea_ha_guard_unmanaged.*`, `finding.managed_drift.*`, `drift.object.*`
+and `plan.ha_guard.set` message keys. WP-API-AUTH: `GET /install/security/ha-guard`,
+`POST /install/security/ha-guard/plan`, peer action `security.ha_guard`, finding
+dicts carry `differences` and `actions` when present. WP-COLLECTOR:
+`managed_drift` findings raise `managed_drift` alerts. WP-FRONTEND: guard card and
+drift action on the security page, alert kind label.

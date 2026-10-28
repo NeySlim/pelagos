@@ -54,6 +54,8 @@ CERTS_SELF_SIGNED = "certs.self_signed"
 # Security audit of this node (services.install_service): findings, and a plan for some of them.
 SECURITY_AUDIT = "security.audit"
 SECURITY_PLAN = "security.plan"
+# The firewall guard of this node's Kea HA listeners (installer.ha_guard).
+SECURITY_HA_GUARD = "security.ha_guard"
 # This node's alerts, for a peer's cluster view (services.alerts_service).
 ALERTS_LIST = "alerts.list"
 CERTS_ACTIONS = frozenset(
@@ -82,6 +84,7 @@ class PeerActions:
             CERTS_SELF_SIGNED: self.certs_self_signed,
             SECURITY_AUDIT: self.security_audit,
             SECURITY_PLAN: self.security_plan,
+            SECURITY_HA_GUARD: self.security_ha_guard,
             ALERTS_LIST: self.alerts_list,
         }
 
@@ -89,7 +92,7 @@ class PeerActions:
         handler = self.handlers.get(name)
         if handler is None:
             raise PeerActionError("not_supported", f"this node does not serve action {name}")
-        if name in CERTS_ACTIONS or name in (SECURITY_AUDIT, SECURITY_PLAN, ALERTS_LIST):
+        if name in CERTS_ACTIONS or name in (SECURITY_AUDIT, SECURITY_PLAN, SECURITY_HA_GUARD, ALERTS_LIST):
             # Certificates and the security audit never use the engine connectors: no engine lock,
             # so a long poll never waits on it.
             try:
@@ -246,7 +249,15 @@ class PeerActions:
         from pelagos.services.install_service import InstallService
 
         service = InstallService(self.ctx)
+        if body.get("ha_guard") is not None:
+            guard = body["ha_guard"] if isinstance(body["ha_guard"], dict) else {}
+            return self._plan(service.build_ha_guard_part(guard.get("peers"), _created_by(body)))
         return self._plan(service.build_security_part(body.get("finding_ids"), _created_by(body), False))
+
+    def security_ha_guard(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        from pelagos.services.install_service import InstallService
+
+        return {"guard": InstallService(self.ctx).local_ha_guard()}
 
     # Runtime operations ---------------------------------------------------------------------
 

@@ -253,5 +253,55 @@ class InstallService:
                 f"{exc}; run GET /install/security again", [field_error("finding_ids", "invalid")]
             ) from None
 
+    # HA listener guard (installer.ha_guard) -------------------------------------------------------
+
+    def local_ha_guard(self) -> dict[str, Any]:
+        from pelagos.installer.ha_guard import status
+
+        client = self.helper()
+        if client is not None:
+            return client.ha_guard()
+        return status(self.env_factory())
+
+    def ha_guard(self, node: str | None = None) -> dict[str, Any]:
+        """The guard of this node or of node `node`: what Pelagos manages, what is loaded, a guard
+        set up by hand, and the differences between them."""
+        me = self.ctx.node.id
+        if node in (None, "", me):
+            return {"node_id": me, **self.local_ha_guard()}
+        from pelagos.services.peer_actions import SECURITY_HA_GUARD
+
+        result = self.peers.action(self._peer(str(node)), SECURITY_HA_GUARD, {})
+        guard = result.get("guard") if isinstance(result, dict) else None
+        return {"node_id": node, **(guard if isinstance(guard, dict) else {})}
+
+    def build_ha_guard_part(self, peers: Any, created_by: str) -> Plan:
+        from pelagos.installer.ha_guard import build_plan
+
+        if not isinstance(peers, list) or not all(isinstance(p, str) for p in peers):
+            raise ValidationError("peers must be a list of addresses", [field_error("peers", "invalid")])
+        client = self.helper()
+        try:
+            if client is not None:
+                return client.plan("plan_security", created_by, ha_guard={"peers": peers})
+            return build_plan(self.env_factory(), peers, created_by)
+        except (helper.HelperError, ValueError) as exc:
+            if isinstance(exc, helper.HelperError) and exc.kind != "value":
+                raise
+            raise ValidationError(str(exc), [field_error("peers", "invalid")]) from None
+
+    def plan_ha_guard(self, body: dict[str, Any], created_by: str) -> Plan:
+        """A plan that loads the guard of `node` (this node by default) with `peers`."""
+        node = body.get("node")
+        peers = body.get("peers")
+        if node in (None, "", self.ctx.node.id):
+            return self.ctx.plan_store.put(self.build_ha_guard_part(peers, created_by))
+        from pelagos.services.peer_actions import SECURITY_PLAN
+
+        part = self.peers.build_plan(
+            self._peer(str(node)), SECURITY_PLAN, {"ha_guard": {"peers": peers}, "created_by": created_by}
+        )
+        return self.ctx.plan_store.put(part)
+
     def runner(self, _scope: Any = None) -> Callable[[Plan, Job, Any], Any]:
         return InstallerRunner(self.ctx, self.peers, self.env_factory, helper=self.helper())

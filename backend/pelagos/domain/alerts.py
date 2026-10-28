@@ -58,6 +58,7 @@ class AlertKind(enum.StrEnum):
     CERT_RENEWAL_FAILED = "cert_renewal_failed"
     DDNS_ADVICE = "ddns_advice"
     CONFIG_SYNTAX_WARNING = "config_syntax_warning"
+    MANAGED_DRIFT = "managed_drift"
 
 
 INCONSISTENCY_KINDS = frozenset(

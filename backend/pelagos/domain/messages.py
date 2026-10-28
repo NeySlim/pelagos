@@ -408,6 +408,33 @@ CATALOG: dict[str, str] = {
         "peers' addresses. A peer that reaches this node from another address would be cut off, so the step "
         "watches the peers' packets and removes the guard if only drops grow."
     ),
+    "finding.kea_ha_guard_unmanaged.description": (
+        "A firewall guard of the Kea HA listener was set up outside Pelagos ({source}): only {peers} "
+        "reach TCP {ports}."
+    ),
+    "finding.kea_ha_guard_unmanaged.proposal": (
+        "Adopt it: Pelagos loads the same addresses into its own guard (nft table inet "
+        "pelagos_kea_ha_guard, service pelagos-kea-ha-guard), then retires {source} and keeps a copy of "
+        "its files in the backup directory. The guard can then be edited from the security page."
+    ),
+    "finding.kea_ha_guard_unmanaged.risk": (
+        "None: both guards admit the same addresses while they overlap, so the listener is never "
+        "unguarded; if a step fails, the hand-made guard is put back before Pelagos's is removed."
+    ),
+    "finding.managed_drift.description": "{object} was changed outside Pelagos: {differences}.",
+    "finding.managed_drift.proposal": (
+        "Adopt: {object} stays as it is on the node and becomes Pelagos's state. Restore: Pelagos applies "
+        "its own state again."
+    ),
+    "finding.managed_drift.risk": (
+        "Adopt changes nothing on the node. Restore rewrites what differs: a Kea configuration is tested "
+        "and reloaded and rolled back if the test fails; a guard is put back as it was if the peers' "
+        "packets stop getting through."
+    ),
+    "drift.object.ha_guard": "The HA listener guard ({table})",
+    "drift.object.kea_ha": "The {engine} HA relationship of {server}",
+    "drift.object.file": "The file {path}",
+    "plan.ha_guard.set": "HA listener guard: only {peers} reach TCP {ports}",
     "finding.kea_socket_dir_mode.description": (
         "The Kea socket directory {path} is mode {mode}: other users can reach the control sockets."
     ),

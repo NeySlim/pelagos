@@ -58,3 +58,23 @@ class SecurityPlan(Resource):
     @ns.response(400, "validation_error", m.Problem)
     def post(self):
         return plan_answer(services().install.plan_security(json_body(), username()))
+
+
+@ns.route("/security/ha-guard")
+class HAGuard(Resource):
+    @require("admin:install")
+    @ns.doc(params={"node": "a node id; this node when absent"})
+    @ns.response(200, "The guard of the Kea HA listeners: managed, loaded, set up by hand, differences")
+    @ns.response(400, "validation_error", m.Problem)
+    def get(self):
+        return services().install.ha_guard(arg("node"))
+
+
+@ns.route("/security/ha-guard/plan")
+class HAGuardPlan(Resource):
+    @require("admin:install")
+    @ns.expect(m.HAGuardPlan)
+    @ns.response(200, "Plan of scope security that loads the guard with these addresses", m.Plan)
+    @ns.response(400, "validation_error", m.Problem)
+    def post(self):
+        return plan_answer(services().install.plan_ha_guard(json_body(), username()))

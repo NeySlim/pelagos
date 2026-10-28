@@ -144,3 +144,32 @@ def test_unknown_node_and_bad_selection_are_refused(admin, two_nodes):
     assert admin.get(f"{V1}/install/security?node=nope").status_code == 400
     bad = admin.post(f"{V1}/install/security/plan", json={"selection": {"node-b": []}})
     assert bad.status_code == 400
+
+
+def test_ha_guard_of_a_peer_is_shown_and_edited_by_plan(admin, two_nodes, monkeypatch):
+    from pelagos.installer import ha_guard, ha_listener
+    from tests.unit.installer.test_ha_guard_drift import Host
+    from tests.unit.installer.test_ha_listener import ha_dhcp4
+
+    _env_a, env_b, _peers = two_nodes
+    monkeypatch.setattr(ha_guard, "_sleep", lambda s: None)
+    monkeypatch.setattr(ha_listener.time, "monotonic", iter(range(0, 100000, 10)).__next__)
+    env_b.binaries.update({"nft": "/usr/sbin/nft", "iptables-save": None, "ip6tables-save": None})
+    env_b.paths.kea_conf_dir.mkdir(parents=True, exist_ok=True)
+    (env_b.paths.kea_conf_dir / "kea-dhcp4.conf").write_text(json.dumps(ha_dhcp4()))
+    Host(env_b, legacy=False)
+    guard = admin.get(f"{V1}/install/security/ha-guard?node=node-b").get_json()
+    assert guard["node_id"] == "node-b" and guard["managed"] is None and guard["legacy"] is None
+    assert guard["suggested_peers"] == ["192.0.2.12"] and guard["ports"] == [8001]
+    bad = admin.post(f"{V1}/install/security/ha-guard/plan", json={"peers": ["ns2"]})
+    assert bad.status_code == 400
+    body = {"node": "node-b", "peers": ["192.0.2.12", "192.0.2.13"]}
+    plan = admin.post(f"{V1}/install/security/ha-guard/plan", json=body).get_json()
+    assert plan["target_node_ids"] == ["node-b"], plan
+    r = admin.post(f"{V1}/plans/{plan['id']}/apply", json={"confirm": True})
+    assert r.status_code == 202, r.get_json()
+    job = _wait_job(admin, r.get_json()["id"])
+    assert job["state"] == "done", job
+    guard = admin.get(f"{V1}/install/security/ha-guard?node=node-b").get_json()
+    assert guard["managed"]["peers"] == ["192.0.2.12", "192.0.2.13"]
+    assert guard["loaded"] == {"peers": ["192.0.2.12", "192.0.2.13"], "ports": [8001]}

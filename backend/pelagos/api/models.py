@@ -549,8 +549,19 @@ InstallBody = model(
 FindingIds = model(
     "FindingIds",
     {
-        "finding_ids": fields.List(fields.String, description="Findings of this node"),
+        "finding_ids": fields.List(
+            fields.String,
+            description="Findings of this node; a managed_drift id takes #adopt or #restore",
+        ),
         "selection": fields.Raw(description="Findings by node: {node id: [finding ids]}, one plan for all"),
+    },
+)
+
+HAGuardPlan = model(
+    "HAGuardPlan",
+    {
+        "node": fields.String(description="Node id; this node when absent"),
+        "peers": fields.List(fields.String, required=True, description="Addresses or prefixes let through"),
     },
 )
 

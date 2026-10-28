@@ -1559,3 +1559,13 @@ and `plan.ha_guard.set` message keys. WP-API-AUTH: `GET /install/security/ha-gua
 dicts carry `differences` and `actions` when present. WP-COLLECTOR:
 `managed_drift` findings raise `managed_drift` alerts. WP-FRONTEND: guard card and
 drift action on the security page, alert kind label.
+
+## 2026-10-28, Kea HA TLS by plan and HA certificates in the inventory
+Additive. WP-INSTALLER: module `installer/ha_tls.py`, helper operation `plan_ha_tls`, the
+`ha-tls-*` steps accepted from peers; `kea_ha_listener_open` details add `tls_plan`. WP-CORE:
+`core/kea_ha_tls.py`, `ca.issue_service`, `ca.signed_by`, `ca.key_matches`, `step_seal` seals the
+HA TLS steps (`secret_for`), `CertManager.status()` adds `kea_ha` and `alerts()` the HA
+certificates. WP-API-AUTH: `POST /install/security/ha-tls/plan`, the TLS part in security plans,
+the HA TLS phases and their undo in `InstallerRunner`. Contract (`domain/messages.py`):
+`plan.ha_tls.*`, `job.phase.ha_tls_*`, `cert.kind.kea_ha`,
+`finding.kea_ha_listener_open.step_tls`. WP-FRONTEND: Kea HA certificates on the certificates page.

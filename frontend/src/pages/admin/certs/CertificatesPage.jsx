@@ -37,7 +37,46 @@ function sourceSummary(t, src) {
   return base
 }
 
-function NodeCard({ node, thresholds, onSource, onUpload, onRenew, onSelfSigned, showLog, onToggleLog }) {
+// Kea HA certificates this node's Kea configuration names (cert-file, trust-anchor); one plan renews
+// them on every peer, so the button plans for the whole pair.
+function KeaHaCerts({ entries, thresholds, onPlan }) {
+  const { t } = useTranslation('certs')
+  if (!entries?.length) return null
+  return (
+    <div className="border-t border-border pt-3 space-y-2" data-testid="cert-kea-ha">
+      <div className="flex flex-wrap items-center gap-2">
+        <h4 className="text-xs font-semibold text-text-primary">{t('keaHa.title')}</h4>
+        <Button size="xs" variant="secondary" className="ml-auto" onClick={onPlan} data-testid="cert-kea-ha-renew"><ArrowsClockwise size={12} />{t('keaHa.renew')}</Button>
+      </div>
+      {entries.map((e) => {
+        const cert = e.cert && !e.cert.error ? e.cert : null
+        const { level, days } = expiryLevel(cert, thresholds)
+        return (
+          <div key={`${e.engine}/${e.server}`} className="space-y-1" data-testid="cert-kea-ha-entry" data-server={e.server}>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="font-medium">{e.engine} {e.server}</span>
+              {e.role && <Badge variant="secondary" size="sm">{e.role}</Badge>}
+              <Badge variant={LEVEL_BADGE[level]} size="sm" data-level={level}>
+                {level === 'expired' ? t('expiry.expired') : level === 'unknown' ? t('expiry.unknown') : t('expiry.days', { count: days })}
+              </Badge>
+              <Badge variant={cert?.cluster_ca ? 'info' : 'warning'} size="sm">{cert?.cluster_ca ? t('keaHa.clusterCa') : t('keaHa.otherCa')}</Badge>
+              {!e.full && <Badge variant="warning" size="sm">{t('keaHa.partial')}</Badge>}
+            </div>
+            {e.cert?.error && <p className="text-xs status-warning-text">{e.cert.path}: {e.cert.error}</p>}
+            <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <Field label={t('fields.issuer')}>{cert ? cert.issuer_common_name || cert.issuer : '-'}</Field>
+              <Field label={t('fields.names')}>{cert?.san?.join(', ') || '-'}</Field>
+              <Field label={t('fields.expires')}>{cert ? when(cert.not_after) : '-'}</Field>
+              <Field label={t('keaHa.files')}><span className="font-mono text-2xs">{e.cert?.path || '-'}</span></Field>
+            </dl>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function NodeCard({ node, thresholds, onSource, onUpload, onRenew, onSelfSigned, showLog, onToggleLog, onKeaHaPlan }) {
   const { t } = useTranslation('certs')
   const cert = node.current
   const { level, days } = expiryLevel(cert, thresholds)
@@ -75,6 +114,7 @@ function NodeCard({ node, thresholds, onSource, onUpload, onRenew, onSelfSigned,
           {t('node.failures', { count: node.failures, next: when(node.next_attempt_at) || '-' })}: {node.last_error}
         </p>
       )}
+      <KeaHaCerts entries={node.kea_ha} thresholds={thresholds} onPlan={onKeaHaPlan} />
       {node.job?.state === 'running' && <p className="text-xs text-text-secondary">{t('node.running', { step: node.job.step || '' })}</p>}
       {node.pending_request && <p className="text-xs text-text-secondary">{t('node.pendingRequest')}</p>}
       {node.log?.length > 0 && (
@@ -131,6 +171,7 @@ export default function CertificatesPage() {
   const [logs, setLogs] = useState({})
   const [job, setJob] = useState(null)
   const [setup, setSetup] = useState(null)
+  const [haPlan, setHaPlan] = useState(null)
   const [busy, setBusy] = useState(false)
   const alive = useRef(true)
   // Set again on mount: StrictMode runs the cleanup once before the real mount.
@@ -204,6 +245,14 @@ export default function CertificatesPage() {
     }
   }
 
+  const planKeaHa = async () => {
+    try {
+      setHaPlan(await api.install.haTlsPlan())
+    } catch (e) {
+      showError(errorMessage(e))
+    }
+  }
+
   const cluster = data?.cluster
   return (
     <PageLayout
@@ -252,6 +301,7 @@ export default function CertificatesPage() {
               onSelfSigned={() => setSelfSignedFor(node)}
               showLog={Boolean(logs[node.node_id])}
               onToggleLog={() => setLogs((l) => ({ ...l, [node.node_id]: !l[node.node_id] }))}
+              onKeaHaPlan={planKeaHa}
             />
           ))}
           <p className="text-2xs text-text-tertiary">{t('replicationNote')}</p>
@@ -299,6 +349,18 @@ export default function CertificatesPage() {
         message={t('cluster.clearBody')}
         confirmLabel={t('cluster.clear')}
       />
+      {haPlan && (
+        <PlanPreviewModal
+          open
+          plan={haPlan}
+          onClose={() => setHaPlan(null)}
+          title={t('keaHa.planTitle')}
+          onApplied={() => {
+            showSuccess(t('keaHa.applied'))
+            overviewQ.refetch()
+          }}
+        />
+      )}
       {setup && (
         setup.plan ? (
           <PlanPreviewModal open plan={setup.plan} onClose={() => setSetup(null)} title={t('dns01.title')} onApplied={() => showSuccess(t('dns01.applied'))} />

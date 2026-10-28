@@ -173,12 +173,89 @@ class InstallService:
         nodes = [n.id for n in self.ctx.cluster().nodes if n.modules.d2]
         return nodes or None
 
+    def ha_tls_nodes(self) -> list[dict[str, Any]]:
+        """Every node with the hosts of its URLs, for mapping the Kea HA peers to nodes."""
+        from urllib.parse import urlsplit
+
+        def hosts(*urls: str | None) -> list[str]:
+            out = []
+            for url in urls:
+                try:
+                    host = urlsplit(url or "").hostname
+                except ValueError:
+                    host = None
+                if host and host not in out:
+                    out.append(host)
+            return out
+
+        nodes = [
+            {"id": p.id, "name": p.name, "hosts": hosts(p.url, p.web_url)} for p in self.ctx.cluster().nodes
+        ]
+        if not any(n["id"] == self.ctx.node.id for n in nodes):
+            node = self.ctx.node
+            nodes.append(
+                {
+                    "id": node.id,
+                    "name": node.name,
+                    "hosts": hosts(getattr(node, "replication_url", None), getattr(node, "web_url", None)),
+                }
+            )
+        return nodes
+
+    def build_ha_tls(self, created_by: str) -> Plan:
+        """The coordinated Kea HA TLS switch, or the renewal of its certificates, built on this node
+        (it must hold the cluster CA key), not stored."""
+        nodes = self.ha_tls_nodes()
+        client = self.helper()
+        if client is not None:
+            return self._helper_plan(client, "plan_ha_tls", created_by, nodes=nodes)
+        from pelagos.installer.ha_tls import build_plan
+
+        try:
+            return build_plan(self.env_factory(), nodes, created_by)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from None
+
+    def plan_ha_tls(self, created_by: str) -> Plan:
+        return self.ctx.plan_store.put(self.build_ha_tls(created_by))
+
+    @staticmethod
+    def _wants_ha_tls(ids: Any) -> bool:
+        return isinstance(ids, list) and any(
+            isinstance(i, str) and i.startswith("kea:kea_ha_listener_open:") for i in ids
+        )
+
+    def _with_tls_part(self, parts: list[Plan], created_by: str, count: int) -> Plan:
+        """Appends the HA TLS part; when Pelagos cannot do it, a manual change says why instead."""
+        from pelagos.domain import Change, ChangeOp
+
+        try:
+            parts.append(self.build_ha_tls(created_by))
+        except ValidationError as exc:
+            parts[-1].changes.append(
+                Change(
+                    ChangeOp.REPLACE,
+                    "security/ha-tls/manual",
+                    before={},
+                    after={"summary": f"Kea HA TLS by hand: {exc.detail}", "manual": True},
+                    node_ids=[],
+                )
+            )
+        if len(parts) == 1:
+            return self.ctx.plan_store.put(parts[0])
+        return self._composite(parts, created_by, count)
+
     def plan_security(self, body: dict[str, Any], created_by: str) -> Plan:
         """One plan for the selected findings: `finding_ids` on this node, or `selection`
-        {node id: [finding ids]} across nodes, each node's part built by that node."""
+        {node id: [finding ids]} across nodes, each node's part built by that node. An open Kea HA
+        listener adds the coordinated TLS switch of the whole pair as the last part."""
         selection = body.get("selection")
         if selection is None:
-            return self.ctx.plan_store.put(self.build_security_part(body.get("finding_ids"), created_by))
+            ids = body.get("finding_ids")
+            part = self.build_security_part(ids, created_by)
+            if self._wants_ha_tls(ids):
+                return self._with_tls_part([part], created_by, len(set(ids)))
+            return self.ctx.plan_store.put(part)
         me = self.ctx.node.id
         if (
             not isinstance(selection, dict)
@@ -199,9 +276,13 @@ class InstallService:
 
                 body = {"finding_ids": ids, "created_by": created_by}
                 parts.append(self.peers.build_plan(self._peer(node_id), SECURITY_PLAN, body))
+        count = sum(len(set(v)) for v in selection.values())
+        every = [i for v in selection.values() for i in v]
+        if self._wants_ha_tls(every):
+            return self._with_tls_part(parts, created_by, count)
         if len(parts) == 1:
             return self.ctx.plan_store.put(parts[0])
-        return self._composite(parts, created_by, sum(len(set(v)) for v in selection.values()))
+        return self._composite(parts, created_by, count)
 
     def _composite(self, parts: list[Plan], created_by: str, count: int) -> Plan:
         from pelagos.domain import PlanScope, PlanState, messages

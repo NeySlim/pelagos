@@ -185,7 +185,7 @@ def test_open_listener_is_critical_and_remediable(tmp_path):
     assert (
         "every command" in f.description and "192.0.2.12" in f.proposal and "restrict-commands" in f.proposal
     )
-    assert "standby (or secondary) first" in f.proposal
+    assert "standby (or secondary, and the backups) first" in f.proposal and f.details["tls_plan"]
 
 
 def test_restricted_listener_still_open(tmp_path):
@@ -213,7 +213,8 @@ def test_existing_guard_mitigates(tmp_path, source):
     restricted = _env(tmp_path / "b", ha_dhcp4(**{"restrict-commands": True}))
     _ruleset(restricted, PROD_GUARD)
     (g,) = _ha(restricted)
-    assert not g.to_dict()["remediable"] and "TLS" in g.to_dict()["manual_action"]
+    # Restricted and guarded: what is left is the TLS step of the pair, done by plan.
+    assert g.to_dict()["remediable"] and g.details["tls_plan"] and g.to_dict()["manual_action"] is None
 
 
 def test_rules_that_do_not_guard(tmp_path):

@@ -47,6 +47,16 @@
     "wanted": "Names requested",
     "fingerprint": "Fingerprint"
   },
+  "keaHa": {
+    "title": "Kea HA certificates",
+    "renew": "Plan the renewal (every peer)",
+    "clusterCa": "cluster CA",
+    "otherCa": "other CA",
+    "partial": "TLS incomplete",
+    "files": "Certificate file",
+    "planTitle": "Kea HA certificates",
+    "applied": "Kea HA certificates renewed on every peer"
+  },
   "log": {
     "hide": "Hide the log",
     "show": "Log ({{count}})"

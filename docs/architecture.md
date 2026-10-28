@@ -2527,8 +2527,37 @@ the pair: `restrict-commands: true` in every HA relationship (lossless edit,
 `inet pelagos_kea_ha_guard` (loopback and the peers' URL addresses accepted, the
 rest dropped) loaded by `pelagos-kea-ha-guard.service`; the step watches the
 guard's counters for up to 2.5 heartbeats and removes it again when only drops
-grow. TLS (a certificate per peer from the cluster CA, `require-client-certs`)
-stays a manual action: it must switch on both peers together, standby first.
+grow.
+
+TLS is a plan for the whole HA set (`installer/ha_tls.py`, `POST
+/install/security/ha-tls/plan`, and the last part of any security plan that
+selects a `kea_ha_listener_open` finding). It is built on a node that holds the
+cluster CA key; each HA peer must map to a node of the cluster (URL host among the
+node's replication or web URL hosts, else the server name equals the node name).
+Steps, each sealed with the master key when sent to a peer (`core.step_seal`,
+accepted by the helper only for this node's own HA servers): `ha-tls-1-deposit` on
+every node (EC P-256 certificate from the cluster CA, SANs the node's HA URL
+addresses, serverAuth and clientAuth, written root:<kea group>, key 0640, under
+`<kea conf dir>/tls/` or at the cert-file and key-file paths the configuration
+already names inside the Kea directories; the key of a peer travels sealed in the
+step), `ha-tls-2-standby` on the nodes that are primary in no relationship
+(standby, secondary, backups), `ha-tls-3-primary`, then `ha-tls-4-verify` on every
+node (status-get: each relationship in its normal state and in touch with its
+partner, twice in a row, within max-response-delay plus three heartbeats, 60 to
+240 s). The switch sets `trust-anchor`, `cert-file` and `key-file` at the
+relationship level, drops peer-level overrides, turns every peer URL to https and
+sets `require-client-certs` true. A failed switch or check runs `ha-tls-undo` on
+every node (previous files and configuration, then `config-reload`). When every
+relationship of the planning node already is TLS with the cluster CA as trust
+anchor, the same plan renews: new certificates at the same paths, then one
+`config-reload` per node (hooks and the files they name are reloaded on every
+reload, ARM hooks.rst), each node checked before the next. Certificates issued
+outside Pelagos by the cluster CA are renewed the same way.
+
+The certificate inventory (`GET /admin/certificates`, `kea_ha` of each node) lists
+the certificates the Kea HA relationships name (`cert-file`, `trust-anchor`: issuer,
+validity, SAN, whether the cluster CA signed them), and the collector raises
+`cert_expiry` for each (subject `cert:kea_ha:<path>`) with the usual thresholds.
 
 The guard is an object Pelagos manages (`installer/ha_guard.py`). A guard set up
 by hand under the names the audit knows (table `inet kea_ha_guard`, unit

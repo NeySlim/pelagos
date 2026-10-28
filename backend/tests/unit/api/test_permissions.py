@@ -270,6 +270,7 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
         {"peers": ["192.0.2.12"]},
         "admin:install",
     ),
+    ("POST", "/install/security/ha-tls/plan", "/install/security/ha-tls/plan", None, "admin:install"),
     ("GET", "/admin/users", "/admin/users", None, "admin:users"),
     ("POST", "/admin/users", "/admin/users", {"username": "x"}, "admin:users"),
     ("GET", "/admin/users/<string:user_id>", "/admin/users/unknown", None, "admin:users"),

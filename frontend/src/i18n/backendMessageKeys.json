@@ -367,6 +367,7 @@
     "zone"
   ],
   "cert.kind.ca": [],
+  "cert.kind.kea_ha": [],
   "cert.kind.node": [],
   "cert.kind.web": [],
   "common.none": [],
@@ -469,6 +470,9 @@
     "port"
   ],
   "finding.kea_ha_listener_open.step_restrict": [],
+  "finding.kea_ha_listener_open.step_tls": [
+    "engine"
+  ],
   "finding.kea_ha_listener_open.tls_optional": [],
   "finding.kea_ha_listener_open.unrestricted": [],
   "finding.kea_http_socket_plain.description": [
@@ -643,6 +647,11 @@
   "job.phase.bind_remove": [],
   "job.phase.changes": [],
   "job.phase.d2_switch": [],
+  "job.phase.ha_tls_deposit": [],
+  "job.phase.ha_tls_primary": [],
+  "job.phase.ha_tls_standby": [],
+  "job.phase.ha_tls_undo": [],
+  "job.phase.ha_tls_verify": [],
   "job.step.bind_adopt": [],
   "job.step.cert_node": [
     "node"
@@ -727,6 +736,12 @@
   "plan.ha_guard.set": [
     "peers",
     "ports"
+  ],
+  "plan.ha_tls.enable": [
+    "engines"
+  ],
+  "plan.ha_tls.renew": [
+    "engines"
   ],
   "plan.host": [
     "fqdn",

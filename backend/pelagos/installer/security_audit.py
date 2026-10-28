@@ -40,6 +40,7 @@ from pelagos.installer import (
     drift,
     ha_guard,
     ha_listener,
+    ha_tls,
     keaconf,
     keasetup,
     managed,
@@ -749,7 +750,9 @@ def _ha_findings(inp: KeaAuditInput) -> list[Finding]:
             guard = fw.guard(lst.port)
             can_restrict = ha_listener.supports_restrict(version)
             needs_restrict = can_restrict and not lst.restrict_commands
-            remediable = needs_restrict or (guard is None and inp.nft)
+            # The TLS step is planned for the whole pair (installer.ha_tls): needs server-side TLS.
+            tls_plan = lst.host is not None and ha_listener.supports_restrict(version)
+            remediable = needs_restrict or (guard is None and inp.nft) or tls_plan
             exposure = (
                 "finding.kea_ha_listener_open.tls_optional"
                 if lst.tls
@@ -779,8 +782,15 @@ def _ha_findings(inp: KeaAuditInput) -> list[Finding]:
                     if inp.nft
                     else msg("finding.kea_ha_listener_open.step_guard_manual", peers=peers, port=lst.port)
                 )
-            tls = msg("finding.kea_ha_listener_open.manual_tls", engine=engine)
-            by_hand = [s for s in steps if s["key"].endswith("step_guard_manual")] + [tls]
+            tls = msg(
+                "finding.kea_ha_listener_open.step_tls"
+                if tls_plan
+                else "finding.kea_ha_listener_open.manual_tls",
+                engine=engine,
+            )
+            by_hand = [s for s in steps if s["key"].endswith("step_guard_manual")]
+            if not tls_plan:
+                by_hand.append(tls)
             findings.append(
                 Finding.of(
                     finding_id("kea", "kea_ha_listener_open", f"{engine}:{lst.address}"),
@@ -804,7 +814,10 @@ def _ha_findings(inp: KeaAuditInput) -> list[Finding]:
                         "guard_allowed": guard.allowed if guard else [],
                         "kea_version": version,
                         "remediable": remediable,
-                        "manual": by_hand[0]
+                        "tls_plan": tls_plan,
+                        "manual": None
+                        if not by_hand
+                        else by_hand[0]
                         if len(by_hand) == 1
                         else msg("finding.kea_ha_listener_open.proposal", steps=join(by_hand, " ")),
                         "remediation": "ha_listener",
@@ -1795,7 +1808,7 @@ DUAL_KEY_STEPS = {
 
 def remediation_steps(plan: Plan, env: Any) -> list[Step]:
     """One step per change for this node, in plan order; each step backs up, validates and rolls back."""
-    ctx: dict[str, Any] = {"secrets": dict(getattr(env, "plan_secrets", None) or {})}
+    ctx: dict[str, Any] = {"secrets": dict(getattr(env, "plan_secrets", None) or {}), "plan_id": plan.id}
     steps: list[Step] = []
 
     def preconditions() -> str:
@@ -1811,6 +1824,10 @@ def remediation_steps(plan: Plan, env: Any) -> list[Step]:
         if env.node_id not in change.node_ids:
             continue  # another node's change, or a manual step
         details = change.after["details"]
+        if change.after.get("step") in ha_tls.STEP_FUNCTIONS:
+            tls_fn = ha_tls.STEP_FUNCTIONS[change.after["step"]]
+            steps.append(Step(change.target, lambda fn=tls_fn, a=change.after: fn(env, a, ctx), weight=2))
+            continue
         if "step" in change.after:
             fn = DUAL_KEY_STEPS[change.after["step"]]
         else:

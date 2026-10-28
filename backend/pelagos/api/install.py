@@ -78,3 +78,12 @@ class HAGuardPlan(Resource):
     @ns.response(400, "validation_error", m.Problem)
     def post(self):
         return plan_answer(services().install.plan_ha_guard(json_body(), username()))
+
+
+@ns.route("/security/ha-tls/plan")
+class HaTlsPlan(Resource):
+    @require("admin:install")
+    @ns.response(200, "Kea HA TLS for every peer: the switch, or the renewal when it already is TLS", m.Plan)
+    @ns.response(400, "validation_error", m.Problem)
+    def post(self):
+        return plan_answer(services().install.plan_ha_tls(username()))

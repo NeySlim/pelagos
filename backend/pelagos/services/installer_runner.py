@@ -21,6 +21,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from pelagos.core import kea_ha_tls as kt
 from pelagos.core.context import NodeContext
 from pelagos.domain import Change, Engine, Job, JobState, NodeApplyResult, Plan, PlanScope, messages
 from pelagos.installer import helper
@@ -28,14 +29,21 @@ from pelagos.services.jobs import step
 
 log = logging.getLogger(__name__)
 
-# Dual-key switch steps (security plan), in the order they must complete on every node.
-STEP_ORDER = ("1-bind-add", "2-d2-switch", "3-bind-remove")
+# Dual-key switch steps, then the Kea HA TLS steps (security plan), in the order they must complete
+# on every node. The HA TLS undo step runs only when a switch or check step failed.
+STEP_ORDER = ("1-bind-add", "2-d2-switch", "3-bind-remove", *kt.STEPS)
 PHASE_KEYS = {
     "changes": "changes",
     "1-bind-add": "bind_add",
     "2-d2-switch": "d2_switch",
     "3-bind-remove": "bind_remove",
+    kt.DEPOSIT: "ha_tls_deposit",
+    kt.STANDBY: "ha_tls_standby",
+    kt.PRIMARY: "ha_tls_primary",
+    kt.VERIFY: "ha_tls_verify",
+    kt.UNDO: "ha_tls_undo",
 }
+UNDONE_ON_FAILURE = frozenset({kt.STANDBY, kt.PRIMARY, kt.VERIFY})
 STEP_ENGINE = {"1-bind-add": Engine.BIND, "2-d2-switch": Engine.D2, "3-bind-remove": Engine.BIND}
 
 
@@ -53,6 +61,8 @@ def phases(plan: Plan) -> list[tuple[str, list[Change]]]:
         if not change.node_ids:
             continue
         step_name = change.after.get("step") if isinstance(change.after, dict) else None
+        if step_name == kt.UNDO:
+            continue  # run by InstallerRunner only after a failed switch
         if step_name in stepped:
             stepped[step_name].append(change)
         else:
@@ -134,20 +144,53 @@ class InstallerRunner:
             raise RuntimeError("nothing to run: every change of this plan is manual")
         first = True
         for name, changes in groups:
-            nodes = sorted({n for c in changes for n in c.node_ids}, key=lambda n: (n != me, n))
+            # HA TLS phases keep the plan's node order (standby before primary, built by the installer).
+            order = list(dict.fromkeys(n for c in changes for n in c.node_ids))
+            nodes = order if name in kt.STEPS else sorted(order, key=lambda n: (n != me, n))
             for node_id in nodes:
                 mine = [c for c in changes if node_id in c.node_ids]
-                part = sub_plan(plan, mine, name, keep_preconditions=first)
-                if node_id == me and self.helper is not None:
-                    run_local(self.ctx, part, job, progress, helper=self.helper)
-                elif node_id == me:
-                    env = env if env is not None else self.env_factory()
-                    run_local(self.ctx, part, job, progress, env)
-                else:
-                    self._remote(part, node_id, name, job, progress)
+                try:
+                    env = self._run_on(plan, mine, name, node_id, first, job, progress, env)
+                except Exception:
+                    if name in UNDONE_ON_FAILURE:
+                        self._undo(plan, job, progress)
+                    raise
                 done.append({"phase": name, "node_id": node_id, "changes": [c.target for c in mine]})
             first = False
         return {"phases": done}
+
+    def _run_on(
+        self,
+        plan: Plan,
+        changes: list[Change],
+        phase: str,
+        node_id: str,
+        first: bool,
+        job: Job,
+        progress: Callable[[Job], None],
+        env: Any,
+    ) -> Any:
+        part = sub_plan(plan, changes, phase, keep_preconditions=first)
+        if node_id == self.ctx.node.id and self.helper is not None:
+            run_local(self.ctx, part, job, progress, helper=self.helper)
+        elif node_id == self.ctx.node.id:
+            env = env if env is not None else self.env_factory()
+            run_local(self.ctx, part, job, progress, env)
+        else:
+            self._remote(part, node_id, phase, job, progress)
+        return env
+
+    def _undo(self, plan: Plan, job: Job, progress: Callable[[Job], None]) -> None:
+        """A failed HA TLS switch: every node of the plan gets its previous files and configuration
+        back (primaries first, the reverse of the switch); an undo that fails is recorded, not raised."""
+        undo = [c for c in plan.changes if isinstance(c.after, dict) and c.after.get("step") == kt.UNDO]
+        env = None
+        for node_id in reversed(list(dict.fromkeys(n for c in undo for n in c.node_ids))):
+            mine = [c for c in undo if node_id in c.node_ids]
+            try:
+                env = self._run_on(plan, mine, kt.UNDO, node_id, False, job, progress, env)
+            except Exception as exc:  # the job already failed; keep undoing the other nodes
+                log.warning("HA TLS undo on %s failed: %s", node_id, exc)
 
     def _remote(
         self, part: Plan, node_id: str, phase: str, job: Job, progress: Callable[[Job], None]
@@ -197,7 +240,34 @@ class InstallerRunner:
             except Exception:  # the peer falls back to the replicated secret, checked on its side
                 return None
 
-        seal_steps(part, box, origin=self.ctx.node.id, receiver=node_id, secret_of=secret_of)
+        material: dict[str, str] = {}
+
+        def secret_for(change: Change) -> str | None:
+            if not isinstance(change.after, dict) or change.after.get("step") != kt.DEPOSIT:
+                return None
+            if change.target not in material:
+                pair = self._issue_ha_cert(change.after.get("details") or {})
+                change.after["cert_pem"] = pair.cert_pem.decode()
+                material[change.target] = pair.key_pem.decode()
+            return material[change.target]
+
+        seal_steps(
+            part, box, origin=self.ctx.node.id, receiver=node_id, secret_of=secret_of, secret_for=secret_for
+        )
+
+    def _issue_ha_cert(self, details: dict[str, Any]) -> Any:
+        """A Kea HA certificate for a peer, from the cluster CA key this node holds."""
+        from pelagos.core import ca as ca_mod
+        from pelagos.installer.ha_tls import issue_for
+
+        pki = self.ctx.paths.pki_dir
+        try:
+            pair = ca_mod.KeyPair((pki / "ca.key").read_bytes(), (pki / "ca.crt").read_bytes())
+        except OSError as exc:
+            raise RuntimeError(
+                f"cannot issue the HA certificate: cluster CA key unreadable ({exc})"
+            ) from None
+        return issue_for(pair, details)
 
 
 def run_received(ctx: NodeContext, plan: Plan, env: Any = None) -> NodeApplyResult:

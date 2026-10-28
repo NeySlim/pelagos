@@ -227,6 +227,8 @@ export const install = {
   // The nftables guard of the Kea HA listeners of a node, and a plan that sets its allowed addresses.
   haGuard: (node) => apiClient.get(`/install/security/ha-guard${node ? buildQueryString({ node }) : ''}`),
   haGuardPlan: (node, peers) => apiClient.post('/install/security/ha-guard/plan', node ? { node, peers } : { peers }),
+  // Kea HA TLS on every peer: the switch, or the renewal of the certificates when it already is TLS.
+  haTlsPlan: () => apiClient.post('/install/security/ha-tls/plan', {}),
 }
 
 export const admin = {

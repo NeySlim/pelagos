@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from cryptography import x509
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
@@ -189,3 +191,72 @@ def write_pair(pair: KeyPair, key_path: Path, cert_path: Path) -> None:
     key_path.chmod(0o600)
     cert_path.write_bytes(pair.cert_pem)
     cert_path.chmod(0o644)
+
+
+# Kea HA peers -------------------------------------------------------------------------------------
+
+KEA_HA_DAYS = NODE_DAYS
+
+
+def issue_service(ca: KeyPair, common_name: str, hosts: list[str], days: int = KEA_HA_DAYS) -> KeyPair:
+    """A new EC P-256 key and its certificate for a service that is both TLS server and client (a Kea
+    HA peer): IP and DNS SANs from `hosts`, the same extensions as node certificates."""
+
+    if not hosts:
+        raise ValueError("a service certificate needs at least one address or name")
+    sans: list[x509.GeneralName] = []
+    for host in dict.fromkeys(hosts):
+        try:
+            sans.append(x509.IPAddress(ipaddress.ip_address(host)))
+        except ValueError:
+            sans.append(x509.DNSName(host))
+    key = ec.generate_private_key(ec.SECP256R1())
+    ca_key = serialization.load_pem_private_key(ca.key_pem, password=None)
+    ca_cert = x509.load_pem_x509_certificate(ca.cert_pem)
+    now = utcnow()
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)]))
+        .issuer_name(ca_cert.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=5))
+        .not_valid_after(now + timedelta(days=days))
+        .add_extension(x509.SubjectAlternativeName(sans), critical=False)
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(
+            x509.KeyUsage(True, False, False, False, False, False, False, False, False), critical=True
+        )
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+        .add_extension(_authority_key_id(ca_cert), critical=False)
+        .add_extension(
+            x509.ExtendedKeyUsage(
+                [x509.oid.ExtendedKeyUsageOID.SERVER_AUTH, x509.oid.ExtendedKeyUsageOID.CLIENT_AUTH]
+            ),
+            critical=False,
+        )
+        .sign(ca_key, hashes.SHA256())  # type: ignore[arg-type]
+    )
+    return KeyPair(_key_pem(key), cert.public_bytes(serialization.Encoding.PEM))
+
+
+def signed_by(cert_pem: bytes, ca_pem: bytes) -> bool:
+    """`cert_pem` (its first certificate) carries a valid signature of the CA in `ca_pem`."""
+    try:
+        cert = x509.load_pem_x509_certificate(cert_pem)
+        ca_cert = x509.load_pem_x509_certificate(ca_pem)
+        cert.verify_directly_issued_by(ca_cert)
+    except (ValueError, TypeError, InvalidSignature):
+        return False
+    return True
+
+
+def key_matches(key_pem: bytes, cert_pem: bytes) -> bool:
+    try:
+        key = serialization.load_pem_private_key(key_pem, password=None)
+        cert = x509.load_pem_x509_certificate(cert_pem)
+    except (ValueError, TypeError):
+        return False
+    pub = serialization.PublicFormat.SubjectPublicKeyInfo
+    enc = serialization.Encoding.DER
+    return key.public_key().public_bytes(enc, pub) == cert.public_key().public_bytes(enc, pub)

@@ -82,6 +82,8 @@ CATALOG: dict[str, str] = {
     "plan.install.distro_packages": "distro packages",
     "plan.import": "import {engines}",
     "plan.security": "security remediation: {count} findings",
+    "plan.ha_tls.enable": "Kea HA ({engines}) to TLS with certificates from the cluster CA on every peer",
+    "plan.ha_tls.renew": "Kea HA ({engines}): renew the TLS certificate of every peer",
     # Alert titles.
     "alert.daemon_down": "{engine} does not answer",
     "alert.zone_not_loaded": "zone {zone} is not loaded",
@@ -214,6 +216,7 @@ CATALOG: dict[str, str] = {
     "cert.kind.web": "Web UI",
     "cert.kind.node": "Node replication",
     "cert.kind.ca": "Internal CA",
+    "cert.kind.kea_ha": "Kea HA",
     "plan.certs.dns01_setup": "DNS-01 for web certificates: key {key} and update-policy on {zones}",
     "job.step.cert_node": "certificate of {node}",
     # Security findings: description, proposal and risk.
@@ -395,6 +398,13 @@ CATALOG: dict[str, str] = {
     "finding.kea_ha_listener_open.step_guard_manual": (
         "Let only the HA peers ({peers}) reach port {port} in the firewall (nft is not installed)."
     ),
+    "finding.kea_ha_listener_open.step_tls": (
+        "Then TLS on every peer of {engine}, in one plan for the pair: a certificate per peer from the "
+        "cluster CA in the Kea tls directory, https URLs and require-client-certs, the standby (or "
+        "secondary, and the backups) first and the primary right after; if status-get does not show "
+        "the relationships back in their normal state, every peer gets its previous files and "
+        "configuration back."
+    ),
     "finding.kea_ha_listener_open.manual_tls": (
         "Then TLS, by hand on both peers of {engine}: a certificate per peer (serverAuth and clientAuth) "
         "signed by the cluster CA, trust-anchor, cert-file and key-file in the HA relationship, "
@@ -503,6 +513,11 @@ CATALOG: dict[str, str] = {
     "job.phase.bind_add": "the BIND key addition",
     "job.phase.d2_switch": "the D2 key switch",
     "job.phase.bind_remove": "the BIND old key removal",
+    "job.phase.ha_tls_deposit": "the Kea HA certificates",
+    "job.phase.ha_tls_standby": "the Kea HA TLS switch of the standby",
+    "job.phase.ha_tls_primary": "the Kea HA TLS switch of the primary",
+    "job.phase.ha_tls_verify": "the Kea HA state check",
+    "job.phase.ha_tls_undo": "the Kea HA TLS undo",
     "job.step.security_bind_add": "Add the new key to BIND ({finding})",
     "job.step.security_d2_switch": "Switch D2 to the new key ({finding})",
     "job.step.security_bind_remove": "Remove the old key from BIND ({finding})",

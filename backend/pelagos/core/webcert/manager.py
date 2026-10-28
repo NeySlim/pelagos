@@ -228,7 +228,22 @@ class CertManager:
             "log": list(reversed(st.get("log", [])))[:LOG_KEEP],
             "pending_request": pending,
             "files": {"cert": str(self.cert_path), "key": str(self.key_path)},
+            "kea_ha": self.kea_ha(),
         }
+
+    def kea_ha(self) -> list[dict[str, Any]]:
+        """The Kea HA certificates this node's Kea configuration names (cert-file, trust-anchor)."""
+        from pelagos.core import kea_ha_tls
+
+        try:
+            ca_pem: bytes | None = (self.ctx.paths.pki_dir / "ca.crt").read_bytes()
+        except OSError:
+            ca_pem = None
+        try:
+            return kea_ha_tls.node_inventory(dict(self.ctx.node.engines or {}), ca_pem)
+        except Exception:
+            log.exception("Kea HA certificate inventory failed")
+            return []
 
     # Manual mode (a): key and request made here ----------------------------------------------
 
@@ -783,6 +798,7 @@ class CertManager:
                     details=details,
                 )
             )
+        out += self._kea_ha_alerts(settings, now)
         st = self.state()
         if src.get("source") in wc.AUTOMATIC and int(st.get("failures", 0)) > 0:
             title_message = messages.msg(
@@ -806,6 +822,57 @@ class CertManager:
                     },
                 )
             )
+        return out
+
+    def _kea_ha_alerts(self, settings: dict[str, Any], now: datetime) -> list[Alert]:
+        """Expiry of each Kea HA certificate and of a trust anchor other than the internal CA; the
+        renewal is a plan (POST /install/security/ha-tls/plan) for every peer at once."""
+        out: list[Alert] = []
+        seen: set[str] = set()
+        for entry in self.kea_ha():
+            for role, cert in (("cert", entry.get("cert")), ("anchor", entry.get("trust_anchor"))):
+                if not isinstance(cert, dict) or cert.get("error") or not cert.get("not_after"):
+                    continue
+                if role == "anchor" and cert.get("is_cluster_ca"):
+                    continue  # the "ca" alert covers it
+                if cert["path"] in seen:
+                    continue
+                seen.add(cert["path"])
+                end = from_rfc3339(cert["not_after"])
+                start = from_rfc3339(cert["not_before"])
+                warn, crit = wc.expiry_thresholds(end - start, settings)
+                left = end - now
+                if left > warn:
+                    continue
+                expired = left <= timedelta(0)
+                key = "alert.cert_expired" if expired else "alert.cert_expiry"
+                title_message = messages.msg(
+                    key, cert=messages.msg("cert.kind.kea_ha"), not_after=to_rfc3339(end)
+                )
+                out.append(
+                    Alert(
+                        kind=AlertKind.CERT_EXPIRY,
+                        severity=Severity.CRITICAL if left <= crit else Severity.WARNING,
+                        subject=f"cert:kea_ha:{cert['path']}",
+                        title=messages.render(title_message),
+                        title_message=title_message,
+                        node_id=self.node_id,
+                        details={
+                            "cert": "kea_ha",
+                            "role": role,
+                            "engine": entry.get("engine"),
+                            "server": entry.get("server"),
+                            "path": cert["path"],
+                            "not_after": to_rfc3339(end),
+                            "days_left": max(0, left.days),
+                            "fingerprint": cert.get("fingerprint"),
+                            "issuer": cert.get("issuer"),
+                            "san": cert.get("san") or [],
+                            "cluster_ca": bool(cert.get("cluster_ca")),
+                            "renewal": "plan" if cert.get("cluster_ca") or role == "cert" else "manual",
+                        },
+                    )
+                )
         return out
 
     # Audit -----------------------------------------------------------------------------------

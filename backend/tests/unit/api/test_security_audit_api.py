@@ -173,3 +173,39 @@ def test_ha_guard_of_a_peer_is_shown_and_edited_by_plan(admin, two_nodes, monkey
     guard = admin.get(f"{V1}/install/security/ha-guard?node=node-b").get_json()
     assert guard["managed"]["peers"] == ["192.0.2.12", "192.0.2.13"]
     assert guard["loaded"] == {"peers": ["192.0.2.12", "192.0.2.13"], "ports": [8001]}
+
+
+def test_open_ha_listener_plan_adds_the_tls_switch_of_the_pair(
+    admin, services, node_ctx, tmp_path, monkeypatch
+):
+    """The finding's plan ends with the HA TLS part; without the peer in the cluster it says why the
+    TLS step stays manual. The dedicated endpoint builds the TLS plan alone."""
+    from pelagos.core import ca as ca_mod
+    from pelagos.installer import helper
+    from tests.unit.installer.test_ha_tls import ha_conf, node
+
+    monkeypatch.setenv(helper.PLANS_ENV, str(tmp_path / "helper-plans"))
+    env = node(tmp_path / "a", node_ctx.node.id, "server1", "server2", ha_conf("server1"))
+    env.binaries.update({"nft": None, "iptables-save": None, "ip6tables-save": None})
+    root = ca_mod.create_root("t")
+    env.node_paths.pki_dir.mkdir(parents=True, exist_ok=True)
+    (env.node_paths.pki_dir / "ca.crt").write_bytes(root.cert_pem)
+    (env.node_paths.pki_dir / "ca.key").write_bytes(root.key_pem)
+    services.install.env_factory = lambda: env
+    fid = "kea:kea_ha_listener_open:kea4:192.0.2.11:8001"
+    found = {f["id"]: f for f in admin.get(f"{V1}/install/security").get_json()["findings"]}
+    assert found[fid]["remediable"]
+    plan = admin.post(f"{V1}/install/security/plan", json={"finding_ids": [fid]}).get_json()
+    manual = [c for c in plan["changes"] if c["target"] == "security/ha-tls/manual"]
+    assert manual and "not a node of this cluster" in manual[0]["after"]["summary"]
+    node_ctx.config_store.update_cluster(
+        lambda c: c.nodes.append(
+            Peer(id="node-b", name="ns2", url="https://192.0.2.12:8444", cert_fingerprint="fp-b")
+        ),
+        updated_by="test",
+    )
+    plan = admin.post(f"{V1}/install/security/plan", json={"finding_ids": [fid]}).get_json()
+    steps = [c["after"].get("step") for c in plan["changes"]]
+    assert steps[0] is None and "ha-tls-1-deposit" in steps and "ha-tls-undo" in steps
+    alone = admin.post(f"{V1}/install/security/ha-tls/plan", json={}).get_json()
+    assert alone["scope"] == "security" and alone["target_node_ids"] == sorted([node_ctx.node.id, "node-b"])

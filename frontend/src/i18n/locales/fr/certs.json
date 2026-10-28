@@ -47,6 +47,16 @@
     "wanted": "Noms demandés",
     "fingerprint": "Empreinte"
   },
+  "keaHa": {
+    "title": "Certificats de la HA Kea",
+    "renew": "Planifier le renouvellement (tous les pairs)",
+    "clusterCa": "CA du cluster",
+    "otherCa": "autre CA",
+    "partial": "TLS incomplet",
+    "files": "Fichier du certificat",
+    "planTitle": "Certificats de la HA Kea",
+    "applied": "Certificats de la HA Kea renouvelés sur chaque pair"
+  },
   "log": {
     "hide": "Masquer le journal",
     "show": "Journal ({{count}})"

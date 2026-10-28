@@ -260,3 +260,58 @@ def test_backoff_holds_one_revision_only(ctx, pki, monkeypatch):
     with pytest.raises(manager.CertFailure):
         mgr.issue()
     assert mgr.state()["failures"] == 1
+
+
+def test_kea_ha_certificates_in_the_inventory_and_alerts(ctx, tmp_path):
+    """Certificates the Kea HA relationships name (set by hand, signed by the cluster CA) are listed
+    with issuer, SAN and expiry, and raise cert_expiry before they lapse."""
+    import json
+
+    from pelagos.core import ca as ca_mod
+
+    pki_dir = ctx.paths.pki_dir
+    pki_dir.mkdir(parents=True, exist_ok=True)
+    if not (pki_dir / "ca.key").exists():
+        root = ca_mod.create_root("t")
+        (pki_dir / "ca.key").write_bytes(root.key_pem)
+        (pki_dir / "ca.crt").write_bytes(root.cert_pem)
+    root = ca_mod.KeyPair((pki_dir / "ca.key").read_bytes(), (pki_dir / "ca.crt").read_bytes())
+    leaf = ca_mod.issue_service(root, "kea-ha ns1", ["192.0.2.11"])
+    tls = tmp_path / "kea/tls"
+    tls.mkdir(parents=True)
+    (tls / "ns1.crt").write_bytes(leaf.cert_pem)
+    (tls / "ca.crt").write_bytes(root.cert_pem)
+    rel = {
+        "this-server-name": "server1",
+        "mode": "hot-standby",
+        "trust-anchor": str(tls / "ca.crt"),
+        "cert-file": str(tls / "ns1.crt"),
+        "key-file": str(tls / "ns1.key"),
+        "peers": [
+            {"name": "server1", "url": "https://192.0.2.11:8001/", "role": "primary"},
+            {"name": "server2", "url": "https://192.0.2.12:8001/", "role": "standby"},
+        ],
+    }
+    conf = tmp_path / "kea/kea-dhcp4.conf"
+    hook = {"library": "/usr/lib/kea/hooks/libdhcp_ha.so", "parameters": {"high-availability": [rel]}}
+    conf.write_text(json.dumps({"Dhcp4": {"hooks-libraries": [hook]}}))
+    ctx.node.engines = {"kea4": True, "kea": {"dhcp4_conf": str(conf)}}
+    clock = Clock()
+    mgr = manager.CertManager(ctx, clock=clock)
+    (entry,) = mgr.status()["kea_ha"]
+    assert entry["server"] == "server1" and entry["full"]
+    assert entry["cert"]["san"] == ["192.0.2.11"] and entry["cert"]["cluster_ca"]
+    assert entry["cert"]["issuer"] == x509_subject(root.cert_pem)
+    assert entry["trust_anchor"]["is_cluster_ca"]
+    assert not [a for a in mgr.alerts() if a.subject.startswith("cert:kea_ha:")]
+    clock.now += timedelta(days=ca_mod.KEA_HA_DAYS - 20)
+    (alert,) = [a for a in mgr.alerts() if a.subject.startswith("cert:kea_ha:")]
+    assert alert.kind is AlertKind.CERT_EXPIRY and alert.severity is Severity.WARNING
+    assert alert.details["path"] == str(tls / "ns1.crt") and alert.details["renewal"] == "plan"
+    assert alert.title_message["params"]["cert"]["key"] == "cert.kind.kea_ha"
+
+
+def x509_subject(cert_pem: bytes) -> str:
+    from cryptography import x509
+
+    return x509.load_pem_x509_certificate(cert_pem).subject.rfc4514_string()

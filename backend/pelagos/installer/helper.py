@@ -27,6 +27,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import IO, Any
 
+from pelagos.core.kea_ha_tls import ALL_STEPS as HA_TLS_STEPS
+from pelagos.core.kea_ha_tls import KEY_SECRET as HA_TLS_KEY
 from pelagos.domain import Change, Job, Plan, PlanScope
 
 log = logging.getLogger(__name__)
@@ -38,10 +40,21 @@ DEFAULT_PLANS = "/run/pelagos-helper/plans"
 PLAN_TTL = 7 * 86400
 REQUEST_TIMEOUT = 30.0
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
-# The only step a peer ever sends: BIND steps of a dual-key switch always run on their own node.
-PEER_STEPS = frozenset({"2-d2-switch"})
+# Steps a peer may send: the D2 step of a dual-key switch (BIND steps always run on their own node)
+# and the steps of the coordinated Kea HA TLS switch (installer.ha_tls).
+DUAL_KEY_PEER_STEPS = frozenset({"2-d2-switch"})
+PEER_STEPS = DUAL_KEY_PEER_STEPS | frozenset(HA_TLS_STEPS)
 SAFE_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-OPERATIONS = ("detect", "audit", "ha_guard", "plan_install", "plan_import", "plan_security", "apply")
+OPERATIONS = (
+    "detect",
+    "audit",
+    "ha_guard",
+    "plan_install",
+    "plan_import",
+    "plan_security",
+    "plan_ha_tls",
+    "apply",
+)
 INSTALLER_SCOPES = (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY)
 MAX_REQUEST = 4 << 20
 
@@ -116,6 +129,11 @@ def handle(request: dict[str, Any], env_factory: Callable[[], Any], emit: Callab
                     env, list(request["finding_ids"]), created_by, list(d2) if d2 is not None else None
                 )
             )
+        if op == "plan_ha_tls":
+            from pelagos.installer.ha_tls import build_plan
+
+            nodes = [dict(n) for n in request.get("nodes") or [] if isinstance(n, dict)]
+            return _record(build_plan(env, nodes, created_by))
     except (KeyError, TypeError, ValueError) as exc:
         raise HelperError(str(exc), "value") from None
     return _apply(request, env, emit)
@@ -270,7 +288,8 @@ def verify_peer_steps(
     origin = cluster.peer(plan.node_id)
     if origin is None or origin.cert_fingerprint in cluster.revoked:
         raise HelperError(f"plan origin {plan.node_id} is not a member of this cluster", "value")
-    findings = _shared_key_findings(env)
+    dual_key = any(c.after.get("step") in DUAL_KEY_PEER_STEPS for c in mine if isinstance(c.after, dict))
+    findings = _shared_key_findings(env) if dual_key else {}
     secrets: dict[str, str] = {}
     digests: list[str] = []
     for change in mine:
@@ -283,6 +302,12 @@ def verify_peer_steps(
         if step not in PEER_STEPS:
             raise HelperError(f"change {change.target} from another node is not accepted", "value")
         details = change.after.get("details") if isinstance(change.after.get("details"), dict) else {}
+        if step in HA_TLS_STEPS:
+            _match_ha_tls(change, step, details, env)
+            if sealed_secret is not None:
+                secrets[HA_TLS_KEY] = sealed_secret
+            digests.append(step_seal.seal_digest(change))
+            continue
         key, new = str(details.get("key") or ""), str(details.get("new_key") or "")
         _match_audit(change, step, key, new, details, findings, env)
         secret = sealed_secret or _member_secret(cluster, box, new)
@@ -331,6 +356,38 @@ def _match_audit(
     algorithm = str(before.get("algorithm") or details.get("algorithm") or "").lower()
     if algorithm != str(finding.details.get("algorithm") or "").lower():
         refuse(f"algorithm {algorithm or 'unknown'} differs from this node's audit")
+
+
+def _match_ha_tls(change: Change, step: str, details: dict[str, Any], env: Any) -> None:
+    """An HA TLS step for this node: its target names the step and this node, it names only Kea HA
+    servers this node runs; the certificate itself is checked against this node's CA by the step."""
+    from pelagos.core import kea_ha_tls as kt
+    from pelagos.installer import keaconf, keasetup
+
+    def refuse(why: str) -> None:
+        raise HelperError(f"change {change.target} from another node refused: {why}", "value")
+
+    if change.target != f"security/ha-tls/{step}/{env.node_id}":
+        refuse("unexpected target")
+    if details.get("remediation") != "ha_tls":
+        refuse("not an HA TLS step")
+    engines = details.get("engines")
+    if not isinstance(engines, dict) or not engines or not set(engines) <= {"kea4", "kea6"}:
+        refuse("no Kea HA engine")
+    for engine, servers in engines.items():
+        conf = env.paths.kea_conf(keasetup.DAEMONS[engine])
+        try:
+            config = keaconf.loads(conf.read_text(), str(conf))
+        except (OSError, keaconf.KeaConfigError):
+            refuse(f"{engine} configuration unreadable here")
+        mine = {r.server for r in kt.relationships(engine, config)}
+        if not isinstance(servers, list) or not servers or not set(map(str, servers)) <= mine:
+            refuse(f"{engine} HA servers {servers} are not this node's ({', '.join(sorted(mine)) or 'none'})")
+    hosts = details.get("hosts")
+    if not isinstance(hosts, list) or not all(
+        isinstance(h, str) and SAFE_KEY.match(h.replace(":", "_")) for h in hosts
+    ):
+        refuse("invalid addresses")
 
 
 def _step_done(step: str, key: str, new: str, env: Any) -> bool:

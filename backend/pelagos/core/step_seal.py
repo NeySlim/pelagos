@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Seals on the dual-key switch steps a node sends to a peer (installer security plans).
+"""Seals on the dual-key switch and Kea HA TLS steps a node sends to a peer (installer security plans).
 
 The sending node seals each step it sends with the cluster master key (section 12): `after.seal`
 is the canonical change, the origin and receiving node ids, the time and a nonce, encrypted under
@@ -18,6 +18,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
+from pelagos.core.kea_ha_tls import ALL_STEPS as HA_TLS_STEPS
 from pelagos.core.secrets import SecretBox, SecretError
 from pelagos.domain.common import from_rfc3339, to_rfc3339, utcnow
 from pelagos.domain.plan import Change, Plan
@@ -26,6 +27,7 @@ SEAL = "seal"
 SEALED_SECRET = "sealed_secret"  # noqa: S105 (a field name)
 SECRET_SHA256 = "secret_sha256"  # noqa: S105 (a field name)
 DUAL_KEY_STEPS = ("1-bind-add", "2-d2-switch", "3-bind-remove")
+SEALED_STEPS = (*DUAL_KEY_STEPS, *HA_TLS_STEPS)
 SEAL_MAX_AGE = timedelta(hours=1)
 CLOCK_SKEW = timedelta(minutes=5)
 
@@ -33,7 +35,7 @@ CLOCK_SKEW = timedelta(minutes=5)
 def _step(change: Change) -> str | None:
     after = change.after if isinstance(change.after, dict) else {}
     step = after.get("step")
-    return step if step in DUAL_KEY_STEPS else None
+    return step if step in SEALED_STEPS else None
 
 
 def _canonical(change: Change) -> str:
@@ -56,8 +58,10 @@ def seal_steps(
     receiver: str,
     secret_of: Callable[[str], str | None] | None = None,
     now: datetime | None = None,
+    secret_for: Callable[[Change], str | None] | None = None,
 ) -> int:
-    """Seal every dual-key step of `plan` that `receiver` runs; returns how many were sealed."""
+    """Seal every dual-key or HA TLS step of `plan` that `receiver` runs; returns how many were sealed.
+    `secret_for` gives a step's own secret (the key of an HA TLS deposit)."""
     sealed = 0
     issued = to_rfc3339(now or utcnow())
     for change in plan.changes:
@@ -69,6 +73,8 @@ def seal_steps(
         details = after.get("details") if isinstance(after.get("details"), dict) else {}
         new_key = str(details.get("new_key") or "")
         secret = secret_of(new_key) if (secret_of is not None and step == "2-d2-switch" and new_key) else None
+        if secret_for is not None and secret is None:
+            secret = secret_for(change)
         if secret:
             after[SEALED_SECRET] = box.encrypt(_aad("plan-step-secret", plan, change, receiver), secret)
             after[SECRET_SHA256] = hashlib.sha256(secret.encode()).hexdigest()

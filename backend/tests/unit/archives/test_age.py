@@ -49,7 +49,9 @@ def _vector(path: Path) -> tuple[dict[str, str], list[str], bytes]:
 
 
 @pytest.mark.parametrize(
-    "path", sorted(p for p in VECTORS.iterdir() if p.suffix != ".md"), ids=lambda p: p.name
+    "path",
+    sorted(p for p in VECTORS.iterdir() if p.suffix != ".md" and not p.name.startswith(".")),
+    ids=lambda p: p.name,
 )
 def test_cctv_vector(path: Path) -> None:
     meta, identities, body = _vector(path)

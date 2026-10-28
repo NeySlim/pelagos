@@ -3062,7 +3062,37 @@ screen, N5 daemon and lab tests.
 - **Audit**: `admin.notify.add|replace|delete` (target `notify:<id>`),
   `admin.notify.op` (`request.op`: `order`, `mute`, `unmute`, `test`),
   `notify.sent` and `notify.failed` (target `notify:<channel id>`, request
-  `{"batch_id","alert_ids","events","sender"}`, never a body or a secret).
+  `{"batch_id","alert_ids","events","sender","reason","mute_until"?}` with
+  `events` = `[{"event","alert_id","kind","severity","first_seen"}]`,
+  response `{"duration_ms","status"?,"error"?}`, never a body or a secret).
+  `notify.failed` is written once per abandoned batch (4xx, or retries past
+  `retry_max_hours`); its events are not derived again.
+- **Dispatcher** (`collector/notify.py`, a thread of the collector ticking
+  every 10 s): an event is due for a channel when the ledger (the
+  `notify.*` entries of 7 days) holds nothing for the alert's current
+  occurrence (`opened`, after `confirm_seconds` except `critical`, never for
+  an alert acknowledged before), a lower severity than now (`escalated`), no
+  resolution of a notified occurrence (`resolved`), or nothing for
+  `reminder_hours` on an open, unacknowledged alert (`reminder`). A batch
+  leaves `group_seconds` after its first event became due. At
+  `messages_max_per_hour` sends in the last hour, events wait and leave in one
+  message when a slot frees (none is cut, so the dispatcher leaves
+  `Batch.held_back` at 0). Quiet hours hold all but `critical` (unless
+  `critical_passes` is false) and release a `digest` when they end; a mute
+  holds everything and its end sends one `digest` per channel listing every
+  open alert (`mute_until` in the entry, so a new sender does not repeat it).
+  Nodes whose replication status reports a version older than the dispatcher
+  are skipped by the election. State file `<var>/notify/state.json`:
+  `{"sender": {"node_id","since","order"}, "queue": {"pending","failing"},
+  "channels": {id: {"state","since","last_sent_at","last_error","attempts",
+  "next_try",...}}}` (`collector.notify.read_state`). `notification_failed`
+  (warning, cluster-wide, subject `notify:<id>`) is raised by the sender once
+  a channel fails for `checks.notification_failure_warning_minutes`; the
+  failing channel never receives it.
+- **Cluster alert view**: `core/cluster_alerts.py` (`ClusterAlertView`,
+  `node_alerts`, `merge_copies`) reads this node's cache and each peer's
+  `alerts.list`; `skip` names peers the replicator reports offline, which are
+  listed in `unavailable` without being asked.
 - **WebSocket**: `system` / `notify` `{"channel_id","state"}` when a
   channel's state changes.
 - **Rendering**: titles and the subject line from the message keys through

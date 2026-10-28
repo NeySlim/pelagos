@@ -1602,3 +1602,11 @@ manifest, `filename` in ArchiveMeta, retired identities re-sealed under their ow
 `deep_merge` returns a deep copy, so mutating loaded settings never alters the defaults. CI: the
 unit jobs install `age` for the interoperability tests. Affects B2 to B6, which build on
 `ArchiveWriter`, `read_manifest`, `read_members`, `extract` and the `keys` helpers.
+
+## 2026-10-28, notification dispatcher (batch N1)
+Additive. WP-CORE: `core/cluster_alerts.py` (the cluster alert view moved out of
+`services/alerts_service.py`, which re-exports its names), `Paths.notify_dir`. WP-COLLECTOR:
+`collector/notify.py` and the collector task `notify_alerts`. Architecture section 22: the fields
+of `notify.sent` and `notify.failed`, the dispatcher rules, its state file and the transport
+interface it calls. WP-API-AUTH (N3): read the sender, queue and channel states from
+`collector.notify.read_state` (the sender's file) and the history from the `notify.*` entries.

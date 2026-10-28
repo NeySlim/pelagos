@@ -93,6 +93,11 @@ class Paths:
         return self.var / "plans"
 
     @property
+    def notify_dir(self) -> Path:
+        """Retry state of the notification dispatcher (0700); what was sent lives in the audit log."""
+        return self.var / "notify"
+
+    @property
     def enroll_tokens(self) -> Path:
         return self.var / "enroll_tokens.json"
 

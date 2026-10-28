@@ -125,7 +125,7 @@ class PeerActions:
         import sqlite3
 
         from pelagos.collector import series as series_mod
-        from pelagos.services.alerts_service import node_alerts
+        from pelagos.core.cluster_alerts import node_alerts
 
         def text(name: str) -> str | None:
             value = body.get(name)

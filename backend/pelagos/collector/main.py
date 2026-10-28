@@ -35,6 +35,7 @@ from pelagos.core.paths import Paths
 from pelagos.domain import (
     INCONSISTENCY_KINDS,
     Alert,
+    AlertKind,
     AuditEntry,
     AuditResult,
     Engine,
@@ -57,6 +58,8 @@ LIVE_SECONDS = 5.0
 ZONE_RECHECK_DELAYS = (2.0, 5.0, 15.0, 30.0)
 # Web certificate renewal and expiry checks (core.webcert): often enough for 24 h certificates.
 CERT_SECONDS = 60.0
+# Channel failures and state changes the dispatcher thread reports, taken in by the loop.
+NOTIFY_SECONDS = 10.0
 META_LAST_ACK = "last_ack_audit_id"
 META_ACK_OFFSET = "ack_scan_offset"
 META_ACK_INODE = "ack_scan_inode"
@@ -221,6 +224,8 @@ class Collector:
         self._slow_thread: threading.Thread | None = None
         self._slow_ready: list[PollOutcome] = []
         self._slow_lock = threading.Lock()
+        # Set by run(): the notification dispatcher (collector.notify), ticking on its own thread.
+        self.notifier: Any = None
 
     def _reloading(self, poller: KeaPoller) -> Callable[[str], bool]:
         """True while Pelagos writes or reloads the engine and for the grace period after."""
@@ -538,6 +543,17 @@ class Collector:
         except Exception:
             log.exception("web certificate renewal failed")
 
+    def notify_alerts(self) -> list[Alert]:
+        """`notification_failed` alerts of the dispatcher and its channel state changes (section 22)."""
+        if self.notifier is None:
+            return []
+        alerts = self.notifier.failure_alerts()
+        kinds = frozenset({AlertKind.NOTIFICATION_FAILED.value})
+        self._finish(PollOutcome(alerts=alerts, kinds=kinds))
+        for change in self.notifier.drain_changes():
+            self.events.emit("system", "notify", change, key=f"system:notify:{change['channel_id']}")
+        return alerts
+
     def retention(self) -> dict[str, int]:
         now = int(self.clock())
         retention = self.ctx.settings().get("retention", {})
@@ -563,6 +579,7 @@ class Collector:
             ("health", self.health),
             ("health_audit", self.health_audit),
             ("certificates", self.certificates),
+            ("notify_alerts", self.notify_alerts),
             ("retention", self.retention),
         ):
             try:
@@ -594,6 +611,7 @@ class Collector:
             Task("health_audit", consistency_period, self.health_audit),
             Task("health_audit_ready", poll, self.health_audit_ready),
             Task("certificates", CERT_SECONDS, self.certificates),
+            Task("notify_alerts", NOTIFY_SECONDS, self.notify_alerts),
             Task("retention", 3600.0, self.retention),
         ]
 
@@ -850,6 +868,43 @@ def start_relay(ctx: NodeContext, collector: Collector, replication: Any) -> Any
     return relay
 
 
+def start_notify(ctx: NodeContext, replicator: Any) -> Any:
+    """The notification dispatcher on its own thread; the collector loop reads its alerts."""
+    import sqlite3
+
+    from pelagos.collector.notify import RESOLVED_LIMIT, Dispatcher, DispatcherThread
+    from pelagos.core.cluster_alerts import ClusterAlertView
+    from pelagos.services.peers import PeerGateway
+
+    conns: list[sqlite3.Connection] = []
+
+    def local() -> sqlite3.Connection | None:
+        if not conns:
+            try:
+                conns.append(series_mod.connect(ctx.paths.series_db, readonly=True))
+            except sqlite3.Error as exc:
+                log.warning("alert cache not readable for notifications: %s", exc)
+                return None
+        return conns[0]
+
+    view = ClusterAlertView(ctx.node.id, local, PeerGateway(ctx))
+
+    def read(skip: set[str]) -> Any:
+        return view.cluster(include_resolved=True, resolved_limit=RESOLVED_LIMIT, skip=skip)
+
+    def offline() -> list[str]:
+        return replicator.offline_peers() if replicator is not None else []
+
+    def versions() -> dict[str, str | None]:
+        if replicator is None:
+            return {}
+        return {s.node_id: s.version for s in replicator.peer_statuses()}
+
+    thread = DispatcherThread(Dispatcher(ctx, read, offline=offline, versions=versions))
+    thread.start()
+    return thread
+
+
 # Exit status asking the service manager for a restart (Restart=on-failure): the engines changed.
 EXIT_ENGINES_CHANGED = 75
 # A peer's installer plan rewrites node.toml before its verify step: the exit waits for it to answer.
@@ -1017,6 +1072,12 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     if replicator is not None:
         collector.peers.liveness = replicator
         relay = start_relay(ctx, collector, replication)
+    notify_thread = None
+    try:
+        notify_thread = start_notify(ctx, replicator)
+        collector.notifier = notify_thread.dispatcher
+    except Exception:  # alerts still work without notifications
+        log.exception("notification dispatcher not started")
     # A write from the web process: the zone serials it moved are read now, not at the next poll.
     bind_due = threading.Event()
     listener.on("audit", lambda _msg: bind_due.set())
@@ -1088,6 +1149,8 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     except KeyboardInterrupt:
         return 0
     finally:
+        if notify_thread is not None:
+            notify_thread.close()
         if relay is not None:
             relay.close()
         close = getattr(replication, "close", None)

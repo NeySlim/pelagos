@@ -161,7 +161,8 @@
     "cert_expiry": "certificate expiry",
     "cert_renewal_failed": "certificate renewal failed",
     "config_syntax_warning": "configuration syntax warning",
-    "security_finding": "security audit finding"
+    "security_finding": "security audit finding",
+    "managed_drift": "change outside Pelagos"
   },
   "live": {
     "label": "Live",

@@ -375,6 +375,16 @@
     "note",
     "text"
   ],
+  "drift.object.file": [
+    "path"
+  ],
+  "drift.object.ha_guard": [
+    "table"
+  ],
+  "drift.object.kea_ha": [
+    "engine",
+    "server"
+  ],
   "finding.allow_update_by_address.description": [
     "addresses",
     "zone"
@@ -421,6 +431,15 @@
   ],
   "finding.kea_ctrl_agent_http.proposal": [],
   "finding.kea_ctrl_agent_http.risk": [],
+  "finding.kea_ha_guard_unmanaged.description": [
+    "peers",
+    "ports",
+    "source"
+  ],
+  "finding.kea_ha_guard_unmanaged.proposal": [
+    "source"
+  ],
+  "finding.kea_ha_guard_unmanaged.risk": [],
   "finding.kea_ha_listener_open.description": [
     "address",
     "engine",
@@ -468,6 +487,14 @@
   ],
   "finding.kea_tsig_clear_secret.proposal": [],
   "finding.kea_tsig_clear_secret.risk": [],
+  "finding.managed_drift.description": [
+    "differences",
+    "object"
+  ],
+  "finding.managed_drift.proposal": [
+    "object"
+  ],
+  "finding.managed_drift.risk": [],
   "finding.manual.remote_listener": [
     "subject"
   ],
@@ -696,6 +723,10 @@
   "plan.change": [
     "op",
     "target"
+  ],
+  "plan.ha_guard.set": [
+    "peers",
+    "ports"
   ],
   "plan.host": [
     "fqdn",

@@ -224,6 +224,9 @@ export const install = {
   security: (node) => apiClient.get(`/install/security${node ? buildQueryString({ node }) : ''}`),
   // A list of finding ids of this node, or a selection {node id: [finding ids]} across nodes.
   securityPlan: (selection) => apiClient.post('/install/security/plan', Array.isArray(selection) ? { finding_ids: selection } : { selection }),
+  // The nftables guard of the Kea HA listeners of a node, and a plan that sets its allowed addresses.
+  haGuard: (node) => apiClient.get(`/install/security/ha-guard${node ? buildQueryString({ node }) : ''}`),
+  haGuardPlan: (node, peers) => apiClient.post('/install/security/ha-guard/plan', node ? { node, peers } : { peers }),
 }
 
 export const admin = {

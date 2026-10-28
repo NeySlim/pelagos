@@ -161,7 +161,8 @@
     "cert_expiry": "expiration de certificat",
     "cert_renewal_failed": "renouvellement de certificat en échec",
     "config_syntax_warning": "avertissement de syntaxe de configuration",
-    "security_finding": "constat d'audit de sécurité"
+    "security_finding": "constat d'audit de sécurité",
+    "managed_drift": "modification hors de Pelagos"
   },
   "live": {
     "label": "Direct",

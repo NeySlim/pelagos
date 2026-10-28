@@ -4,11 +4,12 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import SecurityPage from './SecurityPage'
 import { api } from '../../services/api'
-import { isDualKey, isRemediable, remediableIds } from './findings'
+import { isDualKey, isRemediable, remediableIds, planSelection, driftAction } from './findings'
+import { guardBadge, parsePeers } from './guard'
 
 vi.mock('../../services/api', () => {
   const api = {
-    install: { security: vi.fn(), securityPlan: vi.fn() },
+    install: { security: vi.fn(), securityPlan: vi.fn(), haGuard: vi.fn(), haGuardPlan: vi.fn() },
     alerts: { addException: vi.fn(), revokeException: vi.fn() },
     plans: { apply: vi.fn(), get: vi.fn(), rollback: vi.fn() },
     jobs: { get: vi.fn() },
@@ -45,9 +46,29 @@ describe('findings helpers', () => {
   })
 })
 
+describe('drift and guard helpers', () => {
+  const drift = finding('kea', 'managed_drift', 'ha_guard', { actions: ['adopt', 'restore'], differences: ['x'] })
+
+  it('send the chosen drift action with the id, restore by default', () => {
+    expect(driftAction(drift)).toBe('restore')
+    expect(planSelection([drift, FINDINGS[2]], ['|kea:managed_drift:ha_guard', '|bind:weak_rndc_key:rndc-key'], { '|kea:managed_drift:ha_guard': 'adopt' }))
+      .toEqual(['kea:managed_drift:ha_guard#adopt', 'bind:weak_rndc_key:rndc-key'])
+    expect(driftAction({ ...drift, actions: ['adopt'] }, {})).toBe('adopt')
+  })
+
+  it('read the guard state and the address list', () => {
+    expect(guardBadge({ legacy: {} }).key).toBe('legacy')
+    expect(guardBadge({ managed: {}, differences: ['d'] }).key).toBe('drift')
+    expect(guardBadge({ managed: {}, differences: [] }).key).toBe('managed')
+    expect(guardBadge({}).key).toBe('absent')
+    expect(parsePeers('192.0.2.12\n192.0.2.13, 192.0.2.12  2001:db8::12')).toEqual(['192.0.2.12', '192.0.2.13', '2001:db8::12'])
+  })
+})
+
 describe('SecurityPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    api.install.haGuard.mockResolvedValue({ node_id: 'n1', nft: true, listeners: [], managed: null, legacy: null, loaded: null, differences: [] })
     api.install.security.mockResolvedValue({ findings: FINDINGS })
   })
 
@@ -97,5 +118,39 @@ describe('SecurityPage', () => {
     await waitFor(() => expect(api.install.securityPlan).toHaveBeenCalledWith({ ns1: [rndc.id], ns2: [rndc.id] }))
     fireEvent.click(screen.getByTestId('security-unexcept'))
     await waitFor(() => expect(api.alerts.revokeException).toHaveBeenCalledWith('x1'))
+  })
+})
+
+describe('HA guard card', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    api.install.security.mockResolvedValue({ findings: [], nodes: [], node_choices: [], local_node_id: 'n1' })
+    api.install.securityPlan.mockResolvedValue({ id: 'p1', scope: 'security', changes: [], state: 'validated' })
+    api.install.haGuardPlan.mockResolvedValue({ id: 'p2', scope: 'security', changes: [], state: 'validated' })
+  })
+  const listeners = [{ engine: 'kea4', server: 'ns1', address: '192.0.2.11:8001', port: 8001, peers: ['192.0.2.12'] }]
+
+  it('adopts a guard set up by hand on the node it belongs to', async () => {
+    api.install.haGuard.mockResolvedValue({
+      node_id: 'n1', nft: true, listeners, managed: null, loaded: null, differences: [], suggested_peers: ['192.0.2.12'],
+      legacy: { table: 'inet kea_ha_guard', unit: '/etc/systemd/system/kea-ha-guard.service', files: [], peers: ['192.0.2.12'], ports: [8001] },
+    })
+    renderPage()
+    expect(await screen.findByTestId('ha-guard-state')).toHaveTextContent(/hand/i)
+    fireEvent.click(screen.getByTestId('ha-guard-adopt'))
+    await waitFor(() => expect(api.install.securityPlan).toHaveBeenCalledWith({ n1: ['kea:kea_ha_guard_unmanaged:kea_ha_guard'] }))
+  })
+
+  it('plans the edited address list', async () => {
+    api.install.haGuard.mockResolvedValue({
+      node_id: 'n1', nft: true, listeners, legacy: null, loaded: { peers: ['192.0.2.12'], ports: [8001] }, differences: [],
+      suggested_peers: ['192.0.2.12'],
+      managed: { table: 'inet pelagos_kea_ha_guard', unit: 'pelagos-kea-ha-guard.service', peers: ['192.0.2.12'], ports: [8001] },
+    })
+    renderPage()
+    const box = await screen.findByTestId('ha-guard-peers')
+    fireEvent.change(box, { target: { value: '192.0.2.12\n192.0.2.13' } })
+    fireEvent.click(screen.getByTestId('ha-guard-plan'))
+    await waitFor(() => expect(api.install.haGuardPlan).toHaveBeenCalledWith(undefined, ['192.0.2.12', '192.0.2.13']))
   })
 })

@@ -129,7 +129,9 @@
       "kea_socket_dir_mode": "Droits du dossier des sockets",
       "kea_tsig_clear_secret": "Secret D2 en clair",
       "static_zone": "Zone statique",
-      "view_key": "Vue sans clé"
+      "view_key": "Vue sans clé",
+      "kea_ha_guard_unmanaged": "Garde HA posée à la main",
+      "managed_drift": "Modifié hors de Pelagos"
     },
     "dualKey": {
       "add": "Ajouter la nouvelle clé hmac-sha256 à l'update-policy de BIND, à côté de l'ancienne",
@@ -158,6 +160,33 @@
       "listTitle_one": "{{count}} constat gardé en exception",
       "listTitle_other": "{{count}} constats gardés en exception",
       "listHelp": "Choix de l'administrateur : retirer une exception fait réapparaître le constat."
+    },
+    "drift": {
+      "differences": "Ce qui diffère",
+      "action": "Plan",
+      "adopt": "Adopter : garder le nœud tel quel",
+      "restore": "Restaurer l'état de Pelagos"
+    },
+    "guard": {
+      "title": "Garde du listener HA",
+      "help": "La garde nftables qui ne laisse que les pairs et backups HA atteindre les listeners HA de Kea de ce nœud. Changer les adresses construit un plan : la garde est remise comme avant si les paquets des pairs ne passent plus.",
+      "none": "Aucun listener HA de Kea hors loopback sur ce nœud.",
+      "nftMissing": "nft n'est pas installé sur ce nœud : la garde ne peut pas être gérée.",
+      "managed": "Gérée par Pelagos",
+      "legacy": "Posée à la main",
+      "absent": "Aucune garde",
+      "drift": "Diffère de Pelagos",
+      "listeners": "Listeners",
+      "loaded": "Chargée",
+      "recorded": "État de Pelagos",
+      "adoptedFrom": "Reprise de {{source}}",
+      "peers": "Adresses autorisées (une par ligne : pairs HA, backups, préfixes)",
+      "suggested": "Selon la configuration HA : {{peers}}",
+      "useSuggested": "Reprendre",
+      "plan": "Planifier le changement",
+      "adopt": "Reprendre la garde posée à la main",
+      "legacyHelp": "Une garde a été posée hors de Pelagos ({{source}}). La reprendre charge d'abord les mêmes adresses dans la garde de Pelagos, puis retire l'ancienne : le listener reste protégé tout du long.",
+      "nothing": "aucune"
     }
   }
 }

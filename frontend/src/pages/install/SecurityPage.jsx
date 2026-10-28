@@ -17,10 +17,11 @@ import { errorMessage } from '../../services/apiClient'
 import { cn, formatDate } from '../../lib/utils'
 import {
   SEVERITY_ORDER, sortFindings, toggleId, allSelected, isDualKey, isRemediable, isExcepted, remediableIds,
-  findingKey, planSelection, exceptionKey,
+  findingKey, planSelection, exceptionKey, driftAction,
 } from './findings'
+import HAGuardCard from './HAGuardCard'
 
-function Finding({ finding, checked, onToggle, disabled, showNode, onExcept }) {
+function Finding({ finding, checked, onToggle, disabled, showNode, onExcept, action, onAction }) {
   const { t } = useTranslation('install')
   const msg = useMessage()
   const manual = !isRemediable(finding)
@@ -57,6 +58,29 @@ function Finding({ finding, checked, onToggle, disabled, showNode, onExcept }) {
             <dd className="text-text-secondary">{msg(finding.risk_message, finding.risk)}</dd>
           </div>
         </dl>
+        {finding.differences?.length > 0 && (
+          <div className="text-xs" data-testid="security-differences">
+            <p className="text-2xs uppercase tracking-wider text-text-tertiary">{t('security.drift.differences')}</p>
+            <ul className="list-disc ml-5 text-text-secondary font-mono break-all">
+              {finding.differences.map((d) => <li key={d}>{d}</li>)}
+            </ul>
+          </div>
+        )}
+        {finding.actions?.length > 0 && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-text-tertiary">{t('security.drift.action')}</span>
+            <select
+              className="h-7 rounded-md border border-border bg-bg-secondary px-2 text-xs text-text-primary"
+              value={action}
+              onChange={(e) => onAction(e.target.value)}
+              disabled={disabled}
+              aria-label={t('security.drift.action')}
+              data-testid="security-drift-action"
+            >
+              {finding.actions.map((a) => <option key={a} value={a}>{t(`security.drift.${a}`)}</option>)}
+            </select>
+          </div>
+        )}
         {isDualKey(finding) ? (
           <ol className="list-decimal ml-5 text-xs text-text-secondary space-y-0.5" data-testid="security-dual-key">
             <li>{t('security.dualKey.add')}</li>
@@ -171,6 +195,7 @@ export default function SecurityPage() {
   const failed = (findingsQ.data?.nodes || []).filter((n) => !n.ok)
   const showNode = node === 'all'
   const [selected, setSelected] = useState([])
+  const [actions, setActions] = useState({})
   const [plan, setPlan] = useState(null)
   const [building, setBuilding] = useState(false)
   const [buildError, setBuildError] = useState(null)
@@ -185,7 +210,7 @@ export default function SecurityPage() {
     setBuilding(true)
     setBuildError(null)
     try {
-      setPlan(await api.install.securityPlan(planSelection(all, chosen)))
+      setPlan(await api.install.securityPlan(planSelection(all, chosen, actions)))
     } catch (err) {
       setBuildError(err)
     } finally {
@@ -194,7 +219,7 @@ export default function SecurityPage() {
   }
   // The same findings, planned again: the server forgot the old plan (expired or restarted).
   const recompute = async () => {
-    const fresh = await api.install.securityPlan(planSelection(all, chosen))
+    const fresh = await api.install.securityPlan(planSelection(all, chosen, actions))
     setPlan(fresh)
     return fresh
   }
@@ -276,6 +301,8 @@ export default function SecurityPage() {
                     onToggle={() => setSelected((s) => toggleId(s, findingKey(f)))}
                     disabled={Boolean(plan)}
                     onExcept={canExcept && !plan ? () => setExcepting(f) : null}
+                    action={driftAction(f, actions)}
+                    onAction={(a) => setActions((m) => ({ ...m, [findingKey(f)]: a }))}
                   />
                 ))}
               </div>
@@ -306,6 +333,7 @@ export default function SecurityPage() {
               </Card>
             </>
           )}
+          <HAGuardCard node={node === 'all' ? '' : node} onChanged={findingsQ.refetch} />
           {excepted.length > 0 && (
             <Card className="p-4 space-y-2" hover={false} data-testid="security-exceptions">
               <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('security.exception.listTitle', { count: excepted.length })}</h3>

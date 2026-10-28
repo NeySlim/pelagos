@@ -129,7 +129,9 @@
       "kea_socket_dir_mode": "Socket directory mode",
       "kea_tsig_clear_secret": "Clear D2 secret",
       "static_zone": "Static zone",
-      "view_key": "View without key"
+      "view_key": "View without key",
+      "kea_ha_guard_unmanaged": "Hand-made HA guard",
+      "managed_drift": "Changed outside Pelagos"
     },
     "dualKey": {
       "add": "Add the new hmac-sha256 key to the BIND update-policy, next to the old one",
@@ -158,6 +160,33 @@
       "listTitle_one": "{{count}} finding kept as an exception",
       "listTitle_other": "{{count}} findings kept as exceptions",
       "listHelp": "Admin's choices: removing an exception lists the finding again."
+    },
+    "drift": {
+      "differences": "What differs",
+      "action": "Plan",
+      "adopt": "Adopt: keep the node as it is",
+      "restore": "Restore Pelagos's state"
+    },
+    "guard": {
+      "title": "HA listener guard",
+      "help": "The nftables guard that lets only the HA peers and backups reach the Kea HA listeners of this node. Changing the addresses builds a plan: the guard is put back as it was if the peers' packets stop getting through.",
+      "none": "No Kea HA listener off loopback on this node.",
+      "nftMissing": "nft is not installed on this node: the guard cannot be managed.",
+      "managed": "Managed by Pelagos",
+      "legacy": "Set up by hand",
+      "absent": "No guard",
+      "drift": "Differs from Pelagos",
+      "listeners": "Listeners",
+      "loaded": "Loaded now",
+      "recorded": "Pelagos's state",
+      "adoptedFrom": "Adopted from {{source}}",
+      "peers": "Allowed addresses (one per line: HA peers, backups, prefixes)",
+      "suggested": "From the HA configuration: {{peers}}",
+      "useSuggested": "Use these",
+      "plan": "Plan the change",
+      "adopt": "Adopt the hand-made guard",
+      "legacyHelp": "A guard was set up outside Pelagos ({{source}}). Adopting it loads the same addresses into Pelagos's guard first, then retires the old one: the listener stays guarded throughout.",
+      "nothing": "none"
     }
   }
 }

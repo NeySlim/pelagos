@@ -295,5 +295,15 @@
   "note.ptr_sync": "PTR dans {{zones}}",
   "note.ptr_overwrite": "le PTR de {{ip}} pointait vers {{targets}} et est remplacé",
   "note.ptr_kept_elsewhere": "le PTR de {{ip}} pointe vers {{targets}} et reste inchangé",
-  "note.ptr_not_covered": "aucune zone inverse servie pour {{addresses}}, PTR non écrit"
+  "note.ptr_not_covered": "aucune zone inverse servie pour {{addresses}}, PTR non écrit",
+  "finding.kea_ha_guard_unmanaged.description": "Une garde de pare-feu du listener HA de Kea a été posée hors de Pelagos ({{source}}) : seuls {{peers}} atteignent TCP {{ports}}.",
+  "finding.kea_ha_guard_unmanaged.proposal": "La reprendre : Pelagos charge les mêmes adresses dans sa propre garde (table nft inet pelagos_kea_ha_guard, service pelagos-kea-ha-guard), puis retire {{source}} en gardant une copie de ses fichiers dans le répertoire de sauvegarde. La garde se modifie ensuite depuis la page de sécurité.",
+  "finding.kea_ha_guard_unmanaged.risk": "Aucun : les deux gardes admettent les mêmes adresses pendant qu'elles coexistent, le listener n'est jamais exposé ; si une étape échoue, la garde posée à la main est remise avant que celle de Pelagos soit retirée.",
+  "finding.managed_drift.description": "{{object}} a été modifié hors de Pelagos : {{differences}}.",
+  "finding.managed_drift.proposal": "Adopter : {{object}} reste tel quel sur le nœud et devient l'état de Pelagos. Restaurer : Pelagos réapplique son propre état.",
+  "finding.managed_drift.risk": "Adopter ne change rien sur le nœud. Restaurer réécrit ce qui diffère : une configuration Kea est testée et rechargée, et remise en place si le test échoue ; une garde est remise comme avant si les paquets des pairs ne passent plus.",
+  "drift.object.ha_guard": "La garde du listener HA ({{table}})",
+  "drift.object.kea_ha": "La relation HA {{engine}} de {{server}}",
+  "drift.object.file": "Le fichier {{path}}",
+  "plan.ha_guard.set": "Garde du listener HA : seuls {{peers}} atteignent TCP {{ports}}"
 }

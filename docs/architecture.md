@@ -28,6 +28,10 @@ Contents
 18. WebSocket
 19. Errors, pagination, conventions
 20. Decisions and deviations from `design.md`
+21. RPZ subscriptions
+22. Outgoing notifications
+23. Scheduled archives and restore
+24. DDNS failover and catch-up
 
 ---
 
@@ -624,6 +628,9 @@ class AlertKind(str, Enum):
     CERT_EXPIRY="cert_expiry"; CERT_RENEWAL_FAILED="cert_renewal_failed"
     CONFIG_SYNTAX_WARNING="config_syntax_warning"
     MANAGED_DRIFT="managed_drift"
+    NOTIFICATION_FAILED="notification_failed"
+    ARCHIVE_FAILED="archive_failed"; ARCHIVE_STALE="archive_stale"; ARCHIVE_INCOMPLETE="archive_incomplete"
+    DDNS_OUTAGE="ddns_outage"; DDNS_REPLAY="ddns_replay"; DNS_STALE_PRIMARY="dns_stale_primary"
 class AlertState(str, Enum): OPEN="open"; ACKED="acked"; RESOLVED="resolved"
 
 @dataclass(slots=True)
@@ -654,6 +661,7 @@ class PlanScope(str, Enum):
     DHCP_CLASS="dhcp.class"; DHCP_OPTIONS="dhcp.options"; DHCP_CONFIG="dhcp.config"; DHCP_LEASE="dhcp.lease"
     DHCP_HA="dhcp.ha"; DHCP_DDNS="dhcp.ddns"; D2_CONFIG="d2.config"
     HOST="host"; INSTALL="install"; IMPORT="import"; SECURITY="security"; ADMIN="admin"
+    RESTORE="restore"; DNS_FAILOVER="dns.failover"
 class PlanState(str, Enum): DRAFT="draft"; VALIDATED="validated"; APPLYING="applying"; APPLIED="applied"; FAILED="failed"; ROLLED_BACK="rolled_back"; EXPIRED="expired"
 class PreconditionKind(str, Enum): CONFIG_HASH="config_hash"; SOA_SERIAL="soa_serial"; RRSET_EXISTS="rrset_exists"; RRSET_ABSENT="rrset_absent"; FILE_SHA256="file_sha256"; HA_STATE="ha_state"
 
@@ -1407,8 +1415,8 @@ copy the mock server serves):
 
 - A setting is a leaf of a domain table `[settings.<domain>]`, never a leaf
   of `[settings]` itself. Domains: `auth`, `plans`, `peers`, `checks`,
-  `collector`, `retention`, `dns`, `kea`, `rpz`, `certificates`. A new
-  domain is added to `DOMAINS`.
+  `collector`, `retention`, `dns`, `kea`, `rpz`, `certificates`,
+  `notifications`, `archives`, `ddns`. A new domain is added to `DOMAINS`.
 - Every threshold that raises an alert lives in `[settings.checks]`, whatever
   raises it (a poller, a health check, the certificate manager).
 - Leaf names are snake_case `<subject>[_<qualifier>]_<unit>`. The unit is
@@ -1422,8 +1430,12 @@ copy the mock server serves):
   `break_dnssec`).
 - Entries a dedicated screen writes (`rpz.categories`, `rpz.subscriptions`,
   `rpz.order`, `rpz.allow`, `rpz.exempt_clients`, `certificates.cluster`,
-  `certificates.nodes`) sit in their domain table but are not settings:
+  `certificates.nodes`, `notifications.channels`, `notifications.order`,
+  `notifications.mute`, `archives.destinations`, `archives.recipients`,
+  `ddns.roles`) sit in their domain table but are not settings:
   `PUT /admin/settings` refuses them ("set through its own screen").
+- A time of day is a `string` `"HH:MM"` (`archives.start_time`), local time
+  of the node.
 
 The registry gives each setting its type (`integer`, `number`, `boolean`,
 `string`, `url`, `list`, `map`), bounds, default, unit and screen group, and
@@ -1473,10 +1485,10 @@ One JSON object per line, UTF-8, `\n` terminated, never rewritten. File
 
 `action` vocabulary: `<scope>.<verb>` where scope is a `PlanScope` value or
 one of `auth`, `admin.user`, `admin.role`, `admin.settings`, `admin.node`, `admin.cert`,
-`alert`, `replication`, `collector`; verbs: `add`, `replace`, `delete`,
+`admin.notify`, `admin.archive`, `notify`, `archive`, `alert`, `replication`, `collector`; verbs: `add`, `replace`, `delete`,
 `apply`, `rollback`, `login`, `logout`, `login_failed`, `enroll`, `revoke`,
-`ack`, `raise`, `resolve`, `sync`, `op` (direct operations like retransfer,
-with the operation name in `request.op`).
+`ack`, `raise`, `resolve`, `sync`, `sent`, `failed`, `create`, `op` (direct
+operations like retransfer, with the operation name in `request.op`).
 
 `core.audit_log.AuditLog`:
 
@@ -2026,6 +2038,13 @@ Alert kinds and rules (thresholds from `settings`):
 | `security_advisory` | info, warning | the upstream version of an installed BIND or Kea falls in a range of `pelagos/data/isc_advisories.json` (`ranges_preview` for `-S` versions); subject `<engine>:<CVE id>`; details `cve`, `version`, `fixed_in`, `url`, `cvss`, `dataset_verified` |
 | `cert_expiry` | warning / critical | the web certificate (subject `cert:web`), this node's replication certificate (`cert:node`) or the internal CA (`cert:ca`) expires within `checks.cert_warning_days` / `checks.cert_critical_days`, or within a third / a tenth of its lifetime when that is shorter (24 h certificates); details: `cert`, `not_after`, `days_left`, `fingerprint`, `issuer`, and for the web certificate `source` and `mode` |
 | `cert_renewal_failed` | warning | the last automatic request of the web certificate failed (subject `cert:web:renewal`; details `failures`, `last_error`, `next_attempt_at`) |
+| `notification_failed` | warning | a notification channel has failed every send for `checks.notification_failure_warning_minutes` (cluster-wide, raised by the sender, subject `notify:<channel id>`; details `channel`, `since`, `error`, `status`); sent through the other channels; section 22 |
+| `archive_failed` | warning, critical | the archive of this node could not be written to a destination (subject `archive:<destination id>`, `local` included); critical after `checks.archive_failures_critical_count` failures in a row; details `failures`, `error`; section 23 |
+| `archive_stale` | warning | the last successful archive of this node is older than `checks.archive_stale_factor` x `archives.interval_hours` while `archives.schedule_enabled` (subject `archive:last`) |
+| `archive_incomplete` | info | the last archive lists files it could not read (subject `archive:incomplete`; details `files`); exceptable |
+| `ddns_outage` | critical | the active primary of a prepared dynamic zone receives no DDNS update: D2 `update-timeout` toward it, its node offline or its named down (cluster-wide, subject `ddns:<view>/<zone>`; details `primary_node_id`, `since`, `epoch`, `candidates`); proposes the failover plan; section 24 |
+| `ddns_replay` | warning | active leases whose `cltt` falls in the last outage window lack their A, AAAA or PTR (cluster-wide, subject `ddns:replay`; details `from`, `to`, `count`); proposes the replay plan |
+| `dns_stale_primary` | critical | a node serves as primary a zone that `ddns.roles` gives to another node at a later epoch (node = that node, subject `ddns:stale:<view>/<zone>`; details `primary_node_id`, `epoch`); resolved by the demotion |
 
 The `ha_*` alerts above have subject `ha:<engine>`; a Kea 3 hub raises them
 for each relationship, the second one and later with subject
@@ -2165,6 +2184,7 @@ read:dhcp  write:dhcp.subnets  write:dhcp.reservations  write:dhcp.classes  writ
 read:hosts write:hosts         (write:hosts is checked as the union of the dns/dhcp writes a host plan expands into)
 read:alerts  write:alerts (ack, exceptions)   read:series   read:audit   read:nodes   read:advanced
 admin:nodes  admin:users  admin:roles  admin:settings  admin:install  admin:modules  admin:certificates
+admin:notifications  admin:archives
 ```
 
 Built-in roles (code, `auth/rbac.py`; not stored):
@@ -2642,6 +2662,54 @@ parts and put the reservation on every node that runs the Kea engine.
 | `POST /admin/certificates/test/acme`, `/test/ucm`, `/test/dns` | `admin:certificates` | the part of a source to try (`scope` names stored secrets) | `{"ok", ...}` or `{"ok": false, "error"}` |
 | `POST /admin/certificates/dns01/plan` | `admin:certificates` | `{"names"?, "delegation_zone"?}` | `{"plan", "manual", "delegation", "unserved", "key", "challenge_names"}`: key `ddi-acme` and `grant ddi-acme name _acme-challenge.<name>. TXT` (or `subdomain <delegation zone>.`) on the zones Pelagos manages here; statements to add by hand for the user's zones |
 
+### Notifications
+
+Section 22. Secrets go in as `"secrets": {name: str|null}` (`null` clears)
+and come back as booleans only.
+
+| Method, path | Permission | Request | Response |
+| --- | --- | --- | --- |
+| `GET /admin/notifications` | `admin:notifications` | | `{"channels": [Channel], "settings", "sender": {"node_id","since","order"}, "mute": Mute|null, "queue": {"pending","failing"}}` |
+| `POST /admin/notifications/channels` | `admin:notifications` | `Channel` without `id`, `status`; `secrets` | `201 Channel` |
+| `PUT /admin/notifications/channels/{id}` | `admin:notifications` | partial `Channel`; `secrets` | `Channel` |
+| `DELETE /admin/notifications/channels/{id}` | `admin:notifications` | | `204` |
+| `POST /admin/notifications/test` | `admin:notifications` | `{"channel_id"}`, or an unsaved `Channel` whose `scope` (a channel id) names the stored secrets it reuses | `{"ok","node_id","duration_ms","status"?,"error"?}`: a real send from this node; 6 per minute per user (`429`) |
+| `PUT /admin/notifications/order` | `admin:notifications` | `{"node_ids"}`: every node once | `{"order"}` |
+| `PUT /admin/notifications/mute` | `admin:notifications` | `{"until","comment"}`: `until` in the future, at most 24 h ahead, `comment` required | `{"mute": Mute}` |
+| `DELETE /admin/notifications/mute` | `admin:notifications` | | `204` |
+| `GET /admin/notifications/history?channel_id=&result=&from=&to=&page=&per_page=` | `admin:notifications` | | paginated `{"id","ts","channel_id","node_id","events","result": "ok"|"failed","error"}` read from the audit (`notify.*`) |
+
+### Archives
+
+Section 23.
+
+| Method, path | Permission | Request | Response |
+| --- | --- | --- | --- |
+| `GET /admin/archives` | `admin:archives` | | `{"settings","recipients": [Recipient],"identity": {"stored","downloaded_at"},"destinations": [Destination],"nodes": [{"node_id","last_success","last_error","next_run","running","complete"}]}` |
+| `POST /admin/archives/destinations` | `admin:archives` | `Destination` without `id`; `secrets` | `201 Destination` |
+| `PUT /admin/archives/destinations/{id}` | `admin:archives` | partial; `secrets` | `Destination` |
+| `DELETE /admin/archives/destinations/{id}` | `admin:archives` | | `204` |
+| `POST /admin/archives/destinations/test` | `admin:archives` | `{"destination_id"}` or an unsaved `Destination` | `{"ok","node_id","error"?}`: writes, reads back and deletes a probe file from this node |
+| `POST /admin/archives/run` | `admin:archives` | `{"node_ids"?}` (default every node) | `202 Job`, one step per node |
+| `GET /admin/archives/list?node_id=&destination_id=&page=&per_page=` | `admin:archives` | | paginated `ArchiveMeta` of every node, absent nodes included (read from whoever holds them) |
+| `GET /admin/archives/{id}/download` | `admin:archives` | | `application/octet-stream`, the encrypted file; audited |
+| `POST /admin/archives/upload` | `admin:archives` | multipart, field `file` (`.tar.gz.age`), optional `sha256` | `201 ArchiveMeta` |
+| `POST /admin/archives/identity` | `admin:archives` | `{"op": "generate"|"rotate", "password"}` or `{"op": "add_recipient", "recipient", "label"?}` or `{"op": "remove_recipient", "recipient"}` | `{"recipients", "identity"?}`: `identity` (`AGE-SECRET-KEY-1...`) only in the answer of `generate` and `rotate`, never again; `409` to remove the cluster recipient |
+| `POST /admin/archives/{id}/inspect` | `admin:archives` | `{"identity"?}` (an operator identity when the cluster has none that opens it) | `{"manifest","parts": [{"id","engine","node_id","files","diff_summary"}]}` |
+| `POST /admin/archives/{id}/restore/plan` | `admin:archives` and the write permission of each part | `{"target_node_id","parts": [part id],"identity"?,"include_user_files"?}` | `Plan` (scope `restore`, `requires_confirmation`), applied with `POST /plans/{id}/apply` (`202 Job`) |
+
+### DDNS failover
+
+Section 24. Two permissions on the plan endpoints: both are required.
+
+| Method, path | Permission | Request | Response |
+| --- | --- | --- | --- |
+| `GET /dhcp/ddns/resilience` | `read:dhcp` and `read:dns` | | `{"zones": [{"zone","view","primary_node_id","epoch","since","copies","ready","blockers": [message]}], "d2": [{"node_id","domains": [{"direction","name","servers": [{"address","node_id","role"}]}]}], "outage": {"since","zones"}|null, "replay": {"from","to","candidates"}}` |
+| `POST /dhcp/ddns/resilience/plan` | `write:dns.zones` and `write:dhcp.config` | `{"zones"?}` (default every dynamic zone) | composite `Plan`: keys on the secondaries, D2 server lists, `ddns.roles` |
+| `POST /dhcp/ddns/failover/plan` | `write:dns.zones` and `write:dhcp.config` | `{"to_node_id","zones"?}` | composite `Plan` (`requires_confirmation`); `409` while the active primary still answers |
+| `POST /dhcp/ddns/switchover/plan` | `write:dns.zones` and `write:dhcp.config` | `{"to_node_id","zones"?}` | composite `Plan` (`requires_confirmation`) |
+| `POST /dhcp/ddns/replay/plan` | `ops:dhcp.leases` | `{"from"?,"to"?,"family"?,"limit"?}` | `Plan` (scope `dhcp.lease`, one change per lease, target `resend/<ip>`, `requires_confirmation`); `409` when no lease qualifies |
+
 ## 18. WebSocket
 
 `GET /api/v1/ws` upgrades to a WebSocket on the same origin, authenticated
@@ -2669,7 +2737,7 @@ Server to client, one message per event:
 {"topic": "leases", "event": "summary", "ts", "node_id", "data": {"engine", "active", "new_since_last", "expired_since_last"}}
 {"topic": "leases", "event": "lease", "ts", "node_id", "data": {"engine", "family", "change": "new" | "renewed", "lease": {...}}}
 {"topic": "zones", "event": "serial" | "transfer", "ts", "node_id", "data": {"zone", "view", "kind", "serial", "previous", "primary_node_id"?}}
-{"topic": "system", "event": "pong" | "replication" | "security", "ts", "node_id", "data": {...}}
+{"topic": "system", "event": "pong" | "replication" | "security" | "notify", "ts", "node_id", "data": {...}}
 {"topic": "<any>", "event": "coalesced", "ts", "node_id", "data": {"dropped": n, ...}}
 ```
 
@@ -2915,3 +2983,175 @@ Public block lists and RPZ feeds become policy zones that Pelagos manages in
   `<name>.<zone>` (CNAME) in each policy zone in order, then for the literal
   `*.<parent>.<zone>` names to tell the rule that matched.
 - Consistency checks never read RPZ zones (note `pelagos-rpz`).
+
+## 22. Outgoing notifications
+
+Design: `design.md` 13.1 (decisions, channels checked on 2026-10-28). Code:
+`pelagos.notify` (rendering `notify/render.py`, one transport per type in
+`notify/transports/`, all I/O injected), the dispatcher
+`collector/notify.py`, the cluster alert view shared by the API and the
+collector `core/cluster_alerts.py` (moved out of
+`services/alerts_service.py`), `services/notify_service.py`,
+`api/notifications.py`. Batches: N1 dispatcher, N2 transports, N3 API, N4
+screen, N5 daemon and lab tests.
+
+- **Settings** `[settings.notifications]`: `dispatch_enabled` (true),
+  `group_seconds` (60), `confirm_seconds` (60, 0 for none; `critical` never
+  waits), `messages_max_per_hour` (30, per channel), `retry_max_hours` (24),
+  `send_timeout_seconds` (15). Threshold `checks.notification_failure_warning_minutes`
+  (30). Screen entries: `channels` (array of `Channel` tables without
+  `status`), `order` (node ids, absent: enrollment order of `[[nodes]]`),
+  `mute` (`Mute`, absent when none).
+- **Channel**: `{"id": ULID, "type": "email"|"ntfy"|"gotify"|"matrix"|"webhook"|"home_assistant",
+  "name", "enabled", "language": "en"|"fr", "params", "filters", "schedule"}`;
+  the API adds `"secrets": {name: bool}` and `"status": {"state":
+  "ok"|"failing"|"disabled", "since", "last_sent_at", "last_error"}`.
+  `filters`: `severity_min` (`warning`), `kinds_include` ([] = all),
+  `kinds_exclude` (`["ha_transition"]` plus the `info` inconsistency kinds),
+  `node_ids`, `engines` ([] = all). `schedule`: `reminder_hours` (12, 0 =
+  never), `send_resolved` (true), `confirm_seconds` (null = the setting),
+  `quiet` (null or `{"start": "HH:MM", "end": "HH:MM", "timezone": IANA,
+  "days": [0..6, Monday 0], "critical_passes": true}`).
+- **params** per type (every URL `https`, or `http` with a warning when a
+  secret rides on it; `ca_pem` optional, an extra trusted CA): `email`
+  `{"host","port","security": "starttls"|"tls"|"none","username"?,"from","to": [...]}`
+  (`none` only toward a loopback address), secret `password`; `ntfy`
+  `{"url","topic","username"?}`, secret `token` (Bearer) or `password` (Basic
+  with `username`); `gotify` `{"url","priorities": {"critical": 8,"warning": 5,"info": 2}}`,
+  secret `token` (header `X-Gotify-Key`); `matrix` `{"homeserver","room_id"}`,
+  secret `token` (Bearer of a bot account; `txnId` = batch id); `webhook`
+  `{"url","headers": {}}`, secret `hmac_secret` (optional);
+  `home_assistant` `{"url"}`, secret `webhook_id` (posts to
+  `/api/webhook/<webhook_id>`). Secrets: `[secrets]
+  "notify/<channel id>/<name>"`.
+- **Mute**: `{"until","comment","by","at"}`; a digest of the alerts still
+  open is sent when it ends.
+- **Sender**: every collector runs the dispatcher; only the first node of
+  `order` among those it sees online (`Replicator.offline_peers()`) sends.
+  Events (`opened`, `escalated`, `resolved`, `reminder`, `test`) are derived
+  from successive cluster alert views; what was sent is read back from the
+  audit (`notify.sent` of the last 7 days), so a new sender resends at most
+  one batch. Retry state only in `/var/lib/pelagos/notify/` (0700): 30 s
+  doubling to 30 min for `retry_max_hours` after a network error or 5xx;
+  a 4xx marks the channel failing without retry.
+- **Webhook payload** `pelagos.notification.v1` (fields only ever added):
+  `{"schema","id": batch ULID,"cluster_id","sent_at","sender": {"node_id","name"},
+  "reason": "events"|"digest"|"test","events": [{"event","alert": {"id","kind",
+  "severity","state","node_id","node_name","engine","subject","title",
+  "title_message","first_seen","last_seen","resolved_at","url"}}],
+  "open": {"critical","warning","info"}}`. Headers `X-Pelagos-Delivery`
+  (batch id), and with `hmac_secret` `X-Pelagos-Timestamp` (Unix seconds)
+  and `X-Pelagos-Signature: sha256=<hex>` = HMAC-SHA256 over
+  `<timestamp>.<body>`. No redirect followed, response read up to 4 KiB.
+- **Audit**: `admin.notify.add|replace|delete` (target `notify:<id>`),
+  `admin.notify.op` (`request.op`: `order`, `mute`, `unmute`, `test`),
+  `notify.sent` and `notify.failed` (target `notify:<channel id>`, request
+  `{"batch_id","alert_ids","events","sender"}`, never a body or a secret).
+- **WebSocket**: `system` / `notify` `{"channel_id","state"}` when a
+  channel's state changes.
+- **Rendering**: titles and the subject line from the message keys through
+  `pelagos/data/i18n/<lang>.json`, generated from the frontend catalogs by
+  `make` (one set of translations). Host names from the engines are
+  truncated and escaped (Matrix HTML).
+
+## 23. Scheduled archives and restore
+
+Design: `design.md` 13.2. Code: `pelagos.archives` (`archives/age.py` age
+v1 X25519 over `cryptography`, `archives/bundle.py` tar and manifest,
+`archives/destinations/`), `collector/archives.py` (schedule, retention,
+verification, test restore), `services/archive_service.py`,
+`api/archives.py`, CLI `pelagos backup` and `pelagos restore` (B5).
+Batches: B1 format, B2 collection, B3 destinations, B4 restore, B5
+command line, B6 API and screen, B7 lab.
+
+- **Settings** `[settings.archives]`: `schedule_enabled` (false until a
+  recipient exists), `start_time` (`"03:15"`), `interval_hours` (24),
+  `stagger_minutes` (15, per node rank in `[[nodes]]`), `keep_daily_count`
+  (7), `keep_weekly_count` (4), `keep_monthly_count` (6), `local_keep_count`
+  (3), `include_leases_enabled` (true), `verify_enabled` (true),
+  `test_restore_days` (7, 0 = never), `max_archive_mb` (512). Thresholds
+  `checks.archive_stale_factor` (2), `checks.archive_failures_critical_count`
+  (3). Screen entries: `destinations`, `recipients`.
+- **Recipients** (several, every archive is encrypted to all of them):
+  `archives.recipients` = `[{"recipient": "age1...", "label", "kind":
+  "cluster"|"operator", "added_at", "added_by", "downloaded_at"?}]`. At most
+  one `cluster` entry; its identity is `[secrets] "archives/identity"`
+  (`AGE-SECRET-KEY-1...`, sealed by the master key), shown once by
+  `generate` or `rotate` (`downloaded_at` set then). After a rotation the
+  former identity stays as `archives/retired/<recipient>` while an archive
+  still needs it. Operator recipients keep no identity on the nodes; a
+  restore then takes one in the request (`identity`), never stored.
+- **Destination**: `{"id","type": "peer"|"mounted"|"sftp","name","enabled",
+  "params","keep": null|{"daily","weekly","monthly"}}`; `local` is implicit
+  and always written. `peer` `{"node_ids": []}` ([] = every other node);
+  `mounted` `{"path"}` (must be a mount point and writable; Pelagos mounts
+  nothing); `sftp` `{"host","port","username","path","host_key_fingerprint":
+  "SHA256:..."}`, secret `archives/dest/<id>/ssh_key`, run through `sftp -b`
+  with the pinned key. S3 is not in the first version (decision 2).
+- **File**: `<node name>-<YYYYMMDDTHHMMSSZ>.tar.gz.age` and `<same>.sha256`
+  (sum of the encrypted file); the tar never touches the disk in clear;
+  files 0600, directories 0700 under `/var/lib/pelagos/archives/`
+  (`local/`, `peers/<origin node id>/`). `manifest.json` inside:
+  `{"format": 1,"archive_id","node_id","node_name","created_at","versions":
+  {"pelagos","bind","kea"},"engines","files": [{"path","mode","owner","sha256","part"}],
+  "zones": [{"view","zone","serial","source": "axfr"|"file"}],"unreadable": [path],
+  "complete"}`.
+- **ArchiveMeta**: `{"id","node_id","created_at","size","sha256",
+  "destinations": [destination id, "local"],"complete","versions","verified_at"}`.
+- **Parts** (inspect and restore): `bind.managed`, `bind.zone:<view>/<zone>`
+  (`mode`: `diff` by signed UPDATE, or `replace` in maintenance),
+  `bind.user_files` (only with `include_user_files`), `kea4.config`,
+  `kea6.config`, `d2.config`, `kea.leases` (command line only),
+  `pelagos.settings:<section>`, `pelagos.audit` (merged by id).
+- **Replication** (mTLS, section 13): `POST /repl/v1/archives` (body the
+  encrypted file, headers `X-Pelagos-Archive-Id`, `X-Pelagos-Origin`,
+  `X-Pelagos-Sha256`; `413` over `max_archive_mb`), `GET
+  /repl/v1/archives?origin=` (`{"items": [ArchiveMeta]}`), `GET
+  /repl/v1/archives/<id>` (the file).
+- **Audit**: `admin.archive.add|replace|delete` (destinations),
+  `admin.archive.op` (`request.op`: `generate`, `rotate`, `add_recipient`,
+  `remove_recipient`, `download`, `upload`, `run`), `archive.create` (one
+  per node and run, `result`), `restore.apply` and `restore.rollback`.
+
+## 24. DDNS failover and catch-up
+
+Design: `design.md` 13.3. Code: `connectors/bind/failover.py` (promote,
+demote, zone rewritten as text), `connectors/kea/d2order.py` (server
+order of the D2 domains), `services/ddns_failover.py`,
+`collector/checks/ddns_failover.py` (`ddns_outage`, `dns_stale_primary`,
+demotion on return), the replay selection in `services/ddns_replay.py`,
+`api/ddns_failover.py`. Batches: D1 replay, D2 prepare, D3 promote, D4
+return and switchover, D5 screen, D6 lab.
+
+- **Settings** `[settings.ddns]`: `failover_auto_enabled` (false),
+  `failover_after_seconds` (300, unreachable from every other node),
+  `demote_on_return_enabled` (true), `replay_max_leases` (2000),
+  `replay_window_max_hours` (72). The catch-up is always a confirmed plan.
+  Screen entry: `roles`, a table keyed `"<view>/<zone>"` (zone absolute):
+  `{"primary": node id,"epoch": int,"since","by","policy": [update-policy
+  clauses],"options": {statement: value},"prepared_at"}`.
+- **Prerequisites** of a zone, each reported as a message in `blockers`:
+  `ddns.blocker.not_managed` (declared in the user's files: adopt it first,
+  item 33), `ddns.blocker.signed` (a `dnssec-policy`), `ddns.blocker.view`
+  (a view the `kea-ddns` key does not select), `ddns.blocker.single_node`,
+  `ddns.blocker.not_prepared`.
+- **Plans**: composites (`PlanService.register_composite`) whose parts are
+  `dns.zone`, `dns.config` and `d2.config` plans; a peer's part is built
+  there by the `dns.zone.plan` peer action. The composite's audit line has
+  scope `dns.failover` (`dns.failover.apply|rollback`, request `{"zones",
+  "from_node_id","to_node_id","epoch"}`). D2 lists every copy after the
+  primary (a server that answers REFUSED ends the request, so the active
+  primary is always first). Promotion rewrites the copy as text in the
+  Pelagos zone directory and redeclares it `type primary` with the recorded
+  `policy`; `ddns.roles` moves to the next epoch.
+- **Return**: after the replication sync at start, a collector serving as
+  primary a zone that `ddns.roles` gives to another node at a later epoch
+  demotes it (with `demote_on_return_enabled`): zone file and journal moved
+  to the pipeline backup, `type secondary` of the new primary, `rndc
+  reconfig`, `rndc retransfer`, audit `dns.failover.op` by `system`.
+- **Replay**: active leases with `cltt` in the window, a hostname and a
+  `fqdn_fwd` or `fqdn_rev` flag, whose A, AAAA or PTR is missing or differs;
+  one change per lease (`resend/<ip>`) sent as `lease4-resend-ddns` /
+  `lease6-resend-ddns` (hook `lease_cmds`, also added to the allow-list of
+  `/dhcp/{family}/ops` under `ops:dhcp.leases`), in batches, never more than
+  `replay_max_leases`.

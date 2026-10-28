@@ -1569,3 +1569,16 @@ certificates. WP-API-AUTH: `POST /install/security/ha-tls/plan`, the TLS part in
 the HA TLS phases and their undo in `InstallerRunner`. Contract (`domain/messages.py`):
 `plan.ha_tls.*`, `job.phase.ha_tls_*`, `cert.kind.kea_ha`,
 `finding.kea_ha_listener_open.step_tls`. WP-FRONTEND: Kea HA certificates on the certificates page.
+
+## 2026-10-28, contract C1: notifications, archives, DDNS failover
+Additive. Architecture sections 22 to 24 and their section 17 tables. Contract: settings
+domains `notifications`, `archives`, `ddns` with their defaults and screen entries,
+thresholds `checks.notification_failure_warning_minutes`, `checks.archive_stale_factor`,
+`checks.archive_failures_critical_count` (`core/settings_registry.py`); permissions
+`admin:notifications`, `admin:archives`; plan scopes `restore`, `dns.failover`; alert kinds
+`notification_failed`, `archive_failed`, `archive_stale`, `archive_incomplete` (exceptable),
+`ddns_outage`, `ddns_replay`, `dns_stale_primary` with their `alert.*` keys; keys
+`ddns.blocker.*`. WP-API-AUTH: the routes are registered (`api/notifications.py`,
+`api/archives.py`, `api/ddns_failover.py`) and answer 501 until batches N3, B4, B6, D1 to D4
+build them. WP-FRONTEND: `api.notifications`, `api.archives`, `api.ddnsFailover`, the mock
+serves every new endpoint, labels of the settings, kinds and scopes in en and fr.

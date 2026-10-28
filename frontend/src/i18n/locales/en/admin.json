@@ -139,6 +139,7 @@
       "range": "Between {{min}} and {{max}}",
       "required": "Required",
       "name": "Letters, digits, dot, dash or underscore",
+      "time": "A time of day as HH:MM",
       "https": "An https:// URL, or empty",
       "list": "A list of values is expected",
       "item": "Invalid value: {{item}}",
@@ -166,7 +167,8 @@
       "passes": "passes",
       "leases": "leases",
       "events": "events",
-      "bytes": "bytes"
+      "bytes": "bytes",
+      "archives": "archives"
     },
     "duration": {
       "minutes": "= {{count}} min",
@@ -222,6 +224,18 @@
       "certificates": {
         "title": "Certificates",
         "help": "Renewal of the web certificates (sources: Administration, Certificates)"
+      },
+      "notifications": {
+        "title": "Notifications",
+        "help": "How alerts are grouped, delayed and retried (channels: Administration, Notifications)"
+      },
+      "archives": {
+        "title": "Backups",
+        "help": "Schedule, retention and checks of the encrypted archives (destinations: Administration, Backups)"
+      },
+      "ddns": {
+        "title": "DDNS failover",
+        "help": "Promotion of a secondary when the DNS primary is down, and the lease catch-up"
       }
     },
     "groups": {
@@ -236,7 +250,10 @@
       "resolver": "Resolver",
       "delegation": "Delegation",
       "soa": "SOA timers",
-      "advisories": "ISC security advisories"
+      "advisories": "ISC security advisories",
+      "notifications": "Notifications",
+      "archives": "Backups",
+      "retention": "Retention"
     },
     "fields": {
       "auth": {
@@ -304,7 +321,10 @@
         "advisories_fetch_enabled": "Fetch advisory data from the network",
         "advisories_url": "Advisory data URL (https)",
         "distro_tracker_enabled": "Use the Debian security tracker for distribution fixes",
-        "distro_tracker_url": "Debian security tracker URL (https)"
+        "distro_tracker_url": "Debian security tracker URL (https)",
+        "notification_failure_warning_minutes": "Failing channel alert after",
+        "archive_stale_factor": "Archive overdue after (intervals)",
+        "archive_failures_critical_count": "Failed archives before critical"
       },
       "collector": {
         "poll_seconds": "Engine poll",
@@ -354,6 +374,35 @@
         "retry_min_seconds": "First retry after a failed request",
         "retry_max_seconds": "Longest delay between retries",
         "propagation_seconds": "DNS-01 propagation wait"
+      },
+      "notifications": {
+        "dispatch_enabled": "Send notifications",
+        "group_seconds": "Grouping window",
+        "confirm_seconds": "Confirmation delay",
+        "messages_max_per_hour": "Messages per channel and hour",
+        "retry_max_hours": "Retry a failed send for",
+        "send_timeout_seconds": "Send timeout"
+      },
+      "archives": {
+        "schedule_enabled": "Scheduled archives",
+        "start_time": "Start time (HH:MM, local time)",
+        "interval_hours": "Interval",
+        "stagger_minutes": "Offset between nodes",
+        "keep_daily_count": "Daily archives kept",
+        "keep_weekly_count": "Weekly archives kept",
+        "keep_monthly_count": "Monthly archives kept",
+        "local_keep_count": "Local archives kept",
+        "include_leases_enabled": "Include the Kea lease files",
+        "verify_enabled": "Read back and check each copy",
+        "test_restore_days": "Test restore every",
+        "max_archive_mb": "Largest archive accepted"
+      },
+      "ddns": {
+        "failover_auto_enabled": "Promote a secondary automatically",
+        "failover_after_seconds": "Automatic promotion after",
+        "demote_on_return_enabled": "Demote the former primary when it returns",
+        "replay_max_leases": "Largest catch-up plan",
+        "replay_window_max_hours": "Longest outage window replayed"
       }
     },
     "help": {
@@ -396,6 +445,19 @@
       "rpz": {
         "shrink_percent": "A download that removes more of a list is refused; the old file stays.",
         "memory_warning_percent": "Estimated share of a node memory the lists may take."
+      },
+      "notifications": {
+        "confirm_seconds": "An alert must stay open this long before it is sent; critical alerts are sent at once.",
+        "messages_max_per_hour": "Beyond it, one message says how many events were held back."
+      },
+      "archives": {
+        "schedule_enabled": "Off until an archive key exists.",
+        "stagger_minutes": "Each node starts this much later than the previous one.",
+        "test_restore_days": "Opens the latest archive and checks it with the engine tools (0: never)."
+      },
+      "ddns": {
+        "failover_auto_enabled": "Off: the outage alert proposes the promotion plan and you confirm it.",
+        "failover_after_seconds": "The primary must be unreachable from every other node this long."
       }
     }
   }

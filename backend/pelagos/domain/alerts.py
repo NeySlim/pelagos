@@ -59,6 +59,13 @@ class AlertKind(enum.StrEnum):
     DDNS_ADVICE = "ddns_advice"
     CONFIG_SYNTAX_WARNING = "config_syntax_warning"
     MANAGED_DRIFT = "managed_drift"
+    NOTIFICATION_FAILED = "notification_failed"
+    ARCHIVE_FAILED = "archive_failed"
+    ARCHIVE_STALE = "archive_stale"
+    ARCHIVE_INCOMPLETE = "archive_incomplete"
+    DDNS_OUTAGE = "ddns_outage"
+    DDNS_REPLAY = "ddns_replay"
+    DNS_STALE_PRIMARY = "dns_stale_primary"
 
 
 INCONSISTENCY_KINDS = frozenset(
@@ -91,6 +98,7 @@ EXCEPTABLE_KINDS = frozenset(
         AlertKind.CLOCK_UNSYNCHRONIZED,
         AlertKind.CERT_EXPIRY,
         AlertKind.DDNS_ADVICE,
+        AlertKind.ARCHIVE_INCOMPLETE,
     }
 )
 

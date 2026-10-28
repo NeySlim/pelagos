@@ -196,6 +196,35 @@ export const ENDPOINTS = [
   'POST /admin/certificates/{id}/check',
   'POST /admin/certificates/{id}/upload',
   'POST /admin/certificates/{id}/self-signed',
+  // Administration > Notifications (section 22)
+  'GET /admin/notifications',
+  'POST /admin/notifications/channels',
+  'PUT /admin/notifications/channels/{id}',
+  'DELETE /admin/notifications/channels/{id}',
+  'POST /admin/notifications/test',
+  'PUT /admin/notifications/order',
+  'PUT /admin/notifications/mute',
+  'DELETE /admin/notifications/mute',
+  'GET /admin/notifications/history',
+  // Administration > Backups (section 23)
+  'GET /admin/archives',
+  'POST /admin/archives/destinations',
+  'POST /admin/archives/destinations/test',
+  'PUT /admin/archives/destinations/{id}',
+  'DELETE /admin/archives/destinations/{id}',
+  'POST /admin/archives/run',
+  'GET /admin/archives/list',
+  'POST /admin/archives/upload',
+  'POST /admin/archives/identity',
+  'GET /admin/archives/{id}/download',
+  'POST /admin/archives/{id}/inspect',
+  'POST /admin/archives/{id}/restore/plan',
+  // DHCP > DDNS > Failover (section 24)
+  'GET /dhcp/ddns/resilience',
+  'POST /dhcp/ddns/resilience/plan',
+  'POST /dhcp/ddns/failover/plan',
+  'POST /dhcp/ddns/switchover/plan',
+  'POST /dhcp/ddns/replay/plan',
 ]
 
 // Regex for one spec entry: `{x}` matches one path segment, `{family}` only v4 or v6.

@@ -162,7 +162,14 @@
     "cert_renewal_failed": "certificate renewal failed",
     "config_syntax_warning": "configuration syntax warning",
     "security_finding": "security audit finding",
-    "managed_drift": "change outside Pelagos"
+    "managed_drift": "change outside Pelagos",
+    "notification_failed": "notification failing",
+    "archive_failed": "archive failed",
+    "archive_stale": "archive overdue",
+    "archive_incomplete": "archive incomplete",
+    "ddns_outage": "DDNS outage",
+    "ddns_replay": "DDNS catch-up needed",
+    "dns_stale_primary": "stale DNS primary"
   },
   "live": {
     "label": "Live",

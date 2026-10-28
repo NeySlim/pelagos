@@ -64,6 +64,9 @@ function concrete(spec, state) {
     .replace(/\{id\}/, () => {
       if (spec.includes('/nodes/')) return state.nodeIds.ns2
       if (spec.includes('/admin/certificates/')) return state.nodeIds.ns2
+      if (spec.includes('/admin/notifications/channels/')) return 'ch-ntfy'
+      if (spec.includes('/admin/archives/destinations/')) return 'dst-peer'
+      if (spec.includes('/admin/archives/')) return state.archives.list[0].id
       if (spec.includes('/admin/users/')) return userId
       if (spec.includes('/audit/')) return audit
       if (spec.includes('/advanced/history/')) return history
@@ -74,6 +77,15 @@ function concrete(spec, state) {
 }
 
 const BODIES = {
+  'POST /admin/notifications/channels': { type: 'gotify', name: 'Gotify', params: { url: 'https://gotify.example.lan' }, secrets: { token: 'app-token' } },
+  'POST /admin/notifications/test': { channel_id: 'ch-ntfy' },
+  'PUT /admin/notifications/order': (state) => ({ node_ids: state.nodes.map((n) => n.peer.id).reverse() }),
+  'PUT /admin/notifications/mute': () => ({ until: new Date(Date.now() + 3600000).toISOString(), comment: 'maintenance' }),
+  'POST /admin/archives/destinations': { type: 'mounted', name: 'NAS', params: { path: '/mnt/backup' } },
+  'POST /admin/archives/destinations/test': { destination_id: 'dst-peer' },
+  'POST /admin/archives/identity': { op: 'rotate' },
+  'POST /dhcp/ddns/failover/plan': (state) => ({ to_node_id: state.nodeIds.ns2 }),
+  'POST /dhcp/ddns/switchover/plan': (state) => ({ to_node_id: state.nodeIds.ns2 }),
   'POST /dhcp/{family}/ha/setup/plan': { remove: true },
   'POST /dns/zones/{zone}/secondaries/plan': { node_ids: [] },
   'POST /auth/password': { current_password: 'admin', new_password: 'Admin-new-password-1' },
@@ -188,6 +200,22 @@ describe('mock server PTR and exceptions', () => {
     const created = await admin('POST', '/alerts/exceptions', { kind: 'insecure_key', key: alert.details.exception_keys[0], comment: 'legacy key, rotated next month' })
     expect(created.status).toBe(201)
     expect(alert.state).toBe('resolved')
+  })
+})
+
+describe('mock server notifications, archives and DDNS failover', () => {
+  it('returns secrets as booleans and needs both permissions for failover plans', async () => {
+    const admin = client(await login('admin', 'admin'))
+    const created = await admin('POST', '/admin/notifications/channels', { type: 'webhook', name: 'Hook', params: { url: 'https://hook.example.lan' }, secrets: { hmac_secret: 's3cret' } })
+    expect(created.status).toBe(201)
+    expect(created.data.secrets).toEqual({ hmac_secret: true })
+    expect(JSON.stringify((await admin('GET', '/admin/notifications')).data)).not.toContain('s3cret')
+    const ids = await admin('POST', '/admin/archives/identity', { op: 'add_recipient', recipient: 'age1' + 'q'.repeat(58), label: 'offline' })
+    expect(ids.data.recipients.map((r) => r.kind)).toEqual(['cluster', 'operator'])
+    const dns = client(await login('alice', 'alice'))
+    expect((await dns('POST', '/dhcp/ddns/failover/plan', { to_node_id: mock.state.nodeIds.ns2 })).status).toBe(403)
+    const plan = await admin('POST', '/dhcp/ddns/failover/plan', { to_node_id: mock.state.nodeIds.ns2 })
+    expect(plan.data).toMatchObject({ scope: 'dns.failover', requires_confirmation: true })
   })
 })
 
@@ -469,7 +497,7 @@ describe('mock server', () => {
       if (spec === 'POST /auth/login' || spec === 'POST /auth/logout') continue
       const [method] = spec.split(' ')
       const path = concrete(spec, mock.state) + (QUERIES[spec] || '')
-      let body = BODIES[spec]
+      let body = typeof BODIES[spec] === 'function' ? BODIES[spec](mock.state) : BODIES[spec]
       if (spec === 'POST /auth/totp/confirm') await call('POST', '/auth/totp/enroll')
       if (method !== 'GET' && body === undefined) body = {}
       const res = await call(method, path, method === 'GET' ? undefined : body)

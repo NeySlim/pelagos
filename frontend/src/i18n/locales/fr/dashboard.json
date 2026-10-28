@@ -162,7 +162,14 @@
     "cert_renewal_failed": "renouvellement de certificat en échec",
     "config_syntax_warning": "avertissement de syntaxe de configuration",
     "security_finding": "constat d'audit de sécurité",
-    "managed_drift": "modification hors de Pelagos"
+    "managed_drift": "modification hors de Pelagos",
+    "notification_failed": "notification en échec",
+    "archive_failed": "archive en échec",
+    "archive_stale": "archive en retard",
+    "archive_incomplete": "archive incomplète",
+    "ddns_outage": "panne DDNS",
+    "ddns_replay": "rattrapage DDNS à faire",
+    "dns_stale_primary": "ancien primaire DNS"
   },
   "live": {
     "label": "Direct",

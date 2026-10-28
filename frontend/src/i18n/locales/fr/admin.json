@@ -139,6 +139,7 @@
       "range": "Entre {{min}} et {{max}}",
       "required": "Obligatoire",
       "name": "Lettres, chiffres, point, tiret ou souligné",
+      "time": "Une heure au format HH:MM",
       "https": "Une URL https://, ou vide",
       "list": "Une liste de valeurs est attendue",
       "item": "Valeur invalide : {{item}}",
@@ -166,7 +167,8 @@
       "passes": "passes",
       "leases": "baux",
       "events": "événements",
-      "bytes": "octets"
+      "bytes": "octets",
+      "archives": "archives"
     },
     "duration": {
       "minutes": "= {{count}} min",
@@ -222,6 +224,18 @@
       "certificates": {
         "title": "Certificats",
         "help": "Renouvellement des certificats web (sources : Administration, Certificats)"
+      },
+      "notifications": {
+        "title": "Notifications",
+        "help": "Regroupement, délais et nouveaux essais des alertes envoyées (canaux : Administration, Notifications)"
+      },
+      "archives": {
+        "title": "Sauvegardes",
+        "help": "Planification, rétention et vérification des archives chiffrées (destinations : Administration, Sauvegardes)"
+      },
+      "ddns": {
+        "title": "Reprise DDNS",
+        "help": "Promotion d’un secondaire quand le primaire DNS est tombé, et rattrapage des baux"
       }
     },
     "groups": {
@@ -236,7 +250,10 @@
       "resolver": "Résolveur",
       "delegation": "Délégation",
       "soa": "Temporisations SOA",
-      "advisories": "Avis de sécurité ISC"
+      "advisories": "Avis de sécurité ISC",
+      "notifications": "Notifications",
+      "archives": "Sauvegardes",
+      "retention": "Rétention"
     },
     "fields": {
       "auth": {
@@ -304,7 +321,10 @@
         "advisories_fetch_enabled": "Récupérer les données d'avis par le réseau",
         "advisories_url": "URL des données d'avis (https)",
         "distro_tracker_enabled": "Utiliser le suivi de sécurité Debian pour les correctifs de la distribution",
-        "distro_tracker_url": "URL du suivi de sécurité Debian (https)"
+        "distro_tracker_url": "URL du suivi de sécurité Debian (https)",
+        "notification_failure_warning_minutes": "Alerte de canal en échec après",
+        "archive_stale_factor": "Archive en retard après (intervalles)",
+        "archive_failures_critical_count": "Archives en échec avant critique"
       },
       "collector": {
         "poll_seconds": "Interrogation des moteurs",
@@ -354,6 +374,35 @@
         "retry_min_seconds": "Premier nouvel essai après un échec",
         "retry_max_seconds": "Délai maximal entre deux essais",
         "propagation_seconds": "Attente de propagation DNS-01"
+      },
+      "notifications": {
+        "dispatch_enabled": "Envoyer les notifications",
+        "group_seconds": "Fenêtre de regroupement",
+        "confirm_seconds": "Délai de confirmation",
+        "messages_max_per_hour": "Messages par canal et par heure",
+        "retry_max_hours": "Réessayer un envoi en échec pendant",
+        "send_timeout_seconds": "Délai d'envoi"
+      },
+      "archives": {
+        "schedule_enabled": "Archives planifiées",
+        "start_time": "Heure de départ (HH:MM, heure locale)",
+        "interval_hours": "Intervalle",
+        "stagger_minutes": "Décalage entre nœuds",
+        "keep_daily_count": "Archives quotidiennes gardées",
+        "keep_weekly_count": "Archives hebdomadaires gardées",
+        "keep_monthly_count": "Archives mensuelles gardées",
+        "local_keep_count": "Archives locales gardées",
+        "include_leases_enabled": "Inclure les fichiers de baux Kea",
+        "verify_enabled": "Relire et vérifier chaque copie",
+        "test_restore_days": "Restauration à blanc tous les",
+        "max_archive_mb": "Plus grande archive acceptée"
+      },
+      "ddns": {
+        "failover_auto_enabled": "Promouvoir un secondaire automatiquement",
+        "failover_after_seconds": "Promotion automatique après",
+        "demote_on_return_enabled": "Rétrograder l'ancien primaire à son retour",
+        "replay_max_leases": "Plus grand plan de rattrapage",
+        "replay_window_max_hours": "Plus longue fenêtre de panne rejouée"
       }
     },
     "help": {
@@ -396,6 +445,19 @@
       "rpz": {
         "shrink_percent": "Un téléchargement qui retire davantage d'une liste est refusé ; l'ancien fichier reste.",
         "memory_warning_percent": "Part estimée de la mémoire d'un nœud que les listes peuvent prendre."
+      },
+      "notifications": {
+        "confirm_seconds": "Une alerte doit rester ouverte ce temps avant de partir ; les alertes critiques partent tout de suite.",
+        "messages_max_per_hour": "Au-delà, un seul message indique combien d’événements ont été retenus."
+      },
+      "archives": {
+        "schedule_enabled": "Désactivé tant qu'aucune clé d'archive n'existe.",
+        "stagger_minutes": "Chaque nœud part ce temps après le précédent.",
+        "test_restore_days": "Ouvre la dernière archive et la vérifie avec les outils des moteurs (0 : jamais)."
+      },
+      "ddns": {
+        "failover_auto_enabled": "Désactivé : l'alerte de panne propose le plan de promotion et vous le confirmez.",
+        "failover_after_seconds": "Le primaire doit être injoignable depuis tous les autres nœuds pendant ce temps."
       }
     }
   }

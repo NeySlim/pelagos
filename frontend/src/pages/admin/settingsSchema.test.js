@@ -14,7 +14,7 @@ describe('settings schema', () => {
     const sections = sectionsOf(schema)
     expect(sections.map((s) => s.id)).toEqual(schema.domains)
     const checks = sections.find((s) => s.id === 'checks')
-    expect(checks.groups.map((g) => g.id)).toEqual(['pools', 'ddns', 'secondaries', 'ha', 'kea', 'clock', 'certificates', 'disk', 'resolver', 'delegation', 'soa', 'advisories'])
+    expect(checks.groups.map((g) => g.id)).toEqual(['pools', 'ddns', 'secondaries', 'ha', 'kea', 'clock', 'certificates', 'disk', 'resolver', 'delegation', 'soa', 'advisories', 'notifications', 'archives'])
     expect(sections.flatMap((s) => s.groups.flatMap((g) => g.fields)).length).toBe(schema.settings.length)
   })
 
@@ -30,6 +30,8 @@ describe('settings schema', () => {
     expect(fieldError(spec('checks.pool_warning_percent'), 4.5)).toEqual({ code: 'integer' })
     expect(fieldError(spec('checks.d2_error_percent'), 2.5)).toBe(null)
     expect(fieldError(spec('dns.read_key'), 'bad key')).toEqual({ code: 'name' })
+    expect(fieldError(spec('archives.start_time'), '24:00')).toEqual({ code: 'time' })
+    expect(fieldError(spec('archives.start_time'), '03:15')).toBeNull()
     expect(fieldError(spec('dns.read_key'), '')).toEqual({ code: 'required' })
     expect(fieldError(spec('checks.advisories_url'), 'http://example.net')).toEqual({ code: 'https' })
     expect(fieldError(spec('checks.advisories_url'), '')).toBe(null)

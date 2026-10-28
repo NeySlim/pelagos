@@ -87,6 +87,19 @@ const invocations = [
   () => api.certs.request('n1', {}), () => api.certs.dropRequest('n1'), () => api.certs.check('n1', {}),
   () => api.certs.upload('n1', {}), () => api.certs.selfSigned('n1'), () => api.certs.testUcm({}),
   () => api.certs.testAcme({}), () => api.certs.testDns({}), () => api.certs.dns01Plan({}),
+  () => api.notifications.overview(), () => api.notifications.createChannel({ type: 'ntfy' }),
+  () => api.notifications.updateChannel('c1', { enabled: false }), () => api.notifications.deleteChannel('c1'),
+  () => api.notifications.test({ channel_id: 'c1' }), () => api.notifications.setOrder(['n1']),
+  () => api.notifications.mute('2026-10-28T12:00:00Z', 'maintenance'), () => api.notifications.unmute(),
+  () => api.notifications.history({ channel_id: 'c1' }),
+  () => api.archives.overview(), () => api.archives.createDestination({ type: 'sftp' }),
+  () => api.archives.updateDestination('d1', {}), () => api.archives.deleteDestination('d1'),
+  () => api.archives.testDestination({ destination_id: 'd1' }), () => api.archives.run(['n1']),
+  () => api.archives.list({ node_id: 'n1' }), () => api.archives.download('a1'), () => api.archives.upload({}),
+  () => api.archives.identity({ op: 'generate' }), () => api.archives.inspect('a1'),
+  () => api.archives.restorePlan('a1', { target_node_id: 'n1', parts: [] }),
+  () => api.ddnsFailover.resilience(), () => api.ddnsFailover.preparePlan(), () => api.ddnsFailover.failoverPlan('n2'),
+  () => api.ddnsFailover.switchoverPlan('n1', ['example.lan.']), () => api.ddnsFailover.replayPlan(),
 ]
 
 describe('api.js', () => {

@@ -54,7 +54,8 @@ export function fieldError(spec, value) {
       return null
     case 'string':
       if (typeof value !== 'string' || !value.trim()) return { code: 'required' }
-      return matchesPattern(spec.pattern, value) ? null : { code: 'name' }
+      if (matchesPattern(spec.pattern, value)) return null
+      return { code: spec.key.endsWith('_time') ? 'time' : 'name' }
     case 'url':
       if (typeof value !== 'string') return { code: 'required' }
       return !value || /^https:\/\/[^\s/]+(\/\S*)?$/.test(value) ? null : { code: 'https' }

@@ -7,6 +7,13 @@
   "alert.update_denied_set": "named refused {{count}} dynamic updates in {{hours}} hours although Kea already overrides client updates: find the sources in the named log and check allow-update or update-policy of the zones",
   "alert.cert_expiry": "{{cert}} certificate expires on {{not_after}}",
   "alert.cert_renewal_failed": "web certificate renewal failed {{failures}} times: {{error}}",
+  "alert.notification_failed": "notification channel {{channel}} has been failing since {{since}}: {{error}}",
+  "alert.archive_failed": "archive to {{destination}} failed {{failures}} times in a row: {{error}}",
+  "alert.archive_stale": "no successful archive of this node for {{hours}} h (every {{interval}} h expected)",
+  "alert.archive_incomplete": "the last archive is incomplete: {{count}} files could not be read",
+  "alert.ddns_outage": "zone {{zone}}: the active primary {{node}} has received no DDNS update since {{since}}",
+  "alert.ddns_replay": "{{count}} leases of the DDNS outage from {{start}} to {{end}} lack their DNS records",
+  "alert.dns_stale_primary": "zone {{zone}} is served as primary on {{node}} but the primary role belongs to {{primary}} (epoch {{epoch}})",
   "alert.config_divergence": "{{engine}} configuration differs between nodes",
   "alert.config_file_divergence": "{{path}} differs from the running {{engine}} configuration",
   "alert.config_syntax_warning": "{{path}} line {{line}}: {{message}} ({{count}} in the {{engine}} configuration)",
@@ -314,5 +321,10 @@
   "drift.object.ha_guard": "The HA listener guard ({{table}})",
   "drift.object.kea_ha": "The {{engine}} HA relationship of {{server}}",
   "drift.object.file": "The file {{path}}",
-  "plan.ha_guard.set": "HA listener guard: only {{peers}} reach TCP {{ports}}"
+  "plan.ha_guard.set": "HA listener guard: only {{peers}} reach TCP {{ports}}",
+  "ddns.blocker.not_managed": "zone {{zone}} is declared in your own files on {{node}}: adopt it into Pelagos first",
+  "ddns.blocker.signed": "zone {{zone}} is signed by a dnssec-policy: its keys exist on the primary only",
+  "ddns.blocker.view": "zone {{zone}} is in view {{view}}, which the key {{key}} does not select",
+  "ddns.blocker.single_node": "only one node serves DNS: there is no copy to promote",
+  "ddns.blocker.not_prepared": "not prepared: no copy is ready to be promoted"
 }

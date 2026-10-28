@@ -213,6 +213,23 @@ CATALOG: dict[str, str] = {
     "alert.cert_expiry": "{cert} certificate expires on {not_after}",
     "alert.cert_expired": "{cert} certificate expired on {not_after}",
     "alert.cert_renewal_failed": "web certificate renewal failed {failures} times: {error}",
+    "alert.notification_failed": "notification channel {channel} has been failing since {since}: {error}",
+    "alert.archive_failed": "archive to {destination} failed {failures} times in a row: {error}",
+    "alert.archive_stale": "no successful archive of this node for {hours} h (every {interval} h expected)",
+    "alert.archive_incomplete": "the last archive is incomplete: {count} files could not be read",
+    "alert.ddns_outage": "zone {zone}: the active primary {node} has received no DDNS update since {since}",
+    "alert.ddns_replay": "{count} leases of the DDNS outage from {start} to {end} lack their DNS records",
+    "alert.dns_stale_primary": (
+        "zone {zone} is served as primary on {node} but the primary role belongs to {primary} (epoch {epoch})"
+    ),
+    # DDNS failover: why a zone is not ready (section 24).
+    "ddns.blocker.not_managed": (
+        "zone {zone} is declared in your own files on {node}: adopt it into Pelagos first"
+    ),
+    "ddns.blocker.signed": "zone {zone} is signed by a dnssec-policy: its keys exist on the primary only",
+    "ddns.blocker.view": "zone {zone} is in view {view}, which the key {key} does not select",
+    "ddns.blocker.single_node": "only one node serves DNS: there is no copy to promote",
+    "ddns.blocker.not_prepared": "not prepared: no copy is ready to be promoted",
     "cert.kind.web": "Web UI",
     "cert.kind.node": "Node replication",
     "cert.kind.ca": "Internal CA",

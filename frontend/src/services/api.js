@@ -270,9 +270,52 @@ export const certs = {
   dns01Plan: (body) => apiClient.post('/admin/certificates/dns01/plan', body),
 }
 
+// Outgoing alert notifications (Administration > Notifications, section 22). Secrets go in
+// `secrets: {name: value|null}` and come back as booleans only.
+export const notifications = {
+  overview: () => apiClient.get('/admin/notifications'),
+  createChannel: (channel) => apiClient.post('/admin/notifications/channels', channel),
+  updateChannel: (id, partial) => apiClient.put(`/admin/notifications/channels/${enc(id)}`, partial),
+  deleteChannel: (id) => apiClient.delete(`/admin/notifications/channels/${enc(id)}`),
+  // {channel_id} for a saved channel, or an unsaved channel (its `scope` names the stored secrets).
+  test: (body) => apiClient.post('/admin/notifications/test', body),
+  setOrder: (node_ids) => apiClient.put('/admin/notifications/order', { node_ids }),
+  mute: (until, comment) => apiClient.put('/admin/notifications/mute', { until, comment }),
+  unmute: () => apiClient.delete('/admin/notifications/mute'),
+  history: (params) => apiClient.get(`/admin/notifications/history${buildQueryString(params)}`),
+}
+
+// Encrypted archives and restore (Administration > Backups, section 23).
+export const archives = {
+  overview: () => apiClient.get('/admin/archives'),
+  createDestination: (destination) => apiClient.post('/admin/archives/destinations', destination),
+  updateDestination: (id, partial) => apiClient.put(`/admin/archives/destinations/${enc(id)}`, partial),
+  deleteDestination: (id) => apiClient.delete(`/admin/archives/destinations/${enc(id)}`),
+  testDestination: (body) => apiClient.post('/admin/archives/destinations/test', body),
+  run: (node_ids) => apiClient.post('/admin/archives/run', node_ids ? { node_ids } : {}),
+  list: (params) => apiClient.get(`/admin/archives/list${buildQueryString(params)}`),
+  downloadUrl: (id) => `${API_BASE_URL}/admin/archives/${enc(id)}/download`,
+  download: (id) => apiClient.get(`/admin/archives/${enc(id)}/download`),
+  upload: (body) => apiClient.post('/admin/archives/upload', body),
+  // {op: generate|rotate|add_recipient|remove_recipient, recipient?, label?, password?}
+  identity: (body) => apiClient.post('/admin/archives/identity', body),
+  inspect: (id, identity) => apiClient.post(`/admin/archives/${enc(id)}/inspect`, identity ? { identity } : {}),
+  restorePlan: (id, body) => apiClient.post(`/admin/archives/${enc(id)}/restore/plan`, body),
+}
+
+// DDNS without a single point of failure (DHCP > DDNS > Failover, section 24).
+export const ddnsFailover = {
+  resilience: () => apiClient.get('/dhcp/ddns/resilience'),
+  preparePlan: (zones) => apiClient.post('/dhcp/ddns/resilience/plan', zones ? { zones } : {}),
+  failoverPlan: (to_node_id, zones) => apiClient.post('/dhcp/ddns/failover/plan', zones ? { to_node_id, zones } : { to_node_id }),
+  switchoverPlan: (to_node_id, zones) => apiClient.post('/dhcp/ddns/switchover/plan', zones ? { to_node_id, zones } : { to_node_id }),
+  // {from?, to?, family?, limit?}
+  replayPlan: (body = {}) => apiClient.post('/dhcp/ddns/replay/plan', body),
+}
+
 export const api = {
   meta, auth, account, nodes, dashboard, dns, dhcp, d2, hosts, plans, jobs,
-  alerts, series, audit, advanced, install, admin, certs, ops,
+  alerts, series, audit, advanced, install, admin, certs, ops, notifications, archives, ddnsFailover,
 }
 
 export default api

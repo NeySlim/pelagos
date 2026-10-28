@@ -18,6 +18,9 @@ import { opsHandlers } from './ops.mjs'
 import { rpzHandlers } from './rpz.mjs'
 import { ptrHelpers } from './ptr.mjs'
 import { certsHandlers } from './certs.mjs'
+import { notifyHandlers } from './notify.mjs'
+import { archivesHandlers } from './archives.mjs'
+import { ddnsFailoverHandlers } from './ddnsFailover.mjs'
 import { SETTINGS_SCHEMA, setting, updateSettings } from './settings.mjs'
 import { heartbeatAge, liveCounters } from './live.mjs'
 import { createEvents, leaseBrief, poolHistoryKey, stopEventTimers, zoneEvents } from './events.mjs'
@@ -84,7 +87,15 @@ const PERMISSIONS = {
 for (const spec of ENDPOINTS) {
   if (spec.includes(' /dhcp/') && spec.startsWith('GET ') && !PERMISSIONS[spec]) PERMISSIONS[spec] = 'read:dhcp'
   if (spec.includes(' /admin/certificates')) PERMISSIONS[spec] = 'admin:certificates'
+  if (spec.includes(' /admin/notifications')) PERMISSIONS[spec] = 'admin:notifications'
+  if (spec.includes(' /admin/archives')) PERMISSIONS[spec] = 'admin:archives'
 }
+// The DDNS failover endpoints need two permissions: the first here, the second in the handler.
+Object.assign(PERMISSIONS, {
+  'GET /dhcp/ddns/resilience': 'read:dhcp', 'POST /dhcp/ddns/resilience/plan': 'write:dns.zones',
+  'POST /dhcp/ddns/failover/plan': 'write:dns.zones', 'POST /dhcp/ddns/switchover/plan': 'write:dns.zones',
+  'POST /dhcp/ddns/replay/plan': 'ops:dhcp.leases',
+})
 
 class Problem extends Error {
   constructor(status, code, detail, errors) {
@@ -2707,6 +2718,9 @@ function buildHandlers(state, emit) {
     ...opsHandlers(state, { Problem, invalid, hasPermission, auditEntry }),
     ...rpzHandlers(state, { createPlan, invalid, notFound }),
     ...certsHandlers(state, { Problem, invalid }),
+    ...notifyHandlers(state, { Problem, invalid }),
+    ...archivesHandlers(state, { Problem, invalid, createPlan }),
+    ...ddnsFailoverHandlers(state, { Problem, invalid, createPlan, hasPermission }),
   }
 }
 

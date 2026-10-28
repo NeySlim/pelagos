@@ -1,4 +1,16 @@
 {
+  "alert.archive_failed": [
+    "destination",
+    "error",
+    "failures"
+  ],
+  "alert.archive_incomplete": [
+    "count"
+  ],
+  "alert.archive_stale": [
+    "hours",
+    "interval"
+  ],
   "alert.audit_growth": [
     "limit",
     "path",
@@ -63,6 +75,16 @@
   "alert.daemon_down": [
     "engine"
   ],
+  "alert.ddns_outage": [
+    "node",
+    "since",
+    "zone"
+  ],
+  "alert.ddns_replay": [
+    "count",
+    "end",
+    "start"
+  ],
   "alert.declined_addresses": [
     "count",
     "engine",
@@ -77,6 +99,12 @@
     "free",
     "path",
     "percent"
+  ],
+  "alert.dns_stale_primary": [
+    "epoch",
+    "node",
+    "primary",
+    "zone"
   ],
   "alert.duplicate_lease": [
     "identifier",
@@ -157,6 +185,11 @@
   ],
   "alert.log_growth.not_rotated": [],
   "alert.log_growth.rotated": [],
+  "alert.notification_failed": [
+    "channel",
+    "error",
+    "since"
+  ],
   "alert.ns_no_transfer": [
     "address",
     "ns",
@@ -375,6 +408,20 @@
   "common.with_note": [
     "note",
     "text"
+  ],
+  "ddns.blocker.not_managed": [
+    "node",
+    "zone"
+  ],
+  "ddns.blocker.not_prepared": [],
+  "ddns.blocker.signed": [
+    "zone"
+  ],
+  "ddns.blocker.single_node": [],
+  "ddns.blocker.view": [
+    "key",
+    "view",
+    "zone"
   ],
   "drift.object.file": [
     "path"

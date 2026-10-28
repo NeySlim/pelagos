@@ -7,6 +7,13 @@
   "alert.update_denied_set": "named a refusé {{count}} mises à jour dynamiques en {{hours}} heures alors que Kea force déjà les mises à jour des clients : cherchez les sources dans le journal de named et vérifiez allow-update ou update-policy des zones",
   "alert.cert_expiry": "Le certificat {{cert}} expire le {{not_after}}",
   "alert.cert_renewal_failed": "le renouvellement du certificat web a échoué {{failures}} fois : {{error}}",
+  "alert.notification_failed": "le canal de notification {{channel}} échoue depuis {{since}} : {{error}}",
+  "alert.archive_failed": "l'archive vers {{destination}} a échoué {{failures}} fois de suite : {{error}}",
+  "alert.archive_stale": "aucune archive réussie de ce nœud depuis {{hours}} h (une toutes les {{interval}} h attendue)",
+  "alert.archive_incomplete": "la dernière archive est incomplète : {{count}} fichiers n'ont pas pu être lus",
+  "alert.ddns_outage": "zone {{zone}} : le primaire actif {{node}} ne reçoit plus de mise à jour DDNS depuis {{since}}",
+  "alert.ddns_replay": "{{count}} baux de la panne DDNS du {{start}} au {{end}} n’ont pas leurs enregistrements DNS",
+  "alert.dns_stale_primary": "la zone {{zone}} est servie en primaire sur {{node}} mais le rôle de primaire appartient à {{primary}} (époque {{epoch}})",
   "alert.config_divergence": "La configuration {{engine}} diffère entre les nœuds",
   "alert.config_file_divergence": "{{path}} diffère de la configuration {{engine}} en service",
   "alert.config_syntax_warning": "{{path}} ligne {{line}} : {{message}} ({{count}} dans la configuration {{engine}})",
@@ -314,5 +321,10 @@
   "drift.object.ha_guard": "La garde du listener HA ({{table}})",
   "drift.object.kea_ha": "La relation HA {{engine}} de {{server}}",
   "drift.object.file": "Le fichier {{path}}",
-  "plan.ha_guard.set": "Garde du listener HA : seuls {{peers}} atteignent TCP {{ports}}"
+  "plan.ha_guard.set": "Garde du listener HA : seuls {{peers}} atteignent TCP {{ports}}",
+  "ddns.blocker.not_managed": "la zone {{zone}} est déclarée dans vos propres fichiers sur {{node}} : confiez-la d'abord à Pelagos",
+  "ddns.blocker.signed": "la zone {{zone}} est signée par une dnssec-policy : ses clés ne sont que sur le primaire",
+  "ddns.blocker.view": "la zone {{zone}} est dans la vue {{view}}, que la clé {{key}} ne sélectionne pas",
+  "ddns.blocker.single_node": "un seul nœud sert le DNS : aucune copie à promouvoir",
+  "ddns.blocker.not_prepared": "non préparée : aucune copie n'est prête à être promue"
 }

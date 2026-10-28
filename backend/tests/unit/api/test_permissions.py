@@ -13,6 +13,7 @@ P = "/api/v1"
 ANON = "anon"
 ANY = "any"
 HOST = "host"  # write:hosts as the union of the dns/dhcp writes (section 16)
+DNS_AND_DHCP = "write:dns.zones+write:dhcp.config"  # DDNS failover plans need both
 
 CHANGE = {"change": {"op": "add", "target": "x", "after": {}}}
 CHANGES = {"changes": [{"op": "add", "target": "x", "after": {}}]}
@@ -379,6 +380,81 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("POST", "/dns/ops", "/dns/ops", {"op": "flush"}, "ops:dns"),
     ("GET", "/dhcp/<string:family>/ops", "/dhcp/v4/ops", None, "read:dhcp"),
     ("POST", "/dhcp/<string:family>/ops", "/dhcp/v4/ops", {"command": "ha-sync"}, "ops:dhcp.ha"),
+    # Notifications, archives and DDNS failover (sections 22 to 24): 501 until built.
+    ("GET", "/admin/notifications", "/admin/notifications", None, "admin:notifications"),
+    ("POST", "/admin/notifications/channels", "/admin/notifications/channels", {}, "admin:notifications"),
+    (
+        "PUT",
+        "/admin/notifications/channels/<string:channel_id>",
+        "/admin/notifications/channels/c1",
+        {},
+        "admin:notifications",
+    ),
+    (
+        "DELETE",
+        "/admin/notifications/channels/<string:channel_id>",
+        "/admin/notifications/channels/c1",
+        None,
+        "admin:notifications",
+    ),
+    ("POST", "/admin/notifications/test", "/admin/notifications/test", {}, "admin:notifications"),
+    (
+        "PUT",
+        "/admin/notifications/order",
+        "/admin/notifications/order",
+        {"node_ids": []},
+        "admin:notifications",
+    ),
+    ("PUT", "/admin/notifications/mute", "/admin/notifications/mute", {}, "admin:notifications"),
+    ("DELETE", "/admin/notifications/mute", "/admin/notifications/mute", None, "admin:notifications"),
+    ("GET", "/admin/notifications/history", "/admin/notifications/history", None, "admin:notifications"),
+    ("GET", "/admin/archives", "/admin/archives", None, "admin:archives"),
+    ("POST", "/admin/archives/destinations", "/admin/archives/destinations", {}, "admin:archives"),
+    ("POST", "/admin/archives/destinations/test", "/admin/archives/destinations/test", {}, "admin:archives"),
+    (
+        "PUT",
+        "/admin/archives/destinations/<string:destination_id>",
+        "/admin/archives/destinations/d1",
+        {},
+        "admin:archives",
+    ),
+    (
+        "DELETE",
+        "/admin/archives/destinations/<string:destination_id>",
+        "/admin/archives/destinations/d1",
+        None,
+        "admin:archives",
+    ),
+    ("POST", "/admin/archives/run", "/admin/archives/run", {}, "admin:archives"),
+    ("GET", "/admin/archives/list", "/admin/archives/list", None, "admin:archives"),
+    ("POST", "/admin/archives/upload", "/admin/archives/upload", {}, "admin:archives"),
+    ("POST", "/admin/archives/identity", "/admin/archives/identity", {"op": "generate"}, "admin:archives"),
+    (
+        "GET",
+        "/admin/archives/<string:archive_id>/download",
+        "/admin/archives/a1/download",
+        None,
+        "admin:archives",
+    ),
+    (
+        "POST",
+        "/admin/archives/<string:archive_id>/inspect",
+        "/admin/archives/a1/inspect",
+        {},
+        "admin:archives",
+    ),
+    (
+        "POST",
+        "/admin/archives/<string:archive_id>/restore/plan",
+        "/admin/archives/a1/restore/plan",
+        {},
+        "admin:archives",
+    ),
+    ("GET", "/dhcp/ddns/resilience", "/dhcp/ddns/resilience", None, "read:dhcp+read:dns"),
+    ("POST", "/dhcp/ddns/resilience/plan", "/dhcp/ddns/resilience/plan", {}, DNS_AND_DHCP),
+    ("POST", "/dhcp/ddns/failover/plan", "/dhcp/ddns/failover/plan", {"to_node_id": "n2"}, DNS_AND_DHCP),
+    ("POST", "/dhcp/ddns/switchover/plan", "/dhcp/ddns/switchover/plan", {"to_node_id": "n2"}, DNS_AND_DHCP),
+    ("POST", "/dhcp/ddns/replay/plan", "/dhcp/ddns/replay/plan", {}, "ops:dhcp.leases"),
     # Endpoints that end or reshape the session run last.
     ("POST", "/auth/totp/enroll", "/auth/totp/enroll", None, ANY),
     ("POST", "/auth/login", "/auth/login", {"username": "nobody", "password": "x"}, ANON),
@@ -399,7 +475,7 @@ def _allowed(role: str, perm: str) -> bool:
         return True
     if perm == HOST:
         return host_plan_permissions(perms, touches_dns=True, touches_dhcp=False)
-    return has_permission(perms, perm)
+    return all(has_permission(perms, p) for p in perm.split("+"))
 
 
 def test_matrix_covers_every_api_route(app):

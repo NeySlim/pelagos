@@ -27,6 +27,7 @@ const ALERT_KINDS = [
   'disk_space', 'file_growth', 'reservation_risk', 'declined_addresses', 'resolver_health', 'delegation_issue',
   'version_mismatch', 'restart_loop', 'pool_forecast', 'security_advisory',
   'ha_terminated', 'clock_skew', 'clock_unsynchronized',
+  'notification_failed', 'archive_failed', 'archive_stale', 'archive_incomplete', 'ddns_outage', 'ddns_replay', 'dns_stale_primary',
 ]
 
 describe('dashboard i18n', () => {

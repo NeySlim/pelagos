@@ -179,7 +179,9 @@
       "install": "Installation",
       "import": "Import",
       "security": "Sécurité",
-      "admin": "Administration"
+      "admin": "Administration",
+      "restore": "Restauration",
+      "dns.failover": "Reprise DDNS"
     },
     "steps": {
       "apply": "Revérifier les préconditions et appliquer sur {{node}}",

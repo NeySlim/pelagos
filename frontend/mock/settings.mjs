@@ -34,6 +34,7 @@ const MESSAGES = {
   range: (p) => `must be between ${p.min} and ${p.max}`,
   required: () => 'non-empty string expected',
   name: () => 'invalid name',
+  time: () => 'HH:MM expected',
   https: () => 'https URL expected',
   list: () => 'list of strings expected',
   item: (p) => `invalid item: ${p.item}`,

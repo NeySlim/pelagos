@@ -370,3 +370,25 @@ def test_legacy_admin_types_are_upgraded_custom_lists_kept():
     assert reg.migrate(legacy) == []
     custom = {"settings": {"dns": {"update_types_admin": ["A", "AAAA"]}}}
     assert reg.migrate(custom) == [] and custom["settings"]["dns"]["update_types_admin"] == ["A", "AAAA"]
+
+
+def test_feature_domains_of_the_sixth_pass():
+    """notifications, archives, ddns (sections 22 to 24): defaults, screen entries, time of day."""
+    assert {"notifications", "archives", "ddns"} <= set(reg.DOMAINS)
+    assert reg.get({}, "ddns.failover_auto_enabled") is False
+    assert reg.get({}, "ddns.demote_on_return_enabled") is True
+    assert reg.get({}, "archives.include_leases_enabled") is True
+    assert reg.get({}, "archives.schedule_enabled") is False
+    body = {
+        "notifications": {"channels": [], "group_seconds": 30},
+        "archives": {"recipients": [], "start_time": "24:00"},
+        "ddns": {"roles": {}},
+    }
+    fields = dict(reg.validate(body, reg.defaults()))
+    assert fields == {
+        "notifications.channels": "set through its own screen",
+        "archives.recipients": "set through its own screen",
+        "archives.start_time": "HH:MM expected",
+        "ddns.roles": "set through its own screen",
+    }
+    assert reg.validate({"archives": {"start_time": "03:15"}}, reg.defaults()) == []

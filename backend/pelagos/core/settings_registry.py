@@ -31,7 +31,22 @@ NAME_PATTERN = r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,62}$"
 RRTYPE_PATTERN = r"^[A-Z][A-Z0-9]{0,9}$"
 HOST_PATTERN = r"^[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}\.)*[A-Za-z0-9_-]{0,63}\.?$"
 
-DOMAINS = ("auth", "plans", "peers", "checks", "collector", "retention", "dns", "kea", "rpz", "certificates")
+DOMAINS = (
+    "auth",
+    "plans",
+    "peers",
+    "checks",
+    "collector",
+    "retention",
+    "dns",
+    "kea",
+    "rpz",
+    "certificates",
+    "notifications",
+    "archives",
+    "ddns",
+)
+TIME_OF_DAY_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +152,10 @@ REGISTRY: tuple[Setting, ...] = (
     # Debian security tracker: which CVEs the installed distribution package fixes (item 37).
     S("checks.distro_tracker_enabled", "boolean", True, group="advisories"),
     S("checks.distro_tracker_url", "url", DEBIAN_TRACKER, group="advisories"),
+    # Outgoing notifications, archives (sections 22 and 23)
+    S("checks.notification_failure_warning_minutes", "integer", 30, 1, 7 * 1440, "minutes", "notifications"),
+    S("checks.archive_stale_factor", "integer", 2, 1, 100, "factor", "archives"),
+    S("checks.archive_failures_critical_count", "integer", 3, 1, 100, "failures", "archives"),
     # Collector periods
     S("collector.poll_seconds", "integer", 60, 5, 3600, "seconds"),
     S("collector.pool_sample_seconds", "integer", 300, 30, DAY, "seconds"),
@@ -185,6 +204,32 @@ REGISTRY: tuple[Setting, ...] = (
     S("certificates.retry_min_seconds", "integer", 300, 30, DAY, "seconds"),
     S("certificates.retry_max_seconds", "integer", 21600, 60, 7 * DAY, "seconds"),
     S("certificates.propagation_seconds", "integer", 180, 10, 3600, "seconds"),
+    # Outgoing notifications (section 22)
+    S("notifications.dispatch_enabled", "boolean", True),
+    S("notifications.group_seconds", "integer", 60, 0, 3600, "seconds"),
+    S("notifications.confirm_seconds", "integer", 60, 0, 3600, "seconds"),
+    S("notifications.messages_max_per_hour", "integer", 30, 1, 3600, "per_hour"),
+    S("notifications.retry_max_hours", "integer", 24, 1, 168, "hours"),
+    S("notifications.send_timeout_seconds", "integer", 15, 1, 120, "seconds"),
+    # Scheduled archives (section 23)
+    S("archives.schedule_enabled", "boolean", False),
+    S("archives.start_time", "string", "03:15", pattern=TIME_OF_DAY_PATTERN),
+    S("archives.interval_hours", "integer", 24, 1, 168, "hours"),
+    S("archives.stagger_minutes", "integer", 15, 0, 720, "minutes"),
+    S("archives.keep_daily_count", "integer", 7, 0, 366, "archives", "retention"),
+    S("archives.keep_weekly_count", "integer", 4, 0, 520, "archives", "retention"),
+    S("archives.keep_monthly_count", "integer", 6, 0, 240, "archives", "retention"),
+    S("archives.local_keep_count", "integer", 3, 1, 100, "archives", "retention"),
+    S("archives.include_leases_enabled", "boolean", True),
+    S("archives.verify_enabled", "boolean", True),
+    S("archives.test_restore_days", "integer", 7, 0, 365, "days"),
+    S("archives.max_archive_mb", "integer", 512, 1, 65536, "mb"),
+    # DDNS failover (section 24)
+    S("ddns.failover_auto_enabled", "boolean", False),
+    S("ddns.failover_after_seconds", "integer", 300, 60, DAY, "seconds"),
+    S("ddns.demote_on_return_enabled", "boolean", True),
+    S("ddns.replay_max_leases", "integer", 2000, 1, 1_000_000, "leases"),
+    S("ddns.replay_window_max_hours", "integer", 72, 1, 720, "hours"),
 )
 
 BY_KEY: dict[str, Setting] = {s.key: s for s in REGISTRY}
@@ -193,6 +238,9 @@ BY_KEY: dict[str, Setting] = {s.key: s for s in REGISTRY}
 MANAGED: dict[str, tuple[str, ...]] = {
     "rpz": ("categories", "subscriptions", "order", "allow", "exempt_clients"),
     "certificates": ("cluster", "nodes"),
+    "notifications": ("channels", "order", "mute"),
+    "archives": ("destinations", "recipients"),
+    "ddns": ("roles",),
 }
 
 # (lower, higher, strict): `lower` must stay below `higher` (or at most equal when not strict).
@@ -463,7 +511,7 @@ def check_value(spec: Setting, value: Any) -> str | None:
         if not isinstance(value, str) or not value.strip():
             return "non-empty string expected"
         if spec.pattern and not re.fullmatch(spec.pattern, value):
-            return "invalid name"
+            return "HH:MM expected" if spec.pattern == TIME_OF_DAY_PATTERN else "invalid name"
         return None
     if spec.type == "url":
         if not isinstance(value, str):

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -255,3 +256,36 @@ def test_replace_with_comment_needs_a_line_of_its_own() -> None:
     lone = parse("options {\n\ta 1; // why\n};\n")
     assert lone.replace_with_comment(lone.find("a", "options")[0], "# moved") is True
     assert lone.serialize() == "options {\n\t# moved // why\n};\n"
+
+
+def test_only_user_files_go_through_the_helper(backend: BindBackend, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The helper writes a user file with the hash read just before; managed files never go to it."""
+    from pelagos.core.write_pipeline import WritePipeline
+    from pelagos.installer import helper
+
+    sent: list[dict] = []
+
+    class Client:
+        def __init__(self, timeout: float = 0) -> None:
+            pass
+
+        def call(self, op: str, **args):
+            sent.append({"op": op, **args})
+
+    monkeypatch.setattr(helper, "available", lambda: True)
+    monkeypatch.setattr(helper, "HelperClient", Client)
+    pipeline = backend._config_pipeline(
+        backup_root=backend.ctx.backup_root, validate=lambda: None, reload=lambda: "ok", label="t"
+    )
+    assert isinstance(pipeline, WritePipeline) and pipeline.privileged is not None
+    user = etc(backend) / "named.conf.local"
+    pipeline.privileged(user, b"x;\n")
+    assert sent[0]["op"] == "bind_user_write" and sent[0]["path"] == str(user)
+    assert sent[0]["sha256"] == hashlib.sha256(user.read_bytes()).hexdigest()
+    backend.include_dir.mkdir(parents=True, exist_ok=True)
+    with pytest.raises(PermissionError):
+        pipeline.privileged(backend.include_dir / "zones.conf", b"x;\n")
+    monkeypatch.setattr(helper, "available", lambda: False)
+    with pytest.raises(PermissionError):
+        pipeline.privileged(user, b"x;\n")
+    assert len(sent) == 1

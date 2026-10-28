@@ -159,3 +159,46 @@ def test_sticky_directory_rewrites_another_owners_file_in_place(tmp_root, monkey
     assert result.ok, result.error
     assert target.read_text() == "new\n" and target.stat().st_ino == inode
     assert [p.name for p in zones.iterdir()] == ["db.example.lan"]
+
+
+def test_file_this_process_may_not_write_goes_through_privileged_writer(tmp_root, monkeypatch):
+    """Debian's named.conf.local is root:bind 0644 in a 2755 directory: write and rollback both
+    fall back to `privileged`; a managed file next to it is written as usual."""
+    from pelagos.core import write_pipeline as wp
+
+    user = tmp_root / "etc" / "named.conf.local"
+    managed = tmp_root / "etc" / "zones.conf"
+    user.parent.mkdir()
+    user.write_text("zone a;\n")
+    managed.write_text("old\n")
+    real = wp._atomic_write
+
+    def refuse_user(path, *args, **kw):
+        if path == user:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real(path, *args, **kw)
+
+    monkeypatch.setattr(wp, "_atomic_write", refuse_user)
+    seen: list[bytes] = []
+
+    def privileged(path, content):
+        seen.append(content)
+        path.write_bytes(content)
+
+    pipe = WritePipeline(
+        tmp_root / "backups",
+        validate=lambda: ValidationResult(ok=True, tool="named-checkconf"),
+        reload=lambda: "ok",
+        verify=lambda: False,
+    )
+    pipe.privileged = privileged
+    result = pipe.run([FileChange(user, b"# moved\n"), FileChange(managed, b"zone a;\n")])
+    assert not result.ok and result.rolled_back, result.error
+    assert seen == [b"# moved\n", b"zone a;\n"]
+    assert user.read_text() == "zone a;\n" and managed.read_text() == "old\n"
+
+    plain = WritePipeline(
+        tmp_root / "backups", validate=lambda: ValidationResult(ok=True, tool="t"), reload=lambda: "ok"
+    )
+    failed = plain.run([FileChange(user, b"# moved\n")])
+    assert not failed.ok and "Permission denied" in (failed.error or "")

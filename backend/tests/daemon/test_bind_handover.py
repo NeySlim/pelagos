@@ -106,3 +106,60 @@ def test_rndc_key_is_never_offered_nor_moved(server, tmp_root: Path) -> None:
     plan = backend.plan_config_change([Change(ChangeOp.REPLACE, "handover/keys/rndc-key")])
     assert plan.state is PlanState.FAILED and "stays in the user file" in (plan.error or "")
     assert "rndc-key" in (server.root / "rndc.key").read_text()
+
+
+def test_zone_handover_of_a_file_only_root_may_write(server, tmp_root: Path, monkeypatch) -> None:
+    """Debian keeps named.conf.local root:bind 0644 in /etc/bind (2755): the user file is written,
+    then rolled back, by the privileged helper's bind_user_write operation; named keeps the zone."""
+    from types import SimpleNamespace
+
+    from pelagos.core import write_pipeline as wp
+    from pelagos.installer import helper
+
+    backend = make_backend(server, tmp_root)
+    setup_includes(backend)
+    local_file = server.root / "named.conf.local"
+    original = local_file.read_text()
+    real = wp._atomic_write
+
+    def as_unprivileged(path, *args, **kw):
+        if path == local_file:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real(path, *args, **kw)
+
+    env = SimpleNamespace(
+        paths=SimpleNamespace(named_conf=server.named_conf, bind_include_dir=backend.include_dir)
+    )
+    calls: list[str] = []
+
+    class Client:
+        def __init__(self, timeout: float = 0) -> None:
+            pass
+
+        def call(self, op: str, **args):
+            calls.append(args["path"])
+            return helper.handle({"op": op, **args}, lambda: env, lambda _m: None)
+
+    monkeypatch.setattr(wp, "_atomic_write", as_unprivileged)
+    monkeypatch.setattr(helper, "available", lambda: True)
+    monkeypatch.setattr(helper, "HelperClient", Client)
+
+    plan = backend.plan_config_change(
+        [Change(ChangeOp.REPLACE, "handover/zones/_default/legacy.example.lan", after={"comment": True})]
+    )
+    assert plan.state is PlanState.VALIDATED, plan.validations
+    result = backend.apply(plan)
+    assert result.ok, result.message
+    assert calls == [str(local_file)]
+    assert "# moved to zones.conf by Pelagos" in local_file.read_text()
+    assert "type: primary" in server.rndc("zonestatus", "legacy.example.lan")
+    zone = next(z for z in backend.read_config().zones if z.name == "legacy.example.lan.")
+    assert zone.source is ZoneSource.PELAGOS
+
+    back = backend.rollback(plan)
+    assert back.ok, back.message
+    assert calls == [str(local_file)] * 2
+    assert local_file.read_text() == original
+    assert "type: primary" in server.rndc("zonestatus", "legacy.example.lan")
+    zone = next(z for z in backend.read_config().zones if z.name == "legacy.example.lan.")
+    assert zone.source is ZoneSource.USER_CONF

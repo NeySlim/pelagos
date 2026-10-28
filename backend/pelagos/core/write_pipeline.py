@@ -231,6 +231,16 @@ class WritePipeline:
         self.reload = reload
         self.verify = verify
         self.label = label
+        # Writes an existing file this process may not write (a root-owned user file), or None.
+        self.privileged: Callable[[Path, bytes], None] | None = None
+
+    def _write(self, path: Path, content: bytes, mode: int | None, group: str | None) -> None:
+        try:
+            _atomic_write(path, content, mode, group, self.backup_root / JOURNAL_DIR)
+        except PermissionError:
+            if self.privileged is None or not path.exists():
+                raise
+            self.privileged(path, content)
 
     # Steps record their name, outcome and output so the audit entry can carry them.
     def _step(self, result: PipelineResult, name: str, fn: Callable[[], Any]) -> Any:
@@ -299,12 +309,8 @@ class WritePipeline:
                     if path.exists():
                         path.unlink()
                 else:
-                    _atomic_write(
-                        path,
-                        (backup_dir / f"{entry['index']}.bak").read_bytes(),
-                        entry["mode"],
-                        None,
-                        self.backup_root / JOURNAL_DIR,
+                    self._write(
+                        path, (backup_dir / f"{entry['index']}.bak").read_bytes(), entry["mode"], None
                     )
                     try:
                         os.chown(path, entry["uid"], entry["gid"])
@@ -333,7 +339,7 @@ class WritePipeline:
 
         def write_all() -> str:
             for c in changes:
-                _atomic_write(c.path, c.content, c.mode, c.group, self.backup_root / JOURNAL_DIR)
+                self._write(c.path, c.content, c.mode, c.group)
             return f"{len(changes)} file(s)"
 
         reloaded = False

@@ -71,10 +71,18 @@ Installer work (install, import, security remediation) needs root: the
 packages ship `pelagos-helper.socket` (`/run/pelagos-helper.sock`,
 `root:pelagos 0660`, `Accept=yes`), and each connection runs `pelagos helper`
 as root for one request (`pelagos.installer.helper`: `detect`, `audit`,
-`plan_install`, `plan_import`, `plan_security`, `d2_secret_dir`, `apply`; JSON
-lines, progress then result). `d2_secret_dir` takes no argument: it makes
-`<kea conf dir>/pelagos` (`pelagos:<kea group>` 2750, setgid, never through a
-symlink) for the TSIG secret files of D2 plans. The web process and the collector, which run as `pelagos`, go
+`plan_install`, `plan_import`, `plan_security`, `d2_secret_dir`,
+`bind_user_write`, `apply`; JSON lines, progress then result). `d2_secret_dir`
+takes no argument: it makes `<kea conf dir>/pelagos` (`pelagos:<kea group>`
+2750, setgid, never through a symlink) for the TSIG secret files of D2 plans.
+`bind_user_write` (`path`, `content` text, `sha256` of the current content)
+rewrites one user BIND file for a handover or its rollback (Debian's
+`named.conf.local` is `root:bind 0644` in `/etc/bind` 2755, RHEL's
+`/etc/named.conf` `root:named 0640` in `/etc`): only a file the host's
+named.conf includes, outside the Pelagos include directory and not the rndc
+key, a regular file with one link reached without a symlink and still
+hashing to `sha256`; owner, group, mode and SELinux label stay, temp file and
+rename in the same directory. The web process and the collector, which run as `pelagos`, go
 through it when they are not root and the socket exists; otherwise they run
 the installer in-process (tests, development, root). `apply` is not a blank
 cheque for the `pelagos` group: a plan made on this node runs only if this
@@ -1052,6 +1060,7 @@ class WritePipeline:
                  label: str = "") -> None: ...
     def run(self, changes: list[FileChange]) -> PipelineResult: ...
     def restore(self, backup_dir: Path, reload: bool = True) -> PipelineResult: ...   # explicit rollback later
+    privileged: Callable[[Path, bytes], None] | None = None   # set after construction
 ```
 
 Rules: backups copy every target file that exists (and record "absent" for
@@ -1068,6 +1077,9 @@ An in-place rewrite first saves the old bytes and an intent journal under
 bytes before cutting the file to length; at start the web process and the
 collector call `recover_in_place_writes(backups_dir)`, which puts back the
 old bytes of any file that reads as neither its old nor its new content.
+An existing file this process may not write at all (permission refused) goes
+to `privileged` when set, in `run` and in `restore`: the BIND connector sets
+it on configuration plans to the helper's `bind_user_write`.
 `validate` runs before `reload`; if it fails nothing is
 reloaded and the backup is restored (no reload: the engine still runs its old files; the same holds when
 the write itself fails). If `reload` raises or `verify` returns

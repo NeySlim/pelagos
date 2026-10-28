@@ -13,6 +13,13 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-28, WP-BIND, WP-CORE, WP-INSTALLER: handover writes root-owned user files
+Additive. `docs/architecture.md` sections 2 and 7: helper operation `bind_user_write` and
+`WritePipeline.privileged`. A handover (and its rollback) edits a user file the `pelagos` user
+cannot write (Debian `/etc/bind/named.conf.local` root:bind 0644, RHEL `/etc/named.conf`), which
+failed with "Permission denied". The BIND connector's configuration pipelines now send those
+files to the helper; nothing else changes. No package must react.
+
 ## 2026-10-28, WP-API-AUTH (N3): notifications API details
 Additive. `docs/architecture.md` sections 13 and 17 to 22: peer action `notify.state` (the
 dispatcher state of a node, so any node shows the sender's channel status and queue);

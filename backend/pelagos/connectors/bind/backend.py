@@ -55,7 +55,7 @@ from pelagos.connectors.bind.stats import StatsClient
 from pelagos.connectors.bind.viewkeys import global_key_name, view_key_name
 from pelagos.connectors.bind.zonefile import ZoneFileError
 from pelagos.core import settings_registry as reg
-from pelagos.core.write_pipeline import FileChange
+from pelagos.core.write_pipeline import FileChange, WritePipeline
 from pelagos.domain import (
     BindConfigTree,
     BindInstanceStats,
@@ -738,7 +738,7 @@ class BindBackend(BindExtras, DnsBackend):
         moved = [c.target for c in plan.changes if handover.is_handover(c)]
         if moved:
             verify = self._verify_handover(verify, moved)
-        pipeline = self.ctx.pipeline_factory(
+        pipeline = self._config_pipeline(
             backup_root=self.ctx.backup_root,
             validate=lambda: run_checkconf(self.checkconf, self.named_conf),
             reload=lambda: self.reconfig() or "reconfig done",
@@ -778,6 +778,26 @@ class BindBackend(BindExtras, DnsBackend):
             message=outcome.error or "write pipeline failed",
             rolled_back=outcome.rolled_back,
         )
+
+    def _config_pipeline(self, **kwargs: Any) -> Any:
+        """The write pipeline of configuration plans: user files this process may not write (Debian's
+        named.conf.local is root:bind 0644) go through the privileged helper."""
+        pipeline = self.ctx.pipeline_factory(**kwargs)
+        if isinstance(pipeline, WritePipeline):
+            pipeline.privileged = self._write_user_file
+        return pipeline
+
+    def _write_user_file(self, path: Path, content: bytes) -> None:
+        from pelagos.installer import helper
+
+        if path.resolve().is_relative_to(self.include_dir.resolve()) or not helper.available():
+            raise PermissionError(f"cannot write {path}: not writable by this process")
+        try:
+            helper.HelperClient(timeout=60).call(
+                "bind_user_write", path=str(path), content=content.decode(), sha256=file_sha256(path)
+            )
+        except helper.HelperError as exc:
+            raise PermissionError(f"cannot write {path} through the privileged helper: {exc}") from None
 
     def _verify_handover(self, verify: Any, targets: list[str]) -> Any:
         """After the reload the effective value of every moved statement must be what it was."""
@@ -895,7 +915,7 @@ class BindBackend(BindExtras, DnsBackend):
                     node_id=self.ctx.node_id, ok=False, message="no backup found for this plan"
                 )
             self._check_rollback_safe(backup)
-            pipeline = self.ctx.pipeline_factory(
+            pipeline = self._config_pipeline(
                 backup_root=self.ctx.backup_root,
                 validate=lambda: run_checkconf(self.checkconf, self.named_conf),
                 reload=lambda: self.reconfig() or "reconfig done",

@@ -50,6 +50,19 @@ export function subjectLink(alert) {
   if ((kind === 'ha' || kind === 'ha-backup') && value) return { to: `/dhcp/${value === 'kea6' ? 'v6' : 'v4'}/ha`, label: null }
   if (kind === 'peer' || kind === 'clock' || kind === 'ntp') return { to: '/nodes', label: null }
   if (kind === 'd2') return { to: '/dhcp/v4/ddns', label: null }
+  if (kind === 'notify' && value) return { to: `/admin/notifications?channel=${encodeURIComponent(value)}`, label: 'openChannel' }
+  return null
+}
+
+// An alert by id in any state, for the /alerts?alert=<id> links of notification messages. The
+// list has no id filter, so pages are read until it shows up (bounded).
+export async function findAlert(list, id, { perPage = 500, maxPages = 10 } = {}) {
+  for (let page = 1; page <= maxPages; page += 1) {
+    const res = await list({ page, per_page: perPage })
+    const hit = (res?.items || []).find((a) => a.id === id)
+    if (hit) return hit
+    if (!res?.items?.length || page * perPage >= (res.total ?? 0)) return null
+  }
   return null
 }
 

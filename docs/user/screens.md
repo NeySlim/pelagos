@@ -120,6 +120,10 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 - Actions on an alert open the host, the zone, or adopt a Kea file.
 - **Ignore: admin's choice** (`write:alerts`, inconsistency alerts): keeps
   the object as it is for good, with a mandatory comment (below).
+- `/alerts?alert=<id>`, the link of every notification message, opens that
+  alert whatever its state and the filters. With `admin:notifications`, the
+  detail says when and through which channels the alert was sent, and a
+  banner shows a notification mute in progress.
 
 | Kind | Severity | Raised when |
 | --- | --- | --- |
@@ -156,6 +160,7 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 | `config_syntax_warning` | warning | Kea reads its configuration file but warns about it, for example an extra comma; the alert gives the file and line |
 | `restart_loop` | critical | a daemon restarted several times in a short period |
 | `pool_forecast` | warning, critical | a pool is on course to be full in a few days |
+| `notification_failed` | warning | a notification channel has failed every send for `checks.notification_failure_warning_minutes` (30); sent through the other channels |
 | `security_advisory` | info, warning, critical | one alert per engine: ISC security advisories that match the running BIND or Kea and that the installed distribution package does not fix (the details list each CVE, and say when updating the package fixes it) |
 
 Alerts resolve by themselves when the condition goes away; resolved alerts
@@ -328,7 +333,7 @@ NDJSON" downloads the filtered range (`GET /api/v1/audit/export`).
 Entries are never edited or purged; failed sign-ins and secret reveals are
 recorded too.
 
-## Users, roles, modules, certificates, settings
+## Users, roles, modules, certificates, notifications, settings
 
 Under Administration:
 
@@ -344,6 +349,19 @@ Under Administration:
 - **Certificates** (`admin:certificates`): the HTTPS certificate of each
   node, its source (self-signed, manual, ACME, UCM), upload with checks,
   renewal, one source for all nodes ([Certificates](certificates.md)).
+- **Notifications** (`admin:notifications`): channels that push alerts
+  (e-mail, ntfy, Gotify, Matrix, signed webhook, Home Assistant), each with
+  its state (ok, failing since, disabled), last send, **Send a test** (a
+  real message from this node, also before saving), filters (lowest
+  severity, kinds, nodes, engines), reminders, resolutions, confirmation
+  delay, quiet hours with their time zone, and message language. Secrets
+  are write-only: the form shows whether one is stored and can remove it.
+  Above the channels: the node sending now, the events waiting, the failing
+  channels with their `notification_failed` alert, and **Mute
+  notifications** (reason required, 24 hours at most; a digest of the
+  alerts still open leaves at the end). Below: the sender order (the first
+  online node sends, the next takes over after three missed polls) and the
+  history of sent and failed batches.
 - **Settings** (`admin:settings`): one tab per table (Sign-in, Plans,
   Peers, Alert thresholds, Collector, Retention, DNS, Kea, Response policy
   zones, Certificates). Alert thresholds are grouped (DHCP pools, DDNS,

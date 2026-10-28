@@ -4,8 +4,9 @@
 // transfer, an HA failover and failback, and the HA heartbeats that tick on their own.
 // POST /api/v1/_mock/events {"kind": ...} runs one (mock only, no session needed).
 import { iso, ulid } from './data.mjs'
+import { notifyState } from './notify.mjs'
 
-export const EVENT_KINDS = ['lease', 'alert', 'alert-resolve', 'replication', 'transfer', 'ha-failover', 'ha-failback', 'heartbeat', 'alerts-peer']
+export const EVENT_KINDS = ['lease', 'alert', 'alert-resolve', 'replication', 'transfer', 'ha-failover', 'ha-failback', 'heartbeat', 'alerts-peer', 'notify-fail', 'notify-recover']
 
 const POOL = { family: 'v4', subnetId: 3, pool: '192.0.2.200 - 192.0.2.219', subject: 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219' }
 
@@ -169,6 +170,55 @@ export function createEvents(state, h) {
         a.last_seen = a.resolved_at
         h.emit('alerts', 'resolved', a)
       }
+      return { ok: true, resolved: open.map((a) => a.id) }
+    },
+
+    // A channel has failed past checks.notification_failure_warning_minutes: it turns failing and
+    // the sender raises notification_failed (cluster-wide, subject notify:<channel id>).
+    'notify-fail'({ channel_id: channelId } = {}) {
+      const n = notifyState(state)
+      const c = n.channels.find((x) => x.id === (channelId || 'ch-ntfy')) || n.channels[0]
+      if (!c) return { ok: false }
+      const since = iso(now() - 45 * 60000)
+      const error = 'HTTP 401: unauthorized'
+      c.status = { ...c.status, state: 'failing', since, last_error: error }
+      const batch = ulid()
+      n.history.unshift({
+        id: batch, ts: iso(now()), channel_id: c.id, channel_name: c.name, node_id: state.selfId, batch_id: batch, reason: 'events', alert_ids: [],
+        events: [], result: 'failed', status: 401, duration_ms: 120, error,
+      })
+      const subject = `notify:${c.id}`
+      let alert = state.alerts.find((a) => a.kind === 'notification_failed' && a.subject === subject && a.state !== 'resolved')
+      if (!alert) {
+        alert = {
+          id: ulid(), kind: 'notification_failed', severity: 'warning', state: 'open', node_id: null, engine: null, subject,
+          title: `notification channel ${c.name} has been failing since ${since}: ${error}`,
+          title_message: { key: 'alert.notification_failed', params: { channel: c.name, since, error } },
+          details: { channel: c.id, since, error, status: 401 },
+          first_seen: iso(now()), last_seen: iso(now()), acked_by: null, acked_at: null, resolved_at: null,
+          reported_by: [state.selfId],
+        }
+        state.alerts.unshift(alert)
+        h.emit('alerts', 'opened', alert)
+      }
+      h.emit('system', 'notify', { channel_id: c.id, state: 'failing' })
+      return { ok: true, id: alert.id, channel_id: c.id }
+    },
+
+    // The channel sends again: back to ok, its notification_failed alert resolves.
+    'notify-recover'({ channel_id: channelId } = {}) {
+      const n = notifyState(state)
+      const c = n.channels.find((x) => x.id === (channelId || 'ch-ntfy'))
+      if (!c) return { ok: false }
+      c.status = { ...c.status, state: c.enabled ? 'ok' : 'disabled', since: iso(now()), last_error: null }
+      const open = state.alerts.filter((a) => a.kind === 'notification_failed' && a.subject === `notify:${c.id}` && a.state !== 'resolved')
+      for (const a of open) {
+        a.state = 'resolved'
+        a.resolved_at = iso(now())
+        a.last_seen = a.resolved_at
+        h.emit('alerts', 'resolved', a)
+      }
+      h.emit('system', 'notify', { channel_id: c.id, state: c.status.state })
       return { ok: true, resolved: open.map((a) => a.id) }
     },
 

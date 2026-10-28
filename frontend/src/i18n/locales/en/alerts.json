@@ -42,7 +42,8 @@
     "adoptRunning": "Adopt the running configuration",
     "adoptOn": "On {{node}}, the node that holds the file",
     "ignore": "Ignore: admin's choice",
-    "openCertificates": "Open the certificates"
+    "openCertificates": "Open the certificates",
+    "openChannel": "Open the channel"
   },
   "ack": {
     "title": "Acknowledge the alert",
@@ -118,5 +119,12 @@
   "unavailable": {
     "title": "Partial view",
     "body": "Alerts of {{nodes}} are not shown: {{error}}. Lists and counts cover the nodes that answered."
+  },
+  "notify": {
+    "muted": "Notifications muted until {{until}} by {{by}}: {{comment}}",
+    "manage": "Notifications",
+    "notified": "Notified {{when}} through {{channels}}",
+    "notNotified": "Not notified",
+    "linkGone": "This alert no longer exists: it was resolved and purged"
   }
 }

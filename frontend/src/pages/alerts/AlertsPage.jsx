@@ -4,12 +4,13 @@
 // with a link to the host or zone it is about, acknowledgement with an optional
 // comment, and an on-demand consistency pass run as a job. The list and counts are the cluster's:
 // each alert names its node (or the nodes reporting a cluster-wide one), and a node whose alerts
-// could not be read is named above the table.
+// could not be read is named above the table. /alerts?alert=<id> (the link of notification
+// messages) opens that alert whatever the filters; a notification mute is shown above the table.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useMessage } from '../../i18n/message'
-import { Bell, ArrowsClockwise, CheckCircle, MagnifyingGlass, Warning, WarningOctagon, Info, ArrowSquareOut, EyeSlash } from '@phosphor-icons/react'
+import { Bell, ArrowsClockwise, CheckCircle, MagnifyingGlass, Warning, WarningOctagon, Info, ArrowSquareOut, EyeSlash, SpeakerSlash, PaperPlaneTilt } from '@phosphor-icons/react'
 import { PageLayout, DataTable, Button, Badge, StatusBadge, Modal, JsonTree } from '../../components'
 import { RichStatsBar } from '../../components/ui/RichStatsBar'
 import { useApi, usePaginatedApi, useWsTopic } from '../../hooks'
@@ -18,8 +19,9 @@ import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
-import { ENGINES, INCONSISTENCY_KINDS, KINDS, alertOrigin, unavailableNodes, exceptionItems, PRESSURE_AFTER_MS, PRESSURE_BEFORE_MS, SEVERITIES, STATES, jobResult, poolSeriesQuery, pressureLatches, subjectLink } from './lib'
+import { ENGINES, INCONSISTENCY_KINDS, KINDS, alertOrigin, unavailableNodes, exceptionItems, PRESSURE_AFTER_MS, PRESSURE_BEFORE_MS, SEVERITIES, STATES, findAlert, jobResult, poolSeriesQuery, pressureLatches, subjectLink } from './lib'
 import { adoptCall, fileAlertEngine } from '../dhcp/keaFile'
+import { notificationsOfAlert } from '../admin/notifications/notifyForm'
 import { IncidentTrace } from '../../components/motion'
 import { IgnoreDialog } from './IgnoreDialog'
 
@@ -53,6 +55,53 @@ function UnavailableNotice({ nodes }) {
       <p className="font-semibold">{t('unavailable.title')}</p>
       <p className="text-text-secondary">{t('unavailable.body', { nodes: nodes.map((n) => n.name || n.node_id).join(', '), error: nodes.map((n) => n.error).filter(Boolean).join('; ') || '-' })}</p>
     </div>
+  )
+}
+
+// Notifications mute (admins of notifications only: the overview needs admin:notifications).
+function MuteNotice() {
+  const { t } = useTranslation('alerts')
+  const navigate = useNavigate()
+  const { hasPermission } = usePermission()
+  const allowed = hasPermission('admin:notifications')
+  const overview = useApi(() => (allowed ? api.notifications.overview().catch(() => null) : Promise.resolve(null)), [allowed])
+  const mute = overview.data?.mute
+  if (!mute) return null
+  return (
+    <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg border status-warning-bg status-warning-border px-3 py-2 text-xs" data-testid="alerts-notify-muted">
+      <SpeakerSlash size={14} className="status-warning-text" />
+      <span className="flex-1 min-w-0 text-text-primary">{t('notify.muted', { until: formatDate(mute.until), by: mute.by || '-', comment: mute.comment })}</span>
+      <Button size="xs" variant="ghost" onClick={() => navigate('/admin/notifications')}>{t('notify.manage')}</Button>
+    </div>
+  )
+}
+
+// "Notified at 10:32 by ntfy, e-mail": the sent batches of the history that carry this alert.
+function AlertNotified({ alert }) {
+  const { t } = useTranslation('alerts')
+  const { hasPermission } = usePermission()
+  const allowed = hasPermission('admin:notifications')
+  const q = useApi(
+    () =>
+      allowed
+        ? Promise.all([
+            api.notifications.history({ alert_id: alert.id, result: 'ok', per_page: 100 }),
+            api.notifications.overview(),
+          ]).catch(() => null)
+        : Promise.resolve(null),
+    [allowed, alert.id, alert.last_seen],
+  )
+  if (!q.data) return null
+  const [history, overview] = q.data
+  const sent = notificationsOfAlert(history?.items, alert.id)
+  const names = Object.fromEntries((overview?.channels || []).map((c) => [c.id, c.name]))
+  const channels = [...new Set(sent.map((h) => names[h.channel_id] || h.channel_id))]
+  const last = sent.map((h) => h.ts).sort().at(-1)
+  return (
+    <p className="flex items-center gap-1.5 text-xs text-text-secondary" data-testid="alert-notified" data-count={sent.length}>
+      <PaperPlaneTilt size={12} />
+      {sent.length ? t('notify.notified', { when: formatDate(last), channels: channels.join(', ') }) : t('notify.notNotified')}
+    </p>
   )
 }
 
@@ -179,6 +228,7 @@ function AlertDetail({ alert, nodeName, canAck, onAck, onIgnore, onClose }) {
             {alert.acked_at && <Field label={t('detail.ackedAt')}>{formatDate(alert.acked_at)}</Field>}
             {alert.resolved_at && <Field label={t('detail.resolvedAt')}>{formatDate(alert.resolved_at)}</Field>}
           </dl>
+          <AlertNotified alert={alert} />
           {POOL_KINDS.has(alert.kind) && <AlertPressure alert={alert} />}
           <DistroDataNotice alert={alert} />
           <div>
@@ -251,6 +301,37 @@ export default function AlertsPage() {
   const nodes = useMemo(() => nodesData?.items || [], [nodesData])
   const nodeName = useCallback((id) => nodes.find((n) => n.peer?.id === id)?.peer?.name || String(id || '').slice(-6), [nodes])
 
+  // The alert named by ?alert=<id>, read on its own when the filtered page does not hold it.
+  const linkedId = params.get('alert')
+  const [linked, setLinked] = useState(null)
+  useEffect(() => {
+    if (linkedId) setSelectedId(linkedId)
+  }, [linkedId])
+  const linkedInList = Boolean(linkedId) && list.items.some((a) => a.id === linkedId)
+  useEffect(() => {
+    if (!linkedId || linkedInList || !list.data) return undefined
+    let alive = true
+    findAlert((q) => api.alerts.list(q), linkedId)
+      .then((a) => {
+        if (!alive) return
+        setLinked(a)
+        if (!a) showInfo(t('notify.linkGone'))
+      })
+      .catch(() => alive && setLinked(null))
+    return () => {
+      alive = false
+    }
+  }, [linkedId, linkedInList, list.data]) // eslint-disable-line react-hooks/exhaustive-deps
+  const closeDetail = () => {
+    setSelectedId(null)
+    setLinked(null)
+    if (params.has('alert')) {
+      const next = new URLSearchParams(params)
+      next.delete('alert')
+      setParams(next, { replace: true })
+    }
+  }
+
   const reload = useCallback(() => {
     summary.refetch()
     list.refetch()
@@ -270,7 +351,7 @@ export default function AlertsPage() {
     try {
       await api.alerts.ack(alert.id, comment.trim() || undefined)
       showSuccess(t('ack.done'))
-      setSelectedId(null)
+      closeDetail()
       reload()
     } catch (err) {
       showError(errorMessage(err))
@@ -351,7 +432,7 @@ export default function AlertsPage() {
     { key: 'engine', label: t('filters.engine'), value: filters.engine, onChange: (v) => setFilter('engine', v), options: ENGINES.map((e) => option(e, e)) },
     ...(nodes.length > 1 ? [{ key: 'node_id', label: t('filters.node'), value: filters.node_id, onChange: (v) => setFilter('node_id', v), options: nodes.map((n) => option(n.peer.id, n.peer.name)) }] : []),
   ]
-  const selected = list.items.find((a) => a.id === selectedId) || null
+  const selected = list.items.find((a) => a.id === selectedId) || (linked && linked.id === selectedId ? linked : null)
   const missing = unavailableNodes(list.meta?.unavailable, counts.unavailable)
 
   return (
@@ -381,6 +462,7 @@ export default function AlertsPage() {
     >
       <div className="space-y-3">
         <UnavailableNotice nodes={missing} />
+        <MuteNotice />
         <RichStatsBar stats={stats} />
         <DataTable
           columns={columns}
@@ -405,14 +487,14 @@ export default function AlertsPage() {
           testId="alerts-table"
         />
       </div>
-      <AlertDetail alert={selected} nodeName={nodeName} canAck={canWrite} onAck={ack} onIgnore={(a) => setIgnoring(a)} onClose={() => setSelectedId(null)} />
+      <AlertDetail alert={selected} nodeName={nodeName} canAck={canWrite} onAck={ack} onIgnore={(a) => setIgnoring(a)} onClose={closeDetail} />
       <IgnoreDialog
         open={Boolean(ignoring)}
         items={ignoring ? exceptionItems(ignoring, msg(ignoring.title_message, ignoring.title)) : []}
         onClose={() => setIgnoring(null)}
         onDone={() => {
           showSuccess(t('ignore.done'))
-          setSelectedId(null)
+          closeDetail()
           reload()
         }}
       />

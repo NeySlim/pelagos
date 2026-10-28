@@ -13,6 +13,10 @@ const ALERTS = [
   { id: 'A3', kind: 'security_advisory', severity: 'warning', state: 'open', node_id: N1, engine: 'kea4', subject: 'kea4:advisories', title: 'upstream kea4 2.6.3 is affected', details: { distribution_data: { name: null, reason: 'no_tracker', unavailable: { since: '2026-10-27T10:00:00Z', reason: 'download deadline exceeded' } } }, first_seen: '2026-10-24T10:00:00Z', last_seen: '2026-10-24T11:00:00Z' },
 ]
 
+// Resolved, so absent from the default (open) list: reached by /alerts?alert=<id> only.
+const RESOLVED = { id: 'A9', kind: 'daemon_down', severity: 'critical', state: 'resolved', node_id: N2, engine: 'bind', subject: 'daemon:bind', title: 'named is down', details: {}, first_seen: '2026-10-24T10:00:00Z', last_seen: '2026-10-24T10:05:00Z', resolved_at: '2026-10-24T10:05:00Z' }
+let mute = null
+
 const calls = { list: vi.fn(), ack: vi.fn(), run: vi.fn(), addException: vi.fn() }
 const notify = { showSuccess: vi.fn(), showError: vi.fn(), showInfo: vi.fn(), showPrompt: vi.fn() }
 let canWrite = true
@@ -24,6 +28,7 @@ vi.mock('../../services/api', () => {
       summary: async () => ({ open: 2, acked: 1, by_severity: { critical: 1, warning: 1, info: 0 }, by_kind: {} }),
       list: async (q) => {
         calls.list(q)
+        if (!q.state && q.per_page === 500) return { items: [...ALERTS, RESOLVED], page: 1, per_page: 500, total: 4, meta: listMeta }
         return { items: ALERTS, page: 1, per_page: 50, total: 2, meta: listMeta }
       },
       ack: async (id, comment) => {
@@ -40,6 +45,17 @@ vi.mock('../../services/api', () => {
       },
     },
     jobs: { get: async () => ({ id: 'J1', state: 'done', steps: [{ name: 'consistency', state: 'done' }, { name: 'result', output: { found: 3 } }] }) },
+    notifications: {
+      overview: async () => ({ channels: [{ id: 'ch1', name: 'Phone' }, { id: 'ch2', name: 'On-call mail' }], mute }),
+      history: async () => ({
+        items: [
+          { id: 'h1', ts: '2026-10-24T10:01:00Z', channel_id: 'ch1', result: 'ok', events: [{ event: 'opened', alert_id: 'A9' }] },
+          { id: 'h2', ts: '2026-10-24T10:02:00Z', channel_id: 'ch2', result: 'ok', events: [{ event: 'opened', alert_id: 'A9' }] },
+          { id: 'h3', ts: '2026-10-24T10:03:00Z', channel_id: 'ch2', result: 'ok', events: [{ event: 'opened', alert_id: 'A2' }] },
+        ],
+        total: 3,
+      }),
+    },
     nodes: { list: async () => ({ items: [{ peer: { id: N1, name: 'ns1' }, is_self: true }, { peer: { id: N2, name: 'ns2' }, is_self: false }] }) },
   }
   return { api, default: api }
@@ -59,6 +75,7 @@ const renderPage = (url = '/alerts') =>
 beforeEach(() => {
   canWrite = true
   listMeta = {}
+  mute = null
   for (const fn of [...Object.values(calls), ...Object.values(notify)]) fn.mockReset()
 })
 
@@ -107,6 +124,31 @@ describe('AlertsPage', () => {
     fireEvent.click(screen.getAllByTestId('alert-row-ack')[0])
     await waitFor(() => expect(calls.ack).toHaveBeenCalledWith('A1', 'known, fixing'))
     expect(notify.showSuccess).toHaveBeenCalled()
+  })
+
+  it('opens the alert of a notification link, even when the filters hide it, and says where it went', async () => {
+    renderPage('/alerts?alert=A9')
+    const detail = await screen.findByTestId('alert-detail')
+    expect(detail).toHaveTextContent('daemon:bind')
+    const notified = await within(detail).findByTestId('alert-notified')
+    expect(notified.dataset.count).toBe('2')
+    expect(notified).toHaveTextContent('Phone, On-call mail')
+  })
+
+  it('says when a linked alert no longer exists', async () => {
+    renderPage('/alerts?alert=GONE')
+    await waitFor(() => expect(notify.showInfo).toHaveBeenCalledWith('This alert no longer exists: it was resolved and purged'))
+    expect(screen.queryByTestId('alert-detail')).toBeNull()
+  })
+
+  it('shows the notification mute above the table', async () => {
+    mute = { until: '2026-10-28T12:00:00Z', comment: 'kernel upgrade', by: 'admin', at: '2026-10-28T10:00:00Z' }
+    renderPage()
+    expect(await screen.findByTestId('alerts-notify-muted')).toHaveTextContent('kernel upgrade')
+  })
+
+  it('links a failing channel alert to its channel', () => {
+    expect(subjectLink({ subject: 'notify:01JCH' })).toEqual({ to: '/admin/notifications?channel=01JCH', label: 'openChannel' })
   })
 
   it('shows the detail with a link to the host', async () => {

@@ -19,7 +19,12 @@ function paginate(items, query) {
   return { items: items.slice((page - 1) * perPage, page * perPage), page, per_page: perPage, total: items.length }
 }
 
-export function notifyHandlers(state, { Problem, invalid }) {
+const TEST_LIMIT_PER_MINUTE = 6
+// Mock only: a channel whose URL or SMTP host names this host fails every send.
+export const UNREACHABLE_HOST = 'unreachable.example.lan'
+
+// The notifications state of the mock, created on first use (and again after a scenario switch).
+export function notifyState(state) {
   const now = Date.now()
   state.notify ||= {
     channels: [
@@ -39,10 +44,22 @@ export function notifyHandlers(state, { Problem, invalid }) {
         events: [{ event: 'opened', alert_id: 'A1', kind: 'ha_partner_down', severity: 'critical', first_seen: iso(now - 3700000) }],
         result: 'ok', status: 200, duration_ms: 87, error: null,
       },
-    ],
+      // The critical rndc key alert of the mock data went out through ntfy too.
+      {
+        id: ulid(now - 3500000), ts: iso(now - 3500000), channel_id: 'ch-ntfy', channel_name: 'Phone (ntfy)', node_id: state.selfId,
+        batch_id: ulid(now - 3500000), reason: 'events', alert_ids: ['ALRT0000000000000000000005'],
+        events: [{ event: 'opened', alert_id: 'ALRT0000000000000000000005', kind: 'insecure_key', severity: 'critical', first_seen: iso(now - 7200000) }],
+        result: 'ok', status: 200, duration_ms: 64, error: null,
+      },
+    ].sort((a, b) => b.ts.localeCompare(a.ts)),
+    tests: {},
   }
-  const n = state.notify
-  const order = () => n.order || state.nodes.map((node) => node.peer.id)
+  return state.notify
+}
+
+export function notifyHandlers(state, { Problem, invalid }) {
+  const now = Date.now()
+  const order = () => notifyState(state).order || state.nodes.map((node) => node.peer.id)
   // Same targets as the server: a stored secret never follows a channel to another server.
   const TARGET = { email: 'host', matrix: 'homeserver' }
   const targetKey = (c) => TARGET[c.type] || 'url'
@@ -62,7 +79,7 @@ export function notifyHandlers(state, { Problem, invalid }) {
   })
   const publicHistory = ({ alert_ids: _ids, ...h }) => h
   const channelOf = (id) => {
-    const c = n.channels.find((x) => x.id === id)
+    const c = notifyState(state).channels.find((x) => x.id === id)
     if (!c) throw new Problem(404, 'not_found', `channel ${id} not found`)
     return c
   }
@@ -81,13 +98,16 @@ export function notifyHandlers(state, { Problem, invalid }) {
   }
 
   return {
-    'GET /admin/notifications': () => ({
-      channels: n.channels.map(publicChannel),
-      settings: { ...state.settings.notifications },
-      sender: { node_id: order()[0], since: iso(now - 86400000), order: order() },
-      mute: n.mute,
-      queue: { pending: 0, failing: n.channels.filter((c) => c.status.state === 'failing').length, node_id: order()[0] },
-    }),
+    'GET /admin/notifications': () => {
+      const n = notifyState(state)
+      return {
+        channels: n.channels.map(publicChannel),
+        settings: { ...state.settings.notifications },
+        sender: { node_id: order()[0], since: iso(now - 86400000), order: order() },
+        mute: n.mute,
+        queue: { pending: 0, failing: n.channels.filter((c) => c.status.state === 'failing').length, node_id: order()[0] },
+      }
+    },
     'POST /admin/notifications/channels': ({ body, user, res }) => {
       const c = {
         id: ulid(), type: body.type, name: body.name, enabled: body.enabled ?? true, language: body.language || 'en',
@@ -97,7 +117,7 @@ export function notifyHandlers(state, { Problem, invalid }) {
       }
       check(c)
       applySecrets(c, body.secrets)
-      n.channels.push(c)
+      notifyState(state).channels.push(c)
       auditEntry(state, user, { action: 'admin.notify.add', target: `notify:${c.id}`, request: { type: c.type, name: c.name } })
       res.statusCode = 201
       return publicChannel(c)
@@ -123,21 +143,39 @@ export function notifyHandlers(state, { Problem, invalid }) {
     },
     'DELETE /admin/notifications/channels/{id}': ({ params, user }) => {
       channelOf(params.id)
+      const n = notifyState(state)
       n.channels = n.channels.filter((c) => c.id !== params.id)
       auditEntry(state, user, { action: 'admin.notify.delete', target: `notify:${params.id}` })
       return null
     },
     // A real send on the server, audited as admin.notify.op (op test), never in the history.
-    'POST /admin/notifications/test': ({ body, user }) => {
+    // Mock only: a channel pointing at UNREACHABLE_HOST fails (200 with ok false, like the API).
+    'POST /admin/notifications/test': ({ body, user, res }) => {
+      const n = notifyState(state)
+      const started = Date.now()
+      const recent = (n.tests[user.username] || []).filter((ts) => started - ts < 60000)
+      if (recent.length >= TEST_LIMIT_PER_MINUTE) {
+        res.setHeader('Retry-After', String(Math.ceil((recent[0] + 60000 - started) / 1000)))
+        throw new Problem(429, 'rate_limited', 'at most 6 test sends per minute')
+      }
+      n.tests[user.username] = [...recent, started]
       const c = body.channel_id ? channelOf(body.channel_id) : body
-      if (!body.channel_id) check({ language: 'en', name: 'test', ...c })
+      if (!body.channel_id) {
+        check({ language: 'en', name: 'test', ...c })
+        // `scope` lends its stored secrets only to the same type and target server (as the API).
+        if (body.scope) channelOf(body.scope)
+      }
       auditEntry(state, user, { action: 'admin.notify.op', target: `notify:${body.channel_id || body.scope || 'test'}`, request: { op: 'test', type: c.type } })
+      if (String(c.params?.[targetKey(c)] || '').includes(UNREACHABLE_HOST)) {
+        return { ok: false, node_id: state.selfId, duration_ms: 15000, error: `connection failed: timed out (${UNREACHABLE_HOST})` }
+      }
       return { ok: true, node_id: state.selfId, duration_ms: 42, status: 200 }
     },
     'PUT /admin/notifications/order': ({ body, user }) => {
       const ids = state.nodes.map((node) => node.peer.id)
       const list = body.node_ids || []
       if (list.length !== ids.length || !ids.every((id) => list.includes(id))) throw invalid('node_ids', 'every node exactly once')
+      const n = notifyState(state)
       n.order = [...list]
       auditEntry(state, user, { action: 'admin.notify.op', target: 'notify:order', request: { op: 'order', node_ids: list } })
       return { order: n.order }
@@ -147,22 +185,27 @@ export function notifyHandlers(state, { Problem, invalid }) {
       if (!Number.isFinite(until) || until <= Date.now()) throw invalid('until', 'a time in the future')
       if (until - Date.now() > 24 * 3600000) throw invalid('until', 'at most 24 hours ahead')
       if (!body.comment || !String(body.comment).trim()) throw invalid('comment', 'required')
+      const n = notifyState(state)
       n.mute = { until: iso(until), comment: body.comment, by: user.username, at: iso(Date.now()) }
       auditEntry(state, user, { action: 'admin.notify.op', target: 'notify:mute', request: { op: 'mute', until: n.mute.until } })
       return { mute: n.mute }
     },
     'DELETE /admin/notifications/mute': ({ user }) => {
-      n.mute = null
+      notifyState(state).mute = null
       auditEntry(state, user, { action: 'admin.notify.op', target: 'notify:mute', request: { op: 'unmute' } })
       return null
     },
     'GET /admin/notifications/history': ({ query }) => {
-      let items = n.history
+      let items = notifyState(state).history
       if (query.get('channel_id')) items = items.filter((h) => h.channel_id === query.get('channel_id'))
       const result = query.get('result')
       if (result && !['ok', 'failed'].includes(result)) throw invalid('result', 'ok or failed')
       if (result) items = items.filter((h) => h.result === result)
       if (query.get('alert_id')) items = items.filter((h) => (h.alert_ids || []).includes(query.get('alert_id')))
+      const from = Date.parse(query.get('from') || '')
+      const to = Date.parse(query.get('to') || '')
+      if (Number.isFinite(from)) items = items.filter((h) => Date.parse(h.ts) >= from)
+      if (Number.isFinite(to)) items = items.filter((h) => Date.parse(h.ts) <= to)
       const out = paginate(items, query)
       return { ...out, items: out.items.map(publicHistory) }
     },

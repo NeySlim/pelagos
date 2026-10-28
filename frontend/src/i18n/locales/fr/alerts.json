@@ -42,7 +42,8 @@
     "adoptRunning": "Adopter la configuration en cours",
     "adoptOn": "Sur {{node}}, le nœud qui porte le fichier",
     "ignore": "Ignorer : choix de l'admin",
-    "openCertificates": "Ouvrir les certificats"
+    "openCertificates": "Ouvrir les certificats",
+    "openChannel": "Ouvrir le canal"
   },
   "ack": {
     "title": "Acquitter l'alerte",
@@ -118,5 +119,12 @@
   "unavailable": {
     "title": "Vue partielle",
     "body": "Les alertes de {{nodes}} ne sont pas affichées : {{error}}. Listes et compteurs couvrent les nœuds qui ont répondu."
+  },
+  "notify": {
+    "muted": "Notifications suspendues jusqu'à {{until}} par {{by}} : {{comment}}",
+    "manage": "Notifications",
+    "notified": "Notifiée le {{when}} par {{channels}}",
+    "notNotified": "Non notifiée",
+    "linkGone": "Cette alerte n'existe plus : elle a été résolue puis purgée"
   }
 }

@@ -1,0 +1,269 @@
+{
+  "title": "Notifications",
+  "subtitle": "Alerts pushed to e-mail, phones, chat and home automation",
+  "actions": {
+    "add": "Add a channel",
+    "save": "Save",
+    "test": "Send a test",
+    "edit": "Edit",
+    "disable": "Disable",
+    "enable": "Enable",
+    "delete": "Delete"
+  },
+  "types": {
+    "email": "E-mail (SMTP)",
+    "ntfy": "ntfy",
+    "gotify": "Gotify",
+    "matrix": "Matrix",
+    "webhook": "Webhook",
+    "home_assistant": "Home Assistant"
+  },
+  "typeHelp": {
+    "email": "Plain text mail through your SMTP server, STARTTLS or implicit TLS.",
+    "ntfy": "Push to the ntfy app on a phone; a click opens the alert.",
+    "gotify": "Message to a Gotify application; the token goes in the X-Gotify-Key header.",
+    "matrix": "Message from a bot account into a Matrix room the bot has joined.",
+    "webhook": "JSON POST of the pelagos.notification.v1 payload, optionally signed with HMAC-SHA256.",
+    "home_assistant": "Webhook trigger of a Home Assistant automation; the payload is in trigger.json."
+  },
+  "placeholders": {
+    "name": {
+      "email": "On-call mailbox",
+      "ntfy": "Phone",
+      "gotify": "Gotify",
+      "matrix": "Ops room",
+      "webhook": "Ticketing",
+      "home_assistant": "Home Assistant"
+    }
+  },
+  "languages": {
+    "en": "English",
+    "fr": "Français"
+  },
+  "severity": {
+    "info": "info",
+    "warning": "warning",
+    "critical": "critical"
+  },
+  "security": {
+    "starttls": "STARTTLS (587)",
+    "tls": "Implicit TLS (465)",
+    "none": "None (loopback only)"
+  },
+  "ntfyAuth": {
+    "none": "None (open topic)",
+    "token": "Access token",
+    "basic": "Username and password"
+  },
+  "days": {
+    "0": "Mon",
+    "1": "Tue",
+    "2": "Wed",
+    "3": "Thu",
+    "4": "Fri",
+    "5": "Sat",
+    "6": "Sun"
+  },
+  "state": {
+    "ok": "OK",
+    "failing": "Failing",
+    "disabled": "Disabled",
+    "failingSince": "Failing since {{when}}"
+  },
+  "events": {
+    "opened": "Opened",
+    "escalated": "Escalated",
+    "resolved": "Resolved",
+    "reminder": "Reminder",
+    "test": "Test"
+  },
+  "status": {
+    "sender": "Sending node",
+    "noSender": "None",
+    "since": "since {{when}}",
+    "pending": "Events waiting",
+    "failing": "Failing channels",
+    "mute": "Mute",
+    "mutedUntil": "Until {{when}}",
+    "notMuted": "Off",
+    "dispatchOff": "Sending is turned off in Settings, Notifications: nothing leaves.",
+    "splitNote": "Only the first online node of the sender order sends. If the nodes lose sight of each other, each side sends: a duplicate is possible, never a silence."
+  },
+  "mute": {
+    "set": "Mute notifications",
+    "title": "Mute every channel",
+    "help": "For a maintenance: nothing is sent until the end, then one digest of the alerts still open.",
+    "dialogHelp": "Every channel holds its messages until the end of the mute (24 hours at most). The reason goes in the audit.",
+    "duration": "Duration",
+    "hours_one": "{{count}} hour",
+    "hours_other": "{{count}} hours",
+    "comment": "Reason",
+    "lift": "Lift the mute",
+    "liftTitle": "Lift the mute?",
+    "liftBody": "Channels send again; a digest of the alerts still open leaves now.",
+    "active": "Muted until {{until}} by {{by}}: {{comment}}"
+  },
+  "failed": {
+    "title_one": "{{count}} channel keeps failing: its alert goes through the other channels",
+    "title_other": "{{count}} channels keep failing: their alerts go through the other channels",
+    "open": "Open the alert"
+  },
+  "card": {
+    "target": "Sends to",
+    "lastSent": "Last sent",
+    "never": "Never",
+    "filter": "Alerts",
+    "filterValue": "{{severity}} and above",
+    "quiet": "Quiet hours",
+    "none": "None",
+    "warning": "{{field}}: {{message}}"
+  },
+  "empty": {
+    "title": "No channel yet",
+    "help": "Add one to receive alerts without opening the interface."
+  },
+  "order": {
+    "title": "Sender order",
+    "help": "The first online node sends. When it goes down, the next one takes over after three missed polls.",
+    "sending": "sending",
+    "save": "Save the order",
+    "up": "Move {{node}} up",
+    "down": "Move {{node}} down"
+  },
+  "history": {
+    "title": "History",
+    "when": "When",
+    "channel": "Channel",
+    "node": "Node",
+    "events": "Events",
+    "result": "Result",
+    "error": "Error",
+    "empty": "Nothing sent yet",
+    "detail": "Sent batch",
+    "duration": "Duration",
+    "reason": "Reason",
+    "batch": "Batch",
+    "reasons": {
+      "events": "Events",
+      "digest": "Digest",
+      "test": "Test"
+    },
+    "eventCount_one": "{{count}} event",
+    "eventCount_other": "{{count}} events",
+    "results": {
+      "ok": "Sent",
+      "failed": "Failed"
+    }
+  },
+  "dialog": {
+    "newTitle": "New notification channel",
+    "editTitle": "Edit {{name}}",
+    "type": "Type",
+    "name": "Name",
+    "language": "Message language",
+    "filters": "Which alerts",
+    "schedule": "When"
+  },
+  "fields": {
+    "host": "SMTP server",
+    "port": "Port",
+    "security": "Encryption",
+    "username": "Username",
+    "optional": "Optional",
+    "password": "Password",
+    "from": "From",
+    "to": "Recipients",
+    "toHelp": "One address per entry",
+    "serverUrl": "Server URL",
+    "topic": "Topic",
+    "auth": "Authentication",
+    "accessToken": "Access token",
+    "appToken": "Application token",
+    "priority": "Priority, {{severity}}",
+    "homeserver": "Homeserver URL",
+    "roomId": "Room id",
+    "roomIdHelp": "The !id:server of the room, not an alias",
+    "botToken": "Bot access token",
+    "webhookUrl": "Webhook URL",
+    "hmacSecret": "Signing secret (optional)",
+    "headers": "Extra headers",
+    "headersHelp": "One \"Name: value\" per line",
+    "hmacHelp": "With a secret, X-Pelagos-Signature is sha256=HMAC of \"<X-Pelagos-Timestamp>.<body>\"; refuse timestamps older than 5 minutes.",
+    "haUrl": "Home Assistant URL",
+    "webhookId": "Webhook id",
+    "haHelp": "Home Assistant answers 200 to an unknown webhook id: check the automation runs after a test.",
+    "caPem": "Extra trusted CA (PEM)",
+    "caPemHelp": "For a server signed by a private CA. Certificate checks always stay on.",
+    "severityMin": "Lowest severity",
+    "engines": "Engines",
+    "nodes": "Nodes",
+    "allWhenEmpty": "None selected: all",
+    "kindsInclude": "Only these kinds",
+    "kindsExclude": "Never these kinds",
+    "allKinds": "All kinds",
+    "noKind": "None",
+    "reminder": "Reminder after (hours)",
+    "reminderHelp": "For an open alert nobody acknowledged; 0: never",
+    "confirm": "Confirmation delay (s)",
+    "confirmHelp": "Empty: the cluster setting; critical alerts never wait",
+    "confirmDefault": "cluster setting",
+    "sendResolved": "Send resolutions",
+    "quiet": "Quiet hours",
+    "quietHelp": "Messages wait and leave as one digest at the end",
+    "quietStart": "From",
+    "quietEnd": "To",
+    "timezone": "Time zone (IANA)",
+    "days": "Days",
+    "criticalPasses": "Critical alerts still go through",
+    "enabled": "Channel enabled",
+    "ntfyOpen": "Without authentication, anyone who knows the topic reads the messages."
+  },
+  "secrets": {
+    "cleared": "Will be removed on save.",
+    "clear": "Remove the stored value",
+    "undoClear": "Keep the stored value"
+  },
+  "errors": {
+    "required": "Required",
+    "url": "An http:// or https:// URL",
+    "urlCredentials": "Credentials go in the secret fields, not in the URL",
+    "urlQuery": "No query or fragment",
+    "port": "A port from 1 to 65535",
+    "loopbackOnly": "Without TLS, only toward a loopback address",
+    "email": "An e-mail address",
+    "usernameWithPassword": "Required with a password",
+    "topic": "1 to 64 letters, digits, - or _",
+    "priority": "An integer from 0 to 10",
+    "room": "A room id (!opaque:server), not an alias",
+    "header": "One \"Name: value\" per line, valid header names",
+    "headerReserved": "This header is set by Pelagos",
+    "webhookId": "Letters, digits, - or _",
+    "reenter": "The server changed: enter the secret again or remove it",
+    "hours": "From 0 to 720 hours",
+    "seconds": "From 0 to 3600 seconds",
+    "time": "HH:MM",
+    "days": "Choose at least one day",
+    "fix": "Fix the highlighted fields"
+  },
+  "warnings": {
+    "plainHttp": "Plain http carries the secret unencrypted",
+    "noTls": "No TLS: messages travel in clear"
+  },
+  "test": {
+    "ok": "Sent from {{node}} in {{ms}} ms (status {{status}})",
+    "failed": "Failed (status {{status}}): {{error}}"
+  },
+  "delete": {
+    "title": "Delete {{name}}?",
+    "body": "The channel and its stored secrets are removed from every node. Its history stays in the audit."
+  },
+  "toast": {
+    "saved": "Channel {{name}} saved",
+    "deleted": "Channel {{name}} deleted",
+    "enabled": "Channel {{name}} enabled",
+    "disabled": "Channel {{name}} disabled",
+    "muted": "Notifications muted",
+    "unmuted": "Notifications resumed",
+    "order": "Sender order saved"
+  }
+}

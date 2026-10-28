@@ -226,6 +226,38 @@ describe('mock server notifications, archives and DDNS failover', () => {
   })
 })
 
+describe('mock server notification sends', () => {
+  it('lends stored secrets to an unsaved test, limits tests, filters history by alert, raises notification_failed', async () => {
+    const admin = client(await login('admin', 'admin'))
+    mock.state.notify.tests = {}
+    const unsaved = { type: 'ntfy', name: 'Phone', language: 'en', params: { url: 'https://unreachable.example.lan', topic: 'pelagos' } }
+    const failed = await admin('POST', '/admin/notifications/test', { ...unsaved, scope: 'ch-ntfy' })
+    expect(failed.status).toBe(200)
+    expect(failed.data).toMatchObject({ ok: false })
+    expect(failed.data.error).toContain('unreachable.example.lan')
+    for (let i = 0; i < 5; i += 1) {
+      const sent = await admin('POST', '/admin/notifications/test', { channel_id: 'ch-ntfy' })
+      expect(sent.data, JSON.stringify(sent.data)).toMatchObject({ ok: true })
+    }
+    expect((await admin('POST', '/admin/notifications/test', { channel_id: 'ch-ntfy' })).status).toBe(429)
+    const byAlert = await admin('GET', '/admin/notifications/history?alert_id=ALRT0000000000000000000005')
+    expect(byAlert.data.items.map((h) => h.channel_id)).toEqual(['ch-ntfy'])
+    expect((await admin('GET', '/admin/notifications/history?result=failed')).data.total).toBe(0)
+    expect((await admin('GET', `/admin/notifications/history?from=${new Date(Date.now() + 1000).toISOString()}`)).data.total).toBe(0)
+
+    const res = await fetch(`${base}/_mock/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'notify-fail' }) })
+    const out = await res.json()
+    const overview = (await admin('GET', '/admin/notifications')).data
+    expect(overview.channels.find((c) => c.id === 'ch-ntfy').status.state).toBe('failing')
+    expect(overview.queue.failing).toBe(1)
+    expect((await admin('GET', '/admin/notifications/history?result=failed')).data.items[0]).toMatchObject({ channel_id: 'ch-ntfy', status: 401 })
+    const alerts = (await admin('GET', '/alerts?kind=notification_failed&state=open')).data.items
+    expect(alerts.map((a) => [a.id, a.subject])).toEqual([[out.id, 'notify:ch-ntfy']])
+    expect((await admin('DELETE', '/admin/notifications/mute')).status).toBe(204)
+    mock.state.notify.tests = {}
+  })
+})
+
 describe('mock server settings', () => {
   it('validates like the backend registry and accepts former names', async () => {
     const admin = client(await login('admin', 'admin'))

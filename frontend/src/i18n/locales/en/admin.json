@@ -4,7 +4,8 @@
     "roles": "Roles",
     "modules": "Modules",
     "settings": "Settings",
-    "certificates": "Certificates"
+    "certificates": "Certificates",
+    "notifications": "Notifications"
   },
   "pages": {
     "users": {
@@ -97,7 +98,10 @@
       "roles": "Roles",
       "settings": "Settings",
       "install": "Install",
-      "modules": "Modules"
+      "modules": "Modules",
+      "certificates": "Certificates",
+      "notifications": "Notifications",
+      "archives": "Backups"
     }
   },
   "modules": {

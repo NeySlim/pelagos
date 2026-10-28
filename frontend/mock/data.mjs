@@ -111,7 +111,7 @@ export const ALL_PERMISSIONS = [
   'write:dhcp.config', 'ops:dhcp.leases', 'ops:dhcp.ha', 'read:dhcp.secrets',
   'read:hosts', 'write:hosts', 'read:alerts', 'write:alerts', 'read:series', 'read:audit', 'read:nodes', 'read:advanced',
   'admin:nodes', 'admin:users', 'admin:roles', 'admin:settings', 'admin:install', 'admin:modules',
-  'admin:certificates',
+  'admin:certificates', 'admin:notifications', 'admin:archives',
 ]
 
 function makeUsers() {

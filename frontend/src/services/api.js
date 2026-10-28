@@ -322,9 +322,39 @@ export const ddnsFailover = {
   replayPlan: (body = {}) => apiClient.post('/dhcp/ddns/replay/plan', body),
 }
 
+// Resolver health and the temporary forwarder fallback (DNS > Resolver, section 25).
+export const resolverHealth = {
+  health: (node_id) => apiClient.get(`/dns/resolver/health${buildQueryString({ node_id })}`),
+  // {node_id, metric, from, to, step}
+  series: (params) => apiClient.get(`/series/resolver${buildQueryString(params)}`),
+  // {forwarders, forward: first|only, node_ids?, hours, preset?, tls_name?}
+  fallbackPlan: (body) => apiClient.post('/dns/resolver/fallback/plan', body),
+  returnPlan: () => apiClient.post('/dns/resolver/fallback/return/plan', {}),
+  extend: (until) => apiClient.put('/dns/resolver/fallback', { until }),
+}
+
+// Kea 2.6 to 3.x migration, read-only analysis (Installation > Kea migration, section 26).
+export const keaMigration = {
+  overview: () => apiClient.get('/install/kea-migration'),
+  // {series, source, node_ids?}
+  analyze: (body) => apiClient.post('/install/kea-migration/analyze', body),
+}
+
+// Observed IPv6 addresses (Hosts > IPv6, Administration > IPv6 sources, section 27).
+export const ipv6 = {
+  // {filter: missing_aaaa|missing_ptr|stale|unknown, zone, page, per_page}
+  hosts: (params) => apiClient.get(`/hosts/ipv6${buildQueryString(params)}`),
+  settings: () => apiClient.get('/admin/ipv6'),
+  // {sources, prefixes, secrets: {"<source id>": {api_key, api_secret}}}
+  update: (body) => apiClient.put('/admin/ipv6', body),
+  // a saved {source_id} or an unsaved source (`scope`: the saved id whose secrets it reuses)
+  testSource: (body) => apiClient.post('/admin/ipv6/sources/test', body),
+}
+
 export const api = {
   meta, auth, account, nodes, dashboard, dns, dhcp, d2, hosts, plans, jobs,
   alerts, series, audit, advanced, install, admin, certs, ops, notifications, archives, ddnsFailover,
+  resolverHealth, keaMigration, ipv6,
 }
 
 export default api

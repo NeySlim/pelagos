@@ -173,7 +173,9 @@
       "leases": "baux",
       "events": "événements",
       "bytes": "octets",
-      "archives": "archives"
+      "archives": "archives",
+      "milliseconds": "ms",
+      "answers": "réponses"
     },
     "duration": {
       "minutes": "= {{count}} min",
@@ -241,6 +243,14 @@
       "ddns": {
         "title": "Reprise DDNS",
         "help": "Promotion d’un secondaire quand le primaire DNS est tombé, et rattrapage des baux"
+      },
+      "resolver": {
+        "title": "Résolveur",
+        "help": "Sondes des serveurs racine et des TLD, et repli temporaire vers des forwarders"
+      },
+      "ipv6": {
+        "title": "Observations IPv6",
+        "help": "Où les adresses IPv6 sont observées et quand une adresse est stable (sources : Administration, Sources IPv6)"
       }
     },
     "groups": {
@@ -329,7 +339,14 @@
         "distro_tracker_url": "URL du suivi de sécurité Debian (https)",
         "notification_failure_warning_minutes": "Alerte de canal en échec après",
         "archive_stale_factor": "Archive en retard après (intervalles)",
-        "archive_failures_critical_count": "Archives en échec avant critique"
+        "archive_failures_critical_count": "Archives en échec avant critique",
+        "resolver_latency_warning_milliseconds": "Latence p95 du résolveur, avertissement",
+        "resolver_latency_critical_milliseconds": "Latence p95 du résolveur, critique",
+        "resolver_timeouts_warning_percent": "Délais dépassés des requêtes sortantes, avertissement",
+        "resolver_timeouts_critical_percent": "Délais dépassés des requêtes sortantes, critique",
+        "resolver_tld_failures": "Sondes de TLD en échec avant une alerte",
+        "resolver_mismatch_warning_count": "Réponses non concordantes par fenêtre",
+        "resolver_lru_info_per_minute": "Expulsions du cache par minute (info)"
       },
       "collector": {
         "poll_seconds": "Interrogation des moteurs",
@@ -345,7 +362,10 @@
         "serial_days": "Historique des numéros de série",
         "ha_transition_days": "Transitions HA",
         "alerts_resolved_days": "Alertes résolues",
-        "backups_days": "Sauvegardes d'écriture"
+        "backups_days": "Sauvegardes d'écriture",
+        "resolver_raw_days": "Séries brutes du résolveur",
+        "resolver_hourly_days": "Séries horaires du résolveur",
+        "ipv6_observation_days": "Observations IPv6"
       },
       "dns": {
         "read_key": "Clé de transfert",
@@ -408,6 +428,23 @@
         "demote_on_return_enabled": "Rétrograder l'ancien primaire à son retour",
         "replay_max_leases": "Plus grand plan de rattrapage",
         "replay_window_max_hours": "Plus longue fenêtre de panne rejouée"
+      },
+      "resolver": {
+        "probe_interval_seconds": "Intervalle des sondes racine et TLD",
+        "probe_tlds": "TLD sondés (en plus de ceux servis)",
+        "probe_ipv6_enabled": "Sonder aussi en IPv6",
+        "fallback_auto_enabled": "Repli automatique vers des forwarders",
+        "fallback_after_seconds": "Repli automatique après",
+        "fallback_max_hours": "Durée maximale du repli",
+        "fallback_auto_return_enabled": "Retour automatique à l'échéance",
+        "fallback_return_healthy_minutes": "Proposer le retour après des sondes saines pendant"
+      },
+      "ipv6": {
+        "neighbors_enabled": "Lire la table des voisins de chaque nœud",
+        "poll_seconds": "Intervalle de lecture du routeur",
+        "stable_min_days": "Stable après",
+        "stale_days": "AAAA obsolète après",
+        "auto_apply_enabled": "Créer AAAA et PTR automatiquement"
       }
     },
     "help": {
@@ -463,6 +500,14 @@
       "ddns": {
         "failover_auto_enabled": "Désactivé : l'alerte de panne propose le plan de promotion et vous le confirmez.",
         "failover_after_seconds": "Le primaire doit être injoignable depuis tous les autres nœuds pendant ce temps."
+      },
+      "resolver": {
+        "fallback_auto_enabled": "Désactivé : le repli est seulement proposé par les alertes, avec une notification.",
+        "probe_tlds": "Les TLD des zones servies par le cluster sont sondés aussi."
+      },
+      "ipv6": {
+        "stable_min_days": "Au-dessus des 2 jours de validité d'une adresse temporaire (RFC 8981).",
+        "auto_apply_enabled": "Réservé : la première version ne crée les enregistrements que par plan."
       }
     }
   }

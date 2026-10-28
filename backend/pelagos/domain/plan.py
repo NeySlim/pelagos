@@ -40,6 +40,7 @@ class PlanScope(enum.StrEnum):
     ADMIN = "admin"
     RESTORE = "restore"
     DNS_FAILOVER = "dns.failover"
+    DNS_RESOLVER = "dns.resolver"
 
 
 # Permission needed to apply a plan of a given scope (section 16).
@@ -68,6 +69,8 @@ SCOPE_PERMISSIONS: dict[PlanScope, str] = {
     PlanScope.RESTORE: "admin:archives",
     # Audit line of a DDNS failover composite; its parts are dns.zone and d2.config plans (section 24).
     PlanScope.DNS_FAILOVER: "write:dns.zones",
+    # Audit line of a resolver fallback or return composite; its parts are dns.config plans (section 25).
+    PlanScope.DNS_RESOLVER: "write:dns.config",
 }
 
 

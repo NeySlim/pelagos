@@ -176,7 +176,11 @@
     "archive_incomplete": "archive incomplete",
     "ddns_outage": "DDNS outage",
     "ddns_replay": "DDNS catch-up needed",
-    "dns_stale_primary": "stale DNS primary"
+    "dns_stale_primary": "stale DNS primary",
+    "kea_series_obsolete": "Kea series no longer maintained",
+    "ipv6_missing_aaaa": "IPv6 hosts without AAAA",
+    "ipv6_reverse_missing": "IPv6 reverse zone missing",
+    "ipv6_stale_aaaa": "stale AAAA records"
   },
   "live": {
     "label": "Live",

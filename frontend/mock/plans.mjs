@@ -153,6 +153,7 @@ export const SCOPE_PERMISSIONS = {
   'dhcp.config': 'write:dhcp.config',
   'd2.config': 'write:dhcp.config',
   'dns.failover': 'write:dns.zones',
+  'dns.resolver': 'write:dns.config',
   host: 'write:hosts',
   install: 'admin:install',
   import: 'admin:install',

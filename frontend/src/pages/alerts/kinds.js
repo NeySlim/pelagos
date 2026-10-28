@@ -6,5 +6,6 @@ export const INCONSISTENCY_KINDS = new Set(['lease_without_record', 'record_with
 export const EXCEPTABLE_KINDS = new Set([
   'insecure_key', 'insecure_listener', 'custom_hook', 'disk_space', 'file_growth', 'reservation_risk',
   'declined_addresses', 'resolver_health', 'delegation_issue', 'version_mismatch', 'pool_forecast',
-  'security_advisory', 'clock_unsynchronized', 'cert_expiry', 'archive_incomplete',
+  'security_advisory', 'clock_unsynchronized', 'cert_expiry', 'archive_incomplete', 'kea_series_obsolete',
+  'ipv6_missing_aaaa', 'ipv6_reverse_missing', 'ipv6_stale_aaaa',
 ])

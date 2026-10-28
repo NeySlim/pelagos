@@ -27,6 +27,7 @@ pytestmark = pytest.mark.unit
 DATA = Path(__file__).parent / "settings_data"
 REPO = Path(__file__).resolve().parents[4]
 UNIT_SUFFIXES = {
+    "_milliseconds": "milliseconds",
     "_seconds": "seconds",
     "_minutes": "minutes",
     "_hours": "hours",
@@ -392,3 +393,28 @@ def test_feature_domains_of_the_sixth_pass():
         "ddns.roles": "set through its own screen",
     }
     assert reg.validate({"archives": {"start_time": "03:15"}}, reg.defaults()) == []
+
+
+def test_feature_domains_of_release_0_2_2():
+    """resolver and ipv6 (sections 25 and 27): defaults, thresholds, screen entries, TLD list."""
+    assert {"resolver", "ipv6"} <= set(reg.DOMAINS)
+    assert reg.get({}, "resolver.fallback_auto_enabled") is False
+    assert reg.get({}, "resolver.fallback_auto_return_enabled") is True
+    assert reg.get({}, "resolver.probe_tlds") == ["com", "net", "org", "arpa"]
+    assert reg.get({}, "ipv6.auto_apply_enabled") is False
+    assert reg.get({}, "checks.resolver_latency_warning_milliseconds") == 800
+    assert reg.get({}, "retention.ipv6_observation_days") == 30
+    body = {
+        "resolver": {"fallback": {}, "presets": [], "probe_tlds": ["com", "-bad"]},
+        "ipv6": {"sources": [], "prefixes": []},
+    }
+    fields = dict(reg.validate(body, reg.defaults()))
+    assert fields["resolver.fallback"] == fields["ipv6.sources"] == "set through its own screen"
+    assert fields["resolver.probe_tlds"] == "invalid item: -bad"
+    pair = {"checks": {"resolver_timeouts_warning_percent": 40}}
+    assert reg.validate(pair, reg.merge(reg.defaults(), pair)) == [
+        (
+            "checks.resolver_timeouts_warning_percent",
+            "must be lower than checks.resolver_timeouts_critical_percent",
+        )
+    ]

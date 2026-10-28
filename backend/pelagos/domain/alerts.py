@@ -66,6 +66,10 @@ class AlertKind(enum.StrEnum):
     DDNS_OUTAGE = "ddns_outage"
     DDNS_REPLAY = "ddns_replay"
     DNS_STALE_PRIMARY = "dns_stale_primary"
+    KEA_SERIES_OBSOLETE = "kea_series_obsolete"
+    IPV6_MISSING_AAAA = "ipv6_missing_aaaa"
+    IPV6_REVERSE_MISSING = "ipv6_reverse_missing"
+    IPV6_STALE_AAAA = "ipv6_stale_aaaa"
 
     @classmethod
     def _missing_(cls, value: object) -> AlertKind | None:
@@ -115,6 +119,10 @@ EXCEPTABLE_KINDS = frozenset(
         AlertKind.CERT_EXPIRY,
         AlertKind.DDNS_ADVICE,
         AlertKind.ARCHIVE_INCOMPLETE,
+        AlertKind.KEA_SERIES_OBSOLETE,
+        AlertKind.IPV6_MISSING_AAAA,
+        AlertKind.IPV6_REVERSE_MISSING,
+        AlertKind.IPV6_STALE_AAAA,
     }
 )
 
@@ -126,6 +134,7 @@ SECURITY_EXCEPTION_KINDS = frozenset(
         AlertKind.SECURITY_ADVISORY,
         AlertKind.CUSTOM_HOOK,
         AlertKind.CERT_EXPIRY,
+        AlertKind.KEA_SERIES_OBSOLETE,
     }
 )
 

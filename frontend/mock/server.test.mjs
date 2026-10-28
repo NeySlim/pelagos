@@ -88,6 +88,11 @@ const BODIES = {
   'POST /admin/archives/{id}/restore/plan': { parts: ['pelagos.settings:settings'] },
   'POST /dhcp/ddns/failover/plan': (state) => ({ to_node_id: state.nodeIds.ns2 }),
   'POST /dhcp/ddns/switchover/plan': (state) => ({ to_node_id: state.nodeIds.ns2 }),
+  'POST /dns/resolver/fallback/plan': { preset: 'quad9', forward: 'first', hours: 24 },
+  'PUT /dns/resolver/fallback': () => ({ until: new Date(Date.now() + 3600000).toISOString() }),
+  'POST /install/kea-migration/analyze': { series: '3.2', source: 'isc' },
+  'PUT /admin/ipv6': { prefixes: ['2001:db8:1::/64'] },
+  'POST /admin/ipv6/sources/test': { source_id: 'src-router' },
   'POST /dhcp/{family}/ha/setup/plan': { remove: true },
   'POST /dns/zones/{zone}/secondaries/plan': { node_ids: [] },
   'POST /auth/password': { current_password: 'admin', new_password: 'Admin-new-password-1' },
@@ -176,6 +181,8 @@ const EXPECTED = {
   'POST /dhcp/ddns/failover/plan': 409, // nothing prepared, the primary answers
   'POST /dhcp/ddns/switchover/plan': 409, // nothing prepared
   'POST /dhcp/ddns/replay/plan': 409, // no outage: no lease lacks its records
+  'POST /dns/resolver/fallback/return/plan': 409, // no fallback is active
+  'PUT /dns/resolver/fallback': 409, // no fallback is active
 }
 
 describe('mock server PTR and exceptions', () => {
@@ -308,6 +315,31 @@ describe('mock server notification sends', () => {
     expect(alerts.map((a) => [a.id, a.subject])).toEqual([[out.id, 'notify:ch-ntfy']])
     expect((await admin('DELETE', '/admin/notifications/mute')).status).toBe(204)
     mock.state.notify.tests = {}
+  })
+})
+
+describe('mock server resolver, Kea migration and IPv6', () => {
+  it('runs a forwarder fallback, extends it, returns, and analyzes the Kea migration', async () => {
+    const admin = client(await login('admin', 'admin'))
+    const health = await admin('GET', '/dns/resolver/health')
+    expect(health.data.nodes[0]).toHaveProperty('latency_ms.p95')
+    expect(health.data.presets.map((p) => p.id)).toContain('quad9')
+    const plan = await admin('POST', '/dns/resolver/fallback/plan', { preset: 'quad9', forward: 'first', hours: 2 })
+    expect(plan.data).toMatchObject({ scope: 'dns.resolver', requires_confirmation: true })
+    expect((await admin('POST', `/plans/${plan.data.id}/apply`, { confirm: true })).status).toBe(200)
+    expect((await admin('POST', '/dns/resolver/fallback/plan', { preset: 'quad9' })).status).toBe(409)
+    const until = new Date(Date.now() + 7200000).toISOString()
+    expect((await admin('PUT', '/dns/resolver/fallback', { until })).data.fallback.forwarders).toContain('9.9.9.9')
+    const back = await admin('POST', '/dns/resolver/fallback/return/plan', {})
+    expect((await admin('POST', `/plans/${back.data.id}/apply`, { confirm: true })).status).toBe(200)
+    expect((await admin('GET', '/dns/resolver/health')).data.fallback).toBe(null)
+    const report = await admin('POST', '/install/kea-migration/analyze', { series: '3.2', source: 'isc' })
+    expect(report.data.findings.every((f) => f.message.key.startsWith('kea_migration.'))).toBe(true)
+    expect((await admin('GET', '/install/kea-migration')).data.analysis.id).toBe(report.data.id)
+    const viewer = client(await login('viewer', 'viewer'))
+    expect((await viewer('GET', '/hosts/ipv6?filter=missing_aaaa')).data.items.map((h) => h.mac)).toEqual(['02:00:5e:00:53:10'])
+    expect((await viewer('GET', '/admin/ipv6')).status).toBe(403)
+    expect(JSON.stringify((await admin('GET', '/admin/ipv6')).data)).not.toContain('"k"')
   })
 })
 

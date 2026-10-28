@@ -100,6 +100,12 @@ const invocations = [
   () => api.archives.restorePlan('a1', { target_node_id: 'n1', parts: [] }),
   () => api.ddnsFailover.resilience(), () => api.ddnsFailover.preparePlan(), () => api.ddnsFailover.failoverPlan('n2'),
   () => api.ddnsFailover.switchoverPlan('n1', ['example.lan.']), () => api.ddnsFailover.replayPlan(),
+  () => api.resolverHealth.health('n1'), () => api.resolverHealth.series({ metric: 'latency_p95_ms' }),
+  () => api.resolverHealth.fallbackPlan({ preset: 'quad9', forward: 'first', hours: 24 }),
+  () => api.resolverHealth.returnPlan(), () => api.resolverHealth.extend('2026-10-29T12:00:00Z'),
+  () => api.keaMigration.overview(), () => api.keaMigration.analyze({ series: '3.2', source: 'isc' }),
+  () => api.ipv6.hosts({ filter: 'missing_aaaa' }), () => api.ipv6.settings(), () => api.ipv6.update({ prefixes: [] }),
+  () => api.ipv6.testSource({ source_id: 's1' }),
 ]
 
 describe('api.js', () => {

@@ -4,7 +4,7 @@
 Naming convention (docs/architecture.md section 10, "Settings naming"):
 - a setting is a leaf of a domain table `[settings.<domain>]`, never a leaf of `[settings]` itself;
 - leaf names are snake_case `<subject>[_<qualifier>]_<unit>`, the unit spelled out (`_seconds`,
-  `_minutes`, `_hours`, `_days`, `_percent`, `_mb`, `_bytes`, `_factor`, `_per_minute`,
+  `_milliseconds`, `_minutes`, `_hours`, `_days`, `_percent`, `_mb`, `_bytes`, `_factor`, `_per_minute`,
   `_per_hour`) or, for a count, the plural noun counted (`_queries`, `_failures`, `_zones`) or
   `_count`; a boolean is `<feature>_enabled` or a
   policy verb (`require_totp`, `break_dnssec`);
@@ -29,6 +29,7 @@ from pelagos.domain import zone_updates
 # TSIG key names, view names, record types: what BIND accepts unquoted, and nothing that breaks TOML.
 NAME_PATTERN = r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,62}$"
 RRTYPE_PATTERN = r"^[A-Z][A-Z0-9]{0,9}$"
+TLD_PATTERN = r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
 HOST_PATTERN = r"^[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}\.)*[A-Za-z0-9_-]{0,63}\.?$"
 
 DOMAINS = (
@@ -45,6 +46,8 @@ DOMAINS = (
     "notifications",
     "archives",
     "ddns",
+    "resolver",
+    "ipv6",
 )
 TIME_OF_DAY_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 
@@ -133,6 +136,22 @@ REGISTRY: tuple[Setting, ...] = (
     S("checks.resolver_drop_percent", "integer", 80, 1, 100, "percent", "resolver"),
     S("checks.resolver_drop_min_per_minute", "integer", 60, 1, 10_000_000, "per_minute", "resolver"),
     S("checks.resolver_roots_failures", "integer", 3, 1, 100, "failures", "resolver"),
+    # Resolver health and probes (section 25): p95 toward remote servers, timeouts, TLDs, mismatches.
+    S("checks.resolver_latency_warning_milliseconds", "integer", 800, 10, 60_000, "milliseconds", "resolver"),
+    S(
+        "checks.resolver_latency_critical_milliseconds",
+        "integer",
+        1600,
+        10,
+        60_000,
+        "milliseconds",
+        "resolver",
+    ),
+    S("checks.resolver_timeouts_warning_percent", "integer", 10, 1, 100, "percent", "resolver"),
+    S("checks.resolver_timeouts_critical_percent", "integer", 30, 1, 100, "percent", "resolver"),
+    S("checks.resolver_tld_failures", "integer", 3, 1, 100, "failures", "resolver"),
+    S("checks.resolver_mismatch_warning_count", "integer", 100, 1, 10_000_000, "answers", "resolver"),
+    S("checks.resolver_lru_info_per_minute", "integer", 100, 1, 10_000_000, "per_minute", "resolver"),
     # Health checks: delegation and SOA timers
     S("checks.delegation_timeout_seconds", "integer", 2, 1, 30, "seconds", "delegation"),
     S("checks.delegation_max_zones", "integer", 200, 1, 100_000, "zones", "delegation"),
@@ -170,6 +189,9 @@ REGISTRY: tuple[Setting, ...] = (
     S("retention.ha_transition_days", "integer", 365, 1, 3650, "days"),
     S("retention.alerts_resolved_days", "integer", 90, 1, 3650, "days"),
     S("retention.backups_days", "integer", 90, 1, 3650, "days"),
+    S("retention.resolver_raw_days", "integer", 7, 1, 3650, "days"),
+    S("retention.resolver_hourly_days", "integer", 90, 1, 3650, "days"),
+    S("retention.ipv6_observation_days", "integer", 30, 1, 3650, "days"),
     # DNS
     S("dns.read_key", "string", "ddi-read", pattern=NAME_PATTERN),
     S("dns.admin_key", "string", "ddi-admin", pattern=NAME_PATTERN),
@@ -230,6 +252,21 @@ REGISTRY: tuple[Setting, ...] = (
     S("ddns.demote_on_return_enabled", "boolean", True),
     S("ddns.replay_max_leases", "integer", 2000, 1, 1_000_000, "leases"),
     S("ddns.replay_window_max_hours", "integer", 72, 1, 720, "hours"),
+    # Resolver probes and forwarder fallback (section 25)
+    S("resolver.probe_interval_seconds", "integer", 300, 60, DAY, "seconds"),
+    S("resolver.probe_tlds", "list", ["com", "net", "org", "arpa"], pattern=TLD_PATTERN),
+    S("resolver.probe_ipv6_enabled", "boolean", True),
+    S("resolver.fallback_auto_enabled", "boolean", False),
+    S("resolver.fallback_after_seconds", "integer", 600, 60, DAY, "seconds"),
+    S("resolver.fallback_max_hours", "integer", 24, 1, 168, "hours"),
+    S("resolver.fallback_auto_return_enabled", "boolean", True),
+    S("resolver.fallback_return_healthy_minutes", "integer", 15, 1, 1440, "minutes"),
+    # Observed IPv6 addresses (section 27)
+    S("ipv6.neighbors_enabled", "boolean", True),
+    S("ipv6.poll_seconds", "integer", 300, 60, DAY, "seconds"),
+    S("ipv6.stable_min_days", "integer", 3, 1, 365, "days"),
+    S("ipv6.stale_days", "integer", 14, 1, 365, "days"),
+    S("ipv6.auto_apply_enabled", "boolean", False),
 )
 
 BY_KEY: dict[str, Setting] = {s.key: s for s in REGISTRY}
@@ -241,6 +278,8 @@ MANAGED: dict[str, tuple[str, ...]] = {
     "notifications": ("channels", "order", "mute"),
     "archives": ("destinations", "recipients"),
     "ddns": ("roles",),
+    "resolver": ("fallback", "presets"),
+    "ipv6": ("sources", "prefixes"),
 }
 
 # (lower, higher, strict): `lower` must stay below `higher` (or at most equal when not strict).
@@ -252,6 +291,8 @@ PAIRS: tuple[tuple[str, str, bool], ...] = (
     ("checks.cert_critical_days", "checks.cert_warning_days", True),
     ("checks.disk_free_critical_percent", "checks.disk_free_warning_percent", True),
     ("checks.resolver_servfail_warning_percent", "checks.resolver_servfail_critical_percent", True),
+    ("checks.resolver_latency_warning_milliseconds", "checks.resolver_latency_critical_milliseconds", True),
+    ("checks.resolver_timeouts_warning_percent", "checks.resolver_timeouts_critical_percent", True),
     ("checks.soa_refresh_min_seconds", "checks.soa_refresh_max_seconds", True),
     ("checks.soa_retry_min_seconds", "checks.soa_retry_max_seconds", True),
     ("checks.soa_expire_min_seconds", "checks.soa_expire_max_seconds", True),

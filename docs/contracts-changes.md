@@ -1771,6 +1771,7 @@ WP-API-AUTH: `GET /dns/zones` asks this node's named for serials only while it r
 made each SOA query wait 10 s, 40 s for the Failover tab on the stopped primary). WP-FRONTEND: the
 Failover tab ignores a `ddns_outage` whose node is no longer the zone's primary, and runs one reload
 at a time (alert events at every poll used to supersede each slow resilience read).
+
 ## 2026-10-28, contract C2: resolver health, Kea migration analysis, IPv6 observations
 Additive, release 0.2.2. Architecture sections 25 to 27 and their section 17 tables; peer
 actions `resolver.health`, `ipv6.observations`, `kea.migration.inventory`,

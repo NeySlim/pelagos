@@ -181,7 +181,8 @@
       "security": "Security",
       "admin": "Administration",
       "restore": "Restore",
-      "dns.failover": "DDNS failover"
+      "dns.failover": "DDNS failover",
+      "dns.resolver": "Resolver fallback"
     },
     "steps": {
       "apply": "Recheck the preconditions and apply on {{node}}",

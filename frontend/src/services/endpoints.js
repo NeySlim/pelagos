@@ -226,6 +226,20 @@ export const ENDPOINTS = [
   'POST /dhcp/ddns/failover/plan',
   'POST /dhcp/ddns/switchover/plan',
   'POST /dhcp/ddns/replay/plan',
+  // DNS > Resolver > Health (section 25)
+  'GET /dns/resolver/health',
+  'GET /series/resolver',
+  'POST /dns/resolver/fallback/plan',
+  'POST /dns/resolver/fallback/return/plan',
+  'PUT /dns/resolver/fallback',
+  // Installation > Kea migration, read-only analysis (section 26)
+  'GET /install/kea-migration',
+  'POST /install/kea-migration/analyze',
+  // Hosts > IPv6 and Administration > IPv6 sources (section 27)
+  'GET /hosts/ipv6',
+  'GET /admin/ipv6',
+  'PUT /admin/ipv6',
+  'POST /admin/ipv6/sources/test',
 ]
 
 // Regex for one spec entry: `{x}` matches one path segment, `{family}` only v4 or v6.

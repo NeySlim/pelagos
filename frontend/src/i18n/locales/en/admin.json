@@ -173,7 +173,9 @@
       "leases": "leases",
       "events": "events",
       "bytes": "bytes",
-      "archives": "archives"
+      "archives": "archives",
+      "milliseconds": "ms",
+      "answers": "answers"
     },
     "duration": {
       "minutes": "= {{count}} min",
@@ -241,6 +243,14 @@
       "ddns": {
         "title": "DDNS failover",
         "help": "Promotion of a secondary when the DNS primary is down, and the lease catch-up"
+      },
+      "resolver": {
+        "title": "Resolver",
+        "help": "Probes of the root and TLD servers, and the temporary fallback to forwarders"
+      },
+      "ipv6": {
+        "title": "IPv6 observations",
+        "help": "Where IPv6 addresses are observed and when one counts as stable (sources: Administration, IPv6 sources)"
       }
     },
     "groups": {
@@ -329,7 +339,14 @@
         "distro_tracker_url": "Debian security tracker URL (https)",
         "notification_failure_warning_minutes": "Failing channel alert after",
         "archive_stale_factor": "Archive overdue after (intervals)",
-        "archive_failures_critical_count": "Failed archives before critical"
+        "archive_failures_critical_count": "Failed archives before critical",
+        "resolver_latency_warning_milliseconds": "Resolver p95 latency warning",
+        "resolver_latency_critical_milliseconds": "Resolver p95 latency critical",
+        "resolver_timeouts_warning_percent": "Outgoing query timeouts warning",
+        "resolver_timeouts_critical_percent": "Outgoing query timeouts critical",
+        "resolver_tld_failures": "Failed TLD probes before an alert",
+        "resolver_mismatch_warning_count": "Mismatched answers per window",
+        "resolver_lru_info_per_minute": "Cache evictions per minute (info)"
       },
       "collector": {
         "poll_seconds": "Engine poll",
@@ -345,7 +362,10 @@
         "serial_days": "Serial history",
         "ha_transition_days": "HA transitions",
         "alerts_resolved_days": "Resolved alerts",
-        "backups_days": "Write backups"
+        "backups_days": "Write backups",
+        "resolver_raw_days": "Raw resolver series",
+        "resolver_hourly_days": "Hourly resolver series",
+        "ipv6_observation_days": "IPv6 observations"
       },
       "dns": {
         "read_key": "Transfer key",
@@ -408,6 +428,23 @@
         "demote_on_return_enabled": "Demote the former primary when it returns",
         "replay_max_leases": "Largest catch-up plan",
         "replay_window_max_hours": "Longest outage window replayed"
+      },
+      "resolver": {
+        "probe_interval_seconds": "Root and TLD probe interval",
+        "probe_tlds": "TLDs probed (besides those served)",
+        "probe_ipv6_enabled": "Probe over IPv6 too",
+        "fallback_auto_enabled": "Fall back to forwarders automatically",
+        "fallback_after_seconds": "Automatic fallback after",
+        "fallback_max_hours": "Longest fallback",
+        "fallback_auto_return_enabled": "Return automatically at the deadline",
+        "fallback_return_healthy_minutes": "Offer the return after healthy probes for"
+      },
+      "ipv6": {
+        "neighbors_enabled": "Read the neighbor table of each node",
+        "poll_seconds": "Router poll interval",
+        "stable_min_days": "Stable after",
+        "stale_days": "AAAA stale after",
+        "auto_apply_enabled": "Create AAAA and PTR automatically"
       }
     },
     "help": {
@@ -463,6 +500,14 @@
       "ddns": {
         "failover_auto_enabled": "Off: the outage alert proposes the promotion plan and you confirm it.",
         "failover_after_seconds": "The primary must be unreachable from every other node this long."
+      },
+      "resolver": {
+        "fallback_auto_enabled": "Off: the fallback is only proposed by the alerts, with a notification.",
+        "probe_tlds": "The TLDs of the zones the cluster serves are probed as well."
+      },
+      "ipv6": {
+        "stable_min_days": "Above the 2 day lifetime of a temporary address (RFC 8981).",
+        "auto_apply_enabled": "Reserved: the first version creates records only by plan."
       }
     }
   }

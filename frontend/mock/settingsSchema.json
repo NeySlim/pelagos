@@ -12,7 +12,9 @@
     "certificates",
     "notifications",
     "archives",
-    "ddns"
+    "ddns",
+    "resolver",
+    "ipv6"
   ],
   "settings": [
     {
@@ -385,6 +387,69 @@
       "group": "resolver"
     },
     {
+      "key": "checks.resolver_latency_warning_milliseconds",
+      "type": "integer",
+      "default": 800,
+      "min": 10,
+      "max": 60000,
+      "unit": "milliseconds",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.resolver_latency_critical_milliseconds",
+      "type": "integer",
+      "default": 1600,
+      "min": 10,
+      "max": 60000,
+      "unit": "milliseconds",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.resolver_timeouts_warning_percent",
+      "type": "integer",
+      "default": 10,
+      "min": 1,
+      "max": 100,
+      "unit": "percent",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.resolver_timeouts_critical_percent",
+      "type": "integer",
+      "default": 30,
+      "min": 1,
+      "max": 100,
+      "unit": "percent",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.resolver_tld_failures",
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 100,
+      "unit": "failures",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.resolver_mismatch_warning_count",
+      "type": "integer",
+      "default": 100,
+      "min": 1,
+      "max": 10000000,
+      "unit": "answers",
+      "group": "resolver"
+    },
+    {
+      "key": "checks.resolver_lru_info_per_minute",
+      "type": "integer",
+      "default": 100,
+      "min": 1,
+      "max": 10000000,
+      "unit": "per_minute",
+      "group": "resolver"
+    },
+    {
       "key": "checks.delegation_timeout_seconds",
       "type": "integer",
       "default": 2,
@@ -632,6 +697,30 @@
       "key": "retention.backups_days",
       "type": "integer",
       "default": 90,
+      "min": 1,
+      "max": 3650,
+      "unit": "days"
+    },
+    {
+      "key": "retention.resolver_raw_days",
+      "type": "integer",
+      "default": 7,
+      "min": 1,
+      "max": 3650,
+      "unit": "days"
+    },
+    {
+      "key": "retention.resolver_hourly_days",
+      "type": "integer",
+      "default": 90,
+      "min": 1,
+      "max": 3650,
+      "unit": "days"
+    },
+    {
+      "key": "retention.ipv6_observation_days",
+      "type": "integer",
+      "default": 30,
       "min": 1,
       "max": 3650,
       "unit": "days"
@@ -999,6 +1088,98 @@
       "min": 1,
       "max": 720,
       "unit": "hours"
+    },
+    {
+      "key": "resolver.probe_interval_seconds",
+      "type": "integer",
+      "default": 300,
+      "min": 60,
+      "max": 86400,
+      "unit": "seconds"
+    },
+    {
+      "key": "resolver.probe_tlds",
+      "type": "list",
+      "default": [
+        "com",
+        "net",
+        "org",
+        "arpa"
+      ],
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    {
+      "key": "resolver.probe_ipv6_enabled",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "resolver.fallback_auto_enabled",
+      "type": "boolean",
+      "default": false
+    },
+    {
+      "key": "resolver.fallback_after_seconds",
+      "type": "integer",
+      "default": 600,
+      "min": 60,
+      "max": 86400,
+      "unit": "seconds"
+    },
+    {
+      "key": "resolver.fallback_max_hours",
+      "type": "integer",
+      "default": 24,
+      "min": 1,
+      "max": 168,
+      "unit": "hours"
+    },
+    {
+      "key": "resolver.fallback_auto_return_enabled",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "resolver.fallback_return_healthy_minutes",
+      "type": "integer",
+      "default": 15,
+      "min": 1,
+      "max": 1440,
+      "unit": "minutes"
+    },
+    {
+      "key": "ipv6.neighbors_enabled",
+      "type": "boolean",
+      "default": true
+    },
+    {
+      "key": "ipv6.poll_seconds",
+      "type": "integer",
+      "default": 300,
+      "min": 60,
+      "max": 86400,
+      "unit": "seconds"
+    },
+    {
+      "key": "ipv6.stable_min_days",
+      "type": "integer",
+      "default": 3,
+      "min": 1,
+      "max": 365,
+      "unit": "days"
+    },
+    {
+      "key": "ipv6.stale_days",
+      "type": "integer",
+      "default": 14,
+      "min": 1,
+      "max": 365,
+      "unit": "days"
+    },
+    {
+      "key": "ipv6.auto_apply_enabled",
+      "type": "boolean",
+      "default": false
     }
   ],
   "pairs": [
@@ -1035,6 +1216,16 @@
     {
       "lower": "checks.resolver_servfail_warning_percent",
       "higher": "checks.resolver_servfail_critical_percent",
+      "strict": true
+    },
+    {
+      "lower": "checks.resolver_latency_warning_milliseconds",
+      "higher": "checks.resolver_latency_critical_milliseconds",
+      "strict": true
+    },
+    {
+      "lower": "checks.resolver_timeouts_warning_percent",
+      "higher": "checks.resolver_timeouts_critical_percent",
       "strict": true
     },
     {

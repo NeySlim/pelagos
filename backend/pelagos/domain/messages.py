@@ -231,6 +231,60 @@ CATALOG: dict[str, str] = {
     "ddns.blocker.view": "zone {zone} is in view {view}, which the key {key} does not select",
     "ddns.blocker.single_node": "only one node serves DNS: there is no copy to promote",
     "ddns.blocker.not_prepared": "not prepared: no copy is ready to be promoted",
+    # Resolver health subjects of resolver_health (section 25).
+    "alert.resolver_latency": (
+        "resolver latency toward remote servers is {p95} ms at p95 (threshold {threshold} ms)"
+    ),
+    "alert.resolver_timeouts": (
+        "{percent}% of the outgoing resolver queries timed out over the last {minutes} minutes"
+    ),
+    "alert.resolver_tld": "TLD {tld} did not answer on any probed server for {failures} probes in a row",
+    "alert.resolver_root_letters": "{count} of {total} root servers do not answer: {letters}",
+    "alert.resolver_mismatch": (
+        "{count} mismatched answers over the last {minutes} minutes: possible cache poisoning attempt"
+    ),
+    "alert.resolver_cache": "the resolver cache evicts {per_minute} entries per minute: it may be too small",
+    "plan.resolver.fallback": "send the queries of {nodes} to {forwarders} (forward {forward}) until {until}",
+    "plan.resolver.return": (
+        "resolve directly again on {nodes}: forward and forwarders as before the fallback"
+    ),
+    "plan.resolver.extend": "keep the forwarder fallback until {until}",
+    # Kea 3.x migration analysis (section 26).
+    "alert.kea_series_obsolete": (
+        "{engine} {version} runs the {series} series, which ISC no longer maintains: analyze the migration"
+    ),
+    "kea_migration.renamed_key": "{path}: {old} becomes {new}",
+    "kea_migration.client_class_both": "{path}: client-class and client-classes in the same scope",
+    "kea_migration.client_class": "{path}: client-class becomes client-classes",
+    "kea_migration.subnet_without_id": "{path}: subnet {subnet} has no subnet-id",
+    "kea_migration.hook_missing": "{path}: hook {library} is not shipped by Kea {series} from {source}",
+    "kea_migration.hook_commercial": "{path}: {library} is a commercial hook in Kea {series}",
+    "kea_migration.db_hook": "{path}: the {backend} database needs hook {library} (package {package})",
+    "kea_migration.path_moved": "{path}: {file} moves to {target}",
+    "kea_migration.script_path": "{path}: run_script {file} is outside {directory}",
+    "kea_migration.ctrl_agent_stop": "kea-ctrl-agent serves nothing but Pelagos: it is stopped and disabled",
+    "kea_migration.ctrl_agent_clients": (
+        "kea-ctrl-agent is used by {clients}: an https control socket per daemon is proposed"
+    ),
+    "kea_migration.restrict_commands": "{path}: restrict-commands is written as true",
+    "kea_migration.ha_asymmetric": "{engine}: the HA configuration of {node} and {partner} differs: {fields}",
+    "kea_migration.d2_secret_file": "{path}: TSIG key {key} moves from secret to secret-file",
+    "kea_migration.control_socket": "{path}: control-socket becomes control-sockets",
+    "kea_migration.additional_class": "{path}: class {name} has no test and is always added when listed",
+    "kea_migration.template_class_options": (
+        "{path}: options of template class {name} take the Kea 3 priority"
+    ),
+    "kea_migration.lease_checks": "{engine}: no explicit lease checks, the Kea 3 defaults apply",
+    "kea_migration.lease_cache": "{engine}: the lease cache is on by default in Kea 3",
+    "kea_migration.validation_failed": "{engine}: Kea {version} refuses the converted configuration: {error}",
+    "kea_migration.validation_skipped": (
+        "{engine}: no dry run ({reason}): the configuration is checked on the first migrated node"
+    ),
+    "kea_migration.node_unreachable": "node {node} did not answer: its configuration is not analyzed",
+    # Observed IPv6 addresses (section 27).
+    "alert.ipv6_missing_aaaa": "zone {zone}: {count} hosts have a stable IPv6 address and no AAAA record",
+    "alert.ipv6_reverse_missing": "no reverse zone is served for the watched IPv6 prefix {prefix}",
+    "alert.ipv6_stale_aaaa": "zone {zone}: {count} AAAA records hold addresses not seen for {days} days",
     "ddns.blocker.no_copy": "zone {zone} has no copy on another node: add a secondary first",
     "ddns.blocker.no_transfer": (
         "zone {zone} on {node} does not allow transfers signed with {key}: Pelagos can neither check"

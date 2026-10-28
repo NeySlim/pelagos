@@ -181,7 +181,8 @@
       "security": "Sécurité",
       "admin": "Administration",
       "restore": "Restauration",
-      "dns.failover": "Reprise DDNS"
+      "dns.failover": "Reprise DDNS",
+      "dns.resolver": "Repli du résolveur"
     },
     "steps": {
       "apply": "Revérifier les préconditions et appliquer sur {{node}}",

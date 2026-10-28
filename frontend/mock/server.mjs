@@ -21,6 +21,9 @@ import { certsHandlers } from './certs.mjs'
 import { notifyHandlers } from './notify.mjs'
 import { archivesHandlers } from './archives.mjs'
 import { ddnsFailoverHandlers } from './ddnsFailover.mjs'
+import { resolverHandlers } from './resolver.mjs'
+import { keaMigrationHandlers } from './keaMigration.mjs'
+import { ipv6Handlers } from './ipv6.mjs'
 import { SETTINGS_SCHEMA, setting, updateSettings } from './settings.mjs'
 import { heartbeatAge, liveCounters } from './live.mjs'
 import { createEvents, leaseBrief, poolHistoryKey, stopEventTimers, zoneEvents } from './events.mjs'
@@ -95,6 +98,12 @@ Object.assign(PERMISSIONS, {
   'GET /dhcp/ddns/resilience': 'read:dhcp', 'POST /dhcp/ddns/resilience/plan': 'write:dns.zones',
   'POST /dhcp/ddns/failover/plan': 'write:dns.zones', 'POST /dhcp/ddns/switchover/plan': 'write:dns.zones',
   'POST /dhcp/ddns/replay/plan': 'ops:dhcp.leases',
+  'GET /dns/resolver/health': 'read:dns', 'GET /series/resolver': 'read:series',
+  'POST /dns/resolver/fallback/plan': 'write:dns.config', 'POST /dns/resolver/fallback/return/plan': 'write:dns.config',
+  'PUT /dns/resolver/fallback': 'write:dns.config',
+  'GET /install/kea-migration': 'admin:install', 'POST /install/kea-migration/analyze': 'admin:install',
+  'GET /hosts/ipv6': 'read:hosts', 'GET /admin/ipv6': 'admin:settings', 'PUT /admin/ipv6': 'admin:settings',
+  'POST /admin/ipv6/sources/test': 'admin:settings',
 })
 
 class Problem extends Error {
@@ -2721,6 +2730,9 @@ function buildHandlers(state, emit) {
     ...notifyHandlers(state, { Problem, invalid }),
     ...archivesHandlers(state, { Problem, invalid, createPlan }),
     ...ddnsFailoverHandlers(state, { Problem, invalid, createPlan, hasPermission }),
+    ...resolverHandlers(state, { Problem, invalid, createPlan }),
+    ...keaMigrationHandlers(state, { Problem, invalid }),
+    ...ipv6Handlers(state, { Problem, invalid }),
   }
 }
 

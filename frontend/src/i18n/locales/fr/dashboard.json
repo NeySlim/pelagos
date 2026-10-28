@@ -176,7 +176,11 @@
     "archive_incomplete": "archive incomplète",
     "ddns_outage": "panne DDNS",
     "ddns_replay": "rattrapage DDNS à faire",
-    "dns_stale_primary": "ancien primaire DNS"
+    "dns_stale_primary": "ancien primaire DNS",
+    "kea_series_obsolete": "série Kea plus maintenue",
+    "ipv6_missing_aaaa": "hôtes IPv6 sans AAAA",
+    "ipv6_reverse_missing": "zone inverse IPv6 absente",
+    "ipv6_stale_aaaa": "AAAA obsolètes"
   },
   "live": {
     "label": "Direct",

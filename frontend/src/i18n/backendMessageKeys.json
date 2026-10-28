@@ -156,11 +156,28 @@
     "from_state",
     "to_state"
   ],
+  "alert.ipv6_missing_aaaa": [
+    "count",
+    "zone"
+  ],
+  "alert.ipv6_reverse_missing": [
+    "prefix"
+  ],
+  "alert.ipv6_stale_aaaa": [
+    "count",
+    "days",
+    "zone"
+  ],
   "alert.journal_growth": [
     "limit",
     "path",
     "size",
     "zone"
+  ],
+  "alert.kea_series_obsolete": [
+    "engine",
+    "series",
+    "version"
   ],
   "alert.lease_file_growth": [
     "limit",
@@ -295,6 +312,9 @@
     "missing",
     "present"
   ],
+  "alert.resolver_cache": [
+    "per_minute"
+  ],
   "alert.resolver_dnssec": [
     "count",
     "minutes"
@@ -304,10 +324,31 @@
     "percent",
     "recent"
   ],
+  "alert.resolver_latency": [
+    "p95",
+    "threshold"
+  ],
+  "alert.resolver_mismatch": [
+    "count",
+    "minutes"
+  ],
+  "alert.resolver_root_letters": [
+    "count",
+    "letters",
+    "total"
+  ],
   "alert.resolver_roots": [],
   "alert.resolver_servfail": [
     "minutes",
     "percent"
+  ],
+  "alert.resolver_timeouts": [
+    "minutes",
+    "percent"
+  ],
+  "alert.resolver_tld": [
+    "failures",
+    "tld"
   ],
   "alert.restart_loop": [
     "count",
@@ -772,6 +813,94 @@
     "user"
   ],
   "job.step.verify": [],
+  "kea_migration.additional_class": [
+    "name",
+    "path"
+  ],
+  "kea_migration.client_class": [
+    "path"
+  ],
+  "kea_migration.client_class_both": [
+    "path"
+  ],
+  "kea_migration.control_socket": [
+    "path"
+  ],
+  "kea_migration.ctrl_agent_clients": [
+    "clients"
+  ],
+  "kea_migration.ctrl_agent_stop": [],
+  "kea_migration.d2_secret_file": [
+    "key",
+    "path"
+  ],
+  "kea_migration.db_hook": [
+    "backend",
+    "library",
+    "package",
+    "path"
+  ],
+  "kea_migration.ha_asymmetric": [
+    "engine",
+    "fields",
+    "node",
+    "partner"
+  ],
+  "kea_migration.hook_commercial": [
+    "library",
+    "path",
+    "series"
+  ],
+  "kea_migration.hook_missing": [
+    "library",
+    "path",
+    "series",
+    "source"
+  ],
+  "kea_migration.lease_cache": [
+    "engine"
+  ],
+  "kea_migration.lease_checks": [
+    "engine"
+  ],
+  "kea_migration.node_unreachable": [
+    "node"
+  ],
+  "kea_migration.path_moved": [
+    "file",
+    "path",
+    "target"
+  ],
+  "kea_migration.renamed_key": [
+    "new",
+    "old",
+    "path"
+  ],
+  "kea_migration.restrict_commands": [
+    "path"
+  ],
+  "kea_migration.script_path": [
+    "directory",
+    "file",
+    "path"
+  ],
+  "kea_migration.subnet_without_id": [
+    "path",
+    "subnet"
+  ],
+  "kea_migration.template_class_options": [
+    "name",
+    "path"
+  ],
+  "kea_migration.validation_failed": [
+    "engine",
+    "error",
+    "version"
+  ],
+  "kea_migration.validation_skipped": [
+    "engine",
+    "reason"
+  ],
   "note.no_difference": [],
   "note.ptr_kept_elsewhere": [
     "ip",
@@ -972,6 +1101,18 @@
   "plan.ptr.cleanup": [
     "created",
     "deleted"
+  ],
+  "plan.resolver.extend": [
+    "until"
+  ],
+  "plan.resolver.fallback": [
+    "forward",
+    "forwarders",
+    "nodes",
+    "until"
+  ],
+  "plan.resolver.return": [
+    "nodes"
   ],
   "plan.restore": [
     "archive",

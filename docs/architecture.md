@@ -3369,7 +3369,7 @@ command line, B6 API and screen, B7 lab.
   `state.failures`/`errors` under the destination id (`archive_failed`, subject
   `archive:<id>`); an invalid entry fails as `invalid destination: ...`. The ArchiveMeta sidecars
   in `local/` list the destination ids holding a copy. `mounted`: `os.path.ismount` and
-  writable, written through `.part` and rename with fsync, read back after
+  writable (the packaged units allow `/mnt` and `/media`; a read-only mount names the drop-in), written through `.part` and rename with fsync, read back after
   `POSIX_FADV_DONTNEED` so the sum is of what the server stores. `sftp`: the OpenSSH client
   (`sftp -F none -b`), no Python SSH library: `ssh-keyscan` fetches the host keys, the one
   matching `host_key_fingerprint` is the only known host key and the session runs with
@@ -3417,8 +3417,9 @@ command line, B6 API and screen, B7 lab.
   `pelagos.settings:<section>`, `pelagos.audit` (merged by id).
 - **Online restore** (B4, `services/archive_restore.py`, `connectors/bind/restoreplan.py`,
   `connectors/bind/zonerestore.py`): the archive is found in this node's archive folder (own or
-  held for a peer), else fetched from the node that lists it (`fetch_archive`, sum checked, 0600
-  file under `archives/.restore/`, removed after reading), opened with the cluster identities plus
+  held for a peer) when its sum matches, else fetched from the node that lists it (`fetch_archive`,
+  sum checked, 0600 file under `archives/.restore/`, removed after reading); no copy matching its
+  sum answers `409` (damaged), and an age error other than a wrong identity is damage too. Opened with the cluster identities plus
   the request's `identity`. Request fields beyond the table: `target_node_id` (default the
   archive's node when it is in the cluster, else this node), `substitute` (`{"old": "new"}`, applied
   as whole tokens to the BIND texts and every Kea string, partner parts included), `ha_tls`
@@ -3547,7 +3548,7 @@ command line, B6 API and screen, B7 lab.
   renamed, missing folders created 0750 with the file's owner, SELinux relabelled,
   `named-checkconf -z` and `kea-* -t` in place (a failure restores every previous file and
   starts the stopped units again), audit `restore.apply` (`request.mode` `offline`), then each
-  unit `enable --now`. `--dry-run` checks a copy as the test restore does (Kea copies under
+  unit `enable --now`, after the Kea 2.x socket drop-in (not archived) is written again. `--dry-run` checks a copy as the test restore does (Kea copies under
   AppArmor reported not checked).
 - **API and screen** (B6, `services/archive_service.py`, `api/archives.py`, Administration >
   Backups): settings, destinations (validated by `destinations.config.parse`, `id` a lowercase

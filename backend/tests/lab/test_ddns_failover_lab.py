@@ -458,7 +458,14 @@ class TestDdnsFailoverLab:
         try:
             env = {**os.environ, "TEST_URL": f"https://{A1}:8443", "LAB_PASSWORD": ADMIN_PASSWORD}
             res = subprocess.run(
-                ["npx", "playwright", "test", "--config", "e2e-lab/lab.config.js"],
+                [
+                    "npx",
+                    "playwright",
+                    "test",
+                    "--config",
+                    "e2e-lab/lab.config.js",
+                    "e2e-lab/ddns-failover.spec.js",
+                ],
                 cwd=frontend,
                 env={**env, "FROM": "ns2", "TO": "ns1"},
                 capture_output=True,

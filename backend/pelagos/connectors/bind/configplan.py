@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from pelagos.connectors.bind import handover
+from pelagos.connectors.bind import failover, handover
 from pelagos.connectors.bind.dns_client import ALGORITHMS
 from pelagos.connectors.bind.managed import (
     DEFAULT_VIEW,
@@ -134,6 +134,8 @@ class ConfigPlanner:
         self.node_id = node_id
         self.replay = False
         self._docs: dict[Path, ConfigDocument] = {}
+        # Reads a zone as this node's named serves it (local AXFR): the text of a promoted copy.
+        self.zone_reader: failover.ZoneReader | None = None
 
     # Documents -----------------------------------------------------------------
 
@@ -317,9 +319,13 @@ class ConfigPlanner:
                 "allow_transfer": list(raw.get("allow_transfer") or []),
                 "notes": raw.get("notes"),
             }
-        zone = Zone.from_dict({k: v for k, v in raw.items() if k not in ("ns", "records", "secondary")})
+        promote = failover.promotion(raw)
+        skip = ("ns", "records", "secondary", failover.PROMOTE)
+        zone = Zone.from_dict({k: v for k, v in raw.items() if k not in skip})
         zone.source = ZoneSource.PELAGOS
         zone.config_path = str(path)
+        if promote is not None:
+            self._promote(zone, op, before, promote)
         if zone.kind in (ZoneKind.SECONDARY, ZoneKind.STUB, ZoneKind.MIRROR) and not zone.primaries:
             if zone.kind is not ZoneKind.MIRROR:
                 raise PlanError(f"a {zone.kind.value} zone needs primaries")
@@ -341,9 +347,38 @@ class ConfigPlanner:
         after.update(initial)
         if secondary:
             after["secondary"] = secondary  # every node renders its own side of the pair
+        if promote is not None:
+            after[failover.PROMOTE] = dict(promote)
         self.result.changes.append(
             Change(op, change.target, before=before, after=after, node_ids=change.node_ids)
         )
+
+    def _promote(self, zone: Zone, op: ChangeOp, before: dict[str, Any] | None, promote: dict) -> None:
+        """The copy becomes primary: what it serves now, written as text to a new file."""
+        was = (before or {}).get("kind")
+        if op is not ChangeOp.REPLACE or zone.kind is not ZoneKind.PRIMARY:
+            raise PlanError("a promotion replaces a copy with a primary zone")
+        epoch = int(promote.get("epoch") or 0)
+        path = self._zone_file_path(
+            Zone(
+                name=zone.name, kind=zone.kind, file=str(failover.file_path(self.zone_dir, zone.name, epoch))
+            )
+        )
+        zone.file = str(path)
+        if was == ZoneKind.PRIMARY.value and before is not None and before.get("file") == zone.file:
+            return  # this promotion is in place already: the file is named's now
+        if was != ZoneKind.SECONDARY.value:
+            raise PlanError(f"zone {zone.name} is not a copy here ({was}): nothing to promote")
+        if self.zone_reader is None:
+            raise PlanError("the copy cannot be read on this node")
+        try:
+            rrsets = self.zone_reader(zone.name, zone.view)
+        except Exception as exc:  # the connector's error, said in the plan
+            raise PlanError(f"cannot read the copy of {zone.name}: {exc}") from exc
+        text = failover.zone_text(zone.name, rrsets)
+        self._set_text(path, text)
+        self.result.zone_files[path] = text
+        self.result.requires_confirmation = True
 
     def _check_zone_includes(self, view: str) -> None:
         pel = self.tree.pelagos

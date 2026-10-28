@@ -176,6 +176,10 @@ class PeerActions:
         backend = self.registry.dns
         if backend is None:
             raise EngineUnavailable("this node does not run BIND")
+        many = body.get("changes")
+        if isinstance(many, list) and many:
+            changes = [parse_change(c, f"changes[{i}]") for i, c in enumerate(many)]
+            return self._plan(backend.plan_zone_changes(changes, _created_by(body)))
         change = parse_change(body.get("change"), "change")
         return self._plan(backend.plan_zone_change(change, _created_by(body)))
 

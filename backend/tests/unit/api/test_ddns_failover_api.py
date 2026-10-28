@@ -28,3 +28,11 @@ def test_resilience_on_a_single_node(admin_client):
 def test_prepare_refusals(admin_client, body, status):
     resp = admin_client.post(URL + "/plan", json=body)
     assert resp.status_code == status, resp.get_json()
+
+
+@pytest.mark.parametrize(
+    ("body", "status"), [({"zones": "example.lan"}, 400), ({}, 409), ({"zones": ["x"]}, 400)]
+)
+def test_failover_refusals(admin_client, body, status):
+    resp = admin_client.post("/api/v1/dhcp/ddns/failover/plan", json=body)
+    assert resp.status_code == status, resp.get_json()

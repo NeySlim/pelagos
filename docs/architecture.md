@@ -3342,6 +3342,27 @@ return and switchover, D5 screen, D6 lab.
   over its default window (`{"from","to","source","candidates","notes"}`, notes naming zones that
   could not be read). `ddns_advice` (`d2:dns-servers`) carries `details.remediation =
   "ddns_prepare"`.
+- **Promotion** (batch D3): the target's part is a `dns.zone` replace whose
+  `after` carries `promote: {"from": node id, "epoch": int}`; the
+  connector reads the copy by a local AXFR (read key), at plan time and
+  again at apply time, writes it as text to `<zone_dir>/<zone>.e<epoch>.db`
+  (named-checkzone validates it), drops the copy-only statements
+  (`masterfile-format`, transfer timers and sources) and recopies `policy`
+  and `options` (`also-notify` without the target itself). Other copies get
+  a `dns.zone` replace with `primaries` naming the target. D2 lists become
+  target, old primary, other copies. The plan is refused (`409`) while the
+  old primary gives an authoritative SOA answer for a zone; the default
+  target is the copy at the highest served serial.
+- **`ddns_outage`** (critical, node = the active primary, subject
+  `ddns:<view>/<zone>`, `details.cause` `named_down` or `peer_offline`,
+  `details.remediation = "ddns_failover"`): the primary's collector asks
+  its own named, a copy's collector asks the primary of its `primaries`,
+  every collector knows a `peer_offline` primary. Automatic promotion
+  (`failover_auto_enabled`): the first copy in cluster node order, once the
+  merged alert is older than `failover_after_seconds` and reported by every
+  other node running BIND (a node whose alerts cannot be read blocks it;
+  the old primary must report it or be unreachable); the plan runs as
+  `system` from the collector.
 - **Return**: after the replication sync at start, a collector serving as
   primary a zone that `ddns.roles` gives to another node at a later epoch
   demotes it (with `demote_on_return_enabled`): zone file and journal moved

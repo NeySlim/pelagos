@@ -87,6 +87,7 @@ MAX_DETAILS = 256  # audit material kept per process; callers should pop_details
 
 
 RELOAD_WAIT = 30.0
+PROBE_TIMEOUT = 2.0
 RELOAD_POLL = 0.2
 # A refused AXFR is not asked again for this long (a config change through a plan resets it).
 AXFR_RETRY_SECONDS = 6 * 3600.0
@@ -209,7 +210,8 @@ class BindBackend(BindExtras, DnsBackend):
         if not caps.running:
             # Any DNS answer (even REFUSED) proves the daemon runs; only transport errors mean it does not.
             try:
-                self.dns.soa_serial(".")
+                # Short: a stopped named never answers, and callers hold the engine lock meanwhile.
+                DnsClient(self.dns.server, self.dns.port, timeout=PROBE_TIMEOUT).soa_serial(".")
                 caps.running = True
             except ConnectorError:
                 caps.running = False
@@ -582,6 +584,9 @@ class BindBackend(BindExtras, DnsBackend):
             default_ns=self.dns_settings.get("default_ns"),
         )
         _require_user_conf(planner.files)
+        planner.zone_reader = lambda zone, view: self.dns.axfr(
+            zone, self._require_key("read", None if view == DEFAULT_VIEW else view)
+        )
         return planner
 
     def _render(
@@ -632,6 +637,15 @@ class BindBackend(BindExtras, DnsBackend):
             return self.plan_added_zone(change, existing, created_by)
         summary = messages.msg("plan.zone.change", target=change.target, op=messages.op(op))
         return self._file_plan(PlanScope.DNS_ZONE, [change], summary, created_by)
+
+    def plan_zone_changes(self, changes: list[Change], created_by: str = "") -> Plan:
+        """Several zone statements of managed files in one plan (one write, one reconfig): the
+        parts of a DDNS failover on one node."""
+        if len(changes) == 1:
+            return self.plan_zone_change(changes[0], created_by)
+        targets = ", ".join(c.target for c in changes)
+        summary = messages.msg("plan.zone.change", target=targets, op=messages.op(ChangeOp.REPLACE))
+        return self._file_plan(PlanScope.DNS_ZONE, changes, summary, created_by)
 
     def plan_config_change(self, changes: list[Change], created_by: str = "") -> Plan:
         kinds = {c.target.split("/", 1)[0] for c in changes}

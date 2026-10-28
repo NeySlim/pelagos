@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""DDNS failover (section 24), batch D2: which dynamic zones can fail over, and the plan that
-prepares them while every node is healthy.
+"""DDNS failover (section 24): which dynamic zones can fail over, the plan that prepares them while
+every node is healthy (batch D2) and the plan that promotes a copy when the primary is down (D3).
 
 A zone is ready when its primary is recorded in `ddns.roles`, every copy declares the keys D2 and
 Pelagos sign with, and every D2 lists the primary first then each copy. The prepare plan is a
@@ -11,12 +11,22 @@ composite: key plans on the copies (`dns.key`), D2 configuration replaces (`d2.c
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+import dns.exception
+import dns.flags
+import dns.message
+import dns.query
+import dns.rcode
+import dns.rdatatype
+
 from pelagos.connectors.base import NotSupported
+from pelagos.connectors.bind import failover as bind_failover
+from pelagos.connectors.bind.dns_client import TsigKey
 from pelagos.connectors.bind.viewkeys import view_key_name
 from pelagos.connectors.kea import d2order
 from pelagos.connectors.kea.configfile import FileDiverged
@@ -47,6 +57,8 @@ from pelagos.services.errors import Conflict, EngineUnavailable, ServiceError, V
 DEFAULT_VIEW = "_default"
 ROLES_PREFIX = "ddns.roles/"
 UNSIGNED_POLICIES = (None, "", "none")
+BUSY_RETRIES = 3
+BUSY_WAIT = 1.0
 _PORT_RE = re.compile(r"\bport\s+(\d+)")
 
 
@@ -64,6 +76,7 @@ class DnsNode:
     options: dict[str, str]
     acls: dict[str, str]
     endpoint: d2order.Endpoint | None
+    serials: dict[str, int | None] = field(default_factory=dict)  # "<view>/<zone>" -> served serial
 
 
 @dataclass(slots=True)
@@ -390,18 +403,7 @@ class DdnsFailoverService:
         roles = (settings.get("ddns") or {}).get("roles")
         inv.roles = dict(roles) if isinstance(roles, dict) else {}
         inv.bind_nodes = sum(1 for p in self.ctx.cluster().nodes if p.modules.bind)
-        local = self.dns.local
-        if local is not None:
-            inv.bind_nodes = max(inv.bind_nodes, 1)
-            inv.dns[me] = self._dns_node(me, local.read_config(), local.list_zones())
-        for peer in self.peers.peers_running(Engine.BIND):
-            summary = self.peers.snapshot(peer, Engine.BIND, "summary", {})
-            config = self.peers.snapshot(peer, Engine.BIND, "config", {})
-            if not summary or summary.get("error") or not config or config.get("error"):
-                inv.offline.append(peer.id)
-                continue
-            zones = [Zone.from_dict(z) for z in summary.get("zones") or []]
-            inv.dns[peer.id] = self._dns_node(peer.id, BindConfigTree.from_dict(config["config"]), zones)
+        # D2 first: a peer whose named is down is slow to describe its zones.
         d2 = self.registry.d2
         if d2 is not None:
             try:
@@ -409,13 +411,39 @@ class DdnsFailoverService:
             except Exception:
                 inv.offline.append(me)
         for peer in self.peers.peers_running(Engine.D2):
-            snap = self.peers.snapshot(peer, Engine.D2, "config", {})
+            snap = self._snapshot(peer, Engine.D2, "config")
             if not snap or snap.get("error") or not isinstance(snap.get("config"), dict):
                 if peer.id not in inv.offline:
                     inv.offline.append(peer.id)
                 continue
             inv.d2[peer.id] = D2Node(peer.id, peer.name, d2order.body(snap["config"]))
+        local = self.dns.local
+        if local is not None:
+            inv.bind_nodes = max(inv.bind_nodes, 1)
+            inv.dns[me] = self._dns_node(me, local.read_config(), local.list_zones())
+        for peer in self.peers.peers_running(Engine.BIND):
+            summary = self._snapshot(peer, Engine.BIND, "summary")
+            config = self._snapshot(peer, Engine.BIND, "config")
+            if not summary or summary.get("error") or not config or config.get("error"):
+                if peer.id not in inv.offline:
+                    inv.offline.append(peer.id)
+                continue
+            zones = [Zone.from_dict(z) for z in summary.get("zones") or []]
+            inv.dns[peer.id] = self._dns_node(peer.id, BindConfigTree.from_dict(config["config"]), zones)
+            serials = summary.get("serials")
+            inv.dns[peer.id].serials = dict(serials) if isinstance(serials, dict) else {}
         return inv
+
+    def _snapshot(self, peer: Any, engine: Engine, kind: str) -> dict[str, Any] | None:
+        """A peer's snapshot, asked again while its collector holds the engine (a named that stopped
+        answering keeps it a few seconds per poll)."""
+        snap = None
+        for attempt in range(BUSY_RETRIES):
+            snap = self.peers.snapshot(peer, engine, kind, {})
+            if not (snap and str(snap.get("error") or "").startswith("busy")):
+                break
+            time.sleep(BUSY_WAIT * (attempt + 1))
+        return snap
 
     def resilience(self) -> dict[str, Any]:
         inv = self.inventory()
@@ -646,6 +674,335 @@ class DdnsFailoverService:
             state=PlanState.VALIDATED,
             validations=[ValidationResult(ok=True, tool="ddns.roles", output=f"{len(changes)} entries")],
         )
+
+    # Failover plan (batch D3) ---------------------------------------------------------------------
+
+    def failover_plan(self, body: dict[str, Any], created_by: str) -> Plan:
+        """Promote a copy primary of the prepared zones whose active primary no longer answers: the
+        copy rewritten as text and declared primary with the recorded policy, the other copies
+        repointed, every reachable D2 list with the new primary first, `ddns.roles` at the next
+        epoch. 409 while the active primary still serves a zone (a switchover, batch D4)."""
+        inv = self.inventory()
+        names = inv.names
+        states = self._failover_zones(assess(inv, self.ctx.settings()), body.get("zones"))
+        to = self._target(inv, states, body.get("to_node_id"))
+        for st in states:
+            if st.primary == to:
+                raise ValidationError(
+                    f"{names.get(to, to)} is already the active primary of {st.zone}",
+                    [field_error("to_node_id", "already primary")],
+                )
+            if to not in st.copies:
+                raise ValidationError(
+                    f"{names.get(to, to)} holds no copy of {st.zone}", [field_error("to_node_id", "no copy")]
+                )
+            if st.missing_keys.get(to):
+                raise ValidationError(
+                    f"{st.zone} is not prepared on {names.get(to, to)}: keys "
+                    + ", ".join(st.missing_keys[to])
+                    + " missing; prepare the zone first",
+                    [field_error("zones", st.zone)],
+                )
+            if self._serial(inv, to, st) is None:
+                raise ValidationError(
+                    f"the copy of {st.zone} on {names.get(to, to)} is not served: nothing to promote",
+                    [field_error("to_node_id", "copy not loaded")],
+                )
+        answering = [st for st in states if st.primary is not None and self.primary_answers(inv, st)]
+        if answering:
+            st = answering[0]
+            raise Conflict(
+                f"{names.get(str(st.primary), st.primary)} still serves {st.zone}: use the planned switchover"
+            )
+        olds = sorted({str(st.primary) for st in states if st.primary})
+        epochs = {st.key: int((st.role or {}).get("epoch") or 0) + 1 for st in states}
+        parts: list[Plan] = []
+        notes: list[ValidationResult] = []
+        endpoints = inv.endpoints()
+        target = _endpoint(endpoints, to)
+        if target is None or not target.address:
+            raise ValidationError(
+                f"cannot tell the address of {names.get(to, to)}: its URL names no address",
+                [field_error("to_node_id", "no address")],
+            )
+        # One part per node: the zone statements of a node share its zones.conf.
+        per_node: dict[str, list[Change]] = {
+            to: [self._promote_change(inv, st, to, epochs[st.key]) for st in states]
+        }
+        for st in states:
+            for n in st.copies:
+                if n != to:
+                    change = self._repoint_change(inv, st, n, target)
+                    if change is not None:
+                        per_node.setdefault(n, []).append(change)
+        for n, changes in per_node.items():
+            parts.append(self._zone_part(n, changes, created_by))
+        chosen = {st.zone: st for st in states}
+        mapping = domain_zones(inv)
+        for d2 in inv.d2.values():
+
+            def order_of(direction: str, name: str, d2: D2Node = d2) -> list[d2order.Endpoint] | None:
+                st = chosen.get(mapping.get((d2.node_id, direction, name), ""))
+                if st is None:
+                    return None
+                # The old primary stays second: back before its demotion, it receives nothing.
+                nodes = [to, str(st.primary), *(n for n in st.copies if n != to)]
+                return [e for e in (_endpoint(endpoints, n) for n in nodes) if e]
+
+            try:
+                config, changed = d2order.reorder(d2.config, order_of, endpoints, d2.node_id)
+            except d2order.UnknownAddress as exc:
+                n = str(exc)
+                raise ValidationError(
+                    f"cannot tell the address of {names.get(n, n)} for the D2 of {d2.name}",
+                    [field_error("zones", n)],
+                ) from None
+            if changed:
+                parts.append(self._d2_part(d2.node_id, config, created_by))
+        for peer in self.peers.peers_running(Engine.D2):
+            if peer.id not in inv.d2:
+                notes.append(_note(f"the D2 of {peer.name} did not answer: its list is fixed on its return"))
+        for n in inv.offline:
+            if n not in olds:
+                notes.append(
+                    _note(
+                        f"{names.get(n, n)} does not answer: its copies and its D2 list still name"
+                        f" {', '.join(names.get(o, o) for o in olds)}; they are fixed on its return"
+                    )
+                )
+        parts.append(self._promoted_roles(states, to, epochs, created_by))
+        for st in states:
+            copy, last = self._serial(inv, to, st), self._serial(inv, str(st.primary), st)
+            known = f", last known on {names.get(str(st.primary), st.primary)}: {last}" if last else ""
+            notes.append(_note(f"{st.zone}: the copy on {names.get(to, to)} is at serial {copy}{known}"))
+        since = self._outage_since()
+        if since is not None:
+            notes.append(
+                _note(
+                    f"once promoted, replay the DNS updates lost since {to_rfc3339(since)}"
+                    " (POST /dhcp/ddns/replay/plan)"
+                )
+            )
+        zones = [st.zone for st in states]
+        epoch = max(epochs.values())
+        summary = messages.msg(
+            "plan.ddns.failover",
+            node=names.get(to, to),
+            previous=", ".join(names.get(o, o) for o in olds),
+            count=len(zones),
+            zones=zones,
+            epoch=epoch,
+        )
+        plan = Plan(
+            scope=PlanScope.DNS_FAILOVER,
+            node_id=self.ctx.node.id,
+            **messages.fields("summary", summary),
+            created_by=created_by,
+        )
+        merge_parts(plan, parts, names)
+        plan.validations.extend(notes)
+        plan.requires_confirmation = True
+        self.plans.register_composite(plan, parts)
+        return self.ctx.plan_store.put(plan)
+
+    def _outage_since(self) -> datetime | None:
+        if self.replay is None:
+            return None
+        from pelagos.services import ddns_replay
+
+        try:
+            return ddns_replay.outage_windows(ddns_replay.outage_states(self.replay.store()))[1]
+        except Exception:  # the hint is optional: the replay plan says the window itself
+            return None
+
+    def _failover_zones(self, states: list[ZoneState], zones: Any) -> list[ZoneState]:
+        """The prepared zones asked for (every prepared zone by default)."""
+        prepared = [s for s in states if s.role and s.primary and str(s.role.get("primary")) == s.primary]
+        if zones is None:
+            if not prepared:
+                raise Conflict("no zone is prepared for failover: prepare the DDNS failover first")
+            return prepared
+        if not isinstance(zones, list) or not zones or not all(isinstance(z, str) for z in zones):
+            raise ValidationError("zones must be a list of zone names", [field_error("zones", "list")])
+        by_key = {s.key: s for s in prepared}
+        out: list[ZoneState] = []
+        for i, raw in enumerate(zones):
+            view, _, name = raw.rpartition("/") if "/" in raw else (DEFAULT_VIEW, "", raw)
+            st = by_key.get(f"{view or DEFAULT_VIEW}/{normalize_name(name)}")
+            if st is None:
+                raise ValidationError(
+                    f"{raw} is not a prepared dynamic zone", [field_error(f"zones[{i}]", "not prepared")]
+                )
+            if st not in out:
+                out.append(st)
+        return out
+
+    def _serial(self, inv: Inventory, node_id: str, st: ZoneState) -> int | None:
+        """Serial `node_id` serves the zone with: asked now on this node, from the snapshot of a peer."""
+        local = self.dns.local
+        if node_id == self.ctx.node.id and local is not None:
+            try:
+                return local.soa_serial(st.zone, None if st.view == DEFAULT_VIEW else st.view)
+            except Exception:
+                return None
+        node = inv.dns.get(node_id)
+        value = node.serials.get(st.key) if node is not None else None
+        return int(value) if isinstance(value, int) else None
+
+    def _target(self, inv: Inventory, states: list[ZoneState], raw: Any) -> str:
+        names = inv.names
+        if raw is not None:
+            if not isinstance(raw, str) or raw not in names:
+                raise ValidationError("to_node_id must name a node", [field_error("to_node_id", "unknown")])
+            if raw not in inv.dns:
+                raise ValidationError(
+                    f"{names.get(raw, raw)} does not answer: it cannot be promoted",
+                    [field_error("to_node_id", "offline")],
+                )
+            return raw
+        # Default: the copy at the highest serial, the same for every zone.
+        candidates = [n for n in inv.dns if all(n in st.copies for st in states)]
+        if not candidates:
+            raise ValidationError(
+                "no node holds a copy of every selected zone: give to_node_id",
+                [field_error("to_node_id", "required")],
+            )
+
+        def rank(n: str) -> tuple[int, int]:
+            serials = [self._serial(inv, n, st) for st in states]
+            return (sum(s is not None for s in serials), sum(s or 0 for s in serials))
+
+        return max(candidates, key=rank)
+
+    def primary_answers(self, inv: Inventory, st: ZoneState) -> bool:
+        """True when the active primary still serves the zone with authority (an SOA answer)."""
+        node = str(st.primary)
+        ep = inv.dns[node].endpoint if node in inv.dns else None
+        address = ep.address if ep and ep.address else next(iter(self.dns._addresses_of(node)), "")
+        port = ep.port if ep else d2order.DEFAULT_PORT
+        if not address:
+            return False
+        key = None
+        if st.view != DEFAULT_VIEW:
+            name = _key(self.ctx.settings(), "read", st.view)
+            found = self._secret(name)
+            key = TsigKey(name, found[1], found[0]) if found else None
+        return soa_answers(address, port, st.zone, key)
+
+    def _promote_change(self, inv: Inventory, st: ZoneState, to: str, epoch: int) -> Change:
+        copy = next((z for z in inv.dns[to].zones if z.name == st.zone and z.view == st.view), None)
+        if copy is None:
+            raise ValidationError(
+                f"{st.zone} is not declared on {inv.names.get(to, to)}", [field_error("zones", st.zone)]
+            )
+        role = st.role or {}
+        options = dict(role.get("options") or {})
+        own = inv.dns[to].endpoint
+        if options.get("also-notify") and own is not None:
+            options["also-notify"] = [a for a in options["also-notify"] if not _names_endpoint(a, own)]
+        after = bind_failover.promoted_after(
+            copy, list(role.get("policy") or []), options, {"from": st.primary, "epoch": epoch}
+        )
+        return Change(ChangeOp.REPLACE, st.key, after=after)
+
+    def _repoint_change(
+        self, inv: Inventory, st: ZoneState, node_id: str, target: d2order.Endpoint
+    ) -> Change | None:
+        copy = next((z for z in inv.dns[node_id].zones if z.name == st.zone and z.view == st.view), None)
+        if copy is None or copy.source is not ZoneSource.PELAGOS:
+            return None
+        keys = [m.group(1) for m in (_KEY_RE.search(p) for p in copy.primaries) if m]
+        entry = target.address + (f" port {target.port}" if target.port != d2order.DEFAULT_PORT else "")
+        entry += f" key {keys[0]}" if keys else ""
+        if copy.primaries == [entry]:
+            return None
+        after = copy.to_dict()
+        after["primaries"] = [entry]
+        for k in ("config_path", "source", "dynamic"):
+            after.pop(k, None)
+        return Change(ChangeOp.REPLACE, st.key, after=after)
+
+    def _zone_part(self, node_id: str, changes: list[Change], created_by: str) -> Plan:
+        if node_id == self.ctx.node.id:
+            if self.dns.local is None:
+                raise EngineUnavailable("this node does not run BIND")
+            part = self.dns.local.plan_zone_changes(changes, created_by)
+        else:
+            peer = self.peers.peer(node_id)
+            if peer is None:
+                raise EngineUnavailable(f"node {node_id} is unknown")
+            body: dict[str, Any] = {"created_by": created_by}
+            if len(changes) == 1:
+                body["change"] = changes[0].to_dict()  # what a peer of an older release understands
+            else:
+                body["changes"] = [c.to_dict() for c in changes]
+            part = self.peers.build_plan(peer, "dns.zone.plan", body)
+        part.target_node_ids = [node_id]
+        return part
+
+    def _promoted_roles(
+        self, states: list[ZoneState], to: str, epochs: dict[str, int], created_by: str
+    ) -> Plan:
+        now = to_rfc3339(self.clock())
+        changes: list[Change] = []
+        diff = ""
+        for st in states:
+            before = dict(st.role or {})
+            after = {
+                **before,
+                "primary": to,
+                "epoch": epochs[st.key],
+                "since": now,
+                "by": created_by or "system",
+            }
+            changes.append(Change(ChangeOp.REPLACE, ROLES_PREFIX + st.key, before=before, after=after))
+            diff += f"~{ROLES_PREFIX}{st.key} primary={to} epoch={epochs[st.key]}\n"
+        summary = messages.msg("plan.ddns.roles", count=len(changes))
+        return Plan(
+            scope=PlanScope.DNS_FAILOVER,
+            node_id=self.ctx.node.id,
+            **messages.fields("summary", summary),
+            created_by=created_by,
+            changes=changes,
+            diff=diff,
+            target_node_ids=[self.ctx.node.id],
+            state=PlanState.VALIDATED,
+            validations=[ValidationResult(ok=True, tool="ddns.roles", output=f"{len(changes)} entries")],
+        )
+
+
+_KEY_RE = re.compile(r"\bkey\s+\"?([^\s\";]+)")
+
+
+def _note(text: str) -> ValidationResult:
+    return ValidationResult(ok=True, tool="ddns.failover", output=text)
+
+
+def _names_endpoint(entry: str, ep: d2order.Endpoint) -> bool:
+    """An `also-notify` element aimed at `ep` (same address, same port)."""
+    words = entry.replace('"', "").split()
+    if not words or words[0] != ep.address:
+        return False
+    port = _PORT_RE.search(entry)
+    return (int(port.group(1)) if port else d2order.DEFAULT_PORT) == ep.port
+
+
+def soa_answers(address: str, port: int, zone: str, key: TsigKey | None = None, timeout: float = 2.0) -> bool:
+    """One SOA query, retried once: an authoritative NOERROR answer means the server serves the zone."""
+    q = dns.message.make_query(normalize_name(zone), dns.rdatatype.SOA)
+    if key is not None:
+        q.use_tsig(key.keyring, keyname=key.name, algorithm=key.dns_algorithm)
+    for _ in range(2):
+        try:
+            resp = dns.query.udp(q, address, port=port, timeout=timeout)
+        except (dns.exception.DNSException, OSError):
+            continue
+        return (
+            resp.rcode() == dns.rcode.NOERROR
+            and bool(resp.flags & dns.flags.AA)
+            and any(r.rdtype == dns.rdatatype.SOA for r in resp.answer)
+        )
+    return False
 
 
 def _without(entry: dict[str, Any], *names: str) -> dict[str, Any]:

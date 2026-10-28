@@ -78,14 +78,19 @@ def engine_snapshot(
 def _bind(backend: DnsBackend, kind: str, params: dict[str, Any]) -> dict[str, Any]:
     if kind == "summary":
         zones = backend.list_zones()
+        caps = backend.capabilities()
         serials: dict[str, int | None] = {}
         for zone in zones:
+            # named stopped: each SOA query would wait for its timeout, and the answer is known.
+            if not caps.running:
+                serials[f"{zone.view}/{zone.name}"] = None
+                continue
             try:
                 serials[f"{zone.view}/{zone.name}"] = backend.soa_serial(zone.name, zone.view)
             except Exception:
                 serials[f"{zone.view}/{zone.name}"] = None
         return {
-            "capabilities": backend.capabilities().to_dict(),
+            "capabilities": caps.to_dict(),
             "status": backend.server_status(),
             "zones": [z.to_dict() for z in zones],
             "serials": serials,

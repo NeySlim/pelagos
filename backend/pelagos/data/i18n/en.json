@@ -265,6 +265,7 @@
   "plan.bind.includes": "Pelagos include files and include lines",
   "plan.certs.dns01_setup": "DNS-01 for web certificates: key {{key}} and update-policy on {{zones}}",
   "plan.change": "{{op}} {{target}}",
+  "plan.ddns.failover": "promote {{node}} primary of {{count}} zones in place of {{previous}} (epoch {{epoch}}): {{zones}}",
   "plan.ddns.prepare": "prepare the DDNS failover of {{count}} zones: {{zones}}",
   "plan.ddns.replay": "resend the DNS updates of {{count}} leases active from {{start}} to {{end}}",
   "plan.ddns.replay_on": "resend the DNS updates of {{count}} {{engine}} leases on {{node}}",

@@ -810,6 +810,13 @@
     "op",
     "target"
   ],
+  "plan.ddns.failover": [
+    "count",
+    "epoch",
+    "node",
+    "previous",
+    "zones"
+  ],
   "plan.ddns.prepare": [
     "count",
     "zones"

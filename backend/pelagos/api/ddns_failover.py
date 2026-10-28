@@ -2,7 +2,7 @@
 """DDNS without a single point of failure (section 24): resilience state, prepare, failover,
 switchover and replay plans.
 
-Registered by the contract batch; each route answers 501 until its work package builds it (D2 to D4).
+Registered by the contract batch; the switchover answers 501 until batch D4 builds it.
 """
 
 from __future__ import annotations
@@ -43,11 +43,11 @@ class Prepare(Resource):
 @ns.route("/failover/plan")
 class Failover(Resource):
     @require("write:dns.zones")
-    @ns.response(200, "Composite plan (requires_confirmation)")
-    @ns.response(409, "conflict: the active primary still answers", m.Problem)
+    @ns.response(200, "Composite plan (requires_confirmation)", m.Plan)
+    @ns.response(409, "conflict: the active primary still answers, or no zone is prepared", m.Problem)
     def post(self):
         check_permission("write:dhcp.config")
-        _todo("D3")
+        return plan_answer(services().ddns_failover.failover_plan(json_body(required=False), username()))
 
 
 @ns.route("/switchover/plan")

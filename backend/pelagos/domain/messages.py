@@ -242,6 +242,9 @@ CATALOG: dict[str, str] = {
     ),
     "plan.ddns.prepare": "prepare the DDNS failover of {count} zones: {zones}",
     "plan.ddns.roles": "record the active primary of {count} zones in ddns.roles",
+    "plan.ddns.failover": (
+        "promote {node} primary of {count} zones in place of {previous} (epoch {epoch}): {zones}"
+    ),
     "ddns.prepare.no_secret": (
         "the secret of TSIG key {key} is not known on this node: build the plan on a node that holds it"
     ),

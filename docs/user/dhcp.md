@@ -451,6 +451,43 @@ first), signed by a `dnssec-policy`, in a view that does not grant the D2
 key, without a copy on another node, or when a node holding it does not
 let the read key (`ddi-read`) transfer it.
 
+### Promoting a copy when the primary is down
+
+When the active primary of a prepared zone stops serving it, Pelagos raises
+`ddns_outage` (critical, subject `ddns:<view>/<zone>`): the primary's node
+sees that its own named no longer answers for the zone, a node holding a
+copy sees that the primary it transfers from no longer answers, and every
+node sees the primary's node go offline. The alert is notified like any
+critical alert.
+
+`POST /dhcp/ddns/failover/plan` (`write:dns.zones` and
+`write:dhcp.config`, body `{"to_node_id"?, "zones"?}`) builds one plan,
+confirmed before it runs:
+
+- on the target, the copy is read by a local transfer, written as text to
+  a new file of the Pelagos zone directory (`<zone>.e<epoch>.db`), and the
+  zone is declared `type primary` with the `update-policy` recorded at
+  preparation (the keys keep exactly their rights);
+- other copies are repointed to the new primary;
+- every D2 that answers lists the new primary first, then the old one,
+  then the other copies;
+- `ddns.roles` moves the zone to the next epoch.
+
+Without `to_node_id` the target is the copy at the highest serial. The
+answer is `409` while the active primary still serves a zone (that is a
+planned switchover, not a failover) or when no zone is prepared. The plan
+notes the serial of the copy, the nodes that did not answer (fixed on
+their return) and, when D2 saw the outage, the start of the window to
+replay: run the catch-up plan once the promotion is applied.
+
+Promotion is manual by default. With `ddns.failover_auto_enabled` the
+first copy (in the cluster's node order) promotes itself once the outage
+has lasted `ddns.failover_after_seconds` (300) and every other node
+running BIND reports it too; a node that cannot be asked blocks the
+automatic promotion. With two nodes, a network cut between them cannot be
+told from a crash: keep the promotion manual there unless the network
+between the nodes is redundant.
+
 ## Hooks
 
 The loaded hook libraries with their parameters; "used by Pelagos" marks

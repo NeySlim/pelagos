@@ -1655,6 +1655,17 @@ WP-COLLECTOR: `ddns_advice` (`d2:dns-servers`) has `details.remediation = "ddns_
 WP-FRONTEND: en and fr texts of the keys; the resilience answer adds `offline`, `prepared_at`,
 `domains[].zone`, `servers[].port`, `replay.source` and `replay.notes` (batch D5).
 
+## 2026-10-28, batch D3: DDNS failover promotion
+Additive. Architecture section 24 (promotion, `ddns_outage`, automatic promotion). WP-BIND:
+`connectors/bind/failover.py`, a `dns.zone` replace whose `after` holds `promote` renders the copy
+as a primary zone file; `BindBackend.plan_zone_changes` puts the zone statements of one node in
+one plan, and the peer action `dns.zone.plan` also takes `changes` (a list) for it. A summary
+snapshot of a stopped named skips its SOA queries. WP-API-AUTH: `POST /dhcp/ddns/failover/plan` built (was 501),
+`DdnsFailoverService.failover_plan`, `ddns_failover.soa_answers`. WP-COLLECTOR:
+`collector/checks/ddns_failover.py` and the `ddns_outage` task (period `collector.poll_seconds`).
+Contract (`domain/messages.py`): `plan.ddns.failover`. WP-FRONTEND: its en and fr texts; the
+failover entry point stays with batch D5.
+
 ## 2026-10-28, archives batch B3: destinations
 Additive. Architecture section 23: destination layout and run (catch-up, read back, retention per
 destination, retention on receipt by a peer), the `sftp` mechanism (OpenSSH client, host key

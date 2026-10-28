@@ -19,6 +19,7 @@ from typing import Any
 
 from pelagos.collector import series as series_mod
 from pelagos.collector.alerts import ACK_ACTION, AlertStore
+from pelagos.collector.checks import ddns_failover as dfo
 from pelagos.collector.checks.runner import HealthChecks
 from pelagos.collector.events import EventSink, SignalListener
 from pelagos.collector.pollers import PollOutcome
@@ -41,6 +42,7 @@ from pelagos.domain import (
     Engine,
     Family,
     Lease,
+    PlanScope,
     Reservation,
     RRset,
     Severity,
@@ -51,6 +53,7 @@ from pelagos.services.masking import masked_text
 
 log = logging.getLogger(__name__)
 
+DEFAULT_VIEW = "_default"
 LEASE_PAGE = 500
 # Live task defaults (settings.collector): fast HA reads and the lease watch.
 LIVE_SECONDS = 5.0
@@ -491,6 +494,141 @@ class Collector:
             where=lambda a: a.node_id is None,
         )
 
+    def ddns_outage(self) -> list[Alert]:
+        """`ddns_outage` for the zones of `ddns.roles` whose active primary stopped serving them, then
+        the automatic promotion when `ddns.failover_auto_enabled` (section 24)."""
+        settings = self.ctx.settings()
+        roles = dfo.roles_of(settings)
+        names = {n.id: n.name for n in self.ctx.cluster().nodes}
+        open_alerts = self.alerts.open_alerts()
+        offline = {a.node_id for a in open_alerts if a.kind is AlertKind.PEER_OFFLINE}
+        current = {a.subject: a for a in open_alerts if a.kind is AlertKind.DDNS_OUTAGE}
+        now = datetime.fromtimestamp(self.clock(), tz=UTC)
+        alerts: list[Alert] = []
+        for key, role in roles.items():
+            primary = str(role["primary"])
+            view, zone = dfo.split_key(key)
+            mine = primary == self.node_id
+            cause = dfo.outage_cause(
+                primary,
+                self.node_id,
+                local_serves=self._serves(zone, view) if mine else None,
+                peer_offline=primary in offline,
+                probe=None if mine else self._probe_primary(zone, view),
+            )
+            if cause is None:
+                continue
+            prev = current.get(dfo.subject(key))
+            since = prev.first_seen if prev is not None and prev.node_id == primary else now
+            outage = dfo.Outage(key, primary, int(role.get("epoch") or 0), cause, since)
+            alerts.append(dfo.outage_alert(outage, names))
+        self._finish(PollOutcome(alerts=alerts, kinds=dfo.KINDS))
+        if alerts and reg.get(settings, "ddns.failover_auto_enabled"):
+            try:
+                self._auto_failover(alerts, settings, now)
+            except Exception:
+                log.exception("automatic DDNS failover failed")
+        return alerts
+
+    def _serves(self, zone: str, view: str) -> bool | None:
+        backend = self.backends.dns
+        if backend is None:
+            return None
+        try:
+            with self.backend_lock:
+                return backend.soa_serial(zone, None if view == DEFAULT_VIEW else view) is not None
+        except ConnectorError:
+            return False
+
+    def _probe_primary(self, zone: str, view: str) -> bool | None:
+        """Whether the primary this node's copy transfers from answers for the zone (None: no copy)."""
+        from pelagos.services.ddns_failover import soa_answers
+
+        backend = self.backends.dns
+        if backend is None:
+            return None
+        try:
+            with self.backend_lock:
+                copy = next((z for z in backend.list_zones(view) if z.name == zone), None)
+                if copy is None or copy.kind is not ZoneKind.SECONDARY:
+                    return None
+                read_key = getattr(backend, "read_key", None)
+                key = read_key(view) if callable(read_key) and view != DEFAULT_VIEW else None
+        except (ConnectorError, NotImplementedError):
+            return None
+        endpoint = dfo.primary_endpoint(copy.primaries)
+        if endpoint is None:
+            return None
+        return soa_answers(endpoint[0], endpoint[1], zone, key)
+
+    def _copy_holders(self, zone: str, view: str, exclude: set[str]) -> list[str]:
+        """Nodes holding the zone as a copy, in the cluster's node order (zone lists of the store)."""
+        held = set()
+        for snap in self.store.snapshots(engine=Engine.BIND.value):
+            if snap["kind"] != "zone_list" or not isinstance(snap["payload"], list):
+                continue
+            for z in snap["payload"]:
+                if (
+                    z.get("name") == zone
+                    and z.get("view", DEFAULT_VIEW) == view
+                    and z.get("kind") == "secondary"
+                ):
+                    held.add(snap["node_id"])
+        return [n.id for n in self.ctx.cluster().nodes if n.id in held and n.id not in exclude]
+
+    def _auto_failover(self, alerts: list[Alert], settings: dict[str, Any], now: datetime) -> None:
+        """Promote this node when it is the first copy of a zone whose outage every other node running
+        BIND has seen for `ddns.failover_after_seconds`."""
+        from pelagos.core.cluster_alerts import ClusterAlertView
+        from pelagos.services.peers import PeerGateway
+
+        after = int(reg.get(settings, "ddns.failover_after_seconds"))
+        gateway = PeerGateway(self.ctx)
+        view = ClusterAlertView(self.node_id, lambda: self.store.conn, gateway).cluster(
+            kind=AlertKind.DDNS_OUTAGE.value
+        )
+        unavailable = {str(u.get("node_id")) for u in view.unavailable}
+        ours = {a.subject for a in alerts}
+        offline = {a.node_id for a in self.alerts.open_alerts() if a.kind is AlertKind.PEER_OFFLINE}
+        nodes = self.ctx.cluster().nodes
+        due: list[str] = []
+        for alert in view.alerts:
+            if alert.subject not in ours or not alert.node_id:
+                continue
+            key = alert.subject[len(dfo.SUBJECT_PREFIX) :]
+            v, zone = dfo.split_key(key)
+            first = self._copy_holders(zone, v, {alert.node_id, *(n for n in offline if n)})
+            if not first or first[0] != self.node_id:
+                continue
+            witnesses = [n.id for n in nodes if n.id not in (self.node_id, alert.node_id) and n.modules.bind]
+            gone = set() if alert.node_id in {n.id for n in nodes} else {alert.node_id}
+            reason = dfo.auto_due(alert, self.node_id, witnesses, unavailable | gone, after, now)
+            if reason is None:
+                due.append(key)
+            else:
+                log.info("no automatic DDNS failover of %s yet: %s", key, reason)
+        if due:
+            self._promote_self(due, gateway)
+
+    def _promote_self(self, zones: list[str], gateway: Any) -> None:
+        from pelagos.services.ddns_failover import DdnsFailoverService, RolesWriter
+        from pelagos.services.dns_service import DnsService
+        from pelagos.services.plan_service import PlanService
+        from pelagos.services.registry import ConnectorRegistry as ServiceRegistry
+
+        b = self.backends
+        registry = ServiceRegistry(dns=b.dns, kea4=b.kea4, kea6=b.kea6, d2=b.d2)
+        with self.backend_lock:
+            dns_svc = DnsService(self.ctx, b.dns, gateway)
+            plans = PlanService(self.ctx, registry, gateway)
+            plans.cluster_parts[PlanScope.DNS_FAILOVER] = RolesWriter(self.ctx)
+            dns_svc.plans = plans
+            failover = DdnsFailoverService(self.ctx, dns_svc, registry, gateway, plans, None)
+            plan = failover.failover_plan({"to_node_id": self.node_id, "zones": zones}, "system")
+            result = plans.apply(plan, "system", confirm=True)
+        log.warning("automatic DDNS failover of %s to this node: %s", ", ".join(zones), result.state.value)
+        self.events.emit("dns", "failover", {"zones": zones, "plan_id": plan.id, "state": result.state.value})
+
     def apply_exceptions(self) -> list[Alert]:
         """Resolve at once the open alerts an admin exception now names, without waiting for their check."""
         excepted = consistency.excepted_for(self.ctx.cluster())
@@ -612,6 +750,7 @@ class Collector:
             ("live", self.live),
             ("apply_acks", self.apply_acks),
             ("consistency", self.consistency),
+            ("ddns_outage", self.ddns_outage),
             ("security_audit", self.security_audit),
             ("health", self.health),
             ("health_audit", self.health_audit),
@@ -644,6 +783,7 @@ class Collector:
             Task("live", live, self.live),
             Task("apply_acks", poll, self.apply_acks),
             Task("consistency", consistency_period, self.consistency),
+            Task("ddns_outage", poll, self.ddns_outage),
             Task("security_audit", consistency_period, self.security_audit),
             Task("health", poll, self.health),
             Task("health_audit", consistency_period, self.health_audit),

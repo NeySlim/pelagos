@@ -11,7 +11,8 @@
 #   lab-client DHCP client (systemd-networkd through netplan) on its second NIC, taking offers
 #             from ns1 and ns2 only.
 #   pair      the pair alone, without the DHCP client. PROV_NS1, PROV_NS2, PROV_NS1_IP, PROV_NS2_IP and
-#             PROV_IFACE (the DHCP interface, default eth0) point it at other hosts (upgrade tests).
+#             PROV_IFACE (the DHCP interface, default eth0) point it at other hosts (upgrade tests);
+#             PROV_CLIENT names another DHCP client host for `client`.
 #   three     the same pair plus lab-rpm (Rocky 10, BIND 9.18 and Kea 3.0 from Rocky): a Kea HA
 #             backup server (ns3) of the pair and a second BIND secondary; the pair's peer list,
 #             allow-transfer and also-notify name it. `rpm` provisions lab-rpm alone (after three).
@@ -26,7 +27,7 @@ set -euo pipefail
 NS1=${PROV_NS1:-lab-ns1}
 NS2=${PROV_NS2:-lab-ns2}
 NS3=lab-rpm
-CLIENT=lab-client
+CLIENT=${PROV_CLIENT:-lab-client}
 NS1_IP=${PROV_NS1_IP:-10.99.0.11}
 NS2_IP=${PROV_NS2_IP:-10.99.0.12}
 IFACE=${PROV_IFACE:-eth0}

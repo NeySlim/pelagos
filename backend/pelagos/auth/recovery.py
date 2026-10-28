@@ -64,6 +64,17 @@ def disable_totp(paths: Paths, username: str) -> None:
     admin.clear_totp(_user_id(admin, username), ACTOR, None)
 
 
+def remove_keys(paths: Paths, username: str) -> int:
+    """Every security key of the user; returns how many were removed."""
+    from pelagos.services.webauthn_service import WebAuthnService
+
+    admin = _service(paths)
+    user_id = _user_id(admin, username)
+    count = len(admin.user(user_id).webauthn)
+    WebAuthnService(admin.ctx).remove(user_id, None, ACTOR, None)
+    return count
+
+
 def _read_password() -> str:
     env = os.environ.get(PASSWORD_ENV)
     if env:
@@ -82,6 +93,9 @@ def cmd_user(args: argparse.Namespace, paths: Paths) -> int:
         if args.user_command == "reset-password":
             reset_password(paths, args.username, _read_password())
             print(f"password of {args.username} reset; it must be changed at the next login")
+        elif args.user_command == "remove-keys":
+            count = remove_keys(paths, args.username)
+            print(f"{count} security key(s) removed from {args.username}")
         else:
             disable_totp(paths, args.username)
             print(f"one-time codes disabled for {args.username}")
@@ -93,7 +107,9 @@ def cmd_user(args: argparse.Namespace, paths: Paths) -> int:
 
 
 def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:  # type: ignore[type-arg]
-    u = sub.add_parser("user", help="local account recovery (root): reset a password, disable TOTP")
+    u = sub.add_parser(
+        "user", help="local account recovery (root): reset a password, disable TOTP, remove keys"
+    )
     usub = u.add_subparsers(dest="user_command", required=True)
     r = usub.add_parser(
         "reset-password", help=f"set a new password (prompted, or ${PASSWORD_ENV}) and re-enable the user"
@@ -101,4 +117,6 @@ def add_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentParser:  # t
     r.add_argument("username")
     d = usub.add_parser("disable-totp", help="remove the user's one-time code enrollment")
     d.add_argument("username")
+    k = usub.add_parser("remove-keys", help="remove every security key (WebAuthn) of the user")
+    k.add_argument("username")
     return u

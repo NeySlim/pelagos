@@ -134,6 +134,7 @@ UserPublic = model(
         "roles": fields.List(fields.String, required=True),
         "enabled": fields.Boolean(required=True),
         "has_totp": fields.Boolean(required=True),
+        "webauthn_count": fields.Integer(description="number of security keys"),
         "must_change_password": fields.Boolean(required=True),
         "created_at": fields.DateTime(dt_format="iso8601"),
         "updated_at": fields.DateTime(dt_format="iso8601"),
@@ -197,7 +198,7 @@ LoginAnswer = model(
         "permissions": fields.List(fields.String),
         "csrf_token": fields.String,
         "totp_required": fields.Boolean(description="true: TOTP enrollment is required before anything else"),
-        "restriction": fields.String(enum=["password_change", "totp_enrollment"]),
+        "restriction": fields.String(enum=["password_change", "totp_enrollment", "webauthn_enrollment"]),
     },
 )
 SessionAnswer = model(
@@ -217,6 +218,41 @@ PasswordChange = model(
 TotpEnrollment = model("TotpEnrollment", {"secret": fields.String, "otpauth_url": fields.String})
 TotpCode = model("TotpCode", {"code": fields.String(required=True)})
 PasswordOnly = model("PasswordOnly", {"password": fields.String(required=True)})
+WebAuthnSite = model(
+    "WebAuthnSite",
+    {
+        "available": fields.Boolean,
+        "rp_id": fields.String,
+        "reason": fields.String(enum=["ip_address", "outside_rp_id", "insecure"]),
+    },
+)
+WebAuthnCeremony = model(
+    "WebAuthnCeremony",
+    {"ceremony": fields.String, "options": fields.Raw(description="PublicKeyCredential*OptionsJSON")},
+)
+WebAuthnAnswer = model(
+    "WebAuthnAnswer",
+    {
+        "ceremony": fields.String(required=True),
+        "credential": fields.Raw(required=True),
+        "name": fields.String,
+    },
+)
+WebAuthnCredential = model(
+    "WebAuthnCredential",
+    {
+        "id": fields.String,
+        "name": fields.String,
+        "rp_id": fields.String,
+        "transports": fields.List(fields.String),
+        "aaguid": fields.String,
+        "backup_eligible": fields.Boolean,
+        "created_at": fields.DateTime(dt_format="iso8601"),
+        "created_on": fields.String,
+        "last_used_at": fields.DateTime(dt_format="iso8601"),
+    },
+)
+WebAuthnName = model("WebAuthnName", {"name": fields.String(required=True)})
 Preferences = model(
     "Preferences",
     {

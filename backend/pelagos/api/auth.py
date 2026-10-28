@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Authentication endpoints: login, logout, session, password, TOTP."""
+"""Authentication endpoints: login, logout, session, password, TOTP, security keys."""
 
 from __future__ import annotations
 
@@ -10,11 +10,13 @@ from pelagos.api import models as m
 from pelagos.api.common import json_body
 from pelagos.api.errors import ApiError
 from pelagos.api.security import client_ip, ctx, current_session, require, services
+from pelagos.auth import twofa
 from pelagos.auth.passwords import dummy_hash, verify_password
 from pelagos.auth.rbac import resolve_permissions
 from pelagos.auth.sessions import COOKIE_NAME
 from pelagos.core import settings_registry as reg
 from pelagos.domain.audit import AuditEntry, AuditResult
+from pelagos.services.errors import ServiceError
 
 ns = Namespace("auth", description="Authentication and account", path="/auth")
 
@@ -39,7 +41,7 @@ class Login(Resource):
     @ns.doc(security=[])
     @ns.expect(m.LoginRequest)
     @ns.response(200, "Logged in; the session cookie is set", m.LoginAnswer)
-    @ns.response(401, "invalid_credentials or totp_required", m.Problem)
+    @ns.response(401, "invalid_credentials, totp_required or second_factor_required", m.Problem)
     @ns.response(429, "rate_limited", m.Problem)
     def post(self):
         c = ctx()
@@ -65,45 +67,65 @@ class Login(Resource):
             _audit("auth.login_failed", username, AuditResult.DENIED, "invalid credentials")
             raise ApiError("invalid_credentials", "invalid username or password")
 
-        restriction = None
-        if user.totp_secret:
-            if not code:
-                raise ApiError("totp_required", "a one-time code is required")
+        site = _site()
+        decision = twofa.after_password(user, cluster.settings, services().webauthn.rp_id_for(site))
+        if "totp" in decision.methods and code:
             secret = c.secrets.decrypt(f"totp/{user.username}", user.totp_secret) if c.secrets else None
             if secret is None or not services().account.totp_guard.verify(user.id, secret, str(code)):
                 _audit("auth.login_failed", username, AuditResult.DENIED, "invalid one-time code")
                 raise ApiError("invalid_credentials", "invalid one-time code")
-        elif reg.get(cluster.settings, "auth.require_totp"):
-            # The user may log in only to enroll; every other endpoint answers 403 until then.
-            restriction = "totp_enrollment"
-        if user.must_change_password and restriction is None:
-            restriction = "password_change"
+        elif decision.methods == ["totp"]:
+            raise ApiError("totp_required", "a one-time code is required")
+        elif not decision.complete:
+            extra = services().webauthn.second_factor(user, decision, site)
+            detail = (
+                "a security key is required"
+                if decision.methods
+                else (
+                    "your security keys belong to "
+                    + ", ".join(decision.keys_elsewhere)
+                    + "; open the node by that name"
+                )
+            )
+            raise ApiError("second_factor_required", detail, extra=extra)
+        return _open_session(user, decision.restriction, "password")
 
-        perms = resolve_permissions(user.roles, cluster.roles)
-        session = c.sessions.create(user.id, user.username, perms, client_ip(), restriction=restriction)
-        # Local only: writing cluster.toml here would bump the version and replicate on every login.
-        logins = services().last_login
-        logins.record(user.id)
-        _audit("auth.login", username, AuditResult.OK)
-        resp = make_response(
-            {
-                "user": logins.overlay(user.public()),
-                "permissions": sorted(perms),
-                "csrf_token": session.csrf_token,
-                "totp_required": restriction == "totp_enrollment",
-                "restriction": restriction,
-            }
-        )
-        resp.set_cookie(
-            COOKIE_NAME,
-            session.id,
-            httponly=True,
-            secure=request.is_secure,
-            samesite="Strict",
-            path="/",
-            max_age=int(reg.get(cluster.settings, "auth.session_ttl_seconds")),
-        )
-        return resp
+
+def _site():
+    from pelagos.services.webauthn_service import Site
+
+    return Site(request.host, request.scheme)
+
+
+def _open_session(user, restriction: str | None, method: str):  # type: ignore[no-untyped-def]
+    """Session, cookie and the login answer shared by password and security key logins."""
+    c = ctx()
+    cluster = c.cluster()
+    perms = resolve_permissions(user.roles, cluster.roles)
+    session = c.sessions.create(user.id, user.username, perms, client_ip(), restriction=restriction)
+    # Local only: writing cluster.toml here would bump the version and replicate on every login.
+    logins = services().last_login
+    logins.record(user.id)
+    _audit("auth.login", user.username, AuditResult.OK, None if method == "password" else f"by {method}")
+    resp = make_response(
+        {
+            "user": logins.overlay(user.public()),
+            "permissions": sorted(perms),
+            "csrf_token": session.csrf_token,
+            "totp_required": restriction == twofa.TOTP_ENROLLMENT,
+            "restriction": restriction,
+        }
+    )
+    resp.set_cookie(
+        COOKIE_NAME,
+        session.id,
+        httponly=True,
+        secure=request.is_secure,
+        samesite="Strict",
+        path="/",
+        max_age=int(reg.get(cluster.settings, "auth.session_ttl_seconds")),
+    )
+    return resp
 
 
 @ns.route("/logout")
@@ -180,9 +202,8 @@ class TotpConfirm(Resource):
     def post(self):
         session = current_session()
         services().account.totp_confirm(session.user_id, json_body().get("code"), client_ip())
-        if session.restriction == "totp_enrollment":
-            user = services().account.user(session.user_id)
-            session.restriction = "password_change" if user.must_change_password else None
+        if session.restriction == twofa.TOTP_ENROLLMENT:
+            session.restriction = twofa.after_enrollment(services().account.user(session.user_id))
         return "", 204
 
 
@@ -196,3 +217,107 @@ class Totp(Resource):
     def delete(self):
         services().account.totp_disable(current_session().user_id, json_body().get("password"), client_ip())
         return "", 204
+
+
+# Security keys and passkeys -------------------------------------------------------------------
+
+
+def _limit(key: str) -> None:
+    limiter = ctx().login_limiter
+    if not limiter.allow(key):
+        raise ApiError(
+            "rate_limited", "too many attempts", headers={"Retry-After": str(limiter.retry_after(key))}
+        )
+
+
+@ns.route("/webauthn")
+class WebAuthnSite(Resource):
+    @ns.doc(security=[])
+    @ns.response(200, "Whether security keys work on this host", m.WebAuthnSite)
+    def get(self):
+        return services().webauthn.site_info(_site())
+
+
+@ns.route("/webauthn/login/options")
+class WebAuthnLoginOptions(Resource):
+    @ns.doc(security=[])
+    @ns.response(200, "Passkey sign-in challenge (discoverable credentials)", m.WebAuthnCeremony)
+    @ns.response(409, "conflict: security keys cannot run on this host", m.Problem)
+    @ns.response(429, "rate_limited", m.Problem)
+    def post(self):
+        _limit(f"ip:{client_ip() or '?'}")
+        return services().webauthn.passkey_options(_site())
+
+
+@ns.route("/webauthn/login/verify")
+class WebAuthnLoginVerify(Resource):
+    @ns.doc(security=[])
+    @ns.expect(m.WebAuthnAnswer)
+    @ns.response(200, "Logged in; the session cookie is set", m.LoginAnswer)
+    @ns.response(401, "invalid_credentials", m.Problem)
+    @ns.response(429, "rate_limited", m.Problem)
+    def post(self):
+        _limit(f"ip:{client_ip() or '?'}")
+        body = request.get_json(silent=True) or {}
+        try:
+            result = services().webauthn.login_verify(body, client_ip())
+        except ServiceError as exc:
+            _audit("auth.login_failed", None, AuditResult.DENIED, exc.detail)
+            raise
+        return _open_session(result.user, result.restriction, "security key")
+
+
+@ns.route("/webauthn/credentials")
+class WebAuthnCredentials(Resource):
+    @require()
+    @ns.response(200, "The caller's security keys and whether keys work on this host")
+    def get(self):
+        session = current_session()
+        return {
+            "items": services().webauthn.credentials(session.user_id),
+            **services().webauthn.site_info(_site()),
+        }
+
+
+@ns.route("/webauthn/credentials/<string:credential_id>")
+class WebAuthnCredentialItem(Resource):
+    @require()
+    @ns.expect(m.WebAuthnName)
+    @ns.response(200, "Renamed", m.WebAuthnCredential)
+    def patch(self, credential_id: str):
+        return services().webauthn.rename(current_session().user_id, credential_id, json_body())
+
+    @require()
+    @ns.expect(m.PasswordOnly)
+    @ns.response(204, "Removed")
+    @ns.response(401, "invalid_credentials: wrong password", m.Problem)
+    @ns.response(409, "conflict: the last key of a role that requires one", m.Problem)
+    def delete(self, credential_id: str):
+        body = request.get_json(silent=True) or {}
+        services().webauthn.remove_own(
+            current_session().user_id, credential_id, body.get("password"), client_ip()
+        )
+        return "", 204
+
+
+@ns.route("/webauthn/register/options")
+class WebAuthnRegisterOptions(Resource):
+    @require()
+    @ns.response(200, "Registration challenge", m.WebAuthnCeremony)
+    @ns.response(409, "conflict: security keys cannot run on this host", m.Problem)
+    def post(self):
+        return services().webauthn.register_options(current_session().user_id, _site())
+
+
+@ns.route("/webauthn/register/verify")
+class WebAuthnRegisterVerify(Resource):
+    @require()
+    @ns.expect(m.WebAuthnAnswer)
+    @ns.response(201, "Registered", m.WebAuthnCredential)
+    @ns.response(400, "validation_error: expired ceremony, refused answer or bad name", m.Problem)
+    def post(self):
+        session = current_session()
+        created = services().webauthn.register_verify(session.user_id, json_body(), _site(), client_ip())
+        if session.restriction in (twofa.WEBAUTHN_ENROLLMENT, twofa.TOTP_ENROLLMENT):
+            session.restriction = twofa.after_enrollment(services().account.user(session.user_id))
+        return created, 201

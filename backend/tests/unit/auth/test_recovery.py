@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""`pelagos user reset-password|disable-totp`: local recovery through cluster.toml and the audit log."""
+"""`pelagos user reset-password|disable-totp|remove-keys`: local recovery through cluster.toml and audit."""
 
 from __future__ import annotations
 
@@ -60,3 +60,21 @@ def test_uninitialized_node_is_refused(tmp_root, monkeypatch, capsys):
     monkeypatch.setenv("PELAGOS_HOME", str(tmp_root / "empty"))
     assert main(["--home", str(tmp_root / "empty"), "user", "disable-totp", "admin"]) == 1
     assert "not initialized" in capsys.readouterr().err
+
+
+def test_remove_keys(node_paths, monkeypatch, capsys):
+    from pelagos.domain import WebAuthnCredential
+
+    store = _store(node_paths)
+
+    def add_keys(cfg):
+        cfg.user("admin").webauthn = {
+            k: WebAuthnCredential(name=k, public_key="p", rp_id="example.lan") for k in ("k1", "k2")
+        }
+
+    store.update_cluster(add_keys, updated_by="test")
+    assert main(["--home", home(node_paths, monkeypatch), "user", "remove-keys", "admin"]) == 0
+    assert store.load_cluster().user("admin").webauthn == {}
+    assert "2 security key(s) removed" in capsys.readouterr().out
+    entries, _ = NodeContext.build(node_paths).audit_log.query(action="auth.webauthn")
+    assert [e.user for e in entries] == ["local-recovery"]

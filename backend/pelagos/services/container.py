@@ -34,6 +34,7 @@ from pelagos.services.plan_service import PlanService
 from pelagos.services.ptr_service import PtrService
 from pelagos.services.registry import ConnectorRegistry
 from pelagos.services.rpz_service import RpzService
+from pelagos.services.webauthn_service import WebAuthnService
 
 log = logging.getLogger(__name__)
 
@@ -88,6 +89,7 @@ class Services:
         )
         self.admin = AdminService(ctx)
         self.account = AccountService(ctx)
+        self.webauthn = WebAuthnService(ctx)
         self.advanced = AdvancedService(ctx, self.dns)
         self.ops = OpsService(ctx, self.registry, self.peers)
         self.install = InstallService(ctx, self.dns, self.dhcp4, self.peers)

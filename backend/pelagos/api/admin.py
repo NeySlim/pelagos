@@ -81,6 +81,40 @@ class UserTotp(Resource):
         return "", 204
 
 
+@ns.route("/users/<string:user_id>/webauthn")
+class UserKeys(Resource):
+    @require("admin:users")
+    @ns.response(200, "The user's security keys")
+    def get(self, user_id: str):
+        admin().user(user_id)
+        return {"items": services().webauthn.credentials(user_id)}
+
+    @require("admin:users")
+    @ns.response(204, "Every security key removed from the user")
+    def delete(self, user_id: str):
+        admin().user(user_id)
+        services().webauthn.remove(user_id, None, username(), client_ip())
+        return "", 204
+
+
+@ns.route("/users/<string:user_id>/webauthn/<string:credential_id>")
+class UserKey(Resource):
+    @require("admin:users")
+    @ns.response(204, "Security key removed")
+    def delete(self, user_id: str, credential_id: str):
+        admin().user(user_id)
+        services().webauthn.remove(user_id, credential_id, username(), client_ip())
+        return "", 204
+
+
+@ns.route("/webauthn")
+class WebAuthnStatus(Resource):
+    @require("admin:users")
+    @ns.response(200, "rpId of the cluster and the nodes it covers")
+    def get(self):
+        return services().webauthn.status().to_dict()
+
+
 @ns.route("/roles")
 class Roles(Resource):
     @require("admin:roles")

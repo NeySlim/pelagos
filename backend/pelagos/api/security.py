@@ -18,10 +18,15 @@ from pelagos.core import settings_registry as reg
 from pelagos.core.context import NodeContext
 
 PREFIX = f"/api/{API_VERSION}"
-# A restricted session (password change or TOTP enrollment pending) reaches only these paths.
+# A restricted session (password change, TOTP or security key enrollment pending) reaches only these paths.
 RESTRICTED_ALLOWED = (f"{PREFIX}/auth/", f"{PREFIX}/account/")
 # Writes stay possible here while replication is syncing: they touch only this process.
-SYNCING_ALLOWED = (f"{PREFIX}/auth/login", f"{PREFIX}/auth/logout")
+SYNCING_ALLOWED = (
+    f"{PREFIX}/auth/login",
+    f"{PREFIX}/auth/logout",
+    f"{PREFIX}/auth/webauthn/login/options",
+    f"{PREFIX}/auth/webauthn/login/verify",
+)
 
 
 def ctx() -> NodeContext:
@@ -74,6 +79,7 @@ def check_permission(permission: str | None) -> Session:
         detail = {
             "password_change": "change your password first (POST /auth/password)",
             "totp_enrollment": "enroll a one-time code first (POST /auth/totp/enroll)",
+            "webauthn_enrollment": "register a security key first (POST /auth/webauthn/register/options)",
         }.get(session.restriction, "account action required")
         raise ApiError("forbidden", detail, extra={"restriction": session.restriction})
     if permission and not has_permission(session.permissions, permission):

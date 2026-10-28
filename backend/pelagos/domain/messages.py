@@ -647,6 +647,7 @@ CATALOG: dict[str, str] = {
     "problem.validation_error": "Validation error",
     "problem.invalid_credentials": "Invalid credentials",
     "problem.totp_required": "One-time code required",
+    "problem.second_factor_required": "Second factor required",
     "problem.unauthenticated": "Authentication required",
     "problem.forbidden": "Forbidden",
     "problem.csrf_failed": "CSRF check failed",

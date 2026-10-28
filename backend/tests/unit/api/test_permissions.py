@@ -474,6 +474,42 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("GET", "/admin/ipv6", "/admin/ipv6", None, "admin:settings"),
     ("PUT", "/admin/ipv6", "/admin/ipv6", {}, "admin:settings"),
     ("POST", "/admin/ipv6/sources/test", "/admin/ipv6/sources/test", {}, "admin:settings"),
+    ("GET", "/auth/webauthn", "/auth/webauthn", None, ANON),
+    ("POST", "/auth/webauthn/login/options", "/auth/webauthn/login/options", None, ANON),
+    ("POST", "/auth/webauthn/login/verify", "/auth/webauthn/login/verify", {"ceremony": "x"}, ANON),
+    ("GET", "/auth/webauthn/credentials", "/auth/webauthn/credentials", None, ANY),
+    ("POST", "/auth/webauthn/register/options", "/auth/webauthn/register/options", None, ANY),
+    ("POST", "/auth/webauthn/register/verify", "/auth/webauthn/register/verify", {"ceremony": "x"}, ANY),
+    (
+        "PATCH",
+        "/auth/webauthn/credentials/<string:credential_id>",
+        "/auth/webauthn/credentials/unknown",
+        {"name": "k"},
+        ANY,
+    ),
+    (
+        "DELETE",
+        "/auth/webauthn/credentials/<string:credential_id>",
+        "/auth/webauthn/credentials/unknown",
+        {"password": "wrong"},
+        ANY,
+    ),
+    ("GET", "/admin/webauthn", "/admin/webauthn", None, "admin:users"),
+    ("GET", "/admin/users/<string:user_id>/webauthn", "/admin/users/unknown/webauthn", None, "admin:users"),
+    (
+        "DELETE",
+        "/admin/users/<string:user_id>/webauthn",
+        "/admin/users/unknown/webauthn",
+        None,
+        "admin:users",
+    ),
+    (
+        "DELETE",
+        "/admin/users/<string:user_id>/webauthn/<string:credential_id>",
+        "/admin/users/unknown/webauthn/k1",
+        None,
+        "admin:users",
+    ),
     # Endpoints that end or reshape the session run last.
     ("POST", "/auth/totp/enroll", "/auth/totp/enroll", None, ANY),
     ("POST", "/auth/login", "/auth/login", {"username": "nobody", "password": "x"}, ANON),
@@ -516,7 +552,10 @@ def test_anonymous_gets_401_everywhere_but_anon_routes(client):
     for method, rule, path, body, perm in MATRIX:
         resp = _call(client, method, path, body)
         if perm == ANON:
-            assert resp.status_code != 401 or rule == "/auth/login", (method, rule)
+            assert resp.status_code != 401 or rule in ("/auth/login", "/auth/webauthn/login/verify"), (
+                method,
+                rule,
+            )
         else:
             assert resp.status_code == 401, (method, rule, resp.status_code)
             assert resp.get_json()["code"] == "unauthenticated"

@@ -16,6 +16,7 @@ dependencies = [
   "cryptography>=43",
   "argon2-cffi>=23.1",
   "pyotp>=2.9",
+  "webauthn>=3.0.1,<4",
   "tomli-w>=1.0",
   "packaging>=24",  # imported by gunicorn gevent workers, not declared by gunicorn
 ]

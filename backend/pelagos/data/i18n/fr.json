@@ -387,6 +387,7 @@
   "problem.preflight_failed": "Un nœud cible ne peut pas appliquer le plan",
   "problem.rate_limited": "Trop de requêtes",
   "problem.replication_syncing": "Réplication en cours",
+  "problem.second_factor_required": "Second facteur requis",
   "problem.totp_required": "Code à usage unique requis",
   "problem.unauthenticated": "Authentification requise",
   "problem.validation_error": "Erreur de validation"

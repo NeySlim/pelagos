@@ -94,6 +94,8 @@ REGISTRY: tuple[Setting, ...] = (
     S("auth.login_rate_limit_per_minute", "integer", 10, 1, 1000, "per_minute"),
     S("auth.require_totp", "boolean", False),
     S("auth.api_docs_public_enabled", "boolean", False),
+    S("auth.webauthn_rp_id", "string", "auto", pattern=HOST_PATTERN),
+    S("auth.require_webauthn_roles", "list", [], pattern=NAME_PATTERN),
     # Plans and peers
     S("plans.ttl_seconds", "integer", 600, 60, DAY, "seconds"),
     S("peers.plan_timeout_seconds", "integer", 300, 10, DAY, "seconds"),

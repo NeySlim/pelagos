@@ -61,6 +61,21 @@ class Role(Model):
 
 
 @dataclass(slots=True)
+class WebAuthnCredential(Model):
+    """A security key or passkey: public material only, replicated with its user."""
+
+    name: str
+    public_key: str  # COSE public key, base64url
+    rp_id: str
+    sign_count: int = 0  # at registration; later counters are kept per node
+    transports: list[str] = field(default_factory=list)
+    aaguid: str | None = None
+    backup_eligible: bool = False
+    created_at: datetime = field(default_factory=utcnow)
+    created_on: str | None = None
+
+
+@dataclass(slots=True)
 class User(Model):
     id: str
     username: str
@@ -73,10 +88,13 @@ class User(Model):
     created_at: datetime = field(default_factory=utcnow)
     updated_at: datetime = field(default_factory=utcnow)
     last_login: datetime | None = None
+    # Security keys by credential id (base64url).
+    webauthn: dict[str, WebAuthnCredential] = field(default_factory=dict)
 
     def public(self) -> dict[str, Any]:
-        """The API shape: never the hash, never the TOTP secret."""
+        """The API shape: never the hash, never the TOTP secret, keys only counted."""
         data = self.to_dict()
         data.pop("password_hash")
         data["has_totp"] = data.pop("totp_secret") is not None
+        data["webauthn_count"] = len(data.pop("webauthn") or {})
         return data

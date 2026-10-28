@@ -41,3 +41,14 @@ def masked_text(text: str) -> str:
     for pattern in _SECRET_TEXT:
         text = pattern.sub(r"\1" + MASK + r"\2", text)
     return text
+
+
+def mask_text_values(value: Any) -> Any:
+    """Copy of a JSON value with masked_text applied to every string in it."""
+    if isinstance(value, str):
+        return masked_text(value)
+    if isinstance(value, dict):
+        return {k: mask_text_values(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [mask_text_values(v) for v in value]
+    return value

@@ -44,6 +44,8 @@ DNS_CONFIG_PLAN = "dns.config.plan"
 ADOPT_PLAN = "dhcp.adopt.plan"
 CONFIG_PLAN = "dhcp.config.plan"
 HA_PLAN = "dhcp.ha.plan"
+# One part of a restore from an archive, built on this node's engine (services.archive_restore).
+RESTORE_PART = "archive.restore.part"
 OPS_RUN = "ops.run"
 # Web UI certificate of this node (services.cert_service, core.webcert).
 CERTS_STATUS = "certs.status"
@@ -81,6 +83,7 @@ class PeerActions:
             ADOPT_PLAN: self.adopt_plan,
             CONFIG_PLAN: self.config_plan,
             HA_PLAN: self.ha_plan,
+            RESTORE_PART: self.restore_part,
             OPS_RUN: self.ops_run,
             CERTS_STATUS: self.certs_status,
             CERTS_RUN: self.certs_run,
@@ -268,6 +271,21 @@ class PeerActions:
         if backend is None:
             raise EngineUnavailable(f"this node does not run {engine.value}")
         return engine, backend
+
+    def restore_part(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """The engine plans of one restore part on this node; D2 secrets travel sealed."""
+        from pelagos.services.archive_restore import build_part
+
+        part = body.get("part")
+        payload = body.get("payload")
+        if not isinstance(part, str) or not isinstance(payload, dict):
+            raise ValidationError("part and payload are required", [field_error("part", "required")])
+        plans, summary = build_part(self.registry, part, payload, _created_by(body))
+        for plan in plans:
+            if d2_secrets.needs_sealing(plan) and self.registry.d2 is not None:
+                seal_backend_secrets(plan, self.registry.d2, self.ctx.secrets)
+            plan.target_node_ids = [self.ctx.node.id]
+        return {"plans": [p.to_dict() for p in plans], "summary": summary}
 
     def _plan(self, plan: Plan) -> dict[str, Any]:
         plan.target_node_ids = [self.ctx.node.id]

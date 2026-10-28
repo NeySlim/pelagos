@@ -22,7 +22,7 @@ from pelagos.connectors.base import (
     NotSupported,
     PreconditionFailed,
 )
-from pelagos.connectors.bind import failover, handover, ops, staticzone, zonefile
+from pelagos.connectors.bind import failover, handover, ops, staticzone, zonefile, zonerestore
 from pelagos.connectors.bind import rrset as rr
 from pelagos.connectors.bind.builtin_zones import is_builtin_zone
 from pelagos.connectors.bind.configplan import (
@@ -43,6 +43,7 @@ from pelagos.connectors.bind.namedconf.resolve import (
     inherited_zone_lists,
     key_secret,
 )
+from pelagos.connectors.bind.restoreplan import BindRestore
 from pelagos.connectors.bind.rndc import (
     RndcClient,
     RndcNotFound,
@@ -101,7 +102,7 @@ def _zone_kind(change: Any) -> str | None:
     return side.get("kind") if isinstance(side, dict) else None
 
 
-class BindBackend(BindExtras, DnsBackend):
+class BindBackend(BindExtras, BindRestore, DnsBackend):
     def __init__(self, ctx: ConnectorContext) -> None:
         super().__init__(ctx)
         cfg = ctx.engine_config
@@ -923,6 +924,8 @@ class BindBackend(BindExtras, DnsBackend):
     def apply(self, plan: Plan) -> NodeApplyResult:
         self.forget_extra_zones()
         try:
+            if plan.scope is PlanScope.DNS_ZONE and plan.changes and zonerestore.is_content(plan.changes[0]):
+                return self._apply_zone_content(plan, "apply")
             if plan.scope is PlanScope.DNS_ZONE and plan.changes and ops.is_op(plan.changes[0]):
                 return self._apply_op(plan)
             if plan.scope is PlanScope.DNS_ZONE and _added_zone_plan(plan):
@@ -944,6 +947,8 @@ class BindBackend(BindExtras, DnsBackend):
     def rollback(self, plan: Plan) -> NodeApplyResult:
         self.forget_extra_zones()
         try:
+            if plan.scope is PlanScope.DNS_ZONE and plan.changes and zonerestore.is_content(plan.changes[0]):
+                return self._apply_zone_content(plan, "rollback")
             if plan.scope is PlanScope.DNS_ZONE and plan.changes and ops.is_op(plan.changes[0]):
                 return self._rollback_op(plan)
             if plan.scope is PlanScope.DNS_ZONE and _added_zone_plan(plan):

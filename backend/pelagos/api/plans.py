@@ -12,6 +12,7 @@ from pelagos.api.security import client_ip, ctx, current_session, require, servi
 from pelagos.auth.rbac import has_permission, host_plan_permissions
 from pelagos.core.plans import PlanExpired, PlanNotFound
 from pelagos.domain import Plan, PlanScope, to_rfc3339
+from pelagos.services.archive_restore import restore_permissions
 from pelagos.services.hosts_service import touches
 from pelagos.services.plan_service import JOB_SCOPES
 
@@ -42,6 +43,11 @@ def _check_scope(plan: Plan) -> None:
         allowed = has_permission(perms, plan.permission)
     if not allowed:
         raise ApiError("forbidden", f"requires {plan.permission}")
+    # A restore also needs the write permission of every part (section 23).
+    if plan.scope is PlanScope.RESTORE:
+        for perm in sorted(restore_permissions(plan, services().plans.parts(plan))):
+            if not has_permission(perms, perm):
+                raise ApiError("forbidden", f"requires {perm}")
     # A DDNS failover plan writes the D2 configuration too (section 24).
     if plan.scope is PlanScope.DNS_FAILOVER and not has_permission(perms, "write:dhcp.config"):
         raise ApiError("forbidden", "requires write:dhcp.config")
@@ -82,6 +88,9 @@ class ApplyPlan(Resource):
             raise ApiError("validation_error", "confirm must be a boolean")
         s = services()
         user = current_session().username
+        if plan.scope is PlanScope.RESTORE:
+            job = s.plans.apply_in_job(plan, user, s.jobs, confirm, client_ip())
+            return job.to_dict(), 202
         if plan.scope in JOB_SCOPES:
             runner = s.install.runner(plan.scope)
             job = s.plans.apply_as_job(plan, user, runner, s.jobs, confirm, client_ip())

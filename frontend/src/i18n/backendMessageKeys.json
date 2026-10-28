@@ -973,6 +973,19 @@
     "created",
     "deleted"
   ],
+  "plan.restore": [
+    "archive",
+    "node"
+  ],
+  "plan.restore.bind_files": [
+    "count"
+  ],
+  "plan.restore.pelagos": [
+    "count"
+  ],
+  "plan.restore.zone_replace": [
+    "zone"
+  ],
   "plan.rrset.changes": [
     "zone"
   ],

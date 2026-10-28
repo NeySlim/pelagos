@@ -249,6 +249,10 @@ CATALOG: dict[str, str] = {
         "give the primary role of {count} zones back to {node} from {previous} (epoch {epoch}): {zones}"
     ),
     "plan.ddns.demote": "{node} becomes a copy of {primary} for {count} zones it served as primary: {zones}",
+    "plan.restore": "restore from the archive of {archive} on {node}",
+    "plan.restore.bind_files": "restore {count} BIND configuration files",
+    "plan.restore.zone_replace": "replace zone {zone} with its archived content",
+    "plan.restore.pelagos": "restore {count} Pelagos parts (cluster.toml, audit)",
     "ddns.prepare.no_secret": (
         "the secret of TSIG key {key} is not known on this node: build the plan on a node that holds it"
     ),

@@ -994,11 +994,17 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
 dns.rrset      : "[<view>/]<zone>/<owner>/<type>"   owner relative or absolute; the view prefix only
                  outside "_default" (preconditions: "[<view>/]<owner>/<type>")
 dns.zone       : "<view>/<zone>"                    view "_default" when none
+                 | "content:<view>/<zone>"          whole zone from an archive (section 23): after {"text", "serial",
+                                                    "file", "loaded"}; freeze, write, journal removed, thaw
                  | "op:<operation>/<view>/<zone>"   rndc retransfer|notify|reload|freeze|thaw|sync|
                                                     dnssec-rollover|dnssec-checkds, `after` = typed arguments
                                                     ({"key_id", "when", "state", "clean"}); never rolled back
 dns.config     : "keys/<name>" | "acls/<name>" | "options/<statement>" | "raw:<file>" | "pelagos/includes" | "rpz/state" (section 21)
                  | "dnssec-policy/<name>"           after {"name", "statements": [{"name", "value"}]}, in policies.conf
+                 | "file:<name>" | "userfile:<abs path>"   a whole file restored from an archive (section 23):
+                                                    after {"text", "sha256"}, before {"sha256"}; a managed file by
+                                                    its name in the managed folder, a user file only when named.conf
+                                                    loads it and this process can write it
 dhcp.subnet    : "subnet<4|6>/<id>"
 dhcp.shared_network : "shared-networks/<name>"
 dhcp.reservation : "subnet<4|6>/<id>/reservations/<id_type>=<identifier>" | "global/reservations/<id_type>=<identifier>"
@@ -1627,6 +1633,7 @@ run under the collector's backend lock):
 | --- | --- | --- |
 | `dns.zone.plan` | `{"change": Change, "created_by"}` | `{"plan": Plan}` built by this node's BIND (`plan_zone_change`) |
 | `dns.config.plan` | `{"changes": [Change], "created_by"}` | `{"plan": Plan}` built by this node's BIND (`plan_config_change`); targets `keys/`, `acls/` and `options/` only |
+| `archive.restore.part` | `{"part", "payload", "created_by"}` | `{"plans": [Plan], "summary"}`: one restore part built on this node's engine (`services.archive_restore.build_part`, section 23); D2 secrets sealed |
 | `dhcp.adopt.plan` | `{"engine": "kea4"|"kea6"|"d2", "source": "file"|"running", "created_by"}` | `{"plan": Plan}` (`plan_adopt` of this node's file) |
 | `dhcp.config.plan` | `{"engine", "config", "created_by"}` | `{"plan": Plan}` (whole-configuration replace of this node; D2 secrets sealed in the plan) |
 | `dhcp.ha.plan` | `{"engine": "kea4"|"kea6", "spec": {...} | null, "this_server", "created_by"}` | `{"plan": Plan}` (this node's part of an HA setup: `plan_ha_setup`; `spec` null removes the hook; a hub gets `spec = {"relationships": [{..., "this_server"}]}` and `this_server` null, a node in one relationship the single-relationship form every version takes) |
@@ -2715,7 +2722,7 @@ Section 23.
 | `GET /admin/archives/{id}/download` | `admin:archives` | | `application/octet-stream`, the encrypted file; audited |
 | `POST /admin/archives/upload` | `admin:archives` | multipart, field `file` (`.tar.gz.age`), optional `sha256` | `201 ArchiveMeta` |
 | `POST /admin/archives/identity` | `admin:archives` | `{"op": "generate"|"rotate", "password"}` or `{"op": "add_recipient", "recipient", "label"?}` or `{"op": "remove_recipient", "recipient"}` | `{"recipients", "identity"?}`: `identity` (`AGE-SECRET-KEY-1...`) only in the answer of `generate` and `rotate`, never again; `409` to remove the cluster recipient |
-| `POST /admin/archives/{id}/inspect` | `admin:archives` | `{"identity"?}` (an operator identity when the cluster has none that opens it) | `{"manifest","parts": [{"id","engine","node_id","files","diff_summary"}]}` |
+| `POST /admin/archives/{id}/inspect` | `admin:archives` | `{"identity"?,"target_node_id"?,"substitute"?,"ha_tls"?}` (an operator identity when the cluster has none that opens it) | `{"manifest","archive","target_node_id","parts": [{"id","engine","node_id","files","permission","diff_summary",...}],"warnings"}` (section 23, online restore) |
 | `POST /admin/archives/{id}/restore/plan` | `admin:archives` and the write permission of each part | `{"target_node_id","parts": [part id],"identity"?,"include_user_files"?}` | `Plan` (scope `restore`, `requires_confirmation`), applied with `POST /plans/{id}/apply` (`202 Job`) |
 
 ### DDNS failover
@@ -3230,6 +3237,55 @@ command line, B6 API and screen, B7 lab.
   `bind.user_files` (only with `include_user_files`), `kea4.config`,
   `kea6.config`, `d2.config`, `kea.leases` (command line only),
   `pelagos.settings:<section>`, `pelagos.audit` (merged by id).
+- **Online restore** (B4, `services/archive_restore.py`, `connectors/bind/restoreplan.py`,
+  `connectors/bind/zonerestore.py`): the archive is found in this node's archive folder (own or
+  held for a peer), else fetched from the node that lists it (`fetch_archive`, sum checked, 0600
+  file under `archives/.restore/`, removed after reading), opened with the cluster identities plus
+  the request's `identity`. Request fields beyond the table: `target_node_id` (default the
+  archive's node when it is in the cluster, else this node), `substitute` (`{"old": "new"}`, applied
+  as whole tokens to the BIND texts and every Kea string, partner parts included), `ha_tls`
+  (`"plain"`: the HA hooks of the Kea parts drop their TLS files and go to `http://`, for a node
+  that has none of them yet; the Kea HA TLS plan switches the pair back), and each entry of
+  `parts` is an id or `{"id", "mode"}`. Inspect answers `{"manifest","archive","target_node_id",
+  "parts": [{"id","engine","node_id","files","permission","diff_summary","mode"?,"modes"?,
+  "requires"?,"notes"?}],"warnings": [{"part","old_node","found"}]}`; `diff_summary` comes from
+  building the part on its node (no plan stored): `{"changed": [file]|bool,"unchanged","lines",
+  "add","replace","delete","skipped": {type: n},"refused": [type],"plans","valid","error"?}` as
+  the part has them. Each engine part is built where its engine runs (here, or by the peer action
+  `archive.restore.part`) as ordinary plans, and the plan is a composite of scope `restore`
+  (`requires_confirmation`), applied by `POST /plans/{id}/apply` as a `202 Job`; the apply checks
+  `admin:archives` and the write permission of every part. Order: zone replacements, user files,
+  managed files, zone diffs, Kea and D2, Pelagos parts; a failing part rolls back the ones before
+  it. `bind.managed`: the archived managed files (relative to the archive's managed folder, never
+  `rndc-pelagos.conf`) that differ, as `file:` changes (named-checkconf, reconfig, rollback from
+  the pipeline backup). `bind.user_files`: `userfile:` changes, written like a handover (a root-owned
+  file through the helper operation `bind_user_write`), refused (the part FAILED) when neither
+  this process nor the helper can write one (the offline `pelagos restore` writes them then). `bind.zone:<view>/<zone>`, `diff` (default when the target loads the zone as
+  primary): the archived records against the zone now, as RRset plans of at most 200 RRsets per
+  UPDATE (one plan for a static zone, whose file is edited), deletions first; SOA, DNSSEC types
+  and apex NS removals are never sent, types outside `dns.update_types_admin` are refused, both
+  reported. `replace` (forced for a zone the target does not load, which needs `bind.managed` or
+  `bind.user_files` in the same plan; its file is the archived `file` statement): the archived
+  text with the SOA serial set to the archived one, or the next after the served one when that is
+  not ahead (RFC 1982), checked by named-checkzone, then `content:`. `kea4.config`,
+  `kea6.config`, `d2.config`: the archived configuration with its includes resolved, compared
+  with the target's file (no part when equal), `plan_config_replace` (D2 secret files come back
+  as clear secrets the D2 plan writes again; HA TLS files missing on the target fail the part
+  unless `ha_tls` is `plain`). `kea4.config@<node>` (HA partner, every other node running the
+  engine but the archive's): the partner's running configuration with the archived
+  `subnet4|6`, `shared-networks`, `client-classes`, `option-def`, `option-data`, `reservations`.
+  Pelagos parts, one part without an engine applied here by `RestoreWriter`
+  (`PlanService.cluster_parts[restore]`): `pelagos.settings:<section>` with sections `settings`
+  (every domain without its screen entries, `admin:settings`), `exceptions` (`write:alerts`),
+  `roles` (`admin:roles`), `users` (`admin:users`), `channels` (`notifications.channels`,
+  `order`, `mute` and their `notify/<id>/` secrets, sealed again with this cluster's master key,
+  `admin:notifications`), `rpz` (the RPZ screen entries, `write:dns.config`), change
+  `cluster:<section>` with before and after `{"value","sealed"}`, refused when the section changed
+  since the plan; `pelagos.audit` (`audit/merge`): the archived entries this node lacks, merged by
+  id; its rollback keeps them. Whole files in changes are masked like diffs in the API and left
+  out of the audit summary (`text_bytes`). Restoring onto another node (mode 2): `warnings` and
+  `restore` validations name the parts that still carry the old node's name or address (from the
+  archive's `cluster.toml`) until `substitute` maps them.
 - **Collection** (B2, `collector/archive_collect.py`), manifest `part` of each file:
   `bind.user_files` (named.conf and every file it includes outside the managed folder, rndc
   key), `bind.managed` (the managed folder, included or not, and `rndc-pelagos.conf`),

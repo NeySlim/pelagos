@@ -13,6 +13,7 @@ from pelagos.services.account_service import AccountService
 from pelagos.services.admin_service import AdminService
 from pelagos.services.advanced_service import AdvancedService
 from pelagos.services.alerts_service import AlertsService, SeriesCache, SeriesService
+from pelagos.services.archive_restore import ArchiveRestoreService, RestoreWriter
 from pelagos.services.cert_service import CertService
 from pelagos.services.dashboard_service import DashboardService
 from pelagos.services.ddns_failover import DdnsFailoverService, RolesWriter
@@ -74,6 +75,11 @@ class Services:
             ctx, self.dns, self.registry, self.peers, self.plans, self.ddns_replay
         )
         self.plans.cluster_parts[PlanScope.DNS_FAILOVER] = RolesWriter(ctx)
+        restore_writer = RestoreWriter(ctx)
+        self.plans.cluster_parts[PlanScope.RESTORE] = restore_writer
+        self.archive_restore = ArchiveRestoreService(
+            ctx, self.registry, self.peers, self.plans, restore_writer
+        )
         self.exceptions = ExceptionsService(ctx)
         self.dashboard = DashboardService(
             ctx, self.registry, self.peers, self.dns, self.dhcp4, self.dhcp6, self.alerts

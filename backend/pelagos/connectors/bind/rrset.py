@@ -128,6 +128,14 @@ def resolve_changes(
     resolved: list[RRsetChange] = []
     errors: list[str] = []
     seen: set[tuple[str, str]] = set()
+    # RRsets the same plan deletes do not block a CNAME (or data at a former CNAME) it adds.
+    deleted: set[tuple[str, str]] = set()
+    for change in changes:
+        if change.op == ChangeOp.DELETE:
+            try:
+                deleted.add(parse_target(change.target, zone))
+            except RRsetError:
+                pass
     for change in changes:
         try:
             owner, rtype = parse_target(change.target, zone)
@@ -163,6 +171,7 @@ def resolve_changes(
             if claimed is not None and existing is not None and claimed.rdata != existing.rdata:
                 raise RRsetError(f"{owner} {rtype} changed since it was read")
             others = owners_types.get(owner, set()) - {rtype, "RRSIG", "NSEC", "NSEC3"}
+            others -= {t for o, t in deleted if o == owner}
             if op is not ChangeOp.DELETE and rtype == "CNAME" and others:
                 raise RRsetError(
                     f"{owner} has other data ({', '.join(sorted(others))}); a CNAME cannot coexist"

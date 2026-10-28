@@ -13,6 +13,7 @@ from pelagos.core import plan_secrets
 from pelagos.domain import Model, Plan, PlanState, from_rfc3339, utcnow
 from pelagos.services.masking import MASK as MASK
 from pelagos.services.masking import SECRET_KEYS as SECRET_KEYS
+from pelagos.services.masking import mask_text_values
 from pelagos.services.masking import masked as masked
 from pelagos.services.masking import masked_text as masked_text
 
@@ -132,6 +133,8 @@ def plan_dict(plan: Plan) -> dict[str, Any]:
     data = plan.to_dict()
     data["changes"] = plan_secrets.without_sealed(data.get("changes") or [])
     data = masked(data)
+    # Whole files in changes (a restore) carry key statements: masked like the diff.
+    data["changes"] = mask_text_values(data.get("changes") or [])
     data["diff"] = masked_text(data.get("diff") or "")
     for v in data.get("validations", []):
         v["output"] = masked_text(v.get("output") or "")

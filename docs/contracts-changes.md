@@ -1708,3 +1708,20 @@ Kea before 2.5.8, the secret stays inline and a new or changed one travels as th
 `secret_id`). WP-INSTALLER: helper operation `d2_secret_dir`,
 `keasetup.ensure_d2_secret_dir`. Contract (`domain/messages.py`): `note.secrets_inline`.
 WP-FRONTEND: its en and fr texts.
+
+## 2026-10-28, archives batch B4: online restore
+Additive. Architecture sections 6 (change targets `file:`, `userfile:` of `dns.config`,
+`content:` of `dns.zone`), 13 (peer action `archive.restore.part`) and 23 (online restore:
+request fields `target_node_id`, `substitute`, `ha_tls`, parts as `{"id","mode"}`, the inspect
+answer, the parts and their order, permissions, `RestoreWriter`). WP-BIND:
+`connectors/bind/zonerestore.py`, `connectors/bind/restoreplan.py` (`plan_files_restore`,
+`plan_records_restore`, `plan_zone_restore`), `zonefile.serial_gt` and `edit_serial`; an RRset
+plan that deletes a type at an owner no longer blocks a CNAME added there. WP-API-AUTH:
+`services/archive_restore.py`, `PlanService.apply_in_job`, `POST /admin/archives/{id}/inspect`
+and `/restore/plan` built (were 501), applying a `restore` plan answers `202 Job` and checks
+each part's permission, whole files masked in `plan_dict`, `masking.mask_text_values`.
+WP-COLLECTOR: an archive asks again for an AXFR the polls remembered as refused; a `kea-* -t`
+test restore denied by AppArmor is reported not checked instead of failed. Contract
+(`domain/messages.py`): `plan.restore`, `plan.restore.bind_files`, `plan.restore.zone_replace`,
+`plan.restore.pelagos`. WP-FRONTEND: their en and fr texts; the restore screen is batch B6.
+User files go through `bind_user_write` like a handover when the web process cannot write them.

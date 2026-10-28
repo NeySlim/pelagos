@@ -341,5 +341,9 @@
   "ddns.prepare.no_secret": "le secret de la clé TSIG {{key}} n'est pas connu sur ce nœud : construisez le plan sur un nœud qui le détient",
   "plan.ddns.failover": "promouvoir {{node}} primaire de {{count}} zones à la place de {{previous}} (époque {{epoch}}) : {{zones}}",
   "plan.ddns.switchover": "rendre le rôle de primaire de {{count}} zones à {{node}} depuis {{previous}} (époque {{epoch}}) : {{zones}}",
-  "plan.ddns.demote": "{{node}} devient copie de {{primary}} pour {{count}} zones qu'il servait en primaire : {{zones}}"
+  "plan.ddns.demote": "{{node}} devient copie de {{primary}} pour {{count}} zones qu'il servait en primaire : {{zones}}",
+  "plan.restore": "restaurer depuis l'archive de {{archive}} sur {{node}}",
+  "plan.restore.bind_files": "restaurer {{count}} fichiers de configuration BIND",
+  "plan.restore.zone_replace": "remplacer la zone {{zone}} par son contenu archivé",
+  "plan.restore.pelagos": "restaurer {{count}} parties de Pelagos (cluster.toml, audit)"
 }

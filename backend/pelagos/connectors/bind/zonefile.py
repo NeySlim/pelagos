@@ -396,6 +396,18 @@ def next_serial(current: int, today: date | None = None) -> int:
     return nxt or 1
 
 
+def serial_gt(a: int, b: int) -> bool:
+    """RFC 1982 serial arithmetic: `a` is ahead of `b`."""
+    return a != b and ((a - b) % SERIAL_MOD) < 2**31
+
+
+def edit_serial(zf: ZoneFiles, serial: int) -> dict[Path, str]:
+    """Every file of the zone with only the SOA serial set to `serial`."""
+    ed = _Editor(zf)
+    ed.set_serial(zf.soa(), serial)
+    return ed.texts()
+
+
 # Editing -------------------------------------------------------------------------------------
 
 

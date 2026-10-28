@@ -35,7 +35,7 @@ from pelagos.domain import (
 from pelagos.services import d2_secrets
 from pelagos.services.engine_lock import engine_lock
 from pelagos.services.events import EventHub
-from pelagos.services.masking import masked, masked_text
+from pelagos.services.masking import mask_text_values, masked, masked_text
 from pelagos.services.peers import PeerGateway
 from pelagos.services.registry import ConnectorRegistry
 
@@ -386,6 +386,32 @@ class PlanService:
 
         return jobs.submit(run, plan_id=plan.id)
 
+    def apply_in_job(
+        self, plan: Plan, user: str, jobs: Any, confirm: bool = False, client_ip: str | None = None
+    ) -> Any:
+        """A composite (scope `restore`) applied in the background: refusals answer now, the
+        outcome lands in the job (one step per node result) and on the plan."""
+        with self._lock:
+            self.check_applicable(plan, confirm)
+
+        def run(job: Any, progress: Any) -> Any:
+            result = self.apply(plan, user, confirm, client_ip)
+            for r in result.results:
+                job.steps.append(
+                    {
+                        "name": f"apply:{r.node_id}",
+                        "state": "done" if r.ok else "failed",
+                        "output": r.message,
+                        "started_at": None,
+                        "finished_at": utcnow(),
+                    }
+                )
+            if result.state is not PlanState.APPLIED:
+                raise RuntimeError(plan.error or f"plan {plan.id} is {result.state.value}")
+            return result.state.value
+
+        return jobs.submit(run, plan_id=plan.id)
+
     # Rollback -----------------------------------------------------------
 
     def rollback(self, plan: Plan, user: str, client_ip: str | None = None) -> ApplyResult:
@@ -577,7 +603,9 @@ class PlanService:
                 "entry": "summary",
                 "summary": plan.summary,
                 "summary_message": plan.summary_message,
-                "changes": masked(plan_secrets.without_sealed([c.to_dict() for c in plan.changes])),
+                "changes": mask_text_values(
+                    masked(_without_texts(plan_secrets.without_sealed([c.to_dict() for c in plan.changes])))
+                ),
                 "target_node_ids": plan.target_node_ids,
             },
             response={"state": plan.state.value, "error": masked_text(plan.error) if plan.error else None},
@@ -601,14 +629,20 @@ def _masked(results: list[NodeApplyResult]) -> list[NodeApplyResult]:
     return results
 
 
-def _mask_text_values(value: Any) -> Any:
-    if isinstance(value, str):
-        return masked_text(value)
-    if isinstance(value, dict):
-        return {k: _mask_text_values(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_mask_text_values(v) for v in value]
-    return value
+_mask_text_values = mask_text_values
+
+
+def _without_texts(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Whole files (a restore) stay out of the audit entry: their sum and the diff tell them."""
+    out = []
+    for c in changes:
+        c = dict(c)
+        for side in ("before", "after"):
+            value = c.get(side)
+            if isinstance(value, dict) and isinstance(value.get("text"), str):
+                c[side] = {k: v for k, v in value.items() if k != "text"} | {"text_bytes": len(value["text"])}
+        out.append(c)
+    return out
 
 
 def _observe_rrset(backend: DnsBackend, pre: Precondition) -> str | None:

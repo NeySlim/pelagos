@@ -55,6 +55,10 @@ DIGEST_BYTES = {
 }
 _SECRET_RE = re.compile(r'(\bsecret\s+)"[^"]*"')
 ABSENT = "absent"
+# Whole files restored from an archive (section 23): a managed file by its name in the managed
+# folder, or a file of the user configuration by its absolute path.
+FILE_PREFIX = "file:"
+USER_FILE_PREFIX = "userfile:"
 
 
 class PlanError(ValueError):
@@ -196,6 +200,10 @@ class ConfigPlanner:
                 self.option_change(change, target[len("options/") :])
             elif target.startswith("raw:"):
                 self.raw_change(change, target[len("raw:") :])
+            elif target.startswith(FILE_PREFIX):
+                self.file_change(change, target[len(FILE_PREFIX) :], user=False)
+            elif target.startswith(USER_FILE_PREFIX):
+                self.file_change(change, target[len(USER_FILE_PREFIX) :], user=True)
             elif target == "pelagos/includes":
                 self.include_setup(change)
             elif target == "rpz/state":
@@ -600,6 +608,47 @@ class ConfigPlanner:
         self.result.changes.append(
             Change(
                 op, change.target, before="\n".join(befores) or None, after=after, node_ids=change.node_ids
+            )
+        )
+
+    def file_change(self, change: Change, name: str, user: bool) -> None:
+        """The whole text of one file, as an archive holds it. A user file must be one named.conf
+        loads now (never another path); a managed file must be in the managed folder."""
+        if user:
+            path = Path(name)
+            loaded = {Path(p) for p in self.files.order}
+            if not path.is_absolute() or path not in loaded or path.is_relative_to(self.managed.include_dir):
+                raise PlanError(f"{name} is not a file of the user configuration named.conf loads")
+        else:
+            path = Path(self.managed.include_dir / name)
+            if (
+                ".." in Path(name).parts
+                or Path(name).is_absolute()
+                or path.parent
+                not in (
+                    self.managed.include_dir,
+                    self.managed.views_dir,
+                )
+            ):
+                raise PlanError(f"{name} is not a file of the managed folder")
+        if path in self._docs:
+            raise PlanError(f"{name} is changed twice by this plan")
+        after = change.after if isinstance(change.after, dict) else {}
+        text = after.get("text")
+        if not isinstance(text, str):
+            raise PlanError("file changes carry the file text")
+        if path not in self.result.originals:
+            self.result.originals[path] = path.read_text() if path.is_file() else None
+        original = self.result.originals[path]
+        self._set_text(path, text)
+        self.result.requires_confirmation = True
+        self.result.changes.append(
+            Change(
+                ChangeOp.ADD if original is None else ChangeOp.REPLACE,
+                change.target,
+                before={"sha256": sha256_text(original)},
+                after={"text": text, "sha256": sha256_text(text)},
+                node_ids=change.node_ids,
             )
         )
 

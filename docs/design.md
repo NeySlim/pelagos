@@ -600,7 +600,7 @@ Les copies secondaires, le cache de séries et les listes RPZ ne sont pas archiv
 
 - `tar` compressé par gzip (bibliothèque standard), chiffré au format age v1 avec un destinataire X25519 ([spécification age v1](https://age-encryption.org/v1), consultée le 2026-10-28 : en-tête avec une strophe X25519, charge découpée en morceaux de 64 Kio chiffrés par ChaCha20-Poly1305). Implémenté avec `cryptography` (déjà une dépendance), aucune dépendance nouvelle ; interopérable avec l'outil `age` (paquet Debian `age` 1.2.1 dans trixie), ce qui permet d'ouvrir une archive sans Pelagos en cas de désastre.
 - Fichier `<nœud>-<horodatage>.tar.gz.age` et, à côté, `.sha256` du fichier chiffré : l'intégrité se vérifie sans la clé.
-- Clé de l'archive : Pelagos génère une identité X25519 à la mise en place ; la clé publique (`age1...`) est dans `cluster.toml`, l'identité privée dans `[secrets]` (`archives/identity`), chiffrée par la clé maître, pour que n'importe quel nœud puisse restaurer. Elle est proposée au téléchargement une fois, avec l'avertissement « sans elle, la perte de tout le cluster est irrécupérable ». Variante : l'administrateur fournit sa propre clé publique et Pelagos ne garde aucune identité ; la restauration demande alors de déposer l'identité. L'archive contient `master.key` et `ca.key` : elle n'est donc jamais stockée en clair, nulle part.
+- Clés de l'archive (décision 3) : chaque archive est chiffrée pour plusieurs destinataires age. Le premier est l'identité du cluster : Pelagos génère une identité X25519 à la mise en place, la clé publique (`age1...`) est dans `cluster.toml`, l'identité privée dans `[secrets]` (`archives/identity`), chiffrée par la clé maître, pour que n'importe quel nœud puisse restaurer ; elle est proposée au téléchargement une fois, avec l'avertissement « sans elle, la perte de tout le cluster est irrécupérable ». S'y ajoutent, en option, les clés publiques de l'administrateur (`archives.recipients`), dont Pelagos ne garde aucune identité : une archive s'ouvre alors aussi hors du cluster, et la restauration accepte de déposer l'une de ces identités. L'archive contient `master.key` et `ca.key` : elle n'est donc jamais stockée en clair, nulle part.
 
 **Destinations**
 
@@ -610,7 +610,7 @@ Les copies secondaires, le cache de séries et les listes RPZ ne sont pas archiv
 | Autre nœud du cluster | `POST /repl/v1/archives` en mTLS, rangée chez le pair dans `/var/lib/pelagos/archives/peers/<nœud d'origine>/` | Défaut dès qu'il y a deux nœuds ; couvre la perte d'un nœud, pas celle du site |
 | Dossier monté | un chemin local que l'administrateur monte lui-même (NFS, SMB/CIFS par fstab ou automount systemd) | Pelagos ne monte rien et ne garde aucun mot de passe SMB ; il vérifie que le chemin est un point de montage et inscriptible |
 | SFTP | client OpenSSH (`sftp -b`), clé privée dédiée stockée en secret, empreinte de la clé d'hôte épinglée | Pas de dépendance Python nouvelle |
-| S3 compatible | question ouverte (ci-dessous) | |
+| S3 compatible | plus tard (décision 2) : client minimal écrit à la main (signature v4, PUT, GET, LIST), sans `boto3` | Pas dans la première version |
 
 Chaque destination a sa rétention : `keep_daily_count` (7), `keep_weekly_count` (4), `keep_monthly_count` (6), appliquée par le nœud qui écrit ; un pair applique aussi celle des archives qu'il reçoit.
 
@@ -645,7 +645,7 @@ Trois modes, du plus courant au plus rare :
 
 | Méthode, chemin | Permission | Requête | Réponse |
 | --- | --- | --- | --- |
-| `GET /admin/archives` | `admin:archives` | | `{"settings","recipient","identity": {"stored"},"destinations","nodes": [{"node_id","last_success","last_error","next_run","running","complete"}]}` |
+| `GET /admin/archives` | `admin:archives` | | `{"settings","recipients","identity": {"stored"},"destinations","nodes": [{"node_id","last_success","last_error","next_run","running","complete"}]}` |
 | `POST`, `PUT`, `DELETE /admin/archives/destinations[/{id}]` | `admin:archives` | destination, `secrets` | destination / `204` |
 | `POST /admin/archives/destinations/test` | `admin:archives` | `{"destination_id"}` ou une destination non enregistrée | `{"ok","node_id","error"?}` |
 | `POST /admin/archives/run` | `admin:archives` | `{"node_ids"?}` | `202 Job` |
@@ -654,13 +654,13 @@ Trois modes, du plus courant au plus rare :
 | `POST /admin/archives/upload` | `admin:archives` | multipart : archive venue d'ailleurs | l'archive inscrite |
 | `POST /admin/archives/{id}/inspect` | `admin:archives` | `{"identity"?}` | `{"manifest","parts": [{"id","engine","node_id","files","diff_summary"}]}` |
 | `POST /admin/archives/{id}/restore/plan` | `admin:archives` plus l'écriture de chaque partie | `{"target_node_id","parts": [...],"identity"?,"include_user_files"?}` | `Plan` (scope `restore`, `requires_confirmation`), appliqué par `POST /plans/{id}/apply` en `202 Job` |
-| `POST /admin/archives/identity` | `admin:archives` | `{"op": "generate"|"rotate"|"import","recipient"?}` | `{"recipient","identity_pem"?}` (une seule fois) |
+| `POST /admin/archives/identity` | `admin:archives` | `{"op": "generate"|"rotate"|"add_recipient"|"remove_recipient","recipient"?,"label"?,"password"?}` | `{"recipients","identity"?}` (l'identité du cluster une seule fois) |
 
 Réplication : `POST /repl/v1/archives` (dépôt, taille bornée par `max_archive_mb`), `GET /repl/v1/archives?origin=` (liste), `GET /repl/v1/archives/<id>` (lecture). Nouvelle permission `admin:archives`. Nouveau scope de plan `restore`. Audit : `admin.archive.*`, `archive.create`, `archive.restore.apply|rollback`.
 
 **Réglages**
 
-`[settings.archives]` : `schedule_enabled` (faux tant qu'aucune clé n'existe), `start_time` (`"03:15"`), `interval_hours` (24), `stagger_minutes` (15), `keep_daily_count` (7), `keep_weekly_count` (4), `keep_monthly_count` (6), `local_keep_count` (3), `include_leases_enabled` (vrai), `verify_enabled` (vrai), `test_restore_days` (7, 0 = jamais), `max_archive_mb` (512). Écrits par l'écran : `archives.destinations`, `archives.recipient`. Secrets : `archives/identity`, `archives/dest/<id>/<ssh_key|access_key|secret_key>`. Seuils dans `[settings.checks]` : `archive_stale_factor` (2 : alerte quand la dernière archive réussie a plus de 2 intervalles), `archive_failures_critical_count` (3).
+`[settings.archives]` : `schedule_enabled` (faux tant qu'aucune clé n'existe), `start_time` (`"03:15"`), `interval_hours` (24), `stagger_minutes` (15), `keep_daily_count` (7), `keep_weekly_count` (4), `keep_monthly_count` (6), `local_keep_count` (3), `include_leases_enabled` (vrai), `verify_enabled` (vrai), `test_restore_days` (7, 0 = jamais), `max_archive_mb` (512). Écrits par l'écran : `archives.destinations`, `archives.recipients`. Secrets : `archives/identity`, `archives/dest/<id>/ssh_key`. Seuils dans `[settings.checks]` : `archive_stale_factor` (2 : alerte quand la dernière archive réussie a plus de 2 intervalles), `archive_failures_critical_count` (3).
 
 Alertes : `archive_failed` (warning, critical après le nombre d'échecs consécutifs ; sujet `archive:<destination>`), `archive_stale` (warning ; sujet `archive:last`), `archive_incomplete` (info ; fichiers illisibles listés).
 
@@ -720,7 +720,7 @@ D2 n'envoie qu'au primaire DNS : si le serveur qui porte le primaire tombe, la H
 5. Retour de l'ancien primaire, sans double primaire : au démarrage, après la synchronisation de la réplication, le collecteur compare les zones primaires qu'il sert à `ddns.roles`. Une zone dont le rôle a été donné à un autre nœud à une époque plus récente est rétrogradée automatiquement (`demote_on_return_enabled`, défaut vrai) : déclaration `type secondary` du nouveau primaire, fichier et journal déplacés dans la sauvegarde du pipeline avant le `rndc reconfig`, de sorte que la copie n'a plus de serial local et reprend la zone du nouveau primaire par transfert complet (`rndc retransfer` à la suite), entrée d'audit `system`. Entre le démarrage de named et ce contrôle, l'ancien primaire est deuxième dans les listes de D2 et ne reçoit donc rien tant que le nouveau répond ; une mise à jour qu'il aurait acceptée dans cet intervalle est perdue à la rétrogradation et reprise par le rattrapage. L'alerte `dns_stale_primary` (critical) reste levée tant que la rétrogradation n'est pas faite.
 6. Changement planifié (plan « Rendre le rôle à ns1 », les deux nœuds en ligne) : `rndc freeze` de la zone sur le primaire actuel (les UPDATE sont refusés pendant quelques secondes), attente que la copie de la cible ait le même serial, promotion de la cible, rétrogradation de l'autre, inversion des listes de D2, `ddns.roles` à l'époque suivante, puis rattrapage des baux de la fenêtre.
 7. Rattrapage (plan « Rejouer le DDNS ») : fenêtre = début et fin de la panne (premier `update-timeout` ou `peer_offline` du primaire, jusqu'à la bascule ou au retour). Pelagos liste les baux actifs dont `cltt` tombe dans la fenêtre, qui ont un nom et un drapeau fqdn, et dont l'A, l'AAAA ou le PTR manque ou diffère (même jointure que les incohérences `lease_without_record`) ; le plan envoie `lease4-resend-ddns` / `lease6-resend-ddns` pour chacun sur un nœud dont Kea sert, par lots. Les noms dont le bail a disparu pendant la panne sont déjà levés par `record_without_lease` et les PTR orphelins, avec leurs plans existants. Un renvoi sur un nom déjà juste est sans effet (résolution de conflit par DHCID).
-8. Automatisme : la bascule reste manuelle par défaut, avec notification (13.1) dès que l'alerte s'ouvre ; `failover_auto_enabled` permet de la faire seule après `failover_after_seconds` d'indisponibilité vue par tous les autres nœuds. Le rattrapage automatique (`replay_auto_enabled`) est désactivé par défaut et borné par `replay_max_leases`.
+8. Automatisme : la bascule reste manuelle par défaut, avec notification (13.1) dès que l'alerte s'ouvre ; `failover_auto_enabled` permet de la faire seule après `failover_after_seconds` d'indisponibilité vue par tous les autres nœuds. Le rattrapage passe toujours par un plan confirmé (décision 6), borné par `replay_max_leases`.
 
 **Écrans**
 
@@ -743,7 +743,7 @@ Les opérations `lease4-resend-ddns` et `lease6-resend-ddns` entrent aussi dans 
 
 **Réglages**
 
-`[settings.ddns]` : `failover_auto_enabled` (faux), `failover_after_seconds` (300), `demote_on_return_enabled` (vrai), `replay_auto_enabled` (faux), `replay_max_leases` (2000), `replay_window_max_hours` (72). Écrit par l'écran : `ddns.roles`. Pas de secret nouveau : les clés existent déjà.
+`[settings.ddns]` : `failover_auto_enabled` (faux), `failover_after_seconds` (300), `demote_on_return_enabled` (vrai), `replay_max_leases` (2000), `replay_window_max_hours` (72). Écrit par l'écran : `ddns.roles`. Pas de secret nouveau : les clés existent déjà.
 
 Alertes : `ddns_outage` (critical ; sujet `ddns:<vue>/<zone>` ; le primaire actif ne reçoit plus de mises à jour : D2 en `update-timeout`, nœud hors ligne ou named arrêté ; propose la promotion), `ddns_replay` (warning ; sujet `ddns:replay` ; des baux de la dernière panne n'ont pas leurs enregistrements ; propose le rattrapage), `dns_stale_primary` (critical ; sujet `ddns:stale:<vue>/<zone>` ; un nœud sert en primaire une zone que `ddns.roles` donne à un autre). `ddns_advice` (`d2:dns-servers`) propose désormais le plan de préparation.
 
@@ -807,7 +807,7 @@ Un lot = un agent, un worktree, ses tests, un commit poussé après `make lint` 
 | D6 | Démons et labo de la bascule | WP-LAB-E2E | D1 à D4 |
 | B1 | Format : age X25519 avec `cryptography`, vecteurs CCTV, interopérabilité avec `age`, tar et manifeste, sommes | WP-CORE | C1 |
 | B2 | Collecte et planification : lecture des fichiers et AXFR, opération en lecture de l'assistant privilégié, verrou, stockage local, rétention, vérification, restauration à blanc, alertes | WP-COLLECTOR, WP-INSTALLER | B1 |
-| B3 | Destinations : pair (`/repl/v1/archives`), dossier monté, SFTP ; S3 selon la réponse à la question ouverte | WP-CORE, WP-COLLECTOR | B1 |
+| B3 | Destinations : pair (`/repl/v1/archives`), dossier monté, SFTP (S3 plus tard) | WP-CORE, WP-COLLECTOR | B1 |
 | B4 | Restauration en ligne : inspection, diff par partie, plan composite `restore` (fichiers gérés, zones par UPDATE ou remplacement, Kea et D2, sections de `cluster.toml`, fusion de l'audit) | WP-API-AUTH, WP-BIND, WP-KEA | B1, B2 |
 | B5 | Reconstruction : `pelagos restore` et `pelagos backup` en ligne de commande, documentation d'exploitation | contrat (`cli.py`), WP-INSTALLER | B1, B4 |
 | B6 | API et écran Sauvegardes | WP-API-AUTH, WP-FRONTEND | B2 à B4 |
@@ -815,13 +815,13 @@ Un lot = un agent, un worktree, ses tests, un commit poussé après `make lint` 
 
 Ordre proposé : C1 ; puis en parallèle N1, N2, D1, B1 ; puis N3, N4, D2, B2, B3 ; puis N5 (release 0.2.0 : notifications et rattrapage DDNS) ; D3, D4, D5, D6 (0.2.1 : reprise DDNS) ; B4, B5, B6, B7 (0.2.2 : sauvegardes). Les notifications passent d'abord parce que la bascule DDNS et les sauvegardes s'appuient sur elles pour prévenir.
 
-**Questions ouvertes pour ces trois fonctions** (choix de l'utilisateur)
+**Décisions de l'utilisateur** (2026-10-28)
 
-- [ ] Canaux de la première version : e-mail, ntfy, Gotify, webhook et Home Assistant, avec Matrix dans le même lot ou plus tard ?
-- [ ] Sauvegardes vers S3 : nécessaires dès la première version ? Si oui, dépendance `boto3` (lourde) ou client S3 minimal écrit à la main (signature v4, PUT, GET, LIST) ?
-- [ ] Clé des archives : identité gardée par le cluster (chiffrée par la clé maître) et téléchargée une fois, ou clé publique de l'administrateur seulement, sans identité sur les nœuds ?
-- [ ] Bascule DDNS : manuelle par défaut avec notification, ou automatique après 5 minutes ?
-- [ ] Rétrogradation automatique de l'ancien primaire à son retour : d'accord pour l'activer par défaut ?
-- [ ] Rattrapage DDNS automatique après une panne, ou toujours par plan confirmé ?
-- [ ] Les zones de production déclarées dans les fichiers de l'utilisateur doivent d'abord être confiées à Pelagos (point 33) pour être préparées : d'accord ?
-- [ ] Baux Kea dans les archives par défaut (utile pour un nœud seul, redondant avec la HA) ?
+1. Matrix fait partie de la première version des notifications (API client-serveur HTTP simple).
+2. Pas de S3 dans la première version ; plus tard, avec un petit client SigV4 écrit à la main, sans `boto3`.
+3. Les archives sont chiffrées pour plusieurs destinataires age : l'identité du cluster (scellée par la clé maître, téléchargeable une fois) et, en option, des clés publiques de l'administrateur.
+4. Bascule DDNS manuelle par défaut, avec notification ; la promotion automatique après N minutes est une option, désactivée par défaut.
+5. Rétrogradation automatique de l'ancien primaire à son retour : activée par défaut.
+6. Rattrapage DDNS (`lease*-resend-ddns`) : toujours par un plan confirmé, jamais automatique.
+7. Préparer la reprise exige que les zones soient gérées par Pelagos (adoption, point 33) ; l'interface le dit et propose l'adoption.
+8. Baux Kea dans les archives par défaut.

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import os
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -29,7 +30,7 @@ from pelagos.core.keafile import (
     restore_secrets,
 )
 from pelagos.core.writable import read_only_problem
-from pelagos.core.write_pipeline import FileChange
+from pelagos.core.write_pipeline import FileChange, WritePipeline, sha256_file
 from pelagos.domain import (
     Change,
     ChangeOp,
@@ -57,6 +58,53 @@ class FileDiverged(ConnectorError):
         self.engine = engine
         self.path = path
         self.differences = differences
+
+
+def write_through_helper(path: Path, content: bytes, dry_run: bool = False) -> None:
+    """A Kea file this process may not write (Debian's /etc/kea is _kea:_kea 0750, no temporary
+    file can be made there) goes through the privileged helper; PermissionError when it cannot."""
+    from pelagos.installer import helper
+
+    if not helper.available():
+        raise PermissionError(f"cannot write {path}: not writable by this process and no privileged helper")
+    try:
+        helper.HelperClient(timeout=60).call(
+            "kea_file_write",
+            path=str(path),
+            content=content.decode(),
+            sha256=sha256_file(path),
+            dry_run=dry_run,
+        )
+    except (helper.HelperError, OSError) as exc:
+        raise PermissionError(f"cannot write {path} through the privileged helper: {exc}") from None
+
+
+def with_helper(pipeline: Any) -> Any:
+    """The pipeline with Kea files it may not write sent through the helper (restores included)."""
+    if isinstance(pipeline, WritePipeline):
+        pipeline.privileged = write_through_helper
+    return pipeline
+
+
+def directly_writable(path: Path) -> bool:
+    """A temporary file next to it, or an in-place rewrite of the file itself."""
+    return os.access(path.parent, os.W_OK | os.X_OK) or os.access(path, os.W_OK)
+
+
+def write_problem(paths: list[Path]) -> str | None:
+    """Why one of `paths` cannot be written now (None when all can): checked before a plan
+    touches any node, so a plan never stops half applied on a permission."""
+    blocked = read_only_problem(paths, "Kea file")
+    if blocked:
+        return blocked
+    for path in paths:
+        if not path.exists() or directly_writable(path):
+            continue
+        try:
+            write_through_helper(path, path.read_bytes(), dry_run=True)
+        except (PermissionError, OSError) as exc:
+            return str(exc)
+    return None
 
 
 def sha256_text(text: str) -> str:
@@ -141,12 +189,25 @@ class KeaConfigFile:
     # Writing -------------------------------------------------------------------------------
 
     def _pipeline(self, label: str, validate: Callable[[], ValidationResult] | None = None) -> Any:
-        return self.pipeline_factory(
-            self.backup_root,
-            validate=validate or (lambda: ValidationResult(ok=True, tool="none", node_id=self.node_id)),
-            reload=lambda: "running configuration unchanged",
-            label=label,
+        return with_helper(
+            self.pipeline_factory(
+                self.backup_root,
+                validate=validate or (lambda: ValidationResult(ok=True, tool="none", node_id=self.node_id)),
+                reload=lambda: "running configuration unchanged",
+                label=label,
+            )
         )
+
+    def write_problem(self) -> str | None:
+        """Why persisting a change would fail on this node now: Pelagos writes the files only when
+        they use includes (config-write otherwise, done by Kea itself)."""
+        doc = self.document()
+        if doc is None and self.path.exists() and not os.access(self.path, os.R_OK):
+            # The apply backs the file up first and Kea's config-write would replace it unseen.
+            return f"cannot read {self.path}: give it the Kea group, mode 0640 kept"
+        if doc is None or not doc.has_includes:
+            return None
+        return write_problem(self.files(doc))
 
     def backup(self, label: str, doc: KeaDocument | None) -> Path | None:
         targets = self.files(doc)

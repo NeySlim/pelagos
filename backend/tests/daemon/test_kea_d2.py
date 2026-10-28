@@ -125,3 +125,102 @@ def test_d2_secret_goes_to_own_dir_when_kea_dir_is_closed(kea_d2, tmp_root):
     running = {k["name"]: k for k in d2.config_get()["tsig-keys"]}
     assert running["ddi-extra"]["secret-file"] == str(secret_path)
     assert d2.rollback(plan).ok and not secret_path.exists()
+
+
+class _RootHelper:
+    """The privileged helper of a Debian node, run as this user: kea_file_write on the closed
+    directory (opened for the time of the write); `refuse` makes it fail on one file."""
+
+    refuse: str | None = None
+    calls: list[str] = []
+
+    def __init__(self, timeout: float = 0) -> None:
+        pass
+
+    def call(self, op: str, **args):
+        from pelagos.installer import helper
+        from pelagos.installer.bind_user_file import replace_checked
+
+        _RootHelper.calls.append(f"{op}:{Path(args['path']).name}:{bool(args.get('dry_run'))}")
+        if _RootHelper.refuse and args["path"].endswith(_RootHelper.refuse):
+            raise helper.HelperError(f"{args['path']}: refused")
+        target = Path(args["path"])
+        target.parent.chmod(0o750)
+        try:
+            return replace_checked(
+                target, args["content"].encode(), args["sha256"], bool(args.get("dry_run"))
+            )
+        finally:
+            target.parent.chmod(0o550)
+
+
+@pytest.fixture
+def debian_d2(kea_d2, tmp_root, monkeypatch):
+    """D2 running a configuration with its keys in an included tsig-keys.json, in a directory and
+    files this process reads but cannot write (Debian: /etc/kea _kea:_kea 0750, files 0640)."""
+    import os
+
+    from pelagos.installer import helper
+
+    if os.geteuid() == 0:
+        pytest.skip("root writes any directory")
+    _RootHelper.refuse, _RootHelper.calls = None, []
+    monkeypatch.setattr(helper, "available", lambda: True)
+    monkeypatch.setattr(helper, "HelperClient", _RootHelper)
+    etc = kea_d2.root / "etc"
+    etc.mkdir()
+    (etc / "pelagos").mkdir()
+    (etc / "pelagos").chmod(0o2750)
+    body = kea_d2.ok("config-get")["DhcpDdns"]
+    keys = body.pop("tsig-keys")
+    for k in keys:
+        k.pop("digest-bits", None)
+    (etc / "tsig-keys.json").write_text('"tsig-keys": ' + json.dumps(keys, indent=2) + ",\n")
+    text = json.dumps({"DhcpDdns": body}, indent=2)
+    text = text.replace('"DhcpDdns": {', f'"DhcpDdns": {{\n<?include "{etc}/tsig-keys.json"?>', 1)
+    (etc / "kea-dhcp-ddns.conf").write_text(text + "\n")
+    kea_d2.ok("config-set", {"DhcpDdns": {**body, "tsig-keys": keys}})
+    for name in ("kea-dhcp-ddns.conf", "tsig-keys.json"):
+        (etc / name).chmod(0o440)
+    etc.chmod(0o550)
+    d2 = make_d2(kea_d2, tmp_root)
+    d2.conf_path = etc / "kea-dhcp-ddns.conf"
+    d2.file.path = d2.conf_path
+    d2.secret_dir = d2.conf_secret_dir = etc
+    d2.own_secret_dir = etc / "pelagos"
+    yield d2, etc
+    etc.chmod(0o750)
+
+
+def test_d2_on_a_closed_kea_dir_writes_through_the_helper(debian_d2):
+    d2, etc = debian_d2
+    cfg = with_new_key(d2.config_get())
+    cfg["dns-server-timeout"] = 700
+    plan = d2.plan_config_replace({"DhcpDdns": cfg}, "tester")
+    assert [c.target for c in plan.changes] == ["config", "secret-file/ddi-extra.secret"]
+    assert d2.preflight(plan) is None
+    result = d2.apply(plan)
+    assert result.ok, result.message
+    running = {k["name"]: k for k in d2.config_get()["tsig-keys"]}
+    assert running["ddi-extra"]["secret-file"] == str(etc / "pelagos" / "ddi-extra.secret")
+    assert "ddi-extra" in (etc / "tsig-keys.json").read_text()
+    assert '"dns-server-timeout": 700' in (etc / "kea-dhcp-ddns.conf").read_text()
+    assert (etc / "tsig-keys.json").stat().st_mode & 0o777 == 0o440
+
+
+def test_d2_failed_write_rolls_back_to_the_previous_configuration(debian_d2):
+    """Production: the include could not be written, and the restore sent D2 the new configuration,
+    which named a secret file the restore had just removed. D2 must run its previous one."""
+    d2, etc = debian_d2
+    before_hash, before = d2.config_hash(), d2.config_get()
+    files = {p: p.read_text() for p in (etc / "kea-dhcp-ddns.conf", etc / "tsig-keys.json")}
+    cfg = with_new_key(d2.config_get())
+    plan = d2.plan_config_replace({"DhcpDdns": cfg}, "tester")
+    _RootHelper.refuse = "tsig-keys.json"
+    assert "tsig-keys.json: refused" in (d2.preflight(plan) or "")
+    result = d2.apply(plan)  # the apply itself, as if the preflight had passed
+    assert not result.ok and result.rolled_back, result.message
+    assert "Expected a file" not in result.message and "rollback failed" not in result.message
+    assert d2.config_hash() == before_hash and d2.config_get() == before
+    assert {p: p.read_text() for p in files} == files
+    assert not (etc / "pelagos" / "ddi-extra.secret").exists()

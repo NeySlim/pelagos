@@ -265,6 +265,7 @@
   "problem.plan_expired": "Plan expired",
   "problem.plan_state": "Plan is not in the expected state",
   "problem.precondition_failed": "Precondition failed",
+  "problem.preflight_failed": "A target node cannot apply the plan",
   "problem.rate_limited": "Too many requests",
   "problem.replication_syncing": "Replication in progress",
   "problem.totp_required": "One-time code required",

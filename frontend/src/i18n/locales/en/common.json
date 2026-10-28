@@ -87,6 +87,7 @@
     "module_disabled": "This module is disabled",
     "conflict": "Conflict with the current state",
     "precondition_failed": "The data changed since the plan was built",
+    "preflight_failed": "A target node cannot apply the plan; nothing was changed",
     "plan_expired": "The plan has expired, build it again",
     "plan_state": "The plan cannot do that in its current state",
     "confirmation_required": "This plan needs an explicit confirmation",

@@ -75,7 +75,8 @@ packages ship `pelagos-helper.socket` (`/run/pelagos-helper.sock`,
 `root:pelagos 0660`, `Accept=yes`), and each connection runs `pelagos helper`
 as root for one request (`pelagos.installer.helper`: `detect`, `audit`,
 `plan_install`, `plan_import`, `plan_security`, `d2_secret_dir`,
-`bind_user_write`, `apply`; JSON lines, progress then result). `d2_secret_dir`
+`bind_user_write`, `kea_file_write`, `apply`; JSON lines, progress then
+result). `d2_secret_dir`
 takes no argument: it makes `<kea conf dir>/pelagos` (`pelagos:<kea group>`
 2750, setgid, never through a symlink) for the TSIG secret files of D2 plans.
 `bind_user_write` (`path`, `content` text, `sha256` of the current content)
@@ -85,7 +86,12 @@ rewrites one user BIND file for a handover or its rollback (Debian's
 named.conf includes, outside the Pelagos include directory and not the rndc
 key, a regular file with one link reached without a symlink and still
 hashing to `sha256`; owner, group, mode and SELinux label stay, temp file and
-rename in the same directory. The web process and the collector, which run as `pelagos`, go
+rename in the same directory. `kea_file_write` (same arguments, plus
+`dry_run`) does the same for a Kea configuration file of the host
+(kea-dhcp4, kea-dhcp6, kea-dhcp-ddns) or a file one of them includes:
+Debian's `/etc/kea` is `_kea:_kea 0750`, so `pelagos` reads its files but
+cannot create a temporary file there. `dry_run` runs every check and writes
+nothing (the preflight below). The web process and the collector, which run as `pelagos`, go
 through it when they are not root and the socket exists; otherwise they run
 the installer in-process (tests, development, root). `apply` is not a blank
 cheque for the `pelagos` group: a plan made on this node runs only if this
@@ -918,7 +924,15 @@ Semantics for `DhcpBackend`:
   apply on self, then ask each other target node to apply the same plan over
   the replication channel (`POST /repl/v1/plans/apply`, section 13); on any
   failure, roll back the nodes already applied, which puts their running
-  configuration and their file back.
+  configuration and their file back. Before any node applies, every target of
+  every part is asked `preflight(plan)` (locally, or `POST
+  /repl/v1/plans/preflight`): a file it cannot write or read now (through the
+  helper's `kea_file_write` dry run when not directly), or a target that does
+  not answer, refuses the plan with
+  409 `preflight_failed`, nothing applied anywhere and the plan left as it was.
+  A D2 write that fails after `config-set` restores the files and sends D2 its
+  previous configuration (`config-reload` of the restored files, else
+  `config-set` of the configuration read before the write), never the new one.
 - `rollback` re-applies the `before` state through the same path; for
   `plan_config_replace` it restores the exact JSON captured at plan time with
   `config-set` and persists it. It is refused with `PreconditionFailed` when
@@ -1097,7 +1111,9 @@ collector call `recover_in_place_writes(backups_dir)`, which puts back the
 old bytes of any file that reads as neither its old nor its new content.
 An existing file this process may not write at all (permission refused) goes
 to `privileged` when set, in `run` and in `restore`: the BIND connector sets
-it on configuration plans to the helper's `bind_user_write`.
+it on configuration plans to the helper's `bind_user_write`, the Kea connectors
+on every Kea file write to `kea_file_write`. `restore` leaves a file alone when
+it still holds its backed up content (the failed write never reached it).
 `validate` runs before `reload`; if it fails nothing is
 reloaded and the backup is restored (no reload: the engine still runs its old files; the same holds when
 the write itself fails). If `reload` raises or `verify` returns
@@ -1587,6 +1603,7 @@ application/json`. All endpoints under `/repl/v1`.
 | `POST /repl/v1/audit/fetch` | `{"ids":[...]}` (at most 5000) | `{"entries":[...]}` | the known entries among `ids`, ascending by id |
 | `POST /repl/v1/plans/apply` | `{"plan": Plan}` | `NodeApplyResult` | apply a plan built elsewhere on this node (section 5) |
 | `POST /repl/v1/plans/rollback` | `{"plan": Plan}` | `NodeApplyResult` | |
+| `POST /repl/v1/plans/preflight` | `{"plan": Plan}` | `{"problem": str or null}` | why this node cannot apply the plan now; nothing changes (a peer without it: no verdict) |
 | `POST /repl/v1/events` | `{"events": [message]}` (at most 100) | `{"accepted": n}` | live events of the caller for this node's UI (section 18); only `ha` (`state`, `unsent`, `heartbeat`) and `zones` (`serial`, `transfer`) are taken (`core.relay_events`), stamped with the caller's node id and `"relayed": true`; `404` from an older node, which the sender then skips |
 | `POST /repl/v1/actions/<name>` | action body (below) | `{"ok": true, "result"}` or `{"ok": false, "code", "detail", "errors"}` | a write another node asks this node to build or run (peer write channel, below); `404` from a node that does not serve actions |
 | `GET /repl/v1/engines/<engine>/snapshot` | | engine-specific read (zones list, subnets, HA state) | used by `services` to answer "read on every node" without a second code path |
@@ -2881,7 +2898,7 @@ Codes and HTTP statuses: `validation_error` 400, `invalid_credentials` 401,
 `totp_required` 401, `unauthenticated` 401, `forbidden` 403,
 `csrf_failed` 403, `not_found` 404, `module_disabled` 404,
 `method_not_allowed` 405, `conflict` 409, `config_divergence` 409,
-`precondition_failed` 409,
+`precondition_failed` 409, `preflight_failed` 409,
 `plan_expired` 410, `plan_state` 409, `confirmation_required` 428,
 `rate_limited` 429, `engine_unavailable` 503, `replication_syncing` 503,
 `not_supported` 501 (engine lacks the feature), `not_implemented` 501

@@ -131,15 +131,23 @@ def test_kea_plan_applies_on_both_peers(role_client, peer_b, fake_registry, node
     assert not any(s["id"] == 20 for s in peer_b.registry.kea4.config["subnet4"])
 
 
-@pytest.mark.parametrize("failure", ["engine", "network"])
+def test_unreachable_peer_stops_the_plan_before_any_node(role_client, peer_b, fake_registry, node_ctx):
+    """The preflight asks every target first: a peer that does not answer leaves every node as it was."""
+    op = role_client("dhcp-operator")
+    change = {"op": "add", "target": "subnet4/21", "after": {"subnet": "192.0.2.224/27"}}
+    plan = op.post("/api/v1/dhcp/v4/subnets/plan", json={"change": change}).get_json()
+    peer_b.reachable = False
+    resp = op.post(f"/api/v1/plans/{plan['id']}/apply", json={})
+    assert resp.status_code == 409 and resp.get_json()["code"] == "preflight_failed"
+    assert not any(s["id"] == 21 for s in fake_registry.kea4.config["subnet4"])
+
+
+@pytest.mark.parametrize("failure", ["engine"])
 def test_peer_failure_rolls_back_self(role_client, peer_b, fake_registry, node_ctx, failure):
     op = role_client("dhcp-operator")
     change = {"op": "add", "target": "subnet4/21", "after": {"subnet": "192.0.2.224/27"}}
     plan = op.post("/api/v1/dhcp/v4/subnets/plan", json={"change": change}).get_json()
-    if failure == "engine":
-        peer_b.registry.kea4.failure = ConnectorUnavailable("kea on ns2 is down")
-    else:
-        peer_b.reachable = False
+    peer_b.registry.kea4.failure = ConnectorUnavailable("kea on ns2 is down")
     result = op.post(f"/api/v1/plans/{plan['id']}/apply", json={}).get_json()
     assert result["state"] == "rolled_back"
     oks = [(r["node_id"], r["ok"], r["rolled_back"]) for r in result["results"]]

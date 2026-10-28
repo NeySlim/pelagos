@@ -1804,3 +1804,15 @@ read and compared only for primary, secondary and mirror zones (stub serials sti
 zones; `GET /dns/zones` items carry `hints` or `forwarders` per node and their `divergent` follows
 them. WP-FRONTEND: the zones table shows them; RollingNumber draws its resting value from
 `data-value` so copied text holds each serial once.
+
+## 2026-10-28, Kea files on Debian through the helper, plan preflight (prod item 68)
+Additive. WP-INSTALLER: helper operation `kea_file_write` (`installer/kea_user_file.py`),
+`bind_user_file.check_request` and `replace_checked` (with `dry_run`). WP-KEA: every Kea file
+write goes through `WritePipeline.privileged` (`configfile.with_helper`), `preflight(plan)` on
+`KeaBackend` and `D2Backend`, a failed D2 write sends D2 its previous configuration. WP-CORE:
+`WritePipeline.restore` skips a file still holding its backed up content,
+`ConnectorRegistry.preflight`, `POST /repl/v1/plans/preflight`,
+`ReplicationClient.preflight_plan`. WP-API-AUTH: `PlanService` asks every target before applying
+(`PeerGateway.preflight_plan`), problem code `preflight_failed` (409). Contract
+(`domain/messages.py`): `problem.preflight_failed`. WP-FRONTEND: its en and fr texts.
+

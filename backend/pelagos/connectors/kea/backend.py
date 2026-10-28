@@ -889,6 +889,19 @@ class KeaBackend(DhcpBackend):
             if observed != p.value:
                 raise PreconditionFailed(p, observed)
 
+    def preflight(self, plan: Plan) -> str | None:
+        """Why persisting `plan` here would fail on a file (None when it can); asked of every target
+        before any node applies. Lease operations write no configuration file."""
+        if plan.scope is PlanScope.DHCP_LEASE:
+            return None
+        adopt = next((c for c in plan.changes if c.target == ADOPT_FILE), None)
+        if adopt is not None:
+            return None
+        try:
+            return self.file.write_problem()
+        except ConnectorError as exc:
+            return str(exc)
+
     def apply(self, plan: Plan) -> NodeApplyResult:
         self._check_preconditions(plan)
         result = self._run(plan.changes, plan.id, plan.scope)

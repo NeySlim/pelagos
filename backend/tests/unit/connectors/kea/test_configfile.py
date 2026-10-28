@@ -87,9 +87,12 @@ def test_an_unreadable_include_blocks_writes(tmp_path):
             file.document()
         with pytest.raises(ConnectorError, match="cannot read included file"):
             file.guard(sock.body)
-    # The top-level file itself unreadable: Kea owns it, config-write persists.
+    # The top-level file itself unreadable: Kea owns it, config-write persists; the preflight says
+    # the apply cannot back it up.
     with unreadable(file.path):
         assert file.document() is None and file.guard(sock.body) is None
+        if os.geteuid() != 0:
+            assert "cannot read" in (file.write_problem() or "")
 
 
 KEYS_MAIN = '{"DhcpDdns": {\n  // keys live apart\n  <?include "%s"?>\n  "port": 53001\n}}\n'
@@ -162,3 +165,79 @@ def test_includes_on_a_read_only_mount_block_writes(tmp_path, monkeypatch):
     with pytest.raises(ConnectorError, match="read-only mount"):
         file.guard(sock.body)
     assert sock.calls == []
+
+
+class FakeHelperClient:
+    """Stands for the root helper: runs kea_file_write as this user on a closed directory."""
+
+    calls: list[dict[str, Any]] = []
+    refuse: str | None = None
+
+    def __init__(self, timeout: float = 0) -> None:
+        pass
+
+    def call(self, op: str, **args: Any) -> Any:
+        from pelagos.installer import helper as helper_mod
+        from pelagos.installer.bind_user_file import replace_checked
+
+        FakeHelperClient.calls.append({"op": op, **args})
+        if FakeHelperClient.refuse and args["path"].endswith(FakeHelperClient.refuse):
+            raise helper_mod.HelperError(f"{args['path']} refused")
+        target = Path(args["path"])
+        parent_mode = target.parent.stat().st_mode & 0o777
+        target.parent.chmod(0o750)
+        try:
+            return replace_checked(
+                target, args["content"].encode(), args["sha256"], bool(args.get("dry_run"))
+            )
+        finally:
+            target.parent.chmod(parent_mode)
+
+
+@pytest.fixture
+def closed_kea(tmp_path, monkeypatch):
+    """Debian's /etc/kea: a directory and files this process reads but cannot write."""
+    from pelagos.installer import helper as helper_mod
+
+    FakeHelperClient.calls = []
+    FakeHelperClient.refuse = None
+    monkeypatch.setattr(helper_mod, "available", lambda: True)
+    monkeypatch.setattr(helper_mod, "HelperClient", FakeHelperClient)
+    keys = tmp_path / "keys.json"
+    file, sock = make(
+        tmp_path,
+        KEYS_MAIN % keys,
+        {"keys.json": '"tsig-keys": [{"name": "k1", "algorithm": "HMAC-SHA256", "secret": "S1"}],'},
+        {"port": 53001, "tsig-keys": [key("k1", "S1")]},
+    )
+    for p in (keys, file.path):
+        p.chmod(0o440)
+    (tmp_path / "backups").mkdir()
+    tmp_path.chmod(0o550)
+    yield file, sock, keys
+    tmp_path.chmod(0o750)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes any directory")
+def test_closed_kea_dir_is_written_through_the_helper(closed_kea):
+    file, sock, keys = closed_kea
+    doc = file.document()
+    assert file.write_problem() is None
+    assert [c["dry_run"] for c in FakeHelperClient.calls] == [True, True]
+    applied = {"port": 53001, "tsig-keys": [key("k1", "S2")]}
+    sock.body = applied
+    assert file.persist(doc, {"port": 53001, "tsig-keys": [key("k1", "S1")]}, "rotate", [applied]).startswith(
+        "patched keys.json"
+    )
+    assert '"S2"' in keys.read_text() and keys.stat().st_mode & 0o777 == 0o440
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes any directory")
+def test_closed_kea_dir_without_helper_is_a_preflight_problem(closed_kea, monkeypatch):
+    from pelagos.installer import helper as helper_mod
+
+    file, _sock, _keys = closed_kea
+    FakeHelperClient.refuse = "keys.json"
+    assert "keys.json refused" in (file.write_problem() or "")
+    monkeypatch.setattr(helper_mod, "available", lambda: False)
+    assert "no privileged helper" in (file.write_problem() or "")

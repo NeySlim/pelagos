@@ -56,6 +56,7 @@ OPERATIONS = (
     "archive_read",
     "d2_secret_dir",
     "bind_user_write",
+    "kea_file_write",
     "apply",
 )
 INSTALLER_SCOPES = (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY)
@@ -110,6 +111,16 @@ def handle(request: dict[str, Any], env_factory: Callable[[], Any], emit: Callab
             from pelagos.installer.bind_user_file import write
 
             return write(env, request.get("path"), request.get("content"), str(request.get("sha256") or ""))
+        if op == "kea_file_write":
+            from pelagos.installer.kea_user_file import write as kea_write
+
+            return kea_write(
+                env,
+                request.get("path"),
+                request.get("content"),
+                str(request.get("sha256") or ""),
+                bool(request.get("dry_run")),
+            )
         if op == "archive_read":
             from pelagos.installer.archive_read import read
 

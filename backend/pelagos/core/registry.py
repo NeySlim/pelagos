@@ -81,6 +81,19 @@ class ConnectorRegistry:
     def rollback(self, plan: Plan) -> NodeApplyResult:
         return self._run("rollback", plan)
 
+    def preflight(self, plan: Plan) -> str | None:
+        """Why `plan` cannot be applied on this node now (a file it must write), None when it can."""
+        try:
+            backend = self.get(plan.engine)
+        except EngineNotConfigured as exc:
+            return str(exc)
+        check = getattr(backend, "preflight", None)
+        if not callable(check):
+            return None
+        with self.lock:
+            problem = check(plan)
+        return str(problem) if problem else None
+
     def snapshot(self, engine: Engine | str) -> dict[str, Any]:
         """Engine read for `GET /repl/v1/engines/<engine>/snapshot`; probe failures are data, not errors."""
         with self.lock:

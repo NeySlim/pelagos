@@ -193,6 +193,10 @@ class PlanService:
                 self.ctx.plan_store.update(plan)
                 self._audit_summary(plan, user, client_ip)
                 raise PlanError("precondition_failed", str(exc)) from exc
+            problem = self._preflight(parts)
+            if problem:
+                # Nothing was applied anywhere: the plan stays as it was, to apply once fixed.
+                raise PlanError("preflight_failed", problem)
             plan.state = PlanState.APPLYING
             self.ctx.plan_store.update(plan)
         self._phase(plan, "applying")
@@ -252,6 +256,24 @@ class PlanService:
         )
         self._publish(result)
         return result
+
+    def _preflight(self, parts: list[Plan]) -> str | None:
+        """The first reason a target of a part cannot apply it now (a file it must write), asked of
+        every node before any applies: a plan never stops half applied on a permission."""
+        for part in parts:
+            for node_id in part.target_node_ids or [self.ctx.node.id]:
+                if node_id == self.ctx.node.id:
+                    check = getattr(self._backend(part), "preflight", None)
+                    try:
+                        problem = check(part) if callable(check) else None
+                    except ConnectorError as exc:
+                        problem = str(exc)
+                else:
+                    peer = self.peers.peer(node_id)
+                    problem = self.peers.preflight_plan(peer, part) if peer is not None else None
+                if problem:
+                    return problem
+        return None
 
     def _apply_one(
         self, plan: Plan, who: tuple[str, str | None], progress: list[str] | None = None

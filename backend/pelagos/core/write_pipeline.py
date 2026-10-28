@@ -310,7 +310,8 @@ class WritePipeline:
                 if entry["absent"]:
                     if path.exists():
                         path.unlink()
-                else:
+                elif not (path.exists() and entry.get("sha256") == sha256_file(path)):
+                    # A file the failed write never reached is left alone.
                     self._write(
                         path, (backup_dir / f"{entry['index']}.bak").read_bytes(), entry["mode"], None
                     )

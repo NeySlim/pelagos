@@ -1913,6 +1913,12 @@ class FakeReplicationClient:
         result.node_id = self.node_id
         return result
 
+    def preflight_plan(self, plan: Plan) -> str | None:
+        self._check()
+        self.calls.append(("preflight", plan.id))
+        check = getattr(self.registry.backend(plan.engine), "preflight", None)
+        return check(Plan.from_dict(plan.to_dict())) if callable(check) else None
+
     def rollback_plan(self, plan: Plan) -> NodeApplyResult:
         self._check()
         self.calls.append(("rollback", plan.id))

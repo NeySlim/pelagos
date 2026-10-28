@@ -87,6 +87,7 @@
     "module_disabled": "Ce module est désactivé",
     "conflict": "Conflit avec l'état actuel",
     "precondition_failed": "Les données ont changé depuis la création du plan",
+    "preflight_failed": "Un nœud cible ne peut pas appliquer le plan ; rien n'a été modifié",
     "plan_expired": "Le plan a expiré, recréez-le",
     "plan_state": "Le plan ne peut pas faire cela dans son état actuel",
     "confirmation_required": "Ce plan demande une confirmation explicite",

@@ -643,6 +643,7 @@ CATALOG: dict[str, str] = {
     "problem.conflict": "Conflict",
     "problem.config_divergence": "Configuration file differs from the running configuration",
     "problem.precondition_failed": "Precondition failed",
+    "problem.preflight_failed": "A target node cannot apply the plan",
     "problem.plan_state": "Plan is not in the expected state",
     "problem.plan_expired": "Plan expired",
     "problem.engine_validation_failed": "Engine validation failed",

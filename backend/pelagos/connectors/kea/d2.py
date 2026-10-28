@@ -25,7 +25,12 @@ from typing import Any
 from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBackend, PreconditionFailed
 from pelagos.connectors.kea.commands import normalize_version
 from pelagos.connectors.kea.config import canonical, config_diff, normalize_root, version_tuple
-from pelagos.connectors.kea.configfile import ADOPT_FILE, ADOPT_TARGETS, KeaConfigFile
+from pelagos.connectors.kea.configfile import (
+    ADOPT_FILE,
+    ADOPT_TARGETS,
+    KeaConfigFile,
+    with_helper,
+)
 from pelagos.connectors.kea.control_socket import DEFAULT_COMMAND_TIMEOUT, KeaControlSocket
 from pelagos.connectors.kea.schema import config_schema
 from pelagos.connectors.kea.secrets import masked_refusal
@@ -447,20 +452,65 @@ class D2Backend(DdnsBackend):
         doc: Any = None,
         before_body: dict[str, Any] | None = None,
     ) -> Any:
+        sent: list[bool] = []
+
         def reload() -> str:
+            if sent:
+                # The restore after a failed apply: the files are back, D2 must run what it ran before
+                # (never new_cfg, which may name secret files the restore just removed).
+                return self._reload_before(before_hash, before_body)
+            sent.append(True)
             self.socket.call("config-set", {ROOT: new_cfg})
             return f"config-set, {self.file.persist(doc, before_body or {}, label, [new_cfg])}"
 
         def verify() -> bool:
             return self.config_hash() != before_hash or canonical(self.config_get()) == canonical(new_cfg)
 
-        return self.ctx.pipeline_factory(
-            self.backup_root,
-            validate=lambda: self.config_test(new_cfg),
-            reload=reload,
-            verify=verify,
-            label=label,
+        return with_helper(
+            self.ctx.pipeline_factory(
+                self.backup_root,
+                validate=lambda: self.config_test(new_cfg),
+                reload=reload,
+                verify=verify,
+                label=label,
+            )
         )
+
+    def _reload_before(self, before_hash: str, before_body: dict[str, Any] | None) -> str:
+        """D2 back on its configuration from before the plan: config-reload of the restored files,
+        else config-set of the running configuration read before the write (when it is clear)."""
+        if self.config_hash() == before_hash:
+            return "running configuration unchanged"
+        try:
+            self.socket.call("config-reload")
+        except ConnectorError as exc:
+            log.warning("config-reload after a failed D2 write: %s", exc)
+        if self.config_hash() == before_hash:
+            return "config-reload of the restored files"
+        if before_body is not None and not has_masked_secrets(before_body):
+            self.socket.call("config-set", {ROOT: before_body})
+            if self.config_hash() == before_hash:
+                return "config-set of the configuration from before the plan"
+        raise ConnectorError("D2 runs neither the new nor its previous configuration; check it")
+
+    def preflight(self, plan: Plan) -> str | None:
+        """Why applying `plan` here would fail on a file it must write (None when every one can be
+        written now); the plan service asks every target before any node applies."""
+        adopt = next((c for c in plan.changes if c.target in ADOPT_TARGETS), None)
+        if adopt is not None and adopt.target == ADOPT_FILE:
+            return None
+        secret_dirs = {
+            Path(str(c.after.get("path"))).parent
+            for c in plan.changes
+            if c.target.startswith(SECRET_FILE_PREFIX) and isinstance(c.after, dict)
+        }
+        for d in sorted(secret_dirs):
+            if not _writable(d):
+                return f"cannot write the TSIG secret files in {d}"
+        try:
+            return self.file.write_problem()
+        except ConnectorError as exc:
+            return str(exc)
 
     def apply(self, plan: Plan) -> NodeApplyResult:
         for p in plan.preconditions:

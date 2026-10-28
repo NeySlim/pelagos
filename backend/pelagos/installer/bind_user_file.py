@@ -57,8 +57,8 @@ def _read_nofollow(dir_fd: int, name: str) -> tuple[os.stat_result, bytes]:
         os.close(fd)
 
 
-def write(env: Any, path: str, content: str, sha256: str) -> dict[str, Any]:
-    """Atomically replace `path` with `content` if it still hashes to `sha256`; returns the new hash."""
+def check_request(path: Any, content: Any) -> tuple[Path, bytes]:
+    """An absolute path reached without a symlink and text content of a sane size."""
     if not isinstance(path, str) or not os.path.isabs(path):
         raise ValueError("path must be absolute")
     if not isinstance(content, str) or "\0" in content:
@@ -69,8 +69,13 @@ def write(env: Any, path: str, content: str, sha256: str) -> dict[str, Any]:
     target = Path(path)
     if os.path.realpath(target) != str(target):
         raise ValueError(f"{path} is reached through a symlink")
-    if target not in allowed_files(env.paths):
-        raise ValueError(f"{path} is not a BIND configuration file of this host outside the Pelagos files")
+    return target, data
+
+
+def replace_checked(target: Path, data: bytes, sha256: str, dry_run: bool = False) -> dict[str, Any]:
+    """Atomically replace the regular, single-link `target` if it still hashes to `sha256`; owner,
+    group, mode and SELinux label stay. `dry_run` checks everything and writes nothing."""
+    path = str(target)
     dir_fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     tmp_name: str | None = None
     try:
@@ -82,6 +87,8 @@ def write(env: Any, path: str, content: str, sha256: str) -> dict[str, Any]:
             raise ValueError(f"{path} has {st.st_nlink} hard links")
         if _sha256(old) != sha256:
             raise ValueError(f"{path} changed since it was read")
+        if dry_run:
+            return {"path": path, "sha256": sha256, "dry_run": True}
         tmp_name = f".{target.name}.pelagos-helper.{os.urandom(6).hex()}"
         fd = os.open(tmp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dir_fd)
         with os.fdopen(fd, "wb") as fh:
@@ -108,6 +115,14 @@ def write(env: Any, path: str, content: str, sha256: str) -> dict[str, Any]:
     return {"path": path, "sha256": _sha256(data)}
 
 
+def write(env: Any, path: str, content: str, sha256: str) -> dict[str, Any]:
+    """Atomically replace `path` with `content` if it still hashes to `sha256`; returns the new hash."""
+    target, data = check_request(path, content)
+    if target not in allowed_files(env.paths):
+        raise ValueError(f"{path} is not a BIND configuration file of this host outside the Pelagos files")
+    return replace_checked(target, data, sha256)
+
+
 def _copy_label(source: Path, fd: int) -> None:
     try:
         label = os.getxattr(source, "security.selinux", follow_symlinks=False)
@@ -119,4 +134,4 @@ def _copy_label(source: Path, fd: int) -> None:
         pass
 
 
-__all__ = ["MAX_CONTENT", "allowed_files", "write"]
+__all__ = ["MAX_CONTENT", "allowed_files", "check_request", "replace_checked", "write"]

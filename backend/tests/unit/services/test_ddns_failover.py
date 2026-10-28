@@ -447,3 +447,51 @@ def test_peer_action_builds_key_plans_only():
         actions.dns_config_plan({"changes": [{"op": "add", "target": "raw:named.conf", "after": "x"}]}, N1)
     with pytest.raises(ValidationError):
         actions.dns_config_plan({"changes": []}, N1)
+
+
+def test_preflight_on_every_target_before_any_node_applies(node_ctx):
+    """Production: the BIND part applied on one node, then D2 could not write /etc/kea on the other.
+    Every target is asked first; a problem anywhere leaves every node untouched."""
+    from pelagos.domain import Engine, NodeApplyResult
+
+    applied: list[str] = []
+
+    class D2:
+        problem: str | None = None
+
+        def preflight(self, plan: Plan) -> str | None:
+            return self.problem
+
+        def apply(self, plan: Plan) -> NodeApplyResult:
+            applied.append(plan.id)
+            return NodeApplyResult(node_id=node_ctx.node.id, ok=True, message="ok")
+
+        def config_hash(self) -> str:
+            return "h"
+
+    registry = ConnectorRegistry()
+    registry.d2 = D2()  # type: ignore[assignment]
+    plans = PlanService(node_ctx, registry, PeerGateway(node_ctx))
+    asked: list[str] = []
+    peer_problem: list[str | None] = ["ns2: cannot write /etc/kea/kea-dhcp-ddns.conf"]
+    plans.peers = SimpleNamespace(  # type: ignore[assignment]
+        peer=lambda node_id: SimpleNamespace(id=node_id, name="ns2"),
+        preflight_plan=lambda peer, plan: asked.append(plan.id) or peer_problem[0],
+    )
+    local = part(PlanScope.D2_CONFIG, [Change(ChangeOp.REPLACE, "config", after={})], node_ctx.node.id)
+    local.engine = Engine.D2
+    remote = part(PlanScope.D2_CONFIG, [Change(ChangeOp.REPLACE, "config", after={})], N2)
+    remote.engine = Engine.D2
+    plan = Plan(scope=PlanScope.DNS_FAILOVER, node_id=node_ctx.node.id, summary="prepare", created_by="a")
+    plan.state = PlanState.VALIDATED
+    node_ctx.plan_store.put(plan)
+    plans.register_composite(plan, [local, remote])
+    with pytest.raises(Exception, match=r"cannot write /etc/kea/kea-dhcp-ddns\.conf") as exc:
+        plans.apply(plan, "alice")
+    assert getattr(exc.value, "code", "") == "preflight_failed"
+    assert asked == [remote.id] and applied == []
+    assert node_ctx.plan_store.get(plan.id).state is PlanState.VALIDATED
+    registry.d2.problem = "cannot write the TSIG secret files in /etc/kea"  # type: ignore[union-attr]
+    with pytest.raises(Exception, match="TSIG secret files"):
+        plans.apply(plan, "alice")
+    assert asked == [remote.id] and applied == []

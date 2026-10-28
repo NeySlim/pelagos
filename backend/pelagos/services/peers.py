@@ -224,6 +224,21 @@ class PeerGateway:
     def rollback_plan(self, peer: Peer, plan: Plan) -> NodeApplyResult:
         return self._plan_call(peer, plan, "rollback_plan")
 
+    def preflight_plan(self, peer: Peer, plan: Plan) -> str | None:
+        """Why `peer` cannot apply `plan` now; an unreachable peer is a problem too (nothing applied yet)."""
+        try:
+            client = self._client_with_timeout(peer, 60.0)
+            if client is None:
+                return f"{peer.name}: node certificate not available"
+            problem = client.preflight_plan(plan)
+        except (ReplicationError, OSError) as exc:
+            return f"{peer.name}: {exc}"
+        except Exception:
+            # No verdict is not a refusal: the apply itself still checks everything.
+            log.warning("preflight of plan %s on %s not run", plan.id, peer.name, exc_info=True)
+            return None
+        return f"{peer.name}: {problem}" if problem else None
+
     def _plan_call(self, peer: Peer, plan: Plan, method: str) -> NodeApplyResult:
         try:
             settings = self.ctx.settings()

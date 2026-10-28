@@ -295,6 +295,17 @@ class ReplicationClient:
     def rollback_plan(self, plan: Plan) -> NodeApplyResult:
         return NodeApplyResult.from_dict(self._call("POST", "/plans/rollback", {"plan": plan.to_dict()}))
 
+    def preflight_plan(self, plan: Plan) -> str | None:
+        """Why the peer cannot apply `plan` now (None when it can); a peer without the route says nothing."""
+        try:
+            out = self._call("POST", "/plans/preflight", {"plan": plan.to_dict()})
+        except ReplicationError as exc:
+            if exc.status == 404:
+                return None
+            raise
+        problem = out.get("problem") if isinstance(out, dict) else None
+        return str(problem) if problem else None
+
     def engine_snapshot(
         self, engine: str, kind: str = "summary", params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
@@ -468,6 +479,8 @@ class ReplicationApp:
             return self._plan(self._body(environ), caller, "apply")
         if route == "/plans/rollback" and method == "POST":
             return self._plan(self._body(environ), caller, "rollback")
+        if route == "/plans/preflight" and method == "POST":
+            return self._preflight(self._body(environ))
         if route == "/renew" and method == "POST":
             return self._renew(self._body(environ), caller)
         if route == "/events" and method == "POST":
@@ -738,6 +751,16 @@ class ReplicationApp:
         self.audit_log.append(entry)
         result.audit_ids = [*result.audit_ids, entry.id]
         return 200, result.to_dict()
+
+    def _preflight(self, body: dict[str, Any]) -> tuple[int, Any]:
+        try:
+            plan = Plan.from_dict(body["plan"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise _Refused(400, "validation_error", f"invalid plan: {exc}") from None
+        if plan.scope.value in UNLOCKED_SCOPES or not self.registry.has(plan.engine):
+            return 200, {"problem": None}
+        check = getattr(self.registry, "preflight", None)
+        return 200, {"problem": check(plan) if callable(check) else None}
 
     def _unseal(self, plan: Plan) -> NodeApplyResult | None:
         """Give sealed plan secrets to the backend; a failed result when they cannot be opened."""

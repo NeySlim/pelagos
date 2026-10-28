@@ -1206,6 +1206,7 @@
   "problem.plan_expired": [],
   "problem.plan_state": [],
   "problem.precondition_failed": [],
+  "problem.preflight_failed": [],
   "problem.rate_limited": [],
   "problem.replication_syncing": [],
   "problem.totp_required": [],

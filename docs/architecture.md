@@ -71,8 +71,10 @@ Installer work (install, import, security remediation) needs root: the
 packages ship `pelagos-helper.socket` (`/run/pelagos-helper.sock`,
 `root:pelagos 0660`, `Accept=yes`), and each connection runs `pelagos helper`
 as root for one request (`pelagos.installer.helper`: `detect`, `audit`,
-`plan_install`, `plan_import`, `plan_security`, `apply`; JSON lines, progress
-then result). The web process and the collector, which run as `pelagos`, go
+`plan_install`, `plan_import`, `plan_security`, `d2_secret_dir`, `apply`; JSON
+lines, progress then result). `d2_secret_dir` takes no argument: it makes
+`<kea conf dir>/pelagos` (`pelagos:<kea group>` 2750, setgid, never through a
+symlink) for the TSIG secret files of D2 plans. The web process and the collector, which run as `pelagos`, go
 through it when they are not root and the socket exists; otherwise they run
 the installer in-process (tests, development, root). `apply` is not a blank
 cheque for the `pelagos` group: a plan made on this node runs only if this
@@ -999,6 +1001,7 @@ dhcp.config    : "config"                           whole object
 dhcp.lease     : "lease<4|6>/<ip>"
 dhcp.ha        : "ha/maintenance" (after "start"|"cancel") | "service" (after {"enable": bool})
 d2.config      : "config" | "secret-file/<file name>" (after {"path","sha256"}; the secret never enters a plan)
+               | "secret-inline/<key name>" (after {"key","sha256"}: a new or changed secret kept inline, masked in "config")
 host           : "host/<key>"                       expands into dns.rrset and dhcp.reservation changes
 install        : "install/repo/isc-kea-<x>-<y>" | "install/packages" | "install/user/pelagos" | "install/service/<engine>"
                  | "install/bind/adopt" | "install/<kea engine>/config" | "install/node" | "install/verify"
@@ -1231,8 +1234,9 @@ d2_socket = "kea-ddns-ctrl-socket"
 dhcp4_conf = "/etc/kea/kea-dhcp4.conf"
 dhcp6_conf = "/etc/kea/kea-dhcp6.conf"
 d2_conf = "/etc/kea/kea-dhcp-ddns.conf"
-d2_secret_dir = "/etc/kea"                # optional; TSIG secret files written by D2 plans (default: dir of d2_conf)
-kea_group = "_kea"                        # optional; group of those files (mode 0640), unset keeps ours
+d2_secret_dir = "/etc/kea"                # optional; TSIG secret files written by D2 plans (default: dir of d2_conf,
+                                          # else <that dir>/pelagos made by the helper when we cannot write it)
+kea_group = "_kea"                        # optional; group of those files (mode 0640), unset: group of d2_conf
 ```
 
 `/var/lib/pelagos/cluster.toml` (replicated, merged entry by entry with
@@ -1654,7 +1658,8 @@ schema-mismatch `CONFIG_DIVERGENCE` come from the replicator's exchanges
 calls. When entries from a peer are merged into the audit log, the collector
 gets an `{"event": "audit_merged"}` datagram and replays `alert.ack` entries.
 
-Plan secrets: a `secret-file/<name>` change (D2 TSIG secret files) may carry
+Plan secrets: a `secret-file/<name>` change (D2 TSIG secret files) or a
+`secret-inline/<key>` change (a D2 secret kept in the configuration) may carry
 `after.sealed`, the clear secret encrypted with the master key (section 12)
 under the name `plan/<plan id>/<target>`, and checked against
 `after.sha256` when opened. The node that builds the plan seals it with
@@ -2887,6 +2892,13 @@ endpoints) do not bump it. `GET /version` reports the package version.
   manage any option statement without rewriting the user file.
 - Kea 3.x TSIG keys in D2 use `secret-file`; the installer writes the
   secret files under `/etc/kea/` with mode 0640 `<kea user>:<kea group>`.
+  D2 plans write them as `pelagos` (mode 0640, Kea group): next to the D2
+  configuration when that directory takes files from `pelagos`, else in
+  `<kea conf dir>/pelagos` (helper `d2_secret_dir`; Debian's `/etc/kea` is
+  `_kea:_kea` 0750, and its AppArmor profiles read `/etc/kea/**`). With
+  neither, or Kea before 2.5.8 (no `secret-file`), the secret stays inline:
+  the plan masks it and carries a new one as `secret-inline/<key>`; Kea 3.1
+  and later refuse an inline secret at config-test.
 - Lease `v6` module gating is cluster-wide (`modules.dhcpv6`), while which
   engines a node drives is per node (`node.toml [engines]` mirrored into
   `[[nodes]].modules`).

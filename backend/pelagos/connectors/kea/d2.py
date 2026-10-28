@@ -1,29 +1,36 @@
 # SPDX-License-Identifier: Apache-2.0
 """D2 (kea-dhcp-ddns) connector: statistics per key, configuration read and the config replace plan.
 
-TSIG secrets never go into the configuration file on Kea 3.x: a clear
-`secret` in a submitted configuration is written to a 0640 secret file next
-to the D2 configuration through the write pipeline, and the key references it
-with `secret-file`. The secret itself stays out of the Plan.
+A clear `secret` in a submitted configuration is written to a 0640 secret file
+(Kea group) through the write pipeline, and the key references it with
+`secret-file`. The secret itself stays out of the Plan. The file goes next to the
+D2 configuration when this process may create files there, else to
+`<conf dir>/pelagos` (pelagos:<kea group> 2750, made by the privileged helper:
+Debian's /etc/kea is _kea:_kea 0750). When neither works or Kea predates
+`secret-file`, the secret stays inline (Kea 3.1 and later refuse that at config-test).
 """
 
 from __future__ import annotations
 
+import grp
 import hashlib
+import logging
+import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBackend, PreconditionFailed
 from pelagos.connectors.kea.commands import normalize_version
-from pelagos.connectors.kea.config import canonical, config_diff, normalize_root
+from pelagos.connectors.kea.config import canonical, config_diff, normalize_root, version_tuple
 from pelagos.connectors.kea.configfile import ADOPT_FILE, ADOPT_TARGETS, KeaConfigFile
 from pelagos.connectors.kea.control_socket import DEFAULT_COMMAND_TIMEOUT, KeaControlSocket
 from pelagos.connectors.kea.schema import config_schema
 from pelagos.connectors.kea.secrets import masked_refusal
 from pelagos.core import settings_registry as reg
+from pelagos.core.plan_secrets import SECRET_FILE_PREFIX, SECRET_INLINE_PREFIX
 from pelagos.core.write_pipeline import FileChange
 from pelagos.domain import (
     Change,
@@ -42,6 +49,12 @@ from pelagos.domain import (
 )
 from pelagos.domain.messages import Message
 
+log = logging.getLogger(__name__)
+
+# D2 `secret-file` exists since Kea 2.5.8 (src/bin/d2/d2_lexer.ll at tags Kea-2.5.7 and
+# Kea-2.5.8, github.com/isc-projects/kea, checked 2026-10-28); every version accepts `secret`.
+SECRET_FILE_SINCE = (2, 5, 8)
+SECRET_SUBDIR = "pelagos"  # noqa: S105 (installer.keasetup.D2_SECRET_SUBDIR)
 _KEY_STAT = re.compile(r"^key\[(?P<key>[^\]]+)\]\.(?P<name>.+)$")
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 ROOT = "DhcpDdns"
@@ -85,6 +98,10 @@ def externalize_secrets(config: dict[str, Any], secret_dir: Path) -> tuple[dict[
     return out, files
 
 
+def _writable(directory: Path) -> bool:
+    return os.access(directory, os.W_OK | os.X_OK)
+
+
 def has_clear_secrets(config: dict[str, Any]) -> bool:
     return any(k.get("secret") for k in config.get("tsig-keys") or [])
 
@@ -95,6 +112,7 @@ class _PlanPrivate:
 
     expires_at: datetime
     secrets: dict[Path, str]
+    inline: dict[str, str] = field(default_factory=dict)  # key name -> new clear secret kept inline
     before: dict[str, Any] | None = None  # the real before state when it holds clear secrets
     backup: Path | None = None
     after_hash: str | None = None  # config-hash right after the apply: rollback refuses once it moved
@@ -125,6 +143,16 @@ def unmask_d2_keys(config: dict[str, Any], running: dict[str, Any]) -> tuple[dic
     return {**config, "tsig-keys": keys}, missing
 
 
+def new_inline_secrets(config: dict[str, Any], running: dict[str, Any]) -> dict[str, str]:
+    """{key name: clear secret} of the inline secrets `config` adds or changes against `running`."""
+    old = {str(k.get("name")): k.get("secret") for k in running.get("tsig-keys") or [] if isinstance(k, dict)}
+    return {
+        str(k.get("name")): str(k["secret"])
+        for k in config.get("tsig-keys") or []
+        if isinstance(k, dict) and k.get("secret") and k["secret"] != old.get(str(k.get("name")))
+    }
+
+
 def has_masked_secrets(config: Any) -> bool:
     return isinstance(config, dict) and any(k.get("secret") == MASK for k in config.get("tsig-keys") or [])
 
@@ -148,6 +176,10 @@ class D2Backend(DdnsBackend):
         )
         self.conf_path = Path(cfg.get("d2_conf", "/etc/kea/kea-dhcp-ddns.conf"))
         self.secret_dir = Path(cfg.get("d2_secret_dir", str(self.conf_path.parent)))
+        self.conf_secret_dir = self.secret_dir
+        self.own_secret_dir: Path | None = (
+            None if "d2_secret_dir" in cfg else self.conf_path.parent / SECRET_SUBDIR
+        )
         self.secret_group: str | None = cfg.get("kea_group")
         self.backup_root = Path(ctx.backup_root) / "d2"
         self.plan_ttl = int(reg.get(ctx.settings, "plans.ttl_seconds"))
@@ -220,7 +252,8 @@ class D2Backend(DdnsBackend):
         config, missing = unmask_d2_keys(config, before)
         if missing:
             raise ConnectorError(masked_refusal(missing))
-        new_cfg, secrets = externalize_secrets(config, self.secret_dir)
+        inline = has_clear_secrets(config) and self._secret_files_blocked()
+        new_cfg, secrets = (config, {}) if inline else externalize_secrets(config, self.secret_dir)
         if secrets:
             # The files do not exist yet, so Kea cannot test this configuration before apply.
             validation = ValidationResult(
@@ -232,18 +265,36 @@ class D2Backend(DdnsBackend):
         else:
             validation = self.config_test(new_cfg)
         masked_before = mask_secrets(before)
-        changes = [Change(ChangeOp.REPLACE, "config", before=masked_before, after=new_cfg)]
+        # Inline secrets stay out of the plan too: new or changed ones travel as secret-inline changes.
+        inline_new = new_inline_secrets(new_cfg, before) if inline else {}
+        after = mask_secrets(new_cfg) if inline else new_cfg
+        changes = [Change(ChangeOp.REPLACE, "config", before=masked_before, after=after)]
         for path, secret in secrets.items():
             digest = hashlib.sha256(secret.encode()).hexdigest()
             changes.append(
-                Change(ChangeOp.ADD, f"secret-file/{path.name}", after={"path": str(path), "sha256": digest})
+                Change(
+                    ChangeOp.ADD,
+                    f"{SECRET_FILE_PREFIX}{path.name}",
+                    after={"path": str(path), "sha256": digest},
+                )
+            )
+        for name, secret in inline_new.items():
+            digest = hashlib.sha256(secret.encode()).hexdigest()
+            changes.append(
+                Change(
+                    ChangeOp.REPLACE, f"{SECRET_INLINE_PREFIX}{name}", after={"key": name, "sha256": digest}
+                )
             )
         plan = Plan(
             scope=PlanScope.D2_CONFIG,
             node_id=self.ctx.node_id,
             **_summary(
                 messages.msg("plan.kea.replace_config", engine="kea-dhcp-ddns"),
-                messages.msg("note.secret_files", count=len(secrets)) if secrets else None,
+                messages.msg("note.secret_files", count=len(secrets))
+                if secrets
+                else messages.msg("note.secrets_inline")
+                if inline
+                else None,
             ),
             created_by=created_by,
             engine=Engine.D2,
@@ -264,45 +315,108 @@ class D2Backend(DdnsBackend):
             error=None if validation.ok else validation.output,
         )
         clear_before = has_clear_secrets(before)
-        if secrets or clear_before:
+        if secrets or inline_new or clear_before:
             self._private[plan.id] = _PlanPrivate(
                 expires_at=plan.expires_at or utcnow() + timedelta(seconds=self.plan_ttl),
                 secrets=secrets,
+                inline=inline_new,
                 before=before if clear_before else None,
             )
         return plan
 
+    def _kea_group(self) -> str | None:
+        """Configured `kea_group`, else the group of the D2 configuration file, else of its directory."""
+        if self.secret_group:
+            return self.secret_group
+        for path in (self.conf_path, self.secret_dir):
+            try:
+                return grp.getgrgid(path.stat().st_gid).gr_name
+            except (OSError, KeyError):
+                continue
+        return None
+
+    def _secret_files_blocked(self) -> str | None:
+        """Why clear secrets cannot go to files here (None when they can): Kea too old, or a
+        file Kea can read (Kea group, 0640) cannot be created in the secret directory."""
+        version = normalize_version(self.socket.version())
+        reason = None
+        if version_tuple(version) < SECRET_FILE_SINCE:
+            reason = f"Kea {version} has no secret-file"
+        elif not _writable(self.secret_dir) and not self._use_own_secret_dir():
+            reason = f"{self.secret_dir} is not writable by this process"
+        else:
+            group = self._kea_group()
+            try:
+                gid = grp.getgrnam(group).gr_gid if group else None
+            except KeyError:
+                gid = None
+            if gid is None:
+                reason = "the Kea group is unknown"
+            elif os.geteuid() != 0 and gid not in (os.getegid(), *os.getgroups()):
+                reason = f"this process is not in group {group}"
+        if reason:
+            log.info("D2 TSIG secrets kept inline: %s", reason)
+        return reason
+
+    def _use_own_secret_dir(self) -> bool:
+        """Switches to <conf dir>/pelagos, asking the privileged helper to make it when missing."""
+        own = self.own_secret_dir
+        if own is None:
+            return False
+        if not own.is_dir():
+            from pelagos.installer import helper
+
+            if helper.available():
+                try:
+                    helper.HelperClient(timeout=30).call("d2_secret_dir")
+                except helper.HelperError as exc:
+                    log.warning("D2 secret directory %s not created: %s", own, exc)
+        if own.is_dir() and _writable(own):
+            self.secret_dir = own
+            return True
+        return False
+
     # Secrets of plans applied on several nodes ---------------------------------------------------
 
     def plan_secrets(self, plan_id: str) -> dict[str, str]:
-        """{secret file path: clear secret} held for a plan this backend built; sealed into the plan
-        by `core.plan_secrets.seal_backend_secrets` before the plan goes to peers."""
+        """{secret file path or secret-inline/<key>: clear secret} held for a plan this backend built;
+        sealed into the plan by `core.plan_secrets.seal_backend_secrets` before it goes to peers."""
         self._sweep()
         private = self._private.get(plan_id)
-        return {str(path): secret for path, secret in (private.secrets if private else {}).items()}
+        if private is None:
+            return {}
+        out = {str(path): secret for path, secret in private.secrets.items()}
+        out.update({f"{SECRET_INLINE_PREFIX}{name}": secret for name, secret in private.inline.items()})
+        return out
 
     def accept_plan_secrets(self, plan: Plan, secrets: dict[str, str]) -> None:
         """Secrets of a plan built on another node: only the files the plan declares, matching digests."""
         self._sweep()
-        declared = {
-            str(c.after.get("path")): str(c.after.get("sha256") or "")
-            for c in plan.changes
-            if c.target.startswith("secret-file/") and isinstance(c.after, dict)
-        }
+        declared: dict[str, str] = {}
+        for c in plan.changes:
+            if isinstance(c.after, dict) and c.target.startswith(SECRET_FILE_PREFIX):
+                declared[str(c.after.get("path"))] = str(c.after.get("sha256") or "")
+            elif isinstance(c.after, dict) and c.target.startswith(SECRET_INLINE_PREFIX):
+                declared[c.target] = str(c.after.get("sha256") or "")
         accepted: dict[Path, str] = {}
+        inline: dict[str, str] = {}
         for path, secret in secrets.items():
             if path not in declared:
                 raise ConnectorError(f"secret for {path} is not declared by plan {plan.id}")
             if declared[path] and hashlib.sha256(secret.encode()).hexdigest() != declared[path]:
                 raise ConnectorError(f"secret for {path} does not match the plan digest")
+            if path.startswith(SECRET_INLINE_PREFIX):
+                inline[path[len(SECRET_INLINE_PREFIX) :]] = secret
+                continue
             if not self._is_secret_path(path):
                 raise ConnectorError(f"secret path {path} is outside {self.secret_dir}")
             accepted[Path(path)] = secret
-        if not accepted:
+        if not accepted and not inline:
             return
         expires = utcnow() + timedelta(seconds=self.plan_ttl)
         private = self._private.setdefault(plan.id, _PlanPrivate(expires_at=expires, secrets={}))
         private.secrets = accepted
+        private.inline = inline
 
     def _is_secret_path(self, path: str) -> bool:
         """Peers may only write `<d2_secret_dir>/<secret_file_name(...)>`, never an arbitrary file."""
@@ -311,7 +425,8 @@ class D2Backend(DdnsBackend):
         return (
             candidate.is_absolute()
             and ".." not in candidate.parts
-            and candidate.parent.resolve() == self.secret_dir.resolve()
+            and candidate.parent.resolve()
+            in {d.resolve() for d in (self.secret_dir, self.conf_secret_dir, self.own_secret_dir) if d}
             and name.endswith(".secret")
             and name == secret_file_name(name[: -len(".secret")])
         )
@@ -360,11 +475,32 @@ class D2Backend(DdnsBackend):
         change = self._config_change(plan)
         private = self._private.get(plan.id)
         secrets = private.secrets if private else {}
+        inline = private.inline if private else {}
         if private:
             # Secrets are no longer needed; what rollback needs stays for the rollback window.
-            private.secrets = {}
+            private.secrets, private.inline = {}, {}
             private.expires_at = utcnow() + timedelta(seconds=self.plan_ttl)
-        return self._remember(plan.id, self._write(dict(change.after), plan.id, secrets))
+        new_cfg, missing = self._clear_after(dict(change.after), inline)
+        if missing:
+            return NodeApplyResult(
+                node_id=self.ctx.node_id,
+                ok=False,
+                message=f"secrets of {', '.join(missing)} are no longer held for this plan; plan again",
+            )
+        return self._remember(plan.id, self._write(new_cfg, plan.id, secrets))
+
+    def _clear_after(self, after: dict[str, Any], inline: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
+        """A masked plan config with its inline secrets: the plan's new ones, else the running ones
+        (unchanged since planning, the config-hash precondition says so)."""
+        if not has_masked_secrets(after):
+            return after, []
+        keys = [
+            {**k, "secret": inline[str(k.get("name"))]}
+            if isinstance(k, dict) and k.get("secret") == MASK and str(k.get("name")) in inline
+            else k
+            for k in after.get("tsig-keys") or []
+        ]
+        return unmask_d2_keys({**after, "tsig-keys": keys}, self.config_get())
 
     def _remember(self, plan_id: str, result: NodeApplyResult) -> NodeApplyResult:
         if result.ok:
@@ -520,7 +656,7 @@ class D2Backend(DdnsBackend):
         except ConnectorError as exc:
             return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=str(exc))
         files = [
-            FileChange(path=path, content=secret.encode(), mode=0o640, group=self.secret_group)
+            FileChange(path=path, content=secret.encode(), mode=0o640, group=self._kea_group())
             for path, secret in secrets.items()
         ]
         pipeline = self._pipeline(new_cfg, before_hash, label, doc, before_body)

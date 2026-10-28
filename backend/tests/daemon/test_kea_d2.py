@@ -99,3 +99,29 @@ def test_d2_invalid_config_and_precondition(kea_d2, tmp_root):
     assert d2.apply(fresh).ok
     with pytest.raises(PreconditionFailed):
         d2.apply(stale)
+
+
+def test_d2_secret_goes_to_own_dir_when_kea_dir_is_closed(kea_d2, tmp_root):
+    """Debian's /etc/kea (_kea:_kea 0750) takes no file from Pelagos: the secret file goes to
+    <conf dir>/pelagos (setgid, Kea group) and Kea reads it; with no such directory either, the
+    secret stays inline, which Kea 3.1 and later refuse at config-test."""
+    d2 = make_d2(kea_d2, tmp_root)
+    d2.secret_dir = kea_d2.root / "closed"  # stands for a directory this process cannot write
+    own = kea_d2.root / "pelagos"
+    d2.own_secret_dir = own
+    blocked = d2.plan_config_replace({"DhcpDdns": with_new_key(d2.config_get())}, "tester")
+    assert [c.target for c in blocked.changes] == ["config", "secret-inline/ddi-extra"]
+    assert SECRET not in json.dumps(blocked.to_dict())
+    assert blocked.state is PlanState.FAILED and "NOT SECURE" in (blocked.error or "")
+
+    own.mkdir(mode=0o750)
+    own.chmod(0o2750)
+    plan = d2.plan_config_replace({"DhcpDdns": with_new_key(d2.config_get())}, "tester")
+    assert [c.target for c in plan.changes] == ["config", "secret-file/ddi-extra.secret"]
+    result = d2.apply(plan)
+    assert result.ok, result.message
+    secret_path = own / "ddi-extra.secret"
+    assert secret_path.read_text() == SECRET and secret_path.stat().st_mode & 0o777 == 0o640
+    running = {k["name"]: k for k in d2.config_get()["tsig-keys"]}
+    assert running["ddi-extra"]["secret-file"] == str(secret_path)
+    assert d2.rollback(plan).ok and not secret_path.exists()

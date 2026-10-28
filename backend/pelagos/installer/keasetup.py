@@ -472,6 +472,37 @@ def write_secret_file(env: Any, path: Path, secret: str) -> str:
     return f"{path} written"
 
 
+D2_SECRET_SUBDIR = "pelagos"  # noqa: S105 (a directory name)
+
+
+def ensure_d2_secret_dir(env: Any) -> Path:
+    """<Kea conf dir>/pelagos, pelagos:<kea group> 2750: D2 plans of the unprivileged node process
+    write TSIG secret files there (the Kea directory is not theirs), Kea reads them by group."""
+    from pelagos.platform import PELAGOS_USER
+
+    conf_dir = env.paths.kea_conf_dir
+    if not conf_dir.is_dir():
+        raise ValueError(f"{conf_dir} does not exist")
+    path = conf_dir / D2_SECRET_SUBDIR
+    try:
+        os.mkdir(path, 0o750)
+    except FileExistsError:
+        pass
+    uid = pwd.getpwnam(PELAGOS_USER).pw_uid
+    gid = grp.getgrnam(env.paths.kea_group).gr_gid
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise ValueError(f"{path} is not a directory: {exc.strerror}") from None
+    try:
+        os.fchown(fd, uid, gid)
+        os.fchmod(fd, 0o2750)  # setgid: files created inside take the Kea group
+    finally:
+        os.close(fd)
+    env.relabel([path])
+    return path
+
+
 def ensure_socket_access(env: Any, engine: str, version: str | None) -> str:
     """Kea before 3.0: a drop-in makes the control socket group-writable after each start."""
     if not needs_socket_dropin(version):
@@ -494,9 +525,11 @@ def ensure_socket_access(env: Any, engine: str, version: str | None) -> str:
 
 
 __all__ = [
+    "D2_SECRET_SUBDIR",
     "DAEMONS",
     "ROOT_KEYS",
     "SOCKET_NAMES",
+    "ensure_d2_secret_dir",
     "ensure_socket_access",
     "ensure_unix_socket",
     "insert_top_key",

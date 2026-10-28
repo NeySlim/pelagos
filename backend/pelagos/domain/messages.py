@@ -26,6 +26,7 @@ CATALOG: dict[str, str] = {
     "note.static_file_edit": "file edit, the zone stays static",
     "note.static_file_edit_on": "file edit on {node}, the zone stays static",
     "note.secret_files": "{count} secret files",
+    "note.secrets_inline": "TSIG secrets kept in the configuration",
     "note.ptr_sync": "PTR in {zones}",
     "note.ptr_overwrite": "the PTR of {ip} pointed to {targets} and is replaced",
     "note.ptr_kept_elsewhere": "the PTR of {ip} points to {targets} and is left as it is",

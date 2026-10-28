@@ -23,15 +23,14 @@ class SecretChannelError(Exception):
 
 
 def needs_sealing(plan: Plan) -> bool:
-    """A secret-file change without its sealed secret (a plan built by a peer arrives sealed)."""
+    """A secret change without its sealed secret (a plan built by a peer arrives sealed)."""
     return plan.scope is PlanScope.D2_CONFIG and any(
-        c.target.startswith(SECRET_FILE_PREFIX) and not (isinstance(c.after, dict) and c.after.get(SEALED))
-        for c in plan.changes
+        plan_secrets.is_secret_change(c.target, c.after) and not c.after.get(SEALED) for c in plan.changes
     )
 
 
 def sealed_copy(box: Any, plan: Plan, backend: Any) -> Plan:
-    """The plan as sent to peers: every secret-file change carries its secret sealed, or this raises."""
+    """The plan as sent to peers: every secret change carries its secret sealed, or this raises."""
     if not callable(getattr(backend, "plan_secrets", None)):
         raise SecretChannelError("this D2 connector cannot carry plan secrets")
     sent = Plan.from_dict(plan.to_dict())
@@ -39,9 +38,7 @@ def sealed_copy(box: Any, plan: Plan, backend: Any) -> Plan:
         sealed = plan_secrets.seal_backend_secrets(sent, backend, box)
     except Exception as exc:
         raise SecretChannelError(str(exc)) from None
-    expected = sum(
-        1 for c in sent.changes if c.target.startswith(SECRET_FILE_PREFIX) and isinstance(c.after, dict)
-    )
+    expected = sum(1 for c in sent.changes if plan_secrets.is_secret_change(c.target, c.after))
     if sealed < expected:
         raise SecretChannelError("the secrets of this plan are no longer held by this node")
     return sent

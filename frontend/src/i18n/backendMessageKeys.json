@@ -790,6 +790,7 @@
   "note.secret_files": [
     "count"
   ],
+  "note.secrets_inline": [],
   "note.static_file_edit": [],
   "note.static_file_edit_on": [
     "node"

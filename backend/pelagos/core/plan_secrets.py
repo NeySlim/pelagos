@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Secrets a plan must carry to other nodes (Kea D2 TSIG secret files), sealed with the master key.
+"""Secrets a plan must carry to other nodes (Kea D2 TSIG secrets), sealed with the master key.
 
-A `secret-file/<name>` change keeps `after = {"path", "sha256"}` and gains `"sealed"`: the clear
+A `secret-file/<name>` change keeps `after = {"path", "sha256"}`, a `secret-inline/<key>` change
+(a secret that stays in the D2 configuration) `after = {"key", "sha256"}`; both gain `"sealed"`: the clear
 secret encrypted with the cluster master key (section 12), AAD `plan/<plan id>/<change target>` so
 it cannot be replayed into another plan or file. Every node holds the master key; nothing else can
 read it, and the secret never appears in clear in a plan, a response or the audit log.
@@ -17,7 +18,18 @@ from pelagos.core.secrets import SecretBox, SecretError
 from pelagos.domain.plan import Plan
 
 SECRET_FILE_PREFIX = "secret-file/"  # noqa: S105 (a Change.target prefix)
+SECRET_INLINE_PREFIX = "secret-inline/"  # noqa: S105 (a Change.target prefix)
+SECRET_PREFIXES = (SECRET_FILE_PREFIX, SECRET_INLINE_PREFIX)
 SEALED = "sealed"
+
+
+def is_secret_change(target: str, after: Any) -> bool:
+    return target.startswith(SECRET_PREFIXES) and isinstance(after, dict)
+
+
+def secret_id(target: str, after: dict[str, Any]) -> str:
+    """What a backend names a secret by: the file path, or the change target for an inline secret."""
+    return target if target.startswith(SECRET_INLINE_PREFIX) else str(after.get("path", ""))
 
 
 def _aad(plan: Plan, target: str) -> str:
@@ -25,14 +37,14 @@ def _aad(plan: Plan, target: str) -> str:
 
 
 def seal_plan_secrets(plan: Plan, secrets: Mapping[str, str], box: SecretBox) -> int:
-    """Encrypt each secret into the `secret-file/` change whose `after.path` names it; returns the count."""
+    """Encrypt each secret into the change `secret_id` names it by; returns the count."""
     sealed = 0
     for change in plan.changes:
-        if not change.target.startswith(SECRET_FILE_PREFIX) or not isinstance(change.after, dict):
+        if not is_secret_change(change.target, change.after):
             continue
-        path = str(change.after.get("path", ""))
-        if path in secrets:
-            change.after[SEALED] = box.encrypt(_aad(plan, change.target), secrets[path])
+        name = secret_id(change.target, change.after)
+        if name in secrets:
+            change.after[SEALED] = box.encrypt(_aad(plan, change.target), secrets[name])
             sealed += 1
     return sealed
 
@@ -42,18 +54,18 @@ def without_sealed(changes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
     for change in changes:
         after = change.get("after")
-        if str(change.get("target", "")).startswith(SECRET_FILE_PREFIX) and isinstance(after, dict):
+        if is_secret_change(str(change.get("target", "")), after):
             change = {**change, "after": {k: v for k, v in after.items() if k != SEALED}}
         out.append(change)
     return out
 
 
 def unseal_plan_secrets(plan: Plan, box: SecretBox) -> dict[str, str]:
-    """{path: clear secret} of every sealed change; raises SecretError on a wrong key or digest."""
+    """{secret id: clear secret} of every sealed change; raises SecretError on a wrong key or digest."""
     out: dict[str, str] = {}
     for change in plan.changes:
         after = change.after
-        if not change.target.startswith(SECRET_FILE_PREFIX) or not isinstance(after, dict):
+        if not is_secret_change(change.target, after):
             continue
         token = after.get(SEALED)
         if not token:
@@ -62,7 +74,7 @@ def unseal_plan_secrets(plan: Plan, box: SecretBox) -> dict[str, str]:
         digest = after.get("sha256")
         if digest and hashlib.sha256(secret.encode()).hexdigest() != digest:
             raise SecretError(f"sealed secret of {change.target} does not match its digest")
-        out[str(after.get("path", ""))] = secret
+        out[secret_id(change.target, after)] = secret
     return out
 
 

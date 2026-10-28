@@ -203,3 +203,28 @@ def test_give_back_failure_is_reported(served, monkeypatch, caplog):
     with caplog.at_level("WARNING"):
         assert "not restored" in helper._give_back(served)
     assert "not restored" in caplog.text
+
+
+def test_d2_secret_dir_is_made_for_pelagos_with_the_kea_group(tmp_path, monkeypatch):
+    """Debian's /etc/kea is _kea:_kea 0750: the helper makes <conf dir>/pelagos for D2 secret files."""
+    from types import SimpleNamespace
+
+    from pelagos.installer import keasetup
+
+    owners: list[tuple[int, int]] = []
+    monkeypatch.setattr(keasetup.os, "fchown", lambda fd, uid, gid: owners.append((uid, gid)))
+    monkeypatch.setattr(keasetup.pwd, "getpwnam", lambda name: SimpleNamespace(pw_uid=4242))
+    monkeypatch.setattr(keasetup.grp, "getgrnam", lambda name: SimpleNamespace(gr_gid=4343))
+    env = SimpleNamespace(
+        paths=SimpleNamespace(kea_conf_dir=tmp_path, kea_group="_kea"), relabel=lambda paths: None
+    )
+    out = helper.handle({"op": "d2_secret_dir"}, lambda: env, lambda _m: None)
+    made = tmp_path / "pelagos"
+    assert out == {"path": str(made)} and owners == [(4242, 4343)]
+    assert made.stat().st_mode & 0o7777 == 0o2750
+    assert helper.handle({"op": "d2_secret_dir"}, lambda: env, lambda _m: None) == out
+
+    made.rmdir()
+    made.symlink_to(tmp_path / "elsewhere")
+    with pytest.raises(helper.HelperError, match="not a directory"):
+        helper.handle({"op": "d2_secret_dir"}, lambda: env, lambda _m: None)

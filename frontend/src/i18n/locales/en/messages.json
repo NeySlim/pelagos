@@ -191,6 +191,7 @@
   "note.secret_files": "{{count}} secret files",
   "note.secret_files_one": "{{count}} secret file",
   "note.secret_files_other": "{{count}} secret files",
+  "note.secrets_inline": "TSIG secrets kept in the configuration",
   "note.static_file_edit": "file edit, the zone stays static",
   "note.static_file_edit_on": "file edit on {{node}}, the zone stays static",
   "op.add": "add",

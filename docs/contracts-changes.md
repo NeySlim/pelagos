@@ -1669,3 +1669,12 @@ WP-COLLECTOR: `ArchiveRunner(targets=...)`, destinations and pruning after each 
 a peer is read with `ReplicationClient.fetch_archive`). The OpenSSH client (`openssh-client`,
 `openssh-clients` on RHEL) is needed only on nodes with an `sftp` destination.
 
+## 2026-10-28, D2 TSIG secret files on Debian
+Additive. WP-KEA: `connectors/kea/d2.py` writes secret files with the Kea group (`kea_group`,
+else the group of `d2_conf`) in `d2_secret_dir`, else `<conf dir>/pelagos`; with neither, or
+Kea before 2.5.8, the secret stays inline and a new or changed one travels as the change
+`secret-inline/<key>` (after `{"key", "sha256"}`, sealed like `secret-file/`). WP-CORE:
+`core/plan_secrets.py` seals both kinds (`SECRET_INLINE_PREFIX`, `is_secret_change`,
+`secret_id`). WP-INSTALLER: helper operation `d2_secret_dir`,
+`keasetup.ensure_d2_secret_dir`. Contract (`domain/messages.py`): `note.secrets_inline`.
+WP-FRONTEND: its en and fr texts.

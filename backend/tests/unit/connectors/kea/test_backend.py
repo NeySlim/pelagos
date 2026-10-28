@@ -568,6 +568,98 @@ def d2_with(tmp_root):
     return d2, fake
 
 
+def _d2_with_extra_key(
+    tmp_root: Path, secret_dir: Path, version: str = "3.2.1"
+) -> tuple[D2Backend, FakeKea, dict]:
+    d2 = D2Backend(
+        make_ctx(tmp_root, d2_conf=str(tmp_root / "kea-dhcp-ddns.conf"), d2_secret_dir=str(secret_dir))
+    )
+    fake = FakeKea("DhcpDdns", config_of("kea32-d2-config-get"), version)
+    d2.socket = fake
+    cfg = d2.config_get()
+    cfg["tsig-keys"].append({"name": "extra", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0c2VjcmV0"})
+    return d2, fake, cfg
+
+
+@pytest.mark.parametrize("case", ["read-only dir", "kea 2.5.7"])
+def test_d2_secret_stays_inline_when_no_file_can_be_written(tmp_root, case):
+    # Debian's /etc/kea is _kea:_kea 0750: the pelagos user cannot create a secret file there.
+    import os
+
+    if case == "read-only dir" and os.geteuid() == 0:
+        pytest.skip("root writes any directory")
+    secret_dir = tmp_root / "kea"
+    secret_dir.mkdir()
+    if case == "read-only dir":
+        secret_dir.chmod(0o550)
+    d2, fake, cfg = _d2_with_extra_key(tmp_root, secret_dir, "3.2.1" if case == "read-only dir" else "2.5.7")
+    try:
+        plan = d2.plan_config_replace({"DhcpDdns": cfg})
+        assert [c.target for c in plan.changes] == ["config", "secret-inline/extra"]
+        assert plan.state is PlanState.VALIDATED and "kept in the configuration" in plan.summary
+        assert "c2VjcmV0c2VjcmV0" not in json.dumps(plan.to_dict())
+        assert d2.apply(plan).ok
+        assert fake.cfg["tsig-keys"][-1]["secret"] == "c2VjcmV0c2VjcmV0"
+        assert not list(secret_dir.iterdir())
+    finally:
+        secret_dir.chmod(0o750)
+
+
+def test_d2_inline_secrets_travel_sealed_and_running_ones_stay(tmp_root):
+    """A running inline key edited elsewhere keeps its secret; a new inline secret reaches the
+    node that applies the plan only through plan_secrets/accept_plan_secrets."""
+    from pelagos.core import plan_secrets
+    from pelagos.core.secrets import SecretBox
+
+    secret_dir = tmp_root / "kea"
+    secret_dir.mkdir()
+    d2, fake, cfg = _d2_with_extra_key(tmp_root, secret_dir, "2.5.7")
+    fake.cfg["tsig-keys"] = [{"name": "kea-ddns", "algorithm": "HMAC-MD5", "secret": "b2xkc2VjcmV0b2xk"}]
+    cfg = d2.config_get()
+    cfg["tsig-keys"] = [{"name": "kea-ddns", "algorithm": "HMAC-MD5", "secret": "***"}]
+    cfg["dns-server-timeout"] = 600
+    plan = d2.plan_config_replace({"DhcpDdns": cfg})
+    assert [c.target for c in plan.changes] == ["config"]
+    assert "b2xkc2VjcmV0b2xk" not in json.dumps(plan.to_dict())
+    assert d2.apply(plan).ok
+    assert fake.cfg["tsig-keys"][0]["secret"] == "b2xkc2VjcmV0b2xk" and fake.cfg["dns-server-timeout"] == 600
+
+    cfg["tsig-keys"] = [{"name": "kea-ddns", "algorithm": "HMAC-MD5", "secret": "bmV3c2VjcmV0bmV3"}]
+    plan = d2.plan_config_replace({"DhcpDdns": cfg})
+    box = SecretBox(b"k" * 32)
+    assert plan_secrets.seal_backend_secrets(plan, d2, box) == 1
+    sent = type(plan).from_dict(json.loads(json.dumps(plan.to_dict())))
+    assert "bmV3c2VjcmV0bmV3" not in json.dumps(
+        plan_secrets.without_sealed([c.to_dict() for c in sent.changes])
+    )
+    other = D2Backend(
+        make_ctx(tmp_root, d2_conf=str(tmp_root / "kea-dhcp-ddns.conf"), d2_secret_dir=str(secret_dir))
+    )
+    other.socket = fake
+    assert plan_secrets.hand_secrets_to_backend(sent, other, box) == 1
+    assert other.apply(sent).ok
+    assert fake.cfg["tsig-keys"][0]["secret"] == "bmV3c2VjcmV0bmV3"
+
+
+def test_d2_secret_file_takes_the_kea_group(tmp_root):
+    # Kea reads the file through its group: the one of its configuration file, not ours.
+    import grp
+    import os
+
+    others = [g for g in os.getgroups() if g != os.getegid()]
+    if not others:
+        pytest.skip("no supplementary group to stand for the Kea group")
+    conf = tmp_root / "kea-dhcp-ddns.conf"
+    conf.write_text("{}")
+    os.chown(conf, -1, others[0])
+    d2, _, cfg = _d2_with_extra_key(tmp_root, tmp_root)
+    plan = d2.plan_config_replace({"DhcpDdns": cfg})
+    assert plan.changes[1].target == "secret-file/extra.secret"
+    assert d2.apply(plan).ok
+    st = (tmp_root / "extra.secret").stat()
+    assert (st.st_gid, st.st_mode & 0o777) == (others[0], 0o640), grp.getgrgid(st.st_gid).gr_name
+
+
 def test_d2_running_clear_secret_stays_out_of_plans(tmp_root):
     d2, fake = d2_with(tmp_root)
     fake.cfg["tsig-keys"] = [{"name": "old", "algorithm": "HMAC-SHA256", "secret": "b2xkc2VjcmV0b2xk"}]

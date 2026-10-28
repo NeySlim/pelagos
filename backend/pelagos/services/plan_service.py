@@ -32,7 +32,7 @@ from pelagos.domain import (
     normalize_name,
     utcnow,
 )
-from pelagos.services import d2_secrets
+from pelagos.services import d2_secrets, key_sync
 from pelagos.services.engine_lock import engine_lock
 from pelagos.services.events import EventHub
 from pelagos.services.masking import mask_text_values, masked, masked_text
@@ -244,6 +244,8 @@ class PlanService:
             results.append(NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=plan.error))
         for part in parts:
             part.state = plan.state
+        if plan.state is PlanState.APPLIED:
+            key_sync.sync_quietly(self.ctx, self.registry, parts)
         self.ctx.plan_store.update(plan)
         self.ctx.plan_store.touch(plan)
         note = self._audit_summary(plan, user, client_ip)
@@ -492,6 +494,7 @@ class PlanService:
             part.state = plan.state
             part.interrupted = False
         plan.interrupted = False
+        key_sync.sync_quietly(self.ctx, self.registry, parts)
         self.ctx.plan_store.update(plan)
         note = self._audit_summary(plan, user, client_ip, verb="rollback")
         if note:

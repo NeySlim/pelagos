@@ -27,8 +27,10 @@ LISTENER_KINDS = frozenset(
         "kea_ha_listener_open",
     }
 )
-# Something Pelagos manages was changed outside it (installer.drift).
-DRIFT_KINDS = frozenset({"managed_drift"})
+# Something Pelagos manages was changed outside it (installer.drift), or a shared read or admin key
+# whose keys.conf secret is not cluster.toml's (installer.shared_keys, critical: transfers fail).
+DRIFT_KINDS = frozenset({"managed_drift", "shared_key_divergence"})
+CRITICAL_KINDS = frozenset({"shared_key_divergence"})
 ALERT_KINDS = frozenset(
     {AlertKind.INSECURE_KEY.value, AlertKind.INSECURE_LISTENER.value, AlertKind.MANAGED_DRIFT.value}
 )
@@ -75,7 +77,7 @@ def security_outcome(
         alerts.append(
             Alert(
                 kind=alert_kind,
-                severity=Severity.WARNING,
+                severity=Severity.CRITICAL if kind in CRITICAL_KINDS else Severity.WARNING,
                 subject=f"{engine}:{f.get('subject')}",
                 title=str(f.get("description") or kind),
                 title_message=f.get("description_message"),

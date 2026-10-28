@@ -2098,7 +2098,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `version_mismatch` | info, warning | nodes run different versions of BIND, kea4 or kea6 (warning when the series differs); cluster-wide, subject `<engine>:version` |
 | `ddns_advice` | warning, info | kea-dhcp-ddns lists a single DNS server for a domain while two or more nodes serve DNS (warning, subject `d2:dns-servers`; D2 uses the servers of a domain first to last, Kea 2.6 ARM "DNS Servers"; `details.remediation` `ddns_prepare` offers the prepare plan of section 24); named `UpdateRej` over the last day at or above `checks.update_denied_warning_per_hour` (info, subject `bind:update-denied`; suggests `ddns-override-client-update` and `ddns-replace-client-name`) |
 | `config_syntax_warning` | warning | Kea parses its configuration file but warns (`DHCPx_CONFIG_SYNTAX_WARNING`, e.g. `Extraneous comma`); read from the file tree with the file, line and column Kea reports; per node, subject `<engine>:config-syntax`; details `warnings`, `count`, `path`; also listed in the `syntax_warnings` of `GET /dhcp/{family}/config/file` |
-| `managed_drift` | warning | Something Pelagos manages was changed outside it (security audit finding `managed_drift`, section 15): the HA listener guard, a Kea HA relationship, a file Pelagos owns; per node, subject `kea:<object>`; details `finding_id`, `proposal`; resolved when the object matches again (adopt or restore plan) |
+| `managed_drift` | warning, critical for `shared_key_divergence` | Something Pelagos manages was changed outside it (security audit finding `managed_drift`, section 15): the HA listener guard, a Kea HA relationship, a file Pelagos owns; per node, subject `kea:<object>`; details `finding_id`, `finding_kind`, `proposal`; resolved when the object matches again (adopt or restore plan). Also raised by the finding `shared_key_divergence` (subject `bind:<key>`), resolved by its security plan |
 | `restart_loop` | critical | `checks.restart_loop_count` restarts in `restart_loop_window_seconds`; subject `engine:<engine>` |
 | `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; subject is the pool subject |
 | `security_advisory` | info, warning | the upstream version of an installed BIND or Kea falls in a range of `pelagos/data/isc_advisories.json` (`ranges_preview` for `-S` versions); subject `<engine>:<CVE id>`; details `cve`, `version`, `fixed_in`, `url`, `cvss`, `dataset_verified` |
@@ -2680,6 +2680,18 @@ relationship is recorded when the audit first sees it and again after a Pelagos
 write of that engine (the engine write mark), except when the audit had already
 reported that same difference before the write. A guard loaded by the 0.1.2
 plan and a drop-in with the managed header are recorded as found.
+
+Every node signs with the same read and admin keys (`dns.read_key`, `dns.admin_key` and the keys of
+`dns.view_keys`), whose secret cluster.toml holds as `tsig/<name>` (always hmac-sha256). The audit
+(`installer/shared_keys.py`) reports `shared_key_divergence` (critical, subject the key name, details
+`key`, `file`, `differs`: `secret`, `algorithm`; never a secret) for each such key of keys.conf whose
+secret or algorithm differs from cluster.toml: a node imported before replication brought its peers'
+keys made its own. The remediation `shared_key` rewrites the key in keys.conf from cluster.toml
+through the BIND pipeline (named-checkconf, `rndc reconfig`, file restored on failure); with
+`selection` each divergent node fixes its own file. A key plan (`dns.key`, `dns.config`) applied or
+rolled back on a node copies that node's keys.conf secret of a shared key into cluster.toml
+(`services/key_sync.py`), so the nodes left with the old secret are the ones reported; such a key
+stays hmac-sha256 (`POST /dns/keys/plan` refuses another algorithm).
 
 The audit also checks the modes and owners of the BIND files
 (`installer/bind_files.py`, finding `bind_file_mode`, one per category:

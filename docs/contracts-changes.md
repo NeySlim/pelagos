@@ -1816,3 +1816,11 @@ write goes through `WritePipeline.privileged` (`configfile.with_helper`), `prefl
 (`PeerGateway.preflight_plan`), problem code `preflight_failed` (409). Contract
 (`domain/messages.py`): `problem.preflight_failed`. WP-FRONTEND: its en and fr texts.
 
+## 2026-10-28, shared read and admin keys held to cluster.toml
+Additive. Architecture section 15: security finding `shared_key_divergence` (remediation
+`shared_key`), raised as a critical `managed_drift` alert with subject `bind:<key>`; a key plan on
+a shared key copies the node's secret into cluster.toml after apply or rollback; `POST
+/dns/keys/plan` keeps a shared key hmac-sha256. Contract (`domain/messages.py`):
+`finding.shared_key_divergence.description`, `.proposal`, `.risk`. WP-INSTALLER:
+`installer/shared_keys.py`. WP-COLLECTOR: `collector/security.py` maps the finding. WP-API-AUTH:
+`services/key_sync.py`, hook in `PlanService`. WP-FRONTEND: en and fr texts.

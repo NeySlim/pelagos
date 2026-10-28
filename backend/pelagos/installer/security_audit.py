@@ -44,6 +44,7 @@ from pelagos.installer import (
     keaconf,
     keasetup,
     managed,
+    shared_keys,
     zone_audit,
 )
 from pelagos.installer.bindconf import ConfigFiles, Statement
@@ -1052,6 +1053,11 @@ def run_audit(env: Any) -> list[Finding]:
     if kea_in is not None:
         kea_in.bind_keys = bind_keys
         findings += audit_kea(kea_in)
+    if bind_in is not None:
+        try:
+            findings += shared_keys.audit(env)
+        except Exception as exc:  # an unreadable cluster.toml never hides the other findings
+            log.warning("shared key checks not run: %s", exc)
     try:
         findings += drift.audit(env)
     except Exception as exc:  # drift checks never hide the security findings
@@ -1775,6 +1781,7 @@ def remediate_ha_listener(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> s
 
 
 REMEDIATIONS = {
+    "shared_key": shared_keys.remediate,
     "tsig_key": remediate_tsig_key,
     "rndc_key": remediate_rndc_key,
     "update_policy": remediate_update_policy,

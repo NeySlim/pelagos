@@ -657,6 +657,16 @@
     "allowed"
   ],
   "finding.rndc_nonlocal.risk": [],
+  "finding.shared_key_divergence.description": [
+    "key",
+    "node"
+  ],
+  "finding.shared_key_divergence.proposal": [
+    "key"
+  ],
+  "finding.shared_key_divergence.risk": [
+    "key"
+  ],
   "finding.static_zone.description": [
     "zone"
   ],

@@ -220,6 +220,12 @@ def test_keys_secrets_and_masking(role_client, fake_dns):
         json={"change": {"op": "add", "target": "k1", "after": {"algorithm": "hmac-md5"}}},
     )
     assert weak.status_code == 400
+    # A shared key stays hmac-sha256: cluster.toml keeps its secret, never its algorithm.
+    shared = dora.post(
+        "/api/v1/dns/keys/plan",
+        json={"change": {"op": "replace", "target": "keys/ddi-read", "after": {"algorithm": "hmac-sha512"}}},
+    )
+    assert shared.status_code == 400 and "hmac-sha256" in shared.get_json()["detail"]
     r = dora.post("/api/v1/dns/keys/plan", json={"change": {"op": "add", "target": "keys/k1", "after": {}}})
     assert r.status_code == 200
     plan = r.get_json()

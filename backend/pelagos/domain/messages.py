@@ -550,6 +550,19 @@ CATALOG: dict[str, str] = {
         "and reloaded and rolled back if the test fails; a guard is put back as it was if the peers' "
         "packets stop getting through."
     ),
+    "finding.shared_key_divergence.description": (
+        "Key {key} in keys.conf on {node} differs from the shared secret of cluster.toml: transfers and "
+        "updates signed by the other nodes fail on this node."
+    ),
+    "finding.shared_key_divergence.proposal": (
+        "Rewrite key {key} in keys.conf with the secret of cluster.toml (hmac-sha256) and reload named "
+        "(rndc reconfig)."
+    ),
+    "finding.shared_key_divergence.risk": (
+        "named-checkconf validates the file first and it is put back if the check or the reload fails. "
+        "A client outside the cluster that signs with this node's current secret of {key} is refused "
+        "afterwards: give it the shared secret."
+    ),
     "drift.object.ha_guard": "The HA listener guard ({table})",
     "drift.object.kea_ha": "The {engine} HA relationship of {server}",
     "drift.object.file": "The file {path}",

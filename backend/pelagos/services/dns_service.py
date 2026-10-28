@@ -619,6 +619,14 @@ class DnsService(DnsExtras):
                     f"algorithm {algorithm} is not allowed; use hmac-sha256 or stronger",
                     [field_error("change.after.algorithm", "weak algorithm")],
                 )
+            from pelagos.installer.shared_keys import shared_key_names
+
+            if algorithm != "hmac-sha256" and name in shared_key_names(self.ctx.settings()):
+                # cluster.toml keeps the secret of a shared key, never its algorithm.
+                raise ValidationError(
+                    f"{name} is shared by every node and stays hmac-sha256",
+                    [field_error("change.after.algorithm", "shared key")],
+                )
             change.after = {**after, "name": name, "algorithm": algorithm}
         return self._store(self._local().plan_config_change([change], created_by))
 

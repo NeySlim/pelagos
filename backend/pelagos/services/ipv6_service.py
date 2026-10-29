@@ -102,7 +102,7 @@ def source_problems(
 
 def _sources_enabled(settings: Any, modules: Mapping[str, Any]) -> bool:
     """The observer polls something: neighbors on, or the dhcpv6 module on."""
-    return bool(reg.domain(settings, DOMAIN).get("neighbors_enabled", True) or modules.get("dhcpv6"))
+    return bool(reg.get(settings, "ipv6.neighbors_enabled") or modules.get("dhcpv6"))
 
 
 def _late(settings: Any) -> int:

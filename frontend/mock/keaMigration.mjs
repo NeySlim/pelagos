@@ -23,8 +23,8 @@ export function keaMigrationHandlers(state, { Problem, invalid }) {
     node_id: n.peer.id, name: n.peer.name, reachable: true, error: null, arch: 'amd64',
     distro: { id: 'debian', codename: 'trixie' },
     engines: {
-      kea4: { version: '2.6.3', series: '2.6', source: 'distro', package: 'kea-dhcp4-server', maintained: false },
-      d2: { version: '2.6.3', series: '2.6', source: 'distro', package: 'kea-dhcp-ddns-server', maintained: false },
+      kea4: { version: '2.6.3', series: '2.6', source: 'distro', package: 'kea-dhcp4-server', maintained: false, eol: '2026-07-30', successor: '3.2' },
+      d2: { version: '2.6.3', series: '2.6', source: 'distro', package: 'kea-dhcp-ddns-server', maintained: false, eol: '2026-07-30', successor: '3.2' },
     },
   }))
   const finding = (severity, code, node_id, engine, path, params, action, reference = KB_30) => ({

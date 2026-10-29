@@ -1,7 +1,8 @@
 {
   "nav": {
     "install": "Install and import",
-    "security": "Security audit"
+    "security": "Security audit",
+    "keaMigration": "Kea migration"
   },
   "pages": {
     "detect": {
@@ -11,6 +12,10 @@
     "security": {
       "title": "Security audit",
       "subtitle": "Findings and their remediation plan"
+    },
+    "keaMigration": {
+      "title": "Kea migration",
+      "subtitle": "What moving from Kea 2.6 to 3.x would change, analyzed without touching the nodes"
     }
   },
   "engines": {
@@ -188,6 +193,86 @@
       "adopt": "Adopt the hand-made guard",
       "legacyHelp": "A guard was set up outside Pelagos ({{source}}). Adopting it loads the same addresses into Pelagos's guard first, then retires the old one: the listener stays guarded throughout.",
       "nothing": "none"
+    }
+  },
+  "keaMigration": {
+    "refresh": "Read again",
+    "obsoleteNote": "A node runs a Kea series that ISC no longer maintains. Analyze the migration: nothing changes on the nodes.",
+    "nodes": {
+      "title": "Kea on each node",
+      "node": "Node",
+      "engine": "Daemon",
+      "version": "Version",
+      "source": "Packages",
+      "package": "Package",
+      "support": "ISC support",
+      "noKea": "No Kea daemon installed",
+      "unreachable": "Did not answer: {{error}}",
+      "maintained": "{{series}} maintained",
+      "obsolete": "{{series}} no longer maintained",
+      "obsoleteSince": "{{series}} no longer maintained since {{date}}"
+    },
+    "source": {
+      "distro": "Distribution",
+      "isc": "ISC",
+      "backports": "Debian backports",
+      "unknown": "Unknown"
+    },
+    "target": {
+      "title": "Target",
+      "label": "Target series and packages",
+      "option": "Kea {{series}} from {{source}}",
+      "recommended": "recommended",
+      "unavailable": "not available on every node",
+      "analyze": "Analyze",
+      "help": "One target for the whole cluster. The analysis downloads the target packages into a temporary directory on each node and checks the converted files with their daemons: nothing is installed or changed.",
+      "running": "Analysis running: each node downloads the target packages and checks its files, this can take a few minutes.",
+      "backportsNote": "Debian backports come with no security support commitment."
+    },
+    "report": {
+      "title": "Analysis for Kea {{series}} from {{source}}",
+      "by": "By {{user}}, {{date}}",
+      "blocking": "Blocking findings remain: the migration cannot start until they are fixed.",
+      "ready": "No blocking finding: Pelagos can convert everything listed.",
+      "notValidated": "Some files were not checked by the target daemons (dry run skipped or failed): see each node.",
+      "outage": "Estimated DHCP outage: {{seconds}} s",
+      "action": "What Pelagos does",
+      "reference": "ISC reference",
+      "diff": "Diff of {{engine}}, 2.6 to the target",
+      "cluster": "Cluster",
+      "none": "No analysis yet: choose a target and analyze."
+    },
+    "severity": {
+      "blocking": "Blocking",
+      "converted": "Converted",
+      "behavior": "Behavior change",
+      "info": "Information"
+    },
+    "severityHelp": {
+      "blocking": "Must be fixed by hand before the migration.",
+      "converted": "Pelagos converts these when it writes the 3.x files.",
+      "behavior": "Kea 3 behaves differently here: read before migrating.",
+      "info": "For information."
+    },
+    "action": {
+      "convert": "convert",
+      "add_hook": "add the hook",
+      "move_path": "move the file",
+      "stop_service": "stop and disable the service",
+      "propose": "proposal",
+      "manual": "by hand",
+      "none": "nothing"
+    },
+    "validation": {
+      "ok": "checked",
+      "failed": "refused",
+      "skipped": "not checked"
+    },
+    "packages": {
+      "remove_one": "{{count}} package removed",
+      "remove_other": "{{count}} packages removed",
+      "install_one": "{{count}} package installed",
+      "install_other": "{{count}} packages installed"
     }
   }
 }

@@ -1,7 +1,8 @@
 {
   "nav": {
     "install": "Installation et import",
-    "security": "Audit de sécurité"
+    "security": "Audit de sécurité",
+    "keaMigration": "Migration Kea"
   },
   "pages": {
     "detect": {
@@ -11,6 +12,10 @@
     "security": {
       "title": "Audit de sécurité",
       "subtitle": "Constats et plan de correction"
+    },
+    "keaMigration": {
+      "title": "Migration Kea",
+      "subtitle": "Ce que changerait le passage de Kea 2.6 à 3.x, analysé sans toucher aux nœuds"
     }
   },
   "engines": {
@@ -188,6 +193,86 @@
       "adopt": "Reprendre la garde posée à la main",
       "legacyHelp": "Une garde a été posée hors de Pelagos ({{source}}). La reprendre charge d'abord les mêmes adresses dans la garde de Pelagos, puis retire l'ancienne : le listener reste protégé tout du long.",
       "nothing": "aucune"
+    }
+  },
+  "keaMigration": {
+    "refresh": "Relire",
+    "obsoleteNote": "Un nœud fait tourner une série de Kea qu'ISC ne maintient plus. Analysez la migration : rien ne change sur les nœuds.",
+    "nodes": {
+      "title": "Kea sur chaque nœud",
+      "node": "Nœud",
+      "engine": "Démon",
+      "version": "Version",
+      "source": "Paquets",
+      "package": "Paquet",
+      "support": "Suivi ISC",
+      "noKea": "Aucun démon Kea installé",
+      "unreachable": "N'a pas répondu : {{error}}",
+      "maintained": "{{series}} maintenue",
+      "obsolete": "{{series}} plus maintenue",
+      "obsoleteSince": "{{series}} plus maintenue depuis le {{date}}"
+    },
+    "source": {
+      "distro": "Distribution",
+      "isc": "ISC",
+      "backports": "Backports Debian",
+      "unknown": "Inconnue"
+    },
+    "target": {
+      "title": "Cible",
+      "label": "Série et paquets cibles",
+      "option": "Kea {{series}}, paquets {{source}}",
+      "recommended": "recommandée",
+      "unavailable": "pas disponible sur tous les nœuds",
+      "analyze": "Analyser",
+      "help": "Une seule cible pour tout le cluster. L'analyse télécharge les paquets cibles dans un dossier temporaire de chaque nœud et fait vérifier les fichiers convertis par leurs démons : rien n'est installé ni modifié.",
+      "running": "Analyse en cours : chaque nœud télécharge les paquets cibles et vérifie ses fichiers, cela peut prendre quelques minutes.",
+      "backportsNote": "Les backports Debian n'ont aucun engagement de suivi de sécurité."
+    },
+    "report": {
+      "title": "Analyse pour Kea {{series}}, paquets {{source}}",
+      "by": "Par {{user}}, {{date}}",
+      "blocking": "Des constats bloquants restent : la migration ne peut pas commencer avant leur correction.",
+      "ready": "Aucun constat bloquant : Pelagos sait convertir tout ce qui est listé.",
+      "notValidated": "Certains fichiers n'ont pas été vérifiés par les démons cibles (validation à blanc sautée ou en échec) : voir chaque nœud.",
+      "outage": "Coupure DHCP estimée : {{seconds}} s",
+      "action": "Ce que fait Pelagos",
+      "reference": "Référence ISC",
+      "diff": "Diff de {{engine}}, de 2.6 vers la cible",
+      "cluster": "Cluster",
+      "none": "Pas encore d'analyse : choisissez une cible et lancez l'analyse."
+    },
+    "severity": {
+      "blocking": "Bloquant",
+      "converted": "Converti",
+      "behavior": "Changement de comportement",
+      "info": "Information"
+    },
+    "severityHelp": {
+      "blocking": "À corriger à la main avant la migration.",
+      "converted": "Pelagos les convertit en écrivant les fichiers 3.x.",
+      "behavior": "Kea 3 se comporte autrement ici : à lire avant de migrer.",
+      "info": "Pour information."
+    },
+    "action": {
+      "convert": "conversion",
+      "add_hook": "ajout du hook",
+      "move_path": "déplacement du fichier",
+      "stop_service": "arrêt et désactivation du service",
+      "propose": "proposition",
+      "manual": "à la main",
+      "none": "rien"
+    },
+    "validation": {
+      "ok": "vérifié",
+      "failed": "refusé",
+      "skipped": "non vérifié"
+    },
+    "packages": {
+      "remove_one": "{{count}} paquet retiré",
+      "remove_other": "{{count}} paquets retirés",
+      "install_one": "{{count}} paquet installé",
+      "install_other": "{{count}} paquets installés"
     }
   }
 }

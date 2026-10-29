@@ -305,3 +305,14 @@ def test_exception_keys_match_in_any_case(admin, observed, node_ctx):
     assert pc1["excepted"] is True
     dup = {"kind": "ipv6_missing_aaaa", "key": f"mac:{MAC}", "comment": "again"}
     assert admin.post("/api/v1/alerts/exceptions", json=dup).status_code == 409
+
+
+def test_failing_source_status_gives_failing_since(admin, node_ctx, observed):
+    now = int(time.time())
+    failing = {"source": "neighbors", "source_id": None, "node_id": node_ctx.node.id, "last_poll": now}
+    failing |= {"error": "ip neigh failed", "entries": 0, "failing_since": now - 600}
+    obs_store.write_status(observed, [failing])
+    observed.commit()
+    status = admin.get(A).get_json()["status"][0]
+    assert status["error"] == "ip neigh failed"
+    assert status["failing_since"].endswith("Z") and status["failing_since"] < status["last_poll"]

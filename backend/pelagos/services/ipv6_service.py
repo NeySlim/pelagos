@@ -289,7 +289,10 @@ class Ipv6Service:
     def overview(self) -> dict[str, Any]:
         settings = self.ctx.settings()
         g = self.gathered()
-        status = [{**s, "last_poll": _ts(s.get("last_poll"))} for s in g.status]
+        status = [
+            {**s, "last_poll": _ts(s.get("last_poll")), "failing_since": _ts(s.get("failing_since"))}
+            for s in g.status
+        ]
         status += [
             {
                 "source": u["source"],
@@ -298,6 +301,7 @@ class Ipv6Service:
                 "last_poll": None,
                 "error": u["error"],
                 "entries": 0,
+                "failing_since": None,
             }
             for u in g.unavailable
         ]

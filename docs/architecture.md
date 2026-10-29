@@ -3954,12 +3954,15 @@ Design: `design.md` 13.7 (RFC 8981 and the OPNsense API read on
 read routes of release 0.2.2; the AAAA and PTR plans (`POST /hosts/ipv6/plan`,
 `POST /hosts/ipv6/replace-prefix/plan`) are contract C4 (release 0.2.4).
 Code: sources in `collector/ipv6/` (`neighbors.py`, `opnsense.py`,
-interface `NeighborSource`), classification and host matching in
+`dhcpv6.py`, interface `NeighborSource` in `source.py`), watched prefixes in
+`prefixes.py`, the table in `store.py`, the collector task `observe_ipv6`
+(every 60 s) in `observer.py`, classification and host matching in
 `services/ipv6_hosts.py`, checks in `services/consistency.py`, routes in
 `api/ipv6.py`. Batches: V1 observations, V2 checks and API, V3 screens.
 
 - **Settings** `[settings.ipv6]`: `neighbors_enabled` (true), `poll_seconds`
-  (300, the router poll), `stable_min_days` (3), `stale_days` (14),
+  (300, the router poll and the DHCPv6 lease walk; the neighbor table is
+  read every pass), `stable_min_days` (3), `stale_days` (14),
   `auto_apply_enabled` (false, reserved). Retention
   `retention.ipv6_observation_days` (30). Screen entries: `sources`
   (`[Source]`), `prefixes` (watched prefixes, IPv6 CIDR strings; empty:
@@ -3982,7 +3985,8 @@ interface `NeighborSource`), classification and host matching in
   address, source, source_id))`, rows with `last_seen` older than
   `ipv6_observation_days` deleted. Link-local (`fe80::/10`), multicast and
   addresses outside the watched prefixes are dropped before storage; MAC
-  lower-case, address compressed. **SourceStatus**: `{"source","source_id",
+  lower-case, address compressed. The last status of each source is kept in
+the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source_id",
   "node_id","last_poll","error","entries"}`.
 - **Watched prefixes** (`effective_prefixes`): the prefixes of the IPv6
   reverse zones the cluster serves (`from: "reverse_zone"`), the DHCPv6

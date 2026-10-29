@@ -300,6 +300,7 @@ def test_tasks_and_retention(rig):
         "certificates": 60.0,
         "notify_alerts": 10.0,
         "archive": 60.0,
+        "observe_ipv6": 60.0,
         "retention": 3600.0,
     }
     counts = collector.retention()

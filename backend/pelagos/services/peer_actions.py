@@ -69,6 +69,8 @@ NOTIFY_STATE = "notify.state"
 ARCHIVE_STATE = "archive.state"
 ARCHIVE_RUN = "archive.run"
 ARCHIVE_PROBE = "archive.probe"
+# IPv6 addresses this node observed and the status of its sources (collector.ipv6.store).
+IPV6_OBSERVATIONS = "ipv6.observations"
 CERTS_ACTIONS = frozenset(
     {CERTS_STATUS, CERTS_RUN, CERTS_REQUEST, CERTS_CHECK, CERTS_UPLOAD, CERTS_SELF_SIGNED}
 )
@@ -84,6 +86,7 @@ LOCKLESS = frozenset(
         ARCHIVE_STATE,
         ARCHIVE_RUN,
         ARCHIVE_PROBE,
+        IPV6_OBSERVATIONS,
     }
 )
 
@@ -118,6 +121,7 @@ class PeerActions:
             ARCHIVE_STATE: self.archive_state,
             ARCHIVE_RUN: self.archive_run,
             ARCHIVE_PROBE: self.archive_probe,
+            IPV6_OBSERVATIONS: self.ipv6_observations,
         }
 
     def __call__(self, name: str, body: dict[str, Any], caller: str) -> Any:
@@ -215,6 +219,30 @@ class PeerActions:
         finally:
             conn.close()
         return {"node_id": self.ctx.node.id, "series": series}
+
+    def ipv6_observations(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """What this node observed (section 27), read from its series cache; `since` bounds last_seen."""
+        import sqlite3
+
+        from pelagos.collector import series as series_mod
+        from pelagos.collector.ipv6 import store as obs_store
+
+        since = body.get("since")
+        try:
+            since = int(since) if since not in (None, "") else None
+        except (TypeError, ValueError):
+            raise PeerActionError("invalid_request", "since must be a Unix time") from None
+        path = self.ctx.paths.series_db
+        if not path.exists():
+            return obs_store.payload(None, self.ctx.node.id)
+        try:
+            conn = series_mod.connect(path, readonly=True)
+        except sqlite3.Error as exc:
+            raise PeerActionError("engine_unavailable", f"observation cache unreadable: {exc}") from None
+        try:
+            return obs_store.payload(conn, self.ctx.node.id, since)
+        finally:
+            conn.close()
 
     def notify_state(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
         """This node's dispatcher state, for the overview of a node that is not the sender."""

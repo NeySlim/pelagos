@@ -68,6 +68,8 @@ CERT_SECONDS = 60.0
 NOTIFY_SECONDS = 10.0
 # Archive schedule check (collector.archives): the build itself runs on its own thread.
 ARCHIVE_SECONDS = 60.0
+# Neighbor table read (and router poll when due, section 27).
+IPV6_SECONDS = 60.0
 META_LAST_ACK = "last_ack_audit_id"
 META_ACK_OFFSET = "ack_scan_offset"
 META_ACK_INODE = "ack_scan_inode"
@@ -242,6 +244,16 @@ class Collector:
 
         # Scheduled archives of this node (section 23); run() moves the builds to their own thread.
         self.archives = ArchiveRunner(ctx, backends, self.backend_lock, clock)
+        from pelagos.collector.ipv6.observer import Ipv6Observer
+
+        # Observed IPv6 addresses (section 27): neighbors, DHCPv6 leases and, on the service node, routers.
+        kea6 = backends.kea6
+        self.ipv6 = Ipv6Observer(
+            ctx,
+            store,
+            clock,
+            (lambda: _all_leases(kea6, self.node_id, self.backend_lock)) if kea6 is not None else None,
+        )
 
     def _reloading(self, poller: KeaPoller) -> Callable[[str], bool]:
         """True while Pelagos writes or reloads the engine and for the grace period after."""
@@ -871,6 +883,10 @@ class Collector:
         """Starts a scheduled or requested archive, then the archive alerts of this node."""
         self._finish(self.archives.tick())
 
+    def observe_ipv6(self) -> None:
+        """IPv6 neighbors of this node and, on the service node, of the routers (section 27)."""
+        self.ipv6.tick()
+
     def retention(self) -> dict[str, int]:
         now = int(self.clock())
         retention = self.ctx.settings().get("retention", {})
@@ -901,6 +917,7 @@ class Collector:
             ("certificates", self.certificates),
             ("notify_alerts", self.notify_alerts),
             ("archive", self.archive),
+            ("observe_ipv6", self.observe_ipv6),
             ("retention", self.retention),
         ):
             try:
@@ -938,6 +955,7 @@ class Collector:
             Task("certificates", CERT_SECONDS, self.certificates),
             Task("notify_alerts", NOTIFY_SECONDS, self.notify_alerts),
             Task("archive", ARCHIVE_SECONDS, self.archive),
+            Task("observe_ipv6", IPV6_SECONDS, self.observe_ipv6),
             Task("retention", 3600.0, self.retention),
         ]
 
@@ -1405,6 +1423,8 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     relay = None
     if replicator is not None:
         collector.peers.liveness = replicator
+        collector.ipv6.offline = replicator.offline_peers
+        collector.ipv6.versions = lambda: {s.node_id: s.version for s in replicator.peer_statuses()}
         relay = start_relay(ctx, collector, replication)
     notify_thread = None
     try:

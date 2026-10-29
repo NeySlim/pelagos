@@ -6,9 +6,15 @@ from __future__ import annotations
 import pytest
 
 from pelagos.collector.checks import distro
+from pelagos.collector.ipv6 import neighbors
 
 
 @pytest.fixture(autouse=True)
 def _no_host_packages(monkeypatch):
     monkeypatch.setattr(distro, "read_package", lambda engine, run=None: None)
     monkeypatch.setattr(distro, "fetch_debian_tracker", lambda url, var_dir, timeout=60.0: False)
+
+
+@pytest.fixture(autouse=True)
+def _no_host_neighbors(monkeypatch):
+    monkeypatch.setattr(neighbors, "run_ip", lambda args: "[]")

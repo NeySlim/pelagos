@@ -1,0 +1,50 @@
+[
+ {
+  "dst": "2001:db8:99:0:be24:11ff:fe63:b806",
+  "dev": "eth0",
+  "lladdr": "bc:24:11:63:b8:06",
+  "state": [
+   "REACHABLE"
+  ]
+ },
+ {
+  "dst": "2001:db8:99:0:a1b2:c3d4:e5f6:789",
+  "dev": "eth0",
+  "lladdr": "bc:24:11:63:b8:06",
+  "state": [
+   "REACHABLE"
+  ]
+ },
+ {
+  "dst": "fe80::be24:11ff:fe63:b806",
+  "dev": "eth0",
+  "lladdr": "bc:24:11:63:b8:06",
+  "state": [
+   "STALE"
+  ]
+ },
+ {
+  "dst": "2001:db8:99:0:8b23:d08b:d443:d7e7",
+  "dev": "eth0",
+  "lladdr": "bc:24:11:63:b8:06",
+  "state": [
+   "REACHABLE"
+  ]
+ },
+ {
+  "dst": "2001:db8:99::dead",
+  "dev": "eth0",
+  "state": [
+   "FAILED"
+  ]
+ },
+ {
+  "dst": "2001:db8:99::1",
+  "dev": "eth0",
+  "lladdr": "bc:24:11:00:00:01",
+  "router": null,
+  "state": [
+   "STALE"
+  ]
+ }
+]

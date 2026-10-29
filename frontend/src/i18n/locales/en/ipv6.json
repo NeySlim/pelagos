@@ -1,0 +1,169 @@
+{
+  "nav": {
+    "sources": "IPv6 sources"
+  },
+  "columns": {
+    "host": "Host",
+    "ipv4": "IPv4",
+    "observed": "Observed addresses",
+    "records": "AAAA and PTR",
+    "proposal": "Proposal"
+  },
+  "class": {
+    "eui64": "EUI-64",
+    "stable": "stable",
+    "temporary": "temporary",
+    "unknown": "unknown"
+  },
+  "classHelp": {
+    "eui64": "The interface identifier is derived from the MAC: stable",
+    "stable": "Seen for this MAC for more than the stable threshold and in the last 24 hours",
+    "temporary": "Privacy address replaced over the days: never proposed",
+    "unknown": "Not enough history yet to tell stable from temporary"
+  },
+  "source": {
+    "neighbors": "node neighbors",
+    "opnsense": "OPNsense",
+    "dhcpv6": "DHCPv6 lease"
+  },
+  "filters": {
+    "all": "All",
+    "missing_aaaa": "Without AAAA",
+    "missing_ptr": "Without PTR",
+    "stale": "Stale AAAA",
+    "unknown": "Unknown hosts",
+    "random_mac": "Random MAC"
+  },
+  "empty": {
+    "all": "No IPv6 address observed yet",
+    "allHelp": "Addresses appear once the nodes or a router source see them in a watched prefix",
+    "missing_aaaa": "Every host with a stable address has its AAAA",
+    "missing_ptr": "Every AAAA record has its PTR",
+    "stale": "No AAAA record points at an address that left",
+    "unknown": "Every observed MAC belongs to a known host",
+    "random_mac": "No host with a random MAC address"
+  },
+  "exception": {
+    "button": "Exception",
+    "title": "Exception for {{host}}",
+    "submit": "Add the exception",
+    "body": "The check stops raising for the object you pick until the exception is revoked on the Exceptions page.",
+    "target": "Object of the exception",
+    "comment": "Reason",
+    "commentHelp": "Kept with the exception and in the audit log",
+    "commentRequired": "Say why this is left as it is",
+    "ipv6_missing_aaaa": {
+      "host": "Missing AAAA: the whole host",
+      "address": "Missing AAAA: this address only"
+    },
+    "ipv6_stale_aaaa": {
+      "host": "Stale AAAA: every record of the host",
+      "address": "Stale AAAA: this record only"
+    }
+  },
+  "unknownHost": "unknown host",
+  "randomMac": "random MAC",
+  "randomMacHelp": "Locally administered MAC address: the device may change it from network to network",
+  "excepted": "excepted",
+  "exceptedHelp": "The missing AAAA check leaves this host out",
+  "seen": "First seen {{first}}, last seen {{last}}",
+  "noAaaa": "no AAAA",
+  "noPtr": "no PTR",
+  "notObserved": "not observed",
+  "notObservedHelp": "No source sees this address any more",
+  "noReverseZone": "no reverse zone",
+  "total": "Hosts: {{n}}",
+  "unavailable": "Some sources did not answer, the list may be incomplete: {{sources}}",
+  "footer": "Read only: the AAAA and PTR plans of the selection come with a later release.",
+  "sourcesLink": "Observation sources",
+  "exceptionsLink": "Exceptions",
+  "admin": {
+    "title": "IPv6 sources",
+    "subtitle": "Where observed IPv6 addresses come from and which prefixes are watched",
+    "neighbors": "Node neighbor tables",
+    "pollSeconds": "Router poll (seconds)",
+    "stableDays": "Stable after (days)",
+    "staleDays": "Stale after (days)",
+    "settingsHelp": "Thresholds and the neighbor tables are settings of the ipv6 domain.",
+    "settingsLink": "Open the settings"
+  },
+  "sources": {
+    "title": "Router sources",
+    "add": "Add a source",
+    "newTitle": "New OPNsense source",
+    "editTitle": "Edit {{name}}",
+    "opnsenseHelp": "The service node reads the router's IPv6 neighbor table (search_ndp) with an API key of a dedicated user.",
+    "privilegeHelp": "Give that user only the \"Diagnostics: NDP Table\" privilege.",
+    "name": "Name",
+    "url": "URL",
+    "apiKey": "API key",
+    "apiSecret": "API secret",
+    "secretUrlChanged": "The URL changed: type the key and secret again, the stored ones do not follow",
+    "enabled": "Enabled",
+    "verifyTls": "Verify TLS",
+    "allowHttp": "Allow http://",
+    "allowHttpHelp": "The key travels in clear: lab use only",
+    "noTlsWarning": "Without TLS verification anyone on the path can read the API key.",
+    "excludeMacs": "MACs to drop",
+    "excludeMacsHelp": "The router's own interfaces, one MAC per line",
+    "caPem": "Private CA (optional)",
+    "caPemHelp": "PEM certificate of the CA that signed the router's certificate",
+    "test": "Test",
+    "testOk": "{{entries}} neighbors read from {{node}}",
+    "testFailed": "Failed: {{error}}",
+    "state": "State",
+    "on": "on",
+    "off": "off",
+    "noKey": "no key",
+    "failing": "failing",
+    "enable": "Enable",
+    "disable": "Disable",
+    "types": {
+      "opnsense": "OPNsense"
+    },
+    "empty": "No router source",
+    "emptyHelp": "The node neighbor tables still observe the hosts that talk to the nodes",
+    "saved": "Sources saved",
+    "removeTitle": "Remove {{name}}?",
+    "removeMessage": "Its key and secret are deleted with it. Observations already made stay until their retention ends.",
+    "removed": "Source removed",
+    "errors": {
+      "required": "Required",
+      "url": "An http(s) URL",
+      "http": "http:// sends the key in clear: allow it explicitly",
+      "mac": "One MAC address per line",
+      "pem": "A PEM certificate",
+      "secret": "Required for this source",
+      "fix": "Fix the highlighted fields"
+    }
+  },
+  "status": {
+    "title": "Last poll per node",
+    "source": "Source",
+    "node": "Node",
+    "lastPoll": "Last poll",
+    "entries": "Entries",
+    "error": "Error",
+    "ok": "ok",
+    "empty": "No poll yet"
+  },
+  "prefixes": {
+    "title": "Watched prefixes",
+    "help": "Only addresses in a watched prefix are kept. By default: the IPv6 reverse zones served, the DHCPv6 subnets and the prefixes of the nodes' own addresses. ULA prefixes are watched only when listed.",
+    "listed": "Listed prefixes",
+    "listedHelp": "One prefix per line, added to the defaults",
+    "effective": "Effective list",
+    "none": "No prefix watched yet",
+    "saved": "Prefixes saved",
+    "from": {
+      "setting": "listed",
+      "reverse_zone": "reverse zone",
+      "dhcpv6": "DHCPv6 subnet",
+      "interface": "node address"
+    },
+    "errors": {
+      "format": "Not an IPv6 prefix: {{prefix}}",
+      "scope": "Link-local and multicast are never watched: {{prefix}}"
+    }
+  }
+}

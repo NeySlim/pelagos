@@ -47,7 +47,8 @@
     "openFailover": "Open DDNS failover",
     "openKeaMigration": "Analyze the Kea migration",
     "proposeFallback": "Propose the forwarder fallback",
-    "openResolver": "Open resolver health"
+    "openResolver": "Open resolver health",
+    "openIpv6": "Open the IPv6 hosts"
   },
   "ack": {
     "title": "Acknowledge the alert",

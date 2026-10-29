@@ -67,5 +67,9 @@
     "subnetPick": "Pick a subnet",
     "title": "New host",
     "withReservation": "Also create a DHCP reservation"
+  },
+  "tabs": {
+    "hosts": "Hosts",
+    "ipv6": "IPv6"
   }
 }

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Hosts: the lease / reservation / records join, filtered on the server (search,
 // subnet, zone, inconsistent only) with chips; a row opens the host card, and the
-// create-host plan adds the A and PTR records and, optionally, a reservation.
+// create-host plan adds the A and PTR records and, optionally, a reservation. The IPv6 tab
+// (?tab=ipv6) lists the observed IPv6 addresses per host.
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
-import { Desktop, Plus, Warning, BookmarkSimple, Clock } from '@phosphor-icons/react'
+import { Desktop, Plus, Warning, BookmarkSimple, Clock, Globe } from '@phosphor-icons/react'
 import { Badge } from '../../components/Badge'
 import { Button } from '../../components/Button'
 import { DataTable } from '../../components/DataTable'
@@ -23,6 +24,8 @@ import { usePlanFlow } from '../dhcp/hooks'
 import { HostCard } from './HostCard'
 import { CreateHostModal } from './CreateHostModal'
 import { hostFacts } from './lib'
+import { Ipv6Panel } from './Ipv6Panel'
+import { IPV6_TAB } from './ipv6'
 
 function Chip({ active, onClick, children, testId }) {
   return (
@@ -43,7 +46,10 @@ function Chip({ active, onClick, children, testId }) {
 
 export default function HostsPage() {
   const { t } = useTranslation(['hosts', 'dhcp', 'common'])
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === IPV6_TAB ? IPV6_TAB : 'hosts'
+  const setTab = (id) => setParams(id === IPV6_TAB ? { tab: IPV6_TAB } : {}, { replace: true })
+  const [ipv6Key, setIpv6Key] = useState(0)
   const { hasPermission } = usePermission()
   const { modules } = useAuth()
   const { isMobile } = useMobile()
@@ -58,6 +64,7 @@ export default function HostsPage() {
   const hosts = usePaginatedApi((p) => api.hosts.list(p), {
     perPage: 50,
     filters: { q, subnet_id: subnetId, zone, only_inconsistent: onlyInconsistent || undefined },
+    enabled: tab !== IPV6_TAB,
   })
   const subnets = useApi(() => api.dhcp.subnets('v4'), [], { enabled: hasPermission('read:dhcp') })
   // v6 subnets only feed the create-host form; the subnet filter stays on v4 ids.
@@ -129,10 +136,16 @@ export default function HostsPage() {
       ns="hosts"
       page="list"
       icon={Desktop}
-      onRefresh={hosts.refetch}
-      loading={hosts.loading}
+      onRefresh={tab === IPV6_TAB ? () => setIpv6Key((k) => k + 1) : hosts.refetch}
+      loading={tab === IPV6_TAB ? false : hosts.loading}
+      tabs={[
+        { id: 'hosts', label: t('tabs.hosts'), icon: Desktop },
+        { id: IPV6_TAB, label: t('tabs.ipv6'), icon: Globe },
+      ]}
+      activeTab={tab}
+      onTabChange={setTab}
       actions={
-        hasPermission('write:hosts') && (
+        tab !== IPV6_TAB && hasPermission('write:hosts') && (
           <Button size="sm" onClick={() => setCreating(true)} data-testid="host-create">
             <Plus size={14} />
             {t('create.button')}
@@ -140,44 +153,48 @@ export default function HostsPage() {
         )
       }
     >
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2" data-testid="host-facets">
-          <Chip active={!onlyInconsistent} onClick={() => setOnlyInconsistent(false)} testId="facet-all">
-            {t('list.all')}
-          </Chip>
-          <Chip active={onlyInconsistent} onClick={() => setOnlyInconsistent(true)} testId="facet-inconsistent">
-            <Warning size={12} />
-            {t('list.inconsistent')}
-          </Chip>
-          <span className="ml-auto text-xs text-text-tertiary" data-testid="host-total">
-            {t('list.total', { n: hosts.total })}
-          </span>
+      {tab === IPV6_TAB ? (
+        <Ipv6Panel zoneOptions={zoneOptions} refreshKey={ipv6Key} />
+      ) : (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2" data-testid="host-facets">
+            <Chip active={!onlyInconsistent} onClick={() => setOnlyInconsistent(false)} testId="facet-all">
+              {t('list.all')}
+            </Chip>
+            <Chip active={onlyInconsistent} onClick={() => setOnlyInconsistent(true)} testId="facet-inconsistent">
+              <Warning size={12} />
+              {t('list.inconsistent')}
+            </Chip>
+            <span className="ml-auto text-xs text-text-tertiary" data-testid="host-total">
+              {t('list.total', { n: hosts.total })}
+            </span>
+          </div>
+          {sourceErrors.length > 0 && (
+            <p role="status" className="rounded-lg border status-warning-bg status-warning-border px-3 py-2 text-xs status-warning-text" data-testid="host-source-errors">
+              {t('list.partialSources', { sources: sourceErrors.join('; ') })}
+            </p>
+          )}
+          <DataTable
+            columns={columns}
+            rows={hosts.items}
+            rowKey="key"
+            loading={hosts.loading}
+            error={hosts.error}
+            onRetry={hosts.refetch}
+            search={{ value: q, onChange: setQ, placeholder: t('list.search') }}
+            filters={[
+              ...(subnetOptions.length ? [{ key: 'subnet_id', label: t('dhcp:fields.subnet'), value: subnetId, onChange: setSubnetId, options: subnetOptions, placeholder: t('list.allSubnets') }] : []),
+              ...(zoneOptions.length ? [{ key: 'zone', label: t('fields.zone'), value: zone, onChange: setZone, options: zoneOptions, placeholder: t('list.allZones') }] : []),
+            ]}
+            onRowClick={open}
+            rowClassName={(h) => (h.alerts.length ? 'border-l-2 border-l-accent-warning' : undefined)}
+            pagination={{ page: hosts.page, perPage: hosts.perPage, total: hosts.total, onPageChange: hosts.setPage, onPerPageChange: hosts.setPerPage }}
+            emptyTitle={onlyInconsistent ? t('list.emptyInconsistent') : t('list.empty')}
+            emptyIcon={Desktop}
+            testId="hosts-table"
+          />
         </div>
-        {sourceErrors.length > 0 && (
-          <p role="status" className="rounded-lg border status-warning-bg status-warning-border px-3 py-2 text-xs status-warning-text" data-testid="host-source-errors">
-            {t('list.partialSources', { sources: sourceErrors.join('; ') })}
-          </p>
-        )}
-        <DataTable
-          columns={columns}
-          rows={hosts.items}
-          rowKey="key"
-          loading={hosts.loading}
-          error={hosts.error}
-          onRetry={hosts.refetch}
-          search={{ value: q, onChange: setQ, placeholder: t('list.search') }}
-          filters={[
-            ...(subnetOptions.length ? [{ key: 'subnet_id', label: t('dhcp:fields.subnet'), value: subnetId, onChange: setSubnetId, options: subnetOptions, placeholder: t('list.allSubnets') }] : []),
-            ...(zoneOptions.length ? [{ key: 'zone', label: t('fields.zone'), value: zone, onChange: setZone, options: zoneOptions, placeholder: t('list.allZones') }] : []),
-          ]}
-          onRowClick={open}
-          rowClassName={(h) => (h.alerts.length ? 'border-l-2 border-l-accent-warning' : undefined)}
-          pagination={{ page: hosts.page, perPage: hosts.perPage, total: hosts.total, onPageChange: hosts.setPage, onPerPageChange: hosts.setPerPage }}
-          emptyTitle={onlyInconsistent ? t('list.emptyInconsistent') : t('list.empty')}
-          emptyIcon={Desktop}
-          testId="hosts-table"
-        />
-      </div>
+      )}
       {mobileKey && (
         <Modal open onClose={() => setMobileKey(null)} title={t('card.title')}>
           <div className="p-3">

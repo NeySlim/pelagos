@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// i18n of the DHCP, hosts and nodes areas: en and fr carry the same keys, and every
+// i18n of the DHCP, hosts (with the IPv6 tab and sources screen) and nodes areas: en and fr carry the same keys, and every
 // literal key the area sources pass to t() resolves in both languages.
 import { describe, it, expect } from 'vitest'
 import { resources } from '../../i18n'
 
-const NAMESPACES = ['dhcp', 'hosts', 'nodes']
-const sources = import.meta.glob(['../dhcp/*.{js,jsx}', '../hosts/*.{js,jsx}', '../nodes/*.{js,jsx}', '!**/*.test.*'], {
+const NAMESPACES = ['dhcp', 'hosts', 'nodes', 'ipv6']
+const sources = import.meta.glob(['../dhcp/*.{js,jsx}', '../hosts/*.{js,jsx}', '../nodes/*.{js,jsx}', '../admin/ipv6/*.{js,jsx}', '!**/*.test.*'], {
   eager: true,
   query: '?raw',
   import: 'default',
@@ -38,6 +38,13 @@ const DYNAMIC = [
   ...['900', '3600', '86400'].map((s) => ['nodes', `enroll.ttlOption.${s}`]),
   ...['bind', 'kea4', 'kea6', 'd2'].map((m) => ['nodes', `modules.${m}`]),
   ['hosts', 'pages.list.title'],
+  ...['missing_aaaa', 'missing_ptr', 'stale', 'unknown', 'random_mac'].flatMap((f) => [['ipv6', `filters.${f}`], ['ipv6', `empty.${f}`]]),
+  ...['eui64', 'stable', 'temporary', 'unknown'].flatMap((c) => [['ipv6', `class.${c}`], ['ipv6', `classHelp.${c}`]]),
+  ...['neighbors', 'opnsense', 'dhcpv6'].map((s) => ['ipv6', `source.${s}`]),
+  ...['setting', 'reverse_zone', 'dhcpv6', 'interface'].map((f) => ['ipv6', `prefixes.from.${f}`]),
+  ...['format', 'scope'].map((e) => ['ipv6', `prefixes.errors.${e}`]),
+  ...['required', 'url', 'http', 'mac', 'pem', 'secret'].map((e) => ['ipv6', `sources.errors.${e}`]),
+  ...['ipv6_missing_aaaa', 'ipv6_stale_aaaa'].flatMap((k) => ['host', 'address'].map((s) => ['ipv6', `exception.${k}.${s}`])),
   ['nodes', 'pages.list.title'],
   ...['subnets', 'sharedNetworks', 'options', 'classes', 'leases', 'reservations', 'ha', 'ddns', 'hooks', 'stats'].flatMap((p) => [
     ['dhcp', `pages.${p}.title`],

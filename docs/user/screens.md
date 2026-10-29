@@ -16,7 +16,7 @@ DHCP screens are described in [DNS](dns.md) and [DHCP](dhcp.md).
 - [Security audit](#security-audit)
 - [Kea migration](#kea-migration)
 - [Audit log](#audit-log)
-- [Users, roles, modules, settings](#users-roles-modules-settings)
+- [Users, roles, modules, certificates, notifications, IPv6 sources, settings](#users-roles-modules-certificates-notifications-ipv6-sources-settings)
 - [Account](#account)
 
 ## Sign-in
@@ -112,6 +112,27 @@ When BIND has views beyond `_default`, the form also shows "View" (default
 the view": the PTR goes to the reverse zone of the same view; pick
 `_default` or another view to put it elsewhere). These are the `view` and
 `reverse_view` fields of `POST /hosts/plan`.
+
+### IPv6 tab
+
+The **IPv6** tab (`?tab=ipv6`, read only in this release) lists one line
+per MAC address seen with a global IPv6 address: the host it belongs to
+(or "unknown host"), its IPv4 addresses, each observed address with its
+class (EUI-64, stable, temporary, unknown), the sources that saw it and
+when, the AAAA records of the host with their PTR state, and the proposal
+(the stable address Pelagos would publish under the host's A name). A
+random MAC (locally administered) is flagged: the device may use another
+one on another network. An AAAA whose address no source sees any more is
+marked "not observed".
+
+Filters (kept in the URL as `filter=`, with `zone=`): without AAAA,
+without PTR, stale AAAA, unknown hosts, random MAC. The
+`ipv6_missing_aaaa` and `ipv6_stale_aaaa` alerts open this tab filtered on
+their zone. **Exception** (`write:alerts`, reason required) leaves out the
+whole host (`mac:<mac>`) or one address (`addr:<address>`) of the missing
+AAAA or stale AAAA check; revoke it under Alerts, Exceptions. A banner
+names the nodes and sources that did not answer: the list may then be
+incomplete.
 
 ## Alerts
 
@@ -369,7 +390,7 @@ NDJSON" downloads the filtered range (`GET /api/v1/audit/export`).
 Entries are never edited or purged; failed sign-ins and secret reveals are
 recorded too.
 
-## Users, roles, modules, certificates, notifications, settings
+## Users, roles, modules, certificates, notifications, IPv6 sources, settings
 
 Under Administration:
 
@@ -400,6 +421,17 @@ Under Administration:
   alerts still open leaves at the end). Below: the sender order (the first
   online node sends, the next takes over after three missed polls) and the
   history of sent and failed batches.
+- **IPv6 sources** (`admin:settings`): where observed IPv6 addresses come
+  from. The neighbor table of every node is always read (setting
+  `ipv6.neighbors_enabled`); OPNsense routers are added with their URL, an
+  API key and secret of a user holding only the "Diagnostics: NDP Table"
+  privilege (write-only, they do not follow a source to another URL), TLS
+  verification, an optional private CA and the router's own MACs to drop.
+  **Test** polls the router from this node, also before saving, and shows
+  the first rows. Below: the last poll of every source on every node with
+  its error, and the watched prefixes: the ones listed here (ULA only when
+  listed) and the effective list with where each comes from (reverse zone,
+  DHCPv6 subnet, node address, listed).
 - **Settings** (`admin:settings`): one tab per table (Sign-in, Plans,
   Peers, Alert thresholds, Collector, Retention, DNS, Kea, Response policy
   zones, Certificates). Alert thresholds are grouped (DHCP pools, DDNS,

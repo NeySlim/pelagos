@@ -3,6 +3,7 @@
 import { crossingTime, valueAt } from '../../components/motion/traceMath'
 import { EXCEPTABLE_KINDS, INCONSISTENCY_KINDS } from './kinds.js'
 import { failoverPath } from '../dhcp/ddnsFailover.js'
+import { ipv6Path } from '../hosts/ipv6.js'
 import { zoneSegment } from '../../lib/zonePath.js'
 
 export const SEVERITIES = ['critical', 'warning', 'info']
@@ -65,6 +66,11 @@ export function subjectLink(alert) {
   if (kind === 'resolver') {
     if (alert.details?.remediation === 'resolver_fallback') return { to: '/dns/resolver?fallback=1', label: 'proposeFallback' }
     return { to: '/dns/resolver', label: 'openResolver' }
+  }
+  // IPv6 checks: "ipv6:aaaa:<zone>", "ipv6:stale:<zone>" open the filtered IPv6 tab of Hosts.
+  if (kind === 'ipv6') {
+    if (rest[0] === 'aaaa' || rest[0] === 'stale') return { to: ipv6Path({ filter: rest[0] === 'aaaa' ? 'missing_aaaa' : 'stale', zone: rest.slice(1).join(':') }), label: 'openIpv6' }
+    if (rest[0] === 'reverse') return { to: '/dns/zones', label: null }
   }
   if (kind === 'notify' && value) return { to: `/admin/notifications?channel=${encodeURIComponent(value)}`, label: 'openChannel' }
   return null

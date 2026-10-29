@@ -166,6 +166,12 @@ describe('AlertsPage', () => {
     expect(subjectLink({ subject: 'kea:series' })).toEqual({ to: '/install/kea-migration', label: 'openKeaMigration' })
   })
 
+  it('links the IPv6 checks to the filtered IPv6 tab of Hosts', () => {
+    expect(subjectLink({ subject: 'ipv6:aaaa:example.lan.' })).toEqual({ to: '/hosts?tab=ipv6&filter=missing_aaaa&zone=example.lan.', label: 'openIpv6' })
+    expect(subjectLink({ subject: 'ipv6:stale:example.lan.' }).to).toBe('/hosts?tab=ipv6&filter=stale&zone=example.lan.')
+    expect(subjectLink({ subject: 'ipv6:reverse:2001:db8::/64' })).toEqual({ to: '/dns/zones', label: null })
+  })
+
   it('shows the detail with a link to the host', async () => {
     renderPage()
     fireEvent.click(await screen.findByText('PTR of 192.0.2.106 names another host'))

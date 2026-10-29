@@ -97,6 +97,23 @@ class _Join:
             self.by_name[host.hostname] = host.key
 
 
+def _join(dhcp_rows: Iterable[Lease | Reservation], records: Iterable[list[RRset]]) -> _Join:
+    join = _Join()
+    for row in dhcp_rows:
+        if isinstance(row, Lease):
+            _attach_lease(join, row)
+        else:
+            _attach_reservation(join, row)
+    for rrsets in records:
+        for rr in rrsets:
+            _attach_rrset(join, rr)
+    return join
+
+
+def _sorted_hosts(join: _Join) -> list[Host]:
+    return sorted(join.hosts.values(), key=lambda h: (_ip_sort(h.ips[0]) if h.ips else (9, 0), h.key))
+
+
 class HostsService:
     def __init__(
         self,
@@ -124,7 +141,13 @@ class HostsService:
 
     def collect(self) -> tuple[list[Host], dict[str, str]]:
         """All hosts plus the per-source errors (an engine down removes its data, not the page)."""
-        join = _Join()
+        hosts, _judged, errors = self.collect_judged(None)
+        return hosts, errors
+
+    def collect_judged(self, judged: Iterable[str] | None) -> tuple[list[Host], list[Host], dict[str, str]]:
+        """`collect()` plus the hosts joined from the records of the `judged` zones only (the
+        zones a check reads), from the same reads; the second list is empty when `judged` is None."""
+        dhcp_rows: list[Lease | Reservation] = []
         errors: dict[str, str] = {}
         for dhcp in self._dhcp_services():
             try:
@@ -136,39 +159,41 @@ class HostsService:
             except ServiceError as exc:
                 errors[f"{dhcp.engine.value}.leases"] = exc.detail
                 leases = []
-            for lease in leases:
-                _attach_lease(join, lease)
+            dhcp_rows += leases
             try:
-                reservations = dhcp.reservations(None, None)
+                dhcp_rows += dhcp.reservations(None, None)
             except ServiceError as exc:
                 errors[f"{dhcp.engine.value}.reservations"] = exc.detail
-                reservations = []
-            for res in reservations:
-                _attach_reservation(join, res)
+        records: dict[str, list[RRset]] = {}
         if self.dns is not None:
             try:
-                self._attach_records(join, errors)
+                records = self._zone_records(errors)
             except ServiceError as exc:
                 errors["dns"] = exc.detail
             except ConnectorError as exc:
                 errors["dns"] = str(exc)
+        join = _join(dhcp_rows, records.values())
         if self.alerts is not None:
             for alert in self.alerts.open_inconsistencies():
                 for host in self._hosts_for_alert(join, alert):
                     if alert not in host.alerts:
                         host.alerts.append(alert)
-        hosts = sorted(join.hosts.values(), key=lambda h: (_ip_sort(h.ips[0]) if h.ips else (9, 0), h.key))
-        return hosts, errors
+        subset: list[Host] = []
+        if judged is not None:
+            names = {normalize_name(z) for z in judged}
+            subset = _sorted_hosts(_join(dhcp_rows, (r for z, r in records.items() if z in names)))
+        return _sorted_hosts(join), subset, errors
 
-    def _attach_records(self, join: _Join, errors: dict[str, str]) -> None:
-        """Records of every served zone; a zone that cannot be read (a refused AXFR) is named in
-        `errors["dns.zones"]` and the others are still joined."""
+    def _zone_records(self, errors: dict[str, str]) -> dict[str, list[RRset]]:
+        """Records of every served zone by zone name; a zone that cannot be read (a refused AXFR)
+        is named in `errors["dns.zones"]` and the others are still returned."""
         assert self.dns is not None
         zones = [
             z["zone"]
             for z in self.dns.zones()
             if z["zone"]["kind"] in (ZoneKind.PRIMARY.value, ZoneKind.SECONDARY.value, ZoneKind.MIRROR.value)
         ]
+        out: dict[str, list[RRset]] = {}
         unread: list[str] = []
         for zone in zones:
             try:
@@ -181,10 +206,10 @@ class HostsService:
             except ConnectorError as exc:
                 unread.append(f"{zone['name']}: {exc}")
                 continue
-            for rr in rrsets:
-                _attach_rrset(join, rr)
+            out.setdefault(normalize_name(zone["name"]), []).extend(rrsets)
         if unread:
             errors["dns.zones"] = "; ".join(unread)
+        return out
 
     def _hosts_for_alert(self, join: _Join, alert: Alert) -> list[Host]:
         keys: set[str] = set()
@@ -292,25 +317,22 @@ class HostsService:
         reverse: list[RRset] = []
         if self.dns is not None:
             try:
-                for item in self.dns.zones():
-                    zone = item["zone"]
-                    if zone["kind"] not in (ZoneKind.PRIMARY.value, ZoneKind.SECONDARY.value):
-                        continue
-                    rrsets, _node = self.dns.records(zone["name"])
-                    if zone["name"].endswith(("in-addr.arpa.", "ip6.arpa.")):
-                        reverse += rrsets
-                    else:
-                        forward[zone["name"]] = rrsets
+                self._consistency_records(forward, reverse, errors)
             except ServiceError as exc:
                 errors["dns"] = exc.detail
             except ConnectorError as exc:
                 errors["dns"] = str(exc)
-        alerts = consistency.run_all(
-            leases=leases,
-            reservations=reservations,
-            forward=forward,
-            reverse=reverse,
-            excepted=consistency.excepted_for(self.ctx.cluster()),
+        # A partial read turns into false alerts (PTR into an unread zone): no pass, as the collector.
+        alerts = (
+            []
+            if errors
+            else consistency.run_all(
+                leases=leases,
+                reservations=reservations,
+                forward=forward,
+                reverse=reverse,
+                excepted=consistency.excepted_for(self.ctx.cluster()),
+            )
         )
         by_kind: dict[str, int] = {}
         for alert in alerts:
@@ -324,6 +346,33 @@ class HostsService:
             "errors": errors,
             "collector_signalled": signalled,
         }
+
+    def _consistency_records(
+        self, forward: dict[str, list[RRset]], reverse: list[RRset], errors: dict[str, str]
+    ) -> None:
+        """Records of the primary and secondary zones; an unread zone is named in `errors["dns.zones"]`."""
+        assert self.dns is not None
+        unread: list[str] = []
+        for item in self.dns.zones():
+            zone = item["zone"]
+            if zone["kind"] not in (ZoneKind.PRIMARY.value, ZoneKind.SECONDARY.value):
+                continue
+            try:
+                rrsets, _node = self.dns.records(zone["name"])
+            except NotFound:
+                continue  # removed since the zone list was read
+            except ServiceError as exc:
+                unread.append(f"{zone['name']}: {exc.detail}")
+                continue
+            except ConnectorError as exc:
+                unread.append(f"{zone['name']}: {exc}")
+                continue
+            if zone["name"].endswith(("in-addr.arpa.", "ip6.arpa.")):
+                reverse += rrsets
+            else:
+                forward[zone["name"]] = rrsets
+        if unread:
+            errors["dns.zones"] = "; ".join(unread)
 
     # Plan ---------------------------------------------------------------
 

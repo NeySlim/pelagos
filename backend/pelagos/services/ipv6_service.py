@@ -220,23 +220,19 @@ class Ipv6Service:
         now = int(self.clock())
         stable = int(reg.get(settings, "ipv6.stable_min_days"))
         g = self.gathered()
-        hosts, errors = self.hosts.collect()
         forward, reverse, checked, zones_error = self._zones()
+        # missing_aaaa and stale judge the hosts joined from the checked zones only, as the collector.
+        hosts, judged_hosts, errors = self.hosts.collect_judged(checked)
         if zones_error:
             errors["dns"] = zones_error
         excepted = consistency.excepted_for(self.ctx.cluster())
         rows = ipv6_hosts.host_rows(hosts, g.observations, now, stable, forward, reverse, excepted)
-        # missing_aaaa and stale judge the zones the checks judge, not every zone shown.
-        judged = (
-            rows
-            if checked == sorted(forward)
-            else ipv6_hosts.host_rows(hosts, g.observations, now, stable, checked, reverse, excepted)
-        )
+        judged = ipv6_hosts.host_rows(judged_hosts, g.observations, now, stable, checked, reverse, excepted)
         missing = {r["mac"] for r in judged if not r["excepted"] and ipv6_hosts.missing_aaaa(r, now, stable)}
         watched = self.effective_prefixes()
         stale: dict[str, list[str]] = {}
         for s in ipv6_hosts.stale_records(
-            hosts,
+            judged_hosts,
             g.observations,
             now,
             stable,
@@ -245,9 +241,9 @@ class Ipv6Service:
             lambda a: prefixes_mod.watched(a, watched),
             excepted,
         ):
-            stale.setdefault(s.host_key, []).append(s.address)
+            stale.setdefault(s.mac, []).append(s.address)
         for row in rows:
-            row["stale"] = stale.get(row["host_key"], [])
+            row["stale"] = stale.get(row["mac"], [])
         if filter_ == "stale":
             rows = [r for r in rows if r["stale"]]
         elif filter_ == "missing_aaaa":

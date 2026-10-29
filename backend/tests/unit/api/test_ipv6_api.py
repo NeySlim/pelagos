@@ -248,6 +248,14 @@ def test_a_refused_transfer_is_reported_and_the_rest_listed(role_client, observe
     assert hosts.status_code == 200 and "dns.zones" in hosts.get_json()["meta"]["errors"]
 
 
+def test_consistency_pass_skips_on_a_refused_transfer(services, fake_registry):
+    assert services.hosts.consistency_pass()["errors"] == {}
+    _refusing(fake_registry, "refused.lan.")
+    out = services.hosts.consistency_pass()
+    assert "refused.lan.: AXFR of refused.lan. refused" in out["errors"]["dns.zones"]
+    assert out["found"] == 0 and out["alerts"] == [] and out["by_kind"] == {}
+
+
 def test_filters_judge_the_zones_the_checks_judge(role_client, observed, fake_registry):
     from pelagos.domain import RRset
 
@@ -267,6 +275,21 @@ def test_filters_judge_the_zones_the_checks_judge(role_client, observed, fake_re
     snap = {"engine": "bind", "kind": "zone_list", "payload": [{"name": "corp.example.", "kind": "primary"}]}
     zones = ipv6_service.checked_zones([], [snap])
     assert zones == {"corp.example."}
+
+
+def test_records_of_an_unjudged_zone_do_not_count(role_client, observed, fake_registry):
+    from pelagos.domain import RRset
+
+    # pc1's first A is in corp.example., a secondary: the check proposes from its primary A.
+    dns = fake_registry.dns
+    dns.zones = {"corp.example.": dns.zones.pop("corp.example."), **dns.zones}
+    dns.rrsets["corp.example."][("pc1.corp.example.", "A")] = RRset(
+        "pc1.corp.example.", "A", 300, ["192.0.2.100"]
+    )
+    c = role_client("viewer")
+    pc1 = next(x for x in c.get(H).get_json()["items"] if x["mac"] == MAC)
+    assert pc1["proposal"]["zone"] == "corp.example."
+    assert [x["mac"] for x in c.get(H + "?filter=missing_aaaa").get_json()["items"]] == [MAC]
 
 
 def test_exception_keys_match_in_any_case(admin, observed, node_ctx):

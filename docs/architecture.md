@@ -2541,7 +2541,7 @@ configuration; the problem document carries `"engine"` and `"divergences":
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
-| `GET /hosts?q=&subnet_id=&zone=&only_inconsistent=&page=&per_page=` | `read:hosts` | | paginated `Host` |
+| `GET /hosts?q=&subnet_id=&zone=&only_inconsistent=&page=&per_page=` | `read:hosts` | | paginated `Host`; `meta.errors` names the engines, and `meta.errors["dns.zones"]` the zones (`"<zone>: <error>"` joined by `; `), that could not be read: the route answers 200 with the rest |
 | `GET /hosts/{key}` | `read:hosts` | | `Host` |
 | `POST /hosts/plan` | `write:hosts` | `{"hostname","ip","mac"?,"zone","reverse_zone"?,"view"?,"reverse_view"?,"ttl"?,"reservation": bool,"subnet_id"?,"notes"?}` | `Plan` (scope `host`, changes expanded into `dns.rrset` and `dhcp.reservation`; the RRset parts are written in `view` (`reverse_view`, default `view`) with that view's keys, as record plans; on a node without BIND they are built from the primary's records and applied on the primary, and so are record plans) |
 
@@ -2562,7 +2562,7 @@ configuration; the problem document carries `"engine"` and `"divergences":
 | `GET /alerts?kind=&severity=&state=&node_id=&engine=&page=&per_page=` | `read:alerts` | | paginated `Alert` of the whole cluster, `reported_by` set, `meta.unavailable`: `[{"node_id","name","error"}]` (section 15, cluster view) |
 | `GET /alerts/summary` | `read:alerts` | | `{"open","acked","by_severity": {...}, "by_kind": {...}, "unavailable": [...]}` over the cluster |
 | `POST /alerts/{id}/ack` | `write:alerts` | `{"comment"?}` | `Alert` |
-| `POST /alerts/consistency/run` | `write:alerts` | | `202 {"job_id"}` |
+| `POST /alerts/consistency/run` | `write:alerts` | | `202 {"job_id"}` (job output `{"found","by_kind","alerts","errors","collector_signalled"}`; `errors` names the engines, and `dns.zones` the zones, that could not be read: with any, `found` is 0 and `alerts` empty, as the collector skips its pass) |
 | `GET /alerts/exceptions?kind=` | `read:alerts` | | `{"items": [{"id","kind","key","comment","summary"?,"created_by","created_at","node_id"}]}` (newest first) |
 | `POST /alerts/exceptions` | `write:alerts`; `admin:settings` for `insecure_key`, `insecure_listener`, `security_advisory`, `custom_hook`, `cert_expiry`, `kea_series_obsolete` | `{"kind","key","comment","summary"?}` (`comment` mandatory) | `201` the exception (`409` when `(kind, key)` already is one) |
 | `DELETE /alerts/exceptions/{id}` | `write:alerts`; `admin:settings` for the security kinds above | | `204` |
@@ -4159,12 +4159,13 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   address (the check's notion: `eui64` or `stable`, seen within
   `stable_min_days`); filters: `missing_aaaa` (as the
   check, excepted rows left out), `missing_ptr` (an AAAA without PTR),
-  `stale` (as the check; both judge only the forward zones the check judges:
-  primary on a node of the cluster, from the zone list read and the cached
-  zone lists of every node, RPZ policy zones left out; the rows, names and
-  proposals still come from every served forward zone, secondary and mirror
-  included; each row's `stale` lists its AAAA addresses that are stale this
-  way, excepted ones left out),
+  `stale` (as the check; both judge the hosts joined from the records of
+  the forward zones the check judges only: primary on a node of the cluster,
+  from the zone list read and the cached zone lists of every node, RPZ
+  policy zones left out, an unread zone giving no record; the rows, names
+  and proposals shown still come from every served forward zone, secondary
+  and mirror included; each row's `stale` lists its AAAA addresses that are
+  stale this way, excepted ones left out),
   `unknown` (no name), `random_mac`; `zone` keeps the rows whose proposal or
   name is in that zone; `meta.errors` names the engines that could not be
   read, and `meta.errors["dns.zones"]` the zones whose records could not be

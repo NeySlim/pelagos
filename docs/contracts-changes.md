@@ -1957,4 +1957,7 @@ filters (and each row's `stale`) judge only the forward zones the checks judge (
 RPZ left out) instead of every served forward zone. Exception keys `mac:` and `addr:` of the
 `ipv6_*` kinds are compared in canonical form. WP-API-AUTH: `services/hosts_service.py`,
 `services/ipv6_service.py`. WP-COLLECTOR: `services/consistency.py`. WP-FRONTEND: the exception
-targets read `current`.
+targets read `current`. Review: the two filters judge the hosts joined from the records of the
+judged zones only (a secondary's A or AAAA no longer counts); the `POST /alerts/consistency/run` job
+names unread zones in `errors["dns.zones"]` and, on any read error, gives `found` 0 and no alerts;
+the `ipv6_missing_aaaa` exception targets are offered only with a proposal.

@@ -1992,7 +1992,8 @@ uses the summary `plan.resolver.return_kept` (`nodes`, `kept`), or `plan.resolve
 Sections 15 and 27. New alert kind `ipv6_source_failed` (warning, per node, subject
 `ipv6:source:<source>[:<source_id>]`, details `source`, `source_id`, `error`, `failing_since`):
 the node's `neighbors` or `dhcpv6` source failing on every poll for 10 min, a router source for
-24 h. A 0.2.1 or 0.2.2 peer keeps it as an unknown kind. Additive: SourceStatus gains
+24 h; `dhcpv6` not while the node's Kea DHCPv6 has an open `daemon_down` or an engine write in
+progress. A 0.2.1 or 0.2.2 peer keeps it as an unknown kind. Additive: SourceStatus gains
 `failing_since`. The collector unit allows `AF_NETLINK` (the neighbor table needs it; no
 capability, so read only); interface prefixes are read from `/proc/net/if_inet6`. WP-COLLECTOR:
 `collector/ipv6/observer.py`, `collector/rules.py`, `packaging/systemd`. WP-FRONTEND: the kind

@@ -95,6 +95,8 @@ class Ipv6Observer:
         # Set by the collector's run(): peers unreachable now, and each peer's version.
         self.offline: Callable[[], list[str]] = list
         self.versions: Callable[[], dict[str, str | None]] = dict
+        # Set by run(): True while Kea DHCPv6 is known down or reloaded here (daemon_down covers it).
+        self.kea6_unavailable: Callable[[], bool] = lambda: False
         # Set by run(): polls on their own thread, recorded by the next tick on the loop thread.
         self.background = False
         self._thread: threading.Thread | None = None
@@ -186,6 +188,7 @@ class Ipv6Observer:
                 except Exception as exc:  # a bad source entry is a failed source, never a failed pass
                     message = exc.message if isinstance(exc, SourceError) else f"invalid source: {exc}"
                     last = previous.get((source["type"], str(source["id"])))
+                    self._log_transition(source["type"], str(source["id"]), message)
                     p.status.append(self._status(source["type"], str(source["id"]), now, message, 0, last))
         return p
 
@@ -234,12 +237,19 @@ class Ipv6Observer:
             log.warning("IPv6 source %s works again", name)
 
     def failure_alerts(self, status: list[dict[str, Any]], now: int) -> list[Alert]:
-        """`ipv6_source_failed` for each source of this node failing for its ALERT_AFTER or longer."""
+        """`ipv6_source_failed` for each source of this node failing for its ALERT_AFTER or longer;
+        none for `dhcpv6` while Kea DHCPv6 itself is down or reloaded (one outage, one alert)."""
         out = []
+        kea6_down: bool | None = None
         for s in status:
             since = s.get("failing_since")
             if s.get("node_id") != self.node_id or not s.get("error") or not isinstance(since, int):
                 continue
+            if s.get("source") == "dhcpv6":
+                if kea6_down is None:
+                    kea6_down = self.kea6_unavailable()
+                if kea6_down:
+                    continue
             if now - since >= ALERT_AFTER.get(str(s.get("source")), ROUTER_ALERT_AFTER):
                 out.append(rules.ipv6_source_failed(self.node_id, self.node_name, s, since))
         return out

@@ -1172,6 +1172,7 @@ Chaque nœud observe ses voisins ; le nœud de service interroge le routeur ; l'
 | Panne | Comportement |
 | --- | --- |
 | Routeur injoignable ou clé refusée | Source en échec dans l'écran ; observations des nœuds seules ; pas d'alerte avant 24 h |
+| Source du nœud (ip neigh, baux DHCPv6) en échec | Avertissement une fois, alerte `ipv6_source_failed` après 10 min ; pas pour les baux DHCPv6 tant que `daemon_down` est ouverte pour Kea DHCPv6 |
 | Changement de préfixe du fournisseur | `ipv6_stale_aaaa` et plan de remplacement en bloc |
 | Zone inverse IPv6 absente | `ipv6_reverse_missing`, création proposée ; les PTR de la sélection sont refusés avant le plan |
 | Hôte à MAC aléatoire | Signalé ; proposition possible, avec avertissement |

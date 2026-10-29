@@ -494,3 +494,48 @@ def test_router_source_alerts_only_after_a_day(tmp_path):
     assert obs.failure_alerts(status, clock.t + 3600) == []
     got = obs.failure_alerts(status, clock.t + 86400)
     assert [a.subject for a in got] == ["ipv6:source:opnsense:01SRC"]
+
+
+def test_bad_router_entry_warns_once_and_logs_its_recovery(tmp_path, caplog):
+    router = FakeSource("opnsense", SEEN[:1])
+    broken = [True]
+    store = series_mod.SeriesStore(series_mod.connect(tmp_path / "series.db"))
+    clock = Clock(1_800_000_000)
+
+    def factory(source, ctx):
+        if broken[0]:
+            raise ValueError("no url")
+        return router
+
+    obs = Ipv6Observer(
+        make_ctx(SETTINGS), store, clock, neighbors=FakeSource("neighbors"), router_factory=factory
+    )
+    with caplog.at_level("INFO", logger="pelagos.collector.ipv6.observer"):
+        for _ in range(3):
+            status = obs.tick()
+            clock.t += 300
+        broken[0] = False
+        status = obs.tick()
+    assert [r.getMessage() for r in caplog.records if r.levelname == "WARNING"] == [
+        "IPv6 source opnsense 01SRC failed: invalid source: no url",
+        "IPv6 source opnsense 01SRC works again",
+    ]
+    assert {s["source"]: s["error"] for s in status}["opnsense"] is None
+
+
+def test_no_dhcpv6_alert_while_kea6_is_down(tmp_path):
+    obs, clock, _ = observer(tmp_path, {}, FakeSource("neighbors"))
+    failing = {
+        "source": "dhcpv6",
+        "source_id": None,
+        "node_id": "n1",
+        "last_poll": clock.t,
+        "error": "Kea DHCPv6 unreachable",
+        "entries": 0,
+        "failing_since": clock.t - 900,
+    }
+    assert [a.subject for a in obs.failure_alerts([failing], clock.t)] == ["ipv6:source:dhcpv6"]
+    obs.kea6_unavailable = lambda: True
+    assert obs.failure_alerts([failing], clock.t) == []
+    neigh = dict(failing, source="neighbors")
+    assert [a.subject for a in obs.failure_alerts([failing, neigh], clock.t)] == ["ipv6:source:neighbors"]

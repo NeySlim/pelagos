@@ -261,6 +261,16 @@ class Collector:
             clock,
             (lambda: _all_leases(kea6, self.node_id, self.backend_lock)) if kea6 is not None else None,
         )
+        self.ipv6.kea6_unavailable = self._kea6_unavailable
+
+    def _kea6_unavailable(self) -> bool:
+        """Kea DHCPv6 of this node has an open daemon_down or an engine write in progress."""
+        if engine_write_in_progress(self.ctx.paths.locks_dir, Engine.KEA6.value):
+            return True
+        return any(
+            a.kind is AlertKind.DAEMON_DOWN and a.node_id == self.node_id and a.engine == Engine.KEA6
+            for a in self.alerts.open_alerts()
+        )
 
     def _reloading(self, poller: KeaPoller) -> Callable[[str], bool]:
         """True while Pelagos writes or reloads the engine and for the grace period after."""

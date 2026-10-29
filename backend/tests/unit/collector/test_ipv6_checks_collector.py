@@ -198,3 +198,24 @@ def test_failing_neighbor_source_opens_then_resolves_ipv6_source_failed(rig):
     failing[0] = False
     collector.observe_ipv6()
     assert not [a for a in collector.alerts.open_alerts() if a.kind == AlertKind.IPV6_SOURCE_FAILED]
+
+
+def test_kea6_daemon_down_or_write_silences_the_dhcpv6_source(rig, node_ctx):
+    from pelagos.collector import rules
+    from pelagos.collector.pollers import PollOutcome
+    from pelagos.domain import Engine
+
+    collector, _ = rig
+    assert collector.ipv6.kea6_unavailable() is False
+    kinds_ = frozenset({AlertKind.DAEMON_DOWN.value})
+    down = rules.daemon_down(collector.node_id, Engine.KEA6, "connection refused")
+    collector._finish(PollOutcome(alerts=[down], kinds=kinds_))
+    assert collector.ipv6.kea6_unavailable() is True
+    collector._finish(PollOutcome(alerts=[], kinds=kinds_))
+    assert collector.ipv6.kea6_unavailable() is False
+    import fcntl
+
+    node_ctx.paths.locks_dir.mkdir(parents=True, exist_ok=True)
+    with open(node_ctx.paths.locks_dir / "engine-kea6.lock", "w") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        assert collector.ipv6.kea6_unavailable() is True

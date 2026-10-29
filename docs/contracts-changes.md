@@ -1970,4 +1970,5 @@ Additive, section 25. `GET /dns/resolver/health` gains `settings` (`fallback_max
 /dns/resolver/fallback` takes `{"hours"}`, counted from the node's clock, besides `{"until"}`.
 The fallback entry gains `manual_change_nodes` (per node; `manual_change` stays, true when one
 is listed). The return plan leaves a node changed by hand as it is (options and `tls` block) and
-uses the summary `plan.resolver.return_kept` (`nodes`, `kept`); before, it restored it.
+uses the summary `plan.resolver.return_kept` (`nodes`, `kept`), or `plan.resolver.return_kept_only`
+(`kept`) when every node that answers was changed by hand; before, it restored them.

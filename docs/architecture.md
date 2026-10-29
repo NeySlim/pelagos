@@ -3877,7 +3877,8 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
   replication has exchanged cluster.toml. The return plan restores every node
   of the fallback that answers, except one changed by hand at that moment,
   which keeps its options and its `tls` block (summary
-  `plan.resolver.return_kept`, `nodes`, `kept`) and leaves the fallback like
+  `plan.resolver.return_kept`, `nodes`, `kept`, or `plan.resolver.return_kept_only`,
+  `kept`, when no node is restored) and leaves the fallback like
   the others; a node that does not answer keeps the fallback, which then lists the others
   in `returned` and gets `until` = now, so its collector returns it when it is
   back. An automatic return that cannot be planned or applied writes its

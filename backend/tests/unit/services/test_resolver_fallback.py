@@ -687,3 +687,16 @@ def test_collector_applies_the_automatic_fallback_on_the_service_node(two, monke
     assert result.state is PlanState.APPLIED and fallback(t["ctx"])["by"] == "system"
     assert t["remote"].options["forward"] == "first" and rig._fallback_since == {}
     assert Collector.resolver_auto_fallback(rig, T0 + timedelta(hours=1)) is None  # already active
+
+
+def test_return_plan_with_every_node_changed_by_hand(two):
+    t = two
+    apply(t, t["service"].plan_fallback({"preset": "quad9", "hours": 2}, "alice"))
+    t["local"].options["forwarders"] = "{ 192.0.2.77; }"
+    t["remote"].options["forwarders"] = "{ 192.0.2.78; }"
+    plan = t["service"].plan_return("bob")
+    assert plan.summary_message["key"] == "plan.resolver.return_kept_only"
+    assert plan.summary_message["params"] == {"kept": "ns1, ns2"}
+    assert apply(t, plan).state is PlanState.APPLIED
+    assert t["local"].options["forwarders"] == "{ 192.0.2.77; }"
+    assert t["remote"].options["forwarders"] == "{ 192.0.2.78; }" and fallback(t["ctx"]) is None

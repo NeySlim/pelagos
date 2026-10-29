@@ -753,6 +753,7 @@
       "title": "Les requêtes passent par des forwarders",
       "tls": "DNS sur TLS : {{name}}",
       "manual": "Modifié à la main sur {{nodes}} : laissé tel quel, pas de retour automatique",
+      "manualAny": "Modifié à la main sur un nœud : laissé tel quel, pas de retour automatique",
       "ready": "Sondes saines : retour proposé",
       "forwarders": "Forwarders",
       "nodes": "Nœuds",

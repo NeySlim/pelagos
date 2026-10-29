@@ -103,7 +103,7 @@ def _scenario(w, monkeypatch) -> None:
 
     # The return plan leaves the hand change as it is and ends the fallback.
     back = w.service.plan_return("bob")
-    assert back.summary_message["key"] == "plan.resolver.return_kept"
+    assert back.summary_message["key"] == "plan.resolver.return_kept_only"
     assert w.plans.apply(back, "bob", confirm=True).state is PlanState.APPLIED
     assert "192.0.2.53" in (w.inc / "options.conf").read_text()
     assert rf.read_fallback(w.ctx.settings()) is None

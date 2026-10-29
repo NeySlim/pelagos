@@ -197,6 +197,13 @@ describe('Resolver health', () => {
     expect(within(banner).getByTestId('resolver-fallback-manual')).toHaveTextContent('Changed by hand on ns1')
   })
 
+  it('flags a hand change without node names when a 0.2.2 peer set only manual_change', async () => {
+    db.health = health({ fallback: { ...FALLBACK, manual_change: true } })
+    renderPage()
+    const banner = await screen.findByTestId('resolver-fallback-banner')
+    expect(within(banner).getByTestId('resolver-fallback-manual')).toHaveTextContent('Changed by hand on a node: kept as is')
+  })
+
   it('hides the fallback actions without write:dns.config', async () => {
     db.perms = ['read:dns', 'read:series']
     db.health = health({ fallback: FALLBACK })

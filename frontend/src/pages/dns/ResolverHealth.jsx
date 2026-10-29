@@ -242,7 +242,9 @@ export function FallbackBanner({ fallback, returnReady, nameOf, canWrite, onRetu
         {fallback.tls_name && <Badge size="sm" variant="outline" icon={ShieldCheck}>{t('resolverHealth.banner.tls', { name: fallback.tls_name })}</Badge>}
         {fallback.manual_change && (
           <Badge size="sm" variant="danger" data-testid="resolver-fallback-manual">
-            {t('resolverHealth.banner.manual', { nodes: (fallback.manual_change_nodes || []).map(nameOf).join(', ') || '-' })}
+            {fallback.manual_change_nodes?.length
+              ? t('resolverHealth.banner.manual', { nodes: fallback.manual_change_nodes.map(nameOf).join(', ') })
+              : t('resolverHealth.banner.manualAny')}
           </Badge>
         )}
         {returnReady && <Badge size="sm" variant="success" data-testid="resolver-fallback-ready">{t('resolverHealth.banner.ready')}</Badge>}

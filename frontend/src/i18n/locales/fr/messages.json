@@ -364,6 +364,7 @@
   "plan.resolver.fallback": "envoyer les requêtes de {{nodes}} vers {{forwarders}} (forward {{forward}}) jusqu'au {{until}}",
   "plan.resolver.return": "résoudre de nouveau en direct sur {{nodes}} : forward et forwarders comme avant le repli",
   "plan.resolver.return_kept": "résoudre de nouveau en direct sur {{nodes}} : forward et forwarders comme avant le repli ; {{kept}} modifiés à la main : laissés tels quels",
+  "plan.resolver.return_kept_only": "mettre fin au repli sur les forwarders ; {{kept}} modifiés à la main : laissés tels quels",
   "plan.resolver.extend": "garder le repli vers les forwarders jusqu'au {{until}}",
   "alert.kea_series_obsolete": "{{engine}} {{version}} est de la série {{series}}, qu'ISC ne maintient plus : analysez la migration",
   "kea_migration.renamed_key": "{{path}} : {{old}} devient {{new}}",

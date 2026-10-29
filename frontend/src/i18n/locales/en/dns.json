@@ -753,6 +753,7 @@
       "title": "Queries go through forwarders",
       "tls": "DNS over TLS: {{name}}",
       "manual": "Changed by hand on {{nodes}}: kept as is, no automatic return",
+      "manualAny": "Changed by hand on a node: kept as is, no automatic return",
       "ready": "Probes healthy: return proposed",
       "forwarders": "Forwarders",
       "nodes": "Nodes",

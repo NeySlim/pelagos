@@ -258,6 +258,7 @@ CATALOG: dict[str, str] = {
         "resolve directly again on {nodes}: forward and forwarders as before the fallback;"
         " {kept} changed by hand: left as they are"
     ),
+    "plan.resolver.return_kept_only": "end the forwarder fallback; {kept} changed by hand: left as they are",
     "plan.resolver.extend": "keep the forwarder fallback until {until}",
     # Kea 3.x migration analysis (section 26).
     "alert.kea_series_obsolete": (

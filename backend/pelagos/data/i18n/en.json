@@ -358,6 +358,7 @@
   "plan.resolver.fallback": "send the queries of {{nodes}} to {{forwarders}} (forward {{forward}}) until {{until}}",
   "plan.resolver.return": "resolve directly again on {{nodes}}: forward and forwarders as before the fallback",
   "plan.resolver.return_kept": "resolve directly again on {{nodes}}: forward and forwarders as before the fallback; {{kept}} changed by hand: left as they are",
+  "plan.resolver.return_kept_only": "end the forwarder fallback; {{kept}} changed by hand: left as they are",
   "plan.restore": "restore from the archive of {{archive}} on {{node}}",
   "plan.restore.bind_files": "restore {{count}} BIND configuration files",
   "plan.restore.pelagos": "restore {{count}} Pelagos parts (cluster.toml, audit)",

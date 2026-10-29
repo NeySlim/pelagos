@@ -1172,6 +1172,9 @@
     "kept",
     "nodes"
   ],
+  "plan.resolver.return_kept_only": [
+    "kept"
+  ],
   "plan.restore": [
     "archive",
     "node"

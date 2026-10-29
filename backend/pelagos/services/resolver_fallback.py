@@ -600,11 +600,12 @@ class ResolverFallbackService:
                 ]
         parts.append(self._writer_part(fallback, after, created_by))
         names = self._names()
-        restored = ", ".join(names.get(n, n) for n in done if n not in kept) or "-"
-        if kept:
-            summary = messages.msg(
-                "plan.resolver.return_kept", nodes=restored, kept=", ".join(names.get(n, n) for n in kept)
-            )
+        restored = ", ".join(names.get(n, n) for n in done if n not in kept)
+        kept_names = ", ".join(names.get(n, n) for n in kept)
+        if kept and not restored:
+            summary = messages.msg("plan.resolver.return_kept_only", kept=kept_names)
+        elif kept:
+            summary = messages.msg("plan.resolver.return_kept", nodes=restored, kept=kept_names)
         else:
             summary = messages.msg("plan.resolver.return", nodes=restored)
         return self._composite(summary, parts, created_by)

@@ -358,6 +358,7 @@
   "plan.resolver.fallback": "envoyer les requêtes de {{nodes}} vers {{forwarders}} (forward {{forward}}) jusqu'au {{until}}",
   "plan.resolver.return": "résoudre de nouveau en direct sur {{nodes}} : forward et forwarders comme avant le repli",
   "plan.resolver.return_kept": "résoudre de nouveau en direct sur {{nodes}} : forward et forwarders comme avant le repli ; {{kept}} modifiés à la main : laissés tels quels",
+  "plan.resolver.return_kept_only": "mettre fin au repli sur les forwarders ; {{kept}} modifiés à la main : laissés tels quels",
   "plan.restore": "restaurer depuis l'archive de {{archive}} sur {{node}}",
   "plan.restore.bind_files": "restaurer {{count}} fichiers de configuration BIND",
   "plan.restore.pelagos": "restaurer {{count}} parties de Pelagos (cluster.toml, audit)",

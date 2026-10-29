@@ -3785,8 +3785,8 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
   `statistics-channel unreachable` once the last sample is older than three
   collector passes, two minutes at least). A TLD entry sums its probed servers:
   `servers` is their count, `ok` true when one answered, `rtt_ms` the best,
-  `last_failure` the most recent failure of one of them, `served` true when it
-  is probed for a zone of the node rather than listed in `probe_tlds`. R3 adds
+  `last_failure` the most recent failure of one of them, `served` true when a
+  zone of the node is under it (listed in `probe_tlds` or not). R3 adds
   `probes_healthy_since` (RFC 3339: the latest moment every root server, or
   every probed server of one TLD, may have failed together; null when none
   ever did; `"unhealthy"` while such a group fails now, `"unknown"` without a
@@ -3835,8 +3835,17 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
   action builds too; deleting an absent block is no change); the return
   removes the block. TOML holds no null: null keys are left out of
   cluster.toml and read back as null, and an entry without `id`, `node_ids` or
-  `until` is no fallback. `started_at` and `until` are stamped when the plan
-  is applied (`until` = then + `hours`).
+  `until` is no fallback. `until` is stamped when the plan is built (build
+  time + `hours`, the deadline the confirmation shows) and `started_at` when
+  it is applied. A forwarder address with a scope id (`%`) is refused. A node
+  whose `forwarders` cannot be written back as they were (BIND's global
+  `port`/`tls` prefix form `port N { ... }`, nested braces, a comment) is
+  refused with a `node_ids` field error naming it; a per-element `port` or
+  `tls` is kept. A peer that does not know the `resolver.health` action
+  (`not_supported`: a release before 0.2.2, without the automatic return) is
+  refused the same way. The `tls/<name>` target refuses a `tls` block of
+  that name in a user file, and one already in `keys.conf` with other
+  settings (the return deletes the block).
 - **Plans**: composites (`PlanService.register_composite`) of `dns.config`
   parts on `options/forward` and `options/forwarders`, a peer's part built
   there by the `dns.config.plan` peer action; summary `plan.resolver.fallback`
@@ -3863,12 +3872,20 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
   of the fallback that answers, even one changed by hand (the diff shows it);
   a node that does not answer keeps the fallback, which then lists the others
   in `returned` and gets `until` = now, so its collector returns it when it is
-  back.
+  back. An automatic return that cannot be planned or applied writes its
+  `dns.resolver.op` entry with result `error` and is retried after 300
+  seconds.
 - **Automatic fallback** (`fallback_auto_enabled`, off by default): the
   collector of the service node (section 22) builds and applies the fallback
   plan with the first preset (`quad9`), `forward first`, `fallback_max_hours`,
   when a proposing alert stayed critical on every node for
-  `fallback_after_seconds`; audit user `system`.
+  `fallback_after_seconds`; audit user `system`. The service node is the
+  notification sender; it reads the cluster's critical `resolver_health`
+  alerts with `details.remediation: "resolver_fallback"` at each pass of the
+  `resolver_return` task and keeps in memory since when each BIND node
+  proposes the fallback without a break (a restart or a node that recovers
+  starts its clock again). Nothing is planned while a fallback is active; a
+  failed attempt is retried after 300 seconds.
 
 ## 26. Kea 3.x migration analysis
 

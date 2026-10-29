@@ -37,6 +37,7 @@ from pelagos.connectors.bind.namedconf.resolve import (
     build_tree,
     materialize,
     parse,
+    same_path,
     zone_from_node,
 )
 from pelagos.connectors.bind.namedconf.tree import ConfigDocument, parse_statements, unquote
@@ -580,10 +581,25 @@ class ConfigPlanner:
         """A `tls` statement that checks a forwarder's certificate (section 25), kept in keys.conf;
         deleting one that is not there changes nothing."""
         name = forwarders.check_tls_name(name)
-        doc = self.doc(self.managed.keys_conf)
+        keys_conf = self.managed.keys_conf
+        for res in self.files.statements():
+            node = res.node
+            if (
+                not res.parents
+                and node.name == "tls"
+                and node.args
+                and unquote(node.args[0]) == name
+                and not same_path(res.path, keys_conf)
+            ):
+                raise PlanError(f"tls {name} is defined in {res.path}; Pelagos never edits it")
+        doc = self.doc(keys_conf)
         existing = self.managed.find(doc, "tls", name)
         before = existing.serialize().strip() if existing is not None else None
         op = ChangeOp(change.op)
+        wanted = forwarders.tls_statement(name)
+        if op is not ChangeOp.DELETE and before is not None and " ".join(before.split()) != wanted:
+            # The fallback's return deletes the block: never take over one with other settings.
+            raise PlanError(f"tls {name} already exists in keys.conf with other settings")
         if op is ChangeOp.DELETE:
             if existing is None:
                 return  # already gone: a fallback return stays possible after a removal by hand
@@ -592,7 +608,7 @@ class ConfigPlanner:
         else:
             if op is ChangeOp.ADD and existing is not None:
                 raise PlanError(f"tls {name} is already managed; use replace")
-            after = forwarders.tls_statement(name)
+            after = wanted
             self.managed.upsert(doc, after, "tls", name, None)
         self.result.changes.append(
             Change(op, change.target, before=before, after=after, node_ids=change.node_ids)

@@ -233,6 +233,9 @@ class Collector:
         self._return_checked = False
         self._demote_retry_at = 0.0
         self._resolver_retry_at = 0.0
+        # Automatic fallback (section 25): since when each node proposes it, as this node saw it.
+        self._fallback_since: dict[str, datetime] = {}
+        self._fallback_retry_at = 0.0
         # run() turns this on: the slow checks probe the network, never inside the polling loop.
         self.slow_background = False
         self._slow_thread: threading.Thread | None = None
@@ -840,6 +843,14 @@ class Collector:
         """This node's automatic return from a forwarder fallback at its deadline (section 25)."""
         from pelagos.services import resolver_fallback as rf
 
+        if reg.get(self.ctx.settings(), "resolver.fallback_auto_enabled"):
+            try:
+                self.resolver_auto_fallback(datetime.now(UTC))
+            except Exception:
+                log.exception("automatic resolver fallback failed")
+                self._fallback_retry_at = time.monotonic() + DEMOTE_RETRY_SECONDS
+        else:
+            self._fallback_since.clear()
         if self.backends.dns is None or rf.read_fallback(self.ctx.settings()) is None:
             return
         if not self._replication_synced() or time.monotonic() < getattr(self, "_resolver_retry_at", 0.0):
@@ -849,6 +860,63 @@ class Collector:
         )
         if done and done.startswith("failed"):
             self._resolver_retry_at = time.monotonic() + DEMOTE_RETRY_SECONDS
+
+    def resolver_auto_fallback(self, now: datetime) -> Any:
+        """On the service node, the quad9 fallback once a proposing alert stayed critical on every
+        BIND node for `resolver.fallback_after_seconds` (section 25); returns the applied plan."""
+        from pelagos.core.cluster_alerts import ClusterAlertView
+        from pelagos.services import resolver_fallback as rf
+        from pelagos.services.dns_service import DnsService
+        from pelagos.services.peers import PeerGateway
+        from pelagos.services.plan_service import PlanService
+        from pelagos.services.registry import ConnectorRegistry as ServiceRegistry
+
+        settings = self.ctx.settings()
+        if self.backends.dns is None or not self._is_service_node(settings):
+            self._fallback_since.clear()
+            return None
+        if rf.read_fallback(settings) is not None or not self._replication_synced():
+            self._fallback_since.clear()
+            return None
+        gateway = PeerGateway(self.ctx)
+        view = ClusterAlertView(self.node_id, lambda: self.store.conn, gateway).cluster(
+            kind=AlertKind.RESOLVER_HEALTH.value, severity="critical"
+        )
+        rf.track_proposing(self._fallback_since, rf.proposing_nodes(view.alerts), now)
+        bind_nodes = [n.id for n in self.ctx.cluster().nodes if n.modules.bind]
+        after = int(reg.get(settings, "resolver.fallback_after_seconds"))
+        if not rf.auto_fallback_due(self._fallback_since, bind_nodes, after, now):
+            return None
+        if time.monotonic() < self._fallback_retry_at:
+            return None
+        b = self.backends
+        registry = ServiceRegistry(dns=b.dns, kea4=b.kea4, kea6=b.kea6, d2=b.d2)
+        plans = PlanService(self.ctx, registry, gateway)
+        plans.cluster_parts[PlanScope.DNS_RESOLVER] = rf.FallbackWriter(self.ctx)
+        dns_svc = DnsService(self.ctx, b.dns, gateway)
+        dns_svc.plans = plans
+        service = rf.ResolverFallbackService(self.ctx, dns_svc, gateway, plans)
+        with self.backend_lock:
+            result = rf.auto_fallback(service, plans)
+        state = getattr(result, "state", None)
+        log.warning("automatic resolver fallback to %s: %s", rf.AUTO_PRESET, getattr(state, "value", state))
+        if state is not PlanState.APPLIED:
+            self._fallback_retry_at = time.monotonic() + DEMOTE_RETRY_SECONDS
+        self._fallback_since.clear()
+        return result
+
+    def _is_service_node(self, settings: dict[str, Any]) -> bool:
+        """The notification sender of section 22; before the dispatcher runs, the same election."""
+        from pelagos.collector import notify as notify_mod
+
+        if self.notifier is not None:
+            return getattr(self.notifier, "sender", None) == self.node_id
+        nodes = [n.id for n in self.ctx.cluster().nodes]
+        order = notify_mod.send_order(nodes, reg.domain(settings, "notifications").get("order"))
+        if self.node_id not in order:
+            order.append(self.node_id)
+        offline = {a.node_id for a in self.alerts.open_alerts() if a.kind is AlertKind.PEER_OFFLINE}
+        return notify_mod.elect(order, self.node_id, {n for n in offline if n}, {}) == self.node_id
 
     def _apply_as_system(self, plan: Any) -> Any:
         """Applies a plan of this node's own engines as `system` (the caller holds the backend lock)."""

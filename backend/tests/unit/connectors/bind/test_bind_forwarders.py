@@ -28,7 +28,12 @@ def test_values_and_names() -> None:
     assert fw.same("{ 9.9.9.9 port 853 tls a.b; }", ['9.9.9.9 port 853 tls "a.b"'])
     assert not fw.same("{ 9.9.9.9; }", None) and fw.same(None, None)
     assert fw.check_address(" 2620:00fe::fe ") == "2620:fe::fe"
-    for bad in ("9.9.9", "dns.quad9.net", ""):
+    assert fw.elements("{ 192.0.2.1 port 5353; 192.0.2.2; }") == ["192.0.2.1 port 5353", "192.0.2.2"]
+    for unrestorable in ("port 5353 { 192.0.2.1; }", 'tls "x" { 192.0.2.1; }', "{ 192.0.2.1; # c\n }"):
+        with pytest.raises(ValueError):
+            fw.elements(unrestorable)
+        assert not fw.same(unrestorable, ["192.0.2.1"])
+    for bad in ("9.9.9", "dns.quad9.net", "", "fe80::1%eth0", "fe80::1%a;};recursion yes;forwarders{1.1.1.1"):
         with pytest.raises(ValueError):
             fw.check_address(bad)
     assert fw.check_tls_name("dns.quad9.net.") == "dns.quad9.net"
@@ -102,3 +107,16 @@ def test_tls_target_refusals_and_idempotent_delete(tmp_root: Path, conf_tree: Pa
     assert backend.apply(added).ok
     again = backend.plan_config_change([Change(ChangeOp.ADD, "tls/one.one.one.one")])
     assert "already managed" in again.error
+
+
+def test_tls_target_never_takes_over_an_operator_block(tmp_root: Path, conf_tree: Path) -> None:  # noqa: F811
+    backend, _ = make_backend(tmp_root, conf_tree)
+    real_checkconf(backend)
+    conf = conf_tree / "named.conf"
+    conf.write_text(conf.read_text() + 'tls "dns.quad9.net" { remote-hostname "dns.quad9.net"; };\n')
+    user = backend.plan_config_change([Change(ChangeOp.REPLACE, "tls/dns.quad9.net")])
+    assert user.state is PlanState.FAILED and "Pelagos never edits it" in user.error
+    keys = conf_tree / "pelagos" / "keys.conf"
+    keys.write_text(keys.read_text() + 'tls "one.one.one.one" { remote-hostname "x.example.net"; };\n')
+    other = backend.plan_config_change([Change(ChangeOp.REPLACE, "tls/one.one.one.one")])
+    assert other.state is PlanState.FAILED and "other settings" in other.error

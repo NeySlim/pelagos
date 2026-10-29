@@ -122,8 +122,19 @@ OBSERVED_METRICS = ("latency_p95_ms", "timeouts_percent", "mismatch_per_minute",
 WEEK = 7 * 86400
 
 
+def served_tlds(backend: Any) -> set[str]:
+    """TLDs of the zones this node serves (what the probes mark served); empty when unreadable."""
+    from pelagos.collector.checks.resolver_probes import probed_tlds
+
+    try:
+        names = [z.name for z in backend.list_zones()] if backend is not None else []
+    except Exception:
+        names = []
+    return {tld for tld, served in probed_tlds([], names).items() if served}
+
+
 def node_health(
-    store: Any, node_id: str, now: int, stale_after: int, configured_tlds: list[str] | None = None
+    store: Any, node_id: str, now: int, stale_after: int, served: set[str] | None = None
 ) -> dict[str, Any]:
     """This node's NodeHealth from its series cache and probe table. A sample older than
     `stale_after` seconds is reported with `error` (the statistics channel stopped answering).
@@ -136,7 +147,7 @@ def node_health(
     elif now - ts > stale_after:
         error = "statistics-channel unreachable"
     rows = store.resolver_probes() if store is not None else []
-    configured = {str(t).strip(".").lower() for t in configured_tlds or []}
+    served_set = {str(t).strip(".").lower() for t in served or ()}
     roots = [
         {
             "letter": r["name"],
@@ -164,8 +175,7 @@ def node_health(
                 "ok": any(s["ok"] for s in servers),
                 "rtt_ms": min(rtts) if rtts else None,
                 "last_failure": _iso(max(failures)) if failures else None,
-                # Probed because a zone of this node is under it, not because it is configured.
-                "served": tld not in configured,
+                "served": tld in served_set,
             }
         )
     observed = {}

@@ -16,6 +16,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from pelagos.connectors.base import ConnectorError
 from pelagos.connectors.bind import forwarders as fw
 from pelagos.core import settings_registry as reg
 from pelagos.domain import (
@@ -264,10 +265,12 @@ class FallbackWriter:
         expected, new = (change.after, change.before) if rollback else (change.before, change.after)
         expected_id = expected.get("id") if isinstance(expected, dict) else None
         if isinstance(new, dict) and new.get("hours") is not None and not rollback:
+            # `until` is the deadline the operator confirmed (stamped when the plan was built).
             now = datetime.fromtimestamp(self.clock(), tz=UTC)
             new = {k: v for k, v in new.items() if k != "hours"}
             new["started_at"] = to_rfc3339(now)
-            new["until"] = to_rfc3339(now + timedelta(hours=int(change.after["hours"])))
+            if not new.get("until"):
+                new["until"] = to_rfc3339(now + timedelta(hours=int(change.after["hours"])))
         stale: list[str] = []
 
         def mutate(active: dict[str, Any] | None, table: dict[str, Any]) -> bool:
@@ -377,7 +380,7 @@ class ResolverFallbackService:
             op, diff = ChangeOp.DELETE, f"-{FALLBACK_TARGET} id={before['id'] if before else ''}\n"
         elif before is None:
             op = ChangeOp.ADD
-            diff = f"+{FALLBACK_TARGET} id={after['id']} until=+{after.get('hours')}h\n"
+            diff = f"+{FALLBACK_TARGET} id={after['id']} until={after.get('until')}\n"
         else:
             op, diff = ChangeOp.REPLACE, f"~{FALLBACK_TARGET} id={after['id']} returned={after['returned']}\n"
         return Plan(
@@ -455,16 +458,25 @@ class ResolverFallbackService:
                     "tls_name is not a host name", [field_error("tls_name", "host name")]
                 ) from None
         node_ids = self._targets(body.get("node_ids"))
+        names = self._names()
+        for node_id in node_ids:
+            self._check_release(node_id, names.get(node_id, node_id))
         parts: list[Plan] = []
         before: dict[str, Any] = {}
         for node_id in node_ids:
             current = self._current(node_id)
-            before[node_id] = {
-                "forward": current["forward"],
-                "forwarders": fw.elements(current["forwarders"]),
-            }
+            try:
+                listed_before = fw.elements(current["forwarders"])
+            except ValueError as exc:
+                name = names.get(node_id, node_id)
+                raise ValidationError(
+                    f"{name}: {exc}; write them as a plain list first",
+                    [field_error("node_ids", f"{name}: forwarders not restorable")],
+                ) from None
+            before[node_id] = {"forward": current["forward"], "forwarders": listed_before}
             parts.append(self._part(node_id, fallback_changes(forward, addresses, tls_name), created_by))
         now = self._now()
+        until = to_rfc3339(now + timedelta(hours=hours))
         fallback = {
             "id": new_id(),
             "node_ids": node_ids,
@@ -473,21 +485,39 @@ class ResolverFallbackService:
             "forward": forward,
             "tls_name": tls_name,
             "hours": hours,
+            "until": until,
             "by": created_by or "system",
             "before": before,
             "returned": [],
             "manual_change": False,
         }
         parts.append(self._writer_part(None, fallback, created_by))
-        names = self._names()
         summary = messages.msg(
             "plan.resolver.fallback",
             nodes=", ".join(names.get(n, n) for n in node_ids),
             forwarders=", ".join(addresses),
             forward=forward,
-            until=to_rfc3339(now + timedelta(hours=hours)),
+            until=until,
         )
         return self._composite(summary, parts, created_by)
+
+    def _check_release(self, node_id: str, name: str) -> None:
+        """A peer without `resolver.health` (before 0.2.2) has no automatic return: it would keep
+        the fallback for ever, so it is refused."""
+        if node_id == self.ctx.node.id:
+            return
+        peer = self.peers.peer(node_id)
+        if peer is None:
+            raise EngineUnavailable(f"node {node_id} is unknown")
+        try:
+            self.peers.action(peer, PEER_HEALTH, {}, timeout=HEALTH_TIMEOUT)
+        except ServiceError as exc:
+            if exc.code != "not_supported":
+                raise
+            raise ValidationError(
+                f"{name} runs a release without the automatic return: upgrade it or leave it out",
+                [field_error("node_ids", f"{name}: release 0.2.2 required")],
+            ) from None
 
     def _targets(self, raw: Any) -> list[str]:
         nodes = self._bind_nodes()
@@ -559,7 +589,7 @@ class ResolverFallbackService:
         raw = body.get("until")
         try:
             until = from_rfc3339(int(raw) if str(raw).isdigit() else str(raw))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError, OSError):
             raise ValidationError(
                 "until must be RFC 3339 or Unix seconds", [field_error("until", "bad time")]
             ) from None
@@ -602,16 +632,12 @@ class ResolverFallbackService:
     # Health -------------------------------------------------------------------------------------
 
     def local_health(self) -> dict[str, Any]:
-        from pelagos.collector.resolver import node_health
+        from pelagos.collector.resolver import node_health, served_tlds
 
         settings = self.ctx.settings()
         store = self.cache.store if self.cache is not None else None
         return node_health(
-            store,
-            self.ctx.node.id,
-            int(self.clock()),
-            stale_after(settings),
-            list(reg.get(settings, "resolver.probe_tlds")),
+            store, self.ctx.node.id, int(self.clock()), stale_after(settings), served_tlds(self.dns.local)
         )
 
     def health(self, node_id: str | None = None) -> dict[str, Any]:
@@ -737,8 +763,14 @@ def auto_return(
         return None
     from contextlib import nullcontext
 
-    with lock if lock is not None else nullcontext():
-        current = current_of(backend.read_config())
+    from pelagos.services.plan_service import PlanError
+
+    try:
+        with lock if lock is not None else nullcontext():
+            current = current_of(backend.read_config())
+    except ConnectorError as exc:
+        log.debug("resolver options not read for the automatic return: %s", exc)
+        return None
     already = matches_before(fallback, node_id, current)
     if not already and not matches_fallback(fallback, current):
         if mark_manual(ctx, fallback["id"]):
@@ -749,12 +781,17 @@ def auto_return(
         return None
     plan_id = None
     if not already:
-        with lock if lock is not None else nullcontext():
-            plan = backend.plan_config_change(return_changes(fallback, node_id, current), "system")
-            plan.target_node_ids = [node_id]
-            plan = ctx.plan_store.put(plan)
-            result = apply(plan)
-        plan_id = plan.id
+        try:
+            with lock if lock is not None else nullcontext():
+                plan = backend.plan_config_change(return_changes(fallback, node_id, current), "system")
+                plan.target_node_ids = [node_id]
+                plan = ctx.plan_store.put(plan)
+                plan_id = plan.id
+                result = apply(plan)
+        except (PlanError, ValueError, ConnectorError, ServiceError) as exc:
+            error = str(getattr(exc, "detail", None) or exc)
+            _audit_return(ctx, fallback, plan_id, False, error)
+            return f"failed: {error}"
         state = getattr(result, "state", None)
         if state is not PlanState.APPLIED:
             error = plan.error or (state.value if state else "not applied")
@@ -788,3 +825,46 @@ def _audit_return(
             message=error,
         )
     )
+
+
+# Automatic fallback (the service node's collector) ---------------------------------------------------
+
+AUTO_PRESET = "quad9"
+
+
+def proposing_nodes(alerts: list[Any]) -> set[str]:
+    """Nodes with an unresolved critical `resolver_health` alert that proposes the fallback."""
+    out: set[str] = set()
+    for a in alerts:
+        if (
+            getattr(a.kind, "value", a.kind) == "resolver_health"
+            and getattr(a.severity, "value", a.severity) == "critical"
+            and getattr(a.state, "value", a.state) != "resolved"
+            and (a.details or {}).get("remediation") == "resolver_fallback"
+            and a.node_id
+        ):
+            out.add(str(a.node_id))
+    return out
+
+
+def track_proposing(since: dict[str, datetime], proposing: set[str], now: datetime) -> None:
+    """Keeps, per node, since when it proposes the fallback without a break (this collector's view)."""
+    for node_id in [n for n in since if n not in proposing]:
+        del since[node_id]
+    for node_id in proposing:
+        since.setdefault(node_id, now)
+
+
+def auto_fallback_due(
+    since: dict[str, datetime], node_ids: list[str], after_seconds: int, now: datetime
+) -> bool:
+    """True once every BIND node has proposed the fallback for `after_seconds`."""
+    limit = timedelta(seconds=after_seconds)
+    return bool(node_ids) and all(n in since and now - since[n] >= limit for n in node_ids)
+
+
+def auto_fallback(service: ResolverFallbackService, plans: Any) -> Plan:
+    """Builds and applies, as `system`, the fallback of section 25 on every BIND node: the first
+    preset, `forward first`, `fallback_max_hours`."""
+    plan = service.plan_fallback({"preset": AUTO_PRESET, "forward": "first"}, "system")
+    return plans.apply(plan, "system", confirm=True)

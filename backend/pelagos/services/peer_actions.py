@@ -254,12 +254,11 @@ class PeerActions:
         import time
 
         from pelagos.collector import series as series_mod
-        from pelagos.collector.resolver import node_health
-        from pelagos.core import settings_registry as reg
+        from pelagos.collector.resolver import node_health, served_tlds
         from pelagos.services.resolver_fallback import stale_after
 
         settings = self.ctx.settings()
-        tlds = list(reg.get(settings, "resolver.probe_tlds"))
+        tlds = served_tlds(getattr(self.registry, "dns", None))
         now, stale = int(time.time()), stale_after(settings)
         path = self.ctx.paths.series_db
         if not path.exists():

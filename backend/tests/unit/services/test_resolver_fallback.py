@@ -15,7 +15,7 @@ from pelagos.collector.resolver import node_health, probes_healthy_since
 from pelagos.domain import NodeApplyResult, NodeModules, Peer, Plan, PlanScope, PlanState
 from pelagos.services import resolver_fallback as rf
 from pelagos.services.dns_service import DnsService, parse_change
-from pelagos.services.errors import Conflict, EngineUnavailable, NotFound, ValidationError
+from pelagos.services.errors import Conflict, EngineUnavailable, NotFound, ServiceError, ValidationError
 from pelagos.services.plan_service import PlanService
 from pelagos.services.registry import ConnectorRegistry
 from tests.unit.services.fakes import FakeDnsBackend, fake_context
@@ -33,6 +33,7 @@ class Gateway:
         self.ctx = ctx
         self.backends = backends
         self.offline: set[str] = set()
+        self.old: set[str] = set()  # peers on a release without resolver.health
         self.health: dict[str, Any] = {}
 
     def peer(self, node_id: str) -> Peer | None:
@@ -68,7 +69,9 @@ class Gateway:
         assert name == rf.PEER_HEALTH and timeout == rf.HEALTH_TIMEOUT
         if peer.id in self.offline:
             raise EngineUnavailable(f"node {peer.name} is offline")
-        return self.health[peer.id]
+        if peer.id in self.old:
+            raise ServiceError("not_supported", f"node {peer.name} cannot run {name}: upgrade it")
+        return self.health.get(peer.id, {"node_id": peer.id})
 
 
 class Clock:
@@ -227,7 +230,7 @@ def test_operator_presets_and_offline_peer(two):
     ids = [p["id"] for p in rf.presets(t["ctx"].settings())]
     assert ids == ["quad9", "quad9_unfiltered", "cloudflare", "isp"]
     t["gateway"].offline.add(N2)
-    with pytest.raises(EngineUnavailable, match="ns2 does not answer"):
+    with pytest.raises(EngineUnavailable, match="ns2 is offline"):
         t["service"].plan_fallback({"preset": "isp"}, "alice")
     plan = t["service"].plan_fallback({"preset": "isp", "node_ids": [t["n1"]]}, "alice")
     apply(t, plan)
@@ -253,7 +256,7 @@ def test_extend(two):
     apply(t, t["service"].plan_fallback({"preset": "quad9", "hours": 1}, "alice"))
     out = t["service"].extend({"until": "2026-10-30T10:00:00.000Z"}, "alice", "192.0.2.7")
     assert out["fallback"]["until"] == "2026-10-30T10:00:00.000Z"
-    for bad in ("2026-10-29T11:00:00.000Z", "2026-10-30T12:00:01.000Z", "soon", None):
+    for bad in ("2026-10-29T11:00:00.000Z", "2026-10-30T12:00:01.000Z", "soon", None, "9" * 40):
         with pytest.raises(ValidationError):
             t["service"].extend({"until": bad}, "alice")
     entry = audit(t["ctx"], "dns.resolver.op")[-1]
@@ -323,6 +326,99 @@ def test_auto_return_failure_keeps_the_entry(two):
     assert out.startswith("failed") and fallback(t["ctx"])["returned"] == []
 
 
+def test_auto_return_planning_error_is_audited_and_retried(two):
+    t = two
+    apply(t, t["service"].plan_fallback({"preset": "quad9", "node_ids": [t["n1"]], "hours": 1}, "alice"))
+
+    def boom(changes, created_by="system"):
+        raise ValueError("forwarders set in a user file")
+
+    t["local"].plan_config_change = boom
+    out = rf.auto_return(t["ctx"], t["local"], collector_apply(t), T0 + timedelta(hours=1))
+    assert out == "failed: forwarders set in a user file"
+    entry = audit(t["ctx"], "dns.resolver.op")[-1]
+    assert entry.request["op"] == "return" and entry.result.value == "error"
+    assert fallback(t["ctx"])["returned"] == []
+
+
+def test_confirmed_deadline_is_kept_when_applied_later(two):
+    t = two
+    plan = t["service"].plan_fallback({"preset": "quad9", "hours": 2}, "alice")
+    assert plan.summary_message["params"]["until"] == "2026-10-29T14:00:00.000Z"
+    t["clock"].now = T0 + timedelta(minutes=5)
+    apply(t, plan)
+    fb = fallback(t["ctx"])
+    assert fb["started_at"] == "2026-10-29T12:05:00.000Z" and fb["until"] == "2026-10-29T14:00:00.000Z"
+
+
+def test_unrestorable_forwarders_and_old_peer_are_refused(two):
+    t = two
+    t["remote"].options["forwarders"] = "port 5353 { 192.0.2.1; }"
+    with pytest.raises(ValidationError) as exc:
+        t["service"].plan_fallback({"preset": "quad9"}, "alice")
+    assert exc.value.errors[0]["field"] == "node_ids" and "ns2" in exc.value.errors[0]["message"]
+    t["remote"].options["forwarders"] = "{ 192.0.2.1 port 5353; }"  # per-element port: fine
+    t["gateway"].old.add(N2)
+    with pytest.raises(ValidationError) as exc:
+        t["service"].plan_fallback({"preset": "quad9"}, "alice")
+    assert "0.2.2" in exc.value.errors[0]["message"]
+    plan = t["service"].plan_fallback({"preset": "quad9", "node_ids": [t["n1"]]}, "alice")
+    assert plan.target_node_ids == [t["n1"]]
+    t["gateway"].old.clear()
+    plan = t["service"].plan_fallback({"preset": "quad9"}, "alice")
+    apply(t, plan)
+    assert fallback(t["ctx"])["before"][N2]["forwarders"] == ["192.0.2.1 port 5353"]
+    apply(t, t["service"].plan_return("bob"))
+    assert t["remote"].options["forwarders"] == "{ 192.0.2.1 port 5353; }"
+
+
+def test_scoped_address_is_refused(two):
+    with pytest.raises(ValidationError):
+        two["service"].plan_fallback(
+            {"forwarders": ["fe80::1%a;};recursion yes;forwarders{1.1.1.1"]}, "alice"
+        )
+
+
+# Automatic fallback ------------------------------------------------------------------------------
+
+
+def _alert(node_id, severity="critical", remediation="resolver_fallback", subject="resolver:roots"):
+    from pelagos.domain import Alert, AlertKind, Severity
+
+    details = {"remediation": remediation} if remediation else {}
+    return Alert(
+        kind=AlertKind.RESOLVER_HEALTH, severity=Severity(severity), subject=subject,
+        title="t", node_id=node_id, details=details,
+    )  # fmt: skip
+
+
+def test_auto_fallback_waits_for_every_node(two):
+    t = two
+    since: dict[str, datetime] = {}
+    nodes = [t["n1"], N2]
+    alerts = [_alert(t["n1"]), _alert(N2, "warning"), _alert(N2, remediation=None, subject="resolver:x")]
+    assert rf.proposing_nodes(alerts) == {t["n1"]}
+    rf.track_proposing(since, rf.proposing_nodes(alerts), T0)
+    assert not rf.auto_fallback_due(since, nodes, 600, T0 + timedelta(hours=1))
+    rf.track_proposing(since, {t["n1"], N2}, T0 + timedelta(minutes=1))
+    assert not rf.auto_fallback_due(since, nodes, 600, T0 + timedelta(minutes=10))
+    assert rf.auto_fallback_due(since, nodes, 600, T0 + timedelta(minutes=11))
+    rf.track_proposing(since, {N2}, T0 + timedelta(minutes=12))  # ns1 recovered: its clock restarts
+    assert since == {N2: T0 + timedelta(minutes=1)}
+    assert not rf.auto_fallback_due(since, nodes, 600, T0 + timedelta(hours=1))
+    assert not rf.auto_fallback_due({}, [], 600, T0)
+
+
+def test_auto_fallback_applies_quad9_as_system(two):
+    t = two
+    result = rf.auto_fallback(t["service"], t["plans"])
+    assert result.state is PlanState.APPLIED
+    fb = fallback(t["ctx"])
+    assert fb["preset"] == "quad9" and fb["forward"] == "first" and fb["by"] == "system"
+    assert fb["until"] == "2026-10-30T12:00:00.000Z" and fb["node_ids"] == [t["n1"], N2]
+    assert any(e.user == "system" for e in audit(t["ctx"], "dns.resolver.apply"))
+
+
 def _as_node(ctx, node_id):
     class Ctx:
         def __getattr__(self, name):
@@ -383,7 +479,8 @@ def test_node_health_reads_the_cache(node_ctx):
             probe("tld", "lan", "192.0.2.6", False, now, 4),
         ]
     )
-    health = node_health(store, "n", now, 120, ["com"])
+    # com is both configured and served (a zone under it): served is true.
+    health = node_health(store, "n", now, 120, {"com", "lan"})
     assert health["error"] is None and health["sampled_at"] == "2026-10-29T11:59:30.000Z"
     assert health["rates"]["queries_out"] == 12.5 and health["rates"]["cache_hit_percent"] is None
     assert health["latency_ms"] == {"p50": None, "p95": 180.0} and health["cache"]["nodes"] == 4.0
@@ -391,7 +488,7 @@ def test_node_health_reads_the_cache(node_ctx):
         {"letter": "a", "address": "192.0.2.1", "family": 4, "rtt_ms": 12.5, "ok": True, "last_failure": None}
     ]
     assert [(x["tld"], x["ok"], x["served"], x["servers"]) for x in health["tlds"]] == [
-        ("com", True, False, 1),
+        ("com", True, True, 1),
         ("lan", False, True, 1),
     ]
     assert health["probes_healthy_since"] == "unhealthy"
@@ -477,8 +574,59 @@ def test_collector_task_returns_this_node(two):
         backends=SimpleNamespace(dns=t["local"], kea4=None, kea6=None, d2=None),
         backend_lock=threading.RLock(),
         _replication_synced=lambda: True,
+        _fallback_since={},
+        _fallback_retry_at=0.0,
     )
     rig._apply_as_system = lambda plan: Collector._apply_as_system(rig, plan)
     Collector.resolver_return(rig)
     assert t["local"].options == original and fallback(t["ctx"]) is None
     Collector.resolver_return(rig)  # nothing left to do
+
+
+def test_collector_applies_the_automatic_fallback_on_the_service_node(two, monkeypatch):
+    import threading
+    from types import SimpleNamespace
+
+    from pelagos.collector.main import Collector
+    from pelagos.core import cluster_alerts
+    from pelagos.services import peers as peers_mod
+
+    t = two
+
+    def on(cfg) -> None:
+        cfg.settings.setdefault("resolver", {})["fallback_auto_enabled"] = True
+
+    t["ctx"].config_store.update_cluster(on, updated_by="test")
+    alerts = [_alert(t["n1"]), _alert(N2)]
+
+    class View:
+        def __init__(self, *args) -> None:
+            pass
+
+        def cluster(self, **query):
+            assert query == {"kind": "resolver_health", "severity": "critical"}
+            return SimpleNamespace(alerts=alerts, unavailable=[])
+
+    monkeypatch.setattr(cluster_alerts, "ClusterAlertView", View)
+    monkeypatch.setattr(peers_mod, "PeerGateway", lambda ctx: t["gateway"])
+    rig = SimpleNamespace(
+        ctx=t["ctx"],
+        node_id=t["n1"],
+        notifier=SimpleNamespace(sender=N2),
+        store=SimpleNamespace(conn=None),
+        backends=SimpleNamespace(dns=t["local"], kea4=None, kea6=None, d2=None),
+        backend_lock=threading.RLock(),
+        _replication_synced=lambda: True,
+        _fallback_since={},
+        _fallback_retry_at=0.0,
+    )
+    rig._is_service_node = lambda settings: Collector._is_service_node(rig, settings)
+    assert Collector.resolver_auto_fallback(rig, T0) is None  # ns2 is the service node
+    assert rig._fallback_since == {}
+    rig.notifier.sender = t["n1"]
+    assert Collector.resolver_auto_fallback(rig, T0) is None
+    assert Collector.resolver_auto_fallback(rig, T0 + timedelta(seconds=599)) is None
+    result = Collector.resolver_auto_fallback(rig, T0 + timedelta(seconds=600))
+    assert result.state is PlanState.APPLIED and fallback(t["ctx"])["by"] == "system"
+    assert t["remote"].options["forward"] == "first" and rig._fallback_since == {}
+    assert Collector.resolver_auto_fallback(rig, T0 + timedelta(hours=1)) is None  # already active

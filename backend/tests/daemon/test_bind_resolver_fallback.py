@@ -19,9 +19,10 @@ import pytest
 from pelagos.collector.checks.resolver import probe_roots
 from pelagos.connectors.base import ConnectorContext
 from pelagos.connectors.bind import BindBackend
-from pelagos.domain import PlanScope, PlanState
+from pelagos.domain import Change, ChangeOp, PlanScope, PlanState
 from pelagos.services import resolver_fallback as rf
 from pelagos.services.dns_service import DnsService
+from pelagos.services.errors import ValidationError
 from pelagos.services.peers import PeerGateway
 from pelagos.services.plan_service import PlanService
 from pelagos.services.registry import ConnectorRegistry
@@ -180,3 +181,34 @@ def test_dns_over_tls_fallback_is_accepted_and_returned_by_plan(world) -> None:
     back = w.service.plan_return("bob")
     assert w.plans.apply(back, "bob", confirm=True).state is PlanState.APPLIED
     assert managed(w) == files and rf.read_fallback(w.ctx.settings()) is None
+
+
+def test_return_restores_per_element_ports_and_refuses_the_prefix_form(world) -> None:
+    w = world
+    port = w.fakes["root"].port
+
+    def seed(value: str) -> None:
+        plan = w.backend.plan_config_change([Change(ChangeOp.ADD, "options/forwarders", after=value)])
+        assert plan.state is PlanState.VALIDATED, (plan.error, plan.validations)
+        assert w.backend.apply(plan).ok
+
+    seed(f"{{ {FORWARDER} port {port}; 192.0.2.1; }}")
+    files = managed(w)
+    plan = w.service.plan_fallback({"forwarders": ["192.0.2.2"], "hours": 1}, "alice")
+    assert w.plans.apply(plan, "alice", confirm=True).state is PlanState.APPLIED
+    before = rf.read_fallback(w.ctx.settings())["before"][w.ctx.node.id]
+    assert before["forwarders"] == [f"{FORWARDER} port {port}", "192.0.2.1"]
+
+    def apply(p):
+        return w.plans.apply(p, "system", confirm=True)
+
+    later = datetime.now(UTC) + timedelta(hours=2)
+    assert rf.auto_return(w.ctx, w.backend, apply, later) == "returned"
+    assert managed(w) == files and "server is up and running" in w.server.rndc("status")
+
+    # BIND's global prefix form cannot be written back as it was: the fallback is refused.
+    options = w.inc / "options.conf"
+    options.write_text(MANAGED + f"forwarders port {port} {{ {FORWARDER}; }};\n")
+    w.server.rndc("reconfig")
+    with pytest.raises(ValidationError, match="cannot restore exactly"):
+        w.service.plan_fallback({"forwarders": ["192.0.2.2"], "hours": 1}, "alice")

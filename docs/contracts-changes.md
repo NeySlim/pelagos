@@ -1901,3 +1901,9 @@ for a peer accepts `tls/`, the routes of `api/resolver_health.py` answer instead
 WP-COLLECTOR: `node_health` in `collector/resolver.py`, task `resolver_return` (automatic return
 per node). Return plan with a silent node: the others go to `returned`, `until` becomes now.
 WP-FRONTEND (R4): the two NodeHealth keys may be shown or ignored.
+R3 landing: `until` is stamped when the fallback plan is built (the confirmed deadline);
+`served` of a NodeHealth TLD is true when a zone of the node is under it; refusals: a scoped
+address, forwarders in the global `port`/`tls` prefix form, a peer without `resolver.health`
+(before 0.2.2), a `tls` block of the same name in a user file or with other settings in
+`keys.conf`. The automatic fallback (`fallback_auto_enabled`) runs on the notification sender
+in the `resolver_return` task.

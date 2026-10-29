@@ -99,7 +99,10 @@ audit log converged, check that the audit count did not go down, Kea HA, that
 both units were restarted by the install and that the processes they now run
 logged no `ERROR` line and no netlink socket refused by the unit sandbox
 (`Cannot open netlink socket`, at any level) in the journal entries of the
-unit run (`_SYSTEMD_INVOCATION_ID`).
+unit run (`_SYSTEMD_INVOCATION_ID`). Before the first node and after each
+node it runs `pelagos permissions check --unit pelagos-collector.service`
+there: a path the services must write and cannot stops the run (a node still
+on a release without the command is skipped before its upgrade).
 `ERROR` lines of the old processes during the install are reported, not counted:
 the old code may fail on data of the already upgraded nodes (below). The
 first failure stops the run with the node and the reason; the nodes already

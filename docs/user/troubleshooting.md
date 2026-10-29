@@ -167,6 +167,33 @@ itself:
   sudo systemctl restart pelagos pelagos-collector
   ```
 
+Pelagos checks all of this before anything is written. Every plan is
+probed on each node it touches, inside the service unit itself (its user,
+groups and sandbox): a folder or file it could not create, write or read
+refuses the plan with the path, its current owner, group and mode, what is
+missing and the exact command, for example:
+
+```text
+Zone folder /etc/bind/cache/pelagos: cannot be created: no write permission on the
+parent folder (now bind:bind 0755 on /etc/bind/cache); fix: install -d -o bind -g bind
+-m 2775 /etc/bind/cache/pelagos
+```
+
+The collector checks the same paths at start and every 10 minutes and raises
+`path_not_writable` until they are fixed. **Security audit > Permissions**
+lists them per node, with a plan run by the privileged helper that creates
+the missing folder (2775, the engine's user and group) or adds `g+w` to a
+folder of the engine's group; it never changes anything else. From a shell:
+
+```sh
+sudo pelagos permissions check --unit pelagos-collector.service   # in the unit's sandbox
+sudo pelagos permissions ensure                                   # create missing folders
+```
+
+The package runs `pelagos permissions ensure` on install and upgrade: it
+creates `<named directory>/pelagos` and the other folders Pelagos writes when
+they are missing, and never changes a folder that exists.
+
 ## AppArmor
 
 Debian confines `named` with AppArmor to `/etc/bind`, `/var/cache/bind`

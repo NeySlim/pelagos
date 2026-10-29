@@ -13,6 +13,25 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-29, WP-CORE, WP-BIND, WP-KEA, WP-COLLECTOR, WP-API-AUTH, WP-INSTALLER, WP-PACKAGING, WP-FRONTEND: permission guard (item 79)
+Additive. Architecture section 7 "Permission guard". `domain/plan.py`: `ValidationResult.output_message`,
+`Plan.error_message`, `NodeApplyResult.message_message` (older nodes drop them, the English fields
+stay). `domain/alerts.py`: `AlertKind.PATH_NOT_WRITABLE` (an older peer keeps it as an unknown kind);
+messages `alert.path_not_writable`, `permission.*`, `finding.path_access.*`. `cli.py`: `pelagos
+permissions check|ensure`. New `core/permguard.py`, `services/permissions.py`,
+`installer/path_access.py`, `installer/permissions_cli.py`. Connectors: `permission_targets(plan)`
+on `BindBackend`, `KeaBackend`, `D2Backend` and `KeaConfigFile`; `BindBackend._write_set` shared by
+the apply and the guard; zone folders made by `permguard.make_group_dir` (no S_ISGID in any mode
+argument: `RestrictSUIDSGID=yes` refused `mkdir(0o2775)` with EPERM, so no zone folder could be
+created by the packaged units). `core/plans.py`: `PlanStore.guard`. Replication: `POST
+/repl/v1/plans/preflight` answers `permissions` too; peer action `permissions.status`; an older peer
+answers neither and is not checked. API: `GET /install/permissions`. Security audit: finding kind
+`path_access`, remediation `path_access`. Collector: task `permissions`, state
+`/var/lib/pelagos/permissions.json`. Packaging: postinst and `%post` run `pelagos permissions ensure`.
+`scripts/deploy-prod.sh` runs the check before and after each node. WP-FRONTEND: Permissions card
+on the security page (`?node=`), alert label and link, plan errors, validations and node results
+rendered from their messages; mock `GET /install/permissions`, `POST /_mock/permissions`.
+
 ## 2026-10-29, WP-API-AUTH, WP-CORE, WP-COLLECTOR, WP-FRONTEND: API tokens (item 70)
 Additive. `domain/cluster.py`: `ApiToken`; `ClusterConfig.api_tokens`, written only when not empty,
 records keyed by `id` (`core.cluster_merge.RECORDS["api_tokens"]`). `domain/alerts.py`:

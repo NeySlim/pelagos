@@ -384,6 +384,44 @@ Depuis qu'un administrateur a une clé de sécurité, `POST /auth/login` répond
 - Versions mélangées : un nœud 0.2.1 ou 0.2.2 ignore `[[api_tokens]]` (il ne l'efface pas, la fusion la rapporte) et ignore l'en-tête `Authorization` : un script qui l'appelle reçoit `401 unauthenticated`. Mettre à jour tous les nœuds avant de s'appuyer sur les jetons.
 - Écrans : section « Jetons d'API » du profil (création, secret affiché une fois, révocation), Administration > Jetons d'API (tous les jetons, titulaire, droits, dernier usage, révocation), en anglais et en français.
 
+### Garde des permissions (point 79)
+
+En production (0.2.4), un abonnement RPZ échouait à l'application : « cannot create zone directory
+/etc/bind/cache/pelagos: [Errno 1] Operation not permitted ». Cause : `RestrictSUIDSGID=yes` dans les
+unités. Le filtre seccomp refuse tout `mkdir` ou `chmod` dont le mode porte S_ISGID ; le code créait
+les dossiers de zones en `0o2775`, donc aucune unité packagée ne pouvait en créer un, même dans un
+dossier 2775 bind:bind inscriptible. Le labo ne l'avait pas vu : l'importeur crée
+`/var/cache/bind/pelagos` en root et la synchro RPZ créait `rpz/` sans setgid avant le plan.
+Décisions :
+
+- Garder `RestrictSUIDSGID`. Les dossiers sont créés par `mkdir(2)` en 0777 sous umask 002 : le
+  noyau propage le setgid du parent sans passer par le filtre. Aucun mode avec S_ISGID ou S_ISUID
+  dans le code des unités (un test unitaire le vérifie) ; l'installateur, en root, n'est pas filtré.
+- Contrôle au plan, jamais à l'apply : chaque plan est vérifié sur chaque nœud cible, dans le
+  contexte réel de l'unité. Le choix : évaluer dans le service en cours (le processus web pour le
+  nœud local, le collecteur d'un pair via `/repl/v1/plans/preflight`), qui est l'unité, avec son
+  utilisateur, ses groupes, `ProtectSystem`, `ReadWritePaths` et ses filtres. Chaque sonde refait
+  l'opération de l'écrivain (même fonction, mêmes bits de mode) sur un nom jetable, car `access(2)`
+  aurait répondu « oui » en production. Les chemins viennent du code qui écrit
+  (`permission_targets`, le même rendu que l'apply), pas d'une liste à part.
+- Échec : plan refusé, constat traduit (en/fr) par nœud et chemin : propriétaire, groupe, mode, ce
+  qui manque et la commande exacte (`install -d -o bind -g bind -m 2775 /etc/bind/cache/pelagos`).
+  Les erreurs d'apply qui portent un errno brut sont traduites aussi.
+- En continu : le collecteur refait le contrôle au démarrage (donc après chaque mise à jour) puis
+  toutes les 10 minutes ; alerte `path_not_writable` (warning) par nœud et chemin, résolue d'elle-même ;
+  carte « Permissions » par nœud dans l'écran d'audit de sécurité.
+- Remédiation : constat `path_access` de l'audit, appliqué par l'assistant privilégié : création du
+  premier dossier manquant en 2775 bind:bind ou ajout de g+w sur un dossier du groupe du moteur,
+  annulé si une étape échoue. Jamais d'élargissement silencieux, jamais de chown d'un dossier
+  existant, jamais le `directory` de named lui-même, seulement sous les arborescences des moteurs.
+- Le paquet règle les permissions : `pelagos permissions ensure` dans le postinst (installation et
+  mise à jour, idempotent) crée les dossiers manquants à partir des mêmes cibles (le `directory`
+  effectif de named compris) et donne au groupe Kea les fichiers Kea que le service doit lire (point
+  67). La garde au plan reste pour ce qui change après l'installation.
+- `deploy-prod.sh` lance `pelagos permissions check --unit pelagos-collector.service` avant et après
+  la mise à jour de chaque nœud (unité transitoire qui copie le bac à sable de l'unité) et s'arrête
+  sur un chemin non inscriptible ; `pelagos install` et `pelagos import` finissent par la même garde.
+
 ## 10. Choix techniques et déploiement
 
 La stack UCM est retenue : Python et Flask au backend, React et Vite au frontend. Un seul paquet par cible (deb, rpm, image Docker) livre le nœud complet, serveur web et collecteur, sous licence Apache-2.0.

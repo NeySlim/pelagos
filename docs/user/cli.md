@@ -171,6 +171,25 @@ Exit status of `install`, `import` and `audit`: `0` done, `1` failed (the
 plan or a step), `2` usage error (also: applying without root), `3` not
 confirmed (no `--yes` and no terminal, or answered no).
 
+## pelagos permissions
+
+The permission guard: every folder and file the services create, write or
+read on this node (zone and RPZ folders under named's `directory`, the
+include folder, backups, Kea files), probed with the writer's own operation.
+
+| Command | Effect |
+| --- | --- |
+| `check` | probe in this process; exit `1` when a path fails |
+| `check --unit pelagos-collector.service` | as root: probe in a transient unit with that unit's user, groups and sandbox |
+| `check --json` | machine-readable checks |
+| `ensure` | as root: create the missing folders (2775, the engine's user and group), give the Kea group the Kea files the service reads; existing folders are never changed |
+| `ensure --dry-run` | print what `ensure` would do |
+
+```sh
+sudo pelagos permissions check --unit pelagos-collector.service
+sudo pelagos permissions ensure --dry-run
+```
+
 ## pelagos backup
 
 Without options, archives this node now, like the scheduled run: the

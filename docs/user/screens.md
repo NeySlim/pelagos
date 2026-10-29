@@ -338,12 +338,21 @@ The collector runs the same audit every `consistency_seconds` and raises
 | `update_types_narrow` | warning | missing record types (NS, CAA after a 0.1.x install) appended to the `zonesub` grant of `ddi-admin` (or the view key) |
 | `transfer_without_read_key` | warning | `key ddi-read` added to `allow-transfer` |
 | `open_allow_transfer` | warning | `any` replaced by `key ddi-read` (other elements kept) |
+| `path_access` | warning | the first missing folder the services need created as root (2775, the engine's user and group), or `g+w` on a folder of the engine's group; nothing else is changed |
 | `kea_ctrl_agent_http` | critical, warning when local | `kea-ctrl-agent` stopped and disabled (Pelagos uses the Unix sockets) |
 | `kea_http_socket_plain` | critical | none automatic: switch the socket to HTTPS or bind it to `127.0.0.1` |
 | `kea_socket_dir_mode` | warning | socket directory back to 0750 |
 | `kea_tsig_clear_secret` | info | D2 secret moved to a secret file |
 | `static_zone` | info | `update-policy` granting the admin key (the zone becomes dynamic) |
 | `view_key` | warning | a key per view and the `match-clients` that select it |
+
+The **Permissions** card lists, for the chosen node, every folder and file
+its services create, write or read, probed now inside the service unit (its
+user, groups and sandbox): owner, group and mode, and for each failure what
+is missing and the exact command. "Fix through the privileged helper" builds
+the `path_access` plan for the paths it can fix; a path outside the folders
+the unit may write needs the `ReadWritePaths=` drop-in shown instead. A
+`path_not_writable` alert opens this card.
 
 Ids are `<engine>:<kind>:<subject>`, the same as `pelagos audit` prints.
 A `weak_shared_kea_key` finding lists its three steps under the proposal;

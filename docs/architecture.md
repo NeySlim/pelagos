@@ -699,6 +699,7 @@ class AlertKind(str, Enum):
     KEA_SERIES_OBSOLETE="kea_series_obsolete"
     IPV6_MISSING_AAAA="ipv6_missing_aaaa"; IPV6_REVERSE_MISSING="ipv6_reverse_missing"; IPV6_STALE_AAAA="ipv6_stale_aaaa"
     ROOT_HINTS_STALE="root_hints_stale"; IPV6_SOURCE_FAILED="ipv6_source_failed"
+    PATH_NOT_WRITABLE="path_not_writable"
 class AlertState(str, Enum): OPEN="open"; ACKED="acked"; RESOLVED="resolved"
 
 @dataclass(slots=True)
@@ -755,6 +756,7 @@ class Precondition(Model):
 class ValidationResult(Model):
     ok: bool; tool: str            # "named-checkconf" | "kea-dhcp4 -t" | "config-test" | "dnspython"
     output: str; node_id: str | None = None
+    output_message: dict | None = None    # translatable output (the permission guard's findings)
 
 @dataclass(slots=True)
 class Plan(Model):
@@ -770,12 +772,14 @@ class Plan(Model):
     state: PlanState
     expires_at: datetime           # created_at + settings.plans.ttl_seconds (default 600)
     error: str | None = None
+    error_message: dict | None = None     # translatable error: permission guard refusal, apply error
     summary_message: dict | None = None   # translatable summary, section 19 "Messages"
 
 @dataclass(slots=True)
 class NodeApplyResult(Model):
     node_id: str; ok: bool; message: str; rolled_back: bool; audit_ids: list[str]
     outcome_unknown: bool = False  # transport failure: the node may have applied, it is rolled back too
+    message_message: dict | None = None   # translatable message: an errno is never shown raw
 
 @dataclass(slots=True)
 class ApplyResult(Model):
@@ -1166,6 +1170,63 @@ the write itself fails). If `reload` raises or `verify` returns
 is `True`. Validator commands run with a 30 s timeout and never through a
 shell. The pipeline never deletes a backup; retention of backups is the
 collector's job (`settings.retention.backups_days`, default 90).
+
+### Permission guard
+
+`core.permguard` answers, before anything is written, whether this process can create, write or
+read every path a writer will touch. Each connector lists its targets from the code that writes
+(`permission_targets(plan)`; `None` for the standing paths): BIND derives them from
+`BindBackend._write_set`, the same render the apply uses (zone and RPZ folders it creates through
+`make_group_dir`, managed and user files, the backup folder), Kea from `KeaConfigFile` (the files
+and every file they name, read by the backup; the files themselves when they use includes; the
+backup folder). A target is `Target(path, kind, engine, purpose, group, mode, privileged, subdirs,
+owner, dir_mode)` with `kind` `dir` (created when missing, files and subfolders written inside),
+`file` (temp file next to it and rename, else in place, else the privileged helper when
+`privileged`) or `read`. A probe runs the writer's own operation with the same mode bits on a
+throwaway `.pelagos-probe.*` name and removes it, so the unit's user and groups, its sandbox
+(`ProtectSystem=strict`, `ReadWritePaths`) and its seccomp filters (`RestrictSUIDSGID=yes`) answer
+as they will at apply time; `access(2)` alone would miss the last two. A `Check` gives `ok`,
+`route` (`direct`, `create`, `in_place`, `helper`), `problem` (`read_only`: outside the paths the
+unit may write; `refused`: EPERM from a filter; `denied`; `not_readable`), the owner, group and
+mode of the path that decides (`probed`: the nearest existing folder of a missing one), the exact
+`command` (`install -d -o bind -g bind -m 2775 <first missing folder>`, `chmod g+w <dir>`, a
+`ReadWritePaths=` drop-in, `chgrp <engine group> <file> && chmod g+r <file>`), `fix` and a
+translated `message` (`permission.finding`).
+
+Writers in the units never pass `S_ISGID` or `S_ISUID` in a mode argument (`RestrictSUIDSGID=yes`
+refuses it with EPERM): `make_group_dir` creates each missing folder with `mkdir(2)` mode 0777
+under umask 002 (a child `sh`), so a setgid parent passes its bit on through the kernel, then
+gives it the engine's group. A unit test fails on any such literal outside `installer/` (root
+only, in the helper or the CLI).
+
+Plans: `PlanStore.guard` (set by the web process to `services.permissions.PermissionGuard`) runs
+on every new plan and on a composite's parts, on every target node: locally in the web process,
+on a peer in its collector over `POST /repl/v1/plans/preflight` (`permissions`, 10 s timeout; a
+peer that does not answer or predates it is not checked). Installer scopes (`install`, `import`,
+`security`, run as root by the helper) are skipped. A failed path refuses the plan: state
+`failed`, one `ValidationResult(tool="permissions", ok=false, node_id, output,
+output_message)` per node, `error`/`error_message` `permission.plan_refused` naming each node and
+finding. Nothing is created at plan time. Apply errors: `_ensure_zone_dir` raises a translated
+`permission.apply_error`; `PlanService` gives every failed node result whose message carries a raw
+`[Errno N]` its `message_message` (`permission.apply_failed`), and the plan its `error_message`.
+
+Continuous: the collector's `permissions` task (at start, then every 10 min) checks the standing
+paths, raises `path_not_writable` per path (section 15) and saves the checks to
+`/var/lib/pelagos/permissions.json`. Remediation is the security audit finding `path_access`
+(`installer.path_access`, run as root by the helper): from the same targets, the first missing
+component of a folder the service account cannot create is created with the target's owner,
+group and mode (2775 `bind:bind` for zone folders), or an existing folder of the engine's group
+the account is in gets `g+w`; nothing else (no chown of an existing folder, never named's
+`directory` itself, only under the engine trees and the node's backups, no symbolic link on the
+way); every change of the step is undone when one fails. `pelagos permissions check [--json]
+[--unit pelagos-collector.service]` runs the probes (with `--unit`, as root, in a transient
+`systemd-run` unit that copies the unit's user, groups, environment file and sandbox properties
+from `systemctl show`; exit 1 when a path fails); `pelagos permissions ensure` (root: the deb
+postinst and the RPM `%post`, on install and upgrade) creates the missing standing folders and
+gives the Kea group the Kea files the service must read, never changes an existing folder, logs
+each creation and is idempotent. `scripts/deploy-prod.sh` runs the check before and after each
+node's upgrade and stops on a failure; `pelagos install` and `pelagos import` end with an
+`<scope>/permissions` step (ensure, then the check in the collector's sandbox) on a systemd host.
 
 ## 8. `named.conf` parser and serializer contract
 
@@ -1684,7 +1745,7 @@ application/json`. All endpoints under `/repl/v1`.
 | `POST /repl/v1/audit/fetch` | `{"ids":[...]}` (at most 5000) | `{"entries":[...]}` | the known entries among `ids`, ascending by id |
 | `POST /repl/v1/plans/apply` | `{"plan": Plan}` | `NodeApplyResult` | apply a plan built elsewhere on this node (section 5) |
 | `POST /repl/v1/plans/rollback` | `{"plan": Plan}` | `NodeApplyResult` | |
-| `POST /repl/v1/plans/preflight` | `{"plan": Plan}` | `{"problem": str or null}` | why this node cannot apply the plan now; nothing changes (a peer without it: no verdict) |
+| `POST /repl/v1/plans/preflight` | `{"plan": Plan}` | `{"problem": str or null, "permissions"?: [check]}` | why this node cannot apply the plan now; nothing changes (a peer without it: no verdict). `permissions` (0.2.5): the permission guard's checks of the plan on this node, run in its collector (section 7); absent from an older peer, which is then not checked |
 | `POST /repl/v1/events` | `{"events": [message]}` (at most 100) | `{"accepted": n}` | live events of the caller for this node's UI (section 18); only `ha` (`state`, `unsent`, `heartbeat`) and `zones` (`serial`, `transfer`) are taken (`core.relay_events`), stamped with the caller's node id and `"relayed": true`; `404` from an older node, which the sender then skips |
 | `POST /repl/v1/actions/<name>` | action body (below) | `{"ok": true, "result"}` or `{"ok": false, "code", "detail", "errors"}` | a write another node asks this node to build or run (peer write channel, below); `404` from a node that does not serve actions |
 | `GET /repl/v1/engines/<engine>/snapshot` | | engine-specific read (zones list, subnets, HA state) | used by `services` to answer "read on every node" without a second code path |
@@ -1764,6 +1825,7 @@ run under the collector's backend lock):
 | `archive.run` | `{}` | `{"requested": true}`: sends the `archive` event to this node's collector (section 23) |
 | `resolver.health` | `{}` | this node's entry of `GET /dns/resolver/health` (`nodes[]`, NodeHealth of section 25), read from its series cache and probe table |
 | `resolver.series` | `{"metric","since","until","step"}` | `{"node_id","series"}`: this node's series of one resolver metric from its own cache, the `GET /series/resolver` answer for that node (section 25) |
+| `permissions.status` | `{}` | `{"node_id", "checks": [check]}`: the permission guard's standing checks of this node, run now in its collector (section 7) |
 | `tokens.usage` | `{}` | `{"usage": {token id: {"at","node","ip"}}}`: last use of each API token on this node (section 16) |
 | `ipv6.observations` | `{"since"?}` | `{"node_id","observations": [Observation],"sources": [SourceStatus]}`: what this node observed (section 27) |
 | `kea.migration.inventory` | `{}` | this node's entry of `GET /install/kea-migration` (`nodes[]`, section 26) |
@@ -2201,6 +2263,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `ipv6_reverse_missing` | info | a watched IPv6 prefix has no reverse zone served by the cluster; cluster-wide, subject `ipv6:reverse:<prefix>`; details `prefix`, `reverse_zone` (the zone to create) |
 | `ipv6_stale_aaaa` | warning | AAAA in a watched prefix whose address has not been observed for `ipv6.stale_days` while the host's MAC is seen with another stable address; cluster-wide, subject `ipv6:stale:<zone>`; details `zone`, `count`, `records: [{"name","address","mac","last_seen","current"}]`, `old_prefix`, `new_prefix` when every stale address moved to one other prefix, `exception_keys` |
 | `ipv6_source_failed` | warning | an IPv6 observation source of this node fails on every poll (section 27): `neighbors` or `dhcpv6` for 10 min (`dhcpv6` not while this node's Kea DHCPv6 has an open `daemon_down` or an engine write in progress: one outage, one alert); per node, subject `ipv6:source:<source>`; details `source`, `source_id`, `error`, `failing_since`; resolved by the next successful poll or when the source is no longer polled here |
+| `path_not_writable` | warning | a path the writers of this node need (zone and RPZ folders, include folder, backups, Kea files it reads) cannot be created, written or read by the collector's unit, probed with the writer's own operation (section 7, permission guard); per node and path, subject `path:<path>`, engine of the path; details `path`, `kind` (`dir`, `file`, `read`), `purpose`, `problem` (`read_only`, `refused`, `denied`, `not_readable`), `error`, `probed`, `owner`, `group`, `mode`, `command` (exact remediation), `message`; checked at collector start (so after every upgrade) and every 10 min, resolved by the next check that passes |
 | `dns_stale_primary` | critical | a node serves as primary a zone that `ddns.roles` gives to another node at a later epoch (node = that node, subject `ddns:stale:<view>/<zone>`; details `primary_node_id`, `epoch`); resolved by the demotion |
 
 The `ha_*` alerts above have subject `ha:<engine>`; a Kea 3 hub raises them
@@ -2741,6 +2804,7 @@ confirmation_required` without `"confirm": true`.
 | `POST /install/security/plan` | `admin:install` | `{"finding_ids": [...]}` (this node) or `{"selection": {"<node id>": [...]}}` | `Plan` (scope `security`; the Kea shared key rotation is one finding whose steps are: add new key to BIND `update-policy`, switch D2 on every node, remove old key; with `selection` each node builds its part through the `security.plan` peer action, its shared key switch limited to itself, and the parts run in order as one job; a `managed_drift` id takes the suffix `#adopt` or `#restore`, restore when absent) |
 | `GET /install/security/ha-guard` | `admin:install` | `?node=<id>` (this node when absent) | `{"node_id","nft","listeners": [{"engine","server","address","port","peers"}],"ports","suggested_peers","managed": {"table","unit","file","peers","ports","recorded_at","adopted_from","active"}\|null,"loaded": {"peers","ports"}\|null,"legacy": {"table","unit","files","peers","ports"}\|null,"differences"}` (a peer's guard comes over the `security.ha_guard` peer action) |
 | `POST /install/security/ha-guard/plan` | `admin:install` | `{"node"?: "<id>", "peers": ["192.0.2.12", "198.51.100.0/24", ...]}` | `Plan` (scope `security`, change `security/ha-guard`: loads Pelagos's guard with these addresses on that node; refused while a hand-made guard is in place) |
+| `GET /install/permissions` | `admin:install` | `?node=<id>` (this node when absent) | `{"node_id", "available", "checks": [check], "error"?}`: the permission guard's standing paths of that node probed now in its unit (a peer's over `permissions.status`; `available` false from an older peer). A failed check carries `finding_id` when the `path_access` security plan can fix it |
 | `POST /install/security/ha-tls/plan` | `admin:install` | `{}` | `Plan` (scope `security`: Kea HA TLS on every peer with certificates from the cluster CA, or their renewal when the HA already is TLS; see the HA TLS paragraph below) |
 
 Every endpoint of this table runs through the privileged helper (section 2)
@@ -3141,6 +3205,8 @@ when the producer has none):
 | Object | English field | Message field | Producers |
 | --- | --- | --- | --- |
 | `Plan` | `summary` | `summary_message` | BIND and Kea connectors, DNS/DHCP/hosts services, installer (install, import, security) |
+| `Plan` | `error`, `validations[].output` | `error_message`, `validations[].output_message` | `services.permissions` (refusal at plan time), `PlanService` (apply errors) |
+| `NodeApplyResult` | `message` | `message_message` | `BindBackend` (zone folder errors), `PlanService` (any result carrying a raw `[Errno N]`) |
 | `Alert` | `title` | `title_message` | collector rules, consistency checks, security audit alerts |
 | finding (`GET /install/security`) | `description`, `proposal`, `risk` | `description_message`, `proposal_message`, `risk_message` | `installer.security_audit`, `installer.zone_audit`; a proposal that is only configuration text has none |
 | `Job.steps[]` | `label` (the `name` when no key fits) | `label_message` | `installer.jobs.JobRunner`, `services.jobs.step` (labels derived from the change target by `messages.step_label`) |
@@ -3148,7 +3214,7 @@ when the producer has none):
 | audit entry | `request.summary`, `message` of `alert.*` entries | `request.summary_message`, `request.title_message` | `PlanService`, replication `PlanRunner`, collector |
 
 The catalog is `pelagos.domain.messages.CATALOG` (key to English template):
-keys are grouped by prefix (`plan.`, `alert.`, `finding.`, `job.step.`,
+keys are grouped by prefix (`plan.`, `alert.`, `finding.`, `permission.`, `job.step.`,
 `job.phase.`, `problem.`, and the shared fragments `op.`, `note.`,
 `common.`). `python -m pelagos.domain.messages` prints every key with its
 parameter names (`make messages-keys`); its output is `frontend/src/i18n/backendMessageKeys.json`,

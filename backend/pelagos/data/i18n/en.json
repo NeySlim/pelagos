@@ -386,6 +386,7 @@
   "problem.conflict": "Conflict",
   "problem.csrf_failed": "CSRF check failed",
   "problem.detail.unexpected": "unexpected error; see the server log",
+  "problem.detail.zone_without_records": "{{zone}} is a {{kind}} zone: named holds no records for it",
   "problem.engine_unavailable": "Engine unavailable",
   "problem.engine_validation_failed": "Engine validation failed",
   "problem.forbidden": "Forbidden",
@@ -405,7 +406,8 @@
   "problem.second_factor_required": "Second factor required",
   "problem.totp_required": "One-time code required",
   "problem.unauthenticated": "Authentication required",
-  "problem.validation_error": "Validation error"
+  "problem.validation_error": "Validation error",
+  "problem.zone_without_records": "Zone holds no records"
  },
  "notify": {
   "body": {

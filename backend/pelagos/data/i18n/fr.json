@@ -386,6 +386,7 @@
   "problem.conflict": "Conflit",
   "problem.csrf_failed": "Échec de la vérification CSRF",
   "problem.detail.unexpected": "erreur inattendue ; consultez le journal du serveur",
+  "problem.detail.zone_without_records": "{{zone}} est une zone de type {{kind}} : named n'en détient aucun enregistrement",
   "problem.engine_unavailable": "Moteur indisponible",
   "problem.engine_validation_failed": "Le moteur a refusé la configuration",
   "problem.forbidden": "Accès refusé",
@@ -405,7 +406,8 @@
   "problem.second_factor_required": "Second facteur requis",
   "problem.totp_required": "Code à usage unique requis",
   "problem.unauthenticated": "Authentification requise",
-  "problem.validation_error": "Erreur de validation"
+  "problem.validation_error": "Erreur de validation",
+  "problem.zone_without_records": "La zone ne contient aucun enregistrement"
  },
  "notify": {
   "body": {

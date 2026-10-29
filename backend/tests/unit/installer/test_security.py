@@ -700,40 +700,125 @@ def test_update_policy_local_is_left_to_the_operator(tmp_path):
     assert "update-policy local" in out["manual_action"] and "grant ddi-admin zonesub" in out["manual_action"]
 
 
+# Names found in a production /etc/kea: backups and a package copy, none loaded by Kea.
+PROD_STRAYS = [
+    "kea-dhcp-ddns.conf.bak-20261024-1056",
+    "tsig-keys.json.bak-20261024-1056",
+    "kea-dhcp-ddns.conf.dpkg-dist",
+    "kea-dhcp4.conf.orig",
+    "kea-dhcp4.conf.ori",
+    "kea-dhcp6.conf~",
+    "kea-dhcp6.conf.dpkg-old",
+]
+
+
+def _d2_with_include(tmp: Path) -> tuple[Path, list[str]]:
+    """Debian-like D2: tsig-keys.json included, a secret file and an HA CA folder referenced."""
+    folder = _d2_with_md5(tmp).parent
+    secret = folder / "pelagos" / "kea-ddns.secret"
+    secret.parent.mkdir()
+    secret.write_text("c2VjcmV0\n")
+    (folder / "tsig-keys.json").write_text(
+        json.dumps({"name": "k2", "algorithm": "HMAC-SHA256", "secret-file": str(secret)})
+    )
+    conf = folder / "kea-dhcp-ddns.conf"
+    conf.write_text(
+        conf.read_text().replace(
+            '"tsig-keys": [', f'"tsig-keys": [ <?include "{folder}/tsig-keys.json"?>,', 1
+        )
+    )
+    ca = folder / "tls" / "ca"
+    ca.mkdir(parents=True)
+    (ca / "ca.pem").write_text("pem\n")
+    (ca / "ca.pem.bak-20261024-1056").write_text("old\n")
+    agent = folder / "kea-ctrl-agent.conf"
+    agent.write_text(
+        json.dumps({"Control-agent": {"trust-anchor": str(ca), "cert-file": str(folder / "none.pem")}})
+    )
+    for name in PROD_STRAYS:
+        (folder / name).write_text("{}\n")
+    (folder / "notes.txt").write_text("not a Kea file\n")
+    loaded = ["kea-dhcp-ddns.conf", "tsig-keys.json", "pelagos/kea-ddns.secret", "tls/ca/ca.pem"]
+    return folder, loaded
+
+
 def test_kea_files_the_service_cannot_read(tmp_path, monkeypatch):
-    """Debian D2 files _kea:root 0640: reported, given to the Kea group with group read, mode kept."""
+    """Only files Kea loads are reported (configuration, includes, referenced secret and TLS files);
+    the production backups and package copies beside them are not, nor touched by the plan."""
     import os
 
     from pelagos.installer import kea_modes
 
     env = debian_tree(tmp_path)
-    _d2_with_md5(tmp_path)
-    folder = env.paths.kea_conf("kea-dhcp4").parent
-    names = ["kea-dhcp-ddns.conf", "tsig-keys.json", "kea-dhcp-ddns.conf.dpkg-dist"]
-    for name in names[1:]:
-        (folder / name).write_text("{}\n")
-    for name in names:
+    folder, loaded = _d2_with_include(tmp_path)
+    strays = [*PROD_STRAYS, "notes.txt", "tls/ca/ca.pem.bak-20261024-1056"]
+    for name in loaded + strays:
         (folder / name).chmod(0o640)
-    (folder / "kea-dhcp-ddns.conf.dpkg-dist").chmod(0o600)
+    (folder / "tsig-keys.json").chmod(0o600)
     me, kea = os.getgid(), 4242
     # The files' group (ours) is not one of the service's; the Kea group (ours, for chgrp) is.
     monkeypatch.setattr(kea_modes, "service_ids", lambda: (os.getuid() + 1, {kea}))
     monkeypatch.setattr(kea_modes, "kea_gid", lambda _env: kea)
     finding = next(f for f in run_audit(env) if f.kind == "kea_file_unreadable")
     paths = {i["path"]: i for i in finding.details["files"]}
-    assert set(paths) >= {str(folder / n) for n in names}
-    assert paths[str(folder / "kea-dhcp-ddns.conf.dpkg-dist")]["target_mode"] == "0640"
-    assert "chgrp" in finding.to_dict()["proposal"]
+    assert set(paths) == {str(folder / n) for n in loaded}
+    assert paths[str(folder / "tsig-keys.json")]["target_mode"] == "0640"
+    assert "chgrp" in finding.to_dict()["proposal"] and "bak" not in finding.to_dict()["description"]
     monkeypatch.setattr(kea_modes, "kea_gid", lambda _env: me)
     monkeypatch.setattr(kea_modes, "service_ids", lambda: (os.getuid() + 1, {me}))
+    for name in strays:
+        (folder / name).chmod(0o600)
     finding = next(f for f in run_audit(env) if f.kind == "kea_file_unreadable")
-    # Group ours already, but no group read on the 0600 copy: only that one is fixed.
-    assert [i["path"] for i in finding.details["files"]] == [str(folder / "kea-dhcp-ddns.conf.dpkg-dist")]
+    # Group ours already, but no group read on the 0600 include: only that one is fixed.
+    assert [i["path"] for i in finding.details["files"]] == [str(folder / "tsig-keys.json")]
     _plan, job = _apply(env, [finding.id])
     assert job.state is JobState.DONE, job.error
-    assert (folder / "kea-dhcp-ddns.conf.dpkg-dist").stat().st_mode & 0o777 == 0o640
-    assert (folder / "kea-dhcp-ddns.conf").stat().st_mode & 0o777 == 0o640
+    assert (folder / "tsig-keys.json").stat().st_mode & 0o777 == 0o640
+    assert all((folder / n).stat().st_mode & 0o777 == 0o600 for n in strays)
     assert not [f for f in run_audit(env) if f.kind == "kea_file_unreadable"]
+
+
+def test_kea_unreadable_include_is_reported(tmp_path, monkeypatch):
+    """Read as the service, an include it cannot open is still reported beside its parent."""
+    import os
+
+    from pelagos.installer import kea_modes
+
+    env = debian_tree(tmp_path)
+    folder, _loaded = _d2_with_include(tmp_path)
+    include = folder / "tsig-keys.json"
+    real = kea_modes.KeaDocument
+
+    def as_service(path, **kw):
+        def reader(p):
+            if p == include:
+                raise PermissionError(13, "Permission denied", str(p))
+            return p.read_text()
+
+        return real(path, reader=reader, **kw)
+
+    monkeypatch.setattr(kea_modes, "KeaDocument", as_service)
+    include.chmod(0o600)
+    me = os.getgid()
+    monkeypatch.setattr(kea_modes, "kea_gid", lambda _env: me)
+    monkeypatch.setattr(kea_modes, "service_ids", lambda: (os.getuid() + 1, {me}))
+    assert [i["path"] for i in kea_modes.issues(env)] == [str(include)]
+
+
+def test_kea_modes_plan_skips_files_kea_does_not_load(tmp_path, monkeypatch):
+    """A plan made before the fix may still name a backup: it is left alone."""
+    import os
+
+    from pelagos.installer import kea_modes
+
+    env = debian_tree(tmp_path)
+    folder, _loaded = _d2_with_include(tmp_path)
+    stray = folder / "kea-dhcp-ddns.conf.bak-20261024-1056"
+    stray.chmod(0o600)
+    monkeypatch.setattr(kea_modes, "kea_gid", lambda _env: os.getgid())
+    item = {"path": str(stray), "mode": "0600", "group": "x", "target_mode": "0640", "target_group": "y"}
+    assert "not a file Kea loads" in kea_modes.apply(env, [item])
+    assert stray.stat().st_mode & 0o777 == 0o600
 
 
 def test_kea_modes_apply_rolls_back(tmp_path, monkeypatch):
@@ -747,6 +832,7 @@ def test_kea_modes_apply_rolls_back(tmp_path, monkeypatch):
         p.write_text("{}")
         p.chmod(0o600)
     monkeypatch.setattr(kea_modes, "kea_gid", lambda _env: os.getgid())
+    monkeypatch.setattr(kea_modes, "loaded_files", lambda _env: [a, b])
     monkeypatch.setattr(kea_modes, "_kea_reads", lambda _env, p: "kea cannot read" if p == str(b) else None)
     items = [
         {"path": str(p), "mode": "0600", "group": "x", "target_mode": "0640", "target_group": "y"}

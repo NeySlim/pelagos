@@ -1,14 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Kea files the pelagos service cannot read (security audit `kea_file_unreadable`).
 
-Debian's D2 files can be `_kea:root 0640` (kea-dhcp-ddns.conf, tsig-keys.json, a .dpkg-dist copy):
-Kea reads them as their owner, but the pelagos user (in the Kea group) cannot, so the write
-pipeline cannot back them up. The fix gives the file to the Kea group and adds group read, the
-rest of the mode kept.
+Debian's D2 files can be `_kea:root 0640` (kea-dhcp-ddns.conf, tsig-keys.json): Kea reads them as
+their owner, but the pelagos user (in the Kea group) cannot, so the write pipeline cannot back them
+up. The fix gives the file to the Kea group and adds group read, the rest of the mode kept. Only
+files Kea loads count: backups and package copies lying in the folder (`.bak-*`, `.dpkg-dist`) do not.
 """
 
 from __future__ import annotations
 
+import fnmatch
 import grp
 import os
 import pwd
@@ -16,7 +17,24 @@ import stat
 from pathlib import Path
 from typing import Any
 
+from pelagos.core.keadoc import KeaDocument, KeaFileUnreadable
+
 SERVICE_USER = "pelagos"
+DAEMONS = ("kea-dhcp4", "kea-dhcp6", "kea-dhcp-ddns", "kea-ctrl-agent")
+# Keys naming a file Kea 2.6 reads (ARM: ddns, agent, hooks-ha): TSIG secret, TLS, HTTP basic auth.
+FILE_KEYS = frozenset(
+    {
+        "secret-file",
+        "trust-anchor",
+        "cert-file",
+        "key-file",
+        "password-file",
+        "user-file",
+        "basic-auth-password-file",
+    }
+)
+# Leftovers of editors, package upgrades and manual backups, never loaded by Kea.
+IGNORED = ("*.bak*", "*.dpkg-*", "*.ori", "*.orig", "*~", "*.rpmnew", "*.rpmsave", "*.ucf-*")
 
 
 def service_ids() -> tuple[int, set[int]]:
@@ -54,23 +72,65 @@ def _readable(st: os.stat_result, uid: int, groups: set[int]) -> bool:
     return bool(mode & stat.S_IROTH)
 
 
-def _candidates(folder: Path) -> list[Path]:
-    """Regular files of the Kea configuration folder and of its direct subfolders (tls/)."""
-    out: list[Path] = []
+def ignored(name: str) -> bool:
+    return any(fnmatch.fnmatchcase(name, g) for g in IGNORED)
+
+
+def _referenced(value: Any, base: str | None = None) -> list[str]:
+    """Files named by FILE_KEYS anywhere in a configuration; relative ones under `directory`."""
+    out: list[str] = []
+    if isinstance(value, list):
+        for item in value:
+            out += _referenced(item, base)
+    elif isinstance(value, dict):
+        d = value.get("directory")
+        base = d if isinstance(d, str) and d.startswith("/") else base
+        for key, item in value.items():
+            if key in FILE_KEYS and isinstance(item, str) and item:
+                if item.startswith("/"):
+                    out.append(item)
+                elif base:
+                    out.append(str(Path(base) / item))
+            else:
+                out += _referenced(item, base)
+    return out
+
+
+def _tree(conf: Path) -> tuple[list[Path], list[str]]:
+    """(the file and its includes, referenced files); an unreadable include ends the walk, listed."""
     try:
-        entries = sorted(folder.iterdir())
-    except OSError:
-        return out
-    for p in entries:
-        if p.is_symlink():
+        doc = KeaDocument(conf)
+    except KeaFileUnreadable as exc:
+        return list(dict.fromkeys([conf, exc.path])), []
+    except Exception:
+        return [conf], []  # unparsable: the top file alone
+    return list(doc.paths), _referenced(doc.value)
+
+
+def loaded_files(env: Any) -> list[Path]:
+    """Regular files under the Kea folder that Kea loads: each daemon's configuration, its
+    `<?include?>` files and the secret, TLS and password files it names (a CA folder's files)."""
+    folder = Path(os.path.realpath(env.paths.kea_conf_dir))
+    found: list[Path] = []
+    for daemon in DAEMONS:
+        conf = Path(env.paths.kea_conf(daemon))
+        if not conf.is_file():
             continue
-        if p.is_dir():
-            try:
-                out += [c for c in sorted(p.iterdir()) if c.is_file() and not c.is_symlink()]
-            except OSError:
-                continue
-        elif p.is_file():
-            out.append(p)
+        tree, refs = _tree(conf)
+        found += tree
+        for ref in map(Path, refs):
+            if ref.is_dir() and not ref.is_symlink():
+                try:
+                    found += [c for c in sorted(ref.iterdir()) if not ignored(c.name)]
+                except OSError:
+                    continue
+            else:
+                found.append(ref)
+    out: list[Path] = []
+    for p in dict.fromkeys(found):
+        if p.is_symlink() or not p.is_file() or not Path(os.path.realpath(p)).is_relative_to(folder):
+            continue
+        out.append(p)
     return out
 
 
@@ -82,9 +142,8 @@ def issues(env: Any) -> list[dict[str, Any]]:
     uid, groups = service_ids()
     if gid not in groups:
         return []  # the fix would not help: the account is not in the Kea group
-    folder = env.paths.kea_conf("kea-dhcp4").parent
     out = []
-    for path in _candidates(folder):
+    for path in loaded_files(env):
         try:
             st = path.stat()
         except OSError:
@@ -134,11 +193,15 @@ def apply(env: Any, items: list[dict[str, Any]]) -> str:
     gid = kea_gid(env)
     if gid is None:
         raise RuntimeError(f"group {env.paths.kea_group} does not exist")
+    loaded = {str(p) for p in loaded_files(env)}
     done: list[tuple[str, int, int]] = []
     lines: list[str] = []
     try:
         for item in items:
             path = item["path"]
+            if path not in loaded:
+                lines.append(f"{path}: not a file Kea loads, skipped")
+                continue
             try:
                 st = os.stat(path, follow_symlinks=False)
             except OSError:

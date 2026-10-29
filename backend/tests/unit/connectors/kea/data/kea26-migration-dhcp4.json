@@ -1,0 +1,66 @@
+{
+  "Dhcp4": {
+    "interfaces-config": { "interfaces": [ "eth0" ] },
+    "control-socket": { "socket-type": "unix", "socket-name": "/run/kea/kea4-ctrl-socket" },
+    "lease-database": { "type": "memfile", "lfc-interval": 3600, "name": "/srv/kea/kea-leases4.csv" },
+    "valid-lifetime": 3600,
+    "multi-threading": { "enable-multi-threading": true, "thread-pool-size": 4, "packet-queue-size": 64 },
+    "hooks-libraries": [
+      { "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_lease_cmds.so" },
+      { "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_stat_cmds.so" },
+      {
+        "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_ha.so",
+        "parameters": {
+          "high-availability": [ {
+            "this-server-name": "ns1",
+            "mode": "hot-standby",
+            "heartbeat-delay": 5000,
+            "max-response-delay": 15000,
+            "max-ack-delay": 5000,
+            "max-unacked-clients": 0,
+            "trust-anchor": "/etc/kea/tls/ca.crt",
+            "cert-file": "/etc/kea/tls/node.crt",
+            "key-file": "/etc/kea/tls/node.key",
+            "require-client-certs": true,
+            "multi-threading": {
+              "enable-multi-threading": true,
+              "http-dedicated-listener": true,
+              "http-listener-threads": 2,
+              "http-client-threads": 2
+            },
+            "peers": [
+              { "name": "ns1", "url": "https://192.0.2.11:8001/", "role": "primary", "auto-failover": true },
+              { "name": "ns2", "url": "https://192.0.2.12:8001/", "role": "standby", "auto-failover": true }
+            ]
+          } ]
+        }
+      }
+    ],
+    "dhcp-ddns": { "enable-updates": true, "server-ip": "127.0.0.1", "server-port": 53001 },
+    "ddns-send-updates": true,
+    "ddns-qualifying-suffix": "example.lan.",
+    "client-classes": [
+      { "name": "voip", "test": "substring(option[60].hex,0,6) == 'Aastra'" },
+      { "name": "late", "only-if-required": true },
+      { "name": "per-mac", "template-test": "substring(pkt4.mac,0,3)", "option-data": [ { "name": "domain-name", "data": "lab.example.lan" } ] }
+    ],
+    "subnet4": [
+      {
+        "id": 1,
+        "subnet": "192.0.2.0/24",
+        "interface": "eth0",
+        "client-class": "voip",
+        "require-client-classes": [ "late" ],
+        "pools": [ { "pool": "192.0.2.100 - 192.0.2.199", "client-class": "voip" } ],
+        "option-data": [
+          { "name": "domain-name", "data": "example.lan" },
+          { "name": "domain-name-servers", "data": "192.0.2.11, 192.0.2.12" }
+        ],
+        "reservations": [ { "hw-address": "52:54:00:00:00:01", "ip-address": "192.0.2.50", "hostname": "printer" } ]
+      }
+    ],
+    "loggers": [
+      { "name": "kea-dhcp4", "output-options": [ { "output": "stdout" }, { "output": "/var/log/kea-dhcp4.log" } ], "severity": "INFO" }
+    ]
+  }
+}

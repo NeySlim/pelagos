@@ -1,0 +1,19 @@
+{
+  "DhcpDdns": {
+    "ip-address": "127.0.0.1",
+    "port": 53001,
+    "control-socket": { "socket-type": "unix", "socket-name": "kea-ddns-ctrl-socket" },
+    "tsig-keys": [ { "name": "kea-ddns", "algorithm": "HMAC-MD5", "secret": "c2VjcmV0LWZvci10ZXN0cw==" } ],
+    "forward-ddns": {
+      "ddns-domains": [
+        { "name": "example.lan.", "key-name": "kea-ddns", "dns-servers": [ { "ip-address": "192.0.2.11", "port": 53 } ] }
+      ]
+    },
+    "reverse-ddns": {
+      "ddns-domains": [
+        { "name": "2.0.192.in-addr.arpa.", "key-name": "kea-ddns", "dns-servers": [ { "ip-address": "192.0.2.11", "port": 53 } ] }
+      ]
+    },
+    "loggers": [ { "name": "kea-dhcp-ddns", "output-options": [ { "output": "stdout" } ], "severity": "INFO" } ]
+  }
+}

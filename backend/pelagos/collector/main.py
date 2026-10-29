@@ -545,7 +545,7 @@ class Collector:
             hosts = join_hosts(leases, reservations, [r for rs in forward.values() for r in rs] + reverse)
             zones = list(forward)
             rows = ipv6_hosts.host_rows(hosts, g.observations, now, stable, zones, served, excepted)
-            alerts += consistency.ipv6_missing_aaaa(rows)
+            alerts += consistency.ipv6_missing_aaaa(rows, now, stable)
             stale = ipv6_hosts.stale_records(
                 hosts,
                 g.observations,

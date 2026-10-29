@@ -53,12 +53,25 @@ def rows(hosts, observations, excepted=None):
     return v6.host_rows(hosts, observations, NOW, 8, [ZONE], [REV1], excepted)
 
 
+def missing(found):
+    return consistency.ipv6_missing_aaaa(found, NOW, 8)
+
+
+def test_an_eui64_address_of_a_left_prefix_is_neither_proposed_nor_covering():
+    old_eui = "2001:db8:9:0:be24:11ff:fe63:b806"
+    h = host(extra=[RRset("laptop.example.lan.", "AAAA", 300, [old_eui])])
+    history = [obs(old_eui, NOW - 40 * DAY, NOW - 20 * DAY), obs(EUI, NOW - 20 * DAY, NOW)]
+    found = rows([h], history)
+    assert found[0]["proposal"]["address"] == EUI
+    assert [x["address"] for x in missing(found)[0].details["hosts"]] == [EUI]
+    gone = rows([host()], [obs(old_eui, NOW - 40 * DAY, NOW - 20 * DAY)])
+    assert gone[0]["proposal"] is None
+
+
 def test_missing_aaaa_groups_hosts_by_zone():
     hosts = [host(), host(MAC2, "printer", "192.0.2.11")]
     eui2 = "2001:db8:1:0:be24:11ff:fe00:2"
-    alerts = consistency.ipv6_missing_aaaa(
-        rows(hosts, [obs(EUI, NOW - 60, NOW), obs(eui2, NOW - 60, NOW, MAC2)])
-    )
+    alerts = missing(rows(hosts, [obs(EUI, NOW - 60, NOW), obs(eui2, NOW - 60, NOW, MAC2)]))
     assert len(alerts) == 1
     a = alerts[0]
     assert a.kind is AlertKind.IPV6_MISSING_AAAA and a.subject == f"ipv6:aaaa:{ZONE}" and a.node_id is None
@@ -72,23 +85,23 @@ def test_missing_aaaa_skips_temporary_unknown_and_covered_hosts():
         obs(f"2001:db8:1::dead:beef:0:{d:x}", NOW - d * DAY, NOW - d * DAY + 2 * DAY)
         for d in range(10, 1, -1)
     ]
-    assert consistency.ipv6_missing_aaaa(rows([host()], temp)) == []
+    assert missing(rows([host()], temp)) == []
     fresh = [obs(OLD, NOW - 3600, NOW)]
-    assert consistency.ipv6_missing_aaaa(rows([host()], fresh)) == []
+    assert missing(rows([host()], fresh)) == []
     covered = host(extra=[RRset("laptop.example.lan.", "AAAA", 300, [EUI])])
-    assert consistency.ipv6_missing_aaaa(rows([covered], [obs(EUI, NOW - 60, NOW)])) == []
+    assert missing(rows([covered], [obs(EUI, NOW - 60, NOW)])) == []
     # IPv4 only: nothing observed, nothing raised.
-    assert consistency.ipv6_missing_aaaa(rows([host()], [])) == []
+    assert missing(rows([host()], [])) == []
 
 
 def test_missing_aaaa_exceptions_by_host_and_by_address():
     observed = [obs(EUI, NOW - 60, NOW)]
     by_host = rows([host()], observed, ex(("ipv6_missing_aaaa", f"mac:{MAC}")))
     assert by_host[0]["excepted"] is True and by_host[0]["proposal"] is not None
-    assert consistency.ipv6_missing_aaaa(by_host) == []
+    assert missing(by_host) == []
     by_addr = rows([host()], observed, ex(("ipv6_missing_aaaa", f"addr:{EUI}")))
     assert by_addr[0]["proposal"] is None
-    assert consistency.ipv6_missing_aaaa(by_addr) == []
+    assert missing(by_addr) == []
 
 
 def test_reverse_missing_for_a_watched_prefix_without_reverse_zone():
@@ -124,7 +137,7 @@ def test_prefix_change_raises_stale_with_old_and_new_prefix():
     assert a.details["records"][0]["last_seen"] == NOW - 15 * DAY
     assert a.details["exception_keys"] == [f"addr:{OLD}"]
     # The new address has no AAAA either: missing_aaaa lists it next to the stale one.
-    assert consistency.ipv6_missing_aaaa(rows([h], history))[0].details["hosts"][0]["address"] == NEW
+    assert missing(rows([h], history))[0].details["hosts"][0]["address"] == NEW
 
 
 def test_stale_needs_another_current_address_and_enough_history():
@@ -151,7 +164,7 @@ def test_stale_exceptions_by_host_and_address():
 
 
 def test_apply_exceptions_keeps_the_host_keys_and_honours_the_subject():
-    alerts = consistency.ipv6_missing_aaaa(rows([host()], [obs(EUI, NOW - 60, NOW)]))
+    alerts = missing(rows([host()], [obs(EUI, NOW - 60, NOW)]))
     kept = consistency.apply_exceptions(alerts, consistency.excepted_from([]))
     assert kept[0].details["exception_keys"] == [f"mac:{MAC}"]
     whole = ex(("ipv6_missing_aaaa", f"ipv6:aaaa:{ZONE}"))

@@ -4044,8 +4044,10 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   release counts as observing nothing). While a peer does not answer, the
   host checks keep their state (a missing observer would read as stale
   records); `ipv6_reverse_missing` still runs.
-  `ipv6_missing_aaaa`: the row has a `proposal` and none of its `eui64` or
-  `stable` addresses has an AAAA; a host excepted by `mac:<mac>` is left
+  An address is current when it is `eui64` or `stable` and seen within
+  `stable_min_days`: only a current address is proposed (an EUI-64 address
+  of a prefix the host left is not). `ipv6_missing_aaaa`: the row has a
+  `proposal` and none of its current addresses has an AAAA; a host excepted by `mac:<mac>` is left
   out, an address excepted by `addr:<address>` is never proposed;
   `exception_keys` lists `mac:<mac>` of each host. `ipv6_reverse_missing`:
   no served `ip6.arpa` zone (zone lists of every node in the cache) holds the

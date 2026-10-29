@@ -199,7 +199,8 @@ def host_rows(
     `host_key` is the hosts view key, `mac:<mac>` when the MAC is in no host; `proposal` is the
     first `eui64` or `stable` address without AAAA and not excepted by `addr:<address>`, the owner
     of the host's A in its forward zone and the address's reverse zone; null when there is none.
-    `excepted`: the host is excepted from `ipv6_missing_aaaa` (`mac:<mac>`).
+    Only a `current` address is proposed. `excepted`: the host is excepted from
+    `ipv6_missing_aaaa` (`mac:<mac>`).
     """
     ex = excepted or _never
     forward = [normalize_name(z) for z in forward_zones]
@@ -213,7 +214,7 @@ def host_rows(
         zone = _zone_of(rec.a_owner, forward) if rec.a_owner else None
         if rec.a_owner and zone:
             for item in items:
-                if item.cls not in PROPOSABLE or item.address in rec.aaaa:
+                if not current(item.cls, item.last_seen, now, stable_min_days) or item.address in rec.aaaa:
                     continue
                 if ex(MISSING_KIND, addr_key(item.address)):
                     continue
@@ -242,12 +243,22 @@ def host_rows(
     return rows
 
 
-def missing_aaaa(row: dict[str, Any]) -> bool:
-    """A proposal stands and none of the host's `eui64` or `stable` addresses has an AAAA."""
+def current(cls: str, last_seen: int, now: int, stable_min_days: int) -> bool:
+    """An `eui64` or `stable` address seen within `stable_min_days` (`stable` implies the last day):
+    an EUI-64 address of a prefix the host left is never proposed nor counted as covered."""
+    return cls in PROPOSABLE and last_seen >= now - stable_min_days * DAY
+
+
+def missing_aaaa(row: dict[str, Any], now: int, stable_min_days: int) -> bool:
+    """A proposal stands and none of the host's current `eui64` or `stable` addresses has an AAAA
+    (`observed` with Unix times, as `host_rows` returns them)."""
     if row.get("proposal") is None:
         return False
     aaaa = set(row.get("aaaa") or [])
-    return not any(o["class"] in PROPOSABLE and o["address"] in aaaa for o in row.get("observed") or [])
+    return not any(
+        o["address"] in aaaa and current(o["class"], int(o["last_seen"]), now, stable_min_days)
+        for o in row.get("observed") or []
+    )
 
 
 @dataclass(frozen=True, slots=True)

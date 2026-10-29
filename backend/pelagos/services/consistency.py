@@ -512,14 +512,14 @@ IPV6_KINDS = frozenset(
 OWN_KEYS = frozenset({AlertKind.IPV6_MISSING_AAAA, AlertKind.IPV6_STALE_AAAA})
 
 
-def ipv6_missing_aaaa(rows: Iterable[dict[str, Any]]) -> list[Alert]:
+def ipv6_missing_aaaa(rows: Iterable[dict[str, Any]], now: int, stable_min_days: int) -> list[Alert]:
     """One alert per forward zone listing the hosts with a proposal and no AAAA (rows of
     `ipv6_hosts.host_rows`, built with the exceptions: excepted hosts are skipped here)."""
     from pelagos.services import ipv6_hosts
 
     by_zone: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        if row.get("excepted") or not ipv6_hosts.missing_aaaa(row):
+        if row.get("excepted") or not ipv6_hosts.missing_aaaa(row, now, stable_min_days):
             continue
         p = row["proposal"]
         by_zone.setdefault(p["zone"], []).append(

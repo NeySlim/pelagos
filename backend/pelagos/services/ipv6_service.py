@@ -206,7 +206,7 @@ class Ipv6Service:
             keys = {s.host_key for s in found}
             rows = [r for r in rows if r["host_key"] in keys]
         elif filter_ == "missing_aaaa":
-            rows = [r for r in rows if ipv6_hosts.missing_aaaa(r)]
+            rows = [r for r in rows if ipv6_hosts.missing_aaaa(r, now, stable)]
         elif filter_ == "missing_ptr":
             rows = [r for r in rows if set(r["aaaa"]) - set(r["ptr"])]
         elif filter_ == "unknown":

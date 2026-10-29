@@ -91,6 +91,7 @@ describe('mock clusters of more than two nodes', () => {
     expect(alerts.some((a) => a.kind === 'ha_backup_out_of_sync' && a.node_id === ids().ns4)).toBe(true)
     const summary = (await call('GET', '/dashboard/summary')).data
     expect(summary.nodes).toHaveLength(4)
+    expect((await call('GET', '/auth/tokens')).data.items).toEqual([])
     expect((await fetch(`${base}/_mock/scenario`, { method: 'POST', body: JSON.stringify({ name: 'nine' }) })).status).toBe(404)
   })
 })

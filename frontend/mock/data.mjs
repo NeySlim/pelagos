@@ -1030,6 +1030,7 @@ export function createState(scenario = 'pair') {
     nodes: makeNodes(names),
     users: makeUsers(),
     customRoles: [{ name: 'helpdesk', builtin: false, description: 'Read and reservations', permissions: ['read:dns', 'read:dhcp', 'read:hosts', 'write:dhcp.reservations'] }],
+    apiTokens: [],
     builtinRoles: BUILTIN_ROLES,
     sessions: new Map(),
     zones,

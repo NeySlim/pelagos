@@ -9,7 +9,6 @@ import { checkAssertion, open, requestOptions, take, userKeys, webauthnState } f
 const DAY = 86400000
 
 export function tokenHandlers(state, { Problem, invalid, permissionsOf }) {
-  state.apiTokens ||= []
   const problem = (status, code, detail, extra) => Object.assign(new Problem(status, code, detail), { extra })
   const view = (t) => {
     const { secret: _secret, ...rest } = t

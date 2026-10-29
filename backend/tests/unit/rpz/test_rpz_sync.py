@@ -138,6 +138,19 @@ def test_revalidation_sends_etag_and_keeps_file_on_304(node: Node) -> None:
     assert node.state()["subs"]["mine"]["next_check"] == NOW + 25 * HOUR + 24 * HOUR
 
 
+def test_a_lost_copy_is_downloaded_again_without_validators(node: Node) -> None:
+    """The zone folder recreated (the plan writes an empty stub): no 304 may keep the stub."""
+    node.subscribe()
+    node.responses.append(ok(body(10)))
+    node.run()
+    node.file().write_text("$TTL 300\n@ SOA localhost. root.localhost. 1 1h 15m 30d 2h\n@ NS localhost.\n")
+    node.now += HOUR  # well before the next check
+    node.responses.append(ok(body(10)))
+    report = node.run()
+    assert report.updated == ["mine"] and node.fetches[-1][1:] == ("", "")
+    assert "host7.example.com CNAME ." in node.file().read_text()
+
+
 def test_expires_header_postpones_the_next_check(node: Node) -> None:
     node.subscribe(interval_hours=1)
     node.responses.append(ok(body(10), expires=NOW + 5 * 86400))

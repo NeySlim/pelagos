@@ -77,6 +77,13 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 
+def _size(path: Path) -> int | None:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return None
+
+
 def zone_path(env: SyncEnv, zone: str) -> Path:
     return env.rpz_dir / model.zone_file_name(zone)
 
@@ -211,10 +218,13 @@ class Syncer:
         now = self.env.clock()
         fp = fingerprint(sub)
         changed_config = entry.get("fingerprint") != fp
-        if not force and not changed_config and now < entry.get("next_check", 0):
+        # The installed copy is gone or replaced (folder recreated, the plan's empty stub): download
+        # it again now, without the validators that would answer 304 and keep the stub.
+        lost = entry.get("bytes") is not None and _size(zone_path(self.env, sub.zone)) != entry.get("bytes")
+        if not force and not changed_config and not lost and now < entry.get("next_check", 0):
             return
-        etag = "" if changed_config else entry.get("etag", "")
-        modified = "" if changed_config else entry.get("last_modified", "")
+        etag = "" if changed_config or lost else entry.get("etag", "")
+        modified = "" if changed_config or lost else entry.get("last_modified", "")
         got = self.env.fetch(
             sub.url,
             etag,

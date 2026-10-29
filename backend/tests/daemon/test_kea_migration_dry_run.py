@@ -2,7 +2,8 @@
 """Dry-run validation with real Kea 3.x daemons copied out of the host's packages into a fake tree.
 
 The tree mimics `dpkg-deb -x` of the ISC packages: daemons, libkea-* and hooks away from /usr, run
-with LD_LIBRARY_PATH and KEA_HOOKS_PATH. The download itself is proven in the lab (needs Internet).
+with LD_LIBRARY_PATH and KEA_HOOKS_PATH. The download and the isolation from the node's own Kea are
+proven by tests/lab/test_kea_migration_lab.py.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from pelagos.platform import CommandRunner, distro_from_fields
 pytestmark = pytest.mark.daemon
 
 DATA = Path(__file__).parents[1] / "unit" / "connectors" / "kea" / "data"
-PACKAGES = ("isc-kea-common", "isc-kea-dhcp4", "isc-kea-dhcp-ddns", "isc-kea-hooks")
+PACKAGES = ("isc-kea-common", "isc-kea-dhcp4", "isc-kea-dhcp6", "isc-kea-dhcp-ddns", "isc-kea-hooks")
 DEBIAN = distro_from_fields(
     {"ID": "debian", "VERSION_ID": "13", "VERSION_CODENAME": "trixie", "PRETTY_NAME": "x"}
 )
@@ -106,6 +107,17 @@ def test_converted_production_files_pass(workspace, tmp_path):
     d2 = _converted(workspace, tmp_path, "d2", "kea26-migration-d2.json")
     res = workspace.validate("d2", d2.after, d2.files, "/etc/kea/kea-dhcp-ddns.conf")
     assert res["ok"], res["output"]
+
+
+def test_converted_dhcp6_passes(workspace, tmp_path):
+    kea6 = _converted(workspace, tmp_path, "kea6", "kea26-migration-dhcp6.json")
+    assert {"control_socket", "client_class", "renamed_key", "path_moved"} <= {f.code for f in kea6.findings}
+    res = workspace.validate("kea6", kea6.after, kea6.files, "/etc/kea/kea-dhcp6.conf")
+    assert res["ok"], res["output"]
+    assert res["version"].startswith("3.")
+    raw = json.loads((DATA / "kea26-migration-dhcp6.json").read_text())
+    res = workspace.validate("kea6", raw, {}, "/etc/kea/kea-dhcp6.conf")
+    assert not res["ok"] and "socket-name" in km.error_line(res["output"])
 
 
 def test_unconverted_files_fail(workspace, tmp_path):

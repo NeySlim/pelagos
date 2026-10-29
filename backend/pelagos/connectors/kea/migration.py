@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import copy
 import posixpath
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
 from pelagos.connectors.kea.config import config_diff
+from pelagos.core.keafile import is_sensitive_kea_key
 from pelagos.domain.messages import CATALOG, Message, msg, placeholders
 
 REF_KB30 = "https://kb.isc.org/docs/things-to-be-aware-of-when-upgrading-to-kea-300"
@@ -42,6 +44,8 @@ RENAMED = {
 }
 _STREAMS = ("stdout", "stderr")
 MASK = "*****"
+# A TSIG key name usable as a file name under the configuration directory.
+_KEY_FILE_NAME = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]*$")
 
 
 @dataclass(slots=True, frozen=True)
@@ -104,12 +108,17 @@ class Conversion:
     packages: list[str] = field(default_factory=list)
 
     def diff(self, path: str) -> str:
-        """Unified diff of the file; clear TSIG secrets are masked, they never leave the node."""
-        before = copy.deepcopy(self.before)
-        for key in (before.get("DhcpDdns") or {}).get("tsig-keys") or []:
-            if isinstance(key, dict) and "secret" in key:
-                key["secret"] = MASK
-        return config_diff(before, self.after, path)
+        """Unified diff of the file; passwords and secrets are masked, they never leave the node."""
+        return config_diff(mask_secrets(self.before), mask_secrets(self.after), path)
+
+
+def mask_secrets(obj: Any) -> Any:
+    """A copy of `obj` where the value of every `*password` and `*secret` key is masked."""
+    if isinstance(obj, dict):
+        return {k: MASK if is_sensitive_kea_key(str(k)) else mask_secrets(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [mask_secrets(v) for v in obj]
+    return obj
 
 
 # Conversion ---------------------------------------------------------------------------------
@@ -254,7 +263,9 @@ def _outside(value: str, directory: str) -> bool:
 
 def _paths(root: dict, root_key: str, engine: str, target: TargetLayout, add: Any) -> None:
     for i, sock in enumerate(root.get("control-sockets") or []):
-        name = sock.get("socket-name") if isinstance(sock, dict) else None
+        if not isinstance(sock, dict):
+            continue
+        name = sock.get("socket-name")
         if sock.get("socket-type", "unix") == "unix" and isinstance(name, str) and posixpath.isabs(name):
             sock["socket-name"] = posixpath.basename(name)
             add(_moved(engine, f"{root_key}/control-sockets[{i}]/socket-name", name, sock["socket-name"]))
@@ -346,6 +357,18 @@ def _hooks(root: dict, root_key: str, engine: str, target: TargetLayout, add: An
                 add(_moved(engine, f"{path}/parameters/path", log_path, target.log_dir))
         elif name == "libdhcp_ha.so":
             for j, rel in enumerate(params.get("high-availability") or []):
+                if isinstance(rel, dict) and not _ha_listener(root, rel):
+                    add(
+                        Finding(
+                            "blocking" if _series(target.series) >= (3, 2) else "behavior",
+                            "ha_no_listener",
+                            engine,
+                            f"{path}/parameters/high-availability[{j}]/multi-threading",
+                            {"series": target.series},
+                            "manual",
+                            REF_HA,
+                        )
+                    )
                 if isinstance(rel, dict) and rel.get("restrict-commands") is not True:
                     rel["restrict-commands"] = True
                     add(
@@ -359,6 +382,25 @@ def _hooks(root: dict, root_key: str, engine: str, target: TargetLayout, add: An
                             REF_HA,
                         )
                     )
+
+
+def _series(series: str) -> tuple[int, ...]:
+    try:
+        return tuple(int(x) for x in series.split("."))
+    except ValueError:
+        return (0,)
+
+
+def _ha_listener(root: dict, rel: dict) -> bool:
+    """Whether the peers talk to the dedicated HA listener; otherwise through kea-ctrl-agent, removed
+    in 3.2. HA+MT and its listener default to true but need core multi-threading (ARM 2.6.3 hooks-ha)."""
+    core = root.get("multi-threading")
+    if isinstance(core, dict) and core.get("enable-multi-threading") is False:
+        return False
+    mt = rel.get("multi-threading")
+    if not isinstance(mt, dict):
+        return True
+    return mt.get("enable-multi-threading") is not False and mt.get("http-dedicated-listener") is not False
 
 
 def _databases(root: dict, root_key: str) -> Iterator[tuple[str, str]]:
@@ -434,11 +476,27 @@ def _d2_secrets(root: dict, root_key: str, target: TargetLayout, conv: Conversio
         if not isinstance(key, dict) or "secret" not in key or not key.get("name"):
             continue
         name = str(key["name"])
-        # Same file name as installer.keasetup.secret_file_path.
-        path = posixpath.join(target.conf_dir, f"{name}.tsig")
-        conv.files[path] = str(key.pop("secret"))
-        if "secret-file" not in key:
+        if "secret-file" in key:
+            # Kea reads the existing file: the clear copy is dropped, nothing is written.
+            key.pop("secret")
+        elif _KEY_FILE_NAME.match(name):
+            # Same file name as installer.keasetup.secret_file_path.
+            path = posixpath.join(target.conf_dir, f"{name}.tsig")
+            conv.files[path] = str(key.pop("secret"))
             key["secret-file"] = path
+        else:
+            conv.findings.append(
+                Finding(
+                    "blocking",
+                    "d2_key_name",
+                    "d2",
+                    f"{root_key}/tsig-keys[{i}]/name",
+                    {"key": name},
+                    "manual",
+                    REF_SECURITY,
+                )
+            )
+            continue
         conv.findings.append(
             Finding(
                 "converted",
@@ -455,8 +513,11 @@ def _d2_secrets(root: dict, root_key: str, target: TargetLayout, conv: Conversio
 # Node-wide and pair rules ---------------------------------------------------------------------
 
 
-def ctrl_agent(present: bool, active: bool, clients: list[str], node_id: str = "") -> list[Finding]:
-    """kea-ctrl-agent: removed in 3.2 (KB). Stopped when only Pelagos or nothing uses it."""
+def ctrl_agent(
+    present: bool, active: bool, clients: list[str], node_id: str = "", signs: list[str] = ()
+) -> list[Finding]:
+    """kea-ctrl-agent: removed in 3.2 (KB). A stopped agent is disabled; a running one with no client
+    seen is not proof of none (periodic clients), so it is left to the administrator."""
     if not (present or active):
         return []
     if clients:
@@ -468,6 +529,19 @@ def ctrl_agent(present: bool, active: bool, clients: list[str], node_id: str = "
                 "",
                 {"clients": sorted(clients)},
                 "propose",
+                REF_KCA,
+                node_id,
+            )
+        ]
+    if active:
+        return [
+            Finding(
+                "behavior",
+                "ctrl_agent_unverified",
+                "ca",
+                "",
+                {"signs": list(signs) or ["none"]},
+                "manual",
                 REF_KCA,
                 node_id,
             )

@@ -169,6 +169,11 @@ def test_package_changes_isc_replaces_debian():
     out = km.package_changes("isc", installed, dict.fromkeys(wanted, ISC), "3.2")
     assert [p["name"] for p in out["remove"]] == sorted(installed)
     assert [p["name"] for p in out["install"]] == wanted and out["install"][0]["version"] == ISC
+    # The Debian tools the ISC packages conflict with come back under their ISC names.
+    tools = {**installed, "kea-admin": "2.6.3", "kea-doc": "2.6.3", "kea": "2.6.3"}
+    wanted = km.wanted_packages(DEBIAN, "isc", ["kea4"], installed=tools)
+    assert wanted[-2:] == ["isc-kea-admin", "isc-kea-doc"] and "isc-kea" not in wanted
+    assert "isc-kea-admin" not in km.wanted_packages(DEBIAN, "backports", ["kea4"], installed=tools)
 
 
 def test_package_changes_isc_upgrade_and_backports():
@@ -195,7 +200,7 @@ def test_analyze_isc_dry_run(env):
         "isc",
         configs(),
         node_id="n1",
-        ctrl_agent={"present": True, "active": False, "clients": []},
+        ctrl_agent={"present": True, "active": False, "clients": [], "signs": []},
         workdir=env.paths.root,
     )
     assert report["target_version"] == "3.2.1"
@@ -299,6 +304,7 @@ def test_rhel_workspace_uses_dnf(env, tmp_path):
     (argv,) = runner.commands("dnf")
     assert "--repofrompath=pelagos-kea,https://dl.cloudsmith.io/public/isc/kea-3-2/rpm/el/10/x86_64" in argv
     assert "--setopt=pelagos-kea.gpgcheck=1" in argv
+    assert "--disableplugin=*" in argv and "--enableplugin=download" in argv
     assert ws.hooks_dir() == "/usr/lib64/kea/hooks"
 
 
@@ -312,18 +318,66 @@ def test_error_line():
 
 def test_ctrl_agent_state(env):
     conf = env.paths.kea_conf("kea-ctrl-agent")
-    assert km.ctrl_agent_state(env) == {"present": False, "active": False, "clients": []}
+    none = {"present": False, "active": False, "clients": [], "signs": []}
+    assert km.ctrl_agent_state(env) == none
     conf.parent.mkdir(parents=True, exist_ok=True)
     conf.write_text('{"Control-agent": {"http-host": "127.0.0.1", "http-port": 8080} // comment\n}')
-    assert km.ctrl_agent_state(env) == {"present": True, "active": False, "clients": []}
-    env.service_manager.active |= {"kea-ctrl-agent.service", "isc-stork-agent.service"}
+    assert km.ctrl_agent_state(env) == {**none, "present": True}
+    env.service_manager.active |= {"kea-ctrl-agent.service"}
+    # Running with nobody connected right now: no client, and no stop either (mig.ctrl_agent).
+    assert km.ctrl_agent_state(env) == {**none, "present": True, "active": True}
+    env.service_manager.active |= {"isc-stork-agent.service"}
     env.runner.responses["ss"] = "ESTAB 0 0 127.0.0.1:8080 192.0.2.50:41000\n"
-    assert km.ctrl_agent_state(env) == {
-        "present": True,
-        "active": True,
-        "clients": ["192.0.2.50", "isc-stork-agent"],
-    }
+    assert km.ctrl_agent_state(env)["clients"] == ["192.0.2.50", "isc-stork-agent"]
     assert "( sport = :8080 )" in env.runner.commands("ss")[0]
+
+
+def test_ctrl_agent_state_reads_signs_and_logs(env, tmp_path):
+    log = tmp_path / "ca.log"
+    log.write_text(
+        "2026-10-28 03:00:01.120 INFO  [kea-ctrl-agent.ctrl-agent/9] CTRL_AGENT_COMMAND_RECEIVED"
+        " command lease4-get-all received from remote address 192.0.2.60\n"
+    )
+    conf = env.paths.kea_conf("kea-ctrl-agent")
+    conf.parent.mkdir(parents=True, exist_ok=True)
+    ca = {
+        "http-host": "192.0.2.11",
+        "http-port": 8000,
+        "authentication": {"type": "basic", "clients": [{"user": "a", "password": "p"}]},
+        "cert-file": "/etc/kea/ca.crt",
+        "loggers": [{"name": "kea-ctrl-agent", "output-options": [{"output": str(log)}]}],
+    }
+    conf.write_text(json.dumps({"Control-agent": ca}))
+    env.service_manager.active |= {"isc-kea-ctrl-agent.service"}
+    env.runner.responses["journalctl"] = (
+        "CTRL_AGENT_COMMAND_RECEIVED command config-get received from remote address [2001:db8::5]\n"
+    )
+    state = km.ctrl_agent_state(env)
+    assert state["signs"] == ["http-host 192.0.2.11", "authentication", "tls"]
+    assert state["clients"] == ["192.0.2.60", "2001:db8::5"]
+    (argv,) = env.runner.commands("journalctl")
+    assert "-g" in argv and "isc-kea-ctrl-agent.service" in argv
+
+
+def test_missing_kea_user_skips_the_dry_run(env):
+    FakeApt(env.runner)
+    env.runner.responses["id -u"] = CommandResult([], 1, "", "id: '_kea': no such user")
+    report = km.analyze(env, "3.2", "isc", {"kea4": configs()["kea4"]}, workdir=env.paths.root)
+    assert report["validation"]["kea4"]["mode"] == "skipped"
+    assert "_kea does not exist" in report["validation"]["kea4"]["output"]
+    assert not env.runner.commands("runuser")
+
+
+def test_analyze_masks_passwords_in_diffs_and_configs(env):
+    cfg = configs()["kea4"]
+    cfg["Dhcp4"]["lease-database"] = {"type": "mysql", "name": "kea", "password": "S3CRET-DB"}
+    rel = cfg["Dhcp4"]["hooks-libraries"][2]["parameters"]["high-availability"][0]
+    rel["basic-auth-password"] = "S3CRET-HA"
+    apt = FakeApt(env.runner)
+    report = km.analyze(env, "3.2", "isc", {"kea4": cfg}, workdir=env.paths.root)
+    assert "S3CRET" not in json.dumps(report)
+    # The daemon still checks the real values.
+    assert apt.checked["kea4"]["config"]["Dhcp4"]["lease-database"]["password"] == "S3CRET-DB"
 
 
 def test_helper_operation(env):

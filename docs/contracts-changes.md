@@ -1865,3 +1865,13 @@ listed). Changed: `ipv6.stable_min_days` defaults to 8 (Windows and macOS keep a
 valid 7 days), a current address nothing replaced yet is `unknown`, not `temporary`. WP-COLLECTOR:
 router polls and lease walks on their own thread, 20 s overall deadline. WP-API-AUTH (V2): accept
 and return `allow_http` and `exclude_macs`. WP-FRONTEND (V3): the two fields in the source form.
+
+## 2026-10-29, K1 review: secrets, kea-ctrl-agent clients, HA listener
+Additive. Section 26: every `*password` and `*secret` value is masked in the diffs and the
+returned `configs`; a running `kea-ctrl-agent` with no client seen gives `ctrl_agent_unverified`
+(behavior, `manual`: `signs`) instead of `ctrl_agent_stop`, now kept for an agent installed and not
+running; `ctrl_agent_state` adds `signs` and reads the agent's logs; new codes `ha_no_listener`
+(HA through `kea-ctrl-agent`, blocking for 3.2) and `d2_key_name` (blocking); ISC counterparts of
+`kea-admin`, `kea-doc`, `kea-dev`. Contract (`domain/messages.py`):
+`kea_migration.ctrl_agent_unverified`, `kea_migration.ha_no_listener`, `kea_migration.d2_key_name`.
+WP-FRONTEND: their en and fr texts.

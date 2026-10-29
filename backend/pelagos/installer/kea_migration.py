@@ -5,7 +5,8 @@ The target's packages are downloaded into a temporary directory with a private p
 state (the node's sources, keys and caches are never touched), extracted (`dpkg-deb -x`,
 `rpm2cpio`), and the converted files are checked by the extracted daemons as the Kea user with
 LD_LIBRARY_PATH and KEA_HOOKS_PATH on the extracted tree. Proven in the lab on 2026-10-29 on
-Debian 13 with Kea 2.6.3 installed, for ISC 3.2.1 and Debian backports 3.0.3 (architecture 26).
+Debian 13 with Kea 2.6.3 installed, for ISC 3.2.1 and Debian backports 3.0.3, and on Rocky 10
+(architecture 26, tests/lab/test_kea_migration_lab.py).
 """
 
 from __future__ import annotations
@@ -40,6 +41,9 @@ _DB_PACKAGES = {
     "isc": {"mysql": "isc-kea-mysql", "postgresql": "isc-kea-pgsql"},
     "backports": {"mysql": "kea-common", "postgresql": "kea-common"},
 }
+# Debian packages with an ISC counterpart of the same role (Cloudsmith kea-3-0 and kea-3-2 trixie
+# indexes, read on 2026-10-29); the `kea` metapackage has none: the daemons are listed one by one.
+_ISC_COUNTERPART = {"kea-admin": "isc-kea-admin", "kea-doc": "isc-kea-doc", "kea-dev": "isc-kea-dev"}
 _KEA_PACKAGE = re.compile(r"^(isc-kea|kea|python3-kea|python3-isc-kea)(-|$)")
 
 
@@ -116,10 +120,19 @@ def engine_package(runner: Any, distro: Distro, engine: str) -> dict[str, str] |
     return {"package": name, "version": version, "source": classify_source(name, version)}
 
 
-def wanted_packages(distro: Distro, source: str, engines: list[str], extra: list[str] = ()) -> list[str]:
-    """The target's packages for these engines (dependencies listed: they are downloaded too)."""
+def wanted_packages(
+    distro: Distro,
+    source: str,
+    engines: list[str],
+    extra: list[str] = (),
+    installed: dict[str, str] | None = None,
+) -> list[str]:
+    """The target's packages for these engines (dependencies listed: they are downloaded too), plus
+    the ISC counterparts of the installed Debian tools the ISC packages replace."""
     if source == "isc":
         names = ["isc-kea-common", *(_ISC[e] for e in engines if e in _ISC), "isc-kea-hooks"]
+        if distro.is_debian:
+            names += [_ISC_COUNTERPART[n] for n in sorted(installed or {}) if n in _ISC_COUNTERPART]
     else:
         names = ["kea-common", *(_DEB[e] for e in engines if e in _DEB)]
     return list(dict.fromkeys([*names, *extra]))
@@ -267,6 +280,9 @@ class Workspace:
             "--disablerepo=*",
             f"--setopt=cachedir={self.root / 'dnf'}",
         ]
+        if os.path.basename(os.path.realpath(shutil.which("dnf") or "dnf")) != "dnf5":
+            # dnf 4 plugins write node state (generate_completion_cache fills /var/cache/dnf/packages.db).
+            argv += ["--disableplugin=*", "--enableplugin=download"]
         for rid, arch in (("pelagos-kea", self.machine), ("pelagos-kea-noarch", "noarch")):
             argv += [
                 f"--repofrompath={rid},{base}/{arch}",
@@ -396,11 +412,15 @@ class Workspace:
         """The Kea user reads the check directory through its group, nothing more."""
         if not self.runner.is_root:
             return
+        if not self._run(["id", "-u", self.kea_user], timeout=30).ok:
+            raise DryRunError(f"the Kea user {self.kea_user} does not exist")
         for path in (self.root, self.root / "check", work, *work.iterdir()):
             try:
                 shutil.chown(path, "root", self.kea_user)
-            except (LookupError, OSError):
-                return
+            except (LookupError, OSError) as exc:
+                if os.geteuid() == 0:
+                    raise DryRunError(f"cannot share {path.name} with {self.kea_user}: {exc}") from None
+                return  # a test runner posing as root
             path.chmod(0o750 if path.is_dir() else 0o640)
         # Packages keep their own modes (ISC 3.2 daemons are 0750, owned by root once extracted).
         for top, _dirs, names in os.walk(self.tree):
@@ -456,20 +476,72 @@ def read_configs(env: Any, engines: list[str] | None = None) -> dict[str, dict[s
     return out
 
 
+_LOOPBACK = ("127.0.0.1", "::1", "localhost")
+_COMMAND_FROM = re.compile(r"CTRL_AGENT_COMMAND_RECEIVED .* received from remote address (\S+)")
+LOG_DAYS = 30
+LOG_TAIL = 1 << 20
+
+
+def _ca_config(conf: Path) -> dict[str, Any]:
+    try:
+        cfg = keafile.load(conf).get("Control-agent")
+    except (OSError, ValueError, keafile.KeaConfigError):
+        return {}
+    return cfg if isinstance(cfg, dict) else {}
+
+
+def _ca_signs(ca: dict[str, Any]) -> list[str]:
+    """What suggests an external client: reachable off loopback, authentication or TLS set up."""
+    signs = []
+    host = str(ca.get("http-host", "127.0.0.1"))
+    if host not in _LOOPBACK:
+        signs.append(f"http-host {host}")
+    if ca.get("authentication"):
+        signs.append("authentication")
+    if ca.get("trust-anchor") or ca.get("cert-file"):
+        signs.append("tls")
+    return signs
+
+
+def _ca_log_clients(env: Any, ca: dict[str, Any]) -> list[str]:
+    """Remote addresses of the commands the agent logged (CTRL_AGENT_COMMAND_RECEIVED, INFO), from
+    the journal of its units and the files its loggers write."""
+    argv = ["journalctl", "--no-pager", "-o", "cat", f"--since=-{LOG_DAYS}d"]
+    argv += [x for u in CA_UNITS for x in ("-u", u)]
+    res = env.runner.run([*argv, "-g", "CTRL_AGENT_COMMAND_RECEIVED"], check=False, mutates=False, timeout=60)
+    text = res.stdout
+    for logger in ca.get("loggers") or []:
+        options = logger.get("output-options") if isinstance(logger, dict) else None
+        for opt in options or []:
+            out = opt.get("output") if isinstance(opt, dict) else None
+            if isinstance(out, str) and os.path.isabs(out):
+                try:
+                    with open(out, "rb") as f:
+                        f.seek(max(0, os.fstat(f.fileno()).st_size - LOG_TAIL))
+                        text += f.read().decode("utf-8", "replace")
+                except OSError:
+                    continue
+    return [m.group(1).strip("[]") for m in _COMMAND_FROM.finditer(text)]
+
+
 def ctrl_agent_state(env: Any) -> dict[str, Any]:
-    """{"present","active","clients"}: Pelagos never uses kea-ctrl-agent, so any established
-    connection to its port, or a Stork agent, is an external client."""
+    """{"present","active","clients","signs"}: Pelagos never uses kea-ctrl-agent, so an established
+    connection to its port, a command in its logs or a Stork agent is an external client; `signs`
+    hint at one when none is seen (a periodic client is usually not connected)."""
     conf = env.paths.kea_conf("kea-ctrl-agent")
     sm = env.service_manager
     active = any(sm.is_active(u) for u in CA_UNITS)
     present = conf.is_file() or active
     clients: list[str] = []
+    signs: list[str] = []
     if active:
-        port = 8000
+        ca = _ca_config(conf)
         try:
-            port = int(keafile.load(conf).get("Control-agent", {}).get("http-port", port))
-        except (OSError, ValueError, keafile.KeaConfigError):
-            pass
+            port = int(ca.get("http-port", 8000))
+        except (TypeError, ValueError):
+            port = 8000
+        signs = _ca_signs(ca)
+        clients += _ca_log_clients(env, ca)
         res = env.runner.run(
             ["ss", "-Htn", "state", "established", f"( sport = :{port} )"],
             check=False,
@@ -482,7 +554,7 @@ def ctrl_agent_state(env: Any) -> dict[str, Any]:
                 clients.append(parts[-1].rsplit(":", 1)[0].strip("[]"))
     if any(sm.is_active(u) for u in STORK_UNITS):
         clients.append("isc-stork-agent")
-    return {"present": present, "active": active, "clients": sorted(set(clients))}
+    return {"present": present, "active": active, "clients": sorted(set(clients)), "signs": signs}
 
 
 # Analysis of this node -----------------------------------------------------------------------
@@ -501,7 +573,8 @@ def analyze(
 
     Returns {"node_id","series","source","target_version","findings","diffs","files","packages",
     "validation","configs"}; `files` lists the secret files the conversion adds (paths only) and
-    `configs` the converted files without secrets. Nothing outside a temporary directory changes.
+    `configs` the converted files with passwords and secrets masked. Nothing outside a temporary
+    directory changes.
     """
     check_target(env.distro, series, source)
     engines = [e for e in ("kea4", "kea6", "d2") if e in configs]
@@ -524,8 +597,9 @@ def analyze(
     }
     try:
         skipped = ""
+        installed = installed_packages(env.runner, env.distro)
         try:
-            ws.fetch(wanted_packages(env.distro, source, engines))
+            ws.fetch(wanted_packages(env.distro, source, engines, installed=installed))
             layout = ws.layout(env.paths.kea_conf_dir)
         except DryRunError as exc:
             skipped = str(exc)
@@ -544,7 +618,7 @@ def analyze(
             findings += conv.findings
             out["diffs"][engine] = conv.diff(str(env.paths.kea_conf(DAEMONS[engine])))
             out["files"] += sorted(conv.files)
-            out["configs"][engine] = conv.after
+            out["configs"][engine] = mig.mask_secrets(conv.after)
         extra = [p for c in conversions.values() for p in c.packages]
         if not skipped and extra:
             try:
@@ -595,9 +669,9 @@ def analyze(
                 bool(ctrl_agent.get("active")),
                 list(ctrl_agent.get("clients") or []),
                 node_id,
+                list(ctrl_agent.get("signs") or []),
             )
-        installed = installed_packages(env.runner, env.distro)
-        wanted = wanted_packages(env.distro, source, engines, extra)
+        wanted = wanted_packages(env.distro, source, engines, extra, installed)
         out["packages"] = package_changes(
             source, installed, {n: ws.versions.get(n, "") for n in wanted}, series
         )

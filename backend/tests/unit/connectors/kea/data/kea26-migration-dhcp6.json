@@ -1,0 +1,33 @@
+{
+  "Dhcp6": {
+    "interfaces-config": {"interfaces": []},
+    "control-socket": {"socket-type": "unix", "socket-name": "/run/kea/kea6-ctrl-socket"},
+    "lease-database": {"type": "memfile", "persist": true, "name": "/var/lib/kea/kea-leases6.csv", "lfc-interval": 3600},
+    "server-id": {"type": "LLT", "persist": true},
+    "renew-timer": 1000,
+    "rebind-timer": 2000,
+    "preferred-lifetime": 3000,
+    "valid-lifetime": 4000,
+    "client-classes": [
+      {"name": "voip", "test": "substring(option[1].hex,0,2) == 0x0001"},
+      {"name": "late", "only-if-required": true}
+    ],
+    "subnet6": [
+      {
+        "id": 1,
+        "subnet": "2001:db8:1::/64",
+        "client-class": "voip",
+        "require-client-classes": ["late"],
+        "pools": [{"pool": "2001:db8:1::100-2001:db8:1::1ff"}],
+        "pd-pools": [{"prefix": "2001:db8:8000::", "prefix-len": 48, "delegated-len": 56}],
+        "option-data": [{"name": "dns-servers", "data": "2001:db8:1::53"}]
+      }
+    ],
+    "hooks-libraries": [
+      {"library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_lease_cmds.so"}
+    ],
+    "loggers": [
+      {"name": "kea-dhcp6", "output-options": [{"output": "stdout"}], "severity": "INFO"}
+    ]
+  }
+}

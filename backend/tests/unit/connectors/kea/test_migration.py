@@ -229,6 +229,94 @@ def test_ctrl_agent():
     (prop,) = mig.ctrl_agent(True, True, ["192.0.2.50", "isc-stork-agent"], "n1")
     assert prop.severity == "behavior" and prop.action == "propose" and prop.node_id == "n1"
     assert "192.0.2.50" in render(prop.message)
+    # A running agent with no client seen is not stopped: periodic clients are not connected.
+    (unknown,) = mig.ctrl_agent(True, True, [], "n1", ["http-host 192.0.2.11"])
+    assert (unknown.code, unknown.severity, unknown.action) == ("ctrl_agent_unverified", "behavior", "manual")
+    assert "192.0.2.11" in render(unknown.message)
+    assert mig.ctrl_agent(True, True, [])[0].message["params"]["signs"] == ["none"]
+
+
+SECRETS = {
+    "Dhcp4": {
+        "lease-database": {"type": "mysql", "name": "kea", "user": "kea", "password": "S3CRET-DB"},
+        "hosts-databases": [{"type": "postgresql", "name": "h", "password": "S3CRET-HOSTS"}],
+        "hooks-libraries": [
+            {
+                "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_ha.so",
+                "parameters": {
+                    "high-availability": [
+                        {
+                            "this-server-name": "ns1",
+                            "basic-auth-user": "ha",
+                            "basic-auth-password": "S3CRET-HA",
+                            "peers": [{"name": "ns1", "basic-auth-password": "S3CRET-PEER"}],
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+}
+
+
+def test_diff_and_output_mask_every_password_and_secret():
+    conv = mig.convert("kea4", SECRETS, TARGET)
+    diff = conv.diff("/etc/kea/kea-dhcp4.conf")
+    masked = json.dumps(mig.mask_secrets(conv.after))
+    for secret in ("S3CRET-DB", "S3CRET-HOSTS", "S3CRET-HA", "S3CRET-PEER"):
+        assert secret not in diff and secret not in masked
+    assert "libdhcp_mysql.so" in diff
+    # The case found in review: the password is a context line next to the added hook.
+    lease_only = {"Dhcp4": {"lease-database": {"type": "mysql", "name": "kea", "password": "S3CRET"}}}
+    diff = mig.convert("kea4", lease_only, TARGET).diff("/etc/kea/kea-dhcp4.conf")
+    assert '"password": "*****"' in diff and "S3CRET" not in diff
+    # The conversion itself keeps the values: the dry run needs them.
+    assert conv.after["Dhcp4"]["lease-database"]["password"] == "S3CRET-DB"
+    assert mig.mask_secrets({"user-context": {"secret": "x"}, "secret-file": "/f"}) == {
+        "user-context": {"secret": mig.MASK},
+        "secret-file": "/f",
+    }
+
+
+def test_ha_without_dedicated_listener():
+    cfg = load("kea26-migration-dhcp4.json")
+    rel = cfg["Dhcp4"]["hooks-libraries"][2]["parameters"]["high-availability"][0]
+    assert "ha_no_listener" not in codes(mig.convert("kea4", cfg, TARGET))
+    rel["multi-threading"]["http-dedicated-listener"] = False
+    (f,) = codes(mig.convert("kea4", cfg, TARGET))["ha_no_listener"]
+    assert (f.severity, f.action) == ("blocking", "manual")
+    assert f.path.endswith("high-availability[0]/multi-threading")
+    # 3.0 still ships the agent: a warning, not a stop.
+    t30 = mig.TargetLayout("3.0", "isc", HOOKS, None)
+    assert codes(mig.convert("kea4", cfg, t30))["ha_no_listener"][0].severity == "behavior"
+    # HA+MT needs core multi-threading: without it the peers go through the agent.
+    rel["multi-threading"]["http-dedicated-listener"] = True
+    cfg["Dhcp4"]["multi-threading"]["enable-multi-threading"] = False
+    assert "ha_no_listener" in codes(mig.convert("kea4", cfg, TARGET))
+
+
+def test_d2_key_names_and_existing_secret_file():
+    cfg = {
+        "DhcpDdns": {
+            "tsig-keys": [
+                {"name": "/etc/cron.d/x", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0"},
+                {"name": "..", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0"},
+                {"name": "k1", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0", "secret-file": "/etc/kea/a"},
+            ]
+        }
+    }
+    conv = mig.convert("d2", cfg, TARGET)
+    assert conv.files == {}
+    bad = codes(conv)["d2_key_name"]
+    assert [f.severity for f in bad] == ["blocking", "blocking"]
+    keys = conv.after["DhcpDdns"]["tsig-keys"]
+    assert keys[2] == {"name": "k1", "algorithm": "HMAC-SHA256", "secret-file": "/etc/kea/a"}
+    assert "c2VjcmV0" not in conv.diff("/etc/kea/kea-dhcp-ddns.conf")
+
+
+def test_non_dict_control_socket_is_skipped():
+    conv = mig.convert("kea4", {"Dhcp4": {"control-sockets": ["bad", {"socket-name": "/tmp/s"}]}}, TARGET)
+    assert conv.after["Dhcp4"]["control-sockets"] == ["bad", {"socket-name": "s"}]
 
 
 def test_ha_symmetry():

@@ -564,6 +564,13 @@
   ],
   "finding.kea_ctrl_agent_http.proposal": [],
   "finding.kea_ctrl_agent_http.risk": [],
+  "finding.kea_file_unreadable.description": [
+    "files"
+  ],
+  "finding.kea_file_unreadable.proposal": [
+    "commands"
+  ],
+  "finding.kea_file_unreadable.risk": [],
   "finding.kea_ha_guard_unmanaged.description": [
     "peers",
     "ports",
@@ -613,13 +620,6 @@
   ],
   "finding.kea_http_socket_plain.proposal": [],
   "finding.kea_http_socket_plain.risk": [],
-  "finding.kea_file_unreadable.description": [
-    "files"
-  ],
-  "finding.kea_file_unreadable.proposal": [
-    "commands"
-  ],
-  "finding.kea_file_unreadable.risk": [],
   "finding.kea_socket_dir_mode.description": [
     "mode",
     "path"
@@ -865,6 +865,13 @@
     "clients"
   ],
   "kea_migration.ctrl_agent_stop": [],
+  "kea_migration.ctrl_agent_unverified": [
+    "signs"
+  ],
+  "kea_migration.d2_key_name": [
+    "key",
+    "path"
+  ],
   "kea_migration.d2_secret_file": [
     "key",
     "path"
@@ -880,6 +887,10 @@
     "fields",
     "node",
     "partner"
+  ],
+  "kea_migration.ha_no_listener": [
+    "path",
+    "series"
   ],
   "kea_migration.hook_commercial": [
     "library",

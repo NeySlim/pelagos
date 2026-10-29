@@ -3888,9 +3888,14 @@ run; K2 API, alert and the read-only screen.
   `series`; `libdhcp_mysql_cb.so`, `libdhcp_pgsql_cb.so`), `db_hook`
   (converted: `backend`, `library`, `package`), `path_moved` (converted:
   `file`, `target`), `script_path` (blocking: `file`, `directory`),
-  `ctrl_agent_stop` (converted), `ctrl_agent_clients` (behavior: `clients`),
-  `restrict_commands` (converted), `ha_asymmetric` (blocking: `engine`,
+  `ctrl_agent_stop` (converted: the agent is installed and not running),
+  `ctrl_agent_clients` (behavior: `clients`), `ctrl_agent_unverified`
+  (behavior, action `manual`: `signs`; running with no client seen, which
+  does not rule out a periodic one), `restrict_commands` (converted),
+  `ha_no_listener` (blocking for 3.2, behavior for 3.0: `series`; an HA
+  relationship whose peers talk through `kea-ctrl-agent`), `ha_asymmetric` (blocking: `engine`,
   `node`, `partner`, `fields`), `d2_secret_file` (converted: `key`),
+  `d2_key_name` (blocking: `key`; a key name that is not a safe file name),
   `control_socket` (converted), `additional_class` (behavior: `name`),
   `template_class_options` (behavior: `name`), `lease_checks` (info:
   `engine`; the `sanity-checks` default stays `warn` in 2.6.3 and 3.2.1),
@@ -3907,7 +3912,11 @@ run; K2 API, alert and the read-only screen.
   point at the target's hooks directory, an SQL lease or host database adds
   `libdhcp_mysql.so` or `libdhcp_pgsql.so` first in `hooks-libraries`, the
   D2 clear `secret` moves to `<conf dir>/<key>.tsig` (the file content is
-  returned apart and never enters a finding or a diff, where it is masked).
+  returned apart and never enters a finding; a key that already has a
+  `secret-file` only loses its clear copy; a key name outside
+  `[A-Za-z0-9_-][A-Za-z0-9._-]*` is `d2_key_name`). Every `*password` and
+  `*secret` value (`core.keafile.is_sensitive_kea_key`) is masked in the
+  diffs and in the returned `configs`.
   `ha_symmetry(engine, node, config, partner, partner_config)` gives the
   `ha_asymmetric` findings of a pair.
 - **Analysis on a node** (the `kea.migration.analyze` peer action, run under
@@ -3934,7 +3943,13 @@ run; K2 API, alert and the read-only screen.
   default to this node's files); response `{"node_id","series","source",
   "target_version","findings": [Finding],"diffs","files": [path],"packages":
   {"remove","install"},"validation": {engine: {"ok","mode","output",
-  "version"}},"configs": {engine: converted file without secrets}}`. The
+  "version"}},"configs": {engine: converted file, passwords and secrets
+  masked}}`. `ctrl_agent_state` gives `{"present","active","clients",
+  "signs"}`: clients from established connections, the agent's
+  `CTRL_AGENT_COMMAND_RECEIVED` log lines and a running Stork agent; signs
+  from its configuration (off-loopback `http-host`, authentication, TLS).
+  On an ISC target the installed `kea-admin`, `kea-doc` and `kea-dev` come
+  back as `isc-kea-admin`, `isc-kea-doc` and `isc-kea-dev`. The
   caller merges the reports of the nodes into the Report.
 - **Alert** `kea_series_obsolete`: per node and engine family, subject
   `kea:series`, raised by the collector when the installed series is not

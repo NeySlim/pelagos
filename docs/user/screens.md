@@ -122,8 +122,10 @@ class (EUI-64, stable, temporary, unknown), the sources that saw it and
 when, the AAAA records of the host with their PTR state, and the proposal
 (the stable address Pelagos would publish under the host's A name). A
 random MAC (locally administered) is flagged: the device may use another
-one on another network. An AAAA whose address no source sees any more is
-marked "not observed".
+one on another network. An AAAA the stale check counts (not seen for
+`ipv6.stale_days` while the host has another current address) is marked
+"stale", with its last sighting; a service alias next to a current address
+never is.
 
 Filters (kept in the URL as `filter=`, with `zone=`): without AAAA,
 without PTR, stale AAAA, unknown hosts, random MAC. The
@@ -422,8 +424,8 @@ Under Administration:
   online node sends, the next takes over after three missed polls) and the
   history of sent and failed batches.
 - **IPv6 sources** (`admin:settings`): where observed IPv6 addresses come
-  from. The neighbor table of every node is always read (setting
-  `ipv6.neighbors_enabled`); OPNsense routers are added with their URL, an
+  from. The neighbor table of every node is read unless
+  `ipv6.neighbors_enabled` is off (Administration, Settings); OPNsense routers are added with their URL, an
   API key and secret of a user holding only the "Diagnostics: NDP Table"
   privilege (write-only, they do not follow a source to another URL), TLS
   verification, an optional private CA and the router's own MACs to drop.

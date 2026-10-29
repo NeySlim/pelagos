@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { PlugsConnected } from '@phosphor-icons/react'
 import { FormModal, Input, Textarea, ToggleSwitch, Button, Badge } from '../../../components'
 import { api } from '../../../services/api'
+import { useNodeNames } from '../../../hooks'
 import { errorMessage } from '../../../services/apiClient'
 import { formErrors, formFromSource, serverFieldErrors, sourcesBody, testBody, urlChanged } from './ipv6Form'
 
@@ -13,6 +14,7 @@ const LOCAL_CODES = ['required', 'url', 'http', 'mac', 'pem', 'secret']
 
 export default function SourceDialog({ source, sources, onClose, onSaved }) {
   const { t } = useTranslation(['ipv6', 'common'])
+  const nameOf = useNodeNames()
   const editing = Boolean(source?.id)
   const [form, setForm] = useState(() => formFromSource(source || {}))
   const [errors, setErrors] = useState({})
@@ -119,7 +121,7 @@ export default function SourceDialog({ source, sources, onClose, onSaved }) {
         {test && !test.running && (
           <div className="space-y-2" role="status" data-testid="ipv6-source-test-result" data-ok={String(Boolean(test.ok))}>
             <p className={test.ok ? 'text-xs status-success-text' : 'text-xs status-danger-text'}>
-              {test.ok ? t('sources.testOk', { entries: test.entries ?? 0, node: test.node_id || '-' }) : t('sources.testFailed', { error: test.error || '-' })}
+              {test.ok ? t('sources.testOk', { entries: test.entries ?? 0, node: test.node_id ? nameOf(test.node_id) : '-' }) : t('sources.testFailed', { error: test.error || '-' })}
             </p>
             {test.ok && test.sample?.length > 0 && (
               <ul className="text-2xs font-mono text-text-secondary space-y-0.5" data-testid="ipv6-source-sample">

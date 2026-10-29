@@ -44,6 +44,7 @@
     "random_mac": "No host with a random MAC address"
   },
   "exception": {
+    "already": "This target is already excepted",
     "button": "Exception",
     "title": "Exception for {{host}}",
     "submit": "Add the exception",
@@ -69,8 +70,9 @@
   "seen": "First seen {{first}}, last seen {{last}}",
   "noAaaa": "no AAAA",
   "noPtr": "no PTR",
-  "notObserved": "not observed",
-  "notObservedHelp": "No source sees this address any more",
+  "staleRecord": "stale",
+  "staleSeen": "Not seen by any source for the stale period while the host has another current address; last seen {{last}}",
+  "staleNever": "Never seen by any source, in a /64 the host left",
   "noReverseZone": "no reverse zone",
   "total": "Hosts: {{n}}",
   "unavailable": "Some sources did not answer, the list may be incomplete: {{sources}}",

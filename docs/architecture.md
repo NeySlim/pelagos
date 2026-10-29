@@ -2903,7 +2903,7 @@ only, never sent out of the cluster.
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
-| `GET /hosts/ipv6?filter=&zone=&page=&per_page=` | `read:hosts` | | paginated `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen"}],"aaaa","ptr","proposal": {"address","class","name","zone","reverse_zone"}|null,"excepted"}`; `filter` one of `missing_aaaa`, `missing_ptr`, `stale`, `unknown`, `random_mac`; `meta.unavailable` lists the nodes and sources that did not answer |
+| `GET /hosts/ipv6?filter=&zone=&page=&per_page=` | `read:hosts` | | paginated `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen"}],"aaaa","ptr","proposal": {"address","class","name","zone","reverse_zone"}|null,"excepted","stale"}`; `filter` one of `missing_aaaa`, `missing_ptr`, `stale`, `unknown`, `random_mac`; `meta.unavailable` lists the nodes and sources that did not answer |
 | `GET /admin/ipv6` | `admin:settings` | | `{"sources": [Source],"prefixes","effective_prefixes": [{"prefix","from": "setting"|"reverse_zone"|"dhcpv6"|"interface"}],"settings","status": [SourceStatus]}` (secrets as booleans) |
 | `PUT /admin/ipv6` | `admin:settings` | `{"sources"?,"prefixes"?,"secrets"?: {source id: {"api_key"?,"api_secret"?}}}` (`sources` replaced whole; a source without `id` gets one; `sources[i].secrets` with string or `null` values writes that source's secrets, a new one included, booleans ignored; `null` clears a secret) | same as `GET`; audited `admin.ipv6.replace` |
 | `POST /admin/ipv6/sources/test` | `admin:settings` | `{"source_id"}` or an unsaved `Source` whose `scope` (a source id) names the stored secrets it reuses while `url` is unchanged | `{"ok","node_id","entries","error"?,"sample": [Observation]}` (at most 5); a failed poll is `200` with `ok` false; 6 per minute per user (`429`) |
@@ -4151,7 +4151,8 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   `first_seen` and `last_seen` in RFC 3339; filters: `missing_aaaa` (as the
   check, excepted rows left out), `missing_ptr` (an AAAA without PTR),
   `stale` (as the check; both over every forward zone the node read serves,
-  secondary and mirror included, where the check takes the primary ones),
+  secondary and mirror included, where the check takes the primary ones;
+  each row's `stale` lists its AAAA addresses that are stale this way, excepted ones left out),
   `unknown` (no name), `random_mac`; `zone` keeps the rows whose proposal or
   name is in that zone; `meta.errors` names the engines that could not be
   read. `PUT /admin/ipv6`: a new source gets its key and secret in the

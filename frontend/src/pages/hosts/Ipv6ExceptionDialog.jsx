@@ -38,7 +38,7 @@ export function Ipv6ExceptionDialog({ row, onClose, onDone }) {
       onDone?.(created)
       onClose?.()
     } catch (err) {
-      setError(errorMessage(err))
+      setError(err?.status === 409 ? t('exception.already') : errorMessage(err))
     } finally {
       setBusy(false)
     }

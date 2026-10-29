@@ -58,7 +58,7 @@ def test_hosts_ipv6_rows_proposal_and_filters(role_client, observed):
     by_mac = {r["mac"]: r for r in page["items"]}
     pc1 = by_mac[MAC]
     assert pc1["host_key"] == f"mac:{MAC}" and pc1["name"] == "pc1.example.lan."
-    assert pc1["ipv4"] == ["192.0.2.100"] and pc1["excepted"] is False
+    assert pc1["ipv4"] == ["192.0.2.100"] and pc1["excepted"] is False and pc1["stale"] == []
     assert pc1["observed"][0]["class"] == "eui64" and pc1["observed"][0]["last_seen"].endswith("Z")
     assert pc1["proposal"]["address"] == EUI and pc1["proposal"]["zone"] == "example.lan."
     assert by_mac[STRANGER]["proposal"] is None and by_mac[STRANGER]["mac_random"] is True
@@ -70,6 +70,18 @@ def test_hosts_ipv6_rows_proposal_and_filters(role_client, observed):
     assert c.get(H + "?filter=stale").get_json()["total"] == 0
     assert [r["mac"] for r in c.get(H + "?zone=example.lan").get_json()["items"]] == [MAC]
     assert c.get(H + "?filter=bogus").status_code == 400
+
+
+def test_stale_addresses_listed_per_row(role_client, observed, monkeypatch):
+    from pelagos.services import ipv6_hosts
+
+    old = "2001:db8:1::a8bb:ccff:fedd:ee01"
+    found = [ipv6_hosts.Stale(f"mac:{MAC}", "pc1.example.lan.", "example.lan.", old, MAC, None, EUI)]
+    monkeypatch.setattr(ipv6_hosts, "stale_records", lambda *a, **k: found)
+    c = role_client("viewer")
+    by_mac = {r["mac"]: r for r in c.get(H).get_json()["items"]}
+    assert by_mac[MAC]["stale"] == [old] and by_mac[STRANGER]["stale"] == []
+    assert [r["stale"] for r in c.get(H + "?filter=stale").get_json()["items"]] == [[old]]
 
 
 def test_host_exception_flags_the_row(admin, observed):

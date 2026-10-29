@@ -18,23 +18,27 @@ export function ipv6Path({ filter, zone } = {}) {
   return `/hosts?${q.toString()}`
 }
 
-// AAAA records of the row whose address no source observes (the stale candidates).
-export function unobservedAaaa(row) {
-  const seen = new Set((row.observed || []).map((o) => o.address))
-  return (row.aaaa || []).filter((a) => !seen.has(a))
-}
+const DAY_MS = 86400000
+
+// AAAA records the server counts as stale (row.stale, the ipv6_stale_aaaa rule).
+export const staleAaaa = (row) => row.stale || []
 
 // What an admin may except on a row: the whole host or one address, for the missing AAAA
-// check, and the unobserved AAAA for the stale check. Keys use the API's normalized MAC and address.
-export function exceptionTargets(row) {
+// check (the proposal and proposable addresses seen in the last day, as the server's current
+// addresses), and the stale records for the stale check. Keys use the API's normalized MAC and address.
+export function exceptionTargets(row, now = Date.now()) {
   const out = []
   const aaaa = new Set(row.aaaa || [])
-  const missing = (row.observed || []).filter((o) => PROPOSABLE.has(o.class) && !aaaa.has(o.address))
-  if (row.mac && !row.excepted && (missing.length || row.proposal)) {
+  const recent = (o) => o.last_seen && now - Date.parse(o.last_seen) <= DAY_MS
+  const missing = (row.observed || [])
+    .filter((o) => PROPOSABLE.has(o.class) && !aaaa.has(o.address) && (o.address === row.proposal?.address || recent(o)))
+    .map((o) => o.address)
+  if (row.proposal && !aaaa.has(row.proposal.address) && !missing.includes(row.proposal.address)) missing.unshift(row.proposal.address)
+  if (row.mac && !row.excepted && missing.length) {
     out.push({ kind: 'ipv6_missing_aaaa', key: `mac:${row.mac}`, scope: 'host' })
   }
-  for (const o of missing) out.push({ kind: 'ipv6_missing_aaaa', key: `addr:${o.address}`, scope: 'address', address: o.address })
-  const stale = unobservedAaaa(row)
+  for (const a of missing) out.push({ kind: 'ipv6_missing_aaaa', key: `addr:${a}`, scope: 'address', address: a })
+  const stale = staleAaaa(row)
   if (stale.length && row.mac) out.push({ kind: 'ipv6_stale_aaaa', key: `mac:${row.mac}`, scope: 'host' })
   for (const a of stale) out.push({ kind: 'ipv6_stale_aaaa', key: `addr:${a}`, scope: 'address', address: a })
   return out

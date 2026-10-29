@@ -192,20 +192,23 @@ class Ipv6Service:
             errors["dns"] = zones_error
         excepted = consistency.excepted_for(self.ctx.cluster())
         rows = ipv6_hosts.host_rows(hosts, g.observations, now, stable, forward, reverse, excepted)
+        watched = self.effective_prefixes()
+        stale: dict[str, list[str]] = {}
+        for s in ipv6_hosts.stale_records(
+            hosts,
+            g.observations,
+            now,
+            stable,
+            int(reg.get(settings, "ipv6.stale_days")),
+            forward,
+            lambda a: prefixes_mod.watched(a, watched),
+            excepted,
+        ):
+            stale.setdefault(s.host_key, []).append(s.address)
+        for row in rows:
+            row["stale"] = stale.get(row["host_key"], [])
         if filter_ == "stale":
-            watched = self.effective_prefixes()
-            found = ipv6_hosts.stale_records(
-                hosts,
-                g.observations,
-                now,
-                stable,
-                int(reg.get(settings, "ipv6.stale_days")),
-                forward,
-                lambda a: prefixes_mod.watched(a, watched),
-                excepted,
-            )
-            keys = {s.host_key for s in found}
-            rows = [r for r in rows if r["host_key"] in keys]
+            rows = [r for r in rows if r["stale"]]
         elif filter_ == "missing_aaaa":
             rows = [r for r in rows if not r["excepted"] and ipv6_hosts.missing_aaaa(r, now, stable)]
         elif filter_ == "missing_ptr":

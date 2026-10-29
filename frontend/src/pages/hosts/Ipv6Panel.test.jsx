@@ -36,8 +36,11 @@ const printer = {
 }
 const nas = {
   host_key: 'mac:02:00:5e:00:53:20', name: 'nas.example.lan.', mac: '02:00:5e:00:53:20', mac_random: false, ipv4: ['192.0.2.20'],
-  observed: [{ address: '2001:db8::c', class: 'stable', sources: ['opnsense'], first_seen: '2026-10-01T00:00:00Z', last_seen: '2026-10-29T00:00:00Z' }],
-  aaaa: ['2001:db8::20', '2001:db8::c'], ptr: ['2001:db8::c'], proposal: null, excepted: true,
+  observed: [
+    { address: '2001:db8::c', class: 'stable', sources: ['opnsense'], first_seen: '2026-10-01T00:00:00Z', last_seen: '2026-10-29T00:00:00Z' },
+    { address: '2001:db8::20', class: 'stable', sources: ['opnsense'], first_seen: '2026-09-01T00:00:00Z', last_seen: '2026-10-09T00:00:00Z' },
+  ],
+  aaaa: ['2001:db8::20', '2001:db8::c'], ptr: ['2001:db8::c'], proposal: null, excepted: true, stale: ['2001:db8::20'],
 }
 const phone = { host_key: 'mac:06:11:22:33:44:55', name: null, mac: '06:11:22:33:44:55', mac_random: true, ipv4: [], observed: [{ address: '2001:db8::1', class: 'unknown', sources: ['opnsense'], first_seen: null, last_seen: null }], aaaa: [], ptr: [], proposal: null, excepted: false }
 
@@ -73,7 +76,10 @@ describe('Ipv6Panel', () => {
     expect(within(printerRow).getByTestId('ipv6-proposal')).toHaveTextContent('2001:db8::5eff:fe00:5310')
     const nasRow = rowOf('02:00:5e:00:53:20')
     expect(within(nasRow).getAllByTestId('ipv6-ptr').map((b) => b.dataset.present)).toEqual(['false', 'true'])
-    expect(within(nasRow).getAllByTestId('ipv6-not-observed')).toHaveLength(1)
+    const stale = within(nasRow).getAllByTestId('ipv6-stale')
+    expect(stale).toHaveLength(1)
+    expect(stale[0].closest('li').dataset.address).toBe('2001:db8::20')
+    expect(stale[0].getAttribute('title')).toMatch(/last seen/)
     expect(within(nasRow).getByTestId('ipv6-excepted')).toBeInTheDocument()
     const phoneRow = rowOf('06:11:22:33:44:55')
     expect(within(phoneRow).getByText('unknown host')).toBeInTheDocument()

@@ -1932,3 +1932,10 @@ analysis while one runs on the same node answers 409 `conflict`; a failed analys
 (`domain/messages.py`): `kea_migration.node_not_analyzed`, `kea_migration.config_diverged`.
 WP-FRONTEND: its en and fr texts, an unknown maintenance badge, the `kea_series_obsolete` link from
 Alerts and the DHCP banner.
+
+## 2026-10-29, V3 review: stale addresses per IPv6 host row
+Section 27. Additive: each `GET /hosts/ipv6` row gains `stale`, the AAAA addresses of the host that
+`ipv6_stale_aaaa` counts as stale (an address seen more than `stale_days` ago or a never seen one
+in a /64 the host left; excepted ones left out), computed for every filter; `filter=stale` keeps
+the rows where it is not empty. WP-API-AUTH: `services/ipv6_service.py`. WP-FRONTEND: the stale
+badge and the `ipv6_stale_aaaa` exception targets read it.

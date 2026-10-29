@@ -14,7 +14,7 @@ vi.mock('../../../services/api', () => {
       settings: async () => db.data,
       update: async (body) => {
         db.puts.push(body)
-        if (body.sources) db.data = { ...db.data, sources: body.sources.map((s, i) => ({ id: s.id || `NEW${i}`, ...s, secrets: { api_key: true, api_secret: true } })) }
+        if (body.sources) db.data = { ...db.data, prefixes: [...db.data.prefixes], sources: body.sources.map((s, i) => ({ id: s.id || `NEW${i}`, ...s, secrets: { api_key: true, api_secret: true } })) }
         if (body.prefixes) db.data = { ...db.data, prefixes: body.prefixes }
         return db.data
       },
@@ -80,6 +80,7 @@ describe('Ipv6SourcesPage', () => {
     fireEvent.change(within(dialog).getByTestId('ipv6-source-secret'), { target: { value: 'SECRET' } })
     fireEvent.click(within(dialog).getByTestId('ipv6-source-test'))
     expect(await within(dialog).findByTestId('ipv6-source-test-result')).toHaveAttribute('data-ok', 'true')
+    await waitFor(() => expect(within(dialog).getByTestId('ipv6-source-test-result')).toHaveTextContent('ns1'), { timeout: 3000 })
     expect(db.tests[0]).toMatchObject({ type: 'opnsense', url: 'https://edge.example.lan', secrets: { api_key: 'KEY', api_secret: 'SECRET' } })
     expect(db.tests[0].scope).toBeUndefined()
     fireEvent.click(within(dialog).getByTestId('ipv6-source-save'))
@@ -105,6 +106,16 @@ describe('Ipv6SourcesPage', () => {
     fireEvent.click(screen.getByTestId('ipv6-source-delete'))
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(db.puts[1]).toEqual({ sources: [] }))
+  })
+
+  it('keeps unsaved prefixes when a source write answers', async () => {
+    renderPage()
+    const input = await screen.findByTestId('ipv6-prefixes-input')
+    fireEvent.change(input, { target: { value: '2001:db8:1::/64' } })
+    fireEvent.click(screen.getByTestId('ipv6-source-toggle'))
+    await waitFor(() => expect(db.puts).toHaveLength(1))
+    await waitFor(() => expect(screen.getByTestId('ipv6-source-toggle')).toBeInTheDocument())
+    expect(screen.getByTestId('ipv6-prefixes-input')).toHaveValue('2001:db8:1::/64')
   })
 
   it('validates and saves the listed prefixes', async () => {

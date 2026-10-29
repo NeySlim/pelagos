@@ -15,7 +15,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { api } from '../../services/api'
 import { cn, formatDate, formatRelativeTime } from '../../lib/utils'
 import { Ipv6ExceptionDialog } from './Ipv6ExceptionDialog'
-import { CLASS_VARIANT, FILTERS, exceptionTargets, unavailableLines, unobservedAaaa, validFilter } from './ipv6'
+import { CLASS_VARIANT, FILTERS, exceptionTargets, staleAaaa, unavailableLines, validFilter } from './ipv6'
 
 function Chip({ active, onClick, children, testId, value }) {
   return (
@@ -111,7 +111,8 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
       key: 'records',
       label: t('columns.records'),
       render: (h) => {
-        const stale = new Set(unobservedAaaa(h))
+        const stale = new Set(staleAaaa(h))
+        const lastSeen = new Map((h.observed || []).map((o) => [o.address, o.last_seen]))
         const ptr = new Set(h.ptr || [])
         if (!h.aaaa?.length) return <span className="text-text-tertiary" data-testid="ipv6-no-aaaa">{t('noAaaa')}</span>
         return (
@@ -123,8 +124,14 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
                   {ptr.has(a) ? 'PTR' : t('noPtr')}
                 </Badge>
                 {stale.has(a) && (
-                  <Badge variant="warning" size="sm" icon={Warning} title={t('notObservedHelp')} data-testid="ipv6-not-observed">
-                    {t('notObserved')}
+                  <Badge
+                    variant="warning"
+                    size="sm"
+                    icon={Warning}
+                    title={lastSeen.get(a) ? t('staleSeen', { last: formatDate(lastSeen.get(a)) }) : t('staleNever')}
+                    data-testid="ipv6-stale"
+                  >
+                    {t('staleRecord')}
                   </Badge>
                 )}
               </li>

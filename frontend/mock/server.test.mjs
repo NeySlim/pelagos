@@ -380,7 +380,11 @@ describe('mock server resolver, Kea migration and IPv6', () => {
     const admin = client(await login('admin', 'admin'))
     const all = (await admin('GET', '/hosts/ipv6')).data.items
     expect(all.find((h) => h.mac === '02:00:5e:00:53:10').proposal).toMatchObject({ address: '2001:db8::5eff:fe00:5310', class: 'eui64' })
-    expect((await admin('GET', '/hosts/ipv6?filter=stale')).data.items.map((h) => h.mac)).toEqual(['02:00:5e:00:53:20'])
+    const stale = await admin('GET', '/hosts/ipv6?filter=stale')
+    expect(stale.data.items.map((h) => [h.mac, h.stale])).toEqual([['02:00:5e:00:53:20', ['2001:db8::5a1:9e20']]])
+    const sx = await admin('POST', '/alerts/exceptions', { kind: 'ipv6_stale_aaaa', key: 'addr:2001:db8::5a1:9e20', comment: 'kept' })
+    expect((await admin('GET', '/hosts/ipv6?filter=stale')).data.items).toEqual([])
+    expect((await admin('DELETE', `/alerts/exceptions/${sx.data.id}`)).status).toBe(204)
     expect((await admin('GET', '/hosts/ipv6?filter=missing_ptr')).data.items.map((h) => h.mac)).toEqual(['02:00:5e:00:53:11'])
     // An exception by mac: flags the host and drops it from the missing AAAA filter.
     const ex = await admin('POST', '/alerts/exceptions', { kind: 'ipv6_missing_aaaa', key: 'mac:02:00:5e:00:53:10', comment: 'no v6 name' })

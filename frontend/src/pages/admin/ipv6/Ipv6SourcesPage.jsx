@@ -31,7 +31,9 @@ function PrefixesCard({ data, onSaved }) {
   const { showError, showSuccess } = useNotification()
   const [text, setText] = useState((data.prefixes || []).join('\n'))
   const [busy, setBusy] = useState(false)
-  useEffect(() => setText((data.prefixes || []).join('\n')), [data.prefixes])
+  // Resync on a content change only: every write answers a new prefixes array.
+  const saved = (data.prefixes || []).join('\n')
+  useEffect(() => setText(saved), [saved])
   const list = splitList(text)
   const bad = list.map((p) => [p, prefixProblem(p)]).find(([, problem]) => problem)
   const dirty = list.join('\n') !== (data.prefixes || []).join('\n')

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Observed IPv6 addresses of the mock (architecture section 27): hosts with their observed
 // addresses and classes, AAAA and PTR, the proposal, and the observation sources with a test.
-// Exceptions (`mac:` and `addr:` keys of ipv6_missing_aaaa) are read from the shared exception list.
+// Exceptions (`mac:` and `addr:` keys of ipv6_missing_aaaa and ipv6_stale_aaaa) are read from the shared exception list.
 import { iso, ulid } from './data.mjs'
 import { auditEntry } from './plans.mjs'
 
@@ -43,17 +43,28 @@ export function ipv6Handlers(state, { Problem, invalid }) {
       },
       {
         host_key: 'mac:02:00:5e:00:53:20', name: 'nas.example.lan.', mac: '02:00:5e:00:53:20', mac_random: false, ipv4: ['192.0.2.20'],
-        observed: [{ address: '2001:db8::8a3f:2c19:b7e4:20d1', class: 'stable', sources: ['neighbors', 'opnsense'], first_seen: iso(now - 25 * day), last_seen: iso(now - 300000) }],
-        aaaa: ['2001:db8::20', '2001:db8::8a3f:2c19:b7e4:20d1'], ptr: ['2001:db8::20', '2001:db8::8a3f:2c19:b7e4:20d1'], proposal: null, excepted: false,
+        observed: [
+          { address: '2001:db8::8a3f:2c19:b7e4:20d1', class: 'stable', sources: ['neighbors', 'opnsense'], first_seen: iso(now - 25 * day), last_seen: iso(now - 300000) },
+          { address: '2001:db8::5a1:9e20', class: 'stable', sources: ['opnsense'], first_seen: iso(now - 29 * day), last_seen: iso(now - 20 * day) },
+        ],
+        // 2001:db8::20 is a service alias never seen next to a current address: never stale.
+        aaaa: ['2001:db8::20', '2001:db8::5a1:9e20', '2001:db8::8a3f:2c19:b7e4:20d1'], ptr: ['2001:db8::20', '2001:db8::5a1:9e20', '2001:db8::8a3f:2c19:b7e4:20d1'], proposal: null, excepted: false,
+        stale: ['2001:db8::5a1:9e20'],
       },
     ],
     unavailable: [],
   }
   const v = state.ipv6
   const publicSource = (s) => ({ allow_http: false, exclude_macs: [], ...s, secrets: Object.fromEntries(SOURCE_SECRETS.map((k) => [k, Boolean(s.secrets?.[k])])) })
-  const excepted = (key) => (state.exceptions || []).some((e) => e.kind === 'ipv6_missing_aaaa' && e.key === key)
-  // As services/ipv6_hosts.py: a host excepted by mac: is flagged, an address excepted by addr: is never proposed.
-  const row = (h) => ({ ...h, excepted: excepted(`mac:${h.mac}`), proposal: h.proposal && !excepted(`addr:${h.proposal.address}`) ? h.proposal : null })
+  const excepted = (key, kind = 'ipv6_missing_aaaa') => (state.exceptions || []).some((e) => e.kind === kind && e.key === key)
+  // As services/ipv6_hosts.py: a host excepted by mac: is flagged, an address excepted by addr: is never
+  // proposed; stale records excepted by mac: or addr: are left out of `stale`.
+  const row = (h) => ({
+    ...h,
+    excepted: excepted(`mac:${h.mac}`),
+    proposal: h.proposal && !excepted(`addr:${h.proposal.address}`) ? h.proposal : null,
+    stale: excepted(`mac:${h.mac}`, 'ipv6_stale_aaaa') ? [] : (h.stale || []).filter((a) => !excepted(`addr:${a}`, 'ipv6_stale_aaaa')),
+  })
   const status = () => [
     ...state.nodes.map((n) => ({ source: 'neighbors', source_id: null, node_id: n.peer.id, last_poll: iso(now - 60000), error: null, entries: 14 })),
     ...v.sources.map((s) => ({ source: s.type, source_id: s.id, node_id: state.selfId, last_poll: iso(now - 120000), error: null, entries: 37 })),
@@ -82,7 +93,7 @@ export function ipv6Handlers(state, { Problem, invalid }) {
       let items = v.hosts.map(row)
       if (filter === 'missing_aaaa') items = items.filter((h) => !h.excepted && h.proposal && !h.observed.some((o) => ['eui64', 'stable'].includes(o.class) && h.aaaa.includes(o.address)))
       if (filter === 'missing_ptr') items = items.filter((h) => h.aaaa.some((a) => !h.ptr.includes(a)))
-      if (filter === 'stale') items = items.filter((h) => h.aaaa.some((a) => !h.observed.some((o) => o.address === a)))
+      if (filter === 'stale') items = items.filter((h) => h.stale.length)
       if (filter === 'unknown') items = items.filter((h) => !h.name)
       if (filter === 'random_mac') items = items.filter((h) => h.mac_random)
       if (query.get('zone')) items = items.filter((h) => h.proposal?.zone === query.get('zone') || h.name?.endsWith(query.get('zone')))

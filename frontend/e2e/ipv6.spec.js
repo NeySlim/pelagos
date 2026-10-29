@@ -25,7 +25,7 @@ test('lists observed IPv6 addresses, filters them and excepts one address', asyn
   await page.getByTestId('ipv6-filter').and(page.locator('[data-value="stale"]')).click()
   await expect(page).toHaveURL(/filter=stale/)
   await expect(page.getByTestId('ipv6-total')).toHaveText('Hosts: 1')
-  await expect(table.getByTestId('ipv6-not-observed')).toHaveCount(1)
+  await expect(table.getByTestId('ipv6-stale')).toHaveCount(1)
 
   await page.goto('/hosts?tab=ipv6&filter=missing_aaaa')
   await expect(page.getByTestId('ipv6-total')).toHaveText('Hosts: 1')

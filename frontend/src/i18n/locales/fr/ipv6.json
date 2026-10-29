@@ -44,6 +44,7 @@
     "random_mac": "Aucun hôte à adresse MAC aléatoire"
   },
   "exception": {
+    "already": "Cette cible est déjà en exception",
     "button": "Exception",
     "title": "Exception pour {{host}}",
     "submit": "Ajouter l'exception",
@@ -69,8 +70,9 @@
   "seen": "Vue pour la première fois {{first}}, dernière fois {{last}}",
   "noAaaa": "pas d'AAAA",
   "noPtr": "pas de PTR",
-  "notObserved": "non observée",
-  "notObservedHelp": "Aucune source ne voit plus cette adresse",
+  "staleRecord": "obsolète",
+  "staleSeen": "Aucune source ne la voit plus depuis la durée d'obsolescence alors que l'hôte a une autre adresse courante ; vue pour la dernière fois {{last}}",
+  "staleNever": "Jamais vue par une source, dans un /64 que l'hôte a quitté",
   "noReverseZone": "pas de zone inverse",
   "total": "Hôtes : {{n}}",
   "unavailable": "Des sources n'ont pas répondu, la liste peut être incomplète : {{sources}}",

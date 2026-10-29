@@ -306,6 +306,17 @@ class ReplicationClient:
         problem = out.get("problem") if isinstance(out, dict) else None
         return str(problem) if problem else None
 
+    def permission_checks(self, plan: Plan) -> list[dict[str, Any]] | None:
+        """The peer's permission guard checks of `plan` (core.permguard); None from a peer without it."""
+        try:
+            out = self._call("POST", "/plans/preflight", {"plan": plan.to_dict()})
+        except ReplicationError as exc:
+            if exc.status == 404:
+                return None
+            raise
+        found = out.get("permissions") if isinstance(out, dict) else None
+        return [c for c in found if isinstance(c, dict)] if isinstance(found, list) else None
+
     def engine_snapshot(
         self, engine: str, kind: str = "summary", params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
@@ -760,7 +771,14 @@ class ReplicationApp:
         if plan.scope.value in UNLOCKED_SCOPES or not self.registry.has(plan.engine):
             return 200, {"problem": None}
         check = getattr(self.registry, "preflight", None)
-        return 200, {"problem": check(plan) if callable(check) else None}
+        out: dict[str, Any] = {"problem": check(plan) if callable(check) else None}
+        guard = getattr(self.registry, "permission_checks", None)
+        if callable(guard):
+            try:
+                out["permissions"] = guard(plan)
+            except Exception as exc:  # no verdict is not a refusal: the apply still checks
+                log.warning("permission checks of plan %s not run: %s", plan.id, exc)
+        return 200, out
 
     def _unseal(self, plan: Plan) -> NodeApplyResult | None:
         """Give sealed plan secrets to the backend; a failed result when they cannot be opened."""

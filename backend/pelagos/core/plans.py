@@ -18,6 +18,7 @@ import os
 import re
 import threading
 from collections import OrderedDict
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -75,11 +76,16 @@ class PlanStore:
         self._parts: dict[str, list[Plan]] = {}
         self._expired: OrderedDict[str, datetime] = OrderedDict()
         self._lock = threading.Lock()
+        # Called with each new plan (and a composite's parts) before it is stored: the permission
+        # guard (services.permissions) may refuse it there. None in processes that build no plans.
+        self.guard: Callable[[Plan, list[Plan] | None], None] | None = None
         loaded = self._load_plans() if self.plans_dir is not None else set()
         if tombstone_path is not None:
             self._load(loaded)
 
     def put(self, plan: Plan) -> Plan:
+        if self.guard is not None:
+            self.guard(plan, None)
         plan.expires_at = utcnow() + self.ttl
         with self._lock:
             self._plans[plan.id] = plan
@@ -90,6 +96,8 @@ class PlanStore:
 
     def set_parts(self, plan_id: str, parts: list[Plan]) -> None:
         """The engine plans a composite plan applies in order, kept and saved with the plan."""
+        if self.guard is not None and plan_id in self._plans:
+            self.guard(self._plans[plan_id], parts)
         with self._lock:
             self._parts[plan_id] = parts
             plan = self._plans.get(plan_id)

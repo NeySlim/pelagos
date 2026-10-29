@@ -87,3 +87,12 @@ class HaTlsPlan(Resource):
     @ns.response(400, "validation_error", m.Problem)
     def post(self):
         return plan_answer(services().install.plan_ha_tls(username()))
+
+
+@ns.route("/permissions")
+class Permissions(Resource):
+    @require("admin:install")
+    @ns.doc(params={"node": "a node id; this node when absent"})
+    @ns.response(200, "The permission guard's checks of the node's standing paths, probed in its unit now")
+    def get(self):
+        return services().permissions.node_status(arg("node"))

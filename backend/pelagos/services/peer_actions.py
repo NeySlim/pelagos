@@ -78,6 +78,8 @@ KEA_MIGRATION_INVENTORY = "kea.migration.inventory"
 KEA_MIGRATION_ANALYZE = "kea.migration.analyze"
 # Last use of each API token on this node (auth.api_tokens.UsageStore).
 TOKENS_USAGE = "tokens.usage"
+# The permission guard's standing checks of this node, run in its collector (services.permissions).
+PERMISSIONS_STATUS = "permissions.status"
 CERTS_ACTIONS = frozenset(
     {CERTS_STATUS, CERTS_RUN, CERTS_REQUEST, CERTS_CHECK, CERTS_UPLOAD, CERTS_SELF_SIGNED}
 )
@@ -139,6 +141,7 @@ class PeerActions:
             KEA_MIGRATION_INVENTORY: self.kea_migration_inventory,
             KEA_MIGRATION_ANALYZE: self.kea_migration_analyze,
             TOKENS_USAGE: self.tokens_usage,
+            PERMISSIONS_STATUS: self.permissions_status,
         }
 
     def __call__(self, name: str, body: dict[str, Any], caller: str) -> Any:
@@ -260,6 +263,11 @@ class PeerActions:
             return obs_store.payload(conn, self.ctx.node.id, since)
         finally:
             conn.close()
+
+    def permissions_status(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        from pelagos.services.permissions import local_checks
+
+        return {"node_id": self.ctx.node.id, "checks": local_checks(self.registry)}
 
     def tokens_usage(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
         """{"usage": {token id: {"at", "node", "ip"}}} as this node recorded it."""

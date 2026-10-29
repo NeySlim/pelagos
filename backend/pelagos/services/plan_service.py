@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend, DnsBackend, PreconditionFailed
-from pelagos.core import ha_maintenance, plan_secrets
+from pelagos.core import ha_maintenance, permguard, plan_secrets
 from pelagos.core.context import NodeContext
 from pelagos.domain import (
     ApplyResult,
@@ -37,6 +37,7 @@ from pelagos.services.engine_lock import engine_lock
 from pelagos.services.events import EventHub
 from pelagos.services.masking import mask_text_values, masked, masked_text
 from pelagos.services.peers import PeerGateway
+from pelagos.services.permissions import translate_result
 from pelagos.services.registry import ConnectorRegistry
 
 log = logging.getLogger(__name__)
@@ -244,6 +245,11 @@ class PlanService:
             results.append(NodeApplyResult(node_id=self.ctx.node.id, ok=False, message=plan.error))
         for part in parts:
             part.state = plan.state
+        if plan.error and plan.error_message is None:
+            failed_with = next((r for r in results if not r.ok and r.message == plan.error), None)
+            plan.error_message = (failed_with.message_message if failed_with else None) or (
+                permguard.message_for_text(plan.error)
+            )
         if plan.state is PlanState.APPLIED:
             key_sync.sync_quietly(self.ctx, self.registry, parts)
         self.ctx.plan_store.update(plan)
@@ -329,13 +335,14 @@ class PlanService:
                 log.exception("apply of plan %s failed", plan.id)
                 result = NodeApplyResult(node_id=node_id, ok=False, message=f"{type(exc).__name__}: {exc}")
             result.node_id = node_id
+            translate_result(result)
             self._audit_node(plan, result, "apply", who, backend)
             ha_maintenance.record_plan(self.ctx.paths, plan, result.ok)
             return result
         peer = self.peers.peer(node_id)
         if peer is None:
             return NodeApplyResult(node_id=node_id, ok=False, message="unknown node")
-        return self.peers.apply_plan(peer, plan)
+        return translate_result(self.peers.apply_plan(peer, plan))
 
     def _rollback_nodes(
         self, plan: Plan, node_ids: list[str], who: tuple[str, str | None]

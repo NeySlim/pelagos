@@ -29,6 +29,8 @@ from pelagos.domain import Engine, Node, NodeApplyResult, NodeStatus, Peer, Plan
 from pelagos.services.errors import EngineUnavailable, ServiceError
 
 log = logging.getLogger(__name__)
+# The permission guard's question to a peer while a plan is built (services.permissions).
+GUARD_TIMEOUT = 10.0
 
 # A peer applies a plan synchronously: engine plans validate and reload (seconds to minutes),
 # installer plans install packages and restart services (many minutes). Settings may override.
@@ -238,6 +240,18 @@ class PeerGateway:
             log.warning("preflight of plan %s on %s not run", plan.id, peer.name, exc_info=True)
             return None
         return f"{peer.name}: {problem}" if problem else None
+
+    def permission_checks(self, peer: Peer, plan: Plan) -> list[dict[str, Any]] | None:
+        """The peer's permission guard checks of `plan`; None when it cannot say (older, unreachable).
+        Asked while the plan is built: a silent peer costs at most GUARD_TIMEOUT."""
+        try:
+            client = self._client_with_timeout(peer, GUARD_TIMEOUT)
+            if client is None:
+                return None
+            return client.permission_checks(plan)
+        except Exception as exc:
+            log.warning("permission checks of plan %s on %s not run: %s", plan.id, peer.name, exc)
+            return None
 
     def _plan_call(self, peer: Peer, plan: Plan, method: str) -> NodeApplyResult:
         try:

@@ -94,6 +94,20 @@ class ConnectorRegistry:
             problem = check(plan)
         return str(problem) if problem else None
 
+    def permission_checks(self, plan: Plan) -> list[dict[str, Any]]:
+        """The permission guard's checks of `plan` here, run in this process (the unit's sandbox)."""
+        try:
+            backend = self.get(plan.engine)
+        except EngineNotConfigured:
+            return []
+        targets = getattr(backend, "permission_targets", None)
+        if not callable(targets):
+            return []
+        from pelagos.core import permguard
+
+        with self.lock:
+            return [c.to_dict() for c in permguard.run(targets(plan))]
+
     def snapshot(self, engine: Engine | str) -> dict[str, Any]:
         """Engine read for `GET /repl/v1/engines/<engine>/snapshot`; probe failures are data, not errors."""
         with self.lock:

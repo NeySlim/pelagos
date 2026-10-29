@@ -32,6 +32,7 @@ from pelagos.services.kea_migration_service import KeaMigrationService
 from pelagos.services.notify_service import NotifyService
 from pelagos.services.ops_service import OpsService
 from pelagos.services.peers import PeerGateway
+from pelagos.services.permissions import PermissionGuard
 from pelagos.services.plan_service import PlanService
 from pelagos.services.ptr_service import PtrService
 from pelagos.services.registry import ConnectorRegistry, bound_reads
@@ -70,6 +71,8 @@ class Services:
             ctx, Family.V6, self.registry.kea6, self.peers, self.registry.d2, self.alerts
         )
         self.plans = PlanService(ctx, self.registry, self.peers, self.events)
+        self.permissions = PermissionGuard(ctx, self.registry, self.peers)
+        ctx.plan_store.guard = self.permissions
         # Plans made of one part per node (HA setup, zone secondaries) register their parts there.
         self.dhcp4.plans = self.dhcp6.plans = self.dns.plans = self.plans
         self.hosts = HostsService(ctx, self.dns, self.dhcp4, self.dhcp6, self.alerts, self.plans)

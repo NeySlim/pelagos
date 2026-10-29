@@ -15,6 +15,7 @@ from pelagos.collector.ipv6.source import Neighbor, SourceError, neighbor
 TIMEOUT = 10.0
 # Entries without a usable link-layer address: resolution failed or not finished.
 SKIPPED_STATES = frozenset({"FAILED", "INCOMPLETE", "NOARP"})
+ROUTER = "router"
 
 Runner = Callable[[list[str]], str]
 
@@ -55,7 +56,11 @@ def parse(text: str) -> list[Neighbor]:
         states = [s for s in states if isinstance(s, str)] if isinstance(states, list) else []
         if any(s in SKIPPED_STATES for s in states):
             continue
-        found = neighbor(row.get("lladdr"), row.get("dst"), states[0].lower() if states else None)
+        state = states[0].lower() if states else None
+        # `"router": null` marks a neighbor that advertises itself as a router (NA R flag).
+        if "router" in row and state != "stale":
+            state = ROUTER
+        found = neighbor(row.get("lladdr"), row.get("dst"), state)
         if found is not None:
             out.append(found)
     return out

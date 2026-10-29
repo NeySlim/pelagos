@@ -1390,6 +1390,7 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
         return 1 if report.errors else 0
 
     collector.slow_background = True
+    collector.ipv6.background = True
     collector.archives.background = True
     tasks = collector.tasks()
     listener = SignalListener(paths.collector_sock)

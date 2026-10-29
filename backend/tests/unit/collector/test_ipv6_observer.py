@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import ipaddress
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -357,3 +359,42 @@ def test_unexpected_errors_are_source_statuses(tmp_path):
         "opnsense": "invalid source: Port out of range 0-65535",
         "neighbors": "unexpected error: boom",
     }
+
+
+class BlockingSource(FakeSource):
+    """A router that answers only when released."""
+
+    def __init__(self, kind, found=()):
+        super().__init__(kind, found)
+        self.release = threading.Event()
+
+    def poll(self):
+        self.calls += 1
+        assert self.release.wait(10)
+        return self.found
+
+
+def test_background_pass_never_waits_on_a_router(tmp_path):
+    neigh = FakeSource("neighbors", SEEN)
+    router = BlockingSource("opnsense", [Neighbor("bc:24:11:00:00:02", "2001:db8:99::2")])
+    obs, clock, _ = observer(tmp_path, SETTINGS, neigh, router)
+    obs.background = True
+    started = time.monotonic()
+    assert obs.tick() is None  # the polls run on their own thread
+    clock.t += 60
+    assert obs.tick() is None  # still blocked: nothing recorded, no second poll started
+    assert time.monotonic() - started < 2
+    assert router.calls == 1 and obs_store.observations(obs.conn) == []
+    router.release.set()
+    obs._thread.join(5)
+    clock.t += 60
+    status = obs.tick()  # records the finished pass, starts the next one
+    assert [(s["source"], s["entries"], s["last_poll"]) for s in status] == [
+        ("neighbors", 3, clock.t - 120),
+        ("opnsense", 1, clock.t - 120),
+    ]
+    assert {r["address"] for r in obs_store.observations(obs.conn)} == {
+        "2001:db8:99:0:be24:11ff:fe63:b806",
+        "2001:db8:99::2",
+    }
+    obs._thread.join(5)

@@ -1565,6 +1565,8 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     collector.slow_background = True
     collector.ipv6.background = True
     collector.archives.background = True
+    # Watched before the periods are read: the replication started below may merge cluster.toml at once.
+    settings_watch = SettingsWatch(ctx)
     tasks = collector.tasks()
     listener = SignalListener(paths.collector_sock)
     # One replay per batch of datagrams, run by the loop after listener.wait().
@@ -1610,7 +1612,6 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     bind_due = threading.Event()
     listener.on("audit", lambda _msg: bind_due.set())
     watch = EnginesWatch(ctx)
-    settings_watch = SettingsWatch(ctx)
     next_modules_check = 0.0
     next_replication_check = 0.0
     changed_at: float | None = None

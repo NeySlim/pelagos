@@ -190,6 +190,16 @@ class ResolverProbes:
                     seen = self.tld_failures.get(row.name)
                     self.tld_failures[row.name] = row.failures if seen is None else min(seen, row.failures)
                     self.tld_servers.setdefault(row.name, []).append(row.address)
+            # Targets too: a restart while the resolver cannot give the NS set must not drop a TLD.
+            targets = [
+                Target(r.kind, r.name, r.address, r.family)
+                for r in sorted(self.results.values(), key=lambda r: r.key)
+            ]
+            if not self._roots:
+                self._roots = [t for t in targets if t.kind == "root"]
+            for t in targets:
+                if t.kind == "tld" and len(self._tld_targets.setdefault(t.name, [])) < TLD_SERVERS:
+                    self._tld_targets[t.name].append(t)
 
     def rows(self) -> list[dict[str, Any]] | None:
         """Every row to store when a pass changed them, None otherwise."""
@@ -246,10 +256,13 @@ class ResolverProbes:
         self._roots = roots
         targets = list(roots)
         tld_now: dict[str, list[Target]] = {}
+        unknown: list[str] = []
         for tld in tlds:
             found = self._tld_target(net, tld, ipv6)
             if found is None:
                 found = self._tld_targets.get(tld)
+                if not found:
+                    unknown.append(tld)
             if found:
                 tld_now[tld] = found
                 targets.extend(found)
@@ -279,12 +292,18 @@ class ResolverProbes:
                 probed = any(t in targets for t in found)
                 prev = self.tld_failures.get(tld, 0)
                 failures[tld] = prev if not probed else 0 if answered else prev + 1
+            servers = {tld: [t.address for t in found if t in targets] for tld, found in tld_now.items()}
+            served = {tld: tlds[tld] for tld in tld_now}
+            # No servers known and no answer: no verdict, the open count carries on unchanged.
+            for tld in unknown:
+                if tld in self.tld_failures:
+                    failures[tld] = self.tld_failures[tld]
+                    servers[tld] = self.tld_servers.get(tld, [])
+                    served[tld] = tlds[tld]
             self.results = fresh
             self.tld_failures = failures
-            self.tld_servers = {
-                tld: [t.address for t in found if t in targets] for tld, found in tld_now.items()
-            }
-            self.served = {tld: tlds[tld] for tld in tld_now}
+            self.tld_servers = servers
+            self.served = served
             self.dirty = True
         return True
 

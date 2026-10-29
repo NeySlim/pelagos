@@ -395,7 +395,8 @@ class SeriesStore:
         self, *, metric: str, node_id: str | None, since: int, until: int, step: int
     ) -> list[dict[str, Any]]:
         """One series per node: hourly averages and raw rows (they never overlap: raw rows are deleted
-        once folded), averaged per `step` bucket. Points [ts, value], ascending."""
+        once folded), averaged per `step` bucket. From one hour up, raw rows are averaged per hour first
+        so every hour weighs the same. Points [ts, value], ascending."""
         clauses, params = ["metric = ? AND ts >= ? AND ts <= ?"], [metric, since, until]
         if node_id is not None:
             clauses.append("node_id = ?")
@@ -403,10 +404,16 @@ class SeriesStore:
         where = " AND ".join(clauses)
         step = max(int(step), 1)
         sums: dict[str, dict[int, list[float]]] = {}
-        for table in ("resolver_hourly", "resolver_samples"):
-            rows = self.conn.execute(f"SELECT node_id, ts, value FROM {table} WHERE {where}", params)  # noqa: S608
-            for row in rows:
-                acc = sums.setdefault(row["node_id"], {}).setdefault(row["ts"] - row["ts"] % step, [0.0, 0])
+        if step >= HOUR:
+            hour = f"(ts / {HOUR}) * {HOUR}"
+            raw = f"SELECT node_id, {hour} AS at, AVG(value) AS value FROM resolver_samples WHERE {where}"  # noqa: S608
+            raw += f" GROUP BY node_id, {hour}"
+        else:
+            raw = f"SELECT node_id, ts AS at, value FROM resolver_samples WHERE {where}"  # noqa: S608
+        hourly = f"SELECT node_id, ts AS at, value FROM resolver_hourly WHERE {where}"  # noqa: S608
+        for query in (hourly, raw):
+            for row in self.conn.execute(query, params):
+                acc = sums.setdefault(row["node_id"], {}).setdefault(row["at"] - row["at"] % step, [0.0, 0])
                 acc[0] += row["value"]
                 acc[1] += 1
         return [

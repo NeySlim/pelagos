@@ -273,6 +273,6 @@ def roots_alert(node_id: str, failures: int, cfg: CheckSettings) -> Alert | None
         Severity.CRITICAL,
         "roots",
         messages.msg("alert.resolver_roots"),
-        {"consecutive_failures": failures},
+        {"consecutive_failures": failures, "remediation": "resolver_fallback"},
         node_id,
     )

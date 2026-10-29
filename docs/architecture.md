@@ -3758,7 +3758,9 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
   `resolver_hourly` (same columns, `ts` truncated to the hour, plus `max
   REAL`) and deleted; hourly rows older than `resolver_hourly_days` are
   deleted. `/series/resolver` reads hourly and raw rows together (they never
-  overlap: raw rows are deleted once folded) and averages them per `step`; each
+  overlap: raw rows are deleted once folded) and averages them per `step`
+  (from a one hour step up, raw rows are first averaged per hour, so every
+  hour weighs the same); each
   node samples its own resolver, so another node's series come over the
   `resolver.series` peer action, a silent peer listed in `unavailable`.
 - **Probes** (R2, slow checks, every `probe_interval_seconds`, outside the

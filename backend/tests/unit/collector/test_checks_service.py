@@ -111,6 +111,7 @@ def test_roots_alert_after_consecutive_failures():
     assert resolver.roots_alert("n1", 2, CFG) is None
     alert = resolver.roots_alert("n1", 3, CFG)
     assert alert.subject == "resolver:roots" and alert.severity is Severity.CRITICAL
+    assert alert.details["remediation"] == "resolver_fallback"
 
 
 def test_version_mismatch_between_peers():

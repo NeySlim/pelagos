@@ -18,6 +18,13 @@ Additive. `docs/architecture.md` section 25: `resolver:root-letters` is raised o
 missed `checks.resolver_tld_failures` probes in a row, and its details gain `addresses` (the
 silent addresses, so an IPv6-only loss is visible). WP-FRONTEND (R4) may show them.
 
+## 2026-10-29, WP-COLLECTOR, WP-API-AUTH: resolver series of the other nodes (R1)
+Additive. Architecture section 13: peer action `resolver.series` (lockless), since each node
+samples its own resolver and `GET /series/resolver` must show every node; section 25: that route
+reads hourly and raw rows together and answers `unavailable` like the health route. WP-API-AUTH:
+`SeriesService.resolver`, `PeerActions.resolver_series`. WP-FRONTEND: the mock of
+`/series/resolver` may add `unavailable: []` (R4).
+
 ## 2026-10-28, WP-API-AUTH, WP-FRONTEND: security keys and passkeys (item 66)
 Additive. `domain/cluster.py`: `WebAuthnCredential` and `User.webauthn` (by credential id),
 `User.public()` gains `webauthn_count`. `docs/architecture.md` sections 4, 10, 12, 16, 17 and 19:
@@ -1767,13 +1774,6 @@ unknown kind as a pseudo-member with its raw value, `AlertKind.known`, and `Aler
 reads an unknown severity, state or engine as `warning`, `open`, `None`. A node no longer fails
 `alerts.list`, the cluster view, the API or the notification dispatcher on a kind added by a newer
 peer during a rolling upgrade. No package has to change its code.
-
-## 2026-10-29, resolver measures batch R1: series of the other nodes
-Additive. Architecture section 13: peer action `resolver.series` (lockless), since each node
-samples its own resolver and `GET /series/resolver` must show every node; section 25: that route
-reads hourly and raw rows together and answers `unavailable` like the health route. WP-API-AUTH:
-`SeriesService.resolver`, `PeerActions.resolver_series`. WP-FRONTEND: the mock of
-`/series/resolver` may add `unavailable: []` (R4).
 
 ## 2026-10-28, DDNS failover batch D6: lab findings
 Behavior fixes, no interface change. Section 24: the D2 outage window no longer closes on a

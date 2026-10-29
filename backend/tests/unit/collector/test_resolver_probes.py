@@ -187,6 +187,40 @@ def test_failures_go_on_after_a_restart(tmp_path):
     assert by_subject(second.alerts("n1", cfg()))["resolver:tld:com"].details["failures"] == 2
 
 
+def test_restart_during_an_outage_without_ns_answer_keeps_the_alert(tmp_path):
+    store = SeriesStore(connect(tmp_path / "series.sqlite"))
+    net = FakeNet()
+    net.down = {"192.0.2.11", "192.0.2.12"}
+    first = rp.ResolverProbes()
+    for _ in range(2):
+        first.run(net, {"com": False}, ipv6=True)
+    store.write_resolver_probes(first.rows())
+    second = rp.ResolverProbes()
+    second.load(store.resolver_probes())
+    assert "resolver:tld:com" in by_subject(second.alerts("n1", cfg()))
+    net.resolver_up = False
+    assert second.run(net, {"com": False}, ipv6=True)
+    # Targets came back from the cache: the TLD is probed again and still fails.
+    alert = by_subject(second.alerts("n1", cfg()))["resolver:tld:com"]
+    assert alert.details["failures"] == 3
+
+
+def test_tld_without_known_servers_keeps_its_count_when_ns_does_not_answer():
+    net = FakeNet()
+    probes = rp.ResolverProbes()
+    probes.load(
+        [
+            {"kind": "root", "name": "a", "address": "192.0.2.1", "family": 4, "ok": True, "rtt_ms": 1.0,
+             "checked_at": 1, "last_failure": None, "failures": 0},
+        ]
+    )  # fmt: skip
+    probes.tld_failures["com"] = 4
+    probes.tld_servers["com"] = ["192.0.2.11"]
+    net.resolver_up = False
+    assert probes.run(net, {"com": False}, ipv6=True)
+    assert by_subject(probes.alerts("n1", cfg()))["resolver:tld:com"].details["failures"] == 4
+
+
 @pytest.fixture
 def rig(node_ctx):
     conn = connect(node_ctx.paths.series_db)

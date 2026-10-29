@@ -185,6 +185,17 @@ def test_series_reader_averages_per_step_and_filters(store):
     assert store.latest_resolver_sample("n3") is None
 
 
+def test_series_reader_weighs_hourly_and_raw_hours_alike(store):
+    base = 1_800_000_000 - 1_800_000_000 % DAY
+    store.conn.execute(
+        "INSERT INTO resolver_hourly VALUES (?,?,?,?,?)", (base, "n1", "latency_p95_ms", 10.0, 10.0)
+    )
+    for i in range(12):
+        store.write_resolver_samples(base + HOUR + i * 300, "n1", {"latency_p95_ms": 30.0})
+    got = store.resolver(metric="latency_p95_ms", node_id="n1", since=base, until=base + DAY, step=DAY)
+    assert got[0]["points"] == [[base, 20.0]]
+
+
 def test_retention_folds_whole_hours_then_purges(store):
     now = 1_800_000_000
     old = now - 8 * DAY

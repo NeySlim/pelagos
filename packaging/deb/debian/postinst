@@ -29,6 +29,13 @@ case "$1" in
       chmod 0644 /etc/pelagos/pelagos.env
     fi
 
+    # Folders the services create or write under the engines' trees (named's effective `directory`
+    # included), made here as root: the unit sandbox and the folder modes may forbid it to the
+    # service. Missing ones only, existing folders are never changed; each creation is logged.
+    if [ -x /opt/pelagos/venv/bin/pelagos ]; then
+      pelagos permissions ensure 2>&1 | logger -s -t pelagos-postinst || true
+    fi
+
     if [ -z "$2" ] && [ ! -f /etc/pelagos/node.toml ]; then
       echo "pelagos: installed. Initialize the first node with:" >&2
       echo "    sudo pelagos init --name \$(hostname -s)" >&2

@@ -12,7 +12,8 @@
 # For each node: copy the deb and check its SHA256 there, back up /etc/pelagos and
 # /var/lib/pelagos to /root, apt install, wait for health, wait until cluster.toml and the audit
 # log converge on every node, check Kea HA and the journal of the restarted processes (ERROR lines
-# of the processes from before the install are only reported). The first problem stops the run.
+# of the processes from before the install are only reported), and run the permission guard in the
+# collector's sandbox before and after. The first problem stops the run.
 set -euo pipefail
 
 dry=0 timeout=300 settle=30 ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10)
@@ -138,6 +139,23 @@ out("errors_old", errors["old"])
 out("denied", ",".join(f"{u}:{n}" for u, n in sorted(denied.items())))
 PY
 
+# The permission guard of a node, in a transient copy of the collector unit's sandbox (pelagos
+# permissions check --unit). Arguments: host, phase (before|after). Stops the run on an unwritable path.
+perm_check() {
+  local out rc=0
+  out="$(remote "$1" "sudo -n pelagos permissions check --unit pelagos-collector.service 2>&1")" || rc=$?
+  case "$rc" in
+    0) say "$1: permission guard $2 the upgrade: every path writable" ;;
+    1) printf '%s\n' "$out" >&2; die "$1: paths the services must write are not writable ($2 the upgrade): fix them first" ;;
+    *)
+      if [[ "$2" == before && "$out" == *"invalid choice"* ]]; then
+        say "$1: permission guard skipped before the upgrade (the installed release has none)"
+      else
+        printf '%s\n' "$out" >&2; die "$1: permission guard did not run ($2 the upgrade)"
+      fi ;;
+  esac
+}
+
 probe() { ssh "${ssh_opts[@]}" "$1" "sudo -n python3 - ${2:-0} ${3:-}" <<<"$PROBE"; }
 remote() { local h="$1"; shift; ssh "${ssh_opts[@]}" "$h" "$@"; }
 
@@ -196,6 +214,7 @@ say "cluster before the upgrade"
 check_cluster
 printf '%s' "$state_lines"
 [[ -z "$problems" ]] || die "cluster not healthy before the upgrade: $problems"
+for h in "${hosts[@]}"; do perm_check "$h" before; done
 
 if [[ "$dry" == 1 ]]; then
   for h in "${hosts[@]}"; do
@@ -256,6 +275,7 @@ for h in "${hosts[@]}"; do
     die "$h: calls refused by the unit sandbox in the journal of the $target processes: $(field denied "$p")"
   [[ "$(field errors "$p")" == 0 ]] ||
     die "$h: $(field errors "$p") ERROR lines in the journal of the $target processes (journalctl -u pelagos -u pelagos-collector)"
+  perm_check "$h" after
   printf '%s' "$state_lines"
   say "$h: done"
 done

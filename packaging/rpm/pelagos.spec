@@ -101,6 +101,8 @@ install -d -o %{pelagos_user} -g %{pelagos_user} -m 0750 %{_sysconfdir}/pelagos 
 find %{_sysconfdir}/pelagos %{_sharedstatedir}/pelagos ! -type l ! -path %{_sysconfdir}/pelagos/pelagos.env \
   \( ! -user %{pelagos_user} -o ! -group %{pelagos_user} \) \
   -exec chown -h %{pelagos_user}:%{pelagos_user} {} + 2>/dev/null || :
+# Folders the services create or write under the engines' trees, made as root when missing only.
+%{_bindir}/pelagos permissions ensure 2>&1 | logger -s -t pelagos-postinst || :
 %systemd_post pelagos.service pelagos-collector.service pelagos-helper.socket
 # The helper socket has no start condition: listen now rather than after the next boot.
 if [ -d /run/systemd/system ]; then systemctl start pelagos-helper.socket >/dev/null 2>&1 || :; fi

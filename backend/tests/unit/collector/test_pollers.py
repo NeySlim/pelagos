@@ -505,3 +505,37 @@ def test_d2_poller_records_the_outage_window(store):
     clock.advance(60)
     poller.poll()
     assert store.snapshot(NODE, "d2", "outage")[1]["open"]["cause"] == "d2_down"
+
+
+def test_bind_poller_never_asks_the_soa_of_zones_without_records(store):
+    """Forward, hint and static-stub zones are not polled; a stub's serial comes from zonestatus."""
+    clock = Clock()
+
+    class Probed(FakeDnsBackend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.soa: list[str] = []
+
+        def zone_status(self, zone: str, view: str | None = None) -> ZoneStatus:
+            st = super().zone_status(zone, view)
+            st.serial = None if st.kind is ZoneKind.STUB else st.serial
+            return st
+
+        def soa_serial(self, zone: str, view: str | None = None) -> int | None:
+            self.soa.append(zone)
+            return super().soa_serial(zone, view)
+
+    dns = Probed()
+    dns.zones = [
+        Zone(name="fwd.example.", kind=ZoneKind.FORWARD, forwarders=["192.0.2.53"]),
+        Zone(name="sstub.example.", kind=ZoneKind.STATIC_STUB),
+        Zone(name=".", kind=ZoneKind.HINT),
+        Zone(name="stub.example.", kind=ZoneKind.STUB),
+    ]
+    poller = BindPoller(dns, NODE, store, clock)
+    assert poller.poll().ok
+    assert dns.soa == []
+    assert store.latest_serial("fwd.example.", "_default", NODE) is None
+    # A peer announcing a serial for a name this node only forwards asks nothing.
+    out, serial = poller.recheck("fwd.example.", "_default")
+    assert serial is None and out.events == [] and dns.soa == []

@@ -201,7 +201,8 @@
     "tabs": {
       "records": "Enregistrements",
       "status": "État par nœud",
-      "config": "Configuration"
+      "config": "Configuration",
+      "forwarding": "Redirecteurs"
     },
     "notify": "Notifier",
     "reload": "Recharger",
@@ -249,7 +250,34 @@
       "hint": "Les nœuds cochés transfèrent la zone depuis le primaire avec la clé de lecture ; le primaire notifie chacun d'eux. Les copies décochées sont retirées.",
       "transfers": "Transferts depuis le primaire sur {{node}}"
     },
-    "failover": "primaire actif sur {{node}} depuis {{since}} (époque {{epoch}})"
+    "failover": "primaire actif sur {{node}} depuis {{since}} (époque {{epoch}})",
+    "forwarding": {
+      "note": "Zone de redirection : named envoie les requêtes de ce domaine à ses redirecteurs. Elle n'a ni enregistrements ni sérial : rien à transférer ni à comparer.",
+      "mode": {
+        "only": "forward only",
+        "first": "forward first"
+      },
+      "reachable": "Répond",
+      "unreachable": "Ne répond pas",
+      "unknown": "Non vérifié",
+      "rtt": "{{ms}} ms",
+      "checkedAt": "vérifié {{at}}",
+      "divergent": "Les nœuds ne redirigent pas cette zone de la même façon (mode ou redirecteurs différents).",
+      "none": "Aucun nœud n'a signalé cette zone",
+      "nodeError": "Ce nœud n'a pas pu être lu",
+      "absent": "Ce nœud ne détient pas cette zone",
+      "noForwarders": "Aucun redirecteur dans la déclaration de zone : les redirecteurs globaux s'appliquent",
+      "olderNode": "Ce nœud a une version plus ancienne : joignabilité non vérifiée"
+    },
+    "errors": {
+      "noRecords": "Cette zone ne contient aucun enregistrement : named ne la sert pas depuis ses propres données",
+      "notFound": "Cette zone n'existe pas sur le nœud lu",
+      "forbidden": "Vous n'avez pas le droit de lire cette zone",
+      "unavailable": "BIND n'a pas pu être lu sur le nœud",
+      "network": "Le serveur est injoignable",
+      "generic": "La zone n'a pas pu être lue",
+      "technical": "Détail du moteur : {{detail}}"
+    }
   },
   "resolver": {
     "recursion": "Récursion",

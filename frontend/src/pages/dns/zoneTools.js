@@ -263,3 +263,40 @@ export function newZoneAfter(form, validName) {
   if (form.addzone && ADDZONE_KINDS.includes(kind)) after.source = 'addzone'
   return { errors: {}, after }
 }
+
+// Mirrors domain.dns.NO_RECORD_KINDS: named holds no records for these, never transferred.
+export const NO_RECORD_KINDS = ['forward', 'hint', 'stub', 'static-stub']
+export const hasRecords = (kind) => !NO_RECORD_KINDS.includes(kind)
+
+// Tabs of the zone page by kind: a forward zone shows its forwarders instead of records and status.
+export function zoneTabIds(kind) {
+  if (kind === 'forward') return ['forwarding', 'config']
+  if (!hasRecords(kind)) return ['status', 'config']
+  return ['records', 'status', 'config']
+}
+
+// One row per node of GET /dns/zones/{zone} `forwarding`, nodes holding the zone first.
+export function forwardingNodes(forwarding) {
+  return Object.entries(forwarding || {})
+    .map(([id, f]) => ({ id, ...f }))
+    .sort((a, b) => Number(Boolean(b.present)) - Number(Boolean(a.present)) || a.id.localeCompare(b.id))
+}
+
+// Nodes holding the zone disagree on the mode or the forwarders (named orders them by RTT).
+export function forwardingDivergent(forwarding) {
+  const sigs = forwardingNodes(forwarding)
+    .filter((f) => f.present && !f.error)
+    .map((f) => `${f.forward || 'first'}|${[...(f.forwarders || [])].sort().join(',')}`)
+  return new Set(sigs).size > 1
+}
+
+// i18n key (dns namespace) of an error on the zone page, for problems without a translated detail.
+export function zoneErrorKey(err) {
+  const code = err?.code
+  if (code === 'zone_without_records') return 'detail.errors.noRecords'
+  if (code === 'not_found' || err?.status === 404) return 'detail.errors.notFound'
+  if (code === 'forbidden' || err?.status === 403) return 'detail.errors.forbidden'
+  if (code === 'engine_unavailable' || err?.status === 503) return 'detail.errors.unavailable'
+  if (code === 'network_error' || err?.status === 0) return 'detail.errors.network'
+  return 'detail.errors.generic'
+}

@@ -36,14 +36,39 @@ from pelagos.domain import (
     messages,
     normalize_name,
 )
+from pelagos.domain.dns import NO_RECORD_KINDS
 from pelagos.services.dns_extras import DnsExtras, zone_mode
-from pelagos.services.errors import EngineUnavailable, NotFound, ValidationError, field_error
+from pelagos.services.errors import (
+    EngineUnavailable,
+    NotFound,
+    ServiceError,
+    ValidationError,
+    field_error,
+)
+from pelagos.services.forward_reach import forward_state
 from pelagos.services.peers import PeerGateway
+from pelagos.services.snapshot import pick_zone, zone_serial
 from pelagos.services.zone_defaults import apply_key_defaults
 
 TRANSFER_KINDS = frozenset({ZoneKind.SECONDARY, ZoneKind.MIRROR, ZoneKind.STUB})
 OPERATIONS = ("retransfer", "notify", "reload", "freeze", "thaw", "sync")
 RESOLVER_KEYS = ("recursion", "allow-recursion", "forwarders", "forward", "dnssec-validation")
+
+
+def zone_without_records(zone: Zone) -> ServiceError:
+    """409 zone_without_records: a forward, hint, stub or static-stub zone is never transferred."""
+    return ServiceError(
+        "zone_without_records",
+        f"{zone.name} is a {zone.kind.value} zone: named holds no records for it",
+        extra={
+            "zone": zone.name,
+            "view": zone.view,
+            "kind": zone.kind.value,
+            "detail_message": messages.msg(
+                "problem.detail.zone_without_records", zone=zone.name, kind=zone.kind.value
+            ),
+        },
+    )
 
 
 class DnsService(DnsExtras):
@@ -162,10 +187,7 @@ class DnsService(DnsExtras):
             for zone in zones:
                 if zone.kind.value not in zone_config.SHOWN_SERIAL_KINDS:
                     continue
-                try:
-                    serial = backend.soa_serial(zone.name, zone.view) if running else None
-                except Exception:
-                    serial = None
+                serial = zone_serial(backend, zone) if running else None
                 serials.setdefault(f"{zone.view}/{zone.name}", {})[self.ctx.node.id] = serial
         else:
             snap = self._peer_snapshot(peer)  # type: ignore[arg-type]
@@ -261,17 +283,19 @@ class DnsService(DnsExtras):
         backend, peer = self._read_node(None)
         statuses: dict[str, ZoneStatus] = {}
         if backend is not None:
-            zone = next((z for z in backend.list_zones(view) if z.name == name), None)
+            zone = pick_zone(backend.list_zones(view), name, view)
             if zone is None:
                 raise NotFound(f"zone {name}")
-            statuses[self.ctx.node.id] = backend.zone_status(name, view)
+            if zone.kind is not ZoneKind.FORWARD:
+                statuses[self.ctx.node.id] = backend.zone_status(name, view)
         else:
             snap = self._peer_snapshot(peer)  # type: ignore[arg-type]
-            zone = next(
-                (Zone.from_dict(z) for z in snap.get("zones", []) if normalize_name(z["name"]) == name), None
-            )
+            zone = pick_zone([Zone.from_dict(z) for z in snap.get("zones", [])], name, view)
             if zone is None:
                 raise NotFound(f"zone {name}")
+        if zone.kind is ZoneKind.FORWARD:
+            # named keeps no zone object, serial nor records for it: forwarding() describes it.
+            return zone, {}
         for other in self.peers.peers_running(Engine.BIND):
             snap = self.peers.snapshot(other, Engine.BIND, "zone", {"zone": name, "view": view})
             if snap and not snap.get("error") and snap.get("zone_status"):
@@ -284,6 +308,42 @@ class DnsService(DnsExtras):
                     error=(snap or {}).get("error") or "unreachable",
                 )
         return zone, statuses
+
+    def forwarding(self, zone: Zone) -> dict[str, dict[str, Any]]:
+        """node id -> mode, forwarders and their reachability from that node, for a forward zone.
+        A node that cannot say carries `error`; one older than this answer carries `reach` None."""
+        view = None if zone.view == "_default" else zone.view
+        out: dict[str, dict[str, Any]] = {}
+        if self.local is not None:
+            local = next((z for z in self.local.list_zones(zone.view) if z.name == zone.name), None)
+            out[self.ctx.node.id] = {**forward_state(local), "error": None}
+        for peer in self.peers.peers_running(Engine.BIND):
+            snap = self.peers.snapshot(peer, Engine.BIND, "forward", {"zone": zone.name, "view": view})
+            if snap and not snap.get("error") and isinstance(snap.get("forwarding"), dict):
+                out[peer.id] = {**snap["forwarding"], "error": None}
+            elif snap and str(snap.get("error") or "").startswith("unknown kind"):
+                out[peer.id] = self._forwarding_from_list(peer, zone)
+            else:
+                out[peer.id] = {
+                    **forward_state(None),
+                    "error": (snap or {}).get("error") or "unreachable",
+                }
+        return out
+
+    def _forwarding_from_list(self, peer: Peer, zone: Zone) -> dict[str, Any]:
+        """A node on an older version: its configuration from the zone list, reachability unknown."""
+        snap = self.peers.snapshot(peer, Engine.BIND)
+        if not snap or snap.get("error"):
+            return {**forward_state(None), "error": (snap or {}).get("error") or "unreachable"}
+        found = next(
+            (
+                Zone.from_dict(z)
+                for z in snap.get("zones") or []
+                if normalize_name(z["name"]) == zone.name and z.get("view", "_default") == zone.view
+            ),
+            None,
+        )
+        return {**forward_state(found, probe=False), "reach": None, "error": None}
 
     def zone_views(self, name: str) -> list[str]:
         """Views in which a zone of this name exists (the screens offer a view selector)."""
@@ -307,11 +367,18 @@ class DnsService(DnsExtras):
         zone = normalize_name(zone)
         backend, peer = self._read_node(node_id)
         if backend is not None:
-            if zone not in {z.name for z in backend.list_zones(view)}:
+            found = pick_zone(backend.list_zones(view), zone, view)
+            if found is None:
                 raise NotFound(f"zone {zone}")
+            if found.kind in NO_RECORD_KINDS:
+                raise zone_without_records(found)
             rrsets = backend.read_zone(zone, view)
             read_on = self.ctx.node.id
         else:
+            listed = self._peer_snapshot(peer).get("zones") or []  # type: ignore[arg-type]
+            found = pick_zone([Zone.from_dict(z) for z in listed], zone, view)
+            if found is not None and found.kind in NO_RECORD_KINDS:
+                raise zone_without_records(found)
             snap = self._peer_snapshot(peer, "records", zone=zone, view=view)  # type: ignore[arg-type]
             rrsets = [RRset.from_dict(r) for r in snap.get("records", [])]
             read_on = peer.id  # type: ignore[union-attr]

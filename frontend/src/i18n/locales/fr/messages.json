@@ -404,5 +404,7 @@
   "alert.forwarders_divergence": "zone forward {{zone}} : les forwarders ou le mode forward diffèrent entre les nœuds",
   "alert.hints_divergence": "les indices racine de la zone {{zone}} diffèrent entre les nœuds",
   "alert.root_hints_renumbered": "le fichier d’indices racine {{file}} (version {{version}}) est antérieur à la dernière renumérotation d’un serveur racine",
-  "alert.root_hints_old": "le fichier d’indices racine {{file}} est ancien (version {{version}})"
+  "alert.root_hints_old": "le fichier d’indices racine {{file}} est ancien (version {{version}})",
+  "problem.zone_without_records": "La zone ne contient aucun enregistrement",
+  "problem.detail.zone_without_records": "{{zone}} est une zone de type {{kind}} : named n'en détient aucun enregistrement"
 }

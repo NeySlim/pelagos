@@ -2084,3 +2084,24 @@ Section 24, `GET /dhcp/ddns/resilience`. `replay` counts only an outage window (
 lacking its record for any reason was counted as a lost update while no outage was known.
 `POST /dhcp/ddns/replay/plan` is unchanged. WP-API-AUTH: `services/ddns_failover.py`.
 WP-FRONTEND: the card names a manual window, its dialog requires the start.
+
+## 2026-10-29, 0.2.4: zones without records are never transferred nor probed
+Sections 17 and 19, additive. `forward`, `hint`, `stub` and `static-stub` zones
+(`domain.dns.NO_RECORD_KINDS`) hold no records named could transfer: Pelagos never sends them
+an AXFR nor an SOA query, on the API, in the snapshots or in the collector. Only `primary`,
+`secondary` and `mirror` zones (`domain.dns.SOA_KINDS`) are asked their SOA; a stub's serial
+comes from `rndc zonestatus`. `GET /dns/zones/{zone}/records` answers `409
+zone_without_records` (new error code, members `zone`, `view`, `kind`, `detail_message`
+`problem.detail.zone_without_records`) instead of a `503` after a refused transfer; the
+connector raises `ZoneWithoutRecords` (`connectors/base.py`). `GET /dns/zones/{zone}` of a
+forward zone has `status` `{}` and gains `forwarding` per node (mode, forwarders, reachability
+by one `<zone> NS` query per forwarder from that node, cached 30 s), through the new BIND
+snapshot kind `forward`; an older peer answers `unknown kind` and is shown from its zone list
+with `reach` null. Until every node runs 0.2.4, an older peer still answers the snapshot `zone`
+of a stub with an SOA query of its own. Without a `view`, reads take the zone of `_default`
+when several views hold the name (split horizon), else the first view. Contract: `domain/dns.py`, `connectors/base.py`. WP-BIND:
+`connectors/bind/backend.py`. WP-COLLECTOR: `collector/pollers/bind.py`,
+`collector/zone_config.py`. WP-API-AUTH: `api/`, `services/dns_service.py`,
+`services/snapshot.py`, `services/forward_reach.py`. WP-FRONTEND: the zone page of a forward zone
+shows a Forwarders tab (no records, no serial graph), hint and stub zones open on their status,
+and every error of the zone page is translated (en, fr).

@@ -706,7 +706,9 @@ CATALOG: dict[str, str] = {
     "problem.not_implemented": "Not implemented",
     "problem.engine_unavailable": "Engine unavailable",
     "problem.replication_syncing": "Replication in progress",
+    "problem.zone_without_records": "Zone holds no records",
     "problem.detail.unexpected": "unexpected error; see the server log",
+    "problem.detail.zone_without_records": "{zone} is a {kind} zone: named holds no records for it",
 }
 
 _FORMATTER = string.Formatter()

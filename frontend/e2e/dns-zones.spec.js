@@ -201,3 +201,42 @@ test('the root zone row opens its own detail page', async ({ page }) => {
   await expect(page.getByTestId('page-dns-zoneDetail')).toBeVisible()
   await expect(page).toHaveURL(/\/dns\/zones\/@$/)
 })
+
+test('a forward zone shows its forwarders and their reachability, never records', async ({ page }) => {
+  const records = []
+  const failed = []
+  page.on('request', (req) => {
+    if (/\/dns\/zones\/[^/]+\/records/.test(req.url())) records.push(req.url())
+  })
+  page.on('response', (res) => {
+    if (res.url().includes('/api/v1/') && res.status() >= 500) failed.push(`${res.status()} ${res.url()}`)
+  })
+  await signIn(page)
+  await page.getByTestId('user-menu').click()
+  await page.getByText('English').hover()
+  await page.getByText('Français').click()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'fr')
+  await page.goto('/dns/zones/upstream.example')
+  const tab = page.getByTestId('zone-forwarding')
+  await expect(tab).toBeVisible()
+  await expect(page.getByTestId('zone-forward-note')).toContainText('Zone de redirection')
+  await expect(tab.getByTestId('zone-forward-mode').first()).toHaveText('forward only')
+  await expect(tab.getByTestId('zone-forwarder').first()).toContainText('192.0.2.1')
+  await expect(tab.getByTestId('zone-forwarder-reachable').first()).toHaveText('Répond')
+  await expect(tab.getByTestId('zone-forwarder-unreachable').first()).toHaveText('Ne répond pas')
+  await expect(page.getByTestId('records-table')).toHaveCount(0)
+  await expect(page.getByTestId('zone-serial-trace')).toHaveCount(0)
+  await expect(page.getByText('AXFR')).toHaveCount(0)
+  await page.locator('.ui-tab', { hasText: 'Configuration' }).click()
+  await expect(page.getByTestId('zone-config')).toBeVisible()
+  expect(records).toEqual([])
+  expect(failed).toEqual([])
+  // The generic error path of the zone page speaks the UI language too.
+  await page.goto('/dns/zones/missing.example')
+  await expect(page.getByText("Cette zone n'existe pas sur le nœud lu")).toBeVisible()
+  // The mock keeps preferences across tests: back to English for the next specs.
+  await page.getByTestId('user-menu').click()
+  await page.getByText('Français').hover()
+  await page.getByText('English').click()
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en')
+})

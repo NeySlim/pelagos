@@ -1262,6 +1262,10 @@
   "problem.conflict": [],
   "problem.csrf_failed": [],
   "problem.detail.unexpected": [],
+  "problem.detail.zone_without_records": [
+    "kind",
+    "zone"
+  ],
   "problem.engine_unavailable": [],
   "problem.engine_validation_failed": [],
   "problem.forbidden": [],
@@ -1281,5 +1285,6 @@
   "problem.second_factor_required": [],
   "problem.totp_required": [],
   "problem.unauthenticated": [],
-  "problem.validation_error": []
+  "problem.validation_error": [],
+  "problem.zone_without_records": []
 }

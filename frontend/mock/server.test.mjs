@@ -214,6 +214,16 @@ describe('mock server PTR and exceptions', () => {
     expect((await admin('DELETE', `/alerts/exceptions/${created.data.id}`)).status).toBe(204)
   })
 
+  it('answers a forward zone with its forwarders and never with records', async () => {
+    const admin = client(await login('admin', 'admin'))
+    const zone = await admin('GET', '/dns/zones/upstream.example')
+    expect(zone.data.status).toEqual({})
+    expect(Object.values(zone.data.forwarding)[0]).toMatchObject({ present: true, forward: 'only', forwarders: ['192.0.2.1', '192.0.2.2'] })
+    const records = await admin('GET', '/dns/zones/upstream.example/records')
+    expect(records.status).toBe(409)
+    expect(records.data).toMatchObject({ code: 'zone_without_records', kind: 'forward', detail_message: { key: 'problem.detail.zone_without_records' } })
+  })
+
   it('ignores a health check alert but never an outage', async () => {
     const admin = client(await login('admin', 'admin'))
     expect((await admin('POST', '/alerts/exceptions', { kind: 'ha_terminated', key: 'ha:kea4', comment: 'no' })).status).toBe(400)

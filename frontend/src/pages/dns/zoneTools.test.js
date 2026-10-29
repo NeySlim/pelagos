@@ -4,7 +4,7 @@ import {
   zoneMode, staticFindingId, editableZone, splitList, zoneForm, zoneEditChange, zoneEditDiff, zoneViews,
   zoneStats, catalogMemberBody, policyStatements, policyText, policyGrammarNames, policyErrors, dnssecOpBody,
   secondaryPeers, zoneDeleteRequest, newZoneAfter, CREATABLE_KINDS, nameServers, defaultNameServers,
-  zoneCopies, secondaryChoice,
+  zoneCopies, secondaryChoice, hasRecords, zoneTabIds, forwardingNodes, forwardingDivergent, zoneErrorKey,
 } from './zoneTools'
 
 const zone = {
@@ -203,5 +203,35 @@ describe('secondaries of a primary', () => {
     const detail = { copies: { ns2: { kind: 'primary' }, ns1: { kind: 'secondary' }, ns3: { kind: 'secondary' } } }
     expect(secondaryChoice(detail, nodes)).toEqual({ primary: 'ns2', current: ['ns1', 'ns3'], candidates: ['ns1', 'ns3', 'ns4'] })
     expect(secondaryChoice({ copies: { ns1: { kind: 'secondary' } } }, nodes)).toBeNull()
+  })
+})
+
+describe('zones without records', () => {
+  it('never offers records for forward, hint, stub and static-stub zones', () => {
+    for (const kind of ['forward', 'hint', 'stub', 'static-stub']) expect(hasRecords(kind)).toBe(false)
+    expect(hasRecords('primary')).toBe(true)
+    expect(zoneTabIds('forward')).toEqual(['forwarding', 'config'])
+    expect(zoneTabIds('stub')).toEqual(['status', 'config'])
+    expect(zoneTabIds('secondary')).toEqual(['records', 'status', 'config'])
+  })
+
+  it('lists the nodes holding the forward zone first and spots a divergence', () => {
+    const same = {
+      ns2: { present: true, forward: 'only', forwarders: ['192.0.2.2', '192.0.2.1'], reach: [] },
+      ns1: { present: true, forward: 'only', forwarders: ['192.0.2.1', '192.0.2.2'], reach: [] },
+      ns3: { present: false, forward: null, forwarders: [], reach: null },
+    }
+    expect(forwardingNodes(same).map((n) => n.id)).toEqual(['ns1', 'ns2', 'ns3'])
+    expect(forwardingDivergent(same)).toBe(false)
+    expect(forwardingDivergent({ ...same, ns2: { ...same.ns2, forward: 'first' } })).toBe(true)
+    expect(forwardingDivergent({ ...same, ns2: { ...same.ns2, error: 'unreachable', forwarders: [] } })).toBe(false)
+  })
+
+  it('maps zone page errors to translated texts by code', () => {
+    expect(zoneErrorKey({ code: 'zone_without_records', status: 409 })).toBe('detail.errors.noRecords')
+    expect(zoneErrorKey({ code: 'not_found', status: 404 })).toBe('detail.errors.notFound')
+    expect(zoneErrorKey({ code: 'engine_unavailable', status: 503 })).toBe('detail.errors.unavailable')
+    expect(zoneErrorKey({ code: 'network_error', status: 0 })).toBe('detail.errors.network')
+    expect(zoneErrorKey({ code: 'internal_error', status: 500 })).toBe('detail.errors.generic')
   })
 })

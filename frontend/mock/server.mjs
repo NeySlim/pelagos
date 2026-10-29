@@ -253,6 +253,7 @@ const TITLES = {
   validation_error: 'Validation error', invalid_credentials: 'Invalid credentials', totp_required: 'TOTP code required', second_factor_required: 'Second factor required',
   unauthenticated: 'Authentication required', forbidden: 'Forbidden', csrf_failed: 'CSRF check failed',
   not_found: 'Not found', module_disabled: 'Module disabled', method_not_allowed: 'Method not allowed',
+  zone_without_records: 'Zone holds no records',
   conflict: 'Conflict', precondition_failed: 'Precondition failed', plan_expired: 'Plan expired', plan_state: 'Plan state',
   confirmation_required: 'Confirmation required', rate_limited: 'Too many requests', not_supported: 'Not supported',
   engine_validation_failed: 'Engine validation failed', internal_error: 'Internal error',
@@ -398,6 +399,31 @@ function zoneSerials(state, zone) {
   }
   const values = Object.values(serials).filter((v) => v !== null)
   return { serials, divergent: new Set(values).size > 1 }
+}
+
+// Mirrors domain.dns.NO_RECORD_KINDS: never transferred, the records route answers 409.
+const NO_RECORD_KINDS = ['forward', 'hint', 'stub', 'static-stub']
+function zoneWithoutRecords(zone) {
+  const p = new Problem(409, 'zone_without_records', `${zone.name} is a ${zone.kind} zone: named holds no records for it`)
+  p.extra = { zone: zone.name, view: zone.view, kind: zone.kind, detail_message: { key: 'problem.detail.zone_without_records', params: { zone: zone.name, kind: zone.kind } } }
+  return p
+}
+
+// The second forwarder of every node never answers (unreachable address in the documentation range).
+function forwarding(state, zone) {
+  const at = Math.floor(Date.now() / 1000) - 12
+  return Object.fromEntries(
+    zoneHolders(state, zone).map((n, i) => [
+      n.peer.id,
+      {
+        present: true,
+        forward: zone.forward || 'first',
+        forwarders: zone.forwarders,
+        reach: zone.forwarders.map((f, j) => ({ forwarder: f, address: f, port: 53, tls: false, reachable: j === 0, rtt_ms: j === 0 ? 4.2 + i : null, rcode: j === 0 ? 'NOERROR' : null, error: j === 0 ? null : 'Timeout', checked_at: at })),
+        error: null,
+      },
+    ]),
+  )
 }
 
 function zoneStatus(state, zone, nodeId) {
@@ -1434,6 +1460,8 @@ function buildHandlers(state, emit) {
       const copies = Object.fromEntries(
         zoneHolders(state, zone).map((n) => [n.peer.id, { kind: n.is_self || zone.kind !== 'primary' ? zone.kind : 'secondary', source: n.is_self ? zone.source : 'pelagos' }]),
       )
+      // A forward zone has no status nor serial: its forwarders per node and whether they answer.
+      if (zone.kind === 'forward') return { zone, mode: zoneMode(zone), views, status: {}, copies, forwarding: forwarding(state, zone) }
       return { zone, mode: zoneMode(zone), views, status: Object.fromEntries(state.nodes.map((n) => [n.peer.id, zoneStatus(state, zone, n.peer.id)])), copies }
     },
     'POST /dns/zones/{zone}/secondaries/plan': ({ params, body, user }) => {
@@ -1501,6 +1529,7 @@ function buildHandlers(state, emit) {
     },
     'GET /dns/zones/{zone}/records': ({ params, query }) => {
       const zone = findZone(state, params.zone, query.get('view'))
+      if (NO_RECORD_KINDS.includes(zone.kind)) throw zoneWithoutRecords(zone)
       const type = (query.get('type') || '').toUpperCase()
       const name = query.get('name')
       const q = (query.get('q') || '').toLowerCase()

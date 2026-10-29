@@ -121,18 +121,23 @@ class ZonesPlan(Resource):
 class OneZone(Resource):
     @require("read:dns")
     @ns.doc(params=VIEW)
-    @ns.response(200, "Zone and its status on each node", m.ZoneDetail)
+    @ns.response(
+        200, "Zone and its status on each node; a forward zone adds forwarding per node", m.ZoneDetail
+    )
     @ns.response(404, "not_found", m.Problem)
     def get(self, zone: str):
         z, statuses = dns().zone(zone, arg("view"))
         copies = dns().zone_copies(z.name, z.view)
-        return {
+        out = {
             "zone": z.to_dict(),
             "status": {k: v.to_dict() for k, v in statuses.items()},
             "mode": zone_mode(z),
             "views": dns().zone_views(z.name),
             "copies": copies,
         }
+        if z.kind.value == "forward":
+            out["forwarding"] = dns().forwarding(z)
+        return out
 
 
 @ns.route("/zones/<path:zone>/secondaries/plan")
@@ -172,6 +177,9 @@ class Records(Resource):
         }
     )
     @ns.response(200, "RRsets read by AXFR; meta.node_id is the node read", m.RRsetPage)
+    @ns.response(
+        409, "zone_without_records: forward, hint, stub or static-stub zone (never transferred)", m.Problem
+    )
     def get(self, zone: str):
         rrsets, node_id = dns().records(zone, arg("view"), arg("type"), arg("name"), arg("q"), arg("node_id"))
         return page_of(rrsets, {"node_id": node_id})

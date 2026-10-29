@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // One zone: RRset table with the record editor, status on every node (rndc
-// zonestatus + SOA query), the zone statement as configured, the rndc operations
+// zonestatus + SOA query), the forwarders of a forward zone and whether they answer
+// each node, the zone statement as configured, the rndc operations
 // (notify, reload, retransfer), the zone edit and deletion plans, the view selector
 // for a zone present in several views and the conversion of a static zone.
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Globe, ArrowsClockwise, Plus, PencilSimple, Trash, Bell, ArrowClockwise, ShieldCheck, Table as TableIcon, HardDrives, Gear, DownloadSimple, Lightning, FileText, DotsThree, HandGrabbing } from '@phosphor-icons/react'
+import { Globe, ArrowsClockwise, ArrowsSplit, Plus, PencilSimple, Trash, Bell, ArrowClockwise, ShieldCheck, Table as TableIcon, HardDrives, Gear, DownloadSimple, Lightning, FileText, DotsThree, HandGrabbing } from '@phosphor-icons/react'
 import { PageLayout } from '../../components/PageLayout'
 import { DataTable } from '../../components/DataTable'
 import { Button } from '../../components/Button'
@@ -29,7 +30,7 @@ import { formatDate } from '../../lib/utils'
 import { PlanPreviewModal } from '../../components/PlanPreview'
 import { TransferBar, TransferSerial } from '../../components/motion'
 import { usePoll } from '../../hooks/usePoll'
-import { useMessage } from '../../i18n/message'
+import { isMessage, useMessage } from '../../i18n/message'
 import { onPlanEvent, planZone } from '../../lib/planEvents'
 import { ZoneSerialTrace } from './ZoneSerialTrace'
 import { useCatchUps } from './catchUp'
@@ -43,10 +44,24 @@ import { FailoverBadge } from './FailoverBadge'
 import { EDITABLE_TYPES, READ_ONLY_TYPES, absZone, isEditableType, relativeName } from './records'
 import { ZoneEditModal } from './ZoneEditModal'
 import { clearLists } from '../../lib/listCache'
-import { editableZone, secondaryChoice, secondaryPeers, staticFindingId, zoneCopies, zoneDeleteRequest, zoneMode } from './zoneTools'
+import { editableZone, forwardingDivergent, forwardingNodes, secondaryChoice, secondaryPeers, staticFindingId, zoneCopies, zoneDeleteRequest, zoneErrorKey, zoneMode, zoneTabIds } from './zoneTools'
 
 const ZONE_POLL_MS = 15000
 const TRANSFER_REREAD_MS = 2500
+
+// Error texts of the zone page in the UI language: the backend's translated detail when it sent
+// one, else a text by error code; the engine's own words are kept as a technical detail.
+function useZoneError() {
+  const { t } = useTranslation('dns')
+  const render = useMessage()
+  return (err) => {
+    if (!err) return { title: '', detail: undefined }
+    const keyed = isMessage(err.problem?.detail_message) ? render(err.problem.detail_message, '') : ''
+    if (keyed) return { title: keyed, detail: undefined }
+    const raw = err.message && err.status ? err.message : ''
+    return { title: t(zoneErrorKey(err)), detail: raw ? t('detail.errors.technical', { detail: raw }) : undefined }
+  }
+}
 function RecordsTab({ zone, view, editable, mode, onChanged, status, nameOf }) {
   const { t } = useTranslation(['dns', 'common'])
   const msg = useMessage()
@@ -58,6 +73,8 @@ function RecordsTab({ zone, view, editable, mode, onChanged, status, nameOf }) {
   const [rollbackOf, setRollbackOf] = useState(null)
   const filters = { type: type || undefined, q: q || undefined, view: view || undefined }
   const records = usePaginatedApi((params) => api.dns.records(zone.name, params), { perPage: 50, filters })
+  const zoneError = useZoneError()
+  const recordsError = records.error ? { message: zoneError(records.error).title } : null
   // A new serial here or a transfer landing means new record contents.
   useZoneEvents(zone.name, zone.view, () => records.refetch())
 
@@ -162,7 +179,7 @@ function RecordsTab({ zone, view, editable, mode, onChanged, status, nameOf }) {
         animateRemovals
         highlightChanges={['ttl', 'rdata']}
         loading={records.loading && !records.data}
-        error={records.error}
+        error={recordsError}
         onRetry={records.refetch}
         clientSort
         dense
@@ -315,6 +332,67 @@ function StatusTab({ status, copies, nameOf, zone, canOps, onRetransfer, busyNod
   )
 }
 
+// A forward zone: its mode and forwarders as each node holds them, and whether each forwarder
+// answers that node (one NS query, cached 30 s by the backend). No records, no serial.
+function ForwardingTab({ forwarding, nameOf }) {
+  const { t } = useTranslation(['dns', 'common'])
+  const nodes = forwardingNodes(forwarding)
+  return (
+    <div className="space-y-3" data-testid="zone-forwarding">
+      <p className="flex items-start gap-2 rounded-lg border border-border-op50 p-3 text-xs text-text-secondary" data-testid="zone-forward-note">
+        <ArrowsSplit size={14} className="shrink-0 mt-0.5 text-accent-primary" />
+        {t('detail.forwarding.note')}
+      </p>
+      {forwardingDivergent(forwarding) && (
+        <p className="text-xs status-warning-text" data-testid="zone-forward-divergent">{t('detail.forwarding.divergent')}</p>
+      )}
+      {!nodes.length && <EmptyState icon={ArrowsSplit} title={t('detail.forwarding.none')} />}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {nodes.map((f) => (
+          <Card key={f.id} className="p-4 space-y-3" hover={false} data-testid={`zone-forwarding-${f.id}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="ui-card-title text-sm font-semibold text-text-primary font-mono">{nameOf(f.id)}</span>
+              {f.present && <Badge variant="gray" size="sm" data-testid="zone-forward-mode">{t(`detail.forwarding.mode.${f.forward || 'first'}`)}</Badge>}
+            </div>
+            {f.error ? (
+              <p className="text-xs status-danger-text">{t('detail.forwarding.nodeError')}</p>
+            ) : !f.present ? (
+              <p className="text-xs text-text-tertiary">{t('detail.forwarding.absent')}</p>
+            ) : !f.forwarders?.length ? (
+              <p className="text-xs text-text-tertiary">{t('detail.forwarding.noForwarders')}</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {f.forwarders.map((fw, i) => {
+                  const r = f.reach?.[i]
+                  const state = !r ? 'unknown' : r.reachable ? 'reachable' : 'unreachable'
+                  return (
+                    <li key={fw} className="flex flex-wrap items-center gap-2 text-xs" data-testid="zone-forwarder">
+                      <span className="font-mono text-text-primary">{fw}</span>
+                      <StatusBadge
+                        status={state === 'reachable' ? 'ok' : state === 'unreachable' ? 'error' : 'unknown'}
+                        label={t(`detail.forwarding.${state}`)}
+                        data-testid={`zone-forwarder-${state}`}
+                      />
+                      {r?.reachable && r.rtt_ms !== null && r.rtt_ms !== undefined && (
+                        <span className="text-text-tertiary font-mono">{t('detail.forwarding.rtt', { ms: r.rtt_ms })}</span>
+                      )}
+                      {r?.reachable && r.rcode && r.rcode !== 'NOERROR' && (
+                        <span className="text-text-tertiary font-mono">{r.rcode}</span>
+                      )}
+                      {r?.checked_at && <span className="text-text-tertiary">{t('detail.forwarding.checkedAt', { at: formatDate(new Date(r.checked_at * 1000).toISOString()) })}</span>}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            {f.present && f.reach === null && !f.error && <p className="text-2xs text-text-tertiary">{t('detail.forwarding.olderNode')}</p>}
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function ConfigTab({ zone }) {
   const { t } = useTranslation(['dns', 'common'])
   const extra = Object.entries(zone.extra || {})
@@ -445,14 +523,18 @@ export default function ZoneDetailPage() {
     }
   }
 
-  const tabs = useMemo(
-    () => [
-      { id: 'records', label: t('detail.tabs.records'), icon: TableIcon },
-      { id: 'status', label: t('detail.tabs.status'), icon: HardDrives, count: Object.keys(data ? zoneCopies(data) : {}).length },
-      { id: 'config', label: t('detail.tabs.config'), icon: Gear },
-    ],
-    [t, data],
-  )
+  const tabs = useMemo(() => {
+    const all = {
+      records: { id: 'records', label: t('detail.tabs.records'), icon: TableIcon },
+      forwarding: { id: 'forwarding', label: t('detail.tabs.forwarding'), icon: ArrowsSplit, count: Object.keys(data?.forwarding || {}).length },
+      status: { id: 'status', label: t('detail.tabs.status'), icon: HardDrives, count: Object.keys(data ? zoneCopies(data) : {}).length },
+      config: { id: 'config', label: t('detail.tabs.config'), icon: Gear },
+    }
+    return zoneTabIds(data?.zone?.kind).map((id) => all[id])
+  }, [t, data])
+  // A forward, hint or stub zone has no records tab: its first tab opens instead.
+  const activeTab = tabs.some((x) => x.id === tab) ? tab : tabs[0].id
+  const zoneError = useZoneError()
 
   // Peers holding the zone as a secondary of this node lose their copy too, unless unticked.
   const deleteZone = () => {
@@ -488,7 +570,7 @@ export default function ZoneDetailPage() {
         )
       }
       tabs={zone ? tabs : undefined}
-      activeTab={tab}
+      activeTab={activeTab}
       onTabChange={setTab}
       testId="page-dns-zoneDetail"
       actions={
@@ -544,11 +626,12 @@ export default function ZoneDetailPage() {
           <LoadingSpinner size="md" />
         </div>
       ) : error ? (
-        <EmptyState icon={Globe} title={errorMessage(error)} action={{ label: t('common:actions.retry'), onClick: refetch }} />
+        <EmptyState icon={Globe} title={zoneError(error).title} description={zoneError(error).detail} action={{ label: t('common:actions.retry'), onClick: refetch }} />
       ) : zone ? (
         <>
-          {tab === 'records' && <RecordsTab zone={zone} view={view} editable={editable} mode={mode} onChanged={refetch} status={data.status} nameOf={nameOf} />}
-          {tab === 'status' && (
+          {activeTab === 'forwarding' && <ForwardingTab forwarding={data.forwarding} nameOf={nameOf} />}
+          {activeTab === 'records' && <RecordsTab zone={zone} view={view} editable={editable} mode={mode} onChanged={refetch} status={data.status} nameOf={nameOf} />}
+          {activeTab === 'status' && (
             <StatusTab
               status={data.status}
               copies={data.copies ? zoneCopies(data) : null}
@@ -563,7 +646,7 @@ export default function ZoneDetailPage() {
               onRetransfer={(nodeId) => op(nodeId, () => api.dns.retransfer(zone.name, nodeId, view))}
             />
           )}
-          {tab === 'config' && <ConfigTab zone={zone} />}
+          {activeTab === 'config' && <ConfigTab zone={zone} />}
         </>
       ) : null}
       {editing && zone && (

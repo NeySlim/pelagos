@@ -102,6 +102,13 @@ Click a zone to open it. Tabs:
   shows the transfer from the primary (a bar runs when that node catches up
   to a new serial) and whether it is in sync, and "Secondary nodes" sets
   which nodes hold a copy (below).
+- **Forwarders** (forward zones only, which have no Records nor Status
+  tab): each node's forward mode (`only` or `first`) and forwarders, and
+  whether each forwarder answers that node (one `NS` query for the zone,
+  checked at most every 30 s). A forward zone has no records and no serial:
+  Pelagos never transfers it nor asks its SOA. Nodes that forward it
+  differently are flagged. Hint, stub and static-stub zones have no Records
+  tab either and open on their status.
 - **Configuration**: the zone statement (file, primaries, `allow-transfer`,
   `allow-update`, `update-policy`, `also-notify`, DNSSEC policy, other
   statements) and where it is declared.

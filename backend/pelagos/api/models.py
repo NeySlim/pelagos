@@ -378,6 +378,9 @@ ZoneDetail = model(
         "zone": fields.Nested(Zone),
         "status": fields.Raw,
         "copies": fields.Raw(description="node id -> {kind, source} of each reachable node holding it"),
+        "forwarding": fields.Raw(
+            description="forward zones only: node id -> {present, forward, forwarders, reach, error}"
+        ),
     },
 )
 RRsetPage = page_of(RRset, "RRsetPage")

@@ -201,7 +201,8 @@
     "tabs": {
       "records": "Records",
       "status": "Status per node",
-      "config": "Configuration"
+      "config": "Configuration",
+      "forwarding": "Forwarders"
     },
     "notify": "Notify",
     "reload": "Reload",
@@ -249,7 +250,34 @@
       "hint": "Ticked nodes transfer the zone from the primary with the read key; the primary notifies each of them. Unticked copies are removed.",
       "transfers": "Transfers from the primary on {{node}}"
     },
-    "failover": "active primary on {{node}} since {{since}} (epoch {{epoch}})"
+    "failover": "active primary on {{node}} since {{since}} (epoch {{epoch}})",
+    "forwarding": {
+      "note": "Forward zone: named sends the queries for this domain to its forwarders. It holds no records and no serial, so there is nothing to transfer or compare.",
+      "mode": {
+        "only": "forward only",
+        "first": "forward first"
+      },
+      "reachable": "Answers",
+      "unreachable": "No answer",
+      "unknown": "Not checked",
+      "rtt": "{{ms}} ms",
+      "checkedAt": "checked {{at}}",
+      "divergent": "The nodes do not forward this zone the same way (mode or forwarders differ).",
+      "none": "No node reported this zone",
+      "nodeError": "This node could not be read",
+      "absent": "This node does not hold this zone",
+      "noForwarders": "No forwarders in the zone statement: the global forwarders apply",
+      "olderNode": "This node runs an older version: reachability not checked"
+    },
+    "errors": {
+      "noRecords": "This zone holds no records: named does not serve it from its own data",
+      "notFound": "This zone does not exist on the node read",
+      "forbidden": "You are not allowed to read this zone",
+      "unavailable": "BIND could not be read on the node",
+      "network": "The server could not be reached",
+      "generic": "The zone could not be read",
+      "technical": "Engine detail: {{detail}}"
+    }
   },
   "resolver": {
     "recursion": "Recursion",

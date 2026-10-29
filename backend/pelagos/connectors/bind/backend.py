@@ -21,6 +21,7 @@ from pelagos.connectors.base import (
     DnsBackend,
     NotSupported,
     PreconditionFailed,
+    ZoneWithoutRecords,
 )
 from pelagos.connectors.bind import failover, handover, hints, ops, staticzone, zonefile, zonerestore
 from pelagos.connectors.bind import rrset as rr
@@ -71,7 +72,7 @@ from pelagos.domain import (
     messages,
 )
 from pelagos.domain.common import Engine
-from pelagos.domain.dns import normalize_name
+from pelagos.domain.dns import NO_RECORD_KINDS, SOA_KINDS, normalize_name
 from pelagos.domain.messages import Message
 from pelagos.domain.plan import (
     ChangeOp,
@@ -267,9 +268,18 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
             raw = self.rndc.zonestatus(zone, view)
         except RndcNotFound as exc:
             st = zone_status_from(zone, view, self.ctx.node_id, {})
-            st.error = str(exc)
+            # named keeps no zone object for a forward zone: its status is its kind, not an error.
+            local = self.config_zone(zone, view)
+            if local is not None and local.kind in NO_RECORD_KINDS:
+                st.kind = local.kind
+            else:
+                st.error = str(exc)
             return st
         st = zone_status_from(zone, view, self.ctx.node_id, raw)
+        if st.kind is not None and st.kind not in SOA_KINDS:
+            # An SOA query would leave this node (forwarded or resolved): zonestatus is all there is.
+            st.serial = st.config_serial if st.kind is ZoneKind.STUB else None
+            return st
         try:
             st.serial = self.soa_serial(zone, view)
         except ConnectorError as exc:
@@ -296,7 +306,9 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
         return self.dns.soa_serial(zone, self._require_key("read", view))
 
     def read_zone(self, zone: str, view: str | None = None) -> list[RRset]:
-        local = self.config_zone(zone, view) if is_builtin_zone(zone) else None
+        local = self.config_zone(zone, view)
+        if local is not None and local.kind in NO_RECORD_KINDS:
+            raise ZoneWithoutRecords(local.name, local.view, local.kind.value)
         if is_builtin_zone(zone) and (local is None or not local.dynamic):
             # Distribution zones are local files and refuse transfers: never ask named for them.
             if local is None or not local.file:

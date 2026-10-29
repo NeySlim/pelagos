@@ -30,6 +30,7 @@ from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DnsBackend
 from pelagos.connectors.bind import hints
 from pelagos.domain import AlertKind, Engine, Zone, ZoneKind, ZoneStatus
+from pelagos.domain.dns import NO_RECORD_KINDS, SOA_KINDS
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +69,8 @@ class BindPoller:
         self.clock = clock
         # (zone, view) -> (kind, serial) at the last read: a change is a `zones` event.
         self.serials: dict[tuple[str, str], tuple[ZoneKind | None, int | None]] = {}
+        # (zone, view) of the kinds named holds no records for, at the last zone list.
+        self.no_records: set[tuple[str, str]] = set()
         self.external = ExternalChangeWatcher(Engine.BIND.value, clock)
 
     def poll(self) -> PollOutcome:
@@ -95,6 +98,7 @@ class BindPoller:
         self.store.write_snapshot(self.node_id, "bind", "zone_list", now, [z.to_dict() for z in zones])
         self._watch_managed_files()
         self._root_hints(zones, now, out)
+        self.no_records = {(z.name, z.view) for z in zones if z.kind in NO_RECORD_KINDS}
         statuses = [self._zone_status(z) for z in zones if z.kind in POLLED_KINDS]
         now_dt = datetime.fromtimestamp(now, tz=UTC)
         for st in statuses:
@@ -138,6 +142,8 @@ class BindPoller:
     def recheck(self, zone: str, view: str) -> tuple[PollOutcome, int | None]:
         """Read one zone again (a peer announced a new serial): events only, and its serial now."""
         out = PollOutcome()
+        if (zone, view) in self.no_records:
+            return out, None  # a peer's primary of a name this node only forwards: nothing to ask
         kind = self.serials.get((zone, view), (None, None))[0]
         st = self._zone_status(Zone(name=zone, view=view, kind=kind or ZoneKind.SECONDARY))
         if st.error is None:
@@ -179,7 +185,7 @@ class BindPoller:
             st = ZoneStatus(zone=zone.name, view=zone.view, node_id=self.node_id, kind=zone.kind)
         if st.kind is None:
             st.kind = zone.kind
-        if st.serial is None and st.error is None:
+        if st.serial is None and st.error is None and st.kind in SOA_KINDS:
             try:
                 st.serial = self.backend.soa_serial(zone.name, zone.view)
             except (ConnectorError, NotImplementedError) as exc:

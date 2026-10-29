@@ -52,6 +52,16 @@ class ConnectorDenied(ConnectorError):
     """The daemon refused us (bad key, permission)."""
 
 
+class ZoneWithoutRecords(ConnectorError):
+    """The zone's kind (forward, hint, stub, static-stub) has no records named could transfer."""
+
+    def __init__(self, zone: str, view: str, kind: str) -> None:
+        super().__init__(f"{zone} is a {kind} zone: named holds no records for it")
+        self.zone = zone
+        self.view = view
+        self.kind = kind
+
+
 class ConnectorTimeout(ConnectorError):
     pass
 

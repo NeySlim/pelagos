@@ -404,5 +404,7 @@
   "alert.forwarders_divergence": "forward zone {{zone}}: forwarders or forward mode differ between nodes",
   "alert.hints_divergence": "root hints of zone {{zone}} differ between nodes",
   "alert.root_hints_renumbered": "root hints file {{file}} (version {{version}}) predates the last root server renumbering",
-  "alert.root_hints_old": "root hints file {{file}} is old (version {{version}})"
+  "alert.root_hints_old": "root hints file {{file}} is old (version {{version}})",
+  "problem.zone_without_records": "Zone holds no records",
+  "problem.detail.zone_without_records": "{{zone}} is a {{kind}} zone: named holds no records for it"
 }

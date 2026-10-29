@@ -27,6 +27,13 @@ class ZoneKind(enum.StrEnum):
         return cls(aliases.get(value, value))
 
 
+# Kinds named holds no records of its own for: never transferred (AXFR) nor asked their SOA, which
+# named would forward or resolve outside. A stub's serial comes from rndc zonestatus only.
+NO_RECORD_KINDS = frozenset({ZoneKind.FORWARD, ZoneKind.HINT, ZoneKind.STUB, ZoneKind.STATIC_STUB})
+# Kinds whose SOA a query to the local named answers from the zone's own data.
+SOA_KINDS = frozenset({ZoneKind.PRIMARY, ZoneKind.SECONDARY, ZoneKind.MIRROR})
+
+
 class ZoneSource(enum.StrEnum):
     USER_CONF = "user_conf"
     PELAGOS = "pelagos"

@@ -12,11 +12,13 @@ from typing import Any
 
 from pelagos.collector import zone_config
 from pelagos.connectors.base import DdnsBackend, DhcpBackend, DnsBackend
-from pelagos.domain import Engine, normalize_name
+from pelagos.domain import Engine, Zone, ZoneKind, ZoneStatus, normalize_name
+from pelagos.domain.dns import NO_RECORD_KINDS, SOA_KINDS
+from pelagos.services.forward_reach import forward_state
 from pelagos.services.registry import ConnectorRegistry
 
 SNAPSHOT_KINDS = {
-    Engine.BIND: ("summary", "zone", "records", "stats", "config", "tree", "op", "rpz"),
+    Engine.BIND: ("summary", "zone", "records", "forward", "stats", "config", "tree", "op", "rpz"),
     Engine.KEA4: (
         "summary",
         "subnets",
@@ -88,10 +90,7 @@ def _bind(backend: DnsBackend, kind: str, params: dict[str, Any]) -> dict[str, A
             if not caps.running:
                 serials[f"{zone.view}/{zone.name}"] = None
                 continue
-            try:
-                serials[f"{zone.view}/{zone.name}"] = backend.soa_serial(zone.name, zone.view)
-            except Exception:
-                serials[f"{zone.view}/{zone.name}"] = None
+            serials[f"{zone.view}/{zone.name}"] = zone_serial(backend, zone)
         return {
             "capabilities": caps.to_dict(),
             "status": backend.server_status(),
@@ -104,11 +103,23 @@ def _bind(backend: DnsBackend, kind: str, params: dict[str, Any]) -> dict[str, A
     zone = normalize_name(params.get("zone", ""))
     view = params.get("view")
     if kind == "zone":
+        found = _config_zone(backend, zone, view)
+        if found is None:
+            # Not held here: named would resolve its SOA outside, so only rndc is asked.
+            return {"zone_status": backend.zone_status(zone, view).to_dict(), "serial": None, "dnssec": {}}
+        if found.kind is ZoneKind.FORWARD:
+            st = ZoneStatus(zone=found.name, view=found.view, node_id=backend.ctx.node_id, kind=found.kind)
+            return {"zone_status": st.to_dict(), "serial": None, "dnssec": {}}
+        if found.kind in NO_RECORD_KINDS:
+            st = backend.zone_status(zone, view)
+            return {"zone_status": st.to_dict(), "serial": zone_serial(backend, found), "dnssec": {}}
         return {
             "zone_status": backend.zone_status(zone, view).to_dict(),
             "serial": backend.soa_serial(zone, view),
             "dnssec": backend.dnssec_status(zone, view),
         }
+    if kind == "forward":
+        return {"forwarding": forward_state(_config_zone(backend, zone, view))}
     if kind == "records":
         return {"records": [r.to_dict() for r in backend.read_zone(zone, view)]}
     if kind == "stats":
@@ -116,6 +127,31 @@ def _bind(backend: DnsBackend, kind: str, params: dict[str, Any]) -> dict[str, A
     if kind == "tree":
         return {"tree": backend.config_files_tree()}  # type: ignore[attr-defined]
     return {"config": backend.read_config().to_dict()}
+
+
+def zone_serial(backend: DnsBackend, zone: Any) -> int | None:
+    """The serial shown for a zone: an SOA query where named answers from its own data, rndc
+    zonestatus for a stub (an SOA query would leave the node), None for any other kind."""
+    try:
+        if zone.kind in SOA_KINDS:
+            return backend.soa_serial(zone.name, zone.view)
+        if zone.kind is ZoneKind.STUB:
+            return backend.zone_status(zone.name, zone.view).serial
+    except Exception:
+        return None
+    return None
+
+
+def _config_zone(backend: DnsBackend, zone: str, view: str | None) -> Zone | None:
+    return pick_zone(backend.list_zones(), zone, view)
+
+
+def pick_zone(zones: list[Zone], name: str, view: str | None) -> Zone | None:
+    """The zone `name` in `view`; without a view the one of `_default` (what a read without a view
+    reaches), else the first view holding it."""
+    same = [z for z in zones if z.name == name]
+    want = view or "_default"
+    return next((z for z in same if z.view == want), None if view else next(iter(same), None))
 
 
 def _root_hints(backend: DnsBackend, zones: list[Any]) -> dict[str, Any]:

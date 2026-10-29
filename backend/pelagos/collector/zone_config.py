@@ -10,9 +10,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from pelagos.domain.dns import NO_RECORD_KINDS as _NO_RECORD_KINDS
+
 SERIAL_KINDS = frozenset({"primary", "secondary", "mirror"})
 # Kinds whose SOA serial is read and shown (a stub holds the SOA its primaries sent).
 SHOWN_SERIAL_KINDS = SERIAL_KINDS | {"stub"}
+NO_RECORD_KINDS = frozenset(k.value for k in _NO_RECORD_KINDS)
 HINT = "hint"
 FORWARD = "forward"
 

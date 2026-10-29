@@ -28,6 +28,7 @@ STATUS_BY_CODE: dict[str, int] = {
     "precondition_failed": 409,
     "preflight_failed": 409,
     "plan_state": 409,
+    "zone_without_records": 409,
     "plan_expired": 410,
     "engine_validation_failed": 422,
     "confirmation_required": 428,
@@ -55,6 +56,7 @@ TITLES: dict[str, str] = {
     "precondition_failed": "Precondition failed",
     "preflight_failed": "A target node cannot apply the plan",
     "plan_state": "Plan is not in the expected state",
+    "zone_without_records": "Zone holds no records",
     "plan_expired": "Plan expired",
     "engine_validation_failed": "Engine validation failed",
     "confirmation_required": "Confirmation required",
@@ -128,6 +130,7 @@ def translate(exc: BaseException) -> ApiError | None:
         PreconditionFailed,
         ServiceError,
         ValidationFailed,
+        ZoneWithoutRecords,
     )
     from pelagos.services.plan_service import PlanError
 
@@ -147,6 +150,19 @@ def translate(exc: BaseException) -> ApiError | None:
         )
     if isinstance(exc, PreconditionFailed):
         return ApiError("precondition_failed", str(exc))
+    if isinstance(exc, ZoneWithoutRecords):
+        return ApiError(
+            "zone_without_records",
+            str(exc),
+            extra={
+                "zone": exc.zone,
+                "view": exc.view,
+                "kind": exc.kind,
+                "detail_message": messages.msg(
+                    "problem.detail.zone_without_records", zone=exc.zone, kind=exc.kind
+                ),
+            },
+        )
     if isinstance(exc, NotSupported):
         return ApiError("not_supported", str(exc))
     if isinstance(exc, ConnectorUnavailable | ConnectorTimeout | ConnectorDenied):

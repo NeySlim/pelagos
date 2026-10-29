@@ -26,6 +26,7 @@ from pelagos.collector.checks import (
     disk,
     distro,
     forecast,
+    kea_series,
     reservations,
     resolver,
     resolver_probes,
@@ -190,6 +191,7 @@ class HealthChecks:
             self._forecast,
             self._versions,
             self._advisories,
+            self._kea_series,
         ):
             try:
                 out.append(check())
@@ -450,6 +452,26 @@ class HealthChecks:
         alerts = advisories.advisory_alerts(self.node_id, installed, data, packages, tracker, error)
         self._record_advisories(installed, packages, tracker, data, now, error)
         return PollOutcome(alerts=alerts, kinds=kinds, where=_mine(self.node_id))
+
+    def _kea_series(self) -> PollOutcome:
+        """kea_series_obsolete from the series data of the advisories file (section 26)."""
+        now = self.clock()
+        if self._advisory_data is None or now - self._advisory_data[0] > 3600:
+            self._advisory_data = (now, advisories.load(self.ctx.paths.var))
+        installed: dict[Engine, str | None] = {}
+        for engine in kea_series.ENGINES:
+            caps = self._snapshot(engine.value, "capabilities")
+            version = caps.get("version") if isinstance(caps, dict) else None
+            # A stopped daemon keeps its last known version, like the advisories.
+            version = version or self._known_versions.get(engine)
+            if version:
+                self._known_versions[engine] = version
+                installed[engine] = version
+        packages = {e: self._package(e, v, now) for e, v in installed.items()}
+        alerts = kea_series.series_alerts(self.node_id, installed, self._advisory_data[1], packages)
+        return PollOutcome(
+            alerts=alerts, kinds=frozenset({AlertKind.KEA_SERIES_OBSOLETE.value}), where=_mine(self.node_id)
+        )
 
     def daemons_changed(self) -> PollOutcome | None:
         """Advisories again right after a poll that saw a daemon restart or change version (item 39),

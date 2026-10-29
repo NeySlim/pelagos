@@ -3,8 +3,9 @@
 """Rebuild backend/pelagos/data/isc_advisories.json from the ISC knowledge base.
 
 Reads the Markdown export of the BIND matrices, the BIND and Kea advisory lists and every
-advisory they name (kb.isc.org serves `<page>.md`). Prints a diff against the shipped file;
-`--write` replaces it. Review the diff before committing: the parsing is best effort.
+advisory they name (kb.isc.org serves `<page>.md`), and the kea-announce archives for the end of
+life of a Kea series ("Kea 2.6 - all versions - are now EOL"). Prints a diff against the shipped
+file; `--write` replaces it. Review the diff before committing: the parsing is best effort.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import difflib
+import email.utils
 import json
 import re
 import sys
@@ -19,17 +21,13 @@ import urllib.request
 from pathlib import Path
 
 KB = "https://kb.isc.org/docs/"
+ANNOUNCE = "https://lists.isc.org/pipermail/kea-announce/"
+ANNOUNCE_MONTHS = 24
 BIND_MATRICES = ["aa-00913", "bind-9-software-vulnerability-matrix-9-18"]
 LISTS = {"bind": "all-bind-advisories", "kea": "all-kea-advisories"}
 # Oldest version still worth an entry: older advisories only concern end-of-life branches.
 FLOOR = {"bind": (9, 18, 0), "kea": (2, 4, 0)}
-TARGET = (
-    Path(__file__).resolve().parents[1]
-    / "backend"
-    / "pelagos"
-    / "data"
-    / "isc_advisories.json"
-)
+TARGET = Path(__file__).resolve().parents[1] / "backend" / "pelagos" / "data" / "isc_advisories.json"
 
 _CVE_LINK = re.compile(r"\[(CVE-\d{4}-\d+)\]\(/docs/([a-z0-9-]+)\)", re.IGNORECASE)
 _VERSION = r"\d+\.\d+\.\d+(?:-S\d+)?"
@@ -53,6 +51,70 @@ def get(page: str, cache: Path | None) -> str:
         cache.mkdir(parents=True, exist_ok=True)
         (cache / f"{page}.md").write_text(text)
     return text
+
+
+def get_url(url: str, name: str, cache: Path | None) -> str:
+    if cache is not None and (cache / name).is_file():
+        return (cache / name).read_text()
+    req = urllib.request.Request(url, headers={"User-Agent": "pelagos-advisories/1"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        text = resp.read().decode("utf-8", "replace")
+    if cache is not None:
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / name).write_text(text)
+    return text
+
+
+_EOL_SUBJECT = re.compile(r"^Subject: \[kea-announce\] Kea (\d+\.\d+)\b.*\bnow EOL", re.MULTILINE)
+_OBSOLETED = re.compile(r"release of Kea (\d+\.\d+)\.\d+,? we obsoleted Kea (\d+\.\d+)")
+_DATE = re.compile(r"^Date: (.+)$", re.MULTILINE)
+
+
+def eol_announcements(text: str) -> dict[str, dict]:
+    """Series declared end of life in one monthly archive: series -> {"eol","successor"}."""
+    out: dict[str, dict] = {}
+    for message in re.split(r"\n(?=From \S+ at \S+ )", text):
+        subject = _EOL_SUBJECT.search(message)
+        if not subject:
+            continue
+        date = _DATE.search(message)
+        eol = None
+        if date:
+            try:
+                eol = email.utils.parsedate_to_datetime(date.group(1)).date().isoformat()
+            except (TypeError, ValueError):
+                eol = None
+        succ = _OBSOLETED.search(message)
+        out[subject.group(1)] = {"eol": eol, "successor": succ.group(1) if succ else None}
+    return out
+
+
+def kea_series(current: dict, cache: Path | None, today: dt.date) -> dict:
+    """The `series.kea` map: the current one plus every end of life announced over the last
+    ANNOUNCE_MONTHS months. A series is only ever added or marked obsolete, never removed."""
+    out = {k: dict(v) for k, v in current.items()}
+    year, month = today.year, today.month
+    for _ in range(ANNOUNCE_MONTHS):
+        name = f"{year}-{dt.date(year, month, 1):%B}.txt"
+        try:
+            text = get_url(ANNOUNCE + name, f"kea-announce-{name}", cache)
+        except OSError:
+            text = ""
+        for series, found in eol_announcements(text).items():
+            entry = out.setdefault(series, {})
+            if entry.get("maintained") is False and entry.get("eol"):
+                continue
+            entry.update(
+                maintained=False,
+                eol=found["eol"],
+                successor=found["successor"] or entry.get("successor"),
+                source=ANNOUNCE + name,
+                checked_at=today.isoformat(),
+            )
+        month -= 1
+        if month == 0:
+            year, month = year - 1, 12
+    return dict(sorted(out.items(), key=lambda kv: vtuple(kv[0])))
 
 
 def vtuple(v: str) -> tuple[int, ...]:
@@ -149,11 +211,7 @@ def parse_advisory(cve: str, engine: str, text: str, title: str | None) -> dict 
     posted = _POSTED.search(text)
     if posted:
         try:
-            entry["published"] = (
-                dt.datetime.strptime(posted.group(1).strip(), "%d %B %Y")
-                .date()
-                .isoformat()
-            )
+            entry["published"] = dt.datetime.strptime(posted.group(1).strip(), "%d %B %Y").date().isoformat()
         except ValueError:
             pass
     if preview:
@@ -178,9 +236,7 @@ def build(cache: Path | None, verified: str) -> dict:
         text = get(page, cache)
         titles = list_titles(text)
         for m in _CVE_LINK.finditer(text):
-            found.setdefault(
-                m.group(1).upper(), (engine, m.group(2), titles.get(m.group(1).upper()))
-            )
+            found.setdefault(m.group(1).upper(), (engine, m.group(2), titles.get(m.group(1).upper())))
     for page in BIND_MATRICES:  # the matrices sometimes name advisories the list misses
         for m in _CVE_LINK.finditer(get(page, cache)):
             found.setdefault(m.group(1).upper(), ("bind", m.group(2), None))
@@ -191,9 +247,7 @@ def build(cache: Path | None, verified: str) -> dict:
         entry = parse_advisory(cve, engine, get(slug, cache), title)
         if entry is not None:
             entries.append(entry)
-    entries.sort(
-        key=lambda e: (e["engine"], e["published"] or "", e["id"]), reverse=True
-    )
+    entries.sort(key=lambda e: (e["engine"], e["published"] or "", e["id"]), reverse=True)
     return {
         "schema": 1,
         "verified": verified,
@@ -215,9 +269,7 @@ def render(data: dict) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument(
-        "--file", type=Path, default=TARGET, help="data file to compare with or replace"
-    )
+    ap.add_argument("--file", type=Path, default=TARGET, help="data file to compare with or replace")
     ap.add_argument(
         "--cache",
         type=Path,
@@ -234,21 +286,19 @@ def main() -> int:
     built = build(args.cache, today)
     data = {k: v for k, v in current.items() if k != "entries"}
     data.update({"verified": today, "updated": today, "sources": built["sources"]})
-    if built["entries"] != current.get("entries"):
+    current_kea = (current.get("series") or {}).get("kea") or {}
+    series = kea_series(current_kea, args.cache, dt.date.fromisoformat(today))
+    data.pop("series", None)
+    data["series"] = {**(current.get("series") or {}), "kea": series}
+    if built["entries"] != current.get("entries") or series != current_kea:
         data["revision"] = int(current.get("revision", 0)) + 1
     data["entries"] = built["entries"]
     old, new = render(current), render(data)
     if args.write:
         args.file.write_text(new)
-        print(
-            f"{args.file}: {len(data['entries'])} entries, revision {data.get('revision')}"
-        )
+        print(f"{args.file}: {len(data['entries'])} entries, revision {data.get('revision')}")
         return 0
-    sys.stdout.writelines(
-        difflib.unified_diff(
-            old.splitlines(True), new.splitlines(True), "current", "isc"
-        )
-    )
+    sys.stdout.writelines(difflib.unified_diff(old.splitlines(True), new.splitlines(True), "current", "isc"))
     return 0
 
 

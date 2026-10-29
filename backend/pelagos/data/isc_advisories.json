@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "revision": 3,
-  "updated": "2026-10-26",
+  "revision": 4,
+  "updated": "2026-10-29",
   "notes": "Upstream versions affected per ISC advisory, inclusive: open source edition in ranges, Supported Preview Edition (-S1) in ranges_preview. Distribution packages often carry fixes without changing the upstream version: check the distribution's security tracker. Regenerate with scripts/update-isc-advisories.py (prints a diff, --write replaces this file) and review the diff, see docs/user/operations.md.",
   "verified": "2026-10-26",
   "sources": [
@@ -10,6 +10,38 @@
     "https://kb.isc.org/docs/all-bind-advisories",
     "https://kb.isc.org/docs/all-kea-advisories"
   ],
+  "series": {
+    "kea": {
+      "2.4": {
+        "maintained": false,
+        "eol": null,
+        "successor": "3.2",
+        "source": "https://kb.isc.org/docs/aa-00896",
+        "checked_at": "2026-10-29"
+      },
+      "2.6": {
+        "maintained": false,
+        "eol": "2026-07-30",
+        "successor": "3.2",
+        "source": "https://lists.isc.org/pipermail/kea-announce/2026-July.txt",
+        "checked_at": "2026-10-29"
+      },
+      "3.0": {
+        "maintained": true,
+        "eol": null,
+        "successor": null,
+        "source": "https://kb.isc.org/docs/aa-00896",
+        "checked_at": "2026-10-29"
+      },
+      "3.2": {
+        "maintained": true,
+        "eol": null,
+        "successor": null,
+        "source": "https://kb.isc.org/docs/aa-00896",
+        "checked_at": "2026-10-29"
+      }
+    }
+  },
   "entries": [
     {
       "id": "CVE-2026-3608",

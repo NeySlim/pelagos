@@ -2064,3 +2064,14 @@ count as used, as does every daemon of an older node that sends no `units`. Mess
 `platform/services.py` (`unit_state`). WP-API-AUTH: `services/kea_migration_service.py`.
 WP-FRONTEND: the findings of an unused daemon in their own section, its dry run marked not
 used and left out of "not validated" and of the severity counts; texts en and fr.
+
+## 2026-10-29, 0.2.4: IPv6 status right after a restart, journal tags per unit
+Section 27, no API change. The collector records a finished IPv6 observation pass between two
+of its tasks (observation first in the task list) instead of at the next pass: after a restart
+or an upgrade the status, `meta.unavailable` and `ipv6_source_failed` stop showing the error
+left by the previous process within seconds. Packaging: `SyslogIdentifier` `pelagos-web`,
+`pelagos-collector` and `pelagos-helper` (before: `gunicorn`, and `pelagos` for both the
+collector and the helper); `journalctl -u` filters are unchanged. `scripts/deploy-prod.sh`
+leaves the units stopped from the backup to the install and stops on a netlink socket refused by
+the unit sandbox in the journal of the new processes. WP-COLLECTOR: `collector/main.py`,
+`collector/ipv6/observer.py`.

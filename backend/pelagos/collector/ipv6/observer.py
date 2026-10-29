@@ -64,6 +64,8 @@ class Ipv6Observer:
         self._thread: threading.Thread | None = None
         self._ready: tuple[Pass, list[Polled]] | None = None
         self._lock = threading.Lock()
+        # Set when a background pass finished: the loop records it now, not one period later.
+        self.ready = threading.Event()
         # Sources whose last poll failed in this process: the failure is logged once, not every pass.
         self._failing: set[tuple[str, str | None]] = set()
         obs_store.ensure(self.conn)
@@ -87,9 +89,7 @@ class Ipv6Observer:
         if not self.background:
             p = self.plan(int(self.clock()))
             return self.apply(p, self.gather(p))
-        with self._lock:
-            ready, self._ready = self._ready, None
-        done = self.apply(*ready) if ready is not None else None
+        done = self.record()
         if self._thread is None or not self._thread.is_alive():
             p = self.plan(int(self.clock()))
             self._thread = threading.Thread(
@@ -98,10 +98,18 @@ class Ipv6Observer:
             self._thread.start()
         return done
 
+    def record(self) -> list[dict[str, Any]] | None:
+        """Records a finished background pass (loop thread); None when none is waiting."""
+        with self._lock:
+            ready, self._ready = self._ready, None
+            self.ready.clear()
+        return self.apply(*ready) if ready is not None else None
+
     def _gather_later(self, p: Pass) -> None:
         results = self.gather(p)
         with self._lock:
             self._ready = (p, results)
+            self.ready.set()
 
     def plan(self, now: int) -> Pass:
         """What this pass polls (reads the cache and settings: loop thread only)."""

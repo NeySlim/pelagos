@@ -1082,7 +1082,14 @@ class Collector:
     def observe_ipv6(self) -> list[Alert] | None:
         """IPv6 neighbors and DHCPv6 leases of this node (section 27), then
         `ipv6_source_failed` of this node; None while a background pass is still running."""
-        status = self.ipv6.tick()
+        return self._ipv6_status(self.ipv6.tick())
+
+    def record_ipv6(self) -> list[Alert] | None:
+        """A background observation pass just finished: its status and alerts now, so a restarted
+        collector replaces the status left by the previous process within seconds."""
+        return self._ipv6_status(self.ipv6.record())
+
+    def _ipv6_status(self, status: list[dict[str, Any]] | None) -> list[Alert] | None:
         if status is None:
             return None
         alerts = self.ipv6.failure_alerts(status, int(self.clock()))
@@ -1143,6 +1150,8 @@ class Collector:
         rpz_period = max(30.0, float(reg.get(settings, "rpz.check_seconds")))
         probe_period = float(reg.get(settings, "resolver.probe_interval_seconds"))
         return [
+            # First: it only starts a thread, and the restart status must not wait for slow tasks.
+            Task("observe_ipv6", IPV6_SECONDS, self.observe_ipv6),
             Task("poll_bind", poll, self.poll_bind),
             Task("poll_kea", poll, self.poll_kea),
             Task("poll_d2", poll, self.poll_d2),
@@ -1163,7 +1172,6 @@ class Collector:
             Task("api_tokens", TOKEN_SECONDS, self.api_tokens),
             Task("notify_alerts", NOTIFY_SECONDS, self.notify_alerts),
             Task("archive", ARCHIVE_SECONDS, self.archive),
-            Task("observe_ipv6", IPV6_SECONDS, self.observe_ipv6),
             Task("retention", 3600.0, self.retention),
         ]
 
@@ -1684,6 +1692,13 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
                     except Exception:
                         log.exception("task %s failed", task.name)
                     task.next_run = now + task.period
+                # Checked between tasks: a slow first pass of another task must not delay it.
+                if collector.ipv6.ready.is_set():
+                    try:
+                        with collector.batch():
+                            collector.record_ipv6()
+                    except Exception:
+                        log.exception("task record_ipv6 failed")
             collector.events.flush()
             sleep_for = max(0.5, min(t.next_run for t in tasks) - time.monotonic())
             if collector.events.held or collector.zone_rechecks:

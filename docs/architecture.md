@@ -4210,7 +4210,10 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   "node_id","last_poll","error","entries","kept","failing_since"}`, `entries`
   what the last poll read, `kept` those in a watched prefix (the ones stored),
   `failing_since` the first poll of the current run of failures (null when the
-  last poll worked); `GET /admin/ipv6` adds `problem` (below, Routes). A source logs a warning once when it starts failing and once when
+  last poll worked); `GET /admin/ipv6` adds `problem` (below, Routes). The
+  collector polls on a thread (first of its tasks) and records a finished pass
+  between two tasks, not one period later: after a restart or an upgrade the
+  status left by the previous process is replaced within seconds. A source logs a warning once when it starts failing and once when
   it works again, and raises
   `ipv6_source_failed` (section 15 table) when it keeps failing. `neighbors` needs a netlink socket: the collector unit allows
   `AF_NETLINK` (no capability, so read only); the web unit does not, and reads

@@ -234,3 +234,23 @@ def test_kea6_daemon_down_or_write_silences_the_dhcpv6_source(rig, node_ctx):
     with open(node_ctx.paths.locks_dir / "engine-kea6.lock", "w") as fh:
         fcntl.flock(fh, fcntl.LOCK_EX)
         assert collector.ipv6.kea6_unavailable() is True
+
+
+def test_background_pass_recorded_as_soon_as_it_finishes(rig):
+    collector, _ = rig
+
+    class Neigh:
+        kind = "neighbors"
+
+        def poll(self):
+            return []
+
+    collector.ipv6.neighbors = Neigh()
+    collector.ipv6.background = True
+    assert collector.observe_ipv6() is None
+    collector.ipv6._thread.join(5)
+    assert collector.ipv6.ready.is_set()
+    assert collector.record_ipv6() == [] and not collector.ipv6.ready.is_set()
+    assert collector.record_ipv6() is None
+    # First task: its pass starts before the slow first runs of the other tasks.
+    assert collector.tasks()[0].name == "observe_ipv6"

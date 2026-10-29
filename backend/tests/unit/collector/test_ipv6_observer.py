@@ -438,3 +438,32 @@ def test_no_dhcpv6_alert_while_kea6_is_down(tmp_path):
     assert obs.failure_alerts([failing], clock.t) == []
     neigh = dict(failing, source="neighbors")
     assert [a.subject for a in obs.failure_alerts([failing, neigh], clock.t)] == ["ipv6:source:neighbors"]
+
+
+def test_finished_background_pass_is_recorded_without_waiting_for_the_next_tick(tmp_path):
+    neigh = BlockingSource("neighbors", SEEN)
+    obs, _clock = observer(tmp_path, SETTINGS, neigh)
+    obs.background = True
+    assert obs.tick() is None and not obs.ready.is_set()
+    assert obs.record() is None  # nothing finished yet
+    neigh.release.set()
+    obs._thread.join(5)
+    assert obs.ready.is_set()
+    status = obs.record()  # the loop records it at once, no new pass started
+    assert not obs.ready.is_set() and neigh.calls == 1
+    assert [(s["source"], s["error"], s["entries"]) for s in status] == [("neighbors", None, 3)]
+    assert obs.record() is None
+
+
+def test_restarted_process_replaces_the_failure_left_by_the_previous_one(tmp_path):
+    failing = FakeSource("neighbors", error="ip neigh failed: Cannot open netlink socket")
+    old, clock = observer(tmp_path, SETTINGS, failing)
+    assert old.tick()[0]["error"]
+    fresh = Ipv6Observer(old.ctx, old.store, clock, neighbors=BlockingSource("neighbors", SEEN))
+    fresh.background = True
+    fresh.tick()
+    fresh.neighbors.release.set()
+    fresh._thread.join(5)
+    status = fresh.record()
+    assert [(s["error"], s["failing_since"]) for s in status] == [(None, None)]
+    assert obs_store.read_status(fresh.conn)[0]["error"] is None

@@ -11,6 +11,7 @@ import os
 import shlex
 import ssl
 import subprocess
+import sys
 import tarfile
 import time
 import urllib.error
@@ -88,8 +89,10 @@ def sudo_cat(host: str, path: str) -> str:
 
 def run_script(name: str, *args: str, timeout: int = 1800, env: dict[str, str] | None = None) -> str:
     """Runs scripts/lab/<name> from lab-dev; raises with its output on failure."""
+    # Python helpers run with this interpreter: a CI image may have no python3 on PATH.
+    prefix = [sys.executable] if name.endswith(".py") else []
     res = subprocess.run(
-        [str(SCRIPTS / name), *args],
+        [*prefix, str(SCRIPTS / name), *args],
         capture_output=True,
         text=True,
         timeout=timeout,

@@ -159,6 +159,8 @@ def test_pve_vm_start_refused_above_budget(pve, tmp_path, monkeypatch):
     for var in unset:
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("PELAGOS_LAB_POOL", "pelagos")
+    # Like the CI image: no python3 on PATH, the helper runs with the test interpreter.
+    monkeypatch.setenv("PATH", str(tmp_path))
     monkeypatch.setattr(labkit, "wait_for", lambda *a, **k: pytest.fail("start was not refused"))
     with pytest.raises(AssertionError, match="lab budget exceeded"):
         labkit.pve_vm(9111, "start")

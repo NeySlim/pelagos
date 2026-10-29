@@ -13,6 +13,7 @@ import grp
 import json
 import os
 import pwd
+import re
 import stat
 import time
 from pathlib import Path
@@ -232,21 +233,36 @@ def tsig_key_entry(
     return entry
 
 
+# A TSIG key name usable as a file name directly under the configuration directory.
+SAFE_KEY_FILE = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
+
+
 def secret_file_path(conf_dir: Path, key_name: str) -> Path:
+    """`<conf dir>/<key>.tsig`; a key name that is not a plain file name is refused."""
+    if not SAFE_KEY_FILE.fullmatch(key_name):
+        raise ValueError(f"TSIG key name {key_name!r} is not usable as a file name")
     return conf_dir / f"{key_name}.tsig"
 
 
 def migrate_inline_secrets(
     d2_config: dict[str, Any], conf_dir: Path
 ) -> tuple[dict[str, Any], dict[Path, str]]:
-    """Copy of a D2 config whose clear `secret` entries became `secret-file`; returns the files to write."""
+    """Copy of a D2 config whose clear `secret` entries became `secret-file`; returns the files to write.
+    A key that already has a `secret-file` only loses its clear copy; an unsafe key name is left as is."""
     cfg = json.loads(json.dumps(d2_config))
     files: dict[Path, str] = {}
     for key in cfg.get("DhcpDdns", {}).get("tsig-keys", []) or []:
-        if "secret" in key and key.get("name"):
+        if not isinstance(key, dict) or "secret" not in key or not key.get("name"):
+            continue
+        if "secret-file" in key:
+            key.pop("secret")
+            continue
+        try:
             path = secret_file_path(conf_dir, str(key["name"]))
-            files[path] = str(key.pop("secret"))
-            key["secret-file"] = str(path)
+        except ValueError:
+            continue
+        files[path] = str(key.pop("secret"))
+        key["secret-file"] = str(path)
     return cfg, files
 
 

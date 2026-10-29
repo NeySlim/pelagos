@@ -202,7 +202,8 @@ export default function KeaMigrationPage() {
   useEffect(() => {
     if (!target && targets.length) {
       const kept = data?.analysis && targets.find((x) => x.series === data.analysis.series && x.source === data.analysis.source && x.available)
-      const chosen = kept || defaultTarget(targets)
+      // With nothing available the recommended target stays picked, so its reason shows.
+      const chosen = kept || defaultTarget(targets) || targets.find((x) => x.recommended) || targets[0]
       if (chosen) setTarget(targetKey(chosen))
     }
   }, [targets, target, data])
@@ -271,6 +272,11 @@ export default function KeaMigrationPage() {
                 {t('keaMigration.target.analyze')}
               </Button>
             </div>
+            {picked && !picked.available && picked.reason && (
+              <p className="text-xs status-warning-text" data-testid="kea-migration-target-reason">
+                {t(`keaMigration.target.reason.${picked.reason.code}`, { node: picked.reason.node, defaultValue: t('keaMigration.target.unavailable') })}
+              </p>
+            )}
             {picked?.source === 'backports' && <p className="text-xs status-warning-text" data-testid="kea-migration-backports-note">{t('keaMigration.target.backportsNote')}</p>}
             <p className="text-xs text-text-secondary">{busy ? t('keaMigration.target.running') : t('keaMigration.target.help')}</p>
             {error && <p className="text-sm status-danger-text" role="alert" data-testid="kea-migration-error">{errorMessage(error)}</p>}

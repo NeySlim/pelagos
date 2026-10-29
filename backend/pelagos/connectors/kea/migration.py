@@ -45,7 +45,7 @@ RENAMED = {
 _STREAMS = ("stdout", "stderr")
 MASK = "*****"
 # A TSIG key name usable as a file name under the configuration directory.
-_KEY_FILE_NAME = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]*$")
+_KEY_FILE_NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
 
 
 @dataclass(slots=True, frozen=True)
@@ -479,7 +479,7 @@ def _d2_secrets(root: dict, root_key: str, target: TargetLayout, conv: Conversio
         if "secret-file" in key:
             # Kea reads the existing file: the clear copy is dropped, nothing is written.
             key.pop("secret")
-        elif _KEY_FILE_NAME.match(name):
+        elif _KEY_FILE_NAME.fullmatch(name):
             # Same file name as installer.keasetup.secret_file_path.
             path = posixpath.join(target.conf_dir, f"{name}.tsig")
             conv.files[path] = str(key.pop("secret"))

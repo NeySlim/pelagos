@@ -228,3 +228,19 @@ def test_rename_key_updates_references():
         ("reverse-ddns", "2.0.192.in-addr.arpa."),
     ]
     assert keaconf.domains_using_key(d2, "kea-ddns") != []  # original untouched
+
+
+def test_migrate_inline_secrets_keeps_paths_under_the_conf_dir():
+    keys = [
+        {"name": "kea-ddns", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0"},
+        {"name": "/etc/cron.d/x", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0"},
+        {"name": "k1", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0", "secret-file": "/etc/kea/a"},
+    ]
+    cfg, files = keasetup.migrate_inline_secrets({"DhcpDdns": {"tsig-keys": keys}}, Path("/etc/kea"))
+    assert files == {Path("/etc/kea/kea-ddns.tsig"): "c2VjcmV0"}
+    out = cfg["DhcpDdns"]["tsig-keys"]
+    assert out[0]["secret-file"] == "/etc/kea/kea-ddns.tsig" and "secret" not in out[0]
+    assert out[1] == keys[1]  # unsafe name: left for the administrator
+    assert out[2] == {"name": "k1", "algorithm": "HMAC-SHA256", "secret-file": "/etc/kea/a"}
+    with pytest.raises(ValueError):
+        keasetup.secret_file_path(Path("/etc/kea"), "../x")

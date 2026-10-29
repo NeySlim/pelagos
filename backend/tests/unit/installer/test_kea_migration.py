@@ -178,7 +178,10 @@ def test_package_changes_isc_replaces_debian():
     # The Debian tools the ISC packages conflict with come back under their ISC names.
     tools = {**installed, "kea-admin": "2.6.3", "kea-doc": "2.6.3", "kea": "2.6.3"}
     wanted = km.wanted_packages(DEBIAN, "isc", ["kea4"], installed=tools)
-    assert wanted[-2:] == ["isc-kea-admin", "isc-kea-doc"] and "isc-kea" not in wanted
+    assert wanted[-3:] == ["isc-kea", "isc-kea-admin", "isc-kea-doc"]
+    out = km.package_changes("isc", tools, dict.fromkeys(wanted, ISC), "3.2")
+    assert {"isc-kea", "isc-kea-admin", "isc-kea-doc"} <= {p["name"] for p in out["install"]}
+    assert {"kea", "kea-admin", "kea-doc"} <= {p["name"] for p in out["remove"]}
     assert "isc-kea-admin" not in km.wanted_packages(DEBIAN, "backports", ["kea4"], installed=tools)
 
 
@@ -372,6 +375,21 @@ def test_missing_kea_user_skips_the_dry_run(env):
     assert report["validation"]["kea4"]["mode"] == "skipped"
     assert "_kea does not exist" in report["validation"]["kea4"]["output"]
     assert not env.runner.commands("runuser")
+
+
+def test_a_failed_chown_skips_the_dry_run(env, monkeypatch):
+    FakeApt(env.runner)
+    monkeypatch.setattr(km.os, "geteuid", lambda: 0)
+
+    def refuse(path, user=None, group=None):
+        raise OSError(1, "Operation not permitted")
+
+    monkeypatch.setattr(km.shutil, "chown", refuse)
+    report = km.analyze(env, "3.2", "isc", {"kea4": configs()["kea4"]}, workdir=env.paths.root)
+    assert report["validation"]["kea4"]["mode"] == "skipped"
+    assert "cannot share" in report["validation"]["kea4"]["output"]
+    codes = {f["code"] for f in report["findings"]}
+    assert "validation_skipped" in codes and "validation_failed" not in codes
 
 
 def test_analyze_masks_passwords_in_diffs_and_configs(env):

@@ -87,6 +87,16 @@ describe('KeaMigrationPage', () => {
     expect(within(select).getByRole('option', { name: /backports/ })).toBeDisabled()
   })
 
+  it('keeps the recommended target and says why none is available', async () => {
+    const reason = { code: 'node_unreachable', node: 'ns2', error: 'node ns2 is offline' }
+    const targets = overview.targets.map((x) => ({ ...x, available: false, reason }))
+    api.keaMigration.overview.mockResolvedValue({ ...overview, targets })
+    renderPage()
+    expect(await screen.findByTestId('kea-migration-target-reason')).toHaveTextContent('ns2 does not answer or runs an older Pelagos release')
+    expect(screen.getByTestId('kea-migration-target-select')).toHaveValue('3.2/isc')
+    expect(screen.getByTestId('kea-migration-analyze')).toBeDisabled()
+  })
+
   it('shows an unknown maintenance state as unknown', async () => {
     const node = { ...overview.nodes[0], engines: { kea4: { ...engine, maintained: null, eol: null } } }
     api.keaMigration.overview.mockResolvedValue({ ...overview, nodes: [node] })

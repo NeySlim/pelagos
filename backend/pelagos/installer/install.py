@@ -322,12 +322,11 @@ def step_kea_config(env: Any, engine: str, change: Change, ctx: InstallContext) 
     if change.after.get("mode") == "keep":
         if engine == "d2" and keaconf.supports_secret_file(version):
             # Kea 3.x refuses clear D2 secrets: move them to secret files before the new daemon starts.
-            migrated, secret_files = keasetup.migrate_inline_secrets(
-                keaconf.loads(conf.read_text(), str(conf)), env.paths.kea_conf_dir
-            )
+            current = keaconf.loads(conf.read_text(), str(conf))
+            migrated, secret_files = keasetup.migrate_inline_secrets(current, env.paths.kea_conf_dir)
             for path, secret in secret_files.items():
                 out.append(keasetup.write_secret_file(env, path, secret))
-            if secret_files:
+            if migrated != current:
                 files = keasetup.edited_files(conf, migrated)
                 out.append(
                     keasetup.write_files(env, engine, conf, files, f"install-{engine}-secrets", restart=False)

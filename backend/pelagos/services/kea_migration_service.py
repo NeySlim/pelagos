@@ -8,6 +8,7 @@ pair and keeps the last report in `<var>/kea-migration/analysis.json`. Nothing o
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
@@ -38,8 +39,10 @@ INVENTORY_TIMEOUT = 60.0
 # and lease file copy, start of the standby; a node without HA is down for a restart.
 OUTAGE_HA_SECONDS = 10 + 15 + 5
 OUTAGE_ALONE_SECONDS = 15
-# One analysis at a time on this node: each one downloads and extracts packages on every node.
+# One analysis at a time on this node, across every web worker (thread lock, then a file lock under
+# <var>/kea-migration): each one downloads and extracts packages on every node.
 _ANALYZE_LOCK = threading.Lock()
+LOCK_NAME = ".analysis.lock"
 
 
 def upstream(version: str) -> str:
@@ -80,8 +83,9 @@ class KeaMigrationService:
             pkg = km.engine_package(env.runner, env.distro, engine)
             if pkg is None:
                 continue
-            version = upstream(pkg["version"])
-            series = kea_series.series_of(version)
+            # An empty package version (dpkg-query failed) or a non-boolean entry stays unknown.
+            version = upstream(pkg["version"]) if pkg["version"] else ""
+            series = kea_series.series_of(version) if version else None
             info = kea_series.series_info(series, data)
             engines[engine] = {
                 "version": version,
@@ -89,7 +93,7 @@ class KeaMigrationService:
                 "series": series,
                 "source": pkg["source"],
                 "package": pkg["package"],
-                "maintained": info["maintained"],
+                "maintained": info["maintained"] if isinstance(info["maintained"], bool) else None,
                 "eol": info["eol"],
                 "successor": info["successor"],
             }
@@ -160,7 +164,6 @@ class KeaMigrationService:
         from pelagos.services.peer_actions import KEA_MIGRATION_INVENTORY
 
         nodes = self._nodes()  # every node: one without Kea shows no engine
-        kea_ids = {n[0] for n in nodes if n[2]}
 
         def one(node: tuple[str, str, bool]) -> dict[str, Any]:
             try:
@@ -181,7 +184,7 @@ class KeaMigrationService:
         analysis = self.last_report()
         return {
             "nodes": inventory,
-            "targets": self.targets(inventory, analysis, kea_ids),
+            "targets": self.targets(inventory, analysis),
             "analysis": analysis,
             "current": None,
         }
@@ -190,20 +193,31 @@ class KeaMigrationService:
     def targets(
         inventory: list[dict[str, Any]],
         analysis: dict[str, Any] | None,
-        kea_ids: set[str] | None = None,
     ) -> list[dict[str, Any]]:
-        """One target for the whole cluster: available when every reachable node can install it
-        and no Kea node is unreachable (its distribution is unknown)."""
+        """One target for the whole cluster: available when every node answers and can install it
+        (an offline node or one on an older release has an unknown distribution); otherwise
+        `reason` names the first node in the way: {"code": "node_unreachable"|"not_offered","node",
+        "error"?}."""
         from pelagos.installer.kea_migration import BACKPORTS_NOTE
 
-        reachable = [n for n in inventory if n.get("reachable")]
-        lost = [n for n in inventory if not n.get("reachable") and n.get("node_id") in (kea_ids or ())]
         out = []
         for series, source in KNOWN_TARGETS:
-            offered = [
-                any(t.get("series") == series and t.get("source") == source for t in n.get("targets") or [])
-                for n in reachable
-            ]
+            offered = {
+                n.get("node_id"): any(
+                    t.get("series") == series and t.get("source") == source for t in n.get("targets") or []
+                )
+                for n in inventory
+                if n.get("reachable")
+            }
+            reason = None
+            for n in inventory:
+                node = str(n.get("name") or n.get("node_id") or "")
+                if not n.get("reachable"):
+                    reason = {"code": "node_unreachable", "node": node, "error": n.get("error")}
+                elif not offered.get(n.get("node_id")):
+                    reason = {"code": "not_offered", "node": node}
+                if reason:
+                    break
             version = None
             if analysis and analysis.get("series") == series and analysis.get("source") == source:
                 version = analysis.get("target_version") or None
@@ -211,12 +225,13 @@ class KeaMigrationService:
                 "series": series,
                 "source": source,
                 "version": version,
-                "available": bool(reachable) and all(offered) and not lost,
+                "available": reason is None,
                 "recommended": (series, source) == KNOWN_TARGETS[0],
+                "reason": reason,
             }
             if source == "backports":
                 target["note"] = BACKPORTS_NOTE
-            if any(offered) or source != "backports":
+            if any(offered.values()) or source != "backports":
                 out.append(target)
         return out
 
@@ -226,7 +241,17 @@ class KeaMigrationService:
         if not _ANALYZE_LOCK.acquire(blocking=False):
             raise Conflict("another Kea migration analysis is running")
         try:
-            return self._analyze(body, actor, client_ip)
+            lock = self.report_path.with_name(LOCK_NAME)
+            lock.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
+            fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o640)
+            try:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    raise Conflict("another Kea migration analysis is running") from None
+                return self._analyze(body, actor, client_ip)
+            finally:
+                os.close(fd)  # releases the flock
         finally:
             _ANALYZE_LOCK.release()
 

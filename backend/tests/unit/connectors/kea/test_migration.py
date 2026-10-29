@@ -301,6 +301,7 @@ def test_d2_key_names_and_existing_secret_file():
             "tsig-keys": [
                 {"name": "/etc/cron.d/x", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0"},
                 {"name": "..", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0"},
+                {"name": "k2\n", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0"},
                 {"name": "k1", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0", "secret-file": "/etc/kea/a"},
             ]
         }
@@ -308,9 +309,9 @@ def test_d2_key_names_and_existing_secret_file():
     conv = mig.convert("d2", cfg, TARGET)
     assert conv.files == {}
     bad = codes(conv)["d2_key_name"]
-    assert [f.severity for f in bad] == ["blocking", "blocking"]
+    assert [f.severity for f in bad] == ["blocking", "blocking", "blocking"]
     keys = conv.after["DhcpDdns"]["tsig-keys"]
-    assert keys[2] == {"name": "k1", "algorithm": "HMAC-SHA256", "secret-file": "/etc/kea/a"}
+    assert keys[3] == {"name": "k1", "algorithm": "HMAC-SHA256", "secret-file": "/etc/kea/a"}
     assert "c2VjcmV0" not in conv.diff("/etc/kea/kea-dhcp-ddns.conf")
 
 

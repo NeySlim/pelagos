@@ -3913,11 +3913,14 @@ run; K2 API, alert and the read-only screen.
   listed; one without Kea has no engine, one that does not answer has
   `reachable` false and its `error`.
 - **Target**: `{"series","source","version","available","recommended",
+  "reason": null|{"code": "node_unreachable"|"not_offered","node","error"?},
   "note"?}`: `3.2`/`isc` (recommended), `3.0`/`isc`, `3.0`/`backports`
   (Debian only, `note` says backports have no security support
-  commitment). `available` is true when every node can install it (its
-  distribution, codename and architecture) and no Kea node is unreachable (its
-  distribution is then unknown); a single target for the whole cluster.
+  commitment). `available` is true when every enrolled node answers and
+  can install it (its distribution, codename and architecture); a node that
+  does not answer or runs an older release (no `kea.migration.inventory`) has an
+  unknown distribution and makes it false. `reason` names the first node in the
+  way; a single target for the whole cluster.
 - **Report**: `{"id": ULID,"created_at","created_by","series","source",
   "target_version","node_ids","findings": [Finding],"diffs": {node id:
   {engine: unified diff of the file, 2.6 to the target}},"packages": {node
@@ -4005,8 +4008,10 @@ run; K2 API, alert and the read-only screen.
   "signs"}`: clients from established connections, the agent's
   `CTRL_AGENT_COMMAND_RECEIVED` log lines and a running Stork agent; signs
   from its configuration (off-loopback `http-host`, authentication, TLS).
-  On an ISC target the installed `kea-admin`, `kea-doc` and `kea-dev` come
-  back as `isc-kea-admin`, `isc-kea-doc` and `isc-kea-dev`. The
+  On a Debian node and an ISC target the installed `kea`, `kea-admin`, `kea-doc`
+  and `kea-dev` come back as `isc-kea`, `isc-kea-admin`, `isc-kea-doc` and
+  `isc-kea-dev` (Cloudsmith `kea-3-0` and `kea-3-2` trixie indexes, read on
+  2026-10-29). The
   caller merges the reports of the nodes into the Report.
 - **Alert** `kea_series_obsolete`: per node and engine family, subject
   `kea:series`, raised by the collector when the installed series is not

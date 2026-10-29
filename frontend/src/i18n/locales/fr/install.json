@@ -225,6 +225,10 @@
       "option": "Kea {{series}}, paquets {{source}}",
       "recommended": "recommandée",
       "unavailable": "pas disponible sur tous les nœuds",
+      "reason": {
+        "node_unreachable": "{{node}} ne répond pas ou tourne sur une version plus ancienne de Pelagos : sa distribution est inconnue.",
+        "not_offered": "{{node}} ne peut pas installer cette cible (distribution, nom de code ou architecture)."
+      },
       "analyze": "Analyser",
       "help": "Une seule cible pour tout le cluster. L'analyse télécharge les paquets cibles dans un dossier temporaire de chaque nœud et fait vérifier les fichiers convertis par leurs démons : rien n'est installé ni modifié.",
       "running": "Analyse en cours : chaque nœud télécharge les paquets cibles et vérifie ses fichiers, cela peut prendre quelques minutes.",

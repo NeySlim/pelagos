@@ -16,7 +16,7 @@ import pytest
 from pelagos.connectors.kea import migration as mig
 from pelagos.domain import NodeModules, Peer
 from pelagos.services import kea_migration_service as kms
-from pelagos.services.errors import EngineUnavailable, ValidationError
+from pelagos.services.errors import EngineUnavailable, ServiceError, ValidationError
 from pelagos.services.peer_actions import KEA_MIGRATION_ANALYZE, KEA_MIGRATION_INVENTORY, PeerActions
 from tests.unit.installer.fakes import make_env
 
@@ -236,6 +236,65 @@ def test_an_unreachable_kea_node_makes_every_target_unavailable(service):
     service.peers = Peers({"node-b": lambda name, body: EngineUnavailable("node ns2 is offline")})
     out = service.overview()
     assert not any(t["available"] for t in out["targets"])
+
+
+def test_any_offline_or_older_node_makes_targets_unavailable_with_a_reason(service):
+    service.ctx.config_store.update_cluster(
+        lambda c: c.nodes.append(
+            Peer(id="node-c", name="ns3", url="https://ns3.example.lan:8444", cert_fingerprint="fp-c")
+        ),
+        updated_by="test",
+    )
+    peer_inv = {**service.local_inventory(), "node_id": "node-b", "name": "ns2"}
+    older = ServiceError("not_supported", "ns3: this node does not serve action kea.migration.inventory")
+    service.peers = Peers({"node-b": lambda name, body: peer_inv, "node-c": lambda name, body: older})
+    targets = service.overview()["targets"]
+    assert targets and not any(t["available"] for t in targets)
+    assert targets[0]["reason"]["code"] == "node_unreachable" and "not serve" in targets[0]["reason"]["error"]
+
+
+def test_a_node_that_cannot_install_the_target_is_the_reason(service):
+    peer_inv = {**service.local_inventory(), "node_id": "node-b", "name": "ns2"}
+    peer_inv["targets"] = [t for t in peer_inv["targets"] if t["series"] == "3.0"]
+    service.peers = Peers({"node-b": lambda name, body: peer_inv})
+    by = {(t["series"], t["source"]): t for t in service.overview()["targets"]}
+    assert by[("3.2", "isc")]["available"] is False
+    assert by[("3.2", "isc")]["reason"] == {"code": "not_offered", "node": "ns2"}
+    assert by[("3.0", "isc")]["available"] and by[("3.0", "isc")]["reason"] is None
+
+
+def test_an_empty_package_version_stays_unknown(service, monkeypatch):
+    service.env_factory().runner.responses["dpkg-query -W"] = "kea-dhcp4-server\t\tii \n"
+    data = {"series": {"kea": {"2.6": {"maintained": False}, "3.99": {"maintained": "yes"}}}}
+    monkeypatch.setattr(kms.advisories, "load", lambda var: data)
+    kea4 = service.local_inventory()["engines"]["kea4"]
+    assert kea4["series"] is None and kea4["maintained"] is None
+
+
+def test_a_non_boolean_maintenance_entry_stays_unknown(service, monkeypatch):
+    monkeypatch.setattr(kms.advisories, "load", lambda var: {"series": {"kea": {"2.6": {"maintained": 1}}}})
+    assert service.local_inventory()["engines"]["kea4"]["maintained"] is None
+
+
+def test_the_analysis_lock_holds_across_workers(service):
+    import fcntl
+    import os
+
+    from pelagos.services.errors import Conflict
+
+    me = service.ctx.node.id
+    service.local_dry_run = lambda series, source: answer(me, dhcp4("ns1"))
+    service.peers = Peers({"node-b": lambda name, body: answer("node-b", dhcp4("ns2"))})
+    lock = service.report_path.with_name(kms.LOCK_NAME)
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o640)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # another worker's analysis
+        with pytest.raises(Conflict):
+            service.analyze({"series": "3.2", "source": "isc"}, "admin")
+    finally:
+        os.close(fd)
+    assert service.analyze({"series": "3.2", "source": "isc"}, "admin")["node_ids"]
 
 
 def test_unknown_series_has_no_maintenance_state(service, monkeypatch):

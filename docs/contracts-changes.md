@@ -1939,3 +1939,11 @@ Section 27. Additive: each `GET /hosts/ipv6` row gains `stale`, the AAAA address
 in a /64 the host left; excepted ones left out), computed for every filter; `filter=stale` keeps
 the rows where it is not empty. WP-API-AUTH: `services/ipv6_service.py`. WP-FRONTEND: the stale
 badge and the `ipv6_stale_aaaa` exception targets read it.
+
+## 2026-10-29, 0.2.3 Kea fixes: target reason, every node counts, one analysis per node
+Section 26. Changed: a Target is `available` only when every enrolled node answers and offers it
+(an offline node or one on an older release, with or without Kea, makes it false); each Target
+gains `reason`, null or `{"code": "node_unreachable"|"not_offered","node","error"?}` for the first
+node in the way. The 409 of a second analysis now holds across the web workers of a node (file
+lock under `/var/lib/pelagos/kea-migration`). On a Debian node and an ISC target the installed `kea`
+metapackage comes back as `isc-kea`. WP-FRONTEND: the reason under the target picker, en and fr.

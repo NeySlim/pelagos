@@ -41,9 +41,15 @@ _DB_PACKAGES = {
     "isc": {"mysql": "isc-kea-mysql", "postgresql": "isc-kea-pgsql"},
     "backports": {"mysql": "kea-common", "postgresql": "kea-common"},
 }
-# Debian packages with an ISC counterpart of the same role (Cloudsmith kea-3-0 and kea-3-2 trixie
-# indexes, read on 2026-10-29); the `kea` metapackage has none: the daemons are listed one by one.
-_ISC_COUNTERPART = {"kea-admin": "isc-kea-admin", "kea-doc": "isc-kea-doc", "kea-dev": "isc-kea-dev"}
+# Debian packages with an ISC counterpart of the same role, from the Cloudsmith kea-3-0 and kea-3-2
+# trixie indexes (dl.cloudsmith.io/public/isc/kea-3-2/deb/debian/dists/trixie/main/binary-amd64/
+# Packages.gz, read on 2026-10-29): `isc-kea` pulls dhcp4, dhcp6, dhcp-ddns, admin, hooks and doc.
+_ISC_COUNTERPART = {
+    "kea": "isc-kea",
+    "kea-admin": "isc-kea-admin",
+    "kea-doc": "isc-kea-doc",
+    "kea-dev": "isc-kea-dev",
+}
 _KEA_PACKAGE = re.compile(r"^(isc-kea|kea|python3-kea|python3-isc-kea)(-|$)")
 
 
@@ -427,8 +433,11 @@ class Workspace:
             for path in (Path(top), *(Path(top) / n for n in names)):
                 if path.is_symlink():
                     continue
-                mode = path.stat().st_mode
-                path.chmod(mode | (0o055 if path.is_dir() or mode & 0o100 else 0o044))
+                try:
+                    mode = path.stat().st_mode
+                    path.chmod(mode | (0o055 if path.is_dir() or mode & 0o100 else 0o044))
+                except OSError as exc:
+                    raise DryRunError(f"cannot share {path.name} with {self.kea_user}: {exc}") from None
 
 
 def _summary(output: str) -> str:

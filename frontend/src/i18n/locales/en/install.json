@@ -225,6 +225,10 @@
       "option": "Kea {{series}} from {{source}}",
       "recommended": "recommended",
       "unavailable": "not available on every node",
+      "reason": {
+        "node_unreachable": "{{node}} does not answer or runs an older Pelagos release: its distribution is unknown.",
+        "not_offered": "{{node}} cannot install this target (distribution, codename or architecture)."
+      },
       "analyze": "Analyze",
       "help": "One target for the whole cluster. The analysis downloads the target packages into a temporary directory on each node and checks the converted files with their daemons: nothing is installed or changed.",
       "running": "Analysis running: each node downloads the target packages and checks its files, this can take a few minutes.",

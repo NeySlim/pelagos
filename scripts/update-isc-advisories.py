@@ -4,7 +4,8 @@
 
 Reads the Markdown export of the BIND matrices, the BIND and Kea advisory lists and every
 advisory they name (kb.isc.org serves `<page>.md`), and the kea-announce archives for the end of
-life of a Kea series ("Kea 2.6 - all versions - are now EOL"). Prints a diff against the shipped
+life of a Kea series ("Kea 2.6 - all versions - are now EOL", "Maintenance of Kea 2.4.2 ended
+with the release of Kea 3.0.0"). Prints a diff against the shipped
 file; `--write` replaces it. Review the diff before committing: the parsing is best effort.
 """
 
@@ -68,6 +69,20 @@ def get_url(url: str, name: str, cache: Path | None) -> str:
 _EOL_SUBJECT = re.compile(r"^Subject: \[kea-announce\] Kea (\d+\.\d+)\b.*\bnow EOL", re.MULTILINE)
 _OBSOLETED = re.compile(r"release of Kea (\d+\.\d+)\.\d+,? we obsoleted Kea (\d+\.\d+)")
 _DATE = re.compile(r"^Date: (.+)$", re.MULTILINE)
+# "Maintenance of Kea 2.4.2 ended with the release of Kea 3.0.0" (kea-announce, July 2025): the
+# end of life is the release date of that version, found by its "Kea X.Y.Z is released" subject.
+_ENDED = re.compile(r"Maintenance of Kea (\d+\.\d+)(?:\.\d+)? ended with the release of Kea (\d+\.\d+\.\d+)")
+_RELEASED = re.compile(r"^Subject: \[kea-announce\] Kea (\d+\.\d+\.\d+) is released", re.MULTILINE)
+
+
+def _date(message: str) -> str | None:
+    date = _DATE.search(message)
+    if not date:
+        return None
+    try:
+        return email.utils.parsedate_to_datetime(date.group(1)).date().isoformat()
+    except (TypeError, ValueError):
+        return None
 
 
 def eol_announcements(text: str) -> dict[str, dict]:
@@ -77,22 +92,30 @@ def eol_announcements(text: str) -> dict[str, dict]:
         subject = _EOL_SUBJECT.search(message)
         if not subject:
             continue
-        date = _DATE.search(message)
-        eol = None
-        if date:
-            try:
-                eol = email.utils.parsedate_to_datetime(date.group(1)).date().isoformat()
-            except (TypeError, ValueError):
-                eol = None
         succ = _OBSOLETED.search(message)
-        out[subject.group(1)] = {"eol": eol, "successor": succ.group(1) if succ else None}
+        out[subject.group(1)] = {"eol": _date(message), "successor": succ.group(1) if succ else None}
     return out
+
+
+def maintenance_ended(text: str) -> tuple[dict[str, str], dict[str, str]]:
+    """({series: version whose release ended it}, {version: release date}) of one monthly archive."""
+    ended: dict[str, str] = {}
+    released: dict[str, str] = {}
+    for message in re.split(r"\n(?=From \S+ at \S+ )", text):
+        for m in _ENDED.finditer(message):
+            ended.setdefault(m.group(1), m.group(2))
+        rel = _RELEASED.search(message)
+        if rel and (day := _date(message)):
+            released[rel.group(1)] = day
+    return ended, released
 
 
 def kea_series(current: dict, cache: Path | None, today: dt.date) -> dict:
     """The `series.kea` map: the current one plus every end of life announced over the last
     ANNOUNCE_MONTHS months. A series is only ever added or marked obsolete, never removed."""
     out = {k: dict(v) for k, v in current.items()}
+    ended: dict[str, tuple[str, str]] = {}
+    released: dict[str, str] = {}
     year, month = today.year, today.month
     for _ in range(ANNOUNCE_MONTHS):
         name = f"{year}-{dt.date(year, month, 1):%B}.txt"
@@ -100,6 +123,10 @@ def kea_series(current: dict, cache: Path | None, today: dt.date) -> dict:
             text = get_url(ANNOUNCE + name, f"kea-announce-{name}", cache)
         except OSError:
             text = ""
+        found_ended, found_released = maintenance_ended(text)
+        released.update(found_released)
+        for series, version in found_ended.items():
+            ended.setdefault(series, (version, ANNOUNCE + name))
         for series, found in eol_announcements(text).items():
             entry = out.setdefault(series, {})
             if entry.get("maintained") is False and entry.get("eol"):
@@ -114,6 +141,17 @@ def kea_series(current: dict, cache: Path | None, today: dt.date) -> dict:
         month -= 1
         if month == 0:
             year, month = year - 1, 12
+    for series, (version, source) in ended.items():
+        entry = out.setdefault(series, {})
+        if entry.get("maintained") is False and entry.get("eol"):
+            continue
+        entry.update(
+            maintained=False,
+            eol=released.get(version),
+            successor=entry.get("successor") or ".".join(version.split(".")[:2]),
+            source=source,
+            checked_at=today.isoformat(),
+        )
     return dict(sorted(out.items(), key=lambda kv: vtuple(kv[0])))
 
 

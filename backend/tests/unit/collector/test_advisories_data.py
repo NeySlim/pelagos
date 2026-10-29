@@ -128,3 +128,26 @@ def test_update_script_parses_an_advisory():
         {"from": "9.20.0", "to": "9.20.29", "fixed": "9.20.30"},
     ]
     assert entry["ranges_preview"] == [{"from": "9.20.9", "to": "9.20.29", "fixed": "9.20.30-S1"}]
+
+
+ANNOUNCE_JUNE = """From someone at isc.org  Wed Jun 25 15:39:04 2025
+Date: Wed, 25 Jun 2025 11:39:04 -0400
+Subject: [kea-announce] Kea 3.0.0 is released!
+
+Kea 3.0.0 is a new stable version.
+"""
+ANNOUNCE_JULY = """From someone at isc.org  Wed Jul 30 12:00:00 2025
+Date: Wed, 30 Jul 2025 08:00:00 -0400
+Subject: [kea-announce] Kea 2.6.4 and 3.0.1 released
+
+Maintenance of Kea 2.4.2 ended with the release of Kea 3.0.0. Please make plans to update.
+"""
+
+
+def test_update_script_dates_an_ended_series_by_the_release_that_ended_it(monkeypatch):
+    mod = _script()
+    pages = {"2025-June.txt": ANNOUNCE_JUNE, "2025-July.txt": ANNOUNCE_JULY}
+    monkeypatch.setattr(mod, "get_url", lambda url, name, cache: pages.get(url.rsplit("/", 1)[-1], ""))
+    out = mod.kea_series({}, None, mod.dt.date(2026, 10, 29))
+    assert out["2.4"]["maintained"] is False and out["2.4"]["eol"] == "2025-06-25"
+    assert out["2.4"]["successor"] == "3.0" and out["2.4"]["source"].endswith("2025-July.txt")

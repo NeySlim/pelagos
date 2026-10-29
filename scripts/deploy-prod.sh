@@ -114,9 +114,12 @@ old = set(filter(None, (sys.argv[2] if len(sys.argv) > 2 else "").split(",")))
 # Lines of a process started before the install (old code, possibly fed newer data by a peer) are
 # counted apart: a unit run keeps one invocation id from start to stop.
 errors = {"new": 0, "old": 0}
+# A netlink socket the unit sandbox refuses (RestrictAddressFamilies) logs at any level: per unit.
+denied: dict[str, int] = {}
+DENIED = ("Cannot open netlink socket",)
 if since != "0":
     log = run("journalctl", "-u", "pelagos", "-u", "pelagos-collector", "--since", f"@{since}", "-o", "json",
-              "--output-fields=MESSAGE,_SYSTEMD_INVOCATION_ID", "--no-pager")
+              "--output-fields=MESSAGE,_SYSTEMD_INVOCATION_ID,_SYSTEMD_UNIT", "--no-pager")
     for line in log.splitlines():
         try:
             entry = json.loads(line)
@@ -124,10 +127,15 @@ if since != "0":
             continue
         msg = entry.get("MESSAGE")
         msg = bytes(msg).decode("utf-8", "replace") if isinstance(msg, list) else str(msg or "")
+        is_old = entry.get("_SYSTEMD_INVOCATION_ID") in old
         if " ERROR " in msg:
-            errors["old" if entry.get("_SYSTEMD_INVOCATION_ID") in old else "new"] += 1
+            errors["old" if is_old else "new"] += 1
+        if not is_old and any(d in msg for d in DENIED):
+            unit = str(entry.get("_SYSTEMD_UNIT") or "?")
+            denied[unit] = denied.get(unit, 0) + 1
 out("errors", errors["new"])
 out("errors_old", errors["old"])
+out("denied", ",".join(f"{u}:{n}" for u, n in sorted(denied.items())))
 PY
 
 probe() { ssh "${ssh_opts[@]}" "$1" "sudo -n python3 - ${2:-0} ${3:-}" <<<"$PROBE"; }
@@ -213,16 +221,23 @@ for h in "${hosts[@]}"; do
     die "$h: SHA256 of the copied deb does not match"
 
   backup="/root/pelagos-state-$stamp-$before.tar.gz"
-  remote "$h" "sudo -n sh -euc 'systemctl stop pelagos pelagos-collector
-    trap \"systemctl start pelagos pelagos-collector\" EXIT
-    tar -C / --exclude=\"var/lib/pelagos/series.sqlite*\" -czf $backup etc/pelagos var/lib/pelagos'" ||
-    die "$h: backup failed (services restarted, nothing installed)"
-  say "$h: state saved in $backup"
-
+  # Read while the old units run: an abort past the stop below would leave the node down.
   since="$(remote "$h" date +%s)"
   old_runs="$(field invocations "$(probe "$h")")"
-  remote "$h" "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -q $tmp/$deb" >/dev/null ||
-    die "$h: apt install failed. Backup: $backup"
+  # Stopped until the install starts the new release: the old code never runs on after its backup.
+  remote "$h" "sudo -n sh -euc 'systemctl stop pelagos pelagos-collector
+    trap \"systemctl start pelagos pelagos-collector\" EXIT
+    tar -C / --exclude=\"var/lib/pelagos/series.sqlite*\" -czf $backup etc/pelagos var/lib/pelagos
+    trap - EXIT'" ||
+    die "$h: backup failed (services restarted, nothing installed)"
+  say "$h: state saved in $backup, services stopped"
+
+  remote "$h" "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -q $tmp/$deb" >/dev/null || {
+    remote "$h" "sudo -n systemctl start pelagos pelagos-collector" || true
+    die "$h: apt install failed (services restarted on the previous release). Backup: $backup"
+  }
+  # The postinst skips units that are not enabled: started here, a no-op when it did.
+  remote "$h" "sudo -n systemctl start pelagos pelagos-collector" || die "$h: units not started after the install"
   remote "$h" "rm -rf $tmp"
   now="$(field version "$(probe "$h")")"
   [[ "$now" == "$target" ]] || die "$h: installed version is $now, expected $target"
@@ -237,6 +252,8 @@ for h in "${hosts[@]}"; do
   done
   [[ "$(field errors_old "$p")" == 0 ]] ||
     say "$h: $(field errors_old "$p") ERROR lines from the $before processes before their restart (not counted)"
+  [[ -z "$(field denied "$p")" ]] ||
+    die "$h: calls refused by the unit sandbox in the journal of the $target processes: $(field denied "$p")"
   [[ "$(field errors "$p")" == 0 ]] ||
     die "$h: $(field errors "$p") ERROR lines in the journal of the $target processes (journalctl -u pelagos -u pelagos-collector)"
   printf '%s' "$state_lines"

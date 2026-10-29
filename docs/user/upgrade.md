@@ -91,11 +91,15 @@ architecture, and that the cluster is healthy: both units active,
 every node, Kea HA in a normal state. Then, per node: copy the deb and check
 its SHA256 on the node, save `/etc/pelagos` and `/var/lib/pelagos` to
 `/root/pelagos-state-<date>-<old version>.tar.gz` (services stopped for the
-copy), `apt-get install`, check the installed version, let the collector
+copy and left stopped: the install starts the new release, so the old code
+does not run on after its backup; a failed install starts them again),
+`apt-get install`, check the installed version, let the collector
 poll (`--settle`, 30 s), wait (`--timeout`, 300 s by default) until every node is healthy and `cluster.toml` and the
 audit log converged, check that the audit count did not go down, Kea HA, that
 both units were restarted by the install and that the processes they now run
-logged no `ERROR` line (journal entries of the unit run, `_SYSTEMD_INVOCATION_ID`).
+logged no `ERROR` line and no netlink socket refused by the unit sandbox
+(`Cannot open netlink socket`, at any level) in the journal entries of the
+unit run (`_SYSTEMD_INVOCATION_ID`).
 `ERROR` lines of the old processes during the install are reported, not counted:
 the old code may fail on data of the already upgraded nodes (below). The
 first failure stops the run with the node and the reason; the nodes already

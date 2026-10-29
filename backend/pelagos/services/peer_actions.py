@@ -76,6 +76,8 @@ IPV6_OBSERVATIONS = "ipv6.observations"
 # Kea migration analysis of this node (services.kea_migration_service, section 26).
 KEA_MIGRATION_INVENTORY = "kea.migration.inventory"
 KEA_MIGRATION_ANALYZE = "kea.migration.analyze"
+# Last use of each API token on this node (auth.api_tokens.UsageStore).
+TOKENS_USAGE = "tokens.usage"
 CERTS_ACTIONS = frozenset(
     {CERTS_STATUS, CERTS_RUN, CERTS_REQUEST, CERTS_CHECK, CERTS_UPLOAD, CERTS_SELF_SIGNED}
 )
@@ -93,6 +95,7 @@ LOCKLESS = frozenset(
         ARCHIVE_RUN,
         ARCHIVE_PROBE,
         IPV6_OBSERVATIONS,
+        TOKENS_USAGE,
         # Package queries and the helper's dry run over the files: no connector, and a dry run
         # lasts a minute or more, far beyond what the collector may wait on the engine lock.
         KEA_MIGRATION_INVENTORY,
@@ -135,6 +138,7 @@ class PeerActions:
             IPV6_OBSERVATIONS: self.ipv6_observations,
             KEA_MIGRATION_INVENTORY: self.kea_migration_inventory,
             KEA_MIGRATION_ANALYZE: self.kea_migration_analyze,
+            TOKENS_USAGE: self.tokens_usage,
         }
 
     def __call__(self, name: str, body: dict[str, Any], caller: str) -> Any:
@@ -256,6 +260,16 @@ class PeerActions:
             return obs_store.payload(conn, self.ctx.node.id, since)
         finally:
             conn.close()
+
+    def tokens_usage(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """{"usage": {token id: {"at", "node", "ip"}}} as this node recorded it."""
+        from pelagos.auth.api_tokens import UsageStore
+
+        paths = self.ctx.paths
+        store = UsageStore(
+            paths.var / "api_token_usage.json", paths.locks_dir / "api_tokens.lock", self.ctx.node.id
+        )
+        return {"usage": store.read()}
 
     def resolver_health(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
         """This node's NodeHealth, read from its own series cache and probe table."""

@@ -253,6 +253,59 @@ WebAuthnCredential = model(
     },
 )
 WebAuthnName = model("WebAuthnName", {"name": fields.String(required=True)})
+ApiToken = model(
+    "ApiToken",
+    {
+        "id": fields.String,
+        "name": fields.String,
+        "user_id": fields.String,
+        "username": fields.String,
+        "role": fields.String(description="role the permissions came from; null for a custom subset"),
+        "permissions": fields.List(fields.String),
+        "cidrs": fields.List(fields.String),
+        "expires_at": fields.DateTime,
+        "expired": fields.Boolean,
+        "created_at": fields.DateTime,
+        "created_by": fields.String,
+        "created_on": fields.String,
+        "last_used_at": fields.DateTime,
+        "last_used_node": fields.String,
+        "last_used_ip": fields.String,
+    },
+)
+ApiTokenList = model(
+    "ApiTokenList",
+    {
+        "items": fields.List(fields.Nested(ApiToken)),
+        "meta": fields.Raw(description='{"unavailable": [node names whose last uses are unknown]}'),
+    },
+)
+ApiTokenChallenge = model(
+    "ApiTokenChallenge",
+    {
+        "methods": fields.List(fields.String(enum=["webauthn", "totp"])),
+        "ceremony": fields.String,
+        "options": fields.Raw(description="PublicKeyCredentialRequestOptionsJSON"),
+    },
+)
+ApiTokenCreate = model(
+    "ApiTokenCreate",
+    {
+        "name": fields.String(required=True),
+        "role": fields.String(description="default viewer (read-only); or give permissions"),
+        "permissions": fields.List(fields.String),
+        "expires_days": fields.Integer(description="default auth.api_token_default_days"),
+        "expires_at": fields.DateTime,
+        "cidrs": fields.List(fields.String),
+        "ceremony": fields.String,
+        "credential": fields.Raw,
+        "totp_code": fields.String,
+    },
+)
+ApiTokenCreated = model(
+    "ApiTokenCreated",
+    {"token": fields.String(description="pel_<id>_<secret>"), "item": fields.Nested(ApiToken)},
+)
 Preferences = model(
     "Preferences",
     {

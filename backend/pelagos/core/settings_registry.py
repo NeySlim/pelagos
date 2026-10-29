@@ -96,6 +96,9 @@ REGISTRY: tuple[Setting, ...] = (
     S("auth.api_docs_public_enabled", "boolean", False),
     S("auth.webauthn_rp_id", "string", "auto", pattern=HOST_PATTERN),
     S("auth.require_webauthn_roles", "list", [], pattern=NAME_PATTERN),
+    S("auth.api_token_default_days", "integer", 90, 1, 3650, "days", "api_tokens"),
+    S("auth.api_token_max_days", "integer", 365, 1, 3650, "days", "api_tokens"),
+    S("auth.api_token_audit_reads_enabled", "boolean", True, group="api_tokens"),
     # Plans and peers
     S("plans.ttl_seconds", "integer", 600, 60, DAY, "seconds"),
     S("peers.plan_timeout_seconds", "integer", 300, 10, DAY, "seconds"),
@@ -121,6 +124,8 @@ REGISTRY: tuple[Setting, ...] = (
     S("checks.clock_skew_critical_seconds", "integer", 30, 1, 3600, "seconds", "clock"),
     S("checks.cert_warning_days", "integer", 30, 1, 365, "days", "certificates"),
     S("checks.cert_critical_days", "integer", 7, 1, 365, "days", "certificates"),
+    S("checks.api_token_warning_days", "integer", 14, 1, 365, "days", "api_tokens"),
+    S("checks.api_token_critical_days", "integer", 3, 1, 365, "days", "api_tokens"),
     # Health checks: disk and file sizes
     S("checks.disk_free_warning_percent", "integer", 15, 1, 99, "percent", "disk"),
     S("checks.disk_free_critical_percent", "integer", 5, 1, 99, "percent", "disk"),
@@ -291,6 +296,8 @@ PAIRS: tuple[tuple[str, str, bool], ...] = (
     ("checks.forecast_critical_days", "checks.forecast_warning_days", True),
     ("checks.clock_skew_warning_seconds", "checks.clock_skew_critical_seconds", True),
     ("checks.cert_critical_days", "checks.cert_warning_days", True),
+    ("checks.api_token_critical_days", "checks.api_token_warning_days", True),
+    ("auth.api_token_default_days", "auth.api_token_max_days", False),
     ("checks.disk_free_critical_percent", "checks.disk_free_warning_percent", True),
     ("checks.resolver_servfail_warning_percent", "checks.resolver_servfail_critical_percent", True),
     ("checks.resolver_latency_warning_milliseconds", "checks.resolver_latency_critical_milliseconds", True),

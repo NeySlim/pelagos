@@ -86,6 +86,9 @@ class ApplyPlan(Resource):
         confirm = body.get("confirm", False)
         if not isinstance(confirm, bool):
             raise ApiError("validation_error", "confirm must be a boolean")
+        # A script applies only what it states it means to apply: every plan, not just the risky ones.
+        if current_session().token is not None and not confirm:
+            raise ApiError("confirmation_required", "a plan applied with an API token needs confirm=true")
         s = services()
         user = current_session().username
         if plan.scope is PlanScope.RESTORE:

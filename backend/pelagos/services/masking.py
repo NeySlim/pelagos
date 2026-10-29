@@ -7,7 +7,16 @@ import re
 from typing import Any
 
 SECRET_KEYS = frozenset(
-    {"secret", "password", "password_hash", "totp_secret", "master_key", "sealed", "sealed_secret"}
+    {
+        "secret",
+        "password",
+        "password_hash",
+        "totp_secret",
+        "master_key",
+        "sealed",
+        "sealed_secret",
+        "secret_hash",
+    }
 )
 MASK = "***"
 

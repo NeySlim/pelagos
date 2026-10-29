@@ -71,6 +71,7 @@ class AlertKind(enum.StrEnum):
     IPV6_REVERSE_MISSING = "ipv6_reverse_missing"
     IPV6_STALE_AAAA = "ipv6_stale_aaaa"
     ROOT_HINTS_STALE = "root_hints_stale"
+    API_TOKEN_EXPIRY = "api_token_expiry"  # noqa: S105 (an alert kind)
 
     @classmethod
     def _missing_(cls, value: object) -> AlertKind | None:

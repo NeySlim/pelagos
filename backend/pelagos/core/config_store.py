@@ -20,7 +20,7 @@ import tomli_w
 from pelagos.core import cluster_merge as cm
 from pelagos.core import settings_registry
 from pelagos.core.locks import FileLock
-from pelagos.domain.cluster import NodeModules, Peer, Role, User
+from pelagos.domain.cluster import ApiToken, NodeModules, Peer, Role, User
 from pelagos.domain.common import from_rfc3339, new_id, to_rfc3339, utcnow
 
 SCHEMA_VERSION = 1
@@ -206,6 +206,8 @@ class ClusterConfig:
     revoked: list[str] = field(default_factory=list)
     # Consistency exceptions (services.consistency): records {id, kind, key, comment, created_by, ...}.
     exceptions: list[dict[str, Any]] = field(default_factory=list)
+    # API tokens (section 16): hashed secrets only.
+    api_tokens: list[ApiToken] = field(default_factory=list)
     schema_version: int = SCHEMA_VERSION
     # Per-entry stamps and tombstones (core.cluster_merge); `stamped` is False for a pre-merge file.
     stamps: dict[str, cm.Stamp] = field(default_factory=dict)
@@ -239,6 +241,7 @@ class ClusterConfig:
             secrets=dict(data.get("secrets") or {}),
             revoked=list(data.get("revoked") or []),
             exceptions=[dict(e) for e in data.get("exceptions") or [] if isinstance(e, dict) and e.get("id")],
+            api_tokens=_tokens(data.get("api_tokens")),
             schema_version=schema,
             migrated=migrated,
         )
@@ -265,6 +268,9 @@ class ClusterConfig:
             "revoked": self.revoked,
             # Absent when empty: a file without exceptions stays byte-identical to older versions.
             **({"exceptions": [_strip_none(e) for e in self.exceptions]} if self.exceptions else {}),
+            **(
+                {"api_tokens": [_strip_none(t.to_dict()) for t in self.api_tokens]} if self.api_tokens else {}
+            ),
             **self._replication_table(),
         }
 
@@ -303,6 +309,19 @@ class ClusterConfig:
         if self.updated_at != other.updated_at:
             return self.updated_at > other.updated_at
         return self.updated_by > other.updated_by
+
+
+def _tokens(raw: Any) -> list[ApiToken]:
+    """Token records; a damaged one (missing field) is skipped, never fatal to the whole file."""
+    out: list[ApiToken] = []
+    for t in raw or []:
+        if not isinstance(t, dict):
+            continue
+        try:
+            out.append(ApiToken.from_dict(t))
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def _decode_dates(d: dict[str, Any]) -> dict[str, Any]:

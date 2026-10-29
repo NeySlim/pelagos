@@ -11,7 +11,7 @@ from werkzeug.exceptions import HTTPException
 
 from pelagos import API_VERSION, __version__
 from pelagos.api.errors import PROBLEM_TYPE, TITLES, ApiError, title_message, translate, unexpected_detail
-from pelagos.api.security import load_session
+from pelagos.api.security import audit_token_call, load_session, token_audit_enricher
 
 API_PREFIX = f"/api/{API_VERSION}"
 log = logging.getLogger(__name__)
@@ -60,6 +60,7 @@ def register_api(app: Flask) -> Api:
 
     blueprint = Blueprint("api", __name__, url_prefix=API_PREFIX)
     blueprint.before_request(load_session)
+    blueprint.after_request(audit_token_call)
     blueprint.url_value_preprocessor(dns.root_zone_alias)
     api = PelagosApi(
         blueprint,
@@ -68,16 +69,18 @@ def register_api(app: Flask) -> Api:
         description=(
             "DNS and DHCP management for BIND 9 and Kea. Contracts: docs/architecture.md section 17. "
             "Authentication: session cookie pelagos_session from POST /auth/login; every POST, PUT, "
-            "PATCH and DELETE carries the X-CSRF-Token returned at login. Errors are RFC 7807 problem "
-            "documents (model Problem). WebSocket: GET /api/v1/ws (section 18)."
+            "PATCH and DELETE carries the X-CSRF-Token returned at login. Scripts use an API token "
+            "instead: Authorization: Bearer pel_<id>_<secret>, no cookie, no CSRF. Errors are RFC 7807 "
+            "problem documents (model Problem). WebSocket: GET /api/v1/ws (section 18)."
         ),
         doc="/docs",
         validate=False,
         authorizations={
             "session": {"type": "apiKey", "in": "cookie", "name": "pelagos_session"},
             "csrf": {"type": "apiKey", "in": "header", "name": "X-CSRF-Token"},
+            "token": {"type": "apiKey", "in": "header", "name": "Authorization"},
         },
-        security=[{"session": [], "csrf": []}],
+        security=[{"session": [], "csrf": []}, {"token": []}],
     )
 
     @api.errorhandler(ApiError)
@@ -144,5 +147,7 @@ def register_api(app: Flask) -> Api:
     for name, definition in all_models().items():
         api.models.setdefault(name, definition)
     app.register_blueprint(blueprint)
+    if "pelagos" in app.extensions:
+        app.extensions["pelagos"].audit_log.enrich(token_audit_enricher)
     register_ws(app, API_PREFIX)
     return api

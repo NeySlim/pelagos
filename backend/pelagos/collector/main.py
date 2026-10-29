@@ -64,6 +64,8 @@ LIVE_SECONDS = 5.0
 ZONE_RECHECK_DELAYS = (2.0, 5.0, 15.0, 30.0)
 # Web certificate renewal and expiry checks (core.webcert): often enough for 24 h certificates.
 CERT_SECONDS = 60.0
+# API token expiry check: cheap (cluster.toml only); a revoked token's alert resolves within this.
+TOKEN_SECONDS = 300.0
 # Channel failures and state changes the dispatcher thread reports, taken in by the loop.
 NOTIFY_SECONDS = 10.0
 # Archive schedule check (collector.archives): the build itself runs on its own thread.
@@ -1033,6 +1035,19 @@ class Collector:
         self._finish(PollOutcome(alerts=alerts, kinds=ALERT_KINDS, where=lambda a: a.node_id == node_id))
         return alerts
 
+    def api_tokens(self) -> list[Alert]:
+        """Expiry alerts of the API tokens (section 16), raised by the service node alone: the records
+        are cluster-wide, so every node raising them would show each one once per node."""
+        from pelagos.services.token_service import expiry_alerts
+
+        alerts = (
+            expiry_alerts(self.ctx.cluster(), self.node_id)
+            if self._is_service_node(self.ctx.settings())
+            else []
+        )
+        self._finish(PollOutcome(alerts=alerts, kinds=frozenset({AlertKind.API_TOKEN_EXPIRY.value})))
+        return alerts
+
     def _renew_certificate(self) -> None:
         try:
             self.certs.run_due()
@@ -1087,6 +1102,7 @@ class Collector:
             ("health_audit", self.health_audit),
             ("resolver_probes", self.resolver_probes),
             ("certificates", self.certificates),
+            ("api_tokens", self.api_tokens),
             ("notify_alerts", self.notify_alerts),
             ("archive", self.archive),
             ("observe_ipv6", self.observe_ipv6),
@@ -1126,6 +1142,7 @@ class Collector:
             Task("health_audit_ready", poll, self.health_audit_ready),
             Task("resolver_probes", probe_period, self.resolver_probes),
             Task("certificates", CERT_SECONDS, self.certificates),
+            Task("api_tokens", TOKEN_SECONDS, self.api_tokens),
             Task("notify_alerts", NOTIFY_SECONDS, self.notify_alerts),
             Task("archive", ARCHIVE_SECONDS, self.archive),
             Task("observe_ipv6", IPV6_SECONDS, self.observe_ipv6),

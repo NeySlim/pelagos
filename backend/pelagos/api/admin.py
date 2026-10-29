@@ -7,7 +7,7 @@ from flask_restx import Namespace, Resource
 
 from pelagos.api import models as m
 from pelagos.api.common import json_body
-from pelagos.api.security import client_ip, require, services, username
+from pelagos.api.security import client_ip, current_session, require, services, username
 from pelagos.auth.rbac import PERMISSIONS
 
 ns = Namespace("admin", description="Users, roles, settings, modules", path="/admin")
@@ -113,6 +113,25 @@ class WebAuthnStatus(Resource):
     @ns.response(200, "rpId of the cluster and the nodes it covers")
     def get(self):
         return services().webauthn.status().to_dict()
+
+
+@ns.route("/tokens")
+class AllTokens(Resource):
+    @require("admin:users")
+    @ns.response(200, "Every API token of the cluster (never their secrets)", m.ApiTokenList)
+    def get(self):
+        return services().tokens.list()
+
+
+@ns.route("/tokens/<string:token_id>")
+class AnyToken(Resource):
+    @require("admin:users")
+    @ns.response(204, "Revoked on every node once replicated")
+    @ns.response(404, "not_found", m.Problem)
+    def delete(self, token_id: str):
+        actor = services().account.user(current_session().user_id)
+        services().tokens.revoke(token_id, actor, True, client_ip())
+        return "", 204
 
 
 @ns.route("/roles")

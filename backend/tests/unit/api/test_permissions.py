@@ -495,6 +495,12 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
         ANY,
     ),
     ("GET", "/admin/webauthn", "/admin/webauthn", None, "admin:users"),
+    ("GET", "/auth/tokens", "/auth/tokens", None, ANY),
+    ("POST", "/auth/tokens", "/auth/tokens", {"name": "t"}, ANY),
+    ("POST", "/auth/tokens/challenge", "/auth/tokens/challenge", None, ANY),
+    ("DELETE", "/auth/tokens/<string:token_id>", "/auth/tokens/unknown", None, ANY),
+    ("GET", "/admin/tokens", "/admin/tokens", None, "admin:users"),
+    ("DELETE", "/admin/tokens/<string:token_id>", "/admin/tokens/unknown", None, "admin:users"),
     ("GET", "/admin/users/<string:user_id>/webauthn", "/admin/users/unknown/webauthn", None, "admin:users"),
     (
         "DELETE",

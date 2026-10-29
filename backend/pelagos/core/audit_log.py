@@ -44,6 +44,7 @@ class AuditLog:
         self.path = path
         self.lock = FileLock(lock_path or path.with_suffix(".lock"))
         self._on_append: list[Callable[[AuditEntry], None]] = []
+        self._enrichers: list[Callable[[AuditEntry], None]] = []
         self._index_lock = threading.Lock()
         self._index: list[tuple[str, int]] = []  # sorted by id
         self._ids: set[str] = set()
@@ -54,6 +55,11 @@ class AuditLog:
     def on_append(self, callback: Callable[[AuditEntry], None]) -> None:
         """Called after a local append (not after a merge): the replication push hook."""
         self._on_append.append(callback)
+
+    def enrich(self, callback: Callable[[AuditEntry], None]) -> None:
+        """Called on each local entry before it is written (the API adds the API token of the call)."""
+        if callback not in self._enrichers:
+            self._enrichers.append(callback)
 
     def _ensure(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -160,6 +166,8 @@ class AuditLog:
             os.fsync(fh.fileno())
 
     def append(self, entry: AuditEntry) -> None:
+        for enrich in self._enrichers:
+            enrich(entry)
         with self.lock:
             self._refresh()
             if self._contains(entry.id):

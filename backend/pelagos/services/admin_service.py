@@ -156,6 +156,7 @@ class AdminService:
         def mutate(c: ClusterConfig) -> None:
             c.users[:] = [u for u in c.users if u.id != user_id]
             c.secrets.pop(f"totp/{current.username}", None)
+            c.api_tokens[:] = [t for t in c.api_tokens if t.user_id != user_id]
 
         self.ctx.config_store.update_cluster(mutate, updated_by=self._by(actor))
         self.ctx.sessions.revoke_user(user_id)

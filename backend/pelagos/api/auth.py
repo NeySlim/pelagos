@@ -321,3 +321,55 @@ class WebAuthnRegisterVerify(Resource):
         if session.restriction in (twofa.WEBAUTHN_ENROLLMENT, twofa.TOTP_ENROLLMENT):
             session.restriction = twofa.after_enrollment(services().account.user(session.user_id))
         return created, 201
+
+
+# API tokens -----------------------------------------------------------------------------------
+
+
+def _full_session():  # type: ignore[no-untyped-def]
+    """Token management needs a complete sign-in: no pending restriction."""
+    session = current_session()
+    if session.restriction:
+        raise ApiError(
+            "forbidden", "finish the pending account step first", extra={"restriction": session.restriction}
+        )
+    return session
+
+
+@ns.route("/tokens")
+class Tokens(Resource):
+    @require()
+    @ns.response(200, "The caller's API tokens (never their secrets)", m.ApiTokenList)
+    def get(self):
+        return services().tokens.list(current_session().user_id)
+
+    @require()
+    @ns.expect(m.ApiTokenCreate)
+    @ns.response(201, "Created; `token` is shown this once", m.ApiTokenCreated)
+    @ns.response(400, "validation_error", m.Problem)
+    @ns.response(401, "invalid_credentials: the second factor was not accepted", m.Problem)
+    @ns.response(403, "forbidden: wider than the creator", m.Problem)
+    @ns.response(409, "conflict: name already used, or no second factor usable here", m.Problem)
+    def post(self):
+        session = _full_session()
+        return services().tokens.create(session.user_id, json_body(), _site(), client_ip()), 201
+
+
+@ns.route("/tokens/challenge")
+class TokenChallenge(Resource):
+    @require()
+    @ns.response(200, "The fresh second factor a token creation needs", m.ApiTokenChallenge)
+    @ns.response(409, "conflict: the caller has no second factor usable here", m.Problem)
+    def post(self):
+        return services().tokens.challenge(_full_session().user_id, _site())
+
+
+@ns.route("/tokens/<string:token_id>")
+class TokenItem(Resource):
+    @require()
+    @ns.response(204, "Revoked on every node once replicated")
+    @ns.response(404, "not_found: no such token of the caller", m.Problem)
+    def delete(self, token_id: str):
+        session = current_session()
+        services().tokens.revoke(token_id, services().account.user(session.user_id), False, client_ip())
+        return "", 204

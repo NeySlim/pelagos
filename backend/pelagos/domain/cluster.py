@@ -76,6 +76,28 @@ class WebAuthnCredential(Model):
 
 
 @dataclass(slots=True)
+class ApiToken(Model):
+    """An API token (section 16): the SHA-256 of its secret, never the secret, replicated."""
+
+    id: str
+    name: str
+    user_id: str
+    secret_hash: str  # "sha256:<hex>" of the whole token string
+    expires_at: datetime
+    permissions: list[str] = field(default_factory=list)
+    role: str | None = None  # the role the permissions were taken from, None for a custom subset
+    cidrs: list[str] = field(default_factory=list)  # allowed client networks, empty: any
+    created_at: datetime = field(default_factory=utcnow)
+    created_by: str | None = None
+    created_on: str | None = None
+
+    def public(self) -> dict[str, Any]:
+        data = self.to_dict()
+        data.pop("secret_hash")
+        return data
+
+
+@dataclass(slots=True)
 class User(Model):
     id: str
     username: str

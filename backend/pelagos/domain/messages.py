@@ -213,6 +213,8 @@ CATALOG: dict[str, str] = {
     ),
     "alert.cert_expiry": "{cert} certificate expires on {not_after}",
     "alert.cert_expired": "{cert} certificate expired on {not_after}",
+    "alert.api_token_expiry": "API token {name} of {user} expires on {expires_at}",
+    "alert.api_token_expired": "API token {name} of {user} expired on {expires_at}",
     "alert.cert_renewal_failed": "web certificate renewal failed {failures} times: {error}",
     "alert.notification_failed": "notification channel {channel} has been failing since {since}: {error}",
     "alert.archive_failed": "archive to {destination} failed {failures} times in a row: {error}",

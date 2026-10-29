@@ -27,6 +27,8 @@ class Session:
     client_ip: str | None = None
     # "password_change" or "totp_enrollment": only /auth/* answers until the user complies.
     restriction: str | None = None
+    # A Bearer call: {"id", "name"} of the API token. Never stored: built per request.
+    token: dict[str, str] | None = None
 
 
 class SessionStore:

@@ -278,6 +278,37 @@ def test_registries_share_the_backend_objects(rig):
     assert all(isinstance(core.get(e), PlanRunner) for e in core.engines())
 
 
+def test_api_token_expiry_alert_opens_and_resolves(rig):
+    from pelagos.domain import ApiToken, utcnow
+
+    collector, _, _ = rig
+    store = collector.ctx.config_store
+    admin = store.load_cluster().users[0]
+
+    def add(cfg):
+        cfg.api_tokens.append(
+            ApiToken(
+                id="0123456789abcdef",
+                name="ci",
+                user_id=admin.id,
+                secret_hash="sha256:x",
+                expires_at=utcnow() + timedelta(days=2),
+            )
+        )
+
+    store.update_cluster(add, updated_by="test")
+    alerts = collector.api_tokens()
+    assert [(a.kind.value, a.subject, a.severity.value) for a in alerts] == [
+        ("api_token_expiry", "token:0123456789abcdef", "critical")
+    ]
+    assert [a.subject for a in collector.alerts.open_alerts() if a.kind.value == "api_token_expiry"] == [
+        "token:0123456789abcdef"
+    ]
+    store.update_cluster(lambda cfg: cfg.api_tokens.clear(), updated_by="test")
+    assert collector.api_tokens() == []
+    assert not [a for a in collector.alerts.open_alerts() if a.kind.value == "api_token_expiry"]
+
+
 def test_tasks_and_retention(rig):
     collector, _, _ = rig
     tasks = {t.name: t.period for t in collector.tasks()}
@@ -299,6 +330,7 @@ def test_tasks_and_retention(rig):
         "health_audit_ready": 60.0,
         "resolver_probes": 300.0,
         "certificates": 60.0,
+        "api_tokens": 300.0,
         "notify_alerts": 10.0,
         "archive": 60.0,
         "observe_ipv6": 60.0,

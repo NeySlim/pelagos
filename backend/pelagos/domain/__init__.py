@@ -13,7 +13,16 @@ from pelagos.domain.alerts import (
     exception_keys,
 )
 from pelagos.domain.audit import AuditEntry, AuditResult
-from pelagos.domain.cluster import Node, NodeModules, NodeStatus, Peer, Role, User, WebAuthnCredential
+from pelagos.domain.cluster import (
+    ApiToken,
+    Node,
+    NodeModules,
+    NodeStatus,
+    Peer,
+    Role,
+    User,
+    WebAuthnCredential,
+)
 from pelagos.domain.common import (
     Engine,
     Family,
@@ -80,6 +89,7 @@ __all__ = [
     "Alert",
     "AlertKind",
     "AlertState",
+    "ApiToken",
     "ApplyResult",
     "AuditEntry",
     "AuditResult",

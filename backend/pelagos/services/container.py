@@ -37,6 +37,7 @@ from pelagos.services.ptr_service import PtrService
 from pelagos.services.registry import ConnectorRegistry
 from pelagos.services.resolver_fallback import FallbackWriter, ResolverFallbackService
 from pelagos.services.rpz_service import RpzService
+from pelagos.services.token_service import TokenService
 from pelagos.services.webauthn_service import WebAuthnService
 
 log = logging.getLogger(__name__)
@@ -95,6 +96,7 @@ class Services:
         self.admin = AdminService(ctx)
         self.account = AccountService(ctx)
         self.webauthn = WebAuthnService(ctx)
+        self.tokens = TokenService(ctx, self.peers, self.webauthn, self.account)
         self.advanced = AdvancedService(ctx, self.dns)
         self.ops = OpsService(ctx, self.registry, self.peers)
         self.install = InstallService(ctx, self.dns, self.dhcp4, self.peers)

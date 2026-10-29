@@ -1,4 +1,14 @@
 {
+  "alert.api_token_expired": [
+    "expires_at",
+    "name",
+    "user"
+  ],
+  "alert.api_token_expiry": [
+    "expires_at",
+    "name",
+    "user"
+  ],
   "alert.archive_failed": [
     "destination",
     "error",

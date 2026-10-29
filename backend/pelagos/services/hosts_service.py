@@ -36,7 +36,14 @@ from pelagos.services import kea_files, remote_rrset
 from pelagos.services.alerts_service import AlertsService
 from pelagos.services.dhcp_service import DhcpService
 from pelagos.services.dns_service import DnsService
-from pelagos.services.errors import EngineUnavailable, NotFound, ServiceError, ValidationError, field_error
+from pelagos.services.errors import (
+    ConnectorError,
+    EngineUnavailable,
+    NotFound,
+    ServiceError,
+    ValidationError,
+    field_error,
+)
 from pelagos.services.plan_service import PlanService
 
 MAC_RE = re.compile(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$")
@@ -140,9 +147,11 @@ class HostsService:
                 _attach_reservation(join, res)
         if self.dns is not None:
             try:
-                self._attach_records(join)
+                self._attach_records(join, errors)
             except ServiceError as exc:
                 errors["dns"] = exc.detail
+            except ConnectorError as exc:
+                errors["dns"] = str(exc)
         if self.alerts is not None:
             for alert in self.alerts.open_inconsistencies():
                 for host in self._hosts_for_alert(join, alert):
@@ -151,20 +160,31 @@ class HostsService:
         hosts = sorted(join.hosts.values(), key=lambda h: (_ip_sort(h.ips[0]) if h.ips else (9, 0), h.key))
         return hosts, errors
 
-    def _attach_records(self, join: _Join) -> None:
+    def _attach_records(self, join: _Join, errors: dict[str, str]) -> None:
+        """Records of every served zone; a zone that cannot be read (a refused AXFR) is named in
+        `errors["dns.zones"]` and the others are still joined."""
         assert self.dns is not None
         zones = [
             z["zone"]
             for z in self.dns.zones()
             if z["zone"]["kind"] in (ZoneKind.PRIMARY.value, ZoneKind.SECONDARY.value, ZoneKind.MIRROR.value)
         ]
+        unread: list[str] = []
         for zone in zones:
             try:
                 rrsets, _node = self.dns.records(zone["name"])
-            except ServiceError:
+            except NotFound:
+                continue  # removed since the zone list was read
+            except ServiceError as exc:
+                unread.append(f"{zone['name']}: {exc.detail}")
+                continue
+            except ConnectorError as exc:
+                unread.append(f"{zone['name']}: {exc}")
                 continue
             for rr in rrsets:
                 _attach_rrset(join, rr)
+        if unread:
+            errors["dns.zones"] = "; ".join(unread)
 
     def _hosts_for_alert(self, join: _Join, alert: Alert) -> list[Host]:
         keys: set[str] = set()
@@ -283,6 +303,8 @@ class HostsService:
                         forward[zone["name"]] = rrsets
             except ServiceError as exc:
                 errors["dns"] = exc.detail
+            except ConnectorError as exc:
+                errors["dns"] = str(exc)
         alerts = consistency.run_all(
             leases=leases,
             reservations=reservations,

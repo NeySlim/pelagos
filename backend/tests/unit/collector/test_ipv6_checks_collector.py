@@ -115,6 +115,25 @@ def test_node_without_primary_forward_zone_resolves_its_ipv6_alerts(rig):
     assert kinds(collector) == []
 
 
+def test_a_refused_transfer_neither_resolves_nor_opens_ipv6_alerts(rig):
+    collector, backends = rig
+    collector.consistency()
+    assert kinds(collector) == ["ipv6_missing_aaaa"]
+    backends.dns.read_errors = {"example.lan."}  # allow-transfer by address only, no ddi-read key
+    collector.consistency()
+    assert kinds(collector) == ["ipv6_missing_aaaa"]
+    assert "AXFR example.lan." in collector.last_report.errors["consistency"]
+    backends.dns.read_errors = set()
+    backends.dns.rrsets["example.lan."].append(RRset("laptop.example.lan.", "AAAA", 300, [EUI]))
+    collector.consistency()
+    assert kinds(collector) == []
+    # Refused again with the AAAA gone from the read: nothing opens from the missing zone.
+    backends.dns.rrsets["example.lan."].pop()
+    backends.dns.read_errors = {"example.lan."}
+    collector.consistency()
+    assert kinds(collector) == []
+
+
 class Gateway:
     def __init__(self, answers):
         self.answers = answers

@@ -1987,3 +1987,13 @@ The fallback entry gains `manual_change_nodes` (per node; `manual_change` stays,
 is listed). The return plan leaves a node changed by hand as it is (options and `tls` block) and
 uses the summary `plan.resolver.return_kept` (`nodes`, `kept`), or `plan.resolver.return_kept_only`
 (`kept`) when every node that answers was changed by hand; before, it restored them.
+
+## 2026-10-29, 0.2.3: IPv6 sources under the packaged units, ipv6_source_failed
+Sections 15 and 27. New alert kind `ipv6_source_failed` (warning, per node, subject
+`ipv6:source:<source>[:<source_id>]`, details `source`, `source_id`, `error`, `failing_since`):
+the node's `neighbors` or `dhcpv6` source failing on every poll for 10 min, a router source for
+24 h. A 0.2.1 or 0.2.2 peer keeps it as an unknown kind. Additive: SourceStatus gains
+`failing_since`. The collector unit allows `AF_NETLINK` (the neighbor table needs it; no
+capability, so read only); interface prefixes are read from `/proc/net/if_inet6`. WP-COLLECTOR:
+`collector/ipv6/observer.py`, `collector/rules.py`, `packaging/systemd`. WP-FRONTEND: the kind
+label and message, en and fr.

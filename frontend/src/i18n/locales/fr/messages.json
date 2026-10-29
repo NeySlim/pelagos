@@ -398,6 +398,7 @@
   "kea_migration.config_diverged": "sur le nœud {{node}}, le fichier {{engine}} {{file}} diffère de la configuration en cours : cette analyse a lu le fichier",
   "alert.ipv6_missing_aaaa": "zone {{zone}} : {{count}} hôtes ont une adresse IPv6 stable et pas d'enregistrement AAAA",
   "alert.ipv6_reverse_missing": "aucune zone inverse n'est servie pour le préfixe IPv6 surveillé {{prefix}}",
+  "alert.ipv6_source_failed": "la source IPv6 {{source}} échoue sur {{node}} : {{error}}",
   "alert.ipv6_stale_aaaa": "zone {{zone}} : {{count}} enregistrements AAAA portent des adresses plus vues depuis {{days}} jours",
   "alert.forwarders_divergence": "zone forward {{zone}} : les forwarders ou le mode forward diffèrent entre les nœuds",
   "alert.hints_divergence": "les indices racine de la zone {{zone}} diffèrent entre les nœuds",

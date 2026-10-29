@@ -1069,9 +1069,17 @@ class Collector:
         """Starts a scheduled or requested archive, then the archive alerts of this node."""
         self._finish(self.archives.tick())
 
-    def observe_ipv6(self) -> None:
-        """IPv6 neighbors of this node and, on the service node, of the routers (section 27)."""
-        self.ipv6.tick()
+    def observe_ipv6(self) -> list[Alert] | None:
+        """IPv6 neighbors of this node and, on the service node, of the routers (section 27), then
+        `ipv6_source_failed` of this node; None while a background pass is still running."""
+        status = self.ipv6.tick()
+        if status is None:
+            return None
+        alerts = self.ipv6.failure_alerts(status, int(self.clock()))
+        node_id = self.node_id
+        kinds = frozenset({AlertKind.IPV6_SOURCE_FAILED.value})
+        self._finish(PollOutcome(alerts=alerts, kinds=kinds, where=lambda a: a.node_id == node_id))
+        return alerts
 
     def retention(self) -> dict[str, int]:
         now = int(self.clock())

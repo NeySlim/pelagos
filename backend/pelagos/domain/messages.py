@@ -311,6 +311,7 @@ CATALOG: dict[str, str] = {
     # Observed IPv6 addresses (section 27).
     "alert.ipv6_missing_aaaa": "zone {zone}: {count} hosts have a stable IPv6 address and no AAAA record",
     "alert.ipv6_reverse_missing": "no reverse zone is served for the watched IPv6 prefix {prefix}",
+    "alert.ipv6_source_failed": "IPv6 source {source} fails on {node}: {error}",
     "alert.ipv6_stale_aaaa": "zone {zone}: {count} AAAA records hold addresses not seen for {days} days",
     "ddns.blocker.no_copy": "zone {zone} has no copy on another node: add a secondary first",
     "ddns.blocker.no_transfer": (

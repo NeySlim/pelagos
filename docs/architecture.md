@@ -678,7 +678,7 @@ class AlertKind(str, Enum):
     DDNS_OUTAGE="ddns_outage"; DDNS_REPLAY="ddns_replay"; DNS_STALE_PRIMARY="dns_stale_primary"
     KEA_SERIES_OBSOLETE="kea_series_obsolete"
     IPV6_MISSING_AAAA="ipv6_missing_aaaa"; IPV6_REVERSE_MISSING="ipv6_reverse_missing"; IPV6_STALE_AAAA="ipv6_stale_aaaa"
-    ROOT_HINTS_STALE="root_hints_stale"
+    ROOT_HINTS_STALE="root_hints_stale"; IPV6_SOURCE_FAILED="ipv6_source_failed"
 class AlertState(str, Enum): OPEN="open"; ACKED="acked"; RESOLVED="resolved"
 
 @dataclass(slots=True)
@@ -2177,6 +2177,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `ipv6_missing_aaaa` | info | hosts with a stable observed IPv6 address and no AAAA in their forward zone (section 27); cluster-wide, one alert per zone, subject `ipv6:aaaa:<zone>`; details `zone`, `count`, `hosts: [{"host_key","name","mac","address"}]`, `exception_keys` |
 | `ipv6_reverse_missing` | info | a watched IPv6 prefix has no reverse zone served by the cluster; cluster-wide, subject `ipv6:reverse:<prefix>`; details `prefix`, `reverse_zone` (the zone to create) |
 | `ipv6_stale_aaaa` | warning | AAAA in a watched prefix whose address has not been observed for `ipv6.stale_days` while the host's MAC is seen with another stable address; cluster-wide, subject `ipv6:stale:<zone>`; details `zone`, `count`, `records: [{"name","address","mac","last_seen","current"}]`, `old_prefix`, `new_prefix` when every stale address moved to one other prefix, `exception_keys` |
+| `ipv6_source_failed` | warning | an IPv6 observation source of this node fails on every poll (section 27): `neighbors` or `dhcpv6` for 10 min, a router source for 24 h; per node, subject `ipv6:source:<source>[:<source_id>]`; details `source`, `source_id`, `error`, `failing_since`; resolved by the next successful poll or when the source is no longer polled here |
 | `dns_stale_primary` | critical | a node serves as primary a zone that `ddns.roles` gives to another node at a later epoch (node = that node, subject `ddns:stale:<view>/<zone>`; details `primary_node_id`, `epoch`); resolved by the demotion |
 
 The `ha_*` alerts above have subject `ha:<engine>`; a Kea 3 hub raises them
@@ -4196,11 +4197,17 @@ Code: sources in `collector/ipv6/` (`neighbors.py`, `opnsense.py`,
   addresses outside the watched prefixes are dropped before storage; MAC
   lower-case, address compressed. The last status of each source is kept in
 the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source_id",
-  "node_id","last_poll","error","entries"}`.
+  "node_id","last_poll","error","entries","failing_since"}`, `failing_since`
+  the first poll of the current run of failures (null when the last poll
+  worked). A source logs a warning once when it starts failing and once when
+  it works again, and raises `ipv6_source_failed` (section 15 table) when it
+  keeps failing. `neighbors` needs a netlink socket: the collector unit allows
+  `AF_NETLINK` (no capability, so read only); the web unit does not, and reads
+  the node's addresses from `/proc/net/if_inet6`.
 - **Watched prefixes** (`effective_prefixes`): the prefixes of the IPv6
   reverse zones the cluster serves (`from: "reverse_zone"`), the DHCPv6
   subnets (`dhcpv6`), `ipv6.prefixes` (`setting`) and the /64 of each global
-  address of the node itself (`interface`, `ip -j -6 addr show scope global`,
+  address of the node itself (`interface`, `/proc/net/if_inet6`, `ip -j -6 addr show scope global` without it,
   read on each pass, not repeated inside another watched prefix), so a prefix
   the router starts to advertise is observed before any zone or setting names
   it; ULA (`fd00::/8`) only when listed. Each node filters with its own list.
@@ -4223,8 +4230,9 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   router itself and is never listed.
 - **Checks** (V2, the consistency pass, cluster-wide): `ipv6_missing_aaaa`,
   `ipv6_reverse_missing`, `ipv6_stale_aaaa` (section 15 table, keys in the
-  exception key table). A host known in IPv4 only raises nothing. The
-  source failure is shown in the screen, never alerted before 24 h.
+  exception key table). A host known in IPv4 only raises nothing. A
+  failing source is shown in the screen and alerted by `ipv6_source_failed`
+  (a router source not before 24 h).
   They run on each node holding primary forward zones (a node without one
   resolves the ones it held), over the leases, reservations and zones the
   pass already read (`hosts_service.join_hosts`), this node's observations

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""This node's IPv6 neighbor table, read with `ip -j -6 neigh show` (no privilege needed)."""
+"""This node's IPv6 neighbor table, read with `ip -j -6 neigh show`: no privilege, but a netlink
+socket (the collector unit allows AF_NETLINK; procfs has no IPv6 neighbor table)."""
 
 from __future__ import annotations
 
@@ -29,14 +30,15 @@ def _ip_binary() -> str:
 
 
 def run_ip(args: list[str]) -> str:
+    what = "ip " + next((a for a in args if not a.startswith("-")), "")
     try:
         done = subprocess.run(
             [_ip_binary(), *args], capture_output=True, text=True, timeout=TIMEOUT, check=False
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise SourceError(f"ip neigh failed: {exc}") from None
+        raise SourceError(f"{what} failed: {exc}") from None
     if done.returncode != 0:
-        raise SourceError(f"ip neigh failed: {(done.stderr or '').strip()[:200] or done.returncode}")
+        raise SourceError(f"{what} failed: {(done.stderr or '').strip()[:200] or done.returncode}")
     return done.stdout
 
 

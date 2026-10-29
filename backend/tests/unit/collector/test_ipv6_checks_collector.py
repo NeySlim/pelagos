@@ -171,3 +171,30 @@ def test_gather_merges_peers_and_tells_which_did_not_answer():
     old_only = ipv6_service.gather("n1", lambda: local, gw, ["n1", "n2", "n4"])
     assert old_only.complete is True
     assert all(name == "ipv6.observations" for _p, name in gw.asked)
+
+
+def test_failing_neighbor_source_opens_then_resolves_ipv6_source_failed(rig):
+    from pelagos.collector.ipv6.source import SourceError
+
+    collector, _ = rig
+    now = [time.time()]
+    failing = [True]
+
+    class Neigh:
+        kind = "neighbors"
+
+        def poll(self):
+            if failing[0]:
+                raise SourceError("ip neigh failed: Cannot open netlink socket")
+            return []
+
+    collector.clock = collector.ipv6.clock = lambda: now[0]
+    collector.ipv6.neighbors = Neigh()
+    for _ in range(12):
+        collector.observe_ipv6()
+        now[0] += 60
+    got = [a for a in collector.alerts.open_alerts() if a.kind == AlertKind.IPV6_SOURCE_FAILED]
+    assert [(a.subject, a.node_id) for a in got] == [("ipv6:source:neighbors", collector.node_id)]
+    failing[0] = False
+    collector.observe_ipv6()
+    assert not [a for a in collector.alerts.open_alerts() if a.kind == AlertKind.IPV6_SOURCE_FAILED]

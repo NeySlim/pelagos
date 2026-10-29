@@ -272,6 +272,7 @@ def test_failures_are_statuses_and_neighbors_can_be_disabled(tmp_path):
             "last_poll": 1_800_000_000,
             "error": "API key refused (HTTP 401)",
             "entries": 0,
+            "failing_since": 1_800_000_000,
         }
     ]
 
@@ -432,3 +433,64 @@ def test_background_pass_never_waits_on_a_router(tmp_path):
         "2001:db8:99::2",
     }
     obs._thread.join(5)
+
+
+# /proc/net/if_inet6 of a Debian 13 node: global, tentative (0x40), ULA, link-local (scope 20).
+IF_INET6 = """20010db8000700000000000000000015 02 80 00 80 eth0
+20010db8000800000000000000000015 02 40 00 c0 eth0
+fd990099000000000000000000000015 02 40 00 80 eth0
+fe80000000000000be2411fffe000015 02 40 20 80 eth0
+00000000000000000000000000000001 01 80 10 80 lo
+"""
+
+
+def test_node_prefixes_from_procfs_without_netlink(tmp_path):
+    # The web unit has no AF_NETLINK: procfs is read and `ip` is never run.
+    proc = tmp_path / "if_inet6"
+    proc.write_text(IF_INET6)
+    assert [str(n) for n in px.parse_if_inet6(IF_INET6)] == ["2001:db8:7::/64", "fd99:99::/64"]
+    assert [str(n) for n in INTERFACES(proc=proc)] == ["2001:db8:7::/64", "fd99:99::/64"]
+
+
+NETLINK = "ip neigh failed: Cannot open netlink socket: Address family not supported by protocol"
+
+
+def test_failing_source_warns_once_then_alerts_and_recovers(tmp_path, caplog):
+    neigh = FakeSource("neighbors", error=NETLINK)
+    obs, clock, _ = observer(tmp_path, {}, neigh)
+    obs.node_name = "ns1"
+    start = clock.t
+    with caplog.at_level("INFO", logger="pelagos.collector.ipv6.observer"):
+        for _ in range(11):
+            status = obs.tick()
+            assert obs.failure_alerts(status, clock.t) == [] or clock.t - start >= 600
+            clock.t += 60
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert [r.getMessage() for r in warnings] == [f"IPv6 source neighbors failed: {NETLINK}"]
+    assert not [r for r in caplog.records if r.levelname == "INFO"]
+    assert status[0]["failing_since"] == start
+    alerts = obs.failure_alerts(status, clock.t)
+    assert len(alerts) == 1
+    a = alerts[0]
+    assert (a.kind.value, a.severity.value) == ("ipv6_source_failed", "warning")
+    assert (a.node_id, a.engine) == ("n1", None)
+    assert a.subject == "ipv6:source:neighbors"
+    assert a.details["error"] == NETLINK and a.details["failing_since"] == "2027-01-15T08:00:00Z"
+    assert "neighbors" in a.title and "ns1" in a.title
+    # Recovery: one warning, failing_since cleared, no alert.
+    caplog.clear()
+    neigh.error, neigh.found = None, SEEN
+    with caplog.at_level("INFO", logger="pelagos.collector.ipv6.observer"):
+        status = obs.tick()
+    assert [r.getMessage() for r in caplog.records] == ["IPv6 source neighbors works again"]
+    assert status[0]["failing_since"] is None and obs.failure_alerts(status, clock.t) == []
+
+
+def test_router_source_alerts_only_after_a_day(tmp_path):
+    obs, clock, _ = observer(
+        tmp_path, SETTINGS, FakeSource("neighbors", SEEN), FakeSource("opnsense", error="HTTP 401")
+    )
+    status = obs.tick()
+    assert obs.failure_alerts(status, clock.t + 3600) == []
+    got = obs.failure_alerts(status, clock.t + 86400)
+    assert [a.subject for a in got] == ["ipv6:source:opnsense:01SRC"]

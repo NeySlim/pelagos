@@ -43,7 +43,9 @@ ReadWritePaths=-/mnt -/media
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# AF_NETLINK: the IPv6 observer dumps the neighbor table (`ip -6 neigh`); read only, since the
+# empty capability set leaves no CAP_NET_ADMIN to change anything through it.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 # Unprivileged processes on ports above 1024: no capabilities, no kernel or device access.
 # The "+" ExecStartPre keeps root for pelagos-prestart.
 CapabilityBoundingSet=

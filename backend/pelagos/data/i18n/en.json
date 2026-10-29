@@ -41,6 +41,7 @@
   "alert.hints_divergence": "root hints of zone {{zone}} differ between nodes",
   "alert.ipv6_missing_aaaa": "zone {{zone}}: {{count}} hosts have a stable IPv6 address and no AAAA record",
   "alert.ipv6_reverse_missing": "no reverse zone is served for the watched IPv6 prefix {{prefix}}",
+  "alert.ipv6_source_failed": "IPv6 source {{source}} fails on {{node}}: {{error}}",
   "alert.ipv6_stale_aaaa": "zone {{zone}}: {{count}} AAAA records hold addresses not seen for {{days}} days",
   "alert.journal_growth": "journal {{path}} of zone {{zone}} is {{size}} (limit {{limit}}): run rndc sync",
   "alert.kea_series_obsolete": "{{engine}} {{version}} runs the {{series}} series, which ISC no longer maintains: analyze the migration",

@@ -180,6 +180,11 @@
   "alert.ipv6_reverse_missing": [
     "prefix"
   ],
+  "alert.ipv6_source_failed": [
+    "error",
+    "node",
+    "source"
+  ],
   "alert.ipv6_stale_aaaa": [
     "count",
     "days",

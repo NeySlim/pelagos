@@ -205,7 +205,8 @@
     "ipv6_reverse_missing": "zone inverse IPv6 absente",
     "ipv6_stale_aaaa": "AAAA obsolètes",
     "root_hints_stale": "indices racine anciens",
-    "api_token_expiry": "expiration de jeton d'API"
+    "api_token_expiry": "expiration de jeton d'API",
+    "ipv6_source_failed": "source IPv6 en échec"
   },
   "live": {
     "label": "Direct",

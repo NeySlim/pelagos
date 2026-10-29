@@ -16,6 +16,7 @@ from typing import Any
 
 from packaging.version import InvalidVersion, Version
 
+from pelagos.collector import rules
 from pelagos.collector.ipv6 import prefixes as prefixes_mod
 from pelagos.collector.ipv6 import store as obs_store
 from pelagos.collector.ipv6.dhcpv6 import Dhcpv6Source
@@ -24,6 +25,7 @@ from pelagos.collector.ipv6.opnsense import OpnsenseSource
 from pelagos.collector.ipv6.source import Neighbor, NeighborSource, SourceError
 from pelagos.collector.notify import elect, send_order
 from pelagos.core import settings_registry as reg
+from pelagos.domain import Alert
 
 log = logging.getLogger(__name__)
 
@@ -31,6 +33,10 @@ log = logging.getLogger(__name__)
 POLL_SINCE = Version("0.2.2.dev0")
 ROUTER_TYPES = ("opnsense",)
 SLACK = 30
+# A source failing this long (every poll since) raises ipv6_source_failed: a node's own sources fail
+# from a local defect, a router may just be down (design 13.7: no alert before 24 h).
+ALERT_AFTER = {"neighbors": 600, "dhcpv6": 600}
+ROUTER_ALERT_AFTER = 86400
 RouterFactory = Callable[[dict[str, Any], Any], NeighborSource]
 # (source kind, source id, neighbors found or the error message)
 Polled = tuple[str, str | None, list[Neighbor] | str]
@@ -82,6 +88,7 @@ class Ipv6Observer:
         self.conn: sqlite3.Connection = store.conn
         self.clock = clock
         self.node_id: str = ctx.node.id
+        self.node_name: str = str(getattr(ctx.node, "name", None) or ctx.node.id)
         self.neighbors = neighbors or NeighborsSource()
         self.dhcpv6 = Dhcpv6Source(dhcpv6_leases) if dhcpv6_leases is not None else None
         self.router_factory = router_factory
@@ -93,6 +100,8 @@ class Ipv6Observer:
         self._thread: threading.Thread | None = None
         self._ready: tuple[Pass, list[Polled]] | None = None
         self._lock = threading.Lock()
+        # Sources whose last poll failed in this process: the failure is logged once, not every pass.
+        self._failing: set[tuple[str, str | None]] = set()
         obs_store.ensure(self.conn)
 
     # Service node --------------------------------------------------------------------------
@@ -176,7 +185,8 @@ class Ipv6Observer:
                     p.polls.append((self.router_factory(source, self.ctx), str(source["id"])))
                 except Exception as exc:  # a bad source entry is a failed source, never a failed pass
                     message = exc.message if isinstance(exc, SourceError) else f"invalid source: {exc}"
-                    p.status.append(self._status(source["type"], str(source["id"]), now, message, 0))
+                    last = previous.get((source["type"], str(source["id"])))
+                    p.status.append(self._status(source["type"], str(source["id"]), now, message, 0, last))
         return p
 
     def gather(self, p: Pass) -> list[Polled]:
@@ -187,9 +197,12 @@ class Ipv6Observer:
         """Records what the polls found, prunes and writes the status (loop thread, one transaction)."""
         with self.store.batch():
             status = list(p.status)
+            previous = {(s.get("source"), s.get("source_id")): s for s in obs_store.read_status(self.conn)}
             for kind, source_id, found in results:
+                self._log_transition(kind, source_id, found if isinstance(found, str) else None)
+                last = previous.get((kind, source_id))
                 if isinstance(found, str):
-                    status.append(self._status(kind, source_id, p.now, found, 0))
+                    status.append(self._status(kind, source_id, p.now, found, 0, last))
                     continue
                 kept = [n for n in found if prefixes_mod.watched(n.address, p.watched)]
                 obs_store.record(self.conn, kept, kind, source_id, self.node_id, p.now)
@@ -203,13 +216,48 @@ class Ipv6Observer:
         try:
             return src.poll()
         except SourceError as exc:
-            log.info("IPv6 source %s%s failed: %s", src.kind, f" {source_id}" if source_id else "", exc)
             return exc.message
         except Exception as exc:  # any other bug of one source must not stop the others
-            log.warning("IPv6 source %s failed unexpectedly", src.kind, exc_info=True)
+            level = logging.DEBUG if (src.kind, source_id) in self._failing else logging.WARNING
+            log.log(level, "IPv6 source %s raised", src.kind, exc_info=True)
             return f"unexpected error: {exc}"
 
-    def _status(self, source: str, source_id: str | None, now: int, error: str | None, entries: int) -> dict:
+    def _log_transition(self, kind: str, source_id: str | None, error: str | None) -> None:
+        key, name = (kind, source_id), f"{kind} {source_id}" if source_id else kind
+        if error is not None and key not in self._failing:
+            self._failing.add(key)
+            log.warning("IPv6 source %s failed: %s", name, error)
+        elif error is not None:
+            log.debug("IPv6 source %s still failing: %s", name, error)
+        elif key in self._failing:
+            self._failing.discard(key)
+            log.warning("IPv6 source %s works again", name)
+
+    def failure_alerts(self, status: list[dict[str, Any]], now: int) -> list[Alert]:
+        """`ipv6_source_failed` for each source of this node failing for its ALERT_AFTER or longer."""
+        out = []
+        for s in status:
+            since = s.get("failing_since")
+            if s.get("node_id") != self.node_id or not s.get("error") or not isinstance(since, int):
+                continue
+            if now - since >= ALERT_AFTER.get(str(s.get("source")), ROUTER_ALERT_AFTER):
+                out.append(rules.ipv6_source_failed(self.node_id, self.node_name, s, since))
+        return out
+
+    def _status(
+        self,
+        source: str,
+        source_id: str | None,
+        now: int,
+        error: str | None,
+        entries: int,
+        last: dict[str, Any] | None = None,
+    ) -> dict:
+        """`failing_since`: the first poll of the current run of failures, kept from `last`."""
+        since = None
+        if error is not None:
+            kept = last.get("failing_since") if last and last.get("error") else None
+            since = kept if isinstance(kept, int) and kept <= now else now
         return {
             "source": source,
             "source_id": source_id,
@@ -217,4 +265,5 @@ class Ipv6Observer:
             "last_poll": now,
             "error": error,
             "entries": entries,
+            "failing_since": since,
         }

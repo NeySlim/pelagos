@@ -41,6 +41,7 @@
   "alert.hints_divergence": "les indices racine de la zone {{zone}} diffèrent entre les nœuds",
   "alert.ipv6_missing_aaaa": "zone {{zone}} : {{count}} hôtes ont une adresse IPv6 stable et pas d'enregistrement AAAA",
   "alert.ipv6_reverse_missing": "aucune zone inverse n'est servie pour le préfixe IPv6 surveillé {{prefix}}",
+  "alert.ipv6_source_failed": "la source IPv6 {{source}} échoue sur {{node}} : {{error}}",
   "alert.ipv6_stale_aaaa": "zone {{zone}} : {{count}} enregistrements AAAA portent des adresses plus vues depuis {{days}} jours",
   "alert.journal_growth": "Le journal {{path}} de la zone {{zone}} fait {{size}} (limite {{limit}}) : lancer rndc sync",
   "alert.kea_series_obsolete": "{{engine}} {{version}} est de la série {{series}}, qu'ISC ne maintient plus : analysez la migration",

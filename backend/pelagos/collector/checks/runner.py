@@ -66,8 +66,8 @@ def _cluster(subject_end: str) -> Callable[[Alert], bool]:
 
 
 def local_addresses(proc: Path = Path("/proc/net")) -> set[str]:
-    """Addresses of this host. The collector unit has no AF_NETLINK, so `ip` fails there: the kernel's
-    procfs tables (fib_trie LOCAL entries, if_inet6) are read first and `ip` only adds to them."""
+    """Addresses of this host. The kernel's procfs tables (fib_trie LOCAL entries, if_inet6) need no
+    netlink socket and are read first; `ip` only adds to them."""
     out = _proc_addresses(proc)
     try:
         text = subprocess.run(

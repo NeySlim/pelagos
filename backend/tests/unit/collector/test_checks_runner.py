@@ -240,7 +240,7 @@ def test_delegation_failure_needs_two_passes_and_peers_follow_ha_groups(rig):
     assert _ha_groups({"a", "b", "c"}, {"a": {"x", "y"}, "b": {"y", "x"}}) == [["a", "b"]]
 
 
-# /proc/net of a Debian 13 node (192.0.2.11 on eth0): what the collector reads without AF_NETLINK.
+# /proc/net of a Debian 13 node (192.0.2.11 on eth0): read without a netlink socket.
 FIB_TRIE = """Main:
   +-- 0.0.0.0/0 3 0 5
      |-- 0.0.0.0

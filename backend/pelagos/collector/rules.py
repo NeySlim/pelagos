@@ -21,11 +21,12 @@ on every pass:
   config_divergence  node, kea4|kea6|d2      "<engine>:config-file" (file on disk vs config-get)
   config_divergence  cluster-wide, bind      "zone:<zone>[@<view>]:forwarders" or ":hints"
   root_hints_stale   node, bind              "zone:<zone>[@<view>]:hints"
+  ipv6_source_failed node, no engine         "ipv6:source:<source>[:<source id>]"
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pelagos.connectors.kea.ha import partner_name
@@ -520,6 +521,26 @@ def root_hints_stale(node_id: str, zone: str, view: str, info: dict[str, Any], r
             "view": view,
             "reason": reason,
             **{k: info.get(k) for k in ("file", "related_version", "last_update")},
+        },
+    )
+
+
+def ipv6_source_failed(node_id: str, node_name: str, status: dict[str, Any], since: int) -> Alert:
+    """An IPv6 observation source (section 27) of this node failing on every poll since `since`."""
+    source, source_id = str(status.get("source")), status.get("source_id")
+    name = f"{source} {source_id}" if source_id else source
+    return Alert(
+        kind=AlertKind.IPV6_SOURCE_FAILED,
+        severity=Severity.WARNING,
+        node_id=node_id,
+        engine=None,
+        subject=f"ipv6:source:{source}" + (f":{source_id}" if source_id else ""),
+        **_title("alert.ipv6_source_failed", source=name, node=node_name, error=str(status.get("error"))),
+        details={
+            "source": source,
+            "source_id": source_id,
+            "error": status.get("error"),
+            "failing_since": datetime.fromtimestamp(since, UTC).isoformat().replace("+00:00", "Z"),
         },
     )
 

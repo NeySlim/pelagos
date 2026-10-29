@@ -13,6 +13,7 @@ import logging
 import sqlite3
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from pelagos.collector.ipv6.neighbors import run_ip
@@ -24,6 +25,10 @@ IP6_ARPA = ".ip6.arpa"
 ULA = ipaddress.IPv6Network("fc00::/7")
 LINK_LOCAL = ipaddress.IPv6Network("fe80::/10")
 SERVED_KINDS = frozenset({"primary", "secondary", "mirror"})
+# The kernel's address list: readable without AF_NETLINK, which the web unit does not allow.
+PROC_IF_INET6 = Path("/proc/net/if_inet6")
+IFA_F_DADFAILED = 0x08
+IFA_F_TENTATIVE = 0x40
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +118,11 @@ def effective(
 Runner = Callable[[list[str]], str]
 
 
+def _keep(net: ipaddress.IPv6Network, out: list[ipaddress.IPv6Network]) -> None:
+    if not net.is_multicast and not net.overlaps(LINK_LOCAL) and net not in out:
+        out.append(net)
+
+
 def parse_addresses(text: str) -> list[ipaddress.IPv6Network]:
     """The /64 of each global, non-tentative address of `ip -j -6 addr show scope global`."""
     try:
@@ -123,19 +133,44 @@ def parse_addresses(text: str) -> list[ipaddress.IPv6Network]:
     for link in links if isinstance(links, list) else []:
         infos = link.get("addr_info") if isinstance(link, dict) else None
         for info in infos if isinstance(infos, list) else []:
-            if not isinstance(info, dict) or info.get("scope") != "global" or info.get("tentative"):
+            if not isinstance(info, dict) or info.get("scope") != "global":
+                continue
+            if info.get("tentative") or info.get("dadfailed"):
                 continue
             try:
                 net = ipaddress.IPv6Network(f"{info.get('local')}/64", strict=False)
             except ValueError:
                 continue
-            if not net.is_multicast and not net.overlaps(LINK_LOCAL) and net not in out:
-                out.append(net)
+            _keep(net, out)
     return out
 
 
-def interface_networks(runner: Runner | None = None) -> list[ipaddress.IPv6Network]:
-    """This node's global /64s; empty when `ip` cannot be read (the other prefixes still count)."""
+def parse_if_inet6(text: str) -> list[ipaddress.IPv6Network]:
+    """The same /64s from `/proc/net/if_inet6` (address, index, length, scope, flags, name)."""
+    out: list[ipaddress.IPv6Network] = []
+    for line in text.splitlines():
+        fields = line.split()
+        if len(fields) < 6 or len(fields[0]) != 32:
+            continue
+        try:
+            address, scope, flags = int(fields[0], 16), int(fields[3], 16), int(fields[4], 16)
+        except ValueError:
+            continue
+        if scope != 0 or flags & (IFA_F_TENTATIVE | IFA_F_DADFAILED):
+            continue
+        _keep(ipaddress.IPv6Network((address, 64), strict=False), out)
+    return out
+
+
+def interface_networks(
+    runner: Runner | None = None, proc: Path = PROC_IF_INET6
+) -> list[ipaddress.IPv6Network]:
+    """This node's global /64s, from procfs (`ip` only without it); empty when neither can be read."""
+    if runner is None:
+        try:
+            return parse_if_inet6(proc.read_text())
+        except OSError as exc:
+            log.debug("%s unreadable: %s", proc, exc)
     try:
         return parse_addresses((runner or run_ip)(["-j", "-6", "addr", "show", "scope", "global"]))
     except SourceError as exc:

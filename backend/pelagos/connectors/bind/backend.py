@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import time
 from collections.abc import Callable
 from datetime import timedelta
@@ -58,6 +57,7 @@ from pelagos.connectors.bind.rndc import (
 from pelagos.connectors.bind.stats import StatsClient
 from pelagos.connectors.bind.viewkeys import global_key_name, view_key_name
 from pelagos.connectors.bind.zonefile import ZoneFileError
+from pelagos.core import permguard
 from pelagos.core import settings_registry as reg
 from pelagos.core.write_pipeline import FileChange, WritePipeline
 from pelagos.domain import (
@@ -425,7 +425,7 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
 
     def rpz_dir(self) -> Path:
         """Where the RPZ zone files and the rewrite log live (the plan creates it with the first zone)."""
-        return (self.zone_dir or self._directory() / "pelagos") / "rpz"
+        return self.default_zone_dir() / "rpz"
 
     def rpz_zone_loaded(self, zone: str) -> bool:
         try:
@@ -781,27 +781,18 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
 
         return verify
 
-    def _apply_files(self, plan: Plan) -> NodeApplyResult:
-        self._check_file_preconditions(plan)
-        if plan.scope is PlanScope.DNS_ZONE:
-            self._sync_promoted(plan.changes)
+    def _write_set(self, plan: Plan) -> tuple[Any, list[Any], list[Path], list[FileChange]]:
+        """What applying a file plan writes: (render result, demoted changes, zone directories it
+        creates, file changes). The apply and the permission guard both read it from here."""
         _, result = self._render(plan.scope, plan.changes, replay=True)
-        if result.errors:
-            return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message="; ".join(result.errors))
         demoted = [c for c in result.changes if isinstance(c.after, dict) and failover.DEMOTE in c.after]
-        for change in demoted:
-            self._ensure_zone_dir(Path(str(change.after["file"])).parent)
-        paths = result.changed_paths()
-        if not paths:
-            return NodeApplyResult(
-                node_id=self.ctx.node_id, ok=True, message="already applied: no file change"
-            )
+        dirs = [Path(str(change.after["file"])).parent for change in demoted]
         file_changes = []
-        for path in paths:
+        for path in result.changed_paths():
             mode, group = self._file_mode(path, result.zone_files)
             is_zone = path in result.zone_files
             if is_zone:
-                self._ensure_zone_dir(path.parent)
+                dirs.append(path.parent)
             file_changes.append(
                 FileChange(
                     path=path,
@@ -814,6 +805,117 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
         file_changes += [
             FileChange(path=p, content=b"", create_dirs=False, remove=True) for p in result.removed
         ]
+        return result, demoted, list(dict.fromkeys(dirs)), file_changes
+
+    # Permission guard (core.permguard) -------------------------------------------------------
+
+    def default_zone_dir(self) -> Path:
+        """Where new zone files go: [engines.bind] zone_dir, else <options directory>/pelagos."""
+        return self.zone_dir or self._directory() / "pelagos"
+
+    def permission_targets(self, plan: Plan | None = None) -> list[permguard.Target]:
+        """Every path applying `plan` creates, writes or reads here; without a plan, the paths every
+        plan and the RPZ sync may touch (the collector's periodic check)."""
+        from pelagos.installer import helper
+
+        group = self.group
+        privileged = helper.available()
+        backups = permguard.backup_target(self.ctx.backup_root, "bind")
+
+        def zone_dir(d: Path, purpose: str = "zone_dir") -> permguard.Target:
+            return permguard.Target(d, permguard.DIR, "bind", purpose, group=group, subdirs=True)
+
+        if plan is None:
+            out = [zone_dir(self.default_zone_dir())]
+            rpz = self.rpz_dir()
+            if rpz.exists() or (self.ctx.settings.get("rpz") or {}).get("subscriptions"):
+                out.append(zone_dir(rpz, "rpz_dir"))
+            out.append(
+                permguard.Target(
+                    self.include_dir,
+                    permguard.DIR,
+                    "bind",
+                    "include_dir",
+                    group,
+                    owner="pelagos",
+                    dir_mode=0o2750,
+                )
+            )
+            return [*out, backups]
+        out: list[permguard.Target] = []
+        if plan.scope is PlanScope.DNS_RRSET:
+            zone, view = _plan_zone(plan)
+            static = self.static_zone(zone, view)
+            if static is None or not static.file:
+                return []  # dynamic UPDATE: no file
+            path = Path(static.file)
+            if not path.is_absolute():
+                path = self._directory() / path
+            return [permguard.Target(path, permguard.FILE, "bind", "zone_file"), backups]
+        if plan.scope is PlanScope.DNS_ZONE and plan.changes and ops.is_op(plan.changes[0]):
+            return []
+        if plan.scope is PlanScope.DNS_ZONE and plan.changes and zonerestore.is_content(plan.changes[0]):
+            after = plan.changes[0].after or {}
+            path = Path(str(after.get("file") or ""))
+            return [
+                zone_dir(path.parent),
+                permguard.Target(path, permguard.FILE, "bind", "zone_file"),
+                backups,
+            ]
+        if plan.scope is PlanScope.DNS_ZONE and _added_zone_plan(plan):
+            after = plan.changes[0].after or {}
+            if after.get("file_path"):
+                path = Path(str(after["file_path"]))
+                out += [
+                    zone_dir(path.parent),
+                    permguard.Target(path, permguard.FILE, "bind", "zone_file", group, 0o664),
+                ]
+                out.append(backups)
+            return out
+        if plan.scope not in (PlanScope.DNS_ZONE, PlanScope.DNS_CONFIG, PlanScope.DNS_KEY, PlanScope.DNS_ACL):
+            return []
+        result, _demoted, dirs, file_changes = self._write_set(plan)
+        if result.errors:
+            return []
+        rpz = self.rpz_dir()
+        out += [zone_dir(d, "rpz_dir" if d == rpz else "zone_dir") for d in dirs]
+        for fc in file_changes:
+            if fc.path.parent in dirs:
+                continue  # written inside a directory this plan creates or already probed
+            user_file = not fc.remove and fc.mode is None
+            purpose = "config_file" if user_file else "include_file" if fc.mode == 0o640 else "zone_file"
+            out.append(
+                permguard.Target(
+                    fc.path,
+                    permguard.FILE,
+                    "bind",
+                    purpose,
+                    fc.group or group,
+                    fc.mode,
+                    privileged and user_file,
+                )
+            )
+        return [*out, backups] if file_changes else out
+
+    def permission_checks(self, plan: Plan | None = None) -> list[permguard.Check]:
+        return permguard.run(self.permission_targets(plan))
+
+    def _apply_files(self, plan: Plan) -> NodeApplyResult:
+        self._check_file_preconditions(plan)
+        if plan.scope is PlanScope.DNS_ZONE:
+            self._sync_promoted(plan.changes)
+        result, demoted, dirs, file_changes = self._write_set(plan)
+        if result.errors:
+            return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message="; ".join(result.errors))
+        paths = result.changed_paths()
+        if not paths:
+            for d in dirs:
+                self._ensure_zone_dir(d)
+            return NodeApplyResult(
+                node_id=self.ctx.node_id, ok=True, message="already applied: no file change"
+            )
+        for d in dirs:
+            self._ensure_zone_dir(d)
         verify = self._verify(plan)
         moved = [c.target for c in plan.changes if handover.is_handover(c)]
         if moved:
@@ -933,21 +1035,15 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
         return check
 
     def _ensure_zone_dir(self, directory: Path) -> None:
-        """Zone directories are setgid and group writable: named creates journals and transferred
-        files there. Created here, not by the pipeline, so the umask does not decide."""
-        missing: list[Path] = []
-        d = directory
-        while not d.exists():
-            missing.append(d)
-            d = d.parent
-        for d in reversed(missing):
-            try:
-                d.mkdir(mode=0o2775)
-                if self.group:
-                    shutil.chown(d, group=self.group)
-                os.chmod(d, 0o2775)  # noqa: S103 (named must write journals in it)
-            except (OSError, LookupError) as exc:
-                raise ConnectorError(f"cannot create zone directory {d}: {exc}") from exc
+        """Zone directories are group writable and given to the BIND group (setgid when their parent
+        is): named creates journals and transferred files there. Never S_ISGID in a mode argument."""
+        try:
+            permguard.make_group_dir(directory, self.group)
+        except (OSError, LookupError) as exc:
+            error = permguard.apply_error(exc, str(directory))
+            failure = ConnectorError(messages.render(error))
+            failure.message = error  # type: ignore[attr-defined]
+            raise failure from exc
 
     def _plan_details(self, plan_id: str) -> dict[str, Any]:
         if plan_id not in self.details:
@@ -1010,7 +1106,12 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
                 return self._apply_files(plan)
             raise NotSupported(f"plan scope {plan.scope} is not a BIND plan")
         except ConnectorError as exc:
-            return NodeApplyResult(node_id=self.ctx.node_id, ok=False, message=str(exc))
+            return NodeApplyResult(
+                node_id=self.ctx.node_id,
+                ok=False,
+                message=str(exc),
+                message_message=getattr(exc, "message", None),
+            )
 
     def rollback(self, plan: Plan) -> NodeApplyResult:
         self.forget_extra_zones()

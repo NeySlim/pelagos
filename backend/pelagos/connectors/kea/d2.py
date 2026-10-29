@@ -493,6 +493,14 @@ class D2Backend(DdnsBackend):
                 return "config-set of the configuration from before the plan"
         raise ConnectorError("D2 runs neither the new nor its previous configuration; check it")
 
+    def permission_targets(self, plan: Plan | None = None) -> list[Any]:
+        """Paths applying `plan` (any plan of this engine when None) reads and writes here."""
+        if False:
+            return []
+        if plan is not None and any(c.target == ADOPT_FILE for c in plan.changes):
+            return self.file.permission_targets(writes=False)
+        return self.file.permission_targets()
+
     def preflight(self, plan: Plan) -> str | None:
         """Why applying `plan` here would fail on a file it must write (None when every one can be
         written now); the plan service asks every target before any node applies."""

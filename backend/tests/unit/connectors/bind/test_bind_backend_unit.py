@@ -162,8 +162,9 @@ def test_zone_plan_apply_and_rollback(tmp_root: Path, conf_tree: Path) -> None:
     assert "IN SOA ns1.lab.example.lan. hostmaster.lab.example.lan." in zone_file.read_text()
     assert oct(zone_file.stat().st_mode & 0o777) == "0o664"
     assert oct(zones_conf.stat().st_mode & 0o777) == "0o640"
-    # named creates the journal next to the zone file: the directory is setgid and group writable.
-    assert oct(zone_file.parent.stat().st_mode & 0o7777) == "0o2775"
+    # named creates the journal next to the zone file: the directory is group writable (setgid only
+    # through its parent, never through a mode argument RestrictSUIDSGID refuses).
+    assert oct(zone_file.parent.stat().st_mode & 0o7777) == "0o775"
     # Re-applying is a precondition failure: zones.conf moved on since the plan.
     again = backend.apply(plan)
     assert not again.ok and "file_sha256" in again.message

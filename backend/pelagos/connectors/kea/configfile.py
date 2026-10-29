@@ -209,6 +209,34 @@ class KeaConfigFile:
             return None
         return write_problem(self.files(doc))
 
+    def permission_targets(self, writes: bool = True) -> list[Any]:
+        """Paths a plan of this engine reads (the file, its includes, the secret and TLS files it
+        names: every apply backs them up) and writes (the files themselves when they use includes,
+        the backup folder): core.permguard probes them."""
+        from pelagos.core import permguard
+        from pelagos.installer import helper, kea_modes
+
+        engine = self.engine
+        out: list[permguard.Target] = []
+        if self.path.exists():
+            tree, refs = kea_modes._tree(self.path)
+            for p in [*tree, *map(Path, refs)]:
+                if p.is_dir() or kea_modes.ignored(p.name):
+                    continue
+                out.append(permguard.Target(p, permguard.READ, engine, "kea_file"))
+        if not writes:
+            return out
+        try:
+            doc = self.document()
+        except ConnectorError:
+            doc = None
+        if doc is not None and doc.has_includes:
+            privileged = helper.available()
+            for p in self.files(doc):
+                out.append(permguard.Target(p, permguard.FILE, engine, "kea_config", privileged=privileged))
+        out.append(permguard.backup_target(self.backup_root, engine))
+        return out
+
     def backup(self, label: str, doc: KeaDocument | None) -> Path | None:
         targets = self.files(doc)
         return self._pipeline(label).backup(targets) if targets else None

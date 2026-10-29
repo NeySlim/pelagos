@@ -73,6 +73,7 @@ class AlertKind(enum.StrEnum):
     ROOT_HINTS_STALE = "root_hints_stale"
     API_TOKEN_EXPIRY = "api_token_expiry"  # noqa: S105 (an alert kind)
     IPV6_SOURCE_FAILED = "ipv6_source_failed"
+    PATH_NOT_WRITABLE = "path_not_writable"
 
     @classmethod
     def _missing_(cls, value: object) -> AlertKind | None:

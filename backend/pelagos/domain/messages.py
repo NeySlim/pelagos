@@ -316,6 +316,47 @@ CATALOG: dict[str, str] = {
     "alert.ipv6_missing_aaaa": "zone {zone}: {count} hosts have a stable IPv6 address and no AAAA record",
     "alert.ipv6_reverse_missing": "no reverse zone is served for the watched IPv6 prefix {prefix}",
     "alert.ipv6_source_failed": "IPv6 source {source} fails on {node}: {error}",
+    # Permission guard (core.permguard).
+    "alert.path_not_writable": "{node} cannot write {path}",
+    "permission.finding": "{what} {path}: {missing} (now {owner}:{group} {mode} on {probed}); fix: {command}",
+    "permission.node": "{node}: {items}",
+    "permission.plan_refused": "plan refused, Pelagos cannot write paths this plan needs: {nodes}",
+    "permission.refused": "{node}: {count} paths not writable: {items}",
+    "permission.raw": "{text}",
+    "permission.apply_error": "cannot write {path}: {reason} ({error})",
+    "permission.apply_failed": "{context}: {detail}",
+    "permission.errno.read_only": "outside the folders the Pelagos services may write (systemd sandbox)",
+    "permission.errno.refused": "the operation was refused to the Pelagos service",
+    "permission.errno.denied": "the Pelagos service has no write permission there",
+    "permission.errno.missing_parent": "a parent folder does not exist",
+    "permission.purpose.zone_dir": "Zone folder",
+    "permission.purpose.rpz_dir": "RPZ folder",
+    "permission.purpose.include_dir": "Include folder",
+    "permission.purpose.backup_dir": "Backup folder",
+    "permission.purpose.config_file": "BIND configuration file",
+    "permission.purpose.include_file": "Pelagos include file",
+    "permission.purpose.zone_file": "Zone file",
+    "permission.purpose.kea_file": "Kea file",
+    "permission.purpose.kea_config": "Kea configuration file",
+    "permission.problem.read_only.dir": (
+        "cannot be created: the folder is outside the paths the service may write (ReadWritePaths)"
+    ),
+    "permission.problem.read_only.file": (
+        "cannot be written: the folder is outside the paths the service may write (ReadWritePaths)"
+    ),
+    "permission.problem.read_only.read": "cannot be read: outside the paths the service may read",
+    "permission.problem.refused.dir": "cannot be created: the service is refused the operation (EPERM)",
+    "permission.problem.refused.file": "cannot be written: the service is refused the operation (EPERM)",
+    "permission.problem.refused.read": "cannot be read: the service is refused the operation (EPERM)",
+    "permission.problem.denied.dir": "cannot be created: no write permission on the parent folder",
+    "permission.problem.denied.file": "cannot be written: no write permission on the file or its folder",
+    "permission.problem.denied.read": "cannot be read: no read permission",
+    "permission.problem.not_readable.dir": "cannot be read: no read permission",
+    "permission.problem.not_readable.file": "cannot be read: no read permission",
+    "permission.problem.not_readable.read": "cannot be read: no read permission",
+    "permission.problem.missing_parent.dir": "a parent folder is missing",
+    "permission.problem.missing_parent.file": "a parent folder is missing",
+    "permission.problem.missing_parent.read": "a parent folder is missing",
     "alert.ipv6_stale_aaaa": "zone {zone}: {count} AAAA records hold addresses not seen for {days} days",
     "ddns.blocker.no_copy": "zone {zone} has no copy on another node: add a secondary first",
     "ddns.blocker.no_transfer": (
@@ -600,6 +641,16 @@ CATALOG: dict[str, str] = {
     "finding.kea_file_unreadable.description": (
         "Kea files the pelagos service cannot read: {files}. Plans that change them cannot back them up "
         "and archives need the privileged helper."
+    ),
+    "finding.path_access.description.create_dir": (
+        "The {what} {path} does not exist and the pelagos service cannot create it"
+    ),
+    "finding.path_access.description.group_write": (
+        "The pelagos service cannot write the {what} {path} ({before})"
+    ),
+    "finding.path_access.proposal": "{command} ({before} -> {after})",
+    "finding.path_access.risk": (
+        "Plans that write there are refused and the RPZ subscriptions or new zones cannot be set up"
     ),
     "finding.kea_file_unreadable.proposal": "Give them to the Kea group with group read: {commands}",
     "finding.kea_file_unreadable.risk": (

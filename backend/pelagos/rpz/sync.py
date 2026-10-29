@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pelagos.core import permguard
 from pelagos.rpz import convert as conv
 from pelagos.rpz import fetch as fetch_mod
 from pelagos.rpz import logparse, model
@@ -256,7 +257,7 @@ class Syncer:
             fmt = conv.detect_format(got.head(65536).decode("utf-8", "replace"))
         redirect_ip = sub.redirect if sub.action == "redirect" and model.is_ip(sub.redirect) else None
         target = zone_path(env, sub.zone)
-        env.rpz_dir.mkdir(parents=True, exist_ok=True)
+        permguard.make_group_dir(env.rpz_dir, env.group)
         fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=env.rpz_dir)
         tmp = Path(tmp_name)
         try:
@@ -447,7 +448,7 @@ class Syncer:
 
 
 def write_text(env: SyncEnv, target: Path, text: str) -> None:
-    env.rpz_dir.mkdir(parents=True, exist_ok=True)
+    permguard.make_group_dir(env.rpz_dir, env.group)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=env.rpz_dir)
     with os.fdopen(fd, "w") as fh:
         fh.write(text)

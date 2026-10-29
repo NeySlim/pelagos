@@ -130,6 +130,8 @@ class ValidationResult(Model):
     tool: str
     output: str = ""
     node_id: str | None = None
+    # Translatable form of `output` (domain.messages): the permission guard's findings.
+    output_message: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -150,6 +152,8 @@ class Plan(Model):
     state: PlanState = PlanState.DRAFT
     expires_at: datetime = field(default_factory=lambda: utcnow() + timedelta(seconds=600))
     error: str | None = None
+    # Translatable form of `error` (permission guard refusals, translated apply errors).
+    error_message: dict[str, Any] | None = None
     # Translatable form of `summary` (domain.messages); None for plans built before message keys.
     summary_message: dict[str, Any] | None = None
     # Caught APPLYING by a restart: what it did on its nodes is unknown (check by hand on rollback).
@@ -170,6 +174,8 @@ class NodeApplyResult(Model):
     message: str = ""
     rolled_back: bool = False
     audit_ids: list[str] = field(default_factory=list)
+    # Translatable form of `message`: an error raised by the system (errno) is never shown raw.
+    message_message: dict[str, Any] | None = None
     # The call failed in transport: the node may still have applied the plan, so it is rolled back too.
     outcome_unknown: bool = False
 

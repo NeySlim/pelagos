@@ -247,6 +247,10 @@
     "ns",
     "zone"
   ],
+  "alert.path_not_writable": [
+    "node",
+    "path"
+  ],
   "alert.peer_offline": [
     "node"
   ],
@@ -666,6 +670,21 @@
     "statement"
   ],
   "finding.open_recursion.risk": [],
+  "finding.path_access.description.create_dir": [
+    "path",
+    "what"
+  ],
+  "finding.path_access.description.group_write": [
+    "before",
+    "path",
+    "what"
+  ],
+  "finding.path_access.proposal": [
+    "after",
+    "before",
+    "command"
+  ],
+  "finding.path_access.risk": [],
   "finding.query_refused.description": [
     "address",
     "zones"
@@ -1003,6 +1022,68 @@
   "op.add": [],
   "op.delete": [],
   "op.replace": [],
+  "permission.apply_error": [
+    "error",
+    "path",
+    "reason"
+  ],
+  "permission.apply_failed": [
+    "context",
+    "detail"
+  ],
+  "permission.errno.denied": [],
+  "permission.errno.missing_parent": [],
+  "permission.errno.read_only": [],
+  "permission.errno.refused": [],
+  "permission.finding": [
+    "command",
+    "group",
+    "missing",
+    "mode",
+    "owner",
+    "path",
+    "probed",
+    "what"
+  ],
+  "permission.node": [
+    "items",
+    "node"
+  ],
+  "permission.plan_refused": [
+    "nodes"
+  ],
+  "permission.problem.denied.dir": [],
+  "permission.problem.denied.file": [],
+  "permission.problem.denied.read": [],
+  "permission.problem.missing_parent.dir": [],
+  "permission.problem.missing_parent.file": [],
+  "permission.problem.missing_parent.read": [],
+  "permission.problem.not_readable.dir": [],
+  "permission.problem.not_readable.file": [],
+  "permission.problem.not_readable.read": [],
+  "permission.problem.read_only.dir": [],
+  "permission.problem.read_only.file": [],
+  "permission.problem.read_only.read": [],
+  "permission.problem.refused.dir": [],
+  "permission.problem.refused.file": [],
+  "permission.problem.refused.read": [],
+  "permission.purpose.backup_dir": [],
+  "permission.purpose.config_file": [],
+  "permission.purpose.include_dir": [],
+  "permission.purpose.include_file": [],
+  "permission.purpose.kea_config": [],
+  "permission.purpose.kea_file": [],
+  "permission.purpose.rpz_dir": [],
+  "permission.purpose.zone_dir": [],
+  "permission.purpose.zone_file": [],
+  "permission.raw": [
+    "text"
+  ],
+  "permission.refused": [
+    "count",
+    "items",
+    "node"
+  ],
   "plan.bind.config": [
     "changes"
   ],

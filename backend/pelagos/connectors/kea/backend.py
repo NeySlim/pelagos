@@ -889,6 +889,14 @@ class KeaBackend(DhcpBackend):
             if observed != p.value:
                 raise PreconditionFailed(p, observed)
 
+    def permission_targets(self, plan: Plan | None = None) -> list[Any]:
+        """Paths applying `plan` (any plan of this engine when None) reads and writes here."""
+        if plan is not None and plan.scope is PlanScope.DHCP_LEASE:
+            return []
+        if plan is not None and any(c.target == ADOPT_FILE for c in plan.changes):
+            return self.file.permission_targets(writes=False)
+        return self.file.permission_targets()
+
     def preflight(self, plan: Plan) -> str | None:
         """Why persisting `plan` here would fail on a file (None when it can); asked of every target
         before any node applies. Lease operations write no configuration file."""

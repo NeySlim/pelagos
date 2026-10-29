@@ -19,7 +19,7 @@ import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
-import { ENGINES, INCONSISTENCY_KINDS, KINDS, alertOrigin, unavailableNodes, exceptionItems, PRESSURE_AFTER_MS, PRESSURE_BEFORE_MS, SEVERITIES, STATES, findAlert, jobResult, poolSeriesQuery, pressureLatches, subjectLink } from './lib'
+import { ENGINES, INCONSISTENCY_KINDS, KINDS, alertOrigin, unavailableNodes, exceptionItems, PRESSURE_AFTER_MS, PRESSURE_BEFORE_MS, SEVERITIES, STATES, findAlert, jobResult, poolSeriesQuery, pressureLatches, proposesFallback, subjectLink } from './lib'
 import { adoptCall, fileAlertEngine } from '../dhcp/keaFile'
 import { notificationsOfAlert } from '../admin/notifications/notifyForm'
 import { IncidentTrace } from '../../components/motion'
@@ -206,7 +206,12 @@ function AlertDetail({ alert, nodeName, canAck, onAck, onIgnore, onClose }) {
   const { t } = useTranslation(['alerts', 'dashboard', 'common'])
   const msg = useMessage()
   const navigate = useNavigate()
-  const link = alert ? subjectLink(alert) : null
+  const { hasPermission } = usePermission()
+  // Propose the fallback only to who can plan it, and only while none is active.
+  const proposing = proposesFallback(alert) && hasPermission('write:dns.config')
+  const resolver = useApi(() => api.resolverHealth.health(), [alert?.id], { enabled: proposing })
+  const canProposeFallback = proposing && Boolean(resolver.data) && !resolver.data.fallback
+  const link = alert ? subjectLink(alert, { canProposeFallback }) : null
   return (
     <Modal open={Boolean(alert)} onClose={onClose} title={(alert && msg(alert.title_message, alert.title)) || t('detail.title')}>
       {alert && (

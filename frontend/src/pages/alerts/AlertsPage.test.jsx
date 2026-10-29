@@ -20,7 +20,11 @@ let mute = null
 const calls = { list: vi.fn(), ack: vi.fn(), run: vi.fn(), addException: vi.fn() }
 const notify = { showSuccess: vi.fn(), showError: vi.fn(), showInfo: vi.fn(), showPrompt: vi.fn() }
 let canWrite = true
+let canDns = true
 let listMeta = {}
+let extra = []
+let resolverFallback = null
+const PROPOSING = { id: 'A5', kind: 'resolver_health', severity: 'critical', state: 'open', node_id: N1, engine: 'bind', subject: 'resolver:latency', title: 'resolver p95 is slow', details: { p95: 2000, remediation: 'resolver_fallback' }, first_seen: '2026-10-24T10:00:00Z', last_seen: '2026-10-24T11:00:00Z' }
 
 vi.mock('../../services/api', () => {
   const api = {
@@ -29,7 +33,7 @@ vi.mock('../../services/api', () => {
       list: async (q) => {
         calls.list(q)
         if (!q.state && q.per_page === 500) return { items: [...ALERTS, RESOLVED], page: 1, per_page: 500, total: 4, meta: listMeta }
-        return { items: ALERTS, page: 1, per_page: 50, total: 2, meta: listMeta }
+        return { items: [...ALERTS, ...extra], page: 1, per_page: 50, total: 2 + extra.length, meta: listMeta }
       },
       ack: async (id, comment) => {
         calls.ack(id, comment)
@@ -44,6 +48,7 @@ vi.mock('../../services/api', () => {
         return { job_id: 'J1' }
       },
     },
+    resolverHealth: { health: async () => ({ nodes: [], fallback: resolverFallback }) },
     jobs: { get: async () => ({ id: 'J1', state: 'done', steps: [{ name: 'consistency', state: 'done' }, { name: 'result', output: { found: 3 } }] }) },
     notifications: {
       overview: async () => ({ channels: [{ id: 'ch1', name: 'Phone' }, { id: 'ch2', name: 'On-call mail' }], mute }),
@@ -60,7 +65,7 @@ vi.mock('../../services/api', () => {
   }
   return { api, default: api }
 })
-vi.mock('../../hooks/usePermission', () => ({ usePermission: () => ({ hasPermission: (p) => p !== 'write:alerts' || canWrite }) }))
+vi.mock('../../hooks/usePermission', () => ({ usePermission: () => ({ hasPermission: (p) => (p === 'write:alerts' ? canWrite : p === 'write:dns.config' ? canDns : true) }) }))
 vi.mock('../../contexts/NotificationContext', () => ({ useNotification: () => notify }))
 
 const { default: AlertsPage } = await import('./AlertsPage')
@@ -74,6 +79,9 @@ const renderPage = (url = '/alerts') =>
 
 beforeEach(() => {
   canWrite = true
+  canDns = true
+  extra = []
+  resolverFallback = null
   listMeta = {}
   mute = null
   for (const fn of [...Object.values(calls), ...Object.values(notify)]) fn.mockReset()
@@ -177,6 +185,31 @@ describe('AlertsPage', () => {
     fireEvent.click(await screen.findByText('PTR of 192.0.2.106 names another host'))
     const detail = await screen.findByTestId('alert-detail')
     expect(within(detail).getByTestId('alert-open-subject')).toHaveTextContent('Open the host')
+  })
+
+  it('proposes the fallback only to who can plan it and while none is active', async () => {
+    extra = [PROPOSING]
+    const open = async () => {
+      const view = renderPage()
+      fireEvent.click(await screen.findByText('resolver p95 is slow'))
+      const detail = await screen.findByTestId('alert-detail')
+      return { view, detail }
+    }
+    let { view, detail } = await open()
+    await waitFor(() => expect(within(detail).getByTestId('alert-open-subject')).toHaveTextContent('Propose the forwarder fallback'))
+    view.unmount()
+    resolverFallback = { id: 'F1', node_ids: [N1], forwarders: ['192.0.2.53'], until: '2026-10-24T12:00:00Z' }
+    ;({ view, detail } = await open())
+    await new Promise((r) => setTimeout(r, 20))
+    expect(within(detail).getByTestId('alert-open-subject')).not.toHaveTextContent('Propose')
+    view.unmount()
+    resolverFallback = null
+    canDns = false
+    ;({ view, detail } = await open())
+    await new Promise((r) => setTimeout(r, 20))
+    expect(within(detail).getByTestId('alert-open-subject')).not.toHaveTextContent('Propose')
+    expect(subjectLink(PROPOSING, { canProposeFallback: false })).toEqual({ to: '/dns/resolver', label: 'openResolver' })
+    expect(subjectLink({ ...PROPOSING, state: 'resolved' })).toEqual({ to: '/dns/resolver', label: 'openResolver' })
   })
 
   it('says since when the distribution security data is unavailable', async () => {

@@ -745,27 +745,32 @@
         "timeouts_percent": "Délais dépassés (%)",
         "tld_failures": "Sondes TLD échouées d'affilée",
         "mismatch_count": "Réponses non conformes par fenêtre",
-        "lru_per_minute": "Expulsions du cache par minute"
+        "lru_per_minute": "Expulsions du cache par minute",
+        "servfail_clients_percent": "SERVFAIL aux clients (%)"
       }
     },
     "banner": {
       "title": "Les requêtes passent par des forwarders",
       "tls": "DNS sur TLS : {{name}}",
-      "manual": "Modifié à la main : pas de retour automatique",
+      "manual": "Modifié à la main sur {{nodes}} : laissé tel quel, pas de retour automatique",
       "ready": "Sondes saines : retour proposé",
       "forwarders": "Forwarders",
       "nodes": "Nœuds",
       "returned": "(déjà revenus : {{nodes}})",
       "until": "Jusqu'au",
       "overdue": "échéance passée, retour en attente",
+      "overdueManual": "échéance passée, retour à faire à la main",
       "left": "(reste {{hours}} h {{minutes}} min)",
-      "started": "Lancé par {{by}} le {{when}}. Revenir maintenant, ou à l'échéance si le retour automatique est activé.",
+      "started": "Lancé par {{by}} le {{when}}.",
+      "autoReturn": "Chaque nœud revient à l'échéance, ou tout de suite avec Revenir maintenant.",
+      "noAutoReturn": "Retour automatique désactivé : les nœuds gardent les forwarders après l'échéance jusqu'à Revenir maintenant.",
       "returnNow": "Revenir maintenant",
       "extend": "Prolonger"
     },
     "form": {
       "title": "Passer par des forwarders",
       "intro": "Toutes les requêtes des nœuds choisis partent vers ces forwarders jusqu'à l'échéance, puis chaque nœud reprend ses réglages d'avant. La validation DNSSEC reste active.",
+      "introManual": "Toutes les requêtes des nœuds choisis partent vers ces forwarders. Retour automatique désactivé : ils y restent jusqu'au retour à la main. La validation DNSSEC reste active.",
       "preset": "Préréglage",
       "presetFiltering": "{{name}} (filtrage)",
       "custom": "Adresses libres",

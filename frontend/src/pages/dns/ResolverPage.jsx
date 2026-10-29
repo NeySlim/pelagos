@@ -28,7 +28,7 @@ import { validForwarder } from './records'
 import { HandoverCard } from './HandoverCard'
 import { handoverItems } from './handover'
 import { ExtendForm, FallbackBanner, FallbackForm, ResolverHealthSection } from './ResolverHealth'
-import { DEFAULT_MAX_HOURS, extendUntil } from './resolverHealth'
+import { healthSettings } from './resolverHealth'
 
 function ResolverEditor({ open, onClose, current, onPlan }) {
   const { t } = useTranslation(['dns', 'common'])
@@ -97,9 +97,7 @@ export default function ResolverPage() {
   const forwardZones = useApi(() => api.dns.zones({ kind: 'forward' }), [])
   const handover = useApi(() => api.dns.handover().catch(() => ({ items: [] })), [])
   const health = useApi(() => api.resolverHealth.health(), [])
-  const canAdmin = hasPermission('admin:settings')
-  const adminSettings = useApi(() => (canAdmin ? api.admin.settings().catch(() => null) : Promise.resolve(null)), [canAdmin])
-  const maxHours = Number(adminSettings.data?.resolver?.fallback_max_hours) || DEFAULT_MAX_HOURS
+  const { maxHours, autoReturn } = healthSettings(health.data)
   const reload = () => {
     refetch()
     handover.refetch()
@@ -139,7 +137,7 @@ export default function ResolverPage() {
   )
   const extend = async (hours) => {
     try {
-      await api.resolverHealth.extend(extendUntil(hours))
+      await api.resolverHealth.extend(hours)
       setExtending(false)
       showSuccess(t('resolverHealth.extend.done'))
       health.refetch()
@@ -191,6 +189,7 @@ export default function ResolverPage() {
               returnReady={health.data.return_ready}
               nameOf={nameOf}
               canWrite={canWrite}
+              autoReturn={autoReturn}
               busy={flow.busy}
               onReturn={() => flow.run(() => api.resolverHealth.returnPlan())}
               onExtend={() => setExtending(true)}
@@ -279,6 +278,7 @@ export default function ResolverPage() {
           nodes={fallbackNodes}
           nameOf={nameOf}
           maxHours={maxHours}
+          autoReturn={autoReturn}
           onPlan={async (body) => {
             const plan = await flow.run(() => api.resolverHealth.fallbackPlan(body))
             if (plan) closeFallback()

@@ -223,7 +223,7 @@ function Thresholds({ thresholds }) {
 }
 
 // Active fallback: forwarders, nodes, deadline, return and extension.
-export function FallbackBanner({ fallback, returnReady, nameOf, canWrite, onReturn, onExtend, busy }) {
+export function FallbackBanner({ fallback, returnReady, nameOf, canWrite, onReturn, onExtend, busy, autoReturn = true }) {
   const { t } = useTranslation('dns')
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -240,7 +240,11 @@ export function FallbackBanner({ fallback, returnReady, nameOf, canWrite, onRetu
         <span className="font-semibold text-sm text-text-primary">{t('resolverHealth.banner.title')}</span>
         <Badge size="sm" variant="outline">forward {fallback.forward}</Badge>
         {fallback.tls_name && <Badge size="sm" variant="outline" icon={ShieldCheck}>{t('resolverHealth.banner.tls', { name: fallback.tls_name })}</Badge>}
-        {fallback.manual_change && <Badge size="sm" variant="danger" data-testid="resolver-fallback-manual">{t('resolverHealth.banner.manual')}</Badge>}
+        {fallback.manual_change && (
+          <Badge size="sm" variant="danger" data-testid="resolver-fallback-manual">
+            {t('resolverHealth.banner.manual', { nodes: (fallback.manual_change_nodes || []).map(nameOf).join(', ') || '-' })}
+          </Badge>
+        )}
         {returnReady && <Badge size="sm" variant="success" data-testid="resolver-fallback-ready">{t('resolverHealth.banner.ready')}</Badge>}
       </div>
       <dl className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
@@ -260,13 +264,14 @@ export function FallbackBanner({ fallback, returnReady, nameOf, canWrite, onRetu
           <dd className="text-text-primary" data-testid="resolver-fallback-until">
             {formatDate(fallback.until)}{' '}
             <span className="text-text-tertiary">
-              {status.overdue ? t('resolverHealth.banner.overdue') : left ? t('resolverHealth.banner.left', left) : null}
+              {status.overdue ? t(autoReturn ? 'resolverHealth.banner.overdue' : 'resolverHealth.banner.overdueManual') : left ? t('resolverHealth.banner.left', left) : null}
             </span>
           </dd>
         </div>
       </dl>
-      <p className="text-2xs text-text-secondary">
-        {t('resolverHealth.banner.started', { by: fallback.by || '-', when: fallback.started_at ? formatDate(fallback.started_at) : '-' })}
+      <p className="text-2xs text-text-secondary" data-testid="resolver-fallback-started">
+        {t('resolverHealth.banner.started', { by: fallback.by || '-', when: fallback.started_at ? formatDate(fallback.started_at) : '-' })}{' '}
+        {t(autoReturn ? 'resolverHealth.banner.autoReturn' : 'resolverHealth.banner.noAutoReturn')}
       </p>
       {canWrite && (
         <div className="flex flex-wrap gap-2">
@@ -285,7 +290,7 @@ export function FallbackBanner({ fallback, returnReady, nameOf, canWrite, onRetu
 }
 
 // The fallback plan form: preset or own addresses, first or only, nodes, duration, DNS over TLS.
-export function FallbackForm({ open, onClose, presets = [], nodes = [], nameOf, maxHours, onPlan }) {
+export function FallbackForm({ open, onClose, presets = [], nodes = [], nameOf, maxHours, onPlan, autoReturn = true }) {
   const { t } = useTranslation(['dns', 'common'])
   const nodeIds = nodes.map((n) => n.node_id)
   const answering = (list) => list.filter((n) => !n.unavailable).map((n) => n.node_id)
@@ -325,7 +330,7 @@ export function FallbackForm({ open, onClose, presets = [], nodes = [], nameOf, 
 
   return (
     <FormModal open={open} onClose={onClose} title={t('resolverHealth.form.title')} onSubmit={submit} loading={busy} submitLabel={t('editor.buildPlan')} testId="resolver-fallback-form">
-      <p className="text-xs text-text-secondary">{t('resolverHealth.form.intro')}</p>
+      <p className="text-xs text-text-secondary" data-testid="resolver-fallback-intro">{t(autoReturn ? 'resolverHealth.form.intro' : 'resolverHealth.form.introManual')}</p>
       <Select
         label={t('resolverHealth.form.preset')}
         value={form.preset}

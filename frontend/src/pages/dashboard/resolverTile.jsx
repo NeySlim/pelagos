@@ -58,7 +58,7 @@ export function ResolverTile({ editing }) {
             </div>
             <div className="dash-subpanel">
               <dt className="text-2xs text-text-tertiary">{t('tiles.resolver.servfail')}</dt>
-              <dd className="text-lg font-semibold tabular-nums text-text-primary" data-testid="tile-resolver-servfail">{t('tiles.resolver.percent', { value: number(s.servfail, 1) })}</dd>
+              <dd className={cn('text-lg font-semibold tabular-nums', TEXT[s.servfailTone])} data-testid="tile-resolver-servfail">{t('tiles.resolver.percent', { value: number(s.servfail, 1) })}</dd>
             </div>
           </dl>
           <p className={cn('text-2xs', s.unhealthy ? 'status-danger-text' : 'text-text-tertiary')} data-testid="tile-resolver-probes">

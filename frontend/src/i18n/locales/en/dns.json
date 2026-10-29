@@ -745,27 +745,32 @@
         "timeouts_percent": "Timeouts (%)",
         "tld_failures": "TLD failed probes in a row",
         "mismatch_count": "Mismatched answers per window",
-        "lru_per_minute": "Cache evictions per minute"
+        "lru_per_minute": "Cache evictions per minute",
+        "servfail_clients_percent": "SERVFAIL to clients (%)"
       }
     },
     "banner": {
       "title": "Queries go through forwarders",
       "tls": "DNS over TLS: {{name}}",
-      "manual": "Changed by hand: no automatic return",
+      "manual": "Changed by hand on {{nodes}}: kept as is, no automatic return",
       "ready": "Probes healthy: return proposed",
       "forwarders": "Forwarders",
       "nodes": "Nodes",
       "returned": "(already back: {{nodes}})",
       "until": "Until",
       "overdue": "deadline passed, return pending",
+      "overdueManual": "deadline passed, return by hand",
       "left": "({{hours}} h {{minutes}} min left)",
-      "started": "Started by {{by}} on {{when}}. Return now, or at the deadline when automatic return is on.",
+      "started": "Started by {{by}} on {{when}}.",
+      "autoReturn": "Each node returns at the deadline, or now with Return now.",
+      "noAutoReturn": "Automatic return is off: nodes keep the forwarders after the deadline until Return now.",
       "returnNow": "Return now",
       "extend": "Extend"
     },
     "form": {
       "title": "Fall back to forwarders",
       "intro": "Every query of the chosen nodes goes to these forwarders until the deadline, then each node returns to its settings of before. DNSSEC validation stays on.",
+      "introManual": "Every query of the chosen nodes goes to these forwarders. Automatic return is off: they stay until you return them by hand. DNSSEC validation stays on.",
       "preset": "Preset",
       "presetFiltering": "{{name}} (filtering)",
       "custom": "Own addresses",

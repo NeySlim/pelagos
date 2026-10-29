@@ -33,7 +33,8 @@ export const bySeverity = (a, b) => (SEVERITY_RANK[a.severity] ?? 3) - (SEVERITY
 
 // Subjects are "ip:<addr>", "mac:<mac>", "name:<fqdn>/<type>", "zone:<zone>[@view]",
 // "kea4:subnet:<id>:pool:<range>", "ha:<engine>", "ha-backup:<engine>", "peer:<id>", "d2:updates", ...
-export function subjectLink(alert) {
+// canProposeFallback false (no write:dns.config, or a fallback already active) opens the resolver page.
+export function subjectLink(alert, { canProposeFallback = true } = {}) {
   const subject = String(alert?.subject || '')
   const [kind, ...rest] = subject.split(':')
   const value = rest.join(':')
@@ -64,7 +65,7 @@ export function subjectLink(alert) {
   if (subject === 'kea:series') return { to: '/install/kea-migration', label: 'openKeaMigration' }
   // Resolver health "resolver:<what>": a proposing alert opens the fallback form there.
   if (kind === 'resolver') {
-    if (alert.details?.remediation === 'resolver_fallback') return { to: '/dns/resolver?fallback=1', label: 'proposeFallback' }
+    if (proposesFallback(alert) && canProposeFallback) return { to: '/dns/resolver?fallback=1', label: 'proposeFallback' }
     return { to: '/dns/resolver', label: 'openResolver' }
   }
   // IPv6 checks: "ipv6:aaaa:<zone>", "ipv6:stale:<zone>" open the filtered IPv6 tab of Hosts.
@@ -75,6 +76,9 @@ export function subjectLink(alert) {
   if (kind === 'notify' && value) return { to: `/admin/notifications?channel=${encodeURIComponent(value)}`, label: 'openChannel' }
   return null
 }
+
+// A resolver_health alert that proposes the forwarder fallback (section 25).
+export const proposesFallback = (alert) => alert?.details?.remediation === 'resolver_fallback' && alert?.state !== 'resolved'
 
 // An alert by id in any state, for the /alerts?alert=<id> links of notification messages. The
 // list has no id filter, so pages are read until it shows up (bounded).

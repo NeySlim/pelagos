@@ -56,6 +56,7 @@ export function resolverHandlers(state, { Problem, invalid, createPlan }) {
   const thresholds = () => ({
     latency_p95_ms: { warning: checks().resolver_latency_warning_milliseconds, critical: checks().resolver_latency_critical_milliseconds, observed_max_7d: 410 },
     timeouts_percent: { warning: checks().resolver_timeouts_warning_percent, critical: checks().resolver_timeouts_critical_percent, observed_max_7d: 2.1 },
+    servfail_clients_percent: { warning: checks().resolver_servfail_warning_percent, critical: checks().resolver_servfail_critical_percent, observed_max_7d: 1.2 },
     tld_failures: { warning: checks().resolver_tld_failures, observed_max_7d: 1 },
     mismatch_count: { warning: checks().resolver_mismatch_warning_count, observed_max_7d: 3 },
     lru_per_minute: { info: checks().resolver_lru_info_per_minute, observed_max_7d: 0 },
@@ -116,7 +117,7 @@ export function resolverHandlers(state, { Problem, invalid, createPlan }) {
           state.resolver.forwarders = back.forwarders ?? []
           state.resolverFallback = null
         } else {
-          state.resolverFallback = { ...after, started_at: iso(Date.now()), before: Object.fromEntries(targets.map((id) => [id, now])), returned: [], manual_change: false }
+          state.resolverFallback = { ...after, started_at: iso(Date.now()), before: Object.fromEntries(targets.map((id) => [id, now])), returned: [], manual_change: false, manual_change_nodes: [] }
           state.resolver.forward = after.forward
           state.resolver.forwarders = written(after)
         }
@@ -140,7 +141,7 @@ export function resolverHandlers(state, { Problem, invalid, createPlan }) {
       const ids = nodeIds().filter((id) => !only || id === only)
       const nodes = ids.filter((id) => online.includes(id)).map(nodeHealth)
       const unavailable = ids.filter((id) => !online.includes(id)).map((id) => ({ node_id: id, name: nameOf(id), error: 'peer did not answer' }))
-      return { nodes, unavailable, fallback: fb(), return_ready: returnReady(nodes), thresholds: thresholds(), presets: allPresets() }
+      return { nodes, unavailable, fallback: fb(), return_ready: returnReady(nodes), thresholds: thresholds(), presets: allPresets(), settings: { fallback_max_hours: maxHours(), fallback_auto_return_enabled: settings().fallback_auto_return_enabled ?? true } }
     },
     'GET /series/resolver': ({ query }) => {
       const metric = query.get('metric') || 'latency_p95_ms'
@@ -190,7 +191,9 @@ export function resolverHandlers(state, { Problem, invalid, createPlan }) {
       const f = fb()
       if (!f) throw new Problem(409, 'conflict', 'no forwarder fallback is active')
       const raw = body.until
-      const until = typeof raw === 'number' || /^\d+$/.test(String(raw)) ? Number(raw) * 1000 : Date.parse(raw)
+      const hours = body.hours
+      if (hours !== undefined && !(Number.isInteger(hours) && hours >= 1 && hours <= maxHours())) throw invalid('hours', `1 to ${maxHours()}`)
+      const until = hours !== undefined ? Date.now() + hours * 3600000 : typeof raw === 'number' || /^\d+$/.test(String(raw)) ? Number(raw) * 1000 : Date.parse(raw)
       if (!Number.isFinite(until) || until <= Date.now() || until > Date.now() + maxHours() * 3600000) throw invalid('until', `future, at most ${maxHours()} hours`)
       f.until = iso(until)
       auditEntry(state, user, { action: 'dns.resolver.op', target: `resolver:fallback/${f.id}`, request: { op: 'extend', until: f.until } })

@@ -39,11 +39,12 @@ export function nodeReadings(entry, thresholds = {}) {
   const rates = entry?.rates || {}
   const p95 = num(entry?.latency_ms?.p95)
   const cache = num(rates.cache_hit_percent)
+  const servfail = num(rates.servfail_clients_percent)
   return [
     { key: 'queriesOut', value: num(rates.queries_out), unit: 'perSecond', tone: 'neutral' },
     { key: 'p95', value: p95, unit: 'ms', tone: toneOf(p95, thresholds.latency_p95_ms) },
-    // No threshold of these two reaches the health answer: kept neutral rather than guessed.
-    { key: 'servfail', value: num(rates.servfail_clients_percent), unit: 'percent', tone: 'neutral' },
+    { key: 'servfail', value: servfail, unit: 'percent', tone: toneOf(servfail, thresholds.servfail_clients_percent) },
+    // The DNSSEC check counts failures per window, not a share: no threshold to compare this with.
     { key: 'valfail', value: num(rates.valfail_percent), unit: 'percent', tone: 'neutral' },
     { key: 'cacheHit', value: cache, unit: 'percent', tone: 'neutral' },
   ]
@@ -189,10 +190,15 @@ export function remaining(ms) {
   return { hours: Math.floor(minutes / 60), minutes: minutes % 60 }
 }
 
-// New deadline of PUT /dns/resolver/fallback: `hours` from now, RFC 3339, one minute short so a
-// browser clock slightly ahead of the node stays within fallback_max_hours.
-export const EXTEND_MARGIN_MS = 60000
-export const extendUntil = (hours, nowMs = Date.now()) => new Date(nowMs + Number(hours) * 3600000 - EXTEND_MARGIN_MS).toISOString()
+// Resolver settings of the health answer (readable without admin:settings), defaults when absent.
+export function healthSettings(health) {
+  const s = health?.settings || {}
+  const hours = Math.floor(Number(s.fallback_max_hours))
+  return {
+    maxHours: hours >= 1 ? hours : DEFAULT_MAX_HOURS,
+    autoReturn: s.fallback_auto_return_enabled !== false,
+  }
+}
 
 // Cluster digest for the dashboard tile: the worst p95 and SERVFAIL share, the root reachability,
 // the fallback, and an overall tone.
@@ -203,15 +209,16 @@ export function resolverSummary(health) {
   const worst = (pick) => nodes.reduce((acc, n) => (num(pick(n)) !== null && (acc === null || pick(n) > acc) ? pick(n) : acc), null)
   const p95 = worst((n) => n.latency_ms?.p95)
   const servfail = worst((n) => n.rates?.servfail_clients_percent)
+  const servfailTone = toneOf(servfail, thresholds.servfail_clients_percent)
   const unhealthy = nodes.filter((n) => n.probes_healthy_since === 'unhealthy').length
   const measured = nodes.filter((n) => !n.error).length
   const latency = toneOf(p95, thresholds.latency_p95_ms)
-  const tone = unhealthy > 0 || latency === 'danger'
+  const tone = unhealthy > 0 || latency === 'danger' || servfailTone === 'danger'
     ? 'danger'
-    : latency === 'warning' || health.fallback || (health.unavailable || []).length > 0
+    : latency === 'warning' || servfailTone === 'warning' || health.fallback || (health.unavailable || []).length > 0
       ? 'warning'
       : measured > 0
         ? 'success'
         : 'neutral'
-  return { p95, servfail, latencyTone: latency, unhealthy, nodes: nodes.length, measured, unavailable: (health.unavailable || []).length, fallback: health.fallback || null, returnReady: Boolean(health.return_ready), tone }
+  return { p95, servfail, latencyTone: latency, servfailTone, unhealthy, nodes: nodes.length, measured, unavailable: (health.unavailable || []).length, fallback: health.fallback || null, returnReady: Boolean(health.return_ready), tone }
 }

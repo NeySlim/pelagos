@@ -6,7 +6,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import '../../i18n'
 
-const db = vi.hoisted(() => ({ health: null, perms: null, settings: { resolver: { fallback_max_hours: 12 } } }))
+const db = vi.hoisted(() => ({ health: null, perms: null }))
 const calls = vi.hoisted(() => ({ fallbackPlan: vi.fn(), returnPlan: vi.fn(), extend: vi.fn(), series: vi.fn(), info: vi.fn() }))
 
 vi.mock('../../hooks/useWebSocket', () => ({ useWebSocket: () => ({ isConnected: true }), useWsTopic: () => {} }))
@@ -32,12 +32,11 @@ vi.mock('../../services/api', () => {
         calls.returnPlan()
         return plan('return plan')
       },
-      extend: async (until) => {
-        calls.extend(until)
-        return { fallback: { ...db.health.fallback, until } }
+      extend: async (hours) => {
+        calls.extend(hours)
+        return { fallback: db.health.fallback }
       },
     },
-    admin: { settings: async () => db.settings },
     nodes: { list: async () => ({ items: [{ peer: { id: 'N1', name: 'ns1' } }, { peer: { id: 'N2', name: 'ns2' } }] }) },
   }
   return { api, default: api }
@@ -83,7 +82,7 @@ const THRESHOLDS = {
   mismatch_count: { warning: 100, observed_max_7d: null },
   lru_per_minute: { info: 100, observed_max_7d: 0 },
 }
-const health = (extra = {}) => ({ nodes: [node('N1'), node('N2', { latency_ms: { p50: 900, p95: 1700 } })], unavailable: [], fallback: null, return_ready: false, thresholds: THRESHOLDS, presets: PRESETS, ...extra })
+const health = (extra = {}) => ({ nodes: [node('N1'), node('N2', { latency_ms: { p50: 900, p95: 1700 } })], unavailable: [], fallback: null, return_ready: false, thresholds: THRESHOLDS, presets: PRESETS, settings: { fallback_max_hours: 12, fallback_auto_return_enabled: true }, ...extra })
 const FALLBACK = {
   id: '01JF', node_ids: ['N1', 'N2'], preset: 'quad9', forwarders: ['9.9.9.9', '149.112.112.112'], forward: 'first', tls_name: 'dns.quad9.net',
   started_at: '2026-10-29T08:00:00Z', until: new Date(Date.now() + 3 * 3600000 + 600000).toISOString(), by: 'admin', before: {}, returned: ['N2'], manual_change: false,
@@ -169,12 +168,33 @@ describe('Resolver health', () => {
     expect(await screen.findByTestId('plan-preview')).toHaveTextContent('return plan')
     fireEvent.click(within(banner).getByTestId('resolver-fallback-extend'))
     const form = await screen.findByTestId('resolver-extend-form')
-    const before = Date.now()
     fireEvent.click(within(form).getByRole('button', { name: 'Extend' }))
-    await waitFor(() => expect(calls.extend).toHaveBeenCalled())
-    const until = Date.parse(calls.extend.mock.calls[0][0])
-    expect(until - before).toBeGreaterThanOrEqual(4 * 3600000 - 61000)
-    expect(until - before).toBeLessThan(4 * 3600000)
+    // A duration: the node counts it from its own clock, whatever the browser's says.
+    await waitFor(() => expect(calls.extend).toHaveBeenCalledWith(4))
+    expect(banner).toHaveTextContent('Each node returns at the deadline')
+  })
+
+  it('takes fallback_max_hours and the automatic return from the health answer, without admin:settings', async () => {
+    db.perms = ['read:dns', 'write:dns.config']
+    db.health = health({ settings: { fallback_max_hours: 6, fallback_auto_return_enabled: false } })
+    renderPage('/dns/resolver?fallback=1')
+    const form = await screen.findByTestId('resolver-fallback-form')
+    expect(within(form).getByTestId('resolver-fallback-intro')).toHaveTextContent('Automatic return is off')
+    fireEvent.click(within(form).getByRole('button', { name: 'Preview the plan' }))
+    await waitFor(() => expect(calls.fallbackPlan).toHaveBeenCalledWith(expect.objectContaining({ hours: 6 })))
+  })
+
+  it('says the nodes keep the forwarders when the automatic return is off, and names nodes changed by hand', async () => {
+    db.health = health({
+      fallback: { ...FALLBACK, until: new Date(Date.now() - 60000).toISOString(), manual_change: true, manual_change_nodes: ['N1'] },
+      settings: { fallback_max_hours: 12, fallback_auto_return_enabled: false },
+    })
+    renderPage()
+    const banner = await screen.findByTestId('resolver-fallback-banner')
+    expect(within(banner).getByTestId('resolver-fallback-started')).toHaveTextContent('Automatic return is off')
+    expect(within(banner).getByTestId('resolver-fallback-started')).not.toHaveTextContent('returns at the deadline')
+    expect(within(banner).getByTestId('resolver-fallback-until')).toHaveTextContent('deadline passed, return by hand')
+    expect(within(banner).getByTestId('resolver-fallback-manual')).toHaveTextContent('Changed by hand on ns1')
   })
 
   it('hides the fallback actions without write:dns.config', async () => {

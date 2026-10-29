@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
 import {
-  CUSTOM_PRESET, applyPreset, chartRows, extendUntil, fallbackBody, fallbackDefaults, fallbackErrors, fallbackStatus,
-  hourChoices, nodeReadings, remaining, resolverSummary, rootRows, rootsAnswering, seriesQuery, toneOf, validAddress,
+  CUSTOM_PRESET, applyPreset, chartRows, fallbackBody, fallbackDefaults, fallbackErrors, fallbackStatus,
+  healthSettings, hourChoices, nodeReadings, remaining, resolverSummary, rootRows, rootsAnswering, seriesQuery, toneOf, validAddress,
 } from './resolverHealth'
 
 const PRESETS = [
@@ -27,6 +27,12 @@ describe('resolver health helpers', () => {
     expect(r.find((x) => x.key === 'servfail').value).toBe(null)
     const high = nodeReadings({ rates: { servfail_clients_percent: 50, valfail_percent: 20 } }, { latency_p95_ms: LAT })
     expect(high.filter((x) => ['servfail', 'valfail'].includes(x.key)).map((x) => x.tone)).toEqual(['neutral', 'neutral'])
+    // SERVFAIL follows checks.resolver_servfail_* from the health answer; DNSSEC has no share threshold.
+    const SF = { servfail_clients_percent: { warning: 10, critical: 30 } }
+    const tones = (v) => nodeReadings({ rates: { servfail_clients_percent: v, valfail_percent: 20 } }, SF).filter((x) => ['servfail', 'valfail'].includes(x.key)).map((x) => x.tone)
+    expect(tones(6)).toEqual(['success', 'neutral'])
+    expect(tones(12)).toEqual(['warning', 'neutral'])
+    expect(tones(30)).toEqual(['danger', 'neutral'])
     expect(nodeReadings(null).every((x) => x.value === null)).toBe(true)
   })
 
@@ -111,8 +117,12 @@ describe('resolver health helpers', () => {
     expect(fallbackStatus(null)).toBe(null)
     expect(remaining(9000000)).toEqual({ hours: 2, minutes: 30 })
     expect(remaining(-1)).toBe(null)
-    // One minute short of the asked hours, so the largest choice stays within fallback_max_hours.
-    expect(extendUntil(2, now)).toBe('2026-10-29T11:59:00.000Z')
+  })
+
+  it('reads the resolver settings of the health answer, with defaults', () => {
+    expect(healthSettings(null)).toEqual({ maxHours: 24, autoReturn: true })
+    expect(healthSettings({ settings: { fallback_max_hours: 72, fallback_auto_return_enabled: false } })).toEqual({ maxHours: 72, autoReturn: false })
+    expect(healthSettings({ settings: { fallback_max_hours: 0 } }).maxHours).toBe(24)
   })
 
   it('sums the cluster for the dashboard tile', () => {
@@ -124,5 +134,8 @@ describe('resolver health helpers', () => {
     expect(resolverSummary({ nodes: [node('N1', 100, 1, 'unhealthy')], thresholds })).toMatchObject({ tone: 'danger', unhealthy: 1 })
     expect(resolverSummary({ nodes: [node('N1', 100, 1)], thresholds, fallback: { forwarders: ['9.9.9.9'] } }).tone).toBe('warning')
     expect(resolverSummary({ nodes: [], thresholds }).tone).toBe('neutral')
+    const sf = { ...thresholds, servfail_clients_percent: { warning: 10, critical: 30 } }
+    expect(resolverSummary({ nodes: [node('N1', 100, 12)], thresholds: sf })).toMatchObject({ servfailTone: 'warning', tone: 'warning' })
+    expect(resolverSummary({ nodes: [node('N1', 100, 40)], thresholds: sf })).toMatchObject({ servfailTone: 'danger', tone: 'danger' })
   })
 })

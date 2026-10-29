@@ -344,7 +344,7 @@ export const resolverHealth = {
   // {forwarders, forward: first|only, node_ids?, hours, preset?, tls_name?}
   fallbackPlan: (body) => apiClient.post('/dns/resolver/fallback/plan', body),
   returnPlan: () => apiClient.post('/dns/resolver/fallback/return/plan', {}),
-  extend: (until) => apiClient.put('/dns/resolver/fallback', { until }),
+  extend: (hours) => apiClient.put('/dns/resolver/fallback', { hours }),
 }
 
 // Kea 2.6 to 3.x migration, read-only analysis (Installation > Kea migration, section 26).

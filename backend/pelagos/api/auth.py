@@ -350,8 +350,12 @@ class Tokens(Resource):
     @ns.response(401, "invalid_credentials: the second factor was not accepted", m.Problem)
     @ns.response(403, "forbidden: wider than the creator", m.Problem)
     @ns.response(409, "conflict: name already used, or no second factor usable here", m.Problem)
+    @ns.response(429, "rate_limited", m.Problem)
     def post(self):
         session = _full_session()
+        # Bounds second-factor guessing from a stolen session, like the login TOTP step.
+        _limit(f"token-create:user:{session.user_id}")
+        _limit(f"token-create:ip:{client_ip() or '?'}")
         return services().tokens.create(session.user_id, json_body(), _site(), client_ip()), 201
 
 

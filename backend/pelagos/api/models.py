@@ -277,7 +277,10 @@ ApiTokenList = model(
     "ApiTokenList",
     {
         "items": fields.List(fields.Nested(ApiToken)),
-        "meta": fields.Raw(description='{"unavailable": [node names whose last uses are unknown]}'),
+        "meta": fields.Raw(
+            description='{"unavailable": [node names whose last uses are unknown], '
+            '"default_days", "max_days"}'
+        ),
     },
 )
 ApiTokenChallenge = model(

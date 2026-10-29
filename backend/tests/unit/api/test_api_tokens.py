@@ -201,7 +201,9 @@ def test_expiry_bounds_and_expired_token(app, admin_key, node_ctx):
         e for e in node_ctx.audit_log.read(limit=10000) if e.action == "auth.token" and e.result == "denied"
     ]
     assert denied and denied[-1].message == "expired" and denied[-1].request["id"] == tid
-    assert admin.get(f"{P}/auth/tokens").get_json()["items"][0]["expired"] is True
+    listing = admin.get(f"{P}/auth/tokens").get_json()
+    assert listing["items"][0]["expired"] is True
+    assert listing["meta"]["default_days"] == 90 and listing["meta"]["max_days"] == 365
 
 
 def test_source_networks(app, admin_key):
@@ -275,3 +277,17 @@ def test_reads_audit_can_be_turned_off(app, admin_key, node_ctx):
     bearer(app, token).get(f"{P}/nodes")
     after = len([e for e in node_ctx.audit_log.read(limit=10000) if e.action == "auth.token_call"])
     assert after == before
+
+
+def test_totp_guessing_on_token_creation_is_rate_limited(app, login, node_ctx):
+    dora = login("dora")
+    secret = dora.post(f"{P}/auth/totp/enroll").get_json()["secret"]
+    assert dora.post(f"{P}/auth/totp/confirm", json={"code": pyotp.TOTP(secret).now()}).status_code == 204
+    node_ctx.login_limiter.limit = 3
+    codes = [dora.post(f"{P}/auth/tokens", json={"name": "ci", "totp_code": "000000"}) for _ in range(4)]
+    assert [r.status_code for r in codes] == [401, 401, 401, 429]
+    assert codes[-1].get_json()["code"] == "rate_limited" and int(codes[-1].headers["Retry-After"]) > 0
+    # While limited, even the right code is refused.
+    r = dora.post(f"{P}/auth/tokens", json={"name": "ci", "totp_code": pyotp.TOTP(secret).now()})
+    assert r.status_code == 429
+    assert node_ctx.cluster().api_tokens == []

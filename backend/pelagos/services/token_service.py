@@ -335,7 +335,12 @@ class TokenService:
         items = [
             self._public(t, names.get(t.user_id), usage) for t in sorted(tokens, key=lambda t: t.created_at)
         ]
-        return {"items": items, "meta": {"unavailable": unavailable}}
+        meta = {
+            "unavailable": unavailable,
+            "default_days": int(reg.get(cfg.settings, "auth.api_token_default_days")),
+            "max_days": int(reg.get(cfg.settings, "auth.api_token_max_days")),
+        }
+        return {"items": items, "meta": meta}
 
     def revoke(self, token_id: str, actor: User, any_user: bool, ip: str | None) -> None:
         token = next((t for t in self.ctx.cluster().api_tokens if t.id == token_id), None)

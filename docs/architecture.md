@@ -2477,9 +2477,9 @@ Until a work package implements an endpoint it answers `501` with
 | `POST /auth/webauthn/register/verify` | any | `{"ceremony", "credential", "name"}` | `201 Credential`; lifts `webauthn_enrollment` and `totp_enrollment` |
 | `PATCH /auth/webauthn/credentials/{id}` | any | `{"name"}` | `Credential` |
 | `DELETE /auth/webauthn/credentials/{id}` | any | `{"password"}` | `204`; `409 conflict` for the last key when a role requires one |
-| `GET /auth/tokens` | any (session) | | `{"items": [ApiToken], "meta": {"unavailable": [node names]}}`: the caller's tokens |
+| `GET /auth/tokens` | any (session) | | `{"items": [ApiToken], "meta": {"unavailable": [node names], "default_days", "max_days"}}`: the caller's tokens, with the expiry bounds of `auth.api_token_default_days` and `auth.api_token_max_days` |
 | `POST /auth/tokens/challenge` | any (session, no restriction) | | `{"methods": ["webauthn"?, "totp"?], "ceremony"?, "options"?}` (`PublicKeyCredentialRequestOptionsJSON`); `409 conflict` with `reason: "no_second_factor"` |
-| `POST /auth/tokens` | any (session, no restriction) | `{"name", "role"? | "permissions"?, "expires_days"? | "expires_at"?, "cidrs"?, "ceremony"+"credential" | "totp_code"}` | `201 {"token": "pel_<id>_<secret>" (only here), "item": ApiToken}`; `400 validation_error`, `401 invalid_credentials` (factor refused, ceremony used or expired), `403 forbidden` (wider than the caller, member `permissions`), `409 conflict` (name used, or no factor) |
+| `POST /auth/tokens` | any (session, no restriction) | `{"name", "role"? | "permissions"?, "expires_days"? | "expires_at"?, "cidrs"?, "ceremony"+"credential" | "totp_code"}` | `201 {"token": "pel_<id>_<secret>" (only here), "item": ApiToken}`; `400 validation_error`, `401 invalid_credentials` (factor refused, ceremony used or expired), `403 forbidden` (wider than the caller, member `permissions`), `409 conflict` (name used, or no factor), `429 rate_limited` (per user and per source IP, `auth.login_rate_limit_per_minute`, with `Retry-After`) |
 | `DELETE /auth/tokens/{id}` | any (session) | | `204`; `404` for another user's token |
 | `GET /account/preferences` | any | | `{"theme_family","theme_mode","language","animations","ambient","dashboard_layout"}`; defaults `instrument`, `system`, `en`, `full`, `on`, `[]`; `animations` is one of `full`, `reduced`, `off`; `ambient` is `on` or `off` |
 | `PUT /account/preferences` | any | same keys, partial | the merged preferences |
@@ -2890,7 +2890,7 @@ parts and put the reservation on every node that runs the Kea engine.
 | `GET /admin/users/{id}/webauthn` | `admin:users` | | `{"items": [Credential]}` |
 | `DELETE /admin/users/{id}/webauthn` | `admin:users` | | `204` (every key of the user) |
 | `DELETE /admin/users/{id}/webauthn/{credential_id}` | `admin:users` | | `204` |
-| `GET /admin/tokens` | `admin:users` | | `{"items": [ApiToken], "meta": {"unavailable"}}`: every token of the cluster |
+| `GET /admin/tokens` | `admin:users` | | `{"items": [ApiToken], "meta": {"unavailable", "default_days", "max_days"}}`: every token of the cluster |
 | `DELETE /admin/tokens/{id}` | `admin:users` | | `204` |
 | `GET /admin/webauthn` | `admin:users` | | `{"rp_id", "source": "setting"|"common_domain"|"request_host", "common_domain", "nodes": [{"id","name","host","covered"}], "warning": null|"no_common_domain"|"node_outside_rp_id"}` |
 | `GET /admin/roles` | `admin:roles` | | `{"items": [Role]}` (builtin + custom) |

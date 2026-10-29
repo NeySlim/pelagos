@@ -495,3 +495,20 @@ def test_preflight_on_every_target_before_any_node_applies(node_ctx):
     with pytest.raises(Exception, match="TSIG secret files"):
         plans.apply(plan, "alice")
     assert asked == [remote.id] and applied == []
+
+
+def test_replay_card_counts_only_a_known_outage():
+    svc, _rec = service(inventory())
+    start, end = datetime(2026, 10, 28, 8, tzinfo=UTC), datetime(2026, 10, 28, 9, tzinfo=UTC)
+    scans: list[int] = []
+
+    def candidates(body: dict[str, Any]) -> Any:
+        scans.append(1)
+        return SimpleNamespace(start=start, end=end, source="outage"), [object()], []
+
+    svc.replay = SimpleNamespace(window=lambda body: SimpleNamespace(source="default"), candidates=candidates)
+    assert svc._replay() == {"from": None, "to": None, "source": "none", "candidates": None, "notes": []}
+    assert scans == []
+    svc.replay.window = lambda body: SimpleNamespace(source="outage")
+    got = svc._replay()
+    assert got["source"] == "outage" and got["candidates"] == 1 and got["from"].startswith("2026-10-28T08:00")

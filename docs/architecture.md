@@ -2444,7 +2444,8 @@ UTF-8. Authentication: session cookie (section 16) unless marked `anon`, or an A
 Every endpoint lists the permission it needs; `admin` passes everything.
 Responses are domain objects serialized with `to_dict()`; lists are wrapped
 as `{"items": [...]}` and paginated lists as section 19. Endpoints marked
-`v6-module` return `404 module_disabled` when `modules.dhcpv6` is false.
+`v6-module` return `404 module_disabled` when `modules.dhcpv6` is false; the console
+reads `modules` from `GET /capabilities` and calls none of them while it is false.
 `{family}` is `v4` or `v6`. Plans returned by `.../plan` endpoints are
 applied with `POST /plans/{id}/apply`.
 
@@ -3717,9 +3718,11 @@ return and switchover, D5 screen, D6 lab.
   them keeps the address of its URL, with the port a D2 entry gives that address, so a stopped
   primary still names its D2 entries and its zones stay prepared), each zone's
   `prepared_at`, each D2 domain's `zone` and each server's `port`; `replay` is the D1 selection
-  over its default window (`{"from","to","source","candidates","notes"}`, notes naming zones that
-  could not be read). `ddns_advice` (`d2:dns-servers`) carries `details.remediation =
-  "ddns_prepare"`.
+  over the outage window (`{"from","to","source","candidates","notes"}`, `source` `open` or
+  `outage`, notes naming zones that could not be read). Without a known outage nothing is lost
+  by D2's count: `{"from": null, "to": null, "source": "none", "candidates": null, "notes": []}`,
+  no lease is read, and a catch-up over a chosen window goes through the replay plan.
+  `ddns_advice` (`d2:dns-servers`) carries `details.remediation = "ddns_prepare"`.
 - **Promotion** (batch D3): the target's part is a `dns.zone` replace whose
   `after` carries `promote: {"from": node id, "epoch": int}`; the
   connector reads the copy by a local AXFR (read key), at plan time and

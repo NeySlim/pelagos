@@ -2075,3 +2075,12 @@ collector and the helper); `journalctl -u` filters are unchanged. `scripts/deplo
 leaves the units stopped from the backup to the install and stops on a netlink socket refused by
 the unit sandbox in the journal of the new processes. WP-COLLECTOR: `collector/main.py`,
 `collector/ipv6/observer.py`.
+
+## 2026-10-29, 0.2.4: replay card without a known outage
+Section 24, `GET /dhcp/ddns/resilience`. `replay` counts only an outage window (`source`
+`open` or `outage`). Without one it is `{"from": null, "to": null, "source": "none",
+"candidates": null, "notes": []}` and no lease or zone is read: before, the last
+`replay_window_max_hours` (72 h) were scanned and shown as a default window, so a lease
+lacking its record for any reason was counted as a lost update while no outage was known.
+`POST /dhcp/ddns/replay/plan` is unchanged. WP-API-AUTH: `services/ddns_failover.py`.
+WP-FRONTEND: the card names a manual window, its dialog requires the start.

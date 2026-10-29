@@ -474,29 +474,33 @@
     },
     "replay": {
       "title": "Rattrapage des mises à jour perdues",
-      "help": "Baux actifs pendant la fenêtre de panne dont l'A, l'AAAA ou le PTR manque ou diffère. Le plan les renvoie par lease4/6-resend-ddns.",
+      "help": "Comptés : baux actifs dont le dernier échange avec le client (cltt) tombe dans la fenêtre de la panne et dont l'A, l'AAAA ou le PTR manque ou diffère dans les zones servies. Le plan les renvoie par lease4/6-resend-ddns.",
       "open": "Rejouer",
+      "manual": "Fenêtre manuelle",
       "from": "Début",
       "to": "Fin",
       "candidates": "Baux à rejouer",
       "source": {
         "open": "Panne en cours",
         "outage": "Dernière panne",
-        "default": "Aucune panne connue",
-        "request": "Fenêtre choisie"
+        "request": "Fenêtre choisie",
+        "none": "Aucune panne connue"
       },
       "dialogTitle": "Rejouer les mises à jour DDNS",
       "dialogHelp": "{{count}} baux de la fenêtre par défaut n'ont pas leurs enregistrements. Modifiez la fenêtre si besoin ; le plan liste chaque bail avant tout envoi.",
+      "manualHelp": "Aucune panne ne donne de fenêtre par défaut : indiquez le début (une fin vide vaut maintenant), dans la limite de ddns.replay_window_max_hours. Le plan liste chaque bail avant tout envoi.",
       "toHint": "Vide : jusqu'à maintenant",
       "family": "Famille",
       "allFamilies": "DHCPv4 et DHCPv6",
       "limit": "Nombre maximal de baux",
       "limitHint": "Vide : ddns.replay_max_leases",
       "badFrom": "Le début n'est pas une date valide",
+      "fromRequired": "Indiquez le début de la fenêtre",
       "badTo": "La fin n'est pas une date valide",
       "order": "Le début doit précéder la fin",
       "tooLong": "La fenêtre dépasse ce que permet ddns.replay_window_max_hours (72 heures par défaut)",
-      "badLimit": "Le maximum doit être un entier positif"
+      "badLimit": "Le maximum doit être un entier positif",
+      "noOutage": "D2 n'a signalé aucune panne : aucune mise à jour n'est réputée perdue, rien n'est donc compté et il n'y a pas de fenêtre par défaut. Un bail sans enregistrement hors panne lève l'alerte « bail sans enregistrement ». Pour renvoyer malgré tout les mises à jour d'une période, choisissez une fenêtre manuelle."
     },
     "d2": {
       "title": "Listes de serveurs de D2",

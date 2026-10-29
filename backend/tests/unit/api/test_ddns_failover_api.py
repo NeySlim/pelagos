@@ -21,7 +21,9 @@ def test_resilience_on_a_single_node(admin_client):
     [d2] = body["d2"]
     roles = {s["role"] for d in d2["domains"] for s in d["servers"]}
     assert roles == {"primary"}  # 127.0.0.1 is this node's named
-    assert body["outage"] is None and body["replay"]["candidates"] == 0
+    # No outage known: no default window, nothing counted.
+    assert body["outage"] is None
+    assert body["replay"] == {"from": None, "to": None, "source": "none", "candidates": None, "notes": []}
 
 
 @pytest.mark.parametrize(("body", "status"), [({"zones": "example.lan"}, 400), ({}, 409)])

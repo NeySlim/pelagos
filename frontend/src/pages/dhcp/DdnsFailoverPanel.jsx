@@ -23,7 +23,7 @@ import { errorMessage } from '../../services/apiClient'
 import { NativeSelect, SectionError, Stat } from './ui'
 import { usePlanFlow, useNodeNames } from './hooks'
 import {
-  STATE_TONE, alertsByZone, blockerAction, isPrepared, isPreparable, outageSummary, replayBody, targetNodes,
+  STATE_TONE, alertsByZone, blockerAction, isPrepared, isPreparable, outageSummary, replayBody, replayKnown, targetNodes,
   toLocalInput, zoneKey, zoneLabel, zoneState,
 } from './ddnsFailover'
 
@@ -280,25 +280,33 @@ function ZonesTable({ zones, byZone, offline, nameOf, selectedZone, canPlan, bus
 function ReplayCard({ replay, canReplay, onOpen }) {
   const { t } = useTranslation('dhcp')
   if (!replay) return null
-  const count = replay.candidates
+  const known = replayKnown(replay)
+  const none = replay.source === 'none' || replay.source === 'default'
+  const count = known ? replay.candidates : null
   return (
     <Card className="p-3 space-y-2" hover={false} data-testid="ddns-replay">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('ddnsFailover.replay.title')}</h3>
-        {replay.source && <Badge size="sm" variant={replay.source === 'open' ? 'danger' : replay.source === 'outage' ? 'warning' : 'gray'} data-testid="ddns-replay-source">{t(`ddnsFailover.replay.source.${replay.source}`)}</Badge>}
+        {(known || none) && <Badge size="sm" variant={replay.source === 'open' ? 'danger' : known ? 'warning' : 'gray'} data-testid="ddns-replay-source">{t(`ddnsFailover.replay.source.${known ? replay.source : 'none'}`)}</Badge>}
         {canReplay && (
           <Button size="xs" variant={count ? 'primary' : 'secondary'} className="ml-auto" onClick={onOpen} data-testid="ddns-replay-open">
             <ArrowsCounterClockwise size={12} />
-            {t('ddnsFailover.replay.open')}
+            {t(count ? 'ddnsFailover.replay.open' : 'ddnsFailover.replay.manual')}
           </Button>
         )}
       </div>
-      <p className="text-xs text-text-secondary">{t('ddnsFailover.replay.help')}</p>
-      <div className="flex flex-wrap gap-4">
-        <Stat label={t('ddnsFailover.replay.from')} value={replay.from ? formatDate(replay.from) : '-'} />
-        <Stat label={t('ddnsFailover.replay.to')} value={replay.to ? formatDate(replay.to) : '-'} />
-        <Stat label={t('ddnsFailover.replay.candidates')} value={count ?? '-'} tone={count ? 'warning' : undefined} />
-      </div>
+      {known ? (
+        <>
+          <p className="text-xs text-text-secondary">{t('ddnsFailover.replay.help')}</p>
+          <div className="flex flex-wrap gap-4">
+            <Stat label={t('ddnsFailover.replay.from')} value={replay.from ? formatDate(replay.from) : '-'} />
+            <Stat label={t('ddnsFailover.replay.to')} value={replay.to ? formatDate(replay.to) : '-'} />
+            <Stat label={t('ddnsFailover.replay.candidates')} value={count ?? '-'} tone={count ? 'warning' : undefined} />
+          </div>
+        </>
+      ) : none && (
+        <p className="text-xs text-text-secondary" data-testid="ddns-replay-none">{t('ddnsFailover.replay.noOutage')}</p>
+      )}
       {(replay.notes || []).map((n, i) => (
         <p key={i} className="text-2xs status-warning-text" data-testid="ddns-replay-note">{n}</p>
       ))}
@@ -420,11 +428,13 @@ function RoleDialog({ dialog, zones, offline, nameOf, flow, onClose }) {
 
 function ReplayDialog({ replay, flow, onClose }) {
   const { t } = useTranslation(['dhcp', 'common'])
-  const [form, setForm] = useState({ from: toLocalInput(replay?.from), to: replay?.source === 'open' ? '' : toLocalInput(replay?.to), family: '', limit: '' })
+  // A manual window (no outage, or nothing counted in it) starts empty: the start is required.
+  const manual = !replay?.candidates || !replayKnown(replay)
+  const [form, setForm] = useState(manual ? { from: '', to: '', family: '', limit: '' } : { from: toLocalInput(replay.from), to: replay.source === 'open' ? '' : toLocalInput(replay.to), family: '', limit: '' })
   const [error, setError] = useState(null)
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }))
   const submit = async () => {
-    const { body, error: bad } = replayBody(form)
+    const { body, error: bad } = replayBody(form, { requireFrom: manual })
     if (bad) {
       setError(t(bad))
       return
@@ -439,7 +449,7 @@ function ReplayDialog({ replay, flow, onClose }) {
   }
   return (
     <FormModal open onClose={onClose} title={t('ddnsFailover.replay.dialogTitle')} onSubmit={submit} submitLabel={t('form.preview')} loading={flow.building} size="sm" testId="ddns-replay-form">
-      <p className="text-xs text-text-secondary">{t('ddnsFailover.replay.dialogHelp', { count: replay?.candidates ?? 0 })}</p>
+      <p className="text-xs text-text-secondary" data-testid="ddns-replay-dialog-help">{manual ? t('ddnsFailover.replay.manualHelp') : t('ddnsFailover.replay.dialogHelp', { count: replay.candidates })}</p>
       <Input type="datetime-local" label={t('ddnsFailover.replay.from')} value={form.from} onChange={(e) => set('from')(e.target.value)} data-testid="ddns-replay-from" />
       <Input type="datetime-local" label={t('ddnsFailover.replay.to')} value={form.to} onChange={(e) => set('to')(e.target.value)} helperText={t('ddnsFailover.replay.toHint')} data-testid="ddns-replay-to" />
       <NativeSelect

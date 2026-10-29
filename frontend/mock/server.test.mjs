@@ -253,7 +253,7 @@ describe('mock server notifications, archives and DDNS failover', () => {
     expect(zone(res.data, 'example.lan.').blockers[0]).toMatchObject({ key: 'ddns.blocker.not_managed', params: { zone: 'example.lan.', node: 'ns1' } })
     expect(zone(res.data, '100.51.198.in-addr.arpa.').blockers[0].key).toBe('ddns.blocker.no_transfer')
     expect(zone(res.data, 'corp.example.lan.')).toMatchObject({ view: 'internal', ready: false, epoch: 0, primary_node_id: ns1, copies: [ns2], stale: [], prepared_at: null })
-    expect(res.data.replay).toMatchObject({ source: 'default', candidates: 0, notes: [] })
+    expect(res.data.replay).toEqual({ from: null, to: null, source: 'none', candidates: null, notes: [] })
     expect(res.data.d2[0].domains[0].servers[0]).toMatchObject({ node_id: ns1, role: 'primary', port: 53 })
     expect((await admin('POST', '/dhcp/ddns/resilience/plan', { zones: ['example.lan'] })).status).toBe(400)
     const prep = await admin('POST', '/dhcp/ddns/resilience/plan', {})

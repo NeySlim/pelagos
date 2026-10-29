@@ -474,29 +474,33 @@
     },
     "replay": {
       "title": "Replay of lost updates",
-      "help": "Leases active during the outage window whose A, AAAA or PTR is missing or differs. The plan resends them with lease4/6-resend-ddns.",
+      "help": "Counted: active leases whose last exchange with the client (cltt) falls inside the outage window and whose A, AAAA or PTR is missing or differs in the served zones. The plan resends them with lease4/6-resend-ddns.",
       "open": "Replay",
+      "manual": "Manual window",
       "from": "From",
       "to": "To",
       "candidates": "Leases to replay",
       "source": {
         "open": "Outage in progress",
         "outage": "Last outage",
-        "default": "No outage known",
-        "request": "Chosen window"
+        "request": "Chosen window",
+        "none": "No outage known"
       },
       "dialogTitle": "Replay the DDNS updates",
       "dialogHelp": "{{count}} leases of the default window lack their records. Change the window if needed; the plan lists every lease before anything is sent.",
+      "manualHelp": "No outage gives a default window: enter the start (an empty end means now), within ddns.replay_window_max_hours. The plan lists every lease before anything is sent.",
       "toHint": "Empty: until now",
       "family": "Family",
       "allFamilies": "DHCPv4 and DHCPv6",
       "limit": "Maximum leases",
       "limitHint": "Empty: ddns.replay_max_leases",
       "badFrom": "The start is not a valid date",
+      "fromRequired": "Enter the start of the window",
       "badTo": "The end is not a valid date",
       "order": "The start must be before the end",
       "tooLong": "The window is longer than ddns.replay_window_max_hours allows (72 hours by default)",
-      "badLimit": "The maximum must be a positive whole number"
+      "badLimit": "The maximum must be a positive whole number",
+      "noOutage": "D2 reported no outage: no update is known lost, so nothing is counted and there is no default window. A lease missing its record outside an outage raises the 'lease without record' alert. To resend the updates of a period anyway, choose a manual window."
     },
     "d2": {
       "title": "D2 server lists",

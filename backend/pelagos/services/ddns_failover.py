@@ -529,9 +529,12 @@ class DdnsFailoverService:
         return {"since": to_rfc3339(since), "zones": [s.key for s in states]}
 
     def _replay(self) -> dict[str, Any]:
-        """Leases of the replay window still lacking their records; zones Pelagos could not read are
-        listed in `notes` (the alert cannot judge them either)."""
+        """Leases of the outage window still lacking their records; zones Pelagos could not read are
+        listed in `notes` (the alert cannot judge them either). No known outage: no window, no count
+        (`source` "none"): no update is known lost, a manual window goes through the replay plan."""
         try:
+            if self.replay.window({}).source == "default":
+                return {"from": None, "to": None, "source": "none", "candidates": None, "notes": []}
             win, found, notes = self.replay.candidates({})
         except ServiceError as exc:
             return {"from": None, "to": None, "candidates": None, "notes": [exc.detail]}

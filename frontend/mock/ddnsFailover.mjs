@@ -122,7 +122,10 @@ export function ddnsFailoverModel(state) {
       d2: d2Lists(states),
       offline: offline(),
       outage: fo.window.open ? { since: iso(fo.window.open), zones: states.map((s) => s.key) } : null,
-      replay: { from: iso(win.start), to: iso(win.end), source: win.source, candidates: candidates(win).length, notes: [] },
+      // No known outage: no window and no count (DdnsFailoverService._replay).
+      replay: win.source === 'default'
+        ? { from: null, to: null, source: 'none', candidates: null, notes: [] }
+        : { from: iso(win.start), to: iso(win.end), source: win.source, candidates: candidates(win).length, notes: [] },
     }
   }
 

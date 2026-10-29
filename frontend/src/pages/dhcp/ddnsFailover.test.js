@@ -74,6 +74,8 @@ describe('ddns failover helpers', () => {
     expect(replayBody({ from: to, to: from }).error).toBe('ddnsFailover.replay.order')
     expect(replayBody({ from: toLocalInput('2026-10-20T00:00:00Z'), to }).error).toBe('ddnsFailover.replay.tooLong')
     expect(replayBody({ limit: '0' }).error).toBe('ddnsFailover.replay.badLimit')
+    expect(replayBody({ from: '' }, { requireFrom: true }).error).toBe('ddnsFailover.replay.fromRequired')
+    expect(replayBody({ from }, { requireFrom: true }).body).toEqual({ from: '2026-10-28T08:00:00.000Z' })
   })
   it('sums up the resilience for the dashboard and finds a zone for its badge', () => {
     const res = { zones: [zone(), zone({ zone: 'b.example.', ready: false })], outage: null, replay: { candidates: 2 } }

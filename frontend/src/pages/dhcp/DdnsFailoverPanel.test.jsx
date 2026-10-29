@@ -46,7 +46,7 @@ const base = () => ({
   d2: [{ node_id: 'N1', domains: [{ direction: 'forward', name: 'dyn.example.lan.', zone: '_default/dyn.example.lan.', servers: [{ address: '192.0.2.11', port: 53, node_id: 'N1', role: 'primary' }, { address: '192.0.2.12', port: 53, node_id: 'N2', role: 'secondary' }] }] }],
   offline: [],
   outage: null,
-  replay: { from: '2026-10-25T10:00:00Z', to: '2026-10-28T10:00:00Z', source: 'default', candidates: 0, notes: [] },
+  replay: { from: null, to: null, source: 'none', candidates: null, notes: [] },
 })
 
 const renderPanel = (props = {}) => render(<MemoryRouter><DdnsFailoverPanel {...props} /></MemoryRouter>)
@@ -125,6 +125,25 @@ describe('DdnsFailoverPanel', () => {
     fireEvent.change(within(form).getByTestId('ddns-replay-family'), { target: { value: 'v4' } })
     fireEvent.submit(form)
     await waitFor(() => expect(calls.replay).toHaveBeenCalledWith({ from: '2026-10-28T08:00:00.000Z', to: '2026-10-28T09:00:00.000Z', family: 'v4' }))
+  })
+
+  it('without a known outage counts nothing and opens an empty manual window', async () => {
+    renderPanel()
+    const card = await screen.findByTestId('ddns-replay')
+    expect(within(card).getByTestId('ddns-replay-source')).toHaveTextContent('No outage known')
+    expect(within(card).getByTestId('ddns-replay-none')).toHaveTextContent('nothing is counted')
+    expect(within(card).queryByText('Leases to replay')).toBeNull()
+    const open = within(card).getByTestId('ddns-replay-open')
+    expect(open).toHaveTextContent('Manual window')
+    fireEvent.click(open)
+    const form = await screen.findByTestId('ddns-replay-form')
+    expect(within(form).getByTestId('ddns-replay-from')).toHaveValue('')
+    fireEvent.submit(form)
+    expect(await within(form).findByTestId('ddns-replay-error')).toHaveTextContent('Enter the start')
+    expect(calls.replay).not.toHaveBeenCalled()
+    fireEvent.change(within(form).getByTestId('ddns-replay-from'), { target: { value: '2026-10-28T08:00' } })
+    fireEvent.submit(form)
+    await waitFor(() => expect(calls.replay).toHaveBeenCalledWith({ from: new Date('2026-10-28T08:00').toISOString() }))
   })
 
   it('hides plan actions without write permissions and refuses without read:dns', async () => {

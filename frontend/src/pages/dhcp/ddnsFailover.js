@@ -96,8 +96,15 @@ export function fromLocalInput(value) {
   return Number.isNaN(t) ? null : new Date(t).toISOString()
 }
 
-// Body of POST /dhcp/ddns/replay/plan; an error key when the window is not usable.
-export function replayBody({ from, to, family, limit }, maxHours = 72) {
+// The resilience `replay` names an outage window (open or last closed); without one nothing is counted.
+export function replayKnown(replay) {
+  return replay?.source === 'open' || replay?.source === 'outage'
+}
+
+// Body of POST /dhcp/ddns/replay/plan; an error key when the window is not usable. A manual window
+// needs its start: the API would otherwise fall back to the last replay_window_max_hours.
+export function replayBody({ from, to, family, limit }, { maxHours = 72, requireFrom = false } = {}) {
+  if (requireFrom && !from) return { error: 'ddnsFailover.replay.fromRequired' }
   const start = fromLocalInput(from)
   const end = fromLocalInput(to)
   if (from && !start) return { error: 'ddnsFailover.replay.badFrom' }

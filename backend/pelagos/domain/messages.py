@@ -296,6 +296,10 @@ CATALOG: dict[str, str] = {
     "kea_migration.template_class_options": (
         "{path}: options of template class {name} take the Kea 3 priority"
     ),
+    "kea_migration.engine_unused": (
+        "{engine} on {node} is not used ({unit} {active}, {enabled}): its file is ignored by the"
+        " migration, fix it only if you enable the daemon"
+    ),
     "kea_migration.lease_checks": "{engine}: no explicit lease checks, the Kea 3 defaults apply",
     "kea_migration.lease_cache": "{engine}: the lease cache is on by default in Kea 3",
     "kea_migration.validation_failed": "{engine}: Kea {version} refuses the converted configuration: {error}",

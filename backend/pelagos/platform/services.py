@@ -36,6 +36,10 @@ class ServiceManager:
     def is_enabled(self, unit: str) -> bool:
         return self._query("is-enabled", unit) in ("enabled", "static", "alias")
 
+    def unit_state(self, unit: str) -> tuple[str, str]:
+        """The raw `is-active` and `is-enabled` words ("" when systemctl gives none)."""
+        return self._query("is-active", unit), self._query("is-enabled", unit)
+
     def exists(self, unit: str) -> bool:
         res = self.runner.run(
             [self.systemctl, "cat", unit], privileged=False, check=False, mutates=False, timeout=30
@@ -107,6 +111,17 @@ class SupervisorServices(ServiceManager):
     def is_enabled(self, unit: str) -> bool:
         return self.exists(unit)
 
+    def unit_state(self, unit: str) -> tuple[str, str]:
+        # autostart=%(ENV_KEA_DHCP6)s (docker/allinone/supervisord.conf): a false variable disables it.
+        state = self._state(unit)
+        program = supervisor_program(unit)
+        autostart = os.environ.get(program.upper().replace("-", "_"), "true").lower()
+        if state in ("", "ERROR", "(no"):
+            enabled = "not-found"
+        else:
+            enabled = "disabled" if autostart in ("false", "0", "no") else "enabled"
+        return ("active" if state == "RUNNING" else "inactive"), enabled
+
     def exists(self, unit: str) -> bool:
         return self._state(unit) not in ("", "ERROR", "(no")
 
@@ -146,6 +161,9 @@ class ExternalServices(ServiceManager):
 
     def is_enabled(self, unit: str) -> bool:
         return True
+
+    def unit_state(self, unit: str) -> tuple[str, str]:
+        return "active", "enabled"
 
     def exists(self, unit: str) -> bool:
         return True

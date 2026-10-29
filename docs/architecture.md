@@ -4030,13 +4030,14 @@ run; K2 API, alert and the read-only screen.
   id: {"remove": [{"name","version"}],"install": [{"name","version"}]}},
   "validation": {node id: {engine: {"ok","mode": "dry_run"|"skipped",
   "output"}}},"counts": {severity: n},"blocking": bool,"unreachable": [node
-  id],"outage_estimate_seconds"}`, kept on the node that ran it in
+  id],"units": {node id: {engine: {"unit","active","enabled","used"}}},
+  "outage_estimate_seconds"}`, kept on the node that ran it in
   `/var/lib/pelagos/kea-migration/analysis.json` (0640, `pelagos`); the
   converted configurations are not kept in 0.2.2.
 - **Finding**: `{"severity": "blocking"|"converted"|"behavior"|"info",
   "code","node_id","engine","path","message": Message,"action": "convert"|
   "add_hook"|"move_path"|"stop_service"|"propose"|"manual"|"none",
-  "reference": url|null}`. `path` is the JSON path in the file
+  "reference": url|null,"unused"?: true,"severity_if_used"?}`. `path` is the JSON path in the file
   (`Dhcp4/subnet4[3]/client-class`), empty for a node-wide finding. The
   message key is `kea_migration.<code>`, with `path` among its parameters
   when the key has it. Codes: `renamed_key` (converted: `old`, `new`),
@@ -4063,7 +4064,9 @@ run; K2 API, alert and the read-only screen.
   `node`; the node answered that it has nothing to analyze, no Kea file or a
   target its distribution does not offer, with its `error`), `config_diverged`
   (info: `node`, `file`; an open `config_divergence` file alert of that node and
-  engine, so the analysis read a file that is not the running configuration). A new rule adds
+  engine, so the analysis read a file that is not the running configuration),
+  `engine_unused` (info: `engine`, `node`, `unit`, `active`, `enabled`; the
+  daemon's unit is neither active nor enabled). A new rule adds
   a code and its message key. Findings about `kea-ctrl-agent` carry the
   engine `ca`.
 - **Conversion rules** (`connectors/kea/migration.py`, `convert(engine,
@@ -4107,7 +4110,16 @@ run; K2 API, alert and the read-only screen.
   "target_version","findings": [Finding],"diffs","files": [path],"packages":
   {"remove","install"},"validation": {engine: {"ok","mode","output",
   "version"}},"configs": {engine: converted file, passwords and secrets
-  masked}}`. `ctrl_agent_state` gives `{"present","active","clients",
+  masked},"units": {engine: {"unit","active","enabled","used"}}}`. `units`
+  comes from this node's systemctl (`engine_units`: the unit `kea_unit` finds,
+  `is-active` and `is-enabled` as they answer, `not-found` for a unit systemd
+  does not know, `unknown` for an empty answer); `used` is false only when
+  `active` is `inactive` or `failed` and `enabled` is `disabled`, `masked`,
+  `masked-runtime` or `not-found` (under supervisord, the all-in-one image:
+  a program is disabled when the variable of its `autostart`, `KEA_DHCP6`, is
+  false). Enabled but stopped (it starts at the next boot) and running
+  but not enabled (it runs now and is restarted by the migration) are used;
+  so is an unknown state. `ctrl_agent_state` gives `{"present","active","clients",
   "signs"}`: clients from established connections, the agent's
   `CTRL_AGENT_COMMAND_RECEIVED` log lines and a running Stork agent; signs
   from its configuration (off-loopback `http-host`, authentication, TLS).
@@ -4139,9 +4151,16 @@ run; K2 API, alert and the read-only screen.
   `node_not_analyzed` (blocking, with its `error`); a second analysis while one
   runs on the same node answers 409 `conflict`; two nodes are HA partners when one's `this-server-name` is
   among the peers the other declares, and `ha_symmetry` runs once per pair
-  on the converted files; findings are sorted by severity, node, engine;
+  on the converted files; a daemon a node reports with `used` false (Kea
+  never loads its file) keeps its diff and validation, but each of its
+  findings becomes `info` with `unused` true and its own severity in
+  `severity_if_used`, one `engine_unused` finding is added, and its file
+  takes no part in HA pairs nor in the outage estimate, so it never sets
+  `blocking`; an answer without `units` (an older node) counts every daemon
+  as used; findings are sorted by severity, node, engine;
   `outage_estimate_seconds` is 30 with HA (failure detection with the
-  reduced delay, LFC and lease copy, start of the standby), 15 without.
+  reduced delay, LFC and lease copy, start of the standby), 15 without, 0
+  when no analyzed node has a used daemon.
 - **Audit**: `kea.migration.analyze` (target `kea-migration:<id>`, request
   `{"series","source","node_ids"}`, response `{"blocking","counts"}`; a
   failed analysis is audited `error`, target `kea-migration`, response

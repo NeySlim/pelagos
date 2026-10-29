@@ -389,6 +389,7 @@
   "kea_migration.control_socket": "{{path}} : control-socket devient control-sockets",
   "kea_migration.additional_class": "{{path}} : la classe {{name}} n'a pas de test et est toujours ajoutée quand elle est listée",
   "kea_migration.template_class_options": "{{path}} : les options de la classe modèle {{name}} prennent la priorité de Kea 3",
+  "kea_migration.engine_unused": "{{engine}} sur {{node}} n'est pas utilisé ({{unit}} {{active}}, {{enabled}}) : la migration ignore son fichier, à corriger seulement si vous activez le démon",
   "kea_migration.lease_checks": "{{engine}} : pas de contrôles de baux explicites, les défauts de Kea 3 s'appliquent",
   "kea_migration.lease_cache": "{{engine}} : le cache des baux est actif par défaut dans Kea 3",
   "kea_migration.validation_failed": "{{engine}} : Kea {{version}} refuse la configuration convertie : {{error}}",

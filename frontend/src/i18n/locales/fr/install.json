@@ -245,7 +245,10 @@
       "reference": "Référence ISC",
       "diff": "Diff de {{engine}}, de 2.6 vers la cible",
       "cluster": "Cluster",
-      "none": "Pas encore d'analyse : choisissez une cible et lancez l'analyse."
+      "none": "Pas encore d'analyse : choisissez une cible et lancez l'analyse.",
+      "unused": "Démons non utilisés",
+      "unusedHelp": "Leur unité n'est ni démarrée ni activée : Kea ne charge jamais ces fichiers et la migration les ignore. Rien ici ne bloque la migration ni ne compte dans la coupure ; à corriger seulement si vous activez le démon.",
+      "ifUsed": "{{severity}} s'il est activé"
     },
     "severity": {
       "blocking": "Bloquant",
@@ -271,7 +274,8 @@
     "validation": {
       "ok": "vérifié",
       "failed": "refusé",
-      "skipped": "non vérifié"
+      "skipped": "non vérifié",
+      "unused": "non utilisé"
     },
     "packages": {
       "remove_one": "{{count}} paquet retiré",

@@ -245,7 +245,10 @@
       "reference": "ISC reference",
       "diff": "Diff of {{engine}}, 2.6 to the target",
       "cluster": "Cluster",
-      "none": "No analysis yet: choose a target and analyze."
+      "none": "No analysis yet: choose a target and analyze.",
+      "unused": "Unused daemons",
+      "unusedHelp": "Their unit is neither running nor enabled: Kea never loads these files and the migration ignores them. Nothing here blocks the migration or counts in the outage; fix them only if you enable the daemon.",
+      "ifUsed": "{{severity}} if enabled"
     },
     "severity": {
       "blocking": "Blocking",
@@ -271,7 +274,8 @@
     "validation": {
       "ok": "checked",
       "failed": "refused",
-      "skipped": "not checked"
+      "skipped": "not checked",
+      "unused": "not used"
     },
     "packages": {
       "remove_one": "{{count}} package removed",

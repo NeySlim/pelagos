@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import KeaMigrationPage from './KeaMigrationPage'
 import { api } from '../../services/api'
-import { defaultTarget, fullyValidated, groupFindings, nodeEngines, obsoleteEngines, parseTarget } from './keaMigration'
+import { defaultTarget, fullyValidated, groupFindings, nodeEngines, obsoleteEngines, parseTarget, unusedFindings, usedCounts } from './keaMigration'
 
 vi.mock('../../services/api', () => {
   const api = { keaMigration: { overview: vi.fn(), analyze: vi.fn() } }
@@ -46,6 +46,23 @@ const report = {
   outage_estimate_seconds: 30,
 }
 
+// kea6 of n1 is neither active nor enabled: its findings are info, apart, and gate nothing.
+const unusedReport = {
+  ...report,
+  node_ids: ['n1'],
+  unreachable: [],
+  findings: [
+    finding('converted', 'restrict_commands', 'n1', 'kea4'),
+    { ...finding('info', 'hook_missing', 'n1', 'kea6', { library: 'libkea_sanitize_hostname.so', series: '3.2', source: 'isc' }), unused: true, severity_if_used: 'blocking', action: 'manual' },
+    { ...finding('info', 'engine_unused', 'n1', 'kea6', { engine: 'kea6', node: 'ns1', unit: 'kea-dhcp6-server.service', active: 'inactive', enabled: 'disabled' }), unused: true, severity_if_used: 'info', action: 'none' },
+  ],
+  validation: { n1: { kea4: { ok: true, mode: 'dry_run', output: '' }, kea6: { ok: false, mode: 'dry_run', output: 'hook' } } },
+  units: { n1: { kea4: { unit: 'kea-dhcp4-server.service', active: 'active', enabled: 'enabled', used: true }, kea6: { unit: 'kea-dhcp6-server.service', active: 'inactive', enabled: 'disabled', used: false } } },
+  counts: { blocking: 0, converted: 1, behavior: 0, info: 2 },
+  blocking: false,
+  outage_estimate_seconds: 15,
+}
+
 const renderPage = () => render(<MemoryRouter><KeaMigrationPage /></MemoryRouter>)
 
 describe('keaMigration helpers', () => {
@@ -64,6 +81,21 @@ describe('keaMigration helpers', () => {
     expect(fullyValidated(report)).toBe(true)
     expect(fullyValidated({ ...report, validation: { n1: { kea4: { ok: false, mode: 'skipped' } } } })).toBe(false)
     expect(obsoleteEngines(overview.nodes[0])).toEqual(['kea4'])
+  })
+
+  it('sets the findings of an unused daemon apart', () => {
+    expect(groupFindings(unusedReport).map(([s]) => s)).toEqual(['converted'])
+    const unused = unusedFindings(unusedReport)
+    expect(unused).toHaveLength(1)
+    expect(unused[0][1].map((f) => f.code)).toEqual(['hook_missing', 'engine_unused'])
+    // The refused dry run of an unused daemon does not count as unchecked.
+    expect(fullyValidated(unusedReport)).toBe(true)
+    const used = { ...unusedReport, units: { n1: { ...unusedReport.units.n1, kea6: { used: true } } } }
+    expect(fullyValidated(used)).toBe(false)
+    // A node whose only daemon is unused is not "not validated" either.
+    const alone = { ...unusedReport, validation: { n1: { kea6: unusedReport.validation.n1.kea6 } } }
+    expect(fullyValidated(alone)).toBe(true)
+    expect(usedCounts(unusedReport)).toEqual({ blocking: 0, converted: 1, behavior: 0, info: 0 })
   })
 })
 
@@ -131,5 +163,21 @@ describe('KeaMigrationPage', () => {
     expect(await screen.findByTestId('kea-migration-ready')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('kea-migration-analyze'))
     await waitFor(() => expect(screen.getByTestId('kea-migration-error')).toBeInTheDocument())
+  })
+
+  it('shows an unused daemon apart and not blocking', async () => {
+    api.keaMigration.overview.mockResolvedValue({ ...overview, analysis: unusedReport })
+    renderPage()
+    expect(await screen.findByTestId('kea-migration-ready')).toBeInTheDocument()
+    expect(screen.queryByTestId('kea-migration-blocking')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('kea-migration-not-validated')).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('kea-migration-group').map((g) => g.dataset.severity)).toEqual(['converted'])
+    const unused = screen.getByTestId('kea-migration-unused')
+    expect(unused).toHaveTextContent('Unused daemons')
+    expect(unused).toHaveTextContent('kea6 on ns1 is not used (kea-dhcp6-server.service inactive, disabled)')
+    expect(within(unused).getByTestId('kea-migration-if-used')).toHaveTextContent('Blocking if enabled')
+    const badges = screen.getAllByTestId('kea-migration-validation')
+    expect(badges.find((b) => b.dataset.engine === 'kea6')).toHaveTextContent('refused (not used)')
+    expect(screen.getByTestId('kea-migration-outage')).toHaveTextContent('15 s')
   })
 })

@@ -240,6 +240,26 @@ def test_service_manager_queries():
     assert "systemctl enable --now named.service" in runner.commands("systemctl")
 
 
+def test_unit_state_under_supervisord_and_external_engines(monkeypatch):
+    from pelagos.platform.services import ExternalServices, SupervisorServices
+
+    runner = FakeRunner(
+        responses={
+            "supervisorctl status kea-dhcp6": "kea-dhcp6  STOPPED  Not started\n",
+            "supervisorctl status kea-dhcp4": "kea-dhcp4  RUNNING  pid 12, uptime 0:01:02\n",
+            "supervisorctl status kea-dhcp-ddns": "kea-dhcp-ddns: ERROR (no such process)\n",
+        }
+    )
+    sm = SupervisorServices(runner)
+    monkeypatch.setenv("KEA_DHCP6", "false")
+    assert sm.unit_state("kea-dhcp6-server.service") == ("inactive", "disabled")
+    monkeypatch.setenv("KEA_DHCP6", "true")
+    assert sm.unit_state("kea-dhcp6-server.service") == ("inactive", "enabled")
+    assert sm.unit_state("isc-kea-dhcp4-server.service") == ("active", "enabled")
+    assert sm.unit_state("kea-dhcp-ddns-server.service") == ("inactive", "not-found")
+    assert ExternalServices(runner).unit_state("kea-dhcp6-server.service") == ("active", "enabled")
+
+
 def test_give_tree_to_skips_links_and_listed_files(tmp_path, monkeypatch):
     import grp
     import os

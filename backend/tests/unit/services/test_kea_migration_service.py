@@ -334,3 +334,54 @@ def test_an_open_file_divergence_is_reported(service):
     [f] = [f for f in report["findings"] if f["code"] == "config_diverged"]
     assert f["severity"] == "info" and f["node_id"] == "node-b" and f["engine"] == "kea4"
     assert f["message"]["params"]["file"] == "/etc/kea/kea-dhcp4.conf"
+
+
+def test_an_unused_engine_is_info_and_gates_nothing(service):
+    me = service.ctx.node.id
+    state = {"active": "inactive", "enabled": "disabled"}
+
+    def units(node_id: str) -> dict[str, Any]:
+        used = not (state["active"] == "inactive" and state["enabled"] == "disabled")
+        return {"kea4": {"unit": "kea-dhcp4-server.service", **state, "used": used}}
+
+    def mine(series: str, source: str) -> dict[str, Any]:
+        a = answer(me, dhcp4("ns1"))
+        error = {"version": "3.2.1", "error": "hook missing"}
+        failed = mig.Finding("blocking", "validation_failed", "kea4", "", error, "manual", None, me)
+        a["findings"].append(failed.to_dict())
+        a["units"] = units(me)
+        return a
+
+    other = dhcp4("ns2")
+    for hook in other["Dhcp4"]["hooks-libraries"]:
+        for rel in (hook.get("parameters") or {}).get("high-availability") or []:
+            rel["max-response-delay"] = 60000
+    service.local_dry_run = mine
+    service.peers = Peers(
+        {"node-b": lambda name, body: {**answer("node-b", other), "units": units("node-b")}}
+    )
+    report = service.analyze({"series": "3.2", "source": "isc"}, "admin")
+    assert not report["blocking"] and report["counts"]["blocking"] == 0
+    # No used daemon on any node: nothing restarts.
+    assert report["outage_estimate_seconds"] == 0
+    assert not [f for f in report["findings"] if f["code"] == "ha_asymmetric"]
+    [failed] = [f for f in report["findings"] if f["code"] == "validation_failed"]
+    assert failed["severity"] == "info" and failed["unused"] and failed["severity_if_used"] == "blocking"
+    idle = [f for f in report["findings"] if f["code"] == "engine_unused"]
+    assert [f["node_id"] for f in idle] == [me, "node-b"]
+    assert idle[0]["message"]["params"] == {
+        "engine": "kea4",
+        "node": service.ctx.node.name,
+        "unit": "kea-dhcp4-server.service",
+        "active": "inactive",
+        "enabled": "disabled",
+    }
+    assert all(f["severity"] == "info" for f in report["findings"] if f.get("unused"))
+    assert report["units"][me]["kea4"]["used"] is False
+    # Enabled but stopped, or running but not enabled: used, its findings gate again.
+    for active, enabled in (("inactive", "enabled"), ("active", "disabled"), ("unknown", "unknown")):
+        state.update(active=active, enabled=enabled)
+        report = service.analyze({"series": "3.2", "source": "isc"}, "admin")
+        assert report["blocking"] and report["counts"]["blocking"] == 2
+        assert report["outage_estimate_seconds"] == kms.OUTAGE_HA_SECONDS
+        assert not [f for f in report["findings"] if f.get("unused") or f["code"] == "engine_unused"]

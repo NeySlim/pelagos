@@ -412,6 +412,7 @@ def test_helper_operation(env):
     assert "kea_dry_run" in helper.OPERATIONS
     out = helper.handle({"op": "kea_dry_run", "series": "3.2", "source": "isc"}, lambda: env, lambda _m: None)
     assert out["node_id"] == "node-a" and set(out["validation"]) == {"kea4", "d2"}
+    assert set(out["units"]) == {"kea4", "d2"} and out["units"]["kea4"]["used"] is False
     for bad in (
         {"series": "9.9", "source": "isc"},
         {"series": "3.2", "source": "isc", "configs": {"bind": {}}},
@@ -432,3 +433,30 @@ def test_daemon_that_cannot_run_skips_the_dry_run(env):
     (f,) = [f for f in report["findings"] if f["code"].startswith("validation")]
     assert f["code"] == "validation_skipped" and "liblog4cplus" in f["message"]["params"]["reason"]
     assert not env.runner.commands("runuser")
+
+
+def test_engine_units_come_from_systemctl(env):
+    sm = env.service_manager
+    unit = env.kea_unit("kea6")
+    assert km.engine_units(env, ["kea6"])["kea6"] == {
+        "unit": unit,
+        "active": "inactive",
+        "enabled": "not-found",
+        "used": False,
+    }
+    sm.units |= {unit}
+    assert km.engine_units(env, ["kea6"])["kea6"]["enabled"] == "disabled"
+    assert km.engine_units(env, ["kea6"])["kea6"]["used"] is False
+    sm.enabled |= {unit}
+    assert km.engine_units(env, ["kea6"])["kea6"]["used"] is True
+    sm.enabled.clear()
+    sm.active |= {unit}
+    assert km.engine_units(env, ["kea6"])["kea6"]["used"] is True
+
+
+def test_systemd_unit_state_words():
+    from pelagos.platform.services import ServiceManager
+
+    runner = FakeRunner(responses={"systemctl is-active": "failed\n", "systemctl is-enabled": "masked\n"})
+    assert ServiceManager(runner).unit_state("kea-dhcp6-server.service") == ("failed", "masked")
+    assert ServiceManager(FakeRunner()).unit_state("x.service") == ("", "")

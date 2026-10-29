@@ -363,6 +363,12 @@ def _finding(node_id: str, finding: mig.Finding) -> dict[str, Any]:
     return finding.to_dict()
 
 
+def _unused(finding: dict[str, Any]) -> dict[str, Any]:
+    """A finding of a daemon whose unit is neither active nor enabled: info, never blocking; the
+    severity it would have once the daemon is used stays in `severity_if_used`."""
+    return {**finding, "severity": "info", "severity_if_used": finding.get("severity"), "unused": True}
+
+
 def ha_pairs(configs: dict[str, dict[str, Any]], engine: str) -> list[tuple[str, str]]:
     """(node, partner) of each HA relationship between two analyzed nodes, matched by the
     partner's this-server-name among the peers the node declares; each pair once."""
@@ -396,13 +402,17 @@ def merge(
     divergences: list[tuple[str, str, str]] = (),  # type: ignore[assignment]
 ) -> dict[str, Any]:
     """The Report of section 26 from each node's `kea_dry_run` answer (None and an error when the
-    node did not answer), with `config_diverged` for each (node, engine, file) in `divergences`."""
+    node did not answer), with `config_diverged` for each (node, engine, file) in `divergences`.
+    The findings of a daemon the node reports unused become info (`_unused`), with one
+    `engine_unused` finding each, and leave HA pairs and the outage estimate."""
     findings: list[dict[str, Any]] = []
     diffs: dict[str, Any] = {}
     packages: dict[str, Any] = {}
     validation: dict[str, Any] = {}
     configs: dict[str, dict[str, Any]] = {}
     unreachable: list[str] = []
+    units: dict[str, Any] = {}
+    unused: set[tuple[str, str]] = set()
     target_version = ""
     for node_id, answer, error in results:
         if answer is None:
@@ -417,12 +427,29 @@ def merge(
             f = mig.Finding("blocking", "node_not_analyzed", "", "", {"node": node}, "manual")
             findings.append({**_finding(node_id, f), "error": answer["not_analyzed"]})
             continue
+        node_units = {e: u for e, u in (answer.get("units") or {}).items() if isinstance(u, dict)}
+        idle = {e for e, u in node_units.items() if u.get("used") is False}
+        unused |= {(node_id, e) for e in idle}
         for f in answer.get("findings") or []:
-            findings.append({**f, "node_id": f.get("node_id") or node_id})
+            f = {**f, "node_id": f.get("node_id") or node_id}
+            findings.append(_unused(f) if f.get("engine") in idle else f)
+        for engine in sorted(idle):
+            u = node_units[engine]
+            params = {
+                "node": names.get(node_id, node_id),
+                "unit": u.get("unit"),
+                "active": u.get("active"),
+                "enabled": u.get("enabled"),
+            }
+            findings.append(
+                _unused(_finding(node_id, mig.Finding("info", "engine_unused", engine, "", params)))
+            )
+        units[node_id] = node_units
         diffs[node_id] = answer.get("diffs") or {}
         packages[node_id] = answer.get("packages") or {"remove": [], "install": []}
         validation[node_id] = answer.get("validation") or {}
-        configs[node_id] = answer.get("configs") or {}
+        # An unused daemon's file is never loaded: no HA pair, no outage from it.
+        configs[node_id] = {e: c for e, c in (answer.get("configs") or {}).items() if e not in idle}
         target_version = target_version or str(answer.get("target_version") or "")
     has_ha = False
     for engine in ("kea4", "kea6"):
@@ -440,7 +467,12 @@ def merge(
     for node_id, engine, file in divergences:
         params = {"node": names.get(node_id, node_id), "file": file}
         f = mig.Finding("info", "config_diverged", engine, "", params, "manual")
-        findings.append(_finding(node_id, f))
+        d = _finding(node_id, f)
+        findings.append(_unused(d) if (node_id, engine) in unused else d)
+    # No used daemon on any node: nothing restarts.
+    outage = OUTAGE_HA_SECONDS if has_ha else OUTAGE_ALONE_SECONDS
+    if configs and not any(configs.values()):
+        outage = 0
     order = {s: i for i, s in enumerate(mig.SEVERITIES)}
     findings.sort(
         key=lambda f: (order.get(f.get("severity"), 9), f.get("node_id") or "", f.get("engine") or "")
@@ -464,5 +496,6 @@ def merge(
         "counts": counts,
         "blocking": counts["blocking"] > 0,
         "unreachable": unreachable,
-        "outage_estimate_seconds": OUTAGE_HA_SECONDS if has_ha else OUTAGE_ALONE_SECONDS,
+        "units": units,
+        "outage_estimate_seconds": outage,
     }

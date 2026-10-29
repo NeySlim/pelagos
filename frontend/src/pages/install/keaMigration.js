@@ -19,18 +19,31 @@ export function parseTarget(key) {
   return series && source ? { series, source } : null
 }
 
-// [[severity, [[node_id, findings]]]] in severity order, nodes in report order, empty groups out.
-export function groupFindings(report) {
-  if (!report) return []
+// [[node_id, findings]] in report order, findings in engine order.
+function byNode(report, findings) {
   const order = report.node_ids || []
   const rank = (id) => (order.indexOf(id) === -1 ? order.length : order.indexOf(id))
-  return SEVERITIES.map((severity) => {
-    const mine = (report.findings || []).filter((f) => f.severity === severity)
-    const nodes = [...new Set(mine.map((f) => f.node_id || ''))].sort((a, b) => rank(a) - rank(b))
-    return [severity, nodes.map((id) => [id, mine.filter((f) => (f.node_id || '') === id)
-      .sort((a, b) => ENGINE_ORDER.indexOf(a.engine) - ENGINE_ORDER.indexOf(b.engine))])]
-  }).filter(([, nodes]) => nodes.length)
+  const nodes = [...new Set(findings.map((f) => f.node_id || ''))].sort((a, b) => rank(a) - rank(b))
+  return nodes.map((id) => [id, findings.filter((f) => (f.node_id || '') === id)
+    .sort((a, b) => ENGINE_ORDER.indexOf(a.engine) - ENGINE_ORDER.indexOf(b.engine))])
 }
+
+// [[severity, [[node_id, findings]]]] in severity order, empty groups out; the findings of an
+// unused daemon (`unused`) are left to unusedFindings.
+export function groupFindings(report) {
+  if (!report) return []
+  const used = (report.findings || []).filter((f) => !f.unused)
+  return SEVERITIES.map((severity) => [severity, byNode(report, used.filter((f) => f.severity === severity))])
+    .filter(([, nodes]) => nodes.length)
+}
+
+// [[node_id, findings]] of the daemons whose unit is neither active nor enabled: info only.
+export function unusedFindings(report) {
+  return report ? byNode(report, (report.findings || []).filter((f) => f.unused)) : []
+}
+
+// Whether the node reports the daemon unused (unit neither active nor enabled).
+export const engineUnused = (report, nodeId, engine) => report?.units?.[nodeId]?.[engine]?.used === false
 
 // Engines of a node that have a diff or a validation, in engine order.
 export function nodeEngines(report, nodeId) {
@@ -42,10 +55,18 @@ export function nodeEngines(report, nodeId) {
 export function fullyValidated(report) {
   const nodes = (report?.node_ids || []).filter((id) => !(report.unreachable || []).includes(id))
   return nodes.length > 0 && nodes.every((id) => {
-    const v = Object.values(report.validation?.[id] || {})
-    return v.length > 0 && v.every((r) => r.mode === 'dry_run' && r.ok)
+    const all = Object.entries(report.validation?.[id] || {})
+    return all.length > 0 && all.filter(([e]) => !engineUnused(report, id, e)).every(([, r]) => r.mode === 'dry_run' && r.ok)
   })
 }
 
 // Engines of an inventory node whose series ISC no longer maintains.
 export const obsoleteEngines = (node) => Object.entries(node?.engines || {}).filter(([, e]) => e.maintained === false).map(([name]) => name)
+
+// Counts by severity without the findings of unused daemons, shown in their own section.
+export function usedCounts(report) {
+  const counts = { ...(report?.counts || {}) }
+  const unused = (report?.findings || []).filter((f) => f.unused && f.severity in counts)
+  unused.forEach((f) => { counts[f.severity] -= 1 })
+  return counts
+}

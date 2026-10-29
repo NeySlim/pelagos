@@ -166,6 +166,7 @@ class FakeTools:
 class FakeServices:
     active: set[str] = dataclasses.field(default_factory=set)
     units: set[str] = dataclasses.field(default_factory=set)
+    enabled: set[str] = dataclasses.field(default_factory=set)
     calls: list[tuple[str, str]] = dataclasses.field(default_factory=list)
 
     def is_active(self, unit: str) -> bool:
@@ -176,6 +177,12 @@ class FakeServices:
 
     def exists(self, unit: str) -> bool:
         return unit in self.units
+
+    def unit_state(self, unit: str) -> tuple[str, str]:
+        active = "active" if unit in self.active else "inactive"
+        if unit in self.active or unit in self.enabled:
+            return active, "enabled"
+        return active, "disabled" if unit in self.units else "not-found"
 
     def _do(self, verb: str, unit: str) -> str:
         self.calls.append((verb, unit))

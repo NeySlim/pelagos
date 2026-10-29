@@ -14,7 +14,8 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import {
-  SEVERITY_VARIANT, defaultTarget, fullyValidated, groupFindings, nodeEngines, obsoleteEngines, parseTarget, targetKey,
+  SEVERITY_VARIANT, defaultTarget, engineUnused, fullyValidated, groupFindings, nodeEngines, obsoleteEngines, parseTarget, targetKey,
+  unusedFindings, usedCounts,
 } from './keaMigration'
 
 function NodesCard({ nodes }) {
@@ -78,6 +79,9 @@ function FindingRow({ finding, nodeName }) {
     <li className="rounded-md border border-border p-2.5 space-y-1" data-testid="kea-migration-finding" data-code={finding.code} data-severity={finding.severity}>
       <div className="flex flex-wrap items-center gap-2">
         {finding.engine && <Badge variant="outline" size="sm" className="font-mono">{finding.engine}</Badge>}
+        {finding.unused && finding.severity_if_used && finding.severity_if_used !== 'info' && (
+          <Badge variant="outline" size="sm" data-testid="kea-migration-if-used">{t('keaMigration.report.ifUsed', { severity: t(`keaMigration.severity.${finding.severity_if_used}`) })}</Badge>
+        )}
         <span className="text-sm text-text-primary">{msg(finding.message, finding.code)}</span>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-secondary">
@@ -106,11 +110,12 @@ function NodeDetails({ report, nodeId, name }) {
         {engines.map((engine) => {
           const v = report.validation?.[nodeId]?.[engine]
           if (!v) return null
-          const variant = v.mode === 'skipped' ? 'secondary' : v.ok ? 'success' : 'danger'
+          const unused = engineUnused(report, nodeId, engine)
+          const variant = v.mode === 'skipped' || unused ? 'secondary' : v.ok ? 'success' : 'danger'
           const label = v.mode === 'skipped' ? 'skipped' : v.ok ? 'ok' : 'failed'
           return (
-            <Badge key={engine} variant={variant} size="sm" data-testid="kea-migration-validation" data-engine={engine} title={v.output || undefined}>
-              {t(`engines.${engine}`, { defaultValue: engine })}: {t(`keaMigration.validation.${label}`)}
+            <Badge key={engine} variant={variant} size="sm" data-testid="kea-migration-validation" data-engine={engine} data-unused={unused || undefined} title={v.output || undefined}>
+              {t(`engines.${engine}`, { defaultValue: engine })}: {t(`keaMigration.validation.${label}`)}{unused ? ` (${t('keaMigration.validation.unused')})` : ''}
             </Badge>
           )
         })}
@@ -138,6 +143,7 @@ function NodeDetails({ report, nodeId, name }) {
 function Report({ report, names }) {
   const { t } = useTranslation('install')
   const groups = useMemo(() => groupFindings(report), [report])
+  const unused = useMemo(() => unusedFindings(report), [report])
   const nameOf = (id) => names[id] || id
   const validated = fullyValidated(report)
   return (
@@ -164,7 +170,7 @@ function Report({ report, names }) {
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2" data-testid="kea-migration-counts">
-        {Object.entries(report.counts || {}).map(([severity, n]) => (
+        {Object.entries(usedCounts(report)).map(([severity, n]) => (
           <Badge key={severity} variant={SEVERITY_VARIANT[severity] || 'secondary'} size="sm">{t(`keaMigration.severity.${severity}`)} {n}</Badge>
         ))}
         <span className="text-xs text-text-secondary ml-auto" data-testid="kea-migration-outage">{t('keaMigration.report.outage', { seconds: report.outage_estimate_seconds })}</span>
@@ -181,6 +187,18 @@ function Report({ report, names }) {
           ))}
         </section>
       ))}
+      {unused.length > 0 && (
+        <section className="space-y-2" data-testid="kea-migration-unused">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-text-tertiary">{t('keaMigration.report.unused')}</h4>
+          <p className="text-xs text-text-secondary">{t('keaMigration.report.unusedHelp')}</p>
+          {unused.map(([nodeId, items]) => (
+            <div key={nodeId || '-'} className="space-y-1">
+              <p className="text-xs font-medium text-text-primary">{nameOf(nodeId) || t('keaMigration.report.cluster')}</p>
+              <ul className="space-y-1.5">{items.map((f, i) => <FindingRow key={`${f.code}-${f.path}-${i}`} finding={f} nodeName={nameOf(nodeId)} />)}</ul>
+            </div>
+          ))}
+        </section>
+      )}
       <div className="space-y-3">
         {(report.node_ids || []).filter((id) => !(report.unreachable || []).includes(id)).map((id) => (
           <NodeDetails key={id} report={report} nodeId={id} name={nameOf(id)} />

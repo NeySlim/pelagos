@@ -902,6 +902,13 @@
     "package",
     "path"
   ],
+  "kea_migration.engine_unused": [
+    "active",
+    "enabled",
+    "engine",
+    "node",
+    "unit"
+  ],
   "kea_migration.ha_asymmetric": [
     "engine",
     "fields",

@@ -2048,3 +2048,19 @@ read: their zones are not asked one by one); a peer zone no node could read is n
 `dns.zones`. `DnsService.zones_with_peers` returns the zone list with each other node's list
 and read error. WP-API-AUTH: `services/ipv6_service.py`, `services/hosts_service.py`,
 `services/dns_service.py`.
+
+## 2026-10-29, 0.2.4: unused Kea daemon in the migration analysis
+Section 26, additive. The `kea_dry_run` answer gains `units` (engine: `{"unit","active",
+"enabled","used"}` from the node's systemctl) and the Report gains `units` per node. A daemon
+whose unit is neither active nor enabled is unused: its findings become `info` with `unused`
+true and `severity_if_used`, a new `engine_unused` finding (info: `engine`, `node`, `unit`,
+`active`, `enabled`) is added, and its file leaves HA pairs and the outage estimate, so it never
+makes the report blocking (`outage_estimate_seconds` is 0 when no node has a used daemon).
+Unused means `is-active` `inactive` or `failed` and `is-enabled` `disabled`, `masked`,
+`masked-runtime` or `not-found`; under supervisord a program whose `autostart` variable is
+false. Enabled but stopped, running but not enabled and an unknown state
+count as used, as does every daemon of an older node that sends no `units`. Message key
+`kea_migration.engine_unused`. WP-INSTALLER: `installer/kea_migration.py`,
+`platform/services.py` (`unit_state`). WP-API-AUTH: `services/kea_migration_service.py`.
+WP-FRONTEND: the findings of an unused daemon in their own section, its dry run marked not
+used and left out of "not validated" and of the severity counts; texts en and fr.

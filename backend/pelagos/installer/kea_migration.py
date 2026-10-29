@@ -485,6 +485,32 @@ def read_configs(env: Any, engines: list[str] | None = None) -> dict[str, dict[s
     return out
 
 
+# A daemon runs when its unit is active now or enabled for the next boot; only explicit answers
+# make it unused, so an unknown state keeps its findings at their severity.
+_IDLE = ("inactive", "failed")
+_OFF = ("disabled", "masked", "masked-runtime", "not-found")
+
+
+def engine_units(env: Any, engines: list[str]) -> dict[str, dict[str, Any]]:
+    """{engine: {"unit","active","enabled","used"}} from systemctl (`is-active`, `is-enabled`)."""
+    sm = env.service_manager
+    out = {}
+    for engine in engines:
+        unit = env.kea_unit(engine)
+        if sm.exists(unit):
+            active, enabled = sm.unit_state(unit)
+        else:
+            active, enabled = "inactive", "not-found"
+        used = not (active in _IDLE and enabled in _OFF)
+        out[engine] = {
+            "unit": unit,
+            "active": active or "unknown",
+            "enabled": enabled or "unknown",
+            "used": used,
+        }
+    return out
+
+
 _LOOPBACK = ("127.0.0.1", "::1", "localhost")
 _COMMAND_FROM = re.compile(r"CTRL_AGENT_COMMAND_RECEIVED .* received from remote address (\S+)")
 LOG_DAYS = 30
@@ -577,13 +603,14 @@ def analyze(
     node_id: str = "",
     ctrl_agent: dict[str, Any] | None = None,
     workdir: Path | None = None,
+    units: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Converts and dry-runs this node's Kea files (`configs`: engine -> 2.6 file) for one target.
 
     Returns {"node_id","series","source","target_version","findings","diffs","files","packages",
-    "validation","configs"}; `files` lists the secret files the conversion adds (paths only) and
-    `configs` the converted files with passwords and secrets masked. Nothing outside a temporary
-    directory changes.
+    "validation","configs","units"}; `units` is the state of each daemon's unit (engine_units),
+    `files` lists the secret files the conversion adds (paths only) and `configs` the converted
+    files with passwords and secrets masked. Nothing outside a temporary directory changes.
     """
     check_target(env.distro, series, source)
     engines = [e for e in ("kea4", "kea6", "d2") if e in configs]
@@ -603,6 +630,7 @@ def analyze(
         "packages": {},
         "validation": {},
         "configs": {},
+        "units": units or {},
     }
     try:
         skipped = ""
@@ -708,5 +736,11 @@ def dry_run_request(env: Any, request: dict[str, Any]) -> dict[str, Any]:
         ):
             raise ValueError(f"invalid configuration for {engine!r}")
     return analyze(
-        env, series, source, configs, str(request.get("node_id") or env.node_id), ctrl_agent_state(env)
+        env,
+        series,
+        source,
+        configs,
+        str(request.get("node_id") or env.node_id),
+        ctrl_agent_state(env),
+        units=engine_units(env, list(configs)),
     )

@@ -374,7 +374,13 @@ is kept on the node and shown again. A node that has no Kea file to analyze
 gives a blocking "not analyzed" finding with its reason; a target is not
 available while a Kea node does not answer; one analysis runs at a time. A
 file that differs from the running configuration (an open
-`config_divergence` alert) is noted in the report. The `kea_series_obsolete`
+`config_divergence` alert) is noted in the report. A daemon whose unit is
+neither running nor enabled (`systemctl is-active` and `is-enabled` on its
+node) is listed apart under "Unused daemons": Kea never loads its file, so
+its findings are information only, each with the severity it would have once
+enabled, and they neither block the migration nor count in the outage
+estimate; fix them only if you enable that daemon. A daemon that is enabled
+but stopped, or running but not enabled, is analyzed as used. The `kea_series_obsolete`
 alert (info) links here from Alerts, and while it is open the DHCP pages show
 a dismissible banner naming the node, the series and its end of life. The
 migration itself comes with a later release.

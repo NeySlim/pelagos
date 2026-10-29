@@ -48,6 +48,8 @@ def services(node_ctx: NodeContext, fake_registry: ConnectorRegistry, tmp_path) 
     # The installer endpoints work on an empty fake host, never on the machine running the tests.
     fake_host = make_env(tmp_path / "host")
     svc.install.env_factory = lambda: fake_host
+    svc.kea_migration.env_factory = lambda: fake_host
+    svc.kea_migration._own_env = False
     yield svc
     svc.close()
 

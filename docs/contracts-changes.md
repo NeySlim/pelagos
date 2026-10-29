@@ -1907,3 +1907,16 @@ address, forwarders in the global `port`/`tls` prefix form, a peer without `reso
 (before 0.2.2), a `tls` block of the same name in a user file or with other settings in
 `keys.conf`. The automatic fallback (`fallback_auto_enabled`) runs on the notification sender
 in the `resolver_return` task.
+
+## 2026-10-29, K2: Kea migration analysis API, series alert, screen
+Section 26. Additive: KeaInventory gains `package_version`, `eol`, `successor` per engine and
+`targets` (what the node's distribution can take); `kea_series_obsolete` details gain `package`,
+`reference`, `checked_at`; `pelagos/data/isc_advisories.json` gains `series.kea` (2.4 and 2.6 end of
+life, 2.6 since 2026-07-30 per kea-announce; 3.0 and 3.2 maintained), written by
+`scripts/update-isc-advisories.py` from the kea-announce archives. Changed: the
+`kea.migration.analyze` peer action takes `{"series","source"}`, returns the node's `kea_dry_run`
+answer and runs without the backend lock (no connector, a dry run lasts a minute or more); the
+analysis reads the Kea files only, a divergence from the running configuration stays the
+`config_divergence` alert. WP-API-AUTH: `services/kea_migration_service.py`, `api/kea_migration.py`,
+peer actions. WP-COLLECTOR: `collector/checks/kea_series.py`. WP-FRONTEND: Installation > Kea
+migration (`/install/kea-migration`), en and fr.

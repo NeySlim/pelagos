@@ -1707,10 +1707,10 @@ run under the collector's backend lock):
 | `resolver.series` | `{"metric","since","until","step"}` | `{"node_id","series"}`: this node's series of one resolver metric from its own cache, the `GET /series/resolver` answer for that node (section 25) |
 | `ipv6.observations` | `{"since"?}` | `{"node_id","observations": [Observation],"sources": [SourceStatus]}`: what this node observed (section 27) |
 | `kea.migration.inventory` | `{}` | this node's entry of `GET /install/kea-migration` (`nodes[]`, section 26) |
-| `kea.migration.analyze` | `{"series","source","created_by"}` | `{"node_id","findings","diffs","packages","validation"}`: the analysis of this node's Kea files and running configurations (section 26) |
+| `kea.migration.analyze` | `{"series","source"}` | the `kea_dry_run` answer of this node (`{"node_id","target_version","findings","diffs","packages","validation","configs"}`, secrets masked): the analysis of this node's Kea files (section 26) |
 | `archive.probe` | `{}` | `{"ok", "node_id", "free_bytes", "max_bytes", "fits"}`: a 64 KiB probe file written, read back and deleted in this node's archive folder (`.incoming/`) |
 
-The `certs.*`, `security.*`, `alerts.list`, `notify.state`, `archive.state|run|probe`, `resolver.health`, `resolver.series`, `ipv6.observations` and `kea.migration.inventory` actions never touch an engine and run without the
+The `certs.*`, `security.*`, `alerts.list`, `notify.state`, `archive.state|run|probe`, `resolver.health`, `resolver.series`, `ipv6.observations`, `kea.migration.inventory` and `kea.migration.analyze` actions never touch an engine and run without the
 backend lock.
 
 A plan built this way is stored by the caller (`PeerGateway.build_plan`
@@ -2135,7 +2135,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `archive_incomplete` | info | the last archive lists files it could not read (subject `archive:incomplete`; details `files`); exceptable |
 | `ddns_outage` | critical | the active primary of a prepared dynamic zone receives no DDNS update: D2 `update-timeout` toward it, its node offline or its named down (cluster-wide, subject `ddns:<view>/<zone>`; details `primary_node_id`, `since`, `epoch`, `candidates`); proposes the failover plan; section 24 |
 | `ddns_replay` | warning | active leases whose `cltt` falls in the last outage window lack their A, AAAA or PTR (cluster-wide, subject `ddns:replay`; details `from`, `to`, `count`); proposes the replay plan |
-| `kea_series_obsolete` | info | a node runs a Kea series that ISC no longer maintains (date from `pelagos/data/isc_advisories.json`, section 26); per node, subject `kea:series`; details `engine`, `version`, `series`, `source`, `eol`, `successor`, `remediation: "kea_migration"`; exceptable with `admin:settings` |
+| `kea_series_obsolete` | info | a node runs a Kea series that ISC no longer maintains (date from `pelagos/data/isc_advisories.json`, section 26); per node, subject `kea:series`; details `engine`, `version`, `series`, `source`, `package`, `eol`, `successor`, `reference` (the data's source URL), `checked_at`, `remediation: "kea_migration"`; exceptable with `admin:settings` |
 | `ipv6_missing_aaaa` | info | hosts with a stable observed IPv6 address and no AAAA in their forward zone (section 27); cluster-wide, one alert per zone, subject `ipv6:aaaa:<zone>`; details `zone`, `count`, `hosts: [{"host_key","name","mac","address"}]`, `exception_keys` |
 | `ipv6_reverse_missing` | info | a watched IPv6 prefix has no reverse zone served by the cluster; cluster-wide, subject `ipv6:reverse:<prefix>`; details `prefix`, `reverse_zone` (the zone to create) |
 | `ipv6_stale_aaaa` | warning | AAAA in a watched prefix whose address has not been observed for `ipv6.stale_days` while the host's MAC is seen with another stable address; cluster-wide, subject `ipv6:stale:<zone>`; details `zone`, `count`, `records: [{"name","address","mac","last_seen","current"}]`, `old_prefix`, `new_prefix` when every stale address moved to one other prefix, `exception_keys` |
@@ -3903,9 +3903,14 @@ run; K2 API, alert and the read-only screen.
 - **KeaInventory** (the `kea.migration.inventory` peer action): `{"node_id",
   "name","reachable","error","arch","distro": {"id","codename"},
   "engines": {"kea4"|"kea6"|"d2": {"version","series","source": "distro"|
-  "isc"|"backports"|"unknown","package","maintained": bool}}}`; `series` is
-  `<major>.<minor>`, `source` from the package that owns the binary (`dpkg -S`,
-  `rpm -qf`) and its origin, `maintained` from the advisories data.
+  "isc"|"backports"|"unknown","package","package_version","maintained": bool,
+  "eol","successor"}},"targets": [{"series","source"}]}`; `version` is the
+  upstream part of the package version, `series` is `<major>.<minor>`,
+  `source` from the package that owns the binary (`dpkg -S`, `rpm -qf`) and
+  its origin, `maintained`, `eol` and `successor` from the advisories data,
+  `targets` what this node's distribution can take. Every enrolled node is
+  listed; one without Kea has no engine, one that does not answer has
+  `reachable` false and its `error`.
 - **Target**: `{"series","source","version","available","recommended",
   "note"?}`: `3.2`/`isc` (recommended), `3.0`/`isc`, `3.0`/`backports`
   (Debian only, `note` says backports have no security support
@@ -3965,10 +3970,11 @@ run; K2 API, alert and the read-only screen.
   diffs and in the returned `configs`.
   `ha_symmetry(engine, node, config, partner, partner_config)` gives the
   `ha_asymmetric` findings of a pair.
-- **Analysis on a node** (the `kea.migration.analyze` peer action, run under
-  the backend lock): reads each Kea file (`configfile`) and `config-get`
-  (the running configuration wins when they differ, and a `config_divergence`
-  finding is not repeated here), the hooks of the target (the file list of
+- **Analysis on a node** (the `kea.migration.analyze` peer action, without the
+  backend lock: no connector is used and a dry run lasts a minute or more;
+  the caller waits up to 900 s): reads each Kea file as Kea reads it
+  (comments and includes, through the helper; a file that differs from the
+  running configuration is the `config_divergence` alert's business), the hooks of the target (the file list of
   the target's hooks package, read from the downloaded `.deb` or `.rpm` in a
   temporary directory, never installed), converts, then validates the
   converted file with the target's `kea-dhcp4 -T`, `kea-dhcp6 -T` (which
@@ -4002,9 +4008,23 @@ run; K2 API, alert and the read-only screen.
   maintained according to `pelagos/data/isc_advisories.json`, which gains
   `"series": {"kea": {"<major.minor>": {"maintained": bool,"eol": date|null,
   "successor","source": url,"checked_at"}}}` (written by
-  `scripts/update-isc-advisories.py` from the ISC announcements; 2.6 is
-  obsolete since the release of 3.2.0, kea-announce July 2026). A newer
-  data file only adds series.
+  `scripts/update-isc-advisories.py` from the kea-announce archives of the
+  last 24 months, "Kea X.Y - all versions - are now EOL"; 2.6 is end of life
+  since 2026-07-30, kea-announce July 2026; 3.0 and 3.2 maintained per the
+  ISC support policy, kb.isc.org/docs/aa-00896, both read on 2026-10-29). A
+  series the data does not list is obsolete when it is older than a listed
+  obsolete one, unknown otherwise (no alert). A newer data file only adds
+  series. The alert is raised for the first obsolete engine of `kea4`,
+  `kea6`, from the running version (the last known one while the daemon is
+  stopped).
+- **Report assembly** (`services/kea_migration_service.py`, on the node of the
+  request): the nodes are analyzed in parallel; a node that does not answer
+  gives `node_unreachable` (blocking, with its `error`) and is listed in
+  `unreachable`; two nodes are HA partners when one's `this-server-name` is
+  among the peers the other declares, and `ha_symmetry` runs once per pair
+  on the converted files; findings are sorted by severity, node, engine;
+  `outage_estimate_seconds` is 30 with HA (failure detection with the
+  reduced delay, LFC and lease copy, start of the standby), 15 without.
 - **Audit**: `kea.migration.analyze` (target `kea-migration:<id>`, request
   `{"series","source","node_ids"}`, response `{"blocking","counts"}`).
 

@@ -28,6 +28,7 @@ from pelagos.services.hosts_service import HostsService
 from pelagos.services.install_service import InstallService
 from pelagos.services.ipv6_service import Ipv6Service
 from pelagos.services.jobs import JobStore
+from pelagos.services.kea_migration_service import KeaMigrationService
 from pelagos.services.notify_service import NotifyService
 from pelagos.services.ops_service import OpsService
 from pelagos.services.peers import PeerGateway
@@ -97,6 +98,7 @@ class Services:
         self.advanced = AdvancedService(ctx, self.dns)
         self.ops = OpsService(ctx, self.registry, self.peers)
         self.install = InstallService(ctx, self.dns, self.dhcp4, self.peers)
+        self.kea_migration = KeaMigrationService(ctx, self.peers)
         self.certs = CertService(ctx, self.peers, self.jobs, self.dns)
         self.notifications = NotifyService(ctx, self.peers)
         self.ipv6 = Ipv6Service(ctx, self.peers, self.hosts, self.cache)

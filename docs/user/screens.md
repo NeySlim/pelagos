@@ -14,6 +14,7 @@ DHCP screens are described in [DNS](dns.md) and [DHCP](dhcp.md).
 - [Nodes and replication](#nodes-and-replication)
 - [Install and import](#install-and-import)
 - [Security audit](#security-audit)
+- [Kea migration](#kea-migration)
 - [Audit log](#audit-log)
 - [Users, roles, modules, settings](#users-roles-modules-settings)
 - [Account](#account)
@@ -326,6 +327,25 @@ Findings marked "Manual" (`kea_http_socket_plain`, and `rndc_nonlocal` or
 `stats_nonlocal` when Pelagos reaches a remote BIND over the network)
 have no automatic remediation: their checkbox is disabled and "Select all"
 skips them.
+
+## Kea migration
+
+Read only (`admin:install`): what moving the cluster from Kea 2.6 to 3.x would
+change, analyzed without touching the nodes. The table lists each Kea daemon
+of each node with its version, its packages (distribution, ISC, Debian
+backports) and whether ISC still maintains its series (Kea 2.6 is end of life
+since 2026-07-30). Choose one target for the whole cluster (Kea 3.2 from ISC
+is recommended; Kea 3.0 from ISC, or from Debian backports, which have no
+security support commitment), then "Analyze": each node downloads the target
+packages into a temporary directory, converts its Kea files and has them
+checked by the target daemons (`kea-dhcp4 -T`, `kea-dhcp-ddns -t`), then
+removes everything. The report groups the findings by severity (blocking,
+converted, behavior change, information) and node, each with the JSON path,
+what Pelagos will do and the ISC reference; per node it shows whether each
+daemon's converted file was accepted, the packages that will be removed and
+installed, and the full diff of each file (secrets masked). The last report
+is kept on the node and shown again. The `kea_series_obsolete` alert (info)
+points here. The migration itself comes with a later release.
 
 ## Audit log
 

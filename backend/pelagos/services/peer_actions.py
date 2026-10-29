@@ -73,6 +73,9 @@ ARCHIVE_RUN = "archive.run"
 ARCHIVE_PROBE = "archive.probe"
 # IPv6 addresses this node observed and the status of its sources (collector.ipv6.store).
 IPV6_OBSERVATIONS = "ipv6.observations"
+# Kea migration analysis of this node (services.kea_migration_service, section 26).
+KEA_MIGRATION_INVENTORY = "kea.migration.inventory"
+KEA_MIGRATION_ANALYZE = "kea.migration.analyze"
 CERTS_ACTIONS = frozenset(
     {CERTS_STATUS, CERTS_RUN, CERTS_REQUEST, CERTS_CHECK, CERTS_UPLOAD, CERTS_SELF_SIGNED}
 )
@@ -90,6 +93,10 @@ LOCKLESS = frozenset(
         ARCHIVE_RUN,
         ARCHIVE_PROBE,
         IPV6_OBSERVATIONS,
+        # Package queries and the helper's dry run over the files: no connector, and a dry run
+        # lasts a minute or more, far beyond what the collector may wait on the engine lock.
+        KEA_MIGRATION_INVENTORY,
+        KEA_MIGRATION_ANALYZE,
     }
 )
 
@@ -126,6 +133,8 @@ class PeerActions:
             ARCHIVE_RUN: self.archive_run,
             ARCHIVE_PROBE: self.archive_probe,
             IPV6_OBSERVATIONS: self.ipv6_observations,
+            KEA_MIGRATION_INVENTORY: self.kea_migration_inventory,
+            KEA_MIGRATION_ANALYZE: self.kea_migration_analyze,
         }
 
     def __call__(self, name: str, body: dict[str, Any], caller: str) -> Any:
@@ -271,6 +280,17 @@ class PeerActions:
             return node_health(series_mod.SeriesStore(conn), self.ctx.node.id, now, stale, tlds)
         finally:
             conn.close()
+
+    def kea_migration_inventory(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        from pelagos.services.kea_migration_service import KeaMigrationService
+
+        return KeaMigrationService(self.ctx).local_inventory()
+
+    def kea_migration_analyze(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """This node's dry run for one target; the caller merges it into the Report."""
+        from pelagos.services.kea_migration_service import KeaMigrationService
+
+        return KeaMigrationService(self.ctx).local_analyze(str(body.get("series")), str(body.get("source")))
 
     def notify_state(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
         """This node's dispatcher state, for the overview of a node that is not the sender."""

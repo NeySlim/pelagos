@@ -306,14 +306,18 @@ Kea 2.4 or later: `id` (CVE), `engine` (`bind` or `kea`), `severity` and
 `kb.isc.org`), `ranges` (open source edition: `from` and `to` inclusive,
 `fixed`) and `ranges_preview` (BIND Supported Preview Edition, matched only for
 versions such as `9.20.11-S1`). The top-level `verified` is the date the data
-was checked against ISC, `sources` lists the pages used.
+was checked against ISC, `sources` lists the pages used. `series.kea` gives
+the ISC maintenance state of each Kea series (`maintained`, `eol`,
+`successor`, `source`, `checked_at`), which raises `kea_series_obsolete`.
 
 To update the data:
 
 1. Run `scripts/update-isc-advisories.py` (Python 3, no dependency, needs
    Internet access). It reads the Markdown export of the BIND matrices, the
    BIND and Kea advisory lists and every advisory they name on `kb.isc.org`,
-   rebuilds the file and prints a diff against the shipped one. Add
+   rebuilds the file, adds the Kea series declared end of life in the
+   kea-announce archives of the last 24 months, and prints a diff against
+   the shipped one. Add
    `--cache DIR` to keep the fetched pages and rerun offline.
 2. Review the diff against the ISC advisories (the parsing is best effort),
    then rerun with `--write`: it sets `verified` and `updated` to today and

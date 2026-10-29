@@ -179,6 +179,17 @@ def test_kea_findings():
     assert ids["kea:kea_http_socket_plain:kea4:192.0.2.1"].to_dict()["remediable"] is False
 
 
+def test_clear_secret_with_an_unusable_file_name_is_manual():
+    keys = [{"name": n, "algorithm": "HMAC-SHA256", "secret": "eA=="} for n in ("ok", "a/b", "x\n")]
+    found = audit_kea(
+        KeaAuditInput(configs={"d2": {"DhcpDdns": {"tsig-keys": keys}}}, versions={"d2": "3.0.3"})
+    )
+    clear = {f.subject: f for f in found if f.kind == "kea_tsig_clear_secret"}
+    assert clear["ok"].details["remediation"] == "secret_file"
+    for name in ("a/b", "x\n"):
+        assert clear[name].to_dict()["remediable"] is False and "remediation" not in clear[name].details
+
+
 def _apply(env, ids):
     plan = build_security_plan(env, ids, created_by="admin")
     assert plan.scope is PlanScope.SECURITY and plan.requires_confirmation

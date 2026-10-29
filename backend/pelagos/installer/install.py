@@ -324,6 +324,16 @@ def step_kea_config(env: Any, engine: str, change: Change, ctx: InstallContext) 
             # Kea 3.x refuses clear D2 secrets: move them to secret files before the new daemon starts.
             current = keaconf.loads(conf.read_text(), str(conf))
             migrated, secret_files = keasetup.migrate_inline_secrets(current, env.paths.kea_conf_dir)
+            stuck = [
+                str(k.get("name"))
+                for k in keaconf.tsig_keys(migrated)
+                if isinstance(k, dict) and "secret" in k
+            ]
+            if stuck:
+                raise RuntimeError(
+                    f"{conf}: TSIG key(s) {', '.join(stuck)} keep a clear secret that Kea 3.x refuses; "
+                    "the name is not usable as a file name: move the secret to a secret-file by hand"
+                )
             for path, secret in secret_files.items():
                 out.append(keasetup.write_secret_file(env, path, secret))
             if migrated != current:

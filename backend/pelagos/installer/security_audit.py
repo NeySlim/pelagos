@@ -962,7 +962,10 @@ def audit_kea(inp: KeaAuditInput) -> list[Finding]:
                         msg("finding.kea_tsig_clear_secret.description", key=name),
                         msg("finding.kea_tsig_clear_secret.proposal"),
                         msg("finding.kea_tsig_clear_secret.risk"),
-                        {"key": name, "remediation": "secret_file"},
+                        # A name that is not a plain file name has no secret-file path to offer.
+                        {"key": name, "remediation": "secret_file"}
+                        if keasetup.SAFE_KEY_FILE.fullmatch(name)
+                        else {"key": name, "remediable": False},
                     )
                 )
     return findings

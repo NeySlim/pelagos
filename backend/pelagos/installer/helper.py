@@ -276,7 +276,7 @@ def authorize(plan: Plan, env: Any) -> None:
             if after.get("step") not in PEER_STEPS:
                 raise HelperError(f"change {change.target} from another node is not accepted", "value")
             for name in ("key", "new_key"):
-                if name in details and not SAFE_KEY.match(str(details[name])):
+                if name in details and not SAFE_KEY.fullmatch(str(details[name])):
                     raise HelperError(f"invalid key name {details[name]!r}", "value")
         secrets = verify_peer_steps(plan, env)
         if hasattr(env, "plan_secrets"):
@@ -416,7 +416,7 @@ def _match_ha_tls(change: Change, step: str, details: dict[str, Any], env: Any) 
             refuse(f"{engine} HA servers {servers} are not this node's ({', '.join(sorted(mine)) or 'none'})")
     hosts = details.get("hosts")
     if not isinstance(hosts, list) or not all(
-        isinstance(h, str) and SAFE_KEY.match(h.replace(":", "_")) for h in hosts
+        isinstance(h, str) and SAFE_KEY.fullmatch(h.replace(":", "_")) for h in hosts
     ):
         refuse("invalid addresses")
 
@@ -502,7 +502,7 @@ def _check_change(change: Change, paths: Any) -> None:
             refuse(f"conf {a['conf']}")
     if "secret_file" in a:
         key = str(a.get("tsig_key") or "")
-        if not SAFE_KEY.match(key) or a["secret_file"] != str(
+        if not SAFE_KEY.fullmatch(key) or a["secret_file"] != str(
             keasetup.secret_file_path(paths.kea_conf_dir, key)
         ):
             refuse(f"secret_file {a['secret_file']}")

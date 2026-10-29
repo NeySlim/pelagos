@@ -228,3 +228,19 @@ def test_d2_secret_dir_is_made_for_pelagos_with_the_kea_group(tmp_path, monkeypa
     made.symlink_to(tmp_path / "elsewhere")
     with pytest.raises(helper.HelperError, match="not a directory"):
         helper.handle({"op": "d2_secret_dir"}, lambda: env, lambda _m: None)
+
+
+def test_secret_file_with_a_trailing_newline_key_is_refused(tmp_path):
+    from pelagos.domain import Change, ChangeOp
+
+    paths = debian_tree(tmp_path).paths
+    good = str(paths.kea_conf_dir / "kea-ddns.tsig")
+    change = Change(
+        op=ChangeOp.ADD, target="install/d2/config", after={"tsig_key": "kea-ddns", "secret_file": good}
+    )
+    helper._check_change(change, paths)
+    bad = Change(
+        op=ChangeOp.ADD, target="install/d2/config", after={"tsig_key": "kea-ddns\n", "secret_file": good}
+    )
+    with pytest.raises(helper.HelperError, match="not allowed on this host"):
+        helper._check_change(bad, paths)

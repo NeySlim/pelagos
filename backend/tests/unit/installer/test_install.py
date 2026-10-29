@@ -271,3 +271,17 @@ def test_kea_reload_rejected_rolls_back(tmp_path):
         keasetup.write_config(env, "kea4", conf, old + " ", "test", restart=False)
     assert conf.read_text() == old
     assert sent == ["config-reload", "config-reload"]  # the rejected one, then the restored file
+
+
+def test_keep_mode_refuses_a_clear_secret_it_cannot_move(tmp_path):
+    env = make_env(tmp_path)
+    env.packages.installed.add("kea-dhcp-ddns-server")
+    kea = tmp_path / "etc/kea"
+    kea.mkdir(parents=True)
+    bad = {"name": "a/b", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0"}
+    (kea / "kea-dhcp-ddns.conf").write_text(json.dumps({"DhcpDdns": {"tsig-keys": [bad]}}))
+    plan = build_install_plan(env, ["d2"], "isc", "3.2")
+    job = apply_plan(plan, env)
+    assert job.state is JobState.FAILED
+    assert "a/b keep a clear secret" in job.error and "by hand" in job.error
+    assert json.loads((kea / "kea-dhcp-ddns.conf").read_text())["DhcpDdns"]["tsig-keys"] == [bad]

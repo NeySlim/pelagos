@@ -232,6 +232,7 @@ class Collector:
         # DDNS return (section 24): the first check after the start also fixes this node's D2 lists.
         self._return_checked = False
         self._demote_retry_at = 0.0
+        self._resolver_retry_at = 0.0
         # run() turns this on: the slow checks probe the network, never inside the polling loop.
         self.slow_background = False
         self._slow_thread: threading.Thread | None = None
@@ -835,6 +836,34 @@ class Collector:
         )
         return ok
 
+    def resolver_return(self) -> None:
+        """This node's automatic return from a forwarder fallback at its deadline (section 25)."""
+        from pelagos.services import resolver_fallback as rf
+
+        if self.backends.dns is None or rf.read_fallback(self.ctx.settings()) is None:
+            return
+        if not self._replication_synced() or time.monotonic() < getattr(self, "_resolver_retry_at", 0.0):
+            return  # resolver.fallback as the peers know it is not here yet, or a failed return waits
+        done = rf.auto_return(
+            self.ctx, self.backends.dns, self._apply_as_system, datetime.now(UTC), lock=self.backend_lock
+        )
+        if done and done.startswith("failed"):
+            self._resolver_retry_at = time.monotonic() + DEMOTE_RETRY_SECONDS
+
+    def _apply_as_system(self, plan: Any) -> Any:
+        """Applies a plan of this node's own engines as `system` (the caller holds the backend lock)."""
+        from pelagos.services.peers import PeerGateway
+        from pelagos.services.plan_service import PlanError, PlanService
+        from pelagos.services.registry import ConnectorRegistry as ServiceRegistry
+
+        b = self.backends
+        registry = ServiceRegistry(dns=b.dns, kea4=b.kea4, kea6=b.kea6, d2=b.d2)
+        try:
+            return PlanService(self.ctx, registry, PeerGateway(self.ctx)).apply(plan, "system", confirm=True)
+        except PlanError as exc:
+            plan.error = exc.detail
+            return None
+
     def apply_exceptions(self) -> list[Alert]:
         """Resolve at once the open alerts an admin exception now names, without waiting for their check."""
         excepted = consistency.excepted_for(self.ctx.cluster())
@@ -984,6 +1013,7 @@ class Collector:
             ("consistency", self.consistency),
             ("ddns_outage", self.ddns_outage),
             ("ddns_return", self.ddns_return),
+            ("resolver_return", self.resolver_return),
             ("security_audit", self.security_audit),
             ("health", self.health),
             ("health_audit", self.health_audit),
@@ -1021,6 +1051,7 @@ class Collector:
             Task("consistency", consistency_period, self.consistency),
             Task("ddns_outage", poll, self.ddns_outage),
             Task("ddns_return", poll, self.ddns_return),
+            Task("resolver_return", poll, self.resolver_return),
             Task("security_audit", consistency_period, self.security_audit),
             Task("health", poll, self.health),
             Task("health_audit", consistency_period, self.health_audit),

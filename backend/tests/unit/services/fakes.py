@@ -126,6 +126,7 @@ class FakeDnsBackend(DnsBackend):
         self.keys: dict[str, tuple[str, str]] = {}
         self.acls: dict[str, list[str]] = {}
         self.options: dict[str, str] = {}
+        self.tls: dict[str, str] = {}  # tls statements of keys.conf (forwarder fallback over TLS)
         self.ops: list[tuple[str, ...]] = []
         self.applied: list[str] = []
         self.rolled_back: list[str] = []
@@ -593,6 +594,14 @@ class FakeDnsBackend(DnsBackend):
                         self.node_id,
                     )
                 )
+            elif kind == "tls":
+                before = self.tls.get(name)
+                if change.op is ChangeOp.DELETE and before is None:
+                    continue  # the real planner drops the delete of an absent tls block too
+                after = (
+                    None if change.op is ChangeOp.DELETE else f'tls "{name}" {{ remote-hostname "{name}"; }};'
+                )
+                plan.diff += _diff(before, after, "keys.conf tls")
             elif change.target.startswith("raw:"):
                 before, after = None, str(change.after)
                 plan.diff += _diff(before, after, change.target[4:])
@@ -760,6 +769,12 @@ class FakeDnsBackend(DnsBackend):
                 else:
                     self.policies[rest] = list(change.after.get("statements") or [])
                 continue
+            if head == "tls":
+                if change.op is ChangeOp.DELETE:
+                    self.tls.pop(rest, None)
+                else:
+                    self.tls[rest] = str(change.after)
+                continue
             if head == "rpz":
                 self._mutate_rpz(change)
             elif head in ("keys", "acls", "options"):
@@ -819,7 +834,7 @@ class FakeDnsBackend(DnsBackend):
             else:
                 self.acls[name] = list(change.after["elements"])
         else:
-            if change.op is ChangeOp.DELETE:
+            if change.op is ChangeOp.DELETE or change.after is None:
                 self.options.pop(name, None)
             else:
                 self.options[name] = str(change.after)

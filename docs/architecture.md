@@ -1687,7 +1687,7 @@ run under the collector's backend lock):
 | Action | Body | Result |
 | --- | --- | --- |
 | `dns.zone.plan` | `{"change": Change, "created_by"}` | `{"plan": Plan}` built by this node's BIND (`plan_zone_change`) |
-| `dns.config.plan` | `{"changes": [Change], "created_by"}` | `{"plan": Plan}` built by this node's BIND (`plan_config_change`); targets `keys/`, `acls/` and `options/` only |
+| `dns.config.plan` | `{"changes": [Change], "created_by"}` | `{"plan": Plan}` built by this node's BIND (`plan_config_change`); targets `keys/`, `acls/`, `options/` and `tls/` only |
 | `archive.restore.part` | `{"part", "payload", "created_by"}` | `{"plans": [Plan], "summary"}`: one restore part built on this node's engine (`services.archive_restore.build_part`, section 23); D2 secrets sealed |
 | `dhcp.adopt.plan` | `{"engine": "kea4"|"kea6"|"d2", "source": "file"|"running", "created_by"}` | `{"plan": Plan}` (`plan_adopt` of this node's file) |
 | `dhcp.config.plan` | `{"engine", "config", "created_by"}` | `{"plan": Plan}` (whole-configuration replace of this node; D2 secrets sealed in the plan) |
@@ -1703,7 +1703,7 @@ run under the collector's backend lock):
 | `notify.state` | `{}` | this node's notification dispatcher state (`collector.notify.read_state`, `{}` before its first pass; section 22) |
 | `archive.state` | `{}` | `{"node_id", "state": state.json, "last_archive": ArchiveMeta|null, "count"}` of this node's archives (section 23) |
 | `archive.run` | `{}` | `{"requested": true}`: sends the `archive` event to this node's collector (section 23) |
-| `resolver.health` | `{}` | this node's entry of `GET /dns/resolver/health` (`nodes[]`, section 25), read from its series cache and probe table |
+| `resolver.health` | `{}` | this node's entry of `GET /dns/resolver/health` (`nodes[]`, NodeHealth of section 25), read from its series cache and probe table |
 | `resolver.series` | `{"metric","since","until","step"}` | `{"node_id","series"}`: this node's series of one resolver metric from its own cache, the `GET /series/resolver` answer for that node (section 25) |
 | `ipv6.observations` | `{"since"?}` | `{"node_id","observations": [Observation],"sources": [SourceStatus]}`: what this node observed (section 27) |
 | `kea.migration.inventory` | `{}` | this node's entry of `GET /install/kea-migration` (`nodes[]`, section 26) |
@@ -3780,8 +3780,20 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
   "cache_hit_percent"},"latency_ms": {"p50","p95"},"cache": {"nodes",
   "memory_bytes","lru_per_minute"},"roots": [{"letter","address","family",
   "rtt_ms","ok","last_failure"}],"tlds": [{"tld","servers","ok","rtt_ms",
-  "last_failure","served"}]}`; a value never measured is null, `error` says
-  why (`statistics-channel unreachable`, ...). `thresholds` keys:
+  "last_failure","served"}],"probes_healthy_since","observed_max_7d"}`; a value
+  never measured is null, `error` says why (`no resolver measure yet`, or
+  `statistics-channel unreachable` once the last sample is older than three
+  collector passes, two minutes at least). A TLD entry sums its probed servers:
+  `servers` is their count, `ok` true when one answered, `rtt_ms` the best,
+  `last_failure` the most recent failure of one of them, `served` true when it
+  is probed for a zone of the node rather than listed in `probe_tlds`. R3 adds
+  `probes_healthy_since` (RFC 3339: the latest moment every root server, or
+  every probed server of one TLD, may have failed together; null when none
+  ever did; `"unhealthy"` while such a group fails now, `"unknown"` without a
+  root probe) and `observed_max_7d` (`{metric: value}` of this node for
+  `latency_p95_ms`, `timeouts_percent`, `mismatch_per_minute`,
+  `lru_per_minute` and the largest current `tld_failures`), from which the
+  route builds `return_ready` and the cluster's `thresholds`. `thresholds` keys:
   `latency_p95_ms`, `timeouts_percent`, `tld_failures`, `mismatch_count`,
   `lru_per_minute`, each with the setting values and `observed_max_7d`
   (largest hourly value of the last 7 days over the cluster, null without
@@ -3817,16 +3829,26 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
   id: {"forward": str|null,"forwarders": [str]|null}},"returned": [node id],
   "manual_change": bool}`. `before` keeps exactly what each node had (null
   for an absent statement) so the return restores it, absence included. With
-  `tls_name`, each forwarder is written `<address> port 853 tls <name>` and a
-  `tls <name> { remote-hostname "<name>"; };` block is added; the return
-  removes the block.
+  `tls_name`, each forwarder is written `<address> port 853 tls "<name>"` and a
+  `tls "<name>" { remote-hostname "<name>"; };` block is added (`dns.config`
+  target `tls/<name>`, kept in `keys.conf`, which the `dns.config.plan` peer
+  action builds too; deleting an absent block is no change); the return
+  removes the block. TOML holds no null: null keys are left out of
+  cluster.toml and read back as null, and an entry without `id`, `node_ids` or
+  `until` is no fallback. `started_at` and `until` are stamped when the plan
+  is applied (`until` = then + `hours`).
 - **Plans**: composites (`PlanService.register_composite`) of `dns.config`
   parts on `options/forward` and `options/forwarders`, a peer's part built
   there by the `dns.config.plan` peer action; summary `plan.resolver.fallback`
   (`nodes`, `forwarders`, `forward`, `until`) or `plan.resolver.return`
-  (`nodes`). Audit: `dns.resolver.apply|rollback` (request `{"op":
-  "fallback"|"return","fallback_id","node_ids"}`), `dns.resolver.op` (`op`
-  `extend`, or `return` by `system` for an automatic return).
+  (`nodes`). The last part, without an engine, writes `resolver.fallback`
+  (`services.resolver_fallback.FallbackWriter`, change target
+  `resolver.fallback`); it refuses when the entry found is not the one the plan
+  was built against (same `id`, or none). Audit: the composite's
+  `dns.resolver.apply|rollback`, and the node entry of that last part, whose
+  request holds `{"op": "fallback"|"return","fallback_id","node_ids"}`;
+  `dns.resolver.op` (`op` `extend`, or `return` by `system` for an automatic
+  return, with its `plan_id`).
 - **Return**: offered (`return_ready` true in the health answer) once the
   direct probes of the root and the TLDs are healthy on every node of the
   fallback for `fallback_return_healthy_minutes`; applied by each node's
@@ -3834,7 +3856,14 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
   (a node offline then returns when it comes back), which adds the node to
   `returned`; the last one removes `fallback`. A node whose `forward` or
   `forwarders` no longer match the fallback (changed by hand) sets
-  `manual_change`, and the automatic return skips it.
+  `manual_change`, and the automatic return skips it; a node that already
+  has its `before` back is added to `returned` without a plan. The collector
+  task `resolver_return` runs every `collector.poll_seconds` once the
+  replication has exchanged cluster.toml. The return plan restores every node
+  of the fallback that answers, even one changed by hand (the diff shows it);
+  a node that does not answer keeps the fallback, which then lists the others
+  in `returned` and gets `until` = now, so its collector returns it when it is
+  back.
 - **Automatic fallback** (`fallback_auto_enabled`, off by default): the
   collector of the service node (section 22) builds and applies the fallback
   plan with the first preset (`quad9`), `forward first`, `fallback_max_hours`,

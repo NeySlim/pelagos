@@ -456,7 +456,7 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("POST", "/dhcp/ddns/failover/plan", "/dhcp/ddns/failover/plan", {"to_node_id": "n2"}, DNS_AND_DHCP),
     ("POST", "/dhcp/ddns/switchover/plan", "/dhcp/ddns/switchover/plan", {"to_node_id": "n2"}, DNS_AND_DHCP),
     ("POST", "/dhcp/ddns/replay/plan", "/dhcp/ddns/replay/plan", {}, "ops:dhcp.leases"),
-    # Resolver health, Kea migration analysis, IPv6 observations (sections 25 to 27): 501 until built.
+    # Resolver health (section 25); Kea migration analysis and IPv6 observations (26, 27).
     ("GET", "/dns/resolver/health", "/dns/resolver/health", None, "read:dns"),
     ("PUT", "/dns/resolver/fallback", "/dns/resolver/fallback", {"until": "x"}, "write:dns.config"),
     ("POST", "/dns/resolver/fallback/plan", "/dns/resolver/fallback/plan", {}, "write:dns.config"),

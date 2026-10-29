@@ -63,6 +63,8 @@ SECURITY_HA_GUARD = "security.ha_guard"
 ALERTS_LIST = "alerts.list"
 # This node's resolver series (services.alerts_service.SeriesService.resolver).
 RESOLVER_SERIES = "resolver.series"
+# This node's entry of GET /dns/resolver/health (services.resolver_fallback, collector.resolver).
+RESOLVER_HEALTH = "resolver.health"
 # The notification dispatcher state of this node (collector.notify.read_state).
 NOTIFY_STATE = "notify.state"
 # Archives of this node (services.archive_service): run state, a run now, a probe file.
@@ -82,6 +84,7 @@ LOCKLESS = frozenset(
         SECURITY_HA_GUARD,
         ALERTS_LIST,
         RESOLVER_SERIES,
+        RESOLVER_HEALTH,
         NOTIFY_STATE,
         ARCHIVE_STATE,
         ARCHIVE_RUN,
@@ -117,6 +120,7 @@ class PeerActions:
             SECURITY_HA_GUARD: self.security_ha_guard,
             ALERTS_LIST: self.alerts_list,
             RESOLVER_SERIES: self.resolver_series,
+            RESOLVER_HEALTH: self.resolver_health,
             NOTIFY_STATE: self.notify_state,
             ARCHIVE_STATE: self.archive_state,
             ARCHIVE_RUN: self.archive_run,
@@ -244,6 +248,31 @@ class PeerActions:
         finally:
             conn.close()
 
+    def resolver_health(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """This node's NodeHealth, read from its own series cache and probe table."""
+        import sqlite3
+        import time
+
+        from pelagos.collector import series as series_mod
+        from pelagos.collector.resolver import node_health
+        from pelagos.core import settings_registry as reg
+        from pelagos.services.resolver_fallback import stale_after
+
+        settings = self.ctx.settings()
+        tlds = list(reg.get(settings, "resolver.probe_tlds"))
+        now, stale = int(time.time()), stale_after(settings)
+        path = self.ctx.paths.series_db
+        if not path.exists():
+            return node_health(None, self.ctx.node.id, now, stale, tlds)
+        try:
+            conn = series_mod.connect(path, readonly=True)
+        except sqlite3.Error as exc:
+            raise PeerActionError("engine_unavailable", f"series cache unreadable: {exc}") from None
+        try:
+            return node_health(series_mod.SeriesStore(conn), self.ctx.node.id, now, stale, tlds)
+        finally:
+            conn.close()
+
     def notify_state(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
         """This node's dispatcher state, for the overview of a node that is not the sender."""
         from pelagos.collector.notify import read_state
@@ -301,9 +330,9 @@ class PeerActions:
             raise ValidationError("changes must be a non-empty list", [field_error("changes", "required")])
         changes = [parse_change(c, f"changes[{i}]") for i, c in enumerate(raw)]
         for i, change in enumerate(changes):
-            if change.target.split("/", 1)[0] not in ("keys", "acls", "options"):
+            if change.target.split("/", 1)[0] not in ("keys", "acls", "options", "tls"):
                 raise ValidationError(
-                    "only keys/, acls/ and options/ changes are built for a peer",
+                    "only keys/, acls/, options/ and tls/ changes are built for a peer",
                     [field_error(f"changes[{i}].target", "not allowed")],
                 )
         return self._plan(backend.plan_config_change(changes, _created_by(body)))

@@ -1889,3 +1889,15 @@ the three routes answer (no more `501`). WP-FRONTEND (V3): `proposal` carries `a
 end with the subject, `ipv6_*` exception keys stored canonical (`mac:` lower-case, `addr:`
 compressed), the `missing_aaaa` filter leaves excepted rows out, a never observed AAAA is stale
 only in a /64 the host left. WP-FRONTEND (V3): the `interface` origin in the prefixes list.
+
+## 2026-10-29, R3: resolver fallback and return
+Additive, release 0.2.2, section 25. NodeHealth gains `probes_healthy_since` and
+`observed_max_7d` (what `return_ready` and `thresholds` are built from); `error` reads `no
+resolver measure yet` before the first sample. WP-BIND: `dns.config` target `tls/<name>` (a `tls`
+block with `remote-hostname`, in `keys.conf`; deleting an absent one is no change),
+`connectors/bind/forwarders.py`. WP-API-AUTH: `services/resolver_fallback.py` (plans, writer of
+`resolver.fallback`, extension, health), the `resolver.health` peer action, `dns.config.plan`
+for a peer accepts `tls/`, the routes of `api/resolver_health.py` answer instead of `501`.
+WP-COLLECTOR: `node_health` in `collector/resolver.py`, task `resolver_return` (automatic return
+per node). Return plan with a silent node: the others go to `returned`, `until` becomes now.
+WP-FRONTEND (R4): the two NodeHealth keys may be shown or ignored.

@@ -34,6 +34,7 @@ from pelagos.services.peers import PeerGateway
 from pelagos.services.plan_service import PlanService
 from pelagos.services.ptr_service import PtrService
 from pelagos.services.registry import ConnectorRegistry
+from pelagos.services.resolver_fallback import FallbackWriter, ResolverFallbackService
 from pelagos.services.rpz_service import RpzService
 from pelagos.services.webauthn_service import WebAuthnService
 
@@ -78,6 +79,8 @@ class Services:
             ctx, self.dns, self.registry, self.peers, self.plans, self.ddns_replay
         )
         self.plans.cluster_parts[PlanScope.DNS_FAILOVER] = RolesWriter(ctx)
+        self.plans.cluster_parts[PlanScope.DNS_RESOLVER] = FallbackWriter(ctx)
+        self.resolver_fallback = ResolverFallbackService(ctx, self.dns, self.peers, self.plans, self.cache)
         restore_writer = RestoreWriter(ctx)
         self.plans.cluster_parts[PlanScope.RESTORE] = restore_writer
         self.archive_restore = ArchiveRestoreService(

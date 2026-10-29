@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from pelagos.connectors.bind import failover, handover
+from pelagos.connectors.bind import failover, forwarders, handover
 from pelagos.connectors.bind.dns_client import ALGORITHMS
 from pelagos.connectors.bind.managed import (
     DEFAULT_VIEW,
@@ -198,6 +198,8 @@ class ConfigPlanner:
                 self.acl_change(change, target[len("acls/") :])
             elif target.startswith("options/"):
                 self.option_change(change, target[len("options/") :])
+            elif target.startswith("tls/"):
+                self.tls_change(change, target[len("tls/") :])
             elif target.startswith("raw:"):
                 self.raw_change(change, target[len("raw:") :])
             elif target.startswith(FILE_PREFIX):
@@ -572,6 +574,28 @@ class ConfigPlanner:
         node = self.managed.upsert(doc, statement, name, None, None)
         self.result.changes.append(
             Change(op, change.target, before=before, after=node.value_text(), node_ids=change.node_ids)
+        )
+
+    def tls_change(self, change: Change, name: str) -> None:
+        """A `tls` statement that checks a forwarder's certificate (section 25), kept in keys.conf;
+        deleting one that is not there changes nothing."""
+        name = forwarders.check_tls_name(name)
+        doc = self.doc(self.managed.keys_conf)
+        existing = self.managed.find(doc, "tls", name)
+        before = existing.serialize().strip() if existing is not None else None
+        op = ChangeOp(change.op)
+        if op is ChangeOp.DELETE:
+            if existing is None:
+                return  # already gone: a fallback return stays possible after a removal by hand
+            self.managed.remove(doc, "tls", name)
+            after = None
+        else:
+            if op is ChangeOp.ADD and existing is not None:
+                raise PlanError(f"tls {name} is already managed; use replace")
+            after = forwarders.tls_statement(name)
+            self.managed.upsert(doc, after, "tls", name, None)
+        self.result.changes.append(
+            Change(op, change.target, before=before, after=after, node_ids=change.node_ids)
         )
 
     def raw_change(self, change: Change, name: str) -> None:

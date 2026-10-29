@@ -1,43 +1,37 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Resolver health and forwarder fallback (section 25): per node measures and probes, fallback plans.
-
-Registered by the contract batch; each route answers 501 until its batch builds it (R1, R3).
-"""
+"""Resolver health and forwarder fallback (section 25): per node measures and probes, fallback plans."""
 
 from __future__ import annotations
 
 from flask_restx import Namespace, Resource
 
 from pelagos.api import models as m
-from pelagos.api.common import arg, int_arg, time_range
-from pelagos.api.errors import ApiError, not_implemented
-from pelagos.api.security import require, services
+from pelagos.api.common import arg, int_arg, json_body, plan_answer, time_range
+from pelagos.api.errors import ApiError
+from pelagos.api.security import client_ip, require, services, username
 from pelagos.collector.resolver import METRICS
 
 ns = Namespace("resolver-health", description="Resolver health and forwarder fallback", path="/dns/resolver")
 series_ns = Namespace("resolver-series", description="Resolver measures over time", path="/series/resolver")
 
 
-def _todo(batch: str = "R3"):
-    raise not_implemented(f"batch {batch}")
-
-
 @ns.route("/health")
 class Health(Resource):
     @require("read:dns")
     @ns.response(200, "Measures, root and TLD probes per node, the fallback, the thresholds")
-    @ns.response(501, "not_implemented", m.Problem)
+    @ns.doc(params={"node_id": "one node (default: every node running BIND)"})
     def get(self):
-        _todo()
+        return services().resolver_fallback.health(arg("node_id"))
 
 
 @ns.route("/fallback")
 class Fallback(Resource):
     @require("write:dns.config")
     @ns.response(200, "The fallback with its new deadline")
+    @ns.response(400, "validation_error: until in the past or beyond fallback_max_hours", m.Problem)
     @ns.response(409, "conflict: no fallback is active", m.Problem)
     def put(self):
-        _todo()
+        return services().resolver_fallback.extend(json_body(), username(), client_ip())
 
 
 @ns.route("/fallback/plan")
@@ -46,7 +40,7 @@ class FallbackPlan(Resource):
     @ns.response(200, "Composite plan (scope dns.resolver, requires_confirmation)")
     @ns.response(409, "conflict: a fallback is already active", m.Problem)
     def post(self):
-        _todo()
+        return plan_answer(services().resolver_fallback.plan_fallback(json_body(), username()))
 
 
 @ns.route("/fallback/return/plan")
@@ -55,7 +49,7 @@ class ReturnPlan(Resource):
     @ns.response(200, "Composite plan that puts back forward and forwarders as before")
     @ns.response(409, "conflict: no fallback is active", m.Problem)
     def post(self):
-        _todo()
+        return plan_answer(services().resolver_fallback.plan_return(username()))
 
 
 @series_ns.route("")

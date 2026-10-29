@@ -7,7 +7,7 @@ import { MemoryRouter } from 'react-router-dom'
 import '../../i18n'
 
 const db = vi.hoisted(() => ({ health: null, perms: null, settings: { resolver: { fallback_max_hours: 12 } } }))
-const calls = vi.hoisted(() => ({ fallbackPlan: vi.fn(), returnPlan: vi.fn(), extend: vi.fn(), series: vi.fn() }))
+const calls = vi.hoisted(() => ({ fallbackPlan: vi.fn(), returnPlan: vi.fn(), extend: vi.fn(), series: vi.fn(), info: vi.fn() }))
 
 vi.mock('../../hooks/useWebSocket', () => ({ useWebSocket: () => ({ isConnected: true }), useWsTopic: () => {} }))
 vi.mock('../../services/api', () => {
@@ -44,7 +44,7 @@ vi.mock('../../services/api', () => {
 })
 vi.mock('../../hooks/usePermission', () => ({ usePermission: () => ({ hasPermission: (p) => !db.perms || db.perms.includes(p) }) }))
 vi.mock('../../contexts/NotificationContext', () => ({
-  useNotification: () => ({ showSuccess: vi.fn(), showError: vi.fn(), showInfo: vi.fn(), showToast: vi.fn() }),
+  useNotification: () => ({ showSuccess: vi.fn(), showError: vi.fn(), showInfo: calls.info, showToast: vi.fn() }),
 }))
 vi.mock('../../components/PlanPreview', () => ({ PlanPreviewModal: ({ plan }) => (plan ? <div data-testid="plan-preview">{plan.summary}</div> : null) }))
 
@@ -173,8 +173,8 @@ describe('Resolver health', () => {
     fireEvent.click(within(form).getByRole('button', { name: 'Extend' }))
     await waitFor(() => expect(calls.extend).toHaveBeenCalled())
     const until = Date.parse(calls.extend.mock.calls[0][0])
-    expect(until - before).toBeGreaterThanOrEqual(4 * 3600000 - 1000)
-    expect(until - before).toBeLessThan(4 * 3600000 + 60000)
+    expect(until - before).toBeGreaterThanOrEqual(4 * 3600000 - 61000)
+    expect(until - before).toBeLessThan(4 * 3600000)
   })
 
   it('hides the fallback actions without write:dns.config', async () => {
@@ -184,6 +184,26 @@ describe('Resolver health', () => {
     const banner = await screen.findByTestId('resolver-fallback-banner')
     expect(within(banner).queryByTestId('resolver-fallback-return')).toBeNull()
     expect(screen.queryByTestId('resolver-fallback-open')).toBeNull()
+    expect(screen.queryByTestId('resolver-fallback-form')).toBeNull()
+    await waitFor(() => expect(calls.info).toHaveBeenCalledWith('A forwarder fallback is already active: see the banner.'))
+  })
+
+  it('leaves a silent node unticked and names its error, so the plan carries node_ids', async () => {
+    db.health = health({ nodes: [node('N1')], unavailable: [{ node_id: 'N2', name: 'ns2', error: 'release 0.2.2 required' }] })
+    renderPage('/dns/resolver?fallback=1')
+    expect(await screen.findByTestId('resolver-health-unavailable')).toHaveTextContent('ns2 (release 0.2.2 required)')
+    const form = await screen.findByTestId('resolver-fallback-form')
+    const boxes = within(form).getAllByTestId('resolver-fallback-node')
+    expect(boxes.map((b) => b.checked)).toEqual([true, false])
+    expect(within(form).getByTestId('resolver-fallback-node-error')).toHaveTextContent('release 0.2.2 required')
+    fireEvent.click(within(form).getByRole('button', { name: 'Preview the plan' }))
+    await waitFor(() => expect(calls.fallbackPlan).toHaveBeenCalledWith(expect.objectContaining({ node_ids: ['N1'] })))
+  })
+
+  it('drops ?fallback=1 for a read only role and says why', async () => {
+    db.perms = ['read:dns', 'read:series']
+    renderPage('/dns/resolver?fallback=1')
+    await waitFor(() => expect(calls.info).toHaveBeenCalledWith('Proposing a fallback needs the write:dns.config permission.'))
     expect(screen.queryByTestId('resolver-fallback-form')).toBeNull()
   })
 })

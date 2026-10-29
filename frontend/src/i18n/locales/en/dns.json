@@ -682,6 +682,8 @@
     "title": "Health",
     "settingsTitle": "Settings",
     "fallbackAction": "Fall back to forwarders",
+    "fallbackActive": "A forwarder fallback is already active: see the banner.",
+    "fallbackReadOnly": "Proposing a fallback needs the write:dns.config permission.",
     "loadError": "Resolver health could not be read.",
     "noNodes": "No node runs BIND.",
     "unavailable": "No answer from {{nodes}}: their measures are missing.",
@@ -757,7 +759,7 @@
       "until": "Until",
       "overdue": "deadline passed, return pending",
       "left": "({{hours}} h {{minutes}} min left)",
-      "started": "Started by {{by}} on {{when}}. At the deadline each node returns to its own settings.",
+      "started": "Started by {{by}} on {{when}}. Return now, or at the deadline when automatic return is on.",
       "returnNow": "Return now",
       "extend": "Extend"
     },

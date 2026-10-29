@@ -682,6 +682,8 @@
     "title": "Santé",
     "settingsTitle": "Réglages",
     "fallbackAction": "Passer par des forwarders",
+    "fallbackActive": "Un repli sur des forwarders est déjà actif : voir le bandeau.",
+    "fallbackReadOnly": "Proposer un repli demande la permission write:dns.config.",
     "loadError": "La santé du résolveur n'a pas pu être lue.",
     "noNodes": "Aucun nœud ne fait tourner BIND.",
     "unavailable": "Pas de réponse de {{nodes}} : leurs mesures manquent.",
@@ -757,7 +759,7 @@
       "until": "Jusqu'au",
       "overdue": "échéance passée, retour en attente",
       "left": "(reste {{hours}} h {{minutes}} min)",
-      "started": "Lancé par {{by}} le {{when}}. À l'échéance, chaque nœud reprend ses propres réglages.",
+      "started": "Lancé par {{by}} le {{when}}. Revenir maintenant, ou à l'échéance si le retour automatique est activé.",
       "returnNow": "Revenir maintenant",
       "extend": "Prolonger"
     },

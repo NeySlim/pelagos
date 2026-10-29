@@ -25,6 +25,8 @@ describe('resolver health helpers', () => {
     expect(r.map((x) => x.key)).toEqual(['queriesOut', 'p95', 'servfail', 'valfail', 'cacheHit'])
     expect(r.find((x) => x.key === 'p95')).toMatchObject({ value: 900, tone: 'warning' })
     expect(r.find((x) => x.key === 'servfail').value).toBe(null)
+    const high = nodeReadings({ rates: { servfail_clients_percent: 50, valfail_percent: 20 } }, { latency_p95_ms: LAT })
+    expect(high.filter((x) => ['servfail', 'valfail'].includes(x.key)).map((x) => x.tone)).toEqual(['neutral', 'neutral'])
     expect(nodeReadings(null).every((x) => x.value === null)).toBe(true)
   })
 
@@ -109,7 +111,8 @@ describe('resolver health helpers', () => {
     expect(fallbackStatus(null)).toBe(null)
     expect(remaining(9000000)).toEqual({ hours: 2, minutes: 30 })
     expect(remaining(-1)).toBe(null)
-    expect(extendUntil(2, now)).toBe('2026-10-29T12:00:00.000Z')
+    // One minute short of the asked hours, so the largest choice stays within fallback_max_hours.
+    expect(extendUntil(2, now)).toBe('2026-10-29T11:59:00.000Z')
   })
 
   it('sums the cluster for the dashboard tile', () => {

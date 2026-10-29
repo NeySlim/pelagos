@@ -181,7 +181,22 @@ form. While a fallback is active a banner shows the forwarders, the nodes, the
 deadline, "Return now" (a plan that puts back each node's `forward` and
 `forwarders` exactly as before) and "Extend". It says when the probes have
 been healthy long enough to return; at the deadline each node returns on its
-own, unless its options were changed by hand in the meantime.
+own when `resolver.fallback_auto_return_enabled` is on, unless its options
+were changed by hand in the meantime. A node that does not answer is left out
+of the form by default, as is a node on a release before 0.2.2 (no automatic
+return).
+
+The fallback hands every query of the chosen nodes to a third party. Built-in
+presets, as their providers describe them (pages read on 2026-10-29):
+
+| Preset | Addresses | TLS name | Filtering | What the service keeps |
+|---|---|---|---|---|
+| Quad9 | 9.9.9.9, 149.112.112.112, 2620:fe::fe, 2620:fe::9 | dns.quad9.net | Malware blocking, DNSSEC validation | No client IP recorded; aggregate counters and per query name counts, possibly archived without limit ([privacy policy](https://quad9.net/privacy/policy/)) |
+| Quad9 (no filtering) | 9.9.9.10, 149.112.112.10, 2620:fe::10, 2620:fe::fe:10 | dns10.quad9.net | None, DNSSEC validation | Same policy as Quad9 |
+| Cloudflare | 1.1.1.1, 1.0.0.1, 2606:4700:4700::1111, 2606:4700:4700::1001 | one.one.one.one | None | Query logs with a truncated client IP, deleted within 25 hours; aggregate statistics kept ([privacy commitments](https://developers.cloudflare.com/1.1.1.1/privacy/public-dns-resolver/)) |
+
+Addresses and filtering: [Quad9 service addresses](https://quad9.net/service/service-addresses-and-features/),
+[Cloudflare DNS over TLS](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-tls/).
 
 **Settings**: recursion (`recursion`, `allow-recursion`), forwarders (address, optionally
 `port N`), forward mode (BIND default `first`, or `only`), DNSSEC validation,

@@ -20,7 +20,7 @@ import { useApi } from '../../hooks/useApi'
 import { api } from '../../services/api'
 import { cn, formatDate, formatRelativeTime } from '../../lib/utils'
 import {
-  CHART_METRICS, CUSTOM_PRESET, RANGES, applyPreset, chartRows, fallbackBody, fallbackDefaults, fallbackErrors,
+  CHART_METRICS, CUSTOM_PRESET, DEFAULT_MAX_HOURS, RANGES, applyPreset, chartRows, fallbackBody, fallbackDefaults, fallbackErrors,
   fallbackStatus, hourChoices, nodeReadings, remaining, rootRows, rootsAnswering, seriesQuery, validAddress,
 } from './resolverHealth'
 
@@ -288,17 +288,22 @@ export function FallbackBanner({ fallback, returnReady, nameOf, canWrite, onRetu
 export function FallbackForm({ open, onClose, presets = [], nodes = [], nameOf, maxHours, onPlan }) {
   const { t } = useTranslation(['dns', 'common'])
   const nodeIds = nodes.map((n) => n.node_id)
-  const [form, setForm] = useState(() => fallbackDefaults(presets, nodeIds, maxHours))
+  const answering = (list) => list.filter((n) => !n.unavailable).map((n) => n.node_id)
+  const [form, setForm] = useState(() => fallbackDefaults(presets, answering(nodes), maxHours))
   const [busy, setBusy] = useState(false)
   const [touched, setTouched] = useState(false)
   useEffect(() => {
     if (open) {
-      setForm(fallbackDefaults(presets, nodes.map((n) => n.node_id), maxHours))
+      setForm(fallbackDefaults(presets, answering(nodes), maxHours))
       setTouched(false)
     }
     // Reset only when the form opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+  // fallback_max_hours can arrive after the form opened (?fallback=1): keep the duration within it.
+  useEffect(() => {
+    setForm((f) => (f.hours > maxHours ? { ...f, hours: Math.min(DEFAULT_MAX_HOURS, maxHours) } : f))
+  }, [maxHours])
   const errors = fallbackErrors(form, maxHours)
   const invalid = Object.keys(errors).length > 0
   const preset = presets.find((p) => p.id === form.preset)
@@ -365,7 +370,7 @@ export function FallbackForm({ open, onClose, presets = [], nodes = [], nameOf, 
           <label key={n.node_id} className="flex items-center gap-2 text-sm text-text-primary">
             <input type="checkbox" checked={form.node_ids.includes(n.node_id)} onChange={() => toggleNode(n.node_id)} data-testid="resolver-fallback-node" />
             {nameOf(n.node_id)}
-            {n.unavailable && <span className="text-2xs status-warning-text">{t('resolverHealth.form.nodeSilent')}</span>}
+            {n.unavailable && <span className="text-2xs status-warning-text" data-testid="resolver-fallback-node-error">{n.error || t('resolverHealth.form.nodeSilent')}</span>}
           </label>
         ))}
         {err('node_ids') && <p className="text-xs status-danger-text">{err('node_ids')}</p>}
@@ -433,7 +438,7 @@ export function ResolverHealthSection({ health, error, loading, nameOf, canSerie
       </h2>
       {(health?.unavailable || []).length > 0 && (
         <p className="text-xs status-warning-text" data-testid="resolver-health-unavailable">
-          {t('resolverHealth.unavailable', { nodes: health.unavailable.map((u) => u.name || nameOf(u.node_id)).join(', ') })}
+          {t('resolverHealth.unavailable', { nodes: health.unavailable.map((u) => `${u.name || nameOf(u.node_id)}${u.error ? ` (${u.error})` : ''}`).join(', ') })}
         </p>
       )}
       {nodes.length === 0 ? (

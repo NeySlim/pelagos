@@ -88,7 +88,7 @@ function ResolverEditor({ open, onClose, current, onPlan }) {
 export default function ResolverPage() {
   const { t } = useTranslation(['dns', 'common'])
   const { hasPermission } = usePermission()
-  const { showError, showSuccess } = useNotification()
+  const { showError, showSuccess, showInfo } = useNotification()
   const { nameOf } = useNodeNames()
   const [editing, setEditing] = useState(false)
   const [params, setParams] = useSearchParams()
@@ -114,16 +114,26 @@ export default function ResolverPage() {
   )
   const canWrite = hasPermission('write:dns.config')
   // ?fallback=1 (the link of a proposing resolver_health alert) opens the fallback form.
-  const fallingBack = params.get('fallback') === '1' && canWrite && Boolean(health.data) && !health.data.fallback
+  const asked = params.get('fallback') === '1'
+  const fallingBack = asked && canWrite && Boolean(health.data) && !health.data.fallback
   const closeFallback = () => {
     const next = new URLSearchParams(params)
     next.delete('fallback')
     setParams(next, { replace: true })
   }
+  // A ?fallback=1 the form cannot honour (read only, or a fallback already active) is dropped.
+  const refused = asked && Boolean(health.data) && !fallingBack
+  useEffect(() => {
+    if (!refused) return
+    if (health.data.fallback) showInfo(t('resolverHealth.fallbackActive'))
+    else showInfo(t('resolverHealth.fallbackReadOnly'))
+    closeFallback()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refused])
   const fallbackNodes = useMemo(
     () => [
       ...(health.data?.nodes || []).map((n) => ({ node_id: n.node_id })),
-      ...(health.data?.unavailable || []).map((n) => ({ node_id: n.node_id, unavailable: true })),
+      ...(health.data?.unavailable || []).map((n) => ({ node_id: n.node_id, unavailable: true, error: n.error })),
     ],
     [health.data],
   )

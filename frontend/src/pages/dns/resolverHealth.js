@@ -42,8 +42,9 @@ export function nodeReadings(entry, thresholds = {}) {
   return [
     { key: 'queriesOut', value: num(rates.queries_out), unit: 'perSecond', tone: 'neutral' },
     { key: 'p95', value: p95, unit: 'ms', tone: toneOf(p95, thresholds.latency_p95_ms) },
-    { key: 'servfail', value: num(rates.servfail_clients_percent), unit: 'percent', tone: num(rates.servfail_clients_percent) > 5 ? 'warning' : 'neutral' },
-    { key: 'valfail', value: num(rates.valfail_percent), unit: 'percent', tone: num(rates.valfail_percent) > 1 ? 'warning' : 'neutral' },
+    // No threshold of these two reaches the health answer: kept neutral rather than guessed.
+    { key: 'servfail', value: num(rates.servfail_clients_percent), unit: 'percent', tone: 'neutral' },
+    { key: 'valfail', value: num(rates.valfail_percent), unit: 'percent', tone: 'neutral' },
     { key: 'cacheHit', value: cache, unit: 'percent', tone: 'neutral' },
   ]
 }
@@ -97,6 +98,7 @@ export function hourChoices(maxHours = DEFAULT_MAX_HOURS) {
   return [...new Set([1, 2, 4, 8, 12, 24, 48, 72, 168].filter((h) => h < most).concat(most))]
 }
 
+// nodeIds: the answering nodes only; a silent node ticked would make the API refuse the plan.
 export function fallbackDefaults(presets = [], nodeIds = [], maxHours = DEFAULT_MAX_HOURS) {
   const first = presets[0]
   return {
@@ -187,8 +189,10 @@ export function remaining(ms) {
   return { hours: Math.floor(minutes / 60), minutes: minutes % 60 }
 }
 
-// New deadline of PUT /dns/resolver/fallback: `hours` from now, RFC 3339.
-export const extendUntil = (hours, nowMs = Date.now()) => new Date(nowMs + Number(hours) * 3600000).toISOString()
+// New deadline of PUT /dns/resolver/fallback: `hours` from now, RFC 3339, one minute short so a
+// browser clock slightly ahead of the node stays within fallback_max_hours.
+export const EXTEND_MARGIN_MS = 60000
+export const extendUntil = (hours, nowMs = Date.now()) => new Date(nowMs + Number(hours) * 3600000 - EXTEND_MARGIN_MS).toISOString()
 
 // Cluster digest for the dashboard tile: the worst p95 and SERVFAIL share, the root reachability,
 // the fallback, and an overall tone.

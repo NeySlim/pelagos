@@ -428,6 +428,10 @@ def install_steps(plan: Plan, env: Any) -> list[Step]:
             steps.append(Step(t, lambda c=c: step_verify(env, list(c.after["engines"]))))
         else:
             raise ValueError(f"unknown install change {t}")
+    from pelagos.installer import path_access
+
+    if not env.dry_run and path_access.guard_available():
+        steps.append(Step("install/permissions", lambda: path_access.verify(env)))
     return steps
 
 

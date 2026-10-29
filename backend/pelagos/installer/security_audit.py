@@ -45,6 +45,7 @@ from pelagos.installer import (
     keaconf,
     keasetup,
     managed,
+    path_access,
     shared_keys,
     zone_audit,
 )
@@ -55,6 +56,7 @@ log = logging.getLogger(__name__)
 
 WEAK_ALGORITHMS = frozenset({"hmac-md5", "hmac-md5.sig-alg.reg.int", "hmac-sha1"})
 NEW_ALGORITHM = "hmac-sha256"
+KIND_PATH_ACCESS = "path_access"
 LOOPBACK = ("127.0.0.1", "::1", "localhost", "127.0.0.1/32", "::1/128")
 
 
@@ -1090,10 +1092,41 @@ def run_audit(env: Any) -> list[Finding]:
         except Exception as exc:  # an unreadable cluster.toml never hides the other findings
             log.warning("shared key checks not run: %s", exc)
     try:
+        findings += _path_findings(env)
+    except Exception as exc:  # permission checks never hide the security findings
+        log.warning("path access checks not run: %s", exc)
+    try:
         findings += drift.audit(env)
     except Exception as exc:  # drift checks never hide the security findings
         log.warning("drift checks not run: %s", exc)
     return findings
+
+
+def _path_findings(env: Any) -> list[Finding]:
+    """One finding per folder the pelagos services need and cannot create or write (path_access)."""
+    out = []
+    for fix in path_access.fixes(env):
+        out.append(
+            Finding.of(
+                fix.finding_id(),
+                path_access.KIND,
+                Severity.WARNING,
+                fix.engine,
+                str(fix.path),
+                msg(
+                    f"finding.path_access.description.{fix.action}",
+                    path=str(fix.path),
+                    what=msg(f"permission.purpose.{fix.purpose}"),
+                    before=fix.before,
+                ),
+                msg(
+                    "finding.path_access.proposal", command=fix.command(), before=fix.before, after=fix.after
+                ),
+                msg("finding.path_access.risk"),
+                {"remediation": KIND_PATH_ACCESS, "items": [fix.to_dict()]},
+            )
+        )
+    return out
 
 
 # Plan ------------------------------------------------------------------------------------------
@@ -1634,6 +1667,10 @@ def remediate_kea_modes(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str
     return kea_modes.apply(env, d.get("files") or [])
 
 
+def remediate_path_access(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
+    return path_access.apply(env, d.get("items") or [])
+
+
 def remediate_file_modes(env: Any, d: dict[str, Any], ctx: dict[str, Any]) -> str:
     return bind_files.apply(env, d.get("files") or [])
 
@@ -1836,6 +1873,7 @@ REMEDIATIONS = {
     "ha_guard_adopt": ha_guard.remediate_adopt,
     "drift": drift.remediate,
     "file_modes": remediate_file_modes,
+    KIND_PATH_ACCESS: remediate_path_access,
     "kea_modes": remediate_kea_modes,
     "version_hide": remediate_version_hide,
     "convert_dynamic": zone_audit.remediate_convert_dynamic,

@@ -210,6 +210,10 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--engines", help="comma list among bind,kea4,kea6,d2 that this node drives")
     e.set_defaults(func=cmd_enroll)
 
+    from pelagos.installer.permissions_cli import add_parser as add_permissions_parser
+
+    add_permissions_parser(sub)
+
     from pelagos.auth.recovery import add_parser as add_user_parser
 
     add_user_parser(sub).set_defaults(func=cmd_user)

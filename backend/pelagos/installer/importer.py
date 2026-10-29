@@ -357,6 +357,10 @@ def import_steps(plan: Plan, env: Any) -> list[Step]:
             steps.append(Step(t, verify))
         else:
             raise ValueError(f"unknown import change {t}")
+    from pelagos.installer import path_access
+
+    if not env.dry_run and path_access.guard_available():
+        steps.append(Step("import/permissions", lambda: path_access.verify(env)))
     return steps
 
 

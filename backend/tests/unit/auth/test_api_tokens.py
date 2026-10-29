@@ -22,7 +22,8 @@ def test_format_hash_and_constant_time_match():
     assert tk.parse(token + "x") is None and tk.parse("pel_" + tid) is None and tk.parse("") is None
     stored = tk.digest(token)
     assert stored.startswith("sha256:") and token not in stored
-    assert tk.matches(token, stored) and not tk.matches(token[:-1] + "A", stored)
+    other = token[:-1] + ("B" if token.endswith("A") else "A")  # one character off, never the token
+    assert tk.matches(token, stored) and not tk.matches(other, stored)
     assert not tk.matches(token, "")
     assert tk.new_token()[1] != token
     assert tk.bearer("Bearer abc") == "abc" and tk.bearer("bearer  abc ") == "abc"

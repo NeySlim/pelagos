@@ -31,6 +31,12 @@ DPKG_LIST = (
 )
 
 
+@pytest.fixture(autouse=True)
+def not_really_root(monkeypatch):
+    # FakeRunner poses as root; a CI container that is root without a Kea user must not change the outcome.
+    monkeypatch.setattr(km.os, "geteuid", lambda: 1000)
+
+
 def configs() -> dict:
     return {
         "kea4": json.loads((KEA_DATA / "kea26-migration-dhcp4.json").read_text()),

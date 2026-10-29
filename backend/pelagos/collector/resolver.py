@@ -118,7 +118,13 @@ _RATES = {
     "cache_hit_percent": "cache_hit_percent",
 }
 # Maxima of the last 7 days each node gives for the `thresholds` of GET /dns/resolver/health.
-OBSERVED_METRICS = ("latency_p95_ms", "timeouts_percent", "mismatch_per_minute", "lru_per_minute")
+OBSERVED_METRICS = (
+    "latency_p95_ms",
+    "timeouts_percent",
+    "servfail_clients_percent",
+    "mismatch_per_minute",
+    "lru_per_minute",
+)
 WEEK = 7 * 86400
 
 

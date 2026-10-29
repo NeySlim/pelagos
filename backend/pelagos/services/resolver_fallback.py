@@ -111,6 +111,8 @@ def read_fallback(settings: dict[str, Any]) -> dict[str, Any] | None:
         return None
     node_ids = [str(n) for n in raw["node_ids"]]
     before_raw = raw.get("before") if isinstance(raw.get("before"), dict) else {}
+    listed_manual = raw.get("manual_change_nodes")
+    manual = [str(n) for n in listed_manual if str(n) in node_ids] if isinstance(listed_manual, list) else []
     before = {}
     for node_id in node_ids:
         entry = before_raw.get(node_id) if isinstance(before_raw.get(node_id), dict) else {}
@@ -131,7 +133,8 @@ def read_fallback(settings: dict[str, Any]) -> dict[str, Any] | None:
         "by": raw.get("by") or None,
         "before": before,
         "returned": [str(n) for n in raw.get("returned") or [] if str(n) in node_ids],
-        "manual_change": bool(raw.get("manual_change", False)),
+        "manual_change": bool(raw.get("manual_change", False)) or bool(manual),
+        "manual_change_nodes": manual,
     }
 
 
@@ -238,11 +241,19 @@ def mark_returned(ctx: Any, fallback_id: str, node_id: str) -> bool:
     return _update(ctx, f"node:{ctx.node.id}", mutate)
 
 
-def mark_manual(ctx: Any, fallback_id: str) -> bool:
+def changed_by_hand(fallback: dict[str, Any], node_id: str, current: dict[str, str | None]) -> bool:
+    """A node whose options match neither the fallback nor its `before`: someone edited them."""
+    return not matches_before(fallback, node_id, current) and not matches_fallback(fallback, current)
+
+
+def mark_manual(ctx: Any, fallback_id: str, node_id: str) -> bool:
+    """Flags one node as changed by hand (`manual_change_nodes`, `manual_change` true)."""
+
     def mutate(active: dict[str, Any] | None, table: dict[str, Any]) -> bool:
-        if active is None or active["id"] != fallback_id or active["manual_change"]:
+        if active is None or active["id"] != fallback_id or node_id in active["manual_change_nodes"]:
             return False
         table["fallback"]["manual_change"] = True
+        table["fallback"]["manual_change_nodes"] = [*active["manual_change_nodes"], node_id]
         return True
 
     return _update(ctx, f"node:{ctx.node.id}", mutate)
@@ -490,6 +501,7 @@ class ResolverFallbackService:
             "before": before,
             "returned": [],
             "manual_change": False,
+            "manual_change_nodes": [],
         }
         parts.append(self._writer_part(None, fallback, created_by))
         summary = messages.msg(
@@ -541,8 +553,9 @@ class ResolverFallbackService:
     # Return plan --------------------------------------------------------------------------------
 
     def plan_return(self, created_by: str) -> Plan:
-        """Every node of the fallback that answers gets back its `before`. A node that does not answer
-        keeps the fallback, whose deadline becomes now: its collector returns it when it is back."""
+        """Every node of the fallback that answers gets back its `before`, except one changed by hand,
+        which keeps its options (like the automatic return). A node that does not answer keeps the
+        fallback, whose deadline becomes now: its collector returns it when it is back."""
         fallback = read_fallback(self.ctx.settings())
         if fallback is None:
             raise Conflict("no forwarder fallback is active")
@@ -550,6 +563,7 @@ class ResolverFallbackService:
         parts: list[Plan] = []
         done: list[str] = []
         offline: list[str] = []
+        kept: list[str] = []
         for node_id in fallback["node_ids"]:
             if node_id in fallback["returned"]:
                 continue
@@ -560,6 +574,10 @@ class ResolverFallbackService:
                 current = self._current(node_id)
             except EngineUnavailable:
                 offline.append(node_id)
+                continue
+            if changed_by_hand(fallback, node_id, current):
+                kept.append(node_id)
+                done.append(node_id)
                 continue
             changes = return_changes(fallback, node_id, current)
             if changes:
@@ -574,9 +592,21 @@ class ResolverFallbackService:
             after = copy.deepcopy(fallback)
             after["returned"] = [*fallback["returned"], *done]
             after["until"] = min(fallback["until"], to_rfc3339(self._now()), key=lambda t: from_rfc3339(t))
+            if kept:
+                after["manual_change"] = True
+                after["manual_change_nodes"] = [
+                    *fallback["manual_change_nodes"],
+                    *(n for n in kept if n not in fallback["manual_change_nodes"]),
+                ]
         parts.append(self._writer_part(fallback, after, created_by))
         names = self._names()
-        summary = messages.msg("plan.resolver.return", nodes=", ".join(names.get(n, n) for n in done))
+        restored = ", ".join(names.get(n, n) for n in done if n not in kept) or "-"
+        if kept:
+            summary = messages.msg(
+                "plan.resolver.return_kept", nodes=restored, kept=", ".join(names.get(n, n) for n in kept)
+            )
+        else:
+            summary = messages.msg("plan.resolver.return", nodes=restored)
         return self._composite(summary, parts, created_by)
 
     # Extension ----------------------------------------------------------------------------------
@@ -586,15 +616,25 @@ class ResolverFallbackService:
         fallback = read_fallback(settings)
         if fallback is None:
             raise Conflict("no forwarder fallback is active")
-        raw = body.get("until")
-        try:
-            until = from_rfc3339(int(raw) if str(raw).isdigit() else str(raw))
-        except (TypeError, ValueError, OverflowError, OSError):
-            raise ValidationError(
-                "until must be RFC 3339 or Unix seconds", [field_error("until", "bad time")]
-            ) from None
         now = self._now()
         most = int(reg.get(settings, "resolver.fallback_max_hours"))
+        hours = body.get("hours")
+        if hours is not None:
+            # A duration counts from this node's clock: the browser's may be a little off.
+            if isinstance(hours, bool) or not isinstance(hours, int) or not 1 <= hours <= most:
+                raise ValidationError(
+                    f"hours must be between 1 and {most}", [field_error("hours", f"1 to {most}")]
+                )
+            until = now + timedelta(hours=hours)
+        else:
+            raw = body.get("until")
+            try:
+                until = from_rfc3339(int(raw) if str(raw).isdigit() else str(raw))
+            except (TypeError, ValueError, OverflowError, OSError):
+                raise ValidationError(
+                    "until (RFC 3339 or Unix seconds) or hours is required",
+                    [field_error("until", "bad time")],
+                ) from None
         if until <= now or until > now + timedelta(hours=most):
             raise ValidationError(
                 f"until must be in the future, at most {most} hours from now",
@@ -671,6 +711,12 @@ class ResolverFallbackService:
             "return_ready": return_ready(fallback, entries, settings, self._now()),
             "thresholds": thresholds(settings, entries),
             "presets": presets(settings),
+            "settings": {
+                "fallback_max_hours": int(reg.get(settings, "resolver.fallback_max_hours")),
+                "fallback_auto_return_enabled": bool(
+                    reg.get(settings, "resolver.fallback_auto_return_enabled")
+                ),
+            },
         }
 
 
@@ -725,6 +771,11 @@ def thresholds(settings: dict[str, Any], entries: list[dict[str, Any]]) -> dict[
             "critical": s("resolver_timeouts_critical_percent"),
             "observed_max_7d": observed("timeouts_percent"),
         },
+        "servfail_clients_percent": {
+            "warning": s("resolver_servfail_warning_percent"),
+            "critical": s("resolver_servfail_critical_percent"),
+            "observed_max_7d": observed("servfail_clients_percent"),
+        },
         "tld_failures": {"warning": s("resolver_tld_failures"), "observed_max_7d": observed("tld_failures")},
         "mismatch_count": {
             "warning": s("resolver_mismatch_warning_count"),
@@ -773,7 +824,7 @@ def auto_return(
         return None
     already = matches_before(fallback, node_id, current)
     if not already and not matches_fallback(fallback, current):
-        if mark_manual(ctx, fallback["id"]):
+        if mark_manual(ctx, fallback["id"], node_id):
             log.warning("resolver fallback %s: forwarders changed by hand on this node", fallback["id"])
             return "manual_change"
         return None

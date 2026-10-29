@@ -18,7 +18,17 @@ def test_health_on_a_single_node(role_client, services):
     body = role_client("viewer").get(URL + "/health")
     assert body.status_code == 200, body.get_json()
     data = body.get_json()
-    assert set(data) == {"nodes", "unavailable", "fallback", "return_ready", "thresholds", "presets"}
+    assert set(data) == {
+        "nodes",
+        "unavailable",
+        "fallback",
+        "return_ready",
+        "thresholds",
+        "presets",
+        "settings",
+    }
+    # The form's bounds reach roles without admin:settings.
+    assert data["settings"] == {"fallback_max_hours": 24, "fallback_auto_return_enabled": True}
     [node] = data["nodes"]
     assert node["node_id"] == services.ctx.node.id and node["error"] == "no resolver measure yet"
     assert set(node["rates"]) == {
@@ -27,7 +37,8 @@ def test_health_on_a_single_node(role_client, services):
     }  # fmt: skip
     assert data["fallback"] is None and data["return_ready"] is False and data["unavailable"] == []
     assert set(data["thresholds"]) == {
-        "latency_p95_ms", "timeouts_percent", "tld_failures", "mismatch_count", "lru_per_minute",
+        "latency_p95_ms", "timeouts_percent", "servfail_clients_percent", "tld_failures", "mismatch_count",
+        "lru_per_minute",
     }  # fmt: skip
     assert [p["id"] for p in data["presets"]] == ["quad9", "quad9_unfiltered", "cloudflare"]
     assert role_client("viewer").get(URL + "/health?node_id=nope").status_code == 404
@@ -60,6 +71,9 @@ def test_fallback_extend_and_return_through_the_api(role_client, fake_registry):
     assert r.status_code == 200 and r.get_json()["fallback"]["until"] == later
     too_far = to_rfc3339(datetime.now(UTC) + timedelta(hours=30))
     assert dora.put(URL + "/fallback", json={"until": too_far}).status_code == 400
+    r = dora.put(URL + "/fallback", json={"hours": 24})
+    assert r.status_code == 200, r.get_json()
+    assert dora.put(URL + "/fallback", json={"hours": 25}).status_code == 400
 
     r = dora.post(URL + "/fallback/return/plan", json={})
     assert r.status_code == 200, r.get_json()

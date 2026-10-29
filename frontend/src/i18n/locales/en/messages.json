@@ -363,6 +363,7 @@
   "alert.resolver_cache": "the resolver cache evicts {{per_minute}} entries per minute: it may be too small",
   "plan.resolver.fallback": "send the queries of {{nodes}} to {{forwarders}} (forward {{forward}}) until {{until}}",
   "plan.resolver.return": "resolve directly again on {{nodes}}: forward and forwarders as before the fallback",
+  "plan.resolver.return_kept": "resolve directly again on {{nodes}}: forward and forwarders as before the fallback; {{kept}} changed by hand: left as they are",
   "plan.resolver.extend": "keep the forwarder fallback until {{until}}",
   "alert.kea_series_obsolete": "{{engine}} {{version}} runs the {{series}} series, which ISC no longer maintains: analyze the migration",
   "kea_migration.renamed_key": "{{path}}: {{old}} becomes {{new}}",

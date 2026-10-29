@@ -2879,11 +2879,11 @@ peer action (4 s per peer); a node that does not answer is listed in
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
-| `GET /dns/resolver/health?node_id=` | `read:dns` | | `{"nodes": [NodeHealth], "unavailable", "fallback": Fallback|null, "return_ready": bool, "thresholds": {metric: {"warning"?,"critical"?,"info"?,"observed_max_7d"}}, "presets": [Preset]}` |
+| `GET /dns/resolver/health?node_id=` | `read:dns` | | `{"nodes": [NodeHealth], "unavailable", "fallback": Fallback|null, "return_ready": bool, "thresholds": {metric: {"warning"?,"critical"?,"info"?,"observed_max_7d"}}, "presets": [Preset], "settings": {"fallback_max_hours","fallback_auto_return_enabled"}}` |
 | `GET /series/resolver?node_id=&metric=&from=&to=&step=` | `read:series` | | `{"series": [{"key": {"node_id","metric"}, "points": [[ts, value]]}], "unavailable"}`; `metric` is required and one of the metrics of section 25 (`400` otherwise); raw or hourly rows like `/series/pools` |
 | `POST /dns/resolver/fallback/plan` | `write:dns.config` | `{"forwarders"?: [address], "preset"?, "forward": "first"|"only", "node_ids"?, "hours", "tls"?: bool, "tls_name"?}` (`forwarders` or `preset`; `node_ids` default every node serving DNS; `hours` 1 to `resolver.fallback_max_hours`) | composite `Plan` (scope `dns.resolver`, one `dns.config` part per node, `requires_confirmation`); `409 conflict` while a fallback is active |
 | `POST /dns/resolver/fallback/return/plan` | `write:dns.config` | `{}` | composite `Plan` (scope `dns.resolver`) that puts back `forward` and `forwarders` of each node as recorded in `before`; `409` when no fallback is active |
-| `PUT /dns/resolver/fallback` | `write:dns.config` | `{"until"}`: in the future, at most `fallback_max_hours` from now | `{"fallback"}`; `409` when no fallback is active |
+| `PUT /dns/resolver/fallback` | `write:dns.config` | `{"hours"}` (1 to `fallback_max_hours`, counted from the node's clock) or `{"until"}`: in the future, at most `fallback_max_hours` from now | `{"fallback"}`; `409` when no fallback is active |
 
 ### Kea migration analysis
 
@@ -3791,13 +3791,17 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
   every probed server of one TLD, may have failed together; null when none
   ever did; `"unhealthy"` while such a group fails now, `"unknown"` without a
   root probe) and `observed_max_7d` (`{metric: value}` of this node for
-  `latency_p95_ms`, `timeouts_percent`, `mismatch_per_minute`,
-  `lru_per_minute` and the largest current `tld_failures`), from which the
-  route builds `return_ready` and the cluster's `thresholds`. `thresholds` keys:
-  `latency_p95_ms`, `timeouts_percent`, `tld_failures`, `mismatch_count`,
+  `latency_p95_ms`, `timeouts_percent`, `servfail_clients_percent` (0.2.3),
+  `mismatch_per_minute`, `lru_per_minute` and the largest current
+  `tld_failures`), from which the route builds `return_ready` and the
+  cluster's `thresholds`. `thresholds` keys: `latency_p95_ms`,
+  `timeouts_percent`, `servfail_clients_percent` (0.2.3, the
+  `resolver_servfail_*` settings), `tld_failures`, `mismatch_count`,
   `lru_per_minute`, each with the setting values and `observed_max_7d`
   (largest hourly value of the last 7 days over the cluster, null without
-  data).
+  data). `settings` (0.2.3) gives `resolver.fallback_max_hours` and
+  `resolver.fallback_auto_return_enabled` to every `read:dns` role, for the
+  fallback form and the banner.
 - **Alerts** (`resolver_health`, per node, R1 and R2): subject
   `resolver:latency` (warning or critical on the p95 of the window; details
   `p50`, `p95`, `threshold`), `resolver:timeouts` (details `percent`,
@@ -3827,7 +3831,9 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
   replicated): `{"id": ULID,"node_ids","preset"|null,"forwarders","forward":
   "first"|"only","tls_name"|null,"started_at","until","by","before": {node
   id: {"forward": str|null,"forwarders": [str]|null}},"returned": [node id],
-  "manual_change": bool}`. `before` keeps exactly what each node had (null
+  "manual_change": bool,"manual_change_nodes": [node id]}`
+  (`manual_change_nodes` from 0.2.3; `manual_change` is true when one is
+  listed, or when a 0.2.2 node set it without the list). `before` keeps exactly what each node had (null
   for an absent statement) so the return restores it, absence included. With
   `tls_name`, each forwarder is written `<address> port 853 tls "<name>"` and a
   `tls "<name>" { remote-hostname "<name>"; };` block is added (`dns.config`
@@ -3864,13 +3870,15 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
   collector for its own part at `until` when `fallback_auto_return_enabled`
   (a node offline then returns when it comes back), which adds the node to
   `returned`; the last one removes `fallback`. A node whose `forward` or
-  `forwarders` no longer match the fallback (changed by hand) sets
-  `manual_change`, and the automatic return skips it; a node that already
+  `forwarders` match neither the fallback nor its `before` (changed by hand)
+  is added to `manual_change_nodes`, and the automatic return skips it; a node that already
   has its `before` back is added to `returned` without a plan. The collector
   task `resolver_return` runs every `collector.poll_seconds` once the
   replication has exchanged cluster.toml. The return plan restores every node
-  of the fallback that answers, even one changed by hand (the diff shows it);
-  a node that does not answer keeps the fallback, which then lists the others
+  of the fallback that answers, except one changed by hand at that moment,
+  which keeps its options and its `tls` block (summary
+  `plan.resolver.return_kept`, `nodes`, `kept`) and leaves the fallback like
+  the others; a node that does not answer keeps the fallback, which then lists the others
   in `returned` and gets `until` = now, so its collector returns it when it is
   back. An automatic return that cannot be planned or applied writes its
   `dns.resolver.op` entry with result `error` and is retried after 300

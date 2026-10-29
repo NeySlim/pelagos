@@ -1961,3 +1961,13 @@ targets read `current`. Review: the two filters judge the hosts joined from the 
 judged zones only (a secondary's A or AAAA no longer counts); the `POST /alerts/consistency/run` job
 names unread zones in `errors["dns.zones"]` and, on any read error, gives `found` 0 and no alerts;
 the `ipv6_missing_aaaa` exception targets are offered only with a proposal.
+
+## 2026-10-29, 0.2.3 resolver fixes
+Additive, section 25. `GET /dns/resolver/health` gains `settings` (`fallback_max_hours`,
+`fallback_auto_return_enabled`, readable by every `read:dns` role) and a
+`servfail_clients_percent` threshold (`resolver_servfail_warning_percent` and
+`_critical_percent`, NodeHealth `observed_max_7d` gains the metric). `PUT
+/dns/resolver/fallback` takes `{"hours"}`, counted from the node's clock, besides `{"until"}`.
+The fallback entry gains `manual_change_nodes` (per node; `manual_change` stays, true when one
+is listed). The return plan leaves a node changed by hand as it is (options and `tls` block) and
+uses the summary `plan.resolver.return_kept` (`nodes`, `kept`); before, it restored it.

@@ -1168,6 +1168,10 @@
   "plan.resolver.return": [
     "nodes"
   ],
+  "plan.resolver.return_kept": [
+    "kept",
+    "nodes"
+  ],
   "plan.restore": [
     "archive",
     "node"

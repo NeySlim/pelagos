@@ -3,7 +3,7 @@
 named of test_bind_resolver_fallback, whose root and TLD servers are in-process fakes: the slow check
 opens resolver:roots when the fake root goes silent, the service node's deadline (track_proposing,
 auto_fallback_due) and auto_fallback apply the fallback, the check resolves through the forwarder, a
-hand change stops the automatic return, and the return plan still restores the managed files.
+hand change stops the automatic return, and the return plan leaves that node as it is.
 Collector.resolver_auto_fallback itself is covered by the unit rig and test_resolver_lab."""
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import pytest
 from pelagos.collector.checks.runner import HealthChecks
 from pelagos.domain import Change, ChangeOp, PlanState, Severity
 from pelagos.services import resolver_fallback as rf
-from tests.daemon.test_bind_resolver_fallback import answer, managed, world  # noqa: F401
+from tests.daemon.test_bind_resolver_fallback import answer, world  # noqa: F401
 from tests.daemon.test_collector_resolver_probes import FakeAuth
 
 # A forwarder that answers every name as a recursive one would: its own root holds the test name.
@@ -56,7 +56,6 @@ def test_roots_alert_automatic_fallback_and_manual_change(world, monkeypatch) ->
 def _scenario(w, monkeypatch) -> None:
     checks = HealthChecks(w.ctx, None, SimpleNamespace(dns=w.backend), threading.Lock())
     assert checks._roots().alerts == []
-    files = managed(w)
 
     w.fakes["root"].stop()
     w.fakes["tld"].stop()
@@ -102,10 +101,12 @@ def _scenario(w, monkeypatch) -> None:
     assert rf.auto_return(w.ctx, w.backend, apply, later) is None
     assert "192.0.2.53" in (w.inc / "options.conf").read_text()
 
-    # The return plan restores the node anyway: no forward, no forwarders, as before the fallback.
+    # The return plan leaves the hand change as it is and ends the fallback.
     back = w.service.plan_return("bob")
+    assert back.summary_message["key"] == "plan.resolver.return_kept"
     assert w.plans.apply(back, "bob", confirm=True).state is PlanState.APPLIED
-    assert managed(w) == files and rf.read_fallback(w.ctx.settings()) is None
+    assert "192.0.2.53" in (w.inc / "options.conf").read_text()
+    assert rf.read_fallback(w.ctx.settings()) is None
     w.fakes["root"].start()
     w.fakes["tld"].start()
     assert checks._roots().alerts == []

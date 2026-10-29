@@ -263,6 +263,18 @@ def test_extend(two):
     assert entry.request["op"] == "extend" and entry.client_ip == "192.0.2.7"
 
 
+def test_extend_by_hours_counts_from_the_node_clock(two):
+    t = two
+    apply(t, t["service"].plan_fallback({"preset": "quad9", "hours": 1}, "alice"))
+    t["clock"].now = T0 + timedelta(minutes=30)
+    out = t["service"].extend({"hours": 24}, "alice")
+    assert out["fallback"]["until"] == "2026-10-30T12:30:00.000Z"
+    for bad in (0, 25, True, "4", 1.5):
+        with pytest.raises(ValidationError) as exc:
+            t["service"].extend({"hours": bad}, "alice")
+        assert exc.value.errors[0]["field"] == "hours"
+
+
 # Automatic return ----------------------------------------------------------------------------------
 
 
@@ -306,8 +318,51 @@ def test_auto_return_disabled_and_manual_change(two):
     # Forwarders changed by hand during the fallback: flagged, and the automatic return skips it.
     t["local"].options["forwarders"] = "{ 192.0.2.77; }"
     assert rf.auto_return(t["ctx"], t["local"], run, T0 + timedelta(hours=2)) == "manual_change"
-    assert fallback(t["ctx"])["manual_change"] is True
+    fb = fallback(t["ctx"])
+    assert fb["manual_change"] is True and fb["manual_change_nodes"] == [t["n1"]]
     assert rf.auto_return(t["ctx"], t["local"], run, T0 + timedelta(hours=2)) is None
+    # Another node changed by hand is flagged on its own.
+    t["remote"].options["forwarders"] = "{ 192.0.2.78; }"
+    assert (
+        rf.auto_return(_as_node(t["ctx"], N2), t["remote"], run, T0 + timedelta(hours=2)) == "manual_change"
+    )
+    assert fallback(t["ctx"])["manual_change_nodes"] == [t["n1"], N2]
+
+
+def test_return_plan_leaves_a_node_changed_by_hand(two):
+    t = two
+    original = dict(t["remote"].options)
+    apply(t, t["service"].plan_fallback({"preset": "quad9", "tls": True, "hours": 2}, "alice"))
+    t["local"].options["forwarders"] = "{ 192.0.2.77; }"
+    plan = t["service"].plan_return("bob")
+    assert plan.summary_message["key"] == "plan.resolver.return_kept"
+    assert plan.summary_message["params"] == {"nodes": "ns2", "kept": "ns1"}
+    assert plan.target_node_ids == [N2, t["n1"]]  # no BIND part on ns1, the entry written here
+    assert apply(t, plan).state is PlanState.APPLIED
+    assert t["local"].options["forwarders"] == "{ 192.0.2.77; }" and t["local"].options["forward"] == "first"
+    assert "dns.quad9.net" in t["local"].tls  # the hand-written forwarders may still name it
+    assert t["remote"].options == original and fallback(t["ctx"]) is None
+
+
+def test_return_plan_with_a_silent_node_records_the_hand_change(two):
+    t = two
+    apply(t, t["service"].plan_fallback({"preset": "quad9", "hours": 2}, "alice"))
+    t["local"].options["forward"] = "only"
+    t["gateway"].offline.add(N2)
+    apply(t, t["service"].plan_return("bob"))
+    fb = fallback(t["ctx"])
+    assert fb["returned"] == [t["n1"]] and fb["manual_change_nodes"] == [t["n1"]]
+    assert fb["manual_change"] is True
+
+
+def test_read_fallback_keeps_an_old_manual_flag(two):
+    raw = {"id": "F", "node_ids": ["a", "b"], "until": "2026-10-29T13:00:00.000Z", "manual_change": True}
+    fb = rf.read_fallback({"resolver": {"fallback": raw}})
+    assert fb["manual_change"] is True and fb["manual_change_nodes"] == []
+    raw["manual_change_nodes"] = ["b", "zz"]
+    raw["manual_change"] = False
+    fb = rf.read_fallback({"resolver": {"fallback": raw}})
+    assert fb["manual_change"] is True and fb["manual_change_nodes"] == ["b"]
 
 
 def test_auto_return_marks_a_node_already_back(two):
@@ -520,6 +575,8 @@ def test_health_aggregates_nodes_and_offers_the_return(two, monkeypatch):
     assert th["mismatch_count"]["observed_max_7d"] == 15.0  # 1 per minute over a 15 minute window
     assert th["tld_failures"] == {"warning": 3, "observed_max_7d": 2}
     assert th["lru_per_minute"] == {"info": 100, "observed_max_7d": None}
+    assert th["servfail_clients_percent"] == {"warning": 10, "critical": 30, "observed_max_7d": None}
+    assert body["settings"] == {"fallback_max_hours": 24, "fallback_auto_return_enabled": True}
 
     apply(t, t["service"].plan_fallback({"preset": "quad9"}, "alice"))
     assert t["service"].health()["return_ready"] is True

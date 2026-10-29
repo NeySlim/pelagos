@@ -50,6 +50,7 @@ vi.mock('../services/api', () => {
   return { api, default: api }
 })
 vi.mock('../hooks/usePermission', () => ({ usePermission: () => ({ hasPermission: () => true }) }))
+vi.mock('../contexts/AuthContext', () => ({ useAuth: () => ({ modules: { dhcpv6: true } }) }))
 vi.mock('../contexts/NotificationContext', () => ({
   useNotification: () => ({ showSuccess: vi.fn(), showError: vi.fn(), showInfo: vi.fn(), showToast: vi.fn(), showPrompt: vi.fn() }),
 }))

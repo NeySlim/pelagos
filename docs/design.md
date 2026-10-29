@@ -1323,8 +1323,8 @@ Mêmes règles qu'en 13.9 : un lot = un agent, un worktree, ses tests, poussé a
 | K1 | Analyse de migration Kea : règles et conversion 2.6 vers 3.x, paquets à retirer et installer selon la source, validation à blanc par binaires extraits (ou repli documenté), rapport | WP-KEA, WP-INSTALLER | C2 |
 | K2 | API de l'analyse, alerte `kea_series_obsolete` et date de fin dans le fichier des avis ISC, écran « Migration Kea » en lecture (rapport, diffs) | WP-API-AUTH, WP-COLLECTOR, WP-FRONTEND | K1 |
 | V1 | Observations IPv6 : voisins des nœuds, baux DHCPv6 (interface `NeighborSource`), table `ipv6_observations`, classement EUI-64 / stable / temporaire, rattachement aux hôtes | WP-COLLECTOR, WP-CORE | C2 |
-| V2 | Contrôles IPv6 et alertes, `GET /hosts/ipv6`, `/admin/ipv6` (sources, test, préfixes) | WP-COLLECTOR, WP-API-AUTH | V1 |
-| V3 | Onglet IPv6 de la vue Hôtes en lecture (filtres, exceptions), écran Sources IPv6 | WP-FRONTEND | C2 (factice), V2 |
+| V2 | Contrôles IPv6 et alertes, `GET /hosts/ipv6`, `/admin/ipv6` (sources, test, préfixes ; test et sources retirés en 0.2.3, point 71) | WP-COLLECTOR, WP-API-AUTH | V1 |
+| V3 | Onglet IPv6 de la vue Hôtes en lecture (filtres, exceptions), écran Observation IPv6 (Sources IPv6 en 0.2.2) | WP-FRONTEND | C2 (factice), V2 |
 | C3 | Contrat de la 0.2.3 : section « mises à jour » de l'architecture, domaine `updates`, permission `admin:updates`, scope `update`, opérations de l'assistant, route `/repl/v1/releases`, `release.json` (`state_schema`) et format de `SHA256SUMS.sig`, alertes `update_*` | contrat, WP-CORE | |
 | U1 | Signature des releases : `make release` signe `SHA256SUMS` (clé lue hors du dépôt), clés publiques empaquetées, vérification Ed25519 avec `cryptography`, `release.json` | WP-PACKAGING, WP-CORE | C3 |
 | U2 | Assistant privilégié : `update_verify`, `update_start` (unité transitoire), `update_status`, `journal_errors`, sauvegarde d'état, `pelagos upgrade apply` | WP-INSTALLER, contrat (`cli.py`) | C3, U1 |

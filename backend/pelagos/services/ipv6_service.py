@@ -133,7 +133,8 @@ class _NothingToRetire(Exception):
 def retire_router_sources(ctx: Any) -> bool:
     """Remove the 0.2.2 router sources and their secrets from cluster.toml, audited as `system`.
 
-    Writes nothing when none is left (a second process or a peer's merge got there first)."""
+    Writes nothing when none is left (a second process or a peer's merge got there first).
+    An empty `sources = []` is still dropped, but only a real removal is audited."""
     found: list[str] = []
     if not ctx.config_store.cluster_path.exists():
         return False
@@ -157,6 +158,8 @@ def retire_router_sources(ctx: Any) -> bool:
         ctx.config_store.update_cluster(apply, updated_by=f"node:{ctx.node.id}")
     except _NothingToRetire:
         return False
+    if not any(found):
+        return True
     ctx.audit_log.append(
         AuditEntry(
             node_id=ctx.node.id,

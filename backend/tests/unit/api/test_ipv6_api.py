@@ -163,6 +163,17 @@ def test_router_sources_of_0_2_2_are_removed_with_their_secrets(node_ctx):
     assert len(node_ctx.audit_log.query(action="admin.ipv6.op")[0]) == 1
 
 
+def test_an_empty_source_list_is_dropped_without_an_audit_entry(node_ctx):
+    from pelagos.services.ipv6_service import retire_router_sources
+
+    node_ctx.config_store.update_cluster(
+        lambda c: c.settings.setdefault("ipv6", {}).__setitem__("sources", []), updated_by="node:old"
+    )
+    assert retire_router_sources(node_ctx) is True
+    assert "sources" not in node_ctx.cluster().settings["ipv6"]
+    assert node_ctx.audit_log.query(action="admin.ipv6.op")[0] == []
+
+
 def test_the_web_start_removes_them(node_paths, node_ctx):
     from pelagos.app import create_app
 

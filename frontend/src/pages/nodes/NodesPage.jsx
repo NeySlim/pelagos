@@ -11,6 +11,7 @@ import { Button } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { DataTable } from '../../components/DataTable'
+import { useAuth } from '../../contexts/AuthContext'
 import { useNotification } from '../../contexts/NotificationContext'
 import { useApi } from '../../hooks/useApi'
 import { usePermission } from '../../hooks/usePermission'
@@ -84,10 +85,14 @@ export default function NodesPage() {
   const nodes = useApi(() => api.nodes.list(), [])
   const replication = useApi(() => api.nodes.replication(), [])
   // HA role of each node per family and relationship (a Kea 3 hub has several); a family whose
-  // read fails shows none.
+  // read fails shows none. /dhcp/v6 answers 404 module_disabled without the dhcpv6 module.
+  const { modules } = useAuth()
+  const dhcpv6 = Boolean(modules?.dhcpv6)
+  const canDhcp = hasPermission('read:dhcp')
   const haRoles = useApi(async () => {
     const out = {}
-    for (const family of ['v4', 'v6']) {
+    if (!canDhcp) return out
+    for (const family of dhcpv6 ? ['v4', 'v6'] : ['v4']) {
       try {
         const res = await api.dhcp.ha(family)
         for (const h of flattenHa(res?.items)) if (h.enabled !== false && h.role) (out[h.node_id] ||= []).push({ family, role: h.role, server: h.server_name })
@@ -96,7 +101,7 @@ export default function NodesPage() {
       }
     }
     return out
-  }, [])
+  }, [dhcpv6, canDhcp])
   const [enrolling, setEnrolling] = useState(false)
   const [removing, setRemoving] = useState(null)
   const [busy, setBusy] = useState(null)

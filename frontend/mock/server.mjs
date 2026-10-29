@@ -646,7 +646,9 @@ function liveHa(h, now = Date.now()) {
 
 function summary(state) {
   const pools = []
-  for (const family of ['v4', 'v6']) {
+  // Like DashboardService.summary: no DHCPv6 HA nor pools while the dhcpv6 module is off.
+  const families = state.modules.cluster.dhcpv6 ? ['v4', 'v6'] : ['v4']
+  for (const family of families) {
     for (const row of utilization(state, family)) {
       pools.push({ node_id: state.selfId, engine: family === 'v4' ? 'kea4' : 'kea6', subnet_id: row.subnet_id, subnet: row.subnet, pool: row.pool, kind: row.kind, total: row.total, assigned: row.assigned, declined: row.declined, percent: row.percent })
     }
@@ -654,7 +656,7 @@ function summary(state) {
   const open = visibleAlerts(state).filter((a) => a.state === 'open')
   return {
     nodes: state.nodes,
-    ha: [...state.ha.v4, ...state.ha.v6].map((h) => liveHa(h)),
+    ha: families.flatMap((f) => state.ha[f]).map((h) => liveHa(h)),
     pools,
     zones: state.zones.filter((z) => z.kind !== 'forward').map((z) => ({ zone: z.name, view: z.view, kind: z.kind, ...zoneSerials(state, z) })),
     d2: Object.values(state.d2),

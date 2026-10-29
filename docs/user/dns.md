@@ -182,7 +182,8 @@ deadline, "Return now" (a plan that puts back each node's `forward` and
 `forwarders` exactly as before) and "Extend". It says when the probes have
 been healthy long enough to return; at the deadline each node returns on its
 own when `resolver.fallback_auto_return_enabled` is on, unless its options
-were changed by hand in the meantime. A node that does not answer is left out
+were changed by hand in the meantime: the banner names such nodes, and "Return
+now" leaves them as they are (options and `tls` block). A node that does not answer is left out
 of the form by default, as is a node on a release before 0.2.2 (no automatic
 return).
 

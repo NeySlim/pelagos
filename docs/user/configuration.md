@@ -324,6 +324,13 @@ Resolver:
 | `resolver_drop_percent` | `80` | 1 to 100 % | query drop against the two preceding windows |
 | `resolver_drop_min_per_minute` | `60` | 1 to 10000000 per minute | baseline needed to judge a drop |
 | `resolver_roots_failures` | `3` | 1 to 100 failures | failed root probes in a row |
+| `resolver_latency_warning_milliseconds` | `800` | 10 to 60000 ms | p95 of the answer time of remote servers over the window, `resolver:latency` warning |
+| `resolver_latency_critical_milliseconds` | `1600` | 10 to 60000 ms | the same, critical (proposes the forwarder fallback); above the warning |
+| `resolver_timeouts_warning_percent` | `10` | 1 to 100 % | share of outgoing queries that time out over the window, `resolver:timeouts` warning |
+| `resolver_timeouts_critical_percent` | `30` | 1 to 100 % | the same, critical (proposes the forwarder fallback); above the warning |
+| `resolver_tld_failures` | `3` | 1 to 100 failures | direct probes in a row where no server of a TLD answers, `resolver:tld:<tld>`; also the root letters (`resolver:root-letters`) |
+| `resolver_mismatch_warning_count` | `100` | 1 to 10000000 answers | mismatched answers per window, `resolver:mismatch` |
+| `resolver_lru_info_per_minute` | `100` | 1 to 10000000 per minute | cache evictions per minute over the whole window, `resolver:cache` (info) |
 
 Delegation:
 
@@ -377,6 +384,8 @@ ISC security advisories:
 | `ha_transition_days` | `365` | 1 to 3650 days | HA state transitions |
 | `alerts_resolved_days` | `90` | 1 to 3650 days | resolved alerts |
 | `backups_days` | `90` | 1 to 3650 days | write pipeline backups under `/var/lib/pelagos/backups` |
+| `resolver_raw_days` | `7` | 1 to 3650 days | resolver measures per collector pass, then averaged per hour |
+| `resolver_hourly_days` | `90` | 1 to 3650 days | hourly resolver measures |
 
 The audit log is never purged.
 
@@ -391,6 +400,23 @@ The audit log is never purged.
 | `update_types_kea` | `A, AAAA, PTR, DHCID` |  | record types granted to the Kea DDNS key |
 | `default_ns` | `none` |  | NS names of a new primary zone when the plan gives none (`["ns1.example.lan.", "ns2.example.lan."]`); without either the plan is refused, and `localhost.` always is |
 | `default_ttl_seconds` | `3600` | 0 to 2147483647 s | TTL of a record written without one |
+
+### Resolver (`[settings.resolver]`)
+
+Direct probes of the root servers and the TLDs, and the forwarder fallback
+(see [DNS, Resolver](dns.md#resolver)).
+
+| Key | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `probe_interval_seconds` | `300` | 60 to 86400 s | period of the root and TLD probes |
+| `probe_tlds` | `com, net, org, arpa` |  | TLDs probed besides those of the zones a node serves |
+| `probe_ipv6_enabled` | `on` |  | also probe over IPv6 when the node has a global IPv6 route |
+| `fallback_auto_enabled` | `off` |  | the service node applies the fallback (first preset, `forward first`, `fallback_max_hours`) once every BIND node proposed it for `fallback_after_seconds` |
+| `fallback_after_seconds` | `600` | 60 to 86400 s | how long every node must propose the fallback before the automatic one |
+| `fallback_max_hours` | `24` | 1 to 168 h | longest fallback and extension |
+| `fallback_auto_return_enabled` | `on` |  | each node returns on its own at the deadline (off: until "Return now") |
+| `fallback_return_healthy_minutes` | `15` | 1 to 1440 min | how long the probes must stay healthy before the return is proposed |
+| `presets` | `none` |  | your own presets, written in `cluster.toml` on one node (no screen edits them; replicated): `[{ id = "isp", name = "ISP", forwarders = ["192.0.2.53"], tls_name = "dns.example.net", filtering = false }]` (`name`, `tls_name` and `filtering` optional), listed after the built-in ones |
 
 ### Kea (`[settings.kea]`)
 

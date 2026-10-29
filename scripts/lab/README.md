@@ -57,6 +57,55 @@ cloud-init keys, which changes the instance id so cloud-init installs it at
 the next boot; it then starts the VM, drops its stale host keys from
 `known_hosts` and waits for ssh and cloud-init (`--no-wait` skips that).
 
+## VM budget
+
+The Proxmox host runs out of memory when too many VMs run at once. Every
+start a script of this directory or a lab test makes goes through
+`vm_budget.py check <vmid>...` first (`rollback.sh` before any rollback and
+again before each start, `labkit.pve_vm` before a start): it counts the
+running VMs of the pool (`PELAGOS_LAB_POOL`, default `pelagos`) and refuses,
+with exit code 3 and the list of running VMs, when the ones to start would
+bring them above `PELAGOS_LAB_MAX_VMS` (default 10). VMs already running do
+not count twice.
+
+The gateway and lab-dev are not test VMs: their VMIDs come from
+`PELAGOS_LAB_INFRA_VMIDS` or `~/.config/pelagos-lab/infra-vmids` (space or
+comma separated, here `9110 9115`). Without either, every running VM counts,
+which only makes the budget stricter. `vm_budget.py status` lists the running
+test VMs. When a start is refused, shut a finished VM down (never delete it)
+or wait.
+
+Create or clone new VMs stopped and start them through the same check; stop
+them when the test is done.
+
+## Taking a snapshot
+
+A snapshot of a running VM only holds what reached the disk: without a sync,
+files written shortly before (for instance `/etc/bind/rndc.key` after
+`provision.sh`) came back empty after a rollback. Take snapshots of stopped
+VMs:
+
+```sh
+ssh lab-r5a 'sync && sudo test -s /etc/bind/rndc.key && sudo systemctl poweroff'
+# wait for "stopped" in .../qemu/<vmid>/status/current, then:
+curl -fsS -k -X POST -H "Authorization: $(cat ~/.config/pelagos-lab/pve-token)" \
+  "$(cat ~/.config/pelagos-lab/pve-api)/nodes/pve/qemu/<vmid>/snapshot" \
+  --data-urlencode snapname=legacy --data-urlencode vmstate=0
+```
+
+then start the VM again through the budget check if it is still needed. When
+it must stay up, freeze the filesystem around the snapshot instead, with a
+thaw that does not depend on the ssh session (a frozen root blocks new
+logins):
+
+```sh
+ssh lab-r5a 'sudo sh -c "sync; fsfreeze -f /; (sleep 60; fsfreeze -u /) </dev/null >/dev/null 2>&1 &"'
+# take the snapshot (vmstate=0) within those 60 seconds
+```
+
+Check the result: `rollback.sh <vm> --no-start`, start it, and look at the
+files the scenario needs (`sudo test -s /etc/bind/rndc.key`).
+
 ## lab-dev specifics
 
 - Binaries: `/usr/sbin/named`, `named-checkconf`, `rndc`, `tsig-keygen`

@@ -121,10 +121,11 @@ def test_zone_replacement_freezes_writes_and_thaws(tmp_root: Path, conf_tree: Pa
     assert not Path(f"{zone_file}.jnl").exists()
     verbs = [c[0] for c in rec.calls]
     assert verbs.index("freeze") < verbs.index("thaw")
+    monkeypatch.setattr(backend, "soa_serial", lambda zone, view=None: 21)
     back = backend.rollback(plan)
     assert back.ok, back.message
-    # The file of before comes back with a serial ahead of what named serves (20 here).
-    assert " 21 3600" in zone_file.read_text()
+    # The file of before comes back with a serial ahead of what named serves (21 here).
+    assert " 22 3600" in zone_file.read_text()
     assert verbs.count("freeze") == 1 and [c[0] for c in rec.calls].count("freeze") == 2
 
 
@@ -158,3 +159,38 @@ def test_user_files_not_writable_fail_the_plan(tmp_root: Path, conf_tree: Path, 
     conf = str(conf_tree / "named.conf")
     plan = backend.plan_files_restore({conf: "x"}, user=True)
     assert plan.state is PlanState.FAILED and "pelagos restore --only bind" in plan.error
+
+
+def test_zone_replacement_backs_up_the_file_once_the_freeze_dump_lands(
+    tmp_root: Path, conf_tree: Path, monkeypatch
+) -> None:
+    # rndc freeze returns before named writes the journal into the file: the backup must wait.
+    import threading
+
+    backend, rec = make_backend(tmp_root, conf_tree)
+    zone_file = tmp_root / "var" / "example.lan.db"
+    zone_file.write_text(SNAPSHOT.replace(" 7 3600", " 19 3600"))
+    rec.zones.add("example.lan")
+    monkeypatch.setattr(backend, "soa_serial", lambda zone, view=None: 20)
+    monkeypatch.setattr(backend, "read_zone", lambda zone, view=None: [])
+    monkeypatch.setattr(backend, "wait_for_serial", lambda zone, view, serial: True)
+    zone = backend.config_zone("example.lan")
+    monkeypatch.setattr(backend, "config_zone", lambda name, view=None: _dynamic(zone))
+    dumped = SNAPSHOT.replace(" 7 3600", " 20 3600") + 'dyn.example.lan. 60 IN TXT "update"\n'
+    freeze = backend.freeze
+
+    def late_dump(zone: str, view: str | None = None) -> str:
+        out = freeze(zone, view)
+        if " 21 3600" not in zone_file.read_text():
+            threading.Timer(0.3, zone_file.write_text, args=(dumped,)).start()
+        return out
+
+    monkeypatch.setattr(backend, "freeze", late_dump)
+    plan = backend.plan_zone_restore("example.lan", "_default", SNAPSHOT)
+    result = backend.apply(plan)
+    assert result.ok, result.message
+    monkeypatch.setattr(backend, "freeze", freeze)
+    monkeypatch.setattr(backend, "soa_serial", lambda zone, view=None: 21)
+    back = backend.rollback(plan)
+    assert back.ok, back.message
+    assert '"update"' in zone_file.read_text()

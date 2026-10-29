@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -182,6 +183,24 @@ class BindRestore:
         result.node_id = self.ctx.node_id  # type: ignore[attr-defined]
         return result
 
+    def _wait_dumped(self, zone: str, view: str | None, path: Path) -> None:
+        """rndc freeze dumps the journal asynchronously: the file is backed up only once it holds
+        the served serial, or the rollback would lose the dynamic updates."""
+        if self.zone_status(zone, view).signed:  # type: ignore[attr-defined]
+            return  # inline signing: the file keeps the unsigned serial
+        serial = self.soa_serial(zone, view)  # type: ignore[attr-defined]
+        deadline = time.monotonic() + float(getattr(self, "reload_wait", 10.0))
+        while True:
+            try:
+                on_disk: int | None = zonerestore.parse_text(zone, path.read_text()).serial()
+            except (OSError, ZoneFileError, ValueError):
+                on_disk = None
+            if serial is None or on_disk == serial:
+                return
+            if time.monotonic() >= deadline:
+                raise ConnectorError(f"{path}: named did not write serial {serial} after rndc freeze")
+            time.sleep(0.1)
+
     def _apply_zone_content(self, plan: Plan, label: str) -> NodeApplyResult:
         node = self.ctx.node_id  # type: ignore[attr-defined]
         change = plan.changes[0]
@@ -228,6 +247,11 @@ class BindRestore:
         if dynamic:
             self.freeze(zone, view_arg)  # type: ignore[attr-defined]
             frozen = True
+            try:
+                self._wait_dumped(zone, view_arg, path)
+            except ConnectorError as exc:
+                self.thaw(zone, view_arg)  # type: ignore[attr-defined]
+                return NodeApplyResult(node_id=node, ok=False, message=str(exc))
 
         def reload() -> str:
             nonlocal thawed

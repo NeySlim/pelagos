@@ -282,6 +282,7 @@
   "kea_migration.d2_key_name": "{{path}} : la clé TSIG {{key}} ne peut pas nommer un fichier secret : renommer la clé",
   "kea_migration.d2_secret_file": "{{path}} : la clé TSIG {{key}} passe de secret à secret-file",
   "kea_migration.db_hook": "{{path}} : la base {{backend}} demande le hook {{library}} (paquet {{package}})",
+  "kea_migration.engine_unused": "{{engine}} sur {{node}} n'est pas utilisé ({{unit}} {{active}}, {{enabled}}) : la migration ignore son fichier, à corriger seulement si vous activez le démon",
   "kea_migration.ha_asymmetric": "{{engine}} : la configuration HA de {{node}} et de {{partner}} diffère : {{fields}}",
   "kea_migration.ha_no_listener": "{{path}} : les pairs HA passent par kea-ctrl-agent, retiré en Kea 3.2 : activer l'écoute HA dédiée (cible {{series}})",
   "kea_migration.hook_commercial": "{{path}} : {{library}} est un hook commercial dans Kea {{series}}",

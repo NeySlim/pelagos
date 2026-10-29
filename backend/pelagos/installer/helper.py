@@ -57,6 +57,7 @@ OPERATIONS = (
     "d2_secret_dir",
     "bind_user_write",
     "kea_file_write",
+    "kea_dry_run",
     "apply",
 )
 INSTALLER_SCOPES = (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY)
@@ -121,6 +122,10 @@ def handle(request: dict[str, Any], env_factory: Callable[[], Any], emit: Callab
                 str(request.get("sha256") or ""),
                 bool(request.get("dry_run")),
             )
+        if op == "kea_dry_run":
+            from pelagos.installer.kea_migration import dry_run_request
+
+            return dry_run_request(env, request)
         if op == "archive_read":
             from pelagos.installer.archive_read import read
 
@@ -621,6 +626,12 @@ class HelperClient:
     def archive_read(self, paths: list[str], patterns: list[dict[str, str]] | None = None) -> dict[str, Any]:
         """Engine files this process cannot read, for the archive (installer.archive_read)."""
         return self.call("archive_read", paths=list(paths), patterns=list(patterns or []))
+
+    def kea_dry_run(
+        self, series: str, source: str, configs: dict[str, Any] | None = None, node_id: str = ""
+    ) -> dict[str, Any]:
+        """Kea migration analysis of this node (installer.kea_migration.dry_run_request)."""
+        return self.call("kea_dry_run", series=series, source=source, configs=configs, node_id=node_id)
 
     def plan(self, op: str, created_by: str, **args: Any) -> Plan:
         return Plan.from_dict(self.call(op, created_by=created_by, **args))

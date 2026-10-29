@@ -7,6 +7,8 @@ ULA prefixes (`fc00::/7`) count only when `ipv6.prefixes` lists one that covers 
 from __future__ import annotations
 
 import ipaddress
+import json
+import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -37,6 +39,21 @@ def reverse_zone_network(name: str) -> ipaddress.IPv6Network | None:
     nibbles = "".join(reversed(labels)).ljust(32, "0")
     text = ":".join(nibbles[i : i + 4] for i in range(0, 32, 4))
     return ipaddress.IPv6Network(f"{text}/{4 * len(labels)}")
+
+
+def reverse_zone_name(network: ipaddress.IPv6Network) -> str:
+    """The `ip6.arpa` zone that holds every PTR of `network`, cut at the nibble at or above it."""
+    nibbles = network.network_address.exploded.replace(":", "")[: network.prefixlen // 4]
+    return ".".join(reversed(nibbles)) + ("." if nibbles else "") + IP6_ARPA[1:] + "."
+
+
+def covered(network: ipaddress.IPv6Network, zones: Iterable[str]) -> bool:
+    """True when one served `ip6.arpa` zone holds the whole prefix."""
+    for zone in zones:
+        net = reverse_zone_network(zone)
+        if net is not None and network.subnet_of(net):
+            return True
+    return False
 
 
 def reverse_zone_for(address: str, zones: Iterable[str]) -> str | None:
@@ -107,3 +124,22 @@ def from_snapshots(snapshots: Iterable[dict[str, Any]]) -> tuple[list[str], list
         elif snap.get("engine") == "kea6" and snap.get("kind") == "subnets":
             subnets.update(str(s["subnet"]) for s in payload if isinstance(s, dict) and s.get("subnet"))
     return sorted(zones), sorted(subnets)
+
+
+def cluster_snapshots(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """BIND zone lists and Kea DHCPv6 subnets of every node, from the series cache."""
+    rows = conn.execute(
+        "SELECT node_id, engine, kind, payload FROM engine_snapshots"
+        " WHERE (engine = 'bind' AND kind = 'zone_list') OR (engine = 'kea6' AND kind = 'subnets')"
+    ).fetchall()
+    out = []
+    for r in rows:
+        try:
+            out.append({"engine": r["engine"], "kind": r["kind"], "payload": json.loads(r["payload"])})
+        except ValueError:
+            continue
+    return out
+
+
+def has_zone_list(snapshots: Iterable[dict[str, Any]]) -> bool:
+    return any(s.get("engine") == "bind" and s.get("kind") == "zone_list" for s in snapshots)

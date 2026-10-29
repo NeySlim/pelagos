@@ -4037,5 +4037,38 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   `ipv6_reverse_missing`, `ipv6_stale_aaaa` (section 15 table, keys in the
   exception key table). A host known in IPv4 only raises nothing. The
   source failure is shown in the screen, never alerted before 24 h.
+  They run on each node holding primary forward zones (a node without one
+  resolves the ones it held), over the leases, reservations and zones the
+  pass already read (`hosts_service.join_hosts`), this node's observations
+  and every peer's `ipv6.observations` (5 s, in parallel; a peer on an older
+  release counts as observing nothing). While a peer does not answer, the
+  host checks keep their state (a missing observer would read as stale
+  records); `ipv6_reverse_missing` still runs.
+  `ipv6_missing_aaaa`: the row has a `proposal` and none of its `eui64` or
+  `stable` addresses has an AAAA; a host excepted by `mac:<mac>` is left
+  out, an address excepted by `addr:<address>` is never proposed;
+  `exception_keys` lists `mac:<mac>` of each host. `ipv6_reverse_missing`:
+  no served `ip6.arpa` zone (zone lists of every node in the cache) holds the
+  whole watched prefix; `reverse_zone` is cut at the nibble at or above the
+  prefix length; not evaluated before the first BIND zone list.
+  `ipv6_stale_aaaa`: an AAAA in a managed forward zone and a watched prefix
+  whose address no source saw for `stale_days` (an address never seen counts
+  from the first sighting of the host's MAC) while that MAC has another
+  `eui64` or `stable` address seen in the last 24 h (`current`);
+  `old_prefix` and `new_prefix` are the /64s when every stale record of the
+  zone left one /64 for one other; `exception_keys` lists `addr:<address>`.
+  A renumbered host shows in both alerts: stale for the old address,
+  missing for the new one. The generic subject exception (the bare subject)
+  silences a whole alert.
+- **Routes** (V2, `services/ipv6_service.py`): `GET /hosts/ipv6` gives
+  `first_seen` and `last_seen` in RFC 3339; filters: `missing_aaaa` (as the
+  check), `missing_ptr` (an AAAA without PTR), `stale` (as the check),
+  `unknown` (no name), `random_mac`; `zone` keeps the rows whose proposal or
+  name is in that zone; `meta.errors` names the engines that could not be
+  read. `PUT /admin/ipv6`: a stored key and secret never follow a source to
+  another URL (cleared unless given in the same request) and go with a
+  removed source. `POST /admin/ipv6/sources/test` takes `secrets`
+  (`api_key`, `api_secret`) with an unsaved source; the sample is the first
+  rows of the answer, unfiltered.
 - **Audit**: `admin.ipv6.replace` (request `{"sources": [ids],"prefixes"}`,
   never a secret).

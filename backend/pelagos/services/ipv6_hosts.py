@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -129,6 +129,62 @@ def _zone_of(name: str, zones: Iterable[str]) -> str | None:
     return best
 
 
+Excepted = Callable[[str, str], bool]
+MISSING_KIND = "ipv6_missing_aaaa"
+STALE_KIND = "ipv6_stale_aaaa"
+
+
+def _never(_kind: str, _key: str) -> bool:
+    return False
+
+
+def mac_key(mac: str) -> str:
+    return f"mac:{mac}"
+
+
+def addr_key(address: str) -> str:
+    return f"addr:{address}"
+
+
+def observed_by_mac(
+    observations: Iterable[dict[str, Any]], now: int, stable_min_days: int
+) -> dict[str, list[Observed]]:
+    """Merged and classified observations per MAC; a MAC any node sees as a router is left out."""
+    observations = list(observations)
+    routers = {str(o.get("mac")) for o in observations if o.get("state") == ROUTER}
+    out: dict[str, list[Observed]] = defaultdict(list)
+    for item in classify(merge(o for o in observations if o.get("mac") not in routers), now, stable_min_days):
+        out[item.mac].append(item)
+    return dict(out)
+
+
+@dataclass(slots=True)
+class HostRecords:
+    a_owner: str | None
+    ipv4: list[str]
+    aaaa: dict[str, str]  # address -> owner
+    ptr: list[str]
+
+
+def _records(host: Host | None) -> HostRecords:
+    out = HostRecords(None, [], {}, [])
+    if host is None:
+        return out
+    out.ipv4 = [ip for ip in host.ips if ":" not in ip]
+    for rr in host.records:
+        if rr.rtype == "A" and out.a_owner is None:
+            out.a_owner = normalize_name(rr.name)
+        elif rr.rtype == "AAAA":
+            for r in rr.rdata:
+                out.aaaa.setdefault(str(ipaddress.IPv6Address(r)), normalize_name(rr.name))
+        elif rr.rtype == "PTR":
+            ip = reverse_to_ip(rr.name)
+            if ip and ":" in ip:
+                out.ptr.append(ip)
+    out.ptr = sorted(set(out.ptr))
+    return out
+
+
 def host_rows(
     hosts: list[Host],
     observations: Iterable[dict[str, Any]],
@@ -136,65 +192,117 @@ def host_rows(
     stable_min_days: int,
     forward_zones: Iterable[str],
     reverse_zones: Iterable[str],
+    excepted: Excepted | None = None,
 ) -> list[dict[str, Any]]:
     """One row per MAC with observed addresses: the host it belongs to, records and proposal.
 
     `host_key` is the hosts view key, `mac:<mac>` when the MAC is in no host; `proposal` is the
-    first `eui64` or `stable` address without AAAA (`address`, `class`), the owner of the host's
-    A in its forward zone and the address's reverse zone; null when there is none. A MAC a node
-    sees as a router (neighbor state `router`) is the router itself: never listed.
+    first `eui64` or `stable` address without AAAA and not excepted by `addr:<address>`, the owner
+    of the host's A in its forward zone and the address's reverse zone; null when there is none.
+    `excepted`: the host is excepted from `ipv6_missing_aaaa` (`mac:<mac>`).
     """
+    ex = excepted or _never
     forward = [normalize_name(z) for z in forward_zones]
     reverse = list(reverse_zones)
     by_mac = {h.mac: h for h in hosts if h.mac}
-    observations = list(observations)
-    routers = {str(o.get("mac")) for o in observations if o.get("state") == ROUTER}
-    observed: dict[str, list[Observed]] = defaultdict(list)
-    for item in classify(merge(o for o in observations if o.get("mac") not in routers), now, stable_min_days):
-        observed[item.mac].append(item)
     rows: list[dict[str, Any]] = []
-    for mac, items in sorted(observed.items()):
+    for mac, items in sorted(observed_by_mac(observations, now, stable_min_days).items()):
         host = by_mac.get(mac)
-        a_owner = aaaa = ptr = None
-        ipv4: list[str] = []
-        aaaa_set: list[str] = []
-        ptr_set: list[str] = []
-        if host is not None:
-            ipv4 = [ip for ip in host.ips if ":" not in ip]
-            for rr in host.records:
-                if rr.rtype == "A" and a_owner is None:
-                    a_owner = normalize_name(rr.name)
-                elif rr.rtype == "AAAA":
-                    aaaa_set += [str(ipaddress.IPv6Address(r)) for r in rr.rdata]
-                elif rr.rtype == "PTR":
-                    ip = reverse_to_ip(rr.name)
-                    if ip and ":" in ip:
-                        ptr_set.append(ip)
-            aaaa, ptr = sorted(set(aaaa_set)), sorted(set(ptr_set))
+        rec = _records(host)
         proposal = None
-        zone = _zone_of(a_owner, forward) if a_owner else None
-        if a_owner and zone:
+        zone = _zone_of(rec.a_owner, forward) if rec.a_owner else None
+        if rec.a_owner and zone:
             for item in items:
-                if item.cls in PROPOSABLE and item.address not in (aaaa or []):
-                    proposal = {
-                        "address": item.address,
-                        "class": item.cls,
-                        "name": a_owner,
-                        "zone": zone,
-                        "reverse_zone": reverse_zone_for(item.address, reverse),
-                    }
-                    break
+                if item.cls not in PROPOSABLE or item.address in rec.aaaa:
+                    continue
+                if ex(MISSING_KIND, addr_key(item.address)):
+                    continue
+                proposal = {
+                    "address": item.address,
+                    "class": item.cls,
+                    "name": rec.a_owner,
+                    "zone": zone,
+                    "reverse_zone": reverse_zone_for(item.address, reverse),
+                }
+                break
         rows.append(
             {
                 "host_key": host.key if host is not None else f"mac:{mac}",
-                "name": a_owner or (host.hostname if host is not None else None),
+                "name": rec.a_owner or (host.hostname if host is not None else None),
                 "mac": mac,
                 "mac_random": mac_random(mac),
-                "ipv4": ipv4,
+                "ipv4": rec.ipv4,
                 "observed": [i.to_dict() for i in items],
-                "aaaa": aaaa or [],
-                "ptr": ptr or [],
+                "aaaa": sorted(rec.aaaa, key=lambda a: int(ipaddress.IPv6Address(a))),
+                "ptr": rec.ptr,
                 "proposal": proposal,
+                "excepted": ex(MISSING_KIND, mac_key(mac)),
             }
         )
     return rows
+
+
+def missing_aaaa(row: dict[str, Any]) -> bool:
+    """A proposal stands and none of the host's `eui64` or `stable` addresses has an AAAA."""
+    if row.get("proposal") is None:
+        return False
+    aaaa = set(row.get("aaaa") or [])
+    return not any(o["class"] in PROPOSABLE and o["address"] in aaaa for o in row.get("observed") or [])
+
+
+@dataclass(frozen=True, slots=True)
+class Stale:
+    host_key: str
+    name: str
+    zone: str
+    address: str
+    mac: str
+    last_seen: int | None
+    current: str
+
+
+def stale_records(
+    hosts: list[Host],
+    observations: Iterable[dict[str, Any]],
+    now: int,
+    stable_min_days: int,
+    stale_days: int,
+    forward_zones: Iterable[str],
+    watched: Callable[[str], bool],
+    excepted: Excepted | None = None,
+) -> list[Stale]:
+    """AAAA records in a watched prefix not observed for `stale_days` while their host's MAC is
+    seen now with another `eui64` or `stable` address.
+
+    An address never observed counts from the first observation of the MAC, so a fresh install
+    raises nothing before `stale_days` of history.
+    """
+    ex = excepted or _never
+    forward = [normalize_name(z) for z in forward_zones]
+    by_mac = observed_by_mac(observations, now, stable_min_days)
+    seen: dict[str, int] = {}
+    for items in by_mac.values():
+        for item in items:
+            seen[item.address] = max(seen.get(item.address, 0), item.last_seen)
+    limit = now - stale_days * DAY
+    out: list[Stale] = []
+    for host in hosts:
+        if not host.mac or host.mac not in by_mac or ex(STALE_KIND, mac_key(host.mac)):
+            continue
+        items = by_mac[host.mac]
+        current = [i for i in items if i.cls in PROPOSABLE and i.last_seen >= now - DAY]
+        if not current:
+            continue
+        since = min(i.first_seen for i in items)
+        for address, owner in sorted(_records(host).aaaa.items()):
+            if not watched(address) or ex(STALE_KIND, addr_key(address)):
+                continue
+            zone = _zone_of(owner, forward)
+            last = seen.get(address)
+            if zone is None or (last if last is not None else since) >= limit:
+                continue
+            other = next((i.address for i in current if i.address != address), None)
+            if other is None:
+                continue
+            out.append(Stale(host.key, owner, zone, address, host.mac, last, other))
+    return out

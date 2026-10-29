@@ -7,7 +7,6 @@ node of `notifications.order` it sees online, section 22) polls the routers, eve
 
 from __future__ import annotations
 
-import json
 import logging
 import sqlite3
 import threading
@@ -110,17 +109,7 @@ class Ipv6Observer:
     # Prefixes --------------------------------------------------------------------------------
 
     def effective_prefixes(self, settings: dict[str, Any]) -> list[prefixes_mod.Prefix]:
-        rows = self.conn.execute(
-            "SELECT node_id, engine, kind, payload FROM engine_snapshots"
-            " WHERE (engine = 'bind' AND kind = 'zone_list') OR (engine = 'kea6' AND kind = 'subnets')"
-        ).fetchall()
-        snaps = []
-        for r in rows:
-            try:
-                snaps.append({"engine": r["engine"], "kind": r["kind"], "payload": json.loads(r["payload"])})
-            except ValueError:
-                continue
-        zones, subnets = prefixes_mod.from_snapshots(snaps)
+        zones, subnets = prefixes_mod.from_snapshots(prefixes_mod.cluster_snapshots(self.conn))
         listed = reg.domain(settings, "ipv6").get("prefixes") or []
         return prefixes_mod.effective(listed if isinstance(listed, list) else [], zones, subnets)
 

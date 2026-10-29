@@ -248,6 +248,7 @@ class Collector:
 
         # Observed IPv6 addresses (section 27): neighbors, DHCPv6 leases and, on the service node, routers.
         kea6 = backends.kea6
+        self.ipv6_gateway: Any = None  # peers asked for their observations; tests set a fake
         self.ipv6 = Ipv6Observer(
             ctx,
             store,
@@ -483,12 +484,84 @@ class Collector:
         )
         outcome = PollOutcome(alerts=observed, kinds=frozenset(k.value for k in INCONSISTENCY_KINDS))
         self._finish(outcome)
+        try:
+            observed = observed + self.ipv6_checks(leases, reservations, forward, reverse)
+        except Exception:  # the IPv6 checks never cost the consistency pass
+            log.exception("IPv6 checks failed")
         replay = self._ddns_replay(leases, forward, reverse)
         if replay is not None:
             self._finish(replay)
             observed = observed + replay.alerts
         self.store.set_meta("last_run_consistency", str(int(self.clock())))
         return observed
+
+    def ipv6_checks(
+        self,
+        leases: list[Lease],
+        reservations: list[Reservation],
+        forward: dict[str, list[RRset]],
+        reverse: list[RRset],
+        gateway: Any = None,
+    ) -> list[Alert]:
+        """`ipv6_*` (section 27) on the node holding primary forward zones, over every node's
+        observations; with a node missing, only `ipv6_reverse_missing` is reconciled (a missing
+        observer would read as stale AAAA records)."""
+        from pelagos.collector.ipv6 import prefixes as prefixes_mod
+        from pelagos.collector.ipv6 import store as obs_store
+        from pelagos.services import ipv6_hosts, ipv6_service
+        from pelagos.services.hosts_service import join_hosts
+
+        kinds = {k.value for k in consistency.IPV6_KINDS}
+        if not forward:
+            self._finish(PollOutcome(alerts=[], kinds=frozenset(kinds)))
+            return []
+        gateway = gateway or self.ipv6_gateway
+        if gateway is None:
+            from pelagos.services.peers import PeerGateway
+
+            gateway = PeerGateway(self.ctx)
+        settings = self.ctx.settings()
+        now = int(self.clock())
+        stable = int(reg.get(settings, "ipv6.stable_min_days"))
+        stale_days = int(reg.get(settings, "ipv6.stale_days"))
+        cluster = self.ctx.cluster()
+        g = ipv6_service.gather(
+            self.node_id,
+            lambda: obs_store.payload(self.store.conn, self.node_id),
+            gateway,
+            [n.id for n in cluster.nodes],
+        )
+        snaps = prefixes_mod.cluster_snapshots(self.store.conn)
+        served, subnets = prefixes_mod.from_snapshots(snaps)
+        listed = reg.domain(settings, "ipv6").get("prefixes") or []
+        watched = prefixes_mod.effective(listed if isinstance(listed, list) else [], served, subnets)
+        excepted = consistency.excepted_for(cluster)
+        alerts: list[Alert] = []
+        if prefixes_mod.has_zone_list(snaps):
+            alerts += consistency.ipv6_reverse_missing(watched, served)
+        else:
+            kinds.discard(AlertKind.IPV6_REVERSE_MISSING.value)
+        if g.complete:
+            hosts = join_hosts(leases, reservations, [r for rs in forward.values() for r in rs] + reverse)
+            zones = list(forward)
+            rows = ipv6_hosts.host_rows(hosts, g.observations, now, stable, zones, served, excepted)
+            alerts += consistency.ipv6_missing_aaaa(rows)
+            stale = ipv6_hosts.stale_records(
+                hosts,
+                g.observations,
+                now,
+                stable,
+                stale_days,
+                zones,
+                lambda a: prefixes_mod.watched(a, watched),
+                excepted,
+            )
+            alerts += consistency.ipv6_stale_aaaa(stale, stale_days)
+        else:
+            kinds -= {AlertKind.IPV6_MISSING_AAAA.value, AlertKind.IPV6_STALE_AAAA.value}
+            log.info("IPv6 host checks kept as they were: %s", ", ".join(u["node_id"] for u in g.unavailable))
+        self._finish(PollOutcome(alerts=alerts, kinds=frozenset(kinds)))
+        return alerts
 
     def _ddns_replay(
         self, leases: list[Lease], forward: dict[str, list[RRset]], reverse: list[RRset]

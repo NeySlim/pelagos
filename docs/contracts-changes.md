@@ -1875,3 +1875,12 @@ running; `ctrl_agent_state` adds `signs` and reads the agent's logs; new codes `
 `kea-admin`, `kea-doc`, `kea-dev`. Contract (`domain/messages.py`):
 `kea_migration.ctrl_agent_unverified`, `kea_migration.ha_no_listener`, `kea_migration.d2_key_name`.
 WP-FRONTEND: their en and fr texts.
+
+## 2026-10-29, batch V2: IPv6 checks and routes
+Additive, release 0.2.2. Architecture section 27: where and how `ipv6_missing_aaaa`,
+`ipv6_reverse_missing` and `ipv6_stale_aaaa` are evaluated, their `exception_keys` (kept by
+`consistency.apply_exceptions` for the two grouped kinds), `GET /hosts/ipv6` filters and
+timestamps (RFC 3339), `meta.errors`, secrets cleared when a source moves to another URL or is
+removed, `secrets` accepted by `POST /admin/ipv6/sources/test` with an unsaved source. WP-API-AUTH:
+the three routes answer (no more `501`). WP-FRONTEND (V3): `proposal` carries `address` and
+`class` (the mock still lacks them).

@@ -19,6 +19,7 @@ from pelagos.domain import (
     Change,
     ChangeOp,
     Host,
+    Lease,
     LeaseState,
     Plan,
     PlanScope,
@@ -129,22 +130,14 @@ class HostsService:
                 errors[f"{dhcp.engine.value}.leases"] = exc.detail
                 leases = []
             for lease in leases:
-                host = join.attach(_mac(lease.hw_address), [lease.ip_address], _name(lease.hostname))
-                if host.lease is None or (
-                    host.lease.state is not LeaseState.DEFAULT and lease.state is LeaseState.DEFAULT
-                ):
-                    host.lease = lease
+                _attach_lease(join, lease)
             try:
                 reservations = dhcp.reservations(None, None)
             except ServiceError as exc:
                 errors[f"{dhcp.engine.value}.reservations"] = exc.detail
                 reservations = []
             for res in reservations:
-                mac = res.identifier if res.id_type is ReservationIdType.HW_ADDRESS else None
-                ips = [res.ip_address] if res.ip_address else list(res.ip_addresses)
-                host = join.attach(_mac(mac), ips, _name(res.hostname))
-                if host.reservation is None:
-                    host.reservation = res
+                _attach_reservation(join, res)
         if self.dns is not None:
             try:
                 self._attach_records(join)
@@ -171,18 +164,7 @@ class HostsService:
             except ServiceError:
                 continue
             for rr in rrsets:
-                if rr.rtype in ("A", "AAAA"):
-                    owner = normalize_name(rr.name)
-                    for ip in rr.rdata:
-                        host = join.attach(None, [ip], owner)
-                        _add_record(host, rr)
-                elif rr.rtype == "PTR":
-                    ip = reverse_to_ip(rr.name)
-                    if ip is None:
-                        continue
-                    target = normalize_name(rr.rdata[0]) if rr.rdata else None
-                    host = join.attach(None, [ip], target)
-                    _add_record(host, rr)
+                _attach_rrset(join, rr)
 
     def _hosts_for_alert(self, join: _Join, alert: Alert) -> list[Host]:
         keys: set[str] = set()
@@ -536,6 +518,49 @@ def reverse_to_ip(name: str) -> str | None:
         except ValueError:
             return None
     return None
+
+
+def join_hosts(
+    leases: Iterable[Lease], reservations: Iterable[Reservation], rrsets: Iterable[RRset]
+) -> list[Host]:
+    """The hosts join over data already read (the collector's consistency pass)."""
+    join = _Join()
+    for lease in leases:
+        _attach_lease(join, lease)
+    for res in reservations:
+        _attach_reservation(join, res)
+    for rr in rrsets:
+        _attach_rrset(join, rr)
+    return list(join.hosts.values())
+
+
+def _attach_lease(join: _Join, lease: Lease) -> None:
+    host = join.attach(_mac(lease.hw_address), [lease.ip_address], _name(lease.hostname))
+    if host.lease is None or (
+        host.lease.state is not LeaseState.DEFAULT and lease.state is LeaseState.DEFAULT
+    ):
+        host.lease = lease
+
+
+def _attach_reservation(join: _Join, res: Reservation) -> None:
+    mac = res.identifier if res.id_type is ReservationIdType.HW_ADDRESS else None
+    ips = [res.ip_address] if res.ip_address else list(res.ip_addresses)
+    host = join.attach(_mac(mac), ips, _name(res.hostname))
+    if host.reservation is None:
+        host.reservation = res
+
+
+def _attach_rrset(join: _Join, rr: RRset) -> None:
+    if rr.rtype in ("A", "AAAA"):
+        owner = normalize_name(rr.name)
+        for ip in rr.rdata:
+            _add_record(join.attach(None, [ip], owner), rr)
+    elif rr.rtype == "PTR":
+        ip = reverse_to_ip(rr.name)
+        if ip is None:
+            return
+        target = normalize_name(rr.rdata[0]) if rr.rdata else None
+        _add_record(join.attach(None, [ip], target), rr)
 
 
 def _add_record(host: Host, rr: RRset) -> None:

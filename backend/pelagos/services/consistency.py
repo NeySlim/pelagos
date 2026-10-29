@@ -503,6 +503,111 @@ def run_all(
     return list(unique.values())
 
 
+# IPv6 checks (section 27) ----------------------------------------------------------------------
+
+IPV6_KINDS = frozenset(
+    {AlertKind.IPV6_MISSING_AAAA, AlertKind.IPV6_REVERSE_MISSING, AlertKind.IPV6_STALE_AAAA}
+)
+# Grouped alerts whose details carry the keys of their hosts and addresses, not the subject.
+OWN_KEYS = frozenset({AlertKind.IPV6_MISSING_AAAA, AlertKind.IPV6_STALE_AAAA})
+
+
+def ipv6_missing_aaaa(rows: Iterable[dict[str, Any]]) -> list[Alert]:
+    """One alert per forward zone listing the hosts with a proposal and no AAAA (rows of
+    `ipv6_hosts.host_rows`, built with the exceptions: excepted hosts are skipped here)."""
+    from pelagos.services import ipv6_hosts
+
+    by_zone: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        if row.get("excepted") or not ipv6_hosts.missing_aaaa(row):
+            continue
+        p = row["proposal"]
+        by_zone.setdefault(p["zone"], []).append(
+            {"host_key": row["host_key"], "name": p["name"], "mac": row["mac"], "address": p["address"]}
+        )
+    alerts = []
+    for zone, hosts in sorted(by_zone.items()):
+        alerts.append(
+            Alert(
+                kind=AlertKind.IPV6_MISSING_AAAA,
+                severity=Severity.INFO,
+                subject=f"ipv6:aaaa:{zone}",
+                **_title("alert.ipv6_missing_aaaa", zone=zone, count=len(hosts)),
+                details={
+                    "zone": zone,
+                    "count": len(hosts),
+                    "hosts": hosts,
+                    "exception_keys": [ipv6_hosts.mac_key(h["mac"]) for h in hosts],
+                },
+            )
+        )
+    return alerts
+
+
+def ipv6_reverse_missing(watched: Iterable[Any], reverse_zones: Iterable[str]) -> list[Alert]:
+    """A watched prefix (`prefixes.Prefix`) no served `ip6.arpa` zone holds whole."""
+    from pelagos.collector.ipv6 import prefixes
+
+    zones = list(reverse_zones)
+    alerts = []
+    for p in watched:
+        if prefixes.covered(p.network, zones):
+            continue
+        prefix = str(p.network)
+        alerts.append(
+            Alert(
+                kind=AlertKind.IPV6_REVERSE_MISSING,
+                severity=Severity.INFO,
+                subject=f"ipv6:reverse:{prefix}",
+                **_title("alert.ipv6_reverse_missing", prefix=prefix),
+                details={"prefix": prefix, "reverse_zone": prefixes.reverse_zone_name(p.network)},
+            )
+        )
+    return alerts
+
+
+def ipv6_stale_aaaa(stale: Iterable[Any], stale_days: int) -> list[Alert]:
+    """One alert per zone of `ipv6_hosts.Stale` records; `old_prefix` and `new_prefix` (the /64s)
+    when every stale address of the zone left one /64 for one other."""
+    from pelagos.services import ipv6_hosts
+
+    by_zone: dict[str, list[Any]] = {}
+    for item in stale:
+        by_zone.setdefault(item.zone, []).append(item)
+    alerts = []
+    for zone, items in sorted(by_zone.items()):
+        details: dict[str, Any] = {
+            "zone": zone,
+            "count": len(items),
+            "records": [
+                {
+                    "name": i.name,
+                    "address": i.address,
+                    "mac": i.mac,
+                    "last_seen": i.last_seen,
+                    "current": i.current,
+                }
+                for i in items
+            ],
+        }
+        old = {ipaddress.IPv6Network(f"{i.address}/64", strict=False) for i in items}
+        new = {ipaddress.IPv6Network(f"{i.current}/64", strict=False) for i in items}
+        if len(old) == 1 and len(new) == 1 and old != new:
+            details["old_prefix"], details["new_prefix"] = str(old.pop()), str(new.pop())
+        keys = [ipv6_hosts.addr_key(i.address) for i in items]
+        details["exception_keys"] = list(dict.fromkeys(keys))
+        alerts.append(
+            Alert(
+                kind=AlertKind.IPV6_STALE_AAAA,
+                severity=Severity.WARNING,
+                subject=f"ipv6:stale:{zone}",
+                **_title("alert.ipv6_stale_aaaa", zone=zone, count=len(items), days=stale_days),
+                details=details,
+            )
+        )
+    return alerts
+
+
 def is_excepted(alert: Alert, excepted: Excepted) -> bool:
     """True when an exception names this alert of EXCEPTABLE_KINDS (its node or every node)."""
     if alert.kind not in EXCEPTABLE_KINDS:
@@ -518,7 +623,8 @@ def apply_exceptions(alerts: Iterable[Alert], excepted: Excepted) -> list[Alert]
         if alert.kind in EXCEPTABLE_KINDS:
             if is_excepted(alert, excepted):
                 continue
-            alert.details = {**alert.details, "exception_keys": exception_keys(alert)[:1]}
+            if alert.kind not in OWN_KEYS or "exception_keys" not in alert.details:
+                alert.details = {**alert.details, "exception_keys": exception_keys(alert)[:1]}
         out.append(alert)
     return out
 
@@ -536,6 +642,9 @@ __all__ = [
     "apply_exceptions",
     "excepted_for",
     "excepted_from",
+    "ipv6_missing_aaaa",
+    "ipv6_reverse_missing",
+    "ipv6_stale_aaaa",
     "is_excepted",
     "is_sensitive_kea_key",
     "kea_config_differences",

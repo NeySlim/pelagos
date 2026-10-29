@@ -193,6 +193,19 @@
       "adopt": "Adopt the hand-made guard",
       "legacyHelp": "A guard was set up outside Pelagos ({{source}}). Adopting it loads the same addresses into Pelagos's guard first, then retires the old one: the listener stays guarded throughout.",
       "nothing": "none"
+    },
+    "permissions": {
+      "title": "Permissions",
+      "help": "Every folder and file the Pelagos services of this node create, write or read, probed now inside their own systemd unit (user, groups, sandbox). A plan that needs a path listed here as not writable is refused before it is applied.",
+      "ok": "all writable",
+      "okOne": "ok",
+      "failed_one": "{{count}} path not writable",
+      "failed_other": "{{count}} paths not writable",
+      "notWritable": "not writable",
+      "recheck": "Check again",
+      "unavailable": "This node cannot answer the permission check: {{error}}",
+      "fix_one": "Fix {{count}} path through the privileged helper",
+      "fix_other": "Fix {{count}} paths through the privileged helper"
     }
   },
   "keaMigration": {

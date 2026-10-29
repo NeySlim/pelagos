@@ -5,6 +5,7 @@
 // confirmation and runs as a Job, one step after the other with backup, validation and rollback.
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { useMessage } from '../../i18n/message'
 import { ShieldWarning, ShieldCheck, ArrowsClockwise, Lightning, EyeSlash, ArrowCounterClockwise } from '@phosphor-icons/react'
 import { PageLayout, Card, Button, Badge, StatusBadge, LoadingSpinner, EmptyState, PlanPreview } from '../../components'
@@ -20,6 +21,7 @@ import {
   findingKey, planSelection, exceptionKey, driftAction,
 } from './findings'
 import HAGuardCard from './HAGuardCard'
+import PermissionsCard from './PermissionsCard'
 
 function Finding({ finding, checked, onToggle, disabled, showNode, onExcept, action, onAction }) {
   const { t } = useTranslation('install')
@@ -186,7 +188,9 @@ export default function SecurityPage() {
   const { t } = useTranslation(['install', 'common'])
   const { hasPermission } = usePermission()
   const canExcept = hasPermission('write:alerts') && hasPermission('admin:settings')
-  const [node, setNode] = useState('')
+  // ?node=<id>: a path_not_writable alert opens the Permissions card of its node.
+  const [searchParams] = useSearchParams()
+  const [node, setNode] = useState(searchParams.get('node') || '')
   const findingsQ = useApi(() => api.install.security(node || undefined), [node])
   const all = useMemo(() => sortFindings(findingsQ.data?.findings || []), [findingsQ.data])
   const findings = all.filter((f) => !isExcepted(f))
@@ -334,6 +338,7 @@ export default function SecurityPage() {
             </>
           )}
           <HAGuardCard node={node === 'all' ? '' : node} onChanged={findingsQ.refetch} />
+          <PermissionsCard node={node === 'all' ? '' : node} />
           {excepted.length > 0 && (
             <Card className="p-4 space-y-2" hover={false} data-testid="security-exceptions">
               <h3 className="ui-card-title text-sm font-semibold text-text-primary">{t('security.exception.listTitle', { count: excepted.length })}</h3>

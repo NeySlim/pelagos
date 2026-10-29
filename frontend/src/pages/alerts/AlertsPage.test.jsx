@@ -172,6 +172,7 @@ describe('AlertsPage', () => {
 
   it('links the obsolete Kea series alert to the migration analysis', () => {
     expect(subjectLink({ subject: 'kea:series' })).toEqual({ to: '/install/kea-migration', label: 'openKeaMigration' })
+    expect(subjectLink({ subject: 'path:/etc/bind/cache/pelagos', node_id: 'n2' })).toEqual({ to: '/install/security?node=n2', label: 'openPermissions' })
   })
 
   it('links the IPv6 checks to the filtered IPv6 tab of Hosts', () => {

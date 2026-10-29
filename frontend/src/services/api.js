@@ -244,6 +244,8 @@ export const install = {
   haGuardPlan: (node, peers) => apiClient.post('/install/security/ha-guard/plan', node ? { node, peers } : { peers }),
   // Kea HA TLS on every peer: the switch, or the renewal of the certificates when it already is TLS.
   haTlsPlan: () => apiClient.post('/install/security/ha-tls/plan', {}),
+  // Paths the services of a node must create or write, probed in its unit now (permission guard).
+  permissions: (node) => apiClient.get(`/install/permissions${node ? buildQueryString({ node }) : ''}`),
 }
 
 export const admin = {

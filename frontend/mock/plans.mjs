@@ -3,6 +3,7 @@
 // preconditions and validations, and the apply/rollback/job lifecycle of
 // architecture section 6.
 import { iso, ulid } from './data.mjs'
+import { guardValidations } from './permissions.mjs'
 
 // Unified diff of two texts (LCS on lines, fine for the small payloads of the mock).
 export function unifiedDiff(before, after, label = 'config') {
@@ -53,9 +54,11 @@ export function createPlan(state, user, spec) {
   const created = Date.now()
   const ttl = (state.settings.plans?.ttl_seconds || 600) * 1000
   const targets = spec.targets || [state.selfId]
-  const validations =
+  let validations =
     spec.validations ||
     targets.map((node_id) => ({ ok: true, tool: spec.tool || 'dnspython', output: '', node_id }))
+  const refused = spec.engine === 'bind' ? guardValidations(state, targets, spec.tool || 'named-checkconf') : null
+  if (refused) validations = refused.validations
   const failed = validations.some((v) => !v.ok)
   const plan = {
     id: ulid(created),
@@ -74,7 +77,8 @@ export function createPlan(state, user, spec) {
     requires_confirmation: spec.requires_confirmation ?? CONFIRM_SCOPES.has(spec.scope),
     state: failed ? 'failed' : 'validated',
     expires_at: iso(created + ttl),
-    error: failed ? 'Validation failed' : null,
+    error: refused ? refused.text : failed ? 'Validation failed' : null,
+    error_message: refused ? refused.message : null,
   }
   state.plans.set(plan.id, { plan, apply: spec.apply, rollback: spec.rollback, job: spec.job, creator: user.username })
   state.emit?.('plans', 'validated', planPhase(state, plan, plan.state))

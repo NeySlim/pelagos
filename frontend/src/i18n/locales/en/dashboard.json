@@ -206,7 +206,8 @@
     "ipv6_stale_aaaa": "stale AAAA records",
     "root_hints_stale": "stale root hints",
     "api_token_expiry": "API token expiry",
-    "ipv6_source_failed": "IPv6 source failing"
+    "ipv6_source_failed": "IPv6 source failing",
+    "path_not_writable": "path not writable"
   },
   "live": {
     "label": "Live",

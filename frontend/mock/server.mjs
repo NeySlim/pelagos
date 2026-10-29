@@ -16,6 +16,7 @@ import { createPlan, applyPlan, rollbackPlan, unifiedDiff, jsonText, rrsetText, 
 import { createWsHub } from './ws.mjs'
 import { opsHandlers } from './ops.mjs'
 import { rpzHandlers } from './rpz.mjs'
+import { permissionsHandlers, PATH_FINDING } from './permissions.mjs'
 import { ptrHelpers } from './ptr.mjs'
 import { certsHandlers } from './certs.mjs'
 import { notifyHandlers } from './notify.mjs'
@@ -80,7 +81,7 @@ const PERMISSIONS = {
   'GET /advanced/kea/{family}/schema': 'read:advanced', 'GET /advanced/history': 'read:advanced',
   'GET /advanced/history/{id}': 'read:advanced',
   'GET /install/detect': 'admin:install', 'POST /install/plan': 'admin:install', 'POST /install/import/plan': 'admin:install',
-  'GET /install/security': 'admin:install', 'POST /install/security/plan': 'admin:install',
+  'GET /install/security': 'admin:install', 'POST /install/security/plan': 'admin:install', 'GET /install/permissions': 'admin:install',
   'GET /install/security/ha-guard': 'admin:install', 'POST /install/security/ha-guard/plan': 'admin:install',
   'POST /install/security/ha-tls/plan': 'admin:install',
   'GET /admin/users': 'admin:users', 'POST /admin/users': 'admin:users', 'GET /admin/users/{id}': 'admin:users',
@@ -2633,6 +2634,7 @@ function buildHandlers(state, emit) {
         apply: () => {
           // A peer's fixed findings go; this node's stay, as other specs read them.
           for (const [nodeId, id] of pairs) {
+            if (id === PATH_FINDING) state.permissionsBroken?.delete(nodeId)
             if (nodeId !== state.selfId) byNode.set(nodeId, (byNode.get(nodeId) || []).filter((f) => f.id !== id))
           }
           state.alerts.filter((a) => a.kind === 'insecure_key').forEach((a) => { a.state = 'resolved'; a.resolved_at = iso(Date.now()) })
@@ -2773,6 +2775,7 @@ function buildHandlers(state, emit) {
     },
     ...opsHandlers(state, { Problem, invalid, hasPermission, auditEntry }),
     ...rpzHandlers(state, { createPlan, invalid, notFound }),
+    ...permissionsHandlers(state, { invalid }),
     ...certsHandlers(state, { Problem, invalid }),
     ...notifyHandlers(state, { Problem, invalid }),
     ...webauthnHandlers(state, { Problem, invalid, openSession }),
@@ -2873,6 +2876,16 @@ export function createMockServer({ quiet = false, jobStepMs, live = false, apply
         const out = events.run(body.kind, body)
         if (!out) throw new Problem(404, 'not_found', `unknown event kind ${body.kind}`)
         sendJson(res, 200, out)
+        return
+      }
+      // Mock only: take the zone folder of a node away from the services (permission guard).
+      if (url.pathname === `${API}/_mock/permissions` && req.method === 'POST') {
+        const raw = await readBody(req)
+        const { node, broken } = raw ? JSON.parse(raw) : {}
+        state.permissionsBroken ||= new Set()
+        if (broken) state.permissionsBroken.add(node || state.selfId)
+        else state.permissionsBroken.delete(node || state.selfId)
+        sendJson(res, 200, { broken: [...state.permissionsBroken] })
         return
       }
       // Mock only: switch the cluster to another scenario (pair, three, four); sessions stay.

@@ -9,7 +9,7 @@ import { guardBadge, parsePeers } from './guard'
 
 vi.mock('../../services/api', () => {
   const api = {
-    install: { security: vi.fn(), securityPlan: vi.fn(), haGuard: vi.fn(), haGuardPlan: vi.fn() },
+    install: { security: vi.fn(), securityPlan: vi.fn(), haGuard: vi.fn(), haGuardPlan: vi.fn(), permissions: vi.fn() },
     alerts: { addException: vi.fn(), revokeException: vi.fn() },
     plans: { apply: vi.fn(), get: vi.fn(), rollback: vi.fn() },
     jobs: { get: vi.fn() },
@@ -70,6 +70,7 @@ describe('SecurityPage', () => {
     vi.clearAllMocks()
     api.install.haGuard.mockResolvedValue({ node_id: 'n1', nft: true, listeners: [], managed: null, legacy: null, loaded: null, differences: [] })
     api.install.security.mockResolvedValue({ findings: FINDINGS })
+    api.install.permissions.mockResolvedValue({ node_id: 'n1', available: true, checks: [] })
   })
 
   it('shows the dual-key steps for the shared Kea key from BIND and from D2', async () => {

@@ -76,7 +76,7 @@ const invocations = [
   () => api.ops.keaRun('d2', { command: 'status-get' }),
   () => api.install.detect(), () => api.install.plan({ engines: ['bind'], source: 'distro' }),
   () => api.install.importPlan(['bind']), () => api.install.security(), () => api.install.securityPlan(['x']),
-  () => api.install.haGuard('n1'), () => api.install.haGuardPlan('n1', ['192.0.2.12']), () => api.install.haTlsPlan(),
+  () => api.install.haGuard('n1'), () => api.install.haGuardPlan('n1', ['192.0.2.12']), () => api.install.haTlsPlan(), () => api.install.permissions('n1'),
   () => api.admin.users(), () => api.admin.createUser({}), () => api.admin.user('u1'), () => api.admin.updateUser('u1', {}),
   () => api.admin.deleteUser('u1'), () => api.admin.resetPassword('u1', 'pw'), () => api.admin.clearTotp('u1'),
   () => api.admin.roles(), () => api.admin.createRole({}), () => api.admin.updateRole('r', {}), () => api.admin.deleteRole('r'),

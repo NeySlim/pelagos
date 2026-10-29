@@ -193,6 +193,19 @@
       "adopt": "Reprendre la garde posée à la main",
       "legacyHelp": "Une garde a été posée hors de Pelagos ({{source}}). La reprendre charge d'abord les mêmes adresses dans la garde de Pelagos, puis retire l'ancienne : le listener reste protégé tout du long.",
       "nothing": "aucune"
+    },
+    "permissions": {
+      "title": "Permissions",
+      "help": "Chaque dossier et fichier que les services Pelagos de ce nœud créent, écrivent ou lisent, testé maintenant dans leur propre unité systemd (utilisateur, groupes, bac à sable). Un plan qui a besoin d'un chemin marqué ici non inscriptible est refusé avant d'être appliqué.",
+      "ok": "tout est inscriptible",
+      "okOne": "ok",
+      "failed_one": "{{count}} chemin non inscriptible",
+      "failed_other": "{{count}} chemins non inscriptibles",
+      "notWritable": "non inscriptible",
+      "recheck": "Vérifier à nouveau",
+      "unavailable": "Ce nœud ne peut pas répondre au contrôle des permissions : {{error}}",
+      "fix_one": "Corriger {{count}} chemin par l'assistant privilégié",
+      "fix_other": "Corriger {{count}} chemins par l'assistant privilégié"
     }
   },
   "keaMigration": {

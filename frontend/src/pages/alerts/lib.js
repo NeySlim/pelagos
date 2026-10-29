@@ -19,6 +19,7 @@ export const KINDS = [
   'notification_failed', 'archive_failed', 'archive_stale', 'archive_incomplete', 'ddns_outage', 'ddns_replay', 'dns_stale_primary',
   'kea_series_obsolete', 'ipv6_missing_aaaa', 'ipv6_reverse_missing', 'ipv6_stale_aaaa', 'root_hints_stale', 'api_token_expiry',
   'ipv6_source_failed',
+  'path_not_writable',
 ]
 export { EXCEPTABLE_KINDS, INCONSISTENCY_KINDS }
 
@@ -64,6 +65,8 @@ export function subjectLink(alert, { canProposeFallback = true } = {}) {
   if (subject === 'd2:dns-servers') return { to: failoverPath(), label: 'openFailover' }
   if (kind === 'd2') return { to: '/dhcp/v4/ddns', label: null }
   if (subject === 'kea:series') return { to: '/install/kea-migration', label: 'openKeaMigration' }
+  // path_not_writable "path:<path>": the Permissions card of the security page, for the node.
+  if (kind === 'path') return { to: `/install/security${alert?.node_id ? `?node=${encodeURIComponent(alert.node_id)}` : ''}`, label: 'openPermissions' }
   // Resolver health "resolver:<what>": a proposing alert opens the fallback form there.
   if (kind === 'resolver') {
     if (proposesFallback(alert) && canProposeFallback) return { to: '/dns/resolver?fallback=1', label: 'proposeFallback' }

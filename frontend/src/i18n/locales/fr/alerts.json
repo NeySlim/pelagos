@@ -46,6 +46,7 @@
     "openChannel": "Ouvrir le canal",
     "openFailover": "Ouvrir la reprise DDNS",
     "openKeaMigration": "Analyser la migration de Kea",
+    "openPermissions": "Vérifier les permissions",
     "proposeFallback": "Proposer le repli vers des forwarders",
     "openResolver": "Ouvrir la santé du résolveur",
     "openIpv6": "Ouvrir les hôtes IPv6"

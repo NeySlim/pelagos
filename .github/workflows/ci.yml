@@ -92,7 +92,9 @@ jobs:
       - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         id: node-modules
         with:
-          path: frontend/node_modules
+          path: |
+            frontend/node_modules
+            !frontend/node_modules/.vite
           key: node-modules-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
       - name: Virtualenv (wheels from the uv cache)
         run: make venv PYTHON=3.13 UV=uv
@@ -196,7 +198,9 @@ jobs:
       - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         id: node-modules
         with:
-          path: frontend/node_modules
+          path: |
+            frontend/node_modules
+            !frontend/node_modules/.vite
           key: node-modules-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
       - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
@@ -206,6 +210,8 @@ jobs:
         working-directory: frontend
         run: |
           [ "${{ steps.node-modules.outputs.cache-hit }}" = true ] || npm ci --no-fund --no-audit
+          # A restored Vite pre-bundle skips the dep scan: a newly used dep reloads pages mid-test.
+          rm -rf node_modules/.vite
           npx playwright install --with-deps chromium
       - name: Playwright against the mock server
         run: make ${{ needs.scope.outputs.full == 'true' && 'test-e2e' || 'test-e2e-smoke' }}

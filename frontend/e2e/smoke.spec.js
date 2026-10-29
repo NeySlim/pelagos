@@ -90,6 +90,8 @@ test('asks for the TOTP code when the account has one', async ({ page }) => {
 })
 
 test('every page renders its own data from the API, without console errors', async ({ page }) => {
+  // About fifty full page loads: more than the default budget on a shared CI runner.
+  test.slow()
   const watch = watchConsole(page)
   await signIn(page)
   watch.arm()

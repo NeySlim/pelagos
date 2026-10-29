@@ -48,6 +48,11 @@ export function ipv6Handlers(state, { invalid }) {
         aaaa: ['2001:db8::20', '2001:db8::5a1:9e20', '2001:db8::8a3f:2c19:b7e4:20d1'], ptr: ['2001:db8::20', '2001:db8::5a1:9e20', '2001:db8::8a3f:2c19:b7e4:20d1'], proposal: null, excepted: false,
         stale: ['2001:db8::5a1:9e20'],
       },
+      {
+        // AAAA at the apex nobody observed: a row from the zone, without MAC.
+        host_key: 'name:example.lan.', name: 'example.lan.', mac: null, mac_random: false, ipv4: [],
+        observed: [], aaaa: ['2001:db8::1', '2001:db8::2'], ptr: ['2001:db8::1'], proposal: null, excepted: false,
+      },
     ],
     unavailable: [],
   }
@@ -61,13 +66,15 @@ export function ipv6Handlers(state, { invalid }) {
   const row = (h) => ({
     ...h,
     observed: h.observed.map((o) => ({ ...o, current: isCurrent(o) })),
-    excepted: excepted(`mac:${h.mac}`),
+    excepted: h.mac ? excepted(`mac:${h.mac}`) : false,
+    // The mock has no reverse zone outside 2001:db8::/64: every AAAA without its PTR is missing.
+    ptr_missing: h.aaaa.filter((a) => !h.ptr.includes(a)),
     proposal: h.proposal && !excepted(`addr:${h.proposal.address}`) ? h.proposal : null,
     stale: excepted(`mac:${h.mac}`, 'ipv6_stale_aaaa') ? [] : (h.stale || []).filter((a) => !excepted(`addr:${a}`, 'ipv6_stale_aaaa')),
   })
   const status = () => [
-    ...state.nodes.map((n) => ({ source: 'neighbors', source_id: null, node_id: n.peer.id, last_poll: iso(now - 60000), error: null, entries: 14 })),
-    { source: 'dhcpv6', source_id: null, node_id: state.selfId, last_poll: iso(now - 120000), error: null, entries: 6 },
+    ...state.nodes.map((n) => ({ source: 'neighbors', source_id: null, node_id: n.peer.id, last_poll: iso(now - 60000), error: null, entries: 14, kept: 9, problem: null })),
+    { source: 'dhcpv6', source_id: null, node_id: state.selfId, last_poll: iso(now - 120000), error: null, entries: 6, kept: 6, problem: null },
   ]
   const answer = () => ({
     prefixes: v.prefixes,
@@ -81,7 +88,7 @@ export function ipv6Handlers(state, { invalid }) {
       if (filter && !FILTERS.includes(filter)) throw invalid('filter', `one of ${FILTERS.join(', ')}`)
       let items = v.hosts.map(row)
       if (filter === 'missing_aaaa') items = items.filter((h) => !h.excepted && h.proposal && !h.observed.some((o) => o.current && h.aaaa.includes(o.address)))
-      if (filter === 'missing_ptr') items = items.filter((h) => h.aaaa.some((a) => !h.ptr.includes(a)))
+      if (filter === 'missing_ptr') items = items.filter((h) => h.ptr_missing.length)
       if (filter === 'stale') items = items.filter((h) => h.stale.length)
       if (filter === 'unknown') items = items.filter((h) => !h.name)
       if (filter === 'random_mac') items = items.filter((h) => h.mac_random)

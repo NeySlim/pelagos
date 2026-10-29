@@ -54,7 +54,9 @@ def test_refused_transfer_is_reported_not_a_503(api):
     page = r.get_json()
     unread = page["meta"]["errors"]["dns.zones"]
     assert "refused.lan." in unread and "refused" in unread.lower() and "example.lan." not in unread
-    assert [row["mac"] for row in page["items"]] == [MAC]
+    assert [row["mac"] for row in page["items"] if row["observed"]] == [MAC]
+    # The AAAA of the readable zone are rows too, observed or not.
+    assert all(row["name"].endswith("example.lan.") for row in page["items"] if not row["observed"])
     hosts = client.get(f"{V1}/hosts?per_page=500")
     assert hosts.status_code == 200, hosts.get_json()
     body = hosts.get_json()

@@ -36,6 +36,7 @@ const base = () => ({
     { source: 'neighbors', source_id: null, node_id: 'N1', last_poll: '2026-10-29T08:00:00Z', error: null, entries: 14 },
     { source: 'neighbors', source_id: null, node_id: 'N2', last_poll: null, error: 'node did not answer', entries: 0 },
     { source: 'dhcpv6', source_id: null, node_id: 'N1', last_poll: '2026-10-29T08:00:00Z', error: null, entries: 6 },
+    { source: 'dhcpv6', source_id: null, node_id: 'N2', last_poll: '2026-10-29T08:00:00Z', error: null, entries: 0, problem: 'the last poll found nothing' },
   ],
 })
 
@@ -54,7 +55,8 @@ describe('Ipv6ObservationPage', () => {
     expect(screen.getByText('DHCPv6 lease walk (seconds)')).toBeInTheDocument()
     const status = screen.getByTestId('ipv6-status')
     expect(within(status).getAllByTestId('ipv6-status-error').map((e) => e.textContent)).toEqual(['node did not answer'])
-    expect(within(status).getByText('DHCPv6 lease')).toBeInTheDocument()
+    expect(within(status).getAllByTestId('ipv6-status-problem').map((e) => e.textContent)).toEqual(['the last poll found nothing'])
+    expect(within(status).getAllByText('DHCPv6 lease')).toHaveLength(2)
     expect(screen.getAllByTestId('ipv6-effective')[0].querySelectorAll('li')).toHaveLength(2)
     expect(screen.getByText('reverse zone')).toBeInTheDocument()
     expect(screen.queryByTestId('ipv6-sources')).toBeNull()

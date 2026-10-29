@@ -147,6 +147,13 @@ class HostsService:
     def collect_judged(self, judged: Iterable[str] | None) -> tuple[list[Host], list[Host], dict[str, str]]:
         """`collect()` plus the hosts joined from the records of the `judged` zones only (the
         zones a check reads), from the same reads; the second list is empty when `judged` is None."""
+        hosts, subset, _records, errors = self.collect_records(judged)
+        return hosts, subset, errors
+
+    def collect_records(
+        self, judged: Iterable[str] | None
+    ) -> tuple[list[Host], list[Host], dict[str, list[RRset]], dict[str, str]]:
+        """`collect_judged` plus the records read, by zone name."""
         dhcp_rows: list[Lease | Reservation] = []
         errors: dict[str, str] = {}
         for dhcp in self._dhcp_services():
@@ -182,7 +189,7 @@ class HostsService:
         if judged is not None:
             names = {normalize_name(z) for z in judged}
             subset = _sorted_hosts(_join(dhcp_rows, (r for z, r in records.items() if z in names)))
-        return _sorted_hosts(join), subset, errors
+        return _sorted_hosts(join), subset, records, errors
 
     def _zone_records(self, errors: dict[str, str]) -> dict[str, list[RRset]]:
         """Records of every served zone by zone name; a zone that cannot be read (a refused AXFR)

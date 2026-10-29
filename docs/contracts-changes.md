@@ -2017,3 +2017,18 @@ polls nothing. Audit `admin.ipv6.replace` request is `{"prefixes"}`. WP-COLLECTO
 `collector/ipv6/` (`opnsense.py` removed), `collector/main.py`. WP-API-AUTH: `api/ipv6.py`,
 `services/ipv6_service.py`, `app.py`. WP-FRONTEND: Administration, IPv6 observation (was IPv6
 sources) without the source table nor SourceDialog; mock and texts en and fr.
+
+## 2026-10-29, 0.2.3: IPv6 view from the zones, silent sources named
+Section 27, additive. `GET /hosts/ipv6` adds a row (`observed` empty, `mac` null without DHCP
+data) for each host with an AAAA in a judged forward zone, apex included, that no observed MAC
+stands for; a MAC in no host joins the host without MAC holding its address in an AAAA. Each
+row gains `ptr_missing`, the AAAA addresses `ptr_mismatch` flags as without PTR (one shared
+function, `consistency.missing_ptrs`); filter `missing_ptr` keeps the rows where it is not empty
+(it used to compare `aaaa` with `ptr`, so a PTR to another name counted as present and an
+address outside every reverse zone as missing). `meta.unavailable` also names each source whose
+last poll failed, read nothing, kept nothing in a watched prefix, or is older than three passes,
+and each answering node with no source status. SourceStatus gains `kept`; `GET /admin/ipv6`
+status entries gain `problem`. WP-COLLECTOR: `collector/ipv6/observer.py`. WP-API-AUTH:
+`services/ipv6_service.py`, `services/ipv6_hosts.py`, `services/consistency.py`,
+`services/hosts_service.py`. WP-FRONTEND: the PTR badge follows `ptr_missing`, a row without
+observation says so; mock.

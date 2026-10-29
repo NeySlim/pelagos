@@ -296,6 +296,29 @@ def _ptr_index(reverse: Iterable[RRset]) -> dict[str, set[str]]:
     return ptr
 
 
+def missing_ptrs(
+    forward: Iterable[RRset], reverse: Iterable[RRset], excepted: Excepted = _never
+) -> dict[tuple[str, str], list[str]]:
+    """(address, owner) of each A/AAAA whose reverse name falls in a read reverse zone and has no
+    PTR to the owner, with the PTR targets found there; excepted pairs left out.
+
+    `ptr_mismatch` and `GET /hosts/ipv6` (`ptr_missing`, filter `missing_ptr`) both use it."""
+    reverse = list(reverse)
+    rev_apexes = _apexes(reverse)
+    ptr = _ptr_index(reverse)
+    kind = AlertKind.PTR_MISMATCH.value
+    out: dict[tuple[str, str], list[str]] = {}
+    for (name, _rtype), ips in _address_index(forward).items():
+        for ip in sorted(ips):
+            rname = reverse_name(ip)
+            if _in_zone(rname, rev_apexes) is None:
+                continue
+            targets = ptr.get(rname, set())
+            if name not in targets and not excepted(kind, ptr_key(ip, name)):
+                out[(ip, name)] = sorted(targets)
+    return out
+
+
 def ptr_mismatches(
     forward: Iterable[RRset], reverse: Iterable[RRset], excepted: Excepted = _never
 ) -> list[Alert]:
@@ -306,22 +329,15 @@ def ptr_mismatches(
     forward = list(forward)
     reverse = list(reverse)
     fwd_apexes = _apexes(forward)
-    rev_apexes = _apexes(reverse)
     index = _address_index(forward)
     ptr = _ptr_index(reverse)
     kind = AlertKind.PTR_MISMATCH.value
     problems: dict[str, list[tuple[str, dict[str, Any]]]] = {}
-    for (name, _rtype), ips in index.items():
-        for ip in ips:
-            rname = reverse_name(ip)
-            if _in_zone(rname, rev_apexes) is None:
-                continue
-            targets = ptr.get(rname, set())
-            if name not in targets and not excepted(kind, ptr_key(ip, name)):
-                found = sorted(targets) if targets else messages.msg("common.none")
-                problems.setdefault(ip, []).append(
-                    (ptr_key(ip, name), messages.msg("alert.ptr_mismatch.no_ptr", name=name, found=found))
-                )
+    for (ip, name), targets in missing_ptrs(forward, reverse, excepted).items():
+        found = targets or messages.msg("common.none")
+        problems.setdefault(ip, []).append(
+            (ptr_key(ip, name), messages.msg("alert.ptr_mismatch.no_ptr", name=name, found=found))
+        )
     forward_by_ip: dict[str, set[str]] = {}
     for (name, _rtype), ips in index.items():
         for ip in ips:
@@ -669,6 +685,7 @@ __all__ = [
     "is_excepted",
     "is_sensitive_kea_key",
     "kea_config_differences",
+    "missing_ptrs",
     "orphan_ptrs",
     "redact_kea_difference",
     "run_all",

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 from collections import defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -190,6 +190,19 @@ def _records(host: Host | None) -> HostRecords:
     return out
 
 
+def _aaaa_pairs(host: Host) -> list[tuple[str, str]]:
+    """(address, owner) of every AAAA of the host, canonical."""
+    out = []
+    for rr in host.records:
+        if rr.rtype == "AAAA":
+            for r in rr.rdata:
+                try:
+                    out.append((str(ipaddress.IPv6Address(r.strip())), normalize_name(rr.name)))
+                except ValueError:
+                    continue
+    return out
+
+
 def host_rows(
     hosts: list[Host],
     observations: Iterable[dict[str, Any]],
@@ -198,26 +211,35 @@ def host_rows(
     forward_zones: Iterable[str],
     reverse_zones: Iterable[str],
     excepted: Excepted | None = None,
+    aaaa_zones: Iterable[str] | None = None,
+    ptr_missing: Mapping[tuple[str, str], Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """One row per MAC with observed addresses: the host it belongs to, records and proposal.
+    """One row per MAC with observed addresses, plus one per host with an AAAA under `aaaa_zones`
+    that no observed MAC stands for (`observed` empty, `mac` null without DHCP data).
 
+    A MAC in no host joins the host (without MAC) holding one of its addresses in an AAAA.
     `host_key` is the hosts view key, `mac:<mac>` when the MAC is in no host; `proposal` is the
     first `eui64` or `stable` address without AAAA and not excepted by `addr:<address>`, the owner
     of the host's A in its forward zone and the address's reverse zone; null when there is none.
     Only a `current` address is proposed; each observed entry says whether it is current.
     `excepted`: the host is excepted from `ipv6_missing_aaaa` (`mac:<mac>`).
+    `ptr_missing`: the (address, owner) pairs of `consistency.missing_ptrs`; each row lists its
+    AAAA addresses found there.
     """
     ex = excepted or _never
     forward = [normalize_name(z) for z in forward_zones]
     reverse = list(reverse_zones)
+    missing_ptr = ptr_missing or {}
     by_mac = {h.mac: h for h in hosts if h.mac}
+    by_aaaa = {a: h for h in hosts if not h.mac for a, _owner in _aaaa_pairs(h)}
     rows: list[dict[str, Any]] = []
-    for mac, items in sorted(observed_by_mac(observations, now, stable_min_days).items()):
-        host = by_mac.get(mac)
+    shown: set[str] = set()
+
+    def row(host: Host | None, mac: str | None, items: list[Observed]) -> dict[str, Any]:
         rec = _records(host)
         proposal = None
         zone = _zone_of(rec.a_owner, forward) if rec.a_owner else None
-        if rec.a_owner and zone:
+        if mac and rec.a_owner and zone:
             for item in items:
                 if not current(item.cls, item.last_seen, now, stable_min_days) or item.address in rec.aaaa:
                     continue
@@ -231,23 +253,41 @@ def host_rows(
                     "reverse_zone": reverse_zone_for(item.address, reverse),
                 }
                 break
-        rows.append(
-            {
-                "host_key": host.key if host is not None else f"mac:{mac}",
-                "name": rec.a_owner or (host.hostname if host is not None else None),
-                "mac": mac,
-                "mac_random": mac_random(mac),
-                "ipv4": rec.ipv4,
-                "observed": [
-                    {**i.to_dict(), "current": current(i.cls, i.last_seen, now, stable_min_days)}
-                    for i in items
-                ],
-                "aaaa": sorted(rec.aaaa, key=lambda a: int(ipaddress.IPv6Address(a))),
-                "ptr": rec.ptr,
-                "proposal": proposal,
-                "excepted": ex(MISSING_KIND, mac_key(mac)),
-            }
-        )
+        pairs = _aaaa_pairs(host) if host is not None else []
+        name = rec.a_owner or (host.hostname if host is not None else None)
+        if name is None and pairs:
+            name = pairs[0][1]
+        return {
+            "host_key": host.key if host is not None else f"mac:{mac}",
+            "name": name,
+            "mac": mac,
+            "mac_random": mac_random(mac) if mac else False,
+            "ipv4": rec.ipv4,
+            "observed": [
+                {**i.to_dict(), "current": current(i.cls, i.last_seen, now, stable_min_days)} for i in items
+            ],
+            "aaaa": sorted(rec.aaaa, key=lambda a: int(ipaddress.IPv6Address(a))),
+            "ptr": rec.ptr,
+            "ptr_missing": sorted(
+                {a for a, owner in pairs if (a, owner) in missing_ptr},
+                key=lambda a: int(ipaddress.IPv6Address(a)),
+            ),
+            "proposal": proposal,
+            "excepted": ex(MISSING_KIND, mac_key(mac)) if mac else False,
+        }
+
+    for mac, items in sorted(observed_by_mac(observations, now, stable_min_days).items()):
+        host = by_mac.get(mac) or next((by_aaaa[i.address] for i in items if i.address in by_aaaa), None)
+        if host is not None:
+            shown.add(host.key)
+        rows.append(row(host, mac, items))
+    if aaaa_zones is not None:
+        zones = [normalize_name(z) for z in aaaa_zones]
+        for host in hosts:
+            if host.key in shown or not any(_zone_of(o, zones) for _a, o in _aaaa_pairs(host)):
+                continue
+            shown.add(host.key)
+            rows.append(row(host, host.mac, []))
     return rows
 
 

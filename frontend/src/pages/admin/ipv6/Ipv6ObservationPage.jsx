@@ -112,7 +112,13 @@ export default function Ipv6ObservationPage() {
     {
       key: 'error',
       label: t('status.error'),
-      render: (s) => (s.error ? <span className="text-xs status-danger-text break-words" data-testid="ipv6-status-error">{s.error}</span> : <Badge variant="success" size="sm">{t('status.ok')}</Badge>),
+      // problem: the server's reason a poll gives nothing usable (empty, unwatched, late, never polled).
+      render: (s) => {
+        const text = s.error || s.problem
+        if (!text) return <Badge variant="success" size="sm">{t('status.ok')}</Badge>
+        const tone = s.error ? 'status-danger-text' : 'status-warning-text'
+        return <span className={`text-xs ${tone} break-words`} data-testid={s.error ? 'ipv6-status-error' : 'ipv6-status-problem'}>{text}</span>
+      },
     },
   ]
 

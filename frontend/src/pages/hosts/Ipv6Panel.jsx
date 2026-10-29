@@ -86,12 +86,12 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
         </span>
       ),
     },
-    { key: 'mac', label: t('dhcp:fields.mac'), mono: true, render: (h) => h.mac },
+    { key: 'mac', label: t('dhcp:fields.mac'), mono: true, render: (h) => h.mac || '-' },
     { key: 'ipv4', label: t('columns.ipv4'), mono: true, render: (h) => (h.ipv4?.length ? h.ipv4.join(', ') : '-') },
     {
       key: 'observed',
       label: t('columns.observed'),
-      render: (h) => (
+      render: (h) => (!h.observed?.length ? <span className="text-text-tertiary" data-testid="ipv6-not-observed">{t('notObserved')}</span> : (
         <ul className="space-y-1" data-testid="ipv6-observed">
           {h.observed.map((o) => (
             <li key={o.address} className="flex flex-wrap items-center gap-1.5" data-address={o.address} data-class={o.class}>
@@ -105,7 +105,7 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
             </li>
           ))}
         </ul>
-      ),
+      )),
     },
     {
       key: 'records',
@@ -113,7 +113,9 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
       render: (h) => {
         const stale = new Set(staleAaaa(h))
         const lastSeen = new Map((h.observed || []).map((o) => [o.address, o.last_seen]))
-        const ptr = new Set(h.ptr || [])
+        // ptr_missing: the AAAA the ptr_mismatch check flags (a PTR to another name is not one).
+        const missing = new Set(h.ptr_missing || [])
+        const ptr = new Set((h.ptr || []).filter((a) => !missing.has(a)))
         if (!h.aaaa?.length) return <span className="text-text-tertiary" data-testid="ipv6-no-aaaa">{t('noAaaa')}</span>
         return (
           <ul className="space-y-1" data-testid="ipv6-records">

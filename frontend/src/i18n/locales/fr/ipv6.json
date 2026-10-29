@@ -119,5 +119,6 @@
       "format": "Pas un préfixe IPv6 : {{prefix}}",
       "scope": "Le lien local et le multicast ne sont jamais surveillés : {{prefix}}"
     }
-  }
+  },
+  "notObserved": "non observé"
 }

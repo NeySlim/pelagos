@@ -145,7 +145,7 @@ class Ipv6Observer:
                     continue
                 kept = [n for n in found if prefixes_mod.watched(n.address, p.watched)]
                 obs_store.record(self.conn, kept, kind, source_id, self.node_id, p.now)
-                status.append(self._status(kind, source_id, p.now, None, len(found)))
+                status.append(self._status(kind, source_id, p.now, None, len(found), watched=len(kept)))
             obs_store.prune(self.conn, p.now, p.retention_days)
             obs_store.write_status(self.conn, status)
             return status
@@ -198,8 +198,10 @@ class Ipv6Observer:
         error: str | None,
         entries: int,
         last: dict[str, Any] | None = None,
+        watched: int = 0,
     ) -> dict:
-        """`failing_since`: the first poll of the current run of failures, kept from `last`."""
+        """`failing_since`: the first poll of the current run of failures, kept from `last`;
+        `kept`: the entries in a watched prefix, the only ones recorded."""
         since = None
         if error is not None:
             kept = last.get("failing_since") if last and last.get("error") else None
@@ -211,5 +213,6 @@ class Ipv6Observer:
             "last_poll": now,
             "error": error,
             "entries": entries,
+            "kept": watched,
             "failing_since": since,
         }

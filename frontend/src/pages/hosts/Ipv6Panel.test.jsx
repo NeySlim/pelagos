@@ -44,6 +44,9 @@ const nas = {
 }
 const phone = { host_key: 'mac:06:11:22:33:44:55', name: null, mac: '06:11:22:33:44:55', mac_random: true, ipv4: [], observed: [{ address: '2001:db8::1', class: 'unknown', sources: ['dhcpv6'], first_seen: null, last_seen: null }], aaaa: [], ptr: [], proposal: null, excepted: false }
 
+// An AAAA of the zone nobody observed: no MAC, a PTR to another name counts as missing.
+const apex = { host_key: 'name:example.lan.', name: 'example.lan.', mac: null, mac_random: false, ipv4: [], observed: [], aaaa: ['2001:db8::1', '2001:db8::2'], ptr: ['2001:db8::1', '2001:db8::2'], ptr_missing: ['2001:db8::2'], proposal: null, excepted: false }
+
 let location
 function Where() {
   location = useLocation()
@@ -86,6 +89,16 @@ describe('Ipv6Panel', () => {
     expect(within(phoneRow).getByTestId('ipv6-random-mac')).toBeInTheDocument()
     expect(within(phoneRow).queryByTestId('ipv6-except')).toBeNull()
     expect(screen.getByTestId('ipv6-total')).toHaveTextContent('3')
+  })
+
+  it('lists a zone AAAA nobody observed with the PTR state of ptr_mismatch', async () => {
+    db.rows = [apex]
+    renderPanel()
+    await screen.findByText('example.lan.', { selector: '.font-medium' })
+    const row = screen.getByText('example.lan.', { selector: '.font-medium' }).closest('tr')
+    expect(within(row).getByTestId('ipv6-not-observed')).toBeInTheDocument()
+    expect(within(row).getAllByTestId('ipv6-ptr').map((b) => b.dataset.present)).toEqual(['true', 'false'])
+    expect(within(row).queryByTestId('ipv6-except')).toBeNull()
   })
 
   it('reads the filter and zone from the URL and writes the chip back', async () => {

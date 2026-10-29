@@ -184,3 +184,94 @@ def test_new_address_next_to_an_old_eui64_or_stable_one_is_unknown():
         [obs(EUI, NOW - 10 * DAY, NOW), obs(opaque, NOW - 10 * DAY, NOW), obs(lease, NOW - 60, NOW)]
     )
     assert got == {EUI: "eui64", opaque: "stable", lease: "unknown"}
+
+
+# Shaped like production: AAAA at the apex, several hosts with AAAA, a /64 reverse zone in nibble
+# format where some PTR are missing, and no observation at all (the neighbor source returned nothing).
+FWD = "example.lan."
+REV = "0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa."
+SOA = "ns1.example.lan. hostmaster.example.lan. 1 3600 900 1209600 300"
+
+
+def ptr(address):
+    import ipaddress
+
+    return ipaddress.IPv6Address(address).reverse_pointer + "."
+
+
+def prod_zones():
+    forward = [
+        RRset(FWD, "SOA", 3600, [SOA]),
+        RRset(FWD, "NS", 3600, ["ns1.example.lan."]),
+        RRset(FWD, "A", 300, ["192.0.2.1"]),
+        RRset(FWD, "AAAA", 300, ["2001:db8::1", "2001:db8::2", "2001:db8::3"]),
+        RRset("ns1.example.lan.", "A", 300, ["192.0.2.1"]),
+        RRset("desktop.example.lan.", "AAAA", 300, ["2001:db8::a1"]),
+        RRset("laptop.example.lan.", "AAAA", 300, ["2001:db8::b2"]),
+        RRset("printer.example.lan.", "AAAA", 300, ["2001:db8::c3"]),
+        # Outside the reverse zone: neither ptr_mismatch nor missing_ptr judge it.
+        RRset("far.example.lan.", "AAAA", 300, ["2001:db8:ffff::1"]),
+    ]
+    reverse = [
+        RRset(REV, "SOA", 3600, [SOA]),
+        RRset(REV, "NS", 3600, ["ns1.example.lan."]),
+        RRset(ptr("2001:db8::1"), "PTR", 300, [FWD]),
+        RRset(ptr("2001:db8::c3"), "PTR", 300, ["printer.example.lan."]),
+        # A PTR to another name does not cover the laptop.
+        RRset(ptr("2001:db8::b2"), "PTR", 300, ["old-laptop.example.lan."]),
+    ]
+    return forward, reverse
+
+
+def zone_rows(observations=(), excepted=None):
+    from pelagos.services import consistency
+    from pelagos.services.hosts_service import join_hosts
+
+    forward, reverse = prod_zones()
+    hosts = join_hosts([], [], forward + reverse)
+    missing = consistency.missing_ptrs(forward, reverse, excepted or (lambda _k, _key: False))
+    rows = v6.host_rows(hosts, list(observations), NOW, 3, [FWD], [REV], excepted, [FWD], missing)
+    return rows, forward, reverse
+
+
+def test_every_aaaa_of_a_checked_zone_is_a_row_without_any_observation():
+    rows, _f, _r = zone_rows()
+    by_name = {r["name"]: r for r in rows}
+    assert set(by_name) >= {FWD, "desktop.example.lan.", "laptop.example.lan.", "printer.example.lan."}
+    apex = by_name[FWD]
+    assert apex["aaaa"] == ["2001:db8::1", "2001:db8::2", "2001:db8::3"]
+    assert apex["ptr_missing"] == ["2001:db8::2", "2001:db8::3"]
+    assert apex["observed"] == [] and apex["mac"] is None and apex["proposal"] is None
+    assert by_name["desktop.example.lan."]["ptr_missing"] == ["2001:db8::a1"]
+    assert by_name["laptop.example.lan."]["ptr_missing"] == ["2001:db8::b2"]
+    assert by_name["printer.example.lan."]["ptr_missing"] == []
+    assert by_name["far.example.lan."]["ptr_missing"] == []
+    assert len({r["host_key"] for r in rows}) == len(rows)
+
+
+def test_missing_ptr_rows_agree_with_ptr_mismatch():
+    from pelagos.services import consistency
+
+    rows, forward, reverse = zone_rows()
+    flagged = {a for r in rows for a in r["ptr_missing"]}
+    no_ptr = {
+        a.details["ip"]
+        for a in consistency.ptr_mismatches(forward, reverse)
+        if any("has no PTR" in p for p in a.details["problems"])
+    }
+    assert flagged == no_ptr == {"2001:db8::2", "2001:db8::3", "2001:db8::a1", "2001:db8::b2"}
+    # An excepted pair leaves both.
+    key = consistency.ptr_key("2001:db8::a1", "desktop.example.lan.")
+    ex = lambda kind, k: kind == "ptr_mismatch" and k == key  # noqa: E731
+    rows, _f, _r = zone_rows(excepted=ex)
+    assert "2001:db8::a1" not in {a for r in rows for a in r["ptr_missing"]}
+    assert "2001:db8::a1" not in {a.details["ip"] for a in consistency.ptr_mismatches(forward, reverse, ex)}
+
+
+def test_an_observed_address_joins_the_zone_row_of_its_aaaa():
+    mac = "52:54:00:12:34:56"
+    rows, _f, _r = zone_rows([obs("2001:db8::a1", NOW - 9 * DAY, NOW, mac=mac)])
+    desktop = [r for r in rows if r["name"] == "desktop.example.lan."]
+    assert len(desktop) == 1 and desktop[0]["mac"] == mac
+    assert [o["address"] for o in desktop[0]["observed"]] == ["2001:db8::a1"]
+    assert desktop[0]["ptr_missing"] == ["2001:db8::a1"] and desktop[0]["proposal"] is None

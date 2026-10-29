@@ -69,7 +69,11 @@ def test_hosts_ipv6_rows_proposal_and_filters(role_client, observed):
     # 0xaa has the locally administered bit set too.
     assert {r["mac"] for r in c.get(H + "?filter=random_mac").get_json()["items"]} == {MAC, STRANGER}
     assert c.get(H + "?filter=stale").get_json()["total"] == 0
-    assert [r["mac"] for r in c.get(H + "?zone=example.lan").get_json()["items"]] == [MAC]
+    # www.example.lan. has an AAAA nobody observed: a row of its own, without MAC.
+    www = next(r for r in page["items"] if r["name"] == "www.example.lan.")
+    assert www["mac"] is None and www["observed"] == [] and www["aaaa"] == ["2001:db8::10"]
+    assert www["ptr_missing"] == []  # no ip6.arpa zone: ptr_mismatch does not judge it either
+    assert [r["mac"] for r in c.get(H + "?zone=example.lan").get_json()["items"]] == [MAC, None]
     assert c.get(H + "?filter=bogus").status_code == 400
 
 
@@ -317,3 +321,79 @@ def test_mixed_releases_merge_cluster_toml_both_ways(node_ctx, tmp_root):
     peer.update_cluster(lambda c: c.settings["ipv6"].__setitem__("sources", [RETIRED]), updated_by="node:old")
     assert node_ctx.config_store.merge_remote(peer_path.read_text()) is True
     assert node_ctx.cluster().settings["ipv6"]["sources"] == [RETIRED]
+
+
+def _prod_shaped(dns) -> None:
+    """AAAA at the apex and on two hosts, a /64 reverse zone in nibbles with some PTR missing."""
+    import ipaddress
+
+    from pelagos.domain import RRset, Zone, ZoneKind, ZoneSource
+
+    def ptr(a):
+        return ipaddress.IPv6Address(a).reverse_pointer + "."
+
+    fwd = dns.rrsets["example.lan."]
+    fwd[("example.lan.", "AAAA")] = RRset("example.lan.", "AAAA", 300, ["2001:db8::1", "2001:db8::2"])
+    fwd[("desktop.example.lan.", "AAAA")] = RRset("desktop.example.lan.", "AAAA", 300, ["2001:db8::a1"])
+    fwd[("laptop.example.lan.", "AAAA")] = RRset("laptop.example.lan.", "AAAA", 300, ["2001:db8::b2"])
+    rev = "0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa."
+    soa = "ns1.example.lan. hostmaster.example.lan. 1 3600 900 1209600 300"
+    dns.add_zone(
+        Zone(name=rev, kind=ZoneKind.PRIMARY, file="pelagos/rev6.db", source=ZoneSource.PELAGOS),
+        [
+            RRset(rev, "SOA", 3600, [soa]),
+            RRset(rev, "NS", 3600, ["ns1.example.lan."]),
+            RRset(ptr("2001:db8::1"), "PTR", 300, ["example.lan."]),
+            RRset(ptr("2001:db8::10"), "PTR", 300, ["www.example.lan."]),
+            RRset(ptr("2001:db8::b2"), "PTR", 300, ["laptop.example.lan."]),
+        ],
+    )
+
+
+def test_zone_aaaa_are_rows_and_missing_ptr_agrees_with_ptr_mismatch(role_client, services, fake_registry):
+    _prod_shaped(fake_registry.dns)
+    c = role_client("viewer")
+    page = c.get(H + "?per_page=500").get_json()
+    by_name = {r["name"]: r for r in page["items"]}
+    assert {"example.lan.", "www.example.lan.", "desktop.example.lan.", "laptop.example.lan."} <= set(by_name)
+    assert by_name["example.lan."]["ptr_missing"] == ["2001:db8::2"]
+    missing = c.get(H + "?filter=missing_ptr&per_page=500").get_json()["items"]
+    flagged = {a for r in missing for a in r["ptr_missing"]}
+    assert flagged == {"2001:db8::2", "2001:db8::a1"}
+    out = services.hosts.consistency_pass()
+    alerts = [a for a in out["alerts"] if a["kind"] == "ptr_mismatch"]
+    no_ptr = {
+        a["details"]["ip"]
+        for a in alerts
+        if ":" in a["details"]["ip"] and any("has no PTR" in p for p in a["details"]["problems"])
+    }
+    assert out["errors"] == {} and no_ptr == flagged
+    # Nothing observed on this node yet: said, not an empty silent list.
+    assert page["meta"]["unavailable"] == [
+        {"node_id": services.ctx.node.id, "source": "neighbors", "error": "no observation pass yet"}
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        ({"error": "ip neigh failed", "entries": 0}, "ip neigh failed"),
+        ({"error": None, "entries": 0, "kept": 0}, "the last poll found nothing"),
+        ({"error": None, "entries": 4, "kept": 0}, "the last poll found 4 entries, none in a watched prefix"),
+        ({"error": None, "entries": 4, "kept": 4, "age": 7200}, "the observer is not running"),
+        ({"error": None, "entries": 4, "kept": 4}, None),
+    ],
+)
+def test_a_failing_or_empty_source_is_named_in_meta_and_status(admin, node_ctx, observed, status, error):
+    now = int(time.time())
+    row = {"source": "neighbors", "source_id": None, "node_id": node_ctx.node.id}
+    row |= {"last_poll": now - status.pop("age", 0), "failing_since": None, **status}
+    obs_store.write_status(observed, [row])
+    observed.commit()
+    unavailable = admin.get(H).get_json()["meta"]["unavailable"]
+    problem = admin.get(A).get_json()["status"][0]["problem"]
+    if error is None:
+        assert unavailable == [] and problem is None
+    else:
+        assert [u["source"] for u in unavailable] == ["neighbors"] and error in unavailable[0]["error"]
+        assert error in problem

@@ -2998,7 +2998,7 @@ only, never sent out of the cluster.
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
-| `GET /hosts/ipv6?filter=&zone=&page=&per_page=` | `read:hosts` | | paginated `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen","current"}],"aaaa","ptr","proposal": {"address","class","name","zone","reverse_zone"}|null,"excepted","stale"}`; `filter` one of `missing_aaaa`, `missing_ptr`, `stale`, `unknown`, `random_mac`; `meta.unavailable` lists the nodes and sources that did not answer, `meta.errors` the engines and zones that could not be read |
+| `GET /hosts/ipv6?filter=&zone=&page=&per_page=` | `read:hosts` | | paginated `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen","current"}],"aaaa","ptr","ptr_missing","proposal": {"address","class","name","zone","reverse_zone"}|null,"excepted","stale"}` (`mac` null on a row from the zones without DHCP data); `filter` one of `missing_aaaa`, `missing_ptr`, `stale`, `unknown`, `random_mac`; `meta.unavailable` lists the nodes and sources that did not answer or whose last poll gives nothing usable (section 27), `meta.errors` the engines and zones that could not be read |
 | `GET /admin/ipv6` | `admin:settings` | | `{"prefixes","effective_prefixes": [{"prefix","from": "setting"|"reverse_zone"|"dhcpv6"|"interface"}],"settings","status": [SourceStatus]}` |
 | `PUT /admin/ipv6` | `admin:settings` | `{"prefixes"?}` (the read-only members of a `GET` echoed back are ignored; any other member is a `400`) | same as `GET`; audited `admin.ipv6.replace` |
 
@@ -4188,9 +4188,10 @@ Code: sources in `collector/ipv6/` (`neighbors.py`, `dhcpv6.py`, interface `Neig
   addresses outside the watched prefixes are dropped before storage; MAC
   lower-case, address compressed. The last status of each source is kept in
 the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source_id",
-  "node_id","last_poll","error","entries","failing_since"}`, `failing_since`
-  the first poll of the current run of failures (null when the last poll
-  worked). A source logs a warning once when it starts failing and once when
+  "node_id","last_poll","error","entries","kept","failing_since"}`, `entries`
+  what the last poll read, `kept` those in a watched prefix (the ones stored),
+  `failing_since` the first poll of the current run of failures (null when the
+  last poll worked); `GET /admin/ipv6` adds `problem` (below, Routes). A source logs a warning once when it starts failing and once when
   it works again, and raises
   `ipv6_source_failed` (section 15 table) when it keeps failing. `neighbors` needs a netlink socket: the collector unit allows
   `AF_NETLINK` (no capability, so read only); the web unit does not, and reads
@@ -4255,11 +4256,21 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   A renumbered host shows in both alerts: stale for the old address,
   missing for the new one. The generic subject exception (the bare subject)
   silences a whole alert.
-- **Routes** (V2, `services/ipv6_service.py`): `GET /hosts/ipv6` gives
+- **Routes** (V2, `services/ipv6_service.py`): `GET /hosts/ipv6` has one
+  row per observed MAC (a MAC in no host joins the host without MAC holding
+  one of its addresses in an AAAA) and one per host with an AAAA in a judged
+  forward zone (below, apex included) that no observed MAC stands for
+  (`observed` empty): the view never depends on the observation sources alone.
+  It gives
   `first_seen` and `last_seen` in RFC 3339 and `current` on each observed
   address (the check's notion: `eui64` or `stable`, seen within
-  `stable_min_days`); filters: `missing_aaaa` (as the
-  check, excepted rows left out), `missing_ptr` (an AAAA without PTR),
+  `stable_min_days`); `ptr_missing` lists the row's AAAA addresses that
+  `ptr_mismatch` flags as without PTR (`consistency.missing_ptrs`, shared:
+  AAAA of the judged forward zones, PTR of the reverse zones primary on a
+  node, an address outside every such reverse zone not judged, a PTR to
+  another name not covering, `ptr_mismatch` exceptions honoured); `ptr` stays
+  the addresses holding any PTR; filters: `missing_aaaa` (as the
+  check, excepted rows left out), `missing_ptr` (`ptr_missing` not empty),
   `stale` (as the check; both judge the hosts joined from the records of
   the forward zones the check judges only: primary on a node of the cluster,
   from the zone list read and the cached zone lists of every node, RPZ
@@ -4274,5 +4285,11 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   answers 200 with the other zones, and so does `GET /hosts`. The
   collector's pass skips its reconcile on any unread primary zone, so a
   refused transfer neither opens nor resolves an `ipv6_*` host alert.
+  `meta.unavailable` also names (`{"node_id","source","error"}`) each source
+  whose last poll failed (its `error`), read nothing, read nothing in a watched
+  prefix (`kept` 0), or is older than three passes (`3 x max(ipv6.poll_seconds,
+  collector.poll_seconds)`: the observer stopped), and each answering node with
+  no source status (`source` `neighbors`, never polled or every source
+  disabled); `GET /admin/ipv6` gives the same text as `problem` on the status.
 - **Audit**: `admin.ipv6.replace` (request `{"prefixes"}`), `admin.ipv6.op`
   (the removal of the 0.2.2 router sources, above).

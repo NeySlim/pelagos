@@ -119,5 +119,6 @@
       "format": "Not an IPv6 prefix: {{prefix}}",
       "scope": "Link-local and multicast are never watched: {{prefix}}"
     }
-  }
+  },
+  "notObserved": "not observed"
 }

@@ -1142,7 +1142,7 @@ Les machines du réseau ont des adresses IPv6 globales obtenues par SLAAC, sans 
 
 | Méthode, chemin | Permission | Requête | Réponse |
 | --- | --- | --- | --- |
-| `GET /hosts/ipv6` | `read:hosts` | `?filter=&zone=&page=&per_page=` | paginé `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen"}],"aaaa","ptr","proposal": {"address","class","name","zone","reverse_zone"}|null,"excepted"}` |
+| `GET /hosts/ipv6` | `read:hosts` | `?filter=&zone=&page=&per_page=` | paginé `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen"}],"aaaa","ptr","ptr_missing","proposal": {"address","class","name","zone","reverse_zone"}|null,"excepted"}` ; une ligne aussi par AAAA des zones jugées que rien n'a observé (0.2.3, point 72) |
 | `POST /hosts/ipv6/plan` | `write:dns.records` | `{"items": [{"host_key","address","name"?}]}` | `Plan` composite (AAAA et PTR) |
 | `POST /hosts/ipv6/replace-prefix/plan` | `write:dns.records` | `{"old_prefix","new_prefix","zones"?}` | `Plan` composite |
 | `GET /admin/ipv6` | `admin:settings` | | `{"prefixes","effective_prefixes","settings","status": [{"source","node_id","last_poll","error","entries"}]}` |

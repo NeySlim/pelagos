@@ -39,9 +39,9 @@ RPZ_NOTE = "pelagos-rpz"
 REVERSE_SUFFIXES = ("in-addr.arpa.", "ip6.arpa.")
 
 
-def checked_zones(items: Iterable[dict[str, Any]], snapshots: Iterable[dict[str, Any]]) -> set[str]:
-    """Forward zones the IPv6 checks judge: primary on some node (the zone list read and the cached
-    lists of every node), RPZ policy zones left out, as the collector's consistency pass."""
+def primary_zones(items: Iterable[dict[str, Any]], snapshots: Iterable[dict[str, Any]]) -> set[str]:
+    """Zones primary on some node (the zone list read and the cached lists of every node), RPZ
+    policy zones left out: the zones the collector's consistency pass reads."""
     zones = [i.get("zone") for i in items]
     for snap in snapshots:
         if (
@@ -55,9 +55,50 @@ def checked_zones(items: Iterable[dict[str, Any]], snapshots: Iterable[dict[str,
         if not isinstance(z, dict) or z.get("kind") != ZoneKind.PRIMARY.value or z.get("notes") == RPZ_NOTE:
             continue
         name = normalize_name(str(z.get("name") or ""))
-        if name and not name.endswith(REVERSE_SUFFIXES):
+        if name:
             out.add(name)
     return out
+
+
+def checked_zones(items: Iterable[dict[str, Any]], snapshots: Iterable[dict[str, Any]]) -> set[str]:
+    """Forward zones the IPv6 checks judge: the forward part of `primary_zones`."""
+    return {z for z in primary_zones(items, snapshots) if not z.endswith(REVERSE_SUFFIXES)}
+
+
+def source_problems(
+    status: Iterable[dict[str, Any]], answered: Iterable[str], now: int, late_after: int
+) -> list[dict[str, Any]]:
+    """`meta.unavailable` entries for the sources whose last poll gives nothing usable: failed,
+    found nothing, found nothing in a watched prefix, or older than `late_after` seconds; and for
+    each answering node with no source status at all (never polled, or every source disabled)."""
+    out: list[dict[str, Any]] = []
+    polled: set[str] = set()
+    for s in status:
+        node, source = str(s.get("node_id") or ""), str(s.get("source") or "")
+        polled.add(node)
+        entries, kept = s.get("entries"), s.get("kept")
+        last = s.get("last_poll")
+        if s.get("error"):
+            error = str(s["error"])
+        elif isinstance(last, int | float) and now - last > late_after:
+            error = f"last poll {_ts(last)}: the observer is not running"
+        elif entries == 0:
+            error = "the last poll found nothing"
+        elif isinstance(kept, int) and kept == 0:
+            error = f"the last poll found {entries} entries, none in a watched prefix"
+        else:
+            continue
+        out.append({"node_id": node, "source": source, "error": error})
+    for node in answered:
+        if node not in polled:
+            out.append({"node_id": node, "source": "neighbors", "error": "no observation pass yet"})
+    return out
+
+
+def _late(settings: Any) -> int:
+    """Seconds after which a source's last poll means its observer stopped: three passes."""
+    passes = (int(reg.get(settings, k)) for k in ("ipv6.poll_seconds", "collector.poll_seconds"))
+    return 3 * max(passes)
 
 
 def _ts(value: Any) -> str | None:
@@ -78,6 +119,7 @@ class Gathered:
         self.status: list[dict[str, Any]] = []
         self.unavailable: list[dict[str, Any]] = []
         self.complete = True
+        self.answered: list[str] = []
 
 
 def gather(
@@ -116,6 +158,7 @@ def gather(
             if answer.code != "not_supported":
                 out.complete = False
             continue
+        out.answered.append(nid)
         # A 0.2.2 peer may still report router observations: dropped as the retired connector.
         out.observations += [o for o in answer.get("observations") or [] if isinstance(o, dict) and _kept(o)]
         out.status += [s for s in answer.get("sources") or [] if isinstance(s, dict) and _kept(s)]
@@ -214,22 +257,24 @@ class Ipv6Service:
         listed = listed if isinstance(listed, list) else []
         return prefixes_mod.effective(listed, zones, subnets, prefixes_mod.interface_networks())
 
-    def _zones(self) -> tuple[list[str], list[str], list[str], str | None]:
+    def _zones(self) -> tuple[list[str], list[str], list[str], list[str], str | None]:
         """(forward zones, ip6.arpa zones) the node read serves, the forward zones the checks judge
-        (`checked_zones`), or the error that hid them."""
+        (`checked_zones`), the reverse zones they read, or the error that hid them."""
         dns = self.hosts.dns
         if dns is None:
-            return [], [], [], None
+            return [], [], [], [], None
         try:
             items = dns.zones()
         except ServiceError as exc:
-            return [], [], [], exc.detail
+            return [], [], [], [], exc.detail
         except ConnectorError as exc:
-            return [], [], [], str(exc)
+            return [], [], [], [], str(exc)
         names = [i["zone"]["name"] for i in items if i["zone"]["kind"] in SERVED]
         forward = [n for n in names if not n.endswith(REVERSE_SUFFIXES)]
-        checked = checked_zones(items, self._snapshots())
-        return forward, [n for n in names if n.endswith("ip6.arpa.")], sorted(checked), None
+        primary = primary_zones(items, self._snapshots())
+        checked = sorted(z for z in primary if not z.endswith(REVERSE_SUFFIXES))
+        checked_reverse = sorted(z for z in primary if z.endswith(REVERSE_SUFFIXES))
+        return forward, [n for n in names if n.endswith("ip6.arpa.")], checked, checked_reverse, None
 
     def hosts_list(
         self, filter_: str | None, zone: str | None
@@ -240,13 +285,21 @@ class Ipv6Service:
         now = int(self.clock())
         stable = int(reg.get(settings, "ipv6.stable_min_days"))
         g = self.gathered()
-        forward, reverse, checked, zones_error = self._zones()
+        forward, reverse, checked, checked_reverse, zones_error = self._zones()
         # missing_aaaa and stale judge the hosts joined from the checked zones only, as the collector.
-        hosts, judged_hosts, errors = self.hosts.collect_judged(checked)
+        hosts, judged_hosts, records, errors = self.hosts.collect_records(checked)
         if zones_error:
             errors["dns"] = zones_error
         excepted = consistency.excepted_for(self.ctx.cluster())
-        rows = ipv6_hosts.host_rows(hosts, g.observations, now, stable, forward, reverse, excepted)
+        # The same pairs as ptr_mismatch: AAAA of the checked zones, PTR of the primary reverse zones.
+        ptr_missing = consistency.missing_ptrs(
+            [r for z in checked for r in records.get(z, [])],
+            [r for z in checked_reverse for r in records.get(z, [])],
+            excepted,
+        )
+        rows = ipv6_hosts.host_rows(
+            hosts, g.observations, now, stable, forward, reverse, excepted, checked, ptr_missing
+        )
         judged = ipv6_hosts.host_rows(judged_hosts, g.observations, now, stable, checked, reverse, excepted)
         missing = {r["mac"] for r in judged if not r["excepted"] and ipv6_hosts.missing_aaaa(r, now, stable)}
         watched = self.effective_prefixes()
@@ -269,7 +322,7 @@ class Ipv6Service:
         elif filter_ == "missing_aaaa":
             rows = [r for r in rows if r["mac"] in missing]
         elif filter_ == "missing_ptr":
-            rows = [r for r in rows if set(r["aaaa"]) - set(r["ptr"])]
+            rows = [r for r in rows if r["ptr_missing"]]
         elif filter_ == "unknown":
             rows = [r for r in rows if not r["name"]]
         elif filter_ == "random_mac":
@@ -285,7 +338,9 @@ class Ipv6Service:
         for row in rows:
             for o in row["observed"]:
                 o["first_seen"], o["last_seen"] = _ts(o["first_seen"]), _ts(o["last_seen"])
-        meta: dict[str, Any] = {"unavailable": g.unavailable}
+        meta: dict[str, Any] = {
+            "unavailable": g.unavailable + source_problems(g.status, g.answered, now, _late(settings))
+        }
         if errors:
             meta["errors"] = errors
         return rows, meta
@@ -293,10 +348,19 @@ class Ipv6Service:
     def overview(self) -> dict[str, Any]:
         settings = self.ctx.settings()
         g = self.gathered()
+        now = int(self.clock())
+        problems = source_problems(g.status, g.answered, now, _late(settings))
+        problem = {(p["node_id"], p["source"]): p["error"] for p in problems}
         status = [
-            {**s, "last_poll": _ts(s.get("last_poll")), "failing_since": _ts(s.get("failing_since"))}
+            {
+                **s,
+                "last_poll": _ts(s.get("last_poll")),
+                "failing_since": _ts(s.get("failing_since")),
+                "problem": problem.get((str(s.get("node_id") or ""), str(s.get("source") or ""))),
+            }
             for s in g.status
         ]
+        polled = {str(s.get("node_id") or "") for s in g.status}
         status += [
             {
                 "source": u["source"],
@@ -306,8 +370,9 @@ class Ipv6Service:
                 "error": u["error"],
                 "entries": 0,
                 "failing_since": None,
+                "problem": u["error"],
             }
-            for u in g.unavailable
+            for u in g.unavailable + [p for p in problems if p["node_id"] not in polled]
         ]
         listed = self._domain().get("prefixes") or []
         return {

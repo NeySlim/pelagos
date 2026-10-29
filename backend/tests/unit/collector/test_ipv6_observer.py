@@ -203,8 +203,9 @@ def test_every_pass_reads_the_neighbors_only(tmp_path):
     neigh = FakeSource("neighbors", SEEN)
     obs, clock = observer(tmp_path, RETIRED, neigh)
     status = obs.tick()
-    assert [(s["source"], s["source_id"], s["entries"], s["error"]) for s in status] == [
-        ("neighbors", None, 3, None),
+    # 3 entries read, 1 in a watched prefix (link-local and 2001:db8:1::/64 are not).
+    assert [(s["source"], s["source_id"], s["entries"], s["kept"], s["error"]) for s in status] == [
+        ("neighbors", None, 3, 1, None),
     ]
     assert [r["address"] for r in obs_store.observations(obs.conn)] == ["2001:db8:99:0:be24:11ff:fe63:b806"]
     clock.t += 60
@@ -224,6 +225,7 @@ def test_failures_are_statuses_and_neighbors_can_be_disabled(tmp_path):
             "last_poll": 1_800_000_000,
             "error": "the ip command (iproute2) is not installed",
             "entries": 0,
+            "kept": 0,
             "failing_since": 1_800_000_000,
         }
     ]

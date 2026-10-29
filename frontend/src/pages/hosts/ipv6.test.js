@@ -47,8 +47,20 @@ describe('ipv6 helpers', () => {
   })
 
   it('falls back to a proposable address seen in the last day without the current flag', () => {
-    const r = row({ observed: [{ address: '2001:db8::f', class: 'stable', last_seen: seen(2) }, { address: '2001:db8::9', class: 'stable', last_seen: seen(48) }] })
+    const r = row({ observed: [{ address: '2001:db8::f', class: 'stable', last_seen: seen(2) }, { address: '2001:db8::9', class: 'stable', last_seen: seen(48) }], proposal: { address: '2001:db8::f' } })
     expect(exceptionTargets(r, NOW).map((x) => x.key)).toEqual(['mac:02:00:5e:00:53:10', 'addr:2001:db8::f'])
+  })
+
+  it('offers nothing for the missing check without a proposal, nor the addresses already excepted', () => {
+    const observed = [
+      { address: '2001:db8::1', class: 'stable', last_seen: seen(1), current: true },
+      { address: '2001:db8::2', class: 'stable', last_seen: seen(1), current: true },
+    ]
+    // No A in a forward zone, or every current address excepted by addr: the check never alerts.
+    expect(exceptionTargets(row({ observed }), NOW)).toEqual([])
+    // 2001:db8::1 comes before the proposal: the server skipped it, so it is excepted already.
+    const r = row({ observed, proposal: { address: '2001:db8::2' } })
+    expect(exceptionTargets(r, NOW).map((x) => x.key)).toEqual(['mac:02:00:5e:00:53:10', 'addr:2001:db8::2'])
   })
 
   it('takes the stale records from the server, an old sighting included, an alias left out', () => {

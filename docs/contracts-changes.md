@@ -1847,3 +1847,12 @@ a shared key copies the node's secret into cluster.toml after apply or rollback;
 `finding.shared_key_divergence.description`, `.proposal`, `.risk`. WP-INSTALLER:
 `installer/shared_keys.py`. WP-COLLECTOR: `collector/security.py` maps the finding. WP-API-AUTH:
 `services/key_sync.py`, hook in `PlanService`. WP-FRONTEND: en and fr texts.
+## 2026-10-29, K1: Kea migration analysis on a node
+Additive. Section 26: the `kea_dry_run` helper request and response, the conversion rules
+(`connectors/kea/migration.py`), `-T` for kea-dhcp4 and kea-dhcp6, the daemons run as the Kea user
+with `LD_LIBRARY_PATH`, the engine `ca` for `kea-ctrl-agent` findings, `lease_checks` lowered from
+behavior to info (the `sanity-checks` default stays `warn` in Kea 2.6.3 and 3.2.1, ARM read on
+2026-10-29). WP-KEA: `connectors/kea/migration.py`. WP-INSTALLER: `installer/kea_migration.py`,
+helper operation `kea_dry_run`, `HelperClient.kea_dry_run`. WP-API-AUTH (K2): the
+`kea.migration.analyze` peer action calls `kea_dry_run` and merges the node reports, the inventory
+uses `engine_package` and `installed_packages`.

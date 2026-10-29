@@ -75,7 +75,7 @@ packages ship `pelagos-helper.socket` (`/run/pelagos-helper.sock`,
 `root:pelagos 0660`, `Accept=yes`), and each connection runs `pelagos helper`
 as root for one request (`pelagos.installer.helper`: `detect`, `audit`,
 `plan_install`, `plan_import`, `plan_security`, `d2_secret_dir`,
-`bind_user_write`, `kea_file_write`, `apply`; JSON lines, progress then
+`bind_user_write`, `kea_file_write`, `kea_dry_run` (section 26), `apply`; JSON lines, progress then
 result). `d2_secret_dir`
 takes no argument: it makes `<kea conf dir>/pelagos` (`pelagos:<kea group>`
 2750, setgid, never through a symlink) for the TSIG secret files of D2 plans.
@@ -3890,25 +3890,50 @@ run; K2 API, alert and the read-only screen.
   `restrict_commands` (converted), `ha_asymmetric` (blocking: `engine`,
   `node`, `partner`, `fields`), `d2_secret_file` (converted: `key`),
   `control_socket` (converted), `additional_class` (behavior: `name`),
-  `template_class_options` (behavior: `name`), `lease_checks` (behavior:
-  `engine`), `lease_cache` (behavior: `engine`), `validation_failed`
+  `template_class_options` (behavior: `name`), `lease_checks` (info:
+  `engine`; the `sanity-checks` default stays `warn` in 2.6.3 and 3.2.1),
+  `lease_cache` (behavior: `engine`), `validation_failed`
   (blocking: `engine`, `version`, `error`), `validation_skipped` (info:
   `engine`, `reason`), `node_unreachable` (blocking: `node`). A new rule adds
-  a code and its message key.
+  a code and its message key. Findings about `kea-ctrl-agent` carry the
+  engine `ca`.
+- **Conversion rules** (`connectors/kea/migration.py`, `convert(engine,
+  config, TargetLayout)`, idempotent): an absolute Unix `socket-name`
+  becomes a bare name (the ISC build accepts only `/var/run/kea`, the Debian
+  build only `/run/kea`, compared as strings), lease, server-id and log files
+  outside `/var/lib/kea` and `/var/log/kea` move there, hook `library` paths
+  point at the target's hooks directory, an SQL lease or host database adds
+  `libdhcp_mysql.so` or `libdhcp_pgsql.so` first in `hooks-libraries`, the
+  D2 clear `secret` moves to `<conf dir>/<key>.tsig` (the file content is
+  returned apart and never enters a finding or a diff, where it is masked).
+  `ha_symmetry(engine, node, config, partner, partner_config)` gives the
+  `ha_asymmetric` findings of a pair.
 - **Analysis on a node** (the `kea.migration.analyze` peer action, run under
   the backend lock): reads each Kea file (`configfile`) and `config-get`
   (the running configuration wins when they differ, and a `config_divergence`
   finding is not repeated here), the hooks of the target (the file list of
   the target's hooks package, read from the downloaded `.deb` or `.rpm` in a
   temporary directory, never installed), converts, then validates the
-  converted file with the target's `kea-dhcp4 -t`, `kea-dhcp6 -t`,
+  converted file with the target's `kea-dhcp4 -T`, `kea-dhcp6 -T` (which
+  also load the hooks and read their files, the HA TLS key included) and
   `kea-dhcp-ddns -t` extracted from the downloaded packages
   (`apt-get download` and `dpkg-deb -x`, `dnf download` and `rpm2cpio`, with
-  `KEA_HOOKS_PATH` on the extracted hooks) through the privileged helper
-  operation `kea_dry_run` (read-only: a temporary directory, removed after).
+  `LD_LIBRARY_PATH` on the extracted libraries, `KEA_HOOKS_PATH` on the
+  extracted hooks and hook libraries named without a directory), run as the
+  Kea user, through the privileged helper operation `kea_dry_run`
+  (read-only: a temporary directory, removed after; the package manager uses
+  a private source list, key and cache, the node's own are never touched).
   When the dry run cannot run (no network, a missing binary), the validation
   is `skipped` with a `validation_skipped` finding. HA symmetry is checked by
-  the caller over the reports of both peers.
+  the caller over the reports of both peers. Lease and log paths are not
+  checked by `-t` or `-T` (only at start): the rules above cover them.
+- **`kea_dry_run`** (helper, `installer/kea_migration.py`): request
+  `{"series","source","configs"?: {engine: file},"node_id"?}` (`configs`
+  default to this node's files); response `{"node_id","series","source",
+  "target_version","findings": [Finding],"diffs","files": [path],"packages":
+  {"remove","install"},"validation": {engine: {"ok","mode","output",
+  "version"}},"configs": {engine: converted file without secrets}}`. The
+  caller merges the reports of the nodes into the Report.
 - **Alert** `kea_series_obsolete`: per node and engine family, subject
   `kea:series`, raised by the collector when the installed series is not
   maintained according to `pelagos/data/isc_advisories.json`, which gains

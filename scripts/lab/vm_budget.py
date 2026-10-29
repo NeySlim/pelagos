@@ -90,6 +90,10 @@ def main(argv: list[str]) -> int:
     if not argv or argv[0] not in ("check", "status") or (argv[0] == "check" and len(argv) < 2):
         print(__doc__.strip(), file=sys.stderr)
         return 2
+    if argv[0] == "check" and not all(v.isdigit() for v in argv[1:]):
+        print(f"vm_budget.py: VMIDs must be integers, got {' '.join(argv[1:])!r}", file=sys.stderr)
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
     infra = infra_vmids()
     if infra is None:
         print("lab budget: no infra-vmids configured, every running VM counts", file=sys.stderr)

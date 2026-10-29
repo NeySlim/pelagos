@@ -123,3 +123,43 @@ def test_rollback_refused_before_any_change(pve, tmp_path):
         timeout=60,
     )
     assert res.returncode == 0, res
+
+
+@pytest.mark.skipif(not (shutil.which("jq") and shutil.which("curl")), reason="rollback.sh needs curl and jq")
+def test_rollback_unknown_vm_fails_cleanly(pve, tmp_path):
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "PVE_CONF_DIR": str(tmp_path), "PVE_API": pve.url}
+    res = subprocess.run(
+        [str(SCRIPTS / "rollback.sh"), "typo", "--no-wait"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert res.returncode == 1, res
+    assert "unknown VM typo" in res.stderr and "Traceback" not in res.stderr
+    assert not pve.calls
+
+
+def test_check_rejects_non_integer_vmids(capsys):
+    assert vm_budget.main(["check", ""]) == 2
+    assert vm_budget.main(["check", "9111", "lab-ns1"]) == 2
+    assert "must be integers" in capsys.readouterr().err
+
+
+def test_pve_vm_start_refused_above_budget(pve, tmp_path, monkeypatch):
+    from tests.lab import labkit
+
+    conf = tmp_path / ".config" / "pelagos-lab"
+    conf.mkdir(parents=True)
+    (conf / "pve-token").write_text("PVEAPIToken=test\n")
+    (conf / "pve-api").write_text(pve.url + "\n")
+    (conf / "infra-vmids").write_text(f"{GW} {DEV}\n")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    unset = ("PVE_API", "PVE_CONF_DIR", "PVE_TOKEN_FILE", "PELAGOS_LAB_INFRA_VMIDS", "PELAGOS_LAB_MAX_VMS")
+    for var in unset:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("PELAGOS_LAB_POOL", "pelagos")
+    monkeypatch.setattr(labkit, "wait_for", lambda *a, **k: pytest.fail("start was not refused"))
+    with pytest.raises(AssertionError, match="lab budget exceeded"):
+        labkit.pve_vm(9111, "start")
+    assert not [c for c in pve.calls if not c.startswith("GET /cluster/resources")], pve.calls

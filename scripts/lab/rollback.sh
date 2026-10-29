@@ -129,8 +129,9 @@ wait_ssh() {
 }
 
 rollback_one() {
-  local vmid name snap addr
-  IFS=: read -r vmid name snap addr <<<"$(resolve "$1")"
+  local entry vmid name snap addr
+  entry=$(resolve "$1") || exit 1
+  IFS=: read -r vmid name snap addr <<<"$entry"
   if [[ $list -eq 1 ]]; then
     echo "== $name ($vmid)"
     api GET "/$vmid/snapshot" | jq -r '.data[] | select(.name != "current") | "\(.name)\t\(.snaptime // 0 | todate)\t\(.description // "")"'
@@ -160,9 +161,10 @@ else
   targets=("$target")
 fi
 # Refuse before any rollback when the VMs to start would not fit in the lab budget.
+# resolve is checked explicitly: set -e ignores a failure inside <<<"$(...)".
 if [[ $list -eq 0 && $start -eq 1 ]]; then
   ids=()
-  for t in "${targets[@]}"; do IFS=: read -r vmid _ <<<"$(resolve "$t")"; ids+=("$vmid"); done
+  for t in "${targets[@]}"; do entry=$(resolve "$t") || exit 1; ids+=("${entry%%:*}"); done
   "$BUDGET" check "${ids[@]}"
 fi
 for t in "${targets[@]}"; do rollback_one "$t"; done

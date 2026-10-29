@@ -11,6 +11,7 @@ the hash replicated, the secret nowhere, every call audited with the token's nam
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import ssl
 import subprocess
@@ -114,6 +115,7 @@ class TestApiTokensPair:
             "HOST_RULES": f"MAP {N1} {A1}, MAP {N2} {A2}",
             "LAB_PASSWORD": ADMIN_PASSWORD,
             "TOKEN_OUT": str(out),
+            "TOKEN_CIDR": str(ipaddress.ip_network(f"{A1}/24", strict=False)),
         }
         res = subprocess.run(
             ["npx", "playwright", "test", "--config", "e2e-lab/lab.config.js", "api-tokens.spec.js"],

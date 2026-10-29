@@ -6,9 +6,9 @@
 import { writeFileSync } from 'node:fs'
 import { test, expect, request as playwrightRequest } from '@playwright/test'
 
-const { NS1_URL, NS1_API, NS2_API, HOST_RULES, LAB_PASSWORD, TOKEN_OUT } = process.env
+const { NS1_URL, NS1_API, NS2_API, HOST_RULES, LAB_PASSWORD, TOKEN_OUT, TOKEN_CIDR } = process.env
 
-test.skip(!NS1_URL || !NS1_API || !NS2_API, 'run by tests/lab/test_api_tokens_lab.py')
+test.skip(!NS1_URL || !NS1_API || !NS2_API || !TOKEN_CIDR, 'run by tests/lab/test_api_tokens_lab.py')
 test.use({ ignoreHTTPSErrors: false, launchOptions: { args: HOST_RULES ? [`--host-resolver-rules=${HOST_RULES}`] : [] } })
 
 async function api(base, token) {
@@ -72,7 +72,7 @@ test('a token created behind a key works on both nodes until revoked', async ({ 
   await tokens.getByTestId('token-name-input').fill('lab-script')
   await tokens.getByRole('combobox').click()
   await page.getByRole('option', { name: /Administrator/ }).click()
-  await tokens.getByTestId('token-cidrs-input').fill('10.99.0.0/24')
+  await tokens.getByTestId('token-cidrs-input').fill(TOKEN_CIDR)
   await tokens.getByTestId('token-add-submit').click()
   const secret = (await page.getByTestId('token-secret').textContent()).trim()
   expect(secret).toMatch(/^pel_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$/)
@@ -87,15 +87,7 @@ test('a token created behind a key works on both nodes until revoked', async ({ 
   const session = await (await ns2.get('auth/session')).json()
   expect(session.user.username).toBe('admin')
   expect((await ns2.put('dashboard/layout', { data: { layout: [] } })).status()).toBe(200)
-  const plan = await ns2.post('dns/zones/plan', {
-    data: { change: { op: 'add', target: 'tokens.example.lan.', after: { kind: 'primary', ns: ['ns1.example.lan.'] } } },
-  })
-  if (plan.ok()) {
-    const { id } = await plan.json()
-    const apply = await ns2.post(`plans/${id}/apply`, { data: {} })
-    expect(apply.status()).toBe(428)
-    expect((await ns2.delete(`plans/${id}`)).status()).toBe(204)
-  }
+  // A token's plan apply needs confirm=true: covered by test_admin_with_required_key_scripts_through_a_token.
   expect((await ns2.get('auth/tokens')).status()).toBe(403)
   await ns2.dispose()
   expect(await status(NS1_API, 'pel_0123456789abcdef_' + 'A'.repeat(43))).toBe(401)

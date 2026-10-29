@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import platform
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -22,7 +23,7 @@ from pelagos.connectors.kea import migration as mig
 from pelagos.core.context import NodeContext
 from pelagos.domain import AuditEntry, AuditResult, new_id, to_rfc3339, utcnow
 from pelagos.installer import helper
-from pelagos.services.errors import ServiceError, ValidationError, field_error
+from pelagos.services.errors import Conflict, ServiceError, ValidationError, field_error
 from pelagos.services.installer_runner import installer_env
 
 log = logging.getLogger(__name__)
@@ -37,6 +38,8 @@ INVENTORY_TIMEOUT = 60.0
 # and lease file copy, start of the standby; a node without HA is down for a restart.
 OUTAGE_HA_SECONDS = 10 + 15 + 5
 OUTAGE_ALONE_SECONDS = 15
+# One analysis at a time on this node: each one downloads and extracts packages on every node.
+_ANALYZE_LOCK = threading.Lock()
 
 
 def upstream(version: str) -> str:
@@ -51,9 +54,11 @@ class KeaMigrationService:
         ctx: NodeContext,
         peers: Any = None,
         env_factory: Callable[[], Any] | None = None,
+        alerts: Any = None,
     ) -> None:
         self.ctx = ctx
         self.peers = peers
+        self.alerts = alerts
         self._own_env = env_factory is None
         self.env_factory = env_factory or (lambda: installer_env(ctx))
         # Tests swap the local dry run (series, source) -> kea_dry_run answer.
@@ -84,7 +89,7 @@ class KeaMigrationService:
                 "series": series,
                 "source": pkg["source"],
                 "package": pkg["package"],
-                "maintained": info["maintained"] is not False,
+                "maintained": info["maintained"],
                 "eol": info["eol"],
                 "successor": info["successor"],
             }
@@ -133,10 +138,11 @@ class KeaMigrationService:
     def _nodes(self) -> list[tuple[str, str, bool]]:
         """(node id, name, runs Kea) of every node, this node first."""
         me = self.ctx.node.id
-        out = {me: (me, self.ctx.node.name, True)}
+        m = self.ctx.node.modules
+        out = {me: (me, self.ctx.node.name, bool(m.kea4 or m.kea6 or m.d2))}
         for p in self.ctx.cluster().nodes:
-            kea = p.modules.kea4 or p.modules.kea6 or p.modules.d2
-            out[p.id] = (p.id, p.name, kea or p.id == me)
+            if p.id != me:  # this node's own engines are the authority for itself
+                out[p.id] = (p.id, p.name, bool(p.modules.kea4 or p.modules.kea6 or p.modules.d2))
         return sorted(out.values(), key=lambda n: (n[0] != me, n[1]))
 
     def _on_node(
@@ -154,6 +160,7 @@ class KeaMigrationService:
         from pelagos.services.peer_actions import KEA_MIGRATION_INVENTORY
 
         nodes = self._nodes()  # every node: one without Kea shows no engine
+        kea_ids = {n[0] for n in nodes if n[2]}
 
         def one(node: tuple[str, str, bool]) -> dict[str, Any]:
             try:
@@ -174,17 +181,23 @@ class KeaMigrationService:
         analysis = self.last_report()
         return {
             "nodes": inventory,
-            "targets": self.targets(inventory, analysis),
+            "targets": self.targets(inventory, analysis, kea_ids),
             "analysis": analysis,
             "current": None,
         }
 
     @staticmethod
-    def targets(inventory: list[dict[str, Any]], analysis: dict[str, Any] | None) -> list[dict[str, Any]]:
-        """One target for the whole cluster: available when every reachable node can install it."""
+    def targets(
+        inventory: list[dict[str, Any]],
+        analysis: dict[str, Any] | None,
+        kea_ids: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """One target for the whole cluster: available when every reachable node can install it
+        and no Kea node is unreachable (its distribution is unknown)."""
         from pelagos.installer.kea_migration import BACKPORTS_NOTE
 
         reachable = [n for n in inventory if n.get("reachable")]
+        lost = [n for n in inventory if not n.get("reachable") and n.get("node_id") in (kea_ids or ())]
         out = []
         for series, source in KNOWN_TARGETS:
             offered = [
@@ -198,7 +211,7 @@ class KeaMigrationService:
                 "series": series,
                 "source": source,
                 "version": version,
-                "available": bool(reachable) and all(offered),
+                "available": bool(reachable) and all(offered) and not lost,
                 "recommended": (series, source) == KNOWN_TARGETS[0],
             }
             if source == "backports":
@@ -208,7 +221,16 @@ class KeaMigrationService:
         return out
 
     def analyze(self, body: dict[str, Any], actor: str, client_ip: str | None = None) -> dict[str, Any]:
-        """Report of the target over the chosen nodes (every Kea node by default), kept on this node."""
+        """Report of the target over the chosen nodes (every Kea node by default), kept on this node;
+        409 while another analysis runs here."""
+        if not _ANALYZE_LOCK.acquire(blocking=False):
+            raise Conflict("another Kea migration analysis is running")
+        try:
+            return self._analyze(body, actor, client_ip)
+        finally:
+            _ANALYZE_LOCK.release()
+
+    def _analyze(self, body: dict[str, Any], actor: str, client_ip: str | None) -> dict[str, Any]:
         from pelagos.services.peer_actions import KEA_MIGRATION_ANALYZE
 
         series, source = body.get("series"), body.get("source")
@@ -242,28 +264,51 @@ class KeaMigrationService:
                     self._on_node(node_id, local, KEA_MIGRATION_ANALYZE, request, ANALYZE_TIMEOUT),
                     None,
                 )
-            except ValidationError:
-                raise
             except ServiceError as exc:
+                if exc.code == "validation_error":  # no Kea file there, a target its distro lacks
+                    return node_id, {"not_analyzed": exc.detail}, None
                 return node_id, None, exc.detail
 
-        with ThreadPoolExecutor(max_workers=max(1, min(8, len(ids)))) as pool:
-            results = list(pool.map(one, ids))
-        report = merge(results, names, series, source, actor)
-        self._keep(report)
-        self.ctx.audit_log.append(
-            AuditEntry(
-                node_id=self.ctx.node.id,
-                user=actor,
-                action="kea.migration.analyze",
-                target=f"kea-migration:{report['id']}",
-                request={**request, "node_ids": ids},
-                response={"blocking": report["blocking"], "counts": report["counts"]},
-                result=AuditResult.OK,
-                client_ip=client_ip,
+        def audit(result: AuditResult, target: str, response: dict[str, Any]) -> None:
+            self.ctx.audit_log.append(
+                AuditEntry(
+                    node_id=self.ctx.node.id,
+                    user=actor,
+                    action="kea.migration.analyze",
+                    target=target,
+                    request={**request, "node_ids": ids},
+                    response=response,
+                    result=result,
+                    client_ip=client_ip,
+                )
             )
+
+        try:
+            with ThreadPoolExecutor(max_workers=max(1, min(8, len(ids)))) as pool:
+                results = list(pool.map(one, ids))
+            report = merge(results, names, series, source, actor, self._divergences(ids))
+            self._keep(report)
+        except Exception as exc:
+            audit(AuditResult.ERROR, "kea-migration", {"error": str(exc)})
+            raise
+        audit(
+            AuditResult.OK,
+            f"kea-migration:{report['id']}",
+            {"blocking": report["blocking"], "counts": report["counts"]},
         )
         return report
+
+    def _divergences(self, ids: list[str]) -> list[tuple[str, str, str]]:
+        """(node, engine, file) of each open `config_divergence` file alert of the analyzed nodes:
+        there the analysis read a file that is not the running configuration."""
+        from pelagos.domain import Engine
+        from pelagos.services.kea_files import open_file_alerts
+
+        out = []
+        for engine in (Engine.KEA4, Engine.KEA6, Engine.D2):
+            for a in open_file_alerts(self.alerts, engine, ids):
+                out.append((a.node_id or "", engine.value, str(a.details.get("path") or "")))
+        return out
 
     # The kept report --------------------------------------------------------------------------
 
@@ -274,7 +319,7 @@ class KeaMigrationService:
     def _keep(self, report: dict[str, Any]) -> None:
         path = self.report_path
         path.parent.mkdir(mode=0o750, parents=True, exist_ok=True)
-        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{report['id']}.tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o640)
         with os.fdopen(fd, "w") as f:
             json.dump(report, f)
@@ -323,9 +368,10 @@ def merge(
     series: str,
     source: str,
     actor: str,
+    divergences: list[tuple[str, str, str]] = (),  # type: ignore[assignment]
 ) -> dict[str, Any]:
     """The Report of section 26 from each node's `kea_dry_run` answer (None and an error when the
-    node did not answer)."""
+    node did not answer), with `config_diverged` for each (node, engine, file) in `divergences`."""
     findings: list[dict[str, Any]] = []
     diffs: dict[str, Any] = {}
     packages: dict[str, Any] = {}
@@ -340,6 +386,11 @@ def merge(
                 "blocking", "node_unreachable", "", "", {"node": names.get(node_id, node_id)}, "manual"
             )
             findings.append({**_finding(node_id, f), "error": error})
+            continue
+        if "not_analyzed" in answer:
+            node = names.get(node_id, node_id)
+            f = mig.Finding("blocking", "node_not_analyzed", "", "", {"node": node}, "manual")
+            findings.append({**_finding(node_id, f), "error": answer["not_analyzed"]})
             continue
         for f in answer.get("findings") or []:
             findings.append({**f, "node_id": f.get("node_id") or node_id})
@@ -361,6 +412,10 @@ def merge(
                 configs[partner][engine],
             ):
                 findings.append(_finding(node, f))
+    for node_id, engine, file in divergences:
+        params = {"node": names.get(node_id, node_id), "file": file}
+        f = mig.Finding("info", "config_diverged", engine, "", params, "manual")
+        findings.append(_finding(node_id, f))
     order = {s: i for i, s in enumerate(mig.SEVERITIES)}
     findings.sort(
         key=lambda f: (order.get(f.get("severity"), 9), f.get("node_id") or "", f.get("engine") or "")

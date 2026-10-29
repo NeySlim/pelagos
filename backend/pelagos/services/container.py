@@ -98,7 +98,7 @@ class Services:
         self.advanced = AdvancedService(ctx, self.dns)
         self.ops = OpsService(ctx, self.registry, self.peers)
         self.install = InstallService(ctx, self.dns, self.dhcp4, self.peers)
-        self.kea_migration = KeaMigrationService(ctx, self.peers)
+        self.kea_migration = KeaMigrationService(ctx, self.peers, alerts=self.alerts)
         self.certs = CertService(ctx, self.peers, self.jobs, self.dns)
         self.notifications = NotifyService(ctx, self.peers)
         self.ipv6 = Ipv6Service(ctx, self.peers, self.hosts, self.cache)

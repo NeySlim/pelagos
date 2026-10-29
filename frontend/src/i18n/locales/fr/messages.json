@@ -390,6 +390,8 @@
   "kea_migration.validation_failed": "{{engine}} : Kea {{version}} refuse la configuration convertie : {{error}}",
   "kea_migration.validation_skipped": "{{engine}} : pas de validation à blanc ({{reason}}) : la configuration est vérifiée sur le premier nœud migré",
   "kea_migration.node_unreachable": "le nœud {{node}} n'a pas répondu : sa configuration n'est pas analysée",
+  "kea_migration.node_not_analyzed": "le nœud {{node}} n'a pas été analysé",
+  "kea_migration.config_diverged": "sur le nœud {{node}}, le fichier {{engine}} {{file}} diffère de la configuration en cours : cette analyse a lu le fichier",
   "alert.ipv6_missing_aaaa": "zone {{zone}} : {{count}} hôtes ont une adresse IPv6 stable et pas d'enregistrement AAAA",
   "alert.ipv6_reverse_missing": "aucune zone inverse n'est servie pour le préfixe IPv6 surveillé {{prefix}}",
   "alert.ipv6_stale_aaaa": "zone {{zone}} : {{count}} enregistrements AAAA portent des adresses plus vues depuis {{days}} jours",

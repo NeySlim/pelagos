@@ -213,3 +213,65 @@ def test_upstream_version():
     assert kms.upstream("1:2.6.3-1+deb13u1") == "2.6.3"
     assert kms.upstream("3.2.1-isc20260928103142") == "3.2.1"
     assert kms.upstream("3.0.1") == "3.0.1"
+
+
+def test_a_node_without_kea_is_not_analyzed_by_default_and_a_peer_without_files_is_a_finding(service):
+    me = service.ctx.node.id
+    # A DNS-only node used as the admin UI.
+    service.ctx.node.engines = {k: v for k, v in service.ctx.node.engines.items() if k == "bind"}
+    called: list[str] = []
+    service.local_dry_run = lambda series, source: called.append(me) or answer(me, dhcp4("ns1"))
+    service.peers = Peers({"node-b": lambda name, body: answer("node-b", dhcp4("ns2"))})
+    report = service.analyze({"series": "3.2", "source": "isc"}, "admin")
+    assert report["node_ids"] == ["node-b"] and called == []
+    service.peers = Peers({"node-b": lambda name, body: ValidationError("no Kea configuration to analyze")})
+    report = service.analyze({"series": "3.2", "source": "isc"}, "admin")
+    [f] = [f for f in report["findings"] if f["code"] == "node_not_analyzed"]
+    assert f["severity"] == "blocking" and f["node_id"] == "node-b"
+    assert f["message"]["params"] == {"node": "ns2"} and "no Kea" in f["error"]
+    assert report["blocking"] and report["unreachable"] == []
+
+
+def test_an_unreachable_kea_node_makes_every_target_unavailable(service):
+    service.peers = Peers({"node-b": lambda name, body: EngineUnavailable("node ns2 is offline")})
+    out = service.overview()
+    assert not any(t["available"] for t in out["targets"])
+
+
+def test_unknown_series_has_no_maintenance_state(service, monkeypatch):
+    monkeypatch.setattr(kms.advisories, "load", lambda var: {})
+    assert service.local_inventory()["engines"]["kea4"]["maintained"] is None
+
+
+def test_one_analysis_at_a_time_and_a_failed_one_is_audited(service):
+    from pelagos.domain import AuditResult
+    from pelagos.services.errors import Conflict
+
+    me = service.ctx.node.id
+    service.local_dry_run = lambda series, source: answer(me, dhcp4("ns1"))
+    service.peers = Peers({"node-b": lambda name, body: answer("node-b", dhcp4("ns2"))})
+    with kms._ANALYZE_LOCK, pytest.raises(Conflict):
+        service.analyze({"series": "3.2", "source": "isc"}, "admin")
+
+    def boom(report: dict) -> None:
+        raise OSError("disk full")
+
+    service._keep = boom
+    with pytest.raises(OSError):
+        service.analyze({"series": "3.2", "source": "isc"}, "admin")
+    [entry] = [e for e in service.ctx.audit_log.read() if e.action == "kea.migration.analyze"]
+    assert entry.result is AuditResult.ERROR and "disk full" in entry.response["error"]
+
+
+def test_an_open_file_divergence_is_reported(service):
+    me = service.ctx.node.id
+    service.local_dry_run = lambda series, source: answer(me, dhcp4("ns1"))
+    service.peers = Peers({"node-b": lambda name, body: answer("node-b", dhcp4("ns2"))})
+    alert = SimpleNamespace(node_id="node-b", state=None, details={"path": "/etc/kea/kea-dhcp4.conf"})
+    service.alerts = SimpleNamespace(
+        open_by_subject=lambda kind, subject: [alert] if subject == "kea4:config-file" else []
+    )
+    report = service.analyze({"series": "3.2", "source": "isc"}, "admin")
+    [f] = [f for f in report["findings"] if f["code"] == "config_diverged"]
+    assert f["severity"] == "info" and f["node_id"] == "node-b" and f["engine"] == "kea4"
+    assert f["message"]["params"]["file"] == "/etc/kea/kea-dhcp4.conf"

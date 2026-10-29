@@ -3903,11 +3903,12 @@ run; K2 API, alert and the read-only screen.
 - **KeaInventory** (the `kea.migration.inventory` peer action): `{"node_id",
   "name","reachable","error","arch","distro": {"id","codename"},
   "engines": {"kea4"|"kea6"|"d2": {"version","series","source": "distro"|
-  "isc"|"backports"|"unknown","package","package_version","maintained": bool,
+  "isc"|"backports"|"unknown","package","package_version","maintained": bool|null,
   "eol","successor"}},"targets": [{"series","source"}]}`; `version` is the
   upstream part of the package version, `series` is `<major>.<minor>`,
   `source` from the package that owns the binary (`dpkg -S`, `rpm -qf`) and
-  its origin, `maintained`, `eol` and `successor` from the advisories data,
+  its origin, `maintained`, `eol` and `successor` from the advisories data
+  (`maintained` null when the series is unknown or the data does not list it),
   `targets` what this node's distribution can take. Every enrolled node is
   listed; one without Kea has no engine, one that does not answer has
   `reachable` false and its `error`.
@@ -3915,8 +3916,8 @@ run; K2 API, alert and the read-only screen.
   "note"?}`: `3.2`/`isc` (recommended), `3.0`/`isc`, `3.0`/`backports`
   (Debian only, `note` says backports have no security support
   commitment). `available` is true when every node can install it (its
-  distribution, codename and architecture); a single target for the whole
-  cluster.
+  distribution, codename and architecture) and no Kea node is unreachable (its
+  distribution is then unknown); a single target for the whole cluster.
 - **Report**: `{"id": ULID,"created_at","created_by","series","source",
   "target_version","node_ids","findings": [Finding],"diffs": {node id:
   {engine: unified diff of the file, 2.6 to the target}},"packages": {node
@@ -3952,7 +3953,11 @@ run; K2 API, alert and the read-only screen.
   `engine`; the `sanity-checks` default stays `warn` in 2.6.3 and 3.2.1),
   `lease_cache` (behavior: `engine`), `validation_failed`
   (blocking: `engine`, `version`, `error`), `validation_skipped` (info:
-  `engine`, `reason`), `node_unreachable` (blocking: `node`). A new rule adds
+  `engine`, `reason`), `node_unreachable` (blocking: `node`), `node_not_analyzed` (blocking:
+  `node`; the node answered that it has nothing to analyze, no Kea file or a
+  target its distribution does not offer, with its `error`), `config_diverged`
+  (info: `node`, `file`; an open `config_divergence` file alert of that node and
+  engine, so the analysis read a file that is not the running configuration). A new rule adds
   a code and its message key. Findings about `kea-ctrl-agent` carry the
   engine `ca`.
 - **Conversion rules** (`connectors/kea/migration.py`, `convert(engine,
@@ -4010,7 +4015,9 @@ run; K2 API, alert and the read-only screen.
   "successor","source": url,"checked_at"}}}` (written by
   `scripts/update-isc-advisories.py` from the kea-announce archives of the
   last 24 months, "Kea X.Y - all versions - are now EOL"; 2.6 is end of life
-  since 2026-07-30, kea-announce July 2026; 3.0 and 3.2 maintained per the
+  since 2026-07-30, kea-announce July 2026; 2.4 since the release of 3.0.0 on
+  2025-06-25, kea-announce July 2025 ("Maintenance of Kea 2.4.2 ended with
+  the release of Kea 3.0.0"); 3.0 and 3.2 maintained per the
   ISC support policy, kb.isc.org/docs/aa-00896, both read on 2026-10-29). A
   series the data does not list is obsolete when it is older than a listed
   obsolete one, unknown otherwise (no alert). A newer data file only adds
@@ -4020,13 +4027,17 @@ run; K2 API, alert and the read-only screen.
 - **Report assembly** (`services/kea_migration_service.py`, on the node of the
   request): the nodes are analyzed in parallel; a node that does not answer
   gives `node_unreachable` (blocking, with its `error`) and is listed in
-  `unreachable`; two nodes are HA partners when one's `this-server-name` is
+  `unreachable`; a node that answers with a validation error gives
+  `node_not_analyzed` (blocking, with its `error`); a second analysis while one
+  runs on the same node answers 409 `conflict`; two nodes are HA partners when one's `this-server-name` is
   among the peers the other declares, and `ha_symmetry` runs once per pair
   on the converted files; findings are sorted by severity, node, engine;
   `outage_estimate_seconds` is 30 with HA (failure detection with the
   reduced delay, LFC and lease copy, start of the standby), 15 without.
 - **Audit**: `kea.migration.analyze` (target `kea-migration:<id>`, request
-  `{"series","source","node_ids"}`, response `{"blocking","counts"}`).
+  `{"series","source","node_ids"}`, response `{"blocking","counts"}`; a
+  failed analysis is audited `error`, target `kea-migration`, response
+  `{"error"}`).
 
 ## 27. Observed IPv6 addresses
 

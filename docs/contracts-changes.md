@@ -1920,3 +1920,15 @@ analysis reads the Kea files only, a divergence from the running configuration s
 `config_divergence` alert. WP-API-AUTH: `services/kea_migration_service.py`, `api/kea_migration.py`,
 peer actions. WP-COLLECTOR: `collector/checks/kea_series.py`. WP-FRONTEND: Installation > Kea
 migration (`/install/kea-migration`), en and fr.
+
+## 2026-10-29, K2 review: unanalyzed nodes, unknown maintenance, one analysis at a time
+Section 26. Changed: KeaInventory `maintained` is `bool|null` (null for an unknown or unlisted
+series); a target is not `available` while a Kea node is unreachable; a node that answers the
+analysis with a validation error (no Kea file, a target its distribution lacks) gives the new
+blocking finding `node_not_analyzed` with its `error` instead of failing the whole request with 400;
+an open `config_divergence` file alert of an analyzed node adds `config_diverged` (info); a second
+analysis while one runs on the same node answers 409 `conflict`; a failed analysis is audited
+`error`. Data: Kea 2.4 end of life 2025-06-25 (kea-announce July 2025). Contract
+(`domain/messages.py`): `kea_migration.node_not_analyzed`, `kea_migration.config_diverged`.
+WP-FRONTEND: its en and fr texts, an unknown maintenance badge, the `kea_series_obsolete` link from
+Alerts and the DHCP banner.

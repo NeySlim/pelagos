@@ -296,6 +296,11 @@ CATALOG: dict[str, str] = {
         "{engine}: no dry run ({reason}): the configuration is checked on the first migrated node"
     ),
     "kea_migration.node_unreachable": "node {node} did not answer: its configuration is not analyzed",
+    "kea_migration.node_not_analyzed": "node {node} was not analyzed",
+    "kea_migration.config_diverged": (
+        "on node {node}, the {engine} file {file} differs from the running configuration: "
+        "this analysis read the file"
+    ),
     # Observed IPv6 addresses (section 27).
     "alert.ipv6_missing_aaaa": "zone {zone}: {count} hosts have a stable IPv6 address and no AAAA record",
     "alert.ipv6_reverse_missing": "no reverse zone is served for the watched IPv6 prefix {prefix}",

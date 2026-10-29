@@ -103,6 +103,10 @@ from lab-dev and without Pelagos, the legacy setup the lab tier imports. It
 is idempotent and refuses a host Pelagos already manages unless `--force` is
 given. `three` builds the same pair plus lab-rpm as a third server (below).
 
+It ends with `sync` on every host it touched; run `sync` again (or shut the VM
+down) before taking a snapshot of a running VM after any change by hand, or
+files such as `/etc/bind/rndc.key` may come back empty after a rollback.
+
 | Host | What runs |
 | --- | --- |
 | lab-ns1 | BIND 9.20 (Debian) primary for `example.lan`, `0.99.10.in-addr.arpa` and `1.99.10.in-addr.arpa`, dynamic with `allow-update { key kea-ddns; }` (hmac-md5, generated on ns1, copied to ns2), transfers and notifies to ns2 by address; Kea DHCPv4 2.6 (Debian) HA primary, hot-standby, `lease_cmds`, `stat_cmds`, `ha`; D2 sending every update to ns1 with `kea-ddns` |

@@ -493,4 +493,7 @@ fi
 [[ "$target" == all || "$target" == pair || "$target" == three ]] && wait_ha
 [[ "$target" == three ]] && wait_backup
 [[ "$target" == all || "$target" == three ]] && provision_client
+# A snapshot of a running VM keeps only what reached the disk: /etc/bind/rndc.key came out empty once.
+synced=("$NS1" "$NS2"); [[ "$target" == three ]] && synced+=("$NS3")
+for h in "${synced[@]}"; do "${SSH[@]}" "$h" sync || true; done
 echo "provisioned: $target"

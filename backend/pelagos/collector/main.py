@@ -1541,6 +1541,8 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
             log.info("settings renamed in cluster.toml: %s", ", ".join(f"{a} -> {b}" for a, b in moved))
     except Exception:  # never blocks the start: every load migrates in memory anyway
         log.exception("settings migration failed")
+    # Watched before any setting is read: the web process or a peer merge may rewrite cluster.toml meanwhile.
+    settings_watch = SettingsWatch(ctx)
     if rebuild:
         log.info("rebuilding %s", paths.series_db)
         series_mod.rebuild(paths.series_db)
@@ -1565,8 +1567,6 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     collector.slow_background = True
     collector.ipv6.background = True
     collector.archives.background = True
-    # Watched before the periods are read: the replication started below may merge cluster.toml at once.
-    settings_watch = SettingsWatch(ctx)
     tasks = collector.tasks()
     listener = SignalListener(paths.collector_sock)
     # One replay per batch of datagrams, run by the loop after listener.wait().

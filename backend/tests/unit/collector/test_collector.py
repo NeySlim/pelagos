@@ -546,6 +546,50 @@ def test_collector_settings_reload_live(rig):
     assert reload_settings(collector, tasks, handle) == []
 
 
+def test_run_sees_a_settings_write_made_during_the_start(node_ctx, monkeypatch):
+    """cluster.toml rewritten while run() builds the backends: the first loop turn reloads it."""
+    import os
+
+    node = node_ctx.node.id
+    fakes = Backends(dns=FakeDnsBackend(node), kea4=FakeDhcpBackend(Family.V4, node))
+
+    def backends_then_write(ctx):
+        def faster(cfg):
+            cfg.settings["collector"]["poll_seconds"] = 10
+
+        ctx.config_store.update_cluster(faster, updated_by=f"node:{node}")
+        os.utime(ctx.paths.cluster_toml, ns=(5, 5))
+        return fakes
+
+    reloads = []
+
+    def no_notify(*_args, **_kwargs):
+        raise RuntimeError("no dispatcher in this test")
+
+    def reload_and_stop(collector, tasks, replication=None):
+        reloads.append({t.name: t.period for t in tasks})
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(collector_main, "build_backends", backends_then_write)
+    monkeypatch.setattr(collector_main, "build_peer_client", lambda _ctx: FakePeerClient())
+    monkeypatch.setattr(collector_main, "start_replication", lambda *_a, **_k: None)
+    monkeypatch.setattr(collector_main, "start_notify", no_notify)
+
+    class OneTurn(collector_main.EnginesWatch):
+        turns = 0
+
+        def changed(self):  # called once per loop turn: stop a run that missed the write
+            OneTurn.turns += 1
+            if OneTurn.turns > 1:
+                raise KeyboardInterrupt
+            return False
+
+    monkeypatch.setattr(collector_main, "reload_settings", reload_and_stop)
+    monkeypatch.setattr(collector_main, "EnginesWatch", OneTurn)
+    assert collector_main.run(node_ctx.paths) == 0
+    assert len(reloads) == 1
+
+
 def test_certificate_expiry_alerts_open_and_resolve(rig, monkeypatch):
     from pelagos.core.webcert import checks
     from tests.unit.core.webcert_pki import key_pem_of, make_leaf, make_pki, pem_of

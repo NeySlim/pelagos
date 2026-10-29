@@ -126,6 +126,29 @@
     "trace": {
       "title": "Trace du cluster",
       "nodes": "Nœuds"
+    },
+    "resolver": {
+      "title": "Résolveur",
+      "unavailable": "Santé du résolveur indisponible",
+      "empty": "Aucun nœud ne fait tourner BIND",
+      "state": {
+        "danger": "en échec",
+        "warning": "dégradé",
+        "success": "sain",
+        "neutral": "pas de mesure"
+      },
+      "fallback": "Repli vers des forwarders",
+      "until": "jusqu'au {{when}}",
+      "p95": "Latence p95 (pire nœud)",
+      "servfail": "SERVFAIL rendus (pire nœud)",
+      "ms": "{{value}} ms",
+      "percent": "{{value}} %",
+      "probesFailing": "Sondes racine ou TLD en échec sur {{count}} nœuds",
+      "probesFailing_one": "Sondes racine ou TLD en échec sur {{count}} nœud",
+      "probesOk": "Sondes saines, {{measured}}/{{total}} nœuds mesurés",
+      "silent": "{{count}} nœuds muets",
+      "silent_one": "{{count}} nœud muet",
+      "direct": "Pas de repli vers des forwarders"
     }
   },
   "kinds": {

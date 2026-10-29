@@ -17,6 +17,7 @@ export const TILES = [
   { i: 'zones', minW: 4, minH: 4 },
   { i: 'pools', minW: 4, minH: 4 },
   { i: 'd2', minW: 4, minH: 4 },
+  { i: 'resolver', minW: 3, minH: 4 },
 ]
 
 export const TILE_IDS = TILES.map((tile) => tile.i)
@@ -32,7 +33,8 @@ export const DEFAULT_LAYOUT = [
   { i: 'inconsistencies', x: 8, y: 11, w: 4, h: 6 },
   { i: 'zones', x: 0, y: 17, w: 6, h: 8 },
   { i: 'pools', x: 6, y: 17, w: 6, h: 8 },
-  { i: 'd2', x: 0, y: 25, w: 12, h: 6 },
+  { i: 'd2', x: 0, y: 25, w: 8, h: 6 },
+  { i: 'resolver', x: 8, y: 25, w: 4, h: 6 },
 ]
 
 const int = (v) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : null)

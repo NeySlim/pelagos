@@ -75,6 +75,9 @@ slower; without it they keep polling.
   hottest pool over the last hour against the thresholds; an alert on it
   closes a red latch where it opened and a green one where it resolved.
 - **DDNS updates**: D2 success, errors, timeouts and error rate, and the DDNS failover state (zones ready, primary down, old primary serving, leases to replay).
+- **Resolver**: the worst latency p95 and SERVFAIL share over the BIND nodes,
+  the root and TLD probes, and the forwarder fallback with its deadline when
+  one is active.
 
 "Edit layout" lets you move and resize tiles; "Save layout" keeps it in
 your account, "Default layout" restores it. Each tile opens its screen.

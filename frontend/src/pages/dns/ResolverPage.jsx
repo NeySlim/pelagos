@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-// Resolver settings (recursion, allow-recursion, global forwarders, forward
-// mode, dnssec-validation) as each node runs them, an editor that builds a
-// dns.config plan, and the forward zones that override the global forwarders.
+// Resolver health and the forwarder fallback on top (section 25), then the resolver settings
+// (recursion, allow-recursion, global forwarders, forward mode, dnssec-validation) as each node
+// runs them, an editor that builds a dns.config plan, and the forward zones.
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
-import { ArrowsLeftRight, ArrowsClockwise, PencilSimple, Warning } from '@phosphor-icons/react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { ArrowsLeftRight, ArrowsClockwise, Lifebuoy, PencilSimple, Warning } from '@phosphor-icons/react'
 import { PageLayout } from '../../components/PageLayout'
 import { Card } from '../../components/Card'
 import { Button } from '../../components/Button'
@@ -27,6 +27,8 @@ import { useNodeNames, usePlanFlow, zoneHref, RESOLVER_KEYS, resolverChanges, sa
 import { validForwarder } from './records'
 import { HandoverCard } from './HandoverCard'
 import { handoverItems } from './handover'
+import { ExtendForm, FallbackBanner, FallbackForm, ResolverHealthSection } from './ResolverHealth'
+import { DEFAULT_MAX_HOURS, extendUntil } from './resolverHealth'
 
 function ResolverEditor({ open, onClose, current, onPlan }) {
   const { t } = useTranslation(['dns', 'common'])
@@ -86,15 +88,22 @@ function ResolverEditor({ open, onClose, current, onPlan }) {
 export default function ResolverPage() {
   const { t } = useTranslation(['dns', 'common'])
   const { hasPermission } = usePermission()
-  const { showError } = useNotification()
+  const { showError, showSuccess } = useNotification()
   const { nameOf } = useNodeNames()
   const [editing, setEditing] = useState(false)
+  const [params, setParams] = useSearchParams()
+  const [extending, setExtending] = useState(false)
   const { data, error, loading, refetch } = useApi(() => api.dns.resolver(), [])
   const forwardZones = useApi(() => api.dns.zones({ kind: 'forward' }), [])
   const handover = useApi(() => api.dns.handover().catch(() => ({ items: [] })), [])
+  const health = useApi(() => api.resolverHealth.health(), [])
+  const canAdmin = hasPermission('admin:settings')
+  const adminSettings = useApi(() => (canAdmin ? api.admin.settings().catch(() => null) : Promise.resolve(null)), [canAdmin])
+  const maxHours = Number(adminSettings.data?.resolver?.fallback_max_hours) || DEFAULT_MAX_HOURS
   const reload = () => {
     refetch()
     handover.refetch()
+    health.refetch()
   }
   const flow = usePlanFlow({ onDone: reload, onError: showError })
 
@@ -104,6 +113,30 @@ export default function ResolverPage() {
     [data, current],
   )
   const canWrite = hasPermission('write:dns.config')
+  // ?fallback=1 (the link of a proposing resolver_health alert) opens the fallback form.
+  const fallingBack = params.get('fallback') === '1' && canWrite && Boolean(health.data) && !health.data.fallback
+  const closeFallback = () => {
+    const next = new URLSearchParams(params)
+    next.delete('fallback')
+    setParams(next, { replace: true })
+  }
+  const fallbackNodes = useMemo(
+    () => [
+      ...(health.data?.nodes || []).map((n) => ({ node_id: n.node_id })),
+      ...(health.data?.unavailable || []).map((n) => ({ node_id: n.node_id, unavailable: true })),
+    ],
+    [health.data],
+  )
+  const extend = async (hours) => {
+    try {
+      await api.resolverHealth.extend(extendUntil(hours))
+      setExtending(false)
+      showSuccess(t('resolverHealth.extend.done'))
+      health.refetch()
+    } catch (err) {
+      showError(errorMessage(err))
+    }
+  }
 
   const yesNo = (v) => (v === null || v === undefined ? null : t(`common:common.${v ? 'yes' : 'no'}`))
 
@@ -115,10 +148,16 @@ export default function ResolverPage() {
       testId="page-dns-resolver"
       actions={
         <>
-          <Button variant="secondary" size="sm" onClick={refetch} disabled={loading}>
+          <Button variant="secondary" size="sm" onClick={reload} disabled={loading}>
             <ArrowsClockwise size={14} />
             {t('common:actions.refresh')}
           </Button>
+          {canWrite && health.data && !health.data.fallback && (
+            <Button variant="secondary" size="sm" onClick={() => setParams({ fallback: '1' })} data-testid="resolver-fallback-open">
+              <Lifebuoy size={14} />
+              {t('resolverHealth.fallbackAction')}
+            </Button>
+          )}
           {canWrite && current && (
             <Button size="sm" onClick={() => setEditing(true)} data-testid="resolver-edit">
               <PencilSimple size={14} />
@@ -136,6 +175,19 @@ export default function ResolverPage() {
         <EmptyState icon={ArrowsLeftRight} title={errorMessage(error)} action={{ label: t('common:actions.retry'), onClick: refetch }} />
       ) : (
         <div className="space-y-4 max-w-6xl">
+          {health.data?.fallback && (
+            <FallbackBanner
+              fallback={health.data.fallback}
+              returnReady={health.data.return_ready}
+              nameOf={nameOf}
+              canWrite={canWrite}
+              busy={flow.busy}
+              onReturn={() => flow.run(() => api.resolverHealth.returnPlan())}
+              onExtend={() => setExtending(true)}
+            />
+          )}
+          <ResolverHealthSection health={health.data} error={health.error} loading={health.loading} nameOf={nameOf} canSeries={hasPermission('read:series')} onRetry={health.refetch} />
+          <h2 className="text-sm font-semibold text-text-primary pt-2">{t('resolverHealth.settingsTitle')}</h2>
           {canWrite && <HandoverCard items={handoverItems(handover.data, ['options'])} flow={flow} testId="handover-options" />}
           <Card className="p-4" hover={false} data-testid="resolver-settings">
             <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -209,6 +261,21 @@ export default function ResolverPage() {
           }}
         />
       )}
+      {fallingBack && (
+        <FallbackForm
+          open={fallingBack}
+          onClose={closeFallback}
+          presets={health.data.presets || []}
+          nodes={fallbackNodes}
+          nameOf={nameOf}
+          maxHours={maxHours}
+          onPlan={async (body) => {
+            const plan = await flow.run(() => api.resolverHealth.fallbackPlan(body))
+            if (plan) closeFallback()
+          }}
+        />
+      )}
+      {extending && <ExtendForm open={extending} onClose={() => setExtending(false)} maxHours={maxHours} onExtend={extend} />}
       {flow.modal}
     </PageLayout>
   )

@@ -126,6 +126,29 @@
     "trace": {
       "title": "Cluster trace",
       "nodes": "Nodes"
+    },
+    "resolver": {
+      "title": "Resolver",
+      "unavailable": "Resolver health unavailable",
+      "empty": "No node runs BIND",
+      "state": {
+        "danger": "failing",
+        "warning": "degraded",
+        "success": "healthy",
+        "neutral": "no measure"
+      },
+      "fallback": "Forwarder fallback",
+      "until": "until {{when}}",
+      "p95": "Latency p95 (worst node)",
+      "servfail": "SERVFAIL to clients (worst node)",
+      "ms": "{{value}} ms",
+      "percent": "{{value}} %",
+      "probesFailing": "Root or TLD probes failing on {{count}} nodes",
+      "probesFailing_one": "Root or TLD probes failing on {{count}} node",
+      "probesOk": "Probes healthy, {{measured}}/{{total}} nodes measured",
+      "silent": "{{count}} nodes silent",
+      "silent_one": "{{count}} node silent",
+      "direct": "No forwarder fallback"
     }
   },
   "kinds": {

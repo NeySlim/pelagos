@@ -45,7 +45,9 @@
     "openCertificates": "Open the certificates",
     "openChannel": "Open the channel",
     "openFailover": "Open DDNS failover",
-    "openKeaMigration": "Analyze the Kea migration"
+    "openKeaMigration": "Analyze the Kea migration",
+    "proposeFallback": "Propose the forwarder fallback",
+    "openResolver": "Open resolver health"
   },
   "ack": {
     "title": "Acknowledge the alert",

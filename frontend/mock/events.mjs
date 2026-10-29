@@ -6,8 +6,9 @@
 import { iso, ulid } from './data.mjs'
 import { notifyState } from './notify.mjs'
 import { ddnsFailoverEvents } from './ddnsFailover.mjs'
+import { resolverEvents } from './resolver.mjs'
 
-export const EVENT_KINDS = ['lease', 'alert', 'alert-resolve', 'replication', 'transfer', 'ha-failover', 'ha-failback', 'heartbeat', 'alerts-peer', 'notify-fail', 'notify-recover', 'ddns-outage', 'ddns-return', 'ddns-demote']
+export const EVENT_KINDS = ['lease', 'alert', 'alert-resolve', 'replication', 'transfer', 'ha-failover', 'ha-failback', 'heartbeat', 'alerts-peer', 'notify-fail', 'notify-recover', 'ddns-outage', 'ddns-return', 'ddns-demote', 'resolver-outage', 'resolver-recover']
 
 const POOL = { family: 'v4', subnetId: 3, pool: '192.0.2.200 - 192.0.2.219', subject: 'kea4:subnet:3:pool:192.0.2.200-192.0.2.219' }
 
@@ -304,6 +305,7 @@ export function createEvents(state, h) {
   }
 
   Object.assign(handlers, ddnsFailoverEvents(state, { emit: h.emit, ulid }))
+  Object.assign(handlers, resolverEvents(state, { emit: h.emit, ulid }))
 
   return {
     run(kind, args = {}) {

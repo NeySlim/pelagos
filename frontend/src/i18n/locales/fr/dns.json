@@ -677,5 +677,126 @@
     "readError": "{{source}} non lu : {{message}}",
     "empty": "Aucun PTR orphelin",
     "emptyHelp": "Chaque PTR des zones inverses pointe vers un nom qui a cette adresse."
+  },
+  "resolverHealth": {
+    "title": "Santé",
+    "settingsTitle": "Réglages",
+    "fallbackAction": "Passer par des forwarders",
+    "loadError": "La santé du résolveur n'a pas pu être lue.",
+    "noNodes": "Aucun nœud ne fait tourner BIND.",
+    "unavailable": "Pas de réponse de {{nodes}} : leurs mesures manquent.",
+    "rootsAnswering": "{{ok}}/{{total}} serveurs racine répondent",
+    "unhealthy": "Sondes racine ou TLD en échec",
+    "healthySince": "sondes saines depuis {{when}}",
+    "sampled": "mesuré {{when}}",
+    "measureError": "Mesures absentes : {{error}}",
+    "history": "Historique",
+    "metric": "Mesure",
+    "range": "Période",
+    "units": {
+      "ms": "{{value}} ms",
+      "percent": "{{value}} %",
+      "perSecond": "{{value}}/s"
+    },
+    "readings": {
+      "queriesOut": "Requêtes sortantes",
+      "p95": "Latence p95",
+      "servfail": "SERVFAIL rendus",
+      "valfail": "Échecs DNSSEC",
+      "cacheHit": "Réussite du cache"
+    },
+    "probes": {
+      "ok": "répond",
+      "failing": "pas de réponse",
+      "roots": "Serveurs racine",
+      "tlds": "TLD sondés",
+      "letter": "Lettre",
+      "rtt": "Temps de réponse",
+      "state": "État",
+      "lastFailure": "Dernier échec",
+      "noRoots": "Pas encore de sonde racine",
+      "noTlds": "Pas encore de sonde TLD",
+      "tld": "TLD",
+      "served": "servi",
+      "servers": "Serveurs"
+    },
+    "metrics": {
+      "latency_p95_ms": "Latence p95 (ms)",
+      "queries_out_per_second": "Requêtes sortantes par seconde",
+      "timeouts_percent": "Délais dépassés (%)",
+      "servfail_clients_percent": "SERVFAIL rendus (%)",
+      "valfail_percent": "Échecs DNSSEC (%)",
+      "cache_hit_percent": "Réussite du cache (%)"
+    },
+    "ranges": {
+      "1h": "1 h",
+      "24h": "24 h",
+      "7d": "7 jours"
+    },
+    "thresholds": {
+      "title": "Seuils d'alerte",
+      "measure": "Mesure",
+      "setting": "Seuil (info / avertissement / critique)",
+      "observed": "Maximum sur 7 jours",
+      "keys": {
+        "latency_p95_ms": "Latence p95 (ms)",
+        "timeouts_percent": "Délais dépassés (%)",
+        "tld_failures": "Sondes TLD échouées d'affilée",
+        "mismatch_count": "Réponses non conformes par fenêtre",
+        "lru_per_minute": "Expulsions du cache par minute"
+      }
+    },
+    "banner": {
+      "title": "Les requêtes passent par des forwarders",
+      "tls": "DNS sur TLS : {{name}}",
+      "manual": "Modifié à la main : pas de retour automatique",
+      "ready": "Sondes saines : retour proposé",
+      "forwarders": "Forwarders",
+      "nodes": "Nœuds",
+      "returned": "(déjà revenus : {{nodes}})",
+      "until": "Jusqu'au",
+      "overdue": "échéance passée, retour en attente",
+      "left": "(reste {{hours}} h {{minutes}} min)",
+      "started": "Lancé par {{by}} le {{when}}. À l'échéance, chaque nœud reprend ses propres réglages.",
+      "returnNow": "Revenir maintenant",
+      "extend": "Prolonger"
+    },
+    "form": {
+      "title": "Passer par des forwarders",
+      "intro": "Toutes les requêtes des nœuds choisis partent vers ces forwarders jusqu'à l'échéance, puis chaque nœud reprend ses réglages d'avant. La validation DNSSEC reste active.",
+      "preset": "Préréglage",
+      "presetFiltering": "{{name}} (filtrage)",
+      "custom": "Adresses libres",
+      "filteringNote": "Ce service bloque les domaines malveillants connus.",
+      "noFilteringNote": "Ce service ne filtre pas.",
+      "forwarders": "Forwarders",
+      "forwardersHelp": "Adresses IPv4 ou IPv6, sans port ; Entrée ajoute une adresse",
+      "forward": "Mode",
+      "forwardFirst": "first : récursion directe si les forwarders tombent",
+      "forwardOnly": "only : forwarders seuls",
+      "hours": "Durée",
+      "hoursValue": "{{hours}} h",
+      "nodes": "Nœuds",
+      "nodeSilent": "ne répond pas",
+      "tls": "DNS sur TLS",
+      "tlsPreset": "Port 853, nom de certificat {{name}}",
+      "tlsHelp": "Port 853 ; donner le nom de certificat des forwarders",
+      "tlsName": "Nom TLS",
+      "dnssecNote": "Le plan écrit forward et forwarders dans les options gérées par Pelagos et demande une confirmation.",
+      "errors": {
+        "forwarders": "Donner au moins une adresse",
+        "address": "Adresses seules, sans port ni zone",
+        "nodes": "Choisir au moins un nœud",
+        "hours": "De 1 à {{max}} heures",
+        "tlsName": "Un nom d'hôte, par exemple dns.example.net"
+      }
+    },
+    "extend": {
+      "title": "Prolonger le repli",
+      "submit": "Prolonger",
+      "hours": "Nouvelle échéance à partir de maintenant",
+      "help": "Au plus {{max}} heures à partir de maintenant.",
+      "done": "Repli prolongé"
+    }
   }
 }

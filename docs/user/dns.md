@@ -161,7 +161,29 @@ view use it, and zone pages show the view selector.
 
 ## Resolver
 
-Recursion (`recursion`, `allow-recursion`), forwarders (address, optionally
+**Health**, on top: for each node running BIND, outgoing queries per second,
+latency p95 toward remote servers, SERVFAIL returned to clients, DNSSEC
+validation failures and cache hit rate; a history of each measure over 1 h,
+24 h or 7 days; the root servers (letter, IPv4 and IPv6 address, response
+time, last failure) and the probed TLDs (a TLD of one of your zones is marked
+`served`). The alert thresholds are shown next to the highest value seen over
+7 days, so you can tune them in Administration, Settings.
+
+**Fall back to forwarders** (`write:dns.config`) sends every query of the
+chosen nodes to forwarders until a deadline: a preset (Quad9 with filtering,
+Quad9 without filtering, Cloudflare, or your own presets) or your own
+addresses, `first` (BIND resolves directly again if the forwarders fail too)
+or `only`, the nodes, the duration (at most `resolver.fallback_max_hours`),
+and DNS over TLS when the preset names a TLS host. DNSSEC validation is never
+changed. A `resolver_health` alert that proposes it (root servers
+unreachable, a TLD unreachable, critical timeouts or latency) links to this
+form. While a fallback is active a banner shows the forwarders, the nodes, the
+deadline, "Return now" (a plan that puts back each node's `forward` and
+`forwarders` exactly as before) and "Extend". It says when the probes have
+been healthy long enough to return; at the deadline each node returns on its
+own, unless its options were changed by hand in the meantime.
+
+**Settings**: recursion (`recursion`, `allow-recursion`), forwarders (address, optionally
 `port N`), forward mode (BIND default `first`, or `only`), DNSSEC validation,
 and forward zones. "Per node" shows each node's values and flags those that
 differ. Changes (`write:dns.config`) go to the Pelagos `options.conf`; an

@@ -677,5 +677,126 @@
     "readError": "{{source}} not read: {{message}}",
     "empty": "No orphan PTR",
     "emptyHelp": "Every PTR of the reverse zones points to a name that has this address."
+  },
+  "resolverHealth": {
+    "title": "Health",
+    "settingsTitle": "Settings",
+    "fallbackAction": "Fall back to forwarders",
+    "loadError": "Resolver health could not be read.",
+    "noNodes": "No node runs BIND.",
+    "unavailable": "No answer from {{nodes}}: their measures are missing.",
+    "rootsAnswering": "{{ok}}/{{total}} root servers answer",
+    "unhealthy": "Root or TLD probes failing",
+    "healthySince": "probes healthy since {{when}}",
+    "sampled": "measured {{when}}",
+    "measureError": "Measures missing: {{error}}",
+    "history": "History",
+    "metric": "Measure",
+    "range": "Range",
+    "units": {
+      "ms": "{{value}} ms",
+      "percent": "{{value}} %",
+      "perSecond": "{{value}}/s"
+    },
+    "readings": {
+      "queriesOut": "Outgoing queries",
+      "p95": "Latency p95",
+      "servfail": "SERVFAIL to clients",
+      "valfail": "DNSSEC failures",
+      "cacheHit": "Cache hit rate"
+    },
+    "probes": {
+      "ok": "answers",
+      "failing": "no answer",
+      "roots": "Root servers",
+      "tlds": "Probed TLDs",
+      "letter": "Letter",
+      "rtt": "Response time",
+      "state": "State",
+      "lastFailure": "Last failure",
+      "noRoots": "No root probe yet",
+      "noTlds": "No TLD probe yet",
+      "tld": "TLD",
+      "served": "served",
+      "servers": "Servers"
+    },
+    "metrics": {
+      "latency_p95_ms": "Latency p95 (ms)",
+      "queries_out_per_second": "Outgoing queries per second",
+      "timeouts_percent": "Timeouts (%)",
+      "servfail_clients_percent": "SERVFAIL to clients (%)",
+      "valfail_percent": "DNSSEC failures (%)",
+      "cache_hit_percent": "Cache hit rate (%)"
+    },
+    "ranges": {
+      "1h": "1 h",
+      "24h": "24 h",
+      "7d": "7 days"
+    },
+    "thresholds": {
+      "title": "Alert thresholds",
+      "measure": "Measure",
+      "setting": "Threshold (info / warning / critical)",
+      "observed": "Highest over 7 days",
+      "keys": {
+        "latency_p95_ms": "Latency p95 (ms)",
+        "timeouts_percent": "Timeouts (%)",
+        "tld_failures": "TLD failed probes in a row",
+        "mismatch_count": "Mismatched answers per window",
+        "lru_per_minute": "Cache evictions per minute"
+      }
+    },
+    "banner": {
+      "title": "Queries go through forwarders",
+      "tls": "DNS over TLS: {{name}}",
+      "manual": "Changed by hand: no automatic return",
+      "ready": "Probes healthy: return proposed",
+      "forwarders": "Forwarders",
+      "nodes": "Nodes",
+      "returned": "(already back: {{nodes}})",
+      "until": "Until",
+      "overdue": "deadline passed, return pending",
+      "left": "({{hours}} h {{minutes}} min left)",
+      "started": "Started by {{by}} on {{when}}. At the deadline each node returns to its own settings.",
+      "returnNow": "Return now",
+      "extend": "Extend"
+    },
+    "form": {
+      "title": "Fall back to forwarders",
+      "intro": "Every query of the chosen nodes goes to these forwarders until the deadline, then each node returns to its settings of before. DNSSEC validation stays on.",
+      "preset": "Preset",
+      "presetFiltering": "{{name}} (filtering)",
+      "custom": "Own addresses",
+      "filteringNote": "This service blocks known malicious domains.",
+      "noFilteringNote": "This service does not filter.",
+      "forwarders": "Forwarders",
+      "forwardersHelp": "IPv4 or IPv6 addresses, without port; Enter adds an address",
+      "forward": "Mode",
+      "forwardFirst": "first: resolve directly if the forwarders fail",
+      "forwardOnly": "only: forwarders alone",
+      "hours": "Duration",
+      "hoursValue": "{{hours}} h",
+      "nodes": "Nodes",
+      "nodeSilent": "does not answer",
+      "tls": "DNS over TLS",
+      "tlsPreset": "Port 853, certificate name {{name}}",
+      "tlsHelp": "Port 853; give the certificate name of the forwarders",
+      "tlsName": "TLS name",
+      "dnssecNote": "The plan writes forward and forwarders in the options Pelagos manages and needs a confirmation.",
+      "errors": {
+        "forwarders": "Give at least one address",
+        "address": "Addresses only, without port or scope",
+        "nodes": "Choose at least one node",
+        "hours": "From 1 to {{max}} hours",
+        "tlsName": "A host name, like dns.example.net"
+      }
+    },
+    "extend": {
+      "title": "Extend the fallback",
+      "submit": "Extend",
+      "hours": "New deadline from now",
+      "help": "At most {{max}} hours from now.",
+      "done": "Fallback extended"
+    }
   }
 }

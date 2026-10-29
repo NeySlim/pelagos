@@ -325,6 +325,34 @@ describe('mock server notification sends', () => {
 })
 
 describe('mock server resolver, Kea migration and IPv6', () => {
+  it('raises the root outage, proposes the return once probes recover, and restores the options', async () => {
+    const admin = client(await login('admin', 'admin'))
+    const ev = (kind, extra = {}) => fetch(`${base}/_mock/events`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind, ...extra }) }).then((r) => r.json())
+    const before = (await admin('GET', '/dns/resolver')).data
+    expect((await ev('resolver-outage')).alerts).toHaveLength(2)
+    let health = (await admin('GET', '/dns/resolver/health')).data
+    expect(health.nodes.every((n) => n.probes_healthy_since === 'unhealthy' && n.roots.every((r) => !r.ok))).toBe(true)
+    const open = (await admin('GET', '/alerts?kind=resolver_health&state=open')).data.items
+    expect(open.every((a) => a.subject === 'resolver:roots' && a.details.remediation === 'resolver_fallback')).toBe(true)
+    const plan = await admin('POST', '/dns/resolver/fallback/plan', { preset: 'quad9', tls: true, hours: 2 })
+    expect((await admin('POST', `/plans/${plan.data.id}/apply`, { confirm: true })).status).toBe(200)
+    expect((await admin('GET', '/dns/resolver')).data.forwarders[0]).toBe('9.9.9.9 port 853 tls "dns.quad9.net"')
+    health = (await admin('GET', '/dns/resolver/health')).data
+    expect(health.fallback).toMatchObject({ tls_name: 'dns.quad9.net', before: { [health.nodes[0].node_id]: { forward: before.forward, forwarders: before.forwarders } } })
+    expect(health.return_ready).toBe(false)
+    await ev('resolver-recover', { minutes: 5 })
+    expect((await admin('GET', '/dns/resolver/health')).data.return_ready).toBe(false)
+    await ev('resolver-recover', { minutes: 20 })
+    expect((await admin('GET', '/dns/resolver/health')).data.return_ready).toBe(true)
+    const back = await admin('POST', '/dns/resolver/fallback/return/plan', {})
+    expect((await admin('POST', `/plans/${back.data.id}/apply`, { confirm: true })).status).toBe(200)
+    const after = (await admin('GET', '/dns/resolver')).data
+    expect([after.forward, after.forwarders]).toEqual([before.forward, before.forwarders])
+    expect((await admin('GET', '/alerts?kind=resolver_health&state=open')).data.items).toHaveLength(0)
+    mock.state.alerts = mock.state.alerts.filter((a) => a.subject !== 'resolver:roots')
+    delete mock.state.resolverHealthy
+  })
+
   it('runs a forwarder fallback, extends it, returns, and analyzes the Kea migration', async () => {
     const admin = client(await login('admin', 'admin'))
     const health = await admin('GET', '/dns/resolver/health')

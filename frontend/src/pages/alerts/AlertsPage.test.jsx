@@ -158,6 +158,8 @@ describe('AlertsPage', () => {
     expect(subjectLink({ subject: 'ddns:replay' })).toEqual({ to: tab, label: 'openFailover' })
     expect(subjectLink({ subject: 'd2:dns-servers' }).to).toBe(tab)
     expect(subjectLink({ subject: 'd2:updates' }).to).toBe('/dhcp/v4/ddns')
+    expect(subjectLink({ subject: 'resolver:roots', details: { remediation: 'resolver_fallback' } })).toEqual({ to: '/dns/resolver?fallback=1', label: 'proposeFallback' })
+    expect(subjectLink({ subject: 'resolver:cache', details: { per_minute: 150 } })).toEqual({ to: '/dns/resolver', label: 'openResolver' })
   })
 
   it('links the obsolete Kea series alert to the migration analysis', () => {

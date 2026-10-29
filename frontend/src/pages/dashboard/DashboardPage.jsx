@@ -27,12 +27,14 @@ import { COLS, ROW_HEIGHT, DEFAULT_LAYOUT, normalizeLayout, serializeLayout, sam
 import { NodesTile, HaTile, InconsistenciesTile, ZoneSyncTile, PoolsTile, D2Tile } from './tiles'
 import { TILE_SLICES, TileRefresh, changedTiles } from './tileRefresh'
 import { ClusterTile, DnsTile, DhcpTile } from './heroTiles'
+import { ResolverTile } from './resolverTile'
 import { liveTargets, useLiveRates } from '../../hooks/useLiveRates'
 import { summarizeLive } from '../../lib/liveRates'
 
 const TILE_COMPONENTS = {
   trace: ClusterTile, dns: DnsTile, dhcp: DhcpTile,
   nodes: NodesTile, ha: HaTile, inconsistencies: InconsistenciesTile, zones: ZoneSyncTile, pools: PoolsTile, d2: D2Tile,
+  resolver: ResolverTile,
 }
 const REFRESH_MS = 30000
 const SEVERITY_RANK = { critical: 0, warning: 1, info: 2 }

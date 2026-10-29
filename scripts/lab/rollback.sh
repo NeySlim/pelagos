@@ -16,6 +16,7 @@
 # (the whole "PVEAPIToken=user@realm!name=uuid" string) and the API base URL in
 # ~/.config/pelagos-lab/pve-api (for instance https://pve.example.lan:8006/api2/json)
 # or in PVE_API. The Proxmox node name comes from PVE_NODE (default pve).
+# Starts go through vm_budget.py: refused when PELAGOS_LAB_MAX_VMS (default 10) test VMs would run.
 set -euo pipefail
 
 CONF_DIR="${PVE_CONF_DIR:-$HOME/.config/pelagos-lab}"
@@ -46,7 +47,8 @@ VMS=(
 # "all" targets only the disposable test VMs; the gateway (9110) is never rolled back.
 ALL_TARGETS=(9111 9112 9113 9114 9116 9117)
 
-usage() { sed -n '3,18p' "$0"; exit 2; }
+usage() { sed -n '3,19p' "$0"; exit 2; }
+BUDGET="$(dirname "$0")/vm_budget.py"
 
 [[ $# -ge 1 ]] || usage
 target="$1"; shift
@@ -143,6 +145,7 @@ rollback_one() {
   ssh-keygen -R "$name" >/dev/null 2>&1 || true
   if [[ $start -eq 1 ]]; then
     if [[ "$(api GET "/$vmid/status/current" | jq -r '.data.status')" != "running" ]]; then
+      "$BUDGET" check "$vmid" >/dev/null
       upid=$(api POST "/$vmid/status/start" | jq -r '.data')
       wait_task "$upid"
     fi
@@ -155,6 +158,12 @@ if [[ "$target" == "all" ]]; then
   targets=("${ALL_TARGETS[@]}")
 else
   targets=("$target")
+fi
+# Refuse before any rollback when the VMs to start would not fit in the lab budget.
+if [[ $list -eq 0 && $start -eq 1 ]]; then
+  ids=()
+  for t in "${targets[@]}"; do IFS=: read -r vmid _ <<<"$(resolve "$t")"; ids+=("$vmid"); done
+  "$BUDGET" check "${ids[@]}"
 fi
 for t in "${targets[@]}"; do rollback_one "$t"; done
 if [[ $list -eq 0 && $start -eq 1 && $wait_up -eq 1 ]]; then

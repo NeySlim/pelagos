@@ -108,7 +108,10 @@ def rollback(*vms: str) -> None:
 
 
 def pve_vm(vmid: int, action: str) -> None:
-    """Powers a lab VM on or off (`start`, `stop`) through the Proxmox API, as rollback.sh does."""
+    """Powers a lab VM on or off (`start`, `stop`) through the Proxmox API, as rollback.sh does.
+
+    Starts are refused above the lab budget (scripts/lab/vm_budget.py, PELAGOS_LAB_MAX_VMS).
+    """
     conf = Path(os.path.expanduser("~/.config/pelagos-lab"))
     base = os.environ.get("PVE_API") or (conf / "pve-api").read_text().strip()
     header = (conf / "pve-token").read_text().strip()
@@ -121,6 +124,8 @@ def pve_vm(vmid: int, action: str) -> None:
         with urllib.request.urlopen(req, timeout=30, context=ctx) as res:  # noqa: S310 - lab API only
             return json.loads(res.read())["data"]
 
+    if action == "start":
+        run_script("vm_budget.py", "check", str(vmid))
     node = next(r["node"] for r in call("GET", "/cluster/resources?type=vm") if r.get("vmid") == vmid)
     call("POST", f"/nodes/{node}/qemu/{vmid}/status/{action}")
     want = "running" if action == "start" else "stopped"

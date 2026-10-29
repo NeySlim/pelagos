@@ -1,5 +1,7 @@
 {
  "messages": {
+  "alert.api_token_expired": "Le jeton d'API {{name}} de {{user}} a expiré le {{expires_at}}",
+  "alert.api_token_expiry": "Le jeton d'API {{name}} de {{user}} expire le {{expires_at}}",
   "alert.archive_failed": "l'archive vers {{destination}} a échoué {{failures}} fois de suite : {{error}}",
   "alert.archive_incomplete": "la dernière archive est incomplète : {{count}} fichiers n'ont pas pu être lus ({{files}})",
   "alert.archive_stale": "aucune archive réussie de ce nœud depuis {{hours}} h (une toutes les {{interval}} h attendue)",

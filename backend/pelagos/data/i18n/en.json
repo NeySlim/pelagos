@@ -1,5 +1,7 @@
 {
  "messages": {
+  "alert.api_token_expired": "API token {{name}} of {{user}} expired on {{expires_at}}",
+  "alert.api_token_expiry": "API token {{name}} of {{user}} expires on {{expires_at}}",
   "alert.archive_failed": "archive to {{destination}} failed {{failures}} times in a row: {{error}}",
   "alert.archive_incomplete": "the last archive is incomplete: {{count}} files could not be read ({{files}})",
   "alert.archive_stale": "no successful archive of this node for {{hours}} h (every {{interval}} h expected)",

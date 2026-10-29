@@ -27,6 +27,7 @@ from pelagos.collector.checks import (
     forecast,
     reservations,
     resolver,
+    resolver_probes,
     restarts,
     versions,
 )
@@ -146,6 +147,8 @@ class HealthChecks:
         self._deleg_fails: dict[str, int] = {}
         self.net_factory: Callable[[Any], delegation.Net] | None = None
         self.root_probe: Callable[[str, int], bool | None] = lambda s, p: resolver.probe_roots(s, p)
+        self.probes = resolver_probes.ResolverProbes(clock)
+        self.probe_net_factory: Callable[[Any], resolver_probes.ProbeNet] | None = None
         self._addresses: dict[str, tuple[float, dict[int, list[str]]]] = {}
         self._advisory_data: tuple[float, dict[str, Any]] | None = None
         self._fetched_at = 0.0
@@ -236,7 +239,9 @@ class HealthChecks:
 
     def _resolver(self) -> PollOutcome:
         kinds = frozenset({AlertKind.RESOLVER_HEALTH.value})
-        match = _mine(self.node_id, lambda s: s != "resolver:roots")
+        match = _mine(
+            self.node_id, lambda s: s != "resolver:roots" and not resolver_probes.is_probe_subject(s)
+        )
         dns = self.backends.dns
         if dns is None:
             return PollOutcome(kinds=kinds, where=match)
@@ -836,3 +841,41 @@ class HealthChecks:
         self.root_failures = 0 if verdict else self.root_failures + 1
         alert = resolver.roots_alert(self.node_id, self.root_failures, self.cfg())
         return PollOutcome(alerts=[alert] if alert else [], kinds=kinds, where=match)
+
+    # Root and TLD probes (own task, every resolver.probe_interval_seconds) --------------
+
+    def load_probes(self) -> None:
+        """Loop thread, once: results the cache kept before a restart."""
+        if not self.probes.loaded:
+            reader = getattr(self.store, "resolver_probes", None)
+            self.probes.load(reader() if reader else [])
+
+    def store_probes(self) -> None:
+        """Loop thread: the rows of the last finished pass."""
+        rows = self.probes.rows()
+        writer = getattr(self.store, "write_resolver_probes", None)
+        if rows is not None and writer:
+            writer(rows)
+
+    def resolver_probes(self) -> PollOutcome:
+        """`. SOA` to every root server and `<tld>. SOA` to two servers of each probed TLD, without
+        recursion; the addresses come from the local resolver. No verdict when it cannot give them."""
+        kinds = frozenset({AlertKind.RESOLVER_HEALTH.value})
+        match = _mine(self.node_id, resolver_probes.is_probe_subject)
+        backend = self.backends.dns
+        client = getattr(backend, "dns", None)
+        if client is None:
+            return PollOutcome(kinds=kinds, where=match)
+        settings = self.ctx.settings()
+        try:
+            with self.lock:
+                zones = [z.name for z in backend.list_zones()]
+        except (ConnectorError, NotImplementedError):
+            zones = []
+        tlds = resolver_probes.probed_tlds(reg.get(settings, "resolver.probe_tlds"), zones)
+        net = (self.probe_net_factory or (lambda b: resolver_probes.DnsProbeNet(b.dns.server, b.dns.port)))(
+            backend
+        )
+        if not self.probes.run(net, tlds, bool(reg.get(settings, "resolver.probe_ipv6_enabled"))):
+            return PollOutcome()
+        return PollOutcome(alerts=self.probes.alerts(self.node_id, self.cfg()), kinds=kinds, where=match)

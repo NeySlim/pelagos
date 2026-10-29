@@ -296,6 +296,7 @@ def test_tasks_and_retention(rig):
         "health": 60.0,
         "health_audit": 900.0,
         "health_audit_ready": 60.0,
+        "resolver_probes": 300.0,
         "certificates": 60.0,
         "notify_alerts": 10.0,
         "archive": 60.0,

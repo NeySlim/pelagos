@@ -47,6 +47,10 @@ CREATE INDEX IF NOT EXISTS alerts_state ON alerts(state, severity);
 CREATE TABLE IF NOT EXISTS engine_snapshots (
   node_id TEXT NOT NULL, engine TEXT NOT NULL, kind TEXT NOT NULL, ts INTEGER NOT NULL, payload TEXT NOT NULL,
   PRIMARY KEY (node_id, engine, kind));
+CREATE TABLE IF NOT EXISTS resolver_probes (
+  kind TEXT NOT NULL, name TEXT NOT NULL, address TEXT NOT NULL, family INTEGER NOT NULL,
+  ok INTEGER NOT NULL, rtt_ms REAL, checked_at INTEGER NOT NULL, last_failure INTEGER,
+  failures INTEGER NOT NULL, PRIMARY KEY (kind, name, address));
 """
 
 
@@ -357,6 +361,20 @@ class SeriesStore:
             (node_id, engine),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def write_resolver_probes(self, rows: Iterable[dict[str, Any]]) -> None:
+        """This node's root and TLD probes: one row per target of the last pass, the rest dropped."""
+        self.conn.execute("DELETE FROM resolver_probes")
+        self.conn.executemany(
+            "INSERT INTO resolver_probes VALUES (:kind, :name, :address, :family, :ok, :rtt_ms,"
+            " :checked_at, :last_failure, :failures)",
+            [{**r, "ok": int(bool(r["ok"]))} for r in rows],
+        )
+        self._commit()
+
+    def resolver_probes(self) -> list[dict[str, Any]]:
+        rows = self.conn.execute("SELECT * FROM resolver_probes ORDER BY kind, name, address").fetchall()
+        return [{**dict(r), "ok": bool(r["ok"])} for r in rows]
 
     def counts(self) -> dict[str, int]:
         return {

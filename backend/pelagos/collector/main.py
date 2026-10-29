@@ -235,6 +235,7 @@ class Collector:
         self._slow_thread: threading.Thread | None = None
         self._slow_ready: list[PollOutcome] = []
         self._slow_lock = threading.Lock()
+        self._probe_thread: threading.Thread | None = None
         # Set by run(): the notification dispatcher (collector.notify), ticking on its own thread.
         self.notifier: Any = None
         from pelagos.collector.archives import ArchiveRunner
@@ -794,6 +795,27 @@ class Collector:
             self._slow_thread = threading.Thread(target=self._slow_checks, name="health-audit", daemon=True)
             self._slow_thread.start()
 
+    def resolver_probes(self) -> None:
+        """Root and TLD probes of the local resolver, on their own thread like the slow checks."""
+        self.checks.load_probes()
+        if not self.slow_background:
+            self._finish(self.checks.resolver_probes())
+            self.checks.store_probes()
+            return
+        self.health_audit_ready()
+        if self._probe_thread is None or not self._probe_thread.is_alive():
+            self._probe_thread = threading.Thread(target=self._probes, name="resolver-probes", daemon=True)
+            self._probe_thread.start()
+
+    def _probes(self) -> None:
+        try:
+            outcome = self.checks.resolver_probes()
+        except Exception:
+            log.exception("resolver probes failed")
+            return
+        with self._slow_lock:
+            self._slow_ready.append(outcome)
+
     def _slow_checks(self) -> None:
         try:
             outcomes = self.checks.slow()
@@ -809,6 +831,7 @@ class Collector:
             ready, self._slow_ready = self._slow_ready, []
         for outcome in ready:
             self._finish(outcome)
+        self.checks.store_probes()
 
     def certificates(self) -> list[Alert]:
         """Renew the web certificate when due (or install one another node sent), then the expiry
@@ -874,6 +897,7 @@ class Collector:
             ("security_audit", self.security_audit),
             ("health", self.health),
             ("health_audit", self.health_audit),
+            ("resolver_probes", self.resolver_probes),
             ("certificates", self.certificates),
             ("notify_alerts", self.notify_alerts),
             ("archive", self.archive),
@@ -894,6 +918,7 @@ class Collector:
         consistency_period = float(reg.get(settings, "collector.consistency_seconds"))
         live = max(1.0, float(reg.get(settings, "collector.live_seconds")))
         rpz_period = max(30.0, float(reg.get(settings, "rpz.check_seconds")))
+        probe_period = float(reg.get(settings, "resolver.probe_interval_seconds"))
         return [
             Task("poll_bind", poll, self.poll_bind),
             Task("poll_kea", poll, self.poll_kea),
@@ -909,6 +934,7 @@ class Collector:
             Task("health", poll, self.health),
             Task("health_audit", consistency_period, self.health_audit),
             Task("health_audit_ready", poll, self.health_audit_ready),
+            Task("resolver_probes", probe_period, self.resolver_probes),
             Task("certificates", CERT_SECONDS, self.certificates),
             Task("notify_alerts", NOTIFY_SECONDS, self.notify_alerts),
             Task("archive", ARCHIVE_SECONDS, self.archive),

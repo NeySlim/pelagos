@@ -3786,7 +3786,8 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
   `minutes`), `resolver:tld:<tld>` (warning: no probed server of the TLD
   answered for `resolver_tld_failures` probes; details `tld`, `failures`,
   `servers`), `resolver:root-letters` (info: some root servers do not
-  answer; details `letters`, `count`, `total`), `resolver:mismatch` (warning;
+  answer for `resolver_tld_failures` probes; details `letters`, `count`,
+  `total`, `addresses`), `resolver:mismatch` (warning;
   details `count`, `minutes`), `resolver:cache` (info: `DeleteLRU` above
   `resolver_lru_info_per_minute` for the whole window; details
   `per_minute`). Titles `alert.resolver_latency|timeouts|tld|root_letters|

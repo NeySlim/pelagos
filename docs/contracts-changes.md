@@ -13,6 +13,11 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-29, WP-COLLECTOR: silent root addresses in resolver:root-letters (R2)
+Additive. `docs/architecture.md` section 25: `resolver:root-letters` is raised once an address
+missed `checks.resolver_tld_failures` probes in a row, and its details gain `addresses` (the
+silent addresses, so an IPv6-only loss is visible). WP-FRONTEND (R4) may show them.
+
 ## 2026-10-28, WP-API-AUTH, WP-FRONTEND: security keys and passkeys (item 66)
 Additive. `domain/cluster.py`: `WebAuthnCredential` and `User.webauthn` (by credential id),
 `User.public()` gains `webauthn_count`. `docs/architecture.md` sections 4, 10, 12, 16, 17 and 19:

@@ -60,6 +60,7 @@ export function subjectLink(alert) {
   }
   if (subject === 'd2:dns-servers') return { to: failoverPath(), label: 'openFailover' }
   if (kind === 'd2') return { to: '/dhcp/v4/ddns', label: null }
+  if (subject === 'kea:series') return { to: '/install/kea-migration', label: 'openKeaMigration' }
   if (kind === 'notify' && value) return { to: `/admin/notifications?channel=${encodeURIComponent(value)}`, label: 'openChannel' }
   return null
 }

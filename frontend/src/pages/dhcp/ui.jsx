@@ -9,6 +9,7 @@ import { errorMessage } from '../../services/apiClient'
 import { cn } from '../../lib/utils'
 import { userContextEntries } from './lib'
 import { KeaFileBanner } from './KeaFileBanner'
+import { KeaSeriesBanner } from './KeaSeriesBanner'
 
 const KNOWN_LABELS = { 'pelagos.notes': 'userContext.note', 'pelagos:note': 'userContext.note', 'pelagos.owner': 'userContext.owner', 'pelagos:owner': 'userContext.owner' }
 
@@ -170,6 +171,7 @@ export function AreaPage({ ns, page, icon, family, actions, onRefresh, loading, 
       }
     >
       {ns === 'dhcp' && family && <KeaFileBanner engine={family} />}
+      {ns === 'dhcp' && family && <KeaSeriesBanner />}
       {children}
     </PageLayout>
   )

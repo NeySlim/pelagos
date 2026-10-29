@@ -57,7 +57,9 @@ function NodesCard({ nodes }) {
                   <td className="py-1.5">
                     {e.maintained === false
                       ? <Badge variant="warning" size="sm" data-testid="kea-migration-obsolete">{e.eol ? t('keaMigration.nodes.obsoleteSince', { series: e.series, date: e.eol }) : t('keaMigration.nodes.obsolete', { series: e.series })}</Badge>
-                      : <Badge variant="success" size="sm">{t('keaMigration.nodes.maintained', { series: e.series })}</Badge>}
+                      : e.maintained === true
+                        ? <Badge variant="success" size="sm">{t('keaMigration.nodes.maintained', { series: e.series })}</Badge>
+                        : <Badge variant="outline" size="sm" data-testid="kea-migration-unknown">{t('keaMigration.nodes.maintenanceUnknown', { series: e.series || '?' })}</Badge>}
                   </td>
                 </tr>
               ))

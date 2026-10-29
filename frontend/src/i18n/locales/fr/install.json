@@ -208,6 +208,7 @@
       "support": "Suivi ISC",
       "noKea": "Aucun démon Kea installé",
       "unreachable": "N'a pas répondu : {{error}}",
+      "maintenanceUnknown": "{{series}} : maintenance inconnue",
       "maintained": "{{series}} maintenue",
       "obsolete": "{{series}} plus maintenue",
       "obsoleteSince": "{{series}} plus maintenue depuis le {{date}}"

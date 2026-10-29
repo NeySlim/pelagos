@@ -344,8 +344,14 @@ converted, behavior change, information) and node, each with the JSON path,
 what Pelagos will do and the ISC reference; per node it shows whether each
 daemon's converted file was accepted, the packages that will be removed and
 installed, and the full diff of each file (secrets masked). The last report
-is kept on the node and shown again. The `kea_series_obsolete` alert (info)
-points here. The migration itself comes with a later release.
+is kept on the node and shown again. A node that has no Kea file to analyze
+gives a blocking "not analyzed" finding with its reason; a target is not
+available while a Kea node does not answer; one analysis runs at a time. A
+file that differs from the running configuration (an open
+`config_divergence` alert) is noted in the report. The `kea_series_obsolete`
+alert (info) links here from Alerts, and while it is open the DHCP pages show
+a dismissible banner naming the node, the series and its end of life. The
+migration itself comes with a later release.
 
 ## Audit log
 

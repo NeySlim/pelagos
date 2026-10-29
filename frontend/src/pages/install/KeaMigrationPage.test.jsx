@@ -87,6 +87,13 @@ describe('KeaMigrationPage', () => {
     expect(within(select).getByRole('option', { name: /backports/ })).toBeDisabled()
   })
 
+  it('shows an unknown maintenance state as unknown', async () => {
+    const node = { ...overview.nodes[0], engines: { kea4: { ...engine, maintained: null, eol: null } } }
+    api.keaMigration.overview.mockResolvedValue({ ...overview, nodes: [node] })
+    renderPage()
+    expect(await screen.findByTestId('kea-migration-unknown')).toHaveTextContent('2.6: maintenance unknown')
+  })
+
   it('analyzes the chosen target and shows the report', async () => {
     api.keaMigration.analyze.mockResolvedValue(report)
     renderPage()

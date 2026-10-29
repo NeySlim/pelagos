@@ -209,6 +209,7 @@
       "noKea": "No Kea daemon installed",
       "unreachable": "Did not answer: {{error}}",
       "maintained": "{{series}} maintained",
+      "maintenanceUnknown": "{{series}}: maintenance unknown",
       "obsolete": "{{series}} no longer maintained",
       "obsoleteSince": "{{series}} no longer maintained since {{date}}"
     },

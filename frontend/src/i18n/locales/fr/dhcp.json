@@ -384,6 +384,12 @@
     "remove": "Décharger",
     "unknown": "inconnu"
   },
+  "keaSeries": {
+    "row": "{{node}} fait tourner Kea {{series}}, que l'ISC ne maintient plus",
+    "rowSince": "{{node}} fait tourner Kea {{series}}, que l'ISC ne maintient plus depuis le {{date}}",
+    "analyze": "Analyser la migration vers Kea 3.x",
+    "dismiss": "Masquer"
+  },
   "keaFile": {
     "title": "{{path}} sur {{node}} diffère de la configuration en cours",
     "syntaxTitle": "Kea lit {{path}} sur {{node}} avec des avertissements de syntaxe",

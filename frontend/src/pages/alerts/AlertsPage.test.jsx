@@ -160,6 +160,10 @@ describe('AlertsPage', () => {
     expect(subjectLink({ subject: 'd2:updates' }).to).toBe('/dhcp/v4/ddns')
   })
 
+  it('links the obsolete Kea series alert to the migration analysis', () => {
+    expect(subjectLink({ subject: 'kea:series' })).toEqual({ to: '/install/kea-migration', label: 'openKeaMigration' })
+  })
+
   it('shows the detail with a link to the host', async () => {
     renderPage()
     fireEvent.click(await screen.findByText('PTR of 192.0.2.106 names another host'))

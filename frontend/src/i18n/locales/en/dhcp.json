@@ -384,6 +384,12 @@
     "remove": "Unload",
     "unknown": "unknown"
   },
+  "keaSeries": {
+    "row": "{{node}} runs Kea {{series}}, which ISC no longer maintains",
+    "rowSince": "{{node}} runs Kea {{series}}, which ISC no longer maintains since {{date}}",
+    "analyze": "Analyze the migration to Kea 3.x",
+    "dismiss": "Dismiss"
+  },
   "keaFile": {
     "title": "{{path}} on {{node}} differs from the running configuration",
     "syntaxTitle": "Kea reads {{path}} on {{node}} with syntax warnings",

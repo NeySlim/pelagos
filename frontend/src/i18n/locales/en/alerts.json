@@ -44,7 +44,8 @@
     "ignore": "Ignore: admin's choice",
     "openCertificates": "Open the certificates",
     "openChannel": "Open the channel",
-    "openFailover": "Open DDNS failover"
+    "openFailover": "Open DDNS failover",
+    "openKeaMigration": "Analyze the Kea migration"
   },
   "ack": {
     "title": "Acknowledge the alert",

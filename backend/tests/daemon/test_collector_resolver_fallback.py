@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """The collector's side of the forwarder fallback (section 25, batch R5) against the real recursive
 named of test_bind_resolver_fallback, whose root and TLD servers are in-process fakes: the slow check
-opens resolver:roots when the fake root goes silent, the automatic fallback of the service node
-follows once every node proposed it long enough, the check resolves through the forwarder, a hand
-change stops the automatic return, and the return plan still restores the managed files."""
+opens resolver:roots when the fake root goes silent, the service node's deadline (track_proposing,
+auto_fallback_due) and auto_fallback apply the fallback, the check resolves through the forwarder, a
+hand change stops the automatic return, and the return plan still restores the managed files.
+Collector.resolver_auto_fallback itself is covered by the unit rig and test_resolver_lab."""
 
 from __future__ import annotations
 

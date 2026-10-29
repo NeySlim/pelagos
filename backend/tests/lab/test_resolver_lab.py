@@ -16,6 +16,7 @@ The VMs are rolled back to `legacy` first and left as the test ends.
 
 from __future__ import annotations
 
+import json
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -82,6 +83,10 @@ def resolve(host: str, name: str = "www.debian.org") -> str:
             return next((a for a in answers if a[0].isdigit()), "NODATA")
         time.sleep(2)
     return status
+
+
+def parse_ts(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
 def health() -> dict[str, Any]:
@@ -330,12 +335,30 @@ class TestResolverLab:
         )
         cut(True)
         try:
+            roots = wait_for(
+                "resolver:roots critical on both nodes",
+                lambda: (lambda f: f if len(f) == 2 else None)(open_alerts("resolver:roots", "critical")),
+                timeout=300,
+                interval=10,
+            )
+            critical_at = max(parse_ts(a["first_seen"]) for a in roots.values())
             fallback = wait_for("automatic fallback", lambda: health()["fallback"], timeout=600, interval=10)
             assert (
                 fallback["by"] == "system"
                 and fallback["preset"] == "quad9"
                 and fallback["forward"] == "first"
             )
+            # Not before fallback_after_seconds of proposals (5 s for the clocks of the two nodes).
+            assert parse_ts(fallback["started_at"]) >= critical_at + timedelta(seconds=55), (fallback, roots)
+            # Applied once, by the service node only, though both collectors run.
+            applied = [
+                e
+                for e in audit(A1, "dns.resolver.apply")
+                if e["user"] == "system"
+                and e["request"].get("entry") == "summary"
+                and fallback["id"] in json.dumps(e["request"])
+            ]
+            assert len(applied) == 1, applied
             for host in (A1, A2):
                 wait_for(f"{host} resolves through Quad9", lambda h=host: resolve(h)[0].isdigit(), timeout=90)
         finally:

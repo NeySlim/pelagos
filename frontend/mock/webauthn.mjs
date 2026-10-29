@@ -35,7 +35,7 @@ function siteOf(req) {
   return { origin, rpId: host }
 }
 
-function open(state, kind, req, userId, extra = {}) {
+export function open(state, kind, req, userId, extra = {}) {
   const { ceremonies } = webauthnState(state)
   const now = Date.now()
   for (const [id, c] of ceremonies) if (now - c.created > CEREMONY_MS) ceremonies.delete(id)
@@ -44,7 +44,7 @@ function open(state, kind, req, userId, extra = {}) {
   return cer
 }
 
-function take(state, id, kinds) {
+export function take(state, id, kinds) {
   const { ceremonies } = webauthnState(state)
   const cer = ceremonies.get(id)
   ceremonies.delete(id)
@@ -53,11 +53,11 @@ function take(state, id, kinds) {
 
 const descriptor = (id, k) => ({ type: 'public-key', id, ...(k.transports?.length ? { transports: k.transports } : {}) })
 
-function userKeys(state, userId) {
+export function userKeys(state, userId) {
   return [...webauthnState(state).keys].filter(([, k]) => k.userId === userId)
 }
 
-function requestOptions(cer, allowed) {
+export function requestOptions(cer, allowed) {
   return {
     challenge: cer.challenge,
     timeout: CEREMONY_MS,
@@ -77,7 +77,7 @@ function publicKey(spki) {
   return { key: unb64url(spki), format: 'der', type: 'spki' }
 }
 
-function checkAssertion(cer, credential, key) {
+export function checkAssertion(cer, credential, key) {
   const r = credential.response || {}
   clientData(r, 'webauthn.get', cer)
   const auth = unb64url(r.authenticatorData)

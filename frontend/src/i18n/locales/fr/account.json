@@ -86,5 +86,49 @@
       "insecure": "Les clés de sécurité demandent HTTPS.",
       "outside_rp_id": "Les clés de sécurité de ce cluster appartiennent à {{rp}} : ouvrez le nœud par un nom de ce domaine."
     }
+  },
+  "tokens": {
+    "title": "Jetons d'API",
+    "help": "Pour les scripts et la supervision : envoyez Authorization: Bearer <jeton>, sans cookie de session, sans en-tête CSRF ni clé de sécurité à présenter. La création d'un jeton redemande votre second facteur. Un jeton n'a jamais plus que vos propres droits et cesse de marcher, sur tous les nœuds, à son expiration ou à sa révocation.",
+    "none": "Aucun jeton d'API.",
+    "name": "Nom",
+    "namePlaceholder": "supervision",
+    "role": "Droits",
+    "roles": {
+      "viewer": "Lecture seule (viewer)",
+      "dns-operator": "Opérateur DNS",
+      "dhcp-operator": "Opérateur DHCP",
+      "admin": "Administrateur (tous vos droits)"
+    },
+    "expiresDays": "Expire dans (jours)",
+    "cidrs": "Adresses sources autorisées",
+    "cidrsHelp": "Facultatif, séparées par des virgules ou des espaces, par exemple 192.0.2.0/24, 2001:db8::/64. Vide : toute adresse.",
+    "create": "Créer le jeton",
+    "code": "Code à usage unique",
+    "codeHelp": "Saisissez le code de votre application d'authentification pour confirmer.",
+    "confirm": "Confirmer",
+    "createdTitle": "Jeton {{name}} créé",
+    "createdHelp": "Copiez-le maintenant : il n'est affiché qu'une fois et ne peut pas être relu. Gardez-le comme un mot de passe.",
+    "copy": "Copier",
+    "copied": "Copié",
+    "done": "Terminé",
+    "expires": "expire le {{date}}",
+    "expired": "Expiré",
+    "lastUsed": "dernier usage {{date}} sur {{node}}",
+    "neverUsed": "jamais utilisé",
+    "anySource": "toute source",
+    "revoke": "Révoquer",
+    "revokeTitle": "Révoquer le jeton {{name}} ?",
+    "revokeHelp": "Les scripts qui l'utilisent sont refusés sur tous les nœuds dès que la modification est répliquée (quelques secondes).",
+    "revoked": "Jeton {{name}} révoqué",
+    "custom": "droits choisis",
+    "unavailable": "Dernier usage inconnu sur : {{nodes}}",
+    "errors": {
+      "name": "Le nom est obligatoire",
+      "days": "Entre 1 et {{max}} jours",
+      "noFactor": "Enregistrez d'abord une clé de sécurité ou activez le TOTP : la création d'un jeton demande un second facteur.",
+      "cancelled": "La demande de clé de sécurité a été fermée.",
+      "code": "Saisissez le code à 6 chiffres"
+    }
   }
 }

@@ -171,6 +171,9 @@ const EXPECTED = {
   'PATCH /auth/webauthn/credentials/{id}': 404,
   'DELETE /auth/webauthn/credentials/{id}': 401,
   'DELETE /admin/users/{id}/webauthn/{credential_id}': 404,
+  'POST /auth/tokens': 400, // no second factor answer in the body
+  'DELETE /auth/tokens/{id}': 404,
+  'DELETE /admin/tokens/{id}': 404,
   'POST /dns/zones/{zone}/retransfer': 409, // example.lan is a primary zone
   'POST /admin/archives/upload': 400, // a JSON body, not multipart
   'POST /dns/catalog-zones/{zone}/members/plan': 404, // example.lan is not a catalog

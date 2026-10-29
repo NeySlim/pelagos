@@ -85,6 +85,8 @@ const invocations = [
   () => api.auth.webauthnSite(), () => api.auth.passkeyOptions(), () => api.auth.webauthnLogin('c', {}),
   () => api.auth.keys(), () => api.auth.keyRegisterOptions(), () => api.auth.keyRegister('c', {}, 'Key'),
   () => api.auth.keyRename('k1', 'Key'), () => api.auth.keyRemove('k1', 'pw'),
+  () => api.auth.tokens(), () => api.auth.tokenChallenge(), () => api.auth.tokenCreate({ name: 'ci' }),
+  () => api.auth.tokenRevoke('t1'), () => api.admin.tokens(), () => api.admin.revokeToken('t1'),
   () => api.admin.userKeys('u1'), () => api.admin.removeUserKeys('u1'), () => api.admin.removeUserKey('u1', 'k1'),
   () => api.admin.webauthn(),
   () => api.certs.overview(), () => api.certs.node('n1'), () => api.certs.setSource('n1', { source: 'acme' }),

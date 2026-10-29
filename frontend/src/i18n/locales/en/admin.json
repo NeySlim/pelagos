@@ -6,7 +6,8 @@
     "settings": "Settings",
     "certificates": "Certificates",
     "notifications": "Notifications",
-    "archives": "Backups"
+    "archives": "Backups",
+    "tokens": "API tokens"
   },
   "pages": {
     "users": {
@@ -24,6 +25,10 @@
     "settings": {
       "title": "Settings",
       "subtitle": "Cluster-wide settings, thresholds and retention"
+    },
+    "tokens": {
+      "title": "API tokens",
+      "subtitle": "Every token of the cluster, its owner, permissions and last use"
     }
   },
   "users": {
@@ -287,7 +292,8 @@
       "advisories": "ISC security advisories",
       "notifications": "Notifications",
       "archives": "Backups",
-      "retention": "Retention"
+      "retention": "Retention",
+      "api_tokens": "API tokens"
     },
     "fields": {
       "auth": {
@@ -297,7 +303,10 @@
         "require_totp": "Require two-factor for every user",
         "api_docs_public_enabled": "Public API description",
         "webauthn_rp_id": "Security key domain (rpId)",
-        "require_webauthn_roles": "Roles that require a security key"
+        "require_webauthn_roles": "Roles that require a security key",
+        "api_token_default_days": "Default token lifetime",
+        "api_token_max_days": "Longest token lifetime",
+        "api_token_audit_reads_enabled": "Audit token reads"
       },
       "plans": {
         "ttl_seconds": "Plan lifetime"
@@ -367,7 +376,9 @@
         "resolver_timeouts_critical_percent": "Outgoing query timeouts critical",
         "resolver_tld_failures": "Failed TLD probes before an alert",
         "resolver_mismatch_warning_count": "Mismatched answers per window",
-        "resolver_lru_info_per_minute": "Cache evictions per minute (info)"
+        "resolver_lru_info_per_minute": "Cache evictions per minute (info)",
+        "api_token_warning_days": "Token expiry warning",
+        "api_token_critical_days": "Token expiry critical"
       },
       "collector": {
         "poll_seconds": "Engine poll",
@@ -476,7 +487,10 @@
         "require_totp": "Users without TOTP may only enrol until they do.",
         "api_docs_public_enabled": "Serve /api/v1/docs and /api/v1/swagger.json without a session.",
         "webauthn_rp_id": "auto: the DNS domain the nodes share. Or a domain such as example.lan; keys registered under another domain stop working.",
-        "require_webauthn_roles": "Members of these roles sign in with a security key; TOTP alone is not enough."
+        "require_webauthn_roles": "Members of these roles sign in with a security key; TOTP alone is not enough.",
+        "api_token_default_days": "Expiry proposed when a token is created.",
+        "api_token_max_days": "No token may live longer.",
+        "api_token_audit_reads_enabled": "Every call made with a token is audited; off: only writes (POST, PUT, PATCH, DELETE)."
       },
       "plans": {
         "ttl_seconds": "A plan not applied within this delay expires."
@@ -498,7 +512,9 @@
         "cert_warning_days": "Web, node and CA certificates; short-lived ones use a share of their lifetime.",
         "resolver_min_queries": "Fewer answers in the window: no resolver alert.",
         "advisories_fetch_enabled": "Off: the data shipped with the package, or a file placed by hand.",
-        "distro_tracker_enabled": "Debian nodes: download the tracker daily (about 14 MB) and keep the BIND and Kea entries. Off or unreachable: upstream versions only."
+        "distro_tracker_enabled": "Debian nodes: download the tracker daily (about 14 MB) and keep the BIND and Kea entries. Off or unreachable: upstream versions only.",
+        "api_token_warning_days": "An alert warns this long before a token expires.",
+        "api_token_critical_days": "The alert turns critical this long before."
       },
       "collector": {
         "lease_watch_max_leases": "Larger tables are not watched live (0 turns the watch off)."
@@ -533,5 +549,23 @@
         "auto_apply_enabled": "Reserved: the first version creates records only by plan."
       }
     }
+  },
+  "tokens": {
+    "owner": "Owner",
+    "name": "Name",
+    "permissions": "Permissions",
+    "expires": "Expires",
+    "lastUsed": "Last use",
+    "sources": "Sources",
+    "created": "Created",
+    "never": "never",
+    "any": "any",
+    "expired": "Expired",
+    "revoke": "Revoke",
+    "revokeTitle": "Revoke token {{name}} of {{user}}?",
+    "revokeHelp": "Scripts using it are refused on every node once the change has replicated.",
+    "revoked": "Token {{name}} revoked",
+    "unavailable": "Last use unknown on: {{nodes}}",
+    "empty": "No API token in the cluster."
   }
 }

@@ -204,7 +204,8 @@
     "ipv6_missing_aaaa": "hôtes IPv6 sans AAAA",
     "ipv6_reverse_missing": "zone inverse IPv6 absente",
     "ipv6_stale_aaaa": "AAAA obsolètes",
-    "root_hints_stale": "indices racine anciens"
+    "root_hints_stale": "indices racine anciens",
+    "api_token_expiry": "expiration de jeton d'API"
   },
   "live": {
     "label": "Direct",

@@ -86,5 +86,49 @@
       "insecure": "Security keys need HTTPS.",
       "outside_rp_id": "Security keys of this cluster belong to {{rp}}: open the node by a name under that domain."
     }
+  },
+  "tokens": {
+    "title": "API tokens",
+    "help": "For scripts and monitoring: send Authorization: Bearer <token>, no session cookie, no CSRF header, no security key prompt. Creating a token asks for your second factor again. A token never holds more than your own permissions and stops working when it expires or is revoked, on every node.",
+    "none": "No API token.",
+    "name": "Name",
+    "namePlaceholder": "monitoring",
+    "role": "Permissions",
+    "roles": {
+      "viewer": "Read only (viewer)",
+      "dns-operator": "DNS operator",
+      "dhcp-operator": "DHCP operator",
+      "admin": "Administrator (everything you hold)"
+    },
+    "expiresDays": "Expires in (days)",
+    "cidrs": "Allowed source addresses",
+    "cidrsHelp": "Optional, comma or space separated, for example 192.0.2.0/24, 2001:db8::/64. Empty: any address.",
+    "create": "Create token",
+    "code": "One-time code",
+    "codeHelp": "Enter the code of your authenticator app to confirm.",
+    "confirm": "Confirm",
+    "createdTitle": "Token {{name}} created",
+    "createdHelp": "Copy it now: it is shown only once and cannot be read back. Store it like a password.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "done": "Done",
+    "expires": "expires {{date}}",
+    "expired": "Expired",
+    "lastUsed": "last used {{date}} on {{node}}",
+    "neverUsed": "never used",
+    "anySource": "any source",
+    "revoke": "Revoke",
+    "revokeTitle": "Revoke token {{name}}?",
+    "revokeHelp": "Scripts using it are refused on every node once the change has replicated (a few seconds).",
+    "revoked": "Token {{name}} revoked",
+    "custom": "custom permissions",
+    "unavailable": "Last use unknown on: {{nodes}}",
+    "errors": {
+      "name": "A name is required",
+      "days": "Between 1 and {{max}} days",
+      "noFactor": "Register a security key or enable TOTP first: creating a token needs a second factor.",
+      "cancelled": "The security key prompt was closed.",
+      "code": "Enter the 6-digit code"
+    }
   }
 }

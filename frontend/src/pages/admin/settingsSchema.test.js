@@ -14,7 +14,7 @@ describe('settings schema', () => {
     const sections = sectionsOf(schema)
     expect(sections.map((s) => s.id)).toEqual(schema.domains)
     const checks = sections.find((s) => s.id === 'checks')
-    expect(checks.groups.map((g) => g.id)).toEqual(['pools', 'ddns', 'secondaries', 'ha', 'kea', 'clock', 'certificates', 'disk', 'resolver', 'delegation', 'soa', 'advisories', 'notifications', 'archives'])
+    expect(checks.groups.map((g) => g.id)).toEqual(['pools', 'ddns', 'secondaries', 'ha', 'kea', 'clock', 'certificates', 'api_tokens', 'disk', 'resolver', 'delegation', 'soa', 'advisories', 'notifications', 'archives'])
     expect(sections.flatMap((s) => s.groups.flatMap((g) => g.fields)).length).toBe(schema.settings.length)
   })
 

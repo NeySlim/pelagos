@@ -25,6 +25,7 @@ import { resolverHandlers } from './resolver.mjs'
 import { keaMigrationHandlers } from './keaMigration.mjs'
 import { ipv6Handlers } from './ipv6.mjs'
 import { keyCount, secondFactor, webauthnHandlers } from './webauthn.mjs'
+import { tokenHandlers } from './tokens.mjs'
 import { SETTINGS_SCHEMA, setting, updateSettings } from './settings.mjs'
 import { heartbeatAge, liveCounters } from './live.mjs'
 import { createEvents, leaseBrief, poolHistoryKey, stopEventTimers, zoneEvents } from './events.mjs'
@@ -87,6 +88,7 @@ const PERMISSIONS = {
   'POST /admin/users/{id}/reset-password': 'admin:users', 'DELETE /admin/users/{id}/totp': 'admin:users',
   'GET /admin/users/{id}/webauthn': 'admin:users', 'DELETE /admin/users/{id}/webauthn': 'admin:users',
   'DELETE /admin/users/{id}/webauthn/{credential_id}': 'admin:users', 'GET /admin/webauthn': 'admin:users',
+  'GET /admin/tokens': 'admin:users', 'DELETE /admin/tokens/{id}': 'admin:users',
   'GET /admin/roles': 'admin:roles', 'POST /admin/roles': 'admin:roles', 'PUT /admin/roles/{name}': 'admin:roles',
   'DELETE /admin/roles/{name}': 'admin:roles', 'GET /admin/permissions': 'admin:roles',
   'GET /admin/settings': 'admin:settings', 'PUT /admin/settings': 'admin:settings', 'GET /admin/settings/schema': 'admin:settings',
@@ -2743,6 +2745,7 @@ function buildHandlers(state, emit) {
     ...certsHandlers(state, { Problem, invalid }),
     ...notifyHandlers(state, { Problem, invalid }),
     ...webauthnHandlers(state, { Problem, invalid, openSession }),
+    ...tokenHandlers(state, { Problem, invalid, permissionsOf }),
     ...archivesHandlers(state, { Problem, invalid, createPlan }),
     ...ddnsFailoverHandlers(state, { Problem, invalid, createPlan, hasPermission }),
     ...resolverHandlers(state, { Problem, invalid, createPlan }),

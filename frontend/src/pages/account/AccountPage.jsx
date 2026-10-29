@@ -18,6 +18,7 @@ import { formatDate } from '../../lib/utils'
 import { passwordProblem } from '../../lib/password'
 import { TotpQr } from './TotpQr'
 import { SecurityKeysSection } from './SecurityKeysSection'
+import { ApiTokensSection } from './ApiTokensSection'
 
 function Section({ icon: Icon, title, children, testId }) {
   return (
@@ -265,6 +266,7 @@ export default function AccountPage() {
         <PasswordSection />
         <TotpSection />
         <SecurityKeysSection Section={Section} />
+        {!restriction && <ApiTokensSection Section={Section} />}
         <PreferencesSection />
       </div>
     </PageLayout>

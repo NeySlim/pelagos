@@ -34,6 +34,11 @@ export const auth = {
   keyRegister: (ceremony, credential, name) => apiClient.post('/auth/webauthn/register/verify', { ceremony, credential, name }),
   keyRename: (id, name) => apiClient.patch(`/auth/webauthn/credentials/${enc(id)}`, { name }),
   keyRemove: (id, password) => apiClient.delete(`/auth/webauthn/credentials/${enc(id)}`, { password }),
+  // API tokens (section 16): creation needs a fresh second factor; the secret comes back once.
+  tokens: () => apiClient.get('/auth/tokens'),
+  tokenChallenge: () => apiClient.post('/auth/tokens/challenge'),
+  tokenCreate: (body) => apiClient.post('/auth/tokens', body),
+  tokenRevoke: (id) => apiClient.delete(`/auth/tokens/${enc(id)}`),
 }
 
 export const account = {
@@ -253,6 +258,8 @@ export const admin = {
   removeUserKeys: (id) => apiClient.delete(`/admin/users/${enc(id)}/webauthn`),
   removeUserKey: (id, keyId) => apiClient.delete(`/admin/users/${enc(id)}/webauthn/${enc(keyId)}`),
   webauthn: () => apiClient.get('/admin/webauthn'),
+  tokens: () => apiClient.get('/admin/tokens'),
+  revokeToken: (id) => apiClient.delete(`/admin/tokens/${enc(id)}`),
   roles: () => apiClient.get('/admin/roles'),
   createRole: (role) => apiClient.post('/admin/roles', role),
   updateRole: (name, body) => apiClient.put(`/admin/roles/${enc(name)}`, body),

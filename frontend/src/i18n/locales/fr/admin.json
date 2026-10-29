@@ -6,7 +6,8 @@
     "settings": "Paramètres",
     "certificates": "Certificats",
     "notifications": "Notifications",
-    "archives": "Sauvegardes"
+    "archives": "Sauvegardes",
+    "tokens": "Jetons d'API"
   },
   "pages": {
     "users": {
@@ -24,6 +25,10 @@
     "settings": {
       "title": "Paramètres",
       "subtitle": "Paramètres du cluster, seuils et rétention"
+    },
+    "tokens": {
+      "title": "Jetons d'API",
+      "subtitle": "Tous les jetons du cluster, leur titulaire, leurs droits et leur dernier usage"
     }
   },
   "users": {
@@ -287,7 +292,8 @@
       "advisories": "Avis de sécurité ISC",
       "notifications": "Notifications",
       "archives": "Sauvegardes",
-      "retention": "Rétention"
+      "retention": "Rétention",
+      "api_tokens": "Jetons d'API"
     },
     "fields": {
       "auth": {
@@ -297,7 +303,10 @@
         "require_totp": "Exiger le second facteur pour tous",
         "api_docs_public_enabled": "Description de l'API publique",
         "webauthn_rp_id": "Domaine des clés de sécurité (rpId)",
-        "require_webauthn_roles": "Rôles qui exigent une clé de sécurité"
+        "require_webauthn_roles": "Rôles qui exigent une clé de sécurité",
+        "api_token_default_days": "Durée de vie par défaut d'un jeton",
+        "api_token_max_days": "Durée de vie maximale d'un jeton",
+        "api_token_audit_reads_enabled": "Auditer les lectures par jeton"
       },
       "plans": {
         "ttl_seconds": "Durée de vie d'un plan"
@@ -367,7 +376,9 @@
         "resolver_timeouts_critical_percent": "Délais dépassés des requêtes sortantes, critique",
         "resolver_tld_failures": "Sondes de TLD en échec avant une alerte",
         "resolver_mismatch_warning_count": "Réponses non concordantes par fenêtre",
-        "resolver_lru_info_per_minute": "Expulsions du cache par minute (info)"
+        "resolver_lru_info_per_minute": "Expulsions du cache par minute (info)",
+        "api_token_warning_days": "Alerte avant expiration d'un jeton",
+        "api_token_critical_days": "Alerte critique avant expiration"
       },
       "collector": {
         "poll_seconds": "Interrogation des moteurs",
@@ -476,7 +487,10 @@
         "require_totp": "Sans TOTP, un utilisateur ne peut que l'enrôler.",
         "api_docs_public_enabled": "Sert /api/v1/docs et /api/v1/swagger.json sans session.",
         "webauthn_rp_id": "auto : le domaine DNS commun des nœuds. Ou un domaine comme example.lan ; les clés enregistrées sous un autre domaine ne marchent plus.",
-        "require_webauthn_roles": "Les membres de ces rôles se connectent avec une clé de sécurité ; le TOTP seul ne suffit pas."
+        "require_webauthn_roles": "Les membres de ces rôles se connectent avec une clé de sécurité ; le TOTP seul ne suffit pas.",
+        "api_token_default_days": "Expiration proposée à la création d'un jeton.",
+        "api_token_max_days": "Aucun jeton ne peut vivre plus longtemps.",
+        "api_token_audit_reads_enabled": "Chaque appel fait avec un jeton est audité ; désactivé : seulement les écritures (POST, PUT, PATCH, DELETE)."
       },
       "plans": {
         "ttl_seconds": "Un plan non appliqué dans ce délai expire."
@@ -498,7 +512,9 @@
         "cert_warning_days": "Certificats web, de nœud et de CA ; les certificats courts utilisent une part de leur durée.",
         "resolver_min_queries": "Moins de réponses dans la fenêtre : pas d’alerte résolveur.",
         "advisories_fetch_enabled": "Désactivé : les données livrées avec le paquet, ou un fichier posé à la main.",
-        "distro_tracker_enabled": "Nœuds Debian : télécharge le suivi chaque jour (environ 14 Mo) et garde les entrées BIND et Kea. Désactivé ou injoignable : versions amont seulement."
+        "distro_tracker_enabled": "Nœuds Debian : télécharge le suivi chaque jour (environ 14 Mo) et garde les entrées BIND et Kea. Désactivé ou injoignable : versions amont seulement.",
+        "api_token_warning_days": "Une alerte prévient ce délai avant l'expiration d'un jeton.",
+        "api_token_critical_days": "L'alerte devient critique ce délai avant."
       },
       "collector": {
         "lease_watch_max_leases": "Les tables plus grandes ne sont pas suivies en direct (0 désactive le suivi)."
@@ -533,5 +549,23 @@
         "auto_apply_enabled": "Réservé : la première version ne crée les enregistrements que par plan."
       }
     }
+  },
+  "tokens": {
+    "owner": "Titulaire",
+    "name": "Nom",
+    "permissions": "Droits",
+    "expires": "Expiration",
+    "lastUsed": "Dernier usage",
+    "sources": "Sources",
+    "created": "Créé",
+    "never": "jamais",
+    "any": "toute",
+    "expired": "Expiré",
+    "revoke": "Révoquer",
+    "revokeTitle": "Révoquer le jeton {{name}} de {{user}} ?",
+    "revokeHelp": "Les scripts qui l'utilisent sont refusés sur tous les nœuds dès que la modification est répliquée.",
+    "revoked": "Jeton {{name}} révoqué",
+    "unavailable": "Dernier usage inconnu sur : {{nodes}}",
+    "empty": "Aucun jeton d'API dans le cluster."
   }
 }

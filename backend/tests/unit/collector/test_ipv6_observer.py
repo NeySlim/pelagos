@@ -21,6 +21,7 @@ pytestmark = pytest.mark.unit
 DAY = 86400
 MAC = "bc:24:11:63:b8:06"
 REV = "9.9.0.0.8.b.d.0.1.0.0.2.ip6.arpa."  # 2001:db8:99::/48
+INTERFACES = px.interface_networks  # the unit conftest replaces it in each test
 
 
 # Prefixes ------------------------------------------------------------------------------------
@@ -329,6 +330,39 @@ def test_reverse_zone_snapshot_makes_a_watched_prefix(tmp_path):
     ]
     obs.tick()
     assert [r["address"] for r in obs_store.observations(obs.conn)] == ["2001:db8:99:0:be24:11ff:fe63:b806"]
+
+
+IP_ADDR = """[{"ifname": "eth0", "addr_info": [
+ {"family": "inet6", "local": "2001:db8:7::15", "prefixlen": 128, "scope": "global"},
+ {"family": "inet6", "local": "2001:db8:7:0:be24:11ff:fe00:15", "prefixlen": 64, "scope": "global"},
+ {"family": "inet6", "local": "2001:db8:8::15", "prefixlen": 64, "scope": "global", "tentative": true},
+ {"family": "inet6", "local": "fd99:99::15", "prefixlen": 64, "scope": "global"},
+ {"family": "inet6", "local": "2001:db8:99::15", "prefixlen": 64, "scope": "global"}]}]"""
+
+
+def test_node_addresses_make_watched_prefixes(tmp_path, monkeypatch):
+    nets = px.parse_addresses(IP_ADDR)
+    assert [str(n) for n in nets] == ["2001:db8:7::/64", "fd99:99::/64", "2001:db8:99::/64"]
+    assert INTERFACES(lambda args: IP_ADDR) == nets
+    assert px.parse_addresses("not json") == []
+
+    def broken(args):
+        raise SourceError("the ip command (iproute2) is not installed")
+
+    assert INTERFACES(broken) == []
+    # ULA only when listed; a /64 inside another watched prefix is not repeated.
+    got = px.effective([], [REV], [], nets)
+    assert [p.to_dict() for p in got] == [
+        {"prefix": "2001:db8:99::/48", "from": "reverse_zone"},
+        {"prefix": "2001:db8:7::/64", "from": "interface"},
+    ]
+    # A prefix the router now advertises, in no setting nor zone: its addresses are recorded.
+    monkeypatch.setattr(px, "interface_networks", lambda runner=None: nets)
+    obs, _, _ = observer(
+        tmp_path, {}, FakeSource("neighbors", [Neighbor(MAC, "2001:db8:7::99", "reachable")])
+    )
+    obs.tick()
+    assert [r["address"] for r in obs_store.observations(obs.conn)] == ["2001:db8:7::99"]
 
 
 def test_stale_entries_never_move_last_seen(conn):

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Watched IPv6 prefixes (section 27): served reverse zones, DHCPv6 subnets and `ipv6.prefixes`.
+"""Watched IPv6 prefixes (section 27): served reverse zones, DHCPv6 subnets, `ipv6.prefixes` and
+the /64s of this node's global addresses (a prefix the router now advertises is watched at once).
 
 ULA prefixes (`fc00::/7`) count only when `ipv6.prefixes` lists one that covers them.
 """
@@ -8,10 +9,16 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
+
+from pelagos.collector.ipv6.neighbors import run_ip
+from pelagos.collector.ipv6.source import SourceError
+
+log = logging.getLogger(__name__)
 
 IP6_ARPA = ".ip6.arpa"
 ULA = ipaddress.IPv6Network("fc00::/7")
@@ -22,7 +29,7 @@ SERVED_KINDS = frozenset({"primary", "secondary", "mirror"})
 @dataclass(frozen=True, slots=True)
 class Prefix:
     network: ipaddress.IPv6Network
-    origin: str  # "setting", "reverse_zone" or "dhcpv6"
+    origin: str  # "setting", "reverse_zone", "dhcpv6" or "interface"
 
     def to_dict(self) -> dict[str, str]:
         return {"prefix": str(self.network), "from": self.origin}
@@ -76,9 +83,13 @@ def _network(value: Any) -> ipaddress.IPv6Network | None:
 
 
 def effective(
-    setting: Iterable[Any], reverse_zones: Iterable[str], dhcpv6_subnets: Iterable[str]
+    setting: Iterable[Any],
+    reverse_zones: Iterable[str],
+    dhcpv6_subnets: Iterable[str],
+    interfaces: Iterable[ipaddress.IPv6Network] = (),
 ) -> list[Prefix]:
-    """Every watched prefix once, the setting first, then reverse zones, then DHCPv6 subnets."""
+    """Every watched prefix once: the setting, reverse zones, DHCPv6 subnets, then the node's own
+    /64s (`interface_networks`) not already inside one of them."""
     listed = [n for n in (_network(v) for v in setting or []) if n is not None]
     out: dict[ipaddress.IPv6Network, Prefix] = {}
     for net in listed:
@@ -87,13 +98,49 @@ def effective(
     derived = [(reverse_zone_network(z), "reverse_zone") for z in reverse_zones] + [
         (_network(s), "dhcpv6") for s in dhcpv6_subnets
     ]
+    derived += [(n, "interface") for n in interfaces]
     for net, origin in derived:
         if net is None or net.prefixlen == 0 or net.overlaps(LINK_LOCAL) or net.is_multicast:
             continue
         if net.overlaps(ULA) and not any(net.subnet_of(u) for u in ula_listed):
             continue
+        if origin == "interface" and any(net.subnet_of(p) for p in out):
+            continue
         out.setdefault(net, Prefix(net, origin))
     return list(out.values())
+
+
+Runner = Callable[[list[str]], str]
+
+
+def parse_addresses(text: str) -> list[ipaddress.IPv6Network]:
+    """The /64 of each global, non-tentative address of `ip -j -6 addr show scope global`."""
+    try:
+        links: Any = json.loads(text or "[]")
+    except ValueError:
+        return []
+    out: list[ipaddress.IPv6Network] = []
+    for link in links if isinstance(links, list) else []:
+        infos = link.get("addr_info") if isinstance(link, dict) else None
+        for info in infos if isinstance(infos, list) else []:
+            if not isinstance(info, dict) or info.get("scope") != "global" or info.get("tentative"):
+                continue
+            try:
+                net = ipaddress.IPv6Network(f"{info.get('local')}/64", strict=False)
+            except ValueError:
+                continue
+            if not net.is_multicast and not net.overlaps(LINK_LOCAL) and net not in out:
+                out.append(net)
+    return out
+
+
+def interface_networks(runner: Runner | None = None) -> list[ipaddress.IPv6Network]:
+    """This node's global /64s; empty when `ip` cannot be read (the other prefixes still count)."""
+    try:
+        return parse_addresses((runner or run_ip)(["-j", "-6", "addr", "show", "scope", "global"]))
+    except SourceError as exc:
+        log.debug("node addresses unreadable: %s", exc.message)
+        return []
 
 
 def watched(address: str, prefixes: Iterable[Prefix]) -> bool:

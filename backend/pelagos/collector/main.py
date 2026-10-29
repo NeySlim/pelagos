@@ -534,7 +534,8 @@ class Collector:
         snaps = prefixes_mod.cluster_snapshots(self.store.conn)
         served, subnets = prefixes_mod.from_snapshots(snaps)
         listed = reg.domain(settings, "ipv6").get("prefixes") or []
-        watched = prefixes_mod.effective(listed if isinstance(listed, list) else [], served, subnets)
+        listed = listed if isinstance(listed, list) else []
+        watched = prefixes_mod.effective(listed, served, subnets, prefixes_mod.interface_networks())
         excepted = consistency.excepted_for(cluster)
         alerts: list[Alert] = []
         if prefixes_mod.has_zone_list(snaps):

@@ -75,11 +75,20 @@ def test_hosts_ipv6_rows_proposal_and_filters(role_client, observed):
 def test_host_exception_flags_the_row(admin, observed):
     r = admin.post(
         "/api/v1/alerts/exceptions",
-        json={"kind": "ipv6_missing_aaaa", "key": f"mac:{MAC}", "comment": "IPv6 by DHCPv6 later"},
+        json={"kind": "ipv6_missing_aaaa", "key": f"mac:{MAC.upper()}", "comment": "IPv6 by DHCPv6 later"},
     )
     assert r.status_code in (200, 201), r.get_json()
+    assert r.get_json()["key"] == f"mac:{MAC}"
     pc1 = next(x for x in admin.get(H).get_json()["items"] if x["mac"] == MAC)
     assert pc1["excepted"] is True
+    assert admin.get(H + "?filter=missing_aaaa").get_json()["total"] == 0
+    r = admin.post(
+        "/api/v1/alerts/exceptions",
+        json={"kind": "ipv6_stale_aaaa", "key": "addr:2001:DB8:0:0::1", "comment": "service alias"},
+    )
+    assert r.get_json()["key"] == "addr:2001:db8::1"
+    bad = {"kind": "ipv6_stale_aaaa", "key": "addr:not-an-address", "comment": "x"}
+    assert admin.post("/api/v1/alerts/exceptions", json=bad).status_code == 400
 
 
 def test_sources_secrets_are_sealed_and_follow_only_the_same_url(admin, node_ctx, observed):
@@ -110,6 +119,23 @@ def test_sources_secrets_are_sealed_and_follow_only_the_same_url(admin, node_ctx
     admin.put(A, json={"secrets": {sid: {"api_key": "k"}}})
     admin.put(A, json={"sources": []})
     assert not [k for k in node_ctx.cluster().secrets if k.startswith("ipv6/")]
+
+
+def test_a_new_source_takes_its_secrets_in_the_same_request(admin, node_ctx):
+    inline = {**SOURCE, "secrets": {"api_key": "key-1", "api_secret": "secret-1"}}
+    out = admin.put(A, json={"sources": [inline]}).get_json()
+    sid = out["sources"][0]["id"]
+    assert out["sources"][0]["secrets"] == {"api_key": True, "api_secret": True}
+    assert node_ctx.get_secret(f"ipv6/source/{sid}/api_key") == "key-1"
+    # The booleans of a GET echoed back change nothing.
+    out = admin.put(A, json={"sources": out["sources"]}).get_json()
+    assert node_ctx.get_secret(f"ipv6/source/{sid}/api_secret") == "secret-1"
+    bad = admin.put(A, json={"sources": [{**SOURCE, "secrets": {"api_key": "", "token": "x"}}]})
+    assert bad.status_code == 400
+    assert {e["field"] for e in bad.get_json()["errors"]} == {
+        "sources[0].secrets.api_key",
+        "sources[0].secrets.token",
+    }
 
 
 def test_validation_lists_every_error(admin):

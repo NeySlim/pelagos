@@ -508,7 +508,7 @@ def run_all(
 IPV6_KINDS = frozenset(
     {AlertKind.IPV6_MISSING_AAAA, AlertKind.IPV6_REVERSE_MISSING, AlertKind.IPV6_STALE_AAAA}
 )
-# Grouped alerts whose details carry the keys of their hosts and addresses, not the subject.
+# Grouped alerts whose details carry the keys of their hosts and addresses, then the subject.
 OWN_KEYS = frozenset({AlertKind.IPV6_MISSING_AAAA, AlertKind.IPV6_STALE_AAAA})
 
 
@@ -623,8 +623,13 @@ def apply_exceptions(alerts: Iterable[Alert], excepted: Excepted) -> list[Alert]
         if alert.kind in EXCEPTABLE_KINDS:
             if is_excepted(alert, excepted):
                 continue
-            if alert.kind not in OWN_KEYS or "exception_keys" not in alert.details:
+            own = alert.details.get("exception_keys") if alert.kind in OWN_KEYS else None
+            if own is None:
                 alert.details = {**alert.details, "exception_keys": exception_keys(alert)[:1]}
+            else:
+                # Host and address keys first, then the bare subject that silences the whole alert.
+                keys = list(dict.fromkeys([*own, exception_keys(alert)[-1]]))
+                alert.details = {**alert.details, "exception_keys": keys}
         out.append(alert)
     return out
 

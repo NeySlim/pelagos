@@ -1883,4 +1883,9 @@ Additive, release 0.2.2. Architecture section 27: where and how `ipv6_missing_aa
 timestamps (RFC 3339), `meta.errors`, secrets cleared when a source moves to another URL or is
 removed, `secrets` accepted by `POST /admin/ipv6/sources/test` with an unsaved source. WP-API-AUTH:
 the three routes answer (no more `501`). WP-FRONTEND (V3): `proposal` carries `address` and
-`class` (the mock still lacks them).
+`class` (the mock still lacks them). After review: `sources[i].secrets` with strings in
+`PUT /admin/ipv6` (a new source and its secrets in one request), `effective_prefixes[].from` adds
+`interface` (the node's own global /64s are watched), `exception_keys` of the two grouped kinds
+end with the subject, `ipv6_*` exception keys stored canonical (`mac:` lower-case, `addr:`
+compressed), the `missing_aaaa` filter leaves excepted rows out, a never observed AAAA is stale
+only in a /64 the host left. WP-FRONTEND (V3): the `interface` origin in the prefixes list.

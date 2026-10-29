@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pelagos.collector.ipv6.source import normalize_address, normalize_mac
 from pelagos.core.context import NodeContext
 from pelagos.domain import (
     EXCEPTABLE_KINDS,
@@ -57,9 +58,10 @@ class ExceptionsService:
             errors.append(field_error("comment", f"at most {MAX_COMMENT} characters"))
         if len(summary) > MAX_SUMMARY:
             errors.append(field_error("summary", f"at most {MAX_SUMMARY} characters"))
+        if not errors:
+            key = _canonical(kind, str(key).strip(), errors)
         if errors:
             raise ValidationError("invalid exception", errors)
-        key = str(key).strip()
         if _same(self.ctx.cluster().exceptions, kind, key):
             raise Conflict(f"{kind} {key} is already an exception")
         record = {
@@ -127,6 +129,25 @@ class ExceptionsService:
         from pelagos.collector.events import send_signal
 
         send_signal(self.ctx.paths.collector_sock, "consistency")
+
+
+def _canonical(kind: str, key: str, errors: list[dict[str, str]]) -> str:
+    """`mac:` and `addr:` keys of the IPv6 checks in the form the checks compare (lower-case MAC,
+    compressed address)."""
+    if not kind.startswith("ipv6_"):
+        return key
+    prefix, _, value = key.partition(":")
+    if prefix == "mac":
+        mac = normalize_mac(value)
+        if mac is None:
+            errors.append(field_error("key", f"not a MAC address: {value}"))
+        return f"mac:{mac}"
+    if prefix == "addr":
+        address = normalize_address(value)
+        if address is None:
+            errors.append(field_error("key", f"not an IPv6 address: {value}"))
+        return f"addr:{address}"
+    return key
 
 
 def _same(entries: Any, kind: Any, key: Any) -> bool:

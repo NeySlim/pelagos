@@ -66,7 +66,7 @@ def test_missing_aaaa_opens_then_resolves_with_the_record(rig):
     alert = open_alerts[0]
     assert alert.subject == "ipv6:aaaa:example.lan." and alert.node_id is None
     assert alert.details["hosts"][0]["address"] == EUI
-    assert alert.details["exception_keys"] == [f"mac:{MAC}"]
+    assert alert.details["exception_keys"] == [f"mac:{MAC}", "ipv6:aaaa:example.lan."]
     backends.dns.rrsets["example.lan."].append(RRset("laptop.example.lan.", "AAAA", 300, [EUI]))
     collector.consistency()
     assert ipv6_alerts(collector) == []

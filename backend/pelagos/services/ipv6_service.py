@@ -161,7 +161,8 @@ class Ipv6Service:
     def effective_prefixes(self) -> list[prefixes_mod.Prefix]:
         zones, subnets = prefixes_mod.from_snapshots(self._snapshots())
         listed = self._domain().get("prefixes") or []
-        return prefixes_mod.effective(listed if isinstance(listed, list) else [], zones, subnets)
+        listed = listed if isinstance(listed, list) else []
+        return prefixes_mod.effective(listed, zones, subnets, prefixes_mod.interface_networks())
 
     def _zones(self) -> tuple[list[str], list[str], str | None]:
         """(forward zones, ip6.arpa zones) the cluster serves, or the error that hid them."""
@@ -206,7 +207,7 @@ class Ipv6Service:
             keys = {s.host_key for s in found}
             rows = [r for r in rows if r["host_key"] in keys]
         elif filter_ == "missing_aaaa":
-            rows = [r for r in rows if ipv6_hosts.missing_aaaa(r, now, stable)]
+            rows = [r for r in rows if not r["excepted"] and ipv6_hosts.missing_aaaa(r, now, stable)]
         elif filter_ == "missing_ptr":
             rows = [r for r in rows if set(r["aaaa"]) - set(r["ptr"])]
         elif filter_ == "unknown":
@@ -382,6 +383,22 @@ class Ipv6Service:
                     out.setdefault(str(sid), {})[name] = value
         return out
 
+    @classmethod
+    def _inline_secrets(cls, raw: Any, field: str, errors: list[dict[str, str]]) -> dict[str, str | None]:
+        """`sources[i].secrets` with string or null values (write-only, how a new source gets its
+        key in the request that creates it); the booleans a GET returns are ignored."""
+        values = raw.get("secrets") if isinstance(raw, dict) else None
+        if values is None:
+            return {}
+        if not isinstance(values, dict):
+            errors.append(field_error(field, "object expected"))
+            return {}
+        given = {k: v for k, v in values.items() if not isinstance(v, bool)}
+        found: list[dict[str, str]] = []
+        out = cls._check_secrets({"_": given}, found).get("_", {})
+        errors += [{**e, "field": field + e["field"][len("secrets._") :]} for e in found]
+        return out
+
     def replace(self, body: dict[str, Any], actor: str, client_ip: str | None) -> dict[str, Any]:
         errors: list[dict[str, str]] = []
         for key in sorted(set(body) - {"sources", "prefixes", "secrets"} - set(ECHOED)):
@@ -401,6 +418,12 @@ class Ipv6Service:
                     errors.append(field_error("sources", "a source id appears twice"))
         prefixes = self._check_prefixes(body["prefixes"], errors) if "prefixes" in body else None
         secrets = self._check_secrets(body.get("secrets"), errors)
+        if sources is not None:
+            for i, (raw, checked) in enumerate(zip(body["sources"], sources, strict=True)):
+                inline = self._inline_secrets(raw, f"sources[{i}].secrets", errors)
+                if inline:
+                    # The top-level map, keyed by an id known before the request, wins.
+                    secrets[str(checked["id"])] = {**inline, **secrets.get(str(checked["id"]), {})}
         final = sources if sources is not None else [dict(s) for s in known.values()]
         final_ids = {str(s.get("id")) for s in final}
         for sid in secrets:

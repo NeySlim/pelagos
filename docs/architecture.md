@@ -2904,8 +2904,8 @@ only, never sent out of the cluster.
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
 | `GET /hosts/ipv6?filter=&zone=&page=&per_page=` | `read:hosts` | | paginated `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen"}],"aaaa","ptr","proposal": {"address","class","name","zone","reverse_zone"}|null,"excepted"}`; `filter` one of `missing_aaaa`, `missing_ptr`, `stale`, `unknown`, `random_mac`; `meta.unavailable` lists the nodes and sources that did not answer |
-| `GET /admin/ipv6` | `admin:settings` | | `{"sources": [Source],"prefixes","effective_prefixes": [{"prefix","from": "setting"|"reverse_zone"|"dhcpv6"}],"settings","status": [SourceStatus]}` (secrets as booleans) |
-| `PUT /admin/ipv6` | `admin:settings` | `{"sources"?,"prefixes"?,"secrets"?: {source id: {"api_key"?,"api_secret"?}}}` (`sources` replaced whole; a source without `id` gets one; `null` clears a secret) | same as `GET`; audited `admin.ipv6.replace` |
+| `GET /admin/ipv6` | `admin:settings` | | `{"sources": [Source],"prefixes","effective_prefixes": [{"prefix","from": "setting"|"reverse_zone"|"dhcpv6"|"interface"}],"settings","status": [SourceStatus]}` (secrets as booleans) |
+| `PUT /admin/ipv6` | `admin:settings` | `{"sources"?,"prefixes"?,"secrets"?: {source id: {"api_key"?,"api_secret"?}}}` (`sources` replaced whole; a source without `id` gets one; `sources[i].secrets` with string or `null` values writes that source's secrets, a new one included, booleans ignored; `null` clears a secret) | same as `GET`; audited `admin.ipv6.replace` |
 | `POST /admin/ipv6/sources/test` | `admin:settings` | `{"source_id"}` or an unsaved `Source` whose `scope` (a source id) names the stored secrets it reuses while `url` is unchanged | `{"ok","node_id","entries","error"?,"sample": [Observation]}` (at most 5); a failed poll is `200` with `ok` false; 6 per minute per user (`429`) |
 
 ## 18. WebSocket
@@ -4014,8 +4014,11 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   "node_id","last_poll","error","entries"}`.
 - **Watched prefixes** (`effective_prefixes`): the prefixes of the IPv6
   reverse zones the cluster serves (`from: "reverse_zone"`), the DHCPv6
-  subnets (`dhcpv6`) and `ipv6.prefixes` (`setting`); ULA (`fd00::/8`) only
-  when listed.
+  subnets (`dhcpv6`), `ipv6.prefixes` (`setting`) and the /64 of each global
+  address of the node itself (`interface`, `ip -j -6 addr show scope global`,
+  read on each pass, not repeated inside another watched prefix), so a prefix
+  the router starts to advertise is observed before any zone or setting names
+  it; ULA (`fd00::/8`) only when listed. Each node filters with its own list.
 - **Classes** of an address, merged over every source by `(mac, address)`
   with the earliest `first_seen` and latest `last_seen`: `eui64` (the
   interface identifier is the modified EUI-64 of the MAC), `stable` (seen for
@@ -4055,19 +4058,28 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   prefix length; not evaluated before the first BIND zone list.
   `ipv6_stale_aaaa`: an AAAA in a managed forward zone and a watched prefix
   whose address no source saw for `stale_days` (an address never seen counts
-  from the first sighting of the host's MAC) while that MAC has another
+  only in a /64 where the MAC was not seen in the last 24 h, a prefix the
+  host left, from the first sighting of the MAC: a service alias next to a
+  current address is never stale) while that MAC has another
   `eui64` or `stable` address seen in the last 24 h (`current`);
   `old_prefix` and `new_prefix` are the /64s when every stale record of the
   zone left one /64 for one other; `exception_keys` lists `addr:<address>`.
+  For both grouped kinds `exception_keys` ends with the bare subject.
+  Exceptions of an `ipv6_*` kind store `mac:` lower-case and `addr:`
+  compressed (`400` when the value is not a MAC or an IPv6 address).
   A renumbered host shows in both alerts: stale for the old address,
   missing for the new one. The generic subject exception (the bare subject)
   silences a whole alert.
 - **Routes** (V2, `services/ipv6_service.py`): `GET /hosts/ipv6` gives
   `first_seen` and `last_seen` in RFC 3339; filters: `missing_aaaa` (as the
-  check), `missing_ptr` (an AAAA without PTR), `stale` (as the check),
+  check, excepted rows left out), `missing_ptr` (an AAAA without PTR),
+  `stale` (as the check; both over every forward zone the node read serves,
+  secondary and mirror included, where the check takes the primary ones),
   `unknown` (no name), `random_mac`; `zone` keeps the rows whose proposal or
   name is in that zone; `meta.errors` names the engines that could not be
-  read. `PUT /admin/ipv6`: a stored key and secret never follow a source to
+  read. `PUT /admin/ipv6`: a new source gets its key and secret in the
+  request that creates it (`sources[i].secrets`, write-only; the top-level
+  `secrets` map wins for the same name). A stored key and secret never follow a source to
   another URL (cleared unless given in the same request) and go with a
   removed source. `POST /admin/ipv6/sources/test` takes `secrets`
   (`api_key`, `api_secret`) with an unsaved source; the sample is the first

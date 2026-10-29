@@ -111,7 +111,8 @@ class Ipv6Observer:
     def effective_prefixes(self, settings: dict[str, Any]) -> list[prefixes_mod.Prefix]:
         zones, subnets = prefixes_mod.from_snapshots(prefixes_mod.cluster_snapshots(self.conn))
         listed = reg.domain(settings, "ipv6").get("prefixes") or []
-        return prefixes_mod.effective(listed if isinstance(listed, list) else [], zones, subnets)
+        listed = listed if isinstance(listed, list) else []
+        return prefixes_mod.effective(listed, zones, subnets, prefixes_mod.interface_networks())
 
     # One pass --------------------------------------------------------------------------------
 

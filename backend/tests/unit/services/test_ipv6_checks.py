@@ -156,6 +156,15 @@ def test_stale_needs_another_current_address_and_enough_history():
     assert stale([outside], [obs(NEW, NOW - 20 * DAY, NOW)]) == []
 
 
+def test_an_unobserved_alias_next_to_a_current_address_is_not_stale():
+    alias = "2001:db8:1::53"
+    h = host(extra=[RRset("laptop.example.lan.", "AAAA", 300, [EUI, alias])])
+    assert stale([h], [obs(EUI, NOW - 60 * DAY, NOW)]) == []
+    # Seen once long ago in the same /64: stale.
+    found = stale([h], [obs(EUI, NOW - 60 * DAY, NOW), obs(alias, NOW - 50 * DAY, NOW - 30 * DAY)])
+    assert [(s.address, s.current) for s in found] == [(alias, EUI)]
+
+
 def test_stale_exceptions_by_host_and_address():
     h = host(extra=[RRset("laptop.example.lan.", "AAAA", 300, [OLD])])
     history = [obs(OLD, NOW - 40 * DAY, NOW - 15 * DAY), obs(NEW, NOW - 15 * DAY, NOW)]
@@ -166,7 +175,9 @@ def test_stale_exceptions_by_host_and_address():
 def test_apply_exceptions_keeps_the_host_keys_and_honours_the_subject():
     alerts = missing(rows([host()], [obs(EUI, NOW - 60, NOW)]))
     kept = consistency.apply_exceptions(alerts, consistency.excepted_from([]))
-    assert kept[0].details["exception_keys"] == [f"mac:{MAC}"]
+    assert kept[0].details["exception_keys"] == [f"mac:{MAC}", f"ipv6:aaaa:{ZONE}"]
+    again = consistency.apply_exceptions(kept, consistency.excepted_from([]))
+    assert again[0].details["exception_keys"] == [f"mac:{MAC}", f"ipv6:aaaa:{ZONE}"]
     whole = ex(("ipv6_missing_aaaa", f"ipv6:aaaa:{ZONE}"))
     assert consistency.apply_exceptions(alerts, whole) == []
     rev = consistency.ipv6_reverse_missing(px.effective(["2001:db8:5::/64"], [], []), [])

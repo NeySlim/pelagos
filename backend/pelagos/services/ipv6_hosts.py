@@ -120,6 +120,10 @@ def _replaced(item: Observed, short: list[Observed], now: int, long_history: boo
     return gone or (long_history and newer)
 
 
+def _net64(address: str) -> ipaddress.IPv6Network:
+    return ipaddress.IPv6Network(f"{address}/64", strict=False)
+
+
 def _zone_of(name: str, zones: Iterable[str]) -> str | None:
     best = None
     for zone in zones:
@@ -285,8 +289,8 @@ def stale_records(
     """AAAA records in a watched prefix not observed for `stale_days` while their host's MAC is
     seen now with another `eui64` or `stable` address.
 
-    An address never observed counts from the first observation of the MAC, so a fresh install
-    raises nothing before `stale_days` of history.
+    An address never observed counts only in a /64 the MAC is no longer seen in (a prefix the host
+    left), from the MAC's first observation: an alias next to a current address is never stale.
     """
     ex = excepted or _never
     forward = [normalize_name(z) for z in forward_zones]
@@ -305,11 +309,14 @@ def stale_records(
         if not current:
             continue
         since = min(i.first_seen for i in items)
+        here = {_net64(i.address) for i in items if i.last_seen >= now - DAY}
         for address, owner in sorted(_records(host).aaaa.items()):
             if not watched(address) or ex(STALE_KIND, addr_key(address)):
                 continue
             zone = _zone_of(owner, forward)
             last = seen.get(address)
+            if last is None and _net64(address) in here:
+                continue
             if zone is None or (last if last is not None else since) >= limit:
                 continue
             other = next((i.address for i in current if i.address != address), None)

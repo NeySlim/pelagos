@@ -2,7 +2,8 @@
 """Item 23: resolver health from the statistics channel and a root reachability probe.
 
 Subjects (kind resolver_health): `resolver:servfail`, `resolver:dnssec`, `resolver:queries`,
-`resolver:roots`.
+`resolver:roots`; from release 0.2.2 `resolver:latency`, `resolver:timeouts`, `resolver:mismatch`,
+`resolver:cache` (section 25).
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import dns.rdatatype
 
 from pelagos.collector.checks.counters import CounterSeries
 from pelagos.collector.checks.settings import CheckSettings
+from pelagos.connectors.bind.resolver_stats import percentile, resolver_counters, rtt_buckets
 from pelagos.domain import Alert, AlertKind, Engine, Severity, messages
 
 
@@ -46,26 +48,42 @@ def counters_of(rcodes: dict[str, int], resstats: dict[str, int], nsstats: dict[
 
 
 def resolver_stats(raw: dict[str, Any]) -> dict[str, int]:
-    """Resolver counters summed over the views of a /json/v1 answer, plus the top-level ones."""
-    total: dict[str, int] = {}
-    sources = [raw.get("resstats") or {}]
-    for view in (raw.get("views") or {}).values():
-        sources.append(((view.get("resolver") or {}).get("stats")) or {})
-    for source in sources:
-        for k, v in source.items():
-            if isinstance(v, int) and not isinstance(v, bool):
-                total[k] = total.get(k, 0) + v
-    return total
+    """Resolver and cache counters summed over the views of a /json/v1 answer, plus the top-level ones."""
+    return resolver_counters(raw)
+
+
+# Subjects the fast pass judges; the probes (resolver:roots, resolver:tld:*, resolver:root-letters)
+# are judged by the slow checks and never resolved here.
+FAST_SUBJECTS = frozenset(
+    f"resolver:{s}" for s in ("servfail", "dnssec", "queries", "latency", "timeouts", "mismatch", "cache")
+)
+# Outgoing counters behind the section 25 alerts, name in the series -> statistics-channel names.
+OUTGOING = {
+    "out_queries": ("Queryv4", "Queryv6"),
+    "timeouts": ("QueryTimeout",),
+    "mismatch": ("Mismatch",),
+    "lru": ("DeleteLRU",),
+}
 
 
 class ResolverMonitor:
     def __init__(self, window: int) -> None:
-        keep = 3 * window + 600
-        self.series = {k: CounterSeries(keep) for k in ("servfail", "responses", "valfail", "queries")}
+        self.keep = 3 * window + 600
+        self.series = {k: CounterSeries(self.keep) for k in ("servfail", "responses", "valfail", "queries")}
+        self.outgoing = {k: CounterSeries(self.keep) for k in OUTGOING}
+        self.rtt: dict[tuple[float, float], CounterSeries] = {}
 
     def add(self, ts: int, sample: dict[str, int]) -> None:
         for key, series in self.series.items():
             series.add(ts, sample.get(key, 0))
+
+    def add_outgoing(self, ts: int, counters: dict[str, int]) -> None:
+        """Resolver counters (resolver_counters) for the latency, timeout, mismatch and cache rules."""
+        for key, names in OUTGOING.items():
+            self.outgoing[key].add(ts, sum(int(counters.get(n, 0)) for n in names))
+        buckets = {(lo, hi): count for lo, hi, count in rtt_buckets(counters)}
+        for bounds in buckets.keys() | self.rtt.keys():
+            self.rtt.setdefault(bounds, CounterSeries(self.keep)).add(ts, buckets.get(bounds, 0))
 
     def evaluate(self, node_id: str, now: int, cfg: CheckSettings) -> list[Alert]:
         window = cfg.resolver_window_seconds
@@ -130,7 +148,101 @@ class ResolverMonitor:
                         node_id,
                     )
                 )
+        out.extend(self._outgoing_alerts(node_id, now, cfg))
         return out
+
+    def _outgoing_alerts(self, node_id: str, now: int, cfg: CheckSettings) -> list[Alert]:
+        window = cfg.resolver_window_seconds
+        minutes = max(window // 60, 1)
+        start = now - window
+        out: list[Alert] = []
+        increments = [(lo, hi, *s.increase(start, now)) for (lo, hi), s in sorted(self.rtt.items())]
+        buckets = [(lo, hi, inc) for lo, hi, inc, _ in increments]
+        covered = max((cov for *_, cov in increments), default=0)
+        if covered >= window // 2 and sum(b[2] for b in buckets) >= cfg.resolver_min_queries:
+            p95 = percentile(buckets, 0.95) or 0.0
+            p50 = percentile(buckets, 0.50) or 0.0
+            level, threshold = _level(
+                p95, cfg.resolver_latency_warning_milliseconds, cfg.resolver_latency_critical_milliseconds
+            )
+            if level:
+                details = {"p50": round(p50), "p95": round(p95), "threshold": threshold}
+                out.append(
+                    _alert(
+                        level,
+                        "latency",
+                        messages.msg("alert.resolver_latency", p95=round(p95), threshold=threshold),
+                        _remedy(level, details),
+                        node_id,
+                    )
+                )
+        queries, covered = self.outgoing["out_queries"].increase(start, now)
+        timeouts, _ = self.outgoing["timeouts"].increase(start, now)
+        if covered >= window // 2 and queries >= cfg.resolver_min_queries:
+            percent = 100.0 * timeouts / queries
+            level, _threshold = _level(
+                percent, cfg.resolver_timeouts_warning_percent, cfg.resolver_timeouts_critical_percent
+            )
+            if level:
+                out.append(
+                    _alert(
+                        level,
+                        "timeouts",
+                        messages.msg("alert.resolver_timeouts", percent=f"{percent:.0f}", minutes=minutes),
+                        _remedy(level, {"percent": round(percent, 1), "minutes": minutes}),
+                        node_id,
+                    )
+                )
+        mismatch, covered = self.outgoing["mismatch"].increase(start, now)
+        if covered >= window // 2 and mismatch >= cfg.resolver_mismatch_warning_count:
+            out.append(
+                _alert(
+                    Severity.WARNING,
+                    "mismatch",
+                    messages.msg("alert.resolver_mismatch", count=mismatch, minutes=minutes),
+                    {"count": mismatch, "minutes": minutes},
+                    node_id,
+                )
+            )
+        per_minute = _steady_rate(self.outgoing["lru"], start, now, window)
+        if per_minute is not None and per_minute >= cfg.resolver_lru_info_per_minute:
+            out.append(
+                _alert(
+                    Severity.INFO,
+                    "cache",
+                    messages.msg("alert.resolver_cache", per_minute=round(per_minute)),
+                    {"per_minute": round(per_minute, 1)},
+                    node_id,
+                )
+            )
+        return out
+
+
+def _level(value: float, warning: float, critical: float) -> tuple[Severity | None, float]:
+    if value >= critical:
+        return Severity.CRITICAL, critical
+    if value >= warning:
+        return Severity.WARNING, warning
+    return None, warning
+
+
+def _remedy(level: Severity, details: dict[str, Any]) -> dict[str, Any]:
+    """A critical latency or timeout alert proposes the forwarder fallback (section 25)."""
+    return {**details, "remediation": "resolver_fallback"} if level is Severity.CRITICAL else details
+
+
+def _steady_rate(series: CounterSeries, start: int, end: int, window: int) -> float | None:
+    """Lowest per-minute rate of the sample pairs inside the window (eviction for the whole window),
+    None when they cover less than three quarters of it."""
+    rates: list[float] = []
+    covered = 0
+    for (t0, v0), (t1, v1) in zip(series.samples, series.samples[1:], strict=False):
+        if start < t1 <= end and t1 > t0:
+            rates.append((v1 - v0 if v1 >= v0 else v1) * 60.0 / (t1 - t0))
+            covered += t1 - t0
+    if not rates or covered < window * 3 // 4:
+        return None
+    return min(rates)
 
 
 def probe_qname() -> str:

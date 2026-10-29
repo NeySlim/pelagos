@@ -55,7 +55,7 @@ class Services:
         self.jobs = JobStore(self.events)
         self.cache = SeriesCache(ctx.paths.series_db)
         self.alerts = AlertsService(ctx, self.cache, self.events, self.peers)
-        self.series = SeriesService(self.cache)
+        self.series = SeriesService(self.cache, self.peers, ctx.node.id)
         self.dns = DnsService(ctx, self.registry.dns, self.peers)
         self.rpz = RpzService(ctx, self.dns, self.peers)
         self.dhcp4 = DhcpService(

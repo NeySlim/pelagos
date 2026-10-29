@@ -233,11 +233,18 @@ def parse_time(value: str | None, name: str, default: datetime | None = None) ->
         ) from None
 
 
+# Each node samples its own resolver: another node's series come over this peer action.
+PEER_RESOLVER_SERIES = "resolver.series"
+RESOLVER_SERIES_TIMEOUT = 4.0
+
+
 class SeriesService:
     """Thin layer over WP-COLLECTOR's readers; a reader that is not built yet answers 501."""
 
-    def __init__(self, cache: SeriesCache) -> None:
+    def __init__(self, cache: SeriesCache, peers: Any = None, node_id: str | None = None) -> None:
         self.cache = cache
+        self.peers = peers
+        self.node_id = node_id
 
     def _call(self, name: str, **kwargs: Any) -> list[dict[str, Any]]:
         store = self.cache.store
@@ -287,3 +294,32 @@ class SeriesService:
             since=int(since.timestamp()),
             until=int(until.timestamp()),
         )
+
+    def resolver(
+        self, *, metric: str, node_id: str | None, since: datetime, until: datetime, step: int
+    ) -> dict[str, Any]:
+        """Series of one resolver metric: this node's from its cache, a peer's over `resolver.series`;
+        without `node_id`, this node and every peer serving DNS. A silent peer goes to `unavailable`."""
+        query = {
+            "metric": metric,
+            "since": int(since.timestamp()),
+            "until": int(until.timestamp()),
+            "step": step,
+        }
+        local = node_id is None or node_id == self.node_id
+        peers = [] if self.peers is None or node_id == self.node_id else self.peers.peers()
+        if node_id is None:
+            peers = [p for p in peers if p.modules.bind]
+        elif not local:
+            peers = [p for p in peers if p.id == node_id]
+            if not peers:
+                raise NotFound(f"node {node_id} not found")
+        series = self._call("resolver", node_id=self.node_id, **query) if local else []
+        unavailable: list[dict[str, Any]] = []
+        for peer in peers:
+            try:
+                answer = self.peers.action(peer, PEER_RESOLVER_SERIES, query, timeout=RESOLVER_SERIES_TIMEOUT)
+                series.extend(answer.get("series") or [])
+            except ServiceError as exc:
+                unavailable.append({"node_id": peer.id, "name": peer.name, "error": exc.detail})
+        return {"series": series, "unavailable": unavailable}

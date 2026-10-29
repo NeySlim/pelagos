@@ -44,6 +44,13 @@ CREATE TABLE IF NOT EXISTS alerts (
   first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL,
   acked_by TEXT, acked_at INTEGER, resolved_at INTEGER);
 CREATE INDEX IF NOT EXISTS alerts_state ON alerts(state, severity);
+CREATE TABLE IF NOT EXISTS resolver_samples (
+  ts INTEGER NOT NULL, node_id TEXT NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL,
+  PRIMARY KEY (ts, node_id, metric));
+CREATE INDEX IF NOT EXISTS resolver_samples_metric ON resolver_samples(metric, node_id, ts);
+CREATE TABLE IF NOT EXISTS resolver_hourly (
+  ts INTEGER NOT NULL, node_id TEXT NOT NULL, metric TEXT NOT NULL, value REAL NOT NULL, max REAL NOT NULL,
+  PRIMARY KEY (ts, node_id, metric));
 CREATE TABLE IF NOT EXISTS engine_snapshots (
   node_id TEXT NOT NULL, engine TEXT NOT NULL, kind TEXT NOT NULL, ts INTEGER NOT NULL, payload TEXT NOT NULL,
   PRIMARY KEY (node_id, engine, kind));
@@ -198,6 +205,14 @@ class SeriesStore:
             (node_id, engine),
         ).fetchone()
         return row["to_state"] if row else None
+
+    def write_resolver_samples(self, ts: int, node_id: str, values: dict[str, float]) -> None:
+        """One collector pass of resolver metrics (section 25) for one node."""
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO resolver_samples VALUES (?,?,?,?)",
+            [(ts, node_id, metric, float(value)) for metric, value in values.items()],
+        )
+        self._commit()
 
     # Engine snapshots --------------------------------------------------------
 
@@ -376,10 +391,71 @@ class SeriesStore:
         rows = self.conn.execute("SELECT * FROM resolver_probes ORDER BY kind, name, address").fetchall()
         return [{**dict(r), "ok": bool(r["ok"])} for r in rows]
 
+    def resolver(
+        self, *, metric: str, node_id: str | None, since: int, until: int, step: int
+    ) -> list[dict[str, Any]]:
+        """One series per node: hourly averages and raw rows (they never overlap: raw rows are deleted
+        once folded), averaged per `step` bucket. Points [ts, value], ascending."""
+        clauses, params = ["metric = ? AND ts >= ? AND ts <= ?"], [metric, since, until]
+        if node_id is not None:
+            clauses.append("node_id = ?")
+            params.append(node_id)
+        where = " AND ".join(clauses)
+        step = max(int(step), 1)
+        sums: dict[str, dict[int, list[float]]] = {}
+        for table in ("resolver_hourly", "resolver_samples"):
+            rows = self.conn.execute(f"SELECT node_id, ts, value FROM {table} WHERE {where}", params)  # noqa: S608
+            for row in rows:
+                acc = sums.setdefault(row["node_id"], {}).setdefault(row["ts"] - row["ts"] % step, [0.0, 0])
+                acc[0] += row["value"]
+                acc[1] += 1
+        return [
+            {
+                "key": {"node_id": node, "metric": metric},
+                "points": [[ts, round(total / n, 3)] for ts, (total, n) in sorted(buckets.items())],
+            }
+            for node, buckets in sorted(sums.items())
+        ]
+
+    def latest_resolver_sample(self, node_id: str) -> tuple[int, dict[str, float]] | None:
+        """(ts, {metric: value}) of the most recent pass of one node, None before the first one."""
+        row = self.conn.execute(
+            "SELECT MAX(ts) AS ts FROM resolver_samples WHERE node_id = ?", (node_id,)
+        ).fetchone()
+        if row is None or row["ts"] is None:
+            return None
+        rows = self.conn.execute(
+            "SELECT metric, value FROM resolver_samples WHERE node_id = ? AND ts = ?", (node_id, row["ts"])
+        ).fetchall()
+        return row["ts"], {r["metric"]: r["value"] for r in rows}
+
+    def resolver_max(self, metric: str, since: int) -> float | None:
+        """Largest hourly average of a metric since `since` over every node of this cache (raw rows
+        not folded yet are averaged per hour on the fly); None without data."""
+        found = [
+            r["v"]
+            for r in self.conn.execute(
+                "SELECT MAX(value) AS v FROM resolver_hourly WHERE metric = ? AND ts >= ?"
+                " UNION ALL SELECT MAX(v) FROM (SELECT AVG(value) AS v FROM resolver_samples"
+                " WHERE metric = ? AND ts >= ? GROUP BY node_id, ts / 3600)",
+                (metric, since, metric, since),
+            )
+            if r["v"] is not None
+        ]
+        return max(found) if found else None
+
     def counts(self) -> dict[str, int]:
         return {
             t: self.conn.execute(f"SELECT COUNT(*) AS n FROM {t}").fetchone()["n"]  # noqa: S608
-            for t in ("series_pool", "series_pool_hourly", "series_serial", "ha_transitions", "alerts")
+            for t in (
+                "series_pool",
+                "series_pool_hourly",
+                "series_serial",
+                "ha_transitions",
+                "alerts",
+                "resolver_samples",
+                "resolver_hourly",
+            )
         }
 
     # Retention -------------------------------------------------------------
@@ -417,6 +493,26 @@ class SeriesStore:
         self._commit()
         return len(rows), deleted
 
+    def downsample_resolver(self, before_ts: int) -> tuple[int, int]:
+        """Fold raw resolver rows older than the hour of before_ts into hourly averages and maxima.
+        The cut is on an hour boundary, so each hour is folded once and whole."""
+        before_ts -= before_ts % HOUR
+        rows = self.conn.execute(
+            "SELECT (ts / 3600) * 3600 AS hour, node_id, metric, AVG(value) AS value, MAX(value) AS max"
+            " FROM resolver_samples WHERE ts < ? GROUP BY hour, node_id, metric",
+            (before_ts,),
+        ).fetchall()
+        if not rows:
+            return 0, 0
+        self.conn.executemany(
+            "INSERT INTO resolver_hourly VALUES (?,?,?,?,?) ON CONFLICT(ts, node_id, metric) DO UPDATE SET"
+            " value = excluded.value, max = MAX(max, excluded.max)",
+            [(r["hour"], r["node_id"], r["metric"], r["value"], r["max"]) for r in rows],
+        )
+        deleted = self.conn.execute("DELETE FROM resolver_samples WHERE ts < ?", (before_ts,)).rowcount
+        self._commit()
+        return len(rows), deleted
+
     def apply_retention(self, now: int, retention: dict[str, int]) -> dict[str, int]:
         """Downsample raw pool rows into hourly, then purge per the retention table; returns counts."""
 
@@ -435,6 +531,12 @@ class SeriesStore:
             " AND s.node_id = series_serial.node_id)",
             (now - days("serial_days", 90) * DAY,),
         ).rowcount
+        resolver_hourly, resolver_raw_deleted = self.downsample_resolver(
+            now - days("resolver_raw_days", 7) * DAY
+        )
+        resolver_hourly_deleted = self.conn.execute(
+            "DELETE FROM resolver_hourly WHERE ts < ?", (now - days("resolver_hourly_days", 90) * DAY,)
+        ).rowcount
         ha_deleted = self.conn.execute(
             "DELETE FROM ha_transitions WHERE ts < ?", (now - days("ha_transition_days", 365) * DAY,)
         ).rowcount
@@ -449,6 +551,9 @@ class SeriesStore:
             "pool_hourly_written": hourly,
             "pool_hourly_deleted": hourly_deleted,
             "serial_deleted": serial_deleted,
+            "resolver_raw_deleted": resolver_raw_deleted,
+            "resolver_hourly_written": resolver_hourly,
+            "resolver_hourly_deleted": resolver_hourly_deleted,
             "ha_deleted": ha_deleted,
             "alerts_deleted": alerts_deleted,
         }

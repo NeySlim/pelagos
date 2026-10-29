@@ -16,6 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from pelagos.collector import resolver as resolver_samples
 from pelagos.collector import rules
 from pelagos.collector.checks import (
     advisories,
@@ -140,6 +141,7 @@ class HealthChecks:
         self.restarts = restarts.RestartTracker()
         self._status_seen: dict[str, int] = {}
         self.monitor: resolver.ResolverMonitor | None = None
+        self.sampler = resolver_samples.ResolverSampler()
         self.declines: dict[str, CounterSeries] = {}
         self.rejected_updates = CounterSeries(2 * ddns.DENIED_WINDOW)
         self._nsstats: dict[str, int] | None = None
@@ -239,8 +241,9 @@ class HealthChecks:
 
     def _resolver(self) -> PollOutcome:
         kinds = frozenset({AlertKind.RESOLVER_HEALTH.value})
+        # Only the subjects the fast pass judges: probe alerts belong to the slow checks.
         match = _mine(
-            self.node_id, lambda s: s != "resolver:roots" and not resolver_probes.is_probe_subject(s)
+            self.node_id, lambda s: s in resolver.FAST_SUBJECTS and not resolver_probes.is_probe_subject(s)
         )
         dns = self.backends.dns
         if dns is None:
@@ -255,9 +258,15 @@ class HealthChecks:
             return PollOutcome()  # no verdict: current alerts stay
         now = int(self.clock())
         self._nsstats = stats.nsstats
-        self.monitor.add(
-            now, resolver.counters_of(stats.rcodes, resolver.resolver_stats(stats.raw), stats.nsstats)
-        )
+        counters = resolver.resolver_stats(stats.raw)
+        self.monitor.add(now, resolver.counters_of(stats.rcodes, counters, stats.nsstats))
+        self.monitor.add_outgoing(now, counters)
+        values = self.sampler.measure(now, resolver_samples.with_client_rcodes(counters, stats.rcodes))
+        if values:
+            try:
+                self.store.write_resolver_samples(now, self.node_id, values)
+            except Exception:
+                log.exception("resolver samples not written")
         return PollOutcome(alerts=self.monitor.evaluate(self.node_id, now, cfg), kinds=kinds, where=match)
 
     def _declined(self) -> PollOutcome:

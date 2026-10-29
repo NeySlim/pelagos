@@ -9,8 +9,10 @@ from __future__ import annotations
 from flask_restx import Namespace, Resource
 
 from pelagos.api import models as m
-from pelagos.api.errors import not_implemented
-from pelagos.api.security import require
+from pelagos.api.common import arg, int_arg, time_range
+from pelagos.api.errors import ApiError, not_implemented
+from pelagos.api.security import require, services
+from pelagos.collector.resolver import METRICS
 
 ns = Namespace("resolver-health", description="Resolver health and forwarder fallback", path="/dns/resolver")
 series_ns = Namespace("resolver-series", description="Resolver measures over time", path="/series/resolver")
@@ -59,7 +61,27 @@ class ReturnPlan(Resource):
 @series_ns.route("")
 class ResolverSeries(Resource):
     @require("read:series")
-    @series_ns.response(200, "Series of one resolver metric, like /series/pools")
-    @series_ns.response(501, "not_implemented", m.Problem)
+    @series_ns.doc(
+        params={
+            "metric": "one of " + ", ".join(METRICS) + " (required)",
+            "node_id": "node (default: every node serving DNS)",
+            "from": "RFC 3339 or Unix seconds (default 24 h before to)",
+            "to": "default now",
+            "step": "seconds, default 300; points are averages per step",
+        }
+    )
+    @series_ns.response(200, "One series per node: [ts, value]; peers that did not answer in unavailable")
+    @series_ns.response(400, "validation_error: metric missing or unknown", m.Problem)
     def get(self):
-        _todo("R1")
+        metric = arg("metric")
+        if metric not in METRICS:
+            raise ApiError(
+                "validation_error",
+                "metric must be one of " + ", ".join(METRICS),
+                errors=[{"field": "metric", "message": "required" if metric is None else "unknown"}],
+            )
+        since, until = time_range()
+        step = int_arg("step", minimum=1) or 300
+        return services().series.resolver(
+            metric=metric, node_id=arg("node_id"), since=since, until=until, step=step
+        )

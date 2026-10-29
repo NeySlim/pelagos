@@ -61,6 +61,8 @@ SECURITY_PLAN = "security.plan"
 SECURITY_HA_GUARD = "security.ha_guard"
 # This node's alerts, for a peer's cluster view (services.alerts_service).
 ALERTS_LIST = "alerts.list"
+# This node's resolver series (services.alerts_service.SeriesService.resolver).
+RESOLVER_SERIES = "resolver.series"
 # The notification dispatcher state of this node (collector.notify.read_state).
 NOTIFY_STATE = "notify.state"
 # Archives of this node (services.archive_service): run state, a run now, a probe file.
@@ -77,6 +79,7 @@ LOCKLESS = frozenset(
         SECURITY_PLAN,
         SECURITY_HA_GUARD,
         ALERTS_LIST,
+        RESOLVER_SERIES,
         NOTIFY_STATE,
         ARCHIVE_STATE,
         ARCHIVE_RUN,
@@ -110,6 +113,7 @@ class PeerActions:
             SECURITY_PLAN: self.security_plan,
             SECURITY_HA_GUARD: self.security_ha_guard,
             ALERTS_LIST: self.alerts_list,
+            RESOLVER_SERIES: self.resolver_series,
             NOTIFY_STATE: self.notify_state,
             ARCHIVE_STATE: self.archive_state,
             ARCHIVE_RUN: self.archive_run,
@@ -182,6 +186,35 @@ class PeerActions:
             "alerts": [a.to_dict() for a in rows],
             "resolved_total": resolved_total,
         }
+
+    def resolver_series(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """This node's series of one resolver metric, read from its own cache."""
+        import sqlite3
+
+        from pelagos.collector import series as series_mod
+        from pelagos.collector.resolver import METRICS
+
+        metric = body.get("metric")
+        if metric not in METRICS:
+            raise ValidationError("unknown resolver metric", [field_error("metric", "unknown")])
+        path = self.ctx.paths.series_db
+        if not path.exists():
+            return {"node_id": self.ctx.node.id, "series": []}
+        try:
+            conn = series_mod.connect(path, readonly=True)
+        except sqlite3.Error as exc:
+            raise PeerActionError("engine_unavailable", f"series cache unreadable: {exc}") from None
+        try:
+            series = series_mod.SeriesStore(conn).resolver(
+                metric=metric,
+                node_id=self.ctx.node.id,
+                since=int(body.get("since") or 0),
+                until=int(body.get("until") or 0),
+                step=int(body.get("step") or 300),
+            )
+        finally:
+            conn.close()
+        return {"node_id": self.ctx.node.id, "series": series}
 
     def notify_state(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
         """This node's dispatcher state, for the overview of a node that is not the sender."""

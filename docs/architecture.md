@@ -1704,12 +1704,13 @@ run under the collector's backend lock):
 | `archive.state` | `{}` | `{"node_id", "state": state.json, "last_archive": ArchiveMeta|null, "count"}` of this node's archives (section 23) |
 | `archive.run` | `{}` | `{"requested": true}`: sends the `archive` event to this node's collector (section 23) |
 | `resolver.health` | `{}` | this node's entry of `GET /dns/resolver/health` (`nodes[]`, section 25), read from its series cache and probe table |
+| `resolver.series` | `{"metric","since","until","step"}` | `{"node_id","series"}`: this node's series of one resolver metric from its own cache, the `GET /series/resolver` answer for that node (section 25) |
 | `ipv6.observations` | `{"since"?}` | `{"node_id","observations": [Observation],"sources": [SourceStatus]}`: what this node observed (section 27) |
 | `kea.migration.inventory` | `{}` | this node's entry of `GET /install/kea-migration` (`nodes[]`, section 26) |
 | `kea.migration.analyze` | `{"series","source","created_by"}` | `{"node_id","findings","diffs","packages","validation"}`: the analysis of this node's Kea files and running configurations (section 26) |
 | `archive.probe` | `{}` | `{"ok", "node_id", "free_bytes", "max_bytes", "fits"}`: a 64 KiB probe file written, read back and deleted in this node's archive folder (`.incoming/`) |
 
-The `certs.*`, `security.*`, `alerts.list`, `notify.state`, `archive.state|run|probe`, `resolver.health`, `ipv6.observations` and `kea.migration.inventory` actions never touch an engine and run without the
+The `certs.*`, `security.*`, `alerts.list`, `notify.state`, `archive.state|run|probe`, `resolver.health`, `resolver.series`, `ipv6.observations` and `kea.migration.inventory` actions never touch an engine and run without the
 backend lock.
 
 A plan built this way is stored by the caller (`PeerGateway.build_plan`
@@ -2879,7 +2880,7 @@ peer action (4 s per peer); a node that does not answer is listed in
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
 | `GET /dns/resolver/health?node_id=` | `read:dns` | | `{"nodes": [NodeHealth], "unavailable", "fallback": Fallback|null, "return_ready": bool, "thresholds": {metric: {"warning"?,"critical"?,"info"?,"observed_max_7d"}}, "presets": [Preset]}` |
-| `GET /series/resolver?node_id=&metric=&from=&to=&step=` | `read:series` | | `{"series": [{"key": {"node_id","metric"}, "points": [[ts, value]]}]}`; `metric` is required and one of the metrics of section 25 (`400` otherwise); raw or hourly rows like `/series/pools` |
+| `GET /series/resolver?node_id=&metric=&from=&to=&step=` | `read:series` | | `{"series": [{"key": {"node_id","metric"}, "points": [[ts, value]]}], "unavailable"}`; `metric` is required and one of the metrics of section 25 (`400` otherwise); raw or hourly rows like `/series/pools` |
 | `POST /dns/resolver/fallback/plan` | `write:dns.config` | `{"forwarders"?: [address], "preset"?, "forward": "first"|"only", "node_ids"?, "hours", "tls"?: bool, "tls_name"?}` (`forwarders` or `preset`; `node_ids` default every node serving DNS; `hours` 1 to `resolver.fallback_max_hours`) | composite `Plan` (scope `dns.resolver`, one `dns.config` part per node, `requires_confirmation`); `409 conflict` while a fallback is active |
 | `POST /dns/resolver/fallback/return/plan` | `write:dns.config` | `{}` | composite `Plan` (scope `dns.resolver`) that puts back `forward` and `forwarders` of each node as recorded in `before`; `409` when no fallback is active |
 | `PUT /dns/resolver/fallback` | `write:dns.config` | `{"until"}`: in the future, at most `fallback_max_hours` from now | `{"fallback"}`; `409` when no fallback is active |
@@ -3756,7 +3757,10 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
   metric))`; rows older than `resolver_raw_days` are averaged into
   `resolver_hourly` (same columns, `ts` truncated to the hour, plus `max
   REAL`) and deleted; hourly rows older than `resolver_hourly_days` are
-  deleted. `/series/resolver` reads hourly rows when `step` is 3600 or more.
+  deleted. `/series/resolver` reads hourly and raw rows together (they never
+  overlap: raw rows are deleted once folded) and averages them per `step`; each
+  node samples its own resolver, so another node's series come over the
+  `resolver.series` peer action, a silent peer listed in `unavailable`.
 - **Probes** (R2, slow checks, every `probe_interval_seconds`, outside the
   poll loop): `. SOA` without recursion to every root server (addresses read
   through the local resolver: `. NS`, then A and AAAA, never hard-coded),

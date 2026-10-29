@@ -1768,6 +1768,13 @@ reads an unknown severity, state or engine as `warning`, `open`, `None`. A node 
 `alerts.list`, the cluster view, the API or the notification dispatcher on a kind added by a newer
 peer during a rolling upgrade. No package has to change its code.
 
+## 2026-10-29, resolver measures batch R1: series of the other nodes
+Additive. Architecture section 13: peer action `resolver.series` (lockless), since each node
+samples its own resolver and `GET /series/resolver` must show every node; section 25: that route
+reads hourly and raw rows together and answers `unavailable` like the health route. WP-API-AUTH:
+`SeriesService.resolver`, `PeerActions.resolver_series`. WP-FRONTEND: the mock of
+`/series/resolver` may add `unavailable: []` (R4).
+
 ## 2026-10-28, DDNS failover batch D6: lab findings
 Behavior fixes, no interface change. Section 24: the D2 outage window no longer closes on a
 success sample less than 2 s after the latest failure (`services/ddns_replay.py`,

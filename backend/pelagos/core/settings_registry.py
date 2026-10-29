@@ -266,7 +266,7 @@ REGISTRY: tuple[Setting, ...] = (
     # Observed IPv6 addresses (section 27)
     S("ipv6.neighbors_enabled", "boolean", True),
     S("ipv6.poll_seconds", "integer", 300, 60, DAY, "seconds"),
-    S("ipv6.stable_min_days", "integer", 3, 1, 365, "days"),
+    S("ipv6.stable_min_days", "integer", 8, 1, 365, "days"),
     S("ipv6.stale_days", "integer", 14, 1, 365, "days"),
     S("ipv6.auto_apply_enabled", "boolean", False),
 )

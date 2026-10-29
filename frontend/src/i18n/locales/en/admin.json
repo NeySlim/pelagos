@@ -529,7 +529,7 @@
         "probe_tlds": "The TLDs of the zones the cluster serves are probed as well."
       },
       "ipv6": {
-        "stable_min_days": "Above the 2 day lifetime of a temporary address (RFC 8981).",
+        "stable_min_days": "Above the 7 day lifetime of a temporary address on Windows and macOS (2 days on Linux, RFC 8981).",
         "auto_apply_enabled": "Reserved: the first version creates records only by plan."
       }
     }

@@ -2903,7 +2903,7 @@ only, never sent out of the cluster.
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
-| `GET /hosts/ipv6?filter=&zone=&page=&per_page=` | `read:hosts` | | paginated `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen"}],"aaaa","ptr","proposal": {"name","zone","reverse_zone"}|null,"excepted"}`; `filter` one of `missing_aaaa`, `missing_ptr`, `stale`, `unknown`, `random_mac`; `meta.unavailable` lists the nodes and sources that did not answer |
+| `GET /hosts/ipv6?filter=&zone=&page=&per_page=` | `read:hosts` | | paginated `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen"}],"aaaa","ptr","proposal": {"address","class","name","zone","reverse_zone"}|null,"excepted"}`; `filter` one of `missing_aaaa`, `missing_ptr`, `stale`, `unknown`, `random_mac`; `meta.unavailable` lists the nodes and sources that did not answer |
 | `GET /admin/ipv6` | `admin:settings` | | `{"sources": [Source],"prefixes","effective_prefixes": [{"prefix","from": "setting"|"reverse_zone"|"dhcpv6"}],"settings","status": [SourceStatus]}` (secrets as booleans) |
 | `PUT /admin/ipv6` | `admin:settings` | `{"sources"?,"prefixes"?,"secrets"?: {source id: {"api_key"?,"api_secret"?}}}` (`sources` replaced whole; a source without `id` gets one; `null` clears a secret) | same as `GET`; audited `admin.ipv6.replace` |
 | `POST /admin/ipv6/sources/test` | `admin:settings` | `{"source_id"}` or an unsaved `Source` whose `scope` (a source id) names the stored secrets it reuses while `url` is unchanged | `{"ok","node_id","entries","error"?,"sample": [Observation]}` (at most 5); a failed poll is `200` with `ok` false; 6 per minute per user (`429`) |
@@ -3962,21 +3962,30 @@ Code: sources in `collector/ipv6/` (`neighbors.py`, `opnsense.py`,
 
 - **Settings** `[settings.ipv6]`: `neighbors_enabled` (true), `poll_seconds`
   (300, the router poll and the DHCPv6 lease walk; the neighbor table is
-  read every pass), `stable_min_days` (3), `stale_days` (14),
+  read every pass), `stable_min_days` (8), `stale_days` (14),
   `auto_apply_enabled` (false, reserved). Retention
   `retention.ipv6_observation_days` (30). Screen entries: `sources`
   (`[Source]`), `prefixes` (watched prefixes, IPv6 CIDR strings; empty:
   only the effective defaults). Secrets: `[secrets]
   "ipv6/source/<id>/api_key"`, `"ipv6/source/<id>/api_secret"`.
 - **Source**: `{"id": ULID,"type": "opnsense","name","url","verify_tls":
-  true,"ca_pem"|null,"enabled"}`; the API adds `"secrets": {"api_key": bool,
-  "api_secret": bool}`. OPNsense is read with Basic authentication (key,
-  secret) on `/api/diagnostics/interface/search_ndp`, by the service node
-  only (section 22, sender election), every `poll_seconds`.
+  true,"ca_pem"|null,"enabled","allow_http": false,"exclude_macs": []}`; the
+  API adds `"secrets": {"api_key": bool, "api_secret": bool}`. OPNsense is
+  read with Basic authentication (key, secret) on
+  `/api/diagnostics/interface/search_ndp`, by the service node only (section
+  22, sender election), every `poll_seconds`, on a thread of its own (the
+  collector loop records the previous pass and never waits on a router), in
+  at most 20 s from name resolution to the last byte. An `http://` URL is a
+  failed source unless `allow_http` is true (the key would travel in clear).
+  `search_ndp` rows carry no state: a stale entry FreeBSD still lists counts
+  as seen (up to a day more for `stale_days` and `stable`), and the router's
+  own interface entries are listed; rows whose MAC is in `exclude_macs` are
+  dropped.
 - **NeighborSource** (V1): `kind: str`, `poll() -> list[Neighbor]` with
   `Neighbor(mac, address, state)`; it raises `SourceError(message)` on any
   failure. `neighbors` reads `ip -j -6 neigh show` on each node (no
-  privilege); `dhcpv6` takes the DHCPv6 leases when the module is on.
+  privilege), state `router` for a neighbor flagged as a router (not
+  stale); `dhcpv6` takes the DHCPv6 leases when the module is on.
 - **Observation**: `{"mac","address","source": "neighbors"|"opnsense"|
   "dhcpv6","source_id"|null,"node_id","first_seen","last_seen","state"}`,
   kept in the observing node's cache: `ipv6_observations (mac TEXT, address
@@ -3997,13 +4006,18 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   interface identifier is the modified EUI-64 of the MAC), `stable` (seen for
   that MAC for more than `stable_min_days` and in the last 24 h), `temporary`
   (several addresses of one MAC and prefix, each seen for less than
-  `stable_min_days`, replaced over the days), `unknown` (not enough history).
+  `stable_min_days`, replaced: gone for a day or followed by a newer one),
+  `unknown` (not enough history, or a current address nothing replaced yet).
   `mac_random`: the locally administered bit of the MAC is set.
 - **Host match**: by MAC to the hosts view (`services/hosts_service.py`:
   lease or reservation, lease hostname, A record); `host_key` is the hosts
-  view key, `mac:<mac>` when the MAC is in no host. `proposal`: the owner
-  of the host's A in its forward zone and the reverse zone of the address,
-  for an `eui64` or `stable` address without AAAA; null otherwise.
+  view key, `mac:<mac>` when the MAC is in no host. `proposal`:
+  `{"address","class","name","zone","reverse_zone"|null}` for the first
+  `eui64` or `stable` address without AAAA (in address order): the address
+  and its class, the owner of the host's A, its forward zone and the
+  reverse zone of the address; null otherwise. The AAAA and PTR plans write
+  `proposal.address`. A MAC with an observation in state `router` is the
+  router itself and is never listed.
 - **Checks** (V2, the consistency pass, cluster-wide): `ipv6_missing_aaaa`,
   `ipv6_reverse_missing`, `ipv6_stale_aaaa` (section 15 table, keys in the
   exception key table). A host known in IPv4 only raises nothing. The

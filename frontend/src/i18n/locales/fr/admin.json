@@ -529,7 +529,7 @@
         "probe_tlds": "Les TLD des zones servies par le cluster sont sondés aussi."
       },
       "ipv6": {
-        "stable_min_days": "Au-dessus des 2 jours de validité d'une adresse temporaire (RFC 8981).",
+        "stable_min_days": "Au-dessus des 7 jours de validité d'une adresse temporaire sous Windows et macOS (2 jours sous Linux, RFC 8981).",
         "auto_apply_enabled": "Réservé : la première version ne crée les enregistrements que par plan."
       }
     }

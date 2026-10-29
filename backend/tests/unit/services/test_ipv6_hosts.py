@@ -68,8 +68,29 @@ def test_daily_privacy_rotation_is_temporary_and_the_opaque_address_becomes_stab
         rows.append(obs(f"2001:db8:1::dead:beef:0:{d:x}", NOW - d * DAY, NOW - d * DAY + 2 * DAY))
     got = classes(rows)
     assert got[stable] == "stable"
-    temps = {a: c for a, c in got.items() if a != stable}
+    newest = "2001:db8:1::dead:beef:0:1"
+    temps = {a: c for a, c in got.items() if a not in (stable, newest)}
     assert set(temps.values()) == {"temporary"}
+    # The current one nothing replaced yet stays unknown until the next rotation.
+    assert got[newest] == "unknown"
+
+
+def test_fresh_current_address_next_to_rotated_temporaries_is_unknown():
+    fresh = "2001:db8:1::10"
+    rows = [obs(fresh, NOW - DAY, NOW)]
+    for d in range(10, 1, -1):
+        rows.append(obs(f"2001:db8:1::dead:beef:0:{d:x}", NOW - d * DAY, NOW - d * DAY + 2 * DAY))
+    got = classes(rows)
+    assert got[fresh] == "unknown"
+    assert got["2001:db8:1::dead:beef:0:a"] == "temporary"
+
+
+def test_router_mac_is_never_listed():
+    router = "bc:24:11:00:00:01"
+    seen = [obs("2001:db8:1::1", NOW - 60, NOW, mac=router, source="opnsense"), obs(EUI, NOW - 60, NOW)]
+    seen.append(dict(obs("2001:db8:1::1", NOW - 60, NOW, mac=router), state="router"))
+    rows = v6.host_rows([], seen, NOW, 8, [], [])
+    assert [r["mac"] for r in rows] == [MAC]
 
 
 def test_fresh_opaque_address_without_history_is_unknown_then_stable():
@@ -112,6 +133,8 @@ def test_host_rows_proposal_for_a_host_with_an_a_record():
     assert row["mac_random"] is False
     assert [o["address"] for o in row["observed"]] == [EUI, temp]
     assert row["proposal"] == {
+        "address": EUI,
+        "class": "eui64",
         "name": "laptop.example.lan.",
         "zone": "example.lan.",
         "reverse_zone": "1.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.",

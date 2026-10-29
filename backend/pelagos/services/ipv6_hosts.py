@@ -22,6 +22,7 @@ EUI64 = "eui64"
 STABLE = "stable"
 TEMPORARY = "temporary"
 UNKNOWN = "unknown"
+ROUTER = "router"  # neighbor state of a MAC flagged as a router (collector/ipv6/neighbors.py)
 PROPOSABLE = frozenset({EUI64, STABLE})
 
 
@@ -89,8 +90,9 @@ def classify(items: list[Observed], now: int, stable_min_days: int) -> list[Obse
     """Sets `cls` on each entry (section 27, Classes).
 
     `temporary` needs a MAC with several short-lived (under `stable_min_days`) non EUI-64
-    addresses in one /64, and either a history of them longer than `stable_min_days` or the
-    address already gone for a day: privacy addresses (RFC 8981: 2 days valid) never last that long.
+    addresses in one /64, a history of them longer than `stable_min_days` or the address gone for
+    a day, and the address replaced: gone for a day or followed by a newer short-lived one.
+    A current address nothing replaced yet (a fresh lease, a regenerated RFC 7217 one) is `unknown`.
     """
     span = stable_min_days * DAY
     groups: dict[tuple[str, ipaddress.IPv6Network], list[Observed]] = defaultdict(list)
@@ -105,11 +107,17 @@ def classify(items: list[Observed], now: int, stable_min_days: int) -> list[Obse
                 item.cls = EUI64
             elif lived > span and item.last_seen >= now - DAY:
                 item.cls = STABLE
-            elif lived < span and len(short) > 1 and (history > span or item.last_seen < now - DAY):
+            elif lived < span and len(short) > 1 and _replaced(item, short, now, history > span):
                 item.cls = TEMPORARY
             else:
                 item.cls = UNKNOWN
     return items
+
+
+def _replaced(item: Observed, short: list[Observed], now: int, long_history: bool) -> bool:
+    gone = item.last_seen < now - DAY
+    newer = any(o.first_seen > item.first_seen for o in short if o is not item)
+    return gone or (long_history and newer)
 
 
 def _zone_of(name: str, zones: Iterable[str]) -> str | None:
@@ -132,14 +140,17 @@ def host_rows(
     """One row per MAC with observed addresses: the host it belongs to, records and proposal.
 
     `host_key` is the hosts view key, `mac:<mac>` when the MAC is in no host; `proposal` is the
-    owner of the host's A in its forward zone and the reverse zone of the first `eui64` or
-    `stable` address without AAAA, null when there is none.
+    first `eui64` or `stable` address without AAAA (`address`, `class`), the owner of the host's
+    A in its forward zone and the address's reverse zone; null when there is none. A MAC a node
+    sees as a router (neighbor state `router`) is the router itself: never listed.
     """
     forward = [normalize_name(z) for z in forward_zones]
     reverse = list(reverse_zones)
     by_mac = {h.mac: h for h in hosts if h.mac}
+    observations = list(observations)
+    routers = {str(o.get("mac")) for o in observations if o.get("state") == ROUTER}
     observed: dict[str, list[Observed]] = defaultdict(list)
-    for item in classify(merge(observations), now, stable_min_days):
+    for item in classify(merge(o for o in observations if o.get("mac") not in routers), now, stable_min_days):
         observed[item.mac].append(item)
     rows: list[dict[str, Any]] = []
     for mac, items in sorted(observed.items()):
@@ -166,6 +177,8 @@ def host_rows(
             for item in items:
                 if item.cls in PROPOSABLE and item.address not in (aaaa or []):
                     proposal = {
+                        "address": item.address,
+                        "class": item.cls,
                         "name": a_owner,
                         "zone": zone,
                         "reverse_zone": reverse_zone_for(item.address, reverse),

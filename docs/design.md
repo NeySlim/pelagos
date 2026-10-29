@@ -1091,6 +1091,8 @@ Les machines du réseau ont des adresses IPv6 globales obtenues par SLAAC, sans 
 **Faits vérifiés** (sources lues le 2026-10-28)
 
 - Adresses temporaires (RFC 8981, section 3.8) : `TEMP_VALID_LIFETIME` 2 jours et `TEMP_PREFERRED_LIFETIME` 1 jour par défaut ([RFC 8981](https://www.rfc-editor.org/rfc/rfc8981.html)). Une adresse encore utilisée au-delà de sa durée de validité n'est donc pas une adresse temporaire aux réglages par défaut.
+- Windows et macOS gardent une adresse temporaire valide 7 jours (préférée 1 jour) : `maxvalidlifetime` « default is seven days » de `netsh interface ipv6 set privacy` ([Microsoft, netsh interface](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/netsh-interface), lu le 2026-10-29) ; `DEF_TEMP_VALID_LIFETIME 604800` dans `bsd/netinet6/nd6.h` de XNU ([apple-oss-distributions/xnu](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/netinet6/nd6.h), lu le 2026-10-29). Une adresse dépréciée tenue par une connexion longue reste dans la table du routeur jusqu'à 7 jours : le seuil `stable_min_days` est donc de 8 jours.
+- `search_ndp` d'OPNsense ne donne aucun état (`list_ndp.py` jette la colonne d'expiration de `ndp -an`) : une entrée périmée que FreeBSD garde encore compte comme vue (jusqu'à un jour de plus pour `stale_days` et `stable`), et les entrées permanentes des interfaces du routeur sont listées ; elles sont écartées par la liste `exclude_macs` de la source et, quand un nœud voit le routeur, par le drapeau routeur de sa table de voisins.
 - OPNsense expose la table des voisins IPv6 : `GET /api/diagnostics/interface/get_ndp` et `search_ndp`, authentification Basic par clé et secret d'API ([OPNsense, API core diagnostics](https://docs.opnsense.org/development/api/core/diagnostics.html)).
 
 **Décisions**
@@ -1103,8 +1105,8 @@ Les machines du réseau ont des adresses IPv6 globales obtenues par SLAAC, sans 
 2. Filtre des adresses : lien local (`fe80::/10`), multicast, adresses hors des préfixes surveillés ignorés. Préfixes surveillés (`ipv6.prefixes`) : par défaut ceux des zones inverses IPv6 que le cluster sert et des sous-réseaux DHCPv6 ; les ULA (`fd00::/8`) seulement si un préfixe ULA est listé.
 3. Classement de chaque adresse :
    - `eui64` : l'identifiant d'interface est l'EUI-64 de la MAC observée (bit U/L inversé, `ff:fe` au milieu) : stable ;
-   - `stable` : vue pour la même MAC depuis plus de `stable_min_days` (3 jours, au-dessus des 2 jours de validité d'une adresse temporaire) et encore vue dans les dernières 24 h ;
-   - `temporary` : plusieurs adresses pour la même MAC et le même préfixe, chacune vue moins longtemps, remplacées au fil des jours ; jamais proposée ;
+   - `stable` : vue pour la même MAC depuis plus de `stable_min_days` (8 jours, au-dessus des 7 jours de validité d'une adresse temporaire sous Windows et macOS) et encore vue dans les dernières 24 h ;
+   - `temporary` : plusieurs adresses pour la même MAC et le même préfixe, chacune vue moins longtemps, remplacées au fil des jours (disparue depuis un jour, ou suivie d'une plus récente) ; jamais proposée ; une adresse courante que rien n'a encore remplacée reste `unknown` ;
    - `unknown` : pas encore assez d'historique ; proposée seulement si l'administrateur la choisit.
    Une MAC aléatoire (bit « localement administré ») est signalée : son nom peut changer de réseau en réseau.
 4. Rattachement à un nom : la MAC mène à l'hôte de la vue Hôtes (bail ou réservation IPv4, nom du bail, A existant). Le nom proposé est le propriétaire de l'A de l'hôte dans sa zone directe ; sans A ni nom de bail, l'adresse est listée « hôte inconnu », sans proposition.
@@ -1127,7 +1129,7 @@ Les machines du réseau ont des adresses IPv6 globales obtenues par SLAAC, sans 
 
 | Méthode, chemin | Permission | Requête | Réponse |
 | --- | --- | --- | --- |
-| `GET /hosts/ipv6` | `read:hosts` | `?filter=&zone=&page=&per_page=` | paginé `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen"}],"aaaa","ptr","proposal": {"name","zone","reverse_zone"}|null,"excepted"}` |
+| `GET /hosts/ipv6` | `read:hosts` | `?filter=&zone=&page=&per_page=` | paginé `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen"}],"aaaa","ptr","proposal": {"address","class","name","zone","reverse_zone"}|null,"excepted"}` |
 | `POST /hosts/ipv6/plan` | `write:dns.records` | `{"items": [{"host_key","address","name"?}]}` | `Plan` composite (AAAA et PTR) |
 | `POST /hosts/ipv6/replace-prefix/plan` | `write:dns.records` | `{"old_prefix","new_prefix","zones"?}` | `Plan` composite |
 | `GET /admin/ipv6` | `admin:settings` | | `{"sources": [...], "prefixes", "status": [{"source","node_id","last_poll","error","entries"}]}` (secrets en booléens) |
@@ -1138,7 +1140,7 @@ Action de pair `ipv6.observations` (les observations de chaque nœud, agrégées
 
 **Réglages**
 
-`[settings.ipv6]` (nouveau domaine) : `neighbors_enabled` (vrai), `poll_seconds` (300), `stable_min_days` (3), `stale_days` (14), `auto_apply_enabled` (faux). Écrit par l'écran : `ipv6.sources`, `ipv6.prefixes`. Secrets : `ipv6/source/<id>/api_key`, `api_secret`. Rétention : `retention.ipv6_observation_days` (30).
+`[settings.ipv6]` (nouveau domaine) : `neighbors_enabled` (vrai), `poll_seconds` (300), `stable_min_days` (8), `stale_days` (14), `auto_apply_enabled` (faux). Écrit par l'écran : `ipv6.sources`, `ipv6.prefixes`. Secrets : `ipv6/source/<id>/api_key`, `api_secret`. Rétention : `retention.ipv6_observation_days` (30).
 
 **Plusieurs nœuds**
 

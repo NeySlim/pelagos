@@ -1856,3 +1856,12 @@ behavior to info (the `sanity-checks` default stays `warn` in Kea 2.6.3 and 3.2.
 helper operation `kea_dry_run`, `HelperClient.kea_dry_run`. WP-API-AUTH (K2): the
 `kea.migration.analyze` peer action calls `kea_dry_run` and merges the node reports, the inventory
 uses `engine_package` and `installed_packages`.
+
+## 2026-10-29, V1 review: IPv6 proposal address, source options, stable threshold
+Section 27. Additive: `proposal` gains `address` and `class` (the address the AAAA and PTR plans
+write); Source gains `allow_http` (false: an `http://` URL is a failed source) and `exclude_macs`
+(rows of the router's own interfaces); neighbor state `router` (a MAC flagged as a router is never
+listed). Changed: `ipv6.stable_min_days` defaults to 8 (Windows and macOS keep a temporary address
+valid 7 days), a current address nothing replaced yet is `unknown`, not `temporary`. WP-COLLECTOR:
+router polls and lease walks on their own thread, 20 s overall deadline. WP-API-AUTH (V2): accept
+and return `allow_http` and `exclude_macs`. WP-FRONTEND (V3): the two fields in the source form.

@@ -1175,7 +1175,7 @@
     {
       "key": "ipv6.stable_min_days",
       "type": "integer",
-      "default": 3,
+      "default": 8,
       "min": 1,
       "max": 365,
       "unit": "days"

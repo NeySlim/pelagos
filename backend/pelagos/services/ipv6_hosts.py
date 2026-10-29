@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pelagos.collector.ipv6.prefixes import reverse_zone_for
+from pelagos.collector.ipv6.source import normalize_address, normalize_mac
 from pelagos.domain import Host, normalize_name
 from pelagos.services.hosts_service import reverse_to_ip
 
@@ -143,11 +144,11 @@ def _never(_kind: str, _key: str) -> bool:
 
 
 def mac_key(mac: str) -> str:
-    return f"mac:{mac}"
+    return f"mac:{normalize_mac(mac) or mac}"
 
 
 def addr_key(address: str) -> str:
-    return f"addr:{address}"
+    return f"addr:{normalize_address(address) or address}"
 
 
 def observed_by_mac(
@@ -203,8 +204,8 @@ def host_rows(
     `host_key` is the hosts view key, `mac:<mac>` when the MAC is in no host; `proposal` is the
     first `eui64` or `stable` address without AAAA and not excepted by `addr:<address>`, the owner
     of the host's A in its forward zone and the address's reverse zone; null when there is none.
-    Only a `current` address is proposed. `excepted`: the host is excepted from
-    `ipv6_missing_aaaa` (`mac:<mac>`).
+    Only a `current` address is proposed; each observed entry says whether it is current.
+    `excepted`: the host is excepted from `ipv6_missing_aaaa` (`mac:<mac>`).
     """
     ex = excepted or _never
     forward = [normalize_name(z) for z in forward_zones]
@@ -237,7 +238,10 @@ def host_rows(
                 "mac": mac,
                 "mac_random": mac_random(mac),
                 "ipv4": rec.ipv4,
-                "observed": [i.to_dict() for i in items],
+                "observed": [
+                    {**i.to_dict(), "current": current(i.cls, i.last_seen, now, stable_min_days)}
+                    for i in items
+                ],
                 "aaaa": sorted(rec.aaaa, key=lambda a: int(ipaddress.IPv6Address(a))),
                 "ptr": rec.ptr,
                 "proposal": proposal,

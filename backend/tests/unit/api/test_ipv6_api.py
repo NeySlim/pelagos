@@ -214,3 +214,71 @@ def test_source_test_saved_and_unsaved(admin, services):
     assert admin.post(A + "/sources/test", json={"source_id": "nope"}).status_code == 404
     codes = [admin.post(A + "/sources/test", json={"source_id": sid}).status_code for _ in range(4)]
     assert 429 in codes
+
+
+def _refusing(fake_registry, zone: str) -> None:
+    """A dynamic zone whose transfer named refuses (allow-transfer by address only)."""
+    from pelagos.connectors.base import ConnectorDenied
+    from pelagos.domain import RRset, Zone, ZoneKind
+
+    dns = fake_registry.dns
+    soa = RRset(zone, "SOA", 3600, ["ns1.example.lan. hostmaster.example.lan. 1 3600 900 1209600 300"])
+    dns.add_zone(Zone(name=zone, kind=ZoneKind.PRIMARY, dynamic=True), [soa])
+    read = dns.read_zone
+
+    def read_zone(name, view=None):
+        if name.rstrip(".") + "." == zone:
+            raise ConnectorDenied(f"AXFR of {zone} refused: Zone transfer error: REFUSED")
+        return read(name, view)
+
+    dns.read_zone = read_zone
+
+
+def test_a_refused_transfer_is_reported_and_the_rest_listed(role_client, observed, fake_registry):
+    _refusing(fake_registry, "refused.lan.")
+    c = role_client("viewer")
+    r = c.get(H)
+    assert r.status_code == 200, r.get_json()
+    page = r.get_json()
+    assert "refused.lan.: AXFR of refused.lan. refused" in page["meta"]["errors"]["dns.zones"]
+    pc1 = next(x for x in page["items"] if x["mac"] == MAC)
+    assert pc1["proposal"]["address"] == EUI
+    assert [x["mac"] for x in c.get(H + "?filter=missing_aaaa").get_json()["items"]] == [MAC]
+    hosts = c.get("/api/v1/hosts")
+    assert hosts.status_code == 200 and "dns.zones" in hosts.get_json()["meta"]["errors"]
+
+
+def test_filters_judge_the_zones_the_checks_judge(role_client, observed, fake_registry):
+    from pelagos.domain import RRset
+
+    dns = fake_registry.dns
+    # pc1's A moves to corp.example., a secondary of an external primary: shown, never judged.
+    dns.rrsets["example.lan."].pop(("pc1.example.lan.", "A"))
+    dns.rrsets["corp.example."][("pc1.corp.example.", "A")] = RRset(
+        "pc1.corp.example.", "A", 300, ["192.0.2.100"]
+    )
+    c = role_client("viewer")
+    pc1 = next(x for x in c.get(H).get_json()["items"] if x["mac"] == MAC)
+    assert pc1["proposal"]["zone"] == "corp.example." and pc1["observed"][0]["current"] is True
+    assert c.get(H + "?filter=missing_aaaa").get_json()["total"] == 0
+    # A zone primary on another node (its cached zone list) is judged.
+    from pelagos.services import ipv6_service
+
+    snap = {"engine": "bind", "kind": "zone_list", "payload": [{"name": "corp.example.", "kind": "primary"}]}
+    zones = ipv6_service.checked_zones([], [snap])
+    assert zones == {"corp.example."}
+
+
+def test_exception_keys_match_in_any_case(admin, observed, node_ctx):
+    from pelagos.domain import new_id
+
+    def add(c):
+        c.exceptions.append(
+            {"id": new_id(), "kind": "ipv6_missing_aaaa", "key": f"mac:{MAC.upper()}", "comment": "by hand"}
+        )
+
+    node_ctx.config_store.update_cluster(add, updated_by="test")
+    pc1 = next(x for x in admin.get(H).get_json()["items"] if x["mac"] == MAC)
+    assert pc1["excepted"] is True
+    dup = {"kind": "ipv6_missing_aaaa", "key": f"mac:{MAC}", "comment": "again"}
+    assert admin.post("/api/v1/alerts/exceptions", json=dup).status_code == 409

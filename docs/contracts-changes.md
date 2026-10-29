@@ -1947,3 +1947,14 @@ gains `reason`, null or `{"code": "node_unreachable"|"not_offered","node","error
 node in the way. The 409 of a second analysis now holds across the web workers of a node (file
 lock under `/var/lib/pelagos/kea-migration`). On a Debian node and an ISC target the installed `kea`
 metapackage comes back as `isc-kea`. WP-FRONTEND: the reason under the target picker, en and fr.
+
+## 2026-10-29, 0.2.3 fixes: unread zones, judged zones, current addresses
+Section 27. Additive: each observed address of a `GET /hosts/ipv6` row gains `current` (`eui64`
+or `stable`, seen within `stable_min_days`, as the checks); a zone whose records cannot be read
+(a refused AXFR) no longer fails `GET /hosts/ipv6` and `GET /hosts` with 503: it is named in
+`meta.errors["dns.zones"]` and the other zones are listed. Changed: the `missing_aaaa` and `stale`
+filters (and each row's `stale`) judge only the forward zones the checks judge (primary on a node,
+RPZ left out) instead of every served forward zone. Exception keys `mac:` and `addr:` of the
+`ipv6_*` kinds are compared in canonical form. WP-API-AUTH: `services/hosts_service.py`,
+`services/ipv6_service.py`. WP-COLLECTOR: `services/consistency.py`. WP-FRONTEND: the exception
+targets read `current`.

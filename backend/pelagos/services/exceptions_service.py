@@ -22,6 +22,7 @@ from pelagos.domain import (
     utcnow,
 )
 from pelagos.installer.security_audit import EXCEPTION_KIND as FINDING_EXCEPTION_KIND
+from pelagos.services.consistency import canonical_key
 from pelagos.services.errors import Conflict, NotFound, ValidationError, field_error
 
 MAX_COMMENT = 1000
@@ -151,4 +152,5 @@ def _canonical(kind: str, key: str, errors: list[dict[str, str]]) -> str:
 
 
 def _same(entries: Any, kind: Any, key: Any) -> bool:
-    return any(e.get("kind") == kind and e.get("key") == key for e in entries)
+    want = canonical_key(str(kind), str(key))
+    return any(e.get("kind") == kind and canonical_key(str(kind), str(e.get("key"))) == want for e in entries)

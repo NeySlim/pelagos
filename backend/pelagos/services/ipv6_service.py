@@ -26,7 +26,14 @@ from pelagos.collector.ipv6.source import SourceError, normalize_mac
 from pelagos.core import settings_registry as reg
 from pelagos.domain import AuditEntry, AuditResult, ZoneKind, new_id, normalize_name, to_rfc3339
 from pelagos.services import consistency, ipv6_hosts
-from pelagos.services.errors import Conflict, NotFound, ServiceError, ValidationError, field_error
+from pelagos.services.errors import (
+    Conflict,
+    ConnectorError,
+    NotFound,
+    ServiceError,
+    ValidationError,
+    field_error,
+)
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +51,29 @@ SOURCE_FIELDS = ("id", "type", "name", "url", "verify_tls", "ca_pem", "enabled",
 ECHOED = ("effective_prefixes", "settings", "status")
 FILTERS = ("missing_aaaa", "missing_ptr", "stale", "unknown", "random_mac")
 SERVED = (ZoneKind.PRIMARY.value, ZoneKind.SECONDARY.value, ZoneKind.MIRROR.value)
+RPZ_NOTE = "pelagos-rpz"
+REVERSE_SUFFIXES = ("in-addr.arpa.", "ip6.arpa.")
+
+
+def checked_zones(items: Iterable[dict[str, Any]], snapshots: Iterable[dict[str, Any]]) -> set[str]:
+    """Forward zones the IPv6 checks judge: primary on some node (the zone list read and the cached
+    lists of every node), RPZ policy zones left out, as the collector's consistency pass."""
+    zones = [i.get("zone") for i in items]
+    for snap in snapshots:
+        if (
+            snap.get("engine") == "bind"
+            and snap.get("kind") == "zone_list"
+            and isinstance(snap.get("payload"), list)
+        ):
+            zones += snap["payload"]
+    out: set[str] = set()
+    for z in zones:
+        if not isinstance(z, dict) or z.get("kind") != ZoneKind.PRIMARY.value or z.get("notes") == RPZ_NOTE:
+            continue
+        name = normalize_name(str(z.get("name") or ""))
+        if name and not name.endswith(REVERSE_SUFFIXES):
+            out.add(name)
+    return out
 
 
 def secret_key(source_id: str, name: str) -> str:
@@ -164,18 +194,22 @@ class Ipv6Service:
         listed = listed if isinstance(listed, list) else []
         return prefixes_mod.effective(listed, zones, subnets, prefixes_mod.interface_networks())
 
-    def _zones(self) -> tuple[list[str], list[str], str | None]:
-        """(forward zones, ip6.arpa zones) the cluster serves, or the error that hid them."""
+    def _zones(self) -> tuple[list[str], list[str], list[str], str | None]:
+        """(forward zones, ip6.arpa zones) the node read serves, the forward zones the checks judge
+        (`checked_zones`), or the error that hid them."""
         dns = self.hosts.dns
         if dns is None:
-            return [], [], None
+            return [], [], [], None
         try:
             items = dns.zones()
         except ServiceError as exc:
-            return [], [], exc.detail
+            return [], [], [], exc.detail
+        except ConnectorError as exc:
+            return [], [], [], str(exc)
         names = [i["zone"]["name"] for i in items if i["zone"]["kind"] in SERVED]
-        forward = [n for n in names if not n.endswith(("in-addr.arpa.", "ip6.arpa."))]
-        return forward, [n for n in names if n.endswith("ip6.arpa.")], None
+        forward = [n for n in names if not n.endswith(REVERSE_SUFFIXES)]
+        checked = checked_zones(items, self._snapshots())
+        return forward, [n for n in names if n.endswith("ip6.arpa.")], sorted(checked), None
 
     def hosts_list(
         self, filter_: str | None, zone: str | None
@@ -187,11 +221,18 @@ class Ipv6Service:
         stable = int(reg.get(settings, "ipv6.stable_min_days"))
         g = self.gathered()
         hosts, errors = self.hosts.collect()
-        forward, reverse, zones_error = self._zones()
+        forward, reverse, checked, zones_error = self._zones()
         if zones_error:
             errors["dns"] = zones_error
         excepted = consistency.excepted_for(self.ctx.cluster())
         rows = ipv6_hosts.host_rows(hosts, g.observations, now, stable, forward, reverse, excepted)
+        # missing_aaaa and stale judge the zones the checks judge, not every zone shown.
+        judged = (
+            rows
+            if checked == sorted(forward)
+            else ipv6_hosts.host_rows(hosts, g.observations, now, stable, checked, reverse, excepted)
+        )
+        missing = {r["mac"] for r in judged if not r["excepted"] and ipv6_hosts.missing_aaaa(r, now, stable)}
         watched = self.effective_prefixes()
         stale: dict[str, list[str]] = {}
         for s in ipv6_hosts.stale_records(
@@ -200,7 +241,7 @@ class Ipv6Service:
             now,
             stable,
             int(reg.get(settings, "ipv6.stale_days")),
-            forward,
+            checked,
             lambda a: prefixes_mod.watched(a, watched),
             excepted,
         ):
@@ -210,7 +251,7 @@ class Ipv6Service:
         if filter_ == "stale":
             rows = [r for r in rows if r["stale"]]
         elif filter_ == "missing_aaaa":
-            rows = [r for r in rows if not r["excepted"] and ipv6_hosts.missing_aaaa(r, now, stable)]
+            rows = [r for r in rows if r["mac"] in missing]
         elif filter_ == "missing_ptr":
             rows = [r for r in rows if set(r["aaaa"]) - set(r["ptr"])]
         elif filter_ == "unknown":

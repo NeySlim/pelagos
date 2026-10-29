@@ -42,13 +42,28 @@ def _never(_kind: str, _key: str) -> bool:
 def excepted_from(entries: Iterable[dict[str, Any]] | None) -> Excepted:
     """The predicate of a list of exception records; incomplete records (a half-merged file) never match."""
     keys = {
-        (str(e["kind"]), str(e["key"]))
+        (str(e["kind"]), canonical_key(str(e["kind"]), str(e["key"])))
         for e in entries or []
         if isinstance(e, dict) and e.get("kind") and e.get("key") is not None
     }
     if not keys:
         return _never
-    return lambda kind, key: (kind, key) in keys
+    return lambda kind, key: (kind, canonical_key(kind, key)) in keys
+
+
+def canonical_key(kind: str, key: str) -> str:
+    """`mac:` (lower-case) and `addr:` (compressed) keys of the `ipv6_*` kinds in one form, so a
+    record written by hand or by an older release still matches; any other key as it is."""
+    if not kind.startswith("ipv6_"):
+        return key
+    from pelagos.collector.ipv6.source import normalize_address, normalize_mac
+
+    prefix, _, value = key.partition(":")
+    if prefix == "mac":
+        return f"mac:{normalize_mac(value) or value}"
+    if prefix == "addr":
+        return f"addr:{normalize_address(value) or value}"
+    return key
 
 
 def excepted_for(cluster: Any) -> Excepted:
@@ -645,6 +660,7 @@ from pelagos.core.keafile import (  # noqa: E402
 __all__ = [
     "Excepted",
     "apply_exceptions",
+    "canonical_key",
     "excepted_for",
     "excepted_from",
     "ipv6_missing_aaaa",

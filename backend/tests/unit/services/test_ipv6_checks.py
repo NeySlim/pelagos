@@ -186,6 +186,18 @@ def test_apply_exceptions_keeps_the_host_keys_and_honours_the_subject():
     ]
 
 
+def test_exception_keys_compare_in_canonical_form():
+    upper = ex(("ipv6_missing_aaaa", f"mac:{MAC.upper()}"))
+    assert missing(rows([host()], [obs(EUI, NOW - 60, NOW)], excepted=upper)) == []
+    long_form = ex(("ipv6_stale_aaaa", "addr:2001:DB8:1:0:0:0:0:1"))
+    assert long_form("ipv6_stale_aaaa", v6.addr_key("2001:db8:1::1"))
+    assert long_form("ipv6_stale_aaaa", "addr:2001:0db8:0001::0001")
+    # Keys of other kinds stay exact; the bare subject still silences the whole alert.
+    assert not ex(("ptr_mismatch", "IP:X"))("ptr_mismatch", "ip:x")
+    whole = ex(("ipv6_missing_aaaa", f"ipv6:aaaa:{ZONE}"))
+    assert consistency.apply_exceptions(missing(rows([host()], [obs(EUI, NOW - 60, NOW)])), whole) == []
+
+
 def test_join_hosts_matches_lease_mac_to_a_and_aaaa_records():
     lease = Lease("192.0.2.10", 1, Family.V4, hw_address=MAC.upper(), hostname="laptop.example.lan")
     rrsets = [

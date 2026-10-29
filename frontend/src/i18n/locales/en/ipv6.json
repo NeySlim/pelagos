@@ -1,6 +1,6 @@
 {
   "nav": {
-    "sources": "IPv6 sources"
+    "observation": "IPv6 observation"
   },
   "columns": {
     "host": "Host",
@@ -23,7 +23,6 @@
   },
   "source": {
     "neighbors": "node neighbors",
-    "opnsense": "OPNsense",
     "dhcpv6": "DHCPv6 lease"
   },
   "filters": {
@@ -36,7 +35,7 @@
   },
   "empty": {
     "all": "No IPv6 address observed yet",
-    "allHelp": "Addresses appear once the nodes or a router source see them in a watched prefix",
+    "allHelp": "Addresses appear once the nodes see them in a watched prefix (neighbor tables, DHCPv6 leases)",
     "missing_aaaa": "Every host with a stable address has its AAAA",
     "missing_ptr": "Every AAAA record has its PTR",
     "stale": "No AAAA record points at an address that left",
@@ -80,64 +79,17 @@
   "sourcesLink": "Observation sources",
   "exceptionsLink": "Exceptions",
   "admin": {
-    "title": "IPv6 sources",
+    "title": "IPv6 observation",
     "subtitle": "Where observed IPv6 addresses come from and which prefixes are watched",
+    "sourcesHelp": "Addresses come from the neighbor table of each node and, with the DHCPv6 module, from the Kea DHCPv6 leases.",
     "neighbors": "Node neighbor tables",
-    "pollSeconds": "Router poll (seconds)",
+    "pollSeconds": "DHCPv6 lease walk (seconds)",
     "stableDays": "Stable after (days)",
     "staleDays": "Stale after (days)",
     "settingsHelp": "Thresholds and the neighbor tables are settings of the ipv6 domain.",
-    "settingsLink": "Open the settings"
-  },
-  "sources": {
-    "title": "Router sources",
-    "add": "Add a source",
-    "newTitle": "New OPNsense source",
-    "editTitle": "Edit {{name}}",
-    "opnsenseHelp": "The service node reads the router's IPv6 neighbor table (search_ndp) with an API key of a dedicated user.",
-    "privilegeHelp": "Give that user only the \"Diagnostics: NDP Table\" privilege.",
-    "name": "Name",
-    "url": "URL",
-    "apiKey": "API key",
-    "apiSecret": "API secret",
-    "secretUrlChanged": "The URL changed: type the key and secret again, the stored ones do not follow",
-    "enabled": "Enabled",
-    "verifyTls": "Verify TLS",
-    "allowHttp": "Allow http://",
-    "allowHttpHelp": "The key travels in clear: lab use only",
-    "noTlsWarning": "Without TLS verification anyone on the path can read the API key.",
-    "excludeMacs": "MACs to drop",
-    "excludeMacsHelp": "The router's own interfaces, one MAC per line",
-    "caPem": "Private CA (optional)",
-    "caPemHelp": "PEM certificate of the CA that signed the router's certificate",
-    "test": "Test",
-    "testOk": "{{entries}} neighbors read from {{node}}",
-    "testFailed": "Failed: {{error}}",
-    "state": "State",
+    "settingsLink": "Open the settings",
     "on": "on",
-    "off": "off",
-    "noKey": "no key",
-    "failing": "failing",
-    "enable": "Enable",
-    "disable": "Disable",
-    "types": {
-      "opnsense": "OPNsense"
-    },
-    "empty": "No router source",
-    "emptyHelp": "The node neighbor tables still observe the hosts that talk to the nodes",
-    "saved": "Sources saved",
-    "removeTitle": "Remove {{name}}?",
-    "removeMessage": "Its key and secret are deleted with it. Observations already made stay until their retention ends.",
-    "removed": "Source removed",
-    "errors": {
-      "required": "Required",
-      "url": "An http(s) URL",
-      "http": "http:// sends the key in clear: allow it explicitly",
-      "mac": "One MAC address per line",
-      "pem": "A PEM certificate",
-      "secret": "Required for this source",
-      "fix": "Fix the highlighted fields"
-    }
+    "off": "off"
   },
   "status": {
     "title": "Last poll per node",

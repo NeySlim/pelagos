@@ -1,14 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Observed IPv6 addresses over the API (section 27): hosts with their addresses, observation sources.
+"""Observed IPv6 addresses over the API (section 27): hosts with their addresses, observation status.
 
-Observations are merged from this node's cache and every peer's `ipv6.observations`; sources and
-watched prefixes are entries of `[settings.ipv6]` written through `update_cluster`, secrets sealed
-in `[secrets]` under `ipv6/source/<id>/<name>` and never returned.
+Observations are merged from this node's cache and every peer's `ipv6.observations`; the watched
+prefixes are an entry of `[settings.ipv6]` written through `update_cluster`.
 """
 
 from __future__ import annotations
 
-import copy
 import ipaddress
 import logging
 import sqlite3
@@ -18,35 +16,21 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
 
-from pelagos.auth.rate_limit import RateLimiter
-from pelagos.collector.ipv6 import opnsense
 from pelagos.collector.ipv6 import prefixes as prefixes_mod
 from pelagos.collector.ipv6 import store as obs_store
-from pelagos.collector.ipv6.source import SourceError, normalize_mac
 from pelagos.core import settings_registry as reg
-from pelagos.domain import AuditEntry, AuditResult, ZoneKind, new_id, normalize_name, to_rfc3339
+from pelagos.domain import AuditEntry, AuditResult, ZoneKind, normalize_name, to_rfc3339
 from pelagos.services import consistency, ipv6_hosts
-from pelagos.services.errors import (
-    Conflict,
-    ConnectorError,
-    NotFound,
-    ServiceError,
-    ValidationError,
-    field_error,
-)
+from pelagos.services.errors import ConnectorError, ServiceError, ValidationError, field_error
 
 log = logging.getLogger(__name__)
 
 DOMAIN = "ipv6"
 PEER_ACTION = "ipv6.observations"
 PEER_TIMEOUT = 5.0
-TESTS_PER_MINUTE = 6
-SAMPLE = 5
-NAME_MAX = 100
-SECRET_MAX = 1024
-SOURCE_TYPES = ("opnsense",)
-SECRET_NAMES = ("api_key", "api_secret")
-SOURCE_FIELDS = ("id", "type", "name", "url", "verify_tls", "ca_pem", "enabled", "allow_http", "exclude_macs")
+# The router sources of 0.2.2 (OPNsense), removed in 0.2.3: entry and secret prefix retired at start.
+RETIRED_ENTRY = "sources"
+RETIRED_SECRETS = "ipv6/source/"
 # Read-only members a client may echo back from a GET: ignored on writes.
 ECHOED = ("effective_prefixes", "settings", "status")
 FILTERS = ("missing_aaaa", "missing_ptr", "stale", "unknown", "random_mac")
@@ -74,19 +58,6 @@ def checked_zones(items: Iterable[dict[str, Any]], snapshots: Iterable[dict[str,
         if name and not name.endswith(REVERSE_SUFFIXES):
             out.add(name)
     return out
-
-
-def secret_key(source_id: str, name: str) -> str:
-    return f"ipv6/source/{source_id}/{name}"
-
-
-def _drop_none(value: Any) -> Any:
-    """TOML has no null: absent means default."""
-    if isinstance(value, dict):
-        return {str(k): _drop_none(v) for k, v in value.items() if v is not None}
-    if isinstance(value, list):
-        return [_drop_none(v) for v in value if v is not None]
-    return value
 
 
 def _ts(value: Any) -> str | None:
@@ -145,9 +116,60 @@ def gather(
             if answer.code != "not_supported":
                 out.complete = False
             continue
-        out.observations += [o for o in answer.get("observations") or [] if isinstance(o, dict)]
-        out.status += [s for s in answer.get("sources") or [] if isinstance(s, dict)]
+        # A 0.2.2 peer may still report router observations: dropped as the retired connector.
+        out.observations += [o for o in answer.get("observations") or [] if isinstance(o, dict) and _kept(o)]
+        out.status += [s for s in answer.get("sources") or [] if isinstance(s, dict) and _kept(s)]
     return out
+
+
+def _kept(item: dict[str, Any]) -> bool:
+    return item.get("source") not in obs_store.RETIRED
+
+
+class _NothingToRetire(Exception):
+    pass
+
+
+def retire_router_sources(ctx: Any) -> bool:
+    """Remove the 0.2.2 router sources and their secrets from cluster.toml, audited as `system`.
+
+    Writes nothing when none is left (a second process or a peer's merge got there first)."""
+    found: list[str] = []
+    if not ctx.config_store.cluster_path.exists():
+        return False
+
+    def apply(cluster: Any) -> None:
+        domain = cluster.settings.get(DOMAIN)
+        names = [k for k in cluster.secrets if k.startswith(RETIRED_SECRETS)]
+        if not (isinstance(domain, dict) and RETIRED_ENTRY in domain) and not names:
+            raise _NothingToRetire
+        if isinstance(domain, dict) and RETIRED_ENTRY in domain:
+            listed = domain.pop(RETIRED_ENTRY)
+            listed = listed if isinstance(listed, list) else []
+            found.extend(str(s.get("id") or "") for s in listed if isinstance(s, dict))
+        for name in names:
+            cluster.secrets.pop(name, None)
+            sid = name.split("/")[2] if name.count("/") >= 3 else ""
+            if sid and sid not in found:
+                found.append(sid)
+
+    try:
+        ctx.config_store.update_cluster(apply, updated_by=f"node:{ctx.node.id}")
+    except _NothingToRetire:
+        return False
+    ctx.audit_log.append(
+        AuditEntry(
+            node_id=ctx.node.id,
+            user="system",
+            action="admin.ipv6.op",
+            target="ipv6",
+            request={"op": "retire_sources", "sources": sorted(s for s in found if s)},
+            response={"ok": True},
+            result=AuditResult.OK,
+            message="router sources removed with their secrets: the OPNsense connector is gone",
+        )
+    )
+    return True
 
 
 class Ipv6Service:
@@ -157,16 +179,11 @@ class Ipv6Service:
         self.hosts = hosts  # HostsService
         self.cache = cache  # SeriesCache (read-only)
         self.clock: Callable[[], float] = time.time
-        self.client: opnsense.Client = opnsense.default_client  # tests replace the HTTP client
-        self.test_limiter = RateLimiter(TESTS_PER_MINUTE)
 
     # Reads ----------------------------------------------------------------------------------
 
     def _domain(self) -> dict[str, Any]:
         return reg.domain(self.ctx.settings(), DOMAIN)
-
-    def _sources(self) -> list[dict[str, Any]]:
-        return [s for s in self._domain().get("sources") or [] if isinstance(s, dict)]
 
     def _local(self) -> dict[str, Any]:
         conn = self.cache.conn
@@ -270,22 +287,6 @@ class Ipv6Service:
             meta["errors"] = errors
         return rows, meta
 
-    def public_source(self, source: dict[str, Any]) -> dict[str, Any]:
-        sid = str(source.get("id") or "")
-        stored = self.ctx.cluster().secrets
-        return {
-            "id": sid,
-            "type": source.get("type"),
-            "name": str(source.get("name") or ""),
-            "url": str(source.get("url") or ""),
-            "verify_tls": source.get("verify_tls", True) is not False,
-            "ca_pem": source.get("ca_pem") or None,
-            "enabled": source.get("enabled", True) is not False,
-            "allow_http": source.get("allow_http") is True,
-            "exclude_macs": list(source.get("exclude_macs") or []),
-            "secrets": {n: secret_key(sid, n) in stored for n in SECRET_NAMES},
-        }
-
     def overview(self) -> dict[str, Any]:
         settings = self.ctx.settings()
         g = self.gathered()
@@ -307,7 +308,6 @@ class Ipv6Service:
         ]
         listed = self._domain().get("prefixes") or []
         return {
-            "sources": [self.public_source(s) for s in self._sources()],
             "prefixes": [str(p) for p in listed] if isinstance(listed, list) else [],
             "effective_prefixes": [p.to_dict() for p in self.effective_prefixes()],
             "settings": {s.path[1]: reg.get(settings, s.key) for s in reg.REGISTRY if s.domain == DOMAIN},
@@ -321,61 +321,6 @@ class Ipv6Service:
         if errors:
             fields = ", ".join(dict.fromkeys(e["field"] for e in errors))
             raise ValidationError(f"invalid {what}: {fields}", errors)
-
-    def _check_source(
-        self, raw: Any, field: str, known: dict[str, dict[str, Any]], errors: list[dict[str, str]]
-    ) -> dict[str, Any]:
-        if not isinstance(raw, dict):
-            errors.append(field_error(field, "object expected"))
-            return {}
-        for key in sorted(set(raw) - set(SOURCE_FIELDS) - {"secrets", "scope"}):
-            errors.append(field_error(f"{field}.{key}", "unknown field"))
-        sid = raw.get("id")
-        if sid in (None, ""):
-            sid = new_id()
-        elif not isinstance(sid, str) or sid not in known:
-            errors.append(field_error(f"{field}.id", "unknown source: leave id out for a new one"))
-        out: dict[str, Any] = {"id": sid}
-        if raw.get("type") not in SOURCE_TYPES:
-            errors.append(field_error(f"{field}.type", "one of " + ", ".join(SOURCE_TYPES)))
-        out["type"] = raw.get("type")
-        name = raw.get("name")
-        if not isinstance(name, str) or not name.strip() or len(name) > NAME_MAX:
-            errors.append(field_error(f"{field}.name", f"1 to {NAME_MAX} characters"))
-        out["name"] = name.strip() if isinstance(name, str) else name
-        for flag, default in (("verify_tls", True), ("enabled", True), ("allow_http", False)):
-            value = raw.get(flag, default)
-            if not isinstance(value, bool):
-                errors.append(field_error(f"{field}.{flag}", "boolean expected"))
-            out[flag] = value
-        url = raw.get("url")
-        try:
-            opnsense.endpoint(url if isinstance(url, str) else "", out["allow_http"] is True)
-        except SourceError as exc:
-            errors.append(field_error(f"{field}.url", exc.message))
-        out["url"] = url.strip() if isinstance(url, str) else url
-        ca = raw.get("ca_pem")
-        if ca not in (None, ""):
-            try:
-                if not isinstance(ca, str):
-                    raise SourceError("PEM text expected")
-                opnsense.tls_context(True, ca)
-            except SourceError as exc:
-                errors.append(field_error(f"{field}.ca_pem", exc.message))
-        out["ca_pem"] = ca or None
-        macs = raw.get("exclude_macs") or []
-        clean: list[str] = []
-        if not isinstance(macs, list):
-            errors.append(field_error(f"{field}.exclude_macs", "list of MAC addresses expected"))
-        else:
-            for m in macs:
-                mac = normalize_mac(m)
-                if mac is None:
-                    errors.append(field_error(f"{field}.exclude_macs", f"not a MAC address: {m}"))
-                elif mac not in clean:
-                    clean.append(mac)
-        out["exclude_macs"] = clean
-        return out
 
     @staticmethod
     def _check_prefixes(raw: Any, errors: list[dict[str, str]]) -> list[str]:
@@ -402,109 +347,19 @@ class Ipv6Service:
                 out.append(str(net))
         return out
 
-    @staticmethod
-    def _check_secrets(raw: Any, errors: list[dict[str, str]]) -> dict[str, dict[str, str | None]]:
-        if raw is None:
-            return {}
-        if not isinstance(raw, dict):
-            errors.append(field_error("secrets", "object of source id to secrets expected"))
-            return {}
-        out: dict[str, dict[str, str | None]] = {}
-        for sid, values in raw.items():
-            if not isinstance(values, dict):
-                errors.append(field_error(f"secrets.{sid}", "object expected"))
-                continue
-            for name, value in values.items():
-                if name not in SECRET_NAMES:
-                    errors.append(field_error(f"secrets.{sid}.{name}", "unknown secret"))
-                elif value is not None and (
-                    not isinstance(value, str) or not value or len(value) > SECRET_MAX
-                ):
-                    errors.append(
-                        field_error(f"secrets.{sid}.{name}", f"1 to {SECRET_MAX} characters or null")
-                    )
-                else:
-                    out.setdefault(str(sid), {})[name] = value
-        return out
-
-    @classmethod
-    def _inline_secrets(cls, raw: Any, field: str, errors: list[dict[str, str]]) -> dict[str, str | None]:
-        """`sources[i].secrets` with string or null values (write-only, how a new source gets its
-        key in the request that creates it); the booleans a GET returns are ignored."""
-        values = raw.get("secrets") if isinstance(raw, dict) else None
-        if values is None:
-            return {}
-        if not isinstance(values, dict):
-            errors.append(field_error(field, "object expected"))
-            return {}
-        given = {k: v for k, v in values.items() if not isinstance(v, bool)}
-        found: list[dict[str, str]] = []
-        out = cls._check_secrets({"_": given}, found).get("_", {})
-        errors += [{**e, "field": field + e["field"][len("secrets._") :]} for e in found]
-        return out
-
     def replace(self, body: dict[str, Any], actor: str, client_ip: str | None) -> dict[str, Any]:
         errors: list[dict[str, str]] = []
-        for key in sorted(set(body) - {"sources", "prefixes", "secrets"} - set(ECHOED)):
+        for key in sorted(set(body) - {"prefixes"} - set(ECHOED)):
             errors.append(field_error(key, "unknown field"))
-        known = {str(s.get("id")): s for s in self._sources() if s.get("id")}
-        sources: list[dict[str, Any]] | None = None
-        if "sources" in body:
-            if not isinstance(body["sources"], list):
-                errors.append(field_error("sources", "list expected"))
-            else:
-                sources = [
-                    self._check_source(s, f"sources[{i}]", known, errors)
-                    for i, s in enumerate(body["sources"])
-                ]
-                ids = [s.get("id") for s in sources]
-                if len(set(ids)) != len(ids):
-                    errors.append(field_error("sources", "a source id appears twice"))
         prefixes = self._check_prefixes(body["prefixes"], errors) if "prefixes" in body else None
-        secrets = self._check_secrets(body.get("secrets"), errors)
-        if sources is not None:
-            for i, (raw, checked) in enumerate(zip(body["sources"], sources, strict=True)):
-                inline = self._inline_secrets(raw, f"sources[{i}].secrets", errors)
-                if inline:
-                    # The top-level map, keyed by an id known before the request, wins.
-                    secrets[str(checked["id"])] = {**inline, **secrets.get(str(checked["id"]), {})}
-        final = sources if sources is not None else [dict(s) for s in known.values()]
-        final_ids = {str(s.get("id")) for s in final}
-        for sid in secrets:
-            if sid not in final_ids:
-                errors.append(field_error(f"secrets.{sid}", "unknown source"))
-        self._raise(errors, "IPv6 sources")
-        # A stored key never follows a source to another URL: it is cleared unless given again.
-        moved = {
-            str(s["id"])
-            for s in final
-            if str(s["id"]) in known and str(known[str(s["id"])].get("url") or "") != str(s.get("url") or "")
-        }
-        box = self.ctx.secrets
-        if box is None and any(v is not None for vals in secrets.values() for v in vals.values()):
-            raise Conflict("no master key on this node: secrets cannot be stored")
+        self._raise(errors, "IPv6 settings")
 
         def apply(cluster: Any) -> None:
-            domain = cluster.settings.setdefault(DOMAIN, {})
-            if sources is not None:
-                domain["sources"] = [_drop_none(copy.deepcopy(s)) for s in sources]
             if prefixes is not None:
-                domain["prefixes"] = list(prefixes)
-            for name in list(cluster.secrets):
-                if not name.startswith("ipv6/source/"):
-                    continue
-                sid = name.split("/")[2]
-                if sid not in final_ids or (sid in moved and name.split("/")[-1] not in secrets.get(sid, {})):
-                    cluster.secrets.pop(name, None)
-            for sid, values in secrets.items():
-                for name, value in values.items():
-                    key = secret_key(sid, name)
-                    if value is None:
-                        cluster.secrets.pop(key, None)
-                    else:
-                        cluster.secrets[key] = box.encrypt(key, value)
+                cluster.settings.setdefault(DOMAIN, {})["prefixes"] = list(prefixes)
 
-        self.ctx.config_store.update_cluster(apply, updated_by=f"user:{actor}@node:{self.ctx.node.id}")
+        if prefixes is not None:
+            self.ctx.config_store.update_cluster(apply, updated_by=f"user:{actor}@node:{self.ctx.node.id}")
         listed = self._domain().get("prefixes") or []
         self.ctx.audit_log.append(
             AuditEntry(
@@ -512,66 +367,10 @@ class Ipv6Service:
                 user=actor,
                 action="admin.ipv6.replace",
                 target="ipv6",
-                request={"sources": sorted(final_ids), "prefixes": list(listed)},
+                request={"prefixes": list(listed)},
                 response={"ok": True},
                 result=AuditResult.OK,
                 client_ip=client_ip,
             )
         )
         return self.overview()
-
-    def test(self, body: dict[str, Any], actor: str) -> dict[str, Any]:
-        """One poll of a source from this node, saved or not; a failed poll is `ok` false."""
-        errors: list[dict[str, str]] = []
-        known = {str(s.get("id")): s for s in self._sources() if s.get("id")}
-        if body.get("source_id"):
-            sid = str(body["source_id"])
-            if sid not in known:
-                raise NotFound(f"source {sid}")
-            source = known[sid]
-            secrets = {n: self.ctx.get_secret(secret_key(sid, n)) for n in SECRET_NAMES}
-        else:
-            scope = body.get("scope")
-            given = self._check_secrets({"test": body.get("secrets") or {}}, errors).get("test", {})
-            raw = {k: v for k, v in body.items() if k not in ("scope", "secrets", "id")}
-            source = self._check_source(raw, "source", {}, errors)
-            self._raise(errors, "IPv6 source")
-            secrets = {}
-            if scope:
-                saved = known.get(str(scope))
-                if saved is None:
-                    raise NotFound(f"source {scope}")
-                if str(saved.get("url") or "") == str(source.get("url") or ""):
-                    secrets = {n: self.ctx.get_secret(secret_key(str(scope), n)) for n in SECRET_NAMES}
-            for name, value in given.items():
-                secrets[name] = value
-        src = opnsense.OpnsenseSource(
-            str(source.get("url") or ""),
-            secrets.get("api_key"),
-            secrets.get("api_secret"),
-            verify_tls=source.get("verify_tls", True) is not False,
-            ca_pem=source.get("ca_pem") or None,
-            client=self.client,
-            allow_http=source.get("allow_http") is True,
-            exclude_macs=source.get("exclude_macs") or (),
-        )
-        node_id = self.ctx.node.id
-        try:
-            found = src.poll()
-        except SourceError as exc:
-            return {"ok": False, "node_id": node_id, "entries": 0, "error": exc.message, "sample": []}
-        now = _ts(self.clock())
-        sample = [
-            {
-                "mac": n.mac,
-                "address": n.address,
-                "source": src.kind,
-                "source_id": str(body.get("source_id") or body.get("scope") or "") or None,
-                "node_id": node_id,
-                "first_seen": now,
-                "last_seen": now,
-                "state": n.state,
-            }
-            for n in found[:SAMPLE]
-        ]
-        return {"ok": True, "node_id": node_id, "entries": len(found), "sample": sample}

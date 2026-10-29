@@ -173,6 +173,21 @@ def test_gather_merges_peers_and_tells_which_did_not_answer():
     assert all(name == "ipv6.observations" for _p, name in gw.asked)
 
 
+def test_gather_drops_what_a_0_2_2_peer_reports_from_router_sources():
+    local = {"node_id": "n1", "observations": [], "sources": []}
+    peer = {
+        "node_id": "n2",
+        "observations": [
+            {"mac": MAC, "address": EUI, "source": "neighbors"},
+            {"mac": MAC, "address": "2001:db8:1::5", "source": "opnsense", "source_id": "01SRC"},
+        ],
+        "sources": [{"source": "neighbors"}, {"source": "opnsense", "source_id": "01SRC", "error": "401"}],
+    }
+    g = ipv6_service.gather("n1", lambda: local, Gateway({"n2": peer}), ["n1", "n2"])
+    assert [o["address"] for o in g.observations] == [EUI]
+    assert g.status == [{"source": "neighbors"}] and g.complete is True
+
+
 def test_failing_neighbor_source_opens_then_resolves_ipv6_source_failed(rig):
     from pelagos.collector.ipv6.source import SourceError
 

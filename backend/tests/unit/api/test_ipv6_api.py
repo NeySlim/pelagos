@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Observed IPv6 addresses over the API (section 27): hosts with filters, sources with write-only
-secrets, watched prefixes, source test through a fake router."""
+"""Observed IPv6 addresses over the API (section 27): hosts with filters, watched prefixes, status,
+removal of the 0.2.2 router sources."""
 
 from __future__ import annotations
 
@@ -21,7 +21,8 @@ MAC = "aa:bb:cc:dd:ee:01"  # pc1 of the fake Kea, A pc1.example.lan.
 EUI = "2001:db8::a8bb:ccff:fedd:ee01"
 STRANGER = "02:11:22:33:44:55"
 DAY = 86400
-SOURCE = {"type": "opnsense", "name": "Router", "url": "https://router.example.lan"}
+# A router source as a 0.2.2 node stored it (the connector is gone since 0.2.3).
+RETIRED = {"id": "01SRC", "type": "opnsense", "name": "Router", "url": "https://router.example.lan"}
 
 
 @pytest.fixture
@@ -103,117 +104,81 @@ def test_host_exception_flags_the_row(admin, observed):
     assert admin.post("/api/v1/alerts/exceptions", json=bad).status_code == 400
 
 
-def test_sources_secrets_are_sealed_and_follow_only_the_same_url(admin, node_ctx, observed):
-    body = {"sources": [SOURCE], "prefixes": ["2001:db8:5::/64"]}
-    r = admin.put(A, json=body)
+def test_prefixes_settings_and_status(admin, node_ctx, observed):
+    r = admin.put(A, json={"prefixes": ["2001:db8:5::/64"]})
     assert r.status_code == 200, r.get_json()
     out = r.get_json()
-    sid = out["sources"][0]["id"]
-    assert out["sources"][0]["secrets"] == {"api_key": False, "api_secret": False}
-    r = admin.put(A, json={"secrets": {sid: {"api_key": "key-1", "api_secret": "secret-1"}}})
-    out = r.get_json()
-    assert out["sources"][0]["secrets"] == {"api_key": True, "api_secret": True}
-    assert "secret-1" not in json.dumps(out) and "secret-1" not in json.dumps(node_ctx.cluster().secrets)
-    assert node_ctx.get_secret(f"ipv6/source/{sid}/api_secret") == "secret-1"
+    assert "sources" not in out
     assert out["prefixes"] == ["2001:db8:5::/64"]
     assert {"prefix": "2001:db8:5::/64", "from": "setting"} in out["effective_prefixes"]
     assert out["settings"]["stable_min_days"] == 8
     assert out["status"][0]["source"] == "neighbors" and out["status"][0]["last_poll"].endswith("Z")
-    # Same URL: the secrets stay; another URL: they are cleared.
-    out = admin.put(A, json={"sources": [{**out["sources"][0], "name": "Edge"}]}).get_json()
-    assert out["sources"][0]["secrets"]["api_key"] is True and out["sources"][0]["name"] == "Edge"
-    moved = {**out["sources"][0], "url": "https://other.example.lan"}
-    out = admin.put(A, json={"sources": [moved]}).get_json()
-    assert out["sources"][0]["secrets"] == {"api_key": False, "api_secret": False}
+    # A GET echoed back changes nothing.
+    assert admin.put(A, json=out).get_json()["prefixes"] == ["2001:db8:5::/64"]
     audit = node_ctx.audit_log.query(action="admin.ipv6.replace")[0]
-    assert audit and all("secret-1" not in json.dumps(e.to_dict()) for e in audit)
-    # Removing the source drops its secrets.
-    admin.put(A, json={"secrets": {sid: {"api_key": "k"}}})
-    admin.put(A, json={"sources": []})
-    assert not [k for k in node_ctx.cluster().secrets if k.startswith("ipv6/")]
-
-
-def test_a_new_source_takes_its_secrets_in_the_same_request(admin, node_ctx):
-    inline = {**SOURCE, "secrets": {"api_key": "key-1", "api_secret": "secret-1"}}
-    out = admin.put(A, json={"sources": [inline]}).get_json()
-    sid = out["sources"][0]["id"]
-    assert out["sources"][0]["secrets"] == {"api_key": True, "api_secret": True}
-    assert node_ctx.get_secret(f"ipv6/source/{sid}/api_key") == "key-1"
-    # The booleans of a GET echoed back change nothing.
-    out = admin.put(A, json={"sources": out["sources"]}).get_json()
-    assert node_ctx.get_secret(f"ipv6/source/{sid}/api_secret") == "secret-1"
-    bad = admin.put(A, json={"sources": [{**SOURCE, "secrets": {"api_key": "", "token": "x"}}]})
-    assert bad.status_code == 400
-    assert {e["field"] for e in bad.get_json()["errors"]} == {
-        "sources[0].secrets.api_key",
-        "sources[0].secrets.token",
-    }
+    assert audit[0].request == {"prefixes": ["2001:db8:5::/64"]}
 
 
 def test_validation_lists_every_error(admin):
     r = admin.put(
         A,
         json={
-            "sources": [
-                {
-                    "type": "unifi",
-                    "name": "",
-                    "url": "http://r.example.lan",
-                    "exclude_macs": ["x"],
-                    "color": 1,
-                }
-            ],
+            "sources": [RETIRED],
             "prefixes": ["192.0.2.0/24", "fe80::/64"],
-            "secrets": {"nope": {"api_key": "k"}},
+            "secrets": {"01SRC": {"api_key": "k"}},
             "extra": True,
         },
     )
     assert r.status_code == 400
-    fields = {e["field"] for e in r.get_json()["errors"]}
-    assert {
-        "sources[0].type",
-        "sources[0].name",
-        "sources[0].url",
-        "sources[0].exclude_macs",
-        "sources[0].color",
-        "prefixes",
-        "secrets.nope",
-        "extra",
-    } <= fields
-    assert admin.put(A, json={"sources": [{**SOURCE, "id": "01UNKNOWN"}]}).status_code == 400
-    ok = admin.put(A, json={"sources": [{**SOURCE, "url": "http://r.example.lan", "allow_http": True}]})
-    assert ok.status_code == 200
+    assert {e["field"] for e in r.get_json()["errors"]} >= {"sources", "secrets", "prefixes", "extra"}
+    assert admin.post(A + "/sources/test", json={"source_id": "01SRC"}).status_code in (404, 405)
 
 
-def test_source_test_saved_and_unsaved(admin, services):
-    seen = []
+def _store_retired(node_ctx) -> None:
+    def put(cluster):
+        cluster.settings.setdefault("ipv6", {})["sources"] = [RETIRED]
+        cluster.settings["ipv6"]["prefixes"] = ["2001:db8:5::/64"]
+        for name in ("api_key", "api_secret"):
+            key = f"ipv6/source/01SRC/{name}"
+            cluster.secrets[key] = node_ctx.secrets.encrypt(key, "s3cret")
 
-    def client(request):
-        seen.append(request)
-        rows = [
-            {"ip": "2001:db8::1", "mac": "aa:bb:cc:dd:ee:01"},
-            {"ip": "fe80::1", "mac": "aa:bb:cc:dd:ee:02"},
-        ]
-        return 200, json.dumps({"rows": rows}).encode()
+    node_ctx.config_store.update_cluster(put, updated_by="node:old")
 
-    services.ipv6.client = client
-    out = admin.put(A, json={"sources": [SOURCE]}).get_json()
-    sid = out["sources"][0]["id"]
-    r = admin.post(A + "/sources/test", json={"source_id": sid}).get_json()
-    assert r["ok"] is False and "missing" in r["error"] and not seen
-    admin.put(A, json={"secrets": {sid: {"api_key": "k", "api_secret": "s"}}})
-    r = admin.post(A + "/sources/test", json={"source_id": sid}).get_json()
-    assert r["ok"] is True and r["entries"] == 2 and r["sample"][0]["mac"] == MAC
-    assert seen[-1].url == "https://router.example.lan/api/diagnostics/interface/search_ndp"
-    # Unsaved form reusing the stored key while the URL is unchanged, not once it changes.
-    assert admin.post(A + "/sources/test", json={**SOURCE, "scope": sid}).get_json()["ok"] is True
-    moved = admin.post(A + "/sources/test", json={**SOURCE, "url": "https://evil.example.lan", "scope": sid})
-    assert moved.get_json()["ok"] is False and len(seen) == 2
-    given = admin.post(A + "/sources/test", json={**SOURCE, "secrets": {"api_key": "a", "api_secret": "b"}})
-    assert given.get_json()["ok"] is True
-    assert admin.post(A + "/sources/test", json={"source_id": "nope"}).status_code == 404
-    codes = [admin.post(A + "/sources/test", json={"source_id": sid}).status_code for _ in range(4)]
-    assert 429 in codes
+
+def test_router_sources_of_0_2_2_are_removed_with_their_secrets(node_ctx):
+    from pelagos.services.ipv6_service import retire_router_sources
+
+    _store_retired(node_ctx)
+    version = node_ctx.cluster().version
+    assert retire_router_sources(node_ctx) is True
+    cluster = node_ctx.cluster()
+    assert "sources" not in cluster.settings["ipv6"] and cluster.settings["ipv6"]["prefixes"]
+    assert not [k for k in cluster.secrets if k.startswith("ipv6/")]
+    (entry,) = node_ctx.audit_log.query(action="admin.ipv6.op")[0]
+    assert (entry.user, entry.request) == ("system", {"op": "retire_sources", "sources": ["01SRC"]})
+    assert "s3cret" not in json.dumps(entry.to_dict())
+    # Once done, nothing more is written nor audited.
+    assert retire_router_sources(node_ctx) is False
+    assert node_ctx.cluster().version == version + 1
+    assert len(node_ctx.audit_log.query(action="admin.ipv6.op")[0]) == 1
+
+
+def test_the_web_start_removes_them(node_paths, node_ctx):
+    from pelagos.app import create_app
+
+    _store_retired(node_ctx)
+    create_app(node_paths, context=node_ctx, static_dir=node_paths.opt / "none")
+    assert "sources" not in node_ctx.cluster().settings["ipv6"]
+    assert node_ctx.audit_log.query(action="admin.ipv6.op")[0][0].user == "system"
+
+
+def test_a_router_source_merged_from_a_0_2_2_peer_is_ignored(admin, node_ctx, observed):
+    # A 0.2.2 peer writing after the removal brings the entry back: unused, never shown, gone at next start.
+    _store_retired(node_ctx)
+    out = admin.get(A).get_json()
+    assert "sources" not in out and out["prefixes"] == ["2001:db8:5::/64"]
+    assert admin.put(A, json={"prefixes": []}).status_code == 200
+    assert node_ctx.cluster().settings["ipv6"]["sources"] == [RETIRED]
 
 
 def _refusing(fake_registry, zone: str) -> None:
@@ -316,3 +281,28 @@ def test_failing_source_status_gives_failing_since(admin, node_ctx, observed):
     status = admin.get(A).get_json()["status"][0]
     assert status["error"] == "ip neigh failed"
     assert status["failing_since"].endswith("Z") and status["failing_since"] < status["last_poll"]
+
+
+def test_mixed_releases_merge_cluster_toml_both_ways(node_ctx, tmp_root):
+    from pelagos.core.config_store import ConfigStore
+    from pelagos.services.ipv6_service import retire_router_sources
+
+    _store_retired(node_ctx)
+    # A 0.2.2 peer holding the same file, sources and secrets included.
+    peer_path = tmp_root / "peer-cluster.toml"
+    peer_path.write_text(node_ctx.config_store.cluster_path.read_text())
+    peer = ConfigStore(tmp_root / "peer.toml", peer_path)
+    assert retire_router_sources(node_ctx) is True
+    # 0.2.2 -> 0.2.3: the older entries lose to the removal.
+    node_ctx.config_store.merge_remote(peer_path.read_text())
+    here = node_ctx.cluster()
+    assert "sources" not in here.settings["ipv6"] and not [k for k in here.secrets if k.startswith("ipv6/")]
+    # 0.2.3 -> 0.2.2: the peer loses them too and loads the merged file.
+    assert peer.merge_remote(node_ctx.config_store.cluster_path.read_text()) is True
+    there = peer.load_cluster()
+    assert "sources" not in there.settings["ipv6"] and not [k for k in there.secrets if k.startswith("ipv6/")]
+    assert there.settings["ipv6"]["prefixes"] == ["2001:db8:5::/64"]
+    # A source the 0.2.2 peer writes afterwards comes back but is never read nor shown.
+    peer.update_cluster(lambda c: c.settings["ipv6"].__setitem__("sources", [RETIRED]), updated_by="node:old")
+    assert node_ctx.config_store.merge_remote(peer_path.read_text()) is True
+    assert node_ctx.cluster().settings["ipv6"]["sources"] == [RETIRED]

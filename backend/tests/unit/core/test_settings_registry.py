@@ -409,7 +409,8 @@ def test_feature_domains_of_release_0_2_2():
         "ipv6": {"sources": [], "prefixes": []},
     }
     fields = dict(reg.validate(body, reg.defaults()))
-    assert fields["resolver.fallback"] == fields["ipv6.sources"] == "set through its own screen"
+    assert fields["resolver.fallback"] == fields["ipv6.prefixes"] == "set through its own screen"
+    assert fields["ipv6.sources"] == "unknown setting"  # the 0.2.2 router sources are gone
     assert fields["resolver.probe_tlds"] == "invalid item: -bad"
     pair = {"checks": {"resolver_timeouts_warning_percent": 40}}
     assert reg.validate(pair, reg.merge(reg.defaults(), pair)) == [

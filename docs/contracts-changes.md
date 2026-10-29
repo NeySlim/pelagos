@@ -1998,3 +1998,22 @@ progress. A 0.2.1 or 0.2.2 peer keeps it as an unknown kind. Additive: SourceSta
 capability, so read only); interface prefixes are read from `/proc/net/if_inet6`. WP-COLLECTOR:
 `collector/ipv6/observer.py`, `collector/rules.py`, `packaging/systemd`. WP-FRONTEND: the kind
 label and message, en and fr.
+
+## 2026-10-29, 0.2.3: OPNsense IPv6 source removed
+Section 27, breaking for the admin route. The router connector is gone: observations come from
+the neighbor table of each node and the Kea DHCPv6 leases only. `GET /admin/ipv6` loses
+`sources`; `PUT /admin/ipv6` takes `{"prefixes"}` only (`sources` and `secrets` are `400 unknown
+field`); `POST /admin/ipv6/sources/test` is removed; Source, `api_key` and `api_secret` are gone;
+Observation `source` is `neighbors` or `dhcpv6`; no service node election for routers; no 24 h
+alert delay for a router source. Migration: at start (web and collector) a node deletes
+`[settings.ipv6] sources` and every `[secrets] "ipv6/source/..."` in one cluster.toml write,
+audited `admin.ipv6.op` by `system` (request `{"op": "retire_sources","sources": [ids]}`), and
+writes nothing when none is left; its cache drops `opnsense` observation rows, and an open
+`ipv6_source_failed` of a router source resolves at the next pass. Mixed releases: the removal
+replicates as tombstones; a `sources` entry a 0.2.2 peer writes later is never read nor shown
+(removed at the next start); `opnsense` observations and statuses in a 0.2.2 peer's
+`ipv6.observations` answer are dropped. A 0.2.2 peer reading the merged file finds no source and
+polls nothing. Audit `admin.ipv6.replace` request is `{"prefixes"}`. WP-COLLECTOR:
+`collector/ipv6/` (`opnsense.py` removed), `collector/main.py`. WP-API-AUTH: `api/ipv6.py`,
+`services/ipv6_service.py`, `app.py`. WP-FRONTEND: Administration, IPv6 observation (was IPv6
+sources) without the source table nor SourceDialog; mock and texts en and fr.

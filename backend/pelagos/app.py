@@ -49,6 +49,12 @@ def _migrate_settings(context: NodeContext) -> None:
         context.migrate_settings()
     except Exception:  # never blocks the start: every load migrates in memory anyway
         logging.getLogger(__name__).exception("settings migration failed")
+    from pelagos.services.ipv6_service import retire_router_sources
+
+    try:
+        retire_router_sources(context)
+    except Exception:  # never blocks the start: nothing reads the retired entries any more
+        logging.getLogger(__name__).exception("IPv6 router source removal failed")
 
 
 def create_app(

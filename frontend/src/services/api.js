@@ -361,15 +361,13 @@ export const keaMigration = {
   analyze: (body) => apiClient.post('/install/kea-migration/analyze', body),
 }
 
-// Observed IPv6 addresses (Hosts > IPv6, Administration > IPv6 sources, section 27).
+// Observed IPv6 addresses (Hosts > IPv6, Administration > IPv6 observation, section 27).
 export const ipv6 = {
   // {filter: missing_aaaa|missing_ptr|stale|unknown|random_mac, zone, page, per_page}
   hosts: (params) => apiClient.get(`/hosts/ipv6${buildQueryString(params)}`),
   settings: () => apiClient.get('/admin/ipv6'),
-  // {sources, prefixes, secrets: {"<source id>": {api_key, api_secret}}}
+  // {prefixes}
   update: (body) => apiClient.put('/admin/ipv6', body),
-  // a saved {source_id} or an unsaved source (`scope`: the saved id whose secrets it reuses)
-  testSource: (body) => apiClient.post('/admin/ipv6/sources/test', body),
 }
 
 export const api = {

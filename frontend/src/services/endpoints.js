@@ -253,11 +253,10 @@ export const ENDPOINTS = [
   // Installation > Kea migration, read-only analysis (section 26)
   'GET /install/kea-migration',
   'POST /install/kea-migration/analyze',
-  // Hosts > IPv6 and Administration > IPv6 sources (section 27)
+  // Hosts > IPv6 and Administration > IPv6 observation (section 27)
   'GET /hosts/ipv6',
   'GET /admin/ipv6',
   'PUT /admin/ipv6',
-  'POST /admin/ipv6/sources/test',
 ]
 
 // Regex for one spec entry: `{x}` matches one path segment, `{family}` only v4 or v6.

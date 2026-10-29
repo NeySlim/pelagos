@@ -2177,7 +2177,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `ipv6_missing_aaaa` | info | hosts with a stable observed IPv6 address and no AAAA in their forward zone (section 27); cluster-wide, one alert per zone, subject `ipv6:aaaa:<zone>`; details `zone`, `count`, `hosts: [{"host_key","name","mac","address"}]`, `exception_keys` |
 | `ipv6_reverse_missing` | info | a watched IPv6 prefix has no reverse zone served by the cluster; cluster-wide, subject `ipv6:reverse:<prefix>`; details `prefix`, `reverse_zone` (the zone to create) |
 | `ipv6_stale_aaaa` | warning | AAAA in a watched prefix whose address has not been observed for `ipv6.stale_days` while the host's MAC is seen with another stable address; cluster-wide, subject `ipv6:stale:<zone>`; details `zone`, `count`, `records: [{"name","address","mac","last_seen","current"}]`, `old_prefix`, `new_prefix` when every stale address moved to one other prefix, `exception_keys` |
-| `ipv6_source_failed` | warning | an IPv6 observation source of this node fails on every poll (section 27): `neighbors` or `dhcpv6` for 10 min (`dhcpv6` not while this node's Kea DHCPv6 has an open `daemon_down` or an engine write in progress: one outage, one alert), a router source for 24 h; per node, subject `ipv6:source:<source>[:<source_id>]`; details `source`, `source_id`, `error`, `failing_since`; resolved by the next successful poll or when the source is no longer polled here |
+| `ipv6_source_failed` | warning | an IPv6 observation source of this node fails on every poll (section 27): `neighbors` or `dhcpv6` for 10 min (`dhcpv6` not while this node's Kea DHCPv6 has an open `daemon_down` or an engine write in progress: one outage, one alert); per node, subject `ipv6:source:<source>`; details `source`, `source_id`, `error`, `failing_since`; resolved by the next successful poll or when the source is no longer polled here |
 | `dns_stale_primary` | critical | a node serves as primary a zone that `ddns.roles` gives to another node at a later epoch (node = that node, subject `ddns:stale:<view>/<zone>`; details `primary_node_id`, `epoch`); resolved by the demotion |
 
 The `ha_*` alerts above have subject `ha:<engine>`; a Kea 3 hub raises them
@@ -2999,9 +2999,8 @@ only, never sent out of the cluster.
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
 | `GET /hosts/ipv6?filter=&zone=&page=&per_page=` | `read:hosts` | | paginated `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen","current"}],"aaaa","ptr","proposal": {"address","class","name","zone","reverse_zone"}|null,"excepted","stale"}`; `filter` one of `missing_aaaa`, `missing_ptr`, `stale`, `unknown`, `random_mac`; `meta.unavailable` lists the nodes and sources that did not answer, `meta.errors` the engines and zones that could not be read |
-| `GET /admin/ipv6` | `admin:settings` | | `{"sources": [Source],"prefixes","effective_prefixes": [{"prefix","from": "setting"|"reverse_zone"|"dhcpv6"|"interface"}],"settings","status": [SourceStatus]}` (secrets as booleans) |
-| `PUT /admin/ipv6` | `admin:settings` | `{"sources"?,"prefixes"?,"secrets"?: {source id: {"api_key"?,"api_secret"?}}}` (`sources` replaced whole; a source without `id` gets one; `sources[i].secrets` with string or `null` values writes that source's secrets, a new one included, booleans ignored; `null` clears a secret) | same as `GET`; audited `admin.ipv6.replace` |
-| `POST /admin/ipv6/sources/test` | `admin:settings` | `{"source_id"}` or an unsaved `Source` whose `scope` (a source id) names the stored secrets it reuses while `url` is unchanged | `{"ok","node_id","entries","error"?,"sample": [Observation]}` (at most 5); a failed poll is `200` with `ok` false; 6 per minute per user (`429`) |
+| `GET /admin/ipv6` | `admin:settings` | | `{"prefixes","effective_prefixes": [{"prefix","from": "setting"|"reverse_zone"|"dhcpv6"|"interface"}],"settings","status": [SourceStatus]}` |
+| `PUT /admin/ipv6` | `admin:settings` | `{"prefixes"?}` (the read-only members of a `GET` echoed back are ignored; any other member is a `400`) | same as `GET`; audited `admin.ipv6.replace` |
 
 ## 18. WebSocket
 
@@ -4150,45 +4149,37 @@ run; K2 API, alert and the read-only screen.
 
 ## 27. Observed IPv6 addresses
 
-Design: `design.md` 13.7 (RFC 8981 and the OPNsense API read on
-2026-10-28). This contract covers the observations, the checks and the
+Design: `design.md` 13.7 (RFC 8981 read on 2026-10-28). This contract covers the observations, the checks and the
 read routes of release 0.2.2; the AAAA and PTR plans (`POST /hosts/ipv6/plan`,
 `POST /hosts/ipv6/replace-prefix/plan`) are contract C4 (release 0.2.4).
-Code: sources in `collector/ipv6/` (`neighbors.py`, `opnsense.py`,
-`dhcpv6.py`, interface `NeighborSource` in `source.py`), watched prefixes in
+Code: sources in `collector/ipv6/` (`neighbors.py`, `dhcpv6.py`, interface `NeighborSource` in `source.py`), watched prefixes in
 `prefixes.py`, the table in `store.py`, the collector task `observe_ipv6`
 (every 60 s) in `observer.py`, classification and host matching in
 `services/ipv6_hosts.py`, checks in `services/consistency.py`, routes in
 `api/ipv6.py`. Batches: V1 observations, V2 checks and API, V3 screens.
 
 - **Settings** `[settings.ipv6]`: `neighbors_enabled` (true), `poll_seconds`
-  (300, the router poll and the DHCPv6 lease walk; the neighbor table is
-  read every pass), `stable_min_days` (8), `stale_days` (14),
+  (300, the DHCPv6 lease walk; the neighbor table is read every pass), `stable_min_days` (8), `stale_days` (14),
   `auto_apply_enabled` (false, reserved). Retention
-  `retention.ipv6_observation_days` (30). Screen entries: `sources`
-  (`[Source]`), `prefixes` (watched prefixes, IPv6 CIDR strings; empty:
-  only the effective defaults). Secrets: `[secrets]
-  "ipv6/source/<id>/api_key"`, `"ipv6/source/<id>/api_secret"`.
-- **Source**: `{"id": ULID,"type": "opnsense","name","url","verify_tls":
-  true,"ca_pem"|null,"enabled","allow_http": false,"exclude_macs": []}`; the
-  API adds `"secrets": {"api_key": bool, "api_secret": bool}`. OPNsense is
-  read with Basic authentication (key, secret) on
-  `/api/diagnostics/interface/search_ndp`, by the service node only (section
-  22, sender election), every `poll_seconds`, on a thread of its own (the
-  collector loop records the previous pass and never waits on a router), in
-  at most 20 s from name resolution to the last byte. An `http://` URL is a
-  failed source unless `allow_http` is true (the key would travel in clear).
-  `search_ndp` rows carry no state: a stale entry FreeBSD still lists counts
-  as seen (up to a day more for `stale_days` and `stable`), and the router's
-  own interface entries are listed; rows whose MAC is in `exclude_macs` are
-  dropped.
+  `retention.ipv6_observation_days` (30). Screen entry: `prefixes` (watched
+  prefixes, IPv6 CIDR strings; empty: only the effective defaults).
+- **Sources**: generic only, the neighbor table of each node and the Kea
+  DHCPv6 leases; no router connector. The OPNsense source of 0.2.2 is
+  removed in 0.2.3: at start (web and collector) a node deletes
+  `ipv6.sources` and every `[secrets] "ipv6/source/..."` from cluster.toml in
+  one write, audited `admin.ipv6.op` by `system` (request `{"op":
+  "retire_sources","sources": [ids]}`), and nothing when none is left; the
+  cache drops its `opnsense` observation rows. Mixed releases: the removal
+  replicates as tombstones; a `sources` entry a 0.2.2 peer writes later is
+  never read nor shown (removed at the next start), and `opnsense` rows or
+  statuses a 0.2.2 peer answers to `ipv6.observations` are dropped.
 - **NeighborSource** (V1): `kind: str`, `poll() -> list[Neighbor]` with
   `Neighbor(mac, address, state)`; it raises `SourceError(message)` on any
   failure. `neighbors` reads `ip -j -6 neigh show` on each node (no
   privilege), state `router` for a neighbor flagged as a router (not
   stale); `dhcpv6` takes the DHCPv6 leases when the module is on.
-- **Observation**: `{"mac","address","source": "neighbors"|"opnsense"|
-  "dhcpv6","source_id"|null,"node_id","first_seen","last_seen","state"}`,
+- **Observation**: `{"mac","address","source": "neighbors"|"dhcpv6",
+  "source_id"|null,"node_id","first_seen","last_seen","state"}`,
   kept in the observing node's cache: `ipv6_observations (mac TEXT, address
   TEXT, source TEXT, source_id TEXT NOT NULL DEFAULT '', node_id TEXT,
   first_seen INTEGER, last_seen INTEGER, state TEXT, PRIMARY KEY (mac,
@@ -4200,7 +4191,7 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   "node_id","last_poll","error","entries","failing_since"}`, `failing_since`
   the first poll of the current run of failures (null when the last poll
   worked). A source logs a warning once when it starts failing and once when
-  it works again (a router entry that cannot be built too), and raises
+  it works again, and raises
   `ipv6_source_failed` (section 15 table) when it keeps failing. `neighbors` needs a netlink socket: the collector unit allows
   `AF_NETLINK` (no capability, so read only); the web unit does not, and reads
   the node's addresses from `/proc/net/if_inet6`.
@@ -4231,8 +4222,7 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
 - **Checks** (V2, the consistency pass, cluster-wide): `ipv6_missing_aaaa`,
   `ipv6_reverse_missing`, `ipv6_stale_aaaa` (section 15 table, keys in the
   exception key table). A host known in IPv4 only raises nothing. A
-  failing source is shown in the screen and alerted by `ipv6_source_failed`
-  (a router source not before 24 h).
+  failing source is shown in the screen and alerted by `ipv6_source_failed`.
   They run on each node holding primary forward zones (a node without one
   resolves the ones it held), over the leases, reservations and zones the
   pass already read (`hosts_service.join_hosts`), this node's observations
@@ -4283,12 +4273,6 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   read (a refused transfer, `"<zone>: <error>"` joined by `; `): the route
   answers 200 with the other zones, and so does `GET /hosts`. The
   collector's pass skips its reconcile on any unread primary zone, so a
-  refused transfer neither opens nor resolves an `ipv6_*` host alert. `PUT /admin/ipv6`: a new source gets its key and secret in the
-  request that creates it (`sources[i].secrets`, write-only; the top-level
-  `secrets` map wins for the same name). A stored key and secret never follow a source to
-  another URL (cleared unless given in the same request) and go with a
-  removed source. `POST /admin/ipv6/sources/test` takes `secrets`
-  (`api_key`, `api_secret`) with an unsaved source; the sample is the first
-  rows of the answer, unfiltered.
-- **Audit**: `admin.ipv6.replace` (request `{"sources": [ids],"prefixes"}`,
-  never a secret).
+  refused transfer neither opens nor resolves an `ipv6_*` host alert.
+- **Audit**: `admin.ipv6.replace` (request `{"prefixes"}`), `admin.ipv6.op`
+  (the removal of the 0.2.2 router sources, above).

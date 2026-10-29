@@ -16,6 +16,7 @@ from pelagos.collector.alerts import ack_entry
 from pelagos.collector.events import EventSink, SignalListener
 from pelagos.collector.main import Backends, Collector, build_backends, build_peer_client, connector_context
 from pelagos.collector.series import SeriesStore, connect
+from pelagos.core.context import NodeContext
 from pelagos.domain import (
     INCONSISTENCY_KINDS,
     Alert,
@@ -356,7 +357,14 @@ def test_build_backends_and_run_once(node_ctx, monkeypatch, tmp_root):
     monkeypatch.setattr(collector_main, "build_backends", lambda _ctx: fakes)
     monkeypatch.setattr(collector_main, "build_peer_client", lambda _ctx: FakePeerClient())
     monkeypatch.setattr(collector_main, "_collect_findings", lambda _ctx: [])
+    # A router source a 0.2.2 node stored (connector removed in 0.2.3) goes at start, audited.
+    retired = [{"id": "01SRC", "type": "opnsense"}]
+    node_ctx.config_store.update_cluster(
+        lambda c: c.settings.setdefault("ipv6", {}).__setitem__("sources", retired), updated_by="node:old"
+    )
     assert collector_main.run(node_ctx.paths, once=True) == 0
+    assert "sources" not in NodeContext.build(node_ctx.paths).cluster().settings["ipv6"]
+    assert [e.user for e in node_ctx.audit_log.read() if e.action == "admin.ipv6.op"] == ["system"]
     conn = connect(node_ctx.paths.series_db, readonly=True)
     store = SeriesStore(conn)
     assert store.snapshot(node, "bind", "zones") is not None and store.get_meta("last_start") is not None

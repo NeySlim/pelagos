@@ -274,7 +274,7 @@
       },
       "ipv6": {
         "title": "Observations IPv6",
-        "help": "Où les adresses IPv6 sont observées et quand une adresse est stable (sources : Administration, Sources IPv6)"
+        "help": "Où les adresses IPv6 sont observées et quand une adresse est stable (Administration, Observation IPv6)"
       }
     },
     "groups": {
@@ -473,7 +473,7 @@
       },
       "ipv6": {
         "neighbors_enabled": "Lire la table des voisins de chaque nœud",
-        "poll_seconds": "Intervalle de lecture du routeur",
+        "poll_seconds": "Intervalle de lecture des baux DHCPv6",
         "stable_min_days": "Stable après",
         "stale_days": "AAAA obsolète après",
         "auto_apply_enabled": "Créer AAAA et PTR automatiquement"

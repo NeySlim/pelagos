@@ -12,6 +12,8 @@ from pelagos.collector.ipv6.source import Neighbor
 
 DAY = 86400
 STATUS_META = "ipv6.sources_status"
+# Kinds of the router connector removed in 0.2.3: their rows go at the first start.
+RETIRED = ("opnsense",)
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ipv6_observations (
   mac TEXT NOT NULL, address TEXT NOT NULL, source TEXT NOT NULL, source_id TEXT NOT NULL DEFAULT '',
@@ -23,6 +25,8 @@ CREATE INDEX IF NOT EXISTS ipv6_observations_seen ON ipv6_observations(last_seen
 
 def ensure(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    with conn:
+        conn.executemany("DELETE FROM ipv6_observations WHERE source = ?", [(k,) for k in RETIRED])
 
 
 def record(

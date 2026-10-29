@@ -274,7 +274,7 @@
       },
       "ipv6": {
         "title": "IPv6 observations",
-        "help": "Where IPv6 addresses are observed and when one counts as stable (sources: Administration, IPv6 sources)"
+        "help": "Where IPv6 addresses are observed and when one counts as stable (Administration, IPv6 observation)"
       }
     },
     "groups": {
@@ -473,7 +473,7 @@
       },
       "ipv6": {
         "neighbors_enabled": "Read the neighbor table of each node",
-        "poll_seconds": "Router poll interval",
+        "poll_seconds": "DHCPv6 lease walk interval",
         "stable_min_days": "Stable after",
         "stale_days": "AAAA stale after",
         "auto_apply_enabled": "Create AAAA and PTR automatically"

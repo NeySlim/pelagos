@@ -16,7 +16,7 @@ DHCP screens are described in [DNS](dns.md) and [DHCP](dhcp.md).
 - [Security audit](#security-audit)
 - [Kea migration](#kea-migration)
 - [Audit log](#audit-log)
-- [Users, roles, modules, certificates, notifications, IPv6 sources, settings](#users-roles-modules-certificates-notifications-ipv6-sources-settings)
+- [Users, roles, modules, certificates, notifications, IPv6 observation, settings](#users-roles-modules-certificates-notifications-ipv6-observation-settings)
 - [Account](#account)
 
 ## Sign-in
@@ -392,7 +392,7 @@ NDJSON" downloads the filtered range (`GET /api/v1/audit/export`).
 Entries are never edited or purged; failed sign-ins and secret reveals are
 recorded too.
 
-## Users, roles, modules, certificates, notifications, IPv6 sources, settings
+## Users, roles, modules, certificates, notifications, IPv6 observation, settings
 
 Under Administration:
 
@@ -423,15 +423,14 @@ Under Administration:
   alerts still open leaves at the end). Below: the sender order (the first
   online node sends, the next takes over after three missed polls) and the
   history of sent and failed batches.
-- **IPv6 sources** (`admin:settings`): where observed IPv6 addresses come
-  from. The neighbor table of every node is read unless
-  `ipv6.neighbors_enabled` is off (Administration, Settings); OPNsense routers are added with their URL, an
-  API key and secret of a user holding only the "Diagnostics: NDP Table"
-  privilege (write-only, they do not follow a source to another URL), TLS
-  verification, an optional private CA and the router's own MACs to drop.
-  **Test** polls the router from this node, also before saving, and shows
-  the first rows. Below: the last poll of every source on every node with
-  its error, and the watched prefixes: the ones listed here (ULA only when
+- **IPv6 observation** (`admin:settings`): where observed IPv6 addresses
+  come from. The sources are generic: the neighbor table of every node,
+  read unless `ipv6.neighbors_enabled` is off (Administration, Settings),
+  and the Kea DHCPv6 leases when the DHCPv6 module is on, walked every
+  `ipv6.poll_seconds`. There is no router connector: the OPNsense source
+  of 0.2.2 is removed on upgrade with its key and secret (audited by
+  `system`). Below: the last poll of every source on every node with its
+  error, and the watched prefixes: the ones listed here (ULA only when
   listed) and the effective list with where each comes from (reverse zone,
   DHCPv6 subnet, node address, listed).
 - **Settings** (`admin:settings`): one tab per table (Sign-in, Plans,

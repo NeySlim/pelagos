@@ -112,7 +112,6 @@ const invocations = [
   () => api.resolverHealth.returnPlan(), () => api.resolverHealth.extend(4),
   () => api.keaMigration.overview(), () => api.keaMigration.analyze({ series: '3.2', source: 'isc' }),
   () => api.ipv6.hosts({ filter: 'missing_aaaa' }), () => api.ipv6.settings(), () => api.ipv6.update({ prefixes: [] }),
-  () => api.ipv6.testSource({ source_id: 's1' }),
 ]
 
 describe('api.js', () => {

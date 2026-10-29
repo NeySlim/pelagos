@@ -473,7 +473,6 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("GET", "/hosts/ipv6", "/hosts/ipv6", None, "read:hosts"),
     ("GET", "/admin/ipv6", "/admin/ipv6", None, "admin:settings"),
     ("PUT", "/admin/ipv6", "/admin/ipv6", {}, "admin:settings"),
-    ("POST", "/admin/ipv6/sources/test", "/admin/ipv6/sources/test", {}, "admin:settings"),
     ("GET", "/auth/webauthn", "/auth/webauthn", None, ANON),
     ("POST", "/auth/webauthn/login/options", "/auth/webauthn/login/options", None, ANON),
     ("POST", "/auth/webauthn/login/verify", "/auth/webauthn/login/verify", {"ceremony": "x"}, ANON),

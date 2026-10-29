@@ -286,7 +286,7 @@ MANAGED: dict[str, tuple[str, ...]] = {
     "archives": ("destinations", "recipients"),
     "ddns": ("roles",),
     "resolver": ("fallback", "presets"),
-    "ipv6": ("sources", "prefixes"),
+    "ipv6": ("prefixes",),
 }
 
 # (lower, higher, strict): `lower` must stay below `higher` (or at most equal when not strict).

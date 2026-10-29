@@ -70,7 +70,7 @@ TOKEN_SECONDS = 300.0
 NOTIFY_SECONDS = 10.0
 # Archive schedule check (collector.archives): the build itself runs on its own thread.
 ARCHIVE_SECONDS = 60.0
-# Neighbor table read (and router poll when due, section 27).
+# Neighbor table read (and DHCPv6 lease walk when due, section 27).
 IPV6_SECONDS = 60.0
 META_LAST_ACK = "last_ack_audit_id"
 META_ACK_OFFSET = "ack_scan_offset"
@@ -252,7 +252,7 @@ class Collector:
         self.archives = ArchiveRunner(ctx, backends, self.backend_lock, clock)
         from pelagos.collector.ipv6.observer import Ipv6Observer
 
-        # Observed IPv6 addresses (section 27): neighbors, DHCPv6 leases and, on the service node, routers.
+        # Observed IPv6 addresses (section 27): the node's neighbor table and DHCPv6 leases.
         kea6 = backends.kea6
         self.ipv6_gateway: Any = None  # peers asked for their observations; tests set a fake
         self.ipv6 = Ipv6Observer(
@@ -1080,7 +1080,7 @@ class Collector:
         self._finish(self.archives.tick())
 
     def observe_ipv6(self) -> list[Alert] | None:
-        """IPv6 neighbors of this node and, on the service node, of the routers (section 27), then
+        """IPv6 neighbors and DHCPv6 leases of this node (section 27), then
         `ipv6_source_failed` of this node; None while a background pass is still running."""
         status = self.ipv6.tick()
         if status is None:
@@ -1576,6 +1576,13 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
             log.info("settings renamed in cluster.toml: %s", ", ".join(f"{a} -> {b}" for a, b in moved))
     except Exception:  # never blocks the start: every load migrates in memory anyway
         log.exception("settings migration failed")
+    from pelagos.services.ipv6_service import retire_router_sources
+
+    try:
+        if retire_router_sources(ctx):
+            log.info("removed the retired IPv6 router sources and their secrets from cluster.toml")
+    except Exception:  # never blocks the start: nothing reads the retired entries any more
+        log.exception("IPv6 router source removal failed")
     # Watched before any setting is read: the web process or a peer merge may rewrite cluster.toml meanwhile.
     settings_watch = SettingsWatch(ctx)
     if rebuild:
@@ -1634,8 +1641,6 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
     relay = None
     if replicator is not None:
         collector.peers.liveness = replicator
-        collector.ipv6.offline = replicator.offline_peers
-        collector.ipv6.versions = lambda: {s.node_id: s.version for s in replicator.peer_statuses()}
         relay = start_relay(ctx, collector, replication)
     notify_thread = None
     try:

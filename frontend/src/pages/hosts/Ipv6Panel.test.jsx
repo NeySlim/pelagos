@@ -28,7 +28,7 @@ const { Ipv6Panel } = await import('./Ipv6Panel')
 const printer = {
   host_key: 'mac:02:00:5e:00:53:10', name: 'printer.example.lan.', mac: '02:00:5e:00:53:10', mac_random: false, ipv4: ['192.0.2.10'],
   observed: [
-    { address: '2001:db8::5eff:fe00:5310', class: 'eui64', sources: ['neighbors', 'opnsense'], first_seen: '2026-10-01T00:00:00Z', last_seen: '2026-10-29T00:00:00Z' },
+    { address: '2001:db8::5eff:fe00:5310', class: 'eui64', sources: ['neighbors', 'dhcpv6'], first_seen: '2026-10-01T00:00:00Z', last_seen: '2026-10-29T00:00:00Z' },
     { address: '2001:db8::a4b9:12c3:5d6e:7f80', class: 'temporary', sources: ['neighbors'], first_seen: '2026-10-28T00:00:00Z', last_seen: '2026-10-29T00:00:00Z' },
   ],
   aaaa: [], ptr: [], excepted: false,
@@ -37,12 +37,12 @@ const printer = {
 const nas = {
   host_key: 'mac:02:00:5e:00:53:20', name: 'nas.example.lan.', mac: '02:00:5e:00:53:20', mac_random: false, ipv4: ['192.0.2.20'],
   observed: [
-    { address: '2001:db8::c', class: 'stable', sources: ['opnsense'], first_seen: '2026-10-01T00:00:00Z', last_seen: '2026-10-29T00:00:00Z' },
-    { address: '2001:db8::20', class: 'stable', sources: ['opnsense'], first_seen: '2026-09-01T00:00:00Z', last_seen: '2026-10-09T00:00:00Z' },
+    { address: '2001:db8::c', class: 'stable', sources: ['dhcpv6'], first_seen: '2026-10-01T00:00:00Z', last_seen: '2026-10-29T00:00:00Z' },
+    { address: '2001:db8::20', class: 'stable', sources: ['dhcpv6'], first_seen: '2026-09-01T00:00:00Z', last_seen: '2026-10-09T00:00:00Z' },
   ],
   aaaa: ['2001:db8::20', '2001:db8::c'], ptr: ['2001:db8::c'], proposal: null, excepted: true, stale: ['2001:db8::20'],
 }
-const phone = { host_key: 'mac:06:11:22:33:44:55', name: null, mac: '06:11:22:33:44:55', mac_random: true, ipv4: [], observed: [{ address: '2001:db8::1', class: 'unknown', sources: ['opnsense'], first_seen: null, last_seen: null }], aaaa: [], ptr: [], proposal: null, excepted: false }
+const phone = { host_key: 'mac:06:11:22:33:44:55', name: null, mac: '06:11:22:33:44:55', mac_random: true, ipv4: [], observed: [{ address: '2001:db8::1', class: 'unknown', sources: ['dhcpv6'], first_seen: null, last_seen: null }], aaaa: [], ptr: [], proposal: null, excepted: false }
 
 let location
 function Where() {

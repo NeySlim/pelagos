@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// Hosts > IPv6 and Administration > IPv6 sources against the mock: classes, filters kept in the
-// URL, an exception per address, then an OPNsense source added with its key and tested.
+// Hosts > IPv6 and Administration > IPv6 observation against the mock: classes, filters kept in
+// the URL, an exception per address, then the generic sources' status and a watched prefix.
 import { test, expect } from '@playwright/test'
 
 async function signIn(page, username = 'admin', password = 'admin') {
@@ -40,27 +40,13 @@ test('lists observed IPv6 addresses, filters them and excepts one address', asyn
   await expect(page.getByText('mac:02:00:5e:00:53:10')).toBeVisible()
 })
 
-test('adds an OPNsense source with its key, tests it and watches a prefix', async ({ page }) => {
+test('shows the generic sources and watches a prefix', async ({ page }) => {
   await signIn(page)
   await page.goto('/admin/ipv6')
-  await expect(page.getByTestId('ipv6-sources')).toContainText('https://router.example.lan')
-  await page.getByTestId('ipv6-source-add').click()
-  const dialog = page.getByTestId('ipv6-source-dialog')
-  await dialog.getByTestId('ipv6-source-name').fill('Edge')
-  await dialog.getByTestId('ipv6-source-url').fill('https://edge.example.lan')
-  await dialog.getByTestId('ipv6-source-test').click()
-  await expect(dialog).toContainText('Fix the highlighted fields')
-  await dialog.getByTestId('ipv6-source-key').fill('KEY')
-  await dialog.getByTestId('ipv6-source-secret').fill('SECRET')
-  await dialog.getByTestId('ipv6-source-test').click()
-  await expect(dialog.getByTestId('ipv6-source-test-result')).toHaveAttribute('data-ok', 'true')
-  await expect(dialog.getByTestId('ipv6-source-sample')).toContainText('2001:db8::5eff:fe00:5310')
-  await dialog.getByTestId('ipv6-source-save').click()
-  await expect(dialog).toBeHidden()
-  const row = page.getByTestId('ipv6-sources').locator('tr', { hasText: 'Edge' })
-  await expect(row.getByTestId('ipv6-source-nokey')).toHaveCount(0)
-  await row.getByTestId('ipv6-source-row-test-button').click()
-  await expect(row.getByTestId('ipv6-source-row-test')).toHaveAttribute('data-ok', 'true')
+  await expect(page.getByTestId('ipv6-observation')).toContainText('Kea DHCPv6 leases')
+  await expect(page.getByTestId('ipv6-status')).toContainText('DHCPv6 lease')
+  await expect(page.getByTestId('ipv6-sources')).toHaveCount(0)
+  await expect(page.getByTestId('ipv6-source-add')).toHaveCount(0)
 
   await page.getByTestId('ipv6-prefixes-input').fill('2001:db8:1::/64')
   await page.getByTestId('ipv6-prefixes-save').click()

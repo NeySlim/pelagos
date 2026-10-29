@@ -111,7 +111,6 @@ Object.assign(PERMISSIONS, {
   'PUT /dns/resolver/fallback': 'write:dns.config',
   'GET /install/kea-migration': 'admin:install', 'POST /install/kea-migration/analyze': 'admin:install',
   'GET /hosts/ipv6': 'read:hosts', 'GET /admin/ipv6': 'admin:settings', 'PUT /admin/ipv6': 'admin:settings',
-  'POST /admin/ipv6/sources/test': 'admin:settings',
 })
 
 class Problem extends Error {

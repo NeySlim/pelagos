@@ -46,13 +46,13 @@ def test_merge_keeps_earliest_and_latest_over_sources_and_nodes():
     merged = v6.merge(
         [
             obs(EUI, NOW - 5 * DAY, NOW - DAY, node="n1"),
-            obs(EUI, NOW - 2 * DAY, NOW, source="opnsense", node="n2"),
+            obs(EUI, NOW - 2 * DAY, NOW, source="dhcpv6", node="n2"),
         ]
     )
     assert len(merged) == 1
     item = merged[0]
     assert (item.first_seen, item.last_seen) == (NOW - 5 * DAY, NOW)
-    assert item.sources == {"neighbors", "opnsense"}
+    assert item.sources == {"neighbors", "dhcpv6"}
     assert item.nodes == {"n1", "n2"}
 
 
@@ -87,7 +87,7 @@ def test_fresh_current_address_next_to_rotated_temporaries_is_unknown():
 
 def test_router_mac_is_never_listed():
     router = "bc:24:11:00:00:01"
-    seen = [obs("2001:db8:1::1", NOW - 60, NOW, mac=router, source="opnsense"), obs(EUI, NOW - 60, NOW)]
+    seen = [obs("2001:db8:1::1", NOW - 60, NOW, mac=router, source="dhcpv6"), obs(EUI, NOW - 60, NOW)]
     seen.append(dict(obs("2001:db8:1::1", NOW - 60, NOW, mac=router), state="router"))
     rows = v6.host_rows([], seen, NOW, 8, [], [])
     assert [r["mac"] for r in rows] == [MAC]

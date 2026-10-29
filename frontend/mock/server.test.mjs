@@ -92,7 +92,6 @@ const BODIES = {
   'PUT /dns/resolver/fallback': () => ({ until: new Date(Date.now() + 3600000).toISOString() }),
   'POST /install/kea-migration/analyze': { series: '3.2', source: 'isc' },
   'PUT /admin/ipv6': { prefixes: ['2001:db8:1::/64'] },
-  'POST /admin/ipv6/sources/test': { source_id: 'src-router' },
   'POST /dhcp/{family}/ha/setup/plan': { remove: true },
   'POST /dns/zones/{zone}/secondaries/plan': { node_ids: [] },
   'POST /auth/password': { current_password: 'admin', new_password: 'Admin-new-password-1' },
@@ -376,10 +375,10 @@ describe('mock server resolver, Kea migration and IPv6', () => {
     const viewer = client(await login('viewer', 'viewer'))
     expect((await viewer('GET', '/hosts/ipv6?filter=missing_aaaa')).data.items.map((h) => h.mac)).toEqual(['02:00:5e:00:53:10'])
     expect((await viewer('GET', '/admin/ipv6')).status).toBe(403)
-    expect(JSON.stringify((await admin('GET', '/admin/ipv6')).data)).not.toContain('"k"')
+    expect((await admin('GET', '/admin/ipv6')).data.sources).toBeUndefined()
   })
 
-  it('serves the IPv6 tab and sources as the V2 routes do', async () => {
+  it('serves the IPv6 tab and observation as the V2 routes do', async () => {
     const admin = client(await login('admin', 'admin'))
     const all = (await admin('GET', '/hosts/ipv6')).data.items
     expect(all.find((h) => h.mac === '02:00:5e:00:53:10').proposal).toMatchObject({ address: '2001:db8::5eff:fe00:5310', class: 'eui64' })
@@ -395,16 +394,14 @@ describe('mock server resolver, Kea migration and IPv6', () => {
     expect((await admin('GET', '/hosts/ipv6?filter=missing_aaaa')).data.items).toEqual([])
     expect((await admin('GET', '/hosts/ipv6')).data.items.find((h) => h.mac === '02:00:5e:00:53:10').excepted).toBe(true)
     expect((await admin('DELETE', `/alerts/exceptions/${ex.data.id}`)).status).toBe(204)
-    // A new source gets its secrets inline; a test without a key is a 401 answer, not an error.
-    const saved = await admin('PUT', '/admin/ipv6', {
-      sources: [...(await admin('GET', '/admin/ipv6')).data.sources, { type: 'opnsense', name: 'Edge', url: 'https://edge.example.lan', exclude_macs: ['02:00:5e:00:53:01'], secrets: { api_key: 'K', api_secret: 'S' } }],
-    })
-    const edge = saved.data.sources.find((s) => s.name === 'Edge')
-    expect(edge).toMatchObject({ exclude_macs: ['02:00:5e:00:53:01'], allow_http: false, secrets: { api_key: true, api_secret: true } })
-    expect((await admin('POST', '/admin/ipv6/sources/test', { source_id: edge.id })).data).toMatchObject({ ok: true, entries: 37 })
-    expect((await admin('POST', '/admin/ipv6/sources/test', { type: 'opnsense', name: 'x', url: 'https://other.example.lan' })).data.ok).toBe(false)
-    expect((await admin('POST', '/admin/ipv6/sources/test', { type: 'opnsense', name: 'x', url: 'https://edge.example.lan', scope: edge.id })).data.ok).toBe(true)
-    expect((await admin('PUT', '/admin/ipv6', { sources: [{ type: 'opnsense', name: 'x', url: 'http://plain.example.lan' }] })).status).toBe(400)
+    // Generic sources only: the router sources of 0.2.2 are gone.
+    const overview = (await admin('GET', '/admin/ipv6')).data
+    expect(overview.status.map((x) => x.source)).toContain('dhcpv6')
+    expect(overview.sources).toBeUndefined()
+    const saved = await admin('PUT', '/admin/ipv6', { ...overview, prefixes: ['2001:db8:5::/64'] })
+    expect(saved.data.effective_prefixes).toContainEqual({ prefix: '2001:db8:5::/64', from: 'setting' })
+    expect((await admin('PUT', '/admin/ipv6', { sources: [] })).status).toBe(400)
+    expect((await admin('POST', '/admin/ipv6/sources/test', { source_id: 'src-router' })).status).toBe(404)
   })
 })
 

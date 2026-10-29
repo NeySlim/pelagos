@@ -40,10 +40,9 @@ const DYNAMIC = [
   ['hosts', 'pages.list.title'],
   ...['missing_aaaa', 'missing_ptr', 'stale', 'unknown', 'random_mac'].flatMap((f) => [['ipv6', `filters.${f}`], ['ipv6', `empty.${f}`]]),
   ...['eui64', 'stable', 'temporary', 'unknown'].flatMap((c) => [['ipv6', `class.${c}`], ['ipv6', `classHelp.${c}`]]),
-  ...['neighbors', 'opnsense', 'dhcpv6'].map((s) => ['ipv6', `source.${s}`]),
+  ...['neighbors', 'dhcpv6'].map((s) => ['ipv6', `source.${s}`]),
   ...['setting', 'reverse_zone', 'dhcpv6', 'interface'].map((f) => ['ipv6', `prefixes.from.${f}`]),
   ...['format', 'scope'].map((e) => ['ipv6', `prefixes.errors.${e}`]),
-  ...['required', 'url', 'http', 'mac', 'pem', 'secret'].map((e) => ['ipv6', `sources.errors.${e}`]),
   ...['ipv6_missing_aaaa', 'ipv6_stale_aaaa'].flatMap((k) => ['host', 'address'].map((s) => ['ipv6', `exception.${k}.${s}`])),
   ['nodes', 'pages.list.title'],
   ...['subnets', 'sharedNetworks', 'options', 'classes', 'leases', 'reservations', 'ha', 'ddns', 'hooks', 'stats'].flatMap((p) => [

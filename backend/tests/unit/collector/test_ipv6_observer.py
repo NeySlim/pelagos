@@ -13,7 +13,7 @@ import pytest
 from pelagos.collector import series as series_mod
 from pelagos.collector.ipv6 import prefixes as px
 from pelagos.collector.ipv6 import store as obs_store
-from pelagos.collector.ipv6.observer import Ipv6Observer, polls_routers
+from pelagos.collector.ipv6.observer import Ipv6Observer
 from pelagos.collector.ipv6.source import Neighbor, SourceError
 
 pytestmark = pytest.mark.unit
@@ -97,7 +97,7 @@ def test_record_keeps_first_seen_and_moves_last_seen(conn):
     n = Neighbor(MAC, "2001:db8:99::1", "reachable")
     obs_store.record(conn, [n], "neighbors", None, "n1", 1000)
     obs_store.record(conn, [Neighbor(MAC, "2001:db8:99::1", "delay")], "neighbors", None, "n1", 2000)
-    obs_store.record(conn, [n], "opnsense", "01SRC", "n1", 1500)
+    obs_store.record(conn, [n], "dhcpv6", None, "n1", 1500)
     rows = obs_store.observations(conn)
     assert rows == [
         {
@@ -113,8 +113,8 @@ def test_record_keeps_first_seen_and_moves_last_seen(conn):
         {
             "mac": MAC,
             "address": "2001:db8:99::1",
-            "source": "opnsense",
-            "source_id": "01SRC",
+            "source": "dhcpv6",
+            "source_id": None,
             "node_id": "n1",
             "first_seen": 1500,
             "last_seen": 1500,
@@ -123,6 +123,17 @@ def test_record_keeps_first_seen_and_moves_last_seen(conn):
     ]
     assert [r["source"] for r in obs_store.observations(conn, since=1600)] == ["neighbors"]
     assert obs_store.prune(conn, 1600 + 30 * DAY, 30) == 1
+
+
+def test_rows_of_the_removed_router_connector_go_at_start(tmp_path):
+    c = series_mod.connect(tmp_path / "series.db")
+    obs_store.ensure(c)
+    obs_store.record(c, [Neighbor(MAC, "2001:db8:99::1", "reachable")], "opnsense", "01SRC", "n1", 1000)
+    obs_store.record(c, [Neighbor(MAC, "2001:db8:99::2", "reachable")], "neighbors", None, "n1", 1000)
+    c.commit()
+    obs_store.ensure(c)
+    assert [r["source"] for r in obs_store.observations(c)] == ["neighbors"]
+    c.close()
 
 
 def test_payload_before_the_first_pass(tmp_path):
@@ -156,9 +167,6 @@ def make_ctx(settings, node_id="n1", nodes=("n1", "n2"), modules=None):
         node=SimpleNamespace(id=node_id),
         settings=lambda: settings,
         cluster=lambda: SimpleNamespace(nodes=[SimpleNamespace(id=n) for n in nodes], modules=modules or {}),
-        get_secret=lambda name: {"ipv6/source/01SRC/api_key": "k", "ipv6/source/01SRC/api_secret": "s"}.get(
-            name
-        ),
     )
 
 
@@ -170,35 +178,18 @@ class Clock:
         return self.t
 
 
-def observer(tmp_path, settings, neighbors, routers=None, **ctx_kw):
+def observer(tmp_path, settings, neighbors, **ctx_kw):
     store = series_mod.SeriesStore(series_mod.connect(tmp_path / "series.db"))
     clock = Clock(1_800_000_000)
-    made = []
-
-    def factory(source, ctx):
-        made.append((source["id"], ctx.get_secret(f"ipv6/source/{source['id']}/api_key")))
-        return routers
-
-    obs = Ipv6Observer(
-        make_ctx(settings, **ctx_kw), store, clock, neighbors=neighbors, router_factory=factory
-    )
-    return obs, clock, made
+    return Ipv6Observer(make_ctx(settings, **ctx_kw), store, clock, neighbors=neighbors), clock
 
 
-SETTINGS = {
+SETTINGS = {"ipv6": {"prefixes": ["2001:db8:99::/64"]}}
+# A router source a 0.2.2 node may still replicate: never polled.
+RETIRED = {
     "ipv6": {
         "prefixes": ["2001:db8:99::/64"],
-        "sources": [
-            {
-                "id": "01SRC",
-                "type": "opnsense",
-                "name": "fw",
-                "url": "https://fw.example.lan",
-                "verify_tls": True,
-                "ca_pem": None,
-                "enabled": True,
-            }
-        ],
+        "sources": [{"id": "01SRC", "type": "opnsense", "name": "fw", "url": "https://fw.example.lan"}],
     }
 }
 SEEN = [
@@ -208,73 +199,36 @@ SEEN = [
 ]
 
 
-def test_service_node_reads_neighbors_and_router(tmp_path):
+def test_every_pass_reads_the_neighbors_only(tmp_path):
     neigh = FakeSource("neighbors", SEEN)
-    router = FakeSource("opnsense", [Neighbor("bc:24:11:00:00:02", "2001:db8:99::2")])
-    obs, clock, made = observer(tmp_path, SETTINGS, neigh, router)
+    obs, clock = observer(tmp_path, RETIRED, neigh)
     status = obs.tick()
-    assert made == [("01SRC", "k")]
     assert [(s["source"], s["source_id"], s["entries"], s["error"]) for s in status] == [
         ("neighbors", None, 3, None),
-        ("opnsense", "01SRC", 1, None),
     ]
-    rows = obs_store.observations(obs.conn)
-    assert {(r["address"], r["source"]) for r in rows} == {
-        ("2001:db8:99:0:be24:11ff:fe63:b806", "neighbors"),
-        ("2001:db8:99::2", "opnsense"),
-    }
-    # Within poll_seconds the router keeps its last status; neighbors are read every pass.
+    assert [r["address"] for r in obs_store.observations(obs.conn)] == ["2001:db8:99:0:be24:11ff:fe63:b806"]
     clock.t += 60
-    status = obs.tick()
-    assert neigh.calls == 2 and router.calls == 1
-    by_source = {x["source"]: x for x in status}
-    assert by_source["opnsense"]["last_poll"] == clock.t - 60
-    assert by_source["neighbors"]["last_poll"] == clock.t
-    clock.t += 300
     obs.tick()
-    assert router.calls == 2
-    assert {x["source_id"] for x in obs_store.payload(obs.conn, "n1")["sources"]} == {None, "01SRC"}
-
-
-def test_other_node_never_polls_the_router(tmp_path):
-    router = FakeSource("opnsense")
-    obs, _, made = observer(tmp_path, SETTINGS, FakeSource("neighbors", SEEN), router, node_id="n2")
-    status = obs.tick()
-    assert made == [] and router.calls == 0
-    assert [s["source"] for s in status] == ["neighbors"]
-
-
-def test_takeover_when_the_first_node_is_offline_or_too_old(tmp_path):
-    obs, _, _ = observer(tmp_path, SETTINGS, FakeSource("neighbors"), FakeSource("opnsense"), node_id="n2")
-    obs.offline = lambda: ["n1"]
-    assert obs.service_node(SETTINGS) == "n2"
-    obs.offline = list
-    obs.versions = lambda: {"n1": "0.2.1"}
-    assert obs.service_node(SETTINGS) == "n2"
-    obs.versions = lambda: {"n1": "0.2.2"}
-    assert obs.service_node(SETTINGS) == "n1"
-    assert polls_routers(None) and polls_routers("garbage") and not polls_routers("0.1.3")
+    assert neigh.calls == 2
+    assert [x["source"] for x in obs_store.payload(obs.conn, "n1")["sources"]] == ["neighbors"]
 
 
 def test_failures_are_statuses_and_neighbors_can_be_disabled(tmp_path):
-    settings = {"ipv6": dict(SETTINGS["ipv6"], neighbors_enabled=False)}
-    neigh = FakeSource("neighbors", SEEN)
-    obs, _, _ = observer(
-        tmp_path, settings, neigh, FakeSource("opnsense", error="API key refused (HTTP 401)")
-    )
-    status = obs.tick()
-    assert neigh.calls == 0
-    assert status == [
+    neigh = FakeSource("neighbors", error="the ip command (iproute2) is not installed")
+    obs, _ = observer(tmp_path, SETTINGS, neigh)
+    assert obs.tick() == [
         {
-            "source": "opnsense",
-            "source_id": "01SRC",
+            "source": "neighbors",
+            "source_id": None,
             "node_id": "n1",
             "last_poll": 1_800_000_000,
-            "error": "API key refused (HTTP 401)",
+            "error": "the ip command (iproute2) is not installed",
             "entries": 0,
             "failing_since": 1_800_000_000,
         }
     ]
+    off, _ = observer(tmp_path, {"ipv6": dict(SETTINGS["ipv6"], neighbors_enabled=False)}, neigh)
+    assert off.tick() == [] and neigh.calls == 1
 
 
 def test_dhcpv6_leases_only_with_the_module_and_every_poll_seconds(tmp_path):
@@ -315,7 +269,7 @@ def test_dhcpv6_leases_only_with_the_module_and_every_poll_seconds(tmp_path):
 def test_retention_prunes_old_rows(tmp_path):
     settings = {"ipv6": {"prefixes": ["2001:db8:99::/64"]}, "retention": {"ipv6_observation_days": 2}}
     neigh = FakeSource("neighbors", SEEN[:1])
-    obs, clock, _ = observer(tmp_path, settings, neigh)
+    obs, clock = observer(tmp_path, settings, neigh)
     obs.tick()
     neigh.found = []
     clock.t += 3 * DAY
@@ -324,7 +278,7 @@ def test_retention_prunes_old_rows(tmp_path):
 
 
 def test_reverse_zone_snapshot_makes_a_watched_prefix(tmp_path):
-    obs, _, _ = observer(tmp_path, {}, FakeSource("neighbors", SEEN))
+    obs, _ = observer(tmp_path, {}, FakeSource("neighbors", SEEN))
     obs.store.write_snapshot("n2", "bind", "zone_list", 1, [{"name": REV.rstrip("."), "kind": "primary"}])
     assert [p.to_dict() for p in obs.effective_prefixes({})] == [
         {"prefix": "2001:db8:99::/48", "from": "reverse_zone"}
@@ -359,9 +313,7 @@ def test_node_addresses_make_watched_prefixes(tmp_path, monkeypatch):
     ]
     # A prefix the router now advertises, in no setting nor zone: its addresses are recorded.
     monkeypatch.setattr(px, "interface_networks", lambda runner=None: nets)
-    obs, _, _ = observer(
-        tmp_path, {}, FakeSource("neighbors", [Neighbor(MAC, "2001:db8:7::99", "reachable")])
-    )
+    obs, _ = observer(tmp_path, {}, FakeSource("neighbors", [Neighbor(MAC, "2001:db8:7::99", "reachable")]))
     obs.tick()
     assert [r["address"] for r in obs_store.observations(obs.conn)] == ["2001:db8:7::99"]
 
@@ -381,23 +333,12 @@ def test_unexpected_errors_are_source_statuses(tmp_path):
         def poll(self):
             raise ValueError("boom")
 
-    store = series_mod.SeriesStore(series_mod.connect(tmp_path / "series.db"))
-
-    def factory(source, ctx):
-        raise ValueError("Port out of range 0-65535")
-
-    obs = Ipv6Observer(
-        make_ctx(SETTINGS), store, Clock(1_800_000_000), neighbors=Broken(), router_factory=factory
-    )
-    status = obs.tick()
-    assert {s["source"]: s["error"] for s in status} == {
-        "opnsense": "invalid source: Port out of range 0-65535",
-        "neighbors": "unexpected error: boom",
-    }
+    obs, _ = observer(tmp_path, SETTINGS, Broken())
+    assert {s["source"]: s["error"] for s in obs.tick()} == {"neighbors": "unexpected error: boom"}
 
 
 class BlockingSource(FakeSource):
-    """A router that answers only when released."""
+    """A source that answers only when released."""
 
     def __init__(self, kind, found=()):
         super().__init__(kind, found)
@@ -409,29 +350,22 @@ class BlockingSource(FakeSource):
         return self.found
 
 
-def test_background_pass_never_waits_on_a_router(tmp_path):
-    neigh = FakeSource("neighbors", SEEN)
-    router = BlockingSource("opnsense", [Neighbor("bc:24:11:00:00:02", "2001:db8:99::2")])
-    obs, clock, _ = observer(tmp_path, SETTINGS, neigh, router)
+def test_background_pass_never_waits_on_a_source(tmp_path):
+    neigh = BlockingSource("neighbors", SEEN)
+    obs, clock = observer(tmp_path, SETTINGS, neigh)
     obs.background = True
     started = time.monotonic()
     assert obs.tick() is None  # the polls run on their own thread
     clock.t += 60
     assert obs.tick() is None  # still blocked: nothing recorded, no second poll started
     assert time.monotonic() - started < 2
-    assert router.calls == 1 and obs_store.observations(obs.conn) == []
-    router.release.set()
+    assert neigh.calls == 1 and obs_store.observations(obs.conn) == []
+    neigh.release.set()
     obs._thread.join(5)
     clock.t += 60
     status = obs.tick()  # records the finished pass, starts the next one
-    assert [(s["source"], s["entries"], s["last_poll"]) for s in status] == [
-        ("neighbors", 3, clock.t - 120),
-        ("opnsense", 1, clock.t - 120),
-    ]
-    assert {r["address"] for r in obs_store.observations(obs.conn)} == {
-        "2001:db8:99:0:be24:11ff:fe63:b806",
-        "2001:db8:99::2",
-    }
+    assert [(s["source"], s["entries"], s["last_poll"]) for s in status] == [("neighbors", 3, clock.t - 120)]
+    assert {r["address"] for r in obs_store.observations(obs.conn)} == {"2001:db8:99:0:be24:11ff:fe63:b806"}
     obs._thread.join(5)
 
 
@@ -457,7 +391,7 @@ NETLINK = "ip neigh failed: Cannot open netlink socket: Address family not suppo
 
 def test_failing_source_warns_once_then_alerts_and_recovers(tmp_path, caplog):
     neigh = FakeSource("neighbors", error=NETLINK)
-    obs, clock, _ = observer(tmp_path, {}, neigh)
+    obs, clock = observer(tmp_path, {}, neigh)
     obs.node_name = "ns1"
     start = clock.t
     with caplog.at_level("INFO", logger="pelagos.collector.ipv6.observer"):
@@ -486,45 +420,8 @@ def test_failing_source_warns_once_then_alerts_and_recovers(tmp_path, caplog):
     assert status[0]["failing_since"] is None and obs.failure_alerts(status, clock.t) == []
 
 
-def test_router_source_alerts_only_after_a_day(tmp_path):
-    obs, clock, _ = observer(
-        tmp_path, SETTINGS, FakeSource("neighbors", SEEN), FakeSource("opnsense", error="HTTP 401")
-    )
-    status = obs.tick()
-    assert obs.failure_alerts(status, clock.t + 3600) == []
-    got = obs.failure_alerts(status, clock.t + 86400)
-    assert [a.subject for a in got] == ["ipv6:source:opnsense:01SRC"]
-
-
-def test_bad_router_entry_warns_once_and_logs_its_recovery(tmp_path, caplog):
-    router = FakeSource("opnsense", SEEN[:1])
-    broken = [True]
-    store = series_mod.SeriesStore(series_mod.connect(tmp_path / "series.db"))
-    clock = Clock(1_800_000_000)
-
-    def factory(source, ctx):
-        if broken[0]:
-            raise ValueError("no url")
-        return router
-
-    obs = Ipv6Observer(
-        make_ctx(SETTINGS), store, clock, neighbors=FakeSource("neighbors"), router_factory=factory
-    )
-    with caplog.at_level("INFO", logger="pelagos.collector.ipv6.observer"):
-        for _ in range(3):
-            status = obs.tick()
-            clock.t += 300
-        broken[0] = False
-        status = obs.tick()
-    assert [r.getMessage() for r in caplog.records if r.levelname == "WARNING"] == [
-        "IPv6 source opnsense 01SRC failed: invalid source: no url",
-        "IPv6 source opnsense 01SRC works again",
-    ]
-    assert {s["source"]: s["error"] for s in status}["opnsense"] is None
-
-
 def test_no_dhcpv6_alert_while_kea6_is_down(tmp_path):
-    obs, clock, _ = observer(tmp_path, {}, FakeSource("neighbors"))
+    obs, clock = observer(tmp_path, {}, FakeSource("neighbors"))
     failing = {
         "source": "dhcpv6",
         "source_id": None,

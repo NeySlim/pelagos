@@ -11,7 +11,7 @@ const SettingsPage = lazy(() => import('./SettingsPage'))
 const CertificatesPage = lazy(() => import('./certs/CertificatesPage'))
 const NotificationsPage = lazy(() => import('./notifications/NotificationsPage'))
 const ArchivesPage = lazy(() => import('./archives/ArchivesPage'))
-const Ipv6SourcesPage = lazy(() => import('./ipv6/Ipv6SourcesPage'))
+const Ipv6ObservationPage = lazy(() => import('./ipv6/Ipv6ObservationPage'))
 const ApiTokensPage = lazy(() => import('./ApiTokensPage'))
 
 export default {
@@ -25,7 +25,7 @@ export default {
     { path: '/admin/certificates', component: CertificatesPage, permission: 'admin:certificates' },
     { path: '/admin/notifications', component: NotificationsPage, permission: 'admin:notifications' },
     { path: '/admin/archives', component: ArchivesPage, permission: 'admin:archives' },
-    { path: '/admin/ipv6', component: Ipv6SourcesPage, permission: 'admin:settings' },
+    { path: '/admin/ipv6', component: Ipv6ObservationPage, permission: 'admin:settings' },
   ],
   nav: [
     { id: 'admin-users', group: 'admin', path: '/admin/users', labelKey: 'admin:nav.users', icon: Users, permission: 'admin:users', order: 83 },
@@ -35,7 +35,7 @@ export default {
     { id: 'admin-certificates', group: 'admin', path: '/admin/certificates', labelKey: 'admin:nav.certificates', icon: Certificate, permission: 'admin:certificates', order: 87 },
     { id: 'admin-notifications', group: 'admin', path: '/admin/notifications', labelKey: 'admin:nav.notifications', icon: BellRinging, permission: 'admin:notifications', order: 87.5 },
     { id: 'admin-archives', group: 'admin', path: '/admin/archives', labelKey: 'admin:nav.archives', icon: Archive, permission: 'admin:archives', order: 87.6 },
-    { id: 'admin-ipv6', group: 'admin', path: '/admin/ipv6', labelKey: 'ipv6:nav.sources', icon: Globe, permission: 'admin:settings', order: 87.7 },
+    { id: 'admin-ipv6', group: 'admin', path: '/admin/ipv6', labelKey: 'ipv6:nav.observation', icon: Globe, permission: 'admin:settings', order: 87.7 },
     { id: 'admin-settings', group: 'admin', path: '/admin/settings', labelKey: 'admin:nav.settings', icon: Gear, permission: 'admin:settings', order: 88 },
   ],
 }

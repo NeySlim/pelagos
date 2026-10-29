@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-// Administration > IPv6 sources (architecture section 27): the neighbor tables of the nodes,
-// the OPNsense sources with their key and a test, the last poll of every source on every node,
-// and the watched prefixes (listed ones and the effective list with where each comes from).
+// Administration > IPv6 observation (architecture section 27): the generic sources (neighbor
+// tables of the nodes, DHCPv6 leases), the last poll of every source on every node, and the
+// watched prefixes (listed ones and the effective list with where each comes from).
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Globe, Plus, PencilSimple, Trash, Pause, Play, PlugsConnected } from '@phosphor-icons/react'
-import { PageLayout, Card, Button, Badge, LoadingSpinner, ConfirmDialog, DataTable, Textarea } from '../../../components'
+import { Globe } from '@phosphor-icons/react'
+import { PageLayout, Card, Button, Badge, LoadingSpinner, DataTable, Textarea } from '../../../components'
 import { useApi, useNodeNames } from '../../../hooks'
 import { useNotification } from '../../../contexts/NotificationContext'
 import { api } from '../../../services/api'
 import { errorMessage } from '../../../services/apiClient'
 import { formatDate, formatRelativeTime } from '../../../lib/utils'
-import SourceDialog from './SourceDialog'
-import { prefixProblem, removeBody, splitList, toggleBody } from './ipv6Form'
+import { prefixProblem, splitList } from './ipv6Form'
 
 const FROM_VARIANT = { setting: 'primary', reverse_zone: 'teal', dhcpv6: 'violet', interface: 'gray' }
 
@@ -92,95 +91,18 @@ function PrefixesCard({ data, onSaved }) {
   )
 }
 
-export default function Ipv6SourcesPage() {
+export default function Ipv6ObservationPage() {
   const { t } = useTranslation(['ipv6', 'common'])
-  const { showError, showSuccess } = useNotification()
   const nameOf = useNodeNames()
   const overview = useApi(() => api.ipv6.settings(), [])
   const [data, setData] = useState(null)
-  const [editing, setEditing] = useState(null)
-  const [removing, setRemoving] = useState(null)
-  const [testing, setTesting] = useState({})
   useEffect(() => {
     if (overview.data) setData(overview.data)
   }, [overview.data])
 
-  const sources = data?.sources || []
   const status = data?.status || []
   const settings = data?.settings || {}
-  const sourceName = (s) => (s.source_id ? sources.find((x) => x.id === s.source_id)?.name || s.source_id : t(`source.${s.source}`, { defaultValue: s.source }))
-
-  const write = async (body, message) => {
-    try {
-      setData(await api.ipv6.update(body))
-      if (message) showSuccess(message)
-    } catch (e) {
-      showError(errorMessage(e))
-    }
-  }
-
-  const runTest = async (source) => {
-    setTesting((m) => ({ ...m, [source.id]: { running: true } }))
-    const out = await api.ipv6.testSource({ source_id: source.id }).catch((e) => ({ ok: false, error: errorMessage(e) }))
-    setTesting((m) => ({ ...m, [source.id]: out }))
-  }
-
-  const sourceColumns = [
-    {
-      key: 'name',
-      label: t('sources.name'),
-      render: (s) => (
-        <span className="inline-flex flex-col">
-          <span className="font-medium">{s.name}</span>
-          <span className="text-2xs text-text-tertiary">{t(`sources.types.${s.type}`, { defaultValue: s.type })}</span>
-        </span>
-      ),
-    },
-    { key: 'url', label: t('sources.url'), mono: true, render: (s) => s.url },
-    {
-      key: 'state',
-      label: t('sources.state'),
-      render: (s) => {
-        const last = status.find((x) => x.source_id === s.id)
-        const tested = testing[s.id]
-        return (
-          <span className="inline-flex flex-col gap-1" data-testid="ipv6-source-state">
-            <span className="inline-flex flex-wrap gap-1">
-              <Badge variant={s.enabled ? 'success' : 'secondary'} size="sm">{s.enabled ? t('sources.on') : t('sources.off')}</Badge>
-              {!(s.secrets?.api_key && s.secrets?.api_secret) && <Badge variant="warning" size="sm" data-testid="ipv6-source-nokey">{t('sources.noKey')}</Badge>}
-              {last?.error && <Badge variant="danger" size="sm" title={last.error}>{t('sources.failing')}</Badge>}
-            </span>
-            {tested && !tested.running && (
-              <span className={tested.ok ? 'text-2xs status-success-text' : 'text-2xs status-danger-text'} data-testid="ipv6-source-row-test" data-ok={String(Boolean(tested.ok))}>
-                {tested.ok ? t('sources.testOk', { entries: tested.entries ?? 0, node: nameOf(tested.node_id) }) : t('sources.testFailed', { error: tested.error || '-' })}
-              </span>
-            )}
-          </span>
-        )
-      },
-    },
-    {
-      key: 'actions',
-      label: '',
-      align: 'right',
-      render: (s) => (
-        <span className="inline-flex gap-1">
-          <Button size="xs" variant="ghost" onClick={() => runTest(s)} loading={testing[s.id]?.running} title={t('sources.test')} data-testid="ipv6-source-row-test-button">
-            <PlugsConnected size={12} />
-          </Button>
-          <Button size="xs" variant="ghost" onClick={() => write(toggleBody(sources, s.id, !s.enabled))} title={s.enabled ? t('sources.disable') : t('sources.enable')} data-testid="ipv6-source-toggle">
-            {s.enabled ? <Pause size={12} /> : <Play size={12} />}
-          </Button>
-          <Button size="xs" variant="ghost" onClick={() => setEditing(s)} title={t('common:actions.edit')} data-testid="ipv6-source-edit">
-            <PencilSimple size={12} />
-          </Button>
-          <Button size="xs" variant="ghost" onClick={() => setRemoving(s)} title={t('common:actions.delete')} data-testid="ipv6-source-delete">
-            <Trash size={12} />
-          </Button>
-        </span>
-      ),
-    },
-  ]
+  const sourceName = (s) => t(`source.${s.source}`, { defaultValue: s.source })
 
   const statusColumns = [
     { key: 'source', label: t('status.source'), render: (s) => sourceName(s) },
@@ -200,12 +122,6 @@ export default function Ipv6SourcesPage() {
       title={t('admin.title')}
       subtitle={t('admin.subtitle')}
       testId="page-admin-ipv6"
-      actions={
-        <Button size="sm" onClick={() => setEditing({})} disabled={!data} data-testid="ipv6-source-add">
-          <Plus size={14} />
-          {t('sources.add')}
-        </Button>
-      }
     >
       {!data ? (
         overview.error ? (
@@ -219,9 +135,10 @@ export default function Ipv6SourcesPage() {
       ) : (
         <div className="space-y-4">
           <Card className="p-4 space-y-3" hover={false} data-testid="ipv6-observation">
+            <p className="text-xs text-text-secondary">{t('admin.sourcesHelp')}</p>
             <dl className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <Field label={t('admin.neighbors')} testId="ipv6-neighbors">
-                {settings.neighbors_enabled === false ? t('sources.off') : t('sources.on')}
+                {settings.neighbors_enabled === false ? t('admin.off') : t('admin.on')}
               </Field>
               <Field label={t('admin.pollSeconds')}>{settings.poll_seconds ?? '-'}</Field>
               <Field label={t('admin.stableDays')}>{settings.stable_min_days ?? '-'}</Field>
@@ -232,17 +149,6 @@ export default function Ipv6SourcesPage() {
               <Link to="/admin/settings" className="underline">{t('admin.settingsLink')}</Link>
             </p>
           </Card>
-
-          <DataTable
-            title={t('sources.title')}
-            columns={sourceColumns}
-            rows={sources}
-            rowKey="id"
-            emptyTitle={t('sources.empty')}
-            emptyDescription={t('sources.emptyHelp')}
-            emptyIcon={PlugsConnected}
-            testId="ipv6-sources"
-          />
 
           <DataTable
             title={t('status.title')}
@@ -257,30 +163,6 @@ export default function Ipv6SourcesPage() {
           <PrefixesCard data={data} onSaved={setData} />
         </div>
       )}
-      {editing && (
-        <SourceDialog
-          source={editing.id ? editing : null}
-          sources={sources}
-          onClose={() => setEditing(null)}
-          onSaved={(out) => {
-            setData(out)
-            setEditing(null)
-            showSuccess(t('sources.saved'))
-          }}
-        />
-      )}
-      <ConfirmDialog
-        open={Boolean(removing)}
-        onOpenChange={(open) => !open && setRemoving(null)}
-        title={t('sources.removeTitle', { name: removing?.name || '' })}
-        message={t('sources.removeMessage')}
-        confirmLabel={t('common:actions.delete')}
-        onConfirm={async () => {
-          const target = removing
-          setRemoving(null)
-          await write(removeBody(sources, target.id), t('sources.removed'))
-        }}
-      />
     </PageLayout>
   )
 }

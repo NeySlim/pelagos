@@ -1,6 +1,6 @@
 {
   "nav": {
-    "sources": "Sources IPv6"
+    "observation": "Observation IPv6"
   },
   "columns": {
     "host": "Hôte",
@@ -23,7 +23,6 @@
   },
   "source": {
     "neighbors": "voisins du nœud",
-    "opnsense": "OPNsense",
     "dhcpv6": "bail DHCPv6"
   },
   "filters": {
@@ -36,7 +35,7 @@
   },
   "empty": {
     "all": "Aucune adresse IPv6 observée pour l'instant",
-    "allHelp": "Les adresses apparaissent dès que les nœuds ou une source routeur les voient dans un préfixe surveillé",
+    "allHelp": "Les adresses apparaissent dès que les nœuds les voient dans un préfixe surveillé (tables des voisins, baux DHCPv6)",
     "missing_aaaa": "Chaque hôte à adresse stable a son AAAA",
     "missing_ptr": "Chaque enregistrement AAAA a son PTR",
     "stale": "Aucun AAAA ne pointe vers une adresse partie",
@@ -80,64 +79,17 @@
   "sourcesLink": "Sources d'observation",
   "exceptionsLink": "Exceptions",
   "admin": {
-    "title": "Sources IPv6",
+    "title": "Observation IPv6",
     "subtitle": "D'où viennent les adresses IPv6 observées et quels préfixes sont surveillés",
+    "sourcesHelp": "Les adresses viennent de la table des voisins de chaque nœud et, avec le module DHCPv6, des baux DHCPv6 de Kea.",
     "neighbors": "Tables des voisins des nœuds",
-    "pollSeconds": "Interrogation du routeur (secondes)",
+    "pollSeconds": "Lecture des baux DHCPv6 (secondes)",
     "stableDays": "Stable après (jours)",
     "staleDays": "Obsolète après (jours)",
     "settingsHelp": "Les seuils et les tables des voisins sont des réglages du domaine ipv6.",
-    "settingsLink": "Ouvrir les réglages"
-  },
-  "sources": {
-    "title": "Sources routeur",
-    "add": "Ajouter une source",
-    "newTitle": "Nouvelle source OPNsense",
-    "editTitle": "Modifier {{name}}",
-    "opnsenseHelp": "Le nœud de service lit la table des voisins IPv6 du routeur (search_ndp) avec la clé d'API d'un utilisateur dédié.",
-    "privilegeHelp": "Donnez à cet utilisateur le seul privilège « Diagnostics: NDP Table ».",
-    "name": "Nom",
-    "url": "URL",
-    "apiKey": "Clé d'API",
-    "apiSecret": "Secret d'API",
-    "secretUrlChanged": "L'URL a changé : saisissez à nouveau la clé et le secret, ceux enregistrés ne suivent pas",
-    "enabled": "Activée",
-    "verifyTls": "Vérifier TLS",
-    "allowHttp": "Autoriser http://",
-    "allowHttpHelp": "La clé circule en clair : usage de labo seulement",
-    "noTlsWarning": "Sans vérification TLS, n'importe qui sur le chemin peut lire la clé d'API.",
-    "excludeMacs": "MAC à écarter",
-    "excludeMacsHelp": "Les interfaces du routeur lui-même, une MAC par ligne",
-    "caPem": "CA privée (optionnelle)",
-    "caPemHelp": "Certificat PEM de la CA qui a signé le certificat du routeur",
-    "test": "Tester",
-    "testOk": "{{entries}} voisins lus depuis {{node}}",
-    "testFailed": "Échec : {{error}}",
-    "state": "État",
+    "settingsLink": "Ouvrir les réglages",
     "on": "active",
-    "off": "inactive",
-    "noKey": "sans clé",
-    "failing": "en échec",
-    "enable": "Activer",
-    "disable": "Désactiver",
-    "types": {
-      "opnsense": "OPNsense"
-    },
-    "empty": "Aucune source routeur",
-    "emptyHelp": "Les tables des voisins des nœuds observent quand même les hôtes qui parlent aux nœuds",
-    "saved": "Sources enregistrées",
-    "removeTitle": "Retirer {{name}} ?",
-    "removeMessage": "Sa clé et son secret sont supprimés avec elle. Les observations déjà faites restent jusqu'à la fin de leur rétention.",
-    "removed": "Source retirée",
-    "errors": {
-      "required": "Obligatoire",
-      "url": "Une URL http(s)",
-      "http": "http:// envoie la clé en clair : autorisez-le explicitement",
-      "mac": "Une adresse MAC par ligne",
-      "pem": "Un certificat PEM",
-      "secret": "Obligatoire pour cette source",
-      "fix": "Corrigez les champs signalés"
-    }
+    "off": "inactive"
   },
   "status": {
     "title": "Dernière interrogation par nœud",

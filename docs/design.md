@@ -493,7 +493,7 @@ Règles communes :
 - Secrets dans `cluster.toml [secrets]`, chiffrés par la clé maître, jamais renvoyés par l'API (booléens « défini »), masqués dans les plans, l'audit et les journaux.
 - Chaque nouvelle alerte a sa clé de message (`alert.*`) en anglais et en français, et figure dans la table des alertes de la section 15 de l'architecture.
 - Tests : les trois niveaux d'AGENTS.md. Le niveau unitaire n'ouvre aucun réseau : les transports sont injectés et remplacés par des faux en mémoire.
-- Le « nœud de service » est celui de la décision 1 du 13.1 (premier nœud en ligne de l'ordre d'envoi) : il fait aussi ce qui ne doit être fait qu'une fois dans le cluster (vérification des versions disponibles, interrogation d'un routeur, publication MQTT).
+- Le « nœud de service » est celui de la décision 1 du 13.1 (premier nœud en ligne de l'ordre d'envoi) : il fait aussi ce qui ne doit être fait qu'une fois dans le cluster (vérification des versions disponibles, publication MQTT).
 
 ### 13.1 Notifications sortantes (point 56)
 
@@ -1106,16 +1106,14 @@ Les machines du réseau ont des adresses IPv6 globales obtenues par SLAAC, sans 
 **Faits vérifiés** (sources lues le 2026-10-28)
 
 - Adresses temporaires (RFC 8981, section 3.8) : `TEMP_VALID_LIFETIME` 2 jours et `TEMP_PREFERRED_LIFETIME` 1 jour par défaut ([RFC 8981](https://www.rfc-editor.org/rfc/rfc8981.html)). Une adresse encore utilisée au-delà de sa durée de validité n'est donc pas une adresse temporaire aux réglages par défaut.
-- Windows et macOS gardent une adresse temporaire valide 7 jours (préférée 1 jour) : `maxvalidlifetime` « default is seven days » de `netsh interface ipv6 set privacy` ([Microsoft, netsh interface](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/netsh-interface), lu le 2026-10-29) ; `DEF_TEMP_VALID_LIFETIME 604800` dans `bsd/netinet6/nd6.h` de XNU ([apple-oss-distributions/xnu](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/netinet6/nd6.h), lu le 2026-10-29). Une adresse dépréciée tenue par une connexion longue reste dans la table du routeur jusqu'à 7 jours : le seuil `stable_min_days` est donc de 8 jours.
-- `search_ndp` d'OPNsense ne donne aucun état (`list_ndp.py` jette la colonne d'expiration de `ndp -an`) : une entrée périmée que FreeBSD garde encore compte comme vue (jusqu'à un jour de plus pour `stale_days` et `stable`), et les entrées permanentes des interfaces du routeur sont listées ; elles sont écartées par la liste `exclude_macs` de la source et, quand un nœud voit le routeur, par le drapeau routeur de sa table de voisins.
-- OPNsense expose la table des voisins IPv6 : `GET /api/diagnostics/interface/get_ndp` et `search_ndp`, authentification Basic par clé et secret d'API ([OPNsense, API core diagnostics](https://docs.opnsense.org/development/api/core/diagnostics.html)).
+- Windows et macOS gardent une adresse temporaire valide 7 jours (préférée 1 jour) : `maxvalidlifetime` « default is seven days » de `netsh interface ipv6 set privacy` ([Microsoft, netsh interface](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/netsh-interface), lu le 2026-10-29) ; `DEF_TEMP_VALID_LIFETIME 604800` dans `bsd/netinet6/nd6.h` de XNU ([apple-oss-distributions/xnu](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/netinet6/nd6.h), lu le 2026-10-29). Une adresse dépréciée tenue par une connexion longue reste dans les tables de voisins jusqu'à 7 jours : le seuil `stable_min_days` est donc de 8 jours.
 
 **Décisions**
 
-1. Sources d'observation, chacune activable :
+1. Sources d'observation, génériques seulement (aucun connecteur de routeur) :
    - table des voisins de chaque nœud (`ip -j -6 neigh show`, lisible sans privilège) : voit les machines qui parlent au nœud en IPv6 (requêtes DNS sur l'adresse IPv6 du nœud, découverte de voisins) ; active par défaut, aucun réglage ;
-   - routeur OPNsense par son API (`search_ndp`) : vue complète du lien ; interrogée par le nœud de service toutes les `poll_seconds` (300) ; d'autres routeurs pourront suivre (même interface `NeighborSource`) ;
-   - baux DHCPv6 (module DHCPv6) : déjà connus, utilisés tels quels.
+   - baux DHCPv6 de Kea (module DHCPv6) : déjà connus, lus toutes les `poll_seconds` (300).
+   La source OPNsense de la 0.2.2 est retirée en 0.2.3 (point 71 : trop spécifique pour un DDI) : au démarrage, chaque nœud efface `ipv6.sources` et les secrets `ipv6/source/...` de cluster.toml, une seule écriture notée dans l'audit par `system` ; ce qu'un pair 0.2.2 envoie encore (entrée réécrite, observations ou statuts `opnsense`) est ignoré.
    Chaque observation est `(mac, adresse, source, nœud, premier vu, dernier vu, état)`, gardée dans le cache SQLite du nœud qui l'a faite (`ipv6_observations`, rétention `retention.ipv6_observation_days` 30).
 2. Filtre des adresses : lien local (`fe80::/10`), multicast, adresses hors des préfixes surveillés ignorés. Préfixes surveillés (`ipv6.prefixes`) : par défaut ceux des zones inverses IPv6 que le cluster sert et des sous-réseaux DHCPv6 ; les ULA (`fd00::/8`) seulement si un préfixe ULA est listé.
 3. Classement de chaque adresse :
@@ -1138,7 +1136,7 @@ Les machines du réseau ont des adresses IPv6 globales obtenues par SLAAC, sans 
 
 - Hôtes, nouvel onglet « IPv6 » : une ligne par hôte avec MAC, IPv4, adresses IPv6 observées et leur classe (badge EUI-64, stable, temporaire, inconnue), source et dernière observation, AAAA et PTR actuels, case à cocher ; filtres (sans AAAA, sans PTR, obsolètes, inconnus) ; boutons « Créer AAAA et PTR de la sélection », « Exception ».
 - Fiche d'hôte : partie IPv6 avec l'historique des adresses observées.
-- Administration, Sources IPv6 : sources activées, formulaire OPNsense (URL, clé, secret, CA optionnelle, bouton Tester), préfixes surveillés.
+- Administration, Observation IPv6 : sources génériques (tables des voisins, baux DHCPv6) et leurs réglages, dernier passage de chaque source sur chaque nœud, préfixes surveillés.
 
 **API**
 
@@ -1147,31 +1145,28 @@ Les machines du réseau ont des adresses IPv6 globales obtenues par SLAAC, sans 
 | `GET /hosts/ipv6` | `read:hosts` | `?filter=&zone=&page=&per_page=` | paginé `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen"}],"aaaa","ptr","proposal": {"address","class","name","zone","reverse_zone"}|null,"excepted"}` |
 | `POST /hosts/ipv6/plan` | `write:dns.records` | `{"items": [{"host_key","address","name"?}]}` | `Plan` composite (AAAA et PTR) |
 | `POST /hosts/ipv6/replace-prefix/plan` | `write:dns.records` | `{"old_prefix","new_prefix","zones"?}` | `Plan` composite |
-| `GET /admin/ipv6` | `admin:settings` | | `{"sources": [...], "prefixes", "status": [{"source","node_id","last_poll","error","entries"}]}` (secrets en booléens) |
-| `PUT /admin/ipv6` | `admin:settings` | sources, préfixes, `secrets` | idem |
-| `POST /admin/ipv6/sources/test` | `admin:settings` | une source, enregistrée ou non | `{"ok","entries","error"?}` |
+| `GET /admin/ipv6` | `admin:settings` | | `{"prefixes","effective_prefixes","settings","status": [{"source","node_id","last_poll","error","entries"}]}` |
+| `PUT /admin/ipv6` | `admin:settings` | `{"prefixes"}` | idem |
 
 Action de pair `ipv6.observations` (les observations de chaque nœud, agrégées par l'API). Audit : `admin.ipv6.*`, plans habituels.
 
 **Réglages**
 
-`[settings.ipv6]` (nouveau domaine) : `neighbors_enabled` (vrai), `poll_seconds` (300), `stable_min_days` (8), `stale_days` (14), `auto_apply_enabled` (faux). Écrit par l'écran : `ipv6.sources`, `ipv6.prefixes`. Secrets : `ipv6/source/<id>/api_key`, `api_secret`. Rétention : `retention.ipv6_observation_days` (30).
+`[settings.ipv6]` (nouveau domaine) : `neighbors_enabled` (vrai), `poll_seconds` (300), `stable_min_days` (8), `stale_days` (14), `auto_apply_enabled` (faux). Écrit par l'écran : `ipv6.prefixes`. Rétention : `retention.ipv6_observation_days` (30).
 
 **Plusieurs nœuds**
 
-Chaque nœud observe ses voisins ; le nœud de service interroge le routeur ; l'API fusionne par `(mac, adresse)` en gardant le premier et le dernier vu de toutes les sources. Un nœud hors ligne réduit la vue sans la fausser (l'écran dit quelles sources manquent).
+Chaque nœud observe ses voisins et ses baux DHCPv6 ; l'API fusionne par `(mac, adresse)` en gardant le premier et le dernier vu de toutes les sources. Un nœud hors ligne réduit la vue sans la fausser (l'écran dit quelles sources manquent).
 
 **Sécurité**
 
 - Les observations sont des données personnelles du réseau (adresses et MAC des appareils) : lisibles avec `read:hosts`, jamais envoyées hors du cluster, rétention bornée.
-- Clé OPNsense d'un utilisateur dédié limité à la lecture des diagnostics (privilège exact relevé au labo et donné dans la documentation), vérification TLS, CA privée réglable.
 - Les plans n'écrivent que `AAAA` et `PTR`, déjà dans les types de `ddi-admin`.
 
 **Pannes**
 
 | Panne | Comportement |
 | --- | --- |
-| Routeur injoignable ou clé refusée | Source en échec dans l'écran ; observations des nœuds seules ; pas d'alerte avant 24 h |
 | Source du nœud (ip neigh, baux DHCPv6) en échec | Avertissement une fois, alerte `ipv6_source_failed` après 10 min ; pas pour les baux DHCPv6 tant que `daemon_down` est ouverte pour Kea DHCPv6 |
 | Changement de préfixe du fournisseur | `ipv6_stale_aaaa` et plan de remplacement en bloc |
 | Zone inverse IPv6 absente | `ipv6_reverse_missing`, création proposée ; les PTR de la sélection sont refusés avant le plan |
@@ -1179,9 +1174,9 @@ Chaque nœud observe ses voisins ; le nœud de service interroge le routeur ; l'
 
 **Tests**
 
-- Unitaires : analyse de `ip -j -6 neigh` et de la réponse OPNsense (relevée au labo) ; détection EUI-64 ; classement sur un historique synthétique (rotation quotidienne d'adresses temporaires, adresse stable opaque, changement de préfixe) ; rattachement MAC vers hôte ; contrôles et exceptions ; plans AAAA et PTR ; remplacement de préfixe ; fusion de cluster ; API.
+- Unitaires : analyse de `ip -j -6 neigh` ; détection EUI-64 ; classement sur un historique synthétique (rotation quotidienne d'adresses temporaires, adresse stable opaque, changement de préfixe) ; rattachement MAC vers hôte ; contrôles et exceptions ; plans AAAA et PTR ; remplacement de préfixe ; fusion de cluster ; API.
 - Démons : named réel avec zone directe et zone inverse IPv6 dynamiques, application du plan, `ptr_mismatch` refermée.
-- Labo : le client du labo en SLAAC sur le réseau du labo (préfixe de documentation annoncé par radvd sur un nœud), adresses temporaires activées (`use_tempaddr=2`) : observation, classement après simulation du temps (horodatages injectés), création des AAAA et PTR de l'adresse stable seulement ; OPNsense en option dans une VM du pool si son image est disponible, sinon faux serveur d'API sur la VM Docker.
+- Labo : le client du labo en SLAAC sur le réseau du labo (préfixe de documentation annoncé par radvd sur un nœud), adresses temporaires activées (`use_tempaddr=2`) : observation, classement après simulation du temps (horodatages injectés), création des AAAA et PTR de l'adresse stable seulement.
 
 ### 13.8 Intégration Home Assistant (point 63)
 
@@ -1327,7 +1322,7 @@ Mêmes règles qu'en 13.9 : un lot = un agent, un worktree, ses tests, poussé a
 | R5 | Démons (faux serveurs racine, repli, retour) et labo du résolveur | WP-LAB-E2E | R1 à R3 |
 | K1 | Analyse de migration Kea : règles et conversion 2.6 vers 3.x, paquets à retirer et installer selon la source, validation à blanc par binaires extraits (ou repli documenté), rapport | WP-KEA, WP-INSTALLER | C2 |
 | K2 | API de l'analyse, alerte `kea_series_obsolete` et date de fin dans le fichier des avis ISC, écran « Migration Kea » en lecture (rapport, diffs) | WP-API-AUTH, WP-COLLECTOR, WP-FRONTEND | K1 |
-| V1 | Observations IPv6 : voisins des nœuds, source OPNsense (interface `NeighborSource`), table `ipv6_observations`, classement EUI-64 / stable / temporaire, rattachement aux hôtes | WP-COLLECTOR, WP-CORE | C2 |
+| V1 | Observations IPv6 : voisins des nœuds, baux DHCPv6 (interface `NeighborSource`), table `ipv6_observations`, classement EUI-64 / stable / temporaire, rattachement aux hôtes | WP-COLLECTOR, WP-CORE | C2 |
 | V2 | Contrôles IPv6 et alertes, `GET /hosts/ipv6`, `/admin/ipv6` (sources, test, préfixes) | WP-COLLECTOR, WP-API-AUTH | V1 |
 | V3 | Onglet IPv6 de la vue Hôtes en lecture (filtres, exceptions), écran Sources IPv6 | WP-FRONTEND | C2 (factice), V2 |
 | C3 | Contrat de la 0.2.3 : section « mises à jour » de l'architecture, domaine `updates`, permission `admin:updates`, scope `update`, opérations de l'assistant, route `/repl/v1/releases`, `release.json` (`state_schema`) et format de `SHA256SUMS.sig`, alertes `update_*` | contrat, WP-CORE | |
@@ -1382,7 +1377,7 @@ Action de l'utilisateur avant la 0.2.3 (point 61) : générer la clé Ed25519 de
 | 61 | Signature des releases | Ed25519 sur `SHA256SUMS`, clé privée générée et gardée par l'utilisateur hors du dépôt, lue par `make release` ; aucune installation non signée depuis l'interface |
 | 61 | Retour arrière | Automatique sur le nœud en échec quand `state_schema` ne change pas ; sinon arrêt et procédure guidée |
 | 61 | Paquets BIND et Kea de la distribution | Même écran, onglet « Paquets des moteurs », même déroulé, sans changement de série |
-| 62 | Sources des adresses observées | Table des voisins des nœuds, active ; OPNsense dès qu'une clé d'API en lecture est fournie ; baux DHCPv6 si le module est actif |
+| 62 | Sources des adresses observées | Table des voisins des nœuds, active ; baux DHCPv6 si le module est actif (source OPNsense retirée en 0.2.3, point 71) |
 | 62 | Exclusion des adresses temporaires | Proposition seulement pour EUI-64 ou adresse vue plus de 3 jours ; temporaires jamais proposées |
 | 62 | Création automatique ou par plan | Toujours par plan choisi hôte par hôte ; pas d'automatique dans la première version |
 | 63 | Mécanisme | API en lecture avec jeton dédié (`rest:`) et MQTT discovery en option ; pas d'intégration Python propre |

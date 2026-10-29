@@ -356,7 +356,7 @@ export const keaMigration = {
 
 // Observed IPv6 addresses (Hosts > IPv6, Administration > IPv6 sources, section 27).
 export const ipv6 = {
-  // {filter: missing_aaaa|missing_ptr|stale|unknown, zone, page, per_page}
+  // {filter: missing_aaaa|missing_ptr|stale|unknown|random_mac, zone, page, per_page}
   hosts: (params) => apiClient.get(`/hosts/ipv6${buildQueryString(params)}`),
   settings: () => apiClient.get('/admin/ipv6'),
   // {sources, prefixes, secrets: {"<source id>": {api_key, api_secret}}}

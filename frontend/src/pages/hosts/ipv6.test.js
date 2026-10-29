@@ -16,17 +16,15 @@ describe('ipv6 helpers', () => {
   const NOW = Date.parse('2026-10-29T12:00:00Z')
   const seen = (h) => new Date(NOW - h * 3600000).toISOString()
 
-  it('offers the host, the proposal and each recent proposable address without AAAA for the missing check', () => {
+  it('offers the host, the proposal and each current address without AAAA for the missing check', () => {
     const r = row({
       observed: [
-        { address: '2001:db8::5eff:fe00:5310', class: 'eui64', last_seen: seen(1) },
-        { address: '2001:db8::a', class: 'temporary', last_seen: seen(1) },
-        { address: '2001:db8::b', class: 'stable', last_seen: seen(1) },
-        { address: '2001:db8::d', class: 'stable', last_seen: seen(2) },
-        { address: '2001:db8:1::5eff:fe00:5310', class: 'eui64', last_seen: seen(24 * 20) },
+        { address: '2001:db8::5eff:fe00:5310', class: 'eui64', last_seen: seen(1), current: true },
+        { address: '2001:db8::a', class: 'temporary', last_seen: seen(1), current: false },
+        // Seen 5 days ago: current for the server (within stable_min_days), not "in the last day".
+        { address: '2001:db8::d', class: 'stable', last_seen: seen(24 * 5), current: true },
+        { address: '2001:db8:1::5eff:fe00:5310', class: 'eui64', last_seen: seen(24 * 20), current: false },
       ],
-      aaaa: ['2001:db8::b'],
-      ptr: ['2001:db8::b'],
       proposal: { address: '2001:db8::5eff:fe00:5310' },
     })
     expect(exceptionTargets(r, NOW).map((x) => `${x.kind} ${x.key}`)).toEqual([
@@ -34,6 +32,23 @@ describe('ipv6 helpers', () => {
       'ipv6_missing_aaaa addr:2001:db8::5eff:fe00:5310',
       'ipv6_missing_aaaa addr:2001:db8::d',
     ])
+  })
+
+  it('offers nothing for the missing check once a current address has an AAAA', () => {
+    const r = row({
+      observed: [
+        { address: '2001:db8::b', class: 'stable', last_seen: seen(1), current: true },
+        { address: '2001:db8::e', class: 'stable', last_seen: seen(1), current: true },
+      ],
+      aaaa: ['2001:db8::b'],
+      proposal: { address: '2001:db8::e' },
+    })
+    expect(exceptionTargets(r, NOW)).toEqual([])
+  })
+
+  it('falls back to a proposable address seen in the last day without the current flag', () => {
+    const r = row({ observed: [{ address: '2001:db8::f', class: 'stable', last_seen: seen(2) }, { address: '2001:db8::9', class: 'stable', last_seen: seen(48) }] })
+    expect(exceptionTargets(r, NOW).map((x) => x.key)).toEqual(['mac:02:00:5e:00:53:10', 'addr:2001:db8::f'])
   })
 
   it('takes the stale records from the server, an old sighting included, an alias left out', () => {

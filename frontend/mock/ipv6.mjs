@@ -59,8 +59,12 @@ export function ipv6Handlers(state, { Problem, invalid }) {
   const excepted = (key, kind = 'ipv6_missing_aaaa') => (state.exceptions || []).some((e) => e.kind === kind && e.key === key)
   // As services/ipv6_hosts.py: a host excepted by mac: is flagged, an address excepted by addr: is never
   // proposed; stale records excepted by mac: or addr: are left out of `stale`.
+  // `current` as services/ipv6_hosts.py: eui64 or stable, seen within stable_min_days.
+  const stableMs = (state.settings?.ipv6?.stable_min_days ?? 8) * day
+  const isCurrent = (o) => ['eui64', 'stable'].includes(o.class) && now - Date.parse(o.last_seen) <= stableMs
   const row = (h) => ({
     ...h,
+    observed: h.observed.map((o) => ({ ...o, current: isCurrent(o) })),
     excepted: excepted(`mac:${h.mac}`),
     proposal: h.proposal && !excepted(`addr:${h.proposal.address}`) ? h.proposal : null,
     stale: excepted(`mac:${h.mac}`, 'ipv6_stale_aaaa') ? [] : (h.stale || []).filter((a) => !excepted(`addr:${a}`, 'ipv6_stale_aaaa')),
@@ -91,7 +95,7 @@ export function ipv6Handlers(state, { Problem, invalid }) {
       const filter = query.get('filter')
       if (filter && !FILTERS.includes(filter)) throw invalid('filter', `one of ${FILTERS.join(', ')}`)
       let items = v.hosts.map(row)
-      if (filter === 'missing_aaaa') items = items.filter((h) => !h.excepted && h.proposal && !h.observed.some((o) => ['eui64', 'stable'].includes(o.class) && h.aaaa.includes(o.address)))
+      if (filter === 'missing_aaaa') items = items.filter((h) => !h.excepted && h.proposal && !h.observed.some((o) => o.current && h.aaaa.includes(o.address)))
       if (filter === 'missing_ptr') items = items.filter((h) => h.aaaa.some((a) => !h.ptr.includes(a)))
       if (filter === 'stale') items = items.filter((h) => h.stale.length)
       if (filter === 'unknown') items = items.filter((h) => !h.name)

@@ -30,7 +30,7 @@ from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DnsBackend
 from pelagos.connectors.bind import hints
 from pelagos.domain import AlertKind, Engine, Zone, ZoneKind, ZoneStatus
-from pelagos.domain.dns import NO_RECORD_KINDS, SOA_KINDS
+from pelagos.domain.dns import NO_RECORD_KINDS, SOA_KINDS, ZoneRole, zone_role
 
 log = logging.getLogger(__name__)
 
@@ -101,8 +101,13 @@ class BindPoller:
         self.no_records = {(z.name, z.view) for z in zones if z.kind in NO_RECORD_KINDS}
         statuses = [self._zone_status(z) for z in zones if z.kind in POLLED_KINDS]
         now_dt = datetime.fromtimestamp(now, tz=UTC)
+        # A policy zone's serial moves on every list refresh: no serial series nor zone events.
+        policy = {(z.name, z.view) for z in zones if zone_role(z) == ZoneRole.POLICY.value}
         for st in statuses:
             out.alerts.extend(rules.zone_alerts(self.node_id, st, now_dt))
+            if (st.zone, st.view) in policy:
+                self.serials[(st.zone, st.view)] = (st.kind, st.serial)
+                continue
             self._record_serial(now, st)
             self._serial_event(st, out)
         listed = {(st.zone, st.view) for st in statuses}

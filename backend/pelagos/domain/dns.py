@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import enum
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -41,6 +42,37 @@ class ZoneSource(enum.StrEnum):
     ADDZONE = "addzone"  # added with rndc addzone (named keeps it in <view>.nzd or .nzf)
 
 
+class ZoneRole(enum.StrEnum):
+    """What a zone holds besides its kind: a response policy list or a catalog of zones."""
+
+    POLICY = "policy"  # named in a response-policy statement
+    CATALOG = "catalog"  # named in a catalog-zones statement
+
+
+# Policy zones Pelagos builds from subscriptions end in this suffix (rpz.model.ZONE_SUFFIX).
+RPZ_SUFFIX = "rpz.invalid."
+RPZ_NOTE = "pelagos-rpz"
+
+
+def zone_role(zone: Zone | Mapping[str, Any]) -> str | None:
+    """The zone's role; for a zone listed by an older node (no role), a Pelagos policy zone is
+    still told by its note or suffix."""
+    get = zone.get if isinstance(zone, Mapping) else lambda k, d=None: getattr(zone, k, d)
+    role = get("role")
+    if role:
+        return str(role)
+    name = str(get("name") or "")
+    if get("notes") == RPZ_NOTE or name.rstrip(".") + "." == RPZ_SUFFIX or name.endswith("." + RPZ_SUFFIX):
+        return ZoneRole.POLICY.value
+    return None
+
+
+def bulk_zone(zone: Zone | Mapping[str, Any]) -> bool:
+    """Policy and catalog zones hold no hosts and may hold millions of names: every global read
+    (hosts, IPv6, consistency, PTR checks, archives, serial series) leaves them out."""
+    return zone_role(zone) is not None
+
+
 def normalize_name(name: str) -> str:
     """Absolute, lowercase DNS name with a single trailing dot."""
     name = name.strip().lower().rstrip(".")
@@ -68,6 +100,7 @@ class Zone(Model):
     config_path: str | None = None
     notes: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    role: ZoneRole | None = None
 
     def __post_init__(self) -> None:
         self.name = normalize_name(self.name)

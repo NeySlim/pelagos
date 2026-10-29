@@ -90,7 +90,9 @@ class BindExtras:
             return out
         for cat in consumed:
             try:
-                rrsets = self._read_catalog(cat.zone, cat.view)
+                # A direct transfer: read_zone looks the zone up in list_zones, which lands back here.
+                where = None if cat.view == DEFAULT_VIEW else cat.view
+                rrsets = self.dns.axfr(cat.zone, self._require_key("read", where))
             except (ConnectorError, NotSupported):
                 continue
             for member in catalog.members(cat.zone, rrsets)[0]:

@@ -178,7 +178,10 @@ class Records(Resource):
     )
     @ns.response(200, "RRsets read by AXFR; meta.node_id is the node read", m.RRsetPage)
     @ns.response(
-        409, "zone_without_records: forward, hint, stub or static-stub zone (never transferred)", m.Problem
+        409,
+        "zone_without_records: forward, hint, stub or static-stub zone (never transferred); "
+        "zone_too_large: more names than dns.zone_read_max_records (never read here)",
+        m.Problem,
     )
     def get(self, zone: str):
         rrsets, node_id = dns().records(zone, arg("view"), arg("type"), arg("name"), arg("q"), arg("node_id"))

@@ -199,7 +199,8 @@
       "bytes": "octets",
       "archives": "archives",
       "milliseconds": "ms",
-      "answers": "réponses"
+      "answers": "réponses",
+      "records": "enregistrements"
     },
     "duration": {
       "minutes": "= {{count}} min",
@@ -406,7 +407,8 @@
         "update_types_admin": "Types que Pelagos peut modifier",
         "update_types_kea": "Types que Kea peut modifier",
         "default_ns": "Serveurs de noms des nouvelles zones primaires",
-        "default_ttl_seconds": "TTL par défaut des nouveaux enregistrements"
+        "default_ttl_seconds": "TTL par défaut des nouveaux enregistrements",
+        "zone_read_max_records": "Plus grande zone lue par l'interface web"
       },
       "kea": {
         "ddns_key": "Clé DDNS"
@@ -521,7 +523,8 @@
       },
       "dns": {
         "view_keys": "Une vue autre que _default est atteinte avec sa propre clé TSIG : la clé de mise à jour, et une clé de transfert si elle diffère.",
-        "default_ttl_seconds": "Quand un enregistrement est écrit sans TTL."
+        "default_ttl_seconds": "Quand un enregistrement est écrit sans TTL.",
+        "zone_read_max_records": "Une zone plus grande est refusée par la page des enregistrements et ignorée par les vues hôtes et PTR : le processus web reste réactif. Les zones de politique (RPZ) et catalogue n'y sont jamais lues."
       },
       "rpz": {
         "shrink_percent": "Un téléchargement qui retire davantage d'une liste est refusé ; l'ancien fichier reste.",

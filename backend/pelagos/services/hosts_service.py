@@ -28,6 +28,7 @@ from pelagos.domain import (
     ReservationIdType,
     RRset,
     ZoneKind,
+    bulk_zone,
     host_key,
     messages,
     normalize_name,
@@ -210,6 +211,7 @@ class HostsService:
             z["zone"]
             for z in (self.dns.zones() if listed is None else listed)
             if z["zone"]["kind"] in (ZoneKind.PRIMARY.value, ZoneKind.SECONDARY.value, ZoneKind.MIRROR.value)
+            and not bulk_zone(z["zone"])
         ]
         out: dict[str, list[RRset]] = {}
         unread: list[str] = []
@@ -385,7 +387,7 @@ class HostsService:
         unread: list[str] = []
         for item in self.dns.zones():
             zone = item["zone"]
-            if zone["kind"] not in (ZoneKind.PRIMARY.value, ZoneKind.SECONDARY.value):
+            if zone["kind"] not in (ZoneKind.PRIMARY.value, ZoneKind.SECONDARY.value) or bulk_zone(zone):
                 continue
             try:
                 rrsets, _node = self.dns.records(zone["name"])

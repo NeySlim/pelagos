@@ -222,7 +222,8 @@ class DnsService(DnsExtras):
             item = {
                 "zone": zone.to_dict(),
                 "serials": per_node,
-                "divergent": zone_config.divergent(zone.kind.value, per_node, config),
+                # Each node builds its policy zones from the feeds: their serials differ by design.
+                "divergent": zone.role is None and zone_config.divergent(zone.kind.value, per_node, config),
                 "mode": zone_mode(zone),
             }
             if zone.kind.value == zone_config.HINT:

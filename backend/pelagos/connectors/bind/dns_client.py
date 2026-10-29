@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import time
 from collections import defaultdict
+from collections.abc import Iterator
 from typing import Any
 
 import dns.exception
@@ -18,8 +20,11 @@ import dns.tsigkeyring
 import dns.update
 import dns.zone
 
-from pelagos.connectors.base import ConnectorDenied, ConnectorTimeout, ConnectorUnavailable
+from pelagos.connectors.base import ConnectorDenied, ConnectorTimeout, ConnectorUnavailable, ZoneTooLarge
 from pelagos.domain.dns import RRset, normalize_name
+
+# Records grouped between two yields to other greenlets.
+YIELD_EVERY = 2000
 
 ALGORITHMS = {
     "hmac-md5": dns.tsig.HMAC_MD5,
@@ -87,19 +92,24 @@ class DnsClient:
         want = dns.rdatatype.from_text(rtype)
         return [r.to_text() for rrset in resp.answer if rrset.rdtype == want for r in rrset]
 
-    def axfr(self, zone: str, key: TsigKey | None = None) -> list[RRset]:
-        """Full transfer grouped into RRsets; absolute lowercase owner names."""
+    def axfr(self, zone: str, key: TsigKey | None = None, max_records: int | None = None) -> list[RRset]:
+        """Full transfer grouped into RRsets; absolute lowercase owner names. Past `max_records`
+        records the transfer stops with ZoneTooLarge; each message yields to other greenlets."""
         origin = dns.name.from_text(normalize_name(zone))
         try:
-            xfr = dns.query.xfr(
-                self.server,
-                origin,
-                port=self.port,
-                timeout=self.timeout,
-                keyring=key.keyring if key else None,
-                keyname=key.name if key else None,
-                keyalgorithm=key.dns_algorithm if key else None,
-                relativize=False,
+            xfr = _paced(
+                dns.query.xfr(
+                    self.server,
+                    origin,
+                    port=self.port,
+                    timeout=self.timeout,
+                    keyring=key.keyring if key else None,
+                    keyname=key.name if key else None,
+                    keyalgorithm=key.dns_algorithm if key else None,
+                    relativize=False,
+                ),
+                zone,
+                max_records,
             )
             z = dns.zone.from_xfr(xfr, relativize=False)
         except (dns.exception.FormError, dns.tsig.PeerError, dns.query.TransferError) as exc:
@@ -109,7 +119,9 @@ class DnsClient:
         except OSError as exc:
             raise ConnectorUnavailable(str(exc)) from exc
         grouped: dict[tuple[str, str, int], list[str]] = defaultdict(list)
-        for name, node in z.nodes.items():
+        for i, (name, node) in enumerate(z.nodes.items()):
+            if i % YIELD_EVERY == 0:
+                time.sleep(0)
             for rdataset in node.rdatasets:
                 key_ = (name.to_text().lower(), dns.rdatatype.to_text(rdataset.rdtype), rdataset.ttl)
                 grouped[key_].extend(r.to_text() for r in rdataset)
@@ -134,6 +146,19 @@ class DnsClient:
             hint = " (does the zone's update-policy grant these types to the key? see the security audit)"
             raise ConnectorDenied(f"UPDATE to {zone} refused: {rcode}" + (hint if rcode == "REFUSED" else ""))
         return rcode
+
+
+def _paced(
+    messages: Iterator[dns.message.Message], zone: str, limit: int | None
+) -> Iterator[dns.message.Message]:
+    """The transfer's messages, yielding to the gevent hub after each, stopped past `limit` records."""
+    seen = 0
+    for msg in messages:
+        seen += sum(len(rrset) for rrset in msg.answer)
+        if limit is not None and seen > limit:
+            raise ZoneTooLarge(normalize_name(zone), "_default", seen, limit)
+        time.sleep(0)
+        yield msg
 
 
 def update_text(msg: dns.update.Update) -> str:

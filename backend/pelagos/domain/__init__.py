@@ -60,8 +60,10 @@ from pelagos.domain.dns import (
     RRset,
     Zone,
     ZoneKind,
+    ZoneRole,
     ZoneSource,
     ZoneStatus,
+    bulk_zone,
     normalize_name,
 )
 from pelagos.domain.hosts import Host, host_key
@@ -140,9 +142,11 @@ __all__ = [
     "WebAuthnCredential",
     "Zone",
     "ZoneKind",
+    "ZoneRole",
     "ZoneSource",
     "ZoneStatus",
     "alert_id",
+    "bulk_zone",
     "exception_keys",
     "from_rfc3339",
     "host_key",

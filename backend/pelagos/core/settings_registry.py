@@ -5,7 +5,7 @@ Naming convention (docs/architecture.md section 10, "Settings naming"):
 - a setting is a leaf of a domain table `[settings.<domain>]`, never a leaf of `[settings]` itself;
 - leaf names are snake_case `<subject>[_<qualifier>]_<unit>`, the unit spelled out (`_seconds`,
   `_milliseconds`, `_minutes`, `_hours`, `_days`, `_percent`, `_mb`, `_bytes`, `_factor`, `_per_minute`,
-  `_per_hour`) or, for a count, the plural noun counted (`_queries`, `_failures`, `_zones`) or
+  `_per_hour`) or, for a count, the plural noun counted (`_queries`, `_failures`, `_zones`, `_records`) or
   `_count`; a boolean is `<feature>_enabled` or a
   policy verb (`require_totp`, `break_dnssec`);
 - severities are `<subject>_warning_<unit>` / `<subject>_critical_<unit>`, bounds
@@ -212,6 +212,8 @@ REGISTRY: tuple[Setting, ...] = (
     S("dns.update_types_kea", "list", list(zone_updates.KEA_UPDATE_TYPES), pattern=RRTYPE_PATTERN),
     S("dns.default_ns", "list", [], pattern=HOST_PATTERN),
     S("dns.default_ttl_seconds", "integer", 3600, 0, BIG, "seconds"),
+    # Zone reads of the web process (hosts, records page, PTR checks): larger zones are refused.
+    S("dns.zone_read_max_records", "integer", 50000, 1000, 10_000_000, "records"),
     # Kea
     S("kea.ddns_key", "string", "kea-ddns", pattern=NAME_PATTERN),
     # Response policy zones (section 21)

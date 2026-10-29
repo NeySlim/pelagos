@@ -40,7 +40,7 @@ from pelagos.collector.rules import pool_subject
 from pelagos.connectors.base import ConnectorError
 from pelagos.connectors.bind.builtin_zones import is_builtin_zone
 from pelagos.core import settings_registry as reg
-from pelagos.domain import Alert, AlertKind, Engine, Family, LeaseState, ZoneKind
+from pelagos.domain import Alert, AlertKind, Engine, Family, LeaseState, ZoneKind, bulk_zone
 from pelagos.domain.common import from_rfc3339
 
 log = logging.getLogger(__name__)
@@ -773,7 +773,7 @@ class HealthChecks:
                 zones = [
                     z
                     for z in backend.list_zones()
-                    if z.kind is ZoneKind.PRIMARY and not is_builtin_zone(z.name)
+                    if z.kind is ZoneKind.PRIMARY and not is_builtin_zone(z.name) and not bulk_zone(z)
                 ]
         except (ConnectorError, NotImplementedError):
             return PollOutcome()

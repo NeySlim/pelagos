@@ -539,3 +539,21 @@ def test_bind_poller_never_asks_the_soa_of_zones_without_records(store):
     # A peer announcing a serial for a name this node only forwards asks nothing.
     out, serial = poller.recheck("fwd.example.", "_default")
     assert serial is None and out.events == [] and dns.soa == []
+
+
+def test_bind_poller_keeps_no_serial_series_for_policy_zones(store):
+    from pelagos.domain import ZoneRole
+
+    clock = Clock()
+    dns = FakeDnsBackend()
+    dns.zones.append(Zone(name="block.example.", kind=ZoneKind.PRIMARY, role=ZoneRole.POLICY))
+    dns.serials["block.example."] = 7
+    poller = BindPoller(dns, NODE, store, clock)
+    poller.poll()
+    assert "block.example." in {z["zone"] for z in store.snapshot(NODE, "bind", "zones")[1]}
+    assert store.latest_serial("block.example.", "_default", NODE) is None
+    dns.serials["block.example."] = 8
+    clock.advance(60)
+    out = poller.poll()
+    assert not [e for e in out.events if e[2].get("zone") == "block.example."]
+    assert store.latest_serial("example.lan.", "_default", NODE) is not None

@@ -1262,6 +1262,11 @@
   "problem.conflict": [],
   "problem.csrf_failed": [],
   "problem.detail.unexpected": [],
+  "problem.detail.zone_too_large": [
+    "limit",
+    "size",
+    "zone"
+  ],
   "problem.detail.zone_without_records": [
     "kind",
     "zone"
@@ -1286,5 +1291,6 @@
   "problem.totp_required": [],
   "problem.unauthenticated": [],
   "problem.validation_error": [],
+  "problem.zone_too_large": [],
   "problem.zone_without_records": []
 }

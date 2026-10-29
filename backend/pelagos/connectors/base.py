@@ -62,6 +62,17 @@ class ZoneWithoutRecords(ConnectorError):
         self.kind = kind
 
 
+class ZoneTooLarge(ConnectorError):
+    """The zone holds more names (or records) than a bounded read may take (`dns.zone_read_max_records`)."""
+
+    def __init__(self, zone: str, view: str, size: int, limit: int) -> None:
+        super().__init__(f"{zone} holds {size} names or more, above the read limit of {limit}")
+        self.zone = zone
+        self.view = view
+        self.size = size
+        self.limit = limit
+
+
 class ConnectorTimeout(ConnectorError):
     pass
 

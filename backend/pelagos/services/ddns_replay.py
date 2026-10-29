@@ -34,6 +34,7 @@ from pelagos.domain import (
     RRset,
     Severity,
     ValidationResult,
+    bulk_zone,
     messages,
     normalize_name,
     to_rfc3339,
@@ -380,7 +381,11 @@ class DdnsReplayService:
         return list(seen.values())
 
     def _records(self, leases: list[Lease]) -> tuple[list[RRset], list[RRset], list[ValidationResult]]:
-        zones = [z["zone"] for z in self.dns.zones() if z["zone"]["kind"] in ("primary", "secondary")]
+        zones = [
+            z["zone"]
+            for z in self.dns.zones()
+            if z["zone"]["kind"] in ("primary", "secondary") and not bulk_zone(z["zone"])
+        ]
         forward: list[RRset] = []
         reverse: list[RRset] = []
         notes: list[ValidationResult] = []

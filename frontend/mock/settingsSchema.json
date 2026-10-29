@@ -840,6 +840,14 @@
       "unit": "seconds"
     },
     {
+      "key": "dns.zone_read_max_records",
+      "type": "integer",
+      "default": 50000,
+      "min": 1000,
+      "max": 10000000,
+      "unit": "records"
+    },
+    {
       "key": "kea.ddns_key",
       "type": "string",
       "default": "kea-ddns",

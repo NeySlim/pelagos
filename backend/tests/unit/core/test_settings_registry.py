@@ -40,7 +40,7 @@ UNIT_SUFFIXES = {
     "_per_hour": "per_hour",
 }
 # The list of docs/architecture.md section 10 ("Settings naming"), no other ending.
-COUNT_SUFFIXES = ("_queries", "_failures", "_zones", "_passes", "_leases", "_events", "_count")
+COUNT_SUFFIXES = ("_queries", "_failures", "_zones", "_passes", "_leases", "_events", "_records", "_count")
 
 
 # Convention -------------------------------------------------------------------------------------

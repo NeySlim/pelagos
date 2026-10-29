@@ -30,6 +30,7 @@ from pelagos.archives.bundle import ArchiveWriter
 from pelagos.archives.model import ArchiveMeta, Manifest
 from pelagos.core.context import NodeContext
 from pelagos.domain import RRset, ZoneKind
+from pelagos.domain.dns import RPZ_NOTE
 
 log = logging.getLogger(__name__)
 
@@ -326,7 +327,9 @@ class Builder:
             key_dirs = _key_dirs(files, directory)
             for zone in zones:
                 file = staticzone.zone_path(zone, directory) if zone.file else None
-                if file is not None and rpz_dir is not None and file.is_relative_to(rpz_dir):
+                if zone.notes == RPZ_NOTE or (
+                    file is not None and rpz_dir is not None and file.is_relative_to(rpz_dir)
+                ):
                     continue  # RPZ lists are rebuilt from their feeds
                 label = zone.name.rstrip(".") or "."
                 if (zone.view, zone.name) in static:

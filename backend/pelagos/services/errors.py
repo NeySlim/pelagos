@@ -14,6 +14,7 @@ from pelagos.connectors.base import (
     NotSupported,
     PreconditionFailed,
     ValidationFailed,
+    ZoneTooLarge,
     ZoneWithoutRecords,
 )
 
@@ -30,6 +31,7 @@ __all__ = [
     "ServiceError",
     "ValidationError",
     "ValidationFailed",
+    "ZoneTooLarge",
     "ZoneWithoutRecords",
     "field_error",
 ]

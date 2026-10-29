@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import time
+from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -21,9 +22,10 @@ from pelagos.connectors.base import (
     DnsBackend,
     NotSupported,
     PreconditionFailed,
+    ZoneTooLarge,
     ZoneWithoutRecords,
 )
-from pelagos.connectors.bind import failover, handover, hints, ops, staticzone, zonefile, zonerestore
+from pelagos.connectors.bind import failover, handover, hints, ops, roles, staticzone, zonefile, zonerestore
 from pelagos.connectors.bind import rrset as rr
 from pelagos.connectors.bind.builtin_zones import is_builtin_zone
 from pelagos.connectors.bind.configplan import (
@@ -97,6 +99,7 @@ SYNC_POLL = 0.5
 RELOAD_POLL = 0.2
 # A refused AXFR is not asked again for this long (a config change through a plan resets it).
 AXFR_RETRY_SECONDS = 6 * 3600.0
+SIZE_CACHE_SECONDS = 60.0
 
 
 def _zone_kind(change: Any) -> str | None:
@@ -129,6 +132,9 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
         # (zone, view) -> monotonic time of a refused AXFR and named's "last configured" then; cleared
         # when a plan of this process changes the configuration.
         self._axfr_refused: dict[tuple[str, str], tuple[float, str | None]] = {}
+        # Set by the web process only: the most records one read_zone may take (None: unbounded).
+        self.read_limit: Callable[[], int | None] | None = None
+        self._sizes: dict[tuple[str, str], tuple[float, int | None]] = {}
 
     # Settings and keys -----------------------------------------------------------
 
@@ -259,8 +265,10 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
 
     def list_zones(self, view: str | None = None) -> list[Zone]:
         """Zones of named.conf, then the ones named loaded from elsewhere (addzone, catalogs)."""
-        tree = self.read_config(check=False)
+        files = self._files()
+        tree = build_tree(files, self.ctx.node_id, self.include_dir)
         zones = tree.zones + self.extra_zones(tree)
+        roles.mark(zones, roles.zone_roles(files))
         return [z for z in zones if view is None or z.view == view]
 
     def zone_status(self, zone: str, view: str | None = None) -> ZoneStatus:
@@ -315,6 +323,7 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
                 raise ConnectorDenied(f"{zone} is a built-in zone without a readable file")
             return self._read_zone_file(local, zone)
         key = (normalize_name(zone), view or DEFAULT_VIEW)
+        limit = self._bounded(key)
         asked = self._axfr_refused.get(key)
         # A reconfig (a plan from another process granting the transfer) makes the refusal stale.
         if (
@@ -327,7 +336,10 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
                 raise ConnectorDenied(f"AXFR of {zone} was refused earlier, not asked again yet")
             return self._read_zone_file(static, zone)
         try:
-            rrsets = self.dns.axfr(zone, self._require_key("read", view))
+            bound = {} if limit is None else {"max_records": limit}
+            rrsets = self.dns.axfr(zone, self._require_key("read", view), **bound)
+        except ZoneTooLarge as exc:
+            raise ZoneTooLarge(key[0], key[1], exc.size, exc.limit) from None
         except ConnectorDenied:
             self._axfr_refused[key] = (time.monotonic(), self._last_configured())
             # A static primary refusing the transfer is read from its file, as named loaded it.
@@ -337,6 +349,24 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
             return self._read_zone_file(static, zone)
         self._axfr_refused.pop(key, None)
         return rrsets
+
+    def _bounded(self, key: tuple[str, str]) -> int | None:
+        """The read limit, after refusing a zone whose node count (rndc zonestatus) is above it."""
+        limit = self.read_limit() if self.read_limit is not None else None
+        if limit is None:
+            return None
+        now = time.monotonic()
+        hit = self._sizes.get(key)
+        if hit is None or now - hit[0] > SIZE_CACHE_SECONDS:
+            try:
+                nodes = self.rndc.zonestatus(key[0], None if key[1] == DEFAULT_VIEW else key[1]).get("nodes")
+            except ConnectorError:
+                nodes = None
+            hit = (now, int(nodes) if nodes and nodes.isdigit() else None)
+            self._sizes[key] = hit
+        if hit[1] is not None and hit[1] > limit:
+            raise ZoneTooLarge(key[0], key[1], hit[1], limit)
+        return limit
 
     def _last_configured(self) -> str | None:
         try:

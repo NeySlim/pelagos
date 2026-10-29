@@ -254,6 +254,7 @@ const TITLES = {
   unauthenticated: 'Authentication required', forbidden: 'Forbidden', csrf_failed: 'CSRF check failed',
   not_found: 'Not found', module_disabled: 'Module disabled', method_not_allowed: 'Method not allowed',
   zone_without_records: 'Zone holds no records',
+  zone_too_large: 'Zone too large to read here',
   conflict: 'Conflict', precondition_failed: 'Precondition failed', plan_expired: 'Plan expired', plan_state: 'Plan state',
   confirmation_required: 'Confirmation required', rate_limited: 'Too many requests', not_supported: 'Not supported',
   engine_validation_failed: 'Engine validation failed', internal_error: 'Internal error',

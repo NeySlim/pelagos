@@ -707,8 +707,12 @@ CATALOG: dict[str, str] = {
     "problem.engine_unavailable": "Engine unavailable",
     "problem.replication_syncing": "Replication in progress",
     "problem.zone_without_records": "Zone holds no records",
+    "problem.zone_too_large": "Zone too large to read here",
     "problem.detail.unexpected": "unexpected error; see the server log",
     "problem.detail.zone_without_records": "{zone} is a {kind} zone: named holds no records for it",
+    "problem.detail.zone_too_large": (
+        "{zone} holds {size} names or more, above the read limit of {limit} (dns.zone_read_max_records)"
+    ),
 }
 
 _FORMATTER = string.Formatter()

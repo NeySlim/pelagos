@@ -34,7 +34,7 @@ from pelagos.services.ops_service import OpsService
 from pelagos.services.peers import PeerGateway
 from pelagos.services.plan_service import PlanService
 from pelagos.services.ptr_service import PtrService
-from pelagos.services.registry import ConnectorRegistry
+from pelagos.services.registry import ConnectorRegistry, bound_reads
 from pelagos.services.resolver_fallback import FallbackWriter, ResolverFallbackService
 from pelagos.services.rpz_service import RpzService
 from pelagos.services.token_service import TokenService
@@ -54,6 +54,7 @@ class Services:
         self._node_mtime = self._node_stat()
         self._refresh_lock = threading.Lock()
         self.registry = registry if registry is not None else ConnectorRegistry.from_node(ctx)
+        bound_reads(self.registry, ctx)
         self.peers = peers if peers is not None else PeerGateway(ctx)
         self.events = EventHub(ctx.node.id)
         self.jobs = JobStore(self.events)
@@ -194,6 +195,7 @@ class Services:
             old = [getattr(self.registry, name) for name in ("dns", "kea4", "kea6", "d2")]
             for name in ("dns", "kea4", "kea6", "d2"):
                 setattr(self.registry, name, getattr(fresh, name))
+            bound_reads(self.registry, self.ctx)
             self.dns.local = self.registry.dns
             for service, local in ((self.dhcp4, self.registry.kea4), (self.dhcp6, self.registry.kea6)):
                 service.local = local

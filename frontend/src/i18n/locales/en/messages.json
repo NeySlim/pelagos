@@ -406,5 +406,7 @@
   "alert.root_hints_renumbered": "root hints file {{file}} (version {{version}}) predates the last root server renumbering",
   "alert.root_hints_old": "root hints file {{file}} is old (version {{version}})",
   "problem.zone_without_records": "Zone holds no records",
-  "problem.detail.zone_without_records": "{{zone}} is a {{kind}} zone: named holds no records for it"
+  "problem.detail.zone_without_records": "{{zone}} is a {{kind}} zone: named holds no records for it",
+  "problem.zone_too_large": "Zone too large to read here",
+  "problem.detail.zone_too_large": "{{zone}} holds {{size}} names or more, above the read limit of {{limit}} (dns.zone_read_max_records)"
 }

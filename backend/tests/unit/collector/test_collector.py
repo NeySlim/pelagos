@@ -717,3 +717,20 @@ def test_ddns_replay_alert_for_the_last_outage(rig):
     )
     assert AlertKind.DDNS_REPLAY not in {a.kind for a in collector.consistency()}
     assert AlertKind.DDNS_REPLAY not in {a.kind for a in collector.alerts.open_alerts()}
+
+
+def test_consistency_reads_skip_policy_and_catalog_zones(rig):
+    from pelagos.domain import Zone, ZoneKind, ZoneRole
+
+    collector, backends, _receiver = rig
+    dns = backends.dns
+    dns.zones += [
+        Zone(name="block.example.", kind=ZoneKind.PRIMARY, role=ZoneRole.POLICY),
+        Zone(name="catalog.example.", kind=ZoneKind.PRIMARY, role=ZoneRole.CATALOG),
+        Zone(name="feed.rpz.invalid.", kind=ZoneKind.PRIMARY),
+    ]
+    dns.calls.clear()
+    _forward, _reverse, errors = collector._dns_data()
+    read = [c.split(":", 1)[1] for c in dns.calls if c.startswith("read_zone:")]
+    assert read and errors == []
+    assert not {"block.example.", "catalog.example.", "feed.rpz.invalid."} & set(read)

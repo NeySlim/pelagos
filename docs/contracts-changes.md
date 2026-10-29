@@ -2105,3 +2105,20 @@ when several views hold the name (split horizon), else the first view. Contract:
 `services/snapshot.py`, `services/forward_reach.py`. WP-FRONTEND: the zone page of a forward zone
 shows a Forwarders tab (no records, no serial graph), hint and stub zones open on their status,
 and every error of the zone page is translated (en, fr).
+
+## 2026-10-29, 0.2.5: policy and catalog zones out of global reads, bounded web reads
+Sections 4, 10, 17 and 19, additive. `Zone.role` (`ZoneRole`: `policy` for a zone named in a
+`response-policy` statement, `catalog` for one named in `catalog-zones`) and
+`domain.dns.bulk_zone()`, the one filter every global read uses (also true for a zone listed by
+an older node with the note `pelagos-rpz` or under `rpz.invalid.`). Hosts, IPv6, consistency,
+PTR orphans, DDNS replay, delegation checks and the collector's consistency pass never read
+those zones; the serial series and zone events skip policy zones, whose zone list row is never
+`divergent`. Archives keep skipping Pelagos policy zones (rebuilt from their feeds) and keep
+catalogs and policy zones an admin maintains. New setting `dns.zone_read_max_records`
+(default 50000): the web process refuses a larger zone before any transfer (`rndc zonestatus`
+nodes) and stops a transfer past it, with `ZoneTooLarge` (`connectors/base.py`) and `409
+zone_too_large` (members `zone`, `view`, `size`, `limit`, `detail_message`
+`problem.detail.zone_too_large`); AXFR yields to other greenlets. Contract: `domain/dns.py`,
+`connectors/base.py`. WP-BIND: `connectors/bind/backend.py`, `roles.py`, `dns_client.py`.
+WP-COLLECTOR: `collector/main.py`, `pollers/bind.py`, `checks/runner.py`, `archive_collect.py`.
+WP-API-AUTH: `api/`, `services/`. WP-FRONTEND: messages and the setting's labels (en, fr).

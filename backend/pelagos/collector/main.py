@@ -48,6 +48,7 @@ from pelagos.domain import (
     RRset,
     Severity,
     ZoneKind,
+    bulk_zone,
 )
 from pelagos.services import consistency, ddns_replay
 from pelagos.services.masking import masked_text
@@ -1277,8 +1278,8 @@ class Collector:
             return forward, reverse, [f"bind: {exc or type(exc).__name__}"]
         errors: list[str] = []
         for zone in zones:
-            # RPZ policy zones hold block lists, not hosts: never read in full.
-            if zone.kind is not ZoneKind.PRIMARY or zone.notes == "pelagos-rpz":
+            # Policy and catalog zones hold no hosts: never read in full.
+            if zone.kind is not ZoneKind.PRIMARY or bulk_zone(zone):
                 continue
             try:
                 with self.backend_lock:

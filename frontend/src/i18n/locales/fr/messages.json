@@ -406,5 +406,7 @@
   "alert.root_hints_renumbered": "le fichier d’indices racine {{file}} (version {{version}}) est antérieur à la dernière renumérotation d’un serveur racine",
   "alert.root_hints_old": "le fichier d’indices racine {{file}} est ancien (version {{version}})",
   "problem.zone_without_records": "La zone ne contient aucun enregistrement",
-  "problem.detail.zone_without_records": "{{zone}} est une zone de type {{kind}} : named n'en détient aucun enregistrement"
+  "problem.detail.zone_without_records": "{{zone}} est une zone de type {{kind}} : named n'en détient aucun enregistrement",
+  "problem.zone_too_large": "Zone trop grande pour être lue ici",
+  "problem.detail.zone_too_large": "{{zone}} contient {{size}} noms ou plus, au-delà de la limite de lecture de {{limit}} (dns.zone_read_max_records)"
 }

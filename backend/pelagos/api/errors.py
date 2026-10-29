@@ -29,6 +29,7 @@ STATUS_BY_CODE: dict[str, int] = {
     "preflight_failed": 409,
     "plan_state": 409,
     "zone_without_records": 409,
+    "zone_too_large": 409,
     "plan_expired": 410,
     "engine_validation_failed": 422,
     "confirmation_required": 428,
@@ -57,6 +58,7 @@ TITLES: dict[str, str] = {
     "preflight_failed": "A target node cannot apply the plan",
     "plan_state": "Plan is not in the expected state",
     "zone_without_records": "Zone holds no records",
+    "zone_too_large": "Zone too large to read here",
     "plan_expired": "Plan expired",
     "engine_validation_failed": "Engine validation failed",
     "confirmation_required": "Confirmation required",
@@ -130,6 +132,7 @@ def translate(exc: BaseException) -> ApiError | None:
         PreconditionFailed,
         ServiceError,
         ValidationFailed,
+        ZoneTooLarge,
         ZoneWithoutRecords,
     )
     from pelagos.services.plan_service import PlanError
@@ -163,6 +166,8 @@ def translate(exc: BaseException) -> ApiError | None:
                 ),
             },
         )
+    if isinstance(exc, ZoneTooLarge):
+        return ApiError("zone_too_large", str(exc), extra=zone_too_large_extra(exc))
     if isinstance(exc, NotSupported):
         return ApiError("not_supported", str(exc))
     if isinstance(exc, ConnectorUnavailable | ConnectorTimeout | ConnectorDenied):
@@ -175,6 +180,18 @@ def translate(exc: BaseException) -> ApiError | None:
     if isinstance(exc, PermissionError):
         return ApiError("forbidden", str(exc))
     return None
+
+
+def zone_too_large_extra(exc: Any) -> dict[str, Any]:
+    return {
+        "zone": exc.zone,
+        "view": exc.view,
+        "size": exc.size,
+        "limit": exc.limit,
+        "detail_message": messages.msg(
+            "problem.detail.zone_too_large", zone=exc.zone, size=str(exc.size), limit=str(exc.limit)
+        ),
+    }
 
 
 def not_implemented(package: str = "") -> ApiError:

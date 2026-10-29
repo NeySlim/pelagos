@@ -19,7 +19,7 @@ from typing import Any
 from pelagos.collector.ipv6 import prefixes as prefixes_mod
 from pelagos.collector.ipv6 import store as obs_store
 from pelagos.core import settings_registry as reg
-from pelagos.domain import AuditEntry, AuditResult, ZoneKind, normalize_name, to_rfc3339
+from pelagos.domain import AuditEntry, AuditResult, ZoneKind, bulk_zone, normalize_name, to_rfc3339
 from pelagos.services import consistency, ipv6_hosts
 from pelagos.services.errors import ConnectorError, ServiceError, ValidationError, field_error
 
@@ -35,7 +35,6 @@ RETIRED_SECRETS = "ipv6/source/"
 ECHOED = ("effective_prefixes", "settings", "status")
 FILTERS = ("missing_aaaa", "missing_ptr", "stale", "unknown", "random_mac")
 SERVED = (ZoneKind.PRIMARY.value, ZoneKind.SECONDARY.value, ZoneKind.MIRROR.value)
-RPZ_NOTE = "pelagos-rpz"
 REVERSE_SUFFIXES = ("in-addr.arpa.", "ip6.arpa.")
 
 
@@ -52,7 +51,7 @@ def primary_zones(items: Iterable[dict[str, Any]], snapshots: Iterable[dict[str,
             zones += snap["payload"]
     out: set[str] = set()
     for z in zones:
-        if not isinstance(z, dict) or z.get("kind") != ZoneKind.PRIMARY.value or z.get("notes") == RPZ_NOTE:
+        if not isinstance(z, dict) or z.get("kind") != ZoneKind.PRIMARY.value or bulk_zone(z):
             continue
         name = normalize_name(str(z.get("name") or ""))
         if name:
@@ -64,7 +63,7 @@ def _primaries(zones: Iterable[Any]) -> list[tuple[str, str]]:
     """(name, view) of the primary zones of a zone list, RPZ policy zones left out."""
     out = []
     for z in zones:
-        if isinstance(z, dict) and z.get("kind") == ZoneKind.PRIMARY.value and z.get("notes") != RPZ_NOTE:
+        if isinstance(z, dict) and z.get("kind") == ZoneKind.PRIMARY.value and not bulk_zone(z):
             name = normalize_name(str(z.get("name") or ""))
             if name:
                 out.append((name, str(z.get("view") or "_default")))
@@ -348,7 +347,7 @@ class Ipv6Service:
         served = [
             (normalize_name(z["name"]), str(z.get("view") or "_default"))
             for z in listed
-            if z["kind"] in SERVED
+            if z["kind"] in SERVED and not bulk_zone(z)
         ]
         remote = peer_primaries(peer_zones, served)
         names = sorted({n for n, _v in served} | set(remote))

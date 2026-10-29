@@ -25,6 +25,7 @@ from pelagos.domain import (
     RRset,
     ValidationResult,
     ZoneKind,
+    bulk_zone,
     messages,
     normalize_name,
     to_rfc3339,
@@ -66,7 +67,11 @@ class PtrService:
     # Zones --------------------------------------------------------------
 
     def _zones(self) -> list[dict[str, Any]]:
-        return [z["zone"] for z in self.dns.zones() if z["zone"]["kind"] in SERVED_KINDS]
+        return [
+            z["zone"]
+            for z in self.dns.zones()
+            if z["zone"]["kind"] in SERVED_KINDS and not bulk_zone(z["zone"])
+        ]
 
     def _best_zone(self, name: str, view: str | None, zones: list[dict[str, Any]], reverse: bool) -> Any:
         """The longest served zone of `view` holding `name` (reverse or forward zones only)."""

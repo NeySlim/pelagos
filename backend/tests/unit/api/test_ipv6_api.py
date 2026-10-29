@@ -397,3 +397,23 @@ def test_a_failing_or_empty_source_is_named_in_meta_and_status(admin, node_ctx, 
     else:
         assert [u["source"] for u in unavailable] == ["neighbors"] and error in unavailable[0]["error"]
         assert error in problem
+
+
+@pytest.mark.parametrize(
+    ("neighbors", "dhcpv6", "error"),
+    [
+        (True, False, "no observation pass yet"),
+        (False, True, "no observation pass yet"),
+        (False, False, "every observation source is disabled"),
+    ],
+)
+def test_a_node_without_status_says_why(admin, node_ctx, services, neighbors, dhcpv6, error):
+    def setup(cfg) -> None:
+        cfg.modules["dhcpv6"] = dhcpv6
+        cfg.settings.setdefault("ipv6", {})["neighbors_enabled"] = neighbors
+
+    node_ctx.config_store.update_cluster(setup, updated_by="test")
+    assert admin.get(H).get_json()["meta"]["unavailable"] == [
+        {"node_id": node_ctx.node.id, "source": "neighbors", "error": error}
+    ]
+    assert error in [s["problem"] for s in admin.get(A).get_json()["status"]]

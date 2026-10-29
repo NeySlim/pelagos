@@ -4233,7 +4233,9 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   records); `ipv6_reverse_missing` still runs.
   An address is current when it is `eui64` or `stable` and seen within
   `stable_min_days`: only a current address is proposed (an EUI-64 address
-  of a prefix the host left is not). `ipv6_missing_aaaa`: the row has a
+  of a prefix the host left is not). The rows are those of `GET /hosts/ipv6`
+  (`ipv6_hosts.host_rows`), so a MAC joined to a host without MAC by its
+  AAAA counts for that host. `ipv6_missing_aaaa`: the row has a
   `proposal` and none of its current addresses has an AAAA; a host excepted by `mac:<mac>` is left
   out, an address excepted by `addr:<address>` is never proposed;
   `exception_keys` lists `mac:<mac>` of each host. `ipv6_reverse_missing`:
@@ -4258,7 +4260,9 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   silences a whole alert.
 - **Routes** (V2, `services/ipv6_service.py`): `GET /hosts/ipv6` has one
   row per observed MAC (a MAC in no host joins the host without MAC holding
-  one of its addresses in an AAAA) and one per host with an AAAA in a judged
+  one of its addresses in an AAAA; only the first such MAC takes the host's
+  `host_key`, a later one keeps `mac:<mac>` with the host's name and records,
+  so `host_key` stays unique) and one per host with an AAAA in a judged
   forward zone (below, apex included) that no observed MAC stands for
   (`observed` empty): the view never depends on the observation sources alone.
   It gives
@@ -4289,7 +4293,8 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   whose last poll failed (its `error`), read nothing, read nothing in a watched
   prefix (`kept` 0), or is older than three passes (`3 x max(ipv6.poll_seconds,
   collector.poll_seconds)`: the observer stopped), and each answering node with
-  no source status (`source` `neighbors`, never polled or every source
-  disabled); `GET /admin/ipv6` gives the same text as `problem` on the status.
+  no source status (`source` `neighbors`: `no observation pass yet`, or
+  `every observation source is disabled` when `ipv6.neighbors_enabled` is false
+  and the `dhcpv6` module is off); `GET /admin/ipv6` gives the same text as `problem` on the status.
 - **Audit**: `admin.ipv6.replace` (request `{"prefixes"}`), `admin.ipv6.op`
   (the removal of the 0.2.2 router sources, above).

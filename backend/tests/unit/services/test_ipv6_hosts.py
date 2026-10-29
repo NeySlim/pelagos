@@ -275,3 +275,12 @@ def test_an_observed_address_joins_the_zone_row_of_its_aaaa():
     assert len(desktop) == 1 and desktop[0]["mac"] == mac
     assert [o["address"] for o in desktop[0]["observed"]] == ["2001:db8::a1"]
     assert desktop[0]["ptr_missing"] == ["2001:db8::a1"] and desktop[0]["proposal"] is None
+
+
+def test_two_macs_on_one_aaaa_keep_unique_host_keys():
+    macs = ["02:00:5e:00:53:01", "02:00:5e:00:53:02"]
+    rows, _f, _r = zone_rows([obs("2001:db8::a1", NOW - 9 * DAY, NOW, mac=m) for m in macs])
+    desktop = [r for r in rows if r["name"] == "desktop.example.lan."]
+    assert [r["mac"] for r in desktop] == macs
+    assert desktop[0]["host_key"] != desktop[1]["host_key"] == f"mac:{macs[1]}"
+    assert len({r["host_key"] for r in rows}) == len(rows)

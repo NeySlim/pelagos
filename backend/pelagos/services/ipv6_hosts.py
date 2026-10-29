@@ -217,7 +217,8 @@ def host_rows(
     """One row per MAC with observed addresses, plus one per host with an AAAA under `aaaa_zones`
     that no observed MAC stands for (`observed` empty, `mac` null without DHCP data).
 
-    A MAC in no host joins the host (without MAC) holding one of its addresses in an AAAA.
+    A MAC in no host joins the host (without MAC) holding one of its addresses in an AAAA; only the
+    first such MAC takes the host's key, later ones keep `mac:<mac>` with the host's name and records.
     `host_key` is the hosts view key, `mac:<mac>` when the MAC is in no host; `proposal` is the
     first `eui64` or `stable` address without AAAA and not excepted by `addr:<address>`, the owner
     of the host's A in its forward zone and the address's reverse zone; null when there is none.
@@ -235,7 +236,7 @@ def host_rows(
     rows: list[dict[str, Any]] = []
     shown: set[str] = set()
 
-    def row(host: Host | None, mac: str | None, items: list[Observed]) -> dict[str, Any]:
+    def row(host: Host | None, mac: str | None, items: list[Observed], key: str | None = None) -> dict:
         rec = _records(host)
         proposal = None
         zone = _zone_of(rec.a_owner, forward) if rec.a_owner else None
@@ -258,7 +259,7 @@ def host_rows(
         if name is None and pairs:
             name = pairs[0][1]
         return {
-            "host_key": host.key if host is not None else f"mac:{mac}",
+            "host_key": key or (host.key if host is not None else f"mac:{mac}"),
             "name": name,
             "mac": mac,
             "mac_random": mac_random(mac) if mac else False,
@@ -278,9 +279,11 @@ def host_rows(
 
     for mac, items in sorted(observed_by_mac(observations, now, stable_min_days).items()):
         host = by_mac.get(mac) or next((by_aaaa[i.address] for i in items if i.address in by_aaaa), None)
+        # host_key stays unique: a second MAC on the same MAC-less host keeps its own key.
+        key = f"mac:{mac}" if host is not None and not host.mac and host.key in shown else None
         if host is not None:
             shown.add(host.key)
-        rows.append(row(host, mac, items))
+        rows.append(row(host, mac, items, key))
     if aaaa_zones is not None:
         zones = [normalize_name(z) for z in aaaa_zones]
         for host in hosts:

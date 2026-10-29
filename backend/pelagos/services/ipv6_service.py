@@ -11,7 +11,7 @@ import ipaddress
 import logging
 import sqlite3
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
@@ -66,7 +66,11 @@ def checked_zones(items: Iterable[dict[str, Any]], snapshots: Iterable[dict[str,
 
 
 def source_problems(
-    status: Iterable[dict[str, Any]], answered: Iterable[str], now: int, late_after: int
+    status: Iterable[dict[str, Any]],
+    answered: Iterable[str],
+    now: int,
+    late_after: int,
+    sources_enabled: bool = True,
 ) -> list[dict[str, Any]]:
     """`meta.unavailable` entries for the sources whose last poll gives nothing usable: failed,
     found nothing, found nothing in a watched prefix, or older than `late_after` seconds; and for
@@ -89,10 +93,16 @@ def source_problems(
         else:
             continue
         out.append({"node_id": node, "source": source, "error": error})
+    error = "no observation pass yet" if sources_enabled else "every observation source is disabled"
     for node in answered:
         if node not in polled:
-            out.append({"node_id": node, "source": "neighbors", "error": "no observation pass yet"})
+            out.append({"node_id": node, "source": "neighbors", "error": error})
     return out
+
+
+def _sources_enabled(settings: Any, modules: Mapping[str, Any]) -> bool:
+    """The observer polls something: neighbors on, or the dhcpv6 module on."""
+    return bool(reg.domain(settings, DOMAIN).get("neighbors_enabled", True) or modules.get("dhcpv6"))
 
 
 def _late(settings: Any) -> int:
@@ -338,18 +348,20 @@ class Ipv6Service:
         for row in rows:
             for o in row["observed"]:
                 o["first_seen"], o["last_seen"] = _ts(o["first_seen"]), _ts(o["last_seen"])
-        meta: dict[str, Any] = {
-            "unavailable": g.unavailable + source_problems(g.status, g.answered, now, _late(settings))
-        }
+        meta: dict[str, Any] = {"unavailable": g.unavailable + self._problems(g, settings, now)}
         if errors:
             meta["errors"] = errors
         return rows, meta
+
+    def _problems(self, g: Gathered, settings: Any, now: int) -> list[dict[str, Any]]:
+        enabled = _sources_enabled(settings, self.ctx.cluster().modules)
+        return source_problems(g.status, g.answered, now, _late(settings), enabled)
 
     def overview(self) -> dict[str, Any]:
         settings = self.ctx.settings()
         g = self.gathered()
         now = int(self.clock())
-        problems = source_problems(g.status, g.answered, now, _late(settings))
+        problems = self._problems(g, settings, now)
         problem = {(p["node_id"], p["source"]): p["error"] for p in problems}
         status = [
             {

@@ -612,6 +612,19 @@ class WebAuthnCredential(Model):
     aaguid: str | None = None
     backup_eligible: bool = False  # a synced passkey
     created_at: datetime; created_on: str | None = None   # node id
+
+@dataclass(slots=True)
+class ApiToken(Model):           # cluster.toml [[api_tokens]], section 16
+    id: str                        # 16 hex characters, the <id> of pel_<id>_<secret>
+    name: str                      # unique per owner
+    user_id: str                   # owner; the token dies with the user
+    secret_hash: str               # "sha256:<hex>" of the whole token string, never returned
+    expires_at: datetime           # mandatory
+    permissions: list[str] = []    # a subset of the creator's at creation
+    role: str | None = None        # the role they were taken from, None for a custom subset
+    cidrs: list[str] = []          # allowed client networks, empty: any
+    created_at: datetime; created_by: str | None = None; created_on: str | None = None   # username, node id
+    def public(self) -> dict       # to_dict() without secret_hash
 ```
 
 Audit (`domain/audit.py`):
@@ -1358,6 +1371,9 @@ login_rate_limit_per_minute = 10
 require_totp = false
 webauthn_rp_id = "auto"                 # or a domain, e.g. "example.lan"
 require_webauthn_roles = []             # e.g. ["admin"]
+api_token_default_days = 90              # expiry proposed at creation
+api_token_max_days = 365                 # no token lives longer
+api_token_audit_reads_enabled = true     # false: only unsafe Bearer calls get an audit entry
 
 [settings.plans]
 ttl_seconds = 600
@@ -1378,6 +1394,8 @@ clock_skew_warning_seconds = 5           # CLOCK_SKEW warning; also the bar of t
 clock_skew_critical_seconds = 30         # CLOCK_SKEW critical (Kea terminates HA at 60 s)
 cert_warning_days = 30                   # web, node and CA certificate expiry (section 15)
 cert_critical_days = 7
+api_token_warning_days = 14              # API token expiry (section 16)
+api_token_critical_days = 3
 disk_free_warning_percent = 15           # health checks (item 19 to 28) follow, see the registry
 disk_free_critical_percent = 5
 soa_refresh_min_seconds = 1200
@@ -1455,6 +1473,19 @@ summary = "192.0.2.90 -> mail.example.net."   # optional label for the UI
 created_by = "admin"
 created_at = "2026-10-26T10:00:00Z"
 node_id = "01JB0ZK4Q9X3M5N7P8R2T4V6W8"
+
+[[api_tokens]]                           # API tokens (section 16), absent when none
+id = "0f1e2d3c4b5a6978"
+name = "monitoring"
+user_id = "01JB..."
+secret_hash = "sha256:9f86d081..."       # of the whole token; the token itself is never stored
+expires_at = "2027-01-27T09:00:00Z"
+permissions = ["read:dns", "read:dhcp", "read:hosts", "read:alerts", "read:series", "read:audit", "read:nodes"]
+role = "viewer"
+cidrs = ["192.0.2.0/24"]
+created_at = "2026-10-29T09:00:00Z"
+created_by = "admin"
+created_on = "01JB0ZK4Q9X3M5N7P8R2T4V6W8"
 
 [replication]                            # written by ConfigStore, never by hand (section 13)
 stamps = { "settings/plans/ttl_seconds" = "43@01JB0ZK4Q9X3M5N7P8R2T4V6W8", "users/01JB.../roles" = "40@01JB..." }
@@ -1565,6 +1596,11 @@ one of `auth`, `admin.user`, `admin.role`, `admin.settings`, `admin.node`, `admi
 `apply`, `rollback`, `login`, `logout`, `login_failed`, `enroll`, `revoke`,
 `ack`, `raise`, `resolve`, `sync`, `sent`, `failed`, `create`, `op` (direct
 operations like retransfer, with the operation name in `request.op`).
+API tokens (section 16): `auth.token` (target `token:<name>`, `request.op` `create`, `revoke`
+or `use` for a refused call of a known token, `request.id` the token id, never the secret)
+and `auth.token_call`, one per Bearer call (user = owner, `request` `{method, path, token,
+token_id}`, `response.status`); any other entry written while serving a Bearer call gets
+`request.token` and `request.token_id`.
 
 `core.audit_log.AuditLog`:
 
@@ -1705,12 +1741,13 @@ run under the collector's backend lock):
 | `archive.run` | `{}` | `{"requested": true}`: sends the `archive` event to this node's collector (section 23) |
 | `resolver.health` | `{}` | this node's entry of `GET /dns/resolver/health` (`nodes[]`, NodeHealth of section 25), read from its series cache and probe table |
 | `resolver.series` | `{"metric","since","until","step"}` | `{"node_id","series"}`: this node's series of one resolver metric from its own cache, the `GET /series/resolver` answer for that node (section 25) |
+| `tokens.usage` | `{}` | `{"usage": {token id: {"at","node","ip"}}}`: last use of each API token on this node (section 16) |
 | `ipv6.observations` | `{"since"?}` | `{"node_id","observations": [Observation],"sources": [SourceStatus]}`: what this node observed (section 27) |
 | `kea.migration.inventory` | `{}` | this node's entry of `GET /install/kea-migration` (`nodes[]`, section 26) |
 | `kea.migration.analyze` | `{"series","source"}` | the `kea_dry_run` answer of this node (`{"node_id","target_version","findings","diffs","packages","validation","configs"}`, secrets masked): the analysis of this node's Kea files (section 26) |
 | `archive.probe` | `{}` | `{"ok", "node_id", "free_bytes", "max_bytes", "fits"}`: a 64 KiB probe file written, read back and deleted in this node's archive folder (`.incoming/`) |
 
-The `certs.*`, `security.*`, `alerts.list`, `notify.state`, `archive.state|run|probe`, `resolver.health`, `resolver.series`, `ipv6.observations`, `kea.migration.inventory` and `kea.migration.analyze` actions never touch an engine and run without the
+The `certs.*`, `security.*`, `alerts.list`, `notify.state`, `archive.state|run|probe`, `resolver.health`, `resolver.series`, `ipv6.observations`, `tokens.usage`, `kea.migration.inventory` and `kea.migration.analyze` actions never touch an engine and run without the
 backend lock.
 
 A plan built this way is stored by the caller (`PeerGateway.build_plan`
@@ -1754,7 +1791,7 @@ node that built it.
 Merge of `cluster.toml` (`core.cluster_merge`, `config_store.merge_configs`):
 the file is a map of entries, one per leaf: `settings/<key>/...`,
 `modules/<key>`, `secrets/<name>`, `revoked/<fingerprint>`, and for the record
-lists `nodes/<id>`, `users/<id>`, `roles/<name>`, `exceptions/<id>` (the record exists) plus
+lists `nodes/<id>`, `users/<id>`, `roles/<name>`, `exceptions/<id>`, `api_tokens/<id>` (the record exists) plus
 `<section>/<record>/<field>/...` (path parts percent-encoded). Every entry
 carries a stamp `<counter>@<node id>` in `[replication] stamps`: a Lamport
 counter shared with `version` (a write uses max(version, every stamp) + 1 and
@@ -2128,6 +2165,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; subject is the pool subject |
 | `security_advisory` | info, warning | the upstream version of an installed BIND or Kea falls in a range of `pelagos/data/isc_advisories.json` (`ranges_preview` for `-S` versions); subject `<engine>:<CVE id>`; details `cve`, `version`, `fixed_in`, `url`, `cvss`, `dataset_verified` |
 | `cert_expiry` | warning / critical | the web certificate (subject `cert:web`), this node's replication certificate (`cert:node`) or the internal CA (`cert:ca`) expires within `checks.cert_warning_days` / `checks.cert_critical_days`, or within a third / a tenth of its lifetime when that is shorter (24 h certificates); details: `cert`, `not_after`, `days_left`, `fingerprint`, `issuer`, and for the web certificate `source` and `mode` |
+| `api_token_expiry` | warning / critical | an API token expires within `checks.api_token_warning_days` (critical within `checks.api_token_critical_days`, and once expired until it is revoked); raised by the service node only (section 22 election: the records are cluster-wide), subject `token:<id>`; details `token_id`, `name`, `user`, `expires_at`, `days_left`, `expired` |
 | `cert_renewal_failed` | warning | the last automatic request of the web certificate failed (subject `cert:web:renewal`; details `failures`, `last_error`, `next_attempt_at`) |
 | `notification_failed` | warning | a notification channel has failed every send for `checks.notification_failure_warning_minutes` (cluster-wide, raised by the sender, subject `notify:<channel id>`; details `channel`, `since`, `error`, `status`); sent through the other channels; section 22 |
 | `archive_failed` | warning, critical | the archive of this node could not be written to a destination (subject `archive:<destination id>`, `local` included); critical after `checks.archive_failures_critical_count` failures in a row; details `failures`, `error`; section 23 |
@@ -2308,6 +2346,53 @@ A passkey login (discoverable credential, user verification required, user
 found by its user handle, which is the user id) is complete by itself: no
 TOTP, no enrollment restriction other than `password_change`.
 
+API tokens (item 70; `auth/api_tokens.py`, `services/token_service.py`). For scripts and
+supervision, which cannot answer a second factor:
+- Format `pel_<id>_<secret>`: `id` 16 hex characters (finds the record), `secret` 32 random
+  bytes in base64url. Stored as `secret_hash = "sha256:" + hex(SHA-256(whole token))` in
+  `cluster.toml [[api_tokens]]` (section 10), so a token works on every node once replicated.
+  A 256-bit random secret cannot be guessed or brute-forced offline: argon2 would cost every
+  request and protect nothing more; the hash keeps a copy of `cluster.toml` from being usable.
+  The comparison is constant time (`hmac.compare_digest`). The token is returned once, by the
+  creation answer, and never appears in another answer, a log line or the audit log.
+- Use: `Authorization: Bearer <token>` on any `/api/v1` route. It takes precedence over a
+  cookie; no CSRF header (no ambient credential); not subject to `auth.require_webauthn_roles`,
+  `auth.require_totp` or session restrictions. A Bearer call reaches no `/auth/*` or
+  `/account/*` route except `GET /auth/session` (`403 forbidden`): tokens cannot create tokens,
+  change a password or register a key. The WebSocket (section 18) stays cookie only.
+- Refusals: `401 unauthenticated` with `reason` `malformed`, `unknown` (also a wrong secret or a
+  revoked token), `expired`, `source_not_allowed` or `user_disabled`; refused calls count against
+  the login rate limit per client address (`429 rate_limited`). A refusal of a known token is
+  audited (`auth.token`, op `use`, result `denied`, message the reason).
+- Permissions: at creation, a role (`role`, built-in or custom; default `viewer`, the read-only
+  preset) or a list (`permissions`, known names, `*` or `<action>:*`), never wider than the
+  creator's (`403 forbidden` with `permissions` listing the excess). At each call, the
+  token's permissions intersected with the owner's current ones: a user who loses a right, is
+  disabled or deleted takes it from their tokens at once; deleting a user deletes their tokens.
+- Creation needs a signed-in session without restriction and a fresh second factor:
+  `POST /auth/tokens/challenge` opens a one-use ceremony (kind `reauth`, 300 s, the user's keys
+  for the request's rpId) and lists `methods`; `POST /auth/tokens` carries `ceremony` and
+  `credential` (verified like a second factor login, counter checked and recorded), or
+  `totp_code` when `"totp"` is offered (TOTP users whose roles do not require a key).
+  A user with no factor usable on this node gets `409 conflict` with `reason: "no_second_factor"`.
+- Expiry mandatory: `expires_days` (default `auth.api_token_default_days`) or `expires_at`, at
+  most `auth.api_token_max_days`. Optional `cidrs` (at most 32 networks, IPv4-mapped IPv6
+  clients matched as IPv4). Names unique per owner.
+- Last use `{at, node, ip}` per node in `var/api_token_usage.json` (written at most once a
+  minute per token, never `cluster.toml`, like `last_login`); listings merge every peer's
+  `tokens.usage` (3 s each) and name the peers that did not answer in `meta.unavailable`.
+- Revocation deletes the record: the tombstone wins over any concurrent edit (section 13).
+- Audit: every Bearer call (`auth.token_call`; reads only while
+  `auth.api_token_audit_reads_enabled`, writes always), creation and revocation (section 11).
+- Plans applied with a token need `confirm: true` whatever the plan (`428
+  confirmation_required` otherwise): a script states what it applies.
+- Expiry alert `api_token_expiry` (section 15).
+- Mixed versions: a 0.2.1 or 0.2.2 node drops `[[api_tokens]]` when it reads the file and
+  never tombstones it, so the records come back on the next merge (the digests of old and new
+  nodes then differ while a token exists, and each peer poll merges both ways, as for
+  `[[exceptions]]`). An old node ignores the `Authorization` header: a Bearer call there answers
+  `401 unauthenticated` (no session), so scripts must target upgraded nodes.
+
 Permissions are strings `<action>:<resource>`; `*` is admin. Resources:
 
 ```
@@ -2353,7 +2438,8 @@ style-src 'self' 'unsafe-inline'; connect-src 'self' wss:`,
 ## 17. REST API
 
 Base path `/api/v1`. JSON in and out (`Content-Type: application/json`),
-UTF-8. Authentication: session cookie (section 16) unless marked `anon`.
+UTF-8. Authentication: session cookie (section 16) unless marked `anon`, or an API token
+(`Authorization: Bearer pel_...`, section 16) everywhere except `/auth/*` and `/account/*`.
 Every endpoint lists the permission it needs; `admin` passes everything.
 Responses are domain objects serialized with `to_dict()`; lists are wrapped
 as `{"items": [...]}` and paginated lists as section 19. Endpoints marked
@@ -2391,12 +2477,18 @@ Until a work package implements an endpoint it answers `501` with
 | `POST /auth/webauthn/register/verify` | any | `{"ceremony", "credential", "name"}` | `201 Credential`; lifts `webauthn_enrollment` and `totp_enrollment` |
 | `PATCH /auth/webauthn/credentials/{id}` | any | `{"name"}` | `Credential` |
 | `DELETE /auth/webauthn/credentials/{id}` | any | `{"password"}` | `204`; `409 conflict` for the last key when a role requires one |
+| `GET /auth/tokens` | any (session) | | `{"items": [ApiToken], "meta": {"unavailable": [node names]}}`: the caller's tokens |
+| `POST /auth/tokens/challenge` | any (session, no restriction) | | `{"methods": ["webauthn"?, "totp"?], "ceremony"?, "options"?}` (`PublicKeyCredentialRequestOptionsJSON`); `409 conflict` with `reason: "no_second_factor"` |
+| `POST /auth/tokens` | any (session, no restriction) | `{"name", "role"? | "permissions"?, "expires_days"? | "expires_at"?, "cidrs"?, "ceremony"+"credential" | "totp_code"}` | `201 {"token": "pel_<id>_<secret>" (only here), "item": ApiToken}`; `400 validation_error`, `401 invalid_credentials` (factor refused, ceremony used or expired), `403 forbidden` (wider than the caller, member `permissions`), `409 conflict` (name used, or no factor) |
+| `DELETE /auth/tokens/{id}` | any (session) | | `204`; `404` for another user's token |
 | `GET /account/preferences` | any | | `{"theme_family","theme_mode","language","animations","ambient","dashboard_layout"}`; defaults `instrument`, `system`, `en`, `full`, `on`, `[]`; `animations` is one of `full`, `reduced`, `off`; `ambient` is `on` or `off` |
 | `PUT /account/preferences` | any | same keys, partial | the merged preferences |
 
 User public fields: `id, username, roles, enabled, has_totp, webauthn_count, must_change_password, created_at, updated_at, last_login, preferences`.
 Credential: `{"id", "name", "rp_id", "transports", "aaguid", "backup_eligible", "created_at", "created_on", "last_used_at"}`;
 `last_used_at` is the newest use seen by the node answering.
+ApiToken: `{"id", "name", "user_id", "username", "role", "permissions", "cidrs", "expires_at", "expired", "created_at", "created_by", "created_on", "last_used_at", "last_used_node", "last_used_ip"}`
+(never `secret_hash`); last use is the newest over the nodes that answered.
 `last_login` is recorded on the node that served the login (`/var/lib/pelagos/last_login.json`,
 not replicated: a login never writes `cluster.toml`); the API shows the newest of that
 record and any older replicated value.
@@ -2798,6 +2890,8 @@ parts and put the reservation on every node that runs the Kea engine.
 | `GET /admin/users/{id}/webauthn` | `admin:users` | | `{"items": [Credential]}` |
 | `DELETE /admin/users/{id}/webauthn` | `admin:users` | | `204` (every key of the user) |
 | `DELETE /admin/users/{id}/webauthn/{credential_id}` | `admin:users` | | `204` |
+| `GET /admin/tokens` | `admin:users` | | `{"items": [ApiToken], "meta": {"unavailable"}}`: every token of the cluster |
+| `DELETE /admin/tokens/{id}` | `admin:users` | | `204` |
 | `GET /admin/webauthn` | `admin:users` | | `{"rp_id", "source": "setting"|"common_domain"|"request_host", "common_domain", "nodes": [{"id","name","host","covered"}], "warning": null|"no_common_domain"|"node_outside_rp_id"}` |
 | `GET /admin/roles` | `admin:roles` | | `{"items": [Role]}` (builtin + custom) |
 | `POST /admin/roles` | `admin:roles` | `Role` without `builtin` | `201 Role` |

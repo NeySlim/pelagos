@@ -13,6 +13,21 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-29, WP-API-AUTH, WP-CORE, WP-COLLECTOR, WP-FRONTEND: API tokens (item 70)
+Additive. `domain/cluster.py`: `ApiToken`; `ClusterConfig.api_tokens`, written only when not empty,
+records keyed by `id` (`core.cluster_merge.RECORDS["api_tokens"]`). `domain/alerts.py`:
+`AlertKind.API_TOKEN_EXPIRY`; messages `alert.api_token_expiry|expired`. `core.audit_log.AuditLog.enrich`
+(callbacks run on each local entry before it is written). `auth.sessions.Session.token`.
+Architecture sections 4, 10 (`[[api_tokens]]`, settings `auth.api_token_default_days`,
+`auth.api_token_max_days`, `auth.api_token_audit_reads_enabled`, `checks.api_token_warning_days`,
+`checks.api_token_critical_days`), 11 (`auth.token`, `auth.token_call`, `request.token`), 13
+(peer action `tokens.usage`), 15 (`api_token_expiry`, service node only), 16 (API tokens) and 17
+(`/auth/tokens*`, `/admin/tokens*`, Bearer authentication). Why: since an admin has a security
+key, a password alone no longer signs in and scripts lost the API. Mixed versions: an older node
+drops `[[api_tokens]]` on read and never tombstones it (the records come back on merge) and
+answers a Bearer call `401 unauthenticated`. Packages: WP-FRONTEND shows the profile section and
+the admin screen; the mock answers the new routes (no Bearer authentication in the mock).
+
 ## 2026-10-29, WP-COLLECTOR: silent root addresses in resolver:root-letters (R2)
 Additive. `docs/architecture.md` section 25: `resolver:root-letters` is raised once an address
 missed `checks.resolver_tld_failures` probes in a row, and its details gain `addresses` (the

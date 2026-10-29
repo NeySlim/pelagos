@@ -17,8 +17,51 @@ contract of every endpoint is in [architecture.md, section 17](../architecture.m
 
 ## Authentication
 
-There are no API tokens: a client signs in like the UI, keeps the session
-cookie, and sends the CSRF token on every unsafe request.
+Scripts use an API token; the UI and interactive clients use a session.
+
+### API tokens
+
+Create a token in **Account > API tokens** (or `POST /auth/tokens`): give it a
+name, a role (default `viewer`, read only; never more than your own
+permissions), an expiry (90 days by default, `auth.api_token_default_days`,
+at most `auth.api_token_max_days`) and optionally the client networks allowed
+to use it. Creation asks for your second factor again: the security key
+prompt, or a one-time code for a TOTP user. The token is shown once; copy it
+then, it cannot be read back. It works on every node once replicated (a few
+seconds).
+
+```sh
+NODE=https://ns1.example.lan:8443
+TOKEN=pel_0f1e2d3c4b5a6978_...            # keep it in a secret store
+curl -sk -H "Authorization: Bearer $TOKEN" $NODE/api/v1/dns/zones
+curl -sk -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"confirm": true}' $NODE/api/v1/plans/$PLAN/apply
+```
+
+- No cookie, no CSRF header, no security key prompt: the token was created
+  behind your second factor, so `auth.require_webauthn_roles` does not apply.
+- A token calls everything its permissions allow except `/auth/*` and
+  `/account/*` (only `GET /auth/session` answers): it cannot create tokens,
+  change a password or register a key.
+- Plans applied with a token always need `"confirm": true`.
+- At each call, the token holds the intersection of its permissions and
+  your current ones: removing a role from you, disabling or deleting your
+  account limits or stops your tokens at once.
+- `401 unauthenticated` with `reason`: `malformed`, `unknown` (also revoked),
+  `expired`, `source_not_allowed`, `user_disabled`. Refused tokens are rate
+  limited per client address like logins.
+- Every call is audited under your name with the token's name
+  (`auth.token_call`); `auth.api_token_audit_reads_enabled` off keeps only
+  the writes. An alert (`api_token_expiry`) warns before a token expires.
+- Revoke it in **Account > API tokens**; an administrator sees and revokes
+  every token in **Administration > API tokens**.
+- A node still on 0.2.2 or older ignores tokens and answers `401`: upgrade
+  every node first.
+
+### Sessions
+
+A client can also sign in like the UI, keep the session cookie, and send the
+CSRF token on every unsafe request.
 
 ```sh
 NODE=https://ns1.example.lan:8443
@@ -39,7 +82,7 @@ curl -sk -b jar -H "X-CSRF-Token: $CSRF" -X POST $NODE/api/v1/auth/logout   # wr
   carries `methods`, `ceremony` and `options` for `navigator.credentials.get()`;
   the browser's answer goes to `POST /auth/webauthn/login/verify`
   (`{"ceremony", "credential"}`), or the login is sent again with `totp_code`
-  when `methods` offers `totp`. A script account should not hold a key.
+  when `methods` offers `totp`. Scripts use an API token instead.
 - `429 rate_limited` with `Retry-After`: too many attempts per minute
   (`auth.login_rate_limit_per_minute`, per client address and per username).
 - A session restricted to `password_change`, `totp_enrollment` or
@@ -50,7 +93,7 @@ curl -sk -b jar -H "X-CSRF-Token: $CSRF" -X POST $NODE/api/v1/auth/logout   # wr
 - `GET /auth/session` returns the current session (and a fresh view of the
   CSRF token).
 
-Use a dedicated account per script with a custom role holding only the
+Give each script its own token (or its own account) with only the
 permissions it needs ([Configuration: roles](configuration.md#roles-and-permissions)).
 
 ## Conventions

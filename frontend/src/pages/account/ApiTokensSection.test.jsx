@@ -67,6 +67,26 @@ describe('ApiTokensSection', () => {
     expect(await screen.findByTestId('token-error')).toHaveTextContent('Register a security key or enable TOTP first')
   })
 
+  it('uses the expiry bounds of the settings', async () => {
+    api.auth.tokens.mockResolvedValue({ items: [], meta: { unavailable: [], default_days: 30, max_days: 60 } })
+    api.auth.tokenChallenge.mockResolvedValue({ methods: ['webauthn'], ceremony: 'c1', options: { challenge: 'AQ' } })
+    getCredential.mockResolvedValue({ id: 'k1' })
+    api.auth.tokenCreate.mockResolvedValue({ token: 'pel_x', item: TOKEN })
+    render(<ApiTokensSection Section={Section} />)
+    await waitFor(() => expect(screen.getByTestId('token-days-input')).toHaveValue(30))
+    fireEvent.change(screen.getByTestId('token-name-input'), { target: { value: 'ci' } })
+    fireEvent.change(screen.getByTestId('token-days-input'), { target: { value: '61' } })
+    expect(screen.getByTestId('token-days-input')).toHaveAttribute('max', '60')
+    // Bypass the browser's own max check to reach the form's message.
+    fireEvent.submit(screen.getByTestId('token-add'))
+    expect(await screen.findByTestId('token-error')).toHaveTextContent('60')
+    expect(api.auth.tokenChallenge).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByTestId('token-days-input'), { target: { value: '' } })
+    fireEvent.change(screen.getByTestId('token-days-input'), { target: { value: '60' } })
+    fireEvent.click(screen.getByTestId('token-add-submit'))
+    await waitFor(() => expect(api.auth.tokenCreate).toHaveBeenCalledWith(expect.objectContaining({ expires_days: 60 })))
+  })
+
   it('revokes a token after confirmation', async () => {
     api.auth.tokenRevoke.mockResolvedValue(null)
     render(<ApiTokensSection Section={Section} />)

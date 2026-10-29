@@ -13,7 +13,6 @@ import { formatDate } from '../../lib/utils'
 import { cancelled, getCredential } from '../../lib/webauthn'
 
 const ROLES = ['viewer', 'dns-operator', 'dhcp-operator', 'admin']
-const MAX_DAYS = 3650
 
 function splitCidrs(text) {
   return String(text || '').split(/[\s,]+/).map((s) => s.trim()).filter(Boolean)
@@ -78,7 +77,7 @@ export function ApiTokensSection({ Section }) {
   const { t } = useTranslation(['account', 'common'])
   const { showSuccess, showError } = useNotification()
   const tokensQ = useApi(() => api.auth.tokens(), [])
-  const [form, setForm] = useState({ name: '', role: 'viewer', days: '90', cidrs: '' })
+  const [form, setForm] = useState({ name: '', role: 'viewer', days: null, cidrs: '' })
   const [needCode, setNeedCode] = useState(false)
   const [code, setCode] = useState('')
   const [error, setError] = useState(null)
@@ -87,9 +86,12 @@ export function ApiTokensSection({ Section }) {
   const [revoking, setRevoking] = useState(null)
   const items = tokensQ.data?.items || []
   const unavailable = tokensQ.data?.meta?.unavailable || []
+  // Bounds come from auth.api_token_default_days and auth.api_token_max_days; null days means the default.
+  const maxDays = tokensQ.data?.meta?.max_days || 365
+  const days = form.days ?? String(tokensQ.data?.meta?.default_days || 90)
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e?.target ? e.target.value : e }))
 
-  const body = () => ({ name: form.name.trim(), role: form.role, expires_days: Number(form.days), cidrs: splitCidrs(form.cidrs) })
+  const body = () => ({ name: form.name.trim(), role: form.role, expires_days: Number(days), cidrs: splitCidrs(form.cidrs) })
 
   const finish = async (proof) => {
     const answer = await api.auth.tokenCreate({ ...body(), ...proof })
@@ -104,8 +106,8 @@ export function ApiTokensSection({ Section }) {
     e.preventDefault()
     setError(null)
     if (!form.name.trim()) return setError(t('tokens.errors.name'))
-    const days = Number(form.days)
-    if (!Number.isInteger(days) || days < 1 || days > MAX_DAYS) return setError(t('tokens.errors.days', { max: MAX_DAYS }))
+    const n = Number(days)
+    if (!Number.isInteger(n) || n < 1 || n > maxDays) return setError(t('tokens.errors.days', { max: maxDays }))
     setBusy(true)
     try {
       if (needCode) {
@@ -155,7 +157,7 @@ export function ApiTokensSection({ Section }) {
       <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-2 max-w-2xl" data-testid="token-add">
         <Input label={t('tokens.name')} value={form.name} onChange={set('name')} placeholder={t('tokens.namePlaceholder')} maxLength={64} data-testid="token-name-input" />
         <Select label={t('tokens.role')} options={ROLES.map((r) => ({ value: r, label: t(`tokens.roles.${r}`) }))} value={form.role} onChange={set('role')} />
-        <Input label={t('tokens.expiresDays')} type="number" min={1} max={MAX_DAYS} value={form.days} onChange={set('days')} data-testid="token-days-input" />
+        <Input label={t('tokens.expiresDays')} type="number" min={1} max={maxDays} value={days} onChange={set('days')} data-testid="token-days-input" />
         <Input label={t('tokens.cidrs')} value={form.cidrs} onChange={set('cidrs')} placeholder="192.0.2.0/24" helperText={t('tokens.cidrsHelp')} data-testid="token-cidrs-input" />
         {needCode && (
           <Input label={t('tokens.code')} value={code} onChange={(e) => setCode(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={6} helperText={t('tokens.codeHelp')} data-testid="token-code-input" />

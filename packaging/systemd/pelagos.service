@@ -31,6 +31,8 @@ ConfigurationDirectory=pelagos
 ConfigurationDirectoryMode=0750
 # Files created by the services are never world readable (section 3 modes).
 UMask=0027
+# Journal tag per unit (the collector and the helper both logged as `pelagos`).
+SyslogIdentifier=pelagos-web
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

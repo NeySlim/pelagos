@@ -23,6 +23,12 @@ sudo pelagos install --detect                    # engines, services, sockets, i
 curl -k https://127.0.0.1:8443/api/v1/health     # ok or degraded, replication state
 ```
 
+Each unit has its own journal tag: `pelagos-web` (API and UI),
+`pelagos-collector` and `pelagos-helper`; `_SYSTEMD_UNIT` and
+`_SYSTEMD_INVOCATION_ID` (`journalctl -o verbose`) tell which unit and which
+run of it logged a line. Up to 0.2.3 the web process logged as `gunicorn` and
+the collector and the helper both as `pelagos`.
+
 In the UI: **Nodes and replication** (peers, versions, errors), **Alerts**,
 **Audit log** (every plan with its result) and **Advanced, History**
 (backups of every write).

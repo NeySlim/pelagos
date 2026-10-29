@@ -12,6 +12,8 @@ StandardInput=socket
 StandardOutput=socket
 StandardError=journal
 UMask=0027
+# Journal tag per unit (the collector and the helper both logged as `pelagos`).
+SyslogIdentifier=pelagos-helper
 # One request per instance: a stuck or silent client never pins a root process for long.
 RuntimeMaxSec=3600
 TimeoutStopSec=30

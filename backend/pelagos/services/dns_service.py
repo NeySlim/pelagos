@@ -136,6 +136,15 @@ class DnsService(DnsExtras):
     ) -> list[dict[str, Any]]:
         """With `status`, transfer-fed zones (secondary, mirror, stub) carry the ZoneStatus of the node
         read, keyed by node id: next_refresh and expires without one request per zone."""
+        return self.zones_with_peers(view, kind, q, status)[0]
+
+    def zones_with_peers(
+        self, view: str | None = None, kind: str | None = None, q: str | None = None, status: bool = False
+    ) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]], dict[str, str]]:
+        """`zones()`, plus the zone list of every other BIND node by node id and the error of each
+        node whose list could not be read, from the same peer reads."""
+        peer_zones: dict[str, list[dict[str, Any]]] = {}
+        peer_errors: dict[str, str] = {}
         backend, peer = self._read_node(None)
         serials: dict[str, dict[str, int | None]] = {}
         # Per "<view>/<zone>": each node's hints info (hint zones) or forward signature (forward zones).
@@ -169,7 +178,10 @@ class DnsService(DnsExtras):
                 continue
             snap = self.peers.snapshot(other, Engine.BIND)
             if snap is None or snap.get("error"):
+                why = (snap or {}).get("error") or "not reachable"
+                peer_errors[other.id] = f"node {other.name}: {why}"
                 continue
+            peer_zones[other.id] = [z for z in snap.get("zones") or [] if isinstance(z, dict)]
             for key, serial in (snap.get("serials") or {}).items():
                 serials.setdefault(key, {})[other.id] = serial
             self._zone_configs(configs, other.id, snap.get("zones") or [], snap.get("hints") or {})
@@ -198,7 +210,7 @@ class DnsService(DnsExtras):
             if status:
                 item["status"] = self._transfer_status(backend, peer, zone)
             out.append(item)
-        return out
+        return out, peer_zones, peer_errors
 
     @staticmethod
     def _zone_configs(

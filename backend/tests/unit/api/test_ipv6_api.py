@@ -417,3 +417,178 @@ def test_a_node_without_status_says_why(admin, node_ctx, services, neighbors, dh
         {"node_id": node_ctx.node.id, "source": "neighbors", "error": error}
     ]
     assert error in [s["problem"] for s in admin.get(A).get_json()["status"]]
+
+
+# A zone primary on the peer only (prod item 72): its ptr_mismatch runs there, the view reads it there.
+PEER = "01PEERNS1"
+ONLY = "only1.example."
+REV1 = "1.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa."  # 2001:db8:0:1::/64
+
+
+class _Peers:
+    """The DnsService's peer directory with one BIND peer answering from its own fake registry."""
+
+    def __init__(self, real, registry):
+        from types import SimpleNamespace
+
+        self.real, self.registry, self.down = real, registry, False
+        self.node = SimpleNamespace(id=PEER, name="ns1", modules=SimpleNamespace(bind=True))
+
+    def __getattr__(self, name):
+        return getattr(self.real, name)
+
+    def peers_running(self, engine):
+        from pelagos.domain import Engine
+
+        return [self.node] if engine is Engine.BIND else self.real.peers_running(engine)
+
+    def peer(self, node_id):
+        return self.node if node_id == PEER else self.real.peer(node_id)
+
+    def snapshot(self, peer, engine, kind="summary", params=None):
+        from pelagos.services.snapshot import engine_snapshot
+
+        if peer is not self.node:
+            return self.real.snapshot(peer, engine, kind, params)
+        return None if self.down else engine_snapshot(self.registry, engine, kind, params)
+
+
+@pytest.fixture
+def peer_only(services, tmp_path):
+    import ipaddress
+
+    from pelagos.domain import RRset, Zone, ZoneKind
+    from pelagos.services.registry import ConnectorRegistry
+    from tests.unit.services.fakes import FakeDnsBackend, fake_context
+
+    dns = FakeDnsBackend(fake_context(PEER, "bind", tmp_path / "peer"), seed=False)
+    soa = "ns1.example.lan. hostmaster.example.lan. 1 3600 900 1209600 300"
+
+    def ptr(a):
+        return ipaddress.IPv6Address(a).reverse_pointer + "."
+
+    dns.add_zone(
+        Zone(name=ONLY, kind=ZoneKind.PRIMARY),
+        [
+            RRset(ONLY, "SOA", 3600, [soa]),
+            RRset(ONLY, "AAAA", 300, ["2001:db8:0:1::1"]),
+            RRset("host7." + ONLY, "AAAA", 300, ["2001:db8:0:1::c7"]),
+            RRset("host8." + ONLY, "AAAA", 300, ["2001:db8:0:1::c8"]),
+        ],
+    )
+    dns.add_zone(
+        Zone(name=REV1, kind=ZoneKind.PRIMARY),
+        [RRset(REV1, "SOA", 3600, [soa]), RRset(ptr("2001:db8:0:1::c8"), "PTR", 300, ["host8." + ONLY])],
+    )
+    peers = _Peers(services.dns.peers, ConnectorRegistry(dns=dns))
+    services.dns.peers = peers
+    yield dns, peers
+    services.dns.peers = peers.real
+
+
+def test_a_zone_primary_on_a_peer_only_is_read_there(role_client, services, peer_only):
+    from pelagos.services import consistency
+
+    dns, _peers = peer_only
+    c = role_client("viewer")
+    page = c.get(H + "?per_page=500").get_json()
+    assert "errors" not in page["meta"], page["meta"]
+    by_name = {r["name"]: r for r in page["items"]}
+    assert by_name[ONLY]["aaaa"] == ["2001:db8:0:1::1"] and by_name[ONLY]["ptr_missing"] == [
+        "2001:db8:0:1::1"
+    ]
+    assert by_name["host7." + ONLY]["ptr_missing"] == ["2001:db8:0:1::c7"]
+    assert by_name["host8." + ONLY]["ptr_missing"] == []
+    missing = c.get(H + "?filter=missing_ptr&per_page=500").get_json()["items"]
+    flagged = {a for r in missing for a in r["ptr_missing"] if a.startswith("2001:db8:0:1:")}
+    # The peer's own ptr_mismatch reads the same zones: the same pairs.
+    theirs = consistency.missing_ptrs(
+        dns.read_zone(ONLY), dns.read_zone(REV1), consistency.excepted_for(None)
+    )
+    assert flagged == {ip for ip, _owner in theirs} == {"2001:db8:0:1::1", "2001:db8:0:1::c7"}
+
+
+def test_a_peer_zone_that_cannot_be_read_is_named(role_client, peer_only):
+    from pelagos.connectors.base import ConnectorDenied
+
+    dns, peers = peer_only
+    read = dns.read_zone
+
+    def refuse(name, view=None):
+        if name == ONLY:
+            raise ConnectorDenied(f"AXFR of {ONLY} refused")
+        return read(name, view)
+
+    dns.read_zone = refuse
+    c = role_client("viewer")
+    page = c.get(H).get_json()
+    assert f"{ONLY}: {PEER}: " in page["meta"]["errors"]["dns.zones"]
+    assert ONLY not in {r["name"] for r in page["items"]}
+    peers.down = True
+    page = c.get(H).get_json()
+    assert page["meta"]["errors"]["dns.peers"] == "zones not listed: node ns1: not reachable"
+    assert "dns.zones" not in page["meta"]["errors"]  # an unreachable node is not asked per zone
+
+
+def test_pairs_are_judged_per_node_as_each_collector_does(role_client, services, peer_only, fake_registry):
+    from pelagos.domain import Zone, ZoneKind
+    from pelagos.services import consistency
+
+    # The reverse zone moves to this node: each node's ptr_mismatch pairs its own primary zones
+    # only, never ns1's AAAA with this node's PTR.
+    dns, _peers = peer_only
+    dns.zones.pop(REV1)
+    rrsets = list(dns.rrsets.pop(REV1).values())
+    fake_registry.dns.add_zone(Zone(name=REV1, kind=ZoneKind.PRIMARY), rrsets)
+    c = role_client("viewer")
+    page = c.get(H + "?per_page=500").get_json()
+    flagged = {
+        (a, r["name"]) for r in page["items"] for a in r["ptr_missing"] if a.startswith("2001:db8:0:1:")
+    }
+    ex = consistency.excepted_for(None)
+    theirs = set(consistency.missing_ptrs(dns.read_zone(ONLY), [], ex))
+    local = fake_registry.dns
+    ours = set(consistency.missing_ptrs(local.read_zone("example.lan."), local.read_zone(REV1), ex))
+    assert flagged == {p for p in theirs | ours if p[0].startswith("2001:db8:0:1:")}
+    # host8 has its PTR in this node's zone, which ns1's collector does not read.
+    assert ("2001:db8:0:1::c8", "host8." + ONLY) in flagged
+
+
+def test_peer_primaries_by_view_and_node():
+    from pelagos.services import ipv6_service
+
+    peer_zones = {
+        "n1": [
+            {"name": "a.example.", "kind": "primary", "view": "internal"},
+            {"name": "a.example.", "kind": "primary", "view": "external"},
+            {"name": "a.example.", "kind": "primary", "view": "external"},
+            {"name": "rpz.example.", "kind": "primary", "notes": "pelagos-rpz"},
+            {"name": "s.example.", "kind": "secondary"},
+        ],
+        "n2": [{"name": "a.example.", "kind": "primary", "view": "internal"}],
+    }
+    # A local copy in one view does not hide the peer's other view.
+    out = ipv6_service.peer_primaries(peer_zones, [("a.example.", "internal")])
+    assert out == {"a.example.": {"n1": ["external"]}}
+    out = ipv6_service.peer_primaries(peer_zones, [])
+    assert out == {"a.example.": {"n1": ["internal", "external"], "n2": ["internal"]}}
+
+
+def test_a_node_with_an_unread_zone_flags_nothing(role_client, peer_only):
+    from pelagos.connectors.base import ConnectorDenied
+
+    # ns1's collector skips its pass when a zone is unread: the view flags none of its pairs.
+    dns, _peers = peer_only
+    read = dns.read_zone
+
+    def refuse(name, view=None):
+        if name == REV1:
+            raise ConnectorDenied(f"AXFR of {REV1} refused")
+        return read(name, view)
+
+    dns.read_zone = refuse
+    page = role_client("viewer").get(H + "?per_page=500").get_json()
+    assert f"{REV1}: {PEER}: " in page["meta"]["errors"]["dns.zones"]
+    by_name = {r["name"]: r for r in page["items"]}
+    assert by_name["host7." + ONLY]["aaaa"] == ["2001:db8:0:1::c7"]
+    assert all(not r["ptr_missing"] for r in page["items"] if r["name"] and r["name"].endswith(ONLY))

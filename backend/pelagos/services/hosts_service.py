@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 from pelagos.connectors.kea.configfile import FileDiverged
@@ -151,9 +151,14 @@ class HostsService:
         return hosts, subset, errors
 
     def collect_records(
-        self, judged: Iterable[str] | None
+        self,
+        judged: Iterable[str] | None,
+        zones: list[dict[str, Any]] | None = None,
+        remote: Mapping[str, Mapping[str, list[str]]] | None = None,
     ) -> tuple[list[Host], list[Host], dict[str, list[RRset]], dict[str, str]]:
-        """`collect_judged` plus the records read, by zone name."""
+        """`collect_judged` plus the records read, by zone name. `zones`: the read node's zone list
+        when the caller has it; `remote`: zones read from other nodes, by zone then node, with
+        the views to read there."""
         dhcp_rows: list[Lease | Reservation] = []
         errors: dict[str, str] = {}
         for dhcp in self._dhcp_services():
@@ -174,7 +179,7 @@ class HostsService:
         records: dict[str, list[RRset]] = {}
         if self.dns is not None:
             try:
-                records = self._zone_records(errors)
+                records = self._zone_records(errors, zones, remote or {})
             except ServiceError as exc:
                 errors["dns"] = exc.detail
             except ConnectorError as exc:
@@ -191,20 +196,26 @@ class HostsService:
             subset = _sorted_hosts(_join(dhcp_rows, (r for z, r in records.items() if z in names)))
         return _sorted_hosts(join), subset, records, errors
 
-    def _zone_records(self, errors: dict[str, str]) -> dict[str, list[RRset]]:
-        """Records of every served zone by zone name; a zone that cannot be read (a refused AXFR)
-        is named in `errors["dns.zones"]` and the others are still returned."""
+    def _zone_records(
+        self,
+        errors: dict[str, str],
+        listed: list[dict[str, Any]] | None = None,
+        remote: Mapping[str, Mapping[str, list[str]]] | None = None,
+    ) -> dict[str, list[RRset]]:
+        """Records of every served zone by zone name (all views merged), then of each `remote` zone
+        from the first of its nodes that answers, every view listed there; a zone that cannot be
+        read (a refused AXFR, no node answering) is named in `errors["dns.zones"]`."""
         assert self.dns is not None
         zones = [
             z["zone"]
-            for z in self.dns.zones()
+            for z in (self.dns.zones() if listed is None else listed)
             if z["zone"]["kind"] in (ZoneKind.PRIMARY.value, ZoneKind.SECONDARY.value, ZoneKind.MIRROR.value)
         ]
         out: dict[str, list[RRset]] = {}
         unread: list[str] = []
         for zone in zones:
             try:
-                rrsets, _node = self.dns.records(zone["name"])
+                rrsets, _node = self.dns.records(zone["name"], zone.get("view"))
             except NotFound:
                 continue  # removed since the zone list was read
             except ServiceError as exc:
@@ -214,6 +225,18 @@ class HostsService:
                 unread.append(f"{zone['name']}: {exc}")
                 continue
             out.setdefault(normalize_name(zone["name"]), []).extend(rrsets)
+        for name, holders in sorted((remote or {}).items()):
+            failed: list[str] = []
+            for node_id, views in sorted(holders.items()):
+                try:
+                    read = [self.dns.records(name, view, node_id=node_id)[0] for view in views]
+                except (ServiceError, ConnectorError) as exc:
+                    failed.append(f"{node_id}: {getattr(exc, 'detail', None) or exc}")
+                    continue
+                out.setdefault(normalize_name(name), []).extend(r for rrsets in read for r in rrsets)
+                break
+            else:
+                unread.append(f"{name}: " + "; ".join(failed))
         if unread:
             errors["dns.zones"] = "; ".join(unread)
         return out

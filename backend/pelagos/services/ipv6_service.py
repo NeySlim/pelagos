@@ -60,6 +60,55 @@ def primary_zones(items: Iterable[dict[str, Any]], snapshots: Iterable[dict[str,
     return out
 
 
+def _primaries(zones: Iterable[Any]) -> list[tuple[str, str]]:
+    """(name, view) of the primary zones of a zone list, RPZ policy zones left out."""
+    out = []
+    for z in zones:
+        if isinstance(z, dict) and z.get("kind") == ZoneKind.PRIMARY.value and z.get("notes") != RPZ_NOTE:
+            name = normalize_name(str(z.get("name") or ""))
+            if name:
+                out.append((name, str(z.get("view") or "_default")))
+    return out
+
+
+def peer_primaries(
+    peer_zones: Mapping[str, list[dict[str, Any]]], served: Iterable[tuple[str, str]]
+) -> dict[str, dict[str, list[str]]]:
+    """Primary zones of the other nodes' live lists that the read node does not serve in that view:
+    zone -> node -> views, read from those nodes as their own ptr_mismatch reads them."""
+    have = {(normalize_name(n), v) for n, v in served}
+    out: dict[str, dict[str, list[str]]] = {}
+    for node, zones in peer_zones.items():
+        for name, view in _primaries(zones):
+            if (name, view) not in have:
+                views = out.setdefault(name, {}).setdefault(node, [])
+                if view not in views:
+                    views.append(view)
+    return out
+
+
+def missing_ptr_pairs(
+    by_node: Mapping[str, Iterable[str]], records: Mapping[str, list[Any]], excepted: Any
+) -> dict[tuple[str, str], list[str]]:
+    """`consistency.missing_ptrs` per node over that node's primary zones, as each node's collector
+    pairs them for ptr_mismatch, then merged. A node with a zone not read is skipped, as its
+    collector skips the pass (the zone is named in meta.errors). A zone primary on two nodes is
+    read once and paired on both."""
+    out: dict[tuple[str, str], list[str]] = {}
+    for zones in by_node.values():
+        zones = set(zones)
+        if any(z not in records for z in zones):
+            continue
+        out.update(
+            consistency.missing_ptrs(
+                [r for z in sorted(zones) if not z.endswith(REVERSE_SUFFIXES) for r in records.get(z, [])],
+                [r for z in sorted(zones) if z.endswith(REVERSE_SUFFIXES) for r in records.get(z, [])],
+                excepted,
+            )
+        )
+    return out
+
+
 def checked_zones(items: Iterable[dict[str, Any]], snapshots: Iterable[dict[str, Any]]) -> set[str]:
     """Forward zones the IPv6 checks judge: the forward part of `primary_zones`."""
     return {z for z in primary_zones(items, snapshots) if not z.endswith(REVERSE_SUFFIXES)}
@@ -267,24 +316,56 @@ class Ipv6Service:
         listed = listed if isinstance(listed, list) else []
         return prefixes_mod.effective(listed, zones, subnets, prefixes_mod.interface_networks())
 
-    def _zones(self) -> tuple[list[str], list[str], list[str], list[str], str | None]:
-        """(forward zones, ip6.arpa zones) the node read serves, the forward zones the checks judge
-        (`checked_zones`), the reverse zones they read, or the error that hid them."""
+    def _zones(self) -> dict[str, Any]:
+        """The zone lists of the node read and of every other BIND node: `items` (the read node's),
+        `forward` and `reverse` (ip6.arpa) zones it serves or a peer holds as primary, `checked`
+        (`checked_zones`), `by_node` (primary zones per node), `remote` (`peer_primaries`) and
+        the `errors` that hid zones."""
+        out: dict[str, Any] = {
+            "items": None,
+            "forward": [],
+            "reverse": [],
+            "checked": [],
+            "by_node": {},
+            "remote": {},
+            "errors": {},
+        }
         dns = self.hosts.dns
         if dns is None:
-            return [], [], [], [], None
+            return out
         try:
-            items = dns.zones()
+            items, peer_zones, peer_errors = dns.zones_with_peers()
         except ServiceError as exc:
-            return [], [], [], [], exc.detail
+            out["errors"] = {"dns": exc.detail}
+            return out
         except ConnectorError as exc:
-            return [], [], [], [], str(exc)
-        names = [i["zone"]["name"] for i in items if i["zone"]["kind"] in SERVED]
-        forward = [n for n in names if not n.endswith(REVERSE_SUFFIXES)]
-        primary = primary_zones(items, self._snapshots())
-        checked = sorted(z for z in primary if not z.endswith(REVERSE_SUFFIXES))
-        checked_reverse = sorted(z for z in primary if z.endswith(REVERSE_SUFFIXES))
-        return forward, [n for n in names if n.endswith("ip6.arpa.")], checked, checked_reverse, None
+            out["errors"] = {"dns": str(exc)}
+            return out
+        # Live lists only: the series cache holds this node's own list, which `items` supersedes.
+        listed = [i["zone"] for i in items]
+        by_node = {"": {n for n, _v in _primaries(listed)}}
+        by_node.update({node: {n for n, _v in _primaries(zones)} for node, zones in peer_zones.items()})
+        served = [
+            (normalize_name(z["name"]), str(z.get("view") or "_default"))
+            for z in listed
+            if z["kind"] in SERVED
+        ]
+        remote = peer_primaries(peer_zones, served)
+        names = sorted({n for n, _v in served} | set(remote))
+        out.update(
+            items=items,
+            forward=[n for n in names if not n.endswith(REVERSE_SUFFIXES)],
+            reverse=[n for n in names if n.endswith("ip6.arpa.")],
+            checked=sorted(
+                {z for zones in by_node.values() for z in zones if not z.endswith(REVERSE_SUFFIXES)}
+            ),
+            by_node=by_node,
+            remote=remote,
+        )
+        if peer_errors:
+            unread = "; ".join(peer_errors[k] for k in sorted(peer_errors))
+            out["errors"] = {"dns.peers": f"zones not listed: {unread}"}
+        return out
 
     def hosts_list(
         self, filter_: str | None, zone: str | None
@@ -295,18 +376,14 @@ class Ipv6Service:
         now = int(self.clock())
         stable = int(reg.get(settings, "ipv6.stable_min_days"))
         g = self.gathered()
-        forward, reverse, checked, checked_reverse, zones_error = self._zones()
+        z = self._zones()
+        forward, reverse, checked = z["forward"], z["reverse"], z["checked"]
         # missing_aaaa and stale judge the hosts joined from the checked zones only, as the collector.
-        hosts, judged_hosts, records, errors = self.hosts.collect_records(checked)
-        if zones_error:
-            errors["dns"] = zones_error
+        hosts, judged_hosts, records, errors = self.hosts.collect_records(checked, z["items"], z["remote"])
+        errors.update(z["errors"])
         excepted = consistency.excepted_for(self.ctx.cluster())
-        # The same pairs as ptr_mismatch: AAAA of the checked zones, PTR of the primary reverse zones.
-        ptr_missing = consistency.missing_ptrs(
-            [r for z in checked for r in records.get(z, [])],
-            [r for z in checked_reverse for r in records.get(z, [])],
-            excepted,
-        )
+        # The same pairs as ptr_mismatch on each node: its primary AAAA against its primary PTR.
+        ptr_missing = missing_ptr_pairs(z["by_node"], records, excepted)
         rows = ipv6_hosts.host_rows(
             hosts, g.observations, now, stable, forward, reverse, excepted, checked, ptr_missing
         )

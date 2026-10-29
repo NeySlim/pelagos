@@ -2035,3 +2035,16 @@ status entries gain `problem`. WP-COLLECTOR: `collector/ipv6/observer.py`. WP-AP
 `services/ipv6_service.py`, `services/ipv6_hosts.py`, `services/consistency.py`,
 `services/hosts_service.py`. WP-FRONTEND: the PTR badge follows `ptr_missing`, a row without
 observation says so; mock.
+
+## 2026-10-29, 0.2.3: IPv6 view reads the zones of every node
+Section 27, additive. `GET /hosts/ipv6` reads the zone list of every BIND node from its peer
+snapshot, and the records of each primary zone the read node does not serve in that view from a
+node holding it (snapshot `records`, every view listed there); before, a zone primary on ns1
+with no secondary on ns2 was missing from ns2's view while ns1's `ptr_mismatch` flagged it.
+`ptr_missing` pairs each node's primary forward zones with that node's primary reverse zones,
+as its collector does, and flags nothing for a node with an unread zone (its collector skips
+the pass). `meta.errors` gains `dns.peers` (the nodes whose zone list could not be
+read: their zones are not asked one by one); a peer zone no node could read is named in
+`dns.zones`. `DnsService.zones_with_peers` returns the zone list with each other node's list
+and read error. WP-API-AUTH: `services/ipv6_service.py`, `services/hosts_service.py`,
+`services/dns_service.py`.

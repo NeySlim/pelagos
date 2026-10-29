@@ -332,6 +332,7 @@ def test_tasks_and_retention(rig):
         "resolver_probes": 300.0,
         "certificates": 60.0,
         "api_tokens": 300.0,
+        "permissions": 600.0,
         "notify_alerts": 10.0,
         "archive": 60.0,
         "observe_ipv6": 60.0,

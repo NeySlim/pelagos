@@ -73,6 +73,10 @@ NOTIFY_SECONDS = 10.0
 ARCHIVE_SECONDS = 60.0
 # Neighbor table read (and DHCPv6 lease walk when due, section 27).
 IPV6_SECONDS = 60.0
+# The permission guard's standing paths (core.permguard): at start, then this often.
+PERMISSIONS_SECONDS = 600.0
+PERMISSIONS_AFTER_WRITE = 5.0
+PERMISSIONS_STATE = "permissions.json"
 META_LAST_ACK = "last_ack_audit_id"
 META_ACK_OFFSET = "ack_scan_offset"
 META_ACK_INODE = "ack_scan_inode"
@@ -1059,6 +1063,40 @@ class Collector:
         self._finish(PollOutcome(alerts=alerts, kinds=frozenset({AlertKind.API_TOKEN_EXPIRY.value})))
         return alerts
 
+    def permissions(self) -> list[Alert]:
+        """`path_not_writable` for each path this node's writers need and this unit cannot create,
+        write or read, probed in this process (the unit's sandbox); the state feeds the CLI."""
+        from pelagos.collector.rules import path_not_writable
+        from pelagos.core import permguard
+
+        b = self.backends
+        targets: list[Any] = []
+        for backend in (b.dns, b.kea4, b.kea6, b.d2):
+            fn = getattr(backend, "permission_targets", None)
+            if not callable(fn):
+                continue
+            try:
+                with self.backend_lock:
+                    targets += fn(None)
+            except Exception as exc:
+                log.warning("permission targets of %s not built: %s", type(backend).__name__, exc)
+        checks = [c.to_dict() for c in permguard.run(targets)]
+        try:
+            permguard.save_state(self.ctx.paths.var / PERMISSIONS_STATE, self.node_id, checks)
+        except OSError as exc:
+            log.warning("permission state not saved: %s", exc)
+        name = self.ctx.node.name or self.node_id
+        alerts = [path_not_writable(self.node_id, name, c) for c in checks if not c["ok"]]
+        node_id = self.node_id
+        self._finish(
+            PollOutcome(
+                alerts=alerts,
+                kinds=frozenset({AlertKind.PATH_NOT_WRITABLE.value}),
+                where=lambda a: a.node_id == node_id,
+            )
+        )
+        return alerts
+
     def _renew_certificate(self) -> None:
         try:
             self.certs.run_due()
@@ -1129,6 +1167,7 @@ class Collector:
             ("resolver_probes", self.resolver_probes),
             ("certificates", self.certificates),
             ("api_tokens", self.api_tokens),
+            ("permissions", self.permissions),
             ("notify_alerts", self.notify_alerts),
             ("archive", self.archive),
             ("observe_ipv6", self.observe_ipv6),
@@ -1171,6 +1210,7 @@ class Collector:
             Task("resolver_probes", probe_period, self.resolver_probes),
             Task("certificates", CERT_SECONDS, self.certificates),
             Task("api_tokens", TOKEN_SECONDS, self.api_tokens),
+            Task("permissions", PERMISSIONS_SECONDS, self.permissions),
             Task("notify_alerts", NOTIFY_SECONDS, self.notify_alerts),
             Task("archive", ARCHIVE_SECONDS, self.archive),
             Task("retention", 3600.0, self.retention),
@@ -1659,7 +1699,10 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
         log.exception("notification dispatcher not started")
     # A write from the web process: the zone serials it moved are read now, not at the next poll.
     bind_due = threading.Event()
-    listener.on("audit", lambda _msg: bind_due.set())
+    # ... and the permission guard checks again soon: a plan (the path_access fix) may have
+    # changed a folder, so its path_not_writable alert resolves without waiting a whole period.
+    permissions_due = threading.Event()
+    listener.on("audit", lambda _msg: (bind_due.set(), permissions_due.set()))
     watch = EnginesWatch(ctx)
     next_modules_check = 0.0
     next_replication_check = 0.0
@@ -1718,6 +1761,11 @@ def run(paths: Paths, once: bool = False, rebuild: bool = False) -> int:
                 for task in tasks:
                     if task.name == "archive":
                         task.next_run = min(task.next_run, time.monotonic() + 1.0)
+            if permissions_due.is_set():
+                permissions_due.clear()
+                for task in tasks:
+                    if task.name == "permissions":
+                        task.next_run = min(task.next_run, time.monotonic() + PERMISSIONS_AFTER_WRITE)
             if bind_due.is_set():
                 bind_due.clear()
                 for task in tasks:

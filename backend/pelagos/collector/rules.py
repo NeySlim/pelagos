@@ -22,6 +22,7 @@ on every pass:
   config_divergence  cluster-wide, bind      "zone:<zone>[@<view>]:forwarders" or ":hints"
   root_hints_stale   node, bind              "zone:<zone>[@<view>]:hints"
   ipv6_source_failed node, no engine         "ipv6:source:<source>[:<source id>]"
+  path_not_writable  node, engine of the path "path:<path>"
 """
 
 from __future__ import annotations
@@ -659,3 +660,36 @@ def ntp_unsynchronized(ntp: dict[str, Any] | None) -> bool:
     if not isinstance(ntp, dict):
         return False
     return ntp.get("synchronized") is False or ntp.get("ntp_enabled") is False
+
+
+def path_not_writable(node_id: str, node_name: str, check: dict[str, Any]) -> Alert:
+    """A path this node's writers need and its unit cannot create, write or read (core.permguard)."""
+    engine = check.get("engine")
+    try:
+        engine_value = Engine(engine) if engine in ("bind", "kea4", "kea6", "d2") else None
+    except ValueError:
+        engine_value = None
+    return Alert(
+        kind=AlertKind.PATH_NOT_WRITABLE,
+        severity=Severity.WARNING,
+        node_id=node_id,
+        engine=engine_value,
+        subject=f"path:{check.get('path')}",
+        **_title("alert.path_not_writable", path=str(check.get("path")), node=node_name),
+        details={
+            k: check.get(k)
+            for k in (
+                "path",
+                "kind",
+                "purpose",
+                "problem",
+                "error",
+                "probed",
+                "owner",
+                "group",
+                "mode",
+                "command",
+            )
+        }
+        | {"message": check.get("message")},
+    )

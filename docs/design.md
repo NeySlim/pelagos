@@ -1051,7 +1051,7 @@ Mettre à jour un cluster demande aujourd'hui `scripts/deploy-prod.sh` depuis un
 - Le cas de deux versions dans le cluster est pris en charge et documenté (« While two versions run »).
 - L'assistant privilégié (`pelagos helper`, socket `root:pelagos` 0660) exécute déjà comme root, par une liste fermée d'opérations, les installations de paquets (`platform/packages.py`, apt et dnf).
 - Le point 37 lit la version installée et la candidate des paquets BIND et Kea (`collector/checks/distro.py`, `apt-cache policy`, `dnf updateinfo`) et le suivi de sécurité de Debian.
-- Les releases sont des répertoires `make release` : debs amd64 et arm64, `SHA256SUMS`, `NOTES.md`, joints à la release GitHub, sans signature aujourd'hui.
+- Les releases sont des répertoires `make release` : debs amd64 et arm64, `SHA256SUMS`, `NOTES.md`, joints à la release GitHub ; `release.json` et `SHA256SUMS.sig` depuis la 0.3.0 (U1).
 
 **Décisions**
 

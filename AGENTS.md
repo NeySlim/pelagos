@@ -152,8 +152,11 @@ owning package's test directory.
 RELEASE_DIR=<dir>` sets `backend/pelagos/__init__.py` (the only source of
 the version), commits and tags `v0.1.1`, builds the amd64 and arm64 debs in
 Debian 13 containers (arm64 through qemu binfmt), writes
-`<dir>/0.1.1/` with the debs, `SHA256SUMS` and `NOTES.md`, then moves `main`
-to the next `.dev0`. Nothing is pushed: push `main` only. Pushing the tag,
+`<dir>/0.1.1/` with the debs, `release.json`, `NOTES.md` and `SHA256SUMS`
+over them, then moves `main` to the next `.dev0`. With
+`PELAGOS_RELEASE_KEY=<Ed25519 private key outside the repository>` it also
+writes `SHA256SUMS.sig`; without it the release is unsigned (no error).
+Public keys ship in `backend/pelagos/data/release-keys/` (README there). Nothing is pushed: push `main` only. Pushing the tag,
 publishing a GitHub release, and opening public PRs, issues or comments need
 the owner's explicit approval: prepare the text and wait. A pushed tag runs
 the full CI but never publishes; publication is a manual packages run on the

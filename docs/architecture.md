@@ -4698,6 +4698,18 @@ the screen (U6), daemon and lab tests (U7).
   `make release` signs only when a private key is available (path in
   `PELAGOS_RELEASE_KEY`, outside the repository); without one it writes no
   `.sig` and does not fail.
+- **Tooling** (`pelagos.core.release`, U1): `verify_release(directory,
+  keys)` returns a `ReleaseCheck` (`signature`, `key_id`, `checksums`,
+  `checksums_sha256`, `manifest`, `warnings`) or raises `ReleaseRefused`
+  whose `reason` is `missing`, `checksum`, `signature_invalid`, `manifest` or
+  `unlisted`; `ReleaseCheck.require_accepted(allow_unsigned)` raises
+  `unsigned_not_accepted`. Listed files must be regular files (a symlink
+  counts as missing); the key id is computed from each `*.pub`, never read
+  from its name. `python -m pelagos.core.release keygen|manifest|sign|verify`
+  is what `scripts/release.sh` runs (from the released tree, so the packaged
+  keys and `STATE_SCHEMA` are those of the release); the private key is PEM
+  PKCS#8 or OpenSSH, with `PELAGOS_RELEASE_KEY_PASSWORD` when encrypted, and
+  `release.sh` refuses a key inside the source tree.
 - **Signature state** (`SignatureState`, computed by the helper, never only
   by the web process): `valid` (known key, signature verifies), `unsigned`
   (no `.sig`), `unknown_key` (well-formed `.sig`, key id not in

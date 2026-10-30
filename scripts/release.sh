@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
 # Cut a release: set the version, tag it, build the amd64 and arm64 debs from the tagged tree
-# (Debian 13 containers, arm64 through qemu binfmt), write SHA256SUMS and short release notes.
+# (Debian 13 containers, arm64 through qemu binfmt), write release.json, short release notes and
+# SHA256SUMS over them all, then SHA256SUMS.sig when a release key is available.
 #
 # Usage: release.sh [--no-tag] [--since REF] [--out DIR] VERSION
 #   VERSION   0.1.1, or a pre-release 0.1.1rc1 (0.1.1~rc1 is accepted too)
@@ -10,7 +11,9 @@
 #   --out     parent of the release directory (default: build/release); files land in OUT/VERSION
 # Without --no-tag the tree must be clean: the script commits "chore(release): VERSION" when
 # backend/pelagos/__init__.py differs, tags vVERSION, then commits the next .dev0 version.
-# Nothing is pushed. Environment: DOCKER (default docker), ARCHES (default "amd64 arm64").
+# Nothing is pushed. Environment: DOCKER (default docker), ARCHES (default "amd64 arm64"),
+# PELAGOS_RELEASE_KEY (Ed25519 private key outside the repository; unset: unsigned release),
+# PELAGOS_RELEASE_KEY_PASSWORD (its passphrase, if any), PELAGOS_PYTHON (default backend/.venv).
 set -euo pipefail
 
 src="$(cd "$(dirname "$0")/.." && pwd)"
@@ -21,7 +24,7 @@ while [[ $# -gt 0 ]]; do
     --no-tag) tag_it=0 ;;
     --since) since="${2:?--since needs a ref}"; shift ;;
     --out) out="${2:?--out needs a directory}"; shift ;;
-    -h|--help) sed -n '3,15p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,19p' "$0"; exit 0 ;;
     -*) echo "release: unknown option $1" >&2; exit 2 ;;
     *) break ;;
   esac
@@ -34,7 +37,16 @@ version="${version/\~/}"
 tag="v$version"
 DOCKER="${DOCKER:-docker}"
 ARCHES="${ARCHES:-amd64 arm64}"
+PY="${PELAGOS_PYTHON:-$src/backend/.venv/bin/python}"
 cd "$src"
+
+key="${PELAGOS_RELEASE_KEY:-}"
+if [[ -n "$key" ]]; then
+  [[ -f "$key" ]] || { echo "release: PELAGOS_RELEASE_KEY $key is not a file" >&2; exit 1; }
+  # A private key never lives in the source tree, where git could pick it up.
+  case "$(realpath "$key")/" in "$src"/*) echo "release: the release key must be outside $src" >&2; exit 1 ;; esac
+fi
+"$PY" -c 'import cryptography' 2>/dev/null || { echo "release: $PY lacks cryptography (make venv)" >&2; exit 1; }
 
 set_version() { sed -i "s/^__version__ = \".*\"/__version__ = \"$2\"/" "$1/$init"; }
 
@@ -84,7 +96,11 @@ for arch in "${arches[@]}"; do
     { echo "release: $deb has unexpected control fields" >&2; exit 1; }
   cp "$deb" "$dest/"
 done
-(cd "$dest" && sha256sum -- *.deb > SHA256SUMS)
+(cd "$dest" && sha256sum -- *.deb) > "$work/packages.sums"
+published="$(TZ=UTC0 git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd "$ref")"
+# The tooling and the packaged public keys of the released tree, not of the working tree.
+release_py() { PYTHONPATH="$work/backend" "$PY" -m pelagos.core.release "$@"; }
+release_py manifest "$dest" "${debver%-1}" --published-at "$published"
 
 {
   echo "# Pelagos $version"
@@ -100,8 +116,11 @@ done
   other="$(git log --no-merges --format=%s "$range" | grep -cvE '^(feat|fix)(\(|:)' || true)"
   echo -e "\n$other other commits (tests, docs, CI, refactoring)."
   echo -e "\n## Files\n"
-  sed 's/^/    /' "$dest/SHA256SUMS"
+  sed 's/^/    /' "$work/packages.sums"
 } > "$dest/NOTES.md"
+(cd "$dest" && sha256sum -- *.deb release.json NOTES.md > SHA256SUMS)
+release_py sign "$dest"
+release_py verify "$dest" >&2 || { echo "release: $dest does not verify" >&2; exit 1; }
 
 if [[ "$tag_it" == 1 ]]; then
   IFS=. read -r major minor patch <<<"${version%%[abr]*}"

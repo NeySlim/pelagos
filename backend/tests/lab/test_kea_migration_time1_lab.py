@@ -97,20 +97,22 @@ class TestKeaMigrationTime1:
         ssh(STANDBY[0], f"sudo sh -c 'echo >> {k3.mdir(mid)}/private/target/kea-dhcp4.conf'")
         plan = api(PRIMARY[1]).post(f"/install/kea-migration/{mid}/plan", {"phase": "migrate"})
         assert [c["after"]["step"] for c in plan["changes"]][:4] == [
+            "kea-mig-validate-partner",
             "kea-mig-ha-maintenance",
             "kea-mig-stop",
             "kea-mig-install",
-            "kea-mig-validate-partner",
         ]
         job = run_job(plan)
         assert job["state"] == "failed" and "automatic return" in job["error"], job["error"]
         names = [s["name"].split("/")[1] for s in job["steps"] if s["name"].startswith("kea-migration/")]
-        assert names[-5:] == [
+        assert names[-7:] == [
             "kea-mig-stop",
             "kea-mig-install",
             "kea-mig-start",
             "kea-mig-start",
             "kea-mig-ha-maintenance",
+            "kea-mig-wait-ha",
+            "kea-mig-wait-ha",
         ], names
         mig = api(PRIMARY[1]).get(f"/install/kea-migration/{mid}")
         assert mig["state"] == "rolled_back" and mig["error_step"] == "kea-mig-install", mig
@@ -131,8 +133,9 @@ class TestKeaMigrationTime1:
         mig = api(PRIMARY[1]).get(f"/install/kea-migration/{mid}")
         assert (mig["state"], mig["stage"], mig["rollback_possible"]) == ("migrating", "standby", True), mig
         standby = next(n for n in mig["nodes"] if n["role"] == "standby")
-        assert standby["to_version"].startswith("3.2.") and standby["step"] == "kea-mig-validate-partner"
-        assert "the partner's file is accepted" in job["steps"][-1]["output"], job["steps"][-1]
+        assert standby["to_version"].startswith("3.2.") and standby["step"] == "kea-mig-install"
+        checked = next(s for s in job["steps"] if "kea-mig-validate-partner" in s["name"])
+        assert "accepted" in checked["output"], checked
         # The standby: ISC 3.2, Debian Kea gone, nothing running, its 3.x files with short delays.
         pkgs = ssh(STANDBY[0], "dpkg-query -W -f '${Package} ${Status}\\n' 'kea*' 'isc-kea*' 2>/dev/null")[1]
         assert "isc-kea-dhcp4 install ok installed" in pkgs, pkgs
@@ -159,6 +162,8 @@ class TestKeaMigrationTime1:
             "kea-mig-start",
             "kea-mig-start",
             "kea-mig-ha-maintenance",
+            "kea-mig-wait-ha",
+            "kea-mig-wait-ha",
         ]
         started = time.monotonic()
         job = run_job(back)

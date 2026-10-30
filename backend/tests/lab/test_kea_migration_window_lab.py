@@ -171,10 +171,7 @@ class TestKeaMigrationWindow:
             while time.monotonic() < deadline:
                 mig = migration(mid)
                 standby = next(n for n in mig["nodes"] if n["role"] == "standby")
-                if mig["stage"] == "standby" and standby["step"] in (
-                    "kea-mig-install",
-                    "kea-mig-validate-partner",
-                ):
+                if mig["stage"] == "standby" and standby["step"] == "kea-mig-install":
                     got["ip"] = probe_get(MAC_TIME1)
                     got["stage"] = migration(mid)["stage"]
                     return

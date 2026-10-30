@@ -1,0 +1,156 @@
+# SPDX-License-Identifier: Apache-2.0
+# Publishes the node and all-in-one images of a release tag to ghcr.io/<owner>/pelagos and
+# ghcr.io/<owner>/pelagos-allinone (linux/amd64 and linux/arm64), tagged <version> and latest
+# (no latest for a pre-release). Manual only; the images are smoke tested on both arches before
+# the push. Independent of the packages: it never touches the GitHub release.
+name: images
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish (e.g. v0.3.1)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    outputs:
+      image_tag: ${{ steps.version.outputs.image_tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Tag name
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9.]*$ ]] || { echo "not a version tag: $TAG" >&2; exit 1; }
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+      - name: Version (the tag must match backend/pelagos/__init__.py)
+        id: version
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          version="$(packaging/version.sh python)"
+          if [ "${TAG#v}" != "$version" ]; then
+            echo "tag $TAG does not match the project version $version" >&2
+            exit 1
+          fi
+          image_tag="$(packaging/version.sh docker)"
+          echo "image_tag=$image_tag" >> "$GITHUB_OUTPUT"
+          # PEP 440 pre-releases (dev, a, b, rc) carry a dash in the image tag.
+          case "$image_tag" in *-*) echo "prerelease=true" ;; *) echo "prerelease=false" ;; esac >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci --no-fund --no-audit
+          npm run build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+
+  smoke:
+    name: smoke (${{ matrix.arch }})
+    needs: frontend
+    strategy:
+      fail-fast: true
+      matrix:
+        arch: [amd64, arm64]
+    # Same checks as the docker job of packages.yml; the ISC images of the compose stack are
+    # amd64 only, so compose is tested on amd64. arm64 runs under qemu unless ARM64_RUNNER is set.
+    runs-on: ${{ matrix.arch == 'arm64' && (vars.ARM64_RUNNER || 'ubuntu-24.04') || 'ubuntu-24.04' }}
+    timeout-minutes: 120
+    env:
+      DOCKER_DEFAULT_PLATFORM: linux/${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - name: qemu (arm64 image on an x86 runner)
+        if: matrix.arch == 'arm64' && runner.arch != 'ARM64'
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+        # The binfmt installer must run as the host arch, not the job default platform.
+        env:
+          DOCKER_DEFAULT_PLATFORM: ""
+        with:
+          platforms: arm64
+      - name: make docker
+        run: make docker
+      - name: Compose smoke test
+        if: matrix.arch == 'amd64'
+        # The runner's resolver holds port 53: the smoke test publishes DNS on 5300.
+        run: packaging/tests/compose-smoke.sh pelagos:latest
+      - name: make docker-allinone
+        run: make docker-allinone
+      - name: All-in-one smoke test
+        run: packaging/tests/allinone-smoke.sh pelagos-allinone:latest
+
+  push:
+    name: push (${{ matrix.image }})
+    needs: [frontend, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - image: pelagos
+            dockerfile: docker/Dockerfile
+          - image: pelagos-allinone
+            dockerfile: docker/allinone/Dockerfile
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: frontend-dist
+          path: frontend/dist
+      - name: Image name
+        id: name
+        # ghcr.io wants a lowercase repository path.
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
+        id: meta
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=raw,value=${{ needs.frontend.outputs.image_tag }}
+            type=raw,value=latest,enable=${{ needs.frontend.outputs.prerelease == 'false' }}
+      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

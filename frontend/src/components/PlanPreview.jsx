@@ -543,7 +543,7 @@ export function PlanPreview({
             <ul className="list-disc ml-4 font-mono text-2xs whitespace-pre-wrap">
               {error.errors.map((e, i) => (
                 <li key={i}>
-                  {e.field ? `${e.field}: ` : ''}
+                  {e.field || e.tool ? `${e.field || e.tool}: ` : ''}
                   {errorItemText(e)}
                 </li>
               ))}

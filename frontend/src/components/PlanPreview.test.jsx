@@ -124,6 +124,16 @@ describe('PlanPreview', () => {
     await waitFor(() => expect(screen.getByTestId('plan-apply-error')).toHaveTextContent("unknown option 'forwarder'"))
   })
 
+  it('names the tool of an engine validation error', async () => {
+    const err = Object.assign(new Error('The engine rejected the configuration'), {
+      code: 'engine_validation_failed',
+      errors: [{ tool: 'named-checkzone', message: 'zone example.lan/IN: has no NS records' }],
+    })
+    render(<PlanPreview plan={makePlan()} applyFn={vi.fn().mockRejectedValue(err)} />)
+    fireEvent.click(screen.getByTestId('plan-apply'))
+    await waitFor(() => expect(screen.getByTestId('plan-apply-error')).toHaveTextContent('named-checkzone: zone example.lan/IN'))
+  })
+
   it('offers to recompute a plan the server answered 410 for', async () => {
     const err = Object.assign(new Error('plan expired'), { code: 'plan_expired', status: 410 })
     const fresh = makePlan({ id: '01JBPLAN0000000000000000BB', summary: 'rebuilt' })

@@ -356,3 +356,38 @@ def test_peer_action_answers_the_node_row(services):
     actions._updates = services.updates
     row = actions(UPDATES_NODE, {}, "other")
     assert row["node_id"] == services.ctx.node.id and row["version"] == OLD and row["engines"] == []
+
+
+def test_engine_rows_come_from_the_collector_snapshots(admin, services):
+    me = services.ctx.node.id
+    payload = {
+        "package": {
+            "manager": "deb",
+            "name": "bind9",
+            "installed": "1:9.20.11-4",
+            "candidate": "1:9.20.15-1",
+        },
+        "cves": {"CVE-2025-40778": "update", "CVE-2024-1": "fixed"},
+    }
+
+    class Store:
+        def snapshot(self, node_id, engine, kind):
+            return (1, payload) if (node_id, engine, kind) == (me, "bind", "advisories") else None
+
+    services.updates.store = lambda: Store()
+    services.updates._engines = None
+    engines = admin.get(f"{V1}/admin/updates").get_json()["engines"]
+    assert engines == [
+        {
+            "node_id": me,
+            "engine": "bind",
+            "package": "bind9",
+            "installed": "1:9.20.11-4",
+            "candidate": "1:9.20.15-1",
+            "cves": ["CVE-2025-40778"],
+        }
+    ]
+    payload["package"]["candidate"] = "1:9.22.0-1"
+    services.updates._engines = None
+    resp = admin.post(f"{V1}/admin/updates/plan", json={"kind": "engine_packages", "packages": ["bind9"]})
+    assert resp.status_code == 400 and "changes series" in resp.get_json()["detail"]

@@ -27,6 +27,7 @@ from typing import Any, BinaryIO
 
 from pelagos import __version__
 from pelagos.auth.passwords import dummy_hash, verify_password
+from pelagos.core import engine_packages as ep
 from pelagos.core import settings_registry as reg
 from pelagos.core import update_rollout as ur
 from pelagos.core import update_sources as src
@@ -81,7 +82,7 @@ PELAGOS_CHECKS = (
     "permissions",
     "ha",
 )
-ENGINE_CHECKS = ("wait", "precheck", "ha_maintenance", "install", "version", "engine_checks", "ha")
+ENGINE_CHECKS = ("wait", "precheck", "ha_maintenance", "install", "version", "restart", "engine_checks", "ha")
 PLAN_FIELDS = {
     "kind",
     "version",
@@ -182,6 +183,7 @@ class UpdatesService:
         ha_primaries: Callable[[], Iterable[str]] | None = None,
         dns_primaries: Callable[[], Iterable[str]] | None = None,
         docker: Callable[[], bool] = in_docker,
+        store: Callable[[], Any] | None = None,
         clock: Callable[[], datetime] = _now,
     ) -> None:
         self.ctx = ctx
@@ -194,6 +196,7 @@ class UpdatesService:
         self.ha_primaries = ha_primaries or (lambda: ())
         self.dns_primaries = dns_primaries or (lambda: ())
         self.docker = docker
+        self.store = store
         self.clock = clock
         self._facts: tuple[str | None, str | None] | None = None
         self._engines: tuple[float, list[dict[str, Any]]] | None = None
@@ -250,10 +253,30 @@ class UpdatesService:
         with self._lock:
             if self._engines and now - self._engines[0] < ENGINE_CACHE_SECONDS:
                 return [dict(e) for e in self._engines[1]]
-        rows = self.engine_reader(self.ctx)
+        rows = self._snapshot_rows()
+        if rows is None:
+            rows = self.engine_reader(self.ctx)
         with self._lock:
             self._engines = (now, rows)
         return [dict(e) for e in rows]
+
+    def _snapshot_rows(self) -> list[dict[str, Any]] | None:
+        """Rows from the collector's last `advisories` snapshots (core.engine_packages), None when
+        it wrote none yet: the packages are then read here."""
+        try:
+            store = self.store() if self.store is not None else None
+            if store is None:
+                return None
+            me = self.ctx.node.id
+            snaps = {}
+            for engine in _ENGINES:
+                found = store.snapshot(me, engine.value, "advisories")
+                if found is not None:
+                    snaps[engine.value] = found[1]
+        except Exception:  # an unreadable cache falls back to the package manager
+            log.debug("advisories snapshots not read", exc_info=True)
+            return None
+        return ep.engine_rows(self.ctx.node.id, snaps) if snaps else None
 
     # The cluster ------------------------------------------------------------------------------
 
@@ -335,7 +358,8 @@ class UpdatesService:
             for e in node.get("engines") or []:
                 if not isinstance(e, dict):
                     continue
-                fixed = sorted(set(cves.get((node["node_id"], str(e.get("engine"))), [])))
+                fixed = cves.get((node["node_id"], str(e.get("engine"))), []) + list(e.get("cves") or [])
+                fixed = sorted(set(fixed))
                 out.append(
                     {
                         "node_id": node["node_id"],
@@ -815,25 +839,18 @@ class UpdatesService:
         names = body.get("packages")
         if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
             raise ValidationError("packages must list package names", [field_error("packages", "required")])
-        wanted: dict[str, str] = {}
+        rows = [r for r in self._engines_of([nodes[n] for n in chosen])]
+        try:
+            wanted, targets = ep.rollout_packages(rows, names, chosen)
+        except ep.EnginePackagesRefused as exc:
+            raise ValidationError(str(exc), [field_error(exc.field, str(exc))]) from None
         per_node: dict[str, dict[str, tuple[str, str]]] = {}
-        for n in chosen:
-            for e in nodes[n].get("engines") or []:
-                if e.get("package") in names and e.get("candidate"):
-                    cand = str(e["candidate"])
-                    if wanted.setdefault(e["package"], cand) != cand:
-                        raise ValidationError(
-                            f"{e['package']}: the nodes are offered different versions",
-                            [field_error("packages", f"{e['package']} differs between nodes")],
-                        )
-                    per_node.setdefault(n, {})[e["package"]] = (str(e.get("installed")), cand)
-        missing = [p for p in names if p not in wanted]
-        if missing:
-            raise ValidationError(
-                f"no newer {missing[0]} is offered on the chosen nodes",
-                [field_error("packages", f"no candidate for {missing[0]}")],
-            )
-        targets = [n for n in chosen if n in per_node]
+        for r in rows:
+            if r["node_id"] in targets and r.get("package") in wanted and r.get("candidate"):
+                per_node.setdefault(r["node_id"], {})[r["package"]] = (
+                    str(r.get("installed")),
+                    wanted[r["package"]],
+                )
         cfg = reg.domain(self._settings(), "updates")
         order = self._order(body, targets)
         update = {
@@ -852,7 +869,7 @@ class UpdatesService:
             "source": "repository",
             "artifacts": {},
             "checksums_sha256": None,
-            "from_versions": {n: nodes[n].get("version") for n in order},
+            "from_versions": {},
             "unsigned_accepted": False,
         }
         changes = [

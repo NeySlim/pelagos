@@ -5065,8 +5065,9 @@ the screen (U6), daemon and lab tests (U7).
   "previous_kept","state_schema","reachable","engines": [{"engine","package","installed",
   "candidate"}]}`, lockless); a node before 0.3.0 answers `not_supported` and its row keeps only
   the status `version` and `reachable`. `previous_kept` is the release of `previous.json` when
-  `packages/<release>/` is still held. `engines[].cves` are the CVEs of the node's
-  `security_advisory` alert whose status is `update`. `available` merges the releases held in
+  `packages/<release>/` is still held. The engine rows come from the collector's
+  `advisories` snapshots (`core.engine_packages.engine_rows`), else from the package manager;
+  `cves` adds those of the node's `security_advisory` alerts whose status is `update`. `available` merges the releases held in
   `packages/` (source `upload`, signature from the packaged keys, `release.json` and
   `NOTES.md`) with `available.json`, newest first, only versions newer than at least one node.
   The upload calls `update_verify` with `allow_unsigned: true` (the acceptance comes with the
@@ -5075,8 +5076,8 @@ the screen (U6), daemon and lab tests (U7).
   unreachable node, a version not newer than a chosen node's, and leaves out nodes already on
   the version; `state_schema_changed` is true when the release schema is unknown or differs
   from a target node's; a `rollback` plan takes nodes whose `previous_kept` is the version.
-  An `engine_packages` plan takes the candidates of the chosen nodes, which must agree per
-  package. The `rollback` action is refused when `state_schema_changed`, and when the done
+  An `engine_packages` plan goes through `core.engine_packages.rollout_packages` (BIND or Kea
+  names only, one candidate per package, same series), its rollout has no `from_version`. The `rollback` action is refused when `state_schema_changed`, and when the done
   nodes came from different versions.
 - **Alerts**: `update_available` (info, cluster-wide from the service
   node, subject `update:pelagos`; details `version`, `installed`,

@@ -352,11 +352,17 @@ class PeerActions:
 
     def updates_node(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
         """This node's row of GET /admin/updates, with its BIND and Kea packages."""
-        if self._updates is None:
-            from pelagos.services.updates_service import UpdatesService
+        if self._updates is not None:
+            return self._updates.local_node()
+        from pelagos.services.alerts_service import SeriesCache
+        from pelagos.services.updates_service import UpdatesService
 
-            self._updates = UpdatesService(self.ctx)
-        return self._updates.local_node()
+        # A connection of this thread: the action threads never share one.
+        cache = SeriesCache(self.ctx.paths.series_db)
+        try:
+            return UpdatesService(self.ctx, store=lambda: cache.store).local_node()
+        finally:
+            cache.close()
 
     def notify_state(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
         """This node's dispatcher state, for the overview of a node that is not the sender."""

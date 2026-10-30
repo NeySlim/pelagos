@@ -119,6 +119,7 @@ class Services:
             self.alerts,
             ha_primaries=self._ha_primaries,
             dns_primaries=self._dns_primaries,
+            store=lambda: self.cache.store,
         )
         self.plans.cluster_parts[PlanScope.UPDATE] = RolloutWriter(ctx)
         self.ipv6 = Ipv6Service(ctx, self.peers, self.hosts, self.cache)

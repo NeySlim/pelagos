@@ -11,6 +11,7 @@ and counts. A peer that does not answer is reported in `unavailable`.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from datetime import datetime
@@ -133,10 +134,12 @@ class AlertsService:
         state: str | None = None,
         node_id: str | None = None,
         engine: str | None = None,
+        q: str | None = None,
         page: int = 1,
         per_page: int = 50,
     ) -> tuple[list[Alert], int, list[dict[str, Any]]]:
-        """One page of the cluster's alerts, its total, and the nodes whose alerts are missing."""
+        """One page of the cluster's alerts, its total, and the nodes whose alerts are missing.
+        `q`: case-insensitive text found in the title, the subject or the details."""
         for name, value, allowed in (
             ("kind", kind, {k.value for k in AlertKind}),
             ("severity", severity, {s.value for s in Severity}),
@@ -156,9 +159,13 @@ class AlertsService:
         rows = [a for a in view.alerts if state is None or a.state.value == state]
         if node_id is not None:
             rows = [a for a in rows if matches_node(a, node_id)]
+        needle = (q or "").strip().lower()
+        if needle:
+            rows = [a for a in rows if needle in _search_text(a)]
         rows.sort(key=lambda a: (a.state is AlertState.RESOLVED, -a.last_seen.timestamp(), a.id))
         # Resolved rows past what each node returned still count, so the pages beyond stay reachable.
-        total = len(rows) + (view.resolved_unlisted if include_resolved and node_id is None else 0)
+        unlisted = view.resolved_unlisted if include_resolved and node_id is None and not needle else 0
+        total = len(rows) + unlisted
         start = (page - 1) * per_page
         return rows[start : start + per_page], total, view.unavailable
 
@@ -323,3 +330,9 @@ class SeriesService:
             except ServiceError as exc:
                 unavailable.append({"node_id": peer.id, "name": peer.name, "error": exc.detail})
         return {"series": series, "unavailable": unavailable}
+
+
+def _search_text(alert: Alert) -> str:
+    """What a free-text alert search looks into: title, subject, node and details, lower-cased."""
+    details = json.dumps(alert.details or {}, default=str, ensure_ascii=False)
+    return " ".join((alert.title or "", alert.subject or "", alert.node_id or "", details)).lower()

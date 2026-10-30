@@ -672,14 +672,15 @@
       "target": "Cible",
       "zone": "Zone inverse",
       "category": "Catégorie",
-      "age": "Bail",
+      "age": "Dernière observation",
       "origin": "Origine"
     },
     "categories": {
       "orphan": "Orphelin",
       "external": "Cible externe, non vérifiable",
       "excepted": "Ignorés",
-      "all": "Tous"
+      "all": "Tous",
+      "stale": "Périmés"
     },
     "origins": {
       "all": "Toute origine",
@@ -689,7 +690,6 @@
     "targetHas": "a {{addresses}}",
     "targetNone": "aucun enregistrement d'adresse",
     "notVerifiable": "hors des zones gérées",
-    "leaseSeen": "{{state}}, vu le {{date}}",
     "leaseGone": "posé par le DDNS, bail disparu",
     "ignored": "Ignoré",
     "create": "Créer le {{rtype}}",
@@ -704,7 +704,15 @@
     "selectAll": "Sélectionner toutes les lignes",
     "readError": "{{source}} non lu : {{message}}",
     "empty": "Aucun PTR orphelin",
-    "emptyHelp": "Chaque PTR des zones inverses pointe vers un nom qui a cette adresse."
+    "emptyHelp": "Chaque PTR des zones inverses pointe vers un nom qui a cette adresse.",
+    "seenLease": "bail {{state}}, {{date}}",
+    "seenNeighbor": "voisin IPv6, {{date}}",
+    "leaseActive": "bail DDNS actif",
+    "neverSeen": "jamais vu",
+    "wait": "tenu par le DDNS",
+    "waitHelp": "L'adresse est louée et le PTR a été posé par le DDNS : le serveur DHCP le retire à la fin du bail.",
+    "deleteStale": "Supprimer {{count}} périmés",
+    "deleteStaleConfirm": "Supprimer les {{count}} PTR périmés ? Aucun bail, aucune réservation ni observation IPv6 ne tient leur adresse. Le plan montre chaque enregistrement avant de l'appliquer."
   },
   "resolverHealth": {
     "title": "Santé",

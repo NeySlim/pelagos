@@ -111,6 +111,13 @@ describe('AlertsPage', () => {
     expect(calls.list.mock.calls.at(-1)[0].node_id).toBe(N2)
   })
 
+  it('searches the alerts by free text kept in the URL', async () => {
+    renderPage('/alerts?q=192.0.2.106')
+    await screen.findByText('Pool is full')
+    expect(calls.list.mock.calls.at(-1)[0].q).toBe('192.0.2.106')
+    expect(screen.getByDisplayValue('192.0.2.106')).toBeInTheDocument()
+  })
+
   it('lists open alerts by default with their counts', async () => {
     renderPage()
     const table = await screen.findByTestId('alerts-table')
@@ -157,6 +164,8 @@ describe('AlertsPage', () => {
 
   it('links a failing channel alert to its channel', () => {
     expect(subjectLink({ subject: 'notify:01JCH' })).toEqual({ to: '/admin/notifications?channel=01JCH', label: 'openChannel' })
+    expect(subjectLink({ subject: 'ptr:stale' })).toEqual({ to: '/dns/ptr-orphans?category=stale', label: 'openOrphans' })
+    expect(subjectLink({ subject: 'ptr:missing' })).toEqual({ to: '/hosts?only_inconsistent=true', label: 'openHosts' })
   })
 
   it('links the DDNS failover alerts and the D2 advice to the failover tab', () => {

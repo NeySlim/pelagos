@@ -177,30 +177,42 @@ def test_orphans_list_and_cleanup(admin, fake_registry):
     rev[(f"80.{REV}", "DHCID")] = RRset(
         f"80.{REV}", "DHCID", 300, ["AAIBY2/AuCccgoJbsaxcQc9TUapptP69lOjxfNuVAA2kjEA="]
     )
+    # The lease of "laptop" (a short name) holds .150: the A is the fix there.
+    rev[(f"150.{REV}", "PTR")] = RRset(f"150.{REV}", "PTR", 300, ["laptop.example.lan."])
     rev[(f"90.{REV}", "PTR")] = RRset(f"90.{REV}", "PTR", 300, ["mail.example.net."])
     r = admin.get("/api/v1/dns/ptr/orphans")
     assert r.status_code == 200, r.get_json()
     body = r.get_json()
     items = {i["ip"]: i for i in body["items"]}
-    assert sorted(items) == ["192.0.2.70", "192.0.2.80", "192.0.2.90"]
+    assert sorted(items) == ["192.0.2.150", "192.0.2.70", "192.0.2.80", "192.0.2.90"]
     assert items["192.0.2.70"]["fix"] == "delete" and items["192.0.2.70"]["zone"] == REV
-    assert items["192.0.2.80"]["fix"] == "create_a" and items["192.0.2.80"]["ddns"] is True
+    # A DDNS PTR nothing holds any more is stale: delete, never recreate the host.
+    assert items["192.0.2.80"]["fix"] == "delete" and items["192.0.2.80"]["ddns"] is True
+    assert items["192.0.2.80"]["stale"] is True and items["192.0.2.80"]["last_seen"] is None
+    assert items["192.0.2.150"]["fix"] == "create_a" and items["192.0.2.150"]["stale"] is False
+    assert items["192.0.2.150"]["lease"]["state"] == "default"
     assert items["192.0.2.90"]["category"] == "external"
-    assert body["counts"] == {"orphan": 2, "external": 1, "excepted": 0}
+    assert body["counts"] == {"orphan": 3, "external": 1, "excepted": 0, "stale": 2}
     plan = admin.post(
         "/api/v1/dns/ptr/orphans/plan",
         json={
             "delete": [{"zone": REV, "name": f"70.{REV}", "target": "www.example.lan."}],
-            "create": [{"ip": "192.0.2.80", "target": "printer.example.lan."}],
+            "create": [{"ip": "192.0.2.150", "target": "laptop.example.lan."}],
         },
     ).get_json()
     assert plan["requires_confirmation"] is True
     assert plan["summary_message"]["key"] == "plan.ptr.cleanup"
     apply(admin, plan, confirm=True)
     assert ptr_targets(dns, 70) is None
-    assert dns.rrsets["example.lan."][("printer.example.lan.", "A")].rdata == ["192.0.2.80"]
+    assert dns.rrsets["example.lan."][("laptop.example.lan.", "A")].rdata == ["192.0.2.150"]
+    # Creating an A alone is confirmed too: it brings a host back into the zone.
+    plan = admin.post(
+        "/api/v1/dns/ptr/orphans/plan",
+        json={"create": [{"ip": "192.0.2.80", "target": "printer.example.lan."}]},
+    ).get_json()
+    assert plan["requires_confirmation"] is True
     left = {i["ip"] for i in admin.get("/api/v1/dns/ptr/orphans").get_json()["items"]}
-    assert left == {"192.0.2.90"}
+    assert left == {"192.0.2.80", "192.0.2.90"}
 
 
 def test_orphans_plan_validation(admin):

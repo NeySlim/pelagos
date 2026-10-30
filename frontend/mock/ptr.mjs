@@ -107,19 +107,29 @@ export function ptrHelpers(state, { reverseToIp, v6Nibbles, canonicalV6 }) {
           const key = `${ip}|${target}`
           const exception = exceptions().find((e) => e.kind === 'ptr_mismatch' && e.key === key) || null
           const lease = (state.leases[rtype === 'A' ? 'v4' : 'v6'] || []).find((l) => l.ip_address === ip)
+          // As the backend: an A is proposed only when a lease of the target's name holds the address.
+          const active = lease && lease.state === 'default'
+          const holder = String((active && lease.hostname) || '').toLowerCase().replace(/\.$/, '')
+          const holds = Boolean(holder) && (holder.includes('.') ? `${holder}.` === target : target.split('.')[0] === holder)
+          const sameFamily = addresses.some((a) => a.includes(':') === (rtype === 'AAAA'))
+          const ddns = dhcid.has(r.name)
+          const fix = !zone ? null : ddns && active ? 'wait' : !sameFamily && holds ? 'create_a' : 'delete'
           items.push({
             ip, name: r.name, target, rtype, zone: z.name, view: z.view || '_default',
             category: zone ? 'orphan' : 'external', target_zone: zone, target_addresses: addresses,
-            ddns: dhcid.has(r.name),
-            fix: zone ? (addresses.some((a) => a.includes(':') === (rtype === 'AAAA')) ? 'delete' : 'create_a') : null,
+            ddns, fix, held: Boolean(active), stale: fix === 'delete' && !active,
             exception_key: key, excepted: Boolean(exception), exception,
-            lease: dhcid.has(r.name) && lease ? { state: lease.state, hostname: lease.hostname, cltt: lease.cltt, expires_at: lease.expires_at } : null,
+            lease: lease ? { state: lease.state, hostname: lease.hostname, cltt: lease.cltt, expires_at: lease.expires_at } : null,
+            last_seen: lease?.cltt ? { at: lease.cltt, source: 'lease' } : null,
           })
         }
       }
     }
-    const counts = { orphan: 0, external: 0, excepted: 0 }
-    for (const i of items) counts[i.excepted ? 'excepted' : i.category] += 1
+    const counts = { orphan: 0, external: 0, excepted: 0, stale: 0 }
+    for (const i of items) {
+      counts[i.excepted ? 'excepted' : i.category] += 1
+      if (i.stale && !i.excepted) counts.stale += 1
+    }
     return { items, counts, errors: {} }
   }
 

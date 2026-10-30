@@ -2,7 +2,8 @@
 """Lease lookups and cursor pages over Kea's own commands, so no read walks the whole lease table.
 
 A search term is sent to the matching Kea lookup (lease4-get, -get-by-hw-address, -get-by-hostname,
-lease6-get-by-duid); a page is one bounded lease4-get-page / lease6-get-page walk from a cursor.
+lease6-get-by-duid), a hostname also to a bounded substring walk; a page is one bounded
+lease4-get-page / lease6-get-page walk from a cursor.
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ from pelagos.domain import Lease
 MAX_PAGE = 1000
 # A subnet filter walks at most this many Kea pages before answering with a cursor.
 MAX_SCAN_PAGES = 10
+# A partial hostname search reads at most this many leases.
+SCAN_LIMIT = 20000
 _MAC = re.compile(r"^[0-9a-f]{2}([:-][0-9a-f]{2}){5}$", re.I)
 _HEX_ID = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){6,}$", re.I)
 
@@ -49,10 +52,32 @@ def lookup(backend: Any, q: str) -> list[Lease]:
             return list(backend.leases_by_duid(text.lower()))
         except (NotSupported, AttributeError):
             return list(backend.leases_by_hw(text.lower()))
+    return by_hostname(backend, text.lower())
+
+
+def by_hostname(backend: Any, needle: str) -> list[Lease]:
+    """Leases whose hostname contains `needle`: Kea's exact lookup, then a bounded page walk for
+    the partial matches ("printer" finds printer.example.lan.), at most SCAN_LIMIT leases read."""
+    found: dict[tuple[str, str | None], Lease] = {}
     try:
-        return list(backend.leases_by_hostname(text.lower()))
+        for lease in backend.leases_by_hostname(needle):
+            found[(lease.ip_address, lease.lease_type)] = lease
     except ConnectorError:
-        return []
+        pass
+    cursor: str | None = None
+    read = 0
+    while read < SCAN_LIMIT:
+        try:
+            rows, cursor = page(backend, None, cursor, MAX_PAGE)
+        except (ConnectorError, NotSupported):
+            break
+        read += len(rows)
+        for lease in rows:
+            if needle in (lease.hostname or "").lower():
+                found.setdefault((lease.ip_address, lease.lease_type), lease)
+        if cursor is None or not rows:
+            break
+    return list(found.values())
 
 
 def page(

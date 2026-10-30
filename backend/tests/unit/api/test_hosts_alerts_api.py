@@ -70,6 +70,9 @@ def test_hosts_join(role_client):
     }
     www = hosts["ip:192.0.2.10"]
     assert www["mac"] is None and www["lease"] is None and www["hostname"] == "www.example.lan."
+    # A reservation or lease name without domain stays a short name, never "pc2." under the root.
+    assert hosts["mac:aa:bb:cc:dd:ee:02"]["hostname"] == "pc2"
+    assert hosts["mac:aa:bb:cc:dd:ee:50"]["hostname"] == "laptop"
     assert page["meta"]["errors"] == {}
     assert c.get("/api/v1/hosts?q=laptop").get_json()["total"] == 1
     assert c.get("/api/v1/hosts?subnet_id=3").get_json()["items"][0]["lease"]["hostname"] == "printer"
@@ -87,6 +90,29 @@ def test_hosts_inconsistencies_from_alerts(role_client, alert_db):
     page = c.get("/api/v1/hosts?only_inconsistent=true").get_json()
     assert page["total"] == 1 and page["items"][0]["alerts"][0]["kind"] == "ptr_mismatch"
     assert c.get("/api/v1/hosts?only_inconsistent=maybe").status_code == 400
+
+
+def test_grouped_ptr_alert_reaches_each_host_it_lists(role_client, node_ctx):
+    conn = series_mod.connect(node_ctx.paths.series_db)
+    AlertStore(conn).upsert(
+        Alert(
+            AlertKind.PTR_MISMATCH,
+            Severity.INFO,
+            "ptr:stale",
+            "2 PTR records name a host without that address (stale)",
+            details={
+                "cause": "stale",
+                "count": 2,
+                "items": [
+                    {"ip": "192.0.2.100", "target": "old.example.lan."},
+                    {"ip": "192.0.2.10", "target": "old.example.lan."},
+                ],
+            },
+        )
+    )
+    conn.close()
+    page = role_client("viewer").get("/api/v1/hosts?only_inconsistent=true").get_json()
+    assert sorted(h["key"] for h in page["items"]) == ["ip:192.0.2.10", "mac:aa:bb:cc:dd:ee:01"]
 
 
 def test_host_plan_expands_and_applies(role_client, fake_registry):

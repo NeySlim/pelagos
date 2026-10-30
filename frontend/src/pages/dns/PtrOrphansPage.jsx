@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Orphan PTRs: PTR records whose target has no A/AAAA to their address (GET /dns/ptr/orphans).
 // Targets outside the managed zones are listed apart (not verifiable). Each row is deleted, gets
-// its missing address record, or is ignored as the admin's choice; deletes go in one plan.
+// its missing address record (only when a lease, reservation or sighting of that name holds the
+// address), or is ignored as the admin's choice; deletes go in one plan, stale ones in bulk.
 import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { ArrowsClockwise, LinkBreak, Trash, Plus, EyeSlash, Eye } from '@phosphor-icons/react'
 import { PageLayout, DataTable, Button, Badge } from '../../components'
 import { RichStatsBar } from '../../components/ui/RichStatsBar'
@@ -15,15 +17,16 @@ import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { usePlanFlow } from '../dhcp/hooks'
 import { IgnoreDialog } from '../alerts/IgnoreDialog'
-import { CATEGORIES, ORIGINS, deleteBody, createBody, filterOrphans, orphanKey, settledExceptions } from './ptrOrphans'
+import { CATEGORIES, ORIGINS, deleteBody, createBody, filterOrphans, lastSeen, orphanKey, settledExceptions, staleOrphans } from './ptrOrphans'
 
 export default function PtrOrphansPage() {
   const { t } = useTranslation(['dns', 'common'])
   const { hasPermission } = usePermission()
-  const { showSuccess, showError } = useNotification()
+  const { showSuccess, showError, showConfirm } = useNotification()
   const canWrite = hasPermission('write:dns.records')
   const canIgnore = hasPermission('write:alerts')
-  const [category, setCategory] = useState('orphan')
+  const [params] = useSearchParams()
+  const [category, setCategory] = useState(() => (CATEGORIES.includes(params.get('category')) ? params.get('category') : 'orphan'))
   const [origin, setOrigin] = useState('all')
   const [selected, setSelected] = useState(() => new Set())
   const [ignoring, setIgnoring] = useState(null)
@@ -66,6 +69,11 @@ export default function PtrOrphansPage() {
   const plan = (body, rows) => {
     planned.current = rows
     return flow.build(() => api.dns.ptrOrphansPlan(body))
+  }
+  const stale = useMemo(() => staleOrphans(all), [all])
+  const deleteStale = async () => {
+    const ok = await showConfirm(t('orphans.deleteStaleConfirm', { count: stale.length }), { title: t('orphans.deleteStale', { count: stale.length }), confirmText: t('orphans.delete'), variant: 'danger' })
+    if (ok) plan(deleteBody(stale), stale)
   }
   const revoke = async (row) => {
     try {
@@ -117,6 +125,7 @@ export default function PtrOrphansPage() {
       render: (r) => (
         <span className="inline-flex flex-wrap gap-1">
           <Badge variant={r.category === 'external' ? 'outline' : 'warning'} size="sm">{t(`orphans.categories.${r.category}`)}</Badge>
+          {r.stale && !r.excepted && <Badge variant="outline" size="sm">{t('orphans.categories.stale')}</Badge>}
           {r.ddns && <Badge variant="purple" size="sm">DDNS</Badge>}
           {r.excepted && <Badge variant="outline" size="sm" title={r.exception?.comment}>{t('orphans.ignored')}</Badge>}
         </span>
@@ -125,7 +134,10 @@ export default function PtrOrphansPage() {
     {
       key: 'age',
       label: t('orphans.columns.age'),
-      render: (r) => <span className="text-xs whitespace-nowrap">{r.lease?.cltt ? t('orphans.leaseSeen', { date: formatDate(r.lease.cltt), state: r.lease.state }) : r.ddns ? t('orphans.leaseGone') : '-'}</span>,
+      render: (r) => {
+        const seen = lastSeen(r)
+        return <span className="text-xs whitespace-nowrap" data-testid="orphan-last-seen">{t(`orphans.${seen.key}`, { date: seen.date ? formatDate(seen.date) : '', state: seen.state || '' })}</span>
+      },
     },
     {
       key: 'actions',
@@ -139,6 +151,7 @@ export default function PtrOrphansPage() {
               {t('orphans.create', { rtype: r.rtype })}
             </Button>
           )}
+          {r.fix === 'wait' && <span className="text-2xs text-text-tertiary self-center" title={t('orphans.waitHelp')}>{t('orphans.wait')}</span>}
           {canWrite && (
             <Button variant="ghost" size="xs" disabled={flow.building} onClick={() => plan(deleteBody([r]), [r])} data-testid="orphan-delete">
               <Trash size={14} />
@@ -164,6 +177,7 @@ export default function PtrOrphansPage() {
 
   const stats = [
     { icon: LinkBreak, label: t('orphans.categories.orphan'), value: counts.orphan ?? '-', variant: counts.orphan ? 'warning' : 'success' },
+    { icon: Trash, label: t('orphans.categories.stale'), value: counts.stale ?? '-', variant: counts.stale ? 'warning' : 'neutral' },
     { icon: LinkBreak, label: t('orphans.categories.external'), value: counts.external ?? '-', variant: 'neutral' },
     { icon: EyeSlash, label: t('orphans.categories.excepted'), value: counts.excepted ?? '-', variant: 'neutral' },
   ]
@@ -181,6 +195,12 @@ export default function PtrOrphansPage() {
             <ArrowsClockwise size={14} />
             {t('common:actions.refresh')}
           </Button>
+          {canWrite && stale.length > 0 && (
+            <Button variant="secondary" size="sm" disabled={flow.building} onClick={deleteStale} data-testid="orphans-delete-stale">
+              <Trash size={14} />
+              {t('orphans.deleteStale', { count: stale.length })}
+            </Button>
+          )}
           {canIgnore && chosen.length > 0 && (
             <Button variant="secondary" size="sm" onClick={() => setIgnoring(chosen.filter((r) => !r.excepted))} data-testid="orphans-ignore-selected">
               <EyeSlash size={14} />

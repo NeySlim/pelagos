@@ -173,6 +173,27 @@ def test_forecast_ignores_flat_noisy_and_short_series():
     assert forecast.forecast_alerts("n1", "kea4", [row], {}, 80.0, CFG)[0].severity is Severity.CRITICAL
 
 
+def test_forecast_under_min_percent_needs_a_confirmed_trend():
+    # Half full: a morning rise then a plateau fits a line once, but the pool is not filling up.
+    rise = [(i * 3600, 10 + i // 2) for i in range(42)]
+    plateau = [(i * 3600, 31 - (i % 2)) for i in range(42, 84)]
+    points = rise + plateau
+    total = 61
+    assert forecast.days_to_full(points, total) is not None
+    assert not forecast.confirmed(points)
+    row = {"key": {"subnet_id": 1, "pool": "p"}, "points": [[t, v, total] for t, v in points]}
+    assert forecast.forecast_alerts("n1", "kea4", [row], {}, 80.0, CFG) == []
+    # The same window over the minimum use raises the forecast.
+    alerts = forecast.forecast_alerts("n1", "kea4", [row], {"kea4:subnet:1:pool:p": 65.0}, 80.0, CFG)
+    assert len(alerts) == 1 and alerts[0].details["confirmed"] is False
+    # A steady rise confirmed on both halves raises it at any use.
+    steady, total = ramp(per_day=100, total=1200)
+    assert forecast.confirmed(steady)
+    row = {"key": {"subnet_id": 1, "pool": "p"}, "points": [[t, v, total] for t, v in steady]}
+    alerts = forecast.forecast_alerts("n1", "kea4", [row], {}, 80.0, CFG)
+    assert alerts and alerts[0].details["confirmed"] is True
+
+
 def test_root_probe_names_differ_at_the_tld_level():
     names = {resolver.probe_qname() for _ in range(5)}
     assert len(names) == 5

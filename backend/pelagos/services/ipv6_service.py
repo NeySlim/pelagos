@@ -300,6 +300,22 @@ class Ipv6Service:
         ids = [n.id for n in self.ctx.cluster().nodes]
         return gather(self.ctx.node.id, self._local, self.peers, ids)
 
+    def last_seen_by_address(self) -> dict[str, dict[str, Any]]:
+        """Each observed IPv6 address with its latest observation over the cluster:
+        `{"last_seen": epoch seconds, "mac": ...}` (orphan PTR ages)."""
+        from pelagos.collector.ipv6.source import normalize_address
+
+        out: dict[str, dict[str, Any]] = {}
+        for obs in self.gathered().observations:
+            addr = normalize_address(str(obs.get("address") or ""))
+            seen = obs.get("last_seen")
+            if not addr or not isinstance(seen, int | float):
+                continue
+            held = out.get(addr)
+            if held is None or int(seen) > held["last_seen"]:
+                out[addr] = {"last_seen": int(seen), "mac": obs.get("mac")}
+        return out
+
     def _snapshots(self) -> list[dict[str, Any]]:
         conn = self.cache.conn
         if conn is None:

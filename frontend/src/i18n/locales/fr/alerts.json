@@ -31,7 +31,8 @@
     "kind": "Type",
     "engine": "Moteur",
     "node": "Nœud",
-    "allStates": "Tous les états"
+    "allStates": "Tous les états",
+    "search": "Adresse, nom, texte..."
   },
   "actions": {
     "ack": "Acquitter",
@@ -49,7 +50,9 @@
     "openPermissions": "Vérifier les permissions",
     "proposeFallback": "Proposer le repli vers des forwarders",
     "openResolver": "Ouvrir la santé du résolveur",
-    "openIpv6": "Ouvrir les hôtes IPv6"
+    "openIpv6": "Ouvrir les hôtes IPv6",
+    "openOrphans": "Ouvrir les PTR périmés",
+    "openHosts": "Ouvrir les hôtes incohérents"
   },
   "ack": {
     "title": "Acquitter l'alerte",

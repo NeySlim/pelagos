@@ -137,6 +137,8 @@ CATALOG: dict[str, str] = {
     "alert.ptr_mismatch": "{ip}: {problems}",
     "alert.ptr_mismatch.no_ptr": "{name} has no PTR (found {found})",
     "alert.ptr_mismatch.dangling": "PTR points to {target} which has no address record for it",
+    "alert.ptr_mismatch.missing": "{count} address records have no matching PTR",
+    "alert.ptr_mismatch.stale": "{count} PTR records name a host without that address (stale)",
     "alert.rpz_update": "RPZ list {name}: update failed ({error})",
     "rpz.dir_missing": "the RPZ folder {path} does not exist yet: enable the list first, its plan creates it",
     "alert.rpz_stuck": "RPZ list updates on this node have been running for {minutes} min",

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect } from 'vitest'
-import { createBody, deleteBody, filterOrphans, orphanKey, settledExceptions } from './ptrOrphans'
+import { createBody, deleteBody, filterOrphans, lastSeen, orphanKey, settledExceptions, staleOrphans } from './ptrOrphans'
 import { ptrOption } from './records'
 
 const REV = '2.0.192.in-addr.arpa.'
@@ -94,5 +94,25 @@ describe('ptrOption', () => {
     ]
     const opt = ptrOption({ mode: 'edit', before: { name: 'www.example.lan.', rdata: ['192.0.2.10'] }, after: ['198.51.100.7'], coverage })
     expect(opt).toMatchObject({ enabled: true, conflicts: [], uncovered: ['198.51.100.7'], stays: ['192.0.2.10'] })
+  })
+
+  it('lists the stale orphans nothing holds, ignored ones apart', () => {
+    const mixed = [
+      row('192.0.2.70', 'gone.example.lan.', { fix: 'delete', stale: true }),
+      row('192.0.2.71', 'old.example.lan.', { fix: 'delete', stale: true, excepted: true }),
+      row('192.0.2.72', 'live.example.lan.', { fix: 'create_a', stale: false }),
+      row('192.0.2.73', 'far.example.net.', { category: 'external', stale: false }),
+    ]
+    expect(staleOrphans(mixed).map((r) => r.ip)).toEqual(['192.0.2.70'])
+    expect(filterOrphans(mixed, 'stale').map((r) => r.ip)).toEqual(['192.0.2.70'])
+    expect(deleteBody(staleOrphans(mixed)).delete).toHaveLength(1)
+  })
+
+  it('tells the last sign of life of an address', () => {
+    expect(lastSeen({ last_seen: { at: '2026-10-29T10:00:00Z', source: 'lease' }, lease: { state: 'expired-reclaimed' } })).toEqual({ key: 'seenLease', date: '2026-10-29T10:00:00Z', state: 'expired-reclaimed' })
+    expect(lastSeen({ last_seen: { at: '2026-10-29T10:00:00Z', source: 'neighbor' } }).key).toBe('seenNeighbor')
+    expect(lastSeen({ fix: 'wait', ddns: true }).key).toBe('leaseActive')
+    expect(lastSeen({ ddns: true }).key).toBe('leaseGone')
+    expect(lastSeen({}).key).toBe('neverSeen')
   })
 })

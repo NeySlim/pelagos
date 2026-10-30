@@ -8,7 +8,7 @@ import { Input } from '../../components/Input'
 import { api } from '../../services/api'
 import { Checkbox, NativeSelect } from '../dhcp/ui'
 import { fieldErrors, isIPv4, isIPv6, isMac } from '../dhcp/lib'
-import { DEFAULT_VIEW, reverseZoneFor, subnetFor, zoneNamesIn, zoneViews } from './net'
+import { DEFAULT_VIEW, recordZoneNamesIn, reverseZoneFor, subnetFor, zoneViews } from './net'
 
 export function CreateHostModal({ subnets, subnets6 = [], zones, flow, onClose, initial = {} }) {
   const { t } = useTranslation(['hosts', 'dhcp', 'common'])
@@ -16,7 +16,7 @@ export function CreateHostModal({ subnets, subnets6 = [], zones, flow, onClose, 
   const views = useMemo(() => zoneViews(zones), [zones])
   const hasViews = views.some((v) => v !== DEFAULT_VIEW)
   const initialView = initial.view || DEFAULT_VIEW
-  const forwardIn = (view) => zoneNamesIn(zones, view).filter((z) => !z.endsWith('.arpa.'))
+  const forwardIn = (view) => recordZoneNamesIn(zones, view).filter((z) => !z.endsWith('.arpa.'))
   const [form, setForm] = useState({
     hostname: initial.hostname || '',
     view: initialView,
@@ -40,7 +40,7 @@ export function CreateHostModal({ subnets, subnets6 = [], zones, flow, onClose, 
     })
   const forwardZones = forwardIn(form.view)
   // An empty reverse_view follows the view, as the backend does.
-  const reverseNames = zoneNamesIn(zones, form.reverse_view || form.view)
+  const reverseNames = recordZoneNamesIn(zones, form.reverse_view || form.view).filter((z) => z.endsWith('.arpa.'))
 
   const ip = form.ip.trim()
   const validIp = isIPv4(ip) || isIPv6(ip)
@@ -121,7 +121,7 @@ export function CreateHostModal({ subnets, subnets6 = [], zones, flow, onClose, 
           value={form.reverse_zone}
           onChange={set('reverse_zone')}
           placeholder={autoReverse || '2.0.192.in-addr.arpa'}
-          helperText={autoReverse ? t('create.reverseAuto', { zone: autoReverse }) : t('create.reverseNone')}
+          helperText={autoReverse ? t('create.reverseAuto', { zone: autoReverse }) : validIp ? t('create.reverseNone') : t('create.reverseFromAddress')}
         />
         <Input label={t('fields.ttl')} value={form.ttl} onChange={set('ttl')} error={errors.ttl} />
       </div>

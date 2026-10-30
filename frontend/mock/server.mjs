@@ -2419,7 +2419,9 @@ function buildHandlers(state, emit) {
       const f = (key, value) => !query.get(key) || value === query.get(key)
       // A node's alerts plus the cluster-wide ones it reports; alerts of unreadable nodes are missing.
       const onNode = (a) => !query.get('node_id') || a.node_id === query.get('node_id') || (!a.node_id && (a.reported_by || []).includes(query.get('node_id')))
-      const items = visibleAlerts(state).filter((a) => f('kind', a.kind) && f('severity', a.severity) && f('state', a.state) && onNode(a) && f('engine', a.engine))
+      const needle = (query.get('q') || '').trim().toLowerCase()
+      const text = (a) => [a.title, a.subject, a.node_id || '', JSON.stringify(a.details || {})].join(' ').toLowerCase()
+      const items = visibleAlerts(state).filter((a) => f('kind', a.kind) && f('severity', a.severity) && f('state', a.state) && onNode(a) && f('engine', a.engine) && (!needle || text(a).includes(needle)))
       return paginate(items, query, { unavailable: state.alertsUnavailable || [] })
     },
     'GET /alerts/summary': () => {

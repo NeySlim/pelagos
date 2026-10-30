@@ -155,6 +155,15 @@ def test_resolved_history_and_pages(pair):
     assert n == 1 and resolved[0].reported_by == [pair.b.node.id]
 
 
+def test_free_text_search(pair):
+    # An address in the details, a word of the title, a subject: case-insensitive.
+    rows, total = pair.svc_b.query(state="open", q="192.0.2.100")
+    assert total == 1 and rows[0].kind is AlertKind.PTR_MISMATCH
+    assert {r.kind for r in pair.svc_b.query(state="open", q="NAMED")[0]} == {AlertKind.DAEMON_DOWN}
+    assert pair.svc_a.query(q="ns3.example.lan")[1] == 1
+    assert pair.svc_a.query(q="no such thing") == ([], 0)
+
+
 def test_peer_down_is_reported_not_fatal(pair):
     pair.gw_b.down.add(pair.a.node.id)
     summary = pair.svc_b.summary()
@@ -243,6 +252,12 @@ def test_api_lists_peer_alerts_with_their_node(role_client, api_pair, node_ctx, 
     assert hosts["total"] == 1 and hosts["items"][0]["alerts"][0]["kind"] == "ptr_mismatch"
     ack = role_client("admin").post(f"/api/v1/alerts/{page['items'][0]['id']}/ack", json={})
     assert ack.status_code == 200 and ack.get_json()["state"] == "acked"
+
+
+def test_api_search_parameter(role_client, api_pair):
+    _store(api_pair.b, _primary_alerts(api_pair.b.node.id))
+    body = role_client("viewer").get("/api/v1/alerts?state=open&q=ns3.example").get_json()
+    assert [i["kind"] for i in body["items"]] == ["delegation_issue"] and body["total"] == 1
 
 
 def test_api_degraded_when_peer_down(role_client, api_pair):

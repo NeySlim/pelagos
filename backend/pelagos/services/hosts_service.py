@@ -74,7 +74,7 @@ class _Join:
 
     def attach(self, mac: str | None, ips: Iterable[str], name: str | None) -> Host:
         ips = [canonical(ip) for ip in ips if ip]
-        name = normalize_name(name) if name else None
+        name = _host_name(name) if name else None
         host = self.find(mac, ips, name)
         if host is None:
             key = host_key(mac, ips[0] if ips else None, name)
@@ -84,7 +84,8 @@ class _Join:
         for ip in ips:
             if ip not in host.ips:
                 host.ips.append(ip)
-        if name and not host.hostname:
+        # A short reservation name ("printer") gives way to the FQDN of a record or lease.
+        if name and (not host.hostname or (_is_short(host.hostname) and not _is_short(name))):
             host.hostname = name
         self.index(host)
         return host
@@ -268,6 +269,11 @@ class HostsService:
             value = details.get(field)
             if isinstance(value, str) and normalize_name(value) in join.by_name:
                 keys.add(join.by_name[normalize_name(value)])
+        # Grouped alerts (ptr_mismatch) name their addresses in `items`.
+        for item in details.get("items") or []:
+            ip = item.get("ip") if isinstance(item, dict) else None
+            if isinstance(ip, str) and ip in join.by_ip:
+                keys.add(join.by_ip[ip])
         return [join.hosts[k] for k in keys]
 
     # Reads --------------------------------------------------------------
@@ -320,7 +326,7 @@ class HostsService:
             if (
                 (kind == "mac" and host.mac == value)
                 or (kind == "ip" and value in host.ips)
-                or (kind == "name" and host.hostname == value)
+                or (kind == "name" and host.hostname and normalize_name(host.hostname) == value)
             ):
                 return host
         raise NotFound(f"host {key}")
@@ -364,6 +370,7 @@ class HostsService:
                 forward=forward,
                 reverse=reverse,
                 excepted=consistency.excepted_for(self.ctx.cluster()),
+                families={d.family for d in self._dhcp_services()},
             )
         )
         by_kind: dict[str, int] = {}
@@ -688,6 +695,17 @@ def _mac(value: Any) -> str | None:
     if re.fullmatch(r"[0-9a-f]{12}", text):
         text = ":".join(text[i : i + 2] for i in range(0, 12, 2))
     return text if MAC_RE.match(text) else None
+
+
+def _is_short(name: str) -> bool:
+    return "." not in name.rstrip(".")
+
+
+def _host_name(value: str) -> str:
+    """An FQDN with its trailing dot; a single label (a reservation without domain) stays bare,
+    so it never reads as a name under the root."""
+    text = value.strip().lower().rstrip(".")
+    return text if text and _is_short(text) else normalize_name(value)
 
 
 def _name(value: str | None) -> str | None:

@@ -85,6 +85,10 @@ def test_reservations_and_leases(role_client, node_ctx):
         "192.0.3.10",
     ]
     assert c.get(D + "/leases?q=laptop").get_json()["items"][0]["ip_address"] == "192.0.2.150"
+    # A partial hostname finds the FQDN of the lease, as the Hosts search does.
+    found = c.get(D + "/leases?q=pc1").get_json()["items"]
+    assert [x["ip_address"] for x in found] == ["192.0.2.100"]
+    assert c.get(D + "/leases?q=EXAMPLE.LAN").get_json()["total"] == 1
     assert c.get(D + "/leases?q=AA:BB:CC:DD:EE:51").get_json()["total"] == 1
     assert c.get(D + "/leases?state=expired-reclaimed").get_json()["total"] == 1
     assert c.get(D + "/leases?subnet_id=3").get_json()["total"] == 1

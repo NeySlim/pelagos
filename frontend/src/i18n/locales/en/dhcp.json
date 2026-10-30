@@ -205,7 +205,7 @@
     "openHost": "Host card",
     "readFrom": "read from {{node}}",
     "rev": "reverse",
-    "search": "IP, MAC, DUID or exact hostname...",
+    "search": "IP, MAC, DUID or hostname...",
     "pageCount_one": "{{count}} lease on page {{page}}",
     "pageCount_other": "{{count}} leases on page {{page}}",
     "perPage": "Per page",

@@ -19,6 +19,7 @@ FILTERS = {
     "state": "open, acked, resolved",
     "node_id": "node",
     "engine": "bind, kea4, kea6, d2",
+    "q": "text in the title, subject or details (an address, a name)",
     "page": "1-based",
     "per_page": "default 50, max 500",
 }
@@ -37,6 +38,7 @@ class Alerts(Resource):
             state=arg("state"),
             node_id=arg("node_id"),
             engine=arg("engine"),
+            q=arg("q"),
             page=page,
             per_page=per_page,
         )

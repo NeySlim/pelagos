@@ -77,3 +77,14 @@ export function zoneViews(zones) {
 // Names of the zones served in one view.
 export const zoneNamesIn = (zones, view) =>
   (zones || []).filter((z) => (z.zone?.view || DEFAULT_VIEW) === (view || DEFAULT_VIEW)).map((z) => z.zone?.name).filter(Boolean)
+
+// Zones a host record can go to: primary or secondary (written through its primary), never the
+// root, localhost, a forward, hint or stub zone, nor a policy or catalog zone.
+const RECORD_KINDS = new Set(['primary', 'secondary'])
+const NO_HOSTS = new Set(['.', 'localhost.', '0.in-addr.arpa.', '127.in-addr.arpa.', '255.in-addr.arpa.'])
+export const recordZoneNamesIn = (zones, view) =>
+  (zones || [])
+    .filter((z) => (z.zone?.view || DEFAULT_VIEW) === (view || DEFAULT_VIEW))
+    .filter((z) => (!z.zone?.kind || RECORD_KINDS.has(z.zone.kind)) && !z.zone?.role && !NO_HOSTS.has(z.zone?.name))
+    .map((z) => z.zone?.name)
+    .filter(Boolean)

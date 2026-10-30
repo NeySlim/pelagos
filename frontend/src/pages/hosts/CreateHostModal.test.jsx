@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { CreateHostModal } from './CreateHostModal'
-import { zoneNamesIn, zoneViews } from './net'
+import { recordZoneNamesIn, zoneNamesIn, zoneViews } from './net'
 import { api } from '../../services/api'
 
 vi.mock('../../services/api', () => {
@@ -37,6 +37,27 @@ describe('view helpers', () => {
     expect(zoneViews([])).toEqual([])
     expect(zoneNamesIn(VIEWS, 'internal')).toEqual(['example.lan.', 'corp.example.lan.', '2.0.192.in-addr.arpa.'])
     expect(zoneNamesIn([{ zone: { name: 'a.' } }], undefined)).toEqual(['a.'])
+  })
+})
+
+describe('record zones', () => {
+  it('leave out the zones no host record can go to', () => {
+    const zones = [
+      { zone: { name: 'example.lan.', kind: 'primary' } },
+      { zone: { name: 'corp.example.lan.', kind: 'secondary' } },
+      { zone: { name: 'example.com.', kind: 'forward' } },
+      { zone: { name: '.', kind: 'hint' } },
+      { zone: { name: 'localhost.', kind: 'primary' } },
+      { zone: { name: 'rpz.example.lan.', kind: 'primary', role: 'policy' } },
+    ]
+    expect(recordZoneNamesIn(zones)).toEqual(['example.lan.', 'corp.example.lan.'])
+  })
+
+  it('says the reverse zone follows the address before one is typed', () => {
+    renderModal(PLAIN)
+    expect(screen.getByText('Deduced from the address')).toBeTruthy()
+    fireEvent.change(screen.getByTestId('host-ip'), { target: { value: '198.51.100.7' } })
+    expect(screen.getByText(/No reverse zone covers this address/)).toBeTruthy()
   })
 })
 

@@ -212,7 +212,7 @@ describe('mock server PTR and exceptions', () => {
     expect(plan.data.requires_confirmation).toBe(true)
     const orphans = await admin('GET', '/dns/ptr/orphans')
     const item = orphans.data.items.find((i) => i.ip === '192.0.2.106')
-    expect(item).toMatchObject({ target: 'workstation7.example.lan.', category: 'orphan', fix: 'create_a', exception_key: '192.0.2.106|workstation7.example.lan.' })
+    expect(item).toMatchObject({ target: 'workstation7.example.lan.', category: 'orphan', fix: 'delete', stale: false, exception_key: '192.0.2.106|workstation7.example.lan.' })
     const alert = mock.state.alerts.find((a) => a.kind === 'ptr_mismatch')
     expect((await admin('POST', '/alerts/exceptions', { kind: 'ptr_mismatch', key: '192.0.2.106|pc7.example.lan.' })).status).toBe(400)
     const created = await admin('POST', '/alerts/exceptions', { kind: 'ptr_mismatch', key: alert.details.exception_keys[0], comment: 'kept on purpose' })

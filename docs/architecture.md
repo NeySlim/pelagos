@@ -2246,9 +2246,9 @@ Alert kinds and rules (thresholds from `settings`):
 | `config_divergence` | warning | what the Kea servers of an HA relationship must share differs (subject `<engine>:config-hash`, below), or a Kea file differs from `config-get` (subject `<engine>:config-file`, kea4, kea6, d2), or cluster.toml schema mismatch (subject `schema:<peer id>`), or, engine bind and cluster-wide, a forward zone's mode and forwarders (subject `zone:<zone>[@<view>]:forwarders`) or a hint zone's hints file records (sha256 of the records, header comments ignored; subject `zone:<zone>[@<view>]:hints`) differ between the nodes that declare it, for `CONFIG_DIVERGENCE_GRACE_SECONDS`; details `aspect`, `nodes` |
 | `root_hints_stale` | warning, info | this node's hints file predates the last root server renumbering (related version before 2023112700: warning) or is more than 5 years old (info); subject `zone:<zone>[@<view>]:hints`; details `reason` (`renumbered` or `old`), `file`, `related_version`, `last_update` |
 | `lease_without_record` | info | active lease with `fqdn_fwd` true and no A/AAAA for its hostname in the forward zone |
-| `record_without_lease` | info | A/AAAA with a DHCID whose lease no longer exists |
+| `record_without_lease` | info | A/AAAA with a DHCID whose lease no longer exists; an AAAA is judged only when DHCPv6 leases were read (`run_all(families=)`, the families of the node's Kea backends), an A only with DHCPv4 |
 | `reservation_mismatch` | warning | reservation hostname/IP disagrees with the A/PTR records |
-| `ptr_mismatch` | warning | A without matching PTR or PTR pointing to a name without that A, within managed zones |
+| `ptr_mismatch` | warning, info | grouped by cause, at most two alerts: subject `ptr:missing` (warning, A/AAAA without a PTR to their owner) and `ptr:stale` (info, PTR naming a host without that address), within managed zones; details `cause`, `count`, `items` (`{"ip","name","found"}` or `{"ip","target"}`) and `exception_keys`. Older nodes raise one alert per address (subject `ip:<addr>`) |
 | `duplicate_ip` | warning | same IP in two reservations or in a reservation and a foreign lease |
 | `insecure_key` | warning | TSIG or rndc key with hmac-md5/hmac-sha1 (from the security audit) |
 | `insecure_listener` | warning | rndc/statistics-channel/Kea HTTP listening off localhost without TLS |
@@ -2264,7 +2264,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `config_syntax_warning` | warning | Kea parses its configuration file but warns (`DHCPx_CONFIG_SYNTAX_WARNING`, e.g. `Extraneous comma`); read from the file tree with the file, line and column Kea reports; per node, subject `<engine>:config-syntax`; details `warnings`, `count`, `path`; also listed in the `syntax_warnings` of `GET /dhcp/{family}/config/file` |
 | `managed_drift` | warning, critical for `shared_key_divergence` | Something Pelagos manages was changed outside it (security audit finding `managed_drift`, section 15): the HA listener guard, a Kea HA relationship, a file Pelagos owns; per node, subject `kea:<object>`; details `finding_id`, `finding_kind`, `proposal`; resolved when the object matches again (adopt or restore plan). Also raised by the finding `shared_key_divergence` (subject `bind:<key>`), resolved by its security plan |
 | `restart_loop` | critical | `checks.restart_loop_count` restarts in `restart_loop_window_seconds`; subject `engine:<engine>` |
-| `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; subject is the pool subject |
+| `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; under 60 % use the trend must also rise on each half of the window on its own (details `confirmed`); subject is the pool subject |
 | `security_advisory` | info, warning | the upstream version of an installed BIND or Kea falls in a range of `pelagos/data/isc_advisories.json` (`ranges_preview` for `-S` versions); subject `<engine>:<CVE id>`; details `cve`, `version`, `fixed_in`, `url`, `cvss`, `dataset_verified` |
 | `cert_expiry` | warning / critical | the web certificate (subject `cert:web`), this node's replication certificate (`cert:node`) or the internal CA (`cert:ca`) expires within `checks.cert_warning_days` / `checks.cert_critical_days`, or within a third / a tenth of its lifetime when that is shorter (24 h certificates); details: `cert`, `not_after`, `days_left`, `fingerprint`, `issuer`, and for the web certificate `source` and `mode` |
 | `api_token_expiry` | warning / critical | an API token expires within `checks.api_token_warning_days` (critical within `checks.api_token_critical_days`, and once expired until it is revoked); raised by the service node only (section 22 election: the records are cluster-wide), subject `token:<id>`; details `token_id`, `name`, `user`, `expires_at`, `days_left`, `expired` |
@@ -2338,7 +2338,7 @@ revoked `(kind, key)`, so records two nodes wrote at once go together. The
 orphan PTR page revokes the exception of each row its applied plan fixed.
 
 Object keys, written by every alert in `details.exception_keys` (a list:
-`ptr_mismatch` carries one key per (address, name) problem still raised):
+`ptr_mismatch` carries one key per (address, name) problem of its group still raised):
 
 | Kind | Key |
 | --- | --- |
@@ -2393,14 +2393,22 @@ no `insecure_*` alert for it.
 
 #### Orphan PTRs
 
-`services.consistency.orphan_ptrs(forward, reverse, excepted)` lists, for each
-PTR target without an A/AAAA to its address, `{"ip", "name", "target",
-"category", "target_zone", "target_addresses", "rtype", "ddns", "fix",
-"exception_key", "excepted"}`: `category` is `orphan` (target under a managed
-forward zone) or `external` (outside every managed zone, not verifiable);
-`fix` is `create_a` when the target has no address of that family, `delete`
-otherwise, null for an external target; `ddns` is true when a DHCID sits at
-the PTR owner. Orphans use the `ptr_mismatch` exception key.
+`services.consistency.orphan_ptrs(forward, reverse, excepted, holders, leased)`
+lists, for each PTR target without an A/AAAA to its address, `{"ip", "name",
+"target", "category", "target_zone", "target_addresses", "rtype", "ddns", "fix",
+"held", "stale", "exception_key", "excepted"}`: `category` is `orphan` (target
+under a managed forward zone) or `external` (outside every managed zone, not
+verifiable). `holders` maps an address to the names holding it now (active
+lease hostname, reservation hostname, the names of the MAC of an IPv6 neighbor
+observation), `leased` is the set of addresses with an active lease. `fix` is
+`wait` for a DDNS PTR (DHCID at the owner) whose address is leased (D2 owns it
+until the lease ends), `create_a` when the target has no address of that family
+and a holder of the address carries the target's name (same FQDN, or a short
+name equal to its first label), only for the first such address of a name (the
+others get null), `delete` otherwise, so a stale PTR never brings back a host
+that is gone; null for an external target. `held` is true when anything holds
+the address; `stale` marks a `delete` orphan nothing holds. Orphans use the
+`ptr_mismatch` exception key.
 
 ## 16. Security model and RBAC
 
@@ -2643,8 +2651,8 @@ change revokes the user's other sessions.
 | `GET /dns/zones/{zone}/records?view=&type=&name=&q=&page=&per_page=` | `read:dns` | | paginated `RRset` (`node_id` of the node read in `meta`); `409 zone_without_records` (extension members `zone`, `view`, `kind`, `detail_message`) for a `forward`, `hint`, `stub` or `static-stub` zone, checked before any transfer; `409 zone_too_large` (members `zone`, `view`, `size`, `limit`, `detail_message`) above `dns.zone_read_max_names` |
 | `POST /dns/zones/{zone}/records/plan` | `write:dns.records` | `{"view"?, "changes": [Change], "ptr"?: {"sync"?: true, "delete"?: sync, "reverse_view"?}}` (`ptr`: the PTR of the A/AAAA changes goes in the same plan, in `reverse_view` (default `view`) like host plans: `sync` writes the PTR of added and kept addresses and removes the PTR naming this owner for removed ones, `delete` removes it for the addresses of a deleted RRset; a PTR naming another host is replaced only for a new address, with `requires_confirmation` and a `ptr` validation naming the old target, and left for a kept address with a `note.ptr_kept_elsewhere` summary note; a PTR RRset deleted at a DDNS owner takes its DHCID; addresses no served reverse zone covers are named in the summary; a plan with PTR changes is a composite of one RRset part per zone) | `Plan` |
 | `POST /dns/ptr/coverage` | `read:dns` | `{"addresses": [ip], "name"?, "view"?, "reverse_view"?}` | `{"items": [{"ip","view","ptr_name","reverse_zone","covered","reason","current":[targets],"points_here","conflict"}]}` (`reason`: `invalid`, `no_reverse_zone`, `no_primary` (a secondary copy with no reachable primary), `unreadable`; at most 500 addresses) |
-| `GET /dns/ptr/orphans` | `read:dns` | | `{"items": [orphan PTR (section 15) + "zone","view","exception","lease"]}`, `"counts": {"orphan","external","excepted"}`, `"errors": {source: message}}` (`lease`: `{"state","hostname","cltt","expires_at"}` of the address when the PTR was written by DDNS and a lease is known) |
-| `POST /dns/ptr/orphans/plan` | `write:dns.records` | `{"delete"?: [{"zone","name","target","view"?}], "create"?: [{"ip","target","view"?}]}` (delete removes the target from the PTR RRset, the RRset when it was the last one, with the DHCID at that owner; create adds the address to the target's A/AAAA in its served forward zone; at most 500 items) | `Plan` (scope `dns.rrset`, `requires_confirmation` with deletes; `409` when nothing changes) |
+| `GET /dns/ptr/orphans` | `read:dns` | | `{"items": [orphan PTR (section 15) + "zone","view","exception","lease","last_seen"]}`, `"counts": {"orphan","external","excepted","stale"}`, `"errors": {source: message}}` (`lease`: `{"state","hostname","cltt","expires_at"}` of the lease at the address, an active one first; `last_seen`: `{"at","source"}` of the newest lease transaction (`lease`) or IPv6 neighbor observation (`neighbor`), null when nothing was seen; `counts.stale`: the stale orphans not excepted) |
+| `POST /dns/ptr/orphans/plan` | `write:dns.records` | `{"delete"?: [{"zone","name","target","view"?}], "create"?: [{"ip","target","view"?}]}` (delete removes the target from the PTR RRset, the RRset when it was the last one, with the DHCID at that owner; create adds the address to the target's A/AAAA in its served forward zone; at most 500 items) | `Plan` (scope `dns.rrset`, always `requires_confirmation`; `409` when nothing changes) |
 | `POST /dns/zones/{zone}/retransfer` | `ops:dns` | `{"node_id", "view"?}` | `{"output"}` |
 | `POST /dns/zones/{zone}/notify` | `ops:dns` | `{"node_id"?, "view"?}` | `{"output"}` |
 | `POST /dns/zones/{zone}/reload` | `ops:dns` | `{"node_id"?, "view"?}` | `{"output"}` |
@@ -2702,7 +2710,7 @@ the API normalizes to the absolute form.
 | `POST /dhcp/{family}/options/plan` | `write:dhcp.options` | `{"changes": [Change]}` | `Plan` |
 | `GET /dhcp/{family}/reservations?subnet_id=&q=&page=&per_page=` | `read:dhcp` | | paginated `Reservation` |
 | `POST /dhcp/{family}/reservations/plan` | `write:dhcp.reservations` | `{"change": Change}` (`after` = Reservation) | `Plan` |
-| `GET /dhcp/{family}/leases?subnet_id=&q=&state=&node_id=&from_address=&limit=` | `read:dhcp` | | `{"items": [Lease], "meta": {"node_id","next","limit"}}`: one page of `lease4-get-page`/`lease6-get-page` from `from_address` (`limit` 1 to 1000, default 100; a subnet filter reads at most 10 Kea pages), `meta.next` is the cursor of the next page (null at the end); `q` is an address, MAC, DUID or exact hostname sent to Kea's lookup commands (no cursor) |
+| `GET /dhcp/{family}/leases?subnet_id=&q=&state=&node_id=&from_address=&limit=` | `read:dhcp` | | `{"items": [Lease], "meta": {"node_id","next","limit"}}`: one page of `lease4-get-page`/`lease6-get-page` from `from_address` (`limit` 1 to 1000, default 100; a subnet filter reads at most 10 Kea pages), `meta.next` is the cursor of the next page (null at the end); `q` is an address, MAC or DUID sent to Kea's lookup commands, or a hostname: Kea's exact lookup plus the leases whose hostname contains it, from a page walk of at most 20000 leases (no cursor) |
 | `GET /dhcp/{family}/leases/recent?limit=` | `read:dhcp` | | `{"items": [lease], "as_of", "nodes"}`: the latest client transactions by `cltt` across the nodes (the collectors' `recent_leases` snapshots, read-only; `limit` 1 to 50, default 20), one per address (the newest copy of an HA pair), fields as the `leases`/`lease` event (section 15); `as_of` is the oldest walk read |
 | `GET /dhcp/{family}/leases/{ip}` | `read:dhcp` | | `{"items": [Lease]}` (one per node, to show HA agreement) |
 | `POST /dhcp/{family}/leases/{ip}/delete/plan` | `ops:dhcp.leases` | `{"node_id"?}` (default every node holding the lease, HA partner and backups alike, since lease commands are not replicated by the ha hook; with `node_id` that node only; `404` when no node holds it) | `Plan` (`requires_confirmation`) |
@@ -2759,7 +2767,7 @@ configuration; the problem document carries `"engine"` and `"divergences":
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
-| `GET /alerts?kind=&severity=&state=&node_id=&engine=&page=&per_page=` | `read:alerts` | | paginated `Alert` of the whole cluster, `reported_by` set, `meta.unavailable`: `[{"node_id","name","error"}]` (section 15, cluster view) |
+| `GET /alerts?kind=&severity=&state=&node_id=&engine=&q=&page=&per_page=` | `read:alerts` | | paginated `Alert` of the whole cluster, `reported_by` set, `meta.unavailable`: `[{"node_id","name","error"}]` (section 15, cluster view); `q`: case-insensitive text found in the title, subject, node id or details (an address, a name) |
 | `GET /alerts/summary` | `read:alerts` | | `{"open","acked","by_severity": {...}, "by_kind": {...}, "unavailable": [...]}` over the cluster |
 | `POST /alerts/{id}/ack` | `write:alerts` | `{"comment"?}` | `Alert` |
 | `POST /alerts/consistency/run` | `write:alerts` | | `202 {"job_id"}` (job output `{"found","by_kind","alerts","errors","collector_signalled"}`; `errors` names the engines, and `dns.zones` the zones, that could not be read: with any, `found` is 0 and `alerts` empty, as the collector skips its pass) |

@@ -275,9 +275,15 @@
   "alert.ptr_mismatch.dangling": [
     "target"
   ],
+  "alert.ptr_mismatch.missing": [
+    "count"
+  ],
   "alert.ptr_mismatch.no_ptr": [
     "found",
     "name"
+  ],
+  "alert.ptr_mismatch.stale": [
+    "count"
   ],
   "alert.record_without_lease": [
     "addresses",

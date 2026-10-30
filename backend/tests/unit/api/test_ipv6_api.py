@@ -363,9 +363,11 @@ def test_zone_aaaa_are_rows_and_missing_ptr_agrees_with_ptr_mismatch(role_client
     out = services.hosts.consistency_pass()
     alerts = [a for a in out["alerts"] if a["kind"] == "ptr_mismatch"]
     no_ptr = {
-        a["details"]["ip"]
+        i["ip"]
         for a in alerts
-        if ":" in a["details"]["ip"] and any("has no PTR" in p for p in a["details"]["problems"])
+        if a["subject"] == "ptr:missing"
+        for i in a["details"]["items"]
+        if ":" in i["ip"]
     }
     assert out["errors"] == {} and no_ptr == flagged
     # Nothing observed on this node yet: said, not an empty silent list.

@@ -255,9 +255,10 @@ def test_missing_ptr_rows_agree_with_ptr_mismatch():
     rows, forward, reverse = zone_rows()
     flagged = {a for r in rows for a in r["ptr_missing"]}
     no_ptr = {
-        a.details["ip"]
+        i["ip"]
         for a in consistency.ptr_mismatches(forward, reverse)
-        if any("has no PTR" in p for p in a.details["problems"])
+        if a.subject == consistency.PTR_MISSING_SUBJECT
+        for i in a.details["items"]
     }
     assert flagged == no_ptr == {"2001:db8::2", "2001:db8::3", "2001:db8::a1", "2001:db8::b2"}
     # An excepted pair leaves both.
@@ -265,7 +266,9 @@ def test_missing_ptr_rows_agree_with_ptr_mismatch():
     ex = lambda kind, k: kind == "ptr_mismatch" and k == key  # noqa: E731
     rows, _f, _r = zone_rows(excepted=ex)
     assert "2001:db8::a1" not in {a for r in rows for a in r["ptr_missing"]}
-    assert "2001:db8::a1" not in {a.details["ip"] for a in consistency.ptr_mismatches(forward, reverse, ex)}
+    assert "2001:db8::a1" not in {
+        i["ip"] for a in consistency.ptr_mismatches(forward, reverse, ex) for i in a.details["items"]
+    }
 
 
 def test_an_observed_address_joins_the_zone_row_of_its_aaaa():

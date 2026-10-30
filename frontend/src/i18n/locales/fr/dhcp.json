@@ -205,7 +205,7 @@
     "openHost": "Fiche hôte",
     "readFrom": "lu sur {{node}}",
     "rev": "inverse",
-    "search": "IP, MAC, DUID ou nom d'hôte exact...",
+    "search": "IP, MAC, DUID ou nom d'hôte...",
     "pageCount_one": "{{count}} bail en page {{page}}",
     "pageCount_other": "{{count}} baux en page {{page}}",
     "perPage": "Par page",

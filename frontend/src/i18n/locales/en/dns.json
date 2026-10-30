@@ -672,14 +672,15 @@
       "target": "Target",
       "zone": "Reverse zone",
       "category": "Category",
-      "age": "Lease",
+      "age": "Last seen",
       "origin": "Origin"
     },
     "categories": {
       "orphan": "Orphan",
       "external": "External target, not verifiable",
       "excepted": "Ignored",
-      "all": "All"
+      "all": "All",
+      "stale": "Stale"
     },
     "origins": {
       "all": "Any origin",
@@ -689,7 +690,6 @@
     "targetHas": "has {{addresses}}",
     "targetNone": "no address record",
     "notVerifiable": "outside the managed zones",
-    "leaseSeen": "{{state}}, seen {{date}}",
     "leaseGone": "written by DDNS, lease gone",
     "ignored": "Ignored",
     "create": "Create the {{rtype}}",
@@ -704,7 +704,15 @@
     "selectAll": "Select every row",
     "readError": "{{source}} not read: {{message}}",
     "empty": "No orphan PTR",
-    "emptyHelp": "Every PTR of the reverse zones points to a name that has this address."
+    "emptyHelp": "Every PTR of the reverse zones points to a name that has this address.",
+    "seenLease": "lease {{state}}, {{date}}",
+    "seenNeighbor": "IPv6 neighbor, {{date}}",
+    "leaseActive": "active DDNS lease",
+    "neverSeen": "never seen",
+    "wait": "held by DDNS",
+    "waitHelp": "The address is leased and the PTR was written by DDNS: the DHCP server removes it when the lease ends.",
+    "deleteStale": "Delete {{count}} stale",
+    "deleteStaleConfirm": "Delete the {{count}} stale PTR records? No lease, reservation or IPv6 sighting holds their address. The plan shows every record before it applies."
   },
   "resolverHealth": {
     "title": "Health",

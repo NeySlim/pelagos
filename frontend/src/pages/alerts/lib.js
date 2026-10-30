@@ -78,6 +78,11 @@ export function subjectLink(alert, { canProposeFallback = true } = {}) {
     if (rest[0] === 'aaaa' || rest[0] === 'stale') return { to: ipv6Path({ filter: rest[0] === 'aaaa' ? 'missing_aaaa' : 'stale', zone: rest.slice(1).join(':') }), label: 'openIpv6' }
     if (rest[0] === 'reverse') return { to: '/dns/zones', label: null }
   }
+  // Grouped PTR checks: "ptr:stale" opens the stale orphan PTRs, "ptr:missing" the inconsistent hosts.
+  if (kind === 'ptr') {
+    if (value === 'stale') return { to: '/dns/ptr-orphans?category=stale', label: 'openOrphans' }
+    return { to: '/hosts?only_inconsistent=true', label: 'openHosts' }
+  }
   if (kind === 'notify' && value) return { to: `/admin/notifications?channel=${encodeURIComponent(value)}`, label: 'openChannel' }
   return null
 }

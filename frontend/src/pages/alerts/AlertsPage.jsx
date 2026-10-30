@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Alerts and inconsistencies: counts from GET /alerts/summary, the filtered and
-// paginated alert list (open by default, filters in the URL), the alert detail
+// paginated alert list (open by default, filters and free-text search in the URL), the alert detail
 // with a link to the host or zone it is about, acknowledgement with an optional
 // comment, and an on-demand consistency pass run as a job. The list and counts are the cluster's:
 // each alert names its node (or the nodes reporting a cluster-wide one), and a node whose alerts
@@ -27,7 +27,7 @@ import { IgnoreDialog } from './IgnoreDialog'
 
 import { useNodeNames, usePlanFlow } from '../dhcp/hooks'
 
-const FILTERS = ['state', 'severity', 'kind', 'engine', 'node_id']
+const FILTERS = ['state', 'severity', 'kind', 'engine', 'node_id', 'q']
 const JOB_POLL_MS = 1000
 const JOB_TIMEOUT_MS = 120000
 
@@ -484,6 +484,7 @@ export default function AlertsPage() {
           onRowClick={(a) => setSelectedId(a.id)}
           selectedKey={selectedId || undefined}
           filters={selectFilters}
+          search={{ value: filters.q, onChange: (v) => setFilter('q', v.trim()), placeholder: t('filters.search') }}
           rowClassName={(a) => (a.severity === 'critical' && a.state === 'open' ? 'border-l-2 border-l-accent-danger' : undefined)}
           emptyTitle={filters.state === 'open' ? t('emptyOpen') : t('empty')}
           emptyDescription={t('emptyHelp')}

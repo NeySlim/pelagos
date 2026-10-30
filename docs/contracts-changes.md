@@ -360,8 +360,6 @@ arm64 Debian 13 with Kea 2.6 (`config-get` reports
 - Frontend: HA page by relationship, backup cards, multi-relationship form;
   the mock gains `--scenario hub`.
 
-
-
 ## 2026-10-25, N-NODES: clusters of more than two nodes
 - `pelagos.domain.dhcp`: `HAPartner.server_name` (status-get's remote
   `server-name`), new `HAPeer` (`name`, `role`, `url`, `auto_failover`) and
@@ -2213,3 +2211,21 @@ and the mock server (`mock/updates.mjs`: signed, unsigned, unknown-key and alter
 with the extra confirmation and the password, a rollout that advances with `updateStepMs`, a
 failing node rolled back, resume, cancel, rollback, history, engine packages) for U6. WP-PACKAGING
 (U1): `make release` writes `release.json` and signs only when `PELAGOS_RELEASE_KEY` names a key.
+
+
+## 2026-10-30, 0.3.0 (item 81, lot F6): hosts, PTR and alerts
+Sections 15 and 17. `ptr_mismatch` is grouped by cause: subjects `ptr:missing` (warning) and
+`ptr:stale` (info), details `cause`, `count`, `items`, `exception_keys`; per-pair exception keys
+are unchanged, open per-address alerts resolve on the next pass. `record_without_lease` judges an
+AAAA only when DHCPv6 leases were read (`consistency.run_all(families=)`, additive keyword).
+`orphan_ptrs(..., holders, leased)`: `fix` is `create_a` only when a lease, reservation or
+observation of the target's name holds the address (once per name), `wait` for a leased DDNS
+PTR, else `delete`; new fields `held`, `stale`; `GET /dns/ptr/orphans` adds `last_seen`,
+`counts.stale` and fills `lease` for every orphan; the orphan plan always requires
+confirmation. `GET /alerts` takes `q` (free text). The lease search `q` also matches part of a
+hostname. `pool_forecast` under 60 % use needs the trend confirmed on both halves of the window.
+Hosts show a reservation name without domain as it is (`printer`, not `printer.`).
+WP-COLLECTOR: `services/consistency.py`, `collector/main.py`, `collector/checks/forecast.py`.
+WP-API-AUTH: `api/alerts.py`, `services/`. WP-FRONTEND: orphan PTR page (last seen column,
+stale filter, bulk delete of stale PTRs with confirmation), alert search, alert links,
+new-host dialog (record zones only, reverse zone deduced from the address), messages (en, fr).

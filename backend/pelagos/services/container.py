@@ -110,6 +110,7 @@ class Services:
         self.notifications = NotifyService(ctx, self.peers)
         self.ipv6 = Ipv6Service(ctx, self.peers, self.hosts, self.cache)
         self.ipv6_plans = Ipv6Plans(ctx, self.ipv6, self.ptr, self.dns)
+        self.ptr.observed = self.ipv6.last_seen_by_address
         self.last_login = LastLoginStore(
             ctx.paths.var / "last_login.json", ctx.paths.locks_dir / "last_login.lock"
         )

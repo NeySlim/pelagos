@@ -31,7 +31,8 @@
     "kind": "Kind",
     "engine": "Engine",
     "node": "Node",
-    "allStates": "All states"
+    "allStates": "All states",
+    "search": "Address, name, text..."
   },
   "actions": {
     "ack": "Acknowledge",
@@ -49,7 +50,9 @@
     "openPermissions": "Check the permissions",
     "proposeFallback": "Propose the forwarder fallback",
     "openResolver": "Open resolver health",
-    "openIpv6": "Open the IPv6 hosts"
+    "openIpv6": "Open the IPv6 hosts",
+    "openOrphans": "Open the stale PTRs",
+    "openHosts": "Open the inconsistent hosts"
   },
   "ack": {
     "title": "Acknowledge the alert",

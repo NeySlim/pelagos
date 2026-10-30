@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ipaddress
 from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from typing import Any
 
 from pelagos.connectors.base import ConnectorError
@@ -20,9 +21,12 @@ from pelagos.domain import (
     ChangeOp,
     Engine,
     Lease,
+    LeaseState,
     Plan,
     PlanScope,
     PlanState,
+    Reservation,
+    ReservationIdType,
     RRset,
     ValidationResult,
     ZoneKind,
@@ -64,6 +68,8 @@ class PtrService:
         self.dns = dns
         self.plans = plans
         self.dhcp = dhcp  # the DHCP services read for lease ages (DHCPv6 only with its module)
+        # IPv6 address -> {"last_seen", "mac"} of its latest observation, wired by the container.
+        self.observed: Callable[[], dict[str, dict[str, Any]]] | None = None
 
     # Zones --------------------------------------------------------------
 
@@ -276,8 +282,10 @@ class PtrService:
     # Orphan PTRs ------------------------------------------------------------
 
     def orphans(self) -> dict[str, Any]:
-        """Every PTR whose target has no A/AAAA to its address, with its reverse zone and view, the
-        lease of a DDNS record when one is known, and the admin exception that covers it."""
+        """Every PTR whose target has no A/AAAA to their address, with its reverse zone and view,
+        the lease at its address, the last time anything held the address (`last_seen`: lease or
+        IPv6 neighbor) and the admin exception that covers it. The fix is `create_a` only when a
+        lease, a reservation or an observation of the target's name holds the address."""
         errors: dict[str, str] = {}
         forward: list[RRset] = []
         reverse: dict[tuple[str, str], list[RRset]] = {}
@@ -298,44 +306,85 @@ class PtrService:
         cluster = self.ctx.cluster()
         excepted = consistency.excepted_for(cluster)
         records = {(e.get("kind"), e.get("key")): e for e in cluster.exceptions}
+        has_ptr = any(r.rtype.upper() == "PTR" for rrsets in reverse.values() for r in rrsets)
+        leases, reservations = self._dhcp_rows(errors) if has_ptr else ({}, [])
+        # Neighbor observations only matter to ip6.arpa PTRs; reading them asks every peer.
+        has_v6 = any(
+            z.endswith("ip6.arpa.") and any(r.rtype.upper() == "PTR" for r in rrsets)
+            for (z, _v), rrsets in reverse.items()
+        )
+        observed = self._observed(errors) if has_v6 else {}
+        holders: dict[str, set[str]] = {}
+        for ip, lease in leases.items():
+            if lease.state is LeaseState.DEFAULT and lease.hostname:
+                holders.setdefault(ip, set()).add(lease.hostname)
+        for res in reservations:
+            for ip in [res.ip_address] if res.ip_address else list(res.ip_addresses):
+                ip = _canonical(str(ip))
+                if ip is not None and res.hostname:
+                    holders.setdefault(ip, set()).add(res.hostname)
+        # An observed IPv6 address is held by the names its MAC carries in a lease or reservation.
+        names_by_mac: dict[str, set[str]] = {}
+        for lease in leases.values():
+            if lease.hw_address and lease.hostname:
+                names_by_mac.setdefault(lease.hw_address.lower(), set()).add(lease.hostname)
+        for res in reservations:
+            if res.id_type is ReservationIdType.HW_ADDRESS and res.hostname:
+                names_by_mac.setdefault(res.identifier.lower(), set()).add(res.hostname)
+        for ip, obs in observed.items():
+            names = names_by_mac.get(str(obs.get("mac") or "").lower())
+            if names:
+                holders.setdefault(ip, set()).update(names)
+        leased = {ip for ip, lease in leases.items() if lease.state is LeaseState.DEFAULT}
         items: list[dict[str, Any]] = []
         for (zone, view), rrsets in sorted(reverse.items()):
-            for item in consistency.orphan_ptrs(forward, rrsets, excepted):
+            for item in consistency.orphan_ptrs(forward, rrsets, excepted, holders, leased):
                 item["zone"] = zone
                 item["view"] = view
                 exc = records.get(("ptr_mismatch", item["exception_key"]))
                 item["exception"] = dict(exc) if exc else None
-                item["lease"] = None
-                items.append(item)
-        if any(i["ddns"] for i in items):
-            leases = self._leases(errors)
-            for item in items:
                 lease = leases.get(item["ip"])
-                if item["ddns"] and lease is not None:
-                    item["lease"] = {
-                        "state": lease.state.value,
-                        "hostname": lease.hostname,
-                        "cltt": to_rfc3339(lease.cltt) if lease.cltt else None,
-                        "expires_at": to_rfc3339(lease.expires_at) if lease.expires_at else None,
-                    }
-        counts = {"orphan": 0, "external": 0, "excepted": 0}
+                item["lease"] = _lease_view(lease) if lease is not None else None
+                item["last_seen"] = _last_seen(lease, (observed.get(item["ip"]) or {}).get("last_seen"))
+                items.append(item)
+        counts = {"orphan": 0, "external": 0, "excepted": 0, "stale": 0}
         for item in items:
             counts["excepted" if item["excepted"] else item["category"]] += 1
+            if item["stale"] and not item["excepted"]:
+                counts["stale"] += 1
         return {"items": items, "counts": counts, "errors": errors}
 
-    def _leases(self, errors: dict[str, str]) -> dict[str, Lease]:
+    def _dhcp_rows(self, errors: dict[str, str]) -> tuple[dict[str, Lease], list[Reservation]]:
+        """Leases by address (an active one wins over an expired copy) and the reservations."""
         out: dict[str, Lease] = {}
+        reservations: list[Reservation] = []
         for dhcp in self.dhcp():
             try:
                 rows, _node, _partial = dhcp.all_leases()
             except ServiceError as exc:
                 errors[f"{dhcp.engine.value}.leases"] = exc.detail
-                continue
+                rows = []
             for lease in rows:
                 ip = _canonical(lease.ip_address)
-                if ip is not None:
+                held = out.get(ip) if ip is not None else None
+                if ip is not None and (held is None or held.state is not LeaseState.DEFAULT):
                     out[ip] = lease
-        return out
+            try:
+                reservations += dhcp.reservations(None, None)
+            except ServiceError as exc:
+                errors[f"{dhcp.engine.value}.reservations"] = exc.detail
+        return out, reservations
+
+    def _observed(self, errors: dict[str, str]) -> dict[str, dict[str, Any]]:
+        """Each observed IPv6 address with `last_seen` (epoch seconds) and `mac`, from the IPv6
+        neighbor sources; empty when the IPv6 service is not wired or cannot be read."""
+        if self.observed is None:
+            return {}
+        try:
+            return self.observed()
+        except ServiceError as exc:
+            errors["ipv6.observations"] = exc.detail
+            return {}
 
     def plan_orphans(self, body: dict[str, Any], created_by: str) -> Plan:
         """One plan for orphan PTRs: `delete` items `{"zone", "view"?, "name", "target"}` remove that
@@ -426,7 +475,8 @@ class PtrService:
         plan = self._combine(
             messages.msg("plan.ptr.cleanup", deleted=deleted, created=created), parts, created_by
         )
-        plan.requires_confirmation = plan.requires_confirmation or bool(drop)
+        # Deleting a PTR loses data, creating an A brings a host back: both are confirmed.
+        plan.requires_confirmation = True
         return self._register(plan, parts)
 
     # Composite ---------------------------------------------------------------
@@ -506,6 +556,29 @@ def _ptr_change(
     after = {"name": name, "rtype": "PTR", "ttl": ttl or 3600, "rdata": want}
     op = ChangeOp.REPLACE if current else ChangeOp.ADD
     return Change(op, target, before=before, after=after), replaced, kept
+
+
+def _lease_view(lease: Lease) -> dict[str, Any]:
+    return {
+        "state": lease.state.value,
+        "hostname": lease.hostname,
+        "cltt": to_rfc3339(lease.cltt) if lease.cltt else None,
+        "expires_at": to_rfc3339(lease.expires_at) if lease.expires_at else None,
+    }
+
+
+def _last_seen(lease: Lease | None, observed: int | None) -> dict[str, Any] | None:
+    """The latest sign of life of an address: the lease's last transaction or an IPv6 neighbor
+    observation, whichever is newer; None when nothing was ever seen."""
+    seen: list[tuple[datetime, str]] = []
+    if lease is not None and lease.cltt is not None:
+        seen.append((lease.cltt, "lease"))
+    if observed:
+        seen.append((datetime.fromtimestamp(int(observed), tz=UTC), "neighbor"))
+    if not seen:
+        return None
+    at, source = max(seen)
+    return {"at": to_rfc3339(at), "source": source}
 
 
 def _ips(rrset: Any) -> set[str]:

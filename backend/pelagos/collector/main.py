@@ -502,6 +502,7 @@ class Collector:
             forward=forward,
             reverse=reverse,
             excepted=consistency.excepted_for(self.ctx.cluster()),
+            families={b.family for b in self.backends.dhcp},
         )
         outcome = PollOutcome(alerts=observed, kinds=frozenset(k.value for k in INCONSISTENCY_KINDS))
         self._finish(outcome)

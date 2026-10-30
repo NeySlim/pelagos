@@ -199,7 +199,7 @@ def test_alert_rules_emit_messages_with_the_same_text():
     assert render(down.title_message) == down.title == "kea4 does not answer"
 
 
-def test_consistency_titles_join_problems_with_semicolons():
+def test_grouped_ptr_titles_render_their_count():
     from pelagos.domain import RRset
 
     forward = [RRset(name="a.example.lan.", rtype="A", ttl=60, rdata=["192.0.2.10"])]
@@ -210,11 +210,13 @@ def test_consistency_titles_join_problems_with_semicolons():
     alerts = consistency.ptr_mismatches(
         [*forward, RRset(name="example.lan.", rtype="SOA", ttl=60, rdata=["ns1. h. 1 2 3 4 5"])], reverse
     )
-    assert alerts
-    a = alerts[0]
-    assert a.title == render(a.title_message)
-    assert a.title_message["params"]["problems"]["sep"] == "; "
-    assert all(isinstance(p, str) for p in a.details["problems"])
+    assert [a.title_message["key"] for a in alerts] == [
+        "alert.ptr_mismatch.missing",
+        "alert.ptr_mismatch.stale",
+    ]
+    for a in alerts:
+        assert a.title == render(a.title_message)
+        assert a.title_message["params"]["count"] == 1
 
 
 def test_alert_store_keeps_title_message(tmp_path):

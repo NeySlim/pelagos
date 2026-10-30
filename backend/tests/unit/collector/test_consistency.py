@@ -5,7 +5,16 @@ from __future__ import annotations
 
 import pytest
 
-from pelagos.domain import AlertKind, Family, Lease, LeaseState, Reservation, ReservationIdType, RRset
+from pelagos.domain import (
+    AlertKind,
+    Family,
+    Lease,
+    LeaseState,
+    Reservation,
+    ReservationIdType,
+    RRset,
+    Severity,
+)
 from pelagos.services import consistency as c
 
 pytestmark = pytest.mark.unit
@@ -84,6 +93,22 @@ def test_record_without_lease():
     assert c.records_without_lease([rr("x.example.lan.", "A", "192.0.2.1")], []) == []  # no DHCID, no opinion
 
 
+def test_record_without_lease_judges_aaaa_only_with_dhcpv6():
+    rrsets = forward_zone(
+        rr("pc1.example.lan.", "A", "192.0.2.10"),
+        rr("pc1.example.lan.", "AAAA", "2001:db8::10"),
+        rr("pc1.example.lan.", "DHCID", "AAIBY2/AuCccgoJbsaxcQc9TUapptP69lOjxfNuVAA2kjEA="),
+    )
+    # DHCPv6 off: no v6 lease can ever exist, the AAAA of an old DHCID is not judged.
+    assert c.records_without_lease(rrsets, [lease("192.0.2.10")], families={Family.V4}) == []
+    both = c.records_without_lease(rrsets, [lease("192.0.2.10")], families={Family.V4, Family.V6})
+    assert [a.subject for a in both] == ["name:pc1.example.lan./AAAA"]
+    assert [a.subject for a in c.records_without_lease(rrsets, [], families={Family.V6})] == [
+        "name:pc1.example.lan./AAAA"
+    ]
+    assert c.records_without_lease(rrsets, [], families=set()) == []
+
+
 def test_reservation_mismatch():
     rrsets = forward_zone(
         rr("pc1.example.lan.", "A", "192.0.2.10"),
@@ -118,9 +143,19 @@ def test_ptr_mismatch():
     )
     alerts = c.ptr_mismatches(forward, reverse)
     assert kinds(alerts) == [AlertKind.PTR_MISMATCH, AlertKind.PTR_MISMATCH]
-    by_ip = {a.details["ip"]: a for a in alerts}
-    assert set(by_ip) == {"192.0.2.11", "192.0.2.12"}
-    assert len(by_ip["192.0.2.11"].details["problems"]) == 2  # missing PTR and wrong PTR, one alert
+    # Grouped by cause: one alert for the missing PTRs, one (info) for the stale ones.
+    missing, stale = alerts
+    assert (missing.subject, missing.severity) == ("ptr:missing", Severity.WARNING)
+    assert (stale.subject, stale.severity) == ("ptr:stale", Severity.INFO)
+    assert missing.details["items"] == [
+        {"ip": "192.0.2.11", "name": "pc2.example.lan.", "found": ["wrong.example.lan."]}
+    ]
+    assert missing.details["exception_keys"] == ["192.0.2.11|pc2.example.lan."]
+    assert [(i["ip"], i["target"]) for i in stale.details["items"]] == [
+        ("192.0.2.11", "wrong.example.lan."),
+        ("192.0.2.12", "gone.example.lan."),
+    ]
+    assert stale.details["count"] == 2 and stale.title.startswith("2 PTR records")
     assert c.ptr_mismatches([*forward[:3], rr("pc1.example.lan.", "A", "192.0.2.10")], reverse[:2]) == []
     # IPv6 and no SOA at all: everything counts as managed.
     v6 = c.ptr_mismatches(
@@ -128,9 +163,8 @@ def test_ptr_mismatch():
         [rr(c.reverse_name("2001:db8::1"), "PTR", "h.example.lan.")],
     )
     assert v6 == []
-    assert [a.subject for a in c.ptr_mismatches([rr("h.example.lan.", "AAAA", "2001:db8::1")], [])] == [
-        "ip:2001:db8::1"
-    ]
+    [alone] = c.ptr_mismatches([rr("h.example.lan.", "AAAA", "2001:db8::1")], [])
+    assert alone.subject == "ptr:missing" and alone.details["items"][0]["ip"] == "2001:db8::1"
 
 
 def test_duplicate_ip():

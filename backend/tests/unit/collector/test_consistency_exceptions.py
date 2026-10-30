@@ -51,12 +51,12 @@ def test_ptr_mismatch_pairs_and_exceptions():
         rr("50.2.0.192.in-addr.arpa.", "PTR", "old-laptop.example.lan."),
     )
     alerts = c.ptr_mismatches(fwd, rev)
-    assert [a.subject for a in alerts] == ["ip:192.0.2.40", "ip:192.0.2.50"]
+    assert [a.subject for a in alerts] == ["ptr:missing", "ptr:stale"]
     assert alerts[0].details["exception_keys"] == ["192.0.2.40|printer.example.lan."]
     assert alerts[1].details["exception_keys"] == ["192.0.2.50|old-laptop.example.lan."]
     # The printer's missing PTR is the admin's choice: only the dangling PTR remains.
     ex = only(("ptr_mismatch", "192.0.2.40|printer.example.lan."))
-    assert [a.subject for a in c.ptr_mismatches(fwd, rev, ex)] == ["ip:192.0.2.50"]
+    assert [a.subject for a in c.ptr_mismatches(fwd, rev, ex)] == ["ptr:stale"]
     # An exception of another kind or for another name changes nothing.
     ex = only(("record_without_lease", "192.0.2.40|printer.example.lan."), ("ptr_mismatch", "192.0.2.40|x."))
     assert len(c.ptr_mismatches(fwd, rev, ex)) == 2
@@ -66,8 +66,8 @@ def test_ptr_mismatch_keeps_the_other_pairs_of_an_address():
     # Two names share 192.0.2.60, the PTR names a third: three problems on one address.
     fwd = forward(rr("a.example.lan.", "A", "192.0.2.60"), rr("b.example.lan.", "A", "192.0.2.60"))
     rev = reverse(rr("60.2.0.192.in-addr.arpa.", "PTR", "c.example.lan."))
-    [alert] = c.ptr_mismatches(fwd, rev)
-    assert len(alert.details["problems"]) == 3
+    alerts = c.ptr_mismatches(fwd, rev)
+    assert sum(a.details["count"] for a in alerts) == 3
     ex = only(("ptr_mismatch", "192.0.2.60|a.example.lan."), ("ptr_mismatch", "192.0.2.60|c.example.lan."))
     [alert] = c.ptr_mismatches(fwd, rev, ex)
     assert alert.details["exception_keys"] == ["192.0.2.60|b.example.lan."]
@@ -144,7 +144,7 @@ def test_orphan_ptrs_categories_and_fix():
         rr("10.2.0.192.in-addr.arpa.", "PTR", "www.example.lan."),
         # Points to a name whose A moved: delete the PTR.
         rr("70.2.0.192.in-addr.arpa.", "PTR", "moved.example.lan."),
-        # The target has no IPv4 at all: creating the A is the fix.
+        # The target has no IPv4 and its lease holds the address: creating the A is the fix.
         rr("20.2.0.192.in-addr.arpa.", "PTR", "v6only.example.lan."),
         # Left by DDNS for a host that is gone.
         rr("150.2.0.192.in-addr.arpa.", "PTR", "laptop.example.lan."),
@@ -152,12 +152,17 @@ def test_orphan_ptrs_categories_and_fix():
         # A name outside every managed zone cannot be checked.
         rr("90.2.0.192.in-addr.arpa.", "PTR", "mail.example.net."),
     )
-    items = {i["ip"]: i for i in c.orphan_ptrs(fwd, rev)}
+    holders = {"192.0.2.20": ["v6only.example.lan."]}
+    items = {i["ip"]: i for i in c.orphan_ptrs(fwd, rev, holders=holders, leased={"192.0.2.20"})}
     assert sorted(items) == ["192.0.2.150", "192.0.2.20", "192.0.2.70", "192.0.2.90"]
     assert items["192.0.2.70"]["category"] == "orphan" and items["192.0.2.70"]["fix"] == "delete"
     assert items["192.0.2.70"]["target_addresses"] == ["192.0.2.77"]
+    assert items["192.0.2.70"]["stale"] is True
     assert items["192.0.2.20"]["fix"] == "create_a" and items["192.0.2.20"]["rtype"] == "A"
-    assert items["192.0.2.150"]["ddns"] is True and items["192.0.2.150"]["fix"] == "create_a"
+    assert items["192.0.2.20"]["stale"] is False and items["192.0.2.20"]["held"] is True
+    # Nothing holds the DDNS address any more: delete, never bring the host back.
+    assert items["192.0.2.150"]["ddns"] is True and items["192.0.2.150"]["fix"] == "delete"
+    assert items["192.0.2.150"]["stale"] is True
     assert items["192.0.2.90"]["category"] == "external" and items["192.0.2.90"]["fix"] is None
     assert items["192.0.2.90"]["target_zone"] is None
     assert items["192.0.2.70"]["exception_key"] == "192.0.2.70|moved.example.lan."
@@ -165,6 +170,37 @@ def test_orphan_ptrs_categories_and_fix():
     ex = only(("ptr_mismatch", "192.0.2.90|mail.example.net."))
     flagged = {i["ip"]: i["excepted"] for i in c.orphan_ptrs(fwd, rev, ex)}
     assert flagged["192.0.2.90"] is True and flagged["192.0.2.70"] is False
+    # Without any holder, no orphan proposes an A.
+    assert {i["fix"] for i in c.orphan_ptrs(fwd, rev) if i["category"] == "orphan"} == {"delete"}
+
+
+def test_orphan_ptrs_create_a_needs_the_name_and_one_address():
+    fwd = forward()
+    rev = reverse(
+        rr("102.2.0.192.in-addr.arpa.", "PTR", "laptop.example.lan."),
+        rr("105.2.0.192.in-addr.arpa.", "PTR", "laptop.example.lan."),
+        rr("108.2.0.192.in-addr.arpa.", "PTR", "phone.example.lan."),
+        rr("180.2.0.192.in-addr.arpa.", "PTR", "tablet.example.lan."),
+        rr("180.2.0.192.in-addr.arpa.", "DHCID", "AAIBY2/AuCccgoJbsaxcQc9TUapptP69lOjxfNuVAA2kjEA="),
+    )
+    holders = {
+        # A short reservation name matches the first label of the target.
+        "192.0.2.102": ["laptop"],
+        "192.0.2.105": ["laptop.example.lan."],
+        # Held, but by another name: the PTR is wrong, not the missing A.
+        "192.0.2.108": ["printer.example.lan."],
+        "192.0.2.180": ["tablet.example.lan."],
+    }
+    leased = {"192.0.2.105", "192.0.2.108", "192.0.2.180"}
+    items = {i["ip"]: i for i in c.orphan_ptrs(fwd, rev, holders=holders, leased=leased)}
+    # Never two A for one name: the first address gets the proposal, the other none.
+    assert items["192.0.2.102"]["fix"] == "create_a"
+    assert items["192.0.2.105"]["fix"] is None
+    assert items["192.0.2.108"]["fix"] == "delete" and items["192.0.2.108"]["stale"] is False
+    # A DDNS PTR of a leased address belongs to D2 until the lease ends.
+    assert items["192.0.2.180"]["fix"] == "wait"
+    assert c.holds_name("laptop", "laptop.example.lan.") and not c.holds_name("lap", "laptop.example.lan.")
+    assert not c.holds_name("laptop.other.lan", "laptop.example.lan.")
 
 
 def test_orphan_ptrs_ipv6():

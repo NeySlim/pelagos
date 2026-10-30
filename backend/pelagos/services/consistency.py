@@ -10,13 +10,14 @@ at all, every name in it counts as managed (crafted inputs in tests).
 from __future__ import annotations
 
 import ipaddress
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable, Mapping
 from typing import Any
 
 from pelagos.domain import (
     EXCEPTABLE_KINDS,
     Alert,
     AlertKind,
+    Family,
     Lease,
     LeaseState,
     Reservation,
@@ -176,17 +177,22 @@ def leases_without_record(
 
 
 def records_without_lease(
-    rrsets: Iterable[RRset], leases: Iterable[Lease], excepted: Excepted = _never
+    rrsets: Iterable[RRset],
+    leases: Iterable[Lease],
+    excepted: Excepted = _never,
+    families: Collection[Family] | None = None,
 ) -> list[Alert]:
-    """A/AAAA carrying a DHCID whose lease is gone."""
+    """A/AAAA carrying a DHCID whose lease is gone. `families`: the lease families read (None:
+    both); an AAAA is only judged when DHCPv6 leases were read, since no v6 lease exists otherwise."""
     rrsets = list(rrsets)
+    judged = {"A" if f is Family.V4 else "AAAA" for f in families} if families is not None else None
     dhcid_names = {normalize_name(r.name) for r in rrsets if r.rtype.upper() == "DHCID"}
     if not dhcid_names:
         return []
     active_ips = {canonical_ip(lease.ip_address) for lease in leases if _active(lease)}
     alerts: list[Alert] = []
     for (name, rtype), ips in sorted(_address_index(rrsets).items()):
-        if name not in dhcid_names:
+        if name not in dhcid_names or (judged is not None and rtype not in judged):
             continue
         missing = sorted(ip for ip in ips if ip not in active_ips)
         if not missing or excepted(AlertKind.RECORD_WITHOUT_LEASE.value, record_key(name, rtype)):
@@ -319,29 +325,33 @@ def missing_ptrs(
     return out
 
 
+# Grouped PTR alerts, one per cause: an address whose PTR does not name its owner, and a PTR that
+# names a host without that address (left behind by a host that is gone, info only).
+PTR_MISSING_SUBJECT = "ptr:missing"
+PTR_STALE_SUBJECT = "ptr:stale"
+
+
 def ptr_mismatches(
     forward: Iterable[RRset], reverse: Iterable[RRset], excepted: Excepted = _never
 ) -> list[Alert]:
     """A without matching PTR, or PTR pointing to a name without that A, within managed zones.
 
-    Each problem is one (address, name) pair; an excepted pair is left out, and an address whose
-    every pair is excepted raises nothing."""
+    At most two alerts, grouped by cause; `details.items` lists each (address, name) pair and
+    `details.exception_keys` its key. An excepted pair is left out, an empty group raises nothing."""
     forward = list(forward)
     reverse = list(reverse)
     fwd_apexes = _apexes(forward)
     index = _address_index(forward)
     ptr = _ptr_index(reverse)
     kind = AlertKind.PTR_MISMATCH.value
-    problems: dict[str, list[tuple[str, dict[str, Any]]]] = {}
-    for (ip, name), targets in missing_ptrs(forward, reverse, excepted).items():
-        found = targets or messages.msg("common.none")
-        problems.setdefault(ip, []).append(
-            (ptr_key(ip, name), messages.msg("alert.ptr_mismatch.no_ptr", name=name, found=found))
-        )
+    missing: list[dict[str, Any]] = []
+    for (ip, name), targets in sorted(missing_ptrs(forward, reverse, excepted).items(), key=_pair_sort):
+        missing.append({"ip": ip, "name": name, "found": targets, "key": ptr_key(ip, name)})
     forward_by_ip: dict[str, set[str]] = {}
     for (name, _rtype), ips in index.items():
         for ip in ips:
             forward_by_ip.setdefault(ip, set()).add(name)
+    stale: list[dict[str, Any]] = []
     for rname, targets in ptr.items():
         try:
             ip = ipaddress.ip_address(_ptr_to_ip(rname)).compressed
@@ -351,38 +361,75 @@ def ptr_mismatches(
             if _in_zone(target, fwd_apexes) is None:
                 continue
             if target not in forward_by_ip.get(ip, set()) and not excepted(kind, ptr_key(ip, target)):
-                problems.setdefault(ip, []).append(
-                    (ptr_key(ip, target), messages.msg("alert.ptr_mismatch.dangling", target=target))
-                )
+                stale.append({"ip": ip, "target": target, "key": ptr_key(ip, target)})
+    stale.sort(key=lambda i: (_ip_order(i["ip"]), i["target"]))
     alerts: list[Alert] = []
-    for ip, pairs in sorted(problems.items()):
-        items = [m for _k, m in pairs]
-        keys = list(dict.fromkeys(k for k, _m in pairs))
+    for subject, severity, title, items in (
+        (PTR_MISSING_SUBJECT, Severity.WARNING, "alert.ptr_mismatch.missing", missing),
+        (PTR_STALE_SUBJECT, Severity.INFO, "alert.ptr_mismatch.stale", stale),
+    ):
+        if not items:
+            continue
         alerts.append(
             Alert(
                 kind=AlertKind.PTR_MISMATCH,
-                severity=Severity.WARNING,
-                subject=f"ip:{ip}",
-                **_title("alert.ptr_mismatch", ip=ip, problems=messages.join(items, "; ")),
-                details={"ip": ip, "problems": [messages.render(m) for m in items], "exception_keys": keys},
+                severity=severity,
+                subject=subject,
+                **_title(title, count=len(items)),
+                details={
+                    "cause": subject.split(":", 1)[1],
+                    "count": len(items),
+                    "items": [{k: v for k, v in i.items() if k != "key"} for i in items],
+                    "exception_keys": list(dict.fromkeys(i["key"] for i in items)),
+                },
             )
         )
     return alerts
+
+
+def _ip_order(ip: str) -> tuple[int, int]:
+    addr = ipaddress.ip_address(ip)
+    return addr.version, int(addr)
+
+
+def _pair_sort(item: tuple[tuple[str, str], Any]) -> tuple[tuple[int, int], str]:
+    (ip, name), _targets = item
+    return _ip_order(ip), name
+
+
+def holds_name(holder: str, target: str) -> bool:
+    """A lease or reservation name holds `target`: the same FQDN, or a short name equal to its
+    first label (Kea reservations often carry no domain)."""
+    name = holder.strip().lower().rstrip(".")
+    if not name:
+        return False
+    if "." in name:
+        return normalize_name(name) == target
+    return target.split(".", 1)[0] == name
 
 
 def orphan_ptrs(
     forward: Iterable[RRset],
     reverse: Iterable[RRset],
     excepted: Excepted = _never,
+    holders: Mapping[str, Iterable[str]] | None = None,
+    leased: Collection[str] = (),
 ) -> list[dict[str, Any]]:
     """PTRs whose target has no A/AAAA to their address, one item per (PTR owner, target).
 
     `forward` and `reverse` carry the SOA of each zone read. A target under a managed forward zone
-    is `orphan`; one outside every managed zone is `external` (not verifiable). `fix` says what
-    settles an orphan: `create_a` when the target has no address of that family at all, else
-    `delete`. A DHCID at the PTR owner marks a record written by DDNS."""
+    is `orphan`; one outside every managed zone is `external` (not verifiable). `holders`: the
+    names that hold each address now (active lease, reservation, observation); `leased`: the
+    addresses of active leases. `fix` settles an orphan:
+    - `wait`: a DDNS PTR whose address is still leased (D2 owns it until the lease ends);
+    - `create_a`: the target has no address of that family and a holder of the address carries
+      the target's name; only the first such address of a name gets it, the others get None;
+    - `delete`: anything else, so a stale PTR never recreates a host that is gone.
+    `stale` marks a `delete` orphan nobody holds. A DHCID at the PTR owner marks a DDNS record."""
     forward = list(forward)
     reverse = list(reverse)
+    held = {canonical_ip(ip) or ip: list(names) for ip, names in (holders or {}).items()}
+    active = {canonical_ip(ip) or ip for ip in leased}
     fwd_apexes = _apexes(forward)
     index = _address_index(forward)
     by_name: dict[str, set[str]] = {}
@@ -401,12 +448,19 @@ def orphan_ptrs(
             if ip in addresses:
                 continue
             zone = _in_zone(target, fwd_apexes) if fwd_apexes else None
+            ddns = rname in dhcid
+            holding = any(holds_name(h, target) for h in held.get(ip, ()))
             if zone is None:
                 category, fix = "external", None
             else:
                 category = "orphan"
                 same_family = [a for a in addresses if (":" in a) == (rtype == "AAAA")]
-                fix = "delete" if same_family else "create_a"
+                if ddns and ip in active:
+                    fix = "wait"
+                elif not same_family and holding:
+                    fix = "create_a"
+                else:
+                    fix = "delete"
             key = ptr_key(ip, target)
             out.append(
                 {
@@ -417,12 +471,21 @@ def orphan_ptrs(
                     "target_zone": zone,
                     "target_addresses": addresses,
                     "rtype": rtype,
-                    "ddns": rname in dhcid,
+                    "ddns": ddns,
                     "fix": fix,
+                    "held": ip in active or bool(held.get(ip)),
+                    "stale": fix == "delete" and ip not in active and not held.get(ip),
                     "exception_key": key,
                     "excepted": excepted(AlertKind.PTR_MISMATCH.value, key),
                 }
             )
+    created: set[tuple[str, str]] = set()
+    for item in sorted(out, key=lambda i: _ip_order(i["ip"])):
+        if item["fix"] != "create_a":
+            continue
+        if (item["target"], item["rtype"]) in created:
+            item["fix"] = None
+        created.add((item["target"], item["rtype"]))
     return out
 
 
@@ -516,16 +579,17 @@ def run_all(
     forward: dict[str, list[RRset]],
     reverse: list[RRset],
     excepted: Excepted | None = None,
+    families: Collection[Family] | None = None,
 ) -> list[Alert]:
     """One consistency pass; `forward` maps zone name to its RRsets. Duplicate ids collapse to one alert.
-    Objects `excepted` by the admin raise nothing."""
+    Objects `excepted` by the admin raise nothing; `families`: the lease families read (None: both)."""
     ex = excepted or _never
     forward = {normalize_name(k): v for k, v in forward.items()}
     all_forward = [r for rs in forward.values() for r in rs]
     alerts: list[Alert] = []
     alerts += duplicate_ips(reservations, leases, ex)
     alerts += leases_without_record(leases, forward, ex)
-    alerts += records_without_lease(all_forward, leases, ex)
+    alerts += records_without_lease(all_forward, leases, ex, families)
     alerts += reservation_mismatches(reservations, all_forward + reverse, ex)
     alerts += ptr_mismatches(all_forward, reverse, ex)
     unique: dict[str, Alert] = {}
@@ -679,6 +743,7 @@ __all__ = [
     "canonical_key",
     "excepted_for",
     "excepted_from",
+    "holds_name",
     "ipv6_missing_aaaa",
     "ipv6_reverse_missing",
     "ipv6_stale_aaaa",

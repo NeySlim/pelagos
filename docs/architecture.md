@@ -1182,7 +1182,12 @@ and every file they name, read by the backup; the files themselves when they use
 backup folder). A target is `Target(path, kind, engine, purpose, group, mode, privileged, subdirs,
 owner, dir_mode)` with `kind` `dir` (created when missing, files and subfolders written inside),
 `file` (temp file next to it and rename, else in place, else the privileged helper when
-`privileged`) or `read`. A probe runs the writer's own operation with the same mode bits on a
+`privileged`), `read` or `daemon` (a file the engine daemon rewrites in place itself: Kea's
+`config-write` on a file without includes opens it with `std::ofstream(trunc)` as the daemon's user,
+Kea 2.6.3 `src/lib/process/daemon.cc`, read 2026-10-30; `daemon` names the process). A `daemon`
+target is judged by the mode bits against the uid and groups `/proc` shows for that running process
+(route `daemon`; `absent` when it does not run), problem `daemon_denied`, command `chgrp <its group>
+<file> && chmod g+w <file>`, never fixed by the helper. A probe runs the writer's own operation with the same mode bits on a
 throwaway `.pelagos-probe.*` name and removes it, so the unit's user and groups, its sandbox
 (`ProtectSystem=strict`, `ReadWritePaths`) and its seccomp filters (`RestrictSUIDSGID=yes`) answer
 as they will at apply time; `access(2)` alone would miss the last two. A `Check` gives `ok`,
@@ -2241,7 +2246,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `duplicate_ip` | warning | same IP in two reservations or in a reservation and a foreign lease |
 | `insecure_key` | warning | TSIG or rndc key with hmac-md5/hmac-sha1 (from the security audit) |
 | `insecure_listener` | warning | rndc/statistics-channel/Kea HTTP listening off localhost without TLS |
-| `rpz_update` | warning | an RPZ list update failed or was rejected (subject `rpz:<id>`), or none succeeded for `rpz.stale_factor` intervals (`rpz-stale:<id>`), or a run lasts past its download deadlines (`rpz-stuck`); section 21 |
+| `rpz_update` | warning | an RPZ list update failed or was rejected (subject `rpz:<id>`; parameter `error` is the subscription's `error_message` when it has one, e.g. `permission.apply_error` naming the RPZ folder, never a temp file), or none succeeded for `rpz.stale_factor` intervals (`rpz-stale:<id>`), or a run lasts past its download deadlines (`rpz-stuck`); section 21 |
 | `disk_space` | warning, critical | free space of a volume holding /var, /etc, the BIND directory, logs or lease files at or under `checks.disk_free_warning_percent` / `disk_free_critical_percent`; subject `disk:<mount point>` |
 | `file_growth` | warning, critical | named log, Kea lease file, `.jnl` journal, backups or audit log over its `checks.*_max_mb` (critical at 5 times), or Kea LFC not run for `lfc_stale_factor` intervals; subjects `file:<path>`, `lfc:<engine>` |
 | `reservation_risk` | info, warning | reservation inside a dynamic pool, outside its subnet, the same identifier or hostname twice, or missing or different between HA peers; subjects `<engine>:in-pool:<ip>`, `<engine>:outside-subnet:<ip>`, `<engine>:duplicate-id:<type>=<id>`, `<engine>:duplicate-host:<name>`, `<engine>:peer:<type>=<id>`, `<engine>:peer-id:<host or ip>` (same host or address under another identifier on each peer; peer subjects have no node) |
@@ -2269,7 +2274,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `ipv6_reverse_missing` | info | a watched IPv6 prefix has no reverse zone served by the cluster; cluster-wide, subject `ipv6:reverse:<prefix>`; details `prefix`, `reverse_zone` (the zone to create) |
 | `ipv6_stale_aaaa` | warning | AAAA in a watched prefix whose address has not been observed for `ipv6.stale_days` while the host's MAC is seen with another stable address; cluster-wide, subject `ipv6:stale:<zone>`; details `zone`, `count`, `records: [{"name","address","mac","last_seen","current"}]`, `old_prefix`, `new_prefix` when every stale address moved to one other prefix, `exception_keys` |
 | `ipv6_source_failed` | warning | an IPv6 observation source of this node fails on every poll (section 27): `neighbors` or `dhcpv6` for 10 min (`dhcpv6` not while this node's Kea DHCPv6 has an open `daemon_down` or an engine write in progress: one outage, one alert); per node, subject `ipv6:source:<source>`; details `source`, `source_id`, `error`, `failing_since`; resolved by the next successful poll or when the source is no longer polled here |
-| `path_not_writable` | warning | a path the writers of this node need (zone and RPZ folders, include folder, backups, Kea files it reads) cannot be created, written or read by the collector's unit, probed with the writer's own operation (section 7, permission guard); per node and path, subject `path:<path>`, engine of the path; details `path`, `kind` (`dir`, `file`, `read`), `purpose`, `problem` (`read_only`, `refused`, `denied`, `not_readable`), `error`, `probed`, `owner`, `group`, `mode`, `command` (exact remediation), `message`; checked at collector start (so after every upgrade) and every 10 min, resolved by the next check that passes |
+| `path_not_writable` | warning | a path the writers of this node need (zone and RPZ folders, include folder, backups, Kea files it reads) cannot be created, written or read by the collector's unit, probed with the writer's own operation (section 7, permission guard); per node and path, subject `path:<path>`, engine of the path; details `path`, `kind` (`dir`, `file`, `read`, `daemon`), `purpose`, `problem` (`read_only`, `refused`, `denied`, `not_readable`, `daemon_denied`), `error`, `probed`, `owner`, `group`, `mode`, `command` (exact remediation), `message`; checked at collector start (so after every upgrade) and every 10 min, resolved by the next check that passes |
 | `dns_stale_primary` | critical | a node serves as primary a zone that `ddns.roles` gives to another node at a later epoch (node = that node, subject `ddns:stale:<view>/<zone>`; details `primary_node_id`, `epoch`); resolved by the demotion |
 
 The `ha_*` alerts above have subject `ha:<engine>`; a Kea 3 hub raises them
@@ -3374,8 +3379,14 @@ Public block lists and RPZ feeds become policy zones that Pelagos manages in
   most 7 days), 15 minutes doubling up to 6 hours after a failure. State in
   `rpz-state.json` next to `cluster.toml` (per list: etag, last-modified,
   entries, bytes, source date, `updated_at`, `ok_at`, `next_check`, status,
-  error, failures; `log` with counters and the latest rewrites) and the `bind`
-  snapshot kind `rpz`.
+  error, `error_message` (translated form of `error`, when there is one),
+  failures; `log` with counters and the latest rewrites) and the `bind`
+  snapshot kind `rpz`. While the RPZ folder does not exist and the list's zone
+  is not loaded (its activation plan has not run), nothing is downloaded: status
+  `waiting_config`, `error_message` `rpz.dir_missing`, no failure and no alert.
+  An `OSError` is worded `permission.apply_error` with the RPZ folder in place of
+  the throwaway temp file. Generated zones carry `SOA ... 3600 600 604800 300`,
+  inside the default `checks.soa_*` ranges.
 - **Alerts** `rpz_update` (warning, node, bind): subject `rpz:<id>` while a list's
   last update failed or was rejected, `rpz-stale:<id>` when no update succeeded
   for `stale_factor` intervals. Message keys `alert.rpz_update`,
@@ -3389,7 +3400,8 @@ Public block lists and RPZ feeds become policy zones that Pelagos manages in
   follow on their next pass. `GET /dns/rpz/why` asks the local named for
   `<name>.<zone>` (CNAME) in each policy zone in order, then for the literal
   `*.<parent>.<zone>` names to tell the rule that matched.
-- Consistency checks never read RPZ zones (note `pelagos-rpz`).
+- Consistency checks never read RPZ zones (note `pelagos-rpz`), and the
+  delegation and SOA checks skip every policy and catalog zone (`bulk_zone`).
 
 ## 22. Outgoing notifications
 

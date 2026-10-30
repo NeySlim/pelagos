@@ -29,7 +29,10 @@ from pelagos.domain.messages import Message, msg
 DIR = "dir"  # a directory the writer creates when missing (make_group_dir) and writes files into
 FILE = "file"  # a file the write pipeline replaces (temp file next to it and rename, or in place)
 READ = "read"  # a file the writer must read (backup, configuration)
-KINDS = (DIR, FILE, READ)
+# A file the engine daemon rewrites in place itself: Kea's config-write opens it with
+# std::ofstream(trunc) as the daemon's user (Kea 2.6.3 src/lib/process/daemon.cc, read 2026-10-30).
+DAEMON = "daemon"
+KINDS = (DIR, FILE, READ, DAEMON)
 
 PROBE_PREFIX = ".pelagos-probe."
 UNITS = "pelagos.service pelagos-collector.service"
@@ -47,6 +50,7 @@ class Target:
     subdirs: bool = False  # the writer also creates directories inside (zone directories)
     owner: str | None = None  # owner a missing directory is created with by root (default: group)
     dir_mode: int = 0o2775  # mode a missing directory is created with by root
+    daemon: str | None = None  # DAEMON: the process name (comm) of the daemon that writes the file
 
     def key(self) -> tuple[str, str]:
         return (str(self.path), self.kind)
@@ -257,6 +261,63 @@ def _probe_dir_create(parent: Path, group: str | None) -> None:
             pass
 
 
+def daemon_ids(name: str, path: Path) -> tuple[int, set[int], str] | None:
+    """uid, groups and group name of the running daemon `name` loaded from `path` (else of any
+    `name`), read from /proc; None when it does not run or cannot be seen."""
+    found: list[tuple[bool, int, set[int], int]] = []
+    for status in Path("/proc").glob("[0-9]*/status"):
+        try:
+            if (status.parent / "comm").read_text().strip() != name[:15]:
+                continue
+            fields = dict(line.split(":", 1) for line in status.read_text().splitlines() if ":" in line)
+            cmdline = (status.parent / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue
+        uid = int(fields["Uid"].split()[1])
+        gid = int(fields["Gid"].split()[1])
+        groups = {gid, *(int(g) for g in fields.get("Groups", "").split())}
+        found.append((str(path).encode() in cmdline, uid, groups, gid))
+    if not found:
+        return None
+    _match, uid, groups, gid = max(found, key=lambda f: f[0])
+    try:
+        group = grp.getgrgid(gid).gr_name
+    except KeyError:
+        group = str(gid)
+    return uid, groups, group
+
+
+def _file_writable(st: os.stat_result, uid: int, groups: set[int]) -> bool:
+    mode = st.st_mode
+    if uid == 0:
+        return True
+    if st.st_uid == uid:
+        return bool(mode & stat.S_IWUSR)
+    if st.st_gid in groups:
+        return bool(mode & stat.S_IWGRP)
+    return bool(mode & stat.S_IWOTH)
+
+
+def _probe_daemon(target: Target, check: Check) -> None:
+    """Whether the daemon's own user may rewrite the file (mode bits: it is another process)."""
+    path = Path(target.path)
+    ids = daemon_ids(target.daemon or "", path)
+    if ids is None:
+        check.route = "absent"  # not running: config-write cannot be asked of it either
+        return
+    uid, groups, group = ids
+    st = path.stat() if path.exists() else path.parent.stat()
+    ok = _file_writable(st, uid, groups) if path.exists() else writable(st, uid, groups)
+    check.route = "daemon"
+    if not ok:
+        check.ok = False
+        check.problem = "daemon_denied"
+        check.error = f"{target.daemon} runs as uid {uid}"
+        d = path if path.exists() else path.parent
+        check.command = f"chgrp {group} {d} && chmod g+w {d}" if check.group != group else f"chmod g+w {d}"
+        check.fix = {"action": "daemon_write", "path": str(d), "group": group}
+
+
 def _probe_file_create(directory: Path, mode: int | None, group: str | None) -> None:
     """What `_atomic_write` does: mkstemp next to the target, chmod to the final mode, chgrp."""
     fd, tmp = tempfile.mkstemp(prefix=PROBE_PREFIX, dir=directory)
@@ -292,6 +353,10 @@ def probe(target: Target, helper_available: bool | None = None) -> Check:
             with open(path, "rb"):
                 pass
             check.route = "direct"
+            return check
+        if target.kind == DAEMON:
+            _fill(check, path if path.exists() else path.parent)
+            _probe_daemon(target, check)
             return check
         if target.kind == DIR:
             if path.exists():

@@ -190,6 +190,10 @@ sudo pelagos permissions check --unit pelagos-collector.service   # in the unit'
 sudo pelagos permissions ensure                                   # create missing folders
 ```
 
+A Kea file without includes is saved by Kea itself (`config-write`), as
+the Kea daemon's user: Pelagos checks that this user can write it too and
+otherwise refuses the plan with `chgrp _kea <file> && chmod g+w <file>`.
+
 The package runs `pelagos permissions ensure` on install and upgrade: it
 creates `<named directory>/pelagos` and the other folders Pelagos writes when
 they are missing, and never changes a folder that exists.

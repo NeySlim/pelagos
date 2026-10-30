@@ -331,6 +331,7 @@
   "permission.finding": "{{what}} {{path}} : {{missing}} (actuellement {{owner}}:{{group}} {{mode}} sur {{probed}}) ; correction : {{command}}",
   "permission.node": "{{node}} : {{items}}",
   "permission.plan_refused": "plan refusé, Pelagos ne peut pas écrire des chemins dont ce plan a besoin : {{nodes}}",
+  "permission.problem.daemon_denied.daemon": "ne peut pas être réécrit par le démon Kea (config-write) : son utilisateur n'a pas le droit d'écrire dessus",
   "permission.problem.denied.dir": "ne peut pas être créé : pas de droit d'écriture sur le dossier parent",
   "permission.problem.denied.file": "ne peut pas être écrit : pas de droit d'écriture sur le fichier ni sur son dossier",
   "permission.problem.denied.read": "ne peut pas être lu : pas de droit de lecture",
@@ -455,7 +456,8 @@
   "problem.unauthenticated": "Authentification requise",
   "problem.validation_error": "Erreur de validation",
   "problem.zone_too_large": "Zone trop grande pour être lue ici",
-  "problem.zone_without_records": "La zone ne contient aucun enregistrement"
+  "problem.zone_without_records": "La zone ne contient aucun enregistrement",
+  "rpz.dir_missing": "le dossier RPZ {{path}} n'existe pas encore : activez d'abord la liste, son plan le crée"
  },
  "notify": {
   "body": {

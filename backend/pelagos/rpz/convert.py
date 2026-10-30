@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 from typing import TextIO
 
 FORMATS = ("rpz", "hosts", "domains", "adblock")
-SOA_LINE = "@ 300 IN SOA localhost. hostmaster.localhost. ( {serial} 3600 600 86400 300 )"
+# Timers inside the default SOA ranges of the health checks (checks.soa_*): a generated zone is clean.
+SOA_LINE = "@ 300 IN SOA localhost. hostmaster.localhost. ( {serial} 3600 600 604800 300 )"
 HOSTS_SKIP = frozenset(
     {
         "localhost",

@@ -241,3 +241,15 @@ def test_closed_kea_dir_without_helper_is_a_preflight_problem(closed_kea, monkey
     assert "keys.json refused" in (file.write_problem() or "")
     monkeypatch.setattr(helper_mod, "available", lambda: False)
     assert "no privileged helper" in (file.write_problem() or "")
+
+
+def test_a_file_kea_rewrites_itself_is_probed_as_the_daemon(tmp_path):
+    from pelagos.core import permguard
+
+    file, _sock = make(tmp_path, '{"DhcpDdns": {"ip-address": "127.0.0.1"}}', {}, {})
+    daemon = [t for t in file.permission_targets() if t.kind == permguard.DAEMON]
+    assert [(t.path, t.daemon) for t in daemon] == [(file.path, "kea-dhcp-ddns")]
+    assert not [t for t in file.permission_targets(writes=False) if t.kind == permguard.DAEMON]
+    # With includes Pelagos writes the files itself: no daemon probe.
+    file, _sock = make(tmp_path, '{"DhcpDdns": <?include "part.json"?>}', {"part.json": "{}"}, {})
+    assert not [t for t in file.permission_targets() if t.kind == permguard.DAEMON]

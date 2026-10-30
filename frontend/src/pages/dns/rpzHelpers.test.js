@@ -80,6 +80,8 @@ describe('rpz helpers', () => {
     expect(worstStatus({})).toEqual({ status: 'pending', error: '' })
     expect(worstStatus({ a: { status: 'ok' }, b: null }).status).toBe('pending')
     expect(worstStatus({ a: { status: 'ok' }, b: { status: 'rejected', error: 'shrank by 70%' } })).toEqual({ status: 'rejected', error: 'shrank by 70%' })
+    const dir = { key: 'rpz.dir_missing', params: { path: '/var/cache/bind/pelagos/rpz' } }
+    expect(worstStatus({ a: { status: 'waiting_config', error: 'missing', error_message: dir } }).message).toEqual(dir)
     expect(latestStatus({ a: { ok_at: 10, entries: 1 }, b: { ok_at: 20, entries: 2 }, c: null }).entries).toBe(2)
   })
 })

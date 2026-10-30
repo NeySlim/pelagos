@@ -121,7 +121,9 @@ class RpzPoller:
             stale = found["reason"] == "stale"
             key = "alert.rpz_stale" if stale else "alert.rpz_update"
             params = {"name": found["name"]} | (
-                {"hours": found["hours"]} if stale else {"error": found["error"]}
+                {"hours": found["hours"]}
+                if stale
+                else {"error": found.get("error_message") or found["error"]}
             )
             out.append(
                 Alert(

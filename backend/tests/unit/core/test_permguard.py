@@ -245,3 +245,31 @@ def test_state_round_trip(tmp_path: Path) -> None:
     assert permguard.load_state(path)["checks"] == [{"path": "/x", "ok": True}]
     assert stat.S_IMODE(path.stat().st_mode) == 0o640
     assert permguard.load_state(tmp_path / "absent.json") is None
+
+
+def test_daemon_ids_reads_a_running_process_from_proc() -> None:
+    comm = Path("/proc/self/comm").read_text().strip()
+    ids = permguard.daemon_ids(comm, Path("/nonexistent.conf"))
+    assert ids is not None and ids[0] == os.geteuid() and os.getegid() in ids[1]
+    assert permguard.daemon_ids("no-such-daemon", Path("/x")) is None
+
+
+def test_a_file_the_daemon_cannot_rewrite_is_refused_with_its_fix(tmp_path, monkeypatch) -> None:
+    conf = tmp_path / "kea-dhcp4.conf"
+    conf.write_text("{}")
+    conf.chmod(0o640)
+    other = os.geteuid() + 4242
+    monkeypatch.setattr(permguard, "daemon_ids", lambda name, path: (other, {other}, "_kea"))
+    target = permguard.Target(conf, permguard.DAEMON, "kea-dhcp4", "kea_config", daemon="kea-dhcp4")
+    check = permguard.probe(target)
+    assert not check.ok and check.problem == "daemon_denied" and check.route == "daemon"
+    assert check.command == f"chgrp _kea {conf} && chmod g+w {conf}"
+    assert check.fix["action"] == "daemon_write" and not check.remediable
+    out = check.to_dict()
+    assert "finding_id" not in out and "config-write" in out["text"]
+    conf.chmod(0o666)
+    assert permguard.probe(target).ok
+    monkeypatch.setattr(permguard, "daemon_ids", lambda name, path: None)
+    conf.chmod(0o600)
+    absent = permguard.probe(target)
+    assert absent.ok and absent.route == "absent"

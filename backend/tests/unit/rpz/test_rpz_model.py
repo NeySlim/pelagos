@@ -403,6 +403,20 @@ def test_poller_runs_the_sync_publishes_the_snapshot_and_raises_alerts(tmp_path:
     assert NOW  # the shared clock constant is imported for the fixtures above
 
 
+def test_poller_alert_carries_the_translated_error(tmp_path: Path) -> None:
+    node = Node(tmp_path)
+    node.subscribe()
+    store = series_mod.SeriesStore(series_mod.connect(tmp_path / "series.sqlite"))
+    poller = RpzPoller(
+        StubBackend(node), "n1", store, lambda: node.settings, lambda: node.now, synchronous=True
+    )
+    node.responses.append(PermissionError(13, "Permission denied", str(node.env.rpz_dir / "tmpab12")))
+    poller.poll()
+    [alert] = poller.poll().alerts
+    error = alert.title_message["params"]["error"]
+    assert error["key"] == "permission.apply_error" and "tmpab12" not in alert.title
+
+
 def test_poller_reports_a_stuck_update_and_keeps_publishing(tmp_path: Path) -> None:
     import threading
 

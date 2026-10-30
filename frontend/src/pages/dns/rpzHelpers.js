@@ -100,7 +100,10 @@ export function worstStatus(statusByNode) {
   let worst = { status: 'ok', error: '' }
   for (const row of rows) {
     const status = row ? row.status || 'ok' : 'pending'
-    if ((RANK[status] ?? 1) > (RANK[worst.status] ?? 1)) worst = { status, error: row?.error || '' }
+    if ((RANK[status] ?? 1) > (RANK[worst.status] ?? 1)) {
+      // `message`: the translated form of `error` when the node sent one.
+      worst = { status, error: row?.error || '', message: row?.error_message || undefined }
+    }
   }
   return worst
 }

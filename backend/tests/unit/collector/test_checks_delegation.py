@@ -302,6 +302,22 @@ def test_builtin_and_empty_zones_are_not_checked_but_real_reverse_zones_are():
     }
 
 
+def test_policy_zones_pelagos_builds_get_no_delegation_or_soa_check():
+    from pelagos.rpz import convert
+
+    names = ["hagezi-tif-medium.rpz.invalid.", "pelagos-allow.rpz.invalid.", "example.lan."]
+    backend = FakeBackend([Zone(name=n, kind=ZoneKind.PRIMARY, view="_default") for n in names])
+    ctx = SimpleNamespace(node=SimpleNamespace(id="n1"), settings=lambda: {"checks": {}})
+    checks = HealthChecks(ctx, None, SimpleNamespace(dns=backend), threading.Lock())
+    checks.net_factory = lambda b: FakeNet({})
+    found = {a.subject for a in checks._delegation().alerts}
+    assert {q[0] for q in backend.dns.queried} == {"example.lan."}
+    assert not any("rpz.invalid" in s for s in found)
+    # The SOA Pelagos writes in a policy zone sits inside the default ranges anyway.
+    soa = convert.SOA_LINE.format(serial=1).split("SOA", 1)[1].replace("(", "").replace(")", "")
+    assert delegation.soa_alerts("n1", "x.rpz.invalid.", "_default", soa, CFG) == []
+
+
 def test_primary_missing_from_its_ns_set_fires_and_clears():
     found = run(FakeNet(HOSTS), ["ns2.example.lan."])
     alert = found["ns-primary:example.lan"]

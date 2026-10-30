@@ -44,6 +44,9 @@ ADOPT_RUNNING = "adopt/running"
 ADOPT_TARGETS = (ADOPT_FILE, ADOPT_RUNNING)
 _SECRET_LINE = re.compile(r'("(?:secret|[\w-]*password)"\s*:\s*)"[^"]*"', re.I)
 
+# Process name (comm) of the daemon that serves each top-level key.
+DAEMONS = {"Dhcp4": "kea-dhcp4", "Dhcp6": "kea-dhcp6", "DhcpDdns": "kea-dhcp-ddns"}
+
 
 class FileDiverged(ConnectorError):
     """The configuration file says something the running daemon does not (section 9)."""
@@ -234,6 +237,11 @@ class KeaConfigFile:
             privileged = helper.available()
             for p in self.files(doc):
                 out.append(permguard.Target(p, permguard.FILE, engine, "kea_config", privileged=privileged))
+        elif doc is not None and self.root in DAEMONS:
+            # Without includes Kea persists the change itself: its own user must write the file.
+            out.append(
+                permguard.Target(self.path, permguard.DAEMON, engine, "kea_config", daemon=DAEMONS[self.root])
+            )
         out.append(permguard.backup_target(self.backup_root, engine))
         return out
 

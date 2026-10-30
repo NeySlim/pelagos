@@ -13,6 +13,16 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-30, WP-CORE, WP-KEA, WP-BIND, WP-COLLECTOR, WP-FRONTEND: RPZ folder wait, Kea config-write guard (item 81, B13, B14, I4)
+Additive. `core/permguard.py`: target kind `daemon` (`Target.daemon`), route `daemon`, problem
+`daemon_denied`, fix action `daemon_write` (never remediable by the helper), `daemon_ids`.
+`KeaConfigFile.permission_targets` adds a `daemon` target for a file without includes (Kea's
+config-write). Messages `permission.problem.daemon_denied.daemon`, `rpz.dir_missing`. `rpz/sync.py`:
+per list `error_message` in `rpz-state.json`, findings carry it, the `rpz_update` alert's `error`
+parameter is that message when present; no download while the RPZ folder is missing and the zone is
+not loaded. `rpz/convert.py`: generated SOA expire 604800. WP-FRONTEND: the RPZ list status renders
+`error_message` (`worstStatus().message`).
+
 ## 2026-10-29, WP-CORE, WP-BIND, WP-KEA, WP-COLLECTOR, WP-API-AUTH, WP-INSTALLER, WP-PACKAGING, WP-FRONTEND: permission guard (item 79)
 Additive. Architecture section 7 "Permission guard". `domain/plan.py`: `ValidationResult.output_message`,
 `Plan.error_message`, `NodeApplyResult.message_message` (older nodes drop them, the English fields

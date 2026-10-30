@@ -331,6 +331,7 @@
   "permission.finding": "{{what}} {{path}}: {{missing}} (now {{owner}}:{{group}} {{mode}} on {{probed}}); fix: {{command}}",
   "permission.node": "{{node}}: {{items}}",
   "permission.plan_refused": "plan refused, Pelagos cannot write paths this plan needs: {{nodes}}",
+  "permission.problem.daemon_denied.daemon": "cannot be rewritten by the Kea daemon (config-write): its user has no write permission on it",
   "permission.problem.denied.dir": "cannot be created: no write permission on the parent folder",
   "permission.problem.denied.file": "cannot be written: no write permission on the file or its folder",
   "permission.problem.denied.read": "cannot be read: no read permission",
@@ -455,7 +456,8 @@
   "problem.unauthenticated": "Authentication required",
   "problem.validation_error": "Validation error",
   "problem.zone_too_large": "Zone too large to read here",
-  "problem.zone_without_records": "Zone holds no records"
+  "problem.zone_without_records": "Zone holds no records",
+  "rpz.dir_missing": "the RPZ folder {{path}} does not exist yet: enable the list first, its plan creates it"
  },
  "notify": {
   "body": {

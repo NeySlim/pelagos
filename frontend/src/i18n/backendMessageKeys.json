@@ -1064,6 +1064,7 @@
   "permission.plan_refused": [
     "nodes"
   ],
+  "permission.problem.daemon_denied.daemon": [],
   "permission.problem.denied.dir": [],
   "permission.problem.denied.file": [],
   "permission.problem.denied.read": [],
@@ -1394,5 +1395,8 @@
   "problem.unauthenticated": [],
   "problem.validation_error": [],
   "problem.zone_too_large": [],
-  "problem.zone_without_records": []
+  "problem.zone_without_records": [],
+  "rpz.dir_missing": [
+    "path"
+  ]
 }

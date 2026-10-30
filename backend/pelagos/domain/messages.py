@@ -138,6 +138,7 @@ CATALOG: dict[str, str] = {
     "alert.ptr_mismatch.no_ptr": "{name} has no PTR (found {found})",
     "alert.ptr_mismatch.dangling": "PTR points to {target} which has no address record for it",
     "alert.rpz_update": "RPZ list {name}: update failed ({error})",
+    "rpz.dir_missing": "the RPZ folder {path} does not exist yet: enable the list first, its plan creates it",
     "alert.rpz_stuck": "RPZ list updates on this node have been running for {minutes} min",
     "alert.rpz_stale": "RPZ list {name}: no successful update for {hours} h",
     "alert.duplicate_reservation": "{ip} is reserved twice",
@@ -362,6 +363,9 @@ CATALOG: dict[str, str] = {
     "permission.problem.not_readable.dir": "cannot be read: no read permission",
     "permission.problem.not_readable.file": "cannot be read: no read permission",
     "permission.problem.not_readable.read": "cannot be read: no read permission",
+    "permission.problem.daemon_denied.daemon": (
+        "cannot be rewritten by the Kea daemon (config-write): its user has no write permission on it"
+    ),
     "permission.problem.missing_parent.dir": "a parent folder is missing",
     "permission.problem.missing_parent.file": "a parent folder is missing",
     "permission.problem.missing_parent.read": "a parent folder is missing",

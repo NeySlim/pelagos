@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 
 from pelagos.core import permguard
+from pelagos.domain import messages
+from pelagos.domain.messages import Message
 from pelagos.rpz import convert as conv
 from pelagos.rpz import fetch as fetch_mod
 from pelagos.rpz import logparse, model
@@ -191,7 +193,11 @@ class Syncer:
                     self._axfr_status(sub, entry)
                     continue
                 self._update(sub, entry, cfg, force or bool(only), report, accept_shrink and bool(only))
-            except Exception as exc:  # one list never stops the others
+            except OSError as exc:  # one list never stops the others
+                log.exception("rpz %s failed", sub.id)
+                worded = permguard.apply_error(self._public_error(exc))
+                self._fail(entry, messages.render(worded), cfg, report, sub.id, error_message=worded)
+            except Exception as exc:
                 log.exception("rpz %s failed", sub.id)
                 self._fail(entry, str(exc), cfg, report, sub.id)
         # Entries of subscriptions that left this node.
@@ -199,7 +205,10 @@ class Syncer:
         for sid in [k for k in subs_state if k not in keep]:
             del subs_state[sid]
         if not only:
-            self.sync_allow(settings, state)
+            try:
+                self.sync_allow(settings, state)
+            except OSError as exc:
+                log.warning("rpz allow zone not written: %s", exc)
             self.tail_log(subs, cfg, state)
         save_state(self.env.state_path, state)
         return report
@@ -223,6 +232,17 @@ class Syncer:
         lost = entry.get("bytes") is not None and _size(zone_path(self.env, sub.zone)) != entry.get("bytes")
         if not force and not changed_config and not lost and now < entry.get("next_check", 0):
             return
+        if not self.env.rpz_dir.is_dir() and not self.env.zone_loaded(sub.zone):
+            # The activation plan creates the folder (as root when needed) and the zone with it:
+            # until then there is nothing to update and nothing to report as failed.
+            message = messages.msg("rpz.dir_missing", path=self.env.rpz_dir)
+            entry.update(
+                status="waiting_config",
+                error=messages.render(message),
+                error_message=message,
+                checked_at=int(now),
+            )
+            return
         etag = "" if changed_config or lost else entry.get("etag", "")
         modified = "" if changed_config or lost else entry.get("last_modified", "")
         got = self.env.fetch(
@@ -236,6 +256,7 @@ class Syncer:
         )
         entry["checked_at"] = int(now)
         if got.status == 304:
+            entry.pop("error_message", None)
             entry.update(
                 status="ok",
                 error="",
@@ -303,6 +324,7 @@ class Syncer:
         if error:
             self._fail(entry, error, cfg, report, sub.id, rejected=True)
             return
+        entry.pop("error_message", None)
         entry.update(
             fingerprint=fp,
             status="ok" if loaded else "waiting_config",
@@ -346,9 +368,14 @@ class Syncer:
         report: SyncReport,
         sub_id: str,
         rejected: bool = False,
+        error_message: Message | None = None,
     ) -> None:
         now = self.env.clock()
         failures = int(entry.get("failures") or 0) + 1
+        if error_message is None:
+            entry.pop("error_message", None)
+        else:
+            entry["error_message"] = error_message
         entry.update(
             status="rejected" if rejected else "error",
             error=message,
@@ -358,6 +385,13 @@ class Syncer:
             next_check=int(now + min(RETRY_BASE * 2 ** (failures - 1), RETRY_MAX)),
         )
         report.failed[sub_id] = message
+
+    def _public_error(self, exc: OSError) -> OSError:
+        """`exc` naming the RPZ folder instead of a throwaway temp file inside it."""
+        name = Path(str(exc.filename)) if exc.filename else None
+        if name is not None and name.parent == self.env.rpz_dir and name.name.startswith(("tmp", ".")):
+            return OSError(exc.errno, exc.strerror, str(self.env.rpz_dir))
+        return exc
 
     # Transferred zones -----------------------------------------------------------------
 
@@ -371,6 +405,7 @@ class Syncer:
             entry["failures"] = int(entry.get("failures") or 0) + (1 if entry["status"] == "error" else 0)
             return
         info = self.env.zone_info(sub.zone)
+        entry.pop("error_message", None)
         entry.update(
             status="ok",
             error="",
@@ -477,7 +512,10 @@ def findings(
     for sub in subs:
         entry = entries.get(sub.id) or {}
         if entry.get("status") in ("error", "rejected") and entry.get("failures"):
-            out.append({"id": sub.id, "name": sub.name, "reason": "failed", "error": entry.get("error", "")})
+            failed = {"id": sub.id, "name": sub.name, "reason": "failed", "error": entry.get("error", "")}
+            if messages.is_message(entry.get("error_message")):
+                failed["error_message"] = entry["error_message"]
+            out.append(failed)
             continue
         updated = entry.get("ok_at") or entry.get("updated_at")
         stale_after = sub.interval_hours * 3600 * int(cfg["stale_factor"])

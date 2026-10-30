@@ -13,6 +13,7 @@ import { Input } from '../../components/Input'
 import { Select } from '../../components/ui/Select'
 import TagsInput from '../../components/ui/TagsInput'
 import { useNotification } from '../../contexts/NotificationContext'
+import { useMessage } from '../../i18n/message'
 import { api } from '../../services/api'
 import { RpzCategoryCard } from './RpzCategoryCard'
 import {
@@ -89,6 +90,7 @@ function SubscriptionModal({ open, onClose, onSave, busy }) {
 export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
   const { t } = useTranslation(['dns', 'common'])
   const { showInfo, showSuccess } = useNotification()
+  const tm = useMessage()
   const [adding, setAdding] = useState(false)
   const [busy, setBusy] = useState(false)
   const { catalog, categories, subscriptions, nodes, settings } = overview
@@ -127,10 +129,11 @@ export default function RpzCatalog({ overview, flow, canWrite, refetch }) {
 
   const statusCell = (s) => {
     const worst = worstStatus(s.status)
+    const error = tm(worst.message, worst.error)
     return (
-      <span title={worst.error || undefined}>
+      <span title={error || undefined}>
         <Badge variant={STATUS_VARIANT[worst.status] || 'default'} size="sm">{t(`rpzsub.status.${worst.status}`, { defaultValue: worst.status })}</Badge>
-        {worst.error && <span className="block text-xs text-accent-danger mt-0.5 max-w-xs truncate">{worst.error}</span>}
+        {error && <span className="block text-xs text-accent-danger mt-0.5 max-w-xs truncate">{error}</span>}
       </span>
     )
   }

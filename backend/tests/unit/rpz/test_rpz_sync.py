@@ -244,10 +244,42 @@ def test_changed_subscription_downloads_again_without_validators(node: Node) -> 
 def test_zone_not_declared_yet_writes_the_file_without_reload(node: Node) -> None:
     node.subscribe()
     node.loaded = False
+    node.env.rpz_dir.mkdir()
     node.responses.append(ok(body(10)))
     node.run()
     assert node.list_reloads() == [] and node.file().exists()
     assert node.state()["subs"]["mine"]["status"] == "waiting_config"
+
+
+def test_no_folder_and_no_zone_yet_waits_for_the_plan_without_failing(node: Node) -> None:
+    node.subscribe()
+    node.loaded = False
+    report = node.run()
+    assert node.fetches == [] and report.failed == {} and not node.env.rpz_dir.exists()
+    entry = node.state()["subs"]["mine"]
+    assert entry["status"] == "waiting_config"
+    assert entry["error_message"] == {"key": "rpz.dir_missing", "params": {"path": str(node.env.rpz_dir)}}
+    cfg = model.config(node.settings)
+    assert sync.findings(model.resolve(node.settings), node.state(), cfg, NOW) == []
+    # Once the plan made the folder, the list is fetched and the waiting note goes.
+    node.env.rpz_dir.mkdir()
+    node.responses.append(ok(body(10)))
+    node.run()
+    assert node.fetches and "error_message" not in node.state()["subs"]["mine"]
+
+
+def test_a_write_error_is_worded_without_the_temp_file(node: Node) -> None:
+    node.subscribe()
+    tmp = node.env.rpz_dir / "tmposvuzh2x"
+    node.responses.append(FileNotFoundError(2, "No such file or directory", str(tmp)))
+    node.run()
+    entry = node.state()["subs"]["mine"]
+    assert entry["status"] == "error" and "tmposvuzh2x" not in entry["error"]
+    message = entry["error_message"]
+    assert message["key"] == "permission.apply_error" and message["params"]["path"] == str(node.env.rpz_dir)
+    cfg = model.config(node.settings)
+    found = sync.findings(model.resolve(node.settings), node.state(), cfg, NOW)
+    assert found[0]["error_message"] == message
 
 
 def test_other_nodes_and_disabled_subscriptions_are_left_alone(node: Node) -> None:

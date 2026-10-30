@@ -56,7 +56,7 @@
     "alone": "Ce nœud n'a pas encore de pair : enrôler un second serveur pour une interface redondante.",
     "behind": "Les pairs divergent",
     "isolated": "Tous les pairs refusent le certificat de ce nœud (il a été retiré du cluster ou son certificat révoqué). Il sert toujours DNS et DHCP, mais rien de ce qui est écrit ici n'atteint les autres nœuds : l'enrôler de nouveau ou le désinstaller.",
-    "fingerprint": "Certificat {{fp}}",
+    "fingerprint": "Certificat",
     "hint": "La configuration et le journal d'audit se répliquent entre nœuds en TLS mutuel ; la version de configuration la plus haute gagne.",
     "inSync": "Tous les pairs sont synchronisés",
     "local": "ici {{v}}",

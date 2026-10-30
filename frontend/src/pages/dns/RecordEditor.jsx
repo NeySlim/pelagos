@@ -13,7 +13,7 @@ import { Input } from '../../components/Input'
 import { Textarea } from '../../components/Textarea'
 import { Select } from '../../components/ui/Select'
 import { api } from '../../services/api'
-import { errorMessage } from '../../services/apiClient'
+import { errorItemText, errorMessage } from '../../services/apiClient'
 import { EDITABLE_TYPES, absZone, buildChanges, isAddressType, localDiff, ptrOption, relativeName, validateForm } from './records'
 
 const DEFAULT_TTL = 3600
@@ -315,7 +315,7 @@ export function RecordEditor({
               {error.errors.map((e, i) => (
                 <li key={i}>
                   {e.field ? `${e.field}: ` : ''}
-                  {e.message}
+                  {errorItemText(e)}
                 </li>
               ))}
             </ul>

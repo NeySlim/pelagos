@@ -22,6 +22,8 @@ vi.mock('../../../services/api', () => {
   }
   return { api, default: api }
 })
+const auth = vi.hoisted(() => ({ modules: { dhcpv6: true } }))
+vi.mock('../../../contexts/AuthContext', () => ({ useAuth: () => auth }))
 vi.mock('../../../contexts/NotificationContext', () => ({
   useNotification: () => ({ showSuccess: vi.fn(), showError: vi.fn(), showInfo: vi.fn(), showToast: vi.fn() }),
 }))
@@ -61,6 +63,21 @@ describe('Ipv6ObservationPage', () => {
     expect(screen.getByText('reverse zone')).toBeInTheDocument()
     expect(screen.queryByTestId('ipv6-sources')).toBeNull()
     expect(screen.queryByTestId('ipv6-source-add')).toBeNull()
+  })
+
+  it('says the lease walk interval is unused while DHCPv6 is off', async () => {
+    auth.modules = { dhcpv6: false }
+    try {
+      renderPage()
+      expect(await screen.findByTestId('ipv6-poll')).toHaveTextContent('unused: the DHCPv6 module is off')
+    } finally {
+      auth.modules = { dhcpv6: true }
+    }
+  })
+
+  it('keeps the lease walk interval plain while DHCPv6 is on', async () => {
+    renderPage()
+    expect(await screen.findByTestId('ipv6-poll')).not.toHaveTextContent('unused')
   })
 
   it('shows neighbor tables off when disabled', async () => {

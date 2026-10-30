@@ -22,6 +22,16 @@ CATALOG: dict[str, str] = {
     "op.add": "add",
     "op.delete": "delete",
     "op.replace": "replace",
+    "common.text": "{text}",
+    "rrset.invalid_rdata": "{value} is not a valid {rtype} value",
+    "rrset.empty": "{owner} {rtype}: no value given",
+    "rrset.ttl_range": "{owner} {rtype}: TTL {ttl} is out of range (0 to 2147483647)",
+    "rrset.exists": "{owner} already has a {rtype} record; edit it instead",
+    "rrset.missing": "{owner} has no {rtype} record",
+    "rrset.changed": "{owner} {rtype} changed since it was read; reload and try again",
+    "rrset.cname_other_data": "{owner} already has other records ({types}); a CNAME cannot coexist with them",
+    "rrset.is_cname": "{owner} is a CNAME; no other record can be added at this name",
+    "rrset.no_change": "no change",
     "note.no_difference": "no difference found",
     "note.static_file_edit": "file edit, the zone stays static",
     "note.static_file_edit_on": "file edit on {node}, the zone stays static",
@@ -240,6 +250,7 @@ CATALOG: dict[str, str] = {
     "alert.ns_no_transfer": "zone {zone}: name server {ns} ({address}) is not allowed to transfer the zone",
     "alert.ns_not_listed": "{address} gets notifies or transfers for {zones} but is not a name server",
     "alert.soa_range": "zone {zone}: SOA values outside the usual range: {fields}",
+    "alert.soa_field": "{field} {value} ({low} to {high})",
     "alert.view_unchecked": (
         "view {view}: delegation and SOA are not checked (zones: {zones}), no read key selects the "
         "view (dns.view_keys)"
@@ -273,11 +284,11 @@ CATALOG: dict[str, str] = {
         "then every copy"
     ),
     "alert.update_denied": (
-        "named refused {count} dynamic updates in {hours} hours, usually clients updating DNS "
+        "named refused {count} dynamic updates in {hours} h, usually clients updating DNS "
         "themselves; set {settings} in Kea (Dhcp4 and Dhcp6) so that it updates DNS for them"
     ),
     "alert.update_denied_set": (
-        "named refused {count} dynamic updates in {hours} hours although Kea already overrides client "
+        "named refused {count} dynamic updates in {hours} h although Kea already overrides client "
         "updates: find the sources in the named log and check allow-update or update-policy of the zones"
     ),
     "alert.cert_expiry": "{cert} certificate expires on {not_after}",
@@ -893,6 +904,7 @@ CATALOG: dict[str, str] = {
     ),
     "problem.detail.zone_name_invalid": "{zone} is not a valid zone name",
     "problem.detail.option_exists": "option {option} already exists; use replace",
+    "problem.detail.engine_rejected": "{tool} rejected the change",
     "problem.detail.zone_without_records": "{zone} is a {kind} zone: named holds no records for it",
     "problem.detail.zone_too_large": (
         "{zone} holds {size} names or more, above the read limit of {limit} (dns.zone_read_max_names)"

@@ -95,7 +95,7 @@
     "dhcp": {
       "title": "DHCP",
       "rate": "Baux/s",
-      "hot": "Pools chargés",
+      "hot": "Pools à {{percent}} % ou plus",
       "chart": "Débit de baux",
       "chartLabel": "Baux attribués, actuellement {{rate}} par seconde",
       "pools": "Pools les plus remplis",

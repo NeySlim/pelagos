@@ -16,11 +16,11 @@ const setPath = (obj, path, value) => {
   return { ...obj, [head]: rest.length ? setPath(obj[head] || {}, rest.join('.'), value) : value }
 }
 
-export default function SourceDialog({ open, onClose, node, cluster, overview, onSaved, onPlan }) {
+export default function SourceDialog({ open, onClose, node, cluster, overview, onSaved, onPlan, prefill }) {
   const { t } = useTranslation('certs')
   const { showError } = useNotification()
   const isCluster = Boolean(cluster)
-  const initial = isCluster ? overview?.cluster : node?.inherited ? { source: 'inherit' } : node?.source
+  const initial = isCluster ? overview?.cluster || prefill : node?.inherited ? { source: 'inherit' } : node?.source
   const [form, setForm] = useState(() => {
     const f = formFromSource(initial || {}, { cluster: isCluster })
     if (!isCluster && node?.inherited) f.source = 'inherit'

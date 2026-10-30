@@ -20,6 +20,7 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate, formatRelativeTime } from '../../lib/utils'
 import { StatusBadge } from '../../components/StatusBadge'
+import { CopyableText } from '../../components/CopyableText'
 import { HeartbeatTrace, RollingNumber, SignalLink, SwapText } from '../../components/motion'
 import { usePoll } from '../../hooks/usePoll'
 import { useFallbackMs } from '../../hooks/useClusterSignals'
@@ -377,8 +378,9 @@ export default function NodesPage() {
               </Badge>
             )}
             {self && (
-              <span className="ml-auto text-2xs text-text-tertiary font-mono" title={self.peer.cert_fingerprint}>
-                {t('replication.fingerprint', { fp: `${String(self.peer.cert_fingerprint).slice(0, 16)}...` })}
+              <span className="ml-auto inline-flex items-center gap-1 min-w-0 text-2xs text-text-tertiary">
+                {t('replication.fingerprint')}
+                <CopyableText value={self.peer.cert_fingerprint} max={23} testId="node-cert-fingerprint" />
               </span>
             )}
           </div>

@@ -84,6 +84,7 @@
     "sourcesHelp": "Les adresses viennent de la table des voisins de chaque nœud et, avec le module DHCPv6, des baux DHCPv6 de Kea.",
     "neighbors": "Tables des voisins des nœuds",
     "pollSeconds": "Lecture des baux DHCPv6 (secondes)",
+    "pollUnused": "sans effet : module DHCPv6 désactivé",
     "stableDays": "Stable après (jours)",
     "staleDays": "Obsolète après (jours)",
     "settingsHelp": "Les seuils et les tables des voisins sont des réglages du domaine ipv6.",

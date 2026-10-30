@@ -21,3 +21,9 @@ export function groupPermissions(permissions) {
   }
   return [...groups.entries()].map(([family, items]) => ({ family, items }))
 }
+
+// Built-in roles carry an English description from the server; the UI translates them by name.
+export function roleDescription(role, t) {
+  if (!role.builtin) return role.description
+  return t(`admin:roles.builtinDescriptions.${role.name}`, { defaultValue: role.description })
+}

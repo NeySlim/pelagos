@@ -544,10 +544,10 @@
     "refreshRequested": "Update requested; the collector downloads the list now.",
     "refreshNow": "Update now",
     "acceptSmaller": "Accept the smaller list",
-    "ram": "{{ram}} RAM",
+    "ram": "RAM {{ram}}",
     "nodeError": "unreachable",
     "pending": "configuration to apply",
-    "upToDate": "up to date",
+    "upToDate": "configuration applied",
     "applyConfig": "Apply the configuration",
     "catalogNote": "Catalog version {{version}}. Entry counts are estimates until the first download.",
     "table": {

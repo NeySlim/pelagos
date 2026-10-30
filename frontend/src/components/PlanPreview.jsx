@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Warning, ArrowCounterClockwise, ArrowClockwise, Lightning, CaretRight, Clock } from '@phosphor-icons/react'
 import { api } from '../services/api'
-import { errorMessage } from '../services/apiClient'
+import { errorItemText, errorMessage } from '../services/apiClient'
 import { useWsTopic } from '../hooks/useWebSocket'
 import { useNodeNames } from '../hooks/useNodeNames'
 import { useMessage } from '../i18n/message'
@@ -544,7 +544,7 @@ export function PlanPreview({
               {error.errors.map((e, i) => (
                 <li key={i}>
                   {e.field ? `${e.field}: ` : ''}
-                  {e.message}
+                  {errorItemText(e)}
                 </li>
               ))}
             </ul>

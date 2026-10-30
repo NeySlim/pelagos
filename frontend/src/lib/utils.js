@@ -81,6 +81,16 @@ export function formatRelativeTime(date, t) {
 }
 
 // A non-empty pool never reads 0%, a pool that is not full never reads 100%.
+// A size in bytes with decimal units in the app language (1,5 Go in French, 1.5 GB in English).
+export function formatSize(bytes) {
+  if (bytes === null || bytes === undefined || !Number.isFinite(Number(bytes))) return ''
+  const n = Number(bytes)
+  const [value, unit] = n >= 1e9 ? [n / 1e9, 'GB'] : n >= 1e6 ? [n / 1e6, 'MB'] : n >= 1e3 ? [n / 1e3, 'kB'] : [n, 'B']
+  const digits = unit === 'B' || unit === 'kB' || (unit === 'MB' && value >= 10) ? 0 : 1
+  const text = new Intl.NumberFormat(i18n.language || 'en', { maximumFractionDigits: digits }).format(value)
+  return i18n.t(`common:units.${unit}`, { value: text, defaultValue: `${text} ${unit}` })
+}
+
 export function formatPercent(percent) {
   const p = Number(percent) || 0
   if (p > 0 && p < 1) return '<1%'

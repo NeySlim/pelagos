@@ -56,7 +56,7 @@
     "alone": "This node has no peer yet: enroll a second server for a redundant interface.",
     "behind": "Peers differ",
     "isolated": "Every peer refuses this node's certificate (it was removed from the cluster or its certificate revoked). It still serves DNS and DHCP, but nothing written here reaches the other nodes: enroll it again or uninstall it.",
-    "fingerprint": "Certificate {{fp}}",
+    "fingerprint": "Certificate",
     "hint": "Configuration and audit log replicate between nodes over mutual TLS; the highest configuration version wins.",
     "inSync": "All peers in sync",
     "local": "here {{v}}",

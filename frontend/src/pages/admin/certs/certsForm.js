@@ -154,3 +154,19 @@ export async function fileBase64(file) {
   for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i])
   return btoa(binary)
 }
+
+// The source every node uses on its own when no common source is set (same ACME or UCM settings,
+// names aside), to offer adopting it as the common source; null otherwise. Secrets stay behind:
+// the common source asks for them again.
+export function commonNodeSource(nodes = []) {
+  if (nodes.length < 2) return null
+  const shared = (src) => {
+    if (!src || !['acme', 'ucm'].includes(src.source)) return null
+    const { names: _names, ...rest } = sourceBody(formFromSource(src))
+    return JSON.stringify(rest)
+  }
+  const keys = nodes.map((n) => (n.inherited ? null : shared(n.source)))
+  if (keys.some((k) => k === null) || new Set(keys).size !== 1) return null
+  const { secrets: _secrets, names: _names, ...src } = nodes[0].source
+  return src
+}

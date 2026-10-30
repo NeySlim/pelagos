@@ -181,3 +181,28 @@ def test_cname_next_to_data_added_by_the_same_plan() -> None:
         change("add", "example.lan/alias/A", {"rdata": ["192.0.2.5"]}),
     ]
     assert rr.resolve_changes(ZONE, swap, CURRENT)[1] == []
+
+
+def test_errors_carry_translatable_messages() -> None:
+    from pelagos.domain import messages
+
+    changes = [
+        change("add", "example.lan/www/A", after={"ttl": 300, "rdata": ["999.1.1.1"]}),
+        change("add", "example.lan/www/CNAME", after={"ttl": 300, "rdata": ["x.example.lan."]}),
+        change("add", "example.lan/alias/A", after={"ttl": 300, "rdata": ["192.0.2.1"]}),
+        change("add", "example.lan/x/TXT", after={"ttl": 300, "rdata": ["a"]}),
+        change("delete", "example.lan/nope/TXT"),
+    ]
+    out: list = []
+    _, errors = rr.resolve_changes(ZONE, changes, CURRENT, error_messages=out)
+    assert len(errors) == len(out) == 4
+    assert [m["key"] for m in out] == [
+        "rrset.invalid_rdata",
+        "rrset.cname_other_data",
+        "rrset.is_cname",
+        "rrset.missing",
+    ]
+    assert out[0]["params"] == {"rtype": "A", "value": "999.1.1.1"}
+    joined = rr.errors_message(out)
+    assert messages.render(joined).splitlines()[0] == "999.1.1.1 is not a valid A value"
+    assert rr.errors_message([]) is None

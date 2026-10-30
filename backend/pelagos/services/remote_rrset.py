@@ -53,15 +53,18 @@ def plan_on_primary(
     current = [RRset.from_dict(r) for r in snap.get("records", [])]
     settings = ctx.settings() or {}
     dns_settings = dict(settings.get("dns", {}) or {})
+    error_messages: list[messages.Message] = []
     resolved, errors = rr.resolve_changes(
         zone,
         changes,
         current,
         allowed_types=dns_settings.get("update_types_admin"),
         default_ttl=int(reg.get(settings, "dns.default_ttl_seconds")),
+        error_messages=error_messages,
     )
     if not resolved and not errors:
         errors.append("no change")
+        error_messages.append(messages.msg("rrset.no_change"))
     ok = not errors
     preconditions = rr.preconditions(resolved, peer.id, view)
     soa = next((r for r in current if r.rtype == "SOA" and normalize_name(r.name) == zone), None)
@@ -84,7 +87,13 @@ def plan_on_primary(
         diff=rr.diff_text(resolved),
         preconditions=preconditions,
         validations=[
-            ValidationResult(ok=ok, tool="dnspython", output="\n".join(errors) or "ok", node_id=peer.id)
+            ValidationResult(
+                ok=ok,
+                tool="dnspython",
+                output="\n".join(errors) or "ok",
+                node_id=peer.id,
+                output_message=rr.errors_message(error_messages),
+            )
         ],
         target_node_ids=[peer.id],
         state=PlanState.VALIDATED if ok else PlanState.FAILED,

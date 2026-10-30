@@ -16,7 +16,7 @@ import { useTheme } from '../contexts/ThemeContext'
 import { cn } from '../lib/utils'
 import { useAuth } from '../contexts/AuthContext'
 import { useMobile } from '../contexts/MobileContext'
-import { navGroups, resolveActiveNavId, allNavItems } from '../pages/routes'
+import { navGroups, resolveActiveNavId, allNavItems, pageTitle } from '../pages/routes'
 
 export function AppShell() {
   const { t } = useTranslation()
@@ -41,6 +41,11 @@ export function AppShell() {
   useEffect(() => {
     setMobileMenuOpen(false)
   }, [location.pathname])
+
+  useEffect(() => {
+    document.title = pageTitle(location.pathname, t)
+    return () => { document.title = 'Pelagos' }
+  }, [location.pathname, t])
 
   const groups = useMemo(
     () => navGroups.map((g) => ({ ...g, items: visibleItems.filter((i) => i.group === g.id) })).filter((g) => g.items.length > 0),

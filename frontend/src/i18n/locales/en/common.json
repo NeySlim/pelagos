@@ -336,6 +336,7 @@
   "live": {
     "label": "Live",
     "collecting": "Collecting live counters",
+    "nextSample": "Curve from the next sample (every {{seconds}} s)",
     "perSecond": "/s",
     "chartLabel": "{{title}}, now {{rate}} per second",
     "ago": "-{{minutes}} min",
@@ -351,5 +352,11 @@
       "reverted": "Reverted"
     },
     "dora": "DHCP exchange: discover, offer, request, acknowledge"
+  },
+  "units": {
+    "B": "{{value}} B",
+    "kB": "{{value}} kB",
+    "MB": "{{value}} MB",
+    "GB": "{{value}} GB"
   }
 }

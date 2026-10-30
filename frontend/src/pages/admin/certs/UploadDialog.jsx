@@ -8,6 +8,7 @@ import { ShieldCheck, UploadSimple, Copy, DownloadSimple, Trash, Key } from '@ph
 import { Modal, Button, Textarea, Input, Select, TagsInput, Badge } from '../../../components'
 import { api } from '../../../services/api'
 import { errorMessage } from '../../../services/apiClient'
+import { formatDate } from '../../../lib/utils'
 import { useNotification } from '../../../contexts/NotificationContext'
 import { KEY_TYPES, checkParams, checkRows, checkText, fileBase64 } from './certsForm'
 
@@ -73,7 +74,7 @@ export function RequestPanel({ node, onChange }) {
   if (pending) {
     return (
       <div className="space-y-2" data-testid="cert-pending-request">
-        <p className="text-xs text-text-secondary">{t('request.pending', { names: pending.names.join(', '), when: new Date(pending.created_at).toLocaleString() })}</p>
+        <p className="text-xs text-text-secondary">{t('request.pending', { names: pending.names.join(', '), when: formatDate(pending.created_at) })}</p>
         <Textarea readOnly rows={6} value={pending.csr_pem} className="font-mono text-2xs" aria-label={t('request.csr')} />
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="secondary" onClick={copy}><Copy size={14} />{t('request.copy')}</Button>

@@ -70,6 +70,16 @@ export function liveTargets(nodes, { dns = true, dhcp = true, dhcpv6 = true } = 
   return out
 }
 
+// A request that never answers must not hold its key in flight: the series would stop at one point.
+const SAMPLE_DEADLINE_MS = LIVE_INTERVAL_MS * 3
+function withDeadline(promise, ms) {
+  let timer
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('live sample timed out')), ms)
+  })
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer))
+}
+
 async function sampleAll(all) {
   const targets = all.filter((tg) => !inFlight.has(tg.key))
   if (targets.length === 0) return false
@@ -77,7 +87,7 @@ async function sampleAll(all) {
   targets.forEach((tg) => inFlight.add(tg.key))
   let results
   try {
-    results = await Promise.allSettled(targets.map((tg) => Promise.resolve().then(tg.load)))
+    results = await Promise.allSettled(targets.map((tg) => withDeadline(Promise.resolve().then(tg.load), SAMPLE_DEADLINE_MS)))
   } finally {
     if (gen === generation) targets.forEach((tg) => inFlight.delete(tg.key))
   }

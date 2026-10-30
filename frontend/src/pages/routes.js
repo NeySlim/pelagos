@@ -46,3 +46,9 @@ export function resolveActiveNavId(pathname) {
   const route = allRoutes.find((r) => r.path === pathname)
   return route?.area || pathname.split('/')[1] || 'dashboard'
 }
+
+// Browser tab title: "<page> · Pelagos", or "Pelagos" when no nav entry matches.
+export function pageTitle(pathname, t) {
+  const item = allNavItems.find((i) => i.id === resolveActiveNavId(pathname))
+  return item ? `${t(item.labelKey)} · Pelagos` : 'Pelagos'
+}

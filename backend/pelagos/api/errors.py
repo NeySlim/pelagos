@@ -148,10 +148,14 @@ def translate(exc: BaseException) -> ApiError | None:
         )
     if isinstance(exc, ValidationFailed):
         r = exc.result
+        item: dict[str, Any] = {"tool": r.tool, "message": r.output, "node_id": r.node_id}
+        if r.output_message:
+            item["message_message"] = r.output_message
         return ApiError(
             "engine_validation_failed",
             f"{r.tool} rejected the change",
-            errors=[{"field": r.tool, "message": r.output, "node_id": r.node_id}],
+            errors=[item],
+            extra={"detail_message": messages.msg("problem.detail.engine_rejected", tool=r.tool)},
         )
     if isinstance(exc, PreconditionFailed):
         return ApiError("precondition_failed", str(exc))

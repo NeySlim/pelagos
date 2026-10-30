@@ -9,6 +9,7 @@ import { Globe } from '@phosphor-icons/react'
 import { PageLayout, Card, Button, Badge, LoadingSpinner, DataTable, Textarea } from '../../../components'
 import { useApi, useNodeNames } from '../../../hooks'
 import { useNotification } from '../../../contexts/NotificationContext'
+import { useAuth } from '../../../contexts/AuthContext'
 import { api } from '../../../services/api'
 import { errorMessage } from '../../../services/apiClient'
 import { formatDate, formatRelativeTime } from '../../../lib/utils'
@@ -93,6 +94,7 @@ function PrefixesCard({ data, onSaved }) {
 
 export default function Ipv6ObservationPage() {
   const { t } = useTranslation(['ipv6', 'common'])
+  const { modules } = useAuth()
   const nameOf = useNodeNames()
   const overview = useApi(() => api.ipv6.settings(), [])
   const [data, setData] = useState(null)
@@ -146,7 +148,10 @@ export default function Ipv6ObservationPage() {
               <Field label={t('admin.neighbors')} testId="ipv6-neighbors">
                 {settings.neighbors_enabled === false ? t('admin.off') : t('admin.on')}
               </Field>
-              <Field label={t('admin.pollSeconds')}>{settings.poll_seconds ?? '-'}</Field>
+              <Field label={t('admin.pollSeconds')} testId="ipv6-poll">
+                {settings.poll_seconds ?? '-'}
+                {!modules?.dhcpv6 && <span className="block text-2xs text-text-tertiary">{t('admin.pollUnused')}</span>}
+              </Field>
               <Field label={t('admin.stableDays')}>{settings.stable_min_days ?? '-'}</Field>
               <Field label={t('admin.staleDays')}>{settings.stale_days ?? '-'}</Field>
             </dl>

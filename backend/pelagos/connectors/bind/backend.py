@@ -488,12 +488,14 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
         plan = self._new_plan(PlanScope.DNS_RRSET, messages.msg("plan.rrset.changes", zone=zone), created_by)
         current = self.read_zone(zone, view)
         allowed = self.dns_settings.get("update_types_admin")
+        error_messages: list[messages.Message] = []
         resolved, errors = rr.resolve_changes(
             zone,
             changes,
             current,
             allowed_types=allowed,
             default_ttl=int(reg.get(self.ctx.settings, "dns.default_ttl_seconds")),
+            error_messages=error_messages,
         )
         plan.changes = [rr.to_change(zone, rc, view) for rc in resolved]
         plan.diff = rr.diff_text(resolved)
@@ -508,9 +510,14 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
         ok = not errors and bool(resolved)
         if not resolved and not errors:
             errors.append("no change")
+            error_messages.append(messages.msg("rrset.no_change"))
         plan.validations = [
             ValidationResult(
-                ok=ok, tool="dnspython", output="\n".join(errors) or "ok", node_id=self.ctx.node_id
+                ok=ok,
+                tool="dnspython",
+                output="\n".join(errors) or "ok",
+                node_id=self.ctx.node_id,
+                output_message=rr.errors_message(error_messages),
             )
         ]
         static = self.static_zone(zone, view)

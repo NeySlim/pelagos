@@ -21,7 +21,7 @@ import { api } from '../../services/api'
 import { cn, formatDate, formatRelativeTime } from '../../lib/utils'
 import {
   CHART_METRICS, CUSTOM_PRESET, DEFAULT_MAX_HOURS, RANGES, applyPreset, chartRows, fallbackBody, fallbackDefaults, fallbackErrors,
-  fallbackStatus, hourChoices, nodeReadings, remaining, rootRows, rootsAnswering, seriesQuery, validAddress,
+  fallbackStatus, formatThreshold, hourChoices, nodeReadings, remaining, rootRows, rootsAnswering, seriesQuery, validAddress,
 } from './resolverHealth'
 
 const TONE_TEXT = { danger: 'status-danger-text', warning: 'status-warning-text', success: 'text-text-primary', neutral: 'text-text-primary' }
@@ -195,15 +195,15 @@ function History({ nodes, nameOf }) {
 }
 
 function Thresholds({ thresholds }) {
-  const { t } = useTranslation('dns')
+  const { t, i18n } = useTranslation('dns')
   const rows = Object.entries(thresholds || {}).map(([key, v]) => ({ key, ...v }))
-  const fmt = (v) => (v === null || v === undefined ? '-' : String(v))
+  const fmt = (v) => formatThreshold(v, i18n.language)
   return (
     <DataTable
       title={t('resolverHealth.thresholds.title')}
       columns={[
         { key: 'key', label: t('resolverHealth.thresholds.measure'), render: (r) => t(`resolverHealth.thresholds.keys.${r.key}`, { defaultValue: r.key }) },
-        { key: 'warning', label: t('resolverHealth.thresholds.setting'), render: (r) => <span className="font-mono text-xs">{[r.info, r.warning, r.critical].filter((v) => v !== undefined && v !== null).join(' / ') || '-'}</span> },
+        { key: 'warning', label: t('resolverHealth.thresholds.setting'), render: (r) => <span className="font-mono text-xs">{[r.info, r.warning, r.critical].filter((v) => v !== undefined && v !== null).map(fmt).join(' / ') || '-'}</span> },
         {
           key: 'observed_max_7d',
           label: t('resolverHealth.thresholds.observed'),

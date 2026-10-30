@@ -336,6 +336,7 @@
   "live": {
     "label": "Direct",
     "collecting": "Collecte des compteurs en cours",
+    "nextSample": "Courbe au prochain relevé (toutes les {{seconds}} s)",
     "perSecond": "/s",
     "chartLabel": "{{title}}, actuellement {{rate}} par seconde",
     "ago": "-{{minutes}} min",
@@ -351,5 +352,11 @@
       "reverted": "Annulé"
     },
     "dora": "Échange DHCP : discover, offer, request, acknowledge"
+  },
+  "units": {
+    "B": "{{value}} o",
+    "kB": "{{value}} ko",
+    "MB": "{{value}} Mo",
+    "GB": "{{value}} Go"
   }
 }

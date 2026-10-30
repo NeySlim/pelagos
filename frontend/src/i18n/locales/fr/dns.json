@@ -544,10 +544,10 @@
     "refreshRequested": "Mise à jour demandée ; le collecteur télécharge la liste maintenant.",
     "refreshNow": "Mettre à jour maintenant",
     "acceptSmaller": "Accepter la liste réduite",
-    "ram": "{{ram}} de RAM",
+    "ram": "RAM {{ram}}",
     "nodeError": "injoignable",
     "pending": "configuration à appliquer",
-    "upToDate": "à jour",
+    "upToDate": "configuration appliquée",
     "applyConfig": "Appliquer la configuration",
     "catalogNote": "Catalogue version {{version}}. Les nombres d'entrées sont des estimations jusqu'au premier téléchargement.",
     "table": {

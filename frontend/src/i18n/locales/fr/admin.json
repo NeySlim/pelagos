@@ -98,6 +98,12 @@
     "description": "Description",
     "builtin": "Intégré",
     "builtinHelp": "Défini par Pelagos, non modifiable",
+    "builtinDescriptions": {
+      "viewer": "Lecture de tout sauf les secrets",
+      "dns-operator": "Exploitation de BIND : enregistrements, zones, configuration",
+      "dhcp-operator": "Exploitation de Kea : sous-réseaux, réservations, classes, options",
+      "admin": "Toutes les permissions"
+    },
     "all": "Toutes les permissions",
     "allPermissions": "Ce rôle détient toutes les permissions (*).",
     "count_one": "{{count}} permission",

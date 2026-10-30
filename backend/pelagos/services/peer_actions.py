@@ -646,7 +646,7 @@ def refusal_of(exc: BaseException) -> PeerActionError | None:
         return PeerActionError(
             "engine_validation_failed",
             f"{r.tool} rejected the change",
-            [{"field": r.tool, "message": r.output, "node_id": r.node_id}],
+            [{"tool": r.tool, "message": r.output, "node_id": r.node_id}],
         )
     if isinstance(exc, PreconditionFailed | SecretError):
         return PeerActionError("precondition_failed", str(exc))

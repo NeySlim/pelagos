@@ -148,7 +148,8 @@ def test_record_plan_validation_and_preconditions(role_client, fake_dns):
     r = _plan_records(dora, [{"op": "add", "target": "www/A", "after": {"ttl": 300, "rdata": ["192.0.2.9"]}}])
     assert r.status_code == 422
     doc = r.get_json()
-    assert doc["code"] == "engine_validation_failed" and doc["errors"][0]["field"] == "dnspython"
+    assert doc["code"] == "engine_validation_failed" and doc["errors"][0]["tool"] == "dnspython"
+    assert "field" not in doc["errors"][0] and doc["detail_message"]["key"]
     assert "already exists" in doc["errors"][0]["message"] and doc["plan"]["state"] == "failed"
     r = _plan_records(dora, [{"op": "upsert", "target": "www/A"}])
     assert r.status_code == 400 and r.get_json()["errors"][0]["field"] == "changes[0].op"

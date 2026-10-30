@@ -64,8 +64,8 @@ export function parseHeaders(text) {
   return out
 }
 
-// Form state from a channel the API returned, or a new channel of `type`.
-export function formFromChannel(channel = {}, type = 'ntfy') {
+// Form state from a channel the API returned, or a new channel of `type` (messages in `uiLanguage`).
+export function formFromChannel(channel = {}, type = 'ntfy', uiLanguage = 'en') {
   const p = channel.params || {}
   const f = { ...DEFAULT_FILTERS, ...(channel.filters || {}) }
   const s = { ...DEFAULT_SCHEDULE, ...(channel.schedule || {}) }
@@ -75,7 +75,7 @@ export function formFromChannel(channel = {}, type = 'ntfy') {
     type: kind,
     name: channel.name || '',
     enabled: channel.enabled ?? true,
-    language: channel.language || 'en',
+    language: channel.language || (LANGUAGES.includes(uiLanguage) ? uiLanguage : 'en'),
     params: {
       url: p.url || '',
       topic: p.topic || '',

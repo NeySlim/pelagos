@@ -74,10 +74,11 @@ function SecretInput({ form, name, label, onType, onClear, error }) {
 }
 
 export default function ChannelDialog({ open, onClose, channel, nodes = [], onSaved }) {
-  const { t } = useTranslation(['notifications', 'common', 'dashboard'])
+  const { t, i18n } = useTranslation(['notifications', 'common', 'dashboard'])
   const { showError } = useNotification()
   const editing = Boolean(channel?.id)
-  const [form, setForm] = useState(() => formFromChannel(channel || {}))
+  const uiLanguage = (i18n.resolvedLanguage || i18n.language || 'en').slice(0, 2)
+  const [form, setForm] = useState(() => formFromChannel(channel || {}, undefined, uiLanguage))
   const [errors, setErrors] = useState({})
   const [busy, setBusy] = useState(false)
   const [test, setTest] = useState(null)
@@ -95,7 +96,7 @@ export default function ChannelDialog({ open, onClose, channel, nodes = [], onSa
 
   const changeType = (type) => {
     setDirty(true)
-    setForm((f) => ({ ...formFromChannel({ name: f.name, language: f.language, filters: f.filters }, type), schedule: f.schedule, enabled: f.enabled }))
+    setForm((f) => ({ ...formFromChannel({ name: f.name, language: f.language, filters: f.filters }, type, uiLanguage), schedule: f.schedule, enabled: f.enabled }))
     setErrors({})
     setTest(null)
   }

@@ -79,7 +79,9 @@
     "everyNode": "tous les nœuds, y compris ceux enrôlés plus tard",
     "thresholds": "Alertes d'expiration : avertissement {{warning}} jours, critique {{critical}} jours avant (Réglages).",
     "clearTitle": "Retirer le réglage commun à tous les nœuds ?",
-    "clearBody": "Les nœuds gardent leur certificat actuel et cessent de le renouveler jusqu'à recevoir une source à eux."
+    "clearBody": "Les nœuds gardent leur certificat actuel et cessent de le renouveler jusqu'à recevoir une source à eux.",
+    "sameSource": "Tous les nœuds utilisent chacun la même source ({{source}}), mais elle n'est pas définie comme source commune.",
+    "adopt": "Adopter comme source commune"
   },
   "selfSigned": {
     "done": "Nouveau certificat autosigné installé sur {{node}}",

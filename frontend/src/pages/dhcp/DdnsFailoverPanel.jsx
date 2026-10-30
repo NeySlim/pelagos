@@ -200,7 +200,7 @@ function ZonesTable({ zones, byZone, offline, nameOf, selectedZone, canPlan, bus
       render: (z) => (
         <span data-zone-row={z.key}>
           {z.zone}
-          {z.view !== '_default' && <span className="ml-1 text-2xs text-text-tertiary">{z.view}</span>}
+          {z.view !== '_default' && <span className="text-2xs text-text-tertiary">{' '}{z.view}</span>}
         </span>
       ),
     },
@@ -336,8 +336,8 @@ function D2Lists({ d2, nameOf }) {
                 {node.domains.map((d) => (
                   <tr key={`${d.direction}/${d.name}`} className="border-t border-border-op30 align-top">
                     <td className="py-1 font-mono">
-                      {d.name}
-                      <span className="ml-1 text-2xs text-text-tertiary">{t(`ddnsFailover.d2.${d.direction === 'reverse' ? 'reverse' : 'forward'}`)}</span>
+                      {d.name}{' '}
+                      <span className="text-2xs text-text-tertiary">{t(`ddnsFailover.d2.${d.direction === 'reverse' ? 'reverse' : 'forward'}`)}</span>
                     </td>
                     <td className="py-1">
                       <ol className="space-y-0.5" data-testid="ddns-d2-servers">

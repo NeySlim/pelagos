@@ -80,7 +80,8 @@ export function FieldLabel({ children, hint }) {
   return (
     <span className="block text-xs font-medium text-text-secondary mb-1">
       {children}
-      {hint && <span className="ml-1 font-normal text-text-tertiary">{hint}</span>}
+      {/* The text separator keeps label and hint apart in the accessible name. */}
+      {hint && <span className="font-normal text-text-tertiary">{' '}({hint})</span>}
     </span>
   )
 }

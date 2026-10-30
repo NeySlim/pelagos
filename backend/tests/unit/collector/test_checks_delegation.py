@@ -95,6 +95,10 @@ def test_soa_values_outside_usual_ranges_make_one_alert_per_zone():
         ("minimum", 60),
     ]
     assert alerts[0].details["fields"][0] == {"field": "refresh", "value": 60, "low": 1200, "high": 86400}
+    # Each field is its own message, so the UI translates "to" as well.
+    parts = alerts[0].title_message["params"]["fields"]
+    assert [p["key"] for p in parts] == ["alert.soa_field"] * 3
+    assert "refresh 60 (1200 to 86400)" in alerts[0].title
     ok = "ns1.example.lan. hostmaster.example.lan. 1 7200 900 1209600 3600"
     assert delegation.soa_alerts("n1", "example.lan.", "_default", ok, CFG) == []
     assert delegation.soa_alerts("n1", "example.lan.", "_default", "garbage", CFG) == []

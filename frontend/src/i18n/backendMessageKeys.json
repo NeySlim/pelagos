@@ -465,6 +465,12 @@
     "serial",
     "zone"
   ],
+  "alert.soa_field": [
+    "field",
+    "high",
+    "low",
+    "value"
+  ],
   "alert.soa_range": [
     "fields",
     "zone"
@@ -521,6 +527,9 @@
   "cert.kind.node": [],
   "cert.kind.web": [],
   "common.none": [],
+  "common.text": [
+    "text"
+  ],
   "common.the_partner": [],
   "common.with_note": [
     "note",
@@ -1567,6 +1576,9 @@
   "problem.confirmation_required": [],
   "problem.conflict": [],
   "problem.csrf_failed": [],
+  "problem.detail.engine_rejected": [
+    "tool"
+  ],
   "problem.detail.host_ip_taken": [
     "ip",
     "names"
@@ -1622,6 +1634,39 @@
   "problem.zone_without_records": [],
   "rpz.dir_missing": [
     "path"
+  ],
+  "rrset.changed": [
+    "owner",
+    "rtype"
+  ],
+  "rrset.cname_other_data": [
+    "owner",
+    "types"
+  ],
+  "rrset.empty": [
+    "owner",
+    "rtype"
+  ],
+  "rrset.exists": [
+    "owner",
+    "rtype"
+  ],
+  "rrset.invalid_rdata": [
+    "rtype",
+    "value"
+  ],
+  "rrset.is_cname": [
+    "owner"
+  ],
+  "rrset.missing": [
+    "owner",
+    "rtype"
+  ],
+  "rrset.no_change": [],
+  "rrset.ttl_range": [
+    "owner",
+    "rtype",
+    "ttl"
   ],
   "update.refused.arch": [
     "arch",

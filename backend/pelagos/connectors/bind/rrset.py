@@ -27,6 +27,11 @@ FORBIDDEN_TYPES = {"SOA", "AXFR", "IXFR", "ANY", "OPT", "TSIG", "TKEY"}
 class RRsetError(ValueError):
     """A change that cannot be turned into an UPDATE (bad target, rdata, type or state)."""
 
+    def __init__(self, text: str, message: Message | None = None) -> None:
+        super().__init__(text)
+        # Translatable form of the text (domain.messages); None keeps the English text only.
+        self.message = message
+
 
 @dataclass(slots=True)
 class RRsetChange:
@@ -88,7 +93,10 @@ def normalize_rdata(rtype: str, rdata: list[str] | str, zone: str) -> list[str]:
                 dns.rdataclass.IN, dns.rdatatype.from_text(rtype), str(text), origin=origin, relativize=False
             )
         except Exception as exc:
-            raise RRsetError(f"invalid {rtype} rdata {text!r}: {exc}") from exc
+            raise RRsetError(
+                f"invalid {rtype} rdata {text!r}: {exc}",
+                messages.msg("rrset.invalid_rdata", rtype=rtype, value=str(text)),
+            ) from exc
         out.add(rd.to_text())
     return sorted(out)
 
@@ -100,11 +108,16 @@ def rrset_from(value: Any, owner: str, rtype: str, zone: str, default_ttl: int) 
     data = value.to_dict() if isinstance(value, RRset) else dict(value)
     rdata = data.get("rdata", [])
     if not rdata:
-        raise RRsetError(f"{owner} {rtype}: rdata is empty")
+        raise RRsetError(
+            f"{owner} {rtype}: rdata is empty", messages.msg("rrset.empty", owner=owner, rtype=rtype)
+        )
     ttl = data.get("ttl")
     ttl = default_ttl if ttl is None else int(ttl)
     if ttl < 0 or ttl > 2**31 - 1:
-        raise RRsetError(f"{owner} {rtype}: ttl {ttl} out of range")
+        raise RRsetError(
+            f"{owner} {rtype}: ttl {ttl} out of range",
+            messages.msg("rrset.ttl_range", owner=owner, rtype=rtype, ttl=ttl),
+        )
     return RRset(name=owner, rtype=rtype, ttl=ttl, rdata=normalize_rdata(rtype, rdata, zone))
 
 
@@ -118,8 +131,11 @@ def resolve_changes(
     current: list[RRset],
     allowed_types: list[str] | None = None,
     default_ttl: int = DEFAULT_TTL,
+    error_messages: list[Message] | None = None,
 ) -> tuple[list[RRsetChange], list[str]]:
-    """Check each change against the zone as read now; returns resolved changes and error messages."""
+    """Check each change against the zone as read now; returns resolved changes and error messages.
+
+    `error_messages`, when given, receives the translatable form of each error in the same order."""
     index = index_rrsets(current)
     owners_types: dict[str, set[str]] = {}
     for name, rtype in index:
@@ -155,38 +171,64 @@ def resolve_changes(
             op = ChangeOp(change.op)
             if op is ChangeOp.ADD:
                 if existing is not None:
-                    raise RRsetError(f"{owner} {rtype} already exists; use replace")
+                    raise RRsetError(
+                        f"{owner} {rtype} already exists; use replace",
+                        messages.msg("rrset.exists", owner=owner, rtype=rtype),
+                    )
                 if after is None:
                     raise RRsetError(f"{owner} {rtype}: add needs `after`")
             elif op is ChangeOp.REPLACE:
                 if existing is None:
-                    raise RRsetError(f"{owner} {rtype} does not exist; use add")
+                    raise RRsetError(
+                        f"{owner} {rtype} does not exist; use add",
+                        messages.msg("rrset.missing", owner=owner, rtype=rtype),
+                    )
                 if after is None:
                     raise RRsetError(f"{owner} {rtype}: replace needs `after`")
             elif op is ChangeOp.DELETE:
                 if existing is None:
-                    raise RRsetError(f"{owner} {rtype} does not exist")
+                    raise RRsetError(
+                        f"{owner} {rtype} does not exist",
+                        messages.msg("rrset.missing", owner=owner, rtype=rtype),
+                    )
                 if rtype == "NS" and owner == normalize_name(zone):
                     # named silently ignores deleting the last apex NS (RFC 2136 3.4.2.4).
                     raise RRsetError(f"{owner} NS: the zone apex keeps its name servers; replace them")
                 after = None
             if claimed is not None and existing is not None and claimed.rdata != existing.rdata:
-                raise RRsetError(f"{owner} {rtype} changed since it was read")
+                raise RRsetError(
+                    f"{owner} {rtype} changed since it was read",
+                    messages.msg("rrset.changed", owner=owner, rtype=rtype),
+                )
             others = owners_types.get(owner, set()) | {t for o, t in planned if o == owner}
             others -= {rtype, "RRSIG", "NSEC", "NSEC3"}
             others -= {t for o, t in deleted if o == owner}
             if op is not ChangeOp.DELETE and rtype == "CNAME" and others:
                 raise RRsetError(
-                    f"{owner} has other data ({', '.join(sorted(others))}); a CNAME cannot coexist"
+                    f"{owner} has other data ({', '.join(sorted(others))}); a CNAME cannot coexist",
+                    messages.msg("rrset.cname_other_data", owner=owner, types=sorted(others)),
                 )
             if op is not ChangeOp.DELETE and rtype != "CNAME" and "CNAME" in others:
-                raise RRsetError(f"{owner} is a CNAME; other data cannot coexist")
+                raise RRsetError(
+                    f"{owner} is a CNAME; other data cannot coexist",
+                    messages.msg("rrset.is_cname", owner=owner),
+                )
             if rtype == "CNAME" and after is not None and len(after.rdata) != 1:
                 raise RRsetError(f"{owner} CNAME must have exactly one target")
             resolved.append(RRsetChange(op, owner, rtype, existing, after))
         except (RRsetError, ValueError) as exc:
             errors.append(str(exc))
+            if error_messages is not None:
+                keyed = getattr(exc, "message", None)
+                error_messages.append(keyed or messages.msg("common.text", text=str(exc)))
     return resolved, errors
+
+
+def errors_message(error_messages: list[Message]) -> Message | None:
+    """The validation output of a failed record plan, one error per line; None without errors."""
+    if not error_messages:
+        return None
+    return messages.msg("common.text", text=messages.join(error_messages, "\n"))
 
 
 def rrset_changes_from_plan(zone: str, changes: list[Change]) -> list[RRsetChange]:

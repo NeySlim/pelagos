@@ -174,7 +174,7 @@ def soa_alerts(node_id: str, zone: str, view: str, soa_text: str, cfg: CheckSett
             fields.append({"field": name, "value": soa[name], "low": low, "high": high})
     if not fields:
         return []
-    text = ", ".join(f"{f['field']} {f['value']} ({f['low']} to {f['high']})" for f in fields)
+    text = [messages.msg("alert.soa_field", **f) for f in fields]
     return [
         _alert(
             node_id,

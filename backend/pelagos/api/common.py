@@ -10,7 +10,7 @@ from flask import request
 
 from pelagos.api.errors import ApiError
 from pelagos.core import plan_secrets
-from pelagos.domain import Model, Plan, PlanState, from_rfc3339, utcnow
+from pelagos.domain import Model, Plan, PlanState, from_rfc3339, messages, utcnow
 from pelagos.services.masking import MASK as MASK
 from pelagos.services.masking import SECRET_KEYS as SECRET_KEYS
 from pelagos.services.masking import mask_text_values
@@ -141,15 +141,27 @@ def plan_dict(plan: Plan) -> dict[str, Any]:
     return data
 
 
+def validation_error(
+    tool: str, output: str, node_id: str | None, output_message: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """One `errors[]` item of a 422 engine_validation_failed: the tool is not a request field."""
+    item: dict[str, Any] = {"tool": tool, "message": output, "node_id": node_id}
+    if output_message:
+        item["message_message"] = output_message
+    return item
+
+
 def plan_answer(plan: Plan) -> tuple[dict[str, Any], int]:
     """200 with the plan, or 422 engine_validation_failed with the tool output and the plan attached."""
     if plan.state is PlanState.FAILED:
         failed = [v for v in plan.validations if not v.ok]
+        tool = failed[0].tool if failed else "plan"
+        detail_message = plan.error_message or messages.msg("problem.detail.engine_rejected", tool=tool)
         raise ApiError(
             "engine_validation_failed",
             plan.error or "the engine rejected the change",
-            errors=[{"field": v.tool, "message": v.output, "node_id": v.node_id} for v in failed]
-            or [{"field": "plan", "message": plan.error or "validation failed"}],
-            extra={"plan": plan_dict(plan)},
+            errors=[validation_error(v.tool, v.output, v.node_id, v.output_message) for v in failed]
+            or [{"tool": "plan", "message": plan.error or "validation failed"}],
+            extra={"plan": plan_dict(plan), "detail_message": detail_message},
         )
     return plan_dict(plan), 200

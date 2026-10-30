@@ -2280,3 +2280,23 @@ taken in the operator's terms (`400`). Contract: `domain/plan.py`, `domain/messa
 `services/plan_impact.py`, `services/container.py`, `services/dhcp_service.py`,
 `services/dns_service.py`, `services/dns_extras.py`, `services/hosts_service.py`, `api/dns.py`.
 WP-BIND: `connectors/bind/rrset.py`. WP-FRONTEND: `PlanPreview` impact section and reasons (en, fr).
+
+## 2026-10-30, 0.3.0 (item 81, lot F7): UI polish, validation errors, package version
+
+`422 engine_validation_failed`: `errors[]` items name the tool in `tool` instead of `field`
+(`dnspython`, `config-test`, `named-checkconf` were never request fields), carry
+`message_message` when the output is Pelagos's own text, and the problem has a `detail_message`
+(`problem.detail.engine_rejected` with `tool`, or the plan's `error_message`); the peer action
+refusal uses `tool` too. Record plans fill `validations[].output_message` (`rrset.*` keys joined
+one per line); `rrset.resolve_changes(..., error_messages=)` is an additive keyword and
+`RRsetError` carries an optional `message`. New message keys `common.text`, `alert.soa_field`
+(the SOA range alert's `fields` parameter is now a list of messages), `rrset.*`,
+`problem.detail.engine_rejected`; `alert.update_denied*` say `{hours} h`.
+`backend/pyproject.toml` takes its version from `pelagos/__init__.py` (hatch `dynamic`), so the
+installed `dist-info` matches `pelagos --version`.
+WP-BIND: `connectors/bind/rrset.py`, `backend.py`. WP-API-AUTH: `api/common.py`, `api/errors.py`,
+`services/remote_rrset.py`, `services/peer_actions.py`. WP-COLLECTOR: `checks/delegation.py`.
+WP-FRONTEND: page titles, translated built-in role descriptions, error items, notification
+channel language, one date format on Certificates, locale numbers and sizes (thresholds, RPZ),
+copyable fingerprints, adopt a shared certificate source, label separators, live rate panel.
+Docs: supervision mapping and `scripts/examples/pelagos-metrics.py`.

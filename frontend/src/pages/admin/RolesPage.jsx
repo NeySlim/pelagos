@@ -10,7 +10,7 @@ import { useNotification } from '../../contexts/NotificationContext'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { cn } from '../../lib/utils'
-import { ROLE_NAME_RE, fieldErrors, groupPermissions } from './validation'
+import { ROLE_NAME_RE, fieldErrors, groupPermissions, roleDescription } from './validation'
 
 function PermissionGrid({ permissions, value, onChange, readOnly }) {
   const { t } = useTranslation('admin')
@@ -140,7 +140,7 @@ export default function RolesPage() {
                   {role.builtin && <Badge variant="secondary" size="sm" icon={LockSimple}>{t('roles.builtin')}</Badge>}
                   <span className="ml-auto text-2xs text-text-tertiary">{role.permissions.includes('*') ? t('roles.all') : t('roles.count', { count: role.permissions.length })}</span>
                 </div>
-                {role.description && <p className="text-xs text-text-secondary mt-0.5">{role.description}</p>}
+                {role.description && <p className="text-xs text-text-secondary mt-0.5">{roleDescription(role, t)}</p>}
               </button>
             ))}
           </div>

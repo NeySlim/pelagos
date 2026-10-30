@@ -349,7 +349,8 @@ one JSON object per line, or the Audit log screen).
 
 ## Metrics and monitoring
 
-Pelagos has no Prometheus endpoint in this version. What it offers:
+Pelagos has no Prometheus endpoint of its own; an example exporter reads
+the API (below). What it offers:
 
 - **Health**: `GET /api/v1/health` (anonymous) answers
   `{"status": "ok"}` when the node is ready and `"degraded"` while it syncs;
@@ -366,3 +367,57 @@ Pelagos has no Prometheus endpoint in this version. What it offers:
 
 The statistics channel and the Kea sockets stay local; keep other
 collectors on them local too, or the security audit flags them.
+
+### Supervision with a read-only token
+
+Create an API token with the `viewer` role (read only, see
+[API tokens](api.md#api-tokens)), limited to the address of the
+monitoring host. Three routes give the state of the whole cluster from any
+node, each in a few hundred milliseconds:
+
+| Route | Field | What it means |
+| --- | --- | --- |
+| `GET /api/v1/dashboard/summary` | `nodes[].status` | `online`, `offline` or `unknown`, seen from the node asked |
+| | `nodes[].version`, `nodes[].clock.offset` | Pelagos version, clock offset in seconds against the node asked |
+| | `pools[].percent` | assigned addresses of each pool (`node_id`, `engine`, `subnet`, `pool`) |
+| | `zones[].divergent` | true when the nodes serve different SOA serials for longer than `checks.serial_divergence_seconds` |
+| | `d2[].totals` | kea-dhcp-ddns counters (`update-sent`, `update-success`, `update-error`, `update-timeout`) |
+| | `errors` | sources that could not be read, by name; empty when all answered |
+| | `thresholds` | the pool and DDNS thresholds of `[settings.checks]` |
+| `GET /api/v1/alerts/summary` | `open`, `acked` | unresolved alerts of the cluster |
+| | `by_severity`, `by_kind` | the same, per severity (`critical`, `warning`, `info`) and per kind |
+| | `unavailable` | nodes whose alerts could not be read |
+| `GET /api/v1/dhcp/v4/ha` | `relationships[].servers[].state` | Kea HA state; `hot-standby`, `load-balancing`, `passive-backup` and `backup` are the normal ones |
+| | `...servers[].in_touch` | false when the partner misses its heartbeats |
+| | `...servers[].unsent_update_count`, `leases` | lease updates not yet sent to the partner, addresses held |
+
+Two fields read like health but are not:
+
+- `GET /api/v1/health` answers `"degraded"` only while a node syncs its
+  replication after a start; it says nothing about BIND or Kea.
+- `engines.kea4.degraded` (and `kea6`) in the dashboard summary and
+  `GET /api/v1/capabilities` names the Kea write path: true when
+  `subnet_cmds` or `host_cmds` is missing (Kea 2.6 from the distribution) and
+  Pelagos edits the whole configuration with `config-set`. It is a
+  capability, not a fault.
+
+`scripts/examples/pelagos-metrics.py` (Python standard library only) reads
+these three routes and prints the Prometheus text format, for the
+node_exporter textfile collector:
+
+```sh
+install -m 600 /dev/null /etc/pelagos-metrics.token   # paste the token in it
+cat >/etc/cron.d/pelagos-metrics <<'CRON'
+* * * * * prometheus PELAGOS_URL=https://ns1.example.lan:8443 /usr/local/bin/pelagos-metrics.py --token-file /etc/pelagos-metrics.token --ca /etc/ssl/certs/example-ca.pem --out /var/lib/prometheus/node-exporter/pelagos.prom
+CRON
+```
+
+It exports `pelagos_node_up`, `pelagos_node_clock_offset_seconds`,
+`pelagos_pool_utilization_percent`, `pelagos_zone_serial_divergent`,
+`pelagos_d2_updates_total`, `pelagos_alerts`, `pelagos_alerts_by_severity`,
+`pelagos_alerts_by_kind`, `pelagos_ha_state`, `pelagos_ha_healthy`,
+`pelagos_ha_partner_in_touch`, `pelagos_ha_unsent_updates`,
+`pelagos_ha_leases` and `pelagos_scrape_success` (one per route). Each
+token call writes an audit entry: with a scrape every minute, set
+`auth.api_token_audit_reads_enabled = false` to keep only the writes made
+with a token.

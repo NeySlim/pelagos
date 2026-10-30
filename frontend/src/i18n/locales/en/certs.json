@@ -79,7 +79,9 @@
     "everyNode": "every node, including nodes enrolled later",
     "thresholds": "Expiry alerts: warning {{warning}} days, critical {{critical}} days before (Settings).",
     "clearTitle": "Remove the setting for all nodes?",
-    "clearBody": "The nodes keep their current certificate and stop renewing it until they get a source of their own."
+    "clearBody": "The nodes keep their current certificate and stop renewing it until they get a source of their own.",
+    "sameSource": "Every node uses the same source on its own ({{source}}) but none is set as the common source.",
+    "adopt": "Adopt as common source"
   },
   "selfSigned": {
     "done": "New self-signed certificate installed on {{node}}",

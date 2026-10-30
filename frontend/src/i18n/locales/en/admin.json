@@ -98,6 +98,12 @@
     "description": "Description",
     "builtin": "Built-in",
     "builtinHelp": "Defined by Pelagos, cannot be changed",
+    "builtinDescriptions": {
+      "viewer": "Read everything except secrets",
+      "dns-operator": "Operate BIND: records, zones, configuration",
+      "dhcp-operator": "Operate Kea: subnets, reservations, classes, options",
+      "admin": "Everything"
+    },
     "all": "All permissions",
     "allPermissions": "This role holds every permission (*).",
     "count_one": "{{count}} permission",

@@ -18,6 +18,14 @@ describe('LiveRatePanel', () => {
     expect(screen.getByTestId('live-rate-axis')).toHaveClass('invisible')
   })
 
+  it('says the curve waits for a second sample once the rate is known', async () => {
+    await import('../i18n')
+    live.points = [{ t: 1, v: 14 }]
+    render(<LiveRatePanel target={target} title="Queries" />)
+    expect(screen.getByTestId('live-rate-collecting')).toHaveTextContent('Curve from the next sample')
+    expect(screen.getByTestId('live-rate-collecting')).not.toHaveTextContent('Collecting')
+  })
+
   it('shows the time axis under the chart', () => {
     live.points = [{ t: 1, v: 3 }, { t: 2, v: 4 }]
     render(<LiveRatePanel target={target} title="Queries" />)

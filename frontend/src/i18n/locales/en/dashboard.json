@@ -95,7 +95,7 @@
     "dhcp": {
       "title": "DHCP",
       "rate": "Leases/s",
-      "hot": "Hot pools",
+      "hot": "Pools at {{percent}}% or more",
       "chart": "Lease rate",
       "chartLabel": "Leases handed out, now {{rate}} per second",
       "pools": "Busiest pools",

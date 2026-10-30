@@ -10,14 +10,17 @@ import { useApi } from '../../../hooks'
 import { useNotification } from '../../../contexts/NotificationContext'
 import { api } from '../../../services/api'
 import { errorMessage } from '../../../services/apiClient'
+import { CopyableText } from '../../../components/CopyableText'
+import { formatDate } from '../../../lib/utils'
 import SourceDialog from './SourceDialog'
 import UploadDialog from './UploadDialog'
-import { AUTOMATIC, LEVEL_BADGE, expiryLevel } from './certsForm'
+import { AUTOMATIC, LEVEL_BADGE, commonNodeSource, expiryLevel } from './certsForm'
 
 const JOB_POLL_MS = 1500
 
+// One date format for the whole page, in the UI language.
 function when(value) {
-  return value ? new Date(value).toLocaleString() : null
+  return value ? formatDate(value) : null
 }
 
 function Field({ label, children }) {
@@ -107,7 +110,7 @@ function NodeCard({ node, thresholds, onSource, onUpload, onRenew, onSelfSigned,
         <Field label={t('fields.lastIssued')}>{when(node.last_issued_at) || '-'}</Field>
         <Field label={t('fields.nextRenewal')}>{when(node.next_renewal_at) || (automatic ? '-' : t('fields.manualRenewal'))}</Field>
         <Field label={t('fields.wanted')}>{node.names?.join(', ') || '-'}</Field>
-        <Field label={t('fields.fingerprint')}><span className="font-mono text-2xs">{cert?.fingerprint?.slice(0, 30) || '-'}</span></Field>
+        <Field label={t('fields.fingerprint')}><CopyableText value={cert?.fingerprint} max={30} className="text-2xs" testId="cert-fingerprint" /></Field>
       </dl>
       {node.failures > 0 && (
         <p className="text-xs status-danger-text" data-testid="cert-last-error">
@@ -124,7 +127,7 @@ function NodeCard({ node, thresholds, onSource, onUpload, onRenew, onSelfSigned,
             <ul className="mt-1 max-h-48 overflow-auto text-2xs font-mono space-y-0.5" data-testid="cert-log">
               {node.log.map((line, i) => (
                 <li key={`${line.ts}-${i}`} className={line.level === 'error' ? 'status-danger-text' : 'text-text-secondary'}>
-                  {when(line.ts)} {line.message}
+                  {formatDate(line.ts, { second: '2-digit' })} {line.message}
                 </li>
               ))}
             </ul>
@@ -254,6 +257,7 @@ export default function CertificatesPage() {
   }
 
   const cluster = data?.cluster
+  const adoptable = cluster ? null : commonNodeSource(data?.nodes)
   return (
     <PageLayout
       icon={Certificate}
@@ -287,6 +291,12 @@ export default function CertificatesPage() {
                 ? t('cluster.applies', { nodes: cluster.node_ids === 'all' ? t('cluster.everyNode') : (cluster.node_ids || []).map((id) => names[id] || id).join(', ') })
                 : t('cluster.help')}
             </p>
+            {adoptable && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-text-secondary" data-testid="cert-adopt">
+                <span>{t('cluster.sameSource', { source: sourceSummary(t, adoptable) })}</span>
+                <Button size="xs" variant="secondary" onClick={() => setSourceFor('adopt')} data-testid="cert-adopt-button">{t('cluster.adopt')}</Button>
+              </div>
+            )}
             <p className="text-2xs text-text-tertiary">{t('cluster.thresholds', { warning: data.thresholds.warning_days, critical: data.thresholds.critical_days })}</p>
           </Card>
           <JobPanel job={job} names={names} />
@@ -311,8 +321,9 @@ export default function CertificatesPage() {
         <SourceDialog
           open
           onClose={() => setSourceFor(null)}
-          cluster={sourceFor === 'cluster'}
-          node={sourceFor === 'cluster' ? null : sourceFor}
+          cluster={sourceFor === 'cluster' || sourceFor === 'adopt'}
+          node={sourceFor === 'cluster' || sourceFor === 'adopt' ? null : sourceFor}
+          prefill={sourceFor === 'adopt' ? adoptable : undefined}
           overview={data}
           onSaved={saved}
           onPlan={planDns01}

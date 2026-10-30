@@ -3273,7 +3273,10 @@ Codes and HTTP statuses: `validation_error` 400, `invalid_credentials` 401,
 `not_supported` 501 (engine lacks the feature), `not_implemented` 501
 (endpoint not built yet), `internal_error` 500. Validation failures from
 engines (`named-checkconf`, `config-test`) are `422 engine_validation_failed`
-with `errors[].message` carrying the tool output.
+with `errors[].message` carrying the tool output, `errors[].tool` naming the tool (never
+`field`: a tool is not a request field), `errors[].message_message` its translatable form when
+Pelagos wrote it (record plan checks, `rrset.*` keys), and `detail_message`
+(`problem.detail.engine_rejected`, or the plan's `error_message`).
 
 Extension members (WP-API-AUTH): a `422 engine_validation_failed` returned
 by a `.../plan` endpoint carries the failed plan in `"plan"`; a `403` caused
@@ -3305,7 +3308,7 @@ when the producer has none):
 | Object | English field | Message field | Producers |
 | --- | --- | --- | --- |
 | `Plan` | `summary` | `summary_message` | BIND and Kea connectors, DNS/DHCP/hosts services, installer (install, import, security) |
-| `Plan` | `error`, `validations[].output` | `error_message`, `validations[].output_message` | `services.permissions` (refusal at plan time), `PlanService` (apply errors) |
+| `Plan` | `error`, `validations[].output` | `error_message`, `validations[].output_message` | `services.permissions` (refusal at plan time), `PlanService` (apply errors), record plans (`dnspython` checks, `rrset.*`) |
 | `NodeApplyResult` | `message` | `message_message` | `BindBackend` (zone folder errors), `PlanService` (any result carrying a raw `[Errno N]`) |
 | `Alert` | `title` | `title_message` | collector rules, consistency checks, security audit alerts |
 | finding (`GET /install/security`) | `description`, `proposal`, `risk` | `description_message`, `proposal_message`, `risk_message` | `installer.security_audit`, `installer.zone_audit`; a proposal that is only configuration text has none |

@@ -192,7 +192,7 @@ def test_reservation_class_options_plans(role_client, kea4):
     r = op.post(D + "/config/plan", json={"config": []})
     assert r.status_code == 400
     r = op.post(D + "/config/plan", json={"config": {"nothing": True}})
-    assert r.status_code == 422 and r.get_json()["errors"][0]["field"] == "config-test"
+    assert r.status_code == 422 and r.get_json()["errors"][0]["tool"] == "config-test"
 
 
 def test_lease_delete_ha_and_service(role_client, kea4, node_ctx):

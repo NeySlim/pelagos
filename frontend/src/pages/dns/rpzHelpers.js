@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Pure helpers of the RPZ subscription screens: sizes, selections turned into request bodies, status summaries.
 
+import { formatSize } from '../../lib/utils'
+
 export const LEVELS = ['light', 'normal', 'strict']
 export const ACTIONS = ['nxdomain', 'nodata', 'redirect', 'passthru']
 
@@ -8,12 +10,12 @@ export const formatCount = (n) => (n === null || n === undefined ? '' : new Intl
 
 export function formatMb(mb) {
   if (mb === null || mb === undefined) return ''
-  return mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${Math.round(mb)} MB`
+  return formatSize(mb >= 1000 ? mb * 1e6 : Math.round(mb) * 1e6)
 }
 
 export function formatBytes(bytes) {
   if (!bytes) return ''
-  return bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.round(bytes / 1e3)} kB`
+  return formatSize(bytes)
 }
 
 // Epoch seconds as a local date and time; empty when unknown.

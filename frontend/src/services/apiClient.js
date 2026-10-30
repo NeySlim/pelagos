@@ -159,6 +159,11 @@ function problemText(err) {
   return keyed ? renderMessage(keyed, err.message) : err.message
 }
 
+// One problem `errors[]` item in the UI language when the backend sent message_message.
+export function errorItemText(item) {
+  return item?.message_message ? renderMessage(item.message_message, item.message) : item?.message
+}
+
 // Human message for an error coming out of apiClient (or anything else).
 export function errorMessage(err, fallback = 'Request failed') {
   if (!err) return fallback
@@ -166,7 +171,7 @@ export function errorMessage(err, fallback = 'Request failed') {
     const base = problemText(err)
     if (err.errors?.length) {
       const first = err.errors[0]
-      return first.field ? `${base}: ${first.field} ${first.message}` : `${base}: ${first.message}`
+      return first.field ? `${base}: ${first.field} ${errorItemText(first)}` : `${base}: ${errorItemText(first)}`
     }
     return base || fallback
   }

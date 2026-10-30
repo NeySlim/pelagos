@@ -222,3 +222,12 @@ export function resolverSummary(health) {
         : 'neutral'
   return { p95, servfail, latencyTone: latency, servfailTone, unhealthy, nodes: nodes.length, measured, unavailable: (health.unavailable || []).length, fallback: health.fallback || null, returnReady: Boolean(health.return_ready), tone }
 }
+
+// Numbers in the UI language, with the precision of the readings (the unit is in the measure label).
+export function formatThreshold(value, language) {
+  if (value === null || value === undefined) return '-'
+  const n = Number(value)
+  if (!Number.isFinite(n)) return String(value)
+  const digits = Math.abs(n) >= 100 ? 0 : Math.abs(n) >= 10 ? 1 : 2
+  return new Intl.NumberFormat(language, { maximumFractionDigits: digits, useGrouping: false }).format(n)
+}

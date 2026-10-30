@@ -211,7 +211,7 @@ export function DhcpTile({ summary, editing, live, thresholds, nameOf, samples }
             <span className="dash-stat-value">{current === null || current === undefined ? '-' : <RollingNumber value={format(current)} data-testid="dhcp-rate" />}</span>
           </div>
           <div className={cn('dash-stat', hot && 'is-warn')}>
-            <span className="dash-stat-label">{t('tiles.dhcp.hot')}</span>
+            <span className="dash-stat-label">{t('tiles.dhcp.hot', { percent: warn })}</span>
             <span className="dash-stat-value">
               <RollingNumber value={hot} />
             </span>

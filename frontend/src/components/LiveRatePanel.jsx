@@ -3,7 +3,7 @@
 // counting up, and the recent window as a stippled area with a glass tooltip.
 import { useTranslation } from 'react-i18next'
 import { useLiveRates } from '../hooks/useLiveRates'
-import { LIVE_CAPACITY, latest, liveWindowLabel } from '../lib/liveRates'
+import { LIVE_CAPACITY, LIVE_INTERVAL_MS, latest, liveWindowLabel } from '../lib/liveRates'
 import { cn } from '../lib/utils'
 import { CountUp, StatusDot, StippledAreaChart } from './motion'
 
@@ -32,7 +32,8 @@ export function LiveRatePanel({ target, title, tone = 'primary', height = 64, cl
       {points.length < 2 ? (
         <div className="flex items-center justify-center gap-2 text-xs text-text-tertiary" style={{ height }} data-testid="live-rate-collecting">
           <StatusDot tone={tone} pulse />
-          {t('live.collecting')}
+          {/* One sample already gives the rate above; the curve needs a second one. */}
+          {current === null ? t('live.collecting') : t('live.nextSample', { seconds: Math.round(LIVE_INTERVAL_MS / 1000) })}
         </div>
       ) : (
         <StippledAreaChart

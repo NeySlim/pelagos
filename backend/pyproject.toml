@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 [project]
 name = "pelagos"
-version = "0.1.0.dev0"
+dynamic = ["version"]
 description = "DNS and DHCP management for BIND 9 and Kea"
 license = "Apache-2.0"
 requires-python = ">=3.12"
@@ -36,6 +36,10 @@ pelagos = "pelagos.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+# The single version source is pelagos/__init__.py (make release bumps it).
+[tool.hatch.version]
+path = "pelagos/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["pelagos"]

@@ -84,6 +84,7 @@
     "sourcesHelp": "Addresses come from the neighbor table of each node and, with the DHCPv6 module, from the Kea DHCPv6 leases.",
     "neighbors": "Node neighbor tables",
     "pollSeconds": "DHCPv6 lease walk (seconds)",
+    "pollUnused": "unused: the DHCPv6 module is off",
     "stableDays": "Stable after (days)",
     "staleDays": "Stale after (days)",
     "settingsHelp": "Thresholds and the neighbor tables are settings of the ipv6 domain.",

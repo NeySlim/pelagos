@@ -68,7 +68,7 @@ class ClusterView(Protocol):
     """What the checks read; `LiveView` in production, a fake in tests."""
 
     def health(self) -> list[str]: ...
-    def convergence(self) -> list[str]: ...
+    def convergence(self, audit_floor: int | None = None) -> list[str]: ...
     def audit_count(self) -> int: ...
     def ha_problems(self) -> list[str]: ...
     def invocations(self) -> dict[str, str]: ...
@@ -93,6 +93,10 @@ def _target(r: Rollout) -> str:
     return r.version or ep.summary(r.packages) or "?"
 
 
+def _epoch_of(at: datetime | None) -> float | None:
+    return at.timestamp() if at is not None else None
+
+
 def _epoch(text: Any) -> float | None:
     try:
         return from_rfc3339(text).timestamp() if text else None
@@ -108,6 +112,7 @@ class RolloutDriver:
         helper: Any = None,
         clock: Callable[[], float] = time.time,
         github: Callable[[str, str | None], Any] | None = None,
+        archiver: Any = None,
     ) -> None:
         self.ctx = ctx
         self.view = view
@@ -123,6 +128,7 @@ class RolloutDriver:
         self.incoming: Path = ctx.paths.upgrade_incoming
         self.state_dir: Path = ctx.paths.var / "upgrade" / "rollouts"
         self.held = src.HeldReleases(self.upgrade_dir / "packages")
+        self.archiver = archiver
 
     # Settings and local state ------------------------------------------------------------------
 
@@ -288,11 +294,22 @@ class RolloutDriver:
             r = ur.load(self.ctx.settings()) or r
             step = "precheck"
         if step == "precheck":
-            problems = self.view.health() + self.view.convergence() + self.view.ha_problems()
+            state = self._state(r.id)
+            if "precheck_audit" not in state:
+                state["precheck_audit"] = self.view.audit_count()
+                self._save_state(r.id, state)
+            problems = (
+                self.view.health()
+                + self.view.convergence(int(state["precheck_audit"]))
+                + self.view.ha_problems()
+            )
             if problems:
                 if self._deadline_passed(r, cfg):
                     raise Failed("precheck", "; ".join(problems))
                 return "precheck: " + "; ".join(problems)
+            waiting = self._archive(r, cfg)
+            if waiting:
+                return waiting
             return self._start_unit(r, cfg)
         return f"step {step}"
 
@@ -337,6 +354,37 @@ class RolloutDriver:
         if art.get("sha256") and art["sha256"] != out.get("sha256"):
             raise Failed("verify", f"{out.get('package')} differs from the package the plan verified")
         return out
+
+    def _archive(self, r: Rollout, cfg: dict[str, Any]) -> str | None:
+        """A 13.2 archive of this node before the install when a destination exists (design 13.6
+        point 5): asked from the collector's archive runner, waited for over the ticks."""
+        from pelagos.archives.destinations import config as dconf
+
+        enabled = [d for d in dconf.entries(self.ctx.settings()) if d.get("enabled", True)]
+        if self.archiver is None or not enabled:
+            return None
+        state = self._state(r.id)
+        if state.get("archive_id"):
+            return None
+        asked = state.get("archive_asked")
+        if asked is None:
+            state["archive_asked"] = self.clock()
+            self._save_state(r.id, state)
+            self.archiver.request("update")
+            return "precheck: archive of this node asked"
+        run = self.archiver.store.load_state()
+        attempted = _epoch_of(run.last_attempt)
+        if run.running or attempted is None or attempted < int(asked):
+            if self.clock() - float(asked) > float(cfg["timeout_seconds"]) * 4:
+                raise Failed("precheck", "the archive before the update did not finish in time")
+            return "precheck: archive of this node running"
+        success = _epoch_of(run.last_success)
+        if success is None or success < int(asked):
+            raise Failed("precheck", f"the archive before the update failed: {run.last_error or '?'}")
+        state["archive_id"] = run.last_archive_id or "?"
+        self._save_state(r.id, state)
+        self._audit(r, "update.node.archive", AuditResult.OK, f"archive {state['archive_id']} made")
+        return None
 
     def _start_unit(self, r: Rollout, cfg: dict[str, Any]) -> str:
         state = self._state(r.id)
@@ -427,7 +475,7 @@ class RolloutDriver:
             if name != current:
                 self._step(r.id, name)
                 current = name
-            wait = self._check(name, state, now, settle_end)
+            wait = self._check(name, state, now, settle_end, r.id)
             if wait is None:
                 continue
             if now > deadline or name in ("audit", "journal", "permissions"):
@@ -435,7 +483,9 @@ class RolloutDriver:
             return f"{name}: {wait}"
         return self._done(r, state)
 
-    def _check(self, name: str, state: dict[str, Any], now: float, settle_end: float) -> str | None:
+    def _check(
+        self, name: str, state: dict[str, Any], now: float, settle_end: float, rid: str = ""
+    ) -> str | None:
         """None when the check passes, else why (waited on until the deadline, or fatal)."""
         old = {u: i for u, i in (state.get("invocations") or {}).items() if i}
         if name == "restart":
@@ -447,7 +497,10 @@ class RolloutDriver:
         if name == "health":
             return "; ".join(self.view.health()) or None
         if name == "convergence":
-            return "; ".join(self.view.convergence()) or None
+            if "post_audit" not in state:
+                state["post_audit"] = self.view.audit_count()
+                self._save_state(rid, state)
+            return "; ".join(self.view.convergence(int(state["post_audit"]))) or None
         if name == "audit":
             before, count = int(state.get("audit_before") or 0), self.view.audit_count()
             return None if count >= before else f"audit count went down ({before} -> {count})"
@@ -717,6 +770,7 @@ class RolloutDriver:
             node = x.nodes[self.node_id]
             node.state = NodeState.ROLLED_BACK.value if rolled_back else NodeState.FAILED.value
             node.step, node.step_at, node.finished_at, node.error = step, stamp, stamp, error
+            node.error_message = failure_message(step, error)
             if rolled_back:
                 node.to_version = node.from_version
             x.state = RolloutState.FAILED.value
@@ -762,6 +816,12 @@ class RolloutDriver:
                 )
             return "rolled back, waiting for health"
         return self._failed(r, state.get("rollback_from") or "rollback", cause, rolled_back=True)
+
+
+def failure_message(step: str, error: str) -> dict[str, Any] | None:
+    """The translatable form of a node failure: `update.failed.<step>` around the problems."""
+    key = f"update.failed.{step}"
+    return messages.msg(key, problems=error) if key in messages.CATALOG else None
 
 
 # Alerts (service node) -------------------------------------------------------------------------------
@@ -929,9 +989,11 @@ class LiveView:
                 problems.append(f"{peer.name or peer.id}: unreachable ({error or 'no answer'})")
         return problems
 
-    def convergence(self) -> list[str]:
+    def convergence(self, audit_floor: int | None = None) -> list[str]:
+        """Same cluster.toml everywhere, and every peer's audit log at least `audit_floor` (this
+        node's count when the check began) long: new entries keep coming, a mark is what converges."""
         mine = self.ctx.config_store.digest()
-        count = self.audit_count()
+        floor = self.audit_count() if audit_floor is None else audit_floor
         problems = []
         for peer, status, _error in self._statuses():
             if status is None:
@@ -939,8 +1001,8 @@ class LiveView:
             name = peer.name or peer.id
             if status.config_digest and status.config_digest != mine:
                 problems.append(f"{name}: cluster.toml differs")
-            if status.audit_count is not None and status.audit_count != count:
-                problems.append(f"{name}: audit count {status.audit_count}, here {count}")
+            if status.audit_count is not None and status.audit_count < floor:
+                problems.append(f"{name}: audit count {status.audit_count}, here {floor}")
         return problems
 
     def audit_count(self) -> int:

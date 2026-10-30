@@ -431,13 +431,26 @@ def migration_steps(plan: Plan, env: Any) -> list[Step]:
         if change.target != kmc.target(str(step), env.node_id):
             raise ValueError(f"step {change.target} is not this node's")
         details = after.get("details") if isinstance(after.get("details"), dict) else {}
+        guarded = step in (kmc.H_PREPARE, kmc.H_STOP) or (
+            step == kmc.H_MAINTENANCE and details.get("action") == "start"
+        )
         if step == kmc.H_PREPARE:
-            out.append(Step(change.target, lambda d=details: json.dumps(prepare(env, d), sort_keys=True), 10))
+            out.append(
+                Step(
+                    change.target,
+                    lambda d=details: _no_rollout(env) or json.dumps(prepare(env, d), sort_keys=True),
+                    10,
+                )
+            )
         elif step in SWITCH_STEPS:
             run = SWITCH_STEPS[step]
             out.append(
                 Step(
-                    change.target, lambda d=details, r=run: json.dumps(r(env, d, plan.id), sort_keys=True), 10
+                    change.target,
+                    lambda d=details, r=run, g=guarded: (
+                        (g and _no_rollout(env)) or json.dumps(r(env, d, plan.id), sort_keys=True)
+                    ),
+                    10,
                 )
             )
         elif step in kmc.DRIVER_STEPS:
@@ -447,6 +460,25 @@ def migration_steps(plan: Plan, env: Any) -> list[Step]:
     if not out:
         raise ValueError("no Kea migration step for this node")
     return out
+
+
+def _no_rollout(env: Any) -> None:
+    """Raises while an update rollout is active: a step that starts changing Kea waits for it
+    (a rollout restarts the services that drive this migration). Later steps always run."""
+    from pelagos.core import update_rollout
+    from pelagos.core.config_store import ConfigStore
+
+    paths = env.node_paths
+    if not paths.cluster_toml.exists():
+        return None
+    try:
+        settings = ConfigStore(paths.node_toml, paths.cluster_toml).load_cluster().settings
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"cluster.toml unreadable: {exc}") from None
+    why = update_rollout.rollout_blocks(settings if isinstance(settings, dict) else {})
+    if why:
+        raise ValueError(why)
+    return None
 
 
 def result_of(output: str) -> dict[str, Any]:

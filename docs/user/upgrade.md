@@ -61,7 +61,9 @@ From 0.3.0, **Administration, Updates** (permission `admin:updates`, the
 administrator role) does the same as [the scripted upgrade](#scripted-upgrade),
 one node at a time, without ssh. A cluster still on 0.2.x is upgraded to
 0.3.0 by hand or with `scripts/deploy-prod.sh` first: those releases ignore
-the rollout. Docker installs are not updated from the screen; it shows the
+the rollout, and a plan that chooses such a node is refused. No update can
+start while a Kea 3.x migration is in progress (preparing, migrating, failed
+or rolling back), and no migration phase starts while an update runs. Docker installs are not updated from the screen; it shows the
 image version and the command to run on the Docker host
 (`docker compose pull && docker compose up -d`).
 
@@ -101,8 +103,9 @@ picks its turn from there.
 
 **Rollout.** The panel shows each node with its step, live: wait for its
 turn, fetch the packages from the node that holds them, verify, cluster
-checks before, state backup
-(`/var/lib/pelagos/upgrade/backups/pelagos-state-<date>-<old version>.tar.gz`,
+checks before, an archive of the node when an archive destination is set
+(see [operations](operations.md)), state backup
+(`/var/lib/pelagos-helper/upgrade/backups/pelagos-state-<date>-<old version>.tar.gz`,
 root only), install, installed version, units restarted, settle
 (`settle_seconds`), health and convergence (until `timeout_seconds`), audit
 count never lower, no `ERROR` line from the new processes, Kea HA back to
@@ -126,15 +129,19 @@ as it is and you follow [Rollback](#rollback) on that node. Then:
 - **Cancel the rest**: the nodes not started are skipped; those done stay on
   the new version (a supported mixed state, see
   [While two versions run](#while-two-versions-run)).
-- **Roll back** (password): a new rollout takes the nodes already done back
-  to the previous version, in the reverse order, with the same checks.
+- **Roll back** (password): a new rollout takes the nodes running the new
+  version back to the previous one: the failed node first when it failed
+  after the install, then the nodes done, in the reverse order, with the
+  same checks. When a node failed during the install itself, check its
+  installed version by hand first: the action is refused until then.
 
 A node that does not move for twice `timeout_seconds` raises
 `update_stalled`. **Go back to <version>** under the node list rolls the
 whole cluster back to the package the last update kept. The first update
 from the screen has no previous package kept when the version before was
-installed by hand: the screen says so; upload the previous release if you
-may need to go back.
+installed by hand or with `deploy-prod.sh`: the preview warns "no automatic
+rollback on <nodes>". Upload the release the cluster runs now before the
+update: it is then kept as the rollback target of every node.
 
 Every past rollout, with the result on each node, is under **History**.
 

@@ -13,6 +13,16 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-30, WP-INSTALLER, WP-COLLECTOR, WP-API-AUTH: review fixes of updates from the UI
+Section 29 updated. Rollouts and the Kea migration exclude each other (`update_rollout.
+migration_blocks`, `rollout_blocks`; helper reason `kea_migration`). `update_start` pins the
+package to the plan's `artifacts` sha256 and installs a root-only copy. Peer action
+`updates.node` gains `rollback_ready`; the plan member `update` gains `auto_rollback_nodes` and
+may carry the impact `update_no_rollback`. A node before 0.3.0 makes a plan `409`. The
+`rollback` action also brings back nodes failed after the install. `ClusterView.convergence`
+takes `audit_floor`. `RolloutNode.error_message` is `update.failed.<step>`. A precheck archive
+runs when a destination exists. Additive: older peers ignore the new fields.
+
 ## 2026-10-30, WP-INSTALLER, WP-COLLECTOR: the update unit rolls back when the services never stay up (U7)
 Found by `tests/lab/test_upgrade_ui_lab.py` on Rocky: a release whose web unit restarts in a loop
 also restarts the collector every few seconds (`PartOf=pelagos.service`), so no collector turn ran

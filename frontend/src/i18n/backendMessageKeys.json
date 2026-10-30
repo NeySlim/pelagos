@@ -1531,6 +1531,9 @@
     "nodes",
     "packages"
   ],
+  "plan.update.no_rollback_target": [
+    "nodes"
+  ],
   "plan.update.pelagos": [
     "nodes",
     "version"
@@ -1668,12 +1671,63 @@
     "rtype",
     "ttl"
   ],
+  "update.failed.audit": [
+    "problems"
+  ],
+  "update.failed.backup": [
+    "problems"
+  ],
+  "update.failed.convergence": [
+    "problems"
+  ],
+  "update.failed.engine_checks": [
+    "problems"
+  ],
+  "update.failed.fetch": [
+    "problems"
+  ],
+  "update.failed.ha": [
+    "problems"
+  ],
+  "update.failed.ha_maintenance": [
+    "problems"
+  ],
+  "update.failed.health": [
+    "problems"
+  ],
+  "update.failed.install": [
+    "problems"
+  ],
+  "update.failed.journal": [
+    "problems"
+  ],
+  "update.failed.permissions": [
+    "problems"
+  ],
+  "update.failed.precheck": [
+    "problems"
+  ],
+  "update.failed.restart": [
+    "problems"
+  ],
+  "update.failed.rollback": [
+    "problems"
+  ],
+  "update.failed.verify": [
+    "problems"
+  ],
+  "update.failed.version": [
+    "problems"
+  ],
   "update.refused.arch": [
     "arch",
     "format"
   ],
   "update.refused.checksum": [
     "file"
+  ],
+  "update.refused.legacy_nodes": [
+    "nodes"
   ],
   "update.refused.manifest": [
     "problems"

@@ -8,6 +8,7 @@ the actions with the same helpers, so both sides agree on what a state means.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import Any
@@ -19,6 +20,47 @@ HISTORY_KEEP = 20
 # Node states a later node may follow: the turn passes over them.
 PASSED = (NodeState.DONE.value, NodeState.SKIPPED.value)
 FINAL_NODE = (NodeState.DONE.value, NodeState.SKIPPED.value, NodeState.ROLLED_BACK.value)
+# Steps a failed node reached with the new package installed (a rollback brings it back), and
+# steps where whether it is installed is unknown (the node is checked by hand).
+INSTALLED_STEPS = (
+    "restart",
+    "settle",
+    "health",
+    "convergence",
+    "audit",
+    "journal",
+    "permissions",
+    "ha",
+    "rollback",
+)
+UNSURE_STEPS = ("install", "version")
+# Kea migration states with Kea packages or units changing somewhere (design 13.4): no update then.
+MIGRATION_BUSY = ("preparing", "migrating", "rolling_back", "failed")
+_PRE_RELEASE = re.compile(r"^(\d+(?:\.\d+)*)(a|b|rc)(\d+)$")
+
+
+def release_version(version: str) -> str:
+    """The release form of a version: PEP 440 `0.3.0rc1` (what a node reports) as `0.3.0~rc1`."""
+    m = _PRE_RELEASE.fullmatch(version or "")
+    return f"{m[1]}~{m[2]}{m[3]}" if m else version
+
+
+def migration_blocks(settings: dict[str, Any]) -> str | None:
+    """Why no rollout may start or run while the Kea migration of cluster.toml is in progress."""
+    kea = settings.get("kea") if isinstance(settings, dict) else None
+    mig = kea.get("migration") if isinstance(kea, dict) else None
+    state = mig.get("state") if isinstance(mig, dict) else None
+    if state in MIGRATION_BUSY:
+        return f"the Kea migration {mig.get('id') or ''} is {state}: finish or roll it back first"
+    return None
+
+
+def rollout_blocks(settings: dict[str, Any]) -> str | None:
+    """Why no Kea migration phase may start while an update rollout is active."""
+    r = load(settings)
+    if r is not None and r.active():
+        return f"update rollout {r.id} is {r.state}: let it finish or cancel it first"
+    return None
 
 
 def updates_of(settings: dict[str, Any]) -> dict[str, Any]:
@@ -254,14 +296,35 @@ def cancel(rollout: Rollout, now: datetime) -> Rollout:
     return rollout
 
 
+def to_bring_back(rollout: Rollout) -> list[str]:
+    """Nodes running the new package: those that failed after the install first, then the done ones
+    in reverse order. A node failed where the install state is unknown refuses the action."""
+    unsure, failed, done = [], [], []
+    for n in rollout.order:
+        node = rollout.nodes.get(n)
+        if node is None:
+            continue
+        if node.state == NodeState.FAILED.value and node.step in UNSURE_STEPS:
+            unsure.append(n)
+        elif node.state == NodeState.FAILED.value and node.step in INSTALLED_STEPS:
+            failed.append(n)
+        elif node.state == NodeState.DONE.value:
+            done.append(n)
+    if unsure:
+        raise ActionRefused(
+            f"{', '.join(unsure)} failed during the install: check the installed version by hand first"
+        )
+    return failed + list(reversed(done))
+
+
 def rollback_of(rollout: Rollout, previous_version: str, created_by: str, now: datetime) -> Rollout:
-    """A rollout of kind `rollback` toward `previous_version` over the done nodes, in reverse order
-    (the caller ends `rollout` with `cancel`)."""
+    """A rollout of kind `rollback` toward `previous_version` over the nodes running the new package
+    (`to_bring_back`); the caller ends `rollout` with `cancel`."""
     if not rollout.active():
         raise ActionRefused(f"rollout {rollout.id} is {rollout.state}")
     if rollout.kind == RolloutKind.ENGINE_PACKAGES.value:
         raise ActionRefused("engine packages are not rolled back by a rollout")
-    done = [n for n in reversed(rollout.order) if rollout.nodes.get(n) and rollout.nodes[n].state == "done"]
+    done = to_bring_back(rollout)
     if not done:
         raise ActionRefused(f"rollout {rollout.id} has no updated node to bring back")
     back = new_rollout(

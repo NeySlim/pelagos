@@ -433,6 +433,28 @@ CATALOG: dict[str, str] = {
     "plan.update.engine_packages": "update {packages} on {nodes}, in this order",
     "plan.update.rollback": "go back to Pelagos {version} on {nodes}, in this order",
     "plan.update.unsigned": "release {version} is not signed: its origin is not verified",
+    "update.refused.legacy_nodes": (
+        "{nodes} runs a release without updates from the interface: update it by hand first (upgrade.md)"
+    ),
+    "plan.update.no_rollback_target": (
+        "no automatic rollback on {nodes}: the running release is not held there (upload it first)"
+    ),
+    "update.failed.precheck": "the cluster is not ready for the update: {problems}",
+    "update.failed.fetch": "the release could not be fetched: {problems}",
+    "update.failed.verify": "the release is refused on this node: {problems}",
+    "update.failed.backup": "the update did not start: {problems}",
+    "update.failed.install": "the install failed: {problems}",
+    "update.failed.version": "wrong version installed: {problems}",
+    "update.failed.restart": "the services did not restart: {problems}",
+    "update.failed.health": "the cluster is not healthy after the update: {problems}",
+    "update.failed.convergence": "the nodes do not converge after the update: {problems}",
+    "update.failed.audit": "the audit log went back: {problems}",
+    "update.failed.journal": "errors in the journal of the new processes: {problems}",
+    "update.failed.permissions": "the permission check failed: {problems}",
+    "update.failed.ha": "Kea HA is not back to normal: {problems}",
+    "update.failed.rollback": "the automatic rollback failed: {problems}",
+    "update.failed.ha_maintenance": "the HA partner did not take over: {problems}",
+    "update.failed.engine_checks": "the engines are not healthy after the update: {problems}",
     "update.refused.signature_invalid": "SHA256SUMS.sig does not verify SHA256SUMS: the release was altered",
     "update.refused.checksum": "{file}: its sha256 does not match SHA256SUMS",
     "update.refused.missing": "{file} is missing from the release",

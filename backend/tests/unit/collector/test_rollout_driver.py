@@ -41,11 +41,13 @@ class View:
         self.audit = 10
         self.ids = dict(OLD)
         self.clients: list[Any] = []
+        self.floors: list[Any] = []
 
     def health(self):
         return list(self.health_problems)
 
-    def convergence(self):
+    def convergence(self, audit_floor=None):
+        self.floors.append(audit_floor)
         return list(self.converge)
 
     def audit_count(self):
@@ -345,3 +347,103 @@ def test_unit_that_rolled_back_by_itself_marks_the_node_rolled_back(rig) -> None
     assert [c[0] for c in helper.calls].count("start") == 1  # no second rollback from here
     actions = [e.action for e in ctx.audit_log.read() if e.action.startswith("update.")]
     assert actions == ["update.node.start", "update.node.rolled_back"]
+
+
+# Review fixes ----------------------------------------------------------------------------------------
+
+
+def test_convergence_waits_for_a_mark_not_an_equal_count(rig) -> None:
+    driver, clock, view = rig.driver, rig.clock, rig.view
+    view.audit = 10
+    _install(rig)
+    assert view.floors == [10]  # the precheck mark: this node's count when it began
+    view.audit = 15  # entries keep arriving: the post-install mark is taken when the check starts
+    clock.now += 31
+    assert driver.tick() == "done"
+    assert view.floors[-1] == 15
+
+
+def test_live_view_convergence_accepts_peers_ahead() -> None:
+    from pelagos.collector.rollout import LiveView
+
+    peer = SimpleNamespace(id="n2", name="ns2")
+    lv = LiveView.__new__(LiveView)
+    lv.ctx = SimpleNamespace(config_store=SimpleNamespace(digest=lambda: "d"))
+    status = SimpleNamespace(config_digest="d", audit_count=12)
+    lv._statuses = lambda: [(peer, status, None)]
+    assert lv.convergence(10) == [] and lv.convergence(12) == []
+    assert lv.convergence(13) == ["ns2: audit count 12, here 13"]
+
+
+class Archiver:
+    def __init__(self, clock) -> None:
+        from pelagos.archives.store import RunState
+
+        self.clock = clock
+        self.asked: list[str] = []
+        self.run = RunState()
+        self.store = SimpleNamespace(load_state=lambda: self.run)
+
+    def request(self, trigger: str = "manual") -> None:
+        self.asked.append(trigger)
+
+    def finish(self, ok: bool) -> None:
+        at = datetime.fromtimestamp(self.clock.now, UTC).replace(microsecond=0)
+        self.run.last_attempt = at
+        if ok:
+            self.run.last_success, self.run.last_archive_id = at, "A1"
+        else:
+            self.run.last_error = "sftp refused"
+
+
+def _with_destination(ctx) -> None:
+    ctx.config_store.update_cluster(
+        lambda c: c.settings.setdefault("archives", {}).update(
+            destinations=[{"id": "d1", "type": "peer", "enabled": True}]
+        ),
+        updated_by="test",
+    )
+
+
+def test_archive_before_the_install_when_a_destination_exists(rig) -> None:
+    ctx, driver, clock, helper = rig.ctx, rig.driver, rig.clock, rig.helper
+    archiver = Archiver(clock)
+    driver.archiver = archiver
+    _with_destination(ctx)
+    _start(ctx, [ctx.node.id])
+    assert driver.tick() == "precheck: archive of this node asked"
+    assert archiver.asked == ["update"] and [c[0] for c in helper.calls] == ["verify"]
+    assert driver.tick() == "precheck: archive of this node running"
+    clock.now += 5
+    archiver.finish(True)
+    assert driver.tick() == "update unit started"
+    assert ctx.audit_log.query(action="update.node.archive")[0]
+
+
+def test_failed_archive_fails_the_precheck(rig) -> None:
+    ctx, driver, clock = rig.ctx, rig.driver, rig.clock
+    archiver = Archiver(clock)
+    driver.archiver = archiver
+    _with_destination(ctx)
+    _start(ctx, [ctx.node.id])
+    driver.tick()
+    clock.now += 5
+    archiver.finish(False)
+    assert "archive before the update failed: sftp refused" in driver.tick()
+    node = _rollout(ctx).nodes[ctx.node.id]
+    assert node.state == "failed" and node.error_message["key"] == "update.failed.precheck"
+
+
+def test_failures_carry_a_translatable_message(rig) -> None:
+    from pelagos.collector.rollout import failure_message
+
+    driver, helper, ctx = rig.driver, rig.helper, rig.ctx
+    _install(rig)
+    helper.status = {
+        "unit_state": "failed",
+        "progress": _progress("failed", steps=("backup", "install"), failed="install"),
+    }
+    driver.tick()
+    node = _rollout(ctx).nodes[ctx.node.id]
+    assert node.error_message == {"key": "update.failed.install", "params": {"problems": "install broke"}}
+    assert failure_message("nowhere", "x") is None

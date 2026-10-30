@@ -33,7 +33,15 @@ from pelagos.core import update_rollout as ur
 from pelagos.core import update_sources as src
 from pelagos.domain import AuditEntry, AuditResult, messages
 from pelagos.domain.common import Engine, to_rfc3339
-from pelagos.domain.plan import Change, ChangeOp, NodeApplyResult, Plan, PlanScope
+from pelagos.domain.plan import (
+    Change,
+    ChangeOp,
+    ImpactItem,
+    ImpactSeverity,
+    NodeApplyResult,
+    Plan,
+    PlanScope,
+)
 from pelagos.domain.updates import (
     CHECKSUMS,
     MANIFEST,
@@ -102,7 +110,9 @@ def _now() -> datetime:
 
 
 def _cmp(a: str, b: str) -> int:
-    """Pelagos versions compared as dpkg does; an unparsable one sorts first."""
+    """Pelagos versions compared as dpkg does (`0.3.0rc1` read as `0.3.0~rc1`); an unparsable one
+    sorts first."""
+    a, b = ur.release_version(a), ur.release_version(b)
     try:
         return versions.compare("deb", a, b)
     except (ValueError, TypeError):
@@ -223,6 +233,15 @@ class UpdatesService:
     def held(self) -> src.HeldReleases:
         return src.HeldReleases(self.upgrade_dir / "packages")
 
+    def rollback_ready(self) -> bool:
+        """The running release is held here: a rollout can bring this node back to it."""
+        installed = _read_json(self.upgrade_dir / "installed.json") or {}
+        mine = ur.release_version(__version__)
+        named = str(installed.get("release") or "")
+        if named and ur.release_version(named) != mine:
+            return False
+        return (self.upgrade_dir / "packages" / mine).is_dir()
+
     def previous_kept(self) -> str | None:
         """The release `previous.json` names, when its packages are still held here."""
         prev = _read_json(self.upgrade_dir / "previous.json") or {}
@@ -243,6 +262,7 @@ class UpdatesService:
             "arch": arch,
             "package_format": fmt,
             "previous_kept": self.previous_kept(),
+            "rollback_ready": self.rollback_ready(),
             "state_schema": STATE_SCHEMA,
             "reachable": True,
             "engines": self.local_engines(),
@@ -303,6 +323,7 @@ class UpdatesService:
             "arch": None,
             "package_format": None,
             "previous_kept": None,
+            "rollback_ready": False,
             "state_schema": None,
             "reachable": False,
             "engines": [],
@@ -313,6 +334,7 @@ class UpdatesService:
             # A node before 0.3.0 has no such action: its version comes from the status exchange.
             status = self.peers.status(peer)
             base.update(version=status.version, reachable=bool(status.reachable), error=exc.detail)
+            base["legacy"] = exc.code == "not_supported"
             return base
         if not isinstance(data, dict):
             return base
@@ -444,7 +466,10 @@ class UpdatesService:
             image = os.environ.get("PELAGOS_IMAGE") or "pelagos"
             docker = {"image": image, "version": __version__, "command": DOCKER_COMMAND}
         return {
-            "nodes": [{k: v for k, v in n.items() if k not in ("engines", "error")} for n in nodes],
+            "nodes": [
+                {k: v for k, v in n.items() if k not in ("engines", "error", "legacy", "rollback_ready")}
+                for n in nodes
+            ],
             "available": self.available(nodes),
             "rollout": rollout.to_api() if rollout is not None else None,
             "settings": self.settings_view(),
@@ -537,6 +562,20 @@ class UpdatesService:
         except src.SourceError as exc:
             self._refused(exc.reason, exc.detail, names, actor, client_ip)
         version = staged["version"]
+        busy = self._upload_blocked(version)
+        if busy:
+            shutil.rmtree(self.incoming / version, ignore_errors=True)
+            self._audit(
+                "admin.update.upload",
+                f"update:{version}",
+                actor,
+                {"version": version, "files": names},
+                client_ip,
+                response={"ok": False, "reason": "rollout"},
+                result=AuditResult.ERROR,
+                message=busy,
+            )
+            raise Conflict(busy)
         try:
             verified = self.helper().update_verify(version, True)
         except ServiceError:
@@ -567,6 +606,17 @@ class UpdatesService:
             | {"sha256": verified.get("sha256"), "checksums_sha256": verified.get("checksums_sha256")},
         )
         return out
+
+    def _upload_blocked(self, version: str) -> str | None:
+        """An upload never replaces a release the active rollout installs or goes back to."""
+        r = self._active()
+        if r is None or r.kind == RolloutKind.ENGINE_PACKAGES.value:
+            return None
+        used = {r.version, self.previous_kept(), *(n.from_version for n in r.nodes.values())}
+        used = {ur.release_version(v) for v in used if v}
+        if ur.release_version(version) in used:
+            return f"release {version} is used by rollout {r.id}: upload it again once the rollout ends"
+        return None
 
     def _refused(
         self,
@@ -659,11 +709,18 @@ class UpdatesService:
         active = self._active()
         if active is not None:
             raise Conflict(f"rollout {active.id} is {active.state}: one rollout at a time")
+        migrating = ur.migration_blocks(self._settings())
+        if migrating:
+            raise Conflict(migrating)
         for name in ("auto_rollback", "accept_unsigned"):
             if name in body and not isinstance(body[name], bool):
                 raise ValidationError(f"{name} must be a boolean", [field_error(name, "boolean expected")])
         nodes = {n["node_id"]: n for n in self.nodes()}
         chosen = self._chosen(body, nodes)
+        legacy = [nodes[n]["name"] for n in chosen if nodes[n].get("legacy")]
+        if legacy:
+            message = messages.msg("update.refused.legacy_nodes", nodes=", ".join(legacy))
+            raise ServiceError("conflict", messages.render(message), extra={"detail_message": message})
         if kind == RolloutKind.ENGINE_PACKAGES.value:
             return self._engine_plan(body, actor, nodes, chosen)
         return self._pelagos_plan(kind, body, actor, nodes, chosen)
@@ -739,12 +796,14 @@ class UpdatesService:
                     [field_error("version", "no single kept previous version")],
                 )
             version = kept.pop()
+        if isinstance(version, str):
+            version = ur.release_version(version)
         if not isinstance(version, str) or not valid_version(version):
             raise ValidationError("version is required", [field_error("version", "a release version")])
         unreachable = [nodes[n]["name"] for n in chosen if not nodes[n].get("reachable")]
         if unreachable:
             raise Conflict(f"{', '.join(unreachable)} does not answer: its version is unknown")
-        targets = [n for n in chosen if nodes[n].get("version") != version]
+        targets = [n for n in chosen if ur.release_version(str(nodes[n].get("version") or "")) != version]
         if not targets:
             raise ValidationError(
                 f"every chosen node already runs {version}", [field_error("version", "already installed")]
@@ -795,13 +854,16 @@ class UpdatesService:
                 [{"field": "accept_unsigned", "message": "update.refused.unsigned_not_accepted"}],
             )
         schema = release.get("state_schema")
-        changed = schema is None or any(nodes[n].get("state_schema") != schema for n in targets)
+        reported = [nodes[n]["state_schema"] for n in targets if nodes[n].get("state_schema") is not None]
+        changed = schema is None or any(s != schema for s in reported)
         if kind == RolloutKind.ROLLBACK.value:
             changed = False  # the kept previous package is what each node ran before
         cfg = reg.domain(self._settings(), "updates")
         wanted = body.get("auto_rollback", cfg.get("auto_rollback_enabled", True))
         order = self._order(body, targets)
         artifacts, sums = self._artifacts(version)
+        auto = bool(wanted) and not changed and kind == RolloutKind.PELAGOS.value
+        bare = [nodes[n]["name"] for n in order if not nodes[n].get("rollback_ready")] if auto else []
         update = {
             "kind": kind,
             "version": version,
@@ -811,7 +873,8 @@ class UpdatesService:
             "key_id": release.get("key_id"),
             "unsigned_warning": messages.msg("plan.update.unsigned", version=version) if needs else None,
             "state_schema_changed": changed,
-            "auto_rollback": bool(wanted) and not changed and kind == RolloutKind.PELAGOS.value,
+            "auto_rollback": auto,
+            "auto_rollback_nodes": {n: auto and bool(nodes[n].get("rollback_ready")) for n in order},
             "checks": list(PELAGOS_CHECKS),
             "estimated_seconds": self._estimate(len(order), INSTALL_SECONDS, cfg),
             "requires_password": True,
@@ -831,7 +894,18 @@ class UpdatesService:
             )
             for n in order
         ]
-        return self._plan(kind, update, changes, actor, {"version": version})
+        impact = []
+        if bare:
+            note = messages.msg("plan.update.no_rollback_target", nodes=", ".join(bare))
+            impact.append(
+                ImpactItem(
+                    kind="update_no_rollback",
+                    text=messages.render(note),
+                    message=note,
+                    severity=ImpactSeverity.WARNING,
+                )
+            )
+        return self._plan(kind, update, changes, actor, {"version": version}, impact)
 
     def _engine_plan(
         self, body: dict[str, Any], actor: str, nodes: dict[str, dict[str, Any]], chosen: list[str]
@@ -892,7 +966,13 @@ class UpdatesService:
         return count * (install + settle) + max(0, count - 1) * pause
 
     def _plan(
-        self, kind: str, update: dict[str, Any], changes: list[Change], actor: str, params: dict[str, Any]
+        self,
+        kind: str,
+        update: dict[str, Any],
+        changes: list[Change],
+        actor: str,
+        params: dict[str, Any],
+        impact: list[ImpactItem] | None = None,
     ) -> Plan:
         names = self._names()
         listed = ", ".join(names.get(n, n) for n in update["order"])
@@ -907,6 +987,7 @@ class UpdatesService:
             target_node_ids=[self.ctx.node.id],
             requires_confirmation=True,
             update=update,
+            impact=list(impact or []),
             **messages.fields("summary", message),
         )
         return self.ctx.plan_store.put(plan)
@@ -1007,13 +1088,13 @@ class UpdatesService:
 
     @staticmethod
     def _previous_of(r: Rollout) -> str:
-        done = [r.nodes[n] for n in r.order if n in r.nodes and r.nodes[n].state == NodeState.DONE.value]
-        versions_before = {n.from_version for n in done if n.from_version}
+        back = [r.nodes[n] for n in ur.to_bring_back(r)]
+        versions_before = {n.from_version for n in back if n.from_version}
         if len(versions_before) != 1:
             raise ur.ActionRefused(
                 "the updated nodes did not all come from one version: go back node by node"
             )
-        return versions_before.pop()
+        return ur.release_version(versions_before.pop())
 
     def _signal(self) -> None:
         try:
@@ -1046,10 +1127,11 @@ class RolloutWriter:
         self.details: dict[str, dict[str, Any]] = {}
 
     def preflight(self, plan: Plan) -> str | None:
-        r = ur.load(self.ctx.settings())
+        settings = self.ctx.settings()
+        r = ur.load(settings)
         if r is not None and r.active():
             return f"rollout {r.id} is {r.state}: one rollout at a time"
-        return None
+        return ur.migration_blocks(settings)
 
     def apply(self, plan: Plan) -> NodeApplyResult:
         me = self.ctx.node.id
@@ -1104,6 +1186,10 @@ class RolloutWriter:
             current = ur.load(cluster.settings)
             if current is not None and current.active():
                 busy.append(f"rollout {current.id} is {current.state}: one rollout at a time")
+                return
+            migrating = ur.migration_blocks(cluster.settings)
+            if migrating:
+                busy.append(migrating)
                 return
             ur.write(cluster, rollout)
 

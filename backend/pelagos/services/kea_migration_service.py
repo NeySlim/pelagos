@@ -213,8 +213,12 @@ class KeaMigrationService:
 
     def plan(self, migration_id: str, body: dict[str, Any], actor: str, client_ip: str | None = None) -> Any:
         """POST /install/kea-migration/{id}/plan (section 28): the composite plan of one phase."""
+        from pelagos.core import update_rollout
         from pelagos.services.kea_migration_phases import plan_phase
 
+        busy = update_rollout.rollout_blocks(self.ctx.settings())
+        if busy:
+            raise Conflict(busy)
         return plan_phase(self, migration_id, body, actor)
 
     def runner(self) -> Callable[[Any, Any, Any], Any]:

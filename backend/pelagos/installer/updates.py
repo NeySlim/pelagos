@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from pelagos.core import engine_packages
+from pelagos.core import engine_packages, update_rollout
 from pelagos.core import release as rel
 from pelagos.core.config_store import ConfigStore
 from pelagos.domain.updates import (
@@ -260,13 +260,46 @@ def _open_in(dirfd: int, name: str) -> int | None:
     return fd
 
 
-def _copy_release(source: Path, dest: Path) -> int:
-    """Copies SHA256SUMS, its signature and the files it lists from `source` (the service user's,
-    read without following links) into the new folder `dest`, root:pelagos 0750, files 0640."""
+def _service_uid() -> int:
+    import pwd
+
     try:
-        dirfd = os.open(source, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        return pwd.getpwnam(PACKAGE_NAME).pw_uid
+    except KeyError:
+        return os.geteuid()
+
+
+def open_incoming(path: Path) -> int | None:
+    """`<var>/upgrade/incoming` opened from `<var>`'s parent (root's) one component at a time
+    without following links, and owned by the service user; None when it does not exist."""
+    path = Path(os.path.abspath(path))
+    fd = os.open(path.parents[2], os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in path.parts[-3:]:
+            try:
+                nxt = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            except FileNotFoundError:
+                os.close(fd)
+                return None
+            except OSError as exc:  # ELOOP or ENOTDIR: a link or a file in the way
+                raise UpdateRefused("layout", f"{path}: {part} is not a folder ({exc.strerror})") from None
+            os.close(fd)
+            fd = nxt
+        if os.fstat(fd).st_uid not in (_service_uid(), os.geteuid()):
+            raise UpdateRefused("layout", f"{path} is not owned by the service user")
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _copy_release(incoming_fd: int, version: str, dest: Path) -> int:
+    """Copies SHA256SUMS, its signature and the files it lists from `incoming/<version>` (the service
+    user's, read without following links) into the new folder `dest`, root:pelagos 0750, files 0640."""
+    try:
+        dirfd = os.open(version, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=incoming_fd)
     except OSError as exc:
-        raise UpdateRefused("missing", f"no release folder {source.name} ({exc.strerror})") from None
+        raise UpdateRefused("missing", f"no release folder {version} ({exc.strerror})") from None
     total = 0
     try:
         fd = _open_in(dirfd, CHECKSUMS)
@@ -313,7 +346,7 @@ class Verified:
     file: str
     sha256: str
     package_version: str
-    direction: str  # upgrade | rollback
+    direction: str  # upgrade | rollback | current
     facts: NodeFacts
     check: Any  # core.release.ReleaseCheck
 
@@ -365,28 +398,54 @@ def verify(env: Any, version: str, allow_unsigned: bool, keys: dict[str, Any] | 
     lay = ensure_layout(env)
     dest = lay.packages(version)
     keys = release_keys() if keys is None else keys
-    source = lay.incoming / version
-    if os.path.lexists(source):
-        tmp = Path(tempfile.mkdtemp(prefix=f".{version}.", dir=lay.packages_root))
-        try:
-            _copy_release(source, tmp)
-            check = _check(tmp, keys, allow_unsigned)
-            verified = _rules(env, lay, version, tmp, check)
-            if _is_root() and (gid := _pelagos_gid()) is not None:
-                os.chown(tmp, 0, gid)
-            os.chmod(tmp, 0o750)  # noqa: S103 - the web process serves the release to peers
-            if dest.exists():
-                shutil.rmtree(dest)
-            os.rename(tmp, dest)
-        finally:
-            if tmp.exists():
-                shutil.rmtree(tmp, ignore_errors=True)
-        shutil.rmtree(source, ignore_errors=True)
-        verified.folder = dest
-        return verified
+    incoming_fd = open_incoming(lay.incoming)
+    try:
+        uploaded = incoming_fd is not None and _exists_in(incoming_fd, version)
+        if uploaded:
+            return _take_upload(env, lay, version, dest, keys, allow_unsigned, incoming_fd)
+    finally:
+        if incoming_fd is not None:
+            os.close(incoming_fd)
     if not dest.is_dir():
         raise UpdateRefused("missing", f"release {version} was neither uploaded nor fetched on this node")
     return _rules(env, lay, version, dest, _check(dest, keys, allow_unsigned))
+
+
+def _exists_in(dirfd: int, name: str) -> bool:
+    try:
+        os.stat(name, dir_fd=dirfd, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _take_upload(
+    env: Any,
+    lay: Layout,
+    version: str,
+    dest: Path,
+    keys: dict[str, Any],
+    allow_unsigned: bool,
+    incoming_fd: int,
+) -> Verified:
+    """incoming/<version> verified into packages/<version>, then removed through the folder's fd."""
+    tmp = Path(tempfile.mkdtemp(prefix=f".{version}.", dir=lay.packages_root))
+    try:
+        _copy_release(incoming_fd, version, tmp)
+        check = _check(tmp, keys, allow_unsigned)
+        verified = _rules(env, lay, version, tmp, check)
+        if _is_root() and (gid := _pelagos_gid()) is not None:
+            os.chown(tmp, 0, gid)
+        os.chmod(tmp, 0o750)  # noqa: S103 - the web process serves the release to peers
+        if dest.exists():
+            shutil.rmtree(dest)
+        os.rename(tmp, dest)
+    finally:
+        if tmp.exists():
+            shutil.rmtree(tmp, ignore_errors=True)
+    shutil.rmtree(version, dir_fd=incoming_fd, ignore_errors=True)
+    verified.folder = dest
+    return verified
 
 
 def _check(folder: Path, keys: dict[str, Any], allow_unsigned: bool) -> Any:
@@ -425,6 +484,8 @@ def _rules(env: Any, lay: Layout, version: str, folder: Path, check: Any) -> Ver
             )
     elif (_read_json(lay.previous) or {}).get("package_version") == pkg_version and pkg_version != installed:
         direction = "rollback"
+    elif pkg_version == installed:
+        direction = "current"  # held only: the rollback target of the next update
     else:
         raise UpdateRefused(
             "version",
@@ -455,15 +516,20 @@ def _active_upgrade_units(env: Any) -> list[str]:
     return [line.split()[0] for line in res.stdout.splitlines() if line.strip().startswith(UNIT_PREFIX)]
 
 
-def _rollout_of(env: Any) -> Rollout | None:
-    """The rollout cluster.toml holds; the helper starts nothing that is not in it."""
+def _cluster_settings(env: Any) -> dict[str, Any]:
     paths = env.node_paths
     try:
         cluster = ConfigStore(paths.node_toml, paths.cluster_toml).load_cluster()
     except (OSError, ValueError) as exc:
         raise UpdateRefused("rollout", f"cluster.toml unreadable: {exc}") from None
-    updates = cluster.settings.get("updates") if isinstance(cluster.settings, dict) else None
-    return Rollout.from_toml((updates or {}).get("rollout") or {})
+    return cluster.settings if isinstance(cluster.settings, dict) else {}
+
+
+def _rollout_of(env: Any, settings: dict[str, Any] | None = None) -> Rollout | None:
+    """The rollout cluster.toml holds; the helper starts nothing that is not in it."""
+    settings = _cluster_settings(env) if settings is None else settings
+    updates = settings.get("updates")
+    return Rollout.from_toml((updates if isinstance(updates, dict) else {}).get("rollout") or {})
 
 
 def _engine_packages(env: Any, packages: Any) -> dict[str, str]:
@@ -561,9 +627,13 @@ def start(env: Any, request: dict[str, Any], keys: dict[str, Any] | None = None)
     running = _active_upgrade_units(env)
     if running:
         raise UpdateRefused("busy", f"an update is already running here ({', '.join(running)})")
-    rollout = _rollout_of(env)
+    settings = _cluster_settings(env)
+    rollout = _rollout_of(env, settings)
     if rollout is None or rollout.id != rid or not rollout.active():
         raise UpdateRefused("rollout", f"rollout {rid} is not the active rollout of cluster.toml")
+    migrating = update_rollout.migration_blocks(settings)
+    if migrating:
+        raise UpdateRefused("kea_migration", migrating)
     if env.node_id not in rollout.order and env.node_id not in rollout.nodes:
         raise UpdateRefused("rollout", f"this node is not part of rollout {rid}")
     keep = request.get("keep_packages")
@@ -610,6 +680,13 @@ def start(env: Any, request: dict[str, Any], keys: dict[str, Any] | None = None)
             and not rollout.unsigned_accepted_by
         ):
             raise UpdateRefused("unsigned_not_accepted", f"rollout {rid} does not record the acceptance")
+        # The package must be the one the plan verified, when the plan names it (not for an
+        # automatic rollback inside a pelagos rollout: its artifacts are the new release's).
+        if rollout.artifacts and rollout.kind == kind.value:
+            key = f"{v.facts.package_format}/{v.facts.arch}"
+            planned = (rollout.artifacts.get(key) or {}).get("sha256")
+            if planned != v.sha256:
+                raise UpdateRefused("checksum", f"{v.file} is not the package rollout {rid} verified ({key})")
         record.update(
             auto_rollback=kind is RolloutKind.PELAGOS
             and rollout.auto_rollback
@@ -619,12 +696,15 @@ def start(env: Any, request: dict[str, Any], keys: dict[str, Any] | None = None)
             sha256=v.sha256,
             package_version=v.package_version,
             package_format=v.facts.package_format,
+            arch=v.facts.arch,
             from_version=v.facts.installed,
             signature=v.check.signature.value,
             key_id=v.check.key_id,
         )
     lay = ensure_layout(env)
     _mkdir(lay.rollout_dir(rid), 0o750, True)
+    if kind is not RolloutKind.ENGINE_PACKAGES:
+        record["package"] = str(pin_package(lay.rollout_dir(rid), v.folder / v.file, v.sha256))
     _write_json(lay.request(rid), record, 0o600, False)
     progress = lay.progress(rid, env.node_id)
     unit = f"{UNIT_PREFIX}{rid}"
@@ -645,6 +725,19 @@ def start(env: Any, request: dict[str, Any], keys: dict[str, Any] | None = None)
     if not res.ok:
         raise RuntimeError(f"systemd-run failed: {res.output}")
     return {"unit": f"{unit}.service", "progress": str(progress)}
+
+
+def pin_package(folder: Path, source: Path, sha256: str) -> Path:
+    """A root-only copy (0600) of a verified package in a root folder: what the unit installs, out
+    of reach of any later upload or fetch of the same release."""
+    target = folder / f"{os.urandom(6).hex()}-{source.name}"
+    out = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with open(source, "rb") as src, os.fdopen(out, "wb") as dst:
+        shutil.copyfileobj(src, dst, 1 << 20)
+    if rel.file_sha256(target) != sha256:
+        target.unlink(missing_ok=True)
+        raise UpdateRefused("checksum", f"{source.name} changed while it was copied")
+    return target
 
 
 _PATH_ENV = ("PELAGOS_HOME", "PELAGOS_ETC", "PELAGOS_VAR", "PELAGOS_RUN", "PELAGOS_OPT")
@@ -914,8 +1007,17 @@ def apply(env: Any, rollout_id: str) -> int:
     except StepFailed as exc:
         progress.finish("failed", str(exc))
         return 1
+    finally:
+        _drop_pinned(lay, rollout_id)
     progress.finish("installed")
     return 0
+
+
+def _drop_pinned(lay: Layout, rollout_id: str) -> None:
+    """The package copies of a finished unit; packages/ keeps the releases."""
+    for p in lay.rollout_dir(rollout_id).glob("*"):
+        if p.suffix in (".deb", ".rpm") and p.is_file() and not p.is_symlink():
+            p.unlink(missing_ok=True)
 
 
 def _apply_pelagos(env: Any, lay: Layout, record: dict[str, Any], progress: Progress) -> None:
@@ -969,10 +1071,10 @@ def _apply_pelagos(env: Any, lay: Layout, record: dict[str, Any], progress: Prog
     _run_step(env, progress, "version", check_version)
     if not rollback:
         before = _read_json(lay.installed) or {}
-        previous = {
-            "package_version": from_version,
-            "release": before.get("release") if before.get("package_version") == from_version else None,
-        }
+        release = before.get("release") if before.get("package_version") == from_version else None
+        if release is None and from_version:
+            release = held_release_of(lay, fmt, str(record.get("arch") or ""), from_version)
+        previous = {"package_version": from_version, "release": release}
         _write_json(lay.previous, previous, 0o640, True)
     _write_json(
         lay.installed,
@@ -986,6 +1088,27 @@ def _apply_pelagos(env: Any, lay: Layout, record: dict[str, Any], progress: Prog
         except StepFailed as exc:
             raise StepFailed(f"{exc}; {_roll_back_here(env, lay, record, progress)}") from None
     purge(lay, int(record.get("keep_packages") or KEEP_DEFAULT))
+
+
+def held_release_of(lay: Layout, fmt: str, arch: str, package_version: str) -> str | None:
+    """The held release whose release.json declares `package_version` for this node: the rollback
+    target of a node installed without this helper (deploy-prod.sh), once that release is uploaded."""
+    try:
+        folders = [p for p in lay.packages_root.iterdir() if p.is_dir() and not p.name.startswith(".")]
+    except OSError:
+        return None
+    for folder in sorted(folders, key=lambda p: p.name):
+        manifest = _read_json(folder / "release.json") or {}
+        for pkg in manifest.get("packages") or []:
+            if (
+                isinstance(pkg, dict)
+                and pkg.get("format") == fmt
+                and pkg.get("arch") == arch
+                and pkg.get("version") == package_version
+                and valid_version(folder.name)
+            ):
+                return folder.name
+    return None
 
 
 def _unit_props(env: Any, unit: str) -> tuple[str, str]:
@@ -1031,11 +1154,12 @@ def _roll_back_here(env: Any, lay: Layout, record: dict[str, Any], progress: Pro
         if v.direction != "rollback":
             return f"no automatic rollback: {v.package_version} is a {v.direction}"
         fmt = record["package_format"]
+        pinned = pin_package(lay.rollout_dir(str(record["rollout_id"])), v.folder / v.file, v.sha256)
 
         def back() -> str:
             _services(env, "stop")
             res = env.runner.run(
-                _install_argv(fmt, str(v.folder / v.file), True),
+                _install_argv(fmt, str(pinned), True),
                 check=False,
                 timeout=1800,
                 env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"},
@@ -1047,7 +1171,7 @@ def _roll_back_here(env: Any, lay: Layout, record: dict[str, Any], progress: Pro
             return f"{res.output}\n{_services(env, 'start')}"
 
         _run_step(env, progress, "rollback", back)
-    except (StepFailed, UpdateRefused) as exc:
+    except (StepFailed, UpdateRefused, OSError) as exc:
         _services_quietly(env, "start")
         return f"automatic rollback failed: {exc}"
     _write_json(lay.installed, {"package_version": v.package_version, "release": previous}, 0o640, True)

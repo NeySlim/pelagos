@@ -15,7 +15,7 @@ VERSION   := $(shell packaging/version.sh python)
 IMAGE     ?= pelagos
 DOCKER    ?= docker
 
-.PHONY: dev venv npm lint lint-backend lint-frontend fmt test test-unit test-vitest test-daemon test-lab lab-demo test-e2e test-e2e-smoke
+.PHONY: dev venv npm lint lint-backend lint-frontend lint-commits fmt test test-unit test-vitest test-daemon test-lab lab-demo test-e2e test-e2e-smoke
 .PHONY: screenshots build-frontend run run-backend run-frontend clean messages-keys settings-schema notify-catalogs
 .PHONY: deb rpm docker docker-allinone packages version lock wheels test-packaging release
 
@@ -28,7 +28,11 @@ venv:
 npm:
 	cd $(FRONTEND) && npm install --no-fund --no-audit
 
-lint: lint-backend lint-frontend
+lint: lint-backend lint-frontend lint-commits
+
+# Commits not yet on origin/main: the rules CI checks on push (subject <= 72, no body trailer).
+lint-commits:
+	scripts/check-commits.sh "$$(git rev-parse -q --verify origin/main || true)" HEAD
 
 lint-backend:
 	cd $(BACKEND) && .venv/bin/ruff check pelagos tests

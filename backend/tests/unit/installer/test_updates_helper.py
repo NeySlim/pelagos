@@ -244,7 +244,8 @@ def test_verify_refusals(node: Any, keys: Any, tmp_path: Path) -> None:
     build_release(incoming(env, "0.2.4"), "0.2.4", key=private)
     refused("version", "0.2.4")
     pkg.installed = "0.3.0-1"
-    refused("version", "0.3.0", allow=True)  # the installed version again is not an update
+    # The installed version is held as the next rollback target, never installed again.
+    assert updates.verify(env, "0.3.0", True, public).direction == "current"
 
 
 def test_verify_reads_the_upload_without_following_links(node: Any, keys: Any, tmp_path: Path) -> None:
@@ -396,7 +397,7 @@ def test_rollback_to_the_kept_previous_release(node: Any, keys: Any) -> None:
     build_release(incoming(env, "0.2.5"), "0.2.5", manifest=False)
     with pytest.raises(updates.UpdateRefused, match=r"^unsigned_not_accepted"):
         updates.start(env, {"rollout_id": RID, "kind": "rollback", "version": "0.2.5"}, public)
-    with pytest.raises(updates.UpdateRefused, match=r"^version: 0.3.0-1 is neither newer"):
+    with pytest.raises(updates.UpdateRefused, match=r"^version: 0.3.0-1 is a current, not a rollback"):
         updates.start(env, {"rollout_id": RID, "kind": "rollback", "version": "0.3.0"}, public)
     out = updates.start(
         env, {"rollout_id": RID, "kind": "rollback", "version": "0.2.5", "allow_unsigned": True}, public
@@ -621,3 +622,113 @@ def test_engine_packages_series_siblings_and_restart(node: Any, keys: Any) -> No
     assert [s["step"] for s in progress["steps"]] == ["install", "version", "restart"]
     assert "restarted by the package" in progress["steps"][-1]["output"]
     assert not env.runner.commands("systemctl restart")
+
+
+# Review fixes: migration exclusion, pinned package, incoming links, adopted previous release ---------
+
+
+def _migration(env: Any, state: str) -> None:
+    store = ConfigStore(env.node_paths.node_toml, env.node_paths.cluster_toml)
+    store.update_cluster(
+        lambda c: c.settings.setdefault("kea", {}).update(
+            migration={"id": "M1", "series": "3.0", "state": state}
+        ),
+        "test",
+    )
+
+
+def test_start_refused_while_a_kea_migration_runs(node: Any, keys: Any) -> None:
+    env, _ = node
+    private, public = keys
+    set_rollout(env)
+    build_release(incoming(env), key=private)
+    for state in ("preparing", "migrating", "rolling_back", "failed"):
+        _migration(env, state)
+        with pytest.raises(updates.UpdateRefused, match=r"^kea_migration: the Kea migration M1 is"):
+            updates.start(env, {"rollout_id": RID, "kind": "pelagos", "version": "0.3.0"}, public)
+    _migration(env, "migrated")
+    assert updates.start(env, {"rollout_id": RID, "kind": "pelagos", "version": "0.3.0"}, public)
+
+
+def test_start_pins_the_package_the_plan_verified(node: Any, keys: Any) -> None:
+    env, pkg = node
+    private, public = keys
+    build_release(incoming(env), key=private)
+    v = updates.verify(env, "0.3.0", False, public)
+    set_rollout(env, artifacts={"deb/amd64": {"file": v.file, "sha256": "0" * 64}})
+    with pytest.raises(updates.UpdateRefused, match=r"^checksum: .* is not the package rollout"):
+        updates.start(env, {"rollout_id": RID, "kind": "pelagos", "version": "0.3.0"}, public)
+    set_rollout(env, artifacts={"deb/arm64": {"file": "x", "sha256": v.sha256}})
+    with pytest.raises(updates.UpdateRefused, match=r"^checksum"):
+        updates.start(env, {"rollout_id": RID, "kind": "pelagos", "version": "0.3.0"}, public)
+    set_rollout(env, artifacts={"deb/amd64": {"file": v.file, "sha256": v.sha256}})
+    updates.start(env, {"rollout_id": RID, "kind": "pelagos", "version": "0.3.0"}, public)
+    lay = updates.layout(env)
+    record = json.loads(lay.request(RID).read_text())
+    pinned = Path(record["package"])
+    assert pinned.parent == lay.rollout_dir(RID) and oct(pinned.stat().st_mode & 0o777) == "0o600"
+    # A later upload of the same version cannot change what the unit installs.
+    (v.folder / v.file).write_text(deb(version="0.3.0-1") + "X-Other: build\n")
+    assert updates.apply(env, RID) == 0 and pkg.installed == "0.3.0-1"
+    assert not pinned.exists()  # the copy goes once the unit ends
+
+
+def test_verify_refuses_a_linked_incoming_folder(node: Any, keys: Any, tmp_path: Path) -> None:
+    env, _ = node
+    private, public = keys
+    elsewhere = tmp_path / "elsewhere"
+    build_release(elsewhere / "0.3.0", key=private)
+    inc = env.node_paths.upgrade_incoming
+    inc.parent.mkdir(parents=True, exist_ok=True)
+    if inc.exists():
+        inc.rmdir()
+    inc.symlink_to(elsewhere)
+    with pytest.raises(updates.UpdateRefused, match=r"^layout"):
+        updates.verify(env, "0.3.0", False, public)
+    assert (elsewhere / "0.3.0" / CHECKSUMS).exists()  # never removed through the link
+
+
+def test_previous_release_adopted_from_a_held_upload(node: Any, keys: Any) -> None:
+    """A node installed by deploy-prod.sh (no installed.json) gets its rollback target from the
+    held release whose release.json declares the package it ran."""
+    env, _ = node
+    private, public = keys
+    build_release(incoming(env, "0.2.5"), "0.2.5", key=private)
+    assert updates.verify(env, "0.2.5", False, public).direction == "current"  # held, not installed
+    lay = updates.layout(env)
+    assert lay.packages("0.2.5").is_dir()
+    set_rollout(env, version="0.2.5")
+    with pytest.raises(updates.UpdateRefused, match=r"^version: 0.2.5-1 is a current"):
+        updates.start(env, {"rollout_id": RID, "kind": "pelagos", "version": "0.2.5"}, public)
+    set_rollout(env)
+    build_release(incoming(env), key=private)
+    updates.start(env, {"rollout_id": RID, "kind": "pelagos", "version": "0.3.0"}, public)
+    assert updates.apply(env, RID) == 0
+    assert json.loads(lay.previous.read_text()) == {"package_version": "0.2.5-1", "release": "0.2.5"}
+
+
+def test_kea_migration_steps_that_start_a_change_wait_for_a_rollout(node: Any) -> None:
+    from pelagos.core import kea_migration as kmc
+    from pelagos.domain import Change, ChangeOp, Plan, PlanScope
+    from pelagos.installer import kea_migration_steps as steps
+
+    env, _ = node
+    steps._no_rollout(env)  # no rollout: nothing to say
+    set_rollout(env)
+    with pytest.raises(ValueError, match=r"update rollout .* is running"):
+        steps._no_rollout(env)
+
+    def change(step: str, details: dict[str, Any]) -> Change:
+        after = {"step": step, "details": details, "summary": step}
+        return Change(ChangeOp.REPLACE, kmc.target(step, env.node_id), after=after, node_ids=[env.node_id])
+
+    plan = Plan(
+        scope=PlanScope.KEA_MIGRATION,
+        node_id=env.node_id,
+        summary="x",
+        changes=[change(kmc.H_STOP, {}), change(kmc.H_START, {})],
+    )
+    stop, start = steps.migration_steps(plan, env)
+    with pytest.raises(ValueError, match="update rollout"):
+        stop.run()
+    assert start  # a later step (start Kea again) is never held back by a rollout

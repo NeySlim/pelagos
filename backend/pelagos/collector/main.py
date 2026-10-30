@@ -1147,7 +1147,7 @@ class Collector:
                 dns_backend=lambda: self.backends.dns,
                 open_alerts=open_alerts,
             )
-            self.rollout_driver = RolloutDriver(self.ctx, view)
+            self.rollout_driver = RolloutDriver(self.ctx, view, archiver=self.archives)
         return self.rollout_driver
 
     def _rollout_tick(self) -> None:

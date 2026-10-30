@@ -4952,10 +4952,13 @@ the screen (U6), daemon and lab tests (U7).
   that failed): `wait` (previous node `done` for `pause_seconds`, every node
   healthy), `fetch` (`/repl/v1/releases` from a node holding it), `verify`
   (helper `update_verify`), `precheck` (cluster health, `cluster.toml`
-  digest, audit count, Kea HA), `backup`, `ha_maintenance` (engine
+  digest, every peer's audit count at least this node's when the precheck began, Kea HA; then,
+  when an enabled archive destination exists, a section 23 archive of this node asked from the
+  collector's archive runner and waited for, audit `update.node.archive`), `backup`, `ha_maintenance` (engine
   packages: `ha-maintenance-start` to the peer), `install` (transient unit),
   `version`, `restart` (invocation ids changed), `settle`
-  (`settle_seconds`), `health` and `convergence` (until `timeout_seconds`),
+  (`settle_seconds`), `health` and `convergence` (until `timeout_seconds`; the audit mark is
+  this node's count when the check began: new entries keep arriving, equal counts rarely meet),
   `audit` (count never lower), `journal` (`journal_errors`: no `ERROR` and no
   sandbox refusal from the new processes), `permissions` (the permission
   guard of the collector, probed in its own unit sandbox), `ha` (Kea HA back to a normal state), `engine_checks`
@@ -4967,8 +4970,11 @@ the screen (U6), daemon and lab tests (U7).
   `failed`: the failed or rolled back node starts again from `wait`),
   `cancel` (on an active rollout: pending nodes `skipped`, done nodes stay
   on the new version), `rollback` (takes the user's password: a new rollout
-  of kind `rollback` toward the previous version over the done nodes in
-  reverse order; the current one ends `cancelled`). Automatic rollback of
+  of kind `rollback` toward the previous version over the nodes running the new package: the
+  nodes failed after the install (`update_rollout.INSTALLED_STEPS`) first, then the done nodes
+  in reverse order; refused while a node failed at `install` or `version`, whose package is
+  unknown; the current one ends `cancelled`). A failed node's `error_message` is
+  `update.failed.<step>` with `problems` (the English text). Automatic rollback of
   the failing node when `auto_rollback` and not `state_schema_changed`: the
   previous package from `packages/`, `series.sqlite` deleted, same checks,
   node `rolled_back`, rollout `failed`.
@@ -4994,7 +5000,10 @@ the screen (U6), daemon and lab tests (U7).
   `version`, `restart`),
   `installed.json` and `previous.json` (`{"package_version","release"}` of
   the last install through the helper and of what it replaced: the only
-  version older than the installed one that the helper accepts),
+  version older than the installed one that the helper accepts; without `installed.json`, a
+  node installed by `deploy-prod.sh`, `release` is the held release whose `release.json`
+  declares the replaced package for this node, so uploading the running release before the
+  first update gives it a rollback target),
   `backups/pelagos-state-<UTC stamp>-<old package version>.tar.gz` (root,
   0700 folder, 0600 file: `/etc/pelagos` and `/var/lib/pelagos` without
   `series.sqlite*` and `upgrade/`; holds the master key and the CA, never
@@ -5004,12 +5013,15 @@ the screen (U6), daemon and lab tests (U7).
   update_status|journal_errors`):
   `update_verify` `{"version","allow_unsigned"}`: copies
   `incoming/<version>/` (`SHA256SUMS`, its `.sig` and the files it lists, no
-  link followed) into a new folder, checks sums, signature, manifest and the
+  link followed: `<var>`, `upgrade`, `incoming` are opened one by one with `O_NOFOLLOW` from
+  root's parent, `incoming` must be the service user's, and the upload is removed through that
+  folder's descriptor) into a new folder, checks sums, signature, manifest and the
   rules above on the copy, then replaces `packages/<version>/` with it; with
   no upload, verifies the kept `packages/<version>/` again. Answers
   `{"version","package","sha256","signature","key_id","state_schema",
   "min_upgrade_from","arch","package_format","package_version","installed",
-  "direction": "upgrade"|"rollback","checksums_sha256","warnings"}` or a
+  "direction": "upgrade"|"rollback"|"current","checksums_sha256","warnings"}` (`current`: the
+  installed version, held as the next rollback target, never installed by `update_start`) or a
   `value` error whose message starts with the reason (`signature_invalid`,
   `checksum`, `missing`, `unlisted`, `name`, `arch`, `version`, `manifest`,
   `unsigned_not_accepted`). The package's name, version and architecture are
@@ -5024,8 +5036,14 @@ the screen (U6), daemon and lab tests (U7).
   version; `rollback`: the version the rollout goes back to, or, under a
   `pelagos` rollout, the automatic rollback of this node to `previous.json`;
   `engine_packages`: the same versions); an upgrade whose signature needs
-  acceptance also needs `unsigned_accepted_by` in the rollout. Verifies
-  again, writes `request.json`, runs `systemd-run
+  acceptance also needs `unsigned_accepted_by` in the rollout. Refused
+  (`kea_migration`) while the Kea migration of `cluster.toml` is `preparing`, `migrating`,
+  `rolling_back` or `failed` (`update_rollout.migration_blocks`). Verifies again; when the
+  rollout has `artifacts` and the request is of the rollout's kind, the verified sha256 must be
+  the plan's for this node's `<format>/<arch>` (`checksum`); copies the package into
+  `<rollout id>/` (root 0600, removed when the unit ends: `request.json` `package` names the
+  copy, so no later upload or fetch of that version changes what is installed), writes
+  `request.json`, runs `systemd-run
   --unit=pelagos-upgrade-<id> --property=RuntimeMaxSec=7200 /usr/bin/pelagos
   upgrade apply --rollout <id>` (after `systemctl reset-failed` of that unit,
   so a resumed rollout can run it again) and answers `{"unit","progress"}`.
@@ -5094,7 +5112,7 @@ the screen (U6), daemon and lab tests (U7).
   `plan.update.pelagos|engine_packages|rollback`, plus a member `update`
   next to the plan fields: `{"kind","version","order","packages",
   "signature","key_id","unsigned_warning": message|null,
-  "state_schema_changed","auto_rollback","checks": [step],
+  "state_schema_changed","auto_rollback","auto_rollback_nodes": {node id: bool},"checks": [step],
   "estimated_seconds","requires_password": true,"source","artifacts","checksums_sha256",
   "from_versions","unsigned_accepted"}` (the last five are what the apply writes into the
   rollout; `confirmed_by`, the user who gave the password, is added at apply). `POST
@@ -5106,9 +5124,11 @@ the screen (U6), daemon and lab tests (U7).
   refused once a node started (the rollout actions take over).
 - **Web side** (`services.updates_service.UpdatesService`, U5): node rows come from the peer
   action `updates.node` (`{"node_id","name","version","arch","package_format",
-  "previous_kept","state_schema","reachable","engines": [{"engine","package","installed",
-  "candidate"}]}`, lockless); a node before 0.3.0 answers `not_supported` and its row keeps only
-  the status `version` and `reachable`. `previous_kept` is the release of `previous.json` when
+  "previous_kept","rollback_ready","state_schema","reachable","engines": [{"engine","package",
+  "installed","candidate"}]}`, lockless; `rollback_ready`: the running release is held in
+  `packages/`, left out of `GET /admin/updates`); a node before 0.3.0 answers `not_supported`
+  and its row keeps only the status `version` and `reachable`: any plan choosing it is refused
+  (`409`, `detail_message` `update.refused.legacy_nodes`: update it by hand first). `previous_kept` is the release of `previous.json` when
   `packages/<release>/` is still held. The engine rows come from the collector's
   `advisories` snapshots (`core.engine_packages.engine_rows`), else from the package manager;
   `cves` adds those of the node's `security_advisory` alerts whose status is `update`. `available` merges the releases held in
@@ -5118,11 +5138,19 @@ the screen (U6), daemon and lab tests (U7).
   plan); `422 release_invalid` carries `reason` (also `version` or `too_large`). `POST
   /admin/updates/check` with source `upload` reads nothing remote. A `pelagos` plan refuses an
   unreachable node, a version not newer than a chosen node's, and leaves out nodes already on
-  the version; `state_schema_changed` is true when the release schema is unknown or differs
-  from a target node's; a `rollback` plan takes nodes whose `previous_kept` is the version.
+  the version (node versions read in release form: PEP 440 `0.3.0rc1` is `0.3.0~rc1`);
+  `state_schema_changed` is true when the release schema is unknown or differs from a target
+  node's that reports one; `auto_rollback_nodes` is false for a node not `rollback_ready`, with
+  the warning impact `update_no_rollback` (`plan.update.no_rollback_target`); a `rollback` plan takes nodes whose `previous_kept` is the version.
   An `engine_packages` plan goes through `core.engine_packages.rollout_packages` (BIND or Kea
-  names only, one candidate per package, same series), its rollout has no `from_version`. The `rollback` action is refused when `state_schema_changed`, and when the done
-  nodes came from different versions.
+  names only, one candidate per package, same series), its rollout has no `from_version`. The `rollback` action is refused when `state_schema_changed`, and when the nodes to bring
+  back came from different versions. An upload of the version the active rollout installs, of
+  a node's `from_version` or of the kept previous release is refused (`409`, the staged files
+  removed). A plan, and the apply (`RolloutWriter.preflight` and the write), are refused (`409`)
+  while the Kea migration is `preparing`, `migrating`, `rolling_back` or `failed`; the other way,
+  `POST /install/kea-migration/{id}/plan` is refused while a rollout is active, and the helper
+  runs no `kea-mig-prepare`, `kea-mig-stop` or `kea-mig-ha-maintenance` `start` step then (the
+  later steps of a phase always run, so Kea is never left stopped).
 - **Alerts**: `update_available` (info, cluster-wide from the service
   node, subject `update:pelagos`; details `version`, `installed`,
   `source`, `signature`; title `alert.update_available` or

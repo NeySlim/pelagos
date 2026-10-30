@@ -391,3 +391,143 @@ def test_engine_rows_come_from_the_collector_snapshots(admin, services):
     services.updates._engines = None
     resp = admin.post(f"{V1}/admin/updates/plan", json={"kind": "engine_packages", "packages": ["bind9"]})
     assert resp.status_code == 400 and "changes series" in resp.get_json()["detail"]
+
+
+# Review fixes --------------------------------------------------------------------------------------
+
+
+def _kea_migration(node_ctx, state: str) -> None:
+    node_ctx.config_store.update_cluster(
+        lambda c: c.settings.setdefault("kea", {}).update(
+            migration={"id": "M1", "series": "3.0", "state": state}
+        ),
+        updated_by="test",
+    )
+
+
+def test_update_and_kea_migration_exclude_each_other(admin, services, node_ctx):
+    from pelagos.services.updates_service import RolloutWriter
+
+    _hold(services)
+    _kea_migration(node_ctx, "migrating")
+    resp = _plan(admin, version=NEW, accept_unsigned=True, confirm_version=NEW)
+    assert resp.status_code == 409 and "Kea migration M1 is migrating" in resp.get_json()["detail"]
+    _kea_migration(node_ctx, "prepared")
+    plan = _plan(admin, version=NEW, accept_unsigned=True, confirm_version=NEW).get_json()
+    writer = RolloutWriter(services.ctx)
+    _kea_migration(node_ctx, "preparing")
+    stored = services.ctx.plan_store.get(plan["id"])
+    assert "preparing" in writer.preflight(stored)
+    assert writer.apply(stored).ok is False and ur.load(node_ctx.settings()) is None
+
+    me = services.ctx.node.id
+    _write_rollout(node_ctx, ur.new_rollout("pelagos", [me], created_by="admin", now=utcnow(), version=NEW))
+    resp = admin.post(f"{V1}/install/kea-migration/M1/plan", json={"phase": "rollback"})
+    assert resp.status_code == 409 and "update rollout" in resp.get_json()["detail"]
+
+
+def _rows(services, *peers):
+    me = services.updates.local_node()
+    return lambda: [me, *peers]
+
+
+def test_a_node_without_updates_from_the_ui_is_refused(admin, services):
+    _hold(services)
+    legacy = {
+        "node_id": "n2",
+        "name": "ns2",
+        "version": "0.2.5",
+        "state_schema": None,
+        "reachable": True,
+        "legacy": True,
+    }
+    services.updates.nodes = _rows(services, legacy)
+    resp = _plan(admin, version=NEW, accept_unsigned=True, confirm_version=NEW)
+    body = resp.get_json()
+    assert resp.status_code == 409 and body["detail_message"]["key"] == "update.refused.legacy_nodes"
+    # Chosen apart, the others update; a peer without a state schema leaves the rollback on.
+    me = services.ctx.node.id
+    resp = _plan(admin, version=NEW, accept_unsigned=True, confirm_version=NEW, node_ids=[me])
+    assert resp.status_code == 200, resp.get_json()
+    legacy.pop("legacy")
+    resp = _plan(admin, version=NEW, accept_unsigned=True, confirm_version=NEW, node_ids=[me, "n2"])
+    assert resp.get_json()["update"]["state_schema_changed"] is False
+
+
+def test_plan_warns_where_no_rollback_target_is_held(admin, services):
+    _hold(services)
+    me = services.ctx.node.id
+    update_plan = _plan(admin, version=NEW, accept_unsigned=True, confirm_version=NEW).get_json()
+    assert update_plan["update"]["auto_rollback_nodes"] == {me: False}
+    assert any(i["kind"] == "update_no_rollback" for i in update_plan["impact"])
+    _hold(services, ur.release_version(OLD))  # the running release, uploaded before
+    assert services.updates.rollback_ready() is True
+    update_plan = _plan(admin, version=NEW, accept_unsigned=True, confirm_version=NEW).get_json()
+    assert update_plan["update"]["auto_rollback_nodes"] == {me: True}
+    assert not any(i["kind"] == "update_no_rollback" for i in update_plan["impact"])
+
+
+def test_upload_refused_for_a_release_the_rollout_uses(admin, services, node_ctx):
+    services.updates.helper = lambda: FakeHelper()
+    me = services.ctx.node.id
+    _write_rollout(
+        node_ctx,
+        ur.new_rollout(
+            "pelagos", [me], created_by="admin", now=utcnow(), version=NEW, from_versions={me: OLD}
+        ),
+    )
+    resp = _upload(admin, _release_files())
+    assert resp.status_code == 409 and "used by rollout" in resp.get_json()["detail"]
+    assert not (Path(services.ctx.paths.upgrade_incoming) / NEW).exists()
+    assert _upload(admin, _release_files("0.9.1")).status_code == 201
+
+
+def test_rollback_action_brings_back_failed_installed_nodes(admin, services, node_ctx):
+    from tests.conftest import ADMIN_PASSWORD
+
+    me = services.ctx.node.id
+    r = ur.new_rollout(
+        "pelagos",
+        [me, "n2"],
+        created_by="admin",
+        now=utcnow(),
+        version=NEW,
+        from_versions={me: OLD, "n2": OLD},
+    )
+    r.nodes[me].state = "done"
+    r.nodes["n2"].state, r.nodes["n2"].step = "failed", "health"
+    r.state = "failed"
+    _write_rollout(node_ctx, r)
+    url = f"{V1}/admin/updates/rollout/{r.id}/action"
+    resp = admin.post(url, json={"action": "rollback", "password": ADMIN_PASSWORD})
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()["order"] == ["n2", me]
+
+
+def test_rollback_action_refused_when_a_node_failed_during_its_install(admin, services, node_ctx):
+    from tests.conftest import ADMIN_PASSWORD
+
+    me = services.ctx.node.id
+    r = ur.new_rollout(
+        "pelagos",
+        [me, "n2"],
+        created_by="admin",
+        now=utcnow(),
+        version=NEW,
+        from_versions={me: OLD, "n2": OLD},
+    )
+    r.nodes[me].state = "done"
+    r.nodes["n2"].state, r.nodes["n2"].step = "failed", "install"
+    r.state = "failed"
+    _write_rollout(node_ctx, r)
+    url = f"{V1}/admin/updates/rollout/{r.id}/action"
+    resp = admin.post(url, json={"action": "rollback", "password": ADMIN_PASSWORD})
+    assert resp.status_code == 409 and "n2 failed during the install" in resp.get_json()["detail"]
+
+
+def test_pre_release_versions_compare_in_their_release_form():
+    from pelagos.services.updates_service import _cmp
+
+    assert ur.release_version("0.3.0rc1") == "0.3.0~rc1" and ur.release_version("0.3.0") == "0.3.0"
+    assert _cmp("0.3.0~rc1", "0.2.5") > 0 and _cmp("0.3.0~rc1", "0.3.0rc1") == 0
+    assert _cmp("0.3.0", "0.3.0rc2") > 0

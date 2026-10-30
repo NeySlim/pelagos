@@ -30,7 +30,7 @@ npm:
 
 lint: lint-backend lint-frontend lint-commits
 
-# Commits not yet on origin/main: the rules CI checks on push (subject <= 72, no body trailer).
+# Commits not yet on origin/main: the rules CI checks on push (type(scope): subject <= 72, no body).
 lint-commits:
 	scripts/check-commits.sh "$$(git rev-parse -q --verify origin/main || true)" HEAD
 

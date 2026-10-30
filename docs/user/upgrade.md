@@ -314,6 +314,18 @@ version read again, `rndc status`, zone transfers up to date, the HA
 (BIND 9.20.x, Kea 2.6.x of Debian); a change of Kea series goes through the
 Kea migration (**Install, Kea migration**).
 
+### Upgrading from 0.3.0 after a failed Kea migration
+
+0.3.0 refused a Kea 3.x migration at time 1 on an HA pair whose nodes name
+their interfaces differently, and its automatic return could then fail to
+reinstall the kept Kea 2.6 packages. If you restored such a pair by hand, the
+migration stays shown as failed (or prepared) although both nodes run 2.6
+again. After the upgrade to 0.3.1, open **Install, Kea migration** and use
+"Check the real state, mark as back on 2.6": nothing in `/etc/kea` changes,
+the migration is marked returned, the ISC packages left as removed (`rc` in
+`dpkg -l`) and the migration folders are removed. Analyze and prepare again
+before a new attempt. See [Screens: Kea migration](screens.md#kea-migration).
+
 ## After the upgrade: adopt what was done by hand
 
 The audit of the new release recognizes the HA security work done by hand

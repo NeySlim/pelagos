@@ -444,6 +444,30 @@ packages are kept, and runs the same choreography backwards. The wizard
 follows the migration record of cluster.toml, so any node shows it and can
 continue after the driving node restarts.
 
+Each node's converted files are checked on that node only, with the target
+daemons of its own prepared packages: the nodes of a pair may name their
+interfaces differently, and the analysis, the prepare and time 1 make the
+same checks, so a pair the prepare accepted is not refused at time 1. A
+return before time 3 goes on past a step that fails: the primary starts again
+whatever happens to the standby, the steps that need the whole pair are shown
+as skipped, and every error is listed. On each returned node the previous
+packages come back from the files kept at the prepare (no download), then the
+files of `/etc/kea`, the directory modes, the AppArmor profiles, the unit
+enable states, and the ISC packages left as removed are purged; a file the
+prepare never saw is moved aside under the migration folder, never deleted.
+The return ends by checking the HA pair from both nodes.
+
+"Check the real state, mark as back on 2.6" (same permissions, with a plan to
+confirm) is for a migration left stopped after a return finished by hand:
+each node reads back its Kea packages (no ISC package, the exact versions
+noted at the prepare), has its file checked by the installed daemon and
+checks its services, and the HA pair is probed. When every node runs the
+previous series as before, the migration is marked returned without touching
+any Kea file, then each node purges the ISC packages left as removed and
+deletes its migration folders. When a node is not back, nothing changes and
+the reason is shown. It is offered in every state except while a phase runs
+and after a finished migration (use the return there).
+
 ## Audit log
 
 Every change and sensitive read from every node: time, user, action,

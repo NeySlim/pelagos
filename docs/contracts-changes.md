@@ -2455,3 +2455,24 @@ on field errors and `detail_message` (keys `problem.detail.ipv6_*`). `ipv6_hosts
 joins a host without MAC through the MAC seen with its AAAA. `KeaBackend.plan_ttl` and
 `D2Backend.plan_ttl` read the current settings. WP-FRONTEND: `reverseZoneBody`, `ownerWritable`,
 `ipv6Path({oldPrefix, newPrefix})`.
+
+## 2026-10-30, 0.3.1 (item 82): Kea migration fixes after the failed production run
+Section 28, additive except the moved validation. `kea-mig-validate-partner` now runs on the node
+whose files it checks (`details.partner` is that node), first step of time 1 before anything stops,
+with the target daemons extracted from its own `packages/target` (`Workspace.extract`), exactly as
+its analysis and prepare: 0.3.0 had the standby check the primary's file and refused a pair whose
+interface names differ (`interfaces-config`, subnet `interface`). The prepare of a standby also checks
+its HA files with the short delays time 1 installs. `files_sealed` is no longer written. The return
+of a node installs the kept files by path with their folder as apt's cache (a local `.deb` whose
+version an index lists was looked up on the mirror under `--no-download`), runs every part even
+after a failed one and reports each, moves unknown files of /etc/kea aside, skips `apparmor_parser`
+without securityfs, restores unit enable states and purges `rc` ISC packages with their `postrm`
+neutralized. The return before time 3 goes on past a failed step (skipped job steps, P always
+restarted) and ends with `kea-mig-wait-ha` on P and S. New phase `reconcile` (`kea-mig-check`,
+`kea-mig-cleanup`, transitions to `rolled_back` from `prepared`, `prepare_failed`, `failed` and
+`migrated`, audit `kea.migration.reconcile`, summary `plan.kea_migration.reconcile`). Job step
+outputs are text only. Lab hook `PELAGOS_KEA_MIGRATION_FAIL_AFTER` (driver environment). WP-CORE:
+`core/kea_migration.py`. WP-INSTALLER: `installer/kea_migration*.py`, `installer/helper.py`.
+WP-API-AUTH: `services/kea_migration_phases.py`. WP-FRONTEND: wizard reconcile action, `outputText`,
+the migration page keeps its data on a failed refresh and reads it again while a phase runs.
+WP-LAB-E2E: `tests/lab/test_kea_migration_p82_lab.py`, snapshot `k1-ifdiff`.

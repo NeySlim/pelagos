@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from pelagos import __version__
 from pelagos.core import update_rollout as ur
 from pelagos.domain.common import utcnow
 from pelagos.services.errors import ServiceError
@@ -18,7 +19,7 @@ pytestmark = pytest.mark.unit
 
 V1 = "/api/v1"
 NEW = "0.9.0"
-OLD = "0.2.6.dev0"
+OLD = __version__  # the running release: the version of this tree
 
 
 @pytest.fixture

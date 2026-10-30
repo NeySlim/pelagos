@@ -223,7 +223,7 @@ class FakeDhcpBackend(DhcpBackend):
             lease_cmds=True,
             stat_cmds=True,
             ha=True,
-            degraded=False,
+            config_write_only=False,
         )
 
     def status(self) -> dict[str, Any]:

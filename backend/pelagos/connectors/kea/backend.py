@@ -233,7 +233,7 @@ class KeaBackend(DhcpBackend):
             subnet_cmds=has["subnet_cmds"],
             stat_cmds=has["stat_cmds"],
             ha=has["ha"],
-            degraded=not (has["host_cmds"] and has["subnet_cmds"]),
+            config_write_only=not (has["host_cmds"] and has["subnet_cmds"]),
             config_write=True,
             lease_backend=(config.get("lease-database") or {}).get("type"),
             multi_threading=(config.get("multi-threading") or {}).get("enable-multi-threading"),

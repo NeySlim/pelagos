@@ -88,8 +88,8 @@ def applied_through(result) -> str:
 def test_capabilities_reflect_hooks(kea4_degraded, kea_dhcp4, tmp_root):
     degraded = make_backend(kea4_degraded, tmp_root).capabilities()
     full = make_backend(kea_dhcp4, tmp_root).capabilities()
-    assert degraded.running and degraded.degraded and not degraded.host_cmds and degraded.lease_cmds
-    assert full.running and not full.degraded and full.subnet_cmds and full.version.startswith("3.")
+    assert degraded.running and degraded.config_write_only and not degraded.host_cmds and degraded.lease_cmds
+    assert full.running and not full.config_write_only and full.subnet_cmds and full.version.startswith("3.")
 
 
 def test_subnet_add_update_delete(kea4_any, tmp_root):
@@ -354,7 +354,7 @@ def test_service_toggle_and_ha_without_hook(kea_dhcp4, tmp_root):
 
 def test_dhcp6_subnet_with_pd_pools(kea_dhcp6, tmp_root):
     backend = make_backend(kea_dhcp6, tmp_root, Family.V6)
-    assert not backend.capabilities().degraded
+    assert not backend.capabilities().config_write_only
     subnet = Subnet(
         id=0,
         subnet="2001:db8:5::/64",

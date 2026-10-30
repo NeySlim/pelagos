@@ -65,7 +65,7 @@ def test_backend_capabilities_and_passthrough(kea_dhcp4, tmp_root):
     caps = backend.capabilities()
     assert caps.running and caps.version and caps.version.startswith("3.")
     assert caps.lease_cmds and caps.host_cmds and caps.subnet_cmds and caps.stat_cmds
-    assert not caps.degraded and caps.lease_backend == "memfile"
+    assert not caps.config_write_only and caps.lease_backend == "memfile"
     assert len(backend.config_hash()) == 64
     assert backend.option_defs() == []
     with pytest.raises(ConnectorDenied):

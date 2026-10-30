@@ -252,7 +252,9 @@ class DhcpCapabilities(Model):
     subnet_cmds: bool = False
     stat_cmds: bool = False
     ha: bool = False
-    degraded: bool = True
+    # host_cmds or subnet_cmds missing (Kea 2.6, or hooks not loaded): writes go through config-set.
+    # A write path, not a health state; `degraded` before 0.3.0.
+    config_write_only: bool = True
     config_write: bool = True
     lease_backend: str | None = None
     multi_threading: bool | None = None

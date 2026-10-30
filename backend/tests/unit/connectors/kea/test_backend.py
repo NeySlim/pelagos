@@ -70,11 +70,11 @@ def test_cached_config_reads_once_and_hands_out_copies(kea3):
 
 def test_capabilities(kea3, kea26, tmp_root):
     caps = kea3[0].capabilities()
-    assert caps.running and caps.version == "3.2.1" and not caps.degraded
+    assert caps.running and caps.version == "3.2.1" and not caps.config_write_only
     assert caps.hooks == ["lease_cmds", "host_cmds", "subnet_cmds", "stat_cmds", "class_cmds", "ha"]
     assert caps.ha and caps.lease_backend == "memfile" and caps.multi_threading is True
     old = kea26[0].capabilities()
-    assert old.version == "2.6.3" and old.degraded and old.lease_cmds and not old.host_cmds
+    assert old.version == "2.6.3" and old.config_write_only and old.lease_cmds and not old.host_cmds
     down = KeaBackend(make_ctx(tmp_root, dhcp4_socket="missing"), Family.V4).capabilities()
     assert not down.running and down.control_socket.endswith("missing")
 

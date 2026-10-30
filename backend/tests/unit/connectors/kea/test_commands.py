@@ -31,15 +31,17 @@ from tests.unit.connectors.kea.fake import config_of, load
 pytestmark = pytest.mark.unit
 
 
-def caps(hooks: list[str], degraded: bool = False) -> DhcpCapabilities:
-    return DhcpCapabilities(engine=Engine.KEA4, running=True, hooks=hooks, degraded=degraded)
+def caps(hooks: list[str], config_write_only: bool = False) -> DhcpCapabilities:
+    return DhcpCapabilities(
+        engine=Engine.KEA4, running=True, hooks=hooks, config_write_only=config_write_only
+    )
 
 
 def test_command_path_selection():
     full = caps(["lease_cmds", "host_cmds", "subnet_cmds", "class_cmds"])
     subnet = Change(ChangeOp.ADD, "subnet4/3")
     assert kc.command_path_available([subnet], full)
-    assert not kc.command_path_available([subnet], caps(full.hooks, degraded=True))
+    assert not kc.command_path_available([subnet], caps(full.hooks, config_write_only=True))
     assert not kc.command_path_available(
         [Change(ChangeOp.ADD, "client-classes/x")], caps(["subnet_cmds", "host_cmds"])
     )

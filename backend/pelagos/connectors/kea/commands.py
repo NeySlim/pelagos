@@ -55,7 +55,7 @@ def hook_loaded(caps: DhcpCapabilities, hook: str) -> bool:
 
 def command_path_available(changes: list[Change], caps: DhcpCapabilities) -> bool:
     """True when every change can go through object commands on this server."""
-    if caps.degraded:
+    if caps.config_write_only:
         return False
     for change in changes:
         kind = parse_target(change.target).kind

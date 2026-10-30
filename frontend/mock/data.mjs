@@ -809,7 +809,7 @@ function dhcpCapabilities(engine) {
     subnet_cmds: true,
     stat_cmds: true,
     ha: true,
-    degraded: false,
+    config_write_only: false,
     config_write: true,
     lease_backend: 'memfile',
     multi_threading: true,

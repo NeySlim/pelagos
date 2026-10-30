@@ -386,7 +386,7 @@
   "problem.conflict": "Conflit",
   "problem.csrf_failed": "Échec de la vérification CSRF",
   "problem.detail.unexpected": "erreur inattendue ; consultez le journal du serveur",
-  "problem.detail.zone_too_large": "{{zone}} contient {{size}} noms ou plus, au-delà de la limite de lecture de {{limit}} (dns.zone_read_max_records)",
+  "problem.detail.zone_too_large": "{{zone}} contient {{size}} noms ou plus, au-delà de la limite de lecture de {{limit}} (dns.zone_read_max_names)",
   "problem.detail.zone_without_records": "{{zone}} est une zone de type {{kind}} : named n'en détient aucun enregistrement",
   "problem.engine_unavailable": "Moteur indisponible",
   "problem.engine_validation_failed": "Le moteur a refusé la configuration",

@@ -36,7 +36,7 @@ from pelagos.domain import (
     messages,
     normalize_name,
 )
-from pelagos.domain.dns import NO_RECORD_KINDS
+from pelagos.domain.dns import NO_RECORD_KINDS, ZoneRole, zone_role
 from pelagos.services.dns_extras import DnsExtras, zone_mode
 from pelagos.services.errors import (
     EngineUnavailable,
@@ -223,7 +223,8 @@ class DnsService(DnsExtras):
                 "zone": zone.to_dict(),
                 "serials": per_node,
                 # Each node builds its policy zones from the feeds: their serials differ by design.
-                "divergent": zone.role is None and zone_config.divergent(zone.kind.value, per_node, config),
+                "divergent": zone_role(zone) != ZoneRole.POLICY.value
+                and zone_config.divergent(zone.kind.value, per_node, config),
                 "mode": zone_mode(zone),
             }
             if zone.kind.value == zone_config.HINT:

@@ -336,7 +336,7 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
                 raise ConnectorDenied(f"AXFR of {zone} was refused earlier, not asked again yet")
             return self._read_zone_file(static, zone)
         try:
-            bound = {} if limit is None else {"max_records": limit}
+            bound = {} if limit is None else {"max_names": limit}
             rrsets = self.dns.axfr(zone, self._require_key("read", view), **bound)
         except ZoneTooLarge as exc:
             raise ZoneTooLarge(key[0], key[1], exc.size, exc.limit) from None

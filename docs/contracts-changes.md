@@ -2114,11 +2114,14 @@ an older node with the note `pelagos-rpz` or under `rpz.invalid.`). Hosts, IPv6,
 PTR orphans, DDNS replay, delegation checks and the collector's consistency pass never read
 those zones; the serial series and zone events skip policy zones, whose zone list row is never
 `divergent`. Archives keep skipping Pelagos policy zones (rebuilt from their feeds) and keep
-catalogs and policy zones an admin maintains. New setting `dns.zone_read_max_records`
+catalogs and policy zones an admin maintains. New setting `dns.zone_read_max_names`
 (default 50000): the web process refuses a larger zone before any transfer (`rndc zonestatus`
 nodes) and stops a transfer past it, with `ZoneTooLarge` (`connectors/base.py`) and `409
 zone_too_large` (members `zone`, `view`, `size`, `limit`, `detail_message`
-`problem.detail.zone_too_large`); AXFR yields to other greenlets. Contract: `domain/dns.py`,
+`problem.detail.zone_too_large`); AXFR yields to other greenlets. The bound counts owner names
+and covers every read of the web process, write paths included: record plans, PTR sync, zone
+restore plans, plan preconditions and catalog member edits on a larger zone are refused with
+`409 zone_too_large`. Contract: `domain/dns.py`,
 `connectors/base.py`. WP-BIND: `connectors/bind/backend.py`, `roles.py`, `dns_client.py`.
 WP-COLLECTOR: `collector/main.py`, `pollers/bind.py`, `checks/runner.py`, `archive_collect.py`.
 WP-API-AUTH: `api/`, `services/`. WP-FRONTEND: messages and the setting's labels (en, fr).

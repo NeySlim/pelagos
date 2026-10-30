@@ -13,6 +13,7 @@ import ipaddress
 from collections.abc import Callable, Iterable
 from typing import Any
 
+from pelagos.connectors.base import ConnectorError
 from pelagos.core.context import NodeContext
 from pelagos.domain import (
     Change,
@@ -286,6 +287,9 @@ class PtrService:
                 rrsets, _node = self.dns.records(zone["name"], _view(view))
             except ServiceError as exc:
                 errors[f"{view}/{zone['name']}"] = exc.detail
+                continue
+            except ConnectorError as exc:
+                errors[f"{view}/{zone['name']}"] = str(exc)
                 continue
             if _is_reverse(zone["name"]):
                 reverse[(zone["name"], view)] = rrsets

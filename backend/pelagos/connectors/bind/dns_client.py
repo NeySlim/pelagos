@@ -92,9 +92,9 @@ class DnsClient:
         want = dns.rdatatype.from_text(rtype)
         return [r.to_text() for rrset in resp.answer if rrset.rdtype == want for r in rrset]
 
-    def axfr(self, zone: str, key: TsigKey | None = None, max_records: int | None = None) -> list[RRset]:
-        """Full transfer grouped into RRsets; absolute lowercase owner names. Past `max_records`
-        records the transfer stops with ZoneTooLarge; each message yields to other greenlets."""
+    def axfr(self, zone: str, key: TsigKey | None = None, max_names: int | None = None) -> list[RRset]:
+        """Full transfer grouped into RRsets; absolute lowercase owner names. Past `max_names`
+        owner names the transfer stops with ZoneTooLarge; each message yields to other greenlets."""
         origin = dns.name.from_text(normalize_name(zone))
         try:
             xfr = _paced(
@@ -109,7 +109,7 @@ class DnsClient:
                     relativize=False,
                 ),
                 zone,
-                max_records,
+                max_names,
             )
             z = dns.zone.from_xfr(xfr, relativize=False)
         except (dns.exception.FormError, dns.tsig.PeerError, dns.query.TransferError) as exc:
@@ -151,12 +151,14 @@ class DnsClient:
 def _paced(
     messages: Iterator[dns.message.Message], zone: str, limit: int | None
 ) -> Iterator[dns.message.Message]:
-    """The transfer's messages, yielding to the gevent hub after each, stopped past `limit` records."""
-    seen = 0
+    """The transfer's messages, yielding to the gevent hub after each, stopped past `limit` owner
+    names (the unit of `rndc zonestatus` nodes)."""
+    names: set[dns.name.Name] = set()
     for msg in messages:
-        seen += sum(len(rrset) for rrset in msg.answer)
-        if limit is not None and seen > limit:
-            raise ZoneTooLarge(normalize_name(zone), "_default", seen, limit)
+        if limit is not None:
+            names.update(rrset.name for rrset in msg.answer)
+            if len(names) > limit:
+                raise ZoneTooLarge(normalize_name(zone), "_default", len(names), limit)
         time.sleep(0)
         yield msg
 

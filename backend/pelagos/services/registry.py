@@ -77,12 +77,12 @@ def enabled(value: Any) -> bool:
 
 
 def bound_reads(registry: ConnectorRegistry, ctx: NodeContext) -> None:
-    """Zone reads of the web process stop at `dns.zone_read_max_records`: one large zone must never
+    """Zone reads of the web process stop at `dns.zone_read_max_names`: one large zone must never
     hold its worker (the collector reads unbounded, in its own process)."""
     from pelagos.core import settings_registry as reg
 
     if registry.dns is not None and hasattr(registry.dns, "read_limit"):
-        registry.dns.read_limit = lambda: int(reg.get(ctx.settings(), "dns.zone_read_max_records"))
+        registry.dns.read_limit = lambda: int(reg.get(ctx.settings(), "dns.zone_read_max_names"))
 
 
 def connector_context(ctx: NodeContext, engine: str, table: Any) -> ConnectorContext:

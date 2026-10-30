@@ -400,7 +400,7 @@ The audit log is never purged.
 | `update_types_kea` | `A, AAAA, PTR, DHCID` |  | record types granted to the Kea DDNS key |
 | `default_ns` | `none` |  | NS names of a new primary zone when the plan gives none (`["ns1.example.lan.", "ns2.example.lan."]`); without either the plan is refused, and `localhost.` always is |
 | `default_ttl_seconds` | `3600` | 0 to 2147483647 s | TTL of a record written without one |
-| `zone_read_max_records` | `50000` | 1000 to 10000000 | largest zone the web process reads (records page, hosts, IPv6 and PTR views); a larger zone is refused with `409 zone_too_large` and named in the view's errors, never read in full. Policy (RPZ) and catalog zones are never read by those views |
+| `zone_read_max_names` | `50000` | 1000 to 10000000 names | largest zone (owner names) the web process reads; a larger zone is refused with `409 zone_too_large`, never read in full: its records page, record plans, PTR sync, zone restore plans and catalog member edits, and it is named in the errors of the hosts, IPv6 and PTR views. Policy (RPZ) and catalog zones are never read by those views. Raise it to work on a larger zone from the interface |
 
 ### Resolver (`[settings.resolver]`)
 

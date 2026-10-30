@@ -711,7 +711,7 @@ CATALOG: dict[str, str] = {
     "problem.detail.unexpected": "unexpected error; see the server log",
     "problem.detail.zone_without_records": "{zone} is a {kind} zone: named holds no records for it",
     "problem.detail.zone_too_large": (
-        "{zone} holds {size} names or more, above the read limit of {limit} (dns.zone_read_max_records)"
+        "{zone} holds {size} names or more, above the read limit of {limit} (dns.zone_read_max_names)"
     ),
 }
 

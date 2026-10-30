@@ -200,7 +200,7 @@
       "archives": "archives",
       "milliseconds": "ms",
       "answers": "answers",
-      "records": "records"
+      "names": "names"
     },
     "duration": {
       "minutes": "= {{count}} min",
@@ -408,7 +408,7 @@
         "update_types_kea": "Record types Kea may update",
         "default_ns": "Name servers of new primary zones",
         "default_ttl_seconds": "Default TTL of new records",
-        "zone_read_max_records": "Largest zone the web interface reads"
+        "zone_read_max_names": "Largest zone the web interface reads"
       },
       "kea": {
         "ddns_key": "DDNS key"
@@ -524,7 +524,7 @@
       "dns": {
         "view_keys": "A view other than _default is reached with its own TSIG key: the update key, and a transfer key when it differs.",
         "default_ttl_seconds": "When a record is written without a TTL.",
-        "zone_read_max_records": "A larger zone is refused by the records page and left out of the hosts and PTR views: the web process stays responsive. Policy (RPZ) and catalog zones are never read there."
+        "zone_read_max_names": "Counted in owner names. A larger zone is refused by the records page, record plans, PTR sync, restore plans and catalog edits (409 zone_too_large), and left out of the hosts and PTR views: the web process stays responsive. Policy (RPZ) and catalog zones are never read there."
       },
       "rpz": {
         "shrink_percent": "A download that removes more of a list is refused; the old file stays.",

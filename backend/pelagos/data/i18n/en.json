@@ -386,7 +386,7 @@
   "problem.conflict": "Conflict",
   "problem.csrf_failed": "CSRF check failed",
   "problem.detail.unexpected": "unexpected error; see the server log",
-  "problem.detail.zone_too_large": "{{zone}} holds {{size}} names or more, above the read limit of {{limit}} (dns.zone_read_max_records)",
+  "problem.detail.zone_too_large": "{{zone}} holds {{size}} names or more, above the read limit of {{limit}} (dns.zone_read_max_names)",
   "problem.detail.zone_without_records": "{{zone}} is a {{kind}} zone: named holds no records for it",
   "problem.engine_unavailable": "Engine unavailable",
   "problem.engine_validation_failed": "Engine validation failed",

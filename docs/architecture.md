@@ -349,10 +349,12 @@ Policy and catalog zones hold no hosts and may hold millions of names: every glo
 consistency pass) leaves out the zones `bulk_zone` is true for, and the serial series and zone
 events skip policy zones (their serial moves on every list refresh). They stay in the zone
 list, the RPZ screens and their own records page. The web process bounds every zone read
-(`BindBackend.read_limit`, setting `dns.zone_read_max_records`, default 50000): a zone whose
+(`BindBackend.read_limit`, setting `dns.zone_read_max_names`, default 50000): a zone whose
 `rndc zonestatus` node count is above it is refused before any transfer, and a transfer stops
-past that many records, with `ZoneTooLarge` (`409 zone_too_large`); transfers yield to other
-greenlets after each message. The collector reads unbounded, in its own process.
+past that many owner names, with `ZoneTooLarge` (`409 zone_too_large`); transfers yield to other
+greenlets after each message. The bound covers write paths too (record plans, PTR sync, restore
+plans, catalog member edits: `409 zone_too_large` on a larger zone). The collector reads
+unbounded, in its own process.
 
 ```python
 
@@ -1426,7 +1428,7 @@ admin_key = "ddi-admin"
 update_types_admin = ["A", "AAAA", "PTR", "CNAME", "TXT", "SRV", "MX", "DHCID"]
 update_types_kea = ["A", "AAAA", "PTR", "DHCID"]
 view_keys = { inside = "ddi-inside" }    # per view: key name, or { read = "...", admin = "..." }
-zone_read_max_records = 50000            # largest zone the web process reads (409 zone_too_large above)
+zone_read_max_names = 50000            # largest zone the web process reads (409 zone_too_large above)
 
 [settings.kea]
 ddns_key = "kea-ddns"
@@ -1547,7 +1549,7 @@ copy the mock server serves):
 - Leaf names are snake_case `<subject>[_<qualifier>]_<unit>`. The unit is
   spelled out: `_milliseconds`, `_seconds`, `_minutes`, `_hours`, `_days`, `_percent`, `_mb`,
   `_bytes`, `_factor`, `_per_minute`, `_per_hour`; a count ends with the plural noun it counts
-  (`_queries`, `_failures`, `_zones`, `_passes`, `_leases`, `_events`, `_records`) or
+  (`_queries`, `_failures`, `_zones`, `_passes`, `_leases`, `_events`, `_names`) or
   `_count`. A ratio is a percentage, never a fraction.
 - Severities are `<subject>_warning_<unit>` and `<subject>_critical_<unit>`,
   bounds `<subject>_min_<unit>` and `<subject>_max_<unit>`.
@@ -2555,7 +2557,7 @@ change revokes the user's other sessions.
 | `GET /dns/zones/{zone}?view=` | `read:dns` | | `{"zone": Zone, "status": {node_id: ZoneStatus}, "mode": "dynamic"|"static"|<kind>, "views": [view names holding this zone], "copies": {node_id: {"kind","source"}}, "forwarding"?}` (`copies`: every reachable node holding the zone in that view; a `forward` zone has `status` `{}` and `forwarding`: `{node_id: {"present", "forward" (`only`/`first`, BIND default `first`), "forwarders", "reach": [{"forwarder","address","port","tls","reachable","rtt_ms","rcode","error","checked_at"}] or null (node too old to measure), "error"}}`; reachability is one recursive `<zone> NS` query per forwarder from that node, any DNS answer counting as reachable, a TCP connect for a `tls` forwarder, cached 30 s) |
 | `POST /dns/zones/{zone}/secondaries/plan` | `write:dns.zones` | `{"view"?, "node_ids": [...], "primaries"?, "also_notify"?}` (`node_ids`: every node to hold a secondary copy of the zone's primary node; one part per node: the primary's `also-notify` set to their addresses (other entries kept; a zone in a user file keeps its own), a secondary added on each new node (`primaries` default `<primary address> key <read key>`, `allow-transfer` of the primary), the copy removed from each node left out; `409` when nothing changes) | `Plan` (`requires_confirmation` when a copy is removed) |
 | `POST /dns/zones/plan` | `write:dns.zones` | `{"change": Change, "node_ids"?: [...], "node_id"?}` (`node_id`: the node that holds the zone and builds the plan, default this node, else the first node running BIND; a peer builds it over `dns.zone.plan`; target `<view>/<zone>`, `after` = Zone; `after.source: "addzone"` adds it with `rndc addzone`, and a zone whose source is `addzone` is changed with `rndc modzone`/`delzone`; with `node_ids` a new primary also lands on those peers as a secondary of this node, `after.secondary.primaries` saying where they transfer from) | `Plan` |
-| `GET /dns/zones/{zone}/records?view=&type=&name=&q=&page=&per_page=` | `read:dns` | | paginated `RRset` (`node_id` of the node read in `meta`); `409 zone_without_records` (extension members `zone`, `view`, `kind`, `detail_message`) for a `forward`, `hint`, `stub` or `static-stub` zone, checked before any transfer; `409 zone_too_large` (members `zone`, `view`, `size`, `limit`, `detail_message`) above `dns.zone_read_max_records` |
+| `GET /dns/zones/{zone}/records?view=&type=&name=&q=&page=&per_page=` | `read:dns` | | paginated `RRset` (`node_id` of the node read in `meta`); `409 zone_without_records` (extension members `zone`, `view`, `kind`, `detail_message`) for a `forward`, `hint`, `stub` or `static-stub` zone, checked before any transfer; `409 zone_too_large` (members `zone`, `view`, `size`, `limit`, `detail_message`) above `dns.zone_read_max_names` |
 | `POST /dns/zones/{zone}/records/plan` | `write:dns.records` | `{"view"?, "changes": [Change], "ptr"?: {"sync"?: true, "delete"?: sync, "reverse_view"?}}` (`ptr`: the PTR of the A/AAAA changes goes in the same plan, in `reverse_view` (default `view`) like host plans: `sync` writes the PTR of added and kept addresses and removes the PTR naming this owner for removed ones, `delete` removes it for the addresses of a deleted RRset; a PTR naming another host is replaced only for a new address, with `requires_confirmation` and a `ptr` validation naming the old target, and left for a kept address with a `note.ptr_kept_elsewhere` summary note; a PTR RRset deleted at a DDNS owner takes its DHCID; addresses no served reverse zone covers are named in the summary; a plan with PTR changes is a composite of one RRset part per zone) | `Plan` |
 | `POST /dns/ptr/coverage` | `read:dns` | `{"addresses": [ip], "name"?, "view"?, "reverse_view"?}` | `{"items": [{"ip","view","ptr_name","reverse_zone","covered","reason","current":[targets],"points_here","conflict"}]}` (`reason`: `invalid`, `no_reverse_zone`, `no_primary` (a secondary copy with no reachable primary), `unreadable`; at most 500 addresses) |
 | `GET /dns/ptr/orphans` | `read:dns` | | `{"items": [orphan PTR (section 15) + "zone","view","exception","lease"]}`, `"counts": {"orphan","external","excepted"}`, `"errors": {source: message}}` (`lease`: `{"state","hostname","cltt","expires_at"}` of the address when the PTR was written by DDNS and a lease is known) |

@@ -180,7 +180,7 @@ class Records(Resource):
     @ns.response(
         409,
         "zone_without_records: forward, hint, stub or static-stub zone (never transferred); "
-        "zone_too_large: more names than dns.zone_read_max_records (never read here)",
+        "zone_too_large: more names than dns.zone_read_max_names (never read here)",
         m.Problem,
     )
     def get(self, zone: str):

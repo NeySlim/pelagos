@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""A zone above dns.zone_read_max_records: typed 409 on its records, named in the hosts errors."""
+"""A zone above dns.zone_read_max_names: typed 409 on its records, named in the hosts errors."""
 
 from __future__ import annotations
 

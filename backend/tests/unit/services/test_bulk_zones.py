@@ -101,3 +101,32 @@ def test_web_process_bounds_zone_reads(node_ctx) -> None:
     backend = _Bounded()
     bound_reads(ConnectorRegistry(dns=backend), node_ctx)  # type: ignore[arg-type]
     assert backend.read_limit() == 50000  # type: ignore[misc]
+
+
+def test_orphans_name_a_zone_too_large_instead_of_failing(services) -> None:
+    from pelagos.connectors.base import ZoneTooLarge
+
+    svc, _read = services
+    dns = svc.registry.dns
+    dns.add_zone(Zone(name="2.0.192.in-addr.arpa.", kind=ZoneKind.PRIMARY), [])
+    reader = dns.read_zone
+
+    def read_zone(zone: str, view: str | None = None) -> list[RRset]:
+        if zone.rstrip(".") == "2.0.192.in-addr.arpa":
+            raise ZoneTooLarge("2.0.192.in-addr.arpa.", "_default", 60000, 50000)
+        return reader(zone, view)
+
+    dns.read_zone = read_zone
+    out = svc.ptr.orphans()
+    assert any(k.endswith("/2.0.192.in-addr.arpa.") for k in out["errors"])
+
+
+def test_only_policy_zones_are_never_divergent(services, monkeypatch) -> None:
+    from pelagos.collector import zone_config
+
+    svc, _read = services
+    monkeypatch.setattr(zone_config, "divergent", lambda *a, **k: True)
+    listed = {z["zone"]["name"]: z["divergent"] for z in svc.dns.zones()}
+    assert listed["block.example."] is False
+    assert listed["feed.rpz.invalid."] is False  # no role (older node): told by its suffix
+    assert listed["catalog.example."] is True

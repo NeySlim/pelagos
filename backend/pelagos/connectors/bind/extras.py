@@ -90,9 +90,11 @@ class BindExtras:
             return out
         for cat in consumed:
             try:
-                # A direct transfer: read_zone looks the zone up in list_zones, which lands back here.
+                # A direct transfer, bounded like read_zone (which calls list_zones, landing back here).
                 where = None if cat.view == DEFAULT_VIEW else cat.view
-                rrsets = self.dns.axfr(cat.zone, self._require_key("read", where))
+                limit = self._bounded((normalize_name(cat.zone), cat.view))
+                bound = {} if limit is None else {"max_names": limit}
+                rrsets = self.dns.axfr(cat.zone, self._require_key("read", where), **bound)
             except (ConnectorError, NotSupported):
                 continue
             for member in catalog.members(cat.zone, rrsets)[0]:

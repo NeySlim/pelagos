@@ -99,8 +99,8 @@ def test_web_read_under_the_limit_passes_the_bound_to_the_transfer(backend, monk
     b, rec = backend
     seen: dict[str, Any] = {}
 
-    def axfr(zone: str, key: Any = None, max_records: int | None = None) -> list[RRset]:
-        seen["max"] = max_records
+    def axfr(zone: str, key: Any = None, max_names: int | None = None) -> list[RRset]:
+        seen["max"] = max_names
         return [RRset("example.lan.", "SOA", 300, ["ns1. h. 1 2 3 4 5"])]
 
     monkeypatch.setattr(b.dns, "axfr", axfr)
@@ -137,3 +137,43 @@ def test_paced_transfer_stops_past_the_limit_and_yields(monkeypatch) -> None:
         list(dns_client._paced(iter(_messages(5, 10)), "example.lan", 25))
     assert exc.value.size == 30 and exc.value.limit == 25
     assert len(list(dns_client._paced(iter(_messages(5, 10)), "example.lan", None))) == 5
+
+
+def test_paced_transfer_counts_owner_names_not_records(monkeypatch) -> None:
+    monkeypatch.setattr(dns_client.time, "sleep", lambda _s: None)
+    # 20 names, each with four records (A, AAAA, DHCID, TXT like a DDNS host): under a limit of 25.
+    dhcid = "AAIBY2/AuCccgoJbsaxcQc9TUapptP69lOjxfNuVAA2kjEA="
+    host = (("A", "192.0.2.1"), ("AAAA", "2001:db8::1"), ("DHCID", dhcid))
+    msg = dns.message.Message()
+    for i in range(20):
+        for rtype, data in (*host, ("TXT", '"x"')):
+            msg.answer.append(dns.rrset.from_text(f"h{i}.example.lan.", 300, "IN", rtype, data))
+    assert len(list(dns_client._paced(iter([msg]), "example.lan", 25))) == 1
+    with pytest.raises(ZoneTooLarge) as exc:
+        list(dns_client._paced(iter([msg]), "example.lan", 19))
+    assert exc.value.size == 20
+
+
+def test_record_plans_are_bounded_too(backend, monkeypatch) -> None:
+    b, rec = backend
+    monkeypatch.setattr(b.dns, "axfr", lambda *a, **k: pytest.fail("no transfer above the limit"))
+    rec.zonestatus = lambda zone, view=None: {"type": "primary", "nodes": "60000"}  # type: ignore[method-assign]
+    b.read_limit = lambda: 50000
+    with pytest.raises(ZoneTooLarge):
+        b.plan_rrset_changes("example.lan", [])
+
+
+def test_catalog_member_transfer_is_bounded(backend, monkeypatch) -> None:
+    b, rec = backend
+    asked: list[Any] = []
+    monkeypatch.setattr(b.dns, "axfr", lambda zone, key=None, **k: asked.append((zone, k)) or [])
+    monkeypatch.setattr(b, "_require_key", lambda *a, **k: None)
+    rec.zonestatus = lambda zone, view=None: {"type": "secondary", "nodes": "90000"}  # type: ignore[method-assign]
+    b.read_limit = lambda: 50000
+    tree = b.read_config(check=False)
+    assert b._catalog_members(tree) == {}  # a too large catalog is skipped, never fails
+    assert asked == []
+    b._sizes.clear()
+    rec.zonestatus = lambda zone, view=None: {"type": "secondary", "nodes": "5"}  # type: ignore[method-assign]
+    b._catalog_members(tree)
+    assert asked == [("catalog.example.", {"max_names": 50000})]

@@ -163,7 +163,8 @@ node, first and last seen. Filters: state, severity, kind, engine, node.
 | `secondary_stale` | critical | a secondary or mirror zone expires within 24 hours |
 | `zone_error` | critical | `rndc zonestatus` fails or the zone is not loaded |
 | `ha_degraded` | warning | an HA server outside its normal states, outside a maintenance |
-| `ha_partner_down` | critical | state `partner-down`, or partner not in touch |
+| `ha_partner_down` | critical | state `partner-down`, partner not in touch, or communication with the partner interrupted |
+| `ha_partner_restarted` | info | the HA partner's Kea restarted less than an hour ago |
 | `ha_transition` | info | an HA state change |
 | `ha_terminated` | critical | an HA server in `terminated`, with the probable cause (clock skew, configuration, partner; "the clocks agree now" once NTP is fixed and only the repair is left); repaired from the HA page ([DHCP](dhcp.md#repair-an-ha-in-terminated)) |
 | `clock_skew` | warning, critical | a peer's clock at least `checks.clock_skew_warning_seconds` (critical: `checks.clock_skew_critical_seconds`) off this node's, the measurement's margin subtracted; kept at its last reading while the peer is out of reach |

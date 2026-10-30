@@ -160,14 +160,24 @@ Alerts:
 - `ha_degraded` (warning): a server outside its normal states
   (`hot-standby`, `load-balancing`, `passive-backup`, `backup`) outside a
   maintenance.
-- `ha_partner_down` (critical): state `partner-down`, or the partner not in
-  touch; the title names the partner. A backup has no partner and never
-  raises it. During a maintenance started from Pelagos, the server that
-  stays up raises `ha_degraded` instead (below).
+- `ha_partner_down` (critical): state `partner-down`, the partner not in
+  touch, or Kea reporting that communication with the partner is
+  interrupted (no answer for longer than `max-response-delay`). A
+  hot-standby server stays in `hot-standby` while no client is left
+  unanswered, so the interruption is what shows a partner that rebooted:
+  the title gives the age of the last heartbeat and, once clients wait, how
+  many more before Kea moves to `partner-down`. A backup has no partner and
+  never raises it. During a maintenance started from Pelagos, the server
+  that stays up raises `ha_degraded` instead (below).
+- `ha_partner_restarted` (info): the partner's Kea started well after this
+  server's, less than an hour ago.
 - `ha_backup_out_of_sync` (warning): a backup whose lease count stays away
   from the primary's (the active partner's when the primary is not read)
   for 5 minutes: it stopped receiving lease updates.
-- `ha_transition` (info): each state change, also kept as a series.
+- `ha_transition` (info): each state change, also kept as a series. The
+  history on the HA page also records, with the node that saw it, when
+  communication with the partner was interrupted or restored and when the
+  partner restarted, and shows the history of every node from any of them.
 
 A short wait is not an incident: after a `config-reload` a server goes
 through `waiting` for 10 to 25 seconds. While a relationship is away from a

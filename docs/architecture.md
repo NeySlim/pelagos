@@ -500,6 +500,8 @@ class Lease(Model):
 @dataclass(slots=True)
 class HAPartner(Model):
     role: str | None; state: str | None; scopes: list[str]; in_touch: bool | None
+    communication_interrupted: bool | None = None  # status-get "communication-interrupted": no answer
+                                     # for longer than max-response-delay (in_touch stays true)
     server_name: str | None = None   # the remote's this-server-name
     last_state: str | None = None; age: int | None = None
     connecting_clients: int | None = None; unacked_clients: int | None = None
@@ -569,7 +571,7 @@ class DhcpCapabilities(Model):
     control_socket: str | None       # path reached
     hooks: list[str]                 # library basenames without "libdhcp_"/".so": ["lease_cmds","ha",...]
     lease_cmds: bool; host_cmds: bool; subnet_cmds: bool; stat_cmds: bool; ha: bool
-    degraded: bool                   # True when host_cmds or subnet_cmds missing (Kea 2.6 path)
+    config_write_only: bool          # True when host_cmds or subnet_cmds missing (Kea 2.6 path); `degraded` before 0.3.0
     config_write: bool               # config-write available (always on a socket)
     lease_backend: str | None        # "memfile" | "mysql" | "postgresql"
     multi_threading: bool | None
@@ -679,6 +681,7 @@ class AlertKind(str, Enum):
     POOL_NEAR_FULL="pool_near_full"; POOL_FULL="pool_full"
     SERIAL_DIVERGENCE="serial_divergence"; SECONDARY_STALE="secondary_stale"; ZONE_ERROR="zone_error"
     HA_DEGRADED="ha_degraded"; HA_PARTNER_DOWN="ha_partner_down"; HA_TRANSITION="ha_transition"
+    HA_PARTNER_RESTARTED="ha_partner_restarted"
     HA_BACKUP_OUT_OF_SYNC="ha_backup_out_of_sync"; HA_TERMINATED="ha_terminated"
     CLOCK_SKEW="clock_skew"; CLOCK_UNSYNCHRONIZED="clock_unsynchronized"
     D2_ERRORS="d2_errors"
@@ -957,13 +960,13 @@ Semantics for `DhcpBackend`:
   `ConnectorError` with Kea's `text`, except where the method documents an
   empty result (`result == 3` means empty for `lease4-get-page`,
   `reservation-get-page`).
-- Two write paths, chosen per `DhcpCapabilities.degraded`:
-  - Kea 3.x (`degraded == False`): object commands (`subnet4-add`,
+- Two write paths, chosen per `DhcpCapabilities.config_write_only`:
+  - Kea 3.x (`config_write_only == False`): object commands (`subnet4-add`,
     `subnet4-update`, `subnet4-del`, `network4-add` ..., `reservation-add`,
     `reservation-del`, `class-add`, `class-update`, `class-del`), then
     `config-write`. Preconditions: `CONFIG_HASH` taken at plan time; `apply`
     re-reads `config-hash-get` and refuses if it moved.
-  - Kea 2.6 or missing hooks (`degraded == True`): `config-get`, edit the
+  - Kea 2.6 or missing hooks (`config_write_only == True`): `config-get`, edit the
     JSON in memory (section 9), `config-test`, `config-set`, `config-write`.
     Same precondition.
   - `plan_global_change` and `plan_config_replace` always use the second path.
@@ -1842,14 +1845,15 @@ run under the collector's backend lock):
 | `resolver.health` | `{}` | this node's entry of `GET /dns/resolver/health` (`nodes[]`, NodeHealth of section 25), read from its series cache and probe table |
 | `resolver.series` | `{"metric","since","until","step"}` | `{"node_id","series"}`: this node's series of one resolver metric from its own cache, the `GET /series/resolver` answer for that node (section 25) |
 | `kea.migration.leases` | `{"migration","family","from_node","sha256","size"}` | `{"path","sha256","size"}`: this node fetches the lease copy of `from_node` (`GET /repl/v1/kea/leases/<family>`) into its own `<var>/kea-migration/<id>/` (0700) and checks it; the step `kea-mig-leases-in` then installs it (section 28, batch K5) |
+| `ha.transitions` | `{"engine"?,"since","until"}` | `{"node_id","items"}`: the HA history this node's collector recorded, the `GET /dhcp/{family}/ha/transitions` rows of this node |
 | `permissions.status` | `{}` | `{"node_id", "checks": [check]}`: the permission guard's standing checks of this node, run now in its collector (section 7) |
 | `tokens.usage` | `{}` | `{"usage": {token id: {"at","node","ip"}}}`: last use of each API token on this node (section 16) |
 | `ipv6.observations` | `{"since"?}` | `{"node_id","observations": [Observation],"sources": [SourceStatus]}`: what this node observed (section 27) |
-| `kea.migration.inventory` | `{}` | this node's entry of `GET /install/kea-migration` (`nodes[]`, section 26) |
+| `kea.migration.inventory` | `{}` | this node's entry of `GET /install/kea-migration` (`nodes[]`, section 26), plus `analysis`: the last report kept on this node (taken out of `nodes[]` by the caller) |
 | `kea.migration.analyze` | `{"series","source"}` | the `kea_dry_run` answer of this node (`{"node_id","target_version","findings","diffs","packages","validation","configs"}`, secrets masked): the analysis of this node's Kea files (section 26) |
 | `archive.probe` | `{}` | `{"ok", "node_id", "free_bytes", "max_bytes", "fits"}`: a 64 KiB probe file written, read back and deleted in this node's archive folder (`.incoming/`) |
 
-The `certs.*`, `security.*`, `alerts.list`, `notify.state`, `archive.state|run|probe`, `resolver.health`, `resolver.series`, `ipv6.observations`, `tokens.usage`, `kea.migration.inventory` and `kea.migration.analyze` actions never touch an engine and run without the
+The `certs.*`, `security.*`, `alerts.list`, `notify.state`, `archive.state|run|probe`, `resolver.health`, `resolver.series`, `ha.transitions`, `ipv6.observations`, `tokens.usage`, `kea.migration.inventory` and `kea.migration.analyze` actions never touch an engine and run without the
 backend lock.
 
 A plan built this way is stored by the caller (`PeerGateway.build_plan`
@@ -2232,9 +2236,10 @@ Alert kinds and rules (thresholds from `settings`):
 | `secondary_stale` | critical | secondary `expires` within 24 h, or AXFR refused |
 | `zone_error` | critical | `rndc zonestatus` fails or the zone is not loaded |
 | `ha_degraded` | warning | state not in {`hot-standby`, `load-balancing`, `passive-backup`, `backup`} for the configured mode |
-| `ha_partner_down` | critical | state `partner-down` or partner `in_touch == false`, outside an HA maintenance window started from Pelagos (then `ha_degraded`); the title names the partner server; a backup has no partner and never raises it |
+| `ha_partner_down` | critical | state `partner-down`, partner `in_touch == false`, or partner `communication_interrupted == true` (Kea keeps `in-touch` true after the first heartbeat; in hot-standby without waiting clients it never reaches `partner-down`), for longer than `checks.ha_grace_seconds` and outside an HA maintenance window started from Pelagos (then `ha_degraded`); the title names the partner server; while communication is interrupted the title is `alert.ha_communication_interrupted` (age of the last heartbeat) or `alert.ha_communication_interrupted_clients` (unacked clients and how many more before `partner-down`) and details carry `heartbeat_age`, `connecting_clients`, `unacked_clients`, `unacked_clients_left`, `analyzed_packets`; a backup has no partner and never raises it |
+| `ha_partner_restarted` | info | the partner's Kea (status-get `uptime` of the `status` snapshot its node replicates, fresh within 3 `peer_poll_seconds`) started at least 5 minutes after this server's and less than an hour ago; same subjects as `ha_degraded`; details `partner`, `partner_uptime` |
 | `ha_backup_out_of_sync` | warning | a backup's assigned lease count differs from the primary's (an active server's when the primary is not read) by more than max(2, 1 %) for 5 minutes; raised by the peers poller from the `ha` and `utilization` snapshots, node = the backup, subject `ha-backup:<engine>` |
-| `ha_transition` | info | state changed since the last poll (also a `ha_transitions` row) |
+| `ha_transition` | info | state changed since the last poll (also a `ha_transitions` row). A row is also written without a state change when communication with the partner is interrupted or restored, or the partner's Kea start time moved: `from_state == to_state`, `reason` a comma list of `communication_interrupted`, `communication_restored`, `partner_restarted` |
 | `custom_hook` | warning | a Kea hook library that `dpkg -S` / `rpm -qf` says no package owns; raised by the Kea poller per library, subject `<engine>:hook:<file name>`; the title suggests the built-in option when one exists (`hostname-char-set` / `hostname-char-replacement` for a hostname sanitizing hook); off with `checks.custom_hooks_enabled` |
 | `ha_terminated` | critical | state `terminated`, alone (no `ha_degraded` nor `ha_partner_down` for that relationship); details `cause` (`clock_skew`, `config`, `partner`, `unknown`) and `cause_details`, the title carries the cause as a nested message (`alert.ha_cause.*`): the partner's skew Kea measured (status-get `clock-skew`, Kea 3.0 and later, `HAPartner.clock_skew`) of `checks.clock_skew_warning_seconds` or more (`cause_details.fixed` and the message `alert.ha_cause.clock_skew_fixed` when every node serving the partner has a `clock` snapshot younger than 3 `peer_poll_seconds` under that threshold: Kea's reading predates the NTP fix), else a node `clock` snapshot that far off (named after this node, offset reversed, when only this node's NTP is unsynchronized), else a clock_skew cause seen earlier in the same `terminated` episode (kept in memory, read back from the open alert after a collector restart) restated with `alert.ha_cause.clock_skew_fixed` (Kea 2.6 has no `clock-skew`), else a shared configuration that differs between nodes (`kea_shared.divergent`), else the partner not in touch |
 | `clock_skew` | warning / critical | a peer's clock offset, minus its uncertainty, at least `checks.clock_skew_warning_seconds` / `checks.clock_skew_critical_seconds`; node = the peer, subject `clock`; details `offset`, `uncertainty`, `reference` (this node's name), `suspect` (the node whose NTP says unsynchronized when only one does), thresholds; kept from the last `clock` snapshot while the peer is out of reach, with `measured_at` |
@@ -2720,7 +2725,7 @@ the API normalizes to the absolute form.
 | `POST /dhcp/{family}/ha/setup/plan` | `write:dhcp.config` | `{"mode","servers":[{"name","url","role","auto_failover"?,"node_id"?}], tunables?, "hooks_dir"?}`, or `{"relationships": [{"mode","servers",tunables?}], "hooks_dir"?}` (Kea 3 hub and spoke: a node may run a server in several, names and URLs unique across them, field errors under `relationships[<i>].`; a Kea 2.x node in two is refused with `400`), or `{"remove": true, "node_ids"?}` (roles checked per mode as Kea does; one part per node with a `node_id`, built there over `dhcp.ha.plan`: its `hooks-libraries` with the `ha` hook under its own `this-server-name`, `lease_cmds` added when missing; `remove` drops the hook from `node_ids`, default every node where HA is on) | `Plan` (scope `dhcp.config`, `requires_confirmation`, applied part by part) |
 | `POST /dhcp/{family}/ha/repair/plan` | `ops:dhcp.ha` | `{"server_name"?}`: bring the relationships with a server in `terminated` back (`409 conflict` when none is). Targets: their active servers' nodes, the primary last (a partner no reachable Pelagos node reads: `400`). Validations `clock`, one per node: its offset against this node (`PeerStatus.clock_offset`, read afresh, not from the status cache) minus the uncertainty under `checks.clock_skew_warning_seconds`, plus one on the spread between the highest and lowest offsets, else the plan is `failed`; refused like a config plan while a target's Kea file diverges (the restart loads it). One change `ha/restart` (`after = {"action":"restart","order":[node ids],"servers":{node: server name}}`): on each node the connector sends `config-reload` when a relationship of the server is `terminated` (a reload restarts the HA hook like a daemon restart, Kea ARM "HA server states", checked on Kea 3.2 by the daemon tier and on Kea 2.6.3 from Debian by the lab tier; a timeout names the manual daemon restart; `ha-reset` re-terminates on the skew measured before), then waits up to 30 s for it to leave `terminated`, the last node up to 180 s for `hot-standby`/`load-balancing` with its partner in touch. Rollback does nothing | `Plan` (`requires_confirmation`) |
 | `POST /dhcp/{family}/ha/maintenance/plan` | `ops:dhcp.ha` | `{"node_id","action":"start"|"cancel"}` (`node_id`: the server that goes in-maintenance or leaves it; the plan is applied on its HA partner, found by server name among every node (a server shut down: the only active server left, or the one in `partner-in-maintenance` for a cancel), which stays up as `partner-in-maintenance`; a backup server is refused with `400`; for a hub, the plan goes to its partner in each relationship (`target_node_ids` = those nodes); when the partner is a hub, the diff notes that its other relationships enter maintenance too, Kea applying it server-wide) | `Plan` (`requires_confirmation`) |
-| `GET /dhcp/{family}/ha/transitions?from=&to=` | `read:dhcp` | | `{"items": [{"ts","node_id","server_name","from_state","to_state","partner_state"}]}` |
+| `GET /dhcp/{family}/ha/transitions?from=&to=&node_id=` | `read:dhcp` | | `{"items": [{"ts","node_id","engine","server_name","from_state","to_state","partner_state","scopes","reason"}], "unavailable": [{"node_id","name","error"}]}`: this node's rows and every Kea peer's over `ha.transitions`, newest first; a silent peer is listed in `unavailable` |
 | `POST /dhcp/{family}/service/plan` | `ops:dhcp.ha` | `{"node_id","enable": bool}` (applied on `node_id`, this node or a peer) | `Plan` (`requires_confirmation`) |
 | `GET /dhcp/{family}/ddns` | `read:dhcp` | | `{"dhcp_ddns": {...}, "ddns_params": {...}, "node_id"}` |
 | `POST /dhcp/{family}/ddns/plan` | `write:dhcp.options` | `{"changes": [Change]}` | `Plan` |
@@ -2776,7 +2781,7 @@ configuration; the problem document carries `"engine"` and `"divergences":
 | `DELETE /alerts/exceptions/{id}` | `write:alerts`; `admin:settings` for the security kinds above | | `204` |
 | `GET /series/pools?engine=&subnet_id=&pool=&node_id=&from=&to=&step=` | `read:series` | | `{"series": [{"key": {...}, "points": [[ts, assigned, total]]}]}` |
 | `GET /series/serials?zone=&view=&from=&to=` | `read:series` | | `{"series": [{"node_id","points": [[ts, serial, divergent]]}]}` |
-| `GET /series/ha-transitions?engine=&node_id=&from=&to=` | `read:series` | | `{"items": [...]}` |
+| `GET /series/ha-transitions?engine=&node_id=&from=&to=` | `read:series` | | `{"items": [...], "unavailable": [...]}`, as `GET /dhcp/{family}/ha/transitions` |
 
 `from`/`to` are RFC 3339 or Unix seconds; `step` in seconds, the server
 picks raw or hourly data accordingly.
@@ -3103,7 +3108,7 @@ installs nothing and writes nothing to `/etc/kea`.
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
-| `GET /install/kea-migration` | `admin:install` | | `{"nodes": [KeaInventory], "targets": [Target], "analysis": Report|null, "current": Migration|null}` (`analysis`: the last report this node produced; `current`: the migration `[settings.kea.migration]` holds, section 28) |
+| `GET /install/kea-migration` | `admin:install` | | `{"nodes": [KeaInventory], "targets": [Target], "analysis": Report|null, "current": Migration|null}` (`analysis`: the newest report kept on any node, from `kea.migration.inventory` answers, with `kept_on` {"node_id","name"}; a target's `version` is the `target_version` of the newest report for it; `current`: the migration `[settings.kea.migration]` holds, section 28) |
 | `POST /install/kea-migration/analyze` | `admin:install` | `{"series","source","node_ids"?}` (`series` and `source` one of `targets`; `node_ids` default every node running Kea) | `Report`; `400` on an unknown target or node; audited `kea.migration.analyze` |
 | `GET /install/kea-migration/{id}` | `admin:install` | | `Migration` (section 28); `404` unless it is the migration cluster.toml holds |
 | `POST /install/kea-migration/{id}/plan` | `admin:install` and `ops:dhcp.ha` | `{"phase": "prepare"|"migrate"|"rollback","options"?: {"response_delay_milliseconds","https_sockets","auto_rollback"}}` (`id`: the analysis for `prepare`, the migration otherwise) | composite `Plan` (scope `kea.migration`, `requires_confirmation`); `404` unknown id, `409 conflict` while a blocking finding is open or when the phase does not follow the state (section 28); `501` until batches K3 to K5 |

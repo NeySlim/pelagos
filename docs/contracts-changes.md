@@ -2229,3 +2229,23 @@ WP-COLLECTOR: `services/consistency.py`, `collector/main.py`, `collector/checks/
 WP-API-AUTH: `api/alerts.py`, `services/`. WP-FRONTEND: orphan PTR page (last seen column,
 stale filter, bulk delete of stale PTRs with confirmation), alert search, alert links,
 new-host dialog (record zones only, reverse zone deduced from the address), messages (en, fr).
+
+## 2026-10-30, 0.3.0: Kea HA outages from Kea's counters, cluster-wide HA history (review 81)
+Sections 4, 15 and 19, additive except one rename. `HAPartner.communication_interrupted`
+(status-get `communication-interrupted`, Kea ARM 2.6.3 "The status-get Command", read
+2026-10-30): Kea keeps `in-touch` true after the first heartbeat, so `ha_partner_down` now also
+opens while communication is interrupted, with `heartbeat_age` and the unacked client counters in
+its details (titles `alert.ha_communication_interrupted*`). New alert kind `ha_partner_restarted`
+(info) from the partner node's replicated `status` uptime. `ha_transitions` rows also record
+interruptions, restorations and partner restarts (`reason`, same state on both sides). New peer
+action `ha.transitions`: `GET /dhcp/{family}/ha/transitions` and `/series/ha-transitions` return
+every Kea node's rows plus `unavailable`. `kea.migration.inventory` answers carry the node's last
+report; `GET /install/kea-migration` shows the newest of the cluster (`kept_on`). Renamed
+`DhcpCapabilities.degraded` to `config_write_only` (a write path, not a health state; `degraded`
+read as an outage by API consumers). A 404 on `GET /plans/{id}` says plans stay on the node that
+built them. Contract: `domain/dhcp.py`, `domain/alerts.py`, `domain/messages.py`. WP-KEA:
+`connectors/kea/ha.py`, `backend.py`, `commands.py`. WP-COLLECTOR: `collector/rules.py`,
+`pollers/kea.py`. WP-API-AUTH: `api/`, `services/alerts_service.py`, `services/peer_actions.py`,
+`services/kea_migration_service.py`. WP-FRONTEND: partner lost on interruption everywhere, HA
+history with event and node, DHCP service state from `dhcp-state`, one Kea series banner for the
+cluster, security audit on every node by default with per-node counts.

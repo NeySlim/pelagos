@@ -15,9 +15,12 @@ import json
 import logging
 import secrets
 import socket
+import ssl
+import sys
 import threading
 import time
 import tomllib
+from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -32,7 +35,14 @@ from pelagos.core.config_store import ClusterConfig, ConfigError, ConfigStore, N
 from pelagos.core.listen import ListenError, check_free, url_with_port
 from pelagos.core.locks import FileLock
 from pelagos.core.paths import Paths
-from pelagos.core.repl_http import TransportError, anonymous_context, pinned_context, request_json
+from pelagos.core.repl_http import (
+    ConnectFailed,
+    HttpResult,
+    TransportError,
+    anonymous_context,
+    pinned_context,
+    request_json,
+)
 from pelagos.core.secrets import SecretBox, SecretError, write_master_key
 from pelagos.domain.audit import AuditEntry, AuditResult
 from pelagos.domain.cluster import NodeModules, Peer
@@ -505,10 +515,59 @@ def install_certificate(paths: Paths, cert_pem: bytes) -> None:
 # Client side --------------------------------------------------------------
 
 
-def fetch_ca(url: str, ca_fingerprint: str, timeout: float = 15.0) -> bytes:
+# A refused or reset connection is a peer that is restarting (its collector exits 75 after an
+# import); a certificate or name error is not, and fails at once.
+_RETRYABLE = (ConnectionError, TimeoutError, ssl.SSLEOFError)
+_RETRY_DELAYS = (1.0, 2.0, 3.0, 5.0)
+
+
+def _request_with_retry(
+    send: Callable[[], HttpResult], retry_for: float, notify: Callable[[str], None]
+) -> HttpResult:
+    """send() again while no connection is made, for retry_for seconds; a request that reached the
+    peer is never sent twice (the token is single use)."""
+    deadline = time.monotonic() + retry_for
+    attempt = 0
+    while True:
+        try:
+            return send()
+        except ConnectFailed as exc:
+            delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
+            if not isinstance(exc.__cause__, _RETRYABLE) or time.monotonic() + delay > deadline:
+                if attempt:
+                    raise EnrollError(
+                        "unreachable",
+                        f"{exc} (still failing after {retry_for:.0f} s: is the collector of that node "
+                        "running and its replication port open?)",
+                        503,
+                    ) from exc
+                raise
+            attempt += 1
+            notify(f"{exc}; retrying in {delay:.0f} s")
+            time.sleep(delay)
+
+
+def _quiet(_message: str) -> None:
+    return None
+
+
+def fetch_ca(
+    url: str,
+    ca_fingerprint: str,
+    timeout: float = 15.0,
+    *,
+    retry_for: float = 0.0,
+    notify: Callable[[str], None] = _quiet,
+) -> bytes:
     """Unauthenticated fetch of the cluster CA, accepted only when it matches the out-of-band fingerprint."""
     try:
-        res = request_json(url, "GET", f"{REPL_PREFIX}/ca", ssl_context=anonymous_context(), timeout=timeout)
+        res = _request_with_retry(
+            lambda: request_json(
+                url, "GET", f"{REPL_PREFIX}/ca", ssl_context=anonymous_context(), timeout=timeout
+            ),
+            retry_for,
+            notify,
+        )
     except TransportError as exc:
         raise EnrollError("unreachable", str(exc), 503) from exc
     if not res.ok or not isinstance(res.body, dict) or "ca_pem" not in res.body:
@@ -534,9 +593,11 @@ def enroll_remote(
     self_url: str,
     web_url: str | None = None,
     timeout: float = 15.0,
+    retry_for: float = 0.0,
+    notify: Callable[[str], None] = _quiet,
 ) -> EnrollResponse:
     """Client side of `pelagos enroll` (section 14 steps 3 and 5): pinned CA, no client certificate."""
-    ca_pem = fetch_ca(url, ca_fingerprint, timeout)
+    ca_pem = fetch_ca(url, ca_fingerprint, timeout, retry_for=retry_for, notify=notify)
     req = EnrollRequest(
         token=token,
         name=name,
@@ -547,13 +608,17 @@ def enroll_remote(
         version=__version__,
     )
     try:
-        res = request_json(
-            url,
-            "POST",
-            f"{REPL_PREFIX}/enroll",
-            req.to_dict(),
-            ssl_context=pinned_context(ca_pem),
-            timeout=timeout,
+        res = _request_with_retry(
+            lambda: request_json(
+                url,
+                "POST",
+                f"{REPL_PREFIX}/enroll",
+                req.to_dict(),
+                ssl_context=pinned_context(ca_pem),
+                timeout=timeout,
+            ),
+            retry_for,
+            notify,
         )
     except TransportError as exc:
         raise EnrollError("unreachable", str(exc), 503) from exc
@@ -587,6 +652,8 @@ def enroll_node(
     replication_listen: str | None = None,
     engines: dict[str, Any] | None = None,
     timeout: float = 15.0,
+    retry_for: float = 0.0,
+    notify: Callable[[str], None] = _quiet,
 ) -> EnrollResult:
     """The whole `pelagos enroll`: node.toml if absent, key and CSR, remote call, then every file at once."""
     paths.ensure()
@@ -629,6 +696,8 @@ def enroll_node(
         self_url=node.replication_url,
         web_url=node.web_url,
         timeout=timeout,
+        retry_for=retry_for,
+        notify=notify,
     )
     # Validate what came back before touching the local tree.
     try:
@@ -671,6 +740,10 @@ def _parse_engines(text: str | None) -> dict[str, bool] | None:
     return {e: e in wanted for e in ("bind", "kea4", "kea6", "d2")}
 
 
+# Long enough for the issuing node's collector to come back after an import.
+ENROLL_RETRY_SECONDS = 60.0
+
+
 def enroll_cli(paths: Paths, args: argparse.Namespace) -> int:
     """Body of `pelagos enroll`; the parser lives in cli.py."""
     missing = [opt for opt in ("url", "token", "ca_fingerprint") if not getattr(args, opt, None)]
@@ -705,6 +778,8 @@ def enroll_cli(paths: Paths, args: argparse.Namespace) -> int:
             web_listen=getattr(args, "web_listen", None),
             replication_listen=getattr(args, "replication_listen", None),
             engines=engines,
+            retry_for=ENROLL_RETRY_SECONDS,
+            notify=lambda message: print(f"pelagos enroll: {message}", file=sys.stderr, flush=True),
         )
     except (EnrollError, FileExistsError, ListenError, ValueError, OSError) as exc:
         print(f"pelagos enroll: {exc}")

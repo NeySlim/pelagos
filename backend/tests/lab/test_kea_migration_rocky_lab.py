@@ -290,14 +290,14 @@ class TestKeaMigrationRocky:
         assert job["state"] == "done", job
         mig = api().get(f"/install/kea-migration/{mid}")
         assert mig["state"] == "prepared", mig
-        d = f"/var/lib/pelagos/kea-migration/{mid}"
+        d = f"/var/lib/pelagos-helper/kea-migration/{mid}"
         manifest = json.loads(ssh(NODE, f"sudo cat {d}/manifest.json")[1])
         before = {p["name"]: p["version"] for p in manifest["packages_before"]}
         assert before.get("isc-kea-dhcp4", "").startswith(ISC26_VERSION), before
         for p in manifest["packages_before"]:
             ssh(NODE, f"sudo test -s {d}/packages/previous/{p['file']}")
         for p in manifest["packages_target"]:
-            ssh(NODE, f"sudo test -s {p['file']}")
+            ssh(NODE, f"sudo test -s {d}/packages/target/{p['file']}")
         assert ssh(NODE, KEA_STATE)[1] == STATE["before"]
 
     def test_04_migration_to_isc_3_2(self):

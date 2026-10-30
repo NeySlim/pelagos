@@ -163,3 +163,59 @@ def test_sealed_partner_files_reach_the_record(service, monkeypatch):  # noqa: F
     assert job.error is None, job.error
     me = service.ctx.node.id
     assert next(n for n in record(service)["nodes"] if n["node_id"] == me)["files_sealed"] == "token"
+
+
+class Unreachable(Peers):
+    def sync(self, peer: Any) -> Any:
+        from types import SimpleNamespace
+
+        return SimpleNamespace(reachable=False, error="timed out")
+
+
+def test_an_unreachable_peer_when_a_phase_begins_leaves_it_failed(service, local_steps):  # noqa: F811
+    prepared(service)
+    plan = service.plan(MID, {"phase": "migrate", "options": {"auto_rollback": False}}, "admin")
+    service.peers = Unreachable()
+    job = Job(plan_id=plan.id)
+    with pytest.raises(RuntimeError, match="unreachable"):
+        service.runner()(plan, job, lambda _job: None)
+    assert record(service)["state"] == km.FAILED and local_steps == []
+    plan = service.plan(MID, {"phase": "rollback"}, "admin")
+    with pytest.raises(RuntimeError, match="unreachable"):
+        service.runner()(plan, Job(plan_id=plan.id), lambda _job: None)
+    rec = record(service)
+    assert rec["state"] == km.FAILED and km.rollback_possible(rec)
+    service.peers = Peers()
+    _plan, job = apply(service, "rollback")
+    assert job.error is None, job.error and record(service)["state"] == km.ROLLED_BACK
+
+
+def test_a_stale_return_becomes_failed_and_can_be_planned_again(service, local_steps):  # noqa: F811
+    prepared(service)
+
+    def stuck(c, updated="2020-01-01T00:00:00Z"):
+        rec = km.read_migration(c.settings)
+        km.write(c.settings, {**rec, "state": km.ROLLING_BACK, "phase": km.ROLLBACK, "stage": "standby"})
+        c.settings["kea"]["migration"]["updated_at"] = updated
+
+    service.ctx.config_store.update_cluster(lambda c: stuck(c, "2999-01-01T00:00:00Z"), "test")
+    with pytest.raises(Conflict, match="no rollback possible"):
+        service.plan(MID, {"phase": "rollback"}, "admin")
+    service.ctx.config_store.update_cluster(stuck, "test")
+    plan = service.plan(MID, {"phase": "rollback"}, "admin")
+    assert plan.changes and record(service)["state"] == km.FAILED
+    assert "interrupted" in record(service)["error"]
+    # A read of a record this node drives clears it too, so the UI offers the return.
+    service.ctx.config_store.update_cluster(stuck, "test")
+    assert service.current()["rollback_possible"] is True
+
+
+def test_the_sealed_files_go_once_the_migration_is_over(service, local_steps, monkeypatch):  # noqa: F811
+    sealed = {**json.loads(json.dumps(RESULT)), "files_sealed": "t"}
+    monkeypatch.setattr(steps, "prepare", lambda env, details: sealed)
+    prepared(service)
+    service.peers = FailingPeers(km.H_INSTALL, "target")
+    _plan, job = apply(service, "migrate")
+    assert "automatic return" in job.error
+    rec = record(service)
+    assert rec["state"] == km.ROLLED_BACK and all(n["files_sealed"] is None for n in rec["nodes"])

@@ -66,7 +66,6 @@ def test_round_trip_through_cluster_toml(tmp_path) -> None:
     assert got["stage"] is None and got["outage_seconds"] is None and got["error"] is None
     assert got["options"] == {
         "response_delay_milliseconds": None,
-        "https_sockets": False,
         "auto_rollback": None,
     }
     assert "migration" not in ClusterConfig.new("x").settings.get("kea", {})

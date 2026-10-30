@@ -5,14 +5,16 @@ helper builds and records (`plan_kea_migration`), and the helper steps it runs a
 Prepare (batch K3, design 13.4 decision 4) changes nothing Kea runs with: the target packages go
 into the package manager's cache (`apt-get install --download-only`, `dnf download`), the exact
 2.6 packages are kept for the return, the 2.6 files are saved and the converted 3.x files written
-under `<var>/kea-migration/<id>/`, never in `/etc/kea`. What holds secrets (the saved files, the
-converted ones and their TSIG secret files) stays in its `private/` directory, root only.
+aside, never in `/etc/kea`. All of it (manifest, `private/`, `packages/`) lives in root's
+`kmc.state_dir` (0700), outside the tree the service user owns; the service user's
+`<var>/kea-migration/<id>/` only holds the lease copies of the window.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -26,8 +28,11 @@ from pelagos.installer import kea_migration as km
 from pelagos.installer.jobs import Step
 from pelagos.platform.packages import isc_repo_files
 
-PRIVATE = "private"  # root only, left out when the helper gives the var tree back to pelagos
+log = logging.getLogger(__name__)
+
+PRIVATE = "private"
 MANIFEST = "manifest.json"
+SOURCES = "sources.json"  # private/: repository files this migration added, noted as soon as written
 APT_ARCHIVES = "var/cache/apt/archives"
 SAFE_NODE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _SH_CD = 'cd "$1" && shift && exec "$@"'
@@ -128,11 +133,13 @@ def _options(raw: Any) -> dict[str, Any]:
         if not isinstance(delay, int) or isinstance(delay, bool) or not 1000 <= delay <= 60000:
             raise ValueError("response_delay_milliseconds must be an integer from 1000 to 60000")
         out["response_delay_milliseconds"] = delay
-    for name in ("https_sockets", "auto_rollback"):
-        if raw.get(name) is not None:
-            if not isinstance(raw[name], bool):
-                raise ValueError(f"{name} must be true or false")
-            out[name] = raw[name]
+    if raw.get("auto_rollback") is not None:
+        if not isinstance(raw["auto_rollback"], bool):
+            raise ValueError("auto_rollback must be true or false")
+        out["auto_rollback"] = raw["auto_rollback"]
+    if raw.get("https_sockets"):
+        # Not built: kea-ctrl-agent clients get their per-daemon control-sockets by hand (warning).
+        raise ValueError("https_sockets is not available in this release: add control-sockets by hand")
     return out
 
 
@@ -493,16 +500,36 @@ def result_of(output: str) -> dict[str, Any]:
 # Prepare -------------------------------------------------------------------------------------
 
 
-def private_paths(var: Path) -> list[Path]:
-    """Every entry under the private directories of the migrations: they stay root's."""
-    out: list[Path] = []
-    for private in sorted((var / kmc.DIR).glob(f"*/{PRIVATE}")):
-        if private.is_symlink() or not private.is_dir():
-            continue
-        out.append(private)
-        for top, dirs, files in os.walk(private):
-            out += [Path(top) / n for n in (*dirs, *files)]
-    return out
+def state_dir(env: Any, migration_id: str, create: bool = False) -> Path:
+    """Root's directory of the migration (0700 root, beside the service user's tree)."""
+    mdir = kmc.state_dir(env.node_paths, migration_id)
+    if create:
+        top = mdir.parent.parent
+        if not top.is_dir():
+            top.mkdir(mode=0o755, parents=True)
+        _mkdir(mdir.parent)
+        _mkdir(mdir)
+    return mdir
+
+
+def public_dir(env: Any, migration_id: str) -> Path:
+    """The service user's directory of the migration, emptied: the lease copies of the window."""
+    pub = kmc.migration_dir(env.node_paths.var, migration_id)
+    if pub.is_symlink() or pub.is_file():
+        pub.unlink()
+    elif pub.exists():
+        shutil.rmtree(pub)
+    _mkdir(pub.parent, 0o750)
+    pub.mkdir(mode=0o750)
+    return pub
+
+
+def bare_name(name: Any) -> str:
+    """A file name of the manifest: one path component, never a way out of its directory."""
+    name = str(name or "")
+    if not name or name in (".", "..") or "/" in name or "\\" in name or "\0" in name:
+        raise ValueError(f"{name!r} is not a bare file name")
+    return name
 
 
 def _sha256(path: Path) -> str:
@@ -580,10 +607,8 @@ def _run(env: Any, argv: list[str], timeout: float = 1800) -> Any:
     return env.runner.run(argv, privileged=True, check=False, timeout=timeout)
 
 
-def add_sources(env: Any, series: str, source: str) -> list[str]:
-    """The target's repository next to the node's own (ISC Cloudsmith with its key, or Debian
-    backports), then the index refreshed; returns the files it added (removed by the return)."""
-    added: list[str] = []
+def repo_files(env: Any, series: str, source: str) -> list[Any]:
+    """The repository files a migration to (series, source) may add on this node."""
     distro = env.distro
     files = []
     if source == "isc":
@@ -602,7 +627,15 @@ def add_sources(env: Any, series: str, source: str) -> list[str]:
                     content="# pelagos:managed v1 (Debian backports, Kea migration)\n" + line,
                 )
             ]
-    for f in files:
+    return files
+
+
+def add_sources(env: Any, series: str, source: str, added: list[str] | None = None) -> list[str]:
+    """The target's repository next to the node's own (ISC Cloudsmith with its key, or Debian
+    backports), then the index refreshed; returns the files it added (removed by the return).
+    `added` receives each file as soon as it is written, so a failure later still knows it."""
+    added = [] if added is None else added
+    for f in repo_files(env, series, source):
         target = env.paths.root / f.path.relative_to("/")
         data = f.content.encode() if f.content is not None else env.t.fetch(str(f.url))
         if target.exists() and target.read_bytes() == data:
@@ -670,28 +703,31 @@ def keep_previous(env: Any, installed: dict[str, str], dest: Path) -> list[dict[
     return out
 
 
+def apt_archives(dest: Path) -> list[str]:
+    """apt options that make `dest` its package cache: apt's autoclean never reaches it."""
+    return ["-o", f"Dir::Cache::archives={dest}/", "-o", "APT::Sandbox::User=root"]
+
+
 def download_target(env: Any, packages: list[dict[str, str]], dest: Path) -> list[dict[str, str]]:
-    """The target packages at their exact versions in the package manager's cache (apt; dnf into
-    `dest`), dependencies included, so the switch needs no network. Nothing is installed."""
+    """The target packages at their exact versions in root's `dest` (apt's cache for this run, dnf's
+    destdir), dependencies included, so the switch needs no network. Nothing is installed."""
     specs = [p for p in packages if p.get("version")]
     if len(specs) != len(packages):
         raise PrepareError("a target package has no version: analyze again")
     out = []
+    _mkdir(dest)
     if env.distro.is_debian:
-        argv = ["apt-get", "install", "--download-only", "-y", "-q"]
+        _mkdir(dest / "partial")
+        argv = ["apt-get", "install", "--download-only", "-y", "-q", *apt_archives(dest)]
         res = _run(env, [*argv, *(f"{p['name']}={p['version']}" for p in specs)])
         if not res.ok:
             raise PrepareError(f"download of the target packages failed: {res.output.strip()[-400:]}")
-        cache = env.paths.root / APT_ARCHIVES
         for p in specs:
-            found = sorted(cache.glob(_deb_prefix(p["name"], p["version"]) + "*.deb"))
+            found = sorted(dest.glob(_deb_prefix(p["name"], p["version"]) + "*.deb"))
             if not found:
-                raise PrepareError(
-                    f"{p['name']} {p['version']} is not in the package cache after the download"
-                )
-            out.append({**p, "file": str(found[0]), "sha256": _sha256(found[0])})
+                raise PrepareError(f"{p['name']} {p['version']} was not downloaded")
+            out.append({**p, "file": found[0].name, "sha256": _sha256(found[0])})
     elif env.distro.is_rhel:
-        _mkdir(dest)
         argv = ["dnf", "-q", "download", "--resolve", f"--destdir={dest}"]
         res = _run(env, [*argv, *(f"{p['name']}-{p['version']}" for p in specs)])
         if not res.ok:
@@ -700,10 +736,40 @@ def download_target(env: Any, packages: list[dict[str, str]], dest: Path) -> lis
             found = sorted(dest.glob(f"{p['name']}-{p['version']}.*.rpm"))
             if not found:
                 raise PrepareError(f"{p['name']} {p['version']} was not downloaded")
-            out.append({**p, "file": str(found[0]), "sha256": _sha256(found[0])})
+            out.append({**p, "file": found[0].name, "sha256": _sha256(found[0])})
     else:
         raise PrepareError(f"no package manager for {env.distro.id}")
     return out
+
+
+def package_files(dest: Path) -> list[dict[str, str]]:
+    """Every package file of `dest` (the target and its dependencies) with its sum."""
+    return [
+        {"file": p.name, "sha256": _sha256(p)}
+        for p in sorted(dest.iterdir())
+        if p.suffix in (".deb", ".rpm") and p.is_file() and not p.is_symlink()
+    ]
+
+
+def _noted_sources(mdir: Path) -> list[str]:
+    try:
+        data = json.loads((mdir / PRIVATE / SOURCES).read_text())
+    except (OSError, ValueError):
+        return []
+    return [str(p) for p in data if isinstance(p, str)] if isinstance(data, list) else []
+
+
+def remove_sources(env: Any, names: list[str]) -> None:
+    """The repository files a failed prepare added, removed and the index refreshed."""
+    for name in names:
+        path = env.paths.root / name.lstrip("/")
+        if path.is_file() or path.is_symlink():
+            path.unlink()
+    if names:
+        try:
+            env.packages.refresh()
+        except Exception as exc:  # the next refresh catches up; the sources are gone either way
+            log.warning("package index refresh after removing %s failed: %s", names, exc)
 
 
 def _upstream(version: str) -> str:
@@ -723,12 +789,15 @@ def prepare(env: Any, details: dict[str, Any]) -> dict[str, Any]:
     engines = [e for e in node.get("engines") or [] if e in km.DAEMONS]
     if not engines:
         raise ValueError("no Kea daemon to prepare on this node")
-    mdir = kmc.migration_dir(env.node_paths.var, migration_id)
+    mdir = state_dir(env, migration_id)
+    leftover = _noted_sources(mdir)  # an earlier run of this prepare that stopped half way
     if mdir.exists():
         shutil.rmtree(mdir)  # a prepare run again starts over
-    _mkdir(mdir.parent, 0o750)
-    _mkdir(mdir)
+    state_dir(env, migration_id, create=True)
+    public_dir(env, migration_id)
     private = _mkdir(mdir / PRIVATE)
+    if leftover:
+        _write(private / SOURCES, json.dumps(leftover) + "\n")
     configs = km.read_configs(env, engines)
     absent = [e for e in engines if e not in configs]
     if absent:
@@ -753,9 +822,21 @@ def prepare(env: Any, details: dict[str, Any]) -> dict[str, Any]:
         )
     saved = save_files(env, private / "before")
     converted = write_converted(env, keep["conversions"], private / "target")
-    added = add_sources(env, series, source)
-    previous = keep_previous(env, installed, mdir / "packages" / "previous")
-    downloaded = download_target(env, target, mdir / "packages" / "target")
+    added: list[str] = list(leftover)
+    try:
+        news: list[str] = []
+        try:
+            add_sources(env, series, source, news)
+        finally:
+            added += [n for n in news if n not in added]
+            _write(private / SOURCES, json.dumps(added) + "\n")
+        previous = keep_previous(env, installed, mdir / "packages" / "previous")
+        downloaded = download_target(env, target, mdir / "packages" / "target")
+        target_files = package_files(mdir / "packages" / "target")
+    except BaseException:
+        remove_sources(env, added)
+        (private / SOURCES).unlink(missing_ok=True)
+        raise
     now = to_rfc3339(utcnow())
     versions = {e: v for e in engines if (v := _engine_version(env, e))}
     manifest = {
@@ -771,6 +852,7 @@ def prepare(env: Any, details: dict[str, Any]) -> dict[str, Any]:
         "converted": converted,
         "packages_before": previous,
         "packages_target": downloaded,
+        "target_files": target_files,
         "packages_remove": report["packages"].get("remove") or [],
         "repo_files_added": added,
         "validation": {e: v.get("mode") for e, v in report["validation"].items()},

@@ -168,6 +168,13 @@ describe('KeaMigrationWizard', () => {
     expect(screen.getByTestId('kea-wizard-error')).toHaveTextContent('kea-mig-wait-partner-down: no partner-down within 180 s')
     expect(screen.getAllByTestId('kea-wizard-time-step').map((s) => s.dataset.state)).toEqual(['reverted', 'failed', 'pending', 'done'])
     expect(screen.getByTestId('kea-wizard-prepare')).toHaveTextContent('Prepare again')
+    expect(screen.queryByTestId('kea-wizard-prepare-again')).toBeNull()
+  })
+
+  it('tells to prepare again when the kept package files went away', () => {
+    const error = '/var/lib/pelagos-helper/kea-migration/A1/packages/target/x.deb is missing: prepare this node again'
+    renderWizard({ current: record({ state: 'failed', phase: 'migrate', stage: 'standby', error, error_step: 'kea-mig-stop' }) })
+    expect(screen.getByTestId('kea-wizard-prepare-again')).toHaveTextContent('prepare the migration again')
   })
 
   it('offers the return of a migrated pair while it is possible', async () => {

@@ -13,6 +13,20 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-30, WP-INSTALLER, WP-API: Kea migration state moves to root's directory
+Global review of the Kea migration. Root's state of a migration (`manifest.json`, `private/`,
+`packages/previous`, `packages/target`) moves from `<var>/kea-migration/<id>/` to
+`Paths.kea_migration_state/<id>/` (`/var/lib/pelagos-helper/kea-migration/<id>/`, 0700 root,
+`core.kea_migration.state_dir`): the service user owns `/var/lib/pelagos`, so the switch steps no
+longer trust anything there; `<var>/kea-migration/<id>/` keeps only the lease copies. Debian target
+packages are downloaded into `packages/target` (`Dir::Cache::archives`) and installed from it;
+`manifest.json` gains `target_files`, package `file` entries are bare names; every switch step
+checks the manifest and the package sums. `kea-mig-stop` refuses before stopping Kea when the
+package files are gone. Option `https_sockets` removed from the record and the plan body (`true`:
+`400`); the wizard no longer offers it. `files_sealed` is dropped at `migrated` and `rolled_back`.
+A phase that cannot push cluster.toml, or a `migrating` / `rolling_back` record left by a stopped
+driver for 40 minutes, becomes `failed`. Nothing released used the old layout. Section 28 updated.
+
 ## 2026-10-30, WP-CORE, WP-API, WP-FRONTEND: item 81 review fixes (AppArmor probe, errno reasons, PTR cap)
 Additive. `core/permguard.py`: problems `daemon_apparmor` and `daemon_denied_apparmor` (fix field
 `apparmor`), `apparmor_profile`, `apparmor_allows_write`; `apply_error` words `ENOSPC`/`EDQUOT`

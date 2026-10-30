@@ -391,7 +391,8 @@ CATALOG: dict[str, str] = {
     "kea_migration.script_path": "{path}: run_script {file} is outside {directory}",
     "kea_migration.ctrl_agent_stop": "kea-ctrl-agent serves nothing but Pelagos: it is stopped and disabled",
     "kea_migration.ctrl_agent_clients": (
-        "kea-ctrl-agent is used by {clients}: an https control socket per daemon is proposed"
+        "kea-ctrl-agent is used by {clients}: Kea 3.2 removes it, give those clients a"
+        " control-sockets entry per daemon after the migration (not done by Pelagos)"
     ),
     "kea_migration.ctrl_agent_unverified": (
         "kea-ctrl-agent runs and no client was seen, but a periodic one cannot be ruled out"

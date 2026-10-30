@@ -301,6 +301,7 @@
     },
     "wizard": {
       "title": "Migration to Kea {{series}}",
+      "prepareAgainHint": "The files the prepare step kept on this node are gone or changed. Return if it is offered, then prepare the migration again, then migrate.",
       "updated": "Updated {{date}}",
       "steps": {
         "prepare": "Prepare",
@@ -364,7 +365,6 @@
       },
       "options": {
         "delay": "Failure detection during the migration (ms)",
-        "https": "https control socket per daemon (a client uses kea-ctrl-agent)",
         "autoRollback": "Return automatically if time 1 or 2 fails"
       },
       "action": {

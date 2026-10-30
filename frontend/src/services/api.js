@@ -363,7 +363,7 @@ export const keaMigration = {
   // {series, source, node_ids?}
   analyze: (body) => apiClient.post('/install/kea-migration/analyze', body),
   get: (id) => apiClient.get(`/install/kea-migration/${encodeURIComponent(id)}`),
-  // {phase: prepare|migrate|rollback, options?: {response_delay_milliseconds, https_sockets}}
+  // {phase: prepare|migrate|rollback, options?: {response_delay_milliseconds, auto_rollback}}
   plan: (id, body) => apiClient.post(`/install/kea-migration/${encodeURIComponent(id)}/plan`, body),
 }
 

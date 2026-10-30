@@ -301,6 +301,7 @@
     },
     "wizard": {
       "title": "Migration vers Kea {{series}}",
+      "prepareAgainHint": "Les fichiers gardés par la préparation sur ce nœud ont disparu ou changé. Revenez en arrière si c'est proposé, puis préparez de nouveau la migration, puis migrez.",
       "updated": "Mis à jour {{date}}",
       "steps": {
         "prepare": "Préparer",
@@ -364,7 +365,6 @@
       },
       "options": {
         "delay": "Détection de panne pendant la migration (ms)",
-        "https": "socket de contrôle https par démon (un client utilise kea-ctrl-agent)",
         "autoRollback": "Revenir automatiquement si le temps 1 ou 2 échoue"
       },
       "action": {

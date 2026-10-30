@@ -305,7 +305,7 @@
   "kea_migration.client_class_both": "{{path}} : client-class et client-classes dans la même portée",
   "kea_migration.config_diverged": "sur le nœud {{node}}, le fichier {{engine}} {{file}} diffère de la configuration en cours : cette analyse a lu le fichier",
   "kea_migration.control_socket": "{{path}} : control-socket devient control-sockets",
-  "kea_migration.ctrl_agent_clients": "kea-ctrl-agent est utilisé par {{clients}} : une socket de contrôle https par démon est proposée",
+  "kea_migration.ctrl_agent_clients": "kea-ctrl-agent est utilisé par {{clients}} : Kea 3.2 le retire, donnez à ces clients une entrée control-sockets par démon après la migration (Pelagos ne le fait pas)",
   "kea_migration.ctrl_agent_stop": "kea-ctrl-agent ne sert qu'à Pelagos : il est arrêté et désactivé",
   "kea_migration.ctrl_agent_unverified": "kea-ctrl-agent tourne et aucun client n'a été vu, mais un client périodique n'est pas exclu (indices : {{signs}}) : vérifier avant de l'arrêter",
   "kea_migration.d2_key_name": "{{path}} : la clé TSIG {{key}} ne peut pas nommer un fichier secret : renommer la clé",

@@ -57,10 +57,15 @@ class Host:
 
         def apt_get(argv: list[str]) -> CommandResult:
             if "--download-only" in argv:
-                self.cache.mkdir(parents=True, exist_ok=True)
+                opts = [argv[i + 1] for i, a in enumerate(argv) if a == "-o"]
+                arch = [o.split("=", 1)[1] for o in opts if o.startswith("Dir::Cache::archives=")]
+                cache = Path(arch[0]) if arch else self.cache
+                assert (cache / "partial").is_dir()
                 for spec in argv[argv.index("-q") + 1 :]:
+                    if spec == "-o" or "::" in spec:
+                        continue
                     name, version = spec.split("=", 1)
-                    (self.cache / f"{name}_{version}_amd64.deb").write_text(name)
+                    (cache / f"{name}_{version}_amd64.deb").write_text(name)
             elif "install" in argv:
                 self.installs.append(argv)
             return CommandResult(argv, 0, "Reading package lists...", "")
@@ -104,8 +109,12 @@ def test_prepare_keeps_the_2_6_side_and_writes_3_x_aside(host):
     out = kms.prepare(env, details())
     assert snapshot(env.paths.kea_conf_dir) == before  # nothing in /etc/kea changes
     assert host.installs == []  # nothing installed
-    mdir = kmc.migration_dir(env.node_paths.var, MID)
+    mdir = kmc.state_dir(env.node_paths, MID)
     assert stat.S_IMODE(mdir.stat().st_mode) == 0o700
+    assert not mdir.is_relative_to(env.node_paths.var)  # outside the service user's tree
+    assert stat.S_IMODE(mdir.parent.stat().st_mode) == 0o700
+    public = kmc.migration_dir(env.node_paths.var, MID)
+    assert public.is_dir() and not any(public.iterdir())
     private = mdir / kms.PRIVATE
     assert stat.S_IMODE(private.stat().st_mode) == 0o700
     # 2.6 files saved as they were, converted ones written aside with their TSIG secret file.
@@ -129,7 +138,10 @@ def test_prepare_keeps_the_2_6_side_and_writes_3_x_aside(host):
     assert all(p["version"] == ISC for p in out["packages_target"])
     previous = sorted(p.name for p in (mdir / "packages/previous").iterdir())
     assert "kea-dhcp4-server_2.6.3-1+deb13u1_amd64.deb" in previous
-    assert (host.cache / f"isc-kea-dhcp4_{ISC}_amd64.deb").is_file()
+    target = mdir / "packages/target"
+    assert (target / f"isc-kea-dhcp4_{ISC}_amd64.deb").is_file() and not host.cache.exists()
+    assert {f["file"] for f in manifest["target_files"]} >= {f"isc-kea-dhcp4_{ISC}_amd64.deb"}
+    assert all("/" not in p["file"] for p in manifest["packages_target"] + manifest["packages_before"])
     assert {p["name"] for p in out["packages_remove"]} >= {"kea-dhcp4-server", "kea-common"}
     assert out["rollback_ready"] is True and out["target_version"] == "3.2.1"
     assert out["from_version"] == "2.6.3"
@@ -140,17 +152,14 @@ def test_prepare_keeps_the_2_6_side_and_writes_3_x_aside(host):
         "/etc/apt/sources.list.d/isc-kea-3-2.list",
     ]
     assert "kea-3-2" in (env.paths.root / "etc/apt/sources.list.d/isc-kea-3-2.list").read_text()
-    # Private files stay root's when the helper gives the var tree back.
-    kept = kms.private_paths(env.node_paths.var)
-    assert private in kept and private / "target" / secret["file"] in kept
-    assert mdir / kms.MANIFEST not in kept
+    assert json.loads((private / kms.SOURCES).read_text()) == out["repo_files_added"]
 
 
 def test_cached_previous_package_is_copied_not_downloaded(host):
     host.cache.mkdir(parents=True)
     (host.cache / "kea-common_2.6.3-1+deb13u1_amd64.deb").write_text("cached")
     kms.prepare(host.env, details())
-    previous = kmc.migration_dir(host.env.node_paths.var, MID) / "packages/previous"
+    previous = kmc.state_dir(host.env.node_paths, MID) / "packages/previous"
     assert (previous / "kea-common_2.6.3-1+deb13u1_amd64.deb").read_text() == "cached"
     [download] = [c for c in host.env.runner.commands("sh -c") if "APT::Sandbox::User=root download" in c]
     assert "kea-common=" not in download and "kea-dhcp4-server=2.6.3-1+deb13u1" in download
@@ -176,6 +185,32 @@ def test_download_failure_and_a_newer_target_fail(host):
     host.apt.missing.add("isc-kea-dhcp4")
     with pytest.raises(kms.PrepareError, match="target packages"):
         kms.prepare(host.env, details())
+
+
+def test_a_failed_prepare_removes_the_repository_it_added(host):
+    sources = host.env.paths.root / "etc/apt/sources.list.d/isc-kea-3-2.list"
+    host.unavailable.add("kea-dhcp4-server")
+    with pytest.raises(kms.PrepareError, match="would be impossible"):
+        kms.prepare(host.env, details())
+    assert not sources.exists()
+    assert not (host.env.paths.root / "etc/apt/keyrings/isc-kea-3-2.asc").exists()
+    # A run stopped half way (no cleanup) is still known to the next prepare of the migration.
+    host.unavailable.clear()
+    real = kms.keep_previous
+    kms.keep_previous = lambda *a: (_ for _ in ()).throw(KeyboardInterrupt())
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            kms.prepare(host.env, details())
+    finally:
+        kms.keep_previous = real
+    assert not sources.exists()
+    private = kmc.state_dir(host.env.node_paths, MID) / kms.PRIVATE
+    private.mkdir(parents=True, exist_ok=True)
+    sources.parent.mkdir(parents=True, exist_ok=True)
+    sources.write_text("# pelagos:managed v1 (ISC Kea packages)\n")
+    (private / kms.SOURCES).write_text(json.dumps(["/etc/apt/sources.list.d/isc-kea-3-2.list"]))
+    out = kms.prepare(host.env, details())
+    assert "/etc/apt/sources.list.d/isc-kea-3-2.list" in out["repo_files_added"]
 
 
 def test_build_plan_archive_then_prepare_on_each_node(host):

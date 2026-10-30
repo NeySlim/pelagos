@@ -229,7 +229,7 @@ def test_leases_in_replaces_the_file_and_keeps_the_old_one(node):
     out = sw.leases_in(env, d)
     assert path.read_text() == data and not Path(f"{path}.2").exists()
     assert out["leases"]["4"]["path"] == str(path)
-    keep = kmc.migration_dir(env.node_paths.var, MID) / "private/leases4-before"
+    keep = kmc.state_dir(env.node_paths, MID) / "private/leases4-before"
     assert (keep / path.name).read_text() == HEADER + lease("192.0.2.50", 1)
     assert (keep / f"{path.name}.2").exists()
     # A copy changed after its fetch, from another node, or Kea running: refused.
@@ -246,6 +246,16 @@ def test_leases_in_replaces_the_file_and_keeps_the_old_one(node):
     env.service_manager.active.add("isc-kea-dhcp4-server.service")
     with pytest.raises(sw.SwitchError, match="stop step comes first"):
         sw.leases_in(env, d)
+    # A copy the service user turned into a link to a root file is never read.
+    env.service_manager.active.clear()
+    received(env, data)
+    mdir = kmc.migration_dir(env.node_paths.var, MID)
+    secret = env.paths.root / "secret"
+    secret.write_text(data)
+    (mdir / kmc.received_name("4")).unlink()
+    (mdir / kmc.received_name("4")).symlink_to(secret)
+    with pytest.raises(sw.SwitchError, match="cannot be read safely"):
+        sw.leases_in(env, d)
 
 
 # Delays and finish -------------------------------------------------------------------------------
@@ -256,7 +266,7 @@ def test_delays_put_the_file_back_exactly_and_wait_for_the_pair(node, monkeypatc
     monkeypatch.setattr(sw, "_sleep", lambda _s: None)
     sw.install(env, switch_details(direction="target"))
     conf = env.paths.kea_conf("kea-dhcp4")
-    mdir = kmc.migration_dir(env.node_paths.var, MID)
+    mdir = kmc.state_dir(env.node_paths, MID)
     converted = (mdir / "private/target/kea-dhcp4.conf").read_text()
     [rel] = sw.mig.ha_relationships(json.loads(conf.read_text()), "kea4")
     assert rel["max-response-delay"] == 8000
@@ -289,7 +299,7 @@ def test_return_with_short_delays_then_delays_gives_the_2_6_file_back(node, monk
 
 def test_finish_keeps_what_the_return_needs(node):
     env, _pk = node
-    mdir = kmc.migration_dir(env.node_paths.var, MID)
+    mdir = kmc.state_dir(env.node_paths, MID)
     out = sw.finish(env, switch_details())
     assert "private/target" in out["removed"] and not (mdir / "private/target").exists()
     assert (mdir / "private/before").is_dir() and any((mdir / "packages/previous").iterdir())

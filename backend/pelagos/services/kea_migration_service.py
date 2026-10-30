@@ -198,11 +198,15 @@ class KeaMigrationService:
     def current(self) -> dict[str, Any] | None:
         """The migration cluster.toml holds (section 28), as the API shows it; None when there is none."""
         from pelagos.core import kea_migration as km
+        from pelagos.services.kea_migration_phases import clear_stale
 
         settings = self.ctx.settings()
-        return km.view(
-            km.read_migration(settings), int(reg.get(settings, "kea.migration_outage_max_seconds"))
-        )
+        record = km.read_migration(settings)
+        try:
+            record = clear_stale(self, record, own_only=True)
+        except Exception:  # a read never fails on the stale check
+            log.exception("stale Kea migration check failed")
+        return km.view(record, int(reg.get(settings, "kea.migration_outage_max_seconds")))
 
     def migration(self, migration_id: str) -> dict[str, Any]:
         """GET /install/kea-migration/{id}: 404 unless it is the migration cluster.toml holds."""

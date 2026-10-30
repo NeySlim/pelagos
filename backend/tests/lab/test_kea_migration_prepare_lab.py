@@ -31,7 +31,8 @@ UNCHANGED = (
 
 
 def mdir(migration_id: str) -> str:
-    return f"/var/lib/pelagos/kea-migration/{migration_id}"
+    """Root's state of the migration, outside the tree the service user owns."""
+    return f"/var/lib/pelagos-helper/kea-migration/{migration_id}"
 
 
 class TestKeaMigrationPrepare:
@@ -89,20 +90,19 @@ class TestKeaMigrationPrepare:
             manifest = json.loads(ssh(host, f"sudo cat {d}/manifest.json")[1])
             assert manifest["series"] == "3.2" and manifest["target_version"].startswith("3.2.")
             assert manifest["validation"] == {"kea4": "dry_run", "d2": "dry_run"}, manifest["validation"]
-            perms = ssh(host, f"sudo stat -c '%a %U' {d} {d}/private {d}/private/target")[1].split()
-            assert perms == ["700", "pelagos", "700", "root", "700", "root"], perms
+            perms = ssh(host, f"sudo stat -c '%a %U' {d} {d}/private {d}/packages/target")[1].split()
+            assert perms == ["700", "root", "700", "root", "700", "root"], perms
             files = ssh(host, f"sudo ls {d}/private/before {d}/private/target")[1]
             assert "kea-dhcp4.conf" in files and "secret-0.tsig" in files, files
             d2 = json.loads(ssh(host, f"sudo cat {d}/private/target/kea-dhcp-ddns.conf")[1])
             assert all("secret" not in k for k in d2["DhcpDdns"]["tsig-keys"])
-            # The exact 2.6 packages kept as files; the target ones in apt's cache, none installed.
+            # The exact 2.6 packages kept as files; the target ones in root's cache, none installed.
             names = {p["name"]: p["version"] for p in manifest["packages_before"]}
             assert names.get("kea-dhcp4-server", "").startswith("2.6.3"), names
             for p in manifest["packages_before"]:
                 ssh(host, f"sudo test -s {d}/packages/previous/{p['file']}")
             for p in manifest["packages_target"]:
-                assert p["file"].startswith("/var/cache/apt/archives/"), p
-                ssh(host, f"sudo test -s {p['file']}")
+                ssh(host, f"sudo test -s {d}/packages/target/{p['file']}")
             assert {p["name"] for p in manifest["packages_target"]} >= {"isc-kea-dhcp4", "isc-kea-hooks"}
             installed = ssh(
                 host, "dpkg-query -W -f '${Package} ${Status}\\n' 'isc-kea*' 2>/dev/null", check=False
@@ -113,7 +113,8 @@ class TestKeaMigrationPrepare:
                 ssh(host, "test -f /etc/apt/sources.list.d/isc-kea-3-2.list && echo yes")[1].strip() == "yes"
             )
             wanted = " ".join(f"{p['name']}={p['version']}" for p in manifest["packages_target"])
-            uris = ssh(host, f"sudo apt-get install --print-uris -qq {wanted}")[1]
+            cache = f"-o Dir::Cache::archives={d}/packages/target/"
+            uris = ssh(host, f"sudo apt-get install {cache} --print-uris -qq {wanted}")[1]
             assert ".deb" not in uris, uris  # everything the install needs is in the cache
 
     def test_03_prepare_again_replaces_the_record(self):

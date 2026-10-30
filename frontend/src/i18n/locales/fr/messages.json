@@ -402,7 +402,7 @@
   "kea_migration.path_moved": "{{path}} : {{file}} passe dans {{target}}",
   "kea_migration.script_path": "{{path}} : le script run_script {{file}} est hors de {{directory}}",
   "kea_migration.ctrl_agent_stop": "kea-ctrl-agent ne sert qu'à Pelagos : il est arrêté et désactivé",
-  "kea_migration.ctrl_agent_clients": "kea-ctrl-agent est utilisé par {{clients}} : une socket de contrôle https par démon est proposée",
+  "kea_migration.ctrl_agent_clients": "kea-ctrl-agent est utilisé par {{clients}} : Kea 3.2 le retire, donnez à ces clients une entrée control-sockets par démon après la migration (Pelagos ne le fait pas)",
   "kea_migration.ctrl_agent_unverified": "kea-ctrl-agent tourne et aucun client n'a été vu, mais un client périodique n'est pas exclu (indices : {{signs}}) : vérifier avant de l'arrêter",
   "kea_migration.restrict_commands": "{{path}} : restrict-commands est écrit à true",
   "kea_migration.ha_no_listener": "{{path}} : les pairs HA passent par kea-ctrl-agent, retiré en Kea 3.2 : activer l'écoute HA dédiée (cible {{series}})",

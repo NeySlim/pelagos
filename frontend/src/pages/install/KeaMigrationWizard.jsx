@@ -120,6 +120,9 @@ function NodesTable({ migration, haLive }) {
   )
 }
 
+// The helper's refusal when the files the prepare kept went away (package cache cleaned, edited).
+const PREPARE_AGAIN = /prepare this node again/
+
 export default function KeaMigrationWizard({ current, analysis, onChange }) {
   const { t } = useTranslation(['install', 'common'])
   const { hasPermission } = usePermission()
@@ -132,7 +135,6 @@ export default function KeaMigrationWizard({ current, analysis, onChange }) {
   const [building, setBuilding] = useState(null)
   const [error, setError] = useState(null)
   const [autoRollback, setAutoRollback] = useState(true)
-  const [httpsSockets, setHttpsSockets] = useState(false)
   const [delay, setDelay] = useState('')
   useEffect(() => {
     setMigration(current || null)
@@ -161,7 +163,6 @@ export default function KeaMigrationWizard({ current, analysis, onChange }) {
   const step = wizardStep(migration)
   const states = useMemo(() => wizardStates(migration), [migration])
   const times = useMemo(() => timeline(migration), [migration])
-  const ctrlAgentClients = (analysis?.findings || []).some((f) => f.code === 'ctrl_agent_clients')
   const series = migration?.series || analysis?.series
   const fromSeries = migration?.from_series || '2.6'
 
@@ -171,7 +172,6 @@ export default function KeaMigrationWizard({ current, analysis, onChange }) {
     if (phase === 'prepare') {
       const ms = Number.parseInt(delay, 10)
       if (delay !== '' && Number.isFinite(ms)) options.response_delay_milliseconds = ms
-      if (ctrlAgentClients) options.https_sockets = httpsSockets
     }
     if (phase === 'migrate') options.auto_rollback = autoRollback
     setBuilding(phase)
@@ -278,6 +278,9 @@ export default function KeaMigrationWizard({ current, analysis, onChange }) {
           <span>
             {migration.error_step && <span className="font-mono">{migration.error_step}: </span>}
             {migration.error}
+            {PREPARE_AGAIN.test(migration.error) && (
+              <span className="block" data-testid="kea-wizard-prepare-again">{t('keaMigration.wizard.prepareAgainHint')}</span>
+            )}
           </span>
         </p>
       )}
@@ -299,12 +302,6 @@ export default function KeaMigrationWizard({ current, analysis, onChange }) {
                 data-testid="kea-wizard-delay"
               />
             </label>
-            {ctrlAgentClients && (
-              <label className="flex items-center gap-2 text-xs text-text-secondary">
-                <input type="checkbox" checked={httpsSockets} onChange={(e) => setHttpsSockets(e.target.checked)} data-testid="kea-wizard-https" />
-                {t('keaMigration.wizard.options.https')}
-              </label>
-            )}
             {action('prepare', migration?.state === 'prepared' || migration?.state === 'rolled_back' ? t('keaMigration.wizard.action.prepareAgain') : t('keaMigration.wizard.action.prepare'), Package)}
           </div>
         )}

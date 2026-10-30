@@ -17,6 +17,7 @@ import json
 import os
 import posixpath
 import shutil
+import stat
 import tempfile
 import time
 from pathlib import Path
@@ -56,14 +57,75 @@ def _sleep(seconds: float) -> None:
 
 
 def _mdir(env: Any, details: dict[str, Any]) -> Path:
-    mdir = kmc.migration_dir(env.node_paths.var, str(details.get("migration_id") or ""))
+    """Root's directory of the migration (kmc.state_dir), with its manifest."""
+    mdir = kmc.state_dir(env.node_paths, str(details.get("migration_id") or ""))
     if not (mdir / "manifest.json").is_file():
         raise SwitchError(f"{mdir} has no manifest: prepare this node again")
     return mdir
 
 
-def _manifest(mdir: Path) -> dict[str, Any]:
-    return json.loads((mdir / "manifest.json").read_text())
+def _public(env: Any, details: dict[str, Any]) -> Path:
+    """The service user's directory of the migration: lease copies only, never trusted."""
+    return kmc.migration_dir(env.node_paths.var, str(details.get("migration_id") or ""))
+
+
+def _inside(path: Any, top: Path) -> Path:
+    p = Path(str(path or ""))
+    if not p.is_absolute() or ".." in p.parts or not p.is_relative_to(top) or p == top:
+        raise SwitchError(f"the manifest names {path!r} outside {top}: prepare this node again")
+    return p
+
+
+def _manifest(env: Any, mdir: Path) -> dict[str, Any]:
+    """The manifest the prepare step wrote, every name and destination in it checked: package and
+    converted files are bare names, every file it puts back or writes is under the Kea directory."""
+    from pelagos.installer.kea_migration_steps import bare_name, repo_files
+
+    try:
+        data = json.loads((mdir / "manifest.json").read_text())
+    except (OSError, ValueError) as exc:
+        raise SwitchError(f"the manifest of this node is unreadable ({exc}): prepare it again") from None
+    if not isinstance(data, dict):
+        raise SwitchError("the manifest of this node is not an object: prepare it again")
+    conf_dir = env.paths.kea_conf_dir
+    conv = data.get("converted") or {}
+    try:
+        for key in ("packages_before", "packages_target", "target_files"):
+            for item in data.get(key) or []:
+                bare_name(item.get("file"))
+        for item in [*(conv.get("files") or []), *(conv.get("secrets") or [])]:
+            bare_name(item.get("file"))
+    except (ValueError, AttributeError) as exc:
+        raise SwitchError(f"the manifest names a file outside its directory ({exc}): prepare again") from None
+    for item in [*(conv.get("files") or []), *(conv.get("secrets") or []), *(data.get("saved") or [])]:
+        _inside(item.get("path"), conf_dir)
+    allowed = {str(f.path) for f in repo_files(env, str(data.get("series")), str(data.get("source")))}
+    for name in data.get("repo_files_added") or []:
+        if name not in allowed:
+            raise SwitchError(f"the manifest names {name!r}, not a repository file of this migration")
+    return data
+
+
+def _checked_file(path: Path, sha256: Any) -> Path:
+    """`path` as the prepare noted it (sum checked), else a SwitchError telling to prepare again."""
+    from pelagos.installer.kea_migration_steps import _sha256
+
+    if path.is_symlink() or not path.is_file():
+        raise SwitchError(f"{path} is missing: prepare this node again")
+    if not sha256 or _sha256(path) != sha256:
+        raise SwitchError(f"{path} changed since the prepare: prepare this node again")
+    return path
+
+
+def check_packages(mdir: Path, manifest: dict[str, Any], directions: tuple[str, ...]) -> None:
+    """The package files the next install needs are there with the sums the prepare noted; checked
+    before any Kea stops, so a node whose files went away stops nothing."""
+    if "previous" in directions:
+        for p in manifest.get("packages_before") or []:
+            _checked_file(mdir / "packages" / "previous" / p["file"], p.get("sha256"))
+    if "target" in directions:
+        for p in manifest.get("target_files") or manifest.get("packages_target") or []:
+            _checked_file(mdir / "packages" / "target" / p["file"], p.get("sha256"))
 
 
 def _state(mdir: Path) -> dict[str, Any]:
@@ -109,6 +171,9 @@ def stop(env: Any, details: dict[str, Any]) -> dict[str, Any]:
     """`kea-mig-stop`: every Kea unit of the node stopped (kea-ctrl-agent too); what was active and
     enabled before the migration is noted for the return."""
     mdir = _mdir(env, details)
+    manifest = _manifest(env, mdir)
+    back = details.get("phase") == kmc.ROLLBACK or "finished_at" in _state(mdir)
+    check_packages(mdir, manifest, ("previous",) if back else ("previous", "target"))
     units = kea_units(env)
     before = {}
     for unit in units:
@@ -172,7 +237,6 @@ def export_leases(env: Any, mdir: Path, migration_id: str, engines: list[str]) -
     """With Kea stopped: each lease file and its `.2` / `.1` leftovers compacted by kea-lfc (merged
     as Kea would read them when kea-lfc is missing), the result left at the copy the partner
     fetches (`leases<family>.csv`, 0600). Returns {family: {"sha256","size","source"}}."""
-    from pelagos.installer.kea_migration_steps import _sha256
 
     out: dict[str, Any] = {}
     for engine in engines:
@@ -193,14 +257,68 @@ def export_leases(env: Any, mdir: Path, migration_id: str, engines: list[str]) -
         _concat(parts, merged)
         result = _lfc(env, family, work, merged) or merged
         copy = kmc.lease_copy_path(env.node_paths.var, migration_id, family)
-        tmp = copy.with_name(f".{copy.name}.part")
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(fd, "wb") as f, result.open("rb") as src:
-            shutil.copyfileobj(src, f)
-        os.replace(tmp, copy)
+        with result.open("rb") as src:
+            data = src.read()
+        _public_write(env, migration_id, copy.name, data)
         shutil.rmtree(work, ignore_errors=True)
-        out[family] = {"sha256": _sha256(copy), "size": copy.stat().st_size, "source": str(path)}
+        digest = hashlib.sha256(data).hexdigest()
+        out[family] = {"sha256": digest, "size": len(data), "source": str(path)}
     return out
+
+
+def _public_fd(env: Any, migration_id: str) -> int:
+    """The service user's migration directory opened without following a link at any level."""
+    fd = os.open(env.node_paths.var, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for name in (kmc.DIR, kmc.migration_dir(env.node_paths.var, migration_id).name):
+            try:
+                os.mkdir(name, 0o750, dir_fd=fd)
+            except FileExistsError:
+                pass
+            nxt = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+    except OSError:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _public_write(env: Any, migration_id: str, name: str, data: bytes) -> None:
+    fd = _public_fd(env, migration_id)
+    try:
+        tmp = f".{name}.part"
+        try:
+            os.unlink(tmp, dir_fd=fd)
+        except FileNotFoundError:
+            pass
+        out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+        with os.fdopen(out, "wb") as f:
+            f.write(data)
+        os.replace(tmp, name, src_dir_fd=fd, dst_dir_fd=fd)
+    finally:
+        os.close(fd)
+
+
+def _public_read(env: Any, migration_id: str, name: str) -> bytes | None:
+    """A file of the service user's migration directory, None when absent; a link is refused."""
+    try:
+        fd = _public_fd(env, migration_id)
+    except OSError:
+        return None
+    try:
+        try:
+            f = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise SwitchError(f"{name} cannot be read safely: {exc}") from None
+        with os.fdopen(f, "rb") as src:
+            if not stat.S_ISREG(os.fstat(src.fileno()).st_mode):
+                raise SwitchError(f"{name} is not a regular file")
+            return src.read()
+    finally:
+        os.close(fd)
 
 
 def _lfc(env: Any, family: str, work: Path, merged: Path) -> Path | None:
@@ -217,10 +335,11 @@ def _lfc(env: Any, family: str, work: Path, merged: Path) -> Path | None:
     return prev if lines and lines[0].startswith(LEASE_HEADER) else None
 
 
-def received_meta(mdir: Path, family: str) -> dict[str, Any]:
+def received_meta(env: Any, migration_id: str, family: str) -> dict[str, Any]:
     try:
-        data = json.loads((mdir / kmc.received_meta_name(family)).read_text())
-    except (OSError, ValueError):
+        raw = _public_read(env, migration_id, kmc.received_meta_name(family))
+        data = json.loads(raw) if raw is not None else {}
+    except (SwitchError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -229,9 +348,8 @@ def leases_in(env: Any, details: dict[str, Any]) -> dict[str, Any]:
     """`kea-mig-leases-in`: the partner's lease copy fetched by this node's service (sum checked again
     against what the fetch noted) replaces this node's lease file and its `.1` / `.2` leftovers,
     which go to the migration's private directory. Kea must be stopped here."""
-    from pelagos.installer.kea_migration_steps import _sha256
-
     mdir = _mdir(env, details)
+    migration_id = str(details.get("migration_id") or "")
     _all_stopped(env)
     source = str(details.get("from_node") or "")
     engines = [e for e in details.get("engines") or [] if e in FAMILY_OF]
@@ -241,19 +359,20 @@ def leases_in(env: Any, details: dict[str, Any]) -> dict[str, Any]:
         family = FAMILY_OF[engine]
         if family not in families:
             continue
-        copy = mdir / kmc.received_name(family)
-        meta = received_meta(mdir, family)
-        if not copy.is_file() or copy.is_symlink():
+        # Read once through a link-free path: what is checked is what is installed.
+        data = _public_read(env, migration_id, kmc.received_name(family))
+        meta = received_meta(env, migration_id, family)
+        if data is None:
             if meta.get("skipped"):
                 out[family] = {"skipped": meta["skipped"]}
                 continue
             raise SwitchError(f"no lease copy for DHCPv{family} fetched from the partner")
         if meta.get("from_node") != source:
             raise SwitchError(f"the DHCPv{family} lease copy does not come from {source}")
-        digest = _sha256(copy)
-        if digest != meta.get("sha256") or copy.stat().st_size != meta.get("size"):
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != meta.get("sha256") or len(data) != meta.get("size"):
             raise SwitchError(f"the DHCPv{family} lease copy changed since it was fetched")
-        if not _lines(copy)[:1] or not _lines(copy)[0].startswith(LEASE_HEADER):
+        if not data.startswith(LEASE_HEADER.encode()):
             raise SwitchError(f"the DHCPv{family} lease copy is not a Kea lease file")
         path = lease_file(env, engine)
         if path is None:
@@ -272,9 +391,9 @@ def leases_in(env: Any, details: dict[str, Any]) -> dict[str, Any]:
                 shutil.copy2(old, keep / old.name)
             if old != path and (old.is_file() or old.is_symlink()):
                 old.unlink()
-        _write_like(path, copy.read_bytes(), mode, uid, gid)
+        _write_like(path, data, mode, uid, gid)
         env.relabel([path])
-        out[family] = {"path": str(path), "sha256": digest, "size": copy.stat().st_size}
+        out[family] = {"path": str(path), "sha256": digest, "size": len(data)}
     return {"leases": out}
 
 
@@ -533,11 +652,15 @@ def install_target_packages(env: Any, manifest: dict[str, Any], mdir: Path) -> s
     remove = [p["name"] for p in manifest.get("packages_remove") or [] if p.get("name")]
     target_names = {p["name"] for p in target}
     remove = [n for n in remove if n not in target_names]
+    check_packages(mdir, manifest, ("target",))
+    folder = mdir / "packages" / "target"
     if env.distro.is_debian:
+        from pelagos.installer.kea_migration_steps import apt_archives
+
         specs = [f"{p['name']}={p['version']}" for p in target]
-        res = _apt(env, ["install", *specs, *(f"{n}-" for n in remove)])
+        res = _apt(env, [*apt_archives(folder), "install", *specs, *(f"{n}-" for n in remove)])
     elif env.distro.is_rhel:
-        files = [str(Path(p["file"])) for p in target]
+        files = [str(folder / p["file"]) for p in target]
         res = env.runner.run(
             ["dnf", "-y", "-q", "--allowerasing", "--disablerepo=*", "install", *files],
             privileged=True,
@@ -567,12 +690,8 @@ def install_previous_packages(env: Any, manifest: dict[str, Any], mdir: Path) ->
     keep = {p["name"] for p in previous}
     installed = km.installed_packages(env.runner, env.distro)
     extra = sorted(n for n in installed if n not in keep)
-    files = []
-    for p in previous:
-        path = mdir / "packages" / "previous" / p["file"]
-        if not path.is_file():
-            raise SwitchError(f"{path} is missing: the return needs the kept package")
-        files.append(path)
+    check_packages(mdir, manifest, ("previous",))
+    files = [mdir / "packages" / "previous" / p["file"] for p in previous]
     if env.distro.is_debian:
         res = _apt(
             env, ["--allow-downgrades", "install", *(str(f) for f in files), *(f"{n}-" for n in extra)]
@@ -882,7 +1001,7 @@ def install(env: Any, details: dict[str, Any]) -> dict[str, Any]:
     profiles, stat overrides and directory modes back, checked by the 2.6 daemons."""
     direction = details.get("direction")
     mdir = _mdir(env, details)
-    manifest = _manifest(mdir)
+    manifest = _manifest(env, mdir)
     _all_stopped(env)
     engines = [e for e in manifest.get("engines") or [] if e in km.DAEMONS]
     out: list[str] = []

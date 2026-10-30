@@ -20,7 +20,7 @@ from typing import Any
 from pelagos.domain.common import to_rfc3339, utcnow
 from pelagos.domain.messages import Message, msg
 
-DIR = "kea-migration"  # under the node's var dir, 0700 pelagos
+DIR = "kea-migration"  # under the node's var dir: lease copies only (root state: state_dir)
 ID_RE = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
 FAMILIES = ("4", "6")
 
@@ -191,7 +191,6 @@ def read_migration(settings: dict[str, Any] | None) -> dict[str, Any] | None:
         else None,
         "options": {
             "response_delay_milliseconds": _int(options.get("response_delay_milliseconds")),
-            "https_sockets": bool(options.get("https_sockets", False)),
             "auto_rollback": options.get("auto_rollback")
             if isinstance(options.get("auto_rollback"), bool)
             else None,
@@ -313,6 +312,14 @@ def migration_dir(var: Path, migration_id: str) -> Path:
     if not ID_RE.match(migration_id):
         raise MigrationStateError(f"invalid migration id {migration_id!r}")
     return var / DIR / migration_id
+
+
+def state_dir(paths: Any, migration_id: str) -> Path:
+    """Root's directory of a migration on a node (0700 root): manifest, `private/`, `packages/`.
+    `migration_dir` (the service user's) only holds the lease copies served and received."""
+    if not ID_RE.match(migration_id):
+        raise MigrationStateError(f"invalid migration id {migration_id!r}")
+    return Path(paths.kea_migration_state) / migration_id
 
 
 def lease_copy_path(var: Path, migration_id: str, family: str) -> Path:

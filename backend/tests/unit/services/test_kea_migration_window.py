@@ -96,6 +96,7 @@ def test_the_whole_migration_measures_the_outage(driver, monkeypatch):
     assert (rec["state"], rec["stage"]) == (km.MIGRATED, "done")
     assert rec["outage_started_at"] and isinstance(rec["outage_seconds"], float)
     assert km.rollback_possible(rec) and all(n["status"] == "done" for n in rec["nodes"])
+    assert all(n["files_sealed"] is None for n in rec["nodes"])
     standby = next(n for n in rec["nodes"] if n["node_id"] == "node-b")
     assert standby["ha_state"] == "hot-standby"
     steps_audit = [e for e in driver.ctx.audit_log.read() if e.action == "kea.migration.step"]

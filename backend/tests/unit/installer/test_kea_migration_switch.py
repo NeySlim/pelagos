@@ -160,7 +160,7 @@ def test_stop_notes_the_units_once(node):
     assert sorted(out["stopped"]) == ["kea-ctrl-agent.service", "kea-dhcp4-server.service"]
     assert not services.active
     sw.stop(env, switch_details())  # again (the return): the first notes stay
-    state = sw._state(kmc.migration_dir(env.node_paths.var, MID))
+    state = sw._state(kmc.state_dir(env.node_paths, MID))
     assert state["units_before"]["kea-dhcp4-server.service"] == {"active": True, "enabled": True}
 
 
@@ -198,6 +198,65 @@ def test_install_target_then_previous_gives_the_2_6_side_back(node):
     assert not (env.paths.root / "etc/apt/sources.list.d/isc-kea-3-2.list").exists()
 
 
+def rewrite_manifest(env, change) -> None:
+    path = kmc.state_dir(env.node_paths, MID) / "manifest.json"
+    data = json.loads(path.read_text())
+    change(data)
+    path.write_text(json.dumps(data))
+
+
+@pytest.mark.parametrize(
+    "change, message",
+    [
+        (lambda m: m["converted"]["files"][0].update(path="/etc/cron.d/x"), "outside"),
+        (lambda m: m["converted"]["files"][0].update(file="../../../../etc/shadow"), "bare file name"),
+        (
+            lambda m: m["converted"]["secrets"].append({"path": "/root/.ssh/authorized_keys", "file": "s"}),
+            "outside",
+        ),
+        (lambda m: m["saved"][0].update(path="/etc/kea/../passwd"), "outside"),
+        (lambda m: m["packages_before"][0].update(file="../evil.deb"), "bare file name"),
+        (lambda m: m["repo_files_added"].append("/etc/passwd"), "not a repository file"),
+    ],
+)
+def test_a_manifest_pointing_outside_the_kea_directory_is_refused(node, change, message):
+    env, pk = node
+    rewrite_manifest(env, change)
+    with pytest.raises(sw.SwitchError, match=message):
+        sw.install(env, switch_details(direction="target"))
+    with pytest.raises(sw.SwitchError, match=message):
+        sw.stop(env, switch_details())
+    assert pk.apt == []
+
+
+def test_stop_refuses_before_stopping_when_a_kept_package_went_away(node):
+    env, pk = node
+    services = env.service_manager
+    services.units.add("kea-dhcp4-server.service")
+    services.active.add("kea-dhcp4-server.service")
+    mdir = kmc.state_dir(env.node_paths, MID)
+    deb = next((mdir / "packages/target").glob("isc-kea-dhcp4_*.deb"))
+    deb.unlink()
+    with pytest.raises(sw.SwitchError, match="prepare this node again"):
+        sw.stop(env, switch_details())
+    assert "kea-dhcp4-server.service" in services.active  # nothing stopped
+    # The return needs only the 2.6 packages; one changed since the prepare is refused too.
+    sw.stop(env, switch_details(phase="rollback"))
+    prev = next((mdir / "packages/previous").glob("kea-dhcp4-server_*.deb"))
+    prev.write_text("other")
+    with pytest.raises(sw.SwitchError, match="changed since the prepare"):
+        sw.install(env, switch_details(direction="previous"))
+    assert pk.apt == []
+
+
+def test_target_packages_come_from_roots_migration_cache(node):
+    env, pk = node
+    sw.install(env, switch_details(direction="target"))
+    [apt] = pk.apt
+    folder = kmc.state_dir(env.node_paths, MID) / "packages/target"
+    assert f"Dir::Cache::archives={folder}/" in apt
+
+
 def test_install_refuses_while_kea_runs_and_a_changed_file(node):
     env, pk = node
     env.service_manager.units.add("kea-dhcp4-server.service")
@@ -205,7 +264,7 @@ def test_install_refuses_while_kea_runs_and_a_changed_file(node):
     with pytest.raises(sw.SwitchError, match="stop step comes first"):
         sw.install(env, switch_details(direction="target"))
     env.service_manager.active.clear()
-    target = kmc.migration_dir(env.node_paths.var, MID) / "private/target/kea-dhcp4.conf"
+    target = kmc.state_dir(env.node_paths, MID) / "private/target/kea-dhcp4.conf"
     target.write_text(target.read_text() + " ")
     with pytest.raises(sw.SwitchError, match="changed since the prepare"):
         sw.install(env, switch_details(direction="target"))

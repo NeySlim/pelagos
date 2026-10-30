@@ -117,6 +117,12 @@ class Paths:
         the service user's tree, never inside it: nothing there may be owned or moved by pelagos."""
         return self.var.parent / "pelagos-helper" / "upgrade"
 
+    @property
+    def kea_migration_state(self) -> Path:
+        """Root's Kea migration state (section 28): manifests, saved files, kept packages. Beside the
+        service user's tree like `upgrade_dir`: the switch steps trust nothing pelagos can rewrite."""
+        return self.var.parent / "pelagos-helper" / "kea-migration"
+
     def ensure(self) -> None:
         """Create the writable tree with private modes; never touches /opt."""
         for d, mode in ((self.etc, 0o750), (self.var, 0o750), (self.run, 0o750)):

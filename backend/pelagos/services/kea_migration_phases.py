@@ -11,6 +11,7 @@ measured and bounded by `kea.migration_outage_max_seconds`), time 3 and the retu
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from datetime import timedelta
@@ -41,6 +42,11 @@ ENGINES = ("kea4", "kea6", "d2")
 ROLE_ORDER = {"backup": 0, "standby": 1, "primary": 2, "single": 3}
 # A prepare record nobody updated for this long was left by a driver that stopped: it may be planned again.
 STALE_PREPARE = timedelta(hours=2)
+# A migrate or return no job of this process runs: past this bound (longer than any helper step, the
+# package install's 1800 s included) it was interrupted and becomes failed, so it can be returned.
+STALE_SWITCH = timedelta(minutes=40)
+_running: set[str] = set()  # migration ids a PhaseRunner of this process is running
+_running_lock = threading.Lock()
 
 
 def plan_phase(service: Any, migration_id: str, body: dict[str, Any], actor: str) -> Plan:
@@ -135,7 +141,7 @@ def switch_request(record: dict[str, Any], phase: str, options: dict[str, Any]) 
 
 def _plan_switch(service: Any, migration_id: str, phase: str, body: dict[str, Any], actor: str) -> Plan:
     settings = service.ctx.settings()
-    record = km.read_migration(settings)
+    record = clear_stale(service, km.read_migration(settings))
     if record is None or record["id"] != migration_id:
         raise NotFound(f"no Kea migration {migration_id}")
     why = km.phase_allowed(record, phase)
@@ -164,6 +170,40 @@ def _build(service: Any, request: dict[str, Any], actor: str) -> Plan:
             raise ServiceError("engine_unavailable", str(exc)) from None
         raise ValidationError(str(exc)) from None
     return service.ctx.plan_store.put(plan)
+
+
+def clear_stale(
+    service: Any, current: dict[str, Any] | None, own_only: bool = False
+) -> dict[str, Any] | None:
+    """A migrate or return left by a driver that stopped (no job of this process runs it, no progress
+    for STALE_SWITCH) becomes failed, from where it is returned; a stale prepare, prepare_failed.
+    `own_only` (a read): only a record this node drives, never one a running peer may still move."""
+    if current is None:
+        return current
+    if own_only and current.get("driver") != service.ctx.node.id:
+        return current
+    if current["state"] not in (km.MIGRATING, km.ROLLING_BACK):
+        return _clear_stale(service, current)
+    with _running_lock:
+        if current["id"] in _running:
+            return current
+    try:
+        updated = from_rfc3339(current["updated_at"] or "")
+    except (TypeError, ValueError):
+        return current
+    if utcnow() - updated < STALE_SWITCH:
+        return current
+    error = f"the {current['phase'] or 'migrate'} phase was interrupted (no progress for 40 minutes)"
+    state = current["state"]
+
+    def mutate(cluster: Any) -> None:
+        now = km.read_migration(cluster.settings)
+        if now is None or now["id"] != current["id"] or now["state"] != state:
+            return
+        km.move(cluster.settings, km.FAILED, error=error, finished_at=to_rfc3339(utcnow()))
+
+    service.ctx.config_store.update_cluster(mutate, updated_by=f"node:{service.ctx.node.id}")
+    return km.read_migration(service.ctx.settings())
 
 
 def _clear_stale(service: Any, current: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -219,7 +259,7 @@ class PhaseRunner:
 
     def _start(self, plan: Plan, base: dict[str, Any], nodes: list[dict[str, Any]]) -> None:
         now = to_rfc3339(utcnow())
-        defaults = {"response_delay_milliseconds": None, "https_sockets": False, "auto_rollback": None}
+        defaults = {"response_delay_milliseconds": None, "auto_rollback": None}
         defaults.update(base.get("options") or {})
 
         def mutate(settings: dict[str, Any]) -> None:
@@ -282,6 +322,24 @@ class PhaseRunner:
         for c in changes:
             node = dict((c.after.get("details") or {}).get("node") or {})
             nodes.setdefault(c.node_ids[0], {"node_id": c.node_ids[0], **node})
+        migration_id = str(base.get("migration_id") or "")
+        with _running_lock:
+            _running.add(migration_id)
+        try:
+            return self._phase(plan, base, changes, nodes, job, progress)
+        finally:
+            with _running_lock:
+                _running.discard(migration_id)
+
+    def _phase(
+        self,
+        plan: Plan,
+        base: dict[str, Any],
+        changes: list[Change],
+        nodes: dict[str, dict[str, Any]],
+        job: Job,
+        progress: Callable[[Job], None],
+    ) -> dict[str, Any]:
         phase = base.get("phase")
         if phase == km.MIGRATE:
             return self._migrate(plan, base, changes, nodes, job, progress)
@@ -339,7 +397,13 @@ class PhaseRunner:
 
         self._update(mutate)
         record = km.read_migration(self.ctx.settings())
-        self._push(record["nodes"])
+        try:
+            self._push(record["nodes"])
+        except Exception as exc:
+            # Nothing ran yet: failed, from where the phase is planned again or returned.
+            self._failed_step = None
+            self._fail(f"cluster.toml not pushed: {exc}", None)
+            raise
         return record
 
     def _fail(self, error: str, step: str | None) -> None:
@@ -382,7 +446,7 @@ class PhaseRunner:
         def done(settings: dict[str, Any]) -> None:
             current = km.read_migration(settings)
             for node in current["nodes"]:
-                node.update(status="done", finished_at=now)
+                node.update(status="done", finished_at=now, files_sealed=None)
             km.write(settings, current)
             km.move(settings, km.MIGRATED, stage="done", finished_at=now)
 
@@ -433,6 +497,7 @@ class PhaseRunner:
         def mutate(settings: dict[str, Any]) -> None:
             current = km.read_migration(settings)
             for node in current["nodes"]:
+                node["files_sealed"] = None
                 if node["node_id"] in back:
                     node.update(status="rolled_back", to_version=node["from_version"])
             km.write(settings, current)

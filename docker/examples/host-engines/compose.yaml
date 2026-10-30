@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: Apache-2.0
+# Pelagos node alone, managing the BIND and Kea that already run on the Docker host (Debian or
+# Ubuntu layout: /etc/bind, /var/cache/bind, /etc/kea, /run/kea). Kea 3.x on the host.
+# Guide: docs/user/docker.md (section "Node with the host BIND and Kea").
+#
+#   cp .env.example .env                      # set the host ids: getent group bind _kea; id -u bind
+#   export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"; echo "$PELAGOS_ADMIN_PASSWORD"
+#   docker compose up -d
+#   docker compose exec pelagos pelagos import --dry-run
+#   docker compose exec pelagos pelagos import --yes
+
+name: pelagos
+
+x-pelagos-common: &pelagos-common
+  image: ${PELAGOS_IMAGE:-ghcr.io/neyslim/pelagos:0.3.1}
+  # Host network: rndc, the statistics channel and DNS queries reach named on 127.0.0.1 like
+  # on a packaged node; 8443 and 8444 open directly on the host.
+  network_mode: host
+  environment: &pelagos-env
+    PELAGOS_NODE_NAME: ${PELAGOS_NODE_NAME:-ns1}
+    PELAGOS_WEB_URL: ${PELAGOS_WEB_URL:-}
+    PELAGOS_REPLICATION_URL: ${PELAGOS_REPLICATION_URL:-}
+    # Numeric ids of the host: group and user of named, group of the Kea daemons.
+    PELAGOS_BIND_GID: ${PELAGOS_BIND_GID:?set the gid of the host bind group}
+    PELAGOS_BIND_UID: ${PELAGOS_BIND_UID:?set the uid of the host bind user}
+    PELAGOS_KEA_GID: ${PELAGOS_KEA_GID:?set the gid of the host _kea group}
+    # The daemons belong to the host: the installer reloads them (rndc, control sockets) and
+    # never starts, stops or restarts a service.
+    PELAGOS_EXTERNAL_ENGINES: "1"
+  volumes:
+    - pelagos-etc:/etc/pelagos
+    - pelagos-var:/var/lib/pelagos
+    - pelagos-run:/run/pelagos
+    # The host directories of the engines, at the same paths.
+    - /etc/bind:/etc/bind
+    - /var/cache/bind:/var/cache/bind
+    - /var/lib/bind:/var/lib/bind
+    - /etc/kea:/etc/kea
+    - /run/kea:/run/kea
+    - /var/lib/kea:/var/lib/kea:ro
+
+services:
+  pelagos-init:
+    <<: *pelagos-common
+    # One shot: group and modes of the engine directories, "pelagos init" on the first start.
+    command: ["init"]
+    restart: "no"
+    environment:
+      <<: *pelagos-env
+      PELAGOS_ADMIN_PASSWORD: ${PELAGOS_ADMIN_PASSWORD:-}
+      PELAGOS_ADMIN_PASSWORD_FILE: ${PELAGOS_ADMIN_PASSWORD_FILE:-}
+
+  pelagos:
+    <<: *pelagos-common
+    command: ["serve"]
+    restart: unless-stopped
+    depends_on:
+      pelagos-init:
+        condition: service_completed_successfully
+
+  pelagos-collector:
+    <<: *pelagos-common
+    command: ["collector"]
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+    depends_on:
+      pelagos-init:
+        condition: service_completed_successfully
+
+volumes:
+  pelagos-etc:
+  pelagos-var:
+  pelagos-run:

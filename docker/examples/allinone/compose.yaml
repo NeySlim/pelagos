@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: Apache-2.0
+# Pelagos all-in-one: BIND 9, Kea 3.2 and the Pelagos node in one container.
+# Guide: docs/user/docker.md (section "All-in-one, one node").
+#
+# First start (the admin password reaches the one-shot init only):
+#   cp .env.example .env                      # node name and URLs
+#   export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"; echo "$PELAGOS_ADMIN_PASSWORD"
+#   docker compose run --rm -e PELAGOS_ADMIN_PASSWORD pelagos init
+#   docker compose up -d
+#   docker compose exec pelagos pelagos import --engines bind,kea4,d2 --yes
+
+name: pelagos
+
+services:
+  pelagos:
+    image: ghcr.io/neyslim/pelagos-allinone:${PELAGOS_VERSION:-0.3.1}
+    # DHCP answers broadcasts and relays on the LAN: the container shares the host network.
+    # It takes 53 (DNS), 67/udp and 547/udp (DHCP), 8443 (UI and API) and 8444 (replication) on
+    # the host; 8001/tcp when a Kea HA relationship is set up.
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      PELAGOS_NODE_NAME: ${PELAGOS_NODE_NAME:-ns1}
+      PELAGOS_WEB_URL: ${PELAGOS_WEB_URL:-}
+      PELAGOS_REPLICATION_URL: ${PELAGOS_REPLICATION_URL:-}
+      # "true" also starts kea-dhcp6 (add kea6 to the import).
+      KEA_DHCP6: ${KEA_DHCP6:-false}
+    volumes:
+      - pelagos-etc:/etc/pelagos
+      - pelagos-var:/var/lib/pelagos
+      - bind-etc:/etc/bind
+      - bind-cache:/var/cache/bind
+      - kea-etc:/etc/kea
+      - kea-leases:/var/lib/kea
+    # The image checks https://127.0.0.1:8443/api/v1/health every 30 s.
+
+volumes:
+  pelagos-etc:
+  pelagos-var:
+  bind-etc:
+  bind-cache:
+  kea-etc:
+  kea-leases:

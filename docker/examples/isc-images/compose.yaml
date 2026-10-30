@@ -1,0 +1,155 @@
+# SPDX-License-Identifier: Apache-2.0
+# Pelagos node next to the official ISC images: BIND 9.20, Kea DHCPv4, DHCPv6 (profile dhcpv6)
+# and kea-dhcp-ddns as separate services. amd64 only (the ISC images have no arm64 build).
+# Guide: docs/user/docker.md (section "Node with the ISC BIND and Kea images").
+#
+# First start:
+#   cp .env.example .env                      # node name, URLs, ports
+#   export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"; echo "$PELAGOS_ADMIN_PASSWORD"
+#   docker compose up -d                      # pelagos-init reads the password and exits
+#   docker compose exec pelagos pelagos import --engines bind,kea4,d2 --yes
+# The password is only read on the first start; unset it afterwards.
+
+name: pelagos
+
+x-pelagos-common: &pelagos-common
+  image: ${PELAGOS_IMAGE:-ghcr.io/neyslim/pelagos:0.3.1}
+  # The admin password only reaches pelagos-init: long-running containers never carry it.
+  environment: &pelagos-env
+    PELAGOS_NODE_NAME: ${PELAGOS_NODE_NAME:-ns1}
+    PELAGOS_WEB_URL: ${PELAGOS_WEB_URL:-}
+    PELAGOS_REPLICATION_URL: ${PELAGOS_REPLICATION_URL:-}
+    PELAGOS_KEA_GID: ${PELAGOS_KEA_GID:-8450}
+    # named runs in the "bind" service: rndc, statistics and queries go there.
+    PELAGOS_BIND_HOST: bind
+    # BIND and Kea are the containers below: the installer reloads them, never restarts them.
+    PELAGOS_EXTERNAL_ENGINES: "1"
+  volumes:
+    - pelagos-etc:/etc/pelagos
+    - pelagos-var:/var/lib/pelagos
+    - pelagos-run:/run/pelagos
+    # nocopy: the defaults of the ISC images must not land in the volume before pelagos-init
+    # seeds it (named.conf, kea-*.conf). Existing files are never overwritten.
+    - { type: volume, source: bind-etc, target: /etc/bind, volume: { nocopy: true } }
+    - { type: volume, source: bind-cache, target: /var/cache/bind, volume: { nocopy: true } }
+    - { type: volume, source: kea-etc, target: /etc/kea, volume: { nocopy: true } }
+    - kea-run:/run/kea
+
+x-kea-common: &kea-common
+  # DHCP answers broadcasts and relays on the LAN: Kea shares the host network.
+  network_mode: host
+  # The ISC images need root; the primary group PELAGOS_KEA_GID owns the sockets, so the node
+  # joins that group and never the root group.
+  user: "0:${PELAGOS_KEA_GID:-8450}"
+  restart: unless-stopped
+  environment:
+    # Kea 3.x accepts sockets under this directory only; it is the volume shared with the node.
+    KEA_CONTROL_SOCKET_DIR: /run/kea
+  volumes:
+    - { type: volume, source: kea-etc, target: /etc/kea, volume: { nocopy: true } }
+    - kea-leases:/var/lib/kea
+    - kea-run:/run/kea
+  depends_on:
+    pelagos-init:
+      condition: service_completed_successfully
+
+services:
+  pelagos-init:
+    <<: *pelagos-common
+    # One shot: seeds /etc/bind and /etc/kea, generates the rndc key, runs "pelagos init" on the
+    # first start (exit 78 and nothing else starts when the password is absent or too weak).
+    command: ["init"]
+    restart: "no"
+    environment:
+      <<: *pelagos-env
+      PELAGOS_ADMIN_PASSWORD: ${PELAGOS_ADMIN_PASSWORD:-}
+      PELAGOS_ADMIN_PASSWORD_FILE: ${PELAGOS_ADMIN_PASSWORD_FILE:-}
+    # Password from a compose secret instead: uncomment this and the top-level "secrets:" below,
+    # and set PELAGOS_ADMIN_PASSWORD_FILE=/run/secrets/pelagos_admin_password in .env.
+    # secrets:
+    #   - pelagos_admin_password
+
+  pelagos:
+    <<: *pelagos-common
+    # Web process: UI and API over HTTPS. The image healthcheck probes /api/v1/health.
+    command: ["serve"]
+    restart: unless-stopped
+    ports:
+      - "${PELAGOS_HTTPS_PORT:-8443}:8443"
+    networks:
+      - pelagos
+    depends_on:
+      pelagos-init:
+        condition: service_completed_successfully
+
+  pelagos-collector:
+    <<: *pelagos-common
+    # Polling, series cache, alerts, and the replication and enrollment server (mTLS).
+    command: ["collector"]
+    restart: unless-stopped
+    # The image healthcheck probes the web process, which this container does not run.
+    healthcheck:
+      disable: true
+    ports:
+      - "${PELAGOS_REPL_PORT:-8444}:8444"
+    networks:
+      - pelagos
+    depends_on:
+      pelagos-init:
+        condition: service_completed_successfully
+
+  bind:
+    image: ${BIND_IMAGE:-internetsystemsconsortium/bind9:9.20}
+    # -g: foreground, log to stderr; the image entrypoint adds "-u bind".
+    command: ["-g", "-c", "/etc/bind/named.conf"]
+    restart: unless-stopped
+    # DNS is published; rndc (953) and the statistics channel (8053) stay on the compose network.
+    ports:
+      - "${BIND_DNS_PORT:-53}:53/udp"
+      - "${BIND_DNS_PORT:-53}:53/tcp"
+    volumes:
+      - { type: volume, source: bind-etc, target: /etc/bind, volume: { nocopy: true } }
+      - { type: volume, source: bind-cache, target: /var/cache/bind, volume: { nocopy: true } }
+      - { type: volume, source: bind-lib, target: /var/lib/bind, volume: { nocopy: true } }
+    networks:
+      pelagos:
+        aliases: [bind, ns]
+    depends_on:
+      pelagos-init:
+        condition: service_completed_successfully
+
+  kea-dhcp4:
+    <<: *kea-common
+    image: docker.cloudsmith.io/isc/docker/kea-dhcp4:${KEA_VERSION:-3.2.1}
+    # umask 007 lets the group of /run/kea (joined by the node) use the socket.
+    command: ["/bin/sh", "-c", "umask 007 && exec /usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4.conf"]
+
+  kea-dhcp-ddns:
+    <<: *kea-common
+    image: docker.cloudsmith.io/isc/docker/kea-dhcp-ddns:${KEA_VERSION:-3.2.1}
+    command: ["/bin/sh", "-c", "umask 007 && exec /usr/sbin/kea-dhcp-ddns -c /etc/kea/kea-dhcp-ddns.conf"]
+
+  kea-dhcp6:
+    <<: *kea-common
+    image: docker.cloudsmith.io/isc/docker/kea-dhcp6:${KEA_VERSION:-3.2.1}
+    command: ["/bin/sh", "-c", "umask 007 && exec /usr/sbin/kea-dhcp6 -c /etc/kea/kea-dhcp6.conf"]
+    # Started with: docker compose --profile dhcpv6 up -d
+    profiles: [dhcpv6]
+
+networks:
+  pelagos:
+
+volumes:
+  pelagos-etc:
+  pelagos-var:
+  pelagos-run:
+  bind-etc:
+  bind-cache:
+  bind-lib:
+  kea-etc:
+  kea-leases:
+  kea-run:
+
+# secrets:
+#   pelagos_admin_password:
+#     file: ./admin-password.txt

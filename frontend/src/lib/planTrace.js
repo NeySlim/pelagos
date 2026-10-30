@@ -206,6 +206,25 @@ export function reverseFillMs(steps, id) {
   return Math.round((ms || estimateMs('peer')) * 0.7)
 }
 
+// A step output or error as text: a server that sends an object (a step's {record, output}) must
+// never reach React as a child (minified error #31).
+export function outputText(value) {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (typeof value === 'object') {
+    for (const key of ['output', 'error', 'message', 'text']) {
+      if (typeof value[key] === 'string') return value[key]
+    }
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
+  }
+  return String(value)
+}
+
 // Job steps (install, import, security remediation) as rail steps, with measured durations.
 const JOB_STATES = { queued: 'pending', pending: 'pending', running: 'running', done: 'done', failed: 'failed', skipped: 'pending' }
 export function jobSteps(job) {
@@ -216,7 +235,7 @@ export function jobSteps(job) {
       id: s.name || String(i),
       state: JOB_STATES[s.state] || 'pending',
       ms: started !== null && finished !== null && finished >= started ? finished - started : undefined,
-      output: s.output,
+      output: outputText(s.output),
       step: s,
     }
   })

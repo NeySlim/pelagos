@@ -21,7 +21,8 @@ import { useMessage } from '../i18n/message'
 import { useMotionLevel } from '../contexts/MotionContext'
 import { emitPlanEvent, recalledApply, rememberApply } from '../lib/planEvents'
 import {
-  appliedSteps, auditPhase, buildSteps, estimateMs, finishApply, finishRollback, jobSteps, localApplied, localReverted, peerApplied, reverseFillMs, startApply, startRollback,
+  appliedSteps, auditPhase, buildSteps, estimateMs, finishApply, finishRollback, jobSteps, localApplied, localReverted, outputText, peerApplied, reverseFillMs,
+  startApply, startRollback,
 } from '../lib/planTrace'
 import { Button } from './Button'
 import { Badge } from './Badge'
@@ -313,7 +314,10 @@ export function PlanPreview({
   if (!plan) return null
 
   // A one-line output reads beside its tool; a longer one gets its own block below.
-  const shortOutput = (v) => (v.output && !v.output_message && v.output.length <= 60 && !v.output.includes('\n') ? v.output : null)
+  const shortOutput = (v) => {
+    const text = outputText(v.output)
+    return text && !v.output_message && text.length <= 60 && !text.includes('\n') ? text : null
+  }
   const checkItems = validations.map((v, i) => ({
     id: `${v.tool}-${v.node_id || ''}-${i}`,
     label: <span className="font-mono text-text-primary">{v.tool}</span>,
@@ -386,7 +390,7 @@ export function PlanPreview({
 
       {plan.error && (
         <div className="rounded-lg status-danger-bg border status-danger-border px-3 py-2 text-xs status-danger-text" data-testid="plan-error">
-          {msg(plan.error_message, plan.error)}
+          {msg(plan.error_message, outputText(plan.error))}
         </div>
       )}
 
@@ -470,7 +474,7 @@ export function PlanPreview({
                 v.output &&
                 !shortOutput(v) && (
                   <pre key={i} className="mt-1 ml-5 p-2 rounded bg-bg-primary border border-border-op50 text-2xs font-mono whitespace-pre-wrap text-text-secondary max-h-40 overflow-auto">
-                    {msg(v.output_message, v.output)}
+                    {msg(v.output_message, outputText(v.output))}
                   </pre>
                 ),
             )}
@@ -507,7 +511,7 @@ export function PlanPreview({
             }))}
             testId="plan-job-steps"
           />
-          {job.error && <p className="text-xs status-danger-text">{job.error}</p>}
+          {job.error && <p className="text-xs status-danger-text">{outputText(job.error)}</p>}
         </div>
       )}
 
@@ -523,7 +527,7 @@ export function PlanPreview({
               <li key={`${r.node_id}-${i}`} className="flex items-start gap-2 text-xs">
                 <CheckMark state={r.ok ? (r.rolled_back ? 'reverted' : 'done') : 'failed'} className="mt-0.5" />
                 <span className="font-mono text-text-primary" title={r.node_id}>{nodeName(r.node_id)}</span>
-                <span className="text-text-secondary flex-1">{msg(r.message_message, r.message)}</span>
+                <span className="text-text-secondary flex-1">{msg(r.message_message, outputText(r.message))}</span>
                 {r.rolled_back && (
                   <Badge variant="warning" size="sm">
                     {t('status.rolled_back')}

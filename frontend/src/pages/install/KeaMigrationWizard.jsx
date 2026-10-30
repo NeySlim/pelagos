@@ -4,7 +4,7 @@
 // to 3; `ha` events move each node's HA state live; the outage counts from the primary's stop.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowCounterClockwise, ArrowsLeftRight, Package, Timer, WarningOctagon } from '@phosphor-icons/react'
+import { ArrowCounterClockwise, ArrowsLeftRight, ListChecks, Package, Timer, WarningOctagon } from '@phosphor-icons/react'
 import { Card, Button, Badge } from '../../components'
 import { PlanPreviewModal } from '../../components/PlanPreview'
 import { StepRail } from '../../components/motion'
@@ -15,9 +15,10 @@ import { useMessage } from '../../i18n/message'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate, cn } from '../../lib/utils'
+import { outputText } from '../../lib/planTrace'
 import {
-  NODE_STATUS_VARIANT, STATE_VARIANT, WIZARD_STEPS, haUpdate, isActive, outage, planBlocker, planId, stepMessageKey, timeline,
-  wizardStates, wizardStep,
+  NODE_STATUS_VARIANT, STATE_VARIANT, WIZARD_STEPS, haUpdate, isActive, outage, planBlocker, planId, reconcileOffered, stepMessageKey,
+  timeline, wizardStates, wizardStep,
 } from './keaMigration'
 
 const POLL_MS = 2000
@@ -104,7 +105,7 @@ function NodesTable({ migration, haLive }) {
                 </td>
                 <td className="py-1.5 pr-3 text-xs text-text-secondary">
                   {n.step ? msg({ key: stepMessageKey(n.step), params: { node: n.name || n.node_id } }, n.step) : '-'}
-                  {n.error && <span className="block status-danger-text">{n.error}</span>}
+                  {n.error && <span className="block status-danger-text">{outputText(n.error)}</span>}
                 </td>
                 <td className="py-1.5">
                   <Badge variant={NODE_STATUS_VARIANT[n.status] || 'outline'} size="sm" data-testid="kea-wizard-node-status">
@@ -249,7 +250,7 @@ export default function KeaMigrationWizard({ current, analysis, onChange }) {
           {migration.state === 'migrated'
             ? t('keaMigration.wizard.help.migrated', { series })
             : migration.state === 'rolled_back'
-              ? t('keaMigration.wizard.help.rolledBack', { series: fromSeries })
+              ? t(migration.phase === 'reconcile' ? 'keaMigration.wizard.help.reconciled' : 'keaMigration.wizard.help.rolledBack', { series: fromSeries })
               : t('keaMigration.wizard.help.rollingBack', { series: fromSeries })}
         </p>
       )}
@@ -275,10 +276,10 @@ export default function KeaMigrationWizard({ current, analysis, onChange }) {
       {migration?.error && (
         <p className="flex items-start gap-2 text-sm status-danger-text" role="alert" data-testid="kea-wizard-error">
           <WarningOctagon size={16} className="mt-0.5 shrink-0" />
-          <span>
-            {migration.error_step && <span className="font-mono">{migration.error_step}: </span>}
-            {migration.error}
-            {PREPARE_AGAIN.test(migration.error) && (
+          <span className="whitespace-pre-wrap break-words">
+            {migration.error_step && <span className="font-mono">{outputText(migration.error_step)}: </span>}
+            {outputText(migration.error)}
+            {PREPARE_AGAIN.test(outputText(migration.error)) && (
               <span className="block" data-testid="kea-wizard-prepare-again">{t('keaMigration.wizard.prepareAgainHint')}</span>
             )}
           </span>
@@ -317,15 +318,21 @@ export default function KeaMigrationWizard({ current, analysis, onChange }) {
         {migration?.rollback_possible && (
           <div className="ml-auto">{action('rollback', t('keaMigration.wizard.action.rollback', { series: fromSeries }), ArrowCounterClockwise, 'secondary')}</div>
         )}
+        {reconcileOffered(migration) && (
+          <div className={cn('space-y-1', !migration?.rollback_possible && 'ml-auto')} data-testid="kea-wizard-reconcile-box">
+            {action('reconcile', t('keaMigration.wizard.action.reconcile', { series: fromSeries }), ListChecks, 'secondary')}
+            <p className="max-w-xs text-xs text-text-secondary">{t('keaMigration.wizard.help.reconcile', { series: fromSeries })}</p>
+          </div>
+        )}
       </div>
-      {error && <p className="text-sm status-danger-text" role="alert" data-testid="kea-wizard-plan-error">{errorMessage(error)}</p>}
+      {error && <p className="text-sm status-danger-text" role="alert" data-testid="kea-wizard-plan-error">{outputText(errorMessage(error))}</p>}
 
       <PlanPreviewModal
         open={Boolean(shownPlan)}
         plan={shownPlan?.plan}
         onClose={closePlan}
         onApplied={done}
-        title={shownPlan ? t(`keaMigration.wizard.planTitle.${shownPlan.phase}`, { series: shownPlan.phase === 'rollback' ? fromSeries : series }) : undefined}
+        title={shownPlan ? t(`keaMigration.wizard.planTitle.${shownPlan.phase}`, { series: ['rollback', 'reconcile'].includes(shownPlan.phase) ? fromSeries : series }) : undefined}
       />
     </Card>
   )

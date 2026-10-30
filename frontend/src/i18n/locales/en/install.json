@@ -212,6 +212,7 @@
   },
   "keaMigration": {
     "refresh": "Read again",
+    "refreshFailed": "Last refresh failed ({{error}}): what is shown may be late, it is read again shortly.",
     "obsoleteNote": "A node runs a Kea series that ISC no longer maintains. Analyze the migration: nothing changes on the nodes.",
     "nodes": {
       "title": "Kea on each node",
@@ -323,7 +324,9 @@
         "migrate": "Time 1 moves the standby to Kea {{series}} while the primary serves alone. Time 2 is the only DHCP outage: the primary stops, its leases go to the standby, which serves alone (automatic return past {{seconds}} s). Time 3 moves the primary and the pair resumes.",
         "migrated": "Every node runs Kea {{series}} and the HA pair is back. Check the HA states and the DHCP pages; the return stays possible while the previous packages are kept.",
         "rolledBack": "The nodes are back on Kea {{series}} with their previous packages and files. Prepare again to retry.",
-        "rollingBack": "Return to Kea {{series}} running."
+        "rollingBack": "Return to Kea {{series}} running.",
+        "reconciled": "The real state was read back: every node runs Kea {{series}} as before. The migration is marked returned and its leftovers are removed. Prepare again to retry.",
+        "reconcile": "Reads back each node (packages, configuration, services, HA). If all run Kea {{series}} as before, the migration is marked returned and its leftovers removed; no Kea file is touched."
       },
       "timeline": "Timeline",
       "time": {
@@ -372,7 +375,8 @@
         "prepareAgain": "Prepare again",
         "migrate": "Migrate to Kea {{series}}",
         "resume": "Resume the move to Kea {{series}}",
-        "rollback": "Return to Kea {{series}}"
+        "rollback": "Return to Kea {{series}}",
+        "reconcile": "Check the real state, mark as back on {{series}}"
       },
       "blocker": {
         "noAnalysis": "Analyze first.",
@@ -386,7 +390,8 @@
       "planTitle": {
         "prepare": "Prepare the migration to Kea {{series}}",
         "migrate": "Migrate to Kea {{series}}",
-        "rollback": "Return to Kea {{series}}"
+        "rollback": "Return to Kea {{series}}",
+        "reconcile": "Check the real state, mark as back on Kea {{series}}"
       }
     }
   }

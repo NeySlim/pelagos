@@ -212,6 +212,7 @@
   },
   "keaMigration": {
     "refresh": "Relire",
+    "refreshFailed": "Dernière relecture en échec ({{error}}) : l'affichage peut être en retard, il est relu sous peu.",
     "obsoleteNote": "Un nœud fait tourner une série de Kea qu'ISC ne maintient plus. Analysez la migration : rien ne change sur les nœuds.",
     "nodes": {
       "title": "Kea sur chaque nœud",
@@ -323,7 +324,9 @@
         "migrate": "Le temps 1 passe le standby en Kea {{series}} pendant que le primaire sert seul. Le temps 2 est la seule coupure DHCP : le primaire s'arrête, ses baux passent au standby, qui sert seul (retour automatique au-delà de {{seconds}} s). Le temps 3 migre le primaire et la paire reprend.",
         "migrated": "Tous les nœuds tournent en Kea {{series}} et la paire HA est revenue. Vérifiez les états HA et les pages DHCP ; le retour reste possible tant que les paquets d'avant sont gardés.",
         "rolledBack": "Les nœuds sont revenus en Kea {{series}} avec leurs paquets et fichiers d'avant. Préparez à nouveau pour réessayer.",
-        "rollingBack": "Retour en Kea {{series}} en cours."
+        "rollingBack": "Retour en Kea {{series}} en cours.",
+        "reconciled": "L'état réel a été relu : chaque nœud tourne en Kea {{series}} comme avant. La migration est marquée comme revenue et ses restes sont retirés. Préparez à nouveau pour réessayer.",
+        "reconcile": "Relit chaque nœud (paquets, configuration, services, HA). Si tous tournent en Kea {{series}} comme avant, la migration est marquée comme revenue et ses restes retirés ; aucun fichier Kea n'est modifié."
       },
       "timeline": "Frise",
       "time": {
@@ -372,7 +375,8 @@
         "prepareAgain": "Préparer à nouveau",
         "migrate": "Migrer vers Kea {{series}}",
         "resume": "Reprendre la migration vers Kea {{series}}",
-        "rollback": "Revenir en Kea {{series}}"
+        "rollback": "Revenir en Kea {{series}}",
+        "reconcile": "Constater l'état réel, marquer comme revenu en {{series}}"
       },
       "blocker": {
         "noAnalysis": "Analysez d'abord.",
@@ -386,7 +390,8 @@
       "planTitle": {
         "prepare": "Préparer la migration vers Kea {{series}}",
         "migrate": "Migrer vers Kea {{series}}",
-        "rollback": "Revenir en Kea {{series}}"
+        "rollback": "Revenir en Kea {{series}}",
+        "reconcile": "Constater l'état réel, marquer comme revenu en Kea {{series}}"
       }
     }
   }

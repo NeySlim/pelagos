@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { api } from '../../services/api'
-import { haUpdate, outage, planBlocker, planId, stepMessageKey, timeline, wizardStates, wizardStep } from './keaMigration'
+import { haUpdate, outage, planBlocker, planId, reconcileOffered, stepMessageKey, timeline, wizardStates, wizardStep } from './keaMigration'
+import { jobSteps, outputText } from '../../lib/planTrace'
 
 vi.mock('../../services/api', () => {
   const api = { keaMigration: { get: vi.fn(), plan: vi.fn() }, nodes: { list: vi.fn(() => Promise.resolve({ items: [] })) } }
@@ -89,6 +90,19 @@ describe('wizard helpers', () => {
     expect(planId(record({ id: 'M' }), analysis, 'prepare')).toBe('A1')
     expect(planId(record({ id: 'M' }), analysis, 'migrate')).toBe('M')
     expect(stepMessageKey('kea-mig-wait-partner-down')).toBe('job.step.kea_migration.wait_partner_down')
+    expect(planBlocker(record({ state: 'rolling_back' }), analysis, 'reconcile')).toBe('busy')
+    expect(planBlocker(record({ state: 'failed', phase: 'rollback' }), analysis, 'reconcile')).toBeNull()
+    expect(reconcileOffered(record())).toBe(true)
+    expect(reconcileOffered(record({ state: 'migrated' }))).toBe(false)
+    expect(reconcileOffered(record({ state: 'migrating' }))).toBe(false)
+  })
+
+  it('turns any step output into text (React error #31)', () => {
+    expect(outputText({ record: { status: 'done' }, output: 'ok' })).toBe('ok')
+    expect(outputText({ record: { status: 'done' } })).toBe('{"record":{"status":"done"}}')
+    expect(outputText(null)).toBe('')
+    expect(outputText(3)).toBe('3')
+    expect(jobSteps({ steps: [{ name: 's', state: 'done', output: { record: {}, output: 'x' } }] })[0].output).toBe('x')
   })
 
   it('takes the v4 HA events of the migration nodes only', () => {
@@ -175,6 +189,26 @@ describe('KeaMigrationWizard', () => {
     const error = '/var/lib/pelagos-helper/kea-migration/A1/packages/target/x.deb is missing: prepare this node again'
     renderWizard({ current: record({ state: 'failed', phase: 'migrate', stage: 'standby', error, error_step: 'kea-mig-stop' }) })
     expect(screen.getByTestId('kea-wizard-prepare-again')).toHaveTextContent('prepare the migration again')
+  })
+
+  it('renders error objects as text and offers to read the real state back', async () => {
+    api.keaMigration.plan.mockResolvedValue({ id: 'P4', scope: 'kea.migration' })
+    const failed = record({
+      state: 'failed', phase: 'rollback', stage: 'standby', error_step: 'kea-mig-install',
+      error: { record: { status: 'failed' }, output: 'previous packages not installed' },
+      nodes: [node('n2', 'ns2', 'standby', { status: 'failed', error: { record: {}, output: 'E: Unable to fetch some archives' } }), node('n1', 'ns1', 'primary')],
+    })
+    renderWizard({ current: failed })
+    expect(screen.getByTestId('kea-wizard-error')).toHaveTextContent('kea-mig-install: previous packages not installed')
+    expect(screen.getAllByTestId('kea-wizard-node')[0]).toHaveTextContent('E: Unable to fetch some archives')
+    fireEvent.click(screen.getByTestId('kea-wizard-reconcile'))
+    expect(await screen.findByTestId('plan-modal')).toHaveTextContent('Check the real state, mark as back on Kea 2.6')
+    expect(api.keaMigration.plan).toHaveBeenCalledWith('A1', { phase: 'reconcile', options: {} })
+  })
+
+  it('says when the real state was read back', () => {
+    renderWizard({ current: record({ state: 'rolled_back', phase: 'reconcile' }) })
+    expect(screen.getByTestId('kea-wizard-verify')).toHaveTextContent('The real state was read back')
   })
 
   it('offers the return of a migrated pair while it is possible', async () => {

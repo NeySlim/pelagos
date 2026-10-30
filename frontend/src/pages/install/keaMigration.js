@@ -151,8 +151,14 @@ export function planBlocker(m, analysis, phase) {
   if (!m) return 'noMigration'
   if (phase === 'migrate') return m.state === 'prepared' || (m.state === 'failed' && m.phase === 'migrate') ? null : 'notPrepared'
   if (phase === 'rollback') return m.rollback_possible ? null : 'noRollback'
+  if (phase === 'reconcile') return ACTIVE_STATES.includes(m.state) ? 'busy' : null
   return 'unknown'
 }
+
+// Whether the wizard offers to read the real state back (reconcile): any record no phase is
+// moving, except a finished migration (its way back is the rollback).
+export const reconcileOffered = (m) => Boolean(m) && !ACTIVE_STATES.includes(m.state) && m.state !== 'migrated'
+
 
 // The id a phase's plan is built on: the analysis for prepare, the migration otherwise.
 export const planId = (m, analysis, phase) => (phase === 'prepare' ? analysis?.id : m?.id)

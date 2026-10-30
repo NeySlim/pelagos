@@ -120,6 +120,15 @@ describe('KeaMigrationPage', () => {
     expect(within(select).getByRole('option', { name: /backports/ })).toBeDisabled()
   })
 
+  it('keeps the page when a refresh fails (a peer busy with a migration step)', async () => {
+    renderPage()
+    await screen.findAllByTestId('kea-migration-node')
+    api.keaMigration.overview.mockRejectedValueOnce(new Error('Gateway Timeout'))
+    fireEvent.click(screen.getByRole('button', { name: /Read again/ }))
+    expect(await screen.findByTestId('kea-migration-refresh-error')).toHaveTextContent('Gateway Timeout')
+    expect(screen.getAllByTestId('kea-migration-node')).toHaveLength(2)
+  })
+
   it('keeps the recommended target and says why none is available', async () => {
     const reason = { code: 'node_unreachable', node: 'ns2', error: 'node ns2 is offline' }
     const targets = overview.targets.map((x) => ({ ...x, available: false, reason }))

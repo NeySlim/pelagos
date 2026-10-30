@@ -8,14 +8,15 @@ import { ArrowsClockwise, ArrowSquareOut, CheckCircle, MagnifyingGlass, Warning,
 import { PageLayout, Card, Button, Badge, LoadingSpinner } from '../../components'
 import { DiffView } from '../../components/DiffView'
 import { useApi } from '../../hooks'
+import { usePoll } from '../../hooks/usePoll'
 import { useMessage } from '../../i18n/message'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import KeaMigrationWizard from './KeaMigrationWizard'
 import { formatDate } from '../../lib/utils'
 import {
-  SEVERITY_VARIANT, defaultTarget, engineUnused, fullyValidated, groupFindings, nodeEngines, obsoleteEngines, parseTarget, targetKey,
-  unusedFindings, usedCounts,
+  SEVERITY_VARIANT, defaultTarget, engineUnused, fullyValidated, groupFindings, isActive, nodeEngines, obsoleteEngines, parseTarget,
+  targetKey, unusedFindings, usedCounts,
 } from './keaMigration'
 
 function NodesCard({ nodes }) {
@@ -208,10 +209,15 @@ function Report({ report, names }) {
   )
 }
 
+const OVERVIEW_POLL_MS = 10000
+
 export default function KeaMigrationPage() {
   const { t } = useTranslation(['install', 'common'])
   const overview = useApi(() => api.keaMigration.overview(), [])
   const data = overview.data
+  // While a phase runs the node inventory is read again: a peer busy with a step answers late,
+  // and the next read shows it back without a page reload.
+  usePoll(overview.refetch, OVERVIEW_POLL_MS, { enabled: isActive(data?.current) })
   const [target, setTarget] = useState('')
   const [report, setReport] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -259,10 +265,16 @@ export default function KeaMigrationPage() {
     >
       {overview.loading && !data ? (
         <div className="flex justify-center py-12"><LoadingSpinner size="md" /></div>
-      ) : overview.error ? (
+      ) : overview.error && !data ? (
         <Card className="p-4" hover={false}><p className="text-sm status-danger-text" role="alert">{errorMessage(overview.error)}</p></Card>
       ) : (
         <div className="space-y-4 max-w-5xl">
+          {/* A failed refresh keeps what is shown (the wizard follows the record by itself). */}
+          {overview.error && (
+            <p className="text-xs status-warning-text" role="status" data-testid="kea-migration-refresh-error">
+              {t('keaMigration.refreshFailed', { error: errorMessage(overview.error) })}
+            </p>
+          )}
           {/* One instance whatever the record's state: a remount would drop the plan being applied. */}
           {(data?.current || shown) && <KeaMigrationWizard current={data?.current || null} analysis={shown} onChange={overview.refetch} />}
           {obsolete && <p className="text-sm status-warning-text" data-testid="kea-migration-obsolete-note">{t('keaMigration.obsoleteNote')}</p>}

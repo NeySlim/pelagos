@@ -64,10 +64,12 @@ def test_zone_aaaa_rows_agree_with_ptr_mismatch(api):
     fwd, _node = dns.records("home.lan.")
     rev, _node = dns.records(REV + ".")
     alerts = consistency.run_all(leases=[], reservations=[], forward={"home.lan.": fwd}, reverse=rev)
+    # One grouped alert per cause: `ptr:missing` lists each (address, name) without its PTR.
     no_ptr = {
-        a.details["ip"]
+        item["ip"]
         for a in alerts
-        if a.kind.value == "ptr_mismatch" and any("has no PTR" in p for p in a.details["problems"])
+        if a.kind.value == "ptr_mismatch" and a.subject == consistency.PTR_MISSING_SUBJECT
+        for item in a.details["items"]
     }
     assert flagged == no_ptr == EXPECTED
     # Nothing observed yet on this node: said in meta.unavailable.

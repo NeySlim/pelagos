@@ -125,6 +125,6 @@ class TestKeaMigrationPrepare:
         assert job["state"] == "done", job
         current = api(K1A[1]).get("/install/kea-migration")["current"]
         assert current["id"] == report["id"] and current["state"] == "prepared"
-        # Migrate is not built yet: a clear 501, nothing moves.
-        with pytest.raises(Exception, match="501"):
-            api(K1A[1]).post(f"/install/kea-migration/{report['id']}/plan", {"phase": "migrate"})
+        # The migrate plan of the new record builds (time 1 runs in test_kea_migration_time1_lab).
+        plan = api(K1A[1]).post(f"/install/kea-migration/{report['id']}/plan", {"phase": "migrate"})
+        assert plan["changes"][0]["after"]["step"] == "kea-mig-ha-maintenance"

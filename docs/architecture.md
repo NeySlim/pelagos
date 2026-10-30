@@ -4636,6 +4636,7 @@ return, K5 the window, time 3 and the return of the pair, K6 wizard, K7 lab.
   packages_target = [{ name = "isc-kea-dhcp4", version = "3.2.1-isc20260928103142" }]
   archive_id = "01JB..."                  # archive made by the prepare phase (section 23)
   rollback_ready = true                   # previous packages cached and previous files saved
+  files_sealed = "v1:..."                 # its converted files and TSIG secrets under the master key (K4)
   prepared_at = "..."; started_at = "..."; finished_at = "..."; error = "..."
   ```
 
@@ -4682,8 +4683,9 @@ return, K5 the window, time 3 and the return of the pair, K6 wizard, K7 lab.
   `max-response-delay` set to `options.response_delay_milliseconds` and `max-unacked-clients` 0 on a
   standby, `kea-dhcp4 -t` and friends with the installed binaries; `previous`: the packages of
   `packages_before` at their exact versions, saved files and AppArmor profiles back),
-  `kea-mig-validate-partner` (the partner's converted files, carried sealed in the step, checked with
-  this node's 3.x binaries in a temporary directory), `kea-mig-leases-in` (the copy fetched by
+  `kea-mig-validate-partner` (`details.partner`: the partner's converted files, sealed in its
+  node of the record by its prepare step, checked with this node's 3.x binaries in a temporary
+  directory), `kea-mig-leases-in` (the copy fetched by
   `kea.migration.leases`, checked again, replaces the node's lease file, owner and mode of Kea's),
   `kea-mig-start` (`details.engines`), `kea-mig-delays` (the original detection delays through
   `config-set` and `config-write`), `kea-mig-finish` (drops the migration directory but the
@@ -4739,6 +4741,52 @@ return, K5 the window, time 3 and the return of the pair, K6 wizard, K7 lab.
   `prepared_at`, `from_version`, `status` `done`); `prepared` at the end, `prepare_failed` with
   `error` and `error_step` at the first failure. A record left in `preparing` with no update for two
   hours (its driver stopped) becomes `prepare_failed` when a new prepare is planned.
+- **Time 1 and its return** (batch K4). Options: the prepare plan already takes `options`
+  (`response_delay_milliseconds` 1000 to 60000, `https_sockets`, `auto_rollback`; the record keeps
+  them), a migrate or rollback plan merges its own over the record's, then the settings
+  `kea.migration_response_delay_milliseconds` and `kea.migration_auto_rollback_enabled` fill the
+  rest. Both plans are built from the record (not the analysis) by the helper; they need one
+  primary and at least one standby or backup (a node alone comes with K5). Migrate (from `prepared`,
+  or `failed` to resume): `kea-mig-ha-maintenance` `start` on P, then for each backup and standby
+  `kea-mig-stop`, `kea-mig-install` `target`, `kea-mig-validate-partner` (partner P); every change
+  carries `details.stage` `standby`, `node`, `engines` and `options`. The record moves to
+  `migrating`, `stage` `standby`, and stays there when time 1 is over (P serving alone, S stopped on
+  the target): K5 goes on from that state. Rollback (from `migrating` or `failed` with `stage` null
+  or `standby`; later stages answer 501 until K5): for each backup or standby that ran a step after
+  the prepare, `kea-mig-stop`, `kea-mig-install` `previous`, `kea-mig-start` with `details.restore`;
+  then `kea-mig-start` (`restore`) and `kea-mig-ha-maintenance` `cancel` on P; the returned nodes
+  become `rolled_back`, the record `rolled_back`. A failed step of time 1 with `auto_rollback` moves
+  the record to `rolling_back`, has the helper build the same rollback plan and runs it in the same
+  job (audit `kea.migration.rollback`, the job fails with the first error and "automatic return");
+  without it the record is `failed` with `error_step` until a rollback or migrate plan.
+  On the node: `kea-mig-stop` notes each Kea unit's active and enabled state once
+  (`private/state.json`) and stops them all (kea-ctrl-agent too). `kea-mig-install` refuses while a
+  Kea unit runs; `target` notes the dpkg stat overrides, the modes of `/etc/kea`, `/var/lib/kea`,
+  `/var/log/kea`, `/run/kea`, installs `packages_target` at their versions from the cache
+  (`apt-get --no-download`, the report's `remove` list with it; `dnf --disablerepo=*` from
+  `packages/target`) under a `policy-rc.d` answering 101 (left alone when the host has its own),
+  checks every version, disables the AppArmor profiles of the removed packages (noted), puts the
+  converted files in place after checking their sums (owner and mode of the file they replace, group
+  write for `config-write`), the standby's HA relationships with `max-response-delay` set and
+  `max-unacked-clients` 0, then `-T` (`-t` for D2) with the installed daemons as the Kea user; Kea stays
+  stopped (the ISC 3.2 packages neither enable nor start a unit on a fresh install). `previous` removes
+  the stat overrides the target added, installs the kept files of `packages/previous` with
+  `--allow-downgrades` and removes every other Kea package, checks the exact versions, puts
+  `private/before` back (content, owner, mode, links; secret files the conversion added are
+  removed), the directory modes, the AppArmor profiles and removes `repo_files_added`, then `-t` with
+  the 2.6 daemons. `kea-mig-ha-maintenance` `start` needs every relationship of P in its normal state
+  (or already `partner-in-maintenance` or `partner-down`, a resume), sends `ha-maintenance-start` and
+  opens the HA maintenance window (`core.ha_maintenance`); `cancel` sends `ha-maintenance-cancel` only
+  while P is `partner-in-maintenance` (once S stopped, P is `partner-down` and a restarted S
+  negotiates by itself, ARM 2.6.3 `hooks-ha.rst` "Controlled Shutdown and Maintenance", read on
+  2026-10-30), then waits until status-get shows the pair normal twice (120 to 600 s from the HA
+  delays) and closes the window. `kea-mig-validate-partner` reads the partner's `files_sealed` from
+  this node's cluster.toml (AAD `kea-migration-files/<migration id>/<node id>`, zlib then base64 JSON
+  `{"configs","secrets"}`), names the hooks without a directory (a pair may mix architectures), points
+  HA TLS files this host lacks to its own (same cluster CA) and checks each file with `-T` / `-t` as
+  the Kea user. `kea-mig-start` enables and starts the units of `details.engines` (a unit found
+  disabled before stays disabled), waits for each control socket, and with `restore` starts again
+  every unit the stop step found active.
 - **Lease copy**: served by the collector of the node that stopped
   (`GET /repl/v1/kea/leases/<family>`, section 13, `open_lease_copy`), fetched by the collector of the
   receiving node (`ReplicationClient.fetch_kea_leases`), never outside the mTLS channel, Kea's data

@@ -200,7 +200,13 @@ def test_build_plan_archive_then_prepare_on_each_node(host):
         d["migration_id"] == MID and d["node"]["role"] == "primary" and d["node"]["engines"] == ["kea4", "d2"]
     )
     assert plan.summary_message["key"] == "plan.kea_migration.prepare"
-    for bad in ({"phase": "migrate"}, {"migration_id": "x"}, {"series": "2.6"}, {"nodes": []}):
+    for bad in (
+        {"phase": "nope"},
+        {"options": {"auto_rollback": "yes"}},
+        {"migration_id": "x"},
+        {"series": "2.6"},
+        {"nodes": []},
+    ):
         with pytest.raises(ValueError):
             kms.build_plan(env, {**request, **bad})
 

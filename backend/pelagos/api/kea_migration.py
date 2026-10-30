@@ -2,7 +2,8 @@
 """Kea 2.6 to 3.x migration: series per node, targets, analysis report (section 26), and the
 prepare, migrate and rollback plans with the replicated migration state (section 28).
 
-`POST /{id}/plan` builds the prepare phase (batch K3); migrate and rollback answer 501 until K4 and K5.
+`POST /{id}/plan` builds the prepare phase (K3), time 1 and its return (K4); the window and time 3
+come with K5.
 """
 
 from __future__ import annotations
@@ -50,7 +51,7 @@ class PhasePlan(Resource):
         409, "conflict: a blocking finding is open, or the phase does not follow the state", m.Problem
     )
     @ns.response(404, "not_found: not the last analysis (prepare) or the migration", m.Problem)
-    @ns.response(501, "not_implemented: migrate and rollback (batches K4 and K5)", m.Problem)
+    @ns.response(501, "not_implemented: a phase after time 1 (batch K5)", m.Problem)
     def post(self, migration_id: str):
         check_permission("ops:dhcp.ha")
         return plan_answer(services().kea_migration.plan(migration_id, json_body(), username(), client_ip()))

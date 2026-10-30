@@ -62,8 +62,8 @@ def build_plan(env: Any, request: dict[str, Any], created_by: str = "") -> Plan:
     """The composite plan of one phase, built on the driving node (this one). Prepare: the archive of
     every node (a driver step), then its prepare step; each change carries what the record needs."""
     phase = request.get("phase")
-    if phase != kmc.PREPARE:
-        raise ValueError(f"the {phase} phase of the Kea migration is not available in this release")
+    if phase not in kmc.PHASES:
+        raise ValueError(f"unknown Kea migration phase {phase!r}")
     migration_id = str(request.get("migration_id") or "")
     if not kmc.ID_RE.match(migration_id):
         raise ValueError(f"invalid migration id {migration_id!r}")
@@ -80,7 +80,10 @@ def build_plan(env: Any, request: dict[str, Any], created_by: str = "") -> Plan:
         "source": source,
         "target_version": str(request.get("target_version") or ""),
         "from_series": str(request.get("from_series") or "2.6"),
+        "options": _options(request.get("options")),
     }
+    if phase != kmc.PREPARE:
+        return _switch_plan(env, phase, base, nodes, request, created_by)
     changes = []
     for step, what in (
         (kmc.D_ARCHIVE, "archive of the node before the migration"),
@@ -116,6 +119,120 @@ def build_plan(env: Any, request: dict[str, Any], created_by: str = "") -> Plan:
     )
 
 
+def _options(raw: Any) -> dict[str, Any]:
+    """The options a phase carries (section 28): checked here, the record keeps them."""
+    raw = raw if isinstance(raw, dict) else {}
+    out: dict[str, Any] = {}
+    delay = raw.get("response_delay_milliseconds")
+    if delay is not None:
+        if not isinstance(delay, int) or isinstance(delay, bool) or not 1000 <= delay <= 60000:
+            raise ValueError("response_delay_milliseconds must be an integer from 1000 to 60000")
+        out["response_delay_milliseconds"] = delay
+    for name in ("https_sockets", "auto_rollback"):
+        if raw.get(name) is not None:
+            if not isinstance(raw[name], bool):
+                raise ValueError(f"{name} must be true or false")
+            out[name] = raw[name]
+    return out
+
+
+# Time 1 of the migrate phase and its return (batch K4); K5 adds the window and time 3.
+TURN_ROLES = ("backup", "standby")
+
+
+def _switch_plan(
+    env: Any,
+    phase: str,
+    base: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    request: dict[str, Any],
+    created_by: str,
+) -> Plan:
+    primaries = [n for n in nodes if n["role"] == "primary"]
+    turns = [n for r in TURN_ROLES for n in nodes if n["role"] == r]
+    if len(primaries) != 1 or not turns:
+        raise ValueError("this release migrates one HA pair (a primary and its standby or backups) only")
+    primary = primaries[0]
+    raw = request.get("touched")
+    touched = set(raw) if isinstance(raw, list) else {n["node_id"] for n in turns}
+    rows: list[tuple[str, dict[str, Any], dict[str, Any], str]] = []
+    if phase == kmc.MIGRATE:
+        rows.append(
+            (
+                kmc.H_MAINTENANCE,
+                primary,
+                {"action": "start"},
+                "HA maintenance: serves alone while its partner changes",
+            )
+        )
+        for node in turns:
+            rows += [
+                (kmc.H_STOP, node, {}, "Kea stopped"),
+                (
+                    kmc.H_INSTALL,
+                    node,
+                    {"direction": "target"},
+                    f"Kea {base['series']} installed, files checked",
+                ),
+                (
+                    kmc.H_VALIDATE_PARTNER,
+                    node,
+                    {"partner": primary["node_id"], "partner_name": primary["name"]},
+                    f"{primary['name']}'s Kea {base['series']} files checked with its daemons",
+                ),
+            ]
+    else:
+        for node in turns:
+            if node["node_id"] not in touched:
+                continue
+            rows += [
+                (kmc.H_STOP, node, {}, "Kea stopped"),
+                (
+                    kmc.H_INSTALL,
+                    node,
+                    {"direction": "previous"},
+                    f"Kea {base['from_series']} packages and files back",
+                ),
+                (kmc.H_START, node, {"engines": node["engines"], "restore": True}, "Kea started"),
+            ]
+        rows += [
+            (kmc.H_START, primary, {"engines": primary["engines"], "restore": True}, "Kea running"),
+            (kmc.H_MAINTENANCE, primary, {"action": "cancel"}, "HA maintenance over, pair back to normal"),
+        ]
+    changes = []
+    for step, node, extra, what in rows:
+        node_row = {k: v for k, v in node.items() if k != "node_id"}
+        details = {**base, "stage": "standby", "node": node_row, "engines": node["engines"], **extra}
+        after = {"step": step, "details": details, "summary": f"{node['name']}: {what}"}
+        changes.append(
+            Change(
+                ChangeOp.REPLACE, kmc.target(step, node["node_id"]), after=after, node_ids=[node["node_id"]]
+            )
+        )
+    names = ", ".join(n["name"] for n in nodes)
+    series = base["series"] if phase == kmc.MIGRATE else base["from_series"]
+    delay = base["options"].get("response_delay_milliseconds") or 10000
+    summary = messages.msg(
+        f"plan.kea_migration.{phase}",
+        nodes=names,
+        series=series,
+        source=base["source"],
+        outage=delay // 1000 + 10,
+    )
+    return Plan(
+        scope=PlanScope.KEA_MIGRATION,
+        node_id=env.node_id,
+        summary=messages.render(summary),
+        summary_message=summary,
+        created_by=created_by,
+        changes=changes,
+        diff="\n".join(f"~ {c.target}: {c.after['summary']}" for c in changes),
+        target_node_ids=sorted(n["node_id"] for n in nodes),
+        requires_confirmation=True,
+        state=PlanState.VALIDATED,
+    )
+
+
 def migration_steps(plan: Plan, env: Any) -> list[Step]:
     """The helper steps of `plan` this node runs; a driver step never comes here."""
     out = []
@@ -129,6 +246,13 @@ def migration_steps(plan: Plan, env: Any) -> list[Step]:
         details = after.get("details") if isinstance(after.get("details"), dict) else {}
         if step == kmc.H_PREPARE:
             out.append(Step(change.target, lambda d=details: json.dumps(prepare(env, d), sort_keys=True), 10))
+        elif step in SWITCH_STEPS:
+            run = SWITCH_STEPS[step]
+            out.append(
+                Step(
+                    change.target, lambda d=details, r=run: json.dumps(r(env, d, plan.id), sort_keys=True), 10
+                )
+            )
         elif step in kmc.DRIVER_STEPS:
             raise ValueError(f"{step} runs in the driving node's service, not in the helper")
         else:
@@ -433,7 +557,9 @@ def prepare(env: Any, details: dict[str, Any]) -> dict[str, Any]:
         "validation": {e: v.get("mode") for e, v in report["validation"].items()},
     }
     _write(mdir / MANIFEST, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+    sealed = _seal_for_partner(env, migration_id, keep["conversions"])
     return {
+        "files_sealed": sealed,
         "packages_before": [{"name": p["name"], "version": p["version"]} for p in previous],
         "packages_target": [{"name": p["name"], "version": p["version"]} for p in downloaded],
         "packages_remove": manifest["packages_remove"],
@@ -446,6 +572,36 @@ def prepare(env: Any, details: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _seal_for_partner(env: Any, migration_id: str, conversions: dict[str, mig.Conversion]) -> str | None:
+    """The converted files and their TSIG secrets under the cluster master key: the standby checks
+    them with its installed 3.x daemons before the window (kea-mig-validate-partner)."""
+    key = env.node_paths.master_key
+    if not key.exists():
+        return None
+    from pelagos.core.secrets import SecretBox
+
+    bundle = {
+        "configs": {engine: conv.after for engine, conv in conversions.items()},
+        "secrets": {p: s for conv in conversions.values() for p, s in conv.files.items()},
+    }
+    return kmc.seal_files(SecretBox.from_file(key), migration_id, env.node_id, bundle)
+
+
 def _engine_version(env: Any, engine: str) -> str:
     pkg = km.engine_package(env.runner, env.distro, engine)
     return _upstream(pkg["version"]) if pkg and pkg.get("version") else ""
+
+
+def _switch_steps() -> dict[str, Any]:
+    from pelagos.installer import kea_migration_switch as sw
+
+    return {
+        kmc.H_MAINTENANCE: lambda env, d, plan_id: sw.maintenance(env, d, plan_id),
+        kmc.H_STOP: lambda env, d, _p: sw.stop(env, d),
+        kmc.H_INSTALL: lambda env, d, _p: sw.install(env, d),
+        kmc.H_VALIDATE_PARTNER: lambda env, d, _p: sw.validate_partner(env, d),
+        kmc.H_START: lambda env, d, _p: sw.start(env, d),
+    }
+
+
+SWITCH_STEPS = _switch_steps()

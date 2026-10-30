@@ -13,6 +13,16 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-30, batch K4: Kea migration time 1 and its return
+Additive, architecture section 28 "Time 1 and its return". `core/kea_migration.py`: node field
+`files_sealed` (left out of the API view), `seal_files` and `open_files`; the prepare step's result
+carries `files_sealed`, which `kea-mig-validate-partner` reads from the record instead of a secret
+sealed in the step. The prepare plan takes `options` (they were ignored). Migrate and rollback plans
+for time 1 (`details.stage`, `node`, `engines`, `options`, `partner`, `direction`, `action`,
+`restore`); a phase after time 1 still answers 501. WP-FRONTEND: nothing to change (the wizard
+already sends these options). K5: append the window and time 3 to the migrate plan built by
+`installer.kea_migration_steps._switch_plan`, and extend the return beyond `stage` `standby`.
+
 ## 2026-10-30, WP-INSTALLER, WP-CORE, WP-PACKAGING: privileged helper for updates (U2)
 Architecture section 29, "Files" and "Helper operations" rewritten. Root's update state moves from
 `/var/lib/pelagos/upgrade/` to `/var/lib/pelagos-helper/upgrade/` (`Paths.upgrade_dir`): the

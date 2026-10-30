@@ -17,7 +17,7 @@ from pelagos.core.step_seal import SEAL
 from pelagos.domain import Job, NodeApplyResult, NodeModules, Peer, PlanScope
 from pelagos.installer import kea_migration_steps as steps
 from pelagos.services import kea_migration_service as kms
-from pelagos.services.errors import Conflict, NotFound, ServiceError
+from pelagos.services.errors import Conflict, NotFound
 from tests.unit.installer.fakes import make_env
 
 pytestmark = pytest.mark.unit
@@ -118,9 +118,8 @@ def test_plan_refusals(service):
     report(service)
     with pytest.raises(Conflict, match="archive recipient"):
         service.plan(MID, {"phase": "prepare"}, "admin")
-    with pytest.raises(ServiceError) as exc:
+    with pytest.raises(NotFound):
         service.plan(MID, {"phase": "migrate"}, "admin")
-    assert exc.value.code == "not_implemented"
     rep = report(service)
     del rep["roles"]
     service._keep(rep)

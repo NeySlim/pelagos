@@ -8,9 +8,12 @@ when the driving node restarts. TOML holds no null: null keys are left out and r
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import re
 import stat
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -149,6 +152,7 @@ def _node(node_id: str, raw: dict[str, Any]) -> dict[str, Any]:
         "started_at": _str(raw.get("started_at")),
         "finished_at": _str(raw.get("finished_at")),
         "error": _str(raw.get("error")),
+        "files_sealed": _str(raw.get("files_sealed")),
     }
 
 
@@ -211,7 +215,10 @@ def view(migration: dict[str, Any] | None, outage_max_seconds: int | None = None
     if migration is None:
         return None
     out = {k: v for k, v in migration.items() if k != "nodes"}
-    out["nodes"] = [{k: v for k, v in n.items() if not k.startswith("packages_")} for n in migration["nodes"]]
+    out["nodes"] = [
+        {k: v for k, v in n.items() if not k.startswith("packages_") and k != "files_sealed"}
+        for n in migration["nodes"]
+    ]
     out["outage_max_seconds"] = outage_max_seconds
     out["rollback_possible"] = rollback_possible(migration)
     return out
@@ -272,6 +279,29 @@ def move(settings: dict[str, Any], new_state: str, **fields: Any) -> dict[str, A
     current["state"] = new_state
     write(settings, current)
     return current
+
+
+# Converted files of a node, sealed for its partner's validate-partner step --------------------------
+
+
+def _files_aad(migration_id: str, node_id: str) -> str:
+    return f"kea-migration-files/{migration_id}/{node_id}"
+
+
+def seal_files(box: Any, migration_id: str, node_id: str, bundle: dict[str, Any]) -> str:
+    """The node's converted files and TSIG secrets ({"configs": {engine: config}, "secrets": {path:
+    secret}}) under the cluster master key, bound to the migration and the node."""
+    raw = zlib.compress(json.dumps(bundle, sort_keys=True).encode(), 9)
+    return box.encrypt(_files_aad(migration_id, node_id), base64.b64encode(raw).decode())
+
+
+def open_files(box: Any, migration_id: str, node_id: str, token: str) -> dict[str, Any]:
+    """The bundle `seal_files` sealed; SecretError (or ValueError) when it does not open."""
+    raw = box.decrypt(_files_aad(migration_id, node_id), token)
+    data = json.loads(zlib.decompress(base64.b64decode(raw)))
+    if not isinstance(data, dict) or not isinstance(data.get("configs"), dict):
+        raise ValueError("sealed files of the partner are not a bundle")
+    return data
 
 
 # Lease copy served to the partner (GET /repl/v1/kea/leases/<family>) ------------------------------------

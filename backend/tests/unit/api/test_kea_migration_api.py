@@ -103,7 +103,7 @@ def test_phase_plan_prepare_from_the_last_analysis(admin, services):
     resp = admin.post(f"{V1}/install/kea-migration/{MID}/plan", json={"phase": "prepare"})
     assert resp.status_code == 404
     resp = admin.post(f"{V1}/install/kea-migration/{MID}/plan", json={"phase": "migrate"})
-    assert resp.status_code == 501
+    assert resp.status_code == 404  # no prepared migration
     me = services.ctx.node.id
     services.kea_migration.local_dry_run = lambda series, source: _answer(me)
     report = admin.post(

@@ -3,7 +3,9 @@
 driving node, which keeps `[settings.kea.migration]` up to date and sends each helper step to its
 node when its turn comes (sealed with the master key for a peer).
 
-Batch K3 builds the prepare phase; migrate and rollback come with K4 and K5.
+Batch K3 builds the prepare phase, K4 time 1 of the migrate phase and its return (automatic when a
+step of time 1 fails and `options.auto_rollback`); the window, time 3 and the return of a migrated
+pair come with K5.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from datetime import timedelta
 from typing import Any
 
 from pelagos.core import kea_migration as km
+from pelagos.core import settings_registry as reg
 from pelagos.domain import (
     AuditEntry,
     AuditResult,
@@ -50,7 +53,7 @@ def plan_phase(service: Any, migration_id: str, body: dict[str, Any], actor: str
     if options is not None and not isinstance(options, dict):
         raise ValidationError("options must be an object", [field_error("options", "invalid")])
     if phase != km.PREPARE:
-        raise ServiceError("not_implemented", f"the {phase} phase comes with batches K4 and K5")
+        return _plan_switch(service, migration_id, phase, options or {}, actor)
     report = service.last_report()
     if report is None or report.get("id") != migration_id:
         raise NotFound(f"no Kea migration analysis {migration_id}")
@@ -97,7 +100,57 @@ def plan_phase(service: Any, migration_id: str, body: dict[str, Any], actor: str
         "target_version": report.get("target_version") or "",
         "from_series": "2.6",
         "nodes": nodes,
+        "options": options or {},
     }
+    return _build(service, request, actor)
+
+
+# Steps a node ran once the prepare was over: the return starts from those nodes.
+UNTOUCHED_STEPS = (None, km.H_PREPARE, km.D_ARCHIVE)
+
+
+def touched(record: dict[str, Any]) -> list[str]:
+    return [n["node_id"] for n in record["nodes"] if n["step"] not in UNTOUCHED_STEPS]
+
+
+def switch_request(record: dict[str, Any], phase: str, options: dict[str, Any]) -> dict[str, Any]:
+    """The helper's request for a migrate or rollback plan, from the migration record."""
+    return {
+        "phase": phase,
+        "migration_id": record["id"],
+        "series": record["series"],
+        "source": record["source"],
+        "target_version": record["target_version"] or "",
+        "from_series": record["from_series"] or "2.6",
+        "nodes": [
+            {k: n[k] for k in ("node_id", "name", "role", "order", "engines", "from_version")}
+            for n in record["nodes"]
+        ],
+        "options": options,
+        "touched": touched(record),
+    }
+
+
+def _plan_switch(service: Any, migration_id: str, phase: str, body: dict[str, Any], actor: str) -> Plan:
+    settings = service.ctx.settings()
+    record = km.read_migration(settings)
+    if record is None or record["id"] != migration_id:
+        raise NotFound(f"no Kea migration {migration_id}")
+    why = km.phase_allowed(record, phase)
+    if why:
+        raise Conflict(why)
+    if record["stage"] not in (None, "standby"):
+        raise ServiceError("not_implemented", f"the {phase} phase after time 1 comes with batch K5")
+    options = {k: v for k, v in record["options"].items() if v is not None}
+    options.update({k: v for k, v in body.items() if v is not None})
+    options.setdefault(
+        "response_delay_milliseconds", int(reg.get(settings, "kea.migration_response_delay_milliseconds"))
+    )
+    options.setdefault("auto_rollback", bool(reg.get(settings, "kea.migration_auto_rollback_enabled")))
+    return _build(service, switch_request(record, phase, options), actor)
+
+
+def _build(service: Any, request: dict[str, Any], actor: str) -> Plan:
     client = service._helper()
     try:
         if client is not None:
@@ -163,8 +216,8 @@ class PhaseRunner:
 
     def _start(self, plan: Plan, base: dict[str, Any], nodes: list[dict[str, Any]]) -> None:
         now = to_rfc3339(utcnow())
-        # The options of the migrate phase are set when it is planned (batch K4).
         defaults = {"response_delay_milliseconds": None, "https_sockets": False, "auto_rollback": None}
+        defaults.update(base.get("options") or {})
 
         def mutate(settings: dict[str, Any]) -> None:
             current = km.read_migration(settings)
@@ -222,24 +275,165 @@ class PhaseRunner:
         if not changes:
             raise RuntimeError("nothing to run in this plan")
         base = dict(changes[0].after.get("details") or {})
-        if base.get("phase") != km.PREPARE:
-            raise RuntimeError(f"the {base.get('phase')} phase is not available in this release")
         nodes: dict[str, dict[str, Any]] = {}
         for c in changes:
             node = dict((c.after.get("details") or {}).get("node") or {})
             nodes.setdefault(c.node_ids[0], {"node_id": c.node_ids[0], **node})
+        phase = base.get("phase")
+        if phase == km.MIGRATE:
+            return self._migrate(plan, base, changes, nodes, job, progress)
+        if phase == km.ROLLBACK:
+            return self._rollback(plan, base, changes, nodes, job, progress)
+        if phase != km.PREPARE:
+            raise RuntimeError(f"unknown phase {phase}")
         self._start(plan, base, list(nodes.values()))
         actor = plan.created_by or ""
         try:
             for change in changes:
                 self._one(plan, change, nodes[change.node_ids[0]], job, progress, actor)
         except Exception as exc:
+            error = f"{self._failed_step}: {exc}"[:2000]
+            self._update(
+                lambda s: km.move(
+                    s,
+                    km.PREPARE_FAILED,
+                    error=error,
+                    error_step=self._failed_step,
+                    finished_at=to_rfc3339(utcnow()),
+                )
+            )
             self._audit(actor, "kea.migration.prepare", base, {"ok": False, "error": str(exc)}, False)
             raise
         now = to_rfc3339(utcnow())
         self._update(lambda s: km.move(s, km.PREPARED, finished_at=now))
         self._audit(actor, "kea.migration.prepare", base, {"ok": True, "state": km.PREPARED}, True)
         return {"migration_id": base["migration_id"], "state": km.PREPARED}
+
+    # Migrate (time 1, batch K4) and the return --------------------------------------------------
+
+    def _begin(self, plan: Plan, base: dict[str, Any], state: str, phase: str) -> dict[str, Any]:
+        now = to_rfc3339(utcnow())
+        options = base.get("options") or {}
+
+        def mutate(settings: dict[str, Any]) -> None:
+            record = km.read_migration(settings)
+            if record is None or record["id"] != base["migration_id"]:
+                raise km.MigrationStateError(f"migration {base['migration_id']} is not the current one")
+            fields: dict[str, Any] = {
+                "phase": phase,
+                "driver": self.ctx.node.id,
+                "plan_id": plan.id,
+                "error": None,
+                "error_step": None,
+                "finished_at": None,
+                "options": {**record["options"], **options},
+            }
+            if phase == km.MIGRATE:
+                fields.update(stage="standby", started_at=now)
+            km.move(settings, state, **fields)
+
+        self._update(mutate)
+        record = km.read_migration(self.ctx.settings())
+        self._push(record["nodes"])
+        return record
+
+    def _fail(self, error: str, step: str | None) -> None:
+        now = to_rfc3339(utcnow())
+        self._update(lambda s: km.move(s, km.FAILED, error=error[:2000], error_step=step, finished_at=now))
+
+    def _migrate(
+        self,
+        plan: Plan,
+        base: dict[str, Any],
+        changes: list[Change],
+        nodes: dict[str, dict[str, Any]],
+        job: Job,
+        progress: Callable[[Job], None],
+    ) -> dict[str, Any]:
+        actor = plan.created_by or ""
+        record = self._begin(plan, base, km.MIGRATING, km.MIGRATE)
+        try:
+            for change in changes:
+                stage = (change.after.get("details") or {}).get("stage")
+                if stage and stage != record["stage"]:
+                    self._update(lambda s, st=stage: km.write(s, {**km.read_migration(s), "stage": st}))
+                self._one(plan, change, nodes[change.node_ids[0]], job, progress, actor)
+        except Exception as exc:
+            error, step_name = f"{self._failed_step}: {exc}", self._failed_step
+            current = km.read_migration(self.ctx.settings())
+            auto = bool((current or record)["options"].get("auto_rollback"))
+            if auto and (current or record)["stage"] in ("standby", "window"):
+                self._auto_rollback(plan, current or record, error, step_name, job, progress)
+                raise RuntimeError(
+                    f"{error}; Kea {base.get('from_series') or '2.6'} is back (automatic return)"
+                ) from None
+            self._fail(error, step_name)
+            raise
+        # Time 1 done: the standby runs nothing, its partner serves alone; K5 goes on from here.
+        return {"migration_id": base["migration_id"], "state": km.MIGRATING, "stage": "standby"}
+
+    def _auto_rollback(
+        self,
+        plan: Plan,
+        record: dict[str, Any],
+        error: str,
+        step_name: str | None,
+        job: Job,
+        progress: Callable[[Job], None],
+    ) -> None:
+        actor = plan.created_by or ""
+        self._update(lambda s: km.move(s, km.ROLLING_BACK, error=error[:2000], error_step=step_name))
+        try:
+            back = _build(self.service, switch_request(record, km.ROLLBACK, record["options"]), actor)
+            changes = [c for c in back.changes if c.node_ids and isinstance(c.after, dict)]
+            nodes = {n["node_id"]: n for n in record["nodes"]}
+            for change in changes:
+                self._one(back, change, nodes[change.node_ids[0]], job, progress, actor)
+        except Exception as exc:
+            why = f"{error}; the automatic return failed at {self._failed_step}: {exc}"
+            self._fail(why, self._failed_step)
+            self._audit(actor, "kea.migration.rollback", record, {"ok": False, "error": why}, False)
+            raise RuntimeError(why) from None
+        self._finish_rollback(record, back.changes)
+        self._audit(actor, "kea.migration.rollback", record, {"ok": True, "automatic": True}, True)
+
+    def _finish_rollback(self, record: dict[str, Any], changes: list[Change]) -> None:
+        back = {c.node_ids[0] for c in changes if c.node_ids}
+        now = to_rfc3339(utcnow())
+
+        def mutate(settings: dict[str, Any]) -> None:
+            current = km.read_migration(settings)
+            for node in current["nodes"]:
+                if node["node_id"] in back and node["role"] != "primary":
+                    node.update(status="rolled_back", to_version=node["from_version"])
+            km.write(settings, current)
+            km.move(settings, km.ROLLED_BACK, finished_at=now)
+
+        self._update(mutate)
+
+    def _rollback(
+        self,
+        plan: Plan,
+        base: dict[str, Any],
+        changes: list[Change],
+        nodes: dict[str, dict[str, Any]],
+        job: Job,
+        progress: Callable[[Job], None],
+    ) -> dict[str, Any]:
+        actor = plan.created_by or ""
+        record = self._begin(plan, base, km.ROLLING_BACK, km.ROLLBACK)
+        try:
+            for change in changes:
+                self._one(plan, change, nodes[change.node_ids[0]], job, progress, actor)
+        except Exception as exc:
+            self._fail(f"{self._failed_step}: {exc}", self._failed_step)
+            self._audit(actor, "kea.migration.rollback", base, {"ok": False, "error": str(exc)}, False)
+            raise
+        self._finish_rollback(record, changes)
+        self._audit(actor, "kea.migration.rollback", base, {"ok": True}, True)
+        return {"migration_id": base["migration_id"], "state": km.ROLLED_BACK}
+
+    _failed_step: str | None = None
 
     def _one(
         self,
@@ -265,13 +459,8 @@ class PhaseRunner:
                 label=km.step_message(name, node.get("name") or node_id),
             )
         except Exception as exc:
-            error = f"{name}: {exc}"[:2000]
+            self._failed_step = name
             self._node(node_id, status="failed", error=str(exc)[:2000])
-            self._update(
-                lambda s: km.move(
-                    s, km.PREPARE_FAILED, error=error, error_step=name, finished_at=to_rfc3339(utcnow())
-                )
-            )
             self._audit(
                 actor, "kea.migration.step", details, {"ok": False, "error": str(exc)}, False, name, node_id
             )
@@ -292,10 +481,10 @@ class PhaseRunner:
             made = archives.run_on(node_id)
             archive_id = made.get("archive_id")
             return {"record": {"archive_id": archive_id}, "output": f"archive {archive_id}"}
-        if name == km.H_PREPARE:
-            from pelagos.installer.kea_migration_steps import result_of
+        from pelagos.installer.kea_migration_steps import result_of
 
-            result = result_of(self._helper_step(plan, change, node))
+        result = result_of(self._helper_step(plan, change, node))
+        if name == km.H_PREPARE:
             if not result:
                 raise RuntimeError("the prepare step gave no result")
             record = {
@@ -304,6 +493,7 @@ class PhaseRunner:
                 "rollback_ready": bool(result.get("rollback_ready")),
                 "prepared_at": result.get("prepared_at"),
                 "from_version": result.get("from_version") or None,
+                "files_sealed": result.get("files_sealed") or None,
                 "status": "done",
             }
             summary = (
@@ -312,7 +502,14 @@ class PhaseRunner:
                 f" files written aside (validation: {result.get('validation')})"
             )
             return {"record": record, "output": summary}
-        raise RuntimeError(f"{name} is not available in this release")
+        if name not in km.HELPER_STEPS:
+            raise RuntimeError(f"{name} is not available in this release")
+        record: dict[str, Any] = {"status": "done"}
+        if name == km.H_INSTALL and result.get("version"):
+            record["to_version"] = _upstream(str(result["version"]))
+        if name == km.H_STOP and (change.after.get("details") or {}).get("phase") == km.MIGRATE:
+            record["started_at"] = to_rfc3339(utcnow())
+        return {"record": record, "output": _summary(result)}
 
     def _helper_step(self, plan: Plan, change: Change, node: dict[str, Any]) -> str:
         """Runs one helper step on its node; returns the step's output."""
@@ -382,3 +579,21 @@ class PhaseRunner:
             )
         except Exception:  # the audit never decides a migration step
             log.exception("audit of %s failed", action)
+
+
+def _upstream(version: str) -> str:
+    v = version.split(":", 1)[-1]
+    return v.split("-", 1)[0]
+
+
+def _summary(result: dict[str, Any]) -> str:
+    """One readable output for a helper step's JSON result."""
+    lines: list[str] = []
+    for key, value in result.items():
+        if isinstance(value, list):
+            lines += [str(v) for v in value]
+        elif isinstance(value, dict):
+            lines += [f"{k}: {v}" for k, v in value.items()]
+        elif value not in (None, ""):
+            lines.append(f"{key}: {value}")
+    return "\n".join(lines)[-4000:]

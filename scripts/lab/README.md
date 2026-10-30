@@ -16,7 +16,7 @@ rolled back at will; nothing outside these VMs is ever a target.
 | `lab-dev` | 9115 | 10.99.0.15 | Debian 13 dev and test runner: repo checkout, venv, node_modules, BIND 9.20 and ISC Kea 3.2 binaries (services disabled) | `ready` |
 | `lab-pkg-rpm` | 9116 | 10.99.0.16 | Rocky 10, rpm build and install tests | `clean`, `rpmbuild` |
 | `lab-docker` | 9117 | 10.99.0.17 | Debian 13, Docker host for compose tests | `clean`, `docker` |
-| `lab-ucm` | 9122 | 10.99.0.22 | Debian 13 (4 GB), Docker, UCM built from git (`ucm.sh`) for the certificate tests | none: `ucm.sh` rebuilds it |
+| `lab-ucm` | 9122 | 10.99.0.22 | Debian 13 (4 GB), Docker, [Ultimate CA Manager (UCM)](https://github.com/NeySlim/ultimate-ca-manager) built from git (`ucm.sh`) for the certificate tests | none: `ucm.sh` rebuilds it |
 | `lab-arm64` | 9118 | 10.99.0.18 | Debian 13 (amd64), arm64 by emulation: Docker with qemu-user binfmt, qemu-system-aarch64, the Debian 13 arm64 cloud image cached | `emul` |
 | `lab-up1` | 9124 | 10.99.0.24 | Debian 13 (amd64), upgrade test node ns1 (BIND, Kea 2.6.3 from Debian) | none |
 | `lab-up2` | 9125 | 10.99.0.25 | Debian 13 (7 GB), qemu-system-aarch64 host, Docker with qemu-user (arm64 deb builds) | none |
@@ -265,25 +265,46 @@ The UI of ns1 from the workstation, through lab-dev:
 ssh -L 8443:10.99.0.11:8443 lab-dev     # then https://localhost:8443 (self-signed certificate)
 ```
 
-User `admin`, password `Lab-Admin-Password-1` (lab only, set by the tests;
-`PELAGOS_LAB_ADMIN_PASSWORD` changes it). ns2 answers on `10.99.0.12:8443`
+User `admin`, password `admin` of the lab passwords file (see
+[Passwords](#passwords); `PELAGOS_LAB_ADMIN_PASSWORD` overrides it). ns2 answers on `10.99.0.12:8443`
 the same way. `ssh lab-client sudo networkctl renew ens19` asks for a new
 lease, `ssh lab-ns1 sudo systemctl kill kea-dhcp4-server` shows the HA alert.
+
+## Passwords
+
+No password of the lab is written in the repository. `labkit.lab_password()`
+generates each one (`secrets.token_urlsafe`) on first use and keeps it in
+`~/.config/pelagos-lab/passwords.toml` on lab-dev (mode 0600,
+`PELAGOS_LAB_PASSWORDS` moves it), so later runs and provisionings reuse it:
+`admin` (Pelagos admin of the lab nodes), `ucm`, `smb`, `mail`, `ntfy`,
+`gotify`, `matrix-bot`, `matrix-registration`, `webhook-hmac`, `dora`.
+Read one with:
+
+```sh
+grep '^admin ' ~/.config/pelagos-lab/passwords.toml
+python3 backend/tests/lab/labkit.py password admin     # creates it when missing
+```
+
+`PELAGOS_LAB_ADMIN_PASSWORD` and `PELAGOS_LAB_UCM_PASSWORD` still override
+`admin` and `ucm`. Deleting an entry gives a new value at the next run; VMs
+provisioned before keep the old one until they are provisioned again.
 
 ## UCM for the certificate tests
 
 `lab-ucm` (VMID 9122, a full clone of the Debian 13 template with 4 GB of
-RAM and a 20 GB disk) runs UCM (Ultimate CA Manager) in Docker.
+RAM and a 20 GB disk) runs UCM in Docker.
 `scripts/lab/ucm.sh [host] [ref]` checks UCM out from its repository on
 lab-dev (ssh alias `github-ucm`, ref `v2.245` by default), builds its
 frontend with Node 22, builds the image on the VM from UCM's own Dockerfile
 (`ucm:git-<commit>`) and runs it as container `ucm` on 8443 and 8080, with
-the volumes `ucm-data` and `ucm-config`. It is idempotent and installs
+the volumes `ucm-data` and `ucm-config`; a new `ucm-data` volume gets the
+lab password `ucm` as `UCM_INITIAL_ADMIN_PASSWORD`. It is idempotent and installs
 Docker on a bare VM, so a lost VM is a template clone away.
 
 `tests/lab/test_ucm_lab.py` runs it, then `tests/lab/ucmkit.py` signs in as
-admin (first password `changeme123`, changed to `Lab-Ucm-Admin-Password-1`
-or `PELAGOS_LAB_UCM_PASSWORD`), creates the CA `Pelagos Lab UCM CA`, has
+admin with the lab password `ucm` (or `PELAGOS_LAB_UCM_PASSWORD`; an older
+volume still on UCM's documented first password, read from the UCM checkout,
+is moved to it), creates the CA `Pelagos Lab UCM CA`, has
 UCM serve an HTTPS certificate from that CA with its address as IP SAN
 (then restarts the container), and creates a one day API key limited to
 what Pelagos uses. The ACME test points UCM's DNS-01 resolver at a relay on

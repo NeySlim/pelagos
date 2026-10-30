@@ -27,13 +27,13 @@ from pathlib import Path
 
 import pytest
 
-from tests.lab.labkit import REPO, SCRIPTS, Api, fixable, left, scp, ssh, sudo_cat, wait_for
+from tests.lab.labkit import ADMIN_PASSWORD, REPO, SCRIPTS, Api, fixable, left, scp, ssh, sudo_cat, wait_for
 
 A1, A2 = "10.99.0.24", "10.99.0.26"  # lab-up1 (amd64), lab-up3 (arm64)
 ARCH = {A1: "amd64", A2: "arm64"}
 WEB, REPL = 9443, 9444
 DEBS = Path(os.environ.get("PELAGOS_UPGRADE_DEBS", REPO / "build" / "upgrade"))
-PASSWORD = "Upgrade-Admin-Password-1"
+PASSWORD = ADMIN_PASSWORD
 STATE: dict[str, object] = {}
 AUDIT = "/var/lib/pelagos/audit/audit.jsonl"
 CUSTOM = {"alerts_pool_warning_percent": 70, "alerts_d2_error_rate": 0.1, "session_ttl_seconds": 7200}

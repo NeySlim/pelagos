@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import ssl
 import threading
@@ -17,12 +18,29 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from http.cookiejar import CookieJar
+from pathlib import Path
 from typing import Any
 
 from cryptography import x509
 
-FIRST_PASSWORD = "changeme123"  # UCM's documented first password (DOCKER_QUICKSTART.md)
-ADMIN_PASSWORD = os.environ.get("PELAGOS_LAB_UCM_PASSWORD", "Lab-Ucm-Admin-Password-1")
+from tests.lab.labkit import lab_password
+
+# scripts/lab/ucm.sh gives this to a new UCM as UCM_INITIAL_ADMIN_PASSWORD (docker/entrypoint.sh of UCM).
+ADMIN_PASSWORD = lab_password("ucm", "PELAGOS_LAB_UCM_PASSWORD")
+UCM_CACHE = Path(os.environ.get("UCM_CACHE", "~/.cache/pelagos-lab/ucm")).expanduser()
+
+
+def first_password() -> str | None:
+    """UCM's public first password, for a data volume made before ucm.sh passed the lab one: read
+    from the checkout ucm.sh builds (DEFAULT_INITIAL_PASSWORD, backend/auth/password_change_gate.py)."""
+    try:
+        source = (UCM_CACHE / "backend" / "auth" / "password_change_gate.py").read_text()
+    except OSError:
+        return None
+    found = re.search(r"^DEFAULT_INITIAL_PASSWORD\s*=\s*['\"]([^'\"]+)['\"]", source, re.M)
+    return found.group(1) if found else None
+
+
 CA_NAME = "Pelagos Lab UCM CA"
 # What Pelagos needs and nothing more: list CAs and templates, upload and sign a CSR, export and
 # revoke the certificate.
@@ -99,7 +117,9 @@ class UcmAdmin:
                 time.sleep(3)
 
     def login(self) -> None:
-        for password in (self.password, FIRST_PASSWORD):
+        for password in (self.password, first_password()):
+            if not password:
+                continue
             try:
                 out = self.call("POST", "/api/v2/auth/login", {"username": "admin", "password": password})
             except UcmAdminError:

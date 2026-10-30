@@ -31,6 +31,7 @@ from tests.lab.labkit import (
     Api,
     deb_package,
     keep,
+    lab_password,
     put,
     pve_vm,
     run_script,
@@ -45,9 +46,12 @@ AD1 = ("lab-ad1", "10.99.0.31", 9131)
 AD2 = ("lab-ad2", "10.99.0.32", 9132)
 A1, A2, DK = AD1[1], AD2[1], DOCKER[1]
 STATE: dict[str, Any] = {}
-HMAC_SECRET = "lab-hmac-secret-1"
-MAIL_PASSWORD = "lab-mail-password-1"
-MATRIX_REG = "lab-matrix-registration-1"
+HMAC_SECRET = lab_password("webhook-hmac")
+MAIL_PASSWORD = lab_password("mail")
+MATRIX_REG = lab_password("matrix-registration")
+MATRIX_BOT_PASSWORD = lab_password("matrix-bot")
+GOTIFY_PASSWORD = lab_password("gotify")
+NTFY_PASSWORD = lab_password("ntfy")
 KINDS = ["daemon_down", "peer_offline", "ha_partner_down", "ha_degraded"]
 
 RECEIVER = r"""
@@ -131,7 +135,7 @@ def ntfy() -> list[dict[str, Any]]:
 
 
 def gotify() -> list[dict[str, Any]]:
-    return http_json(f"http://{DK}:8081/message?limit=200", basic("admin", "lab-gotify-1"))["messages"]
+    return http_json(f"http://{DK}:8081/message?limit=200", basic("admin", GOTIFY_PASSWORD))["messages"]
 
 
 def mailpit() -> list[dict[str, Any]]:
@@ -257,7 +261,9 @@ class TestNotifyLab:
             "-e NTFY_AUTH_DEFAULT_ACCESS=deny-all -e NTFY_BASE_URL=http://" + DK + ":8080 "
             "binwiederhier/ntfy serve"
         )
-        docker("run -d --name n5-gotify -p 8081:80 -e GOTIFY_DEFAULTUSER_PASS=lab-gotify-1 gotify/server")
+        docker(
+            f"run -d --name n5-gotify -p 8081:80 -e GOTIFY_DEFAULTUSER_PASS={GOTIFY_PASSWORD} gotify/server"
+        )
         docker(
             "run -d --name n5-mailpit -p 8025:8025 -p 1025:1025 -v /srv/n5/certs:/certs:ro axllent/mailpit "
             "--smtp-tls-cert /certs/cert.pem --smtp-tls-key /certs/key.pem --smtp-require-starttls "
@@ -274,19 +280,19 @@ class TestNotifyLab:
 
         # ntfy: a user and its access token, topic `pelagos`.
         wait_for("ntfy", lambda: http_json(f"http://{DK}:8080/v1/health")["healthy"], timeout=60)
-        docker("exec -e NTFY_PASSWORD=lab-ntfy-1 n5-ntfy ntfy user add --role=admin pelagos")
+        docker(f"exec -e NTFY_PASSWORD={NTFY_PASSWORD} n5-ntfy ntfy user add --role=admin pelagos")
         out = docker("exec n5-ntfy ntfy token add pelagos")
         STATE["ntfy_token"] = next(w for w in out.split() if w.startswith("tk_"))
 
         # Gotify: an application token.
         wait_for("gotify", lambda: http_json(f"http://{DK}:8081/health")["health"] == "green", timeout=60)
-        app = http_json(f"http://{DK}:8081/application", basic("admin", "lab-gotify-1"), {"name": "pelagos"})
+        app = http_json(f"http://{DK}:8081/application", basic("admin", GOTIFY_PASSWORD), {"name": "pelagos"})
         STATE["gotify_token"] = app["token"]
 
         # Matrix: a bot account registered with the token, and a room it created.
         def register() -> dict[str, Any]:
             url = f"http://{DK}:6167/_matrix/client/v3/register"
-            body: dict[str, Any] = {"username": "pelagos", "password": "lab-matrix-bot-1"}
+            body: dict[str, Any] = {"username": "pelagos", "password": MATRIX_BOT_PASSWORD}
             try:
                 return http_json(url, data=body)
             except urllib.error.HTTPError as exc:

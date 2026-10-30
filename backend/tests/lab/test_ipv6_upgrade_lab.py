@@ -23,10 +23,22 @@ from pathlib import Path
 
 import pytest
 
-from tests.lab.labkit import CLIENT, NS1, NS2, REPO, SCRIPTS, Api, deb_package, scp, ssh, wait_for
+from tests.lab.labkit import (
+    ADMIN_PASSWORD,
+    CLIENT,
+    NS1,
+    NS2,
+    REPO,
+    SCRIPTS,
+    Api,
+    deb_package,
+    scp,
+    ssh,
+    wait_for,
+)
 
 OLD = Path(os.environ.get("PELAGOS_UPGRADE_FROM", REPO / "build" / "upgrade-from"))
-PASSWORD = "Upgrade-Admin-Password-73"
+PASSWORD = ADMIN_PASSWORD
 PREFIX = "2001:db8:73::"
 NEIGHBOR = f"{PREFIX}14"
 NODES = {NS1[1]: "ns1", NS2[1]: "ns2"}

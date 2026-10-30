@@ -15,6 +15,8 @@ HOST="${1:-10.99.0.22}"
 REF="${2:-${UCM_REF:-v2.245}}"
 REPO="${UCM_REPO:-git@github-ucm:NeySlim/ultimate-ca-manager.git}"
 CACHE="${UCM_CACHE:-$HOME/.cache/pelagos-lab/ucm}"
+# The admin password of a new UCM data volume: the lab one (labkit.py), never UCM's public default.
+UCM_PASSWORD="$(python3 "$(dirname "$0")/../../backend/tests/lab/labkit.py" password ucm PELAGOS_LAB_UCM_PASSWORD)"
 SSH=(ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "lab@$HOST")
 
 if [[ ! -d "$CACHE/.git" ]]; then
@@ -42,7 +44,7 @@ fi
 "${SSH[@]}" "if [ \"\$(sudo docker inspect -f '{{.Config.Image}}' ucm 2>/dev/null)\" != '$TAG' ]; then
   sudo docker rm -f ucm >/dev/null 2>&1 || true
   sudo docker run -d --name ucm --restart unless-stopped -p 8443:8443 -p 8080:8080 \
-    -e UCM_FQDN=$HOST -v ucm-data:/opt/ucm/data -v ucm-config:/etc/ucm $TAG >/dev/null
+    -e UCM_FQDN=$HOST -e UCM_INITIAL_ADMIN_PASSWORD=$UCM_PASSWORD -v ucm-data:/opt/ucm/data -v ucm-config:/etc/ucm $TAG >/dev/null
 fi"
 for _ in $(seq 1 60); do
   if curl -ksf "https://$HOST:8443/health" >/dev/null; then

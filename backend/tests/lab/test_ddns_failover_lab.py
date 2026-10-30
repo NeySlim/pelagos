@@ -35,6 +35,7 @@ from tests.lab.labkit import (
     deb_package,
     fixable,
     keep,
+    lab_password,
     put,
     rollback,
     scp,
@@ -53,7 +54,7 @@ NIC = "ens19"
 DROPIN = "/etc/systemd/network/10-netplan-lab-dhcp.network.d/hostname.conf"
 SOCKET = "/run/kea/kea4-ctrl-socket"
 HOOK_PORT = 8091
-HMAC_SECRET = "lab-d6-hmac-1"
+HMAC_SECRET = lab_password("webhook-hmac")
 TAG = time.strftime("%H%M%S")
 STATE: dict[str, Any] = {}
 

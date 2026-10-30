@@ -37,6 +37,7 @@ from tests.lab.labkit import (
     ApiError,
     deb_package,
     keep,
+    lab_password,
     put,
     run_script,
     scp,
@@ -53,7 +54,7 @@ A1, A2, DK = B1[1], B2[1], DOCKER[1]
 STATE: dict[str, Any] = {}
 # Kept between runs (gitignored), so one step can be run again alone: the SFTP key, the identities.
 WORK = REPO / "build" / "lab-archives"
-SMB_PASSWORD = "lab-smb-password-1"
+SMB_PASSWORD = lab_password("smb")
 HOOK_PORT = 8092
 NFS_MNT, SMB_MNT = "/mnt/pelagos-nfs", "/mnt/pelagos-smb"
 SFTP_DATA = "/srv/sftp-chroot/archive/data"

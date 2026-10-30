@@ -3,17 +3,20 @@
 
 from __future__ import annotations
 
+import fcntl
 import functools
 import http.cookiejar
 import io
 import json
 import os
+import secrets
 import shlex
 import ssl
 import subprocess
 import sys
 import tarfile
 import time
+import tomllib
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -24,7 +27,46 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[3]
 SCRIPTS = REPO / "scripts" / "lab"
 SSH_KEY = os.path.expanduser(os.environ.get("PELAGOS_LAB_SSH_KEY", "~/.ssh/id_ed25519"))
-ADMIN_PASSWORD = os.environ.get("PELAGOS_LAB_ADMIN_PASSWORD", "Lab-Admin-Password-1")
+PASSWORDS = Path(os.environ.get("PELAGOS_LAB_PASSWORDS", "~/.config/pelagos-lab/passwords.toml")).expanduser()
+
+
+def _generate() -> str:
+    # Lower, upper, digit and "-" or "_" (Pelagos' policy and UCM's), never a leading "-" that a
+    # command line would read as an option.
+    while True:
+        value = secrets.token_urlsafe(18)
+        if (
+            value[0].isalnum()
+            and any(c.islower() for c in value)
+            and any(c.isupper() for c in value)
+            and any(c.isdigit() for c in value)
+            and any(c in "-_" for c in value)
+        ):
+            return value
+
+
+def lab_password(name: str, env: str | None = None) -> str:
+    """The lab secret `name`: `env` when set, else generated on first use and kept outside the
+    repository in PASSWORDS (mode 0600), so every run and every VM provisioning reuse it."""
+    if env and os.environ.get(env):
+        return os.environ[env]
+    if os.environ.get("PELAGOS_LAB") != "1":
+        return ""  # collected outside the lab tier (skipped): nothing written to disk
+    PASSWORDS.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(PASSWORDS, os.O_RDWR | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "r+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)  # parallel runs must agree on one value
+        known = tomllib.loads(f.read())
+        if name not in known:
+            known[name] = _generate()
+            f.seek(0)
+            f.truncate()
+            f.write("".join(f'{k} = "{v}"\n' for k, v in sorted(known.items())))
+        os.fchmod(f.fileno(), 0o600)
+        return str(known[name])
+
+
+ADMIN_PASSWORD = lab_password("admin", "PELAGOS_LAB_ADMIN_PASSWORD")
 
 # ssh alias, lab address
 NS1 = ("lab-ns1", "10.99.0.11")
@@ -334,3 +376,11 @@ def fixable(findings: list[dict[str, Any]]) -> list[str]:
 def left(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Findings still open after a plan, the manual ones aside."""
     return [f for f in findings if f.get("remediable", True) or f["kind"] not in MANUAL_KINDS]
+
+
+if __name__ == "__main__":
+    # For the lab shell scripts: python3 backend/tests/lab/labkit.py password <name> [ENV_VAR]
+    if len(sys.argv) not in (3, 4) or sys.argv[1] != "password":
+        sys.exit("usage: labkit.py password <name> [ENV_VAR]")
+    os.environ["PELAGOS_LAB"] = "1"
+    print(lab_password(sys.argv[2], sys.argv[3] if len(sys.argv) == 4 else None))

@@ -21,9 +21,21 @@ from typing import Any
 import pytest
 from cryptography import x509
 
-from tests.lab.labkit import ADMIN_PASSWORD, REPO, Api, ApiError, deb_package, scp, ssh, sudo_cat, wait_for
+from tests.lab.labkit import (
+    ADMIN_PASSWORD,
+    REPO,
+    Api,
+    ApiError,
+    deb_package,
+    lab_password,
+    scp,
+    ssh,
+    sudo_cat,
+    wait_for,
+)
 
 pytestmark = pytest.mark.lab
+DORA_PASSWORD = lab_password("dora")
 
 VM1, VM2 = os.environ.get("WEBAUTHN_NS1", "lab-w66"), os.environ.get("WEBAUTHN_NS2", "lab-w67")
 A1, A2 = os.environ.get("WEBAUTHN_NS1_IP", "10.99.0.66"), os.environ.get("WEBAUTHN_NS2_IP", "10.99.0.67")
@@ -151,14 +163,14 @@ class TestWebAuthnPair:
             "/admin/users",
             {
                 "username": "dora",
-                "password": "Lab-Dora-Password-1",
+                "password": DORA_PASSWORD,
                 "roles": ["dns-operator"],
                 "must_change_password": False,
             },
         )
 
         def restricted() -> bool:
-            out = Api(A2).login("dora", "Lab-Dora-Password-1")
+            out = Api(A2).login("dora", DORA_PASSWORD)
             return out["restriction"] == "webauthn_enrollment"
 
         wait_for("dora restricted on ns2", restricted, timeout=120)

@@ -456,7 +456,7 @@ class TestDebianPair:
     def test_03_broken_unsigned_release_rolls_back(self, deb_releases):
         broken_release_rolls_back(A1, [A1, A2], deb_releases["broken"])
 
-    def test_04_bind_from_the_distribution(self):
+    def test_04_bind_from_the_distribution(self, deb_releases):
         newest = {}
         for address in (A1, A2):
             table = ssh(address, "apt-cache madison bind9 | awk '{print $3}'")[1].split()
@@ -517,9 +517,9 @@ def build_rpm(src: str, version: str, public: Path, broken: bool) -> Path:
 
 @pytest.fixture(scope="module")
 def rpm_releases(test_key: tuple[Path, Path]) -> Any:
-    if not _up(RPM_HOST, labkit.PKG_RPM[1]):
-        pytest.skip("needs lab-rpm and lab-pkg-rpm")
-    labkit.rollback("lab-rpm")
+    if not _up(labkit.PKG_RPM[1]):
+        pytest.skip("needs lab-pkg-rpm running")
+    labkit.rollback("lab-rpm")  # restored to `clean` and started (within the lab budget)
     labkit.frontend_dist()
     src = labkit.upload_source(labkit.PKG_RPM[1], "~/pelagos-ui-src")
     private, public = test_key
@@ -571,7 +571,7 @@ class TestRocky:
     def test_02_broken_rpm_rolls_back(self, rpm_releases):
         broken_release_rolls_back(RPM_HOST, [RPM_HOST], rpm_releases["broken"], rpm=True)
 
-    def test_03_bind_from_rocky(self):
+    def test_03_bind_from_rocky(self, rpm_releases):
         listed = ssh(
             RPM_HOST,
             "dnf -q --showduplicates list --available bind 2>/dev/null | awk '/^bind/ {print $2}' | sort -uV",

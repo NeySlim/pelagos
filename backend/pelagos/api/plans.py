@@ -84,6 +84,7 @@ class ApplyPlan(Resource):
     @ns.response(200, "Applied on every target node, self first; state tells the outcome", m.ApplyResult)
     @ns.response(202, "install, import and security plans run as a Job", m.Job)
     @ns.response(409, "precondition_failed or plan_state", m.Problem)
+    @ns.response(401, "invalid_credentials: an update plan needs the user's password", m.Problem)
     @ns.response(410, "plan_expired", m.Problem)
     @ns.response(428, "confirmation_required", m.Problem)
     def post(self, plan_id: str):
@@ -98,6 +99,13 @@ class ApplyPlan(Resource):
             raise ApiError("confirmation_required", "a plan applied with an API token needs confirm=true")
         s = services()
         user = current_session().username
+        if plan.scope is PlanScope.UPDATE:
+            # An update has root install packages on every node: the user's password confirms it.
+            s.updates.check_password(
+                current_session().user_id, body.get("password"), user, "update.apply", client_ip()
+            )
+            if plan.update is not None:
+                plan.update["confirmed_by"] = user
         if plan.scope is PlanScope.RESTORE:
             job = s.plans.apply_in_job(plan, user, s.jobs, confirm, client_ip())
             return job.to_dict(), 202

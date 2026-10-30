@@ -13,6 +13,15 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-30, WP-API-AUTH, WP-CORE: updates API (U5)
+`/admin/updates*` built (architecture section 29, "Web side"). `domain.plan.Plan` gains
+`update: dict | None` (the plan member of scope `update`; `plan_dict` leaves it out when None,
+older peers ignore it). `ApplyBody` gains `password`, required for an `update` plan. New peer
+action `updates.node` (`services.peer_actions.UPDATES_NODE`). The plan member carries also
+`source`, `artifacts`, `checksums_sha256`, `from_versions`, `unsigned_accepted`. U4 drives the
+`engine_packages` rollouts this API writes (`packages`: {name: candidate}); U6 reads the routes
+as specified.
+
 ## 2026-10-30, batch K4: Kea migration time 1 and its return
 Additive, architecture section 28 "Time 1 and its return". `core/kea_migration.py`: node field
 `files_sealed` (left out of the API view), `seal_files` and `open_files`; the prepare step's result

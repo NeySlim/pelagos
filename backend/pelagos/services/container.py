@@ -41,6 +41,7 @@ from pelagos.services.registry import ConnectorRegistry, bound_reads
 from pelagos.services.resolver_fallback import FallbackWriter, ResolverFallbackService
 from pelagos.services.rpz_service import RpzService
 from pelagos.services.token_service import TokenService
+from pelagos.services.updates_service import RolloutWriter, UpdatesService
 from pelagos.services.webauthn_service import WebAuthnService
 
 log = logging.getLogger(__name__)
@@ -112,6 +113,14 @@ class Services:
         self.kea_migration = KeaMigrationService(ctx, self.peers, alerts=self.alerts, archives=self.archives)
         self.certs = CertService(ctx, self.peers, self.jobs, self.dns)
         self.notifications = NotifyService(ctx, self.peers)
+        self.updates = UpdatesService(
+            ctx,
+            self.peers,
+            self.alerts,
+            ha_primaries=self._ha_primaries,
+            dns_primaries=self._dns_primaries,
+        )
+        self.plans.cluster_parts[PlanScope.UPDATE] = RolloutWriter(ctx)
         self.ipv6 = Ipv6Service(ctx, self.peers, self.hosts, self.cache)
         self.ipv6_plans = Ipv6Plans(ctx, self.ipv6, self.ptr, self.dns)
         self.ptr.observed = self.ipv6.last_seen_by_address
@@ -125,6 +134,30 @@ class Services:
         self._publish_audit()
         self._publish_plans()
         ctx.extra["services"] = self
+
+    def _ha_primaries(self) -> set[str]:
+        """Nodes whose Kea is the primary of an HA relationship (the update order puts them late)."""
+        out: set[str] = set()
+        for svc in (self.dhcp4, self.dhcp6):
+            for st in svc.ha():
+                if st.role == "primary":
+                    out.add(st.node_id)
+        return out
+
+    def _dns_primaries(self) -> set[str]:
+        """Nodes primary of a dynamic zone (ddns.roles) or serving a primary zone that is not a
+        policy zone: the update order puts them last."""
+        from pelagos.core.update_rollout import dns_primaries
+        from pelagos.domain.dns import bulk_zone
+
+        out = dns_primaries(self.ctx.settings())
+        local, peer_zones, _errors = self.dns.zones_with_peers()
+        rows = {self.ctx.node.id: [z["zone"] for z in local]} if self.dns.local is not None else {}
+        rows.update(peer_zones)
+        for node_id, zones in rows.items():
+            if any(z.get("kind") == "primary" and not bulk_zone(z) for z in zones):
+                out.add(node_id)
+        return out
 
     def _publish_plans(self) -> None:
         """Every plan this process builds gets its impact and confirmation reasons (plan_impact),

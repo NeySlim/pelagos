@@ -595,7 +595,10 @@ HostRequest = model(
 
 # Plans, alerts, series, audit, advanced -------------------------------------
 
-ApplyBody = model("ApplyBody", {"confirm": fields.Boolean(default=False)})
+ApplyBody = model(
+    "ApplyBody",
+    {"confirm": fields.Boolean(default=False), "password": fields.String(description="update plans only")},
+)
 AlertPage = page_of(Alert, "AlertPage")
 AlertSummary = model(
     "AlertSummary",

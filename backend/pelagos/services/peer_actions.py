@@ -78,6 +78,8 @@ IPV6_OBSERVATIONS = "ipv6.observations"
 # Kea migration analysis of this node (services.kea_migration_service, section 26).
 KEA_MIGRATION_INVENTORY = "kea.migration.inventory"
 KEA_MIGRATION_ANALYZE = "kea.migration.analyze"
+# This node's version, architecture, kept previous release and engine packages (section 29).
+UPDATES_NODE = "updates.node"
 # Last use of each API token on this node (auth.api_tokens.UsageStore).
 TOKENS_USAGE = "tokens.usage"
 # The permission guard's standing checks of this node, run in its collector (services.permissions).
@@ -105,6 +107,7 @@ LOCKLESS = frozenset(
         # lasts a minute or more, far beyond what the collector may wait on the engine lock.
         KEA_MIGRATION_INVENTORY,
         KEA_MIGRATION_ANALYZE,
+        UPDATES_NODE,
     }
 )
 
@@ -116,6 +119,7 @@ class PeerActions:
         self.ctx = ctx
         self.registry = registry
         self.lock = lock if lock is not None else threading.RLock()
+        self._updates: Any = None
         self.handlers: dict[str, Callable[[dict[str, Any], str], Any]] = {
             ZONE_PLAN: self.zone_plan,
             DNS_CONFIG_PLAN: self.dns_config_plan,
@@ -144,6 +148,7 @@ class PeerActions:
             IPV6_OBSERVATIONS: self.ipv6_observations,
             KEA_MIGRATION_INVENTORY: self.kea_migration_inventory,
             KEA_MIGRATION_ANALYZE: self.kea_migration_analyze,
+            UPDATES_NODE: self.updates_node,
             TOKENS_USAGE: self.tokens_usage,
             PERMISSIONS_STATUS: self.permissions_status,
         }
@@ -344,6 +349,14 @@ class PeerActions:
         from pelagos.services.kea_migration_service import KeaMigrationService
 
         return KeaMigrationService(self.ctx).local_analyze(str(body.get("series")), str(body.get("source")))
+
+    def updates_node(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """This node's row of GET /admin/updates, with its BIND and Kea packages."""
+        if self._updates is None:
+            from pelagos.services.updates_service import UpdatesService
+
+            self._updates = UpdatesService(self.ctx)
+        return self._updates.local_node()
 
     def notify_state(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
         """This node's dispatcher state, for the overview of a node that is not the sender."""

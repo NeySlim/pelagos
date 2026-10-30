@@ -131,6 +131,8 @@ def _dump(value: Any) -> Any:
 def plan_dict(plan: Plan) -> dict[str, Any]:
     """A plan as the API shows it: key material, given or generated, never leaves the node."""
     data = plan.to_dict()
+    if data.get("update") is None:
+        data.pop("update", None)
     data["changes"] = plan_secrets.without_sealed(data.get("changes") or [])
     data = masked(data)
     # Whole files in changes (a restore) carry key statements: masked like the diff.

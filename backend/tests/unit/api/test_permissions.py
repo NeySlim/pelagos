@@ -546,7 +546,7 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
         None,
         "admin:users",
     ),
-    # Updates from the UI (section 29): 501 until batch U5.
+    # Updates from the UI (section 29).
     ("GET", "/admin/updates", "/admin/updates", None, "admin:updates"),
     ("POST", "/admin/updates/check", "/admin/updates/check", {}, "admin:updates"),
     ("POST", "/admin/updates/upload", "/admin/updates/upload", {}, "admin:updates"),

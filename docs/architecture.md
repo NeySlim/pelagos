@@ -5051,11 +5051,33 @@ the screen (U6), daemon and lab tests (U7).
   next to the plan fields: `{"kind","version","order","packages",
   "signature","key_id","unsigned_warning": message|null,
   "state_schema_changed","auto_rollback","checks": [step],
-  "estimated_seconds","requires_password": true}`. `POST
+  "estimated_seconds","requires_password": true,"source","artifacts","checksums_sha256",
+  "from_versions","unsigned_accepted"}` (the last five are what the apply writes into the
+  rollout; `confirmed_by`, the user who gave the password, is added at apply). `POST
   /plans/{id}/apply` of an `update` plan needs `{"confirm": true,
   "password"}` (`400 validation_error` field `password` without it, `401
   invalid_credentials` when wrong). The apply writes the rollout
-  (`cluster_parts[PlanScope.UPDATE]`), nothing else.
+  (`cluster_parts[PlanScope.UPDATE]`, `services.updates_service.RolloutWriter`), nothing
+  else; `POST /plans/{id}/rollback` removes it while every node is still `pending`, and is
+  refused once a node started (the rollout actions take over).
+- **Web side** (`services.updates_service.UpdatesService`, U5): node rows come from the peer
+  action `updates.node` (`{"node_id","name","version","arch","package_format",
+  "previous_kept","state_schema","reachable","engines": [{"engine","package","installed",
+  "candidate"}]}`, lockless); a node before 0.3.0 answers `not_supported` and its row keeps only
+  the status `version` and `reachable`. `previous_kept` is the release of `previous.json` when
+  `packages/<release>/` is still held. `engines[].cves` are the CVEs of the node's
+  `security_advisory` alert whose status is `update`. `available` merges the releases held in
+  `packages/` (source `upload`, signature from the packaged keys, `release.json` and
+  `NOTES.md`) with `available.json`, newest first, only versions newer than at least one node.
+  The upload calls `update_verify` with `allow_unsigned: true` (the acceptance comes with the
+  plan); `422 release_invalid` carries `reason` (also `version` or `too_large`). `POST
+  /admin/updates/check` with source `upload` reads nothing remote. A `pelagos` plan refuses an
+  unreachable node, a version not newer than a chosen node's, and leaves out nodes already on
+  the version; `state_schema_changed` is true when the release schema is unknown or differs
+  from a target node's; a `rollback` plan takes nodes whose `previous_kept` is the version.
+  An `engine_packages` plan takes the candidates of the chosen nodes, which must agree per
+  package. The `rollback` action is refused when `state_schema_changed`, and when the done
+  nodes came from different versions.
 - **Alerts**: `update_available` (info, cluster-wide from the service
   node, subject `update:pelagos`; details `version`, `installed`,
   `source`, `signature`; title `alert.update_available` or

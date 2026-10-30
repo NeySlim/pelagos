@@ -50,6 +50,9 @@ def services(node_ctx: NodeContext, fake_registry: ConnectorRegistry, tmp_path) 
     svc.install.env_factory = lambda: fake_host
     svc.kea_migration.env_factory = lambda: fake_host
     svc.kea_migration._own_env = False
+    svc.updates.facts = lambda: ("deb", "amd64")
+    svc.updates.engine_reader = lambda ctx: []
+    svc.updates.docker = lambda: False
     yield svc
     svc.close()
 

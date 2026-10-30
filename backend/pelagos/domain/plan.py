@@ -199,6 +199,8 @@ class Plan(Model):
     impact: list[ImpactItem] = field(default_factory=list)
     # Why requires_confirmation is set (ConfirmationReason values); empty for older plans.
     requires_confirmation_reasons: list[str] = field(default_factory=list)
+    # The `update` member of an update plan (scope update, section 29); None for other scopes.
+    update: dict[str, Any] | None = None
 
     @property
     def permission(self) -> str:

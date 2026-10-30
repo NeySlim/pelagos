@@ -13,6 +13,14 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-30, WP-INSTALLER, WP-COLLECTOR: the update unit rolls back when the services never stay up (U7)
+Found by `tests/lab/test_upgrade_ui_lab.py` on Rocky: a release whose web unit restarts in a loop
+also restarts the collector every few seconds (`PartOf=pelagos.service`), so no collector turn ran
+the checks and the node stayed broken. `installer.updates`: progress step `restart` after
+`version` (pelagos kind), `request.json` field `auto_rollback`, progress field `rolled_back`;
+`collector.rollout` writes the node `rolled_back` when the progress has it. Additive: an older
+collector reads such a progress as `failed` at `restart`. Section 29 updated.
+
 ## 2026-10-30, WP-API-AUTH, WP-CORE: updates API (U5)
 `/admin/updates*` built (architecture section 29, "Web side"). `domain.plan.Plan` gains
 `update: dict | None` (the plan member of scope `update`; `plan_dict` leaves it out when None,

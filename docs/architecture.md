@@ -4988,8 +4988,10 @@ the screen (U6), daemon and lab tests (U7).
   0640: progress written by the transient unit: `{"rollout_id","node_id",
   "kind","from_version","to_version","packages","started_at","finished_at",
   "result": "running"|"installed"|"failed","steps": [{"step","state",
-  "started_at","finished_at","output"}],"backup","error"}`, steps `backup`,
-  `install` (or `rollback`), `version`; engine packages `install`, `version`, `restart`),
+  "started_at","finished_at","output"}],"backup","error","rolled_back"?}`, steps `backup`,
+  `install` (or `rollback`), `version`, `restart` (pelagos kind only; then `rollback` when the unit
+  rolled back by itself, `rolled_back` naming the release put back); engine packages `install`,
+  `version`, `restart`),
   `installed.json` and `previous.json` (`{"package_version","release"}` of
   the last install through the helper and of what it replaced: the only
   version older than the installed one that the helper accepts),
@@ -5051,8 +5053,19 @@ the screen (U6), daemon and lab tests (U7).
   for a rollback; `dnf install` or `dnf downgrade`), drop `series.sqlite*` on
   a rollback, start the units (step `install` or `rollback`: a failed install
   restarts the previous release, which the package manager left in place),
-  then compare the installed version (step `version`). Exit 0 `installed`, 1
-  `failed`; the checks after the install are the new processes' (U3).
+  then compare the installed version (step `version`). The pelagos kind then
+  waits (step `restart`, at most `UNITS_TIMEOUT_SECONDS`, 180) until both
+  units are `active` with an unchanged `NRestarts` for `UNITS_STABLE_SECONDS`
+  (20): a web unit in a restart loop also restarts the collector
+  (`PartOf=pelagos.service`), so no process would live to run the checks.
+  When they never stay up and `request.json` has `auto_rollback` (the
+  rollout's, false when `state_schema_changed`) and `previous.json` names a
+  held release, the unit reinstalls it itself (step `rollback`, as for a
+  rollback: downgrade, `series.sqlite*` dropped, units started),
+  `installed.json` names it again and the progress gets `rolled_back`; the
+  new processes then write the node `rolled_back` at `restart`. Exit 0
+  `installed`, 1 `failed`; the other checks after the install are the new
+  processes' (U3).
   `pelagos upgrade status --rollout <id>` prints `update_status`.
   `update_status` `{"rollout_id"}`: `{"rollout_id","unit","unit_state":
   "active"|"inactive"|"failed"|"gone","progress": <file>|null,

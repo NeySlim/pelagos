@@ -18,6 +18,8 @@ version the Debian index lists: "Unable to fetch some archives"). Checked here:
   states, the stat overrides and the directory modes identical (sums), no `rc` package, the pair in
   hot-standby.
 - test_03: analysis, prepare, times 1 to 3 on this pair, then the return of the migrated pair.
+- test_04: the standby's install fails inside dpkg (the target isc-kea-dhcp4 postinst exits 1, the
+  packages after it left half-configured): the automatic return gives the exact state back.
 Restore the snapshot to run it again from scratch. About 90 minutes.
 """
 
@@ -26,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 import time
 from pathlib import Path
 
@@ -55,6 +58,22 @@ STATE = (
     " sha256sum /etc/apparmor.d/usr.sbin.kea-* | sort;"
     ' dpkg-statoverride --list | sort; stat -c "%n %U %G %a" /etc/kea /var/lib/kea /var/log/kea /run/kea\''
 )
+# A one-shot apt hook: the target isc-kea-dhcp4 deb repacked with a failing postinst just before
+# dpkg runs (its sum was already checked), then the hook removes itself so the return runs clean.
+HOOK = "/etc/apt/apt.conf.d/99-p82-postinst-fails"
+SABOTAGE = "/usr/local/sbin/p82-postinst-fails"
+SABOTAGE_SH = r"""#!/bin/sh
+rm -f HOOK
+while read -r deb; do
+  case "$deb" in
+    */packages/target/isc-kea-dhcp4_*.deb)
+      d=$(mktemp -d); dpkg-deb -R "$deb" "$d/x"
+      printf '#!/bin/sh\necho p82: postinst fails >&2\nexit 1\n' > "$d/x/DEBIAN/postinst"
+      chmod 755 "$d/x/DEBIAN/postinst"; dpkg-deb -b "$d/x" "$deb" >/dev/null; rm -rf "$d";;
+  esac
+done
+exit 0
+""".replace("HOOK", HOOK)
 RC = "dpkg-query -W -f '${db:Status-Abbrev} ${Package}\\n' 'isc-kea*' 2>/dev/null | grep '^rc' || true"
 DROPIN = "/etc/systemd/system/pelagos.service.d/p82-fault.conf"
 # Each step of time 1 and time 2 of a two-node pair, by the role of the node that runs it.
@@ -312,6 +331,32 @@ class TestKeaMigrationP82:
         )
         assert job["state"] == "done", json.dumps(job, indent=2)
         assert record(mid)["state"] == "rolled_back"
+        returned_exactly(before)
+
+    def test_04_a_failure_inside_dpkg_returns_the_pair_exactly(self):
+        no_cache()
+        before = states()
+        mid = k4.prepared()
+        with tempfile.NamedTemporaryFile("w", suffix=".sh") as f:
+            f.write(SABOTAGE_SH)
+            f.flush()
+            scp(STANDBY[0], Path(f.name), "/tmp/p82-postinst-fails")
+        ssh(
+            STANDBY[0],
+            f"sudo install -m 755 /tmp/p82-postinst-fails {SABOTAGE}"
+            f" && echo 'DPkg::Pre-Install-Pkgs {{\"{SABOTAGE}\";}};' | sudo tee {HOOK} >/dev/null",
+        )
+        try:
+            job = k4.run_job(api(PRIMARY[1]).post(f"/install/kea-migration/{mid}/plan", {"phase": "migrate"}))
+        finally:
+            fired = ssh(STANDBY[0], f"test -e {HOOK} && echo armed || echo fired", check=False)[1].strip()
+            ssh(STANDBY[0], f"sudo rm -f {HOOK} {SABOTAGE}")
+        assert fired == "fired", "the dpkg fault never ran"
+        assert job["state"] == "failed" and "automatic return" in job["error"], job["error"]
+        assert "the automatic return failed" not in job["error"], job["error"]
+        assert "postinst" in job["error"] or "p82: postinst fails" in json.dumps(job), job["error"]
+        mig = record(mid)
+        assert (mig["state"], mig["error_step"]) == ("rolled_back", "kea-mig-install"), mig
         returned_exactly(before)
 
 

@@ -8,6 +8,7 @@ documentation names `ns1`, `ns2`, `example.lan`, `192.0.2.0/24` and
 | --- | --- |
 | [Overview](overview.md) | concepts (nodes, engines, cluster, plans, roles), architecture, supported platforms and versions |
 | [Installation](installation.md) | Debian 13 deb (with the ISC Kea repository), RHEL/Rocky/AlmaLinux 9 and 10 rpm (SELinux, firewalld), Docker (node image, all-in-one, compose), from source |
+| [Docker](docker.md) | images (node, all-in-one, amd64 and arm64), one compose file per scenario (all-in-one, node with the ISC BIND and Kea images, two-node HA pair, node with the host engines), volumes, TLS, backup, upgrade, logs, troubleshooting in containers |
 | [Getting started](getting-started.md) | first node, sign-in, importing BIND and Kea, security audit, enrolling a second node, secondary zones, a Kea HA pair, users |
 | [Configuration](configuration.md) | `node.toml`, `cluster.toml`, settings, environment variables, TLS, ports, roles and permissions, users and API access, languages and themes |
 | [Screens](screens.md) | sign-in, dashboard, hosts (with the IPv6 tab), alerts, advanced editors and operations, nodes, install and import, Kea migration, security audit, audit log, administration (updates, notifications, archives, certificates, IPv6 observation, settings), account |

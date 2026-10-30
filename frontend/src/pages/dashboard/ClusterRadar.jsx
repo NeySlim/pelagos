@@ -15,6 +15,7 @@ import {
   nodeAngles, nodeTone, polar, project, radarFrame, segment,
 } from './radarLayout'
 import './radar.css'
+import { partnerLost } from '../../lib/ha'
 
 function tickPath(count = 90) {
   let d = ''
@@ -174,8 +175,8 @@ export function ClusterRadar({ nodes = [], zones = [], ha = [], alerts = [], rat
                     </Link>
                     <span className="radar-rail-state">{t(`common:status.${h.state}`, { defaultValue: h.state || '?' })}</span>
                     {joined && (
-                      <span className={cn('radar-rail-joint fx-flow fx-flow-h', h.partner?.in_touch === false ? 'fx-tone-danger' : 'fx-tone-primary')} aria-hidden="true">
-                        <span className="fx-flow-strip fx-loop" style={h.partner?.in_touch === false ? { animation: 'none' } : undefined} />
+                      <span className={cn('radar-rail-joint fx-flow fx-flow-h', partnerLost(h.partner) ? 'fx-tone-danger' : 'fx-tone-primary')} aria-hidden="true">
+                        <span className="fx-flow-strip fx-loop" style={partnerLost(h.partner) ? { animation: 'none' } : undefined} />
                       </span>
                     )}
                   </div>

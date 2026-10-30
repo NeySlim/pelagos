@@ -244,6 +244,14 @@
     "partnerSkew": "horloge {{seconds}} s (Kea)",
     "partnerRole": "rôle {{role}}",
     "partnerState": "État du partenaire",
+    "reason": "Événement",
+    "reasons": {
+      "communication_interrupted": "communication interrompue",
+      "communication_restored": "communication rétablie",
+      "partner_restarted": "partenaire redémarré"
+    },
+    "recordedOn": "Vu depuis",
+    "historyUnavailable": "Historique de {{nodes}} indisponible : {{error}}",
     "partnerView": "Partenaire vu d'ici",
     "scopes": "Périmètres servis",
     "service": "Service DHCP",

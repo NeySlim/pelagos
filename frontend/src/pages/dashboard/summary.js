@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // What the tiles derive from GET /dashboard/summary beyond its raw lists.
+import { partnerLost } from '../../lib/ha'
 
 // DHCP family the HA, DDNS and pool links open: v4 unless no node runs kea-dhcp4
 // and one runs kea-dhcp6 (node modules, else the engines of this node that run).
@@ -34,7 +35,7 @@ const BAD_HA = ['partner-down', 'terminated', 'unavailable']
 // standby green, a backup gray, a broken pair red, a transition yellow.
 export function haTone(h) {
   if (!h) return 'neutral'
-  if (BAD_HA.includes(h.state) || h.partner?.in_touch === false) return 'danger'
+  if (BAD_HA.includes(h.state) || partnerLost(h.partner)) return 'danger'
   if (!NORMAL_HA.includes(h.state)) return 'warning'
   if (h.state === 'backup' || h.state === 'passive-backup' || h.role === 'backup') return 'neutral'
   if (h.role === 'primary' || h.state === 'load-balancing') return 'primary'

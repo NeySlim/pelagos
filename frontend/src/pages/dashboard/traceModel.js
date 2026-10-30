@@ -3,6 +3,7 @@
 // the measured heartbeats and the events lane: the two node cards and their link, the
 // lanes of the trace and the readouts beside it.
 import { beatStats } from '../../lib/trace'
+import { partnerLost } from '../../lib/ha'
 
 const ENGINES = [
   ['bind', 'BIND', 'dns'],
@@ -52,7 +53,7 @@ export function meshModel(nodes = [], ha = []) {
   const partnerName = primary && stateOf(primary.id)?.partner?.server_name
   const partner = active.find((c) => c !== primary && (!partnerName || c.server === partnerName)) || null
   if (primary && partner) {
-    const lost = [primary, partner].some((c) => stateOf(c.id)?.partner?.in_touch === false || isOffline(c.node))
+    const lost = [primary, partner].some((c) => partnerLost(stateOf(c.id)?.partner) || isOffline(c.node))
     links.push({ kind: 'ha', a: primary.id, b: partner.id, state: lost ? 'down' : 'ok' })
   }
   // The server that sends the lease updates: the primary, or its partner while it serves alone.
@@ -96,7 +97,7 @@ export function haFamilies(ha = []) {
 export function linkOf(self, peer, ha = []) {
   if (!self || !peer) return null
   const offline = peer.status && peer.status !== 'online'
-  const lost = ha.some((h) => h.enabled !== false && h.partner?.in_touch === false)
+  const lost = ha.some((h) => h.enabled !== false && partnerLost(h.partner))
   if (offline || lost) return { state: 'down', status: 'unreachable', behind: 0 }
   const a = self.config_version
   const b = peer.config_version

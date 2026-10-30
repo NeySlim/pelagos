@@ -100,6 +100,14 @@ CATALOG: dict[str, str] = {
     "alert.secondary_stale": "secondary zone {zone} expires soon",
     "alert.pool_usage": "pool {pool} of subnet {subnet_id} is {percent}% used",
     "alert.ha_partner_down": "{engine} HA partner {partner} is down (state {state})",
+    "alert.ha_communication_interrupted": (
+        "{engine} HA: communication with {partner} is interrupted (last heartbeat {age} s ago)"
+    ),
+    "alert.ha_communication_interrupted_clients": (
+        "{engine} HA: communication with {partner} is interrupted, {unacked} clients unanswered "
+        "({left} more before partner-down)"
+    ),
+    "alert.ha_partner_restarted": "{engine} HA partner {partner} restarted {minutes} min ago",
     "alert.ha_backup_out_of_sync": (
         "{engine} HA backup {server} is out of sync with {reference} ({count} leases differ)"
     ),

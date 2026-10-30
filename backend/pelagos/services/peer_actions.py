@@ -63,6 +63,8 @@ SECURITY_HA_GUARD = "security.ha_guard"
 ALERTS_LIST = "alerts.list"
 # This node's resolver series (services.alerts_service.SeriesService.resolver).
 RESOLVER_SERIES = "resolver.series"
+# This node's HA history (services.alerts_service.SeriesService.ha_transitions).
+HA_TRANSITIONS = "ha.transitions"
 # This node's entry of GET /dns/resolver/health (services.resolver_fallback, collector.resolver).
 RESOLVER_HEALTH = "resolver.health"
 # The notification dispatcher state of this node (collector.notify.read_state).
@@ -91,6 +93,7 @@ LOCKLESS = frozenset(
         SECURITY_HA_GUARD,
         ALERTS_LIST,
         RESOLVER_SERIES,
+        HA_TRANSITIONS,
         RESOLVER_HEALTH,
         NOTIFY_STATE,
         ARCHIVE_STATE,
@@ -132,6 +135,7 @@ class PeerActions:
             SECURITY_HA_GUARD: self.security_ha_guard,
             ALERTS_LIST: self.alerts_list,
             RESOLVER_SERIES: self.resolver_series,
+            HA_TRANSITIONS: self.ha_transitions,
             RESOLVER_HEALTH: self.resolver_health,
             NOTIFY_STATE: self.notify_state,
             ARCHIVE_STATE: self.archive_state,
@@ -239,6 +243,33 @@ class PeerActions:
         finally:
             conn.close()
         return {"node_id": self.ctx.node.id, "series": series}
+
+    def ha_transitions(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """HA state changes and events this node's collector recorded, read from its own cache."""
+        import sqlite3
+
+        from pelagos.collector import series as series_mod
+
+        engine = body.get("engine")
+        if engine not in (None, "kea4", "kea6"):
+            raise ValidationError("unknown engine", [field_error("engine", "kea4 or kea6")])
+        path = self.ctx.paths.series_db
+        if not path.exists():
+            return {"node_id": self.ctx.node.id, "items": []}
+        try:
+            conn = series_mod.connect(path, readonly=True)
+        except sqlite3.Error as exc:
+            raise PeerActionError("engine_unavailable", f"series cache unreadable: {exc}") from None
+        try:
+            items = series_mod.SeriesStore(conn).ha_transitions(
+                engine=engine,
+                node_id=self.ctx.node.id,
+                since=int(body.get("since") or 0),
+                until=int(body.get("until") or 0),
+            )
+        finally:
+            conn.close()
+        return {"node_id": self.ctx.node.id, "items": items}
 
     def ipv6_observations(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
         """What this node observed (section 27), read from its series cache; `since` bounds last_seen."""

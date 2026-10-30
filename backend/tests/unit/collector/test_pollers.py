@@ -319,6 +319,82 @@ def test_kea_poller_ha_transitions_and_alerts(store):
     assert fresh.poll().alerts == []
 
 
+def test_communication_interrupted_raises_partner_down_while_in_touch(store):
+    """Kea keeps in-touch true after the first heartbeat and reports an outage through
+    communication-interrupted; hot-standby without waiting clients never reaches partner-down."""
+    clock = Clock()
+    kea = FakeDhcpBackend()
+    settings = {**SETTINGS, "checks": {**SETTINGS["checks"], "ha_grace_seconds": 45}}
+    poller = KeaPoller(kea, NODE, store, settings, clock)
+    assert poller.poll().alerts == []
+    kea.ha.partner = HAPartner(
+        role="primary",
+        server_name="server2",
+        state="hot-standby",
+        in_touch=True,
+        communication_interrupted=True,
+        age=70,
+        unacked_clients=0,
+        unacked_clients_left=10,
+    )
+    clock.advance(30)
+    assert poller.poll().alerts == []  # within ha_grace_seconds
+    clock.advance(50)
+    out = poller.poll()
+    assert kinds(out) == {AlertKind.HA_PARTNER_DOWN}
+    alert = out.alerts[0]
+    assert (
+        alert.severity is Severity.CRITICAL
+        and alert.title_message["key"] == "alert.ha_communication_interrupted"
+    )
+    assert (
+        alert.title_message["params"]["age"] == 70
+        and alert.details["partner_communication_interrupted"] is True
+    )
+    assert alert.details["unacked_clients_left"] == 10
+    kea.ha.partner.unacked_clients, kea.ha.partner.unacked_clients_left = 3, 7
+    clock.advance(30)
+    alert = poller.poll().alerts[0]
+    assert alert.title_message["key"] == "alert.ha_communication_interrupted_clients"
+    assert (alert.title_message["params"]["unacked"], alert.title_message["params"]["left"]) == (3, 7)
+    kea.ha.partner.communication_interrupted = False
+    clock.advance(30)
+    assert poller.poll().alerts == []
+    # The state never moved, yet both edges are in the history of this node.
+    rows = store.ha_transitions(engine="kea4", node_id=NODE, since=0, until=clock.now)
+    assert [r["reason"] for r in rows] == ["communication_restored", "communication_interrupted"]
+    assert all(r["from_state"] == r["to_state"] == "hot-standby" for r in rows)
+    assert store.last_ha_state(NODE, "kea4") == "hot-standby"
+
+
+def test_partner_restart_from_replicated_uptime(store):
+    clock = Clock()
+    kea = FakeDhcpBackend()
+    kea.ha.partner = HAPartner(role="standby", server_name="server2", state="hot-standby", in_touch=True)
+    kea.status = lambda: {"pid": 1234, "uptime": 86400}  # type: ignore[method-assign]
+    poller = KeaPoller(kea, NODE, store, SETTINGS, clock)
+    store.write_snapshot(PEER, "kea4", "ha", clock.now, {"server_name": "server2"})
+    store.write_snapshot(PEER, "kea4", "status", clock.now, {"pid": 99, "uptime": 50000})
+    assert poller.poll().alerts == []
+    clock.advance(60)
+    store.write_snapshot(PEER, "kea4", "status", clock.now - 5, {"pid": 99, "uptime": 120})
+    out = poller.poll()
+    assert kinds(out) == {AlertKind.HA_PARTNER_RESTARTED}
+    alert = out.alerts[0]
+    assert alert.severity is Severity.INFO and alert.title_message["params"]["partner"] == "server2"
+    assert alert.title_message["params"]["minutes"] == 2 and alert.subject == "ha:kea4"
+    rows = store.ha_transitions(engine="kea4", node_id=NODE, since=0, until=clock.now)
+    assert [r["reason"] for r in rows] == ["partner_restarted"]
+    clock.advance(60)
+    store.write_snapshot(PEER, "kea4", "status", clock.now, {"pid": 99, "uptime": 185})
+    assert kinds(poller.poll()) == {AlertKind.HA_PARTNER_RESTARTED}
+    assert len(store.ha_transitions(engine="kea4", node_id=NODE, since=0, until=clock.now)) == 1
+    # Past the window, or when both servers started together, nothing is raised.
+    clock.advance(3600)
+    store.write_snapshot(PEER, "kea4", "status", clock.now, {"pid": 99, "uptime": 3785})
+    assert poller.poll().alerts == []
+
+
 def test_kea_poller_daemon_down_v6(store):
     kea = FakeDhcpBackend(Family.V6)
     kea.down = True

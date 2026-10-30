@@ -73,4 +73,4 @@ class HaTransitions(Resource):
         rows = services().series.ha_transitions(
             engine=arg("engine"), node_id=arg("node_id"), since=since, until=until
         )
-        return {"items": rows}
+        return rows

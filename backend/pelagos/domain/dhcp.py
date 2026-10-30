@@ -188,6 +188,9 @@ class HAPartner(Model):
     unacked_clients: int | None = None
     unacked_clients_left: int | None = None
     analyzed_packets: int | None = None
+    # status-get `communication-interrupted`: no answer from the partner for longer than
+    # max-response-delay. `in_touch` stays true after the first contact, so this is the outage signal.
+    communication_interrupted: bool | None = None
     # Partner's clock minus this server's, in seconds, as Kea last measured it (status-get
     # `clock-skew`, Kea 3.0 and later); None before the first heartbeat and on Kea 2.6.
     clock_skew: int | None = None

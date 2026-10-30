@@ -26,6 +26,16 @@ def _int_or_none(value: Any) -> int | None:
     return int(value)
 
 
+def _bool_or_none(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def partner_lost(partner: HAPartner | None) -> bool:
+    """The partner is out of reach: never in touch, or in touch once and now silent for longer
+    than max-response-delay (status-get `communication-interrupted`)."""
+    return partner is not None and (partner.in_touch is False or partner.communication_interrupted is True)
+
+
 def _state_of_entry(node_id: str, family: Family, entry: dict[str, Any]) -> HAState:
     servers = entry.get("ha-servers") or {}
     local = servers.get("local") or {}
@@ -43,6 +53,7 @@ def _state_of_entry(node_id: str, family: Family, entry: dict[str, Any]) -> HASt
             state=remote.get("last-state") or None,
             scopes=[str(s) for s in remote.get("last-scopes") or []],
             in_touch=remote.get("in-touch"),
+            communication_interrupted=_bool_or_none(remote.get("communication-interrupted")),
             last_state=remote.get("last-state") or None,
             age=remote.get("age"),
             connecting_clients=remote.get("connecting-clients"),
@@ -101,7 +112,7 @@ def ha_serving(state: HAState) -> bool:
     partner = state.partner
     if partner is None:
         return True
-    return partner.in_touch is not False and (partner.state or "") in NORMAL_STATES
+    return not partner_lost(partner) and (partner.state or "") in NORMAL_STATES
 
 
 def ha_configured(cfg: dict[str, Any]) -> bool:
@@ -477,6 +488,7 @@ def relationships(states: list[HAState], node_names: dict[str, str]) -> list[dic
                     "unsent_update_count": own.unsent_update_count if own else None,
                     "partner": partner_name(own) if own else None,
                     "in_touch": remote.in_touch if remote else None,
+                    "communication_interrupted": remote.communication_interrupted if remote else None,
                     "collected_at": to_rfc3339(own.collected_at) if own else None,
                     "managed": own is not None,
                 }

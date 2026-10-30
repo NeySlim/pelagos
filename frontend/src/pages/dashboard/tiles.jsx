@@ -20,6 +20,7 @@ import { dhcpFamily, mergePools, poolThresholds, formatErrorRate } from './summa
 import { PoolPressure } from './poolPressure'
 import { flattenHa } from '../dhcp/haSetup'
 import { DdnsFailoverLine } from './ddnsFailoverLine'
+import { partnerLost } from '../../lib/ha'
 
 // `ambient` is a canvas layer under the body. The marks ping on the tile's domain events
 // and the sweep follows refreshes (TileRefresh); all are absent unless ambient layers are on.
@@ -125,7 +126,7 @@ export function HaTile({ summary, editing, nameOf }) {
   const { t } = useTranslation(['dashboard', 'common'])
   // One row per relationship a server is in (a Kea 3 hub has several).
   const ha = flattenHa(summary?.ha).filter((h) => h.enabled !== false)
-  const bad = ha.filter((h) => !['hot-standby', 'load-balancing', 'backup', 'passive-backup'].includes(h.state) || h.partner?.in_touch === false)
+  const bad = ha.filter((h) => !['hot-standby', 'load-balancing', 'backup', 'passive-backup'].includes(h.state) || partnerLost(h.partner))
   return (
     <TileFrame
       id="ha"
@@ -182,7 +183,7 @@ export function HaTile({ summary, editing, nameOf }) {
                   ) : h.partner ? (
                     <span className="flex items-center gap-1 min-w-0">
                       <StatusBadge status={h.partner.state || 'unknown'} dot={false} truncate />
-                      {h.partner.in_touch === false && <StatusDot tone="danger" pulse className="shrink-0" label={t('tiles.ha.notInTouch')} title={t('tiles.ha.notInTouch')} data-testid="tile-ha-not-in-touch" />}
+                      {partnerLost(h.partner) && <StatusDot tone="danger" pulse className="shrink-0" label={t('tiles.ha.notInTouch')} title={t('tiles.ha.notInTouch')} data-testid="tile-ha-not-in-touch" />}
                     </span>
                   ) : (
                     '-'

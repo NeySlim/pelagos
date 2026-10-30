@@ -220,7 +220,7 @@ def test_lease_delete_ha_and_service(role_client, kea4, node_ctx):
     assert _apply(admin, plan["id"], True).get_json()["state"] == "applied"
     assert kea4.enabled is False
     assert admin.post(D + "/service/plan", json={"enable": "no"}).status_code == 400
-    assert admin.get(D + "/ha/transitions").get_json() == {"items": []}
+    assert admin.get(D + "/ha/transitions").get_json() == {"items": [], "unavailable": []}
 
 
 def test_d2(role_client, fake_registry):

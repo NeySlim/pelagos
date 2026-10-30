@@ -159,6 +159,7 @@
     "zone_error": "zone en erreur",
     "ha_degraded": "HA dégradée",
     "ha_partner_down": "partenaire HA tombé",
+    "ha_partner_restarted": "partenaire HA redémarré",
     "ha_transition": "transition HA",
     "d2_errors": "erreurs DDNS",
     "daemon_down": "démon arrêté",

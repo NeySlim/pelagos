@@ -35,7 +35,7 @@ from pelagos.collector.kea_shared import shared_hashes
 from pelagos.collector.pollers import PollOutcome, engine_filter
 from pelagos.collector.series import SeriesStore
 from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend
-from pelagos.connectors.kea.ha import partner_name
+from pelagos.connectors.kea.ha import partner_lost, partner_name
 from pelagos.core import clock as clock_mod
 from pelagos.core import settings_registry as reg
 from pelagos.core.keadoc import DEFAULT_CWD, KeaDocument, KeaFileUnreadable
@@ -60,10 +60,16 @@ KEA_KINDS = frozenset(
         AlertKind.HA_PARTNER_DOWN.value,
         AlertKind.HA_TRANSITION.value,
         AlertKind.HA_TERMINATED.value,
+        AlertKind.HA_PARTNER_RESTARTED.value,
         AlertKind.CONFIG_DIVERGENCE.value,
         AlertKind.CUSTOM_HOOK.value,
     }
 )
+# A partner Kea that started this much later than this one is reported as restarted for this long.
+PARTNER_RESTART_WINDOW = 3600
+PARTNER_RESTART_MARGIN = 300
+# Clock jitter between two status snapshots of the same Kea process (whole seconds on both sides).
+BOOT_JITTER = 30
 D2_KINDS = frozenset(
     {AlertKind.DAEMON_DOWN.value, AlertKind.D2_ERRORS.value, AlertKind.CONFIG_DIVERGENCE.value}
 )
@@ -251,6 +257,10 @@ class KeaPoller:
         # HA alert subject -> clock skew cause seen while terminated: Kea 2.6 reports no skew of
         # its own, so once NTP fixed the clocks this is the only trace of why it terminated.
         self._clock_causes: dict[str, dict[str, Any]] = {}
+        # Relationship -> communication-interrupted at the previous poll; node -> partner Kea start time
+        # (status snapshot ts minus uptime), to record interruptions and restarts in the HA history.
+        self._interrupted: dict[str, bool] = {}
+        self._partner_boot: dict[str, float] = {}
         self.external = ExternalChangeWatcher(self.engine.value, clock, locks_dir)
         self.ownership = HookOwnership()
         # Last HA observation sent as an event: (state, partner state, in touch) and the unsent count.
@@ -303,7 +313,7 @@ class KeaPoller:
         # One config-get for the whole poll: capabilities, utilization, hashes and subnets share it.
         cache = getattr(self.backend, "cached_config", None)
         with cache() if callable(cache) else nullcontext():
-            self._poll_ha(now, out)
+            self._poll_ha(now, out, status)
             self._poll_pools(now, out)
             try:
                 running = self.backend.config_get()
@@ -352,7 +362,7 @@ class KeaPoller:
     def _subnets(self) -> list[dict[str, Any]]:
         return [s.to_dict() for s in self.backend.list_subnets()]
 
-    def _poll_ha(self, now: int, out: PollOutcome) -> None:
+    def _poll_ha(self, now: int, out: PollOutcome, status: dict[str, Any] | None = None) -> None:
         engine = self.engine.value
         try:
             ha = self.backend.ha_state()
@@ -366,7 +376,13 @@ class KeaPoller:
         if previous is None:
             previous = self.store.last_ha_state(self.node_id, engine)
         maintenance = self.maintenance(engine)
-        if maintenance and ha.state in rules.HA_NORMAL_STATES and ha.partner and ha.partner.in_touch:
+        if (
+            maintenance
+            and ha.state in rules.HA_NORMAL_STATES
+            and ha.partner
+            and ha.partner.in_touch
+            and not partner_lost(ha.partner)
+        ):
             self.maintenance_done(engine)
             maintenance = False
         # A hub (Kea 3) answers for each of its relationships; each has its own alerts and history.
@@ -384,9 +400,22 @@ class KeaPoller:
                 self.node_id, one, before, maintenance, first=is_first, quiet=quiet, cause=cause
             )
             out.alerts.extend(self._keep_open(one, is_first, quiet, alerts))
+            reasons = self._ha_events_of(one, now, status, subject, out)
+            if transition is None and reasons:
+                transition = {
+                    "server_name": one.server_name,
+                    "from_state": one.state,
+                    "to_state": one.state,
+                    "partner_state": one.partner.state if one.partner else None,
+                    "scopes": list(one.scopes),
+                    "reason": None,
+                }
             if transition is not None:
+                transition["reason"] = ",".join(reasons) or transition["reason"]
+                # Rows are keyed by (ts, node, engine): a hub's other relationships move a second on.
+                ts = now if is_first else now + 1 + ha.other_relationships.index(one)
                 self.store.write_ha_transition(
-                    now,
+                    ts,
                     self.node_id,
                     engine,
                     transition["server_name"],
@@ -400,6 +429,63 @@ class KeaPoller:
         self.last_ha_state = ha.state
         self.last_other_states = {o.server_name or "": o.state for o in ha.other_relationships}
 
+    def _ha_events_of(
+        self, one: HAState, now: int, status: dict[str, Any] | None, subject: str, out: PollOutcome
+    ) -> list[str]:
+        """History reasons of this poll (communication interrupted or restored, partner restarted),
+        recorded even when the state did not move, and the ha_partner_restarted alert."""
+        reasons: list[str] = []
+        key = one.server_name or ""
+        interrupted = bool(one.partner is not None and one.partner.communication_interrupted)
+        before = self._interrupted.get(key)
+        self._interrupted[key] = interrupted
+        if before is not None and before != interrupted:
+            reasons.append("communication_interrupted" if interrupted else "communication_restored")
+        restart = self._partner_restart(one, now, status)
+        if restart is not None:
+            if restart["observed"]:
+                reasons.append("partner_restarted")
+            if restart["uptime"] < PARTNER_RESTART_WINDOW and restart["younger_by"] >= PARTNER_RESTART_MARGIN:
+                out.alerts.append(rules.ha_partner_restarted(self.node_id, one, subject, restart["uptime"]))
+        return reasons
+
+    def _partner_restart(
+        self, one: HAState, now: int, status: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """The partner's Kea uptime from the status snapshot its Pelagos node replicates: {"uptime" (now),
+        "younger_by" (than this server's Kea), "observed" (start time moved since the last poll)}."""
+        other = partner_name(one)
+        if other is None or one.role == "backup":
+            return None
+        fresh = 3 * float(reg.get(self.settings, "collector.peer_poll_seconds"))
+        for snap in self.store.snapshots(engine=self.engine.value):
+            payload = snap["payload"]
+            if (
+                snap["kind"] != "ha"
+                or snap["node_id"] == self.node_id
+                or not isinstance(payload, dict)
+                or payload.get("server_name") != other
+            ):
+                continue
+            found = self.store.snapshot(snap["node_id"], self.engine.value, "status")
+            if found is None or now - found[0] > fresh or not isinstance(found[1], dict):
+                return None
+            uptime = found[1].get("uptime")
+            if isinstance(uptime, bool) or not isinstance(uptime, int | float):
+                return None
+            boot = found[0] - float(uptime)
+            previous = self._partner_boot.get(snap["node_id"])
+            self._partner_boot[snap["node_id"]] = boot
+            own = (status or {}).get("uptime")
+            own_uptime = float(own) if isinstance(own, int | float) and not isinstance(own, bool) else 0.0
+            current = max(0.0, now - boot)
+            return {
+                "uptime": current,
+                "younger_by": own_uptime - current,
+                "observed": previous is not None and boot - previous > BOOT_JITTER,
+            }
+        return None
+
     def _keep_open(self, one: HAState, first: bool, quiet: bool, alerts: list[Any]) -> list[Any]:
         """A quiet poll never closes an HA alert already open: it is emitted again until the
         relationship is back to normal."""
@@ -409,8 +495,7 @@ class KeaPoller:
             if alert.kind in (AlertKind.HA_PARTNER_DOWN, AlertKind.HA_DEGRADED):
                 held.clear()
                 held[alert.kind] = alert
-        in_touch = one.partner is None or one.partner.in_touch is not False
-        if one.state in rules.HA_NORMAL_STATES and in_touch:
+        if one.state in rules.HA_NORMAL_STATES and not partner_lost(one.partner):
             held.clear()
         if not quiet:
             return alerts
@@ -422,9 +507,7 @@ class KeaPoller:
 
     def _track_ha(self, one: HAState, now: float) -> bool:
         """Records when this relationship is away from a normal state; True when it is."""
-        away = one.state not in rules.HA_NORMAL_STATES or (
-            one.partner is not None and one.partner.in_touch is False
-        )
+        away = one.state not in rules.HA_NORMAL_STATES or partner_lost(one.partner)
         if away:
             span = self._excursions.setdefault(one.server_name or "", [now, now])
             span[1] = now
@@ -562,6 +645,7 @@ class KeaPoller:
                 one.state,
                 one.partner.state if one.partner else None,
                 one.partner.in_touch if one.partner else None,
+                one.partner.communication_interrupted if one.partner else None,
             )
             for one in [ha, *ha.other_relationships]
         )

@@ -213,3 +213,40 @@ def test_hub_plan_warns_about_subnets_no_relationship_names():
     body["subnet4"].pop()
     body["shared-networks"][1]["subnet4"].pop()
     assert ha.hub_subnets_warning(body, ["hub-a", "hub-b"]) is None
+
+
+def test_communication_interrupted_is_read_and_counts_as_lost():
+    """Kea 2.6 status-get (ARM 2.6.3, "The status-get Command"): in-touch stays true once the
+    partner answered; communication-interrupted carries the outage."""
+    remote = {
+        "role": "primary",
+        "server-name": "s1",
+        "in-touch": True,
+        "last-state": "hot-standby",
+        "age": 75,
+        "communication-interrupted": True,
+        "connecting-clients": 2,
+        "unacked-clients": 1,
+        "unacked-clients-left": 9,
+        "analyzed-packets": 8,
+    }
+    status = {
+        "high-availability": [
+            {
+                "ha-mode": "hot-standby",
+                "ha-servers": {
+                    "local": {"role": "standby", "scopes": [], "server-name": "s2", "state": "hot-standby"},
+                    "remote": remote,
+                },
+            }
+        ]
+    }
+    st = ha.ha_state_from_status("n2", Family.V4, status)
+    assert st.partner is not None and st.partner.communication_interrupted is True
+    assert st.partner.unacked_clients_left == 9 and st.partner.age == 75
+    assert ha.partner_lost(st.partner) and not ha.ha_serving(st)
+    remote["communication-interrupted"] = False
+    st = ha.ha_state_from_status("n2", Family.V4, status)
+    assert not ha.partner_lost(st.partner) and ha.ha_serving(st)
+    del remote["communication-interrupted"]
+    assert ha.ha_state_from_status("n2", Family.V4, status).partner.communication_interrupted is None

@@ -2,6 +2,7 @@
 // The HA relationship form: Kea ARM (2.6 and 3.x) roles per mode, a draft from the relationship
 // read on the nodes or from the cluster's nodes, the promotion of a backup, and the body of
 // POST /dhcp/{family}/ha/setup/plan.
+import { partnerLost } from '../../lib/ha'
 
 export const MODES = ['hot-standby', 'load-balancing', 'passive-backup']
 // Roles each mode takes, with how many: [at least, at most].
@@ -72,7 +73,7 @@ export function withMode(draft, mode) {
 // answer (the lost server takes the new peer list by hand when it returns).
 export function promoteDraft(rel, backupName) {
   const draft = draftFromRelationship(rel)
-  const down = rel.servers.find((s) => s.role !== 'backup' && (s.in_touch === false || ['unavailable', 'terminated'].includes(s.state)))
+  const down = rel.servers.find((s) => s.role !== 'backup' && (partnerLost(s) || ['unavailable', 'terminated'].includes(s.state)))
   const lost = down || rel.servers.find((s) => s.role !== 'backup' && s.role !== 'primary') || rel.servers.find((s) => s.role === 'primary')
   if (!lost) return draft
   return {
@@ -145,7 +146,7 @@ export function setupBody(draft) {
 export function relationshipHealthy(rel) {
   if (!rel?.servers?.length) return false
   const known = rel.servers.filter((s) => s.managed !== false || s.state)
-  return known.every((s) => (s.role === 'backup' ? s.state === 'backup' : s.state === rel.mode && s.in_touch !== false))
+  return known.every((s) => (s.role === 'backup' ? s.state === 'backup' : s.state === rel.mode && !partnerLost(s)))
 }
 
 // Kea 3 hub and spoke: a setup holds several relationships; a node may run a server in each, under

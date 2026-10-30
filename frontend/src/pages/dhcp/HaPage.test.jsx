@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
-const db = vi.hoisted(() => ({ ha: [], relationships: [], nodes: [], alerts: [] }))
+const db = vi.hoisted(() => ({ ha: [], relationships: [], nodes: [], alerts: [], servers: [], transitions: [] }))
 const setupPlan = vi.hoisted(() => vi.fn())
 const repairPlan = vi.hoisted(() => vi.fn())
 
@@ -17,8 +17,8 @@ vi.mock('../../services/api', () => {
   const api = {
     dhcp: {
       ha: async () => ({ items: db.ha, relationships: db.relationships }),
-      servers: async () => ({ items: [] }),
-      haTransitions: async () => ({ items: [] }),
+      servers: async () => ({ items: db.servers }),
+      haTransitions: async () => ({ items: db.transitions, unavailable: [{ node_id: 'N3', name: 'ns3', error: 'offline' }] }),
       configFile: async () => ({}),
       haSetupPlan: (...args) => setupPlan(...args),
       haRepairPlan: (...args) => repairPlan(...args),
@@ -58,6 +58,8 @@ beforeEach(() => {
   setupPlan.mockReset()
   repairPlan.mockReset()
   db.alerts = []
+  db.servers = []
+  db.transitions = []
   db.nodes = ['ns1', 'ns2', 'ns3'].map(node)
   db.ha = [state('ns3', 'backup', 'backup'), state('ns1', 'primary', 'hot-standby', 'ns2'), state('ns2', 'standby', 'hot-standby', 'ns1')]
   db.relationships = [
@@ -99,6 +101,32 @@ describe('HA page with backups', () => {
     expect(within(cards[2]).queryByTestId('ha-maintenance-start')).toBeNull()
     expect(within(cards[0]).getByTestId('ha-maintenance-start')).toBeInTheDocument()
     expect(screen.getByTestId('ha-summary')).toHaveTextContent('2 backup(s) in step')
+  })
+
+  it('reads the DHCP service state from dhcp-state and flags an interrupted partner', async () => {
+    const dhcpState = (globally, user) => ({ 'dhcp-state': { 'globally-disabled': globally, 'disabled-by-user': user } })
+    db.servers = [{ node_id: 'N1', status: dhcpState(false, false) }, { node_id: 'N2', status: dhcpState(true, true) }]
+    const lost = state('ns2', 'standby', 'hot-standby', 'ns1')
+    db.ha = [state('ns3', 'backup', 'backup'), state('ns1', 'primary', 'hot-standby', 'ns2'), { ...lost, partner: { ...lost.partner, communication_interrupted: true } }]
+    db.relationships[0].servers[0] = { ...db.relationships[0].servers[0], communication_interrupted: true }
+    renderPage()
+    const cards = await screen.findAllByTestId('ha-server')
+    await waitFor(() => expect(within(cards[0]).getByTestId('ha-service-toggle')).toHaveTextContent('Disable DHCP'))
+    expect(cards[0]).toHaveTextContent(/DHCP serviceEnabled/i)
+    expect(cards[1]).toHaveTextContent(/DHCP serviceDisabled/i)
+    expect(within(cards[1]).getByTestId('ha-service-toggle')).toHaveTextContent('Enable DHCP')
+    expect(cards[1]).toHaveTextContent('not in touch')
+    const rows = within(screen.getByTestId('ha-servers')).getAllByRole('row').slice(1)
+    expect(rows[0]).toHaveTextContent('not in touch')
+  })
+
+  it('shows the history every node recorded, with the event and the node that saw it', async () => {
+    db.transitions = [{ ts: 1792948855, node_id: 'N2', server_name: 'ns2', from_state: 'hot-standby', to_state: 'hot-standby', reason: 'communication_interrupted,partner_restarted' }]
+    renderPage()
+    const table = await screen.findByTestId('ha-transitions')
+    await waitFor(() => expect(table).toHaveTextContent('communication interrupted, partner restarted'))
+    expect(table).toHaveTextContent('ns2')
+    expect(screen.getByTestId('ha-transitions-unavailable')).toHaveTextContent('History of ns3 unavailable: offline')
   })
 
   it('a healthy relationship shows no terminated banner', async () => {

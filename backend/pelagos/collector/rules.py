@@ -11,6 +11,7 @@ on every pass:
   ha_degraded/ha_partner_down/ha_transition  node, kea4|kea6  "ha:<engine>" (a hub's other
                                              relationships: "ha:<engine>:<server name>")
   ha_terminated      node, kea4|kea6         same subjects as ha_degraded
+  ha_partner_restarted  node, kea4|kea6      same subjects as ha_degraded
   ha_backup_out_of_sync  backup node, kea4|kea6  "ha-backup:<engine>"
   clock_skew         peer node, no engine    "clock"
   clock_unsynchronized  node, no engine      "ntp"
@@ -30,7 +31,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from pelagos.connectors.kea.ha import partner_name
+from pelagos.connectors.kea.ha import partner_lost, partner_name
 from pelagos.domain import Alert, AlertKind, Engine, HAState, Severity, ZoneKind, ZoneStatus, messages
 from pelagos.services.consistency import redact_kea_difference
 
@@ -44,8 +45,8 @@ HA_TERMINATED_STATE = "terminated"
 STALE_WINDOW = timedelta(hours=24)
 
 
-def _title(key: str, **params: Any) -> dict[str, Any]:
-    return messages.fields("title", messages.msg(key, **params))
+def _title(key: str, params: dict[str, Any] | None = None, **kw: Any) -> dict[str, Any]:
+    return messages.fields("title", messages.msg(key, **(params or {}), **kw))
 
 
 def zone_subject(zone: str, view: str | None) -> str:
@@ -227,7 +228,7 @@ def terminated_cause(
         }
     if config_divergent:
         return {"cause": "config", "message": messages.msg("alert.ha_cause.config"), "details": {}}
-    if partner is not None and partner.in_touch is False:
+    if partner_lost(partner):
         return {
             "cause": "partner",
             "message": messages.msg("alert.ha_cause.partner", partner=other),
@@ -251,6 +252,36 @@ def clock_cause_fixed(previous: dict[str, Any], ha: HAState) -> dict[str, Any]:
         "message": messages.msg("alert.ha_cause.clock_skew_fixed", partner=other, seconds=seconds),
         "details": {**details, "fixed": True},
     }
+
+
+def interruption_details(partner: Any) -> dict[str, Any]:
+    """The counters Kea keeps while communication with the partner is interrupted (status-get, ARM
+    "The status-get Command"): age of the last heartbeat and the traffic it watches for partner-down."""
+    return {
+        "partner_communication_interrupted": True,
+        "heartbeat_age": partner.age,
+        "connecting_clients": partner.connecting_clients,
+        "unacked_clients": partner.unacked_clients,
+        "unacked_clients_left": partner.unacked_clients_left,
+        "analyzed_packets": partner.analyzed_packets,
+    }
+
+
+def _partner_down_title(
+    ha: HAState, engine: str, partner_server: str | None, interrupted: bool
+) -> tuple[str, dict[str, Any]]:
+    other = partner_server or messages.msg("common.the_partner")
+    partner = ha.partner
+    if not interrupted or ha.state in HA_PARTNER_DOWN_STATES or partner is None:
+        return "alert.ha_partner_down", {"engine": engine, "partner": other, "state": ha.state}
+    params = {"engine": engine, "partner": other, "age": partner.age if partner.age is not None else "?"}
+    if partner.unacked_clients:
+        return "alert.ha_communication_interrupted_clients", {
+            **params,
+            "unacked": partner.unacked_clients,
+            "left": partner.unacked_clients_left if partner.unacked_clients_left is not None else "?",
+        }
+    return "alert.ha_communication_interrupted", params
 
 
 def ha_alerts(
@@ -294,7 +325,10 @@ def ha_alerts(
         base["maintenance"] = True
     if partner is not None and partner.clock_skew is not None:
         base["clock_skew"] = partner.clock_skew
-    partner_down = ha.state in HA_PARTNER_DOWN_STATES or (partner is not None and partner.in_touch is False)
+    interrupted = partner is not None and partner.communication_interrupted is True
+    if interrupted:
+        base.update(interruption_details(partner))
+    partner_down = ha.state in HA_PARTNER_DOWN_STATES or partner_lost(partner)
     if quiet:
         pass
     elif ha.state == HA_TERMINATED_STATE:
@@ -323,12 +357,7 @@ def ha_alerts(
                 node_id=node_id,
                 engine=engine,
                 subject=subject,
-                **_title(
-                    "alert.ha_partner_down",
-                    engine=engine.value,
-                    partner=partner_server or messages.msg("common.the_partner"),
-                    state=ha.state,
-                ),
+                **_title(*_partner_down_title(ha, engine.value, partner_server, interrupted)),
                 details=base,
             )
         )
@@ -372,6 +401,22 @@ def ha_alerts(
                 )
             )
     return out, transition
+
+
+def ha_partner_restarted(node_id: str, ha: HAState, subject: str, uptime: float) -> Alert:
+    """The partner's Kea started well after this server's (status-get `uptime` of both): it restarted
+    while this one kept serving. Info, open for the first hour of the partner's new run."""
+    engine = ha.family.kea_engine
+    other = partner_name(ha) or messages.msg("common.the_partner")
+    return Alert(
+        kind=AlertKind.HA_PARTNER_RESTARTED,
+        severity=Severity.INFO,
+        node_id=node_id,
+        engine=engine,
+        subject=subject,
+        **_title("alert.ha_partner_restarted", engine=engine.value, partner=other, minutes=int(uptime // 60)),
+        details={"server_name": ha.server_name, "partner": other, "partner_uptime": int(uptime)},
+    )
 
 
 def ha_backup_out_of_sync(

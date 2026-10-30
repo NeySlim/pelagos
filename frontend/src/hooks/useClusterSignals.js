@@ -12,6 +12,7 @@ import { api } from '../services/api'
 import { LIVE_INTERVAL_MS } from '../lib/liveRates'
 import { observeBeat, pushEvent, traceEventOf } from '../lib/trace'
 import { useWebSocket, useWsTopic } from './useWebSocket'
+import { partnerLost } from '../lib/ha'
 
 // Fallback polls run this many times slower while the WebSocket delivers the events.
 export const LIVE_FALLBACK_FACTOR = 4
@@ -43,7 +44,7 @@ export function observeHa(record, h) {
   const rec = record || { beats: [], lost: [], outage: null }
   const at = Date.parse(h?.collected_at || '')
   if (!h || h.enabled === false || !h.partner || !Number.isFinite(at)) return rec
-  const lostPartner = h.partner.in_touch === false || BAD_STATES.includes(h.state)
+  const lostPartner = partnerLost(h.partner) || BAD_STATES.includes(h.state)
   const base = { ...rec, state: h.state, partnerState: h.partner.state, unsent: h.unsent_update_count ?? null, inTouch: !lostPartner }
   if (lostPartner) {
     if (rec.lost.includes(at)) return rec
@@ -221,7 +222,7 @@ export function isHaTransition(message) {
   if (message?.topic !== 'ha' || message.event !== 'state') return true
   const d = message.data || {}
   const key = `${d.server_name || d.node_id || ''}|${d.family || ''}`
-  const state = `${d.state || ''}|${d.partner?.in_touch === false ? 'lost' : ''}`
+  const state = `${d.state || ''}|${partnerLost(d.partner) ? 'lost' : ''}`
   if (haStates[key] === state) return false
   haStates = { ...haStates, [key]: state }
   return true

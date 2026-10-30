@@ -28,6 +28,7 @@ class AlertKind(enum.StrEnum):
     HA_PARTNER_DOWN = "ha_partner_down"
     HA_TRANSITION = "ha_transition"
     HA_TERMINATED = "ha_terminated"
+    HA_PARTNER_RESTARTED = "ha_partner_restarted"
     HA_BACKUP_OUT_OF_SYNC = "ha_backup_out_of_sync"
     CLOCK_SKEW = "clock_skew"
     CLOCK_UNSYNCHRONIZED = "clock_unsynchronized"

@@ -151,6 +151,17 @@
     "partner"
   ],
   "alert.ha_cause.unknown": [],
+  "alert.ha_communication_interrupted": [
+    "age",
+    "engine",
+    "partner"
+  ],
+  "alert.ha_communication_interrupted_clients": [
+    "engine",
+    "left",
+    "partner",
+    "unacked"
+  ],
   "alert.ha_degraded": [
     "engine",
     "state"
@@ -159,6 +170,11 @@
     "engine",
     "partner",
     "state"
+  ],
+  "alert.ha_partner_restarted": [
+    "engine",
+    "minutes",
+    "partner"
   ],
   "alert.ha_terminated": [
     "cause",

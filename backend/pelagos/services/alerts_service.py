@@ -243,6 +243,17 @@ def parse_time(value: str | None, name: str, default: datetime | None = None) ->
 # Each node samples its own resolver: another node's series come over this peer action.
 PEER_RESOLVER_SERIES = "resolver.series"
 RESOLVER_SERIES_TIMEOUT = 4.0
+# Each node records the HA history of its own Kea servers: the others' come over this peer action.
+PEER_HA_TRANSITIONS = "ha.transitions"
+
+
+def _runs_kea(peer: Any, engine: str | None) -> bool:
+    modules = getattr(peer, "modules", None)
+    if modules is None:
+        return False
+    if engine in ("kea4", "kea6"):
+        return bool(getattr(modules, engine, False))
+    return bool(getattr(modules, "kea4", False) or getattr(modules, "kea6", False))
 
 
 class SeriesService:
@@ -293,14 +304,28 @@ class SeriesService:
 
     def ha_transitions(
         self, *, engine: str | None, node_id: str | None, since: datetime, until: datetime
-    ) -> list[dict[str, Any]]:
-        return self._call(
-            "ha_transitions",
-            engine=engine,
-            node_id=node_id,
-            since=int(since.timestamp()),
-            until=int(until.timestamp()),
-        )
+    ) -> dict[str, Any]:
+        """HA history of this node from its cache and of every peer running Kea over `ha.transitions`
+        (each node records what its own servers saw), newest first; a silent peer goes to `unavailable`."""
+        query = {"engine": engine, "since": int(since.timestamp()), "until": int(until.timestamp())}
+        local = node_id is None or node_id == self.node_id
+        peers = [] if self.peers is None or node_id == self.node_id else self.peers.peers()
+        if node_id is None:
+            peers = [p for p in peers if _runs_kea(p, engine)]
+        elif not local:
+            peers = [p for p in peers if p.id == node_id]
+            if not peers:
+                raise NotFound(f"node {node_id} not found")
+        rows = self._call("ha_transitions", node_id=self.node_id, **query) if local else []
+        unavailable: list[dict[str, Any]] = []
+        for peer in peers:
+            try:
+                answer = self.peers.action(peer, PEER_HA_TRANSITIONS, query, timeout=RESOLVER_SERIES_TIMEOUT)
+                rows.extend(r for r in answer.get("items") or [] if isinstance(r, dict))
+            except ServiceError as exc:
+                unavailable.append({"node_id": peer.id, "name": peer.name, "error": exc.detail})
+        rows.sort(key=lambda r: r.get("ts") or 0, reverse=True)
+        return {"items": rows, "unavailable": unavailable}
 
     def resolver(
         self, *, metric: str, node_id: str | None, since: datetime, until: datetime, step: int

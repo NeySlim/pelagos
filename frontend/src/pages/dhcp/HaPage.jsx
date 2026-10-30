@@ -32,6 +32,7 @@ import { HEALTHY_HA_STATES, haTransitionRows } from './lib'
 import { HaSetupModal } from './HaSetupModal'
 import { HaTerminatedBanner } from './HaTerminatedBanner'
 import { asSetup, backupGap, draftForNodes, draftFromRelationship, draftFromRelationships, flattenHa, promoteDraft, relationshipHealthy } from './haSetup'
+import { dhcpServiceState, partnerLost } from '../../lib/ha'
 
 const HA_POLL_MS = 5000
 const ROLE_ORDER = { primary: 0, secondary: 1, standby: 1, backup: 2 }
@@ -125,7 +126,14 @@ export default function HaPage({ family }) {
       ),
     },
     { key: 'partner_state', label: t('ha.partnerState'), render: (r) => (r.partner_state ? <StatusBadge status={r.partner_state} dot={false} /> : '-') },
+    {
+      key: 'reason',
+      label: t('ha.reason'),
+      render: (r) => (r.reason ? String(r.reason).split(',').map((x) => t(`ha.reasons.${x}`, { defaultValue: x })).join(', ') : '-'),
+    },
+    { key: 'node_id', label: t('ha.recordedOn'), render: (r) => <span className="font-mono">{nameOf(r.node_id)}</span> },
   ]
+  const silent = transitions.data?.unavailable || []
 
   const confirmText = confirm && {
     title: t(`ha.confirm.${confirm.kind}.${String(confirm.value)}.title`, { server: confirm.name }),
@@ -154,8 +162,8 @@ export default function HaPage({ family }) {
         ) : r.in_touch === null || r.in_touch === undefined ? (
           '-'
         ) : (
-          <Badge variant={r.in_touch ? 'success' : 'danger'} size="sm">
-            {r.in_touch ? t('ha.inTouch') : t('ha.notInTouch')}
+          <Badge variant={partnerLost(r) ? 'danger' : 'success'} size="sm">
+            {partnerLost(r) ? t('ha.notInTouch') : t('ha.inTouch')}
           </Badge>
         ),
     },
@@ -203,7 +211,10 @@ export default function HaPage({ family }) {
   const serverCard = (h, rel, r) => {
     const server = serverOf(h.node_id)
     const srv = rel?.servers.find((s) => s.name === h.server_name)
-    const serviceEnabled = server?.status?.enabled
+    // The badge shows whether Kea serves (globally-disabled); the toggle acts on the user's own switch.
+    const service = dhcpServiceState(server?.status)
+    const serviceEnabled = service.enabled
+    const userEnabled = service.userDisabled === undefined ? undefined : !service.userDisabled
     const name = h.server_name || nameOf(h.node_id)
     const backup = h.role === 'backup'
     // node_id in a maintenance plan is the server that enters (or leaves) maintenance; the
@@ -220,7 +231,7 @@ export default function HaPage({ family }) {
           {h.role && <Badge variant="outline" size="sm">{haTerm(h.role)}</Badge>}
           {h.enabled && !backup && (
             <span className="ml-auto inline-flex items-center" title={t('ha.heartbeat')}>
-              <HeartbeatTrace beat={beatOf(h)} lost={h.partner?.in_touch === false || h.state === 'partner-down'} testId="ha-heartbeat" />
+              <HeartbeatTrace beat={beatOf(h)} lost={partnerLost(h.partner) || h.state === 'partner-down'} testId="ha-heartbeat" />
             </span>
           )}
           <span className={h.enabled && !backup ? undefined : 'ml-auto'}>{h.enabled ? <StatusBadge status={h.state} data-testid="ha-state" /> : <Badge variant="gray" size="sm">{t('ha.hookMissing')}</Badge>}</span>
@@ -263,8 +274,8 @@ export default function HaPage({ family }) {
               <div className="flex items-center gap-2">
                 <span className="text-2xs uppercase tracking-wider text-text-tertiary">{t('ha.partnerView')}</span>
                 {h.partner.state && <StatusBadge status={h.partner.state} />}
-                <Badge variant={h.partner.in_touch === false ? 'danger' : 'success'} size="sm">
-                  {h.partner.in_touch === false ? t('ha.notInTouch') : t('ha.inTouch')}
+                <Badge variant={partnerLost(h.partner) ? 'danger' : 'success'} size="sm">
+                  {partnerLost(h.partner) ? t('ha.notInTouch') : t('ha.inTouch')}
                 </Badge>
               </div>
               <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-text-secondary">
@@ -311,16 +322,16 @@ export default function HaPage({ family }) {
                 <Wrench size={12} />
                 {cancelOn ? t('ha.cancelMaintenance') : t('ha.startMaintenance')}
               </Button>
-              {serviceEnabled !== undefined && (
+              {userEnabled !== undefined && (
                 <Button
-                  variant={serviceEnabled ? 'danger-soft' : 'secondary'}
+                  variant={userEnabled ? 'danger-soft' : 'secondary'}
                   size="xs"
-                  onClick={() => setConfirm({ kind: 'service', nodeId: h.node_id, value: !serviceEnabled, name })}
+                  onClick={() => setConfirm({ kind: 'service', nodeId: h.node_id, value: !userEnabled, name })}
                   disabled={flow.building}
                   data-testid="ha-service-toggle"
                 >
                   <Power size={12} />
-                  {serviceEnabled ? t('ha.disableService') : t('ha.enableService')}
+                  {userEnabled ? t('ha.disableService') : t('ha.enableService')}
                 </Button>
               )}
             </div>
@@ -335,7 +346,7 @@ export default function HaPage({ family }) {
     const backups = rel?.servers.filter((srv) => srv.role === 'backup') || []
     const healthy = rel
       ? relationshipHealthy(rel)
-      : members.length > 0 && members.every((h) => h.enabled && HEALTHY_HA_STATES.includes(h.state) && h.partner?.in_touch !== false)
+      : members.length > 0 && members.every((h) => h.enabled && HEALTHY_HA_STATES.includes(h.state) && !partnerLost(h.partner))
     return (
       <Card className="px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-3" hover={false} data-testid="ha-summary">
         <span className={`flex items-center gap-2 text-sm ${healthy ? 'status-success-text' : 'status-warning-text'}`}>
@@ -344,12 +355,12 @@ export default function HaPage({ family }) {
         </span>
         <span className="ml-auto flex items-center flex-wrap gap-y-2" data-testid="ha-rail">
           {(rel ? rel.servers : members).map((x, i, all) => {
-            const h = rel ? members.find((it) => it.node_id && it.node_id === x.node_id && it.server_name === x.name) || { state: x.state, partner: { in_touch: x.in_touch } } : x
+            const h = rel ? members.find((it) => it.node_id && it.node_id === x.node_id && it.server_name === x.name) || { state: x.state, partner: { in_touch: x.in_touch, communication_interrupted: x.communication_interrupted } } : x
             const name = rel ? x.name : x.server_name || nameOf(x.node_id)
             const role = x.role
             const prev = all[i - 1]
             const feed = role === 'backup'
-            const lost = !feed && prev && (h.partner?.in_touch === false || (rel ? prev.in_touch === false : prev.partner?.in_touch === false))
+            const lost = !feed && prev && (partnerLost(h.partner) || (rel ? partnerLost(prev) : partnerLost(prev.partner)))
             return (
               <span key={`${name}-${i}`} className="flex items-center" data-testid="ha-rail-server" data-role={role || ''}>
                 {i > 0 &&
@@ -453,6 +464,11 @@ export default function HaPage({ family }) {
           dense
           testId="ha-transitions"
         />
+        {silent.length > 0 && (
+          <p className="text-xs text-text-tertiary" data-testid="ha-transitions-unavailable">
+            {t('ha.historyUnavailable', { nodes: silent.map((u) => u.name || u.node_id).join(', '), error: silent[0].error })}
+          </p>
+        )}
       </div>
       <ConfirmDialog
         open={Boolean(confirm)}

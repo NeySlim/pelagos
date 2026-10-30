@@ -456,7 +456,8 @@ HAList = items_of(
     relationships=fields.List(
         fields.Raw,
         description='[{"family","mode","servers":[{"name","role","url","auto_failover","node_id","node_name",'
-        '"state","scopes","unsent_update_count","partner","in_touch","collected_at","managed","leases",'
+        '"state","scopes","unsent_update_count","partner","in_touch","communication_interrupted",'
+        '"collected_at","managed","leases",'
         '"last_lease_at","receives_from" (backup),"lease_reference" (backup: {"server","leases"})}],'
         '"active":[name],"backups":[name]}]: one per relationship (a Kea 3 hub is in several)',
     ),

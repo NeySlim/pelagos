@@ -281,7 +281,7 @@ class HaTransitions(FamilyResource):
         rows = services().series.ha_transitions(
             engine=Family(family).kea_engine.value, node_id=arg("node_id"), since=since, until=until
         )
-        return {"items": rows}
+        return rows
 
 
 @ns.route("/<string:family>/service/plan")

@@ -2261,3 +2261,22 @@ analysis records each node's HA role. WP-INSTALLER: helper operation `plan_kea_m
 `kea-mig-prepare`), the private directory of a migration left root's by the give-back;
 `installer.kea_migration.analyze` takes `keep`. Affects K4 to K6 (the migrate steps read the
 manifest and the private files; the wizard can show `packages_*` and `rollback_ready`).
+
+## 2026-10-30, 0.3.0: plan impact and one confirmation rule (point 81, I1 and I2)
+Sections 4, 6 and 17, additive. `Plan.impact` (list of `ImpactItem`: `kind`, `text`, `message`,
+`severity`, `count`, `examples`) and `Plan.requires_confirmation_reasons` (`ConfirmationReason`
+values), filled by `services.plan_impact` when the web process stores a plan; an older peer ignores
+both fields (`Model.from_dict` drops unknown keys) and an older plan file loads them empty. New
+message keys `plan.impact.*`, `note.zone_copies_removed`, `problem.detail.reservation_outside_subnet`,
+`problem.detail.option_exists`, `problem.detail.host_ip_taken`, `problem.detail.host_name_taken`,
+`problem.detail.records_node_ids`, `problem.detail.zone_name_invalid`. Behavior: a subnet delete,
+prefix change or pool shrink, a reservation on an address another client holds, a global option
+delete and a zone delete ask for confirmation with their reasons; a primary zone delete also removes
+the Pelagos secondary copies (composite); `POST /dns/zones/{zone}/records/plan` refuses `node_ids`
+(`400`); `POST /dhcp/{family}/options/plan` refuses `add` of an existing option (`400`); an RRset
+plan refuses a CNAME next to data the same plan adds; `POST /dns/resolver/plan` answers `409
+conflict` when every value given is the current one; host plans refuse an address or name already
+taken in the operator's terms (`400`). Contract: `domain/plan.py`, `domain/messages.py`. WP-API-AUTH:
+`services/plan_impact.py`, `services/container.py`, `services/dhcp_service.py`,
+`services/dns_service.py`, `services/dns_extras.py`, `services/hosts_service.py`, `api/dns.py`.
+WP-BIND: `connectors/bind/rrset.py`. WP-FRONTEND: `PlanPreview` impact section and reasons (en, fr).

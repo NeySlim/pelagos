@@ -780,6 +780,20 @@ class Plan(Model):
     error: str | None = None
     error_message: dict | None = None     # translatable error: permission guard refusal, apply error
     summary_message: dict | None = None   # translatable summary, section 19 "Messages"
+    impact: list[ImpactItem] = []         # what the plan does beyond its diff (section 6, "Impact")
+    requires_confirmation_reasons: list[str] = []   # ConfirmationReason values; empty on older plans
+
+class ConfirmationReason(str, Enum): DELETE="delete"; PREFIX_CHANGE="prefix_change"; POOL_SHRINK="pool_shrink"; LEASES_LOST="leases_lost"; LEASE_CONFLICT="lease_conflict"; MULTI_NODE="multi_node"; OPERATION="operation"
+class ImpactSeverity(str, Enum): INFO="info"; WARNING="warning"
+
+@dataclass(slots=True)
+class ImpactItem(Model):
+    kind: str                      # leases | reservations | lease_conflict | pool | options | records | nodes | ddns | ha | unknown
+    text: str                      # English rendering of `message`
+    message: dict | None = None    # translatable, keys plan.impact.*
+    severity: ImpactSeverity = INFO
+    count: int | None = None
+    examples: list[str] = []       # at most IMPACT_EXAMPLES (20): "192.0.2.10 pc1 aa:bb:cc:dd:ee:01"
 
 @dataclass(slots=True)
 class NodeApplyResult(Model):
@@ -1068,6 +1082,39 @@ Lifecycle, enforced by `core.plans.PlanStore` and `services.plan_service`:
    "Recompute the plan" on `410`, on `404` and when the countdown runs out:
    `PlanPreview` takes an `onRecompute` callback that builds the plan again
    from the same inputs and resolves to the new plan.
+
+Impact and the confirmation rule. Every plan the web process stores goes through
+`services.plan_impact.PlanImpact.annotate` (wrapped around `PlanStore.put` by the services
+container, after the parts of a composite are registered), which fills `impact` from the plan's
+parts and adds `requires_confirmation_reasons`; a plan in `FAILED` is left as it is. Reads are best
+effort (an unread lease table is an `unknown` or `leases` line, never a refusal):
+
+- `dhcp.subnet` delete: the subnet's active leases (`leases`, from this node's Kea, at most 5000
+  read, `_partial` keys past it), its reservations, the D2 reverse domains covering it, the HA
+  relationship that receives the same change. Replace: the active leases outside the new prefix or
+  outside the new pools (reserved addresses kept), with reasons `prefix_change`, `pool_shrink` and
+  `leases_lost`. A new prefix that leaves reservations outside is refused before the plan (`400`,
+  `problem.detail.reservation_outside_subnet`).
+- `dhcp.reservation` add or replace: an active lease of the new address held by another client
+  (`lease_conflict`, reason `lease_conflict`), an address inside a dynamic pool (`pool`, warning);
+  delete: the client's current lease, kept until it ends.
+- `dhcp.options` delete of a global option: `options` warning. An `add` of an option that exists is
+  refused (`400`, `problem.detail.option_exists`), as an `add` of an existing RRset is.
+- `dns.zone` delete: the records that stop being served, the copies removed and the ones other nodes
+  keep from their own configuration, the D2 domains and DDNS failover roles naming the zone. A
+  primary deleted without `node_ids` becomes a composite that also deletes each Pelagos secondary
+  copy on its node (one part per node, the primary first).
+- `dns.rrset` delete or replace of an A, AAAA or PTR whose owner has a DHCID: `ddns` warning (Kea
+  writes it again at the next renewal, with the lease end when one is found).
+
+The rule (`confirmation_reasons`): a delete in a scope among `dns.zone`, `dns.key`, `dns.acl`,
+`dhcp.subnet`, `dhcp.shared_network`, `dhcp.reservation`, `dhcp.class`, `dhcp.options`,
+`dhcp.lease` (`delete`; record deletes do not ask); a composite whose parts of one engine target
+different node sets (`multi_node`; one part sent to an HA pair is the same write everywhere and
+does not count); the impact reasons above. `requires_confirmation` becomes true when a reason is
+found and is never cleared; a plan a connector marked without a reason gets `operation`. The UI shows
+the impact section before the changes and diff, warnings first, and the translated reasons
+(`plan.reasons.<reason>`) above the confirmation checkbox.
 
 `Change.target` grammar (one line each):
 
@@ -2652,9 +2699,9 @@ change revokes the user's other sessions.
 | `GET /dns/zones?view=&kind=&q=` | `read:dns` | | `{"items": [{"zone": Zone, "serials": {node_id: int|null}, "divergent": bool, "status": {node_id: ZoneStatus}, "hints"?: {node_id: {"file","sha256","related_version","last_update","error"}}, "forwarders"?: {node_id: {"forward","forwarders"}}}]}` (`status` filled for secondary, mirror and stub zones with the read node's status, kept `peer_poll_seconds`, else `{}`; `serials` only for primary, secondary, mirror and stub zones; `divergent` compares serials for primary, secondary and mirror zones, `hints` digests for hint zones, `forwarders` for forward zones, and is false for other kinds) |
 | `GET /dns/zones/{zone}?view=` | `read:dns` | | `{"zone": Zone, "status": {node_id: ZoneStatus}, "mode": "dynamic"|"static"|<kind>, "views": [view names holding this zone], "copies": {node_id: {"kind","source"}}, "forwarding"?}` (`copies`: every reachable node holding the zone in that view; a `forward` zone has `status` `{}` and `forwarding`: `{node_id: {"present", "forward" (`only`/`first`, BIND default `first`), "forwarders", "reach": [{"forwarder","address","port","tls","reachable","rtt_ms","rcode","error","checked_at"}] or null (node too old to measure), "error"}}`; reachability is one recursive `<zone> NS` query per forwarder from that node, any DNS answer counting as reachable, a TCP connect for a `tls` forwarder, cached 30 s) |
 | `POST /dns/zones/{zone}/secondaries/plan` | `write:dns.zones` | `{"view"?, "node_ids": [...], "primaries"?, "also_notify"?}` (`node_ids`: every node to hold a secondary copy of the zone's primary node; one part per node: the primary's `also-notify` set to their addresses (other entries kept; a zone in a user file keeps its own), a secondary added on each new node (`primaries` default `<primary address> key <read key>`, `allow-transfer` of the primary), the copy removed from each node left out; `409` when nothing changes) | `Plan` (`requires_confirmation` when a copy is removed) |
-| `POST /dns/zones/plan` | `write:dns.zones` | `{"change": Change, "node_ids"?: [...], "node_id"?}` (`node_id`: the node that holds the zone and builds the plan, default this node, else the first node running BIND; a peer builds it over `dns.zone.plan`; target `<view>/<zone>`, `after` = Zone; `after.source: "addzone"` adds it with `rndc addzone`, and a zone whose source is `addzone` is changed with `rndc modzone`/`delzone`; with `node_ids` a new primary also lands on those peers as a secondary of this node, `after.secondary.primaries` saying where they transfer from) | `Plan` |
+| `POST /dns/zones/plan` | `write:dns.zones` | `{"change": Change, "node_ids"?: [...], "node_id"?}` (`node_id`: the node that holds the zone and builds the plan, default this node, else the first node running BIND; a peer builds it over `dns.zone.plan`; target `<view>/<zone>`, `after` = Zone; `after.source: "addzone"` adds it with `rndc addzone`, and a zone whose source is `addzone` is changed with `rndc modzone`/`delzone`; with `node_ids` a new primary also lands on those peers as a secondary of this node, `after.secondary.primaries` saying where they transfer from; the zone name is checked first (`400`, `problem.detail.zone_name_invalid`); a primary deleted without `node_ids` also loses its Pelagos secondary copies, as a composite, section 6) | `Plan` |
 | `GET /dns/zones/{zone}/records?view=&type=&name=&q=&page=&per_page=` | `read:dns` | | paginated `RRset` (`node_id` of the node read in `meta`); `409 zone_without_records` (extension members `zone`, `view`, `kind`, `detail_message`) for a `forward`, `hint`, `stub` or `static-stub` zone, checked before any transfer; `409 zone_too_large` (members `zone`, `view`, `size`, `limit`, `detail_message`) above `dns.zone_read_max_names` |
-| `POST /dns/zones/{zone}/records/plan` | `write:dns.records` | `{"view"?, "changes": [Change], "ptr"?: {"sync"?: true, "delete"?: sync, "reverse_view"?}}` (`ptr`: the PTR of the A/AAAA changes goes in the same plan, in `reverse_view` (default `view`) like host plans: `sync` writes the PTR of added and kept addresses and removes the PTR naming this owner for removed ones, `delete` removes it for the addresses of a deleted RRset; a PTR naming another host is replaced only for a new address, with `requires_confirmation` and a `ptr` validation naming the old target, and left for a kept address with a `note.ptr_kept_elsewhere` summary note; a PTR RRset deleted at a DDNS owner takes its DHCID; addresses no served reverse zone covers are named in the summary; a plan with PTR changes is a composite of one RRset part per zone) | `Plan` |
+| `POST /dns/zones/{zone}/records/plan` | `write:dns.records` | `{"view"?, "changes": [Change], "ptr"?: {"sync"?: true, "delete"?: sync, "reverse_view"?}}` (`ptr`: the PTR of the A/AAAA changes goes in the same plan, in `reverse_view` (default `view`) like host plans: `sync` writes the PTR of added and kept addresses and removes the PTR naming this owner for removed ones, `delete` removes it for the addresses of a deleted RRset; a PTR naming another host is replaced only for a new address, with `requires_confirmation` and a `ptr` validation naming the old target, and left for a kept address with a `note.ptr_kept_elsewhere` summary note; a PTR RRset deleted at a DDNS owner takes its DHCID; addresses no served reverse zone covers are named in the summary; a plan with PTR changes is a composite of one RRset part per zone; `node_ids` or `node_id` in the body is refused with `400`: the plan applies on the zone's primary) | `Plan` |
 | `POST /dns/ptr/coverage` | `read:dns` | `{"addresses": [ip], "name"?, "view"?, "reverse_view"?}` | `{"items": [{"ip","view","ptr_name","reverse_zone","covered","reason","current":[targets],"points_here","conflict"}]}` (`reason`: `invalid`, `no_reverse_zone`, `no_primary` (a secondary copy with no reachable primary), `unreadable`; at most 500 addresses) |
 | `GET /dns/ptr/orphans` | `read:dns` | | `{"items": [orphan PTR (section 15) + "zone","view","exception","lease","last_seen"]}`, `"counts": {"orphan","external","excepted","stale"}`, `"errors": {source: message}}` (`lease`: `{"state","hostname","cltt","expires_at"}` of the lease at the address, an active one first; `last_seen`: `{"at","source"}` of the newest lease transaction (`lease`) or IPv6 neighbor observation (`neighbor`), null when nothing was seen; `counts.stale`: the stale orphans not excepted) |
 | `POST /dns/ptr/orphans/plan` | `write:dns.records` | `{"delete"?: [{"zone","name","target","view"?}], "create"?: [{"ip","target","view"?}]}` (delete removes the target from the PTR RRset, the RRset when it was the last one, with the DHCID at that owner; create adds the address to the target's A/AAAA in its served forward zone; at most 500 items) | `Plan` (scope `dns.rrset`, always `requires_confirmation`; `409` when nothing changes) |
@@ -2706,13 +2753,13 @@ the API normalizes to the absolute form.
 | `GET /dhcp/{family}/servers` | `read:dhcp` | | `{"items": [{"node_id", "capabilities": DhcpCapabilities, "status": {...status-get}, "ha": HAState|null, "config_hash"}]}` |
 | `GET /dhcp/{family}/subnets?shared_network=&q=` | `read:dhcp` | | `{"items": [Subnet], "utilization": {subnet_id: {"total","assigned","percent"}}, "node_id"}` |
 | `GET /dhcp/{family}/subnets/{id}` | `read:dhcp` | | `Subnet` |
-| `POST /dhcp/{family}/subnets/plan` | `write:dhcp.subnets` | `{"change": Change}` (`after` = Subnet; a partial one is completed with defaults on add, over the current subnet on replace) | `Plan` |
+| `POST /dhcp/{family}/subnets/plan` | `write:dhcp.subnets` | `{"change": Change}` (`after` = Subnet; a partial one is completed with defaults on add, over the current subnet on replace; a new prefix leaving reservations outside is refused with `400`) | `Plan` (impact: leases lost, section 6) |
 | `GET /dhcp/{family}/shared-networks?node_id=` | `read:dhcp` | | `{"items": [SharedNetwork]}` |
 | `POST /dhcp/{family}/shared-networks/plan` | `write:dhcp.subnets` | `{"change": Change}` | `Plan` |
 | `GET /dhcp/{family}/client-classes?node_id=` | `read:dhcp` | | `{"items": [ClientClass]}` |
 | `POST /dhcp/{family}/client-classes/plan` | `write:dhcp.classes` | `{"change": Change}` | `Plan` |
 | `GET /dhcp/{family}/options?node_id=` | `read:dhcp` | | `{"items": [OptionData], "option_defs": [...]}` |
-| `POST /dhcp/{family}/options/plan` | `write:dhcp.options` | `{"changes": [Change]}` | `Plan` |
+| `POST /dhcp/{family}/options/plan` | `write:dhcp.options` | `{"changes": [Change]}` (`add` of an option that exists: `400`, use `replace`) | `Plan` |
 | `GET /dhcp/{family}/reservations?subnet_id=&q=&page=&per_page=` | `read:dhcp` | | paginated `Reservation` |
 | `POST /dhcp/{family}/reservations/plan` | `write:dhcp.reservations` | `{"change": Change}` (`after` = Reservation) | `Plan` |
 | `GET /dhcp/{family}/leases?subnet_id=&q=&state=&node_id=&from_address=&limit=` | `read:dhcp` | | `{"items": [Lease], "meta": {"node_id","next","limit"}}`: one page of `lease4-get-page`/`lease6-get-page` from `from_address` (`limit` 1 to 1000, default 100; a subnet filter reads at most 10 Kea pages), `meta.next` is the cursor of the next page (null at the end); `q` is an address, MAC or DUID sent to Kea's lookup commands, or a hostname: Kea's exact lookup plus the leases whose hostname contains it, from a page walk of at most 20000 leases (no cursor) |

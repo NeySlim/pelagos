@@ -468,6 +468,7 @@ class HostsService:
             reverse_zone = normalize_name(str(reverse_zone))
         else:
             reverse_zone = self._find_reverse_zone(ptr_name, reverse_view)
+        self._check_free(fqdn, zone, view, rtype, ip, reverse_zone, ptr_name, reverse_view)
         if reverse_zone:
             ptr = [
                 Change(ChangeOp.ADD, f"{reverse_zone}/{ptr_name}/PTR", after={"ttl": ttl, "rdata": [fqdn]})
@@ -541,6 +542,83 @@ class HostsService:
         plan.error = "; ".join(p.error or "validation failed" for p in failed) or None
         self.plans.register_composite(plan, parts)
         return self.ctx.plan_store.put(plan)
+
+    def _zone_rrsets(self, zone: str, view: str | None, cache: dict[Any, list[RRset]]) -> list[RRset]:
+        assert self.dns is not None
+        if (zone, view) not in cache:
+            try:
+                cache[(zone, view)] = self.dns.records(zone, view)[0]
+            except (ServiceError, ConnectorError):
+                cache[(zone, view)] = []  # the RRset part reports what it cannot read
+        return cache[(zone, view)]
+
+    def _rrset(
+        self, zone: str, view: str | None, rtype: str, name: str, cache: dict[Any, list[RRset]]
+    ) -> RRset | None:
+        want = normalize_name(name)
+        for r in self._zone_rrsets(zone, view, cache):
+            if r.rtype.upper() == rtype and normalize_name(r.name) == want:
+                return r
+        return None
+
+    def _check_free(
+        self,
+        fqdn: str,
+        zone: str,
+        view: str | None,
+        rtype: str,
+        ip: Any,
+        reverse_zone: str | None,
+        ptr_name: str,
+        reverse_view: str | None,
+    ) -> None:
+        """Refuse in the operator's terms, before the RRset parts do in the tool's terms
+        ("<ptr> PTR already exists"): who holds the address, or what the name already has."""
+        cache: dict[Any, list[RRset]] = {}
+        held = self._rrset(zone, view, rtype, fqdn, cache)
+        if held is not None:
+            rdata = ", ".join(held.rdata)
+            err = ValidationError(
+                f"{fqdn} already has a {rtype} record ({rdata}); edit it instead",
+                [field_error("hostname", f"{rtype} exists")],
+            )
+            err.extra = {
+                "detail_message": messages.msg(
+                    "problem.detail.host_name_taken", fqdn=fqdn, rtype=rtype, rdata=rdata
+                )
+            }
+            raise err
+        ptr = self._rrset(reverse_zone, reverse_view, "PTR", ptr_name, cache) if reverse_zone else None
+        if ptr is None:
+            return
+        holders = []
+        for target in ptr.rdata:
+            what = ["PTR"]
+            forward = (
+                self._rrset(zone, view, rtype, target, cache)
+                if normalize_name(target).endswith(zone)
+                else None
+            )
+            if forward is not None and str(ip) in forward.rdata:
+                what.insert(0, rtype)
+            holders.append(f"{target} ({' + '.join(what)})")
+        dhcp = self.dhcp4 if ip.version == 4 else self.dhcp6
+        if dhcp is not None:
+            try:
+                leases = dhcp.lease_everywhere(str(ip))
+            except ServiceError:
+                leases = []
+            if leases:
+                lease = leases[0]
+                holders.append(f"lease of {lease.hostname or lease.hw_address or lease.duid or '?'}")
+        err = ValidationError(
+            f"{ip} is already assigned to {', '.join(holders)}",
+            [field_error("ip", "already assigned")],
+        )
+        err.extra = {
+            "detail_message": messages.msg("problem.detail.host_ip_taken", ip=str(ip), names=holders)
+        }
+        raise err
 
     def _dns_part(self, zone: str, changes: list[Change], created_by: str, view: str | None = None) -> Plan:
         """An RRset plan applied where the zone is primary (this node, or the peer holding it), in

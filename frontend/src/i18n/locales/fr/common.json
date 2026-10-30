@@ -192,6 +192,18 @@
       "recheck": "Revérifier les préconditions sur {{node}}",
       "replicate": "Appliquer sur les pairs par la réplication",
       "result": "Résultat par nœud"
+    },
+    "impact": "Impact",
+    "impactMore": "et {{count}} de plus",
+    "confirmReasons": "Confirmation nécessaire :",
+    "reasons": {
+      "delete": "un objet de configuration est supprimé",
+      "prefix_change": "le préfixe du sous-réseau change",
+      "pool_shrink": "un pool rétrécit",
+      "leases_lost": "des baux actifs sont perdus",
+      "lease_conflict": "un autre client tient l'adresse",
+      "multi_node": "des écritures différentes sur plusieurs nœuds",
+      "operation": "cette opération touche le service"
     }
   },
   "status": {

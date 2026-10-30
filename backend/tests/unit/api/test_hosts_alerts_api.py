@@ -180,7 +180,11 @@ def test_host_plan_permissions_and_validation(role_client):
     assert r.status_code == 400
     assert {e["field"] for e in r.get_json()["errors"]} == {"hostname", "ip", "zone", "ttl", "mac"}
     r = admin.post("/api/v1/hosts/plan", json={**base, "hostname": "www"})
-    assert r.status_code == 422 and "already exists" in r.get_json()["errors"][0]["message"]
+    problem = r.get_json()
+    # Refused in the operator's terms before the RRset part says "A already exists".
+    assert r.status_code == 400 and problem["errors"][0]["field"] == "hostname"
+    assert problem["detail_message"]["key"] == "problem.detail.host_name_taken"
+    assert "www.example.lan. already has a A record" in problem["detail"]
 
 
 def test_alerts_list_summary_ack(role_client, alert_db):

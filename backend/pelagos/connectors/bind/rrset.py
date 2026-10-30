@@ -130,12 +130,14 @@ def resolve_changes(
     seen: set[tuple[str, str]] = set()
     # RRsets the same plan deletes do not block a CNAME (or data at a former CNAME) it adds.
     deleted: set[tuple[str, str]] = set()
+    # RRsets the same plan adds or keeps count as data at their owner (A and CNAME in one plan).
+    planned: set[tuple[str, str]] = set()
     for change in changes:
-        if change.op == ChangeOp.DELETE:
-            try:
-                deleted.add(parse_target(change.target, zone))
-            except RRsetError:
-                pass
+        try:
+            key = parse_target(change.target, zone)
+        except RRsetError:
+            continue
+        (deleted if change.op == ChangeOp.DELETE else planned).add(key)
     for change in changes:
         try:
             owner, rtype = parse_target(change.target, zone)
@@ -170,7 +172,8 @@ def resolve_changes(
                 after = None
             if claimed is not None and existing is not None and claimed.rdata != existing.rdata:
                 raise RRsetError(f"{owner} {rtype} changed since it was read")
-            others = owners_types.get(owner, set()) - {rtype, "RRSIG", "NSEC", "NSEC3"}
+            others = owners_types.get(owner, set()) | {t for o, t in planned if o == owner}
+            others -= {rtype, "RRSIG", "NSEC", "NSEC3"}
             others -= {t for o, t in deleted if o == owner}
             if op is not ChangeOp.DELETE and rtype == "CNAME" and others:
                 raise RRsetError(

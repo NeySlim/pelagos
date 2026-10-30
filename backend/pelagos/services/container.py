@@ -8,7 +8,7 @@ import threading
 
 from pelagos.auth.last_login import LastLoginStore
 from pelagos.core.context import NodeContext
-from pelagos.domain import Family, PlanScope
+from pelagos.domain import Engine, Family, PlanScope
 from pelagos.services.account_service import AccountService
 from pelagos.services.admin_service import AdminService
 from pelagos.services.advanced_service import AdvancedService
@@ -34,6 +34,7 @@ from pelagos.services.notify_service import NotifyService
 from pelagos.services.ops_service import OpsService
 from pelagos.services.peers import PeerGateway
 from pelagos.services.permissions import PermissionGuard
+from pelagos.services.plan_impact import PlanImpact
 from pelagos.services.plan_service import PlanService
 from pelagos.services.ptr_service import PtrService
 from pelagos.services.registry import ConnectorRegistry, bound_reads
@@ -77,6 +78,9 @@ class Services:
         # Plans made of one part per node (HA setup, zone secondaries) register their parts there.
         self.dhcp4.plans = self.dhcp6.plans = self.dns.plans = self.plans
         self.hosts = HostsService(ctx, self.dns, self.dhcp4, self.dhcp6, self.alerts, self.plans)
+        self.impact = PlanImpact(
+            ctx, self.dns, {Engine.KEA4: self.dhcp4, Engine.KEA6: self.dhcp6}, self.registry
+        )
         self.ptr = PtrService(ctx, self.dns, self.plans, self.hosts._dhcp_services)
         self.dns.ptr = self.ptr
         self.ddns_replay = DdnsReplayService(
@@ -123,13 +127,19 @@ class Services:
         ctx.extra["services"] = self
 
     def _publish_plans(self) -> None:
-        """Every plan this process builds goes to the `plans` topic as `validated` (or `failed` when a
-        check refused it) once its checks ran (section 18)."""
+        """Every plan this process builds gets its impact and confirmation reasons (plan_impact),
+        then goes to the `plans` topic as `validated` (or `failed` when a check refused it) once its
+        checks ran (section 18)."""
         store = self.ctx.plan_store
         put = getattr(store.put, "__pelagos_inner__", store.put)
         plans = self.plans
+        impact = self.impact
 
         def publishing_put(plan):  # type: ignore[no-untyped-def]
+            try:
+                impact.annotate(plan, store.parts(plan.id))
+            except Exception:
+                log.warning("plan impact not computed for %s", plan.id, exc_info=True)
             stored = put(plan)
             try:
                 plans._phase(stored, "validated")

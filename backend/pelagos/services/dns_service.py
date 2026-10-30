@@ -643,9 +643,14 @@ class DnsService(DnsExtras):
         if "/" not in change.target:
             change.target = f"_default/{change.target}"
         apply_key_defaults(change, self.ctx.settings())
+        check_zone_name(change.target.partition("/")[2])
         owner = self.zone_owner(node_id)
         if owner is not None:
             return self._store(self.remote_zone_plan(owner, change, created_by, node_ids))
+        if change.op is ChangeOp.DELETE and not node_ids:
+            composite = self.plan_zone_delete_copies(change, created_by)
+            if composite is not None:
+                return self._store(composite)
         targets = self.secondary_for_peers(change, node_ids) if node_ids else None
         plan = self._local().plan_zone_change(change, created_by)
         if targets:
@@ -727,6 +732,7 @@ class DnsService(DnsExtras):
 
     def plan_resolver(self, body: dict[str, Any], created_by: str) -> Plan:
         changes: list[Change] = []
+        unchanged: list[str] = []
         current = {o.name: o.value for o in self._local().read_config().options}
         for key in RESOLVER_KEYS:
             if key not in body:
@@ -744,8 +750,13 @@ class DnsService(DnsExtras):
                 text = "yes" if value in (True, "yes") else "no"
             else:
                 text = str(value)
+            if key in current and _same_value(current[key], text):
+                unchanged.append(key)
+                continue
             op = ChangeOp.REPLACE if key in current else ChangeOp.ADD
             changes.append(Change(op, f"options/{key}", before=current.get(key), after=text))
+        if not changes and unchanged:
+            raise ServiceError("conflict", f"nothing to change: {', '.join(unchanged)} already set so")
         if not changes:
             raise ValidationError(f"nothing to change; keys: {', '.join(RESOLVER_KEYS)}")
         return self._store(self._local().plan_config_change(changes, created_by))
@@ -823,6 +834,27 @@ def _hints_of(backend: DnsBackend, zones: list[Zone]) -> dict[str, dict[str, Any
         return read(zones)
     except Exception:
         return {}  # an unreadable hints file never fails the zone list
+
+
+def _same_value(a: Any, b: Any) -> bool:
+    return re.sub(r"\s+", "", str(a)).lower() == re.sub(r"\s+", "", str(b)).lower()
+
+
+_ZONE_LABEL = re.compile(r"^[A-Za-z0-9_](?:[A-Za-z0-9_/-]{0,61}[A-Za-z0-9_])?$")
+
+
+def check_zone_name(name: str) -> None:
+    """Letters, digits, hyphen, underscore (and "/" of RFC 2317 names) in labels of 63 octets at
+    most; the root is "."."""
+    text = name.strip()
+    labels = [] if text in (".", "") else text.rstrip(".").split(".")
+    if text and len(text.rstrip(".")) <= 253 and all(_ZONE_LABEL.match(label) for label in labels):
+        return
+    err = ValidationError(
+        f"{name} is not a valid zone name", [field_error("change.target", "invalid zone name")]
+    )
+    err.extra = {"detail_message": messages.msg("problem.detail.zone_name_invalid", zone=name)}
+    raise err
 
 
 def parse_change(raw: Any, where: str) -> Change:

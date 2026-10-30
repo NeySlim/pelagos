@@ -776,6 +776,8 @@ class DhcpService:
             ids = {"id": int(sid)} if sid.isdigit() else {}
             current = _current(change, lambda: backend.get_subnet(int(sid)) if sid.isdigit() else None)
             change.after = _domain_after(change, Subnet, current, family=self.family, **ids)
+            if current is not None and isinstance(change.after, dict):
+                _check_reservations_inside(current, change.after)
             return backend.plan_subnet_change(change, created_by)
         if kind == "shared_network":
             change = parse_change(body.get("change"), "change")
@@ -829,6 +831,8 @@ class DhcpService:
                 not (c.target.startswith("ddns-") or c.target == "dhcp-ddns") for c in changes
             ):
                 raise ValidationError("ddns changes target ddns-* keys or dhcp-ddns")
+            if kind == "options":
+                _check_options_absent(backend.config_get(), changes, self.family)
             hooks = [c for c in changes if c.target == "hooks-libraries" and c.op is not ChangeOp.DELETE]
             if hooks:
                 allowed = hook_dirs(backend.config_get().get("hooks-libraries"))
@@ -1597,6 +1601,56 @@ def _domain_after(change: Change, model: Any, current: dict[str, Any] | None, **
         return model.from_dict({**base, **after}).to_dict()
     except (TypeError, ValueError, KeyError):
         return after  # incomplete: the connector reports what is missing
+
+
+def _check_reservations_inside(current: dict[str, Any], after: dict[str, Any]) -> None:
+    """A new prefix must still hold every reservation of the subnet (Kea refuses the rest)."""
+    try:
+        old_net = ipaddress.ip_network(str(current.get("subnet")), strict=False)
+        new_net = ipaddress.ip_network(str(after.get("subnet") or current.get("subnet")), strict=False)
+    except ValueError:
+        return
+    if old_net == new_net:
+        return
+    outside: list[str] = []
+    for res in after.get("reservations", current.get("reservations")) or []:
+        if not isinstance(res, dict):
+            continue
+        for ip in [res.get("ip_address"), *(res.get("ip_addresses") or [])]:
+            try:
+                if ip and ipaddress.ip_address(str(ip)) not in new_net:
+                    outside.append(str(ip))
+            except ValueError:
+                continue
+    if outside:
+        err = ValidationError(
+            f"the reservations {', '.join(outside[:10])} fall outside {new_net}: move or delete them first",
+            [field_error("change.after.subnet", "reservations outside the new prefix")],
+        )
+        err.extra = {
+            "detail_message": messages.msg(
+                "problem.detail.reservation_outside_subnet", addresses=outside[:10], subnet=str(new_net)
+            )
+        }
+        raise err
+
+
+def _check_options_absent(config: dict[str, Any], changes: list[Change], family: Family) -> None:
+    """`add` of a global option that exists already is refused, as `add` of an existing RRset is."""
+    for i, change in enumerate(changes):
+        if change.op is not ChangeOp.ADD or change.target.count("/") != 2:
+            continue
+        head, space, name = change.target.split("/")
+        if head != "option-data":
+            continue
+        for obj in config.get("option-data") or []:
+            if isinstance(obj, dict) and kcfg.option_matches(obj, space, name, family):
+                err = ValidationError(
+                    f"option {name} already exists; use replace",
+                    [field_error(f"changes[{i}].op", "already exists; use replace")],
+                )
+                err.extra = {"detail_message": messages.msg("problem.detail.option_exists", option=name)}
+                raise err
 
 
 def _current(change: Change, read: Any) -> dict[str, Any] | None:

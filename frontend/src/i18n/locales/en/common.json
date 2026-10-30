@@ -192,6 +192,18 @@
       "recheck": "Recheck the preconditions on {{node}}",
       "replicate": "Apply on the peers through replication",
       "result": "Results per node"
+    },
+    "impact": "Impact",
+    "impactMore": "and {{count}} more",
+    "confirmReasons": "Confirmation needed:",
+    "reasons": {
+      "delete": "a configuration object is deleted",
+      "prefix_change": "the subnet prefix changes",
+      "pool_shrink": "a pool shrinks",
+      "leases_lost": "active leases are lost",
+      "lease_conflict": "another client holds the address",
+      "multi_node": "different writes on several nodes",
+      "operation": "this operation affects service"
     }
   },
   "status": {

@@ -152,3 +152,30 @@ def test_dnssec_policy_and_key_operation_plans(role_client, fake_registry):
     body = {"action": "rollover", "key_id": 1, "view": "v -key 9"}
     r = admin.post(Z + "/example.lan/dnssec/plan", json=body)
     assert r.status_code == 400 and r.get_json()["errors"][0]["field"] == "view"
+
+
+def test_zone_delete_also_removes_the_secondary_copies(role_client, peer_b, node_ctx, fake_registry):
+    from pelagos.domain import ZoneSource
+
+    zone = fake_registry.dns.zones["example.lan."]
+    zone.source = ZoneSource.PELAGOS
+    copy = Zone(
+        name="example.lan.", kind=ZoneKind.SECONDARY, primaries=["192.0.2.1"], source=ZoneSource.PELAGOS
+    )
+    peer_b.registry.dns.add_zone(copy, [])
+    admin = role_client("admin")
+    r = admin.post(Z + "/plan", json={"change": {"op": "delete", "target": "_default/example.lan"}})
+    assert r.status_code == 200, r.get_json()
+    plan = r.get_json()
+    assert plan["target_node_ids"] == [node_ctx.node.id, NODE_B]
+    assert plan["requires_confirmation"] is True
+    assert plan["requires_confirmation_reasons"] == ["delete", "multi_node"]
+    assert plan["summary_message"]["params"]  # the note names the node losing its copy
+    assert "ns2" in plan["summary"]
+    kinds = {i["kind"]: i for i in plan["impact"]}
+    assert kinds["records"]["count"] > 0
+    assert kinds["nodes"]["message"]["key"] == "plan.impact.zone_copies_removed"
+    result = admin.post(f"/api/v1/plans/{plan['id']}/apply", json={"confirm": True}).get_json()
+    assert result["state"] == "applied", result
+    assert "example.lan." not in fake_registry.dns.zones
+    assert "example.lan." not in peer_b.registry.dns.zones

@@ -166,3 +166,18 @@ def test_apex_ns_is_replaced_never_emptied() -> None:
     ]
     _, errors = rr.resolve_changes(ZONE, [change("delete", "example.lan/@/NS")], current)
     assert errors and "apex" in errors[0]
+
+
+def test_cname_next_to_data_added_by_the_same_plan() -> None:
+    a = change("add", "example.lan/both/A", {"rdata": ["192.0.2.77"]})
+    cname = change("add", "example.lan/both/CNAME", {"rdata": ["www"]})
+    _resolved, errors = rr.resolve_changes(ZONE, [a, cname], CURRENT)
+    assert any("a CNAME cannot coexist" in e for e in errors)
+    _resolved, errors = rr.resolve_changes(ZONE, [cname, a], CURRENT)
+    assert any("is a CNAME; other data cannot coexist" in e for e in errors)
+    # Replacing a CNAME by an A in one plan stays allowed.
+    swap = [
+        change("delete", "example.lan/alias/CNAME"),
+        change("add", "example.lan/alias/A", {"rdata": ["192.0.2.5"]}),
+    ]
+    assert rr.resolve_changes(ZONE, swap, CURRENT)[1] == []

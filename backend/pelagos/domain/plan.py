@@ -80,6 +80,16 @@ SCOPE_PERMISSIONS: dict[PlanScope, str] = {
 }
 
 
+class ConfirmationReason(enum.StrEnum):
+    DELETE = "delete"
+    PREFIX_CHANGE = "prefix_change"
+    POOL_SHRINK = "pool_shrink"
+    LEASES_LOST = "leases_lost"
+    LEASE_CONFLICT = "lease_conflict"
+    MULTI_NODE = "multi_node"
+    OPERATION = "operation"
+
+
 class PlanState(enum.StrEnum):
     DRAFT = "draft"
     VALIDATED = "validated"
@@ -140,6 +150,27 @@ class ValidationResult(Model):
     output_message: dict[str, Any] | None = None
 
 
+class ImpactSeverity(enum.StrEnum):
+    INFO = "info"
+    WARNING = "warning"
+
+
+@dataclass(slots=True)
+class ImpactItem(Model):
+    """One consequence of a plan beyond its diff (leases, hosts, nodes not targeted, DDNS, HA)."""
+
+    kind: str
+    text: str
+    message: dict[str, Any] | None = None
+    severity: ImpactSeverity = ImpactSeverity.INFO
+    count: int | None = None
+    # At most IMPACT_EXAMPLES entries ("192.0.2.10 pc1 aa:bb:..").
+    examples: list[str] = field(default_factory=list)
+
+
+IMPACT_EXAMPLES = 20
+
+
 @dataclass(slots=True)
 class Plan(Model):
     scope: PlanScope
@@ -164,6 +195,10 @@ class Plan(Model):
     summary_message: dict[str, Any] | None = None
     # Caught APPLYING by a restart: what it did on its nodes is unknown (check by hand on rollback).
     interrupted: bool = False
+    # Computed once when the plan is stored (services.plan_impact), shown before the diff.
+    impact: list[ImpactItem] = field(default_factory=list)
+    # Why requires_confirmation is set (ConfirmationReason values); empty for older plans.
+    requires_confirmation_reasons: list[str] = field(default_factory=list)
 
     @property
     def permission(self) -> str:

@@ -36,6 +36,26 @@ const applied = (state = 'applied') => ({
 })
 
 describe('PlanPreview', () => {
+  it('shows the impact before the diff and the confirmation reasons', () => {
+    const impact = [
+      {
+        kind: 'leases',
+        severity: 'warning',
+        text: '2 active leases in 192.0.2.0/24: their clients lose their address',
+        message: { key: 'plan.impact.subnet_leases', params: { count: 2, subnet: '192.0.2.0/24' } },
+        count: 3,
+        examples: ['192.0.2.10 pc1 aa:bb:cc:dd:ee:01', '192.0.2.11 pc2 aa:bb:cc:dd:ee:02'],
+      },
+    ]
+    render(<PlanPreview plan={makePlan({ impact, requires_confirmation: true, requires_confirmation_reasons: ['delete', 'leases_lost'] })} />)
+    const section = screen.getByTestId('plan-impact')
+    expect(section).toHaveTextContent('192.0.2.10 pc1')
+    expect(section).toHaveTextContent('and 1 more')
+    expect(section.compareDocumentPosition(screen.getByTestId('plan-diff')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByTestId('plan-confirm-reasons')).toHaveTextContent('a configuration object is deleted, active leases are lost')
+    expect(screen.getByTestId('plan-apply')).toBeDisabled()
+  })
+
   it('shows summary, changes, diff and validations', () => {
     render(<PlanPreview plan={makePlan()} />)
     expect(screen.getByTestId('plan-summary')).toHaveTextContent('1 change(s) in example.lan.')

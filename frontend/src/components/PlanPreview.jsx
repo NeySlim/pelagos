@@ -390,6 +390,30 @@ export function PlanPreview({
         </div>
       )}
 
+      {/* Impact: what the plan does beyond its diff, warnings first (services.plan_impact) */}
+      {plan.impact?.length > 0 && (
+        <Section title={t('plan.impact')} count={plan.impact.length} foldSignal={foldSignal} testId="plan-impact">
+          <ul className="space-y-1.5">
+            {plan.impact.map((item, i) => (
+              <li key={i} className="text-xs" data-severity={item.severity}>
+                <div className={cn('flex items-start gap-1.5', item.severity === 'warning' ? 'status-warning-text' : 'text-text-secondary')}>
+                  {item.severity === 'warning' && <Warning size={12} className="mt-0.5 shrink-0" />}
+                  <span>{msg(item.message, item.text)}</span>
+                </div>
+                {item.examples?.length > 0 && (
+                  <ul className="ml-5 mt-0.5 font-mono text-2xs text-text-tertiary">
+                    {item.examples.map((ex, j) => (
+                      <li key={j} className="break-all">{ex}</li>
+                    ))}
+                    {item.count > item.examples.length && <li>{t('plan.impactMore', { count: item.count - item.examples.length })}</li>}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
       {/* Changes */}
       <Section title={t('plan.changes')} count={changeRows.length} testId="plan-changes">
         {changeRows.length === 0 ? (
@@ -540,6 +564,11 @@ export function PlanPreview({
 
       {/* Confirmation + actions */}
       <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-border">
+        {plan.requires_confirmation && !applied && !result && plan.requires_confirmation_reasons?.length > 0 && (
+          <p className="w-full text-2xs status-warning-text" data-testid="plan-confirm-reasons">
+            {t('plan.confirmReasons')} {plan.requires_confirmation_reasons.map((r) => t(`plan.reasons.${r}`, { defaultValue: r })).join(', ')}
+          </p>
+        )}
         {plan.requires_confirmation && !applied && !result && (
           <label className="flex items-center gap-2 text-xs text-text-primary cursor-pointer select-none">
             <input

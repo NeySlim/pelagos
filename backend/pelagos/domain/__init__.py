@@ -68,10 +68,14 @@ from pelagos.domain.dns import (
 )
 from pelagos.domain.hosts import Host, host_key
 from pelagos.domain.plan import (
+    IMPACT_EXAMPLES,
     SCOPE_PERMISSIONS,
     ApplyResult,
     Change,
     ChangeOp,
+    ConfirmationReason,
+    ImpactItem,
+    ImpactSeverity,
     Job,
     JobState,
     NodeApplyResult,
@@ -85,6 +89,7 @@ from pelagos.domain.plan import (
 
 __all__ = [
     "EXCEPTABLE_KINDS",
+    "IMPACT_EXAMPLES",
     "INCONSISTENCY_KINDS",
     "SCOPE_PERMISSIONS",
     "SECURITY_EXCEPTION_KINDS",
@@ -101,6 +106,7 @@ __all__ = [
     "ChangeOp",
     "ClientClass",
     "ConfigEntry",
+    "ConfirmationReason",
     "D2Stats",
     "DhcpCapabilities",
     "DnsCapabilities",
@@ -111,6 +117,8 @@ __all__ = [
     "HAPeer",
     "HAState",
     "Host",
+    "ImpactItem",
+    "ImpactSeverity",
     "Job",
     "JobState",
     "Lease",

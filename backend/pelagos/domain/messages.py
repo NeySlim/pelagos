@@ -57,6 +57,55 @@ CATALOG: dict[str, str] = {
     "plan.ptr.cleanup": "PTR cleanup: {deleted} PTR targets removed, {created} addresses added",
     "plan.ipv6.aaaa": "AAAA and PTR of {count} IPv6 addresses",
     "plan.ipv6.replace_prefix": "{old_prefix} replaced by {new_prefix}: {count} AAAA addresses in {zones}",
+    # Plan impact lines (services.plan_impact).
+    "plan.impact.unknown": "impact of {target} not computed: {error}",
+    "plan.impact.subnet_leases": "{count} active leases in {subnet}: their clients lose their address",
+    "plan.impact.subnet_leases_partial": (
+        "at least {count} active leases in {subnet}: their clients lose their address"
+    ),
+    "plan.impact.leases_outside_prefix": (
+        "{count} active leases fall outside the new prefix of {subnet}: Kea refuses them (NAK) at renewal"
+    ),
+    "plan.impact.leases_outside_prefix_partial": (
+        "at least {count} active leases fall outside the new prefix of {subnet}:"
+        " Kea refuses them (NAK) at renewal"
+    ),
+    "plan.impact.leases_outside_pools": (
+        "{count} active leases fall outside the new pools of {subnet}: Kea refuses them (NAK) at renewal"
+    ),
+    "plan.impact.leases_outside_pools_partial": (
+        "at least {count} active leases fall outside the new pools of {subnet}:"
+        " Kea refuses them (NAK) at renewal"
+    ),
+    "plan.impact.leases_unread": "the leases of {subnet} could not be read: {error}",
+    "plan.impact.subnet_reservations": "{count} reservations of {subnet} are deleted with it",
+    "plan.impact.subnet_ddns": "DDNS reverse domains {domains} cover {subnet}",
+    "plan.impact.ha_partners": "HA {mode}: every server ({servers}) gets the same change",
+    "plan.impact.reservation_lease_kept": "the client keeps {ip} until its lease ends ({expires})",
+    "plan.impact.lease_conflict": (
+        "{ip} is leased to {client} ({who}) until {expires}: Kea counts a reservation conflict"
+        " until that lease ends"
+    ),
+    "plan.impact.reservation_in_pool": (
+        "{ip} lies in the dynamic pool {pool}: another client may hold it when the reservation starts"
+    ),
+    "plan.impact.global_option": "option {option} is removed for every client of every subnet",
+    "plan.impact.zone_records": (
+        "{zone}: {count} records stop being served; the zone file {file} stays on disk"
+    ),
+    "plan.impact.zone_copies_removed": "the secondary copies on {nodes} are removed too",
+    "plan.impact.zone_copies_kept": (
+        "{nodes} keep a copy from their own configuration and serve it until it expires"
+    ),
+    "plan.impact.zone_ddns_domain": (
+        "D2 domains {domains} still send updates to {zone}: they fail once it is gone"
+    ),
+    "plan.impact.zone_ddns_role": "the DDNS failover roles name {zone}",
+    "plan.impact.ddns_record": "{owner} {rtype} was written by DDNS: Kea writes it again at the next renewal",
+    "plan.impact.ddns_record_lease": (
+        "{owner} {rtype} was written by DDNS: Kea writes it again when {ip} renews (lease until {expires})"
+    ),
+    "note.zone_copies_removed": "secondary copies removed on {nodes}",
     "plan.kea.subnet": "{op} subnet {subnet}",
     "plan.kea.reservation": "{op} reservation {target}",
     "plan.kea.global": "{engine}: {targets}",
@@ -834,6 +883,16 @@ CATALOG: dict[str, str] = {
     "problem.zone_too_large": "Zone too large to read here",
     "problem.release_invalid": "Release refused",
     "problem.detail.unexpected": "unexpected error; see the server log",
+    "problem.detail.reservation_outside_subnet": (
+        "the reservations {addresses} fall outside {subnet}: move or delete them first"
+    ),
+    "problem.detail.host_ip_taken": "{ip} is already assigned to {names}",
+    "problem.detail.host_name_taken": "{fqdn} already has a {rtype} record ({rdata}); edit it instead",
+    "problem.detail.records_node_ids": (
+        "record plans apply on the zone's primary node: node_ids is not accepted"
+    ),
+    "problem.detail.zone_name_invalid": "{zone} is not a valid zone name",
+    "problem.detail.option_exists": "option {option} already exists; use replace",
     "problem.detail.zone_without_records": "{zone} is a {kind} zone: named holds no records for it",
     "problem.detail.zone_too_large": (
         "{zone} holds {size} names or more, above the read limit of {limit} (dns.zone_read_max_names)"

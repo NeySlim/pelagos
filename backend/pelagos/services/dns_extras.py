@@ -325,6 +325,48 @@ class DnsExtras:
         self.plans.register_composite(plan, parts)
         return self.ctx.plan_store.put(plan)
 
+    def plan_zone_delete_copies(self, change: Change, created_by: str) -> Plan | None:
+        """A primary deleted here also leaves the nodes holding a Pelagos secondary copy of it: one
+        part per node, the primary first. None when no other node holds such a copy."""
+        view, _, name = change.target.partition("/")
+        zone, view = normalize_name(name), view or DEFAULT_VIEW
+        copies = self._zone_copies(zone, view)
+        mine = copies.get(self.ctx.node.id)
+        if mine is None or mine.kind is not ZoneKind.PRIMARY:
+            return None
+        others = [
+            n
+            for n, z in copies.items()
+            if n != self.ctx.node.id and z.kind is ZoneKind.SECONDARY and z.source is ZoneSource.PELAGOS
+        ]
+        if not others:
+            return None
+        from pelagos.services.composite import merge_parts
+
+        target = f"{view}/{zone}"
+        primary = self._local().plan_zone_change(change, created_by)
+        primary.target_node_ids = [self.ctx.node.id]
+        parts = [primary] + [self._zone_part(n, Change(ChangeOp.DELETE, target), created_by) for n in others]
+        names = {p.id: p.name for p in self.ctx.cluster().nodes}
+        names.setdefault(self.ctx.node.id, self.ctx.node.name)
+        summary = messages.msg("plan.zone.change", target=target, op=messages.op(ChangeOp.DELETE))
+        plan = Plan(
+            scope=PlanScope.DNS_ZONE,
+            node_id=self.ctx.node.id,
+            engine=Engine.BIND,
+            **_summary(summary),
+            created_by=created_by,
+            requires_confirmation=True,
+        )
+        messages.add_note(
+            plan, "summary", messages.msg("note.zone_copies_removed", nodes=[names.get(n, n) for n in others])
+        )
+        merge_parts(plan, parts, names)
+        if self.plans is None:
+            raise EngineUnavailable("plans are not wired on this node")
+        self.plans.register_composite(plan, parts)
+        return plan
+
     def _zone_part(self, node_id: str, change: Change, created_by: str) -> Plan:
         """A zone plan built on `node_id` (here, or by the peer over dns.zone.plan), applied there."""
         if node_id == self.ctx.node.id:

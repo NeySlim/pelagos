@@ -15,6 +15,7 @@ from pelagos.api import models as m
 from pelagos.api.common import arg, items, json_body, page_of, plan_answer, plan_dict
 from pelagos.api.errors import ApiError
 from pelagos.api.security import client_ip, require, services, username
+from pelagos.domain import messages
 from pelagos.services.dns_extras import zone_mode
 
 ns = Namespace("dns", description="Zones, records, BIND configuration", path="/dns")
@@ -196,6 +197,13 @@ class RecordsPlan(Resource):
     @ns.response(422, "engine_validation_failed", m.Problem)
     def post(self, zone: str):
         body = json_body()
+        if body.get("node_ids") or body.get("node_id"):
+            raise ApiError(
+                "validation_error",
+                "record plans apply on the zone's primary node: node_ids is not accepted",
+                errors=[{"field": "node_ids", "message": "not accepted"}],
+                extra={"detail_message": messages.msg("problem.detail.records_node_ids")},
+            )
         ptr = body.get("ptr")
         if ptr is not None and not isinstance(ptr, dict):
             raise ApiError(

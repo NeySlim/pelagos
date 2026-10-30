@@ -1112,6 +1112,9 @@
   "note.static_file_edit_on": [
     "node"
   ],
+  "note.zone_copies_removed": [
+    "nodes"
+  ],
   "op.add": [],
   "op.delete": [],
   "op.replace": [],
@@ -1245,6 +1248,95 @@
     "fqdn",
     "ip",
     "mac"
+  ],
+  "plan.impact.ddns_record": [
+    "owner",
+    "rtype"
+  ],
+  "plan.impact.ddns_record_lease": [
+    "expires",
+    "ip",
+    "owner",
+    "rtype"
+  ],
+  "plan.impact.global_option": [
+    "option"
+  ],
+  "plan.impact.ha_partners": [
+    "mode",
+    "servers"
+  ],
+  "plan.impact.lease_conflict": [
+    "client",
+    "expires",
+    "ip",
+    "who"
+  ],
+  "plan.impact.leases_outside_pools": [
+    "count",
+    "subnet"
+  ],
+  "plan.impact.leases_outside_pools_partial": [
+    "count",
+    "subnet"
+  ],
+  "plan.impact.leases_outside_prefix": [
+    "count",
+    "subnet"
+  ],
+  "plan.impact.leases_outside_prefix_partial": [
+    "count",
+    "subnet"
+  ],
+  "plan.impact.leases_unread": [
+    "error",
+    "subnet"
+  ],
+  "plan.impact.reservation_in_pool": [
+    "ip",
+    "pool"
+  ],
+  "plan.impact.reservation_lease_kept": [
+    "expires",
+    "ip"
+  ],
+  "plan.impact.subnet_ddns": [
+    "domains",
+    "subnet"
+  ],
+  "plan.impact.subnet_leases": [
+    "count",
+    "subnet"
+  ],
+  "plan.impact.subnet_leases_partial": [
+    "count",
+    "subnet"
+  ],
+  "plan.impact.subnet_reservations": [
+    "count",
+    "subnet"
+  ],
+  "plan.impact.unknown": [
+    "error",
+    "target"
+  ],
+  "plan.impact.zone_copies_kept": [
+    "nodes"
+  ],
+  "plan.impact.zone_copies_removed": [
+    "nodes"
+  ],
+  "plan.impact.zone_ddns_domain": [
+    "domains",
+    "zone"
+  ],
+  "plan.impact.zone_ddns_role": [
+    "zone"
+  ],
+  "plan.impact.zone_records": [
+    "count",
+    "file",
+    "zone"
   ],
   "plan.import": [
     "engines"
@@ -1475,7 +1567,27 @@
   "problem.confirmation_required": [],
   "problem.conflict": [],
   "problem.csrf_failed": [],
+  "problem.detail.host_ip_taken": [
+    "ip",
+    "names"
+  ],
+  "problem.detail.host_name_taken": [
+    "fqdn",
+    "rdata",
+    "rtype"
+  ],
+  "problem.detail.option_exists": [
+    "option"
+  ],
+  "problem.detail.records_node_ids": [],
+  "problem.detail.reservation_outside_subnet": [
+    "addresses",
+    "subnet"
+  ],
   "problem.detail.unexpected": [],
+  "problem.detail.zone_name_invalid": [
+    "zone"
+  ],
   "problem.detail.zone_too_large": [
     "limit",
     "size",

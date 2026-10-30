@@ -188,6 +188,21 @@ confirms the command and key names the Kea connector expects from 2.6
 (`status-get`, `ha-heartbeat`, `lease4-get-all`, `config-get`, `config-set`,
 `config-write`, `config-hash-get`).
 
+## Daemon tier as CI runs it
+
+The CI `daemon` job runs the tier in a `debian:trixie` container, so `named`
+and Kea run under Docker's `docker-default` AppArmor profile, which lab-dev
+(no AppArmor confinement of its own binaries) does not reproduce.
+`scripts/lab/ci-daemon.sh [host] [pytest args]` copies the working tree (or
+the commit `CI_DAEMON_REF`) to `lab-docker` and runs the job's steps there:
+the same image, ISC Kea 3.2 from Cloudsmith, an unprivileged user in `bind`
+and `_kea`. Start the VM first (`vm-budget.sh start 9117`).
+
+```sh
+scripts/lab/ci-daemon.sh lab-docker -rs -k api_node
+CI_DAEMON_REF=origin/main scripts/lab/ci-daemon.sh
+```
+
 ## Lab tier
 
 ```sh

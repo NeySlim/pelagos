@@ -7,6 +7,7 @@ scripts, and kea-mig-check / kea-mig-cleanup (fake package tools, daemons and un
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -111,7 +112,7 @@ def test_removed_isc_packages_are_purged_without_their_purge_scripts(host):  # n
     before = kea_files(env)
     purged: list[list[str]] = []
     rc_packages(env, purged)
-    out = sw.purge_leftovers(env, None)
+    out = sw.purge_leftovers(env)
     assert purged == [["dpkg", "--purge", "isc-kea-common", "isc-kea-dhcp4"]]
     info = env.paths.root / "var/lib/dpkg/info"
     assert all(
@@ -148,3 +149,34 @@ def test_check_and_cleanup_of_a_node_back_on_2_6(node):  # noqa: F811
     out = sw.cleanup(env, d)
     assert not mdir.exists() and not public.exists() and kea_files(env) == files
     assert json.dumps(out)
+
+
+def test_a_failed_purge_still_puts_etc_kea_back_and_keeps_the_copy(host):  # noqa: F811
+    env = host.env
+    before = kea_files(env)
+    purged: list[list[str]] = []
+    rc_packages(env, purged)
+
+    def broken(argv):
+        purged.append(argv)
+        env.paths.kea_conf("kea-dhcp4").unlink()  # the first package's conffile is gone, then dpkg fails
+        return CommandResult(argv, 1, "", "dpkg: error processing package isc-kea-dhcp4 (--purge)")
+
+    env.runner.responses["dpkg --purge"] = broken
+    with pytest.raises(sw.SwitchError, match=r"error processing package.*copy of .* kept in (\S+)") as err:
+        sw.purge_leftovers(env)
+    assert kea_files(env) == before
+    kept = Path(str(err.value).rsplit(" kept in ", 1)[1].rstrip(")"))
+    assert (kept / "kea-dhcp4.conf").is_file() and kept.is_relative_to(env.node_paths.kea_migration_state)
+
+
+def test_cleanup_keeps_the_saved_files_when_etc_kea_differs(node):  # noqa: F811
+    env, _pk = node
+    mdir = kmc.state_dir(env.node_paths, MID)
+    assert (mdir / "private/before").is_dir()
+    env.paths.kea_conf("kea-dhcp4").write_text('{"Dhcp4": {}}')  # an imperfect manual repair
+    out = sw.cleanup(env, {"migration_id": MID, "engines": ["kea4"], "from_series": "2.6"})
+    assert not mdir.exists()
+    [kept] = [p for p in mdir.parent.glob(f"before-{MID}-*")]
+    assert (kept / "kea-dhcp4.conf").is_file()
+    assert any("kept: /etc/kea differs" in line for line in out["log"])

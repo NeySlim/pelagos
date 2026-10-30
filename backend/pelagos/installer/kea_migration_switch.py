@@ -1015,10 +1015,11 @@ NOOP_POSTRM = "#!/bin/sh\n# pelagos: neutralized before the purge of a removed I
 _ISC_PACKAGE = re.compile(r"^(python3-)?isc-kea(-|$)")
 
 
-def purge_leftovers(env: Any, mdir: Path | None) -> list[str]:
+def purge_leftovers(env: Any) -> list[str]:
     """ISC Kea packages dpkg still knows as removed (`rc`) purged. Their purge scripts would delete
     /etc/kea, /var/lib/kea and the `_kea` user the Debian packages share, so they are replaced by a
-    no-op first and /etc/kea is checked against a copy taken just before."""
+    no-op first and /etc/kea is checked against a copy taken just before, kept in root's migration
+    state directory (outside any migration, never under tmpfs) when the purge fails."""
     if not env.distro.is_debian:
         return []
     res = env.runner.run(
@@ -1047,10 +1048,13 @@ def purge_leftovers(env: Any, mdir: Path | None) -> list[str]:
     if not names:
         return []
     conf_dir = env.paths.kea_conf_dir
-    guard = Path(tempfile.mkdtemp(prefix="pelagos-kea-purge-", dir=str(mdir) if mdir else None))
-    out = []
+    top = Path(env.node_paths.kea_migration_state)
+    top.mkdir(mode=0o700, parents=True, exist_ok=True)
+    guard = Path(tempfile.mkdtemp(prefix="purge-", dir=str(top)))
+    copy = guard / "conf"
+    out: list[str] = []
+    failure = ""
     try:
-        copy = guard / "conf"
         if conf_dir.is_dir():
             shutil.copytree(conf_dir, copy, symlinks=True)
         info = _root(env, "var/lib/dpkg/info")
@@ -1060,33 +1064,50 @@ def purge_leftovers(env: Any, mdir: Path | None) -> list[str]:
                     path.write_text(NOOP_POSTRM)
         got = env.runner.run(["dpkg", "--purge", *names], privileged=True, check=False, timeout=600)
         if not got.ok:
-            raise SwitchError(f"dpkg --purge {' '.join(names)}: {got.output.strip()[-300:]}")
-        out.append(f"purged (removed ISC packages): {', '.join(names)}")
-        for init in dict.fromkeys(inits):
-            if not _root(env, f"etc/init.d/{init}").exists():
-                env.runner.run(
-                    ["update-rc.d", "-f", init, "remove"], privileged=True, check=False, timeout=60
-                )
-        if copy.is_dir():
-            for saved in sorted(copy.rglob("*")):
-                dest = conf_dir / saved.relative_to(copy)
-                if saved.is_symlink():
-                    if not dest.exists() and not dest.is_symlink():
-                        os.symlink(os.readlink(saved), dest)
-                    continue
-                if saved.is_dir():
-                    if not dest.exists():
-                        dest.mkdir()
-                        shutil.copystat(saved, dest)
-                    continue
-                if not dest.is_file() or dest.read_bytes() != saved.read_bytes():
-                    shutil.copy2(saved, dest)
-                    st = saved.stat()
-                    if os.geteuid() == 0:
-                        os.chown(dest, st.st_uid, st.st_gid)
-                    out.append(f"{dest} put back after the purge")
+            failure = f"dpkg --purge {' '.join(names)}: {got.output.strip()[-300:]}"
+        else:
+            out.append(f"purged (removed ISC packages): {', '.join(names)}")
+            for init in dict.fromkeys(inits):
+                if not _root(env, f"etc/init.d/{init}").exists():
+                    env.runner.run(
+                        ["update-rc.d", "-f", init, "remove"], privileged=True, check=False, timeout=60
+                    )
+    except OSError as exc:
+        failure = f"purge of {', '.join(names)}: {exc}"
     finally:
-        shutil.rmtree(guard, ignore_errors=True)
+        # A failed purge may already have deleted conffiles at the Debian paths: put back either way.
+        try:
+            if copy.is_dir():
+                out += _put_back(copy, conf_dir)
+        except OSError as exc:
+            failure = f"{failure + '; ' if failure else ''}{conf_dir} not put back: {exc}"
+    if failure:
+        # The copy is the only one left of /etc/kea before the purge: kept for a manual check.
+        raise SwitchError(f"{failure} (copy of {conf_dir} before the purge kept in {copy})")
+    shutil.rmtree(guard, ignore_errors=True)
+    return out
+
+
+def _put_back(copy: Path, conf_dir: Path) -> list[str]:
+    """Each file of `copy` missing or different under `conf_dir` written back with its owner."""
+    out = []
+    for saved in sorted(copy.rglob("*")):
+        dest = conf_dir / saved.relative_to(copy)
+        if saved.is_symlink():
+            if not dest.exists() and not dest.is_symlink():
+                os.symlink(os.readlink(saved), dest)
+            continue
+        if saved.is_dir():
+            if not dest.exists():
+                dest.mkdir()
+                shutil.copystat(saved, dest)
+            continue
+        if not dest.is_file() or dest.read_bytes() != saved.read_bytes():
+            shutil.copy2(saved, dest)
+            st = saved.stat()
+            if os.geteuid() == 0:
+                os.chown(dest, st.st_uid, st.st_gid)
+            out.append(f"{dest} put back after the purge")
     return out
 
 
@@ -1200,7 +1221,7 @@ def install_previous(
     part("AppArmor", lambda: reenable_apparmor(env, state.get("apparmor_disabled") or []))
     part("repository files", lambda: remove_repo_files(env, manifest))
     part("units", lambda: restore_units(env, state.get("units_before") or {}))
-    part("removed ISC packages", lambda: purge_leftovers(env, mdir))
+    part("removed ISC packages", lambda: purge_leftovers(env))
     fresh = _state(mdir)
     fresh.pop("delays", None)
     _save_state(mdir, fresh)
@@ -1398,21 +1419,11 @@ def check(env: Any, details: dict[str, Any]) -> dict[str, Any]:
         if not env.services.is_active(unit):
             problems.append(f"{unit} is not running")
     try:
-        mdir = kmc.state_dir(env.node_paths, str(details.get("migration_id") or ""))
-        manifest = json.loads((mdir / "manifest.json").read_text())
-    except (OSError, ValueError, kmc.MigrationStateError):
-        manifest = {}
-    from pelagos.installer.kea_migration_steps import _sha256
-
-    for entry in manifest.get("saved") or []:
-        path = Path(str(entry.get("path") or ""))
-        if (
-            entry.get("sha256")
-            and path.is_file()
-            and not path.is_symlink()
-            and _sha256(path) != entry["sha256"]
-        ):
-            notes.append(f"{path} differs from the file saved at the prepare (kept as it is)")
+        mdir: Path | None = kmc.state_dir(env.node_paths, str(details.get("migration_id") or ""))
+    except kmc.MigrationStateError:
+        mdir = None
+    for path in _differing(mdir) if mdir else []:
+        notes.append(f"{path} differs from the file saved at the prepare (kept as it is)")
     left = _apparmor_disabled(env)
     if left:
         notes.append("AppArmor disabled here: " + ", ".join(left))
@@ -1421,19 +1432,48 @@ def check(env: Any, details: dict[str, Any]) -> dict[str, Any]:
     return {"versions": versions, "packages": installed, "notes": notes}
 
 
+def _differing(mdir: Path) -> list[Path]:
+    """Files of /etc/kea whose content is no longer what the prepare of `mdir` saved."""
+    from pelagos.installer.kea_migration_steps import _sha256
+
+    try:
+        manifest = json.loads((mdir / "manifest.json").read_text())
+    except (OSError, ValueError):
+        return []
+    out = []
+    for entry in manifest.get("saved") or []:
+        path = Path(str(entry.get("path") or ""))
+        if (
+            entry.get("sha256")
+            and path.is_file()
+            and not path.is_symlink()
+            and _sha256(path) != entry["sha256"]
+        ):
+            out.append(path)
+    return out
+
+
 def cleanup(env: Any, details: dict[str, Any]) -> dict[str, Any]:
     """`kea-mig-cleanup`: once the node is back on the previous series, the AppArmor profiles the
     migration disabled enabled again, the removed ISC packages purged (purge_leftovers), the HA
-    maintenance windows closed and every migration directory of the node removed. Kea files stay."""
+    maintenance windows closed and every migration directory of the node removed. Kea files stay;
+    when /etc/kea differs from the prepare's copy, that copy (private/before) is moved aside first."""
     out: list[str] = []
     root = Path(env.node_paths.kea_migration_state)
     noted: set[str] = set()
     for d in sorted(root.glob("*")) if root.is_dir() else []:
         noted |= set(_state(d).get("apparmor_disabled") or []) if kmc.ID_RE.match(d.name) else set()
     out += reenable_apparmor(env, sorted(noted))
-    out += purge_leftovers(env, None)
+    out += purge_leftovers(env)
     for engine in HA_ENGINES:
         ha_maintenance.close(env.node_paths, engine)
+    for d in sorted(root.glob("*")) if root.is_dir() else []:
+        before = d / "private" / "before"
+        if kmc.ID_RE.match(d.name) and before.is_dir() and _differing(d):
+            # /etc/kea is not what the prepare saved: its only copy of the 2.6 files outlives the folder.
+            kept = root / f"before-{d.name}-{time.strftime('%Y%m%dT%H%M%S')}"
+            shutil.move(str(before), str(kept))
+            out.append(f"{kept} kept: /etc/kea differs from the files saved at the prepare")
     public = Path(env.node_paths.var) / kmc.DIR
     for top in (root, public):
         for d in sorted(top.glob("*")) if top.is_dir() else []:

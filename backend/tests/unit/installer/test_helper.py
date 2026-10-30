@@ -13,7 +13,7 @@ import threading
 import pytest
 
 from pelagos.domain import JobState, PlanScope
-from pelagos.installer import helper
+from pelagos.installer import helper, kea_modes
 from pelagos.services.install_service import InstallService
 from tests.unit.installer.fakes import debian_tree
 
@@ -43,6 +43,10 @@ def served(tmp_path, monkeypatch):
     thread.start()
     monkeypatch.setenv(helper.SOCKET_ENV, str(path))
     monkeypatch.setenv(helper.PLANS_ENV, str(tmp_path / "plans"))
+    # The fake euid only routes calls to the helper: the service owns the fake host (root CI too).
+    monkeypatch.setattr(
+        kea_modes, "service_ids", lambda ids=(os.getuid(), {os.getgid(), *os.getgroups()}): ids
+    )
     monkeypatch.setattr(helper.os, "geteuid", lambda: 1000)
     yield env
     # No thread may outlive the test: a later test monkey-patches with gevent.

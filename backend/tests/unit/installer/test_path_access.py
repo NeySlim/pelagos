@@ -35,7 +35,9 @@ def bind_tree(tmp_path: Path) -> object:
 @pytest.fixture
 def ids(monkeypatch: pytest.MonkeyPatch) -> None:
     """Owner and group names resolve to this process (no bind account needed), chown is a no-op."""
-    me = SimpleNamespace(pw_uid=os.getuid(), gr_gid=os.getgid(), pw_name="me", gr_name="me")
+    me = SimpleNamespace(
+        pw_uid=os.getuid(), pw_gid=os.getgid(), gr_gid=os.getgid(), pw_name="me", gr_name="me"
+    )
     monkeypatch.setattr(path_access.pwd, "getpwnam", lambda _n: me)
     monkeypatch.setattr(path_access.grp, "getgrnam", lambda _n: me)
     monkeypatch.setattr(path_access.os, "chown", lambda *_a, **_k: None)

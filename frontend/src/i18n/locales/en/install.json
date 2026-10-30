@@ -15,7 +15,7 @@
     },
     "keaMigration": {
       "title": "Kea migration",
-      "subtitle": "What moving from Kea 2.6 to 3.x would change, analyzed without touching the nodes"
+      "subtitle": "Analyze the move from Kea 2.6 to 3.x, then prepare, migrate and return if needed"
     }
   },
   "engines": {
@@ -295,6 +295,96 @@
       "remove_other": "{{count}} packages removed",
       "install_one": "{{count}} package installed",
       "install_other": "{{count}} packages installed"
+    },
+    "wizard": {
+      "title": "Migration to Kea {{series}}",
+      "updated": "Updated {{date}}",
+      "steps": {
+        "prepare": "Prepare",
+        "migrate": "Migrate",
+        "verify": "Verify"
+      },
+      "state": {
+        "preparing": "Preparing",
+        "prepared": "Prepared",
+        "prepare_failed": "Preparation failed",
+        "migrating": "Migrating",
+        "migrated": "Migrated",
+        "failed": "Stopped on a failure",
+        "rolling_back": "Returning",
+        "rolled_back": "Returned"
+      },
+      "help": {
+        "prepare": "Preparation stops nothing: each node is archived, downloads the target packages and writes the converted files aside, and the exact versions installed now are noted for the return.",
+        "migrate": "Time 1 moves the standby to Kea {{series}} while the primary serves alone. Time 2 is the only DHCP outage: the primary stops, its leases go to the standby, which serves alone (automatic return past {{seconds}} s). Time 3 moves the primary and the pair resumes.",
+        "migrated": "Every node runs Kea {{series}} and the HA pair is back. Check the HA states and the DHCP pages; the return stays possible while the previous packages are kept.",
+        "rolledBack": "The nodes are back on Kea {{series}} with their previous packages and files. Prepare again to retry.",
+        "rollingBack": "Return to Kea {{series}} running."
+      },
+      "timeline": "Timeline",
+      "time": {
+        "standby": "Time 1: standby to Kea {{series}}",
+        "window": "Time 2: outage window",
+        "primary": "Time 3: primary to Kea {{series}}",
+        "rollback": "Return to Kea {{series}}"
+      },
+      "timeHelp": {
+        "standby": "the primary serves alone, no outage",
+        "window": "primary stopped, leases copied, standby serves alone",
+        "primary": "no outage, the pair resumes",
+        "rollback": "previous packages and files, same short window"
+      },
+      "outage": {
+        "live": "DHCP outage running: {{seconds}} s",
+        "measured": "Measured DHCP outage: {{seconds}} s",
+        "none": "No DHCP outage yet",
+        "max": "automatic return past {{seconds}} s"
+      },
+      "nodes": {
+        "role": "Role",
+        "ha": "HA state",
+        "step": "Last step",
+        "status": "Status"
+      },
+      "role": {
+        "primary": "primary",
+        "standby": "standby",
+        "backup": "backup",
+        "single": "no HA"
+      },
+      "nodeStatus": {
+        "pending": "pending",
+        "running": "running",
+        "done": "done",
+        "failed": "failed",
+        "rolled_back": "returned"
+      },
+      "options": {
+        "delay": "Failure detection during the migration (ms)",
+        "https": "https control socket per daemon (a client uses kea-ctrl-agent)",
+        "autoRollback": "Return automatically if time 1 or 2 fails"
+      },
+      "action": {
+        "prepare": "Prepare",
+        "prepareAgain": "Prepare again",
+        "migrate": "Migrate to Kea {{series}}",
+        "resume": "Resume the move to Kea {{series}}",
+        "rollback": "Return to Kea {{series}}"
+      },
+      "blocker": {
+        "noAnalysis": "Analyze first.",
+        "blocking": "Fix the blocking findings and analyze again.",
+        "noMigration": "Prepare first.",
+        "notPrepared": "The migration must be prepared first.",
+        "noRollback": "The return is no longer possible: the previous packages are gone.",
+        "unknown": "Not possible now."
+      },
+      "permission": "Preparing, migrating and returning also need the ops:dhcp.ha permission.",
+      "planTitle": {
+        "prepare": "Prepare the migration to Kea {{series}}",
+        "migrate": "Migrate to Kea {{series}}",
+        "rollback": "Return to Kea {{series}}"
+      }
     }
   }
 }

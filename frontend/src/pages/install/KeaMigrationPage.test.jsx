@@ -7,9 +7,10 @@ import { api } from '../../services/api'
 import { defaultTarget, fullyValidated, groupFindings, nodeEngines, obsoleteEngines, parseTarget, unusedFindings, usedCounts } from './keaMigration'
 
 vi.mock('../../services/api', () => {
-  const api = { keaMigration: { overview: vi.fn(), analyze: vi.fn() } }
+  const api = { keaMigration: { overview: vi.fn(), analyze: vi.fn(), get: vi.fn(), plan: vi.fn() } }
   return { api, default: api }
 })
+vi.mock('../../hooks/usePermission', () => ({ usePermission: () => ({ hasPermission: () => true }) }))
 
 const engine = { version: '2.6.3', series: '2.6', source: 'distro', package: 'kea-dhcp4-server', maintained: false, eol: '2026-07-30', successor: '3.2' }
 const overview = {

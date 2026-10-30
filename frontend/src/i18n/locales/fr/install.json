@@ -15,7 +15,7 @@
     },
     "keaMigration": {
       "title": "Migration Kea",
-      "subtitle": "Ce que changerait le passage de Kea 2.6 à 3.x, analysé sans toucher aux nœuds"
+      "subtitle": "Analyser le passage de Kea 2.6 à 3.x, puis préparer, migrer et revenir au besoin"
     }
   },
   "engines": {
@@ -295,6 +295,96 @@
       "remove_other": "{{count}} paquets retirés",
       "install_one": "{{count}} paquet installé",
       "install_other": "{{count}} paquets installés"
+    },
+    "wizard": {
+      "title": "Migration vers Kea {{series}}",
+      "updated": "Mis à jour {{date}}",
+      "steps": {
+        "prepare": "Préparer",
+        "migrate": "Migrer",
+        "verify": "Vérifier"
+      },
+      "state": {
+        "preparing": "Préparation",
+        "prepared": "Préparée",
+        "prepare_failed": "Préparation en échec",
+        "migrating": "Migration en cours",
+        "migrated": "Migrée",
+        "failed": "Arrêtée sur un échec",
+        "rolling_back": "Retour en cours",
+        "rolled_back": "Revenue"
+      },
+      "help": {
+        "prepare": "La préparation n'arrête rien : chaque nœud est archivé, télécharge les paquets cibles et écrit les configurations converties à côté, et les versions installées sont notées pour le retour.",
+        "migrate": "Le temps 1 passe le standby en Kea {{series}} pendant que le primaire sert seul. Le temps 2 est la seule coupure DHCP : le primaire s'arrête, ses baux passent au standby, qui sert seul (retour automatique au-delà de {{seconds}} s). Le temps 3 migre le primaire et la paire reprend.",
+        "migrated": "Tous les nœuds tournent en Kea {{series}} et la paire HA est revenue. Vérifiez les états HA et les pages DHCP ; le retour reste possible tant que les paquets d'avant sont gardés.",
+        "rolledBack": "Les nœuds sont revenus en Kea {{series}} avec leurs paquets et fichiers d'avant. Préparez à nouveau pour réessayer.",
+        "rollingBack": "Retour en Kea {{series}} en cours."
+      },
+      "timeline": "Frise",
+      "time": {
+        "standby": "Temps 1 : standby en Kea {{series}}",
+        "window": "Temps 2 : fenêtre de coupure",
+        "primary": "Temps 3 : primaire en Kea {{series}}",
+        "rollback": "Retour en Kea {{series}}"
+      },
+      "timeHelp": {
+        "standby": "le primaire sert seul, pas de coupure",
+        "window": "primaire arrêté, baux copiés, le standby sert seul",
+        "primary": "pas de coupure, la paire reprend",
+        "rollback": "paquets et fichiers d'avant, même fenêtre courte"
+      },
+      "outage": {
+        "live": "Coupure DHCP en cours : {{seconds}} s",
+        "measured": "Coupure DHCP mesurée : {{seconds}} s",
+        "none": "Pas encore de coupure DHCP",
+        "max": "retour automatique au-delà de {{seconds}} s"
+      },
+      "nodes": {
+        "role": "Rôle",
+        "ha": "État HA",
+        "step": "Dernière étape",
+        "status": "État"
+      },
+      "role": {
+        "primary": "primaire",
+        "standby": "standby",
+        "backup": "secours",
+        "single": "sans HA"
+      },
+      "nodeStatus": {
+        "pending": "en attente",
+        "running": "en cours",
+        "done": "fait",
+        "failed": "en échec",
+        "rolled_back": "revenu"
+      },
+      "options": {
+        "delay": "Détection de panne pendant la migration (ms)",
+        "https": "socket de contrôle https par démon (un client utilise kea-ctrl-agent)",
+        "autoRollback": "Revenir automatiquement si le temps 1 ou 2 échoue"
+      },
+      "action": {
+        "prepare": "Préparer",
+        "prepareAgain": "Préparer à nouveau",
+        "migrate": "Migrer vers Kea {{series}}",
+        "resume": "Reprendre la migration vers Kea {{series}}",
+        "rollback": "Revenir en Kea {{series}}"
+      },
+      "blocker": {
+        "noAnalysis": "Analysez d'abord.",
+        "blocking": "Corrigez les constats bloquants et analysez à nouveau.",
+        "noMigration": "Préparez d'abord.",
+        "notPrepared": "La migration doit d'abord être préparée.",
+        "noRollback": "Le retour n'est plus possible : les paquets d'avant ne sont plus là.",
+        "unknown": "Impossible pour l'instant."
+      },
+      "permission": "Préparer, migrer et revenir demandent aussi la permission ops:dhcp.ha.",
+      "planTitle": {
+        "prepare": "Préparer la migration vers Kea {{series}}",
+        "migrate": "Migrer vers Kea {{series}}",
+        "rollback": "Revenir en Kea {{series}}"
+      }
     }
   }
 }

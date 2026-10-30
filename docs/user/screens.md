@@ -365,8 +365,8 @@ skips them.
 
 ## Kea migration
 
-Read only (`admin:install`): what moving the cluster from Kea 2.6 to 3.x would
-change, analyzed without touching the nodes. The table lists each Kea daemon
+`admin:install`: what moving the cluster from Kea 2.6 to 3.x would change,
+analyzed without touching the nodes, then the migration wizard. The table lists each Kea daemon
 of each node with its version, its packages (distribution, ISC, Debian
 backports) and whether ISC still maintains its series (Kea 2.6 is end of life
 since 2026-07-30). Choose one target for the whole cluster (Kea 3.2 from ISC
@@ -391,8 +391,26 @@ enabled, and they neither block the migration nor count in the outage
 estimate; fix them only if you enable that daemon. A daemon that is enabled
 but stopped, or running but not enabled, is analyzed as used. The `kea_series_obsolete`
 alert (info) links here from Alerts, and while it is open the DHCP pages show
-a dismissible banner naming the node, the series and its end of life. The
-migration itself comes with a later release.
+a dismissible banner naming the node, the series and its end of life.
+
+The migration wizard (its plans also need `ops:dhcp.ha`) has three steps.
+"Prepare" (on an analysis without blocking finding) archives each node,
+downloads the target packages and writes the converted files aside: nothing
+stops. Its options: the HA failure detection delay used during the migration
+(10000 ms by default) and, when a client uses `kea-ctrl-agent`, an https
+control socket per daemon. "Migrate" runs the three times: time 1 moves the
+standby while the primary serves alone, time 2 is the only DHCP outage (the
+primary stops, its lease file goes to the standby, which serves alone), time 3
+moves the primary and the pair resumes. The timeline shows each time, the
+table each node's role, live HA state, version and last step, and the outage
+counts live during time 2, then shows the measured value. With "Return
+automatically" checked (the default), a failure in time 1 or 2, or an outage
+past `kea.migration_outage_max_seconds` (180 s), puts the pair back on Kea 2.6
+on its own; the error and the failed time stay shown. "Verify" confirms the
+versions and HA states; "Return to Kea 2.6" stays offered while the previous
+packages are kept, and runs the same choreography backwards. The wizard
+follows the migration record of cluster.toml, so any node shows it and can
+continue after the driving node restarts.
 
 ## Audit log
 

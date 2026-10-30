@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// Kea migration, read only (architecture section 26): the Kea series and package source of every
-// node, the target for the whole cluster, and the analysis report: findings by severity and node,
-// the dry run of each daemon, the packages removed and installed, the full diff per daemon.
-// Nothing changes on a node; the migration itself comes with a later release.
+// Kea migration (architecture sections 26 and 28): the Kea series and package source of every node,
+// the target for the whole cluster, the analysis report (findings, dry run, packages, diffs), then
+// the wizard that prepares, migrates and returns the cluster. The analysis changes nothing.
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowsClockwise, ArrowSquareOut, CheckCircle, MagnifyingGlass, Warning, WarningOctagon } from '@phosphor-icons/react'
@@ -12,6 +11,7 @@ import { useApi } from '../../hooks'
 import { useMessage } from '../../i18n/message'
 import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
+import KeaMigrationWizard from './KeaMigrationWizard'
 import { formatDate } from '../../lib/utils'
 import {
   SEVERITY_VARIANT, defaultTarget, engineUnused, fullyValidated, groupFindings, nodeEngines, obsoleteEngines, parseTarget, targetKey,
@@ -263,6 +263,8 @@ export default function KeaMigrationPage() {
         <Card className="p-4" hover={false}><p className="text-sm status-danger-text" role="alert">{errorMessage(overview.error)}</p></Card>
       ) : (
         <div className="space-y-4 max-w-5xl">
+          {/* One instance whatever the record's state: a remount would drop the plan being applied. */}
+          {(data?.current || shown) && <KeaMigrationWizard current={data?.current || null} analysis={shown} onChange={overview.refetch} />}
           {obsolete && <p className="text-sm status-warning-text" data-testid="kea-migration-obsolete-note">{t('keaMigration.obsoleteNote')}</p>}
           <NodesCard nodes={data?.nodes || []} />
           <Card className="p-4 space-y-3" hover={false} data-testid="kea-migration-target">

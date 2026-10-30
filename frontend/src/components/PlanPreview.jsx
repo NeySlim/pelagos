@@ -32,7 +32,7 @@ import { Checklist, CheckMark, RollingNumber, StepRail, SwapText } from './motio
 import { formatDate } from '../lib/utils'
 import { cn } from '../lib/utils'
 
-const JOB_SCOPES = ['install', 'import', 'security', 'restore']
+const JOB_SCOPES = ['install', 'import', 'security', 'restore', 'kea.migration']
 const OP_VARIANT = { add: 'success', delete: 'danger', replace: 'warning' }
 // Checks tick one after the other: 200 ms per tick, the next 60 ms later.
 const TICK_GAP_MS = 60

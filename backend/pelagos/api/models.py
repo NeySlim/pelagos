@@ -360,6 +360,49 @@ ChangesBody = model(
         "node_ids": fields.List(fields.String),
     },
 )
+
+
+def _targeted(name: str, doc: str, example: str, many: bool = False) -> Model:
+    """A plan body whose change targets are documented with their accepted form and an example."""
+    target = fields.String(required=True, description=doc, example=example)
+    change = model(f"{name}Change", {**Change, "target": target})
+    if many:
+        return model(
+            f"{name}Body",
+            {
+                "changes": fields.List(fields.Nested(change), required=True),
+                "view": fields.String,
+                "node_ids": fields.List(fields.String),
+            },
+        )
+    return model(f"{name}Body", {"change": fields.Nested(change, required=True)})
+
+
+RecordChangesBody = _targeted(
+    "Record",
+    "<owner>/<type> or <zone>/<owner>/<type>; owner relative to the zone, @ for the apex, ASCII only "
+    "(IDNA xn-- form); A, AAAA and MX owners are host names (no underscore)",
+    "www/A",
+    many=True,
+)
+SubnetChangeBody = _targeted(
+    "Subnet", "subnet4/<id>, or subnet4/new for the next free id (subnet6 on /dhcp/v6)", "subnet4/new"
+)
+SharedNetworkChangeBody = _targeted("SharedNetwork", "shared-networks/<name>", "shared-networks/office")
+ClientClassChangeBody = _targeted("ClientClass", "client-classes/<name>", "client-classes/voip")
+ReservationChangeBody = _targeted(
+    "Reservation",
+    "subnet4/<id>/reservations/<id-type>=<identifier> or global/reservations/<id-type>=<identifier>; "
+    "id-type: hw-address, duid, client-id, circuit-id, flex-id",
+    "global/reservations/hw-address=aa:bb:cc:dd:ee:01",
+)
+OptionChangesBody = _targeted(
+    "Option",
+    "option-data/dhcp4/<name or code> (dhcp6 on /dhcp/v6, or another option space), "
+    "or a global key such as valid-lifetime",
+    "option-data/dhcp4/domain-name-servers",
+    many=True,
+)
 ZoneItem = model(
     "ZoneItem",
     {

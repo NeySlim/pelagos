@@ -10,7 +10,7 @@ import { Input } from '../../components/Input'
 import { Select } from '../../components/ui/Select'
 import { useApi } from '../../hooks/useApi'
 import { api } from '../../services/api'
-import { zoneEditChange, zoneEditDiff, zoneForm } from './zoneTools'
+import { showsForwarding, zoneEditChange, zoneEditDiff, zoneForm } from './zoneTools'
 
 const LISTS = [
   ['primaries', 'zones.primaries', ['secondary', 'stub', 'mirror', 'redirect']],
@@ -46,11 +46,11 @@ export function ZoneEditModal({ zone, open, onClose, onPlan }) {
   return (
     <FormModal open={open} onClose={onClose} title={t('detail.editTitle', { zone: zone.name })} onSubmit={submit} loading={busy} disabled={!changed.length} submitLabel={changed.length ? t('editor.buildPlan') : t('detail.noChange')} size="lg" testId="zone-edit">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {LISTS.filter(([, , kinds]) => kinds.includes(zone.kind)).map(([field, label]) => (
+        {LISTS.filter(([field, , kinds]) => kinds.includes(zone.kind) && (field !== 'forwarders' || showsForwarding(zone))).map(([field, label]) => (
           <Textarea key={field} label={t(label)} value={form[field]} onChange={set(field)} rows={3} helperText={t('detail.listHelp')} className="font-mono" data-testid={`zone-edit-${field}`} />
         ))}
       </div>
-      {['forward', 'primary', 'secondary'].includes(zone.kind) && (
+      {showsForwarding(zone) && (
         <Select label={t('resolver.forward')} value={form.forward} onChange={set('forward')} options={[{ value: '', label: t('resolver.forwardDefault') }, { value: 'first', label: 'first' }, { value: 'only', label: 'only' }]} />
       )}
       {['primary', 'secondary'].includes(zone.kind) && (
@@ -63,6 +63,9 @@ export function ZoneEditModal({ zone, open, onClose, onPlan }) {
             options={[{ value: '', label: t('detail.inlineDefault') }, { value: 'yes', label: t('common:common.yes') }, { value: 'no', label: t('common:common.no') }]}
           />
         </div>
+      )}
+      {zone.kind === 'primary' && zone.file && (
+        <Input label={t('detail.zoneFile')} value={zone.file} readOnly className="font-mono" helperText={t('detail.zoneFileHelp')} data-testid="zone-edit-file" />
       )}
       <Input label={t('detail.notes')} value={form.notes} onChange={set('notes')} />
     </FormModal>

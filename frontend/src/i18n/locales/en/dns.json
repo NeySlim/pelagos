@@ -167,6 +167,7 @@
     },
     "errors": {
       "owner": "Invalid name, or outside the zone",
+      "hostOwner": "A, AAAA and MX names take letters, digits and hyphens only (no underscore)",
       "type": "This type cannot be edited here",
       "ttl": "TTL must be a whole number of seconds",
       "rdataEmpty": "Enter at least one value",
@@ -277,7 +278,9 @@
       "network": "The server could not be reached",
       "generic": "The zone could not be read",
       "technical": "Engine detail: {{detail}}"
-    }
+    },
+    "zoneFile": "Zone file",
+    "zoneFileHelp": "Set when the zone was created, relative to the BIND directory; read only here: named keeps loading this file."
   },
   "resolver": {
     "recursion": "Recursion",

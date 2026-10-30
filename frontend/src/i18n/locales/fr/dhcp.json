@@ -220,9 +220,10 @@
     "editTitle": "Modifier la réservation {{identifier}}",
     "empty": "Aucune réservation",
     "global": "Globale",
-    "inSubnet": "Doit être dans {{subnet}}",
+    "inSubnet": "Doit être dans {{subnet}} (le sous-réseau choisi)",
     "knownClasses": "Classes connues : {{list}}",
-    "search": "Identifiant, IP ou nom d'hôte..."
+    "search": "Identifiant, IP ou nom d'hôte...",
+    "globalHelp": "Réservation globale : utilisée dans les sous-réseaux où reservations-global est actif ; l'adresse doit appartenir au sous-réseau du client"
   },
   "ha": {
     "buildPlan": "Aperçu du plan",

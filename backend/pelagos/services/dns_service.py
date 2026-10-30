@@ -47,6 +47,7 @@ from pelagos.services.errors import (
 )
 from pelagos.services.forward_reach import forward_state
 from pelagos.services.peers import PeerGateway
+from pelagos.services.plan_targets import check_record_owner, check_ttl
 from pelagos.services.snapshot import pick_zone, zone_serial
 from pelagos.services.zone_defaults import apply_key_defaults
 
@@ -577,6 +578,9 @@ class DnsService(DnsExtras):
                     f"changes[{i}].target must be <owner>/<type> or <zone>/<owner>/<type>",
                     [field_error(f"changes[{i}].target", "bad format")],
                 )
+            owner, rtype = change.target.split("/")[1:]
+            check_record_owner(owner, zone, rtype.strip().upper(), change.op.value, f"changes[{i}].target")
+            check_ttl(change.after, f"changes[{i}].after")
             parsed.append(change)
         if not parsed:
             raise ValidationError("changes must not be empty", [field_error("changes", "required")])

@@ -274,7 +274,7 @@ export function RecordEditor({
               disabled={mode === 'edit'}
               error={fieldError('rtype')}
             />
-            <Input label={t('editor.ttl')} type="number" min={0} value={form.ttl} onChange={set('ttl')} error={fieldError('ttl')} data-testid="record-ttl" />
+            <Input label={t('editor.ttl')} type="number" value={form.ttl} onChange={set('ttl')} error={fieldError('ttl')} data-testid="record-ttl" />
           </div>
           <Textarea
             label={t('editor.rdata')}

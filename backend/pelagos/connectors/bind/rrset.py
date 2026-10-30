@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import dns.exception
 import dns.name
 import dns.rdata
 import dns.rdataclass
@@ -58,7 +59,11 @@ def owner_name(owner: str, zone: str) -> str:
         name = normalize_name(owner)
     else:
         name = normalize_name(owner + "." + zone.rstrip(".")) if zone != "." else normalize_name(owner)
-    if not dns.name.from_text(name).is_subdomain(dns.name.from_text(zone)):
+    try:
+        inside = dns.name.from_text(name).is_subdomain(dns.name.from_text(zone))
+    except dns.exception.DNSException as exc:
+        raise RRsetError(f"invalid owner {owner!r}: {exc}") from None
+    if not inside:
         raise RRsetError(f"{name} is outside zone {zone}")
     return name
 

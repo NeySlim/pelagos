@@ -37,6 +37,13 @@ export function zoneForm(zone) {
   return form
 }
 
+// Forwarding only matters for a forward zone (or a copy's delegations): on a primary it is shown
+// only when already set, so it can be cleared.
+export function showsForwarding(zone) {
+  if (zone.kind === 'forward' || zone.kind === 'secondary') return true
+  return zone.kind === 'primary' && ((zone.forwarders || []).length > 0 || Boolean(zone.forward))
+}
+
 // POST /dns/zones/plan change replacing a zone with the edited fields; the rest of the Zone
 // (extra statements, file, kind) is kept as read.
 export function zoneEditChange(zone, form) {

@@ -1134,7 +1134,7 @@ dns.config     : "keys/<name>" | "acls/<name>" | "options/<statement>" | "raw:<f
                                                     after {"text", "sha256"}, before {"sha256"}; a managed file by
                                                     its name in the managed folder, a user file only when named.conf
                                                     loads it and this process can write it
-dhcp.subnet    : "subnet<4|6>/<id>"
+dhcp.subnet    : "subnet<4|6>/<id>" | "subnet<4|6>/new"  (add only: the next free id)
 dhcp.shared_network : "shared-networks/<name>"
 dhcp.reservation : "subnet<4|6>/<id>/reservations/<id_type>=<identifier>" | "global/reservations/<id_type>=<identifier>"
 dhcp.class     : "client-classes/<name>"
@@ -1153,6 +1153,17 @@ import         : "import/read/<engine>" (what was read, no step) | "import/user/
                  | "import/node" | "import/verify"
 security       : "security/<finding id>" | "security/<finding id>/<1-bind-add|2-d2-switch|3-bind-remove>"
 ```
+
+A target of the wrong shape for its endpoint, an `after` that does not build its domain object
+(missing `subnet`, unknown `id_type`) and, on `dns.rrset`, an owner that is not a DNS name in the
+zone, a non-ASCII owner (the IDNA `xn--` form is required), an owner of A, AAAA or MX outside the
+RFC 1123 host name rule on add or replace (BIND `check-names`), an unknown type or a TTL outside
+0 to 2^31-1 answer `400 validation_error` with the field in `errors`, before any connector runs
+(`services/plan_targets.py`). A delete only needs a name in the zone. `subnet4/new` and
+`global/reservations/...` take the family, the id (0: next free) and the reservation's subnet and
+identifier from the target. The OpenAPI bodies of the record, subnet, shared network, class,
+reservation and option plans document the target forms with an example.
+
 
 Installer plans (`install`, `import`, `security`) apply as a `Job` whose steps follow
 the changes in order; a change runs only on the nodes in its `node_ids`. The job

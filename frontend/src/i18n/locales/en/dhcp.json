@@ -220,9 +220,10 @@
     "editTitle": "Edit reservation {{identifier}}",
     "empty": "No reservation",
     "global": "Global",
-    "inSubnet": "Must be inside {{subnet}}",
+    "inSubnet": "Must be in {{subnet}} (the selected subnet)",
     "knownClasses": "Known classes: {{list}}",
-    "search": "Identifier, IP or hostname..."
+    "search": "Identifier, IP or hostname...",
+    "globalHelp": "Global reservation: used in the subnets where reservations-global is on; the address must belong to the client's subnet"
   },
   "ha": {
     "buildPlan": "Preview the plan",

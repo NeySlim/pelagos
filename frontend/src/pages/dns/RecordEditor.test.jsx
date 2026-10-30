@@ -243,3 +243,17 @@ describe('RecordEditor', () => {
     expect(screen.queryByTestId('record-editor-plan')).not.toBeInTheDocument()
   })
 })
+
+describe('RecordEditor TTL', () => {
+  it('a negative TTL says why instead of being blocked silently by the browser', async () => {
+    const plan = vi.fn()
+    render(<RecordEditor open zone="example.lan." mode="add" planFn={plan} lookupFn={vi.fn()} coverageFn={vi.fn().mockResolvedValue({ items: [] })} onClose={vi.fn()} />)
+    fill('record-owner', 'app')
+    fill('record-ttl', '-5')
+    fill('record-rdata', '192.0.2.60')
+    expect(screen.getByTestId('record-ttl')).not.toHaveAttribute('min')
+    submit()
+    expect(await screen.findByText('TTL must be a whole number of seconds')).toBeInTheDocument()
+    expect(plan).not.toHaveBeenCalled()
+  })
+})

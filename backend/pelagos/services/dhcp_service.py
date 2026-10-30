@@ -13,7 +13,7 @@ import ipaddress
 from datetime import UTC, datetime
 from typing import Any
 
-from pelagos.connectors.base import DdnsBackend, DhcpBackend
+from pelagos.connectors.base import ConnectorError, DdnsBackend, DhcpBackend
 from pelagos.connectors.kea import config as kcfg
 from pelagos.connectors.kea import ha as ha_mod
 from pelagos.connectors.kea.configfile import FileDiverged
@@ -49,6 +49,7 @@ from pelagos.services.dns_service import parse_change
 from pelagos.services.errors import EngineUnavailable, NotFound, ServiceError, ValidationError, field_error
 from pelagos.services.masking import masked
 from pelagos.services.peers import PeerGateway
+from pelagos.services.plan_targets import check_dhcp_target, model_error
 
 MASK = "***"
 
@@ -770,10 +771,12 @@ class DhcpService:
                 if sid is None:
                     raise ValidationError("change.target (subnet4/<id>) or change.after.id is required")
                 change.target = f"{self.subnet_key}/{sid}"
+            check_dhcp_target(kind, change.target, self.family, "change.target")
             if change.op is not ChangeOp.DELETE and after.get("subnet"):
                 _check_prefix(after["subnet"], self.family)
             sid = change.target.rpartition("/")[2]
-            ids = {"id": int(sid)} if sid.isdigit() else {}
+            # id 0 on subnet4/new: the connector gives the next free id.
+            ids = {"id": int(sid) if sid.isdigit() else 0}
             current = _current(change, lambda: backend.get_subnet(int(sid)) if sid.isdigit() else None)
             change.after = _domain_after(change, Subnet, current, family=self.family, **ids)
             if current is not None and isinstance(change.after, dict):
@@ -788,6 +791,7 @@ class DhcpService:
                         "change.target (shared-networks/<name>) or change.after.name is required"
                     )
                 change.target = f"shared-networks/{after['name']}"
+            check_dhcp_target(kind, change.target, self.family, "change.target")
             return backend.plan_shared_network_change(change, created_by)
         if kind == "reservation":
             change = parse_change(body.get("change"), "change")
@@ -802,11 +806,12 @@ class DhcpService:
                     else "global"
                 )
                 change.target = f"{scope}/reservations/{id_type}={identifier}"
+            check_dhcp_target(kind, change.target, self.family, "change.target")
             if after.get("ip_address"):
                 _check_ip(after["ip_address"], self.family, "change.after.ip_address")
             check_v6_reservation(after, self.family is Family.V6)
             current = _current(change, lambda: _find_reservation(backend, change.target))
-            change.after = _domain_after(change, Reservation, current)
+            change.after = _domain_after(change, Reservation, current, **_reservation_defaults(change.target))
             return backend.plan_reservation_change(change, created_by)
         if kind == "class":
             change = parse_change(body.get("change"), "change")
@@ -817,6 +822,7 @@ class DhcpService:
                         "change.target (client-classes/<name>) or change.after.name is required"
                     )
                 change.target = f"client-classes/{after['name']}"
+            check_dhcp_target(kind, change.target, self.family, "change.target")
             return backend.plan_class_change(change, created_by)
         if kind in ("options", "ddns", "hooks"):
             changes = [parse_change(raw, f"changes[{i}]") for i, raw in enumerate(body.get("changes") or [])]
@@ -832,6 +838,8 @@ class DhcpService:
             ):
                 raise ValidationError("ddns changes target ddns-* keys or dhcp-ddns")
             if kind == "options":
+                for i, c in enumerate(changes):
+                    check_dhcp_target(kind, c.target, self.family, f"changes[{i}].target")
                 _check_options_absent(backend.config_get(), changes, self.family)
             hooks = [c for c in changes if c.target == "hooks-libraries" and c.op is not ChangeOp.DELETE]
             if hooks:
@@ -1599,8 +1607,18 @@ def _domain_after(change: Change, model: Any, current: dict[str, Any] | None, **
         return after
     try:
         return model.from_dict({**base, **after}).to_dict()
-    except (TypeError, ValueError, KeyError):
-        return after  # incomplete: the connector reports what is missing
+    except (TypeError, ValueError, KeyError) as exc:
+        raise model_error(exc, "change.after") from None
+
+
+def _reservation_defaults(target: str) -> dict[str, Any]:
+    """What a reservation target already says: its subnet (None when global) and identifier."""
+    try:
+        t = kcfg.parse_target(target)
+    except ConnectorError:
+        return {}
+    id_type, _, identifier = (t.reservation_key or "").partition("=")
+    return {"subnet_id": t.subnet_id, "id_type": id_type, "identifier": identifier}
 
 
 def _check_reservations_inside(current: dict[str, Any], after: dict[str, Any]) -> None:

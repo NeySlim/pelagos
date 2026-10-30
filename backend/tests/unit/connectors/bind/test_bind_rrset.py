@@ -206,3 +206,9 @@ def test_errors_carry_translatable_messages() -> None:
     joined = rr.errors_message(out)
     assert messages.render(joined).splitlines()[0] == "999.1.1.1 is not a valid A value"
     assert rr.errors_message([]) is None
+
+
+@pytest.mark.parametrize("owner", ["a" * 64, "x..y"])
+def test_malformed_owner_is_an_rrset_error(owner):
+    with pytest.raises(rr.RRsetError, match="invalid owner"):
+        rr.owner_name(owner, "example.lan.")

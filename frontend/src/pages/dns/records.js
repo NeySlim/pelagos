@@ -33,15 +33,21 @@ export function absoluteName(owner, zone) {
 }
 
 const LABEL = /^(\*|[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)$/i
+// RFC 1123 host names: BIND check-names refuses other owners for these types (same rule in the API).
+const HOST_LABEL = /^(\*|[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)$/i
+export const HOSTNAME_OWNER_TYPES = ['A', 'AAAA', 'MX']
 
-export function validOwner(owner, zone) {
+export function validOwner(owner, zone, rtype = '') {
   const o = String(owner || '').trim()
   if (!o || o === '@') return true
   const abs = absoluteName(o, zone)
   if (abs.length > 254) return false
-  if (o.endsWith('.') && abs !== absZone(zone) && !abs.endsWith(`.${absZone(zone)}`)) return false
-  const labels = abs.slice(0, -1).split('.')
-  return labels.every((label, i) => LABEL.test(label) && (label !== '*' || i === 0))
+  const z = absZone(zone)
+  if (o.endsWith('.') && abs !== z && !abs.endsWith(`.${z}`)) return false
+  const rule = HOSTNAME_OWNER_TYPES.includes(String(rtype).toUpperCase()) ? HOST_LABEL : LABEL
+  // Only the labels below the zone are checked: the zone's own name is already served.
+  const own = abs === z ? [] : abs.slice(0, -(z.length + 1)).split('.')
+  return own.every((label, i) => rule.test(label) && (label !== '*' || i === 0))
 }
 
 // A zone name: at least one label, no wildcard, trailing dot optional.
@@ -158,6 +164,7 @@ export function validateForm(form, zone) {
   const errors = {}
   const rtype = String(form.rtype || '').toUpperCase()
   if (!validOwner(form.owner, zone)) errors.owner = 'owner'
+  else if (!validOwner(form.owner, zone, rtype)) errors.owner = 'hostOwner'
   if (!EDITABLE_TYPES.includes(rtype)) errors.rtype = 'type'
   const ttl = Number(form.ttl)
   if (String(form.ttl).trim() === '' || !Number.isInteger(ttl) || ttl < 0 || ttl > MAX_TTL) errors.ttl = 'ttl'

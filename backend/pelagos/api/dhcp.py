@@ -75,7 +75,8 @@ class OneSubnet(FamilyResource):
 @ns.route("/<string:family>/subnets/plan")
 class SubnetsPlan(FamilyResource):
     @require("write:dhcp.subnets")
-    @ns.expect(m.ChangeBody)
+    @ns.expect(m.SubnetChangeBody)
+    @ns.response(400, "validation_error: malformed target or object", m.Problem)
     @ns.response(200, "Plan applied on every node running the engine", m.Plan)
     @ns.response(422, "engine_validation_failed", m.Problem)
     def post(self, family: str):
@@ -94,7 +95,8 @@ class SharedNetworks(FamilyResource):
 @ns.route("/<string:family>/shared-networks/plan")
 class SharedNetworksPlan(FamilyResource):
     @require("write:dhcp.subnets")
-    @ns.expect(m.ChangeBody)
+    @ns.expect(m.SharedNetworkChangeBody)
+    @ns.response(400, "validation_error: malformed target or object", m.Problem)
     @ns.response(200, "Plan", m.Plan)
     def post(self, family: str):
         return _plan(family, "shared_network")
@@ -112,7 +114,8 @@ class ClientClasses(FamilyResource):
 @ns.route("/<string:family>/client-classes/plan")
 class ClientClassesPlan(FamilyResource):
     @require("write:dhcp.classes")
-    @ns.expect(m.ChangeBody)
+    @ns.expect(m.ClientClassChangeBody)
+    @ns.response(400, "validation_error: malformed target or object", m.Problem)
     @ns.response(200, "Plan", m.Plan)
     def post(self, family: str):
         return _plan(family, "class")
@@ -131,7 +134,8 @@ class Options(FamilyResource):
 @ns.route("/<string:family>/options/plan")
 class OptionsPlan(FamilyResource):
     @require("write:dhcp.options")
-    @ns.expect(m.ChangesBody)
+    @ns.expect(m.OptionChangesBody)
+    @ns.response(400, "validation_error: malformed target or object", m.Problem)
     @ns.response(200, "Plan (config-test, config-set, config-write)", m.Plan)
     def post(self, family: str):
         return _plan(family, "options")
@@ -149,7 +153,8 @@ class Reservations(FamilyResource):
 @ns.route("/<string:family>/reservations/plan")
 class ReservationsPlan(FamilyResource):
     @require("write:dhcp.reservations")
-    @ns.expect(m.ChangeBody)
+    @ns.expect(m.ReservationChangeBody)
+    @ns.response(400, "validation_error: malformed target or object", m.Problem)
     @ns.response(200, "Plan", m.Plan)
     def post(self, family: str):
         return _plan(family, "reservation")

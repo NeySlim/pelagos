@@ -25,6 +25,11 @@ describe('owner names', () => {
     expect(validOwner('a.*.b', 'example.lan.')).toBe(false)
     expect(validOwner('-bad', 'example.lan.')).toBe(false)
     expect(validOwner('a..b', 'example.lan.')).toBe(false)
+    expect(validOwner('_dmarc', 'example.lan.', 'TXT')).toBe(true)
+    expect(validOwner('host_1', 'example.lan.', 'A')).toBe(false)
+    expect(validOwner('*.dyn', 'example.lan.', 'AAAA')).toBe(true)
+    expect(validateForm({ owner: 'host_1', rtype: 'A', ttl: 300, rdata: '192.0.2.1' }, 'example.lan.').errors.owner).toBe('hostOwner')
+    expect(validateForm({ owner: 'x', rtype: 'A', ttl: -5, rdata: '192.0.2.1' }, 'example.lan.').errors.ttl).toBe('ttl')
   })
 
   it('validates zone names', () => {

@@ -192,7 +192,8 @@ class Records(Resource):
 @ns.route("/zones/<path:zone>/records/plan")
 class RecordsPlan(Resource):
     @require("write:dns.records")
-    @ns.expect(m.ChangesBody)
+    @ns.expect(m.RecordChangesBody)
+    @ns.response(400, "validation_error: malformed target, owner or TTL", m.Problem)
     @ns.response(200, "Plan of one atomic UPDATE (targets <owner>/<type> or <zone>/<owner>/<type>)", m.Plan)
     @ns.response(422, "engine_validation_failed", m.Problem)
     def post(self, zone: str):

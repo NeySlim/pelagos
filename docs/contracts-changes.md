@@ -2326,3 +2326,15 @@ current `[settings]` (cluster.toml read again when it changed), so `dns.default_
 applies to the next zone plan (the lab found the reverse zone plan refused until a restart).
 WP-CORE: `core/context.py` (`live_settings`), `connectors/base.py`, `services/registry.py`,
 `collector/main.py`; WP-BIND: `connectors/bind/backend.py`.
+
+## 2026-10-30, 0.3.0: plan request validation (point 81, B8, B9, I8)
+Section 6 (`Change.target` grammar), additive and stricter. Malformed plan requests answer `400
+validation_error` instead of `409 conflict` or `500`: target shape per endpoint, incomplete domain
+objects, record owners (DNS name in the zone, ASCII only, host names for A, AAAA and MX on add or
+replace), record types and TTLs. `subnet4/new` and global reservations without `subnet_id` now
+plan. OpenAPI: `RecordChangesBody`, `SubnetChangeBody`, `SharedNetworkChangeBody`,
+`ClientClassChangeBody`, `ReservationChangeBody`, `OptionChangesBody` with target examples.
+WP-API-AUTH: `services/plan_targets.py`, `services/dhcp_service.py`, `services/dns_service.py`,
+`api/models.py`, `api/dns.py`, `api/dhcp.py`. WP-BIND: `connectors/bind/rrset.py` (a malformed
+owner is an `RRsetError`). WP-FRONTEND: the record editor applies the host name rule and shows a
+negative TTL error; zone edit and reservation dialogs (E10, E11).

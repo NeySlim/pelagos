@@ -167,6 +167,7 @@
     },
     "errors": {
       "owner": "Nom invalide ou hors de la zone",
+      "hostOwner": "Les noms A, AAAA et MX n'acceptent que lettres, chiffres et tirets (pas de soulignement)",
       "type": "Ce type ne se modifie pas ici",
       "ttl": "Le TTL est un nombre entier de secondes",
       "rdataEmpty": "Saisir au moins une valeur",
@@ -277,7 +278,9 @@
       "network": "Le serveur est injoignable",
       "generic": "La zone n'a pas pu être lue",
       "technical": "Détail du moteur : {{detail}}"
-    }
+    },
+    "zoneFile": "Fichier de zone",
+    "zoneFileHelp": "Défini à la création de la zone, relatif au répertoire de BIND ; en lecture seule ici : named continue de charger ce fichier."
   },
   "resolver": {
     "recursion": "Récursion",

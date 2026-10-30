@@ -52,6 +52,25 @@ export function isPrefix(s, family) {
   if (extra !== undefined || len === undefined || !/^\d+$/.test(len)) return false
   return isIP(addr, family) && Number(len) <= (family === 'v6' ? 128 : 32)
 }
+// IPv4 address inside an IPv4 prefix ("192.0.2.0/24"); false for anything else.
+export function ipv4InPrefix(ip, prefix) {
+  const [net, len] = String(prefix || '').split('/')
+  if (!isIPv4(ip) || !isIPv4(net) || !/^\d+$/.test(len || '') || Number(len) > 32) return false
+  const n = (a) => a.split('.').reduce((acc, o) => acc * 256 + Number(o), 0)
+  const size = 2 ** (32 - Number(len))
+  return Math.floor(n(ip) / size) === Math.floor(n(net) / size)
+}
+
+// Subnet a new reservation starts in: the one asked for, else the one holding the address,
+// else the list filter, else the first subnet; '' (global) only without subnets.
+export function defaultReservationSubnet({ prefill = {}, filter = '', subnets = [] }) {
+  if (prefill.subnet_id) return String(prefill.subnet_id)
+  const holder = prefill.ip ? subnets.find((s) => ipv4InPrefix(prefill.ip, s.subnet)) : null
+  if (holder) return String(holder.id)
+  if (filter && subnets.some((s) => String(s.id) === String(filter))) return String(filter)
+  return subnets[0] ? String(subnets[0].id) : ''
+}
+
 export const isMac = (s) => /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(String(s || ''))
 
 // "a - b" or a prefix, as Kea prints a pool.

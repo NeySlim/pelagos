@@ -16,7 +16,7 @@ import { api } from '../../services/api'
 import { AreaPage, ClassChips, NativeSelect, RowActions, TextArea } from './ui'
 import { usePlanFlow } from './hooks'
 import {
-  noteOf, ownerOf, fieldErrors, isIP, isMac, isPrefix, reservationTarget, splitList, withNote,
+  defaultReservationSubnet, noteOf, ownerOf, fieldErrors, isIP, isMac, isPrefix, reservationTarget, splitList, withNote,
 } from './lib'
 
 const ID_TYPES = ['hw-address', 'duid', 'client-id', 'circuit-id', 'flex-id']
@@ -123,6 +123,7 @@ export default function ReservationsPage({ family }) {
           family={family}
           reservation={editing.reservation}
           prefill={editing.prefill}
+          filter={subnetId}
           subnets={subnets.data?.items || []}
           classes={classes.data?.items || []}
           flow={flow}
@@ -134,12 +135,12 @@ export default function ReservationsPage({ family }) {
   )
 }
 
-export function ReservationForm({ family, reservation, prefill = {}, subnets, classes, flow, onClose }) {
+export function ReservationForm({ family, reservation, prefill = {}, filter = '', subnets, classes, flow, onClose }) {
   const { t } = useTranslation(['dhcp', 'common'])
   const isNew = !reservation
   const r = reservation || {}
   const [form, setForm] = useState({
-    subnet_id: String(r.subnet_id ?? prefill.subnet_id ?? subnets[0]?.id ?? ''),
+    subnet_id: reservation ? String(r.subnet_id ?? '') : defaultReservationSubnet({ prefill, filter, subnets }),
     id_type: r.id_type || (family === 'v6' ? 'duid' : 'hw-address'),
     identifier: r.identifier || prefill.identifier || '',
     ip_address: r.ip_address || (family === 'v4' ? prefill.ip : '') || '',
@@ -153,7 +154,14 @@ export function ReservationForm({ family, reservation, prefill = {}, subnets, cl
     owner: ownerOf(r.user_context),
   })
   const [errors, setErrors] = useState({})
+  const [subnetChosen, setSubnetChosen] = useState(false)
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value?.target ? value.target.value : value }))
+  // Subnets that load after the form opened give it its default, unless one was picked.
+  useEffect(() => {
+    if (!isNew || subnetChosen || form.subnet_id !== '' || !subnets.length) return
+    setForm((f) => ({ ...f, subnet_id: defaultReservationSubnet({ prefill, filter, subnets }) }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subnets])
   const subnet = useMemo(() => subnets.find((s) => String(s.id) === form.subnet_id), [subnets, form.subnet_id])
 
   const validate = () => {
@@ -215,7 +223,7 @@ export function ReservationForm({ family, reservation, prefill = {}, subnets, cl
         <NativeSelect
           label={t('fields.subnet')}
           value={form.subnet_id}
-          onChange={set('subnet_id')}
+          onChange={(v) => { setSubnetChosen(true); set('subnet_id')(v) }}
           disabled={!isNew}
           options={[{ value: '', label: t('reservations.global') }, ...subnets.map((s) => ({ value: String(s.id), label: `${s.id}: ${s.subnet}` }))]}
           testId="reservation-subnet"
@@ -246,7 +254,7 @@ export function ReservationForm({ family, reservation, prefill = {}, subnets, cl
             value={form.ip_address}
             onChange={set('ip_address')}
             error={errors.ip_address}
-            helperText={subnet ? t('reservations.inSubnet', { subnet: subnet.subnet }) : undefined}
+            helperText={subnet ? t('reservations.inSubnet', { subnet: subnet.subnet }) : t('reservations.globalHelp')}
             data-testid="reservation-ip"
           />
           <Input label={t('fields.hostname')} value={form.hostname} onChange={set('hostname')} error={errors.hostname} data-testid="reservation-hostname" />

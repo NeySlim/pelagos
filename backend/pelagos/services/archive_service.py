@@ -662,6 +662,14 @@ class ArchiveService:
                 raise ServiceError("engine_unavailable", "the run did not finish in time")
             time.sleep(self.poll_seconds)
 
+    def run_on(self, node_id: str) -> dict[str, Any]:
+        """One archive of `node_id` made now and waited for (the Kea migration's archive step)."""
+        if not keys.encryption_recipients(self._settings()):
+            raise Conflict("no archive recipient: generate the cluster archive key first")
+        asked = utcnow().replace(microsecond=0)
+        self._ask_run(node_id)
+        return self._wait_run(node_id, asked)
+
     def run(self, body: dict[str, Any], actor: str, client_ip: str | None) -> Job:
         known = self._node_ids()
         ids = body.get("node_ids")

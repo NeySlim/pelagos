@@ -2249,3 +2249,15 @@ built them. Contract: `domain/dhcp.py`, `domain/alerts.py`, `domain/messages.py`
 `services/kea_migration_service.py`. WP-FRONTEND: partner lost on interruption everywhere, HA
 history with event and node, DHCP service state from `dhcp-state`, one Kea series banner for the
 cluster, security audit on every node by default with per-node counts.
+
+## 2026-10-30, batch K3: Kea migration prepare phase
+Additive, release 0.3.0. Architecture sections 26 (Report `roles`), 28 (prepare on a node and on
+the driver, the migration directory layout, refusals of `POST /install/kea-migration/{id}/plan`).
+WP-API-AUTH: the route builds the prepare plan (`services/kea_migration_phases.py`), migrate and
+rollback still answer 501; `kea.migration` plans run as jobs (`JOB_SCOPES`, received like installer
+plans, installer plan timeout), skipped by the permission guard; `ArchiveService.run_on`; the
+analysis records each node's HA role. WP-INSTALLER: helper operation `plan_kea_migration`,
+`kea.migration` plans applied by the helper (`installer/kea_migration_steps.py`, step
+`kea-mig-prepare`), the private directory of a migration left root's by the give-back;
+`installer.kea_migration.analyze` takes `keep`. Affects K4 to K6 (the migrate steps read the
+manifest and the private files; the wizard can show `packages_*` and `rollback_ready`).

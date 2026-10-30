@@ -21,7 +21,9 @@ log = logging.getLogger(__name__)
 
 TOOL = "permissions"
 # Installer plans run as root in the privileged helper, outside the unit sandbox.
-SKIPPED_SCOPES = frozenset({PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY, PlanScope.HOST})
+SKIPPED_SCOPES = frozenset(
+    {PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY, PlanScope.KEA_MIGRATION, PlanScope.HOST}
+)
 
 
 def local_checks(registry: Any, plan: Plan | None = None) -> list[dict[str, Any]]:

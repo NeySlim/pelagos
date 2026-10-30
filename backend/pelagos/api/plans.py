@@ -102,7 +102,8 @@ class ApplyPlan(Resource):
             job = s.plans.apply_in_job(plan, user, s.jobs, confirm, client_ip())
             return job.to_dict(), 202
         if plan.scope in JOB_SCOPES:
-            runner = s.install.runner(plan.scope)
+            kea = plan.scope is PlanScope.KEA_MIGRATION
+            runner = s.kea_migration.runner() if kea else s.install.runner(plan.scope)
             job = s.plans.apply_as_job(plan, user, runner, s.jobs, confirm, client_ip())
             return job.to_dict(), 202
         return s.plans.apply(plan, user, confirm, client_ip()).to_dict()

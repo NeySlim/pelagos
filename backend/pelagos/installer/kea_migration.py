@@ -604,6 +604,7 @@ def analyze(
     ctrl_agent: dict[str, Any] | None = None,
     workdir: Path | None = None,
     units: dict[str, dict[str, Any]] | None = None,
+    keep: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Converts and dry-runs this node's Kea files (`configs`: engine -> 2.6 file) for one target.
 
@@ -611,6 +612,8 @@ def analyze(
     "validation","configs","units"}; `units` is the state of each daemon's unit (engine_units),
     `files` lists the secret files the conversion adds (paths only) and `configs` the converted
     files with passwords and secrets masked. Nothing outside a temporary directory changes.
+    `keep` (the prepare step) receives the unmasked `conversions` and `fetch_error`, the download
+    failure that skipped the validation ("" when the packages came).
     """
     check_target(env.distro, series, source)
     engines = [e for e in ("kea4", "kea6", "d2") if e in configs]
@@ -713,6 +716,8 @@ def analyze(
             source, installed, {n: ws.versions.get(n, "") for n in wanted}, series
         )
         out["target_version"] = out["target_version"] or ws.versions.get(wanted[0], "")
+        if keep is not None:
+            keep.update(conversions=conversions, fetch_error=skipped)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     out["findings"] = [f.to_dict() for f in findings]

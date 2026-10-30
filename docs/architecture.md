@@ -3111,7 +3111,7 @@ installs nothing and writes nothing to `/etc/kea`.
 | `GET /install/kea-migration` | `admin:install` | | `{"nodes": [KeaInventory], "targets": [Target], "analysis": Report|null, "current": Migration|null}` (`analysis`: the newest report kept on any node, from `kea.migration.inventory` answers, with `kept_on` {"node_id","name"}; a target's `version` is the `target_version` of the newest report for it; `current`: the migration `[settings.kea.migration]` holds, section 28) |
 | `POST /install/kea-migration/analyze` | `admin:install` | `{"series","source","node_ids"?}` (`series` and `source` one of `targets`; `node_ids` default every node running Kea) | `Report`; `400` on an unknown target or node; audited `kea.migration.analyze` |
 | `GET /install/kea-migration/{id}` | `admin:install` | | `Migration` (section 28); `404` unless it is the migration cluster.toml holds |
-| `POST /install/kea-migration/{id}/plan` | `admin:install` and `ops:dhcp.ha` | `{"phase": "prepare"|"migrate"|"rollback","options"?: {"response_delay_milliseconds","https_sockets","auto_rollback"}}` (`id`: the analysis for `prepare`, the migration otherwise) | composite `Plan` (scope `kea.migration`, `requires_confirmation`); `404` unknown id, `409 conflict` while a blocking finding is open or when the phase does not follow the state (section 28); `501` until batches K3 to K5 |
+| `POST /install/kea-migration/{id}/plan` | `admin:install` and `ops:dhcp.ha` | `{"phase": "prepare"|"migrate"|"rollback","options"?: {"response_delay_milliseconds","https_sockets","auto_rollback"}}` (`id`: the analysis for `prepare`, the migration otherwise) | composite `Plan` (scope `kea.migration`, `requires_confirmation`); `404` unknown id (prepare: not the last analysis of this node), `409 conflict` while a blocking finding is open, a node was not analyzed, the analysis has no `roles` (made by an older release), no archive recipient exists, or when the phase does not follow the state (section 28); `501` for migrate and rollback until batches K4 and K5 |
 
 ### IPv6 observations
 
@@ -4188,6 +4188,7 @@ run; K2 API, alert and the read-only screen.
   "validation": {node id: {engine: {"ok","mode": "dry_run"|"skipped",
   "output"}}},"counts": {severity: n},"blocking": bool,"unreachable": [node
   id],"units": {node id: {engine: {"unit","active","enabled","used"}}},
+  "roles": {node id: "primary"|"standby"|"backup"|"single"},
   "outage_estimate_seconds"}`, kept on the node that ran it in
   `/var/lib/pelagos/kea-migration/analysis.json` (0640, `pelagos`); the
   converted configurations are not kept in 0.2.2.
@@ -4525,9 +4526,9 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
 Design: `design.md` 13.4 decisions 4 to 7 (ISC KB "Things to be aware of when upgrading to Kea
 3.0.0" and "Kea 3.2", ARM 3.2.1 `hooks-ha.rst`, read on 2026-10-28; lab facts of batch K1,
 2026-10-29). Contract C5 of release 0.3.0. Code: the replicated state, its state machine, the step
-vocabulary and the lease copy in `core/kea_migration.py`; the phase plans in
-`services/kea_migration_service.py` (K3 to K5); the helper steps in `installer/kea_migration.py`
-(K3 to K5); the wizard in `frontend/src/pages/install/` (K6). Batches: K3 prepare, K4 time 1 and its
+vocabulary and the lease copy in `core/kea_migration.py`; the phase plans and their runner in
+`services/kea_migration_phases.py` (K3 to K5); the plan the helper records (`plan_kea_migration`) and
+the helper steps in `installer/kea_migration_steps.py` (K3 to K5); the wizard in `frontend/src/pages/install/` (K6). Batches: K3 prepare, K4 time 1 and its
 return, K5 the window, time 3 and the return of the pair, K6 wizard, K7 lab.
 
 - **Migration** (`[settings.kea.migration]` in cluster.toml, replicated entry by entry like any
@@ -4610,7 +4611,7 @@ return, K5 the window, time 3 and the return of the pair, K6 wizard, K7 lab.
   `kea-mig-prepare` (packages downloaded into the package manager cache, `apt-get install
   --download-only` or `dnf download`, converted files and the 2.6 files saved under
   `<var>/kea-migration/<id>/`, 0700, never in `/etc/kea`; result `packages_before`,
-  `packages_target`, `rollback_ready`), `kea-mig-ha-maintenance` (`details.action` `start` or
+  `packages_target`, `rollback_ready`; layout below), `kea-mig-ha-maintenance` (`details.action` `start` or
   `cancel`, sent to the node that keeps serving), `kea-mig-stop` (every Kea unit of the node, and
   `kea-ctrl-agent`; with `details.export_leases` it runs `kea-lfc` on each lease file, then copies it
   to `<var>/kea-migration/<id>/leases<family>.csv`, 0600 pelagos; result `{"leases": {family:
@@ -4643,6 +4644,39 @@ return, K5 the window, time 3 and the return of the pair, K6 wizard, K7 lab.
   (previous) and start on S, start P if stopped, maintenance cancel on P; state `rolled_back`.
   Rollback of a migrated pair: the same choreography as migrate with `direction` `previous` and the
   same short window, then `rolled_back`.
+- **Prepare on a node** (`kea-mig-prepare`, batch K3; `details`: `migration_id`, `phase`, `series`,
+  `source`, `target_version`, `from_series` and `node` `{"name","role","order","engines",
+  "from_version"}`, the same in every change of the plan, from which the driver writes the record).
+  The node reads its files of `node.engines`, converts and checks them with the target's binaries
+  exactly as the analysis does (any blocking finding, a refused file, a download that fails, or an
+  upstream version other than `target_version` fails the step before anything is written), then:
+  the Kea configuration directory copied as it is (owners, modes, links) to `private/before/`; the
+  converted files to `private/target/<daemon>.conf` and the TSIG secret files the conversion adds to
+  `private/target/secret-<n>.tsig` (0600); the target's repository laid next to the node's own (ISC:
+  the same keyring and list or `.repo` file as the installer; backports: a
+  `pelagos-<codename>-backports.list` only when no source names `<codename>-backports`) and the
+  index refreshed; every installed Kea package at its exact version kept as a file under
+  `packages/previous/` (copied from apt's cache, else `apt-get download`, `dnf download`; one that
+  cannot be had fails the step: no return would be possible); the target packages of the report's
+  `install` list downloaded at their exact versions (`apt-get install --download-only` into
+  `/var/cache/apt/archives`, `dnf download --resolve` into `packages/target/`). Nothing is
+  installed, stopped or written in `/etc/kea`. `manifest.json` (0600) lists the saved files with
+  their sha256, owner and mode, where each converted file goes, the packages before, target and to
+  remove with their files and sums, the repository files added (removed by the return) and the
+  validation mode. `private/` stays root's (the helper leaves it out when it gives the var tree back
+  to `pelagos`). Step output: one JSON object `{"packages_before","packages_target",
+  "packages_remove","rollback_ready","prepared_at","from_version","target_version","validation",
+  "repo_files_added"}`; a peer's result carries it on its step line (`<target>: done <json>`). A
+  prepare run again with the same id starts its directory over.
+- **Prepare on the driver**: the plan lists `kea-mig-archive` of every node, then `kea-mig-prepare`
+  of every node, in the order of the turns (`backup`, `standby`, `primary`, `single`); a node's
+  `engines` are the daemons of its diffs the analysis did not find unused, its `role` the report's
+  `roles`. Applying it writes the record (`preparing`, `driver` this node, `plan_id`), syncs
+  cluster.toml with every peer of the migration, then runs the steps: `archive_id` from the archive
+  (`ArchiveService.run_on`), the prepare result into the node (`packages_*`, `rollback_ready`,
+  `prepared_at`, `from_version`, `status` `done`); `prepared` at the end, `prepare_failed` with
+  `error` and `error_step` at the first failure. A record left in `preparing` with no update for two
+  hours (its driver stopped) becomes `prepare_failed` when a new prepare is planned.
 - **Lease copy**: served by the collector of the node that stopped
   (`GET /repl/v1/kea/leases/<family>`, section 13, `open_lease_copy`), fetched by the collector of the
   receiving node (`ReplicationClient.fetch_kea_leases`), never outside the mTLS channel, Kea's data

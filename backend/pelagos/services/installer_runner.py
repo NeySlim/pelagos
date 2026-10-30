@@ -274,7 +274,7 @@ def run_received(ctx: NodeContext, plan: Plan, env: Any = None) -> NodeApplyResu
     """Peer side: run the part of an installer plan sent by another node, synchronously."""
     from pelagos.installer.jobs import apply_plan
 
-    if plan.scope not in (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY):
+    if plan.scope not in (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY, PlanScope.KEA_MIGRATION):
         return NodeApplyResult(node_id=ctx.node.id, ok=False, message=f"not an installer plan: {plan.scope}")
     try:
         if env is None and helper.available():
@@ -283,7 +283,7 @@ def run_received(ctx: NodeContext, plan: Plan, env: Any = None) -> NodeApplyResu
             job.state, job.error = remote.state, remote.error
         else:
             env = env if env is not None else installer_env(ctx)
-            if plan.scope is PlanScope.SECURITY and plan.node_id != ctx.node.id:
+            if plan.scope in (PlanScope.SECURITY, PlanScope.KEA_MIGRATION) and plan.node_id != ctx.node.id:
                 # Same checks as the helper's: sealed by a member, matching this node's audit, run once.
                 env.plan_secrets = helper.verify_peer_steps(
                     plan, env, consumed_dir=ctx.paths.run / "peer-steps"

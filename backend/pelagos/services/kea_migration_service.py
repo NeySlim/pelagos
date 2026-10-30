@@ -59,10 +59,12 @@ class KeaMigrationService:
         peers: Any = None,
         env_factory: Callable[[], Any] | None = None,
         alerts: Any = None,
+        archives: Any = None,
     ) -> None:
         self.ctx = ctx
         self.peers = peers
         self.alerts = alerts
+        self.archives = archives
         self._own_env = env_factory is None
         self.env_factory = env_factory or (lambda: installer_env(ctx))
         # Tests swap the local dry run (series, source) -> kea_dry_run answer.
@@ -208,6 +210,18 @@ class KeaMigrationService:
         if found is None or found["id"] != migration_id:
             raise ServiceError("not_found", f"no Kea migration {migration_id}")
         return found
+
+    def plan(self, migration_id: str, body: dict[str, Any], actor: str, client_ip: str | None = None) -> Any:
+        """POST /install/kea-migration/{id}/plan (section 28): the composite plan of one phase."""
+        from pelagos.services.kea_migration_phases import plan_phase
+
+        return plan_phase(self, migration_id, body, actor)
+
+    def runner(self) -> Callable[[Any, Any, Any], Any]:
+        """The job runner of a `kea.migration` plan on this, the driving, node."""
+        from pelagos.services.kea_migration_phases import PhaseRunner
+
+        return PhaseRunner(self)
 
     @staticmethod
     def targets(
@@ -432,6 +446,24 @@ def ha_pairs(configs: dict[str, dict[str, Any]], engine: str) -> list[tuple[str,
     return pairs
 
 
+HA_ROLES = {"primary": "primary", "secondary": "standby", "standby": "standby", "backup": "backup"}
+
+
+def ha_role(configs: dict[str, Any]) -> str:
+    """This node's role in its first HA relationship (kea4, then kea6): primary, standby (a
+    load-balancing secondary too) or backup; single without HA."""
+    for engine in ("kea4", "kea6"):
+        cfg = configs.get(engine)
+        if not isinstance(cfg, dict):
+            continue
+        for rel in mig.ha_relationships(cfg, engine):
+            me = rel.get("this-server-name")
+            for peer in rel.get("peers") or []:
+                if isinstance(peer, dict) and peer.get("name") == me:
+                    return HA_ROLES.get(str(peer.get("role")), "single")
+    return "single"
+
+
 def merge(
     results: list[tuple[str, dict[str, Any] | None, str | None]],
     names: dict[str, str],
@@ -536,5 +568,6 @@ def merge(
         "blocking": counts["blocking"] > 0,
         "unreachable": unreachable,
         "units": units,
+        "roles": {node_id: ha_role(c) for node_id, c in configs.items()},
         "outage_estimate_seconds": outage,
     }

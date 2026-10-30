@@ -99,6 +99,10 @@ def steps_for(plan: Plan, env: Any) -> list[Step]:
         from pelagos.installer.security_audit import remediation_steps
 
         return remediation_steps(plan, env)
+    if plan.scope is PlanScope.KEA_MIGRATION:
+        from pelagos.installer.kea_migration_steps import migration_steps
+
+        return migration_steps(plan, env)
     raise ValueError(f"not an installer plan scope: {plan.scope}")
 
 

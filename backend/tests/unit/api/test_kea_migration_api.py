@@ -97,6 +97,25 @@ def test_migration_state_from_cluster_toml(admin, services):
     assert admin.get(f"{V1}/install/kea-migration/01JB0ZK4Q9X3M5N7P8R2T4V6W9").status_code == 404
 
 
-def test_phase_plan_is_specified_but_not_built(admin, login):
+def test_phase_plan_prepare_from_the_last_analysis(admin, services):
+    from pelagos.archives import keys
+
     resp = admin.post(f"{V1}/install/kea-migration/{MID}/plan", json={"phase": "prepare"})
+    assert resp.status_code == 404
+    resp = admin.post(f"{V1}/install/kea-migration/{MID}/plan", json={"phase": "migrate"})
     assert resp.status_code == 501
+    me = services.ctx.node.id
+    services.kea_migration.local_dry_run = lambda series, source: _answer(me)
+    report = admin.post(
+        f"{V1}/install/kea-migration/analyze", json={"series": "3.2", "source": "isc"}
+    ).get_json()
+    url = f"{V1}/install/kea-migration/{report['id']}/plan"
+    resp = admin.post(url, json={"phase": "prepare"})
+    assert resp.status_code == 409 and "archive recipient" in resp.get_json()["detail"]
+    ctx = services.ctx
+    ctx.config_store.update_cluster(lambda c: keys.generate_cluster_identity(c, ctx.secrets, "test"), "test")
+    resp = admin.post(url, json={"phase": "prepare"})
+    assert resp.status_code == 200, resp.get_json()
+    plan = resp.get_json()
+    assert plan["scope"] == "kea.migration" and plan["requires_confirmation"] is True
+    assert [c["after"]["step"] for c in plan["changes"]] == ["kea-mig-archive", "kea-mig-prepare"]

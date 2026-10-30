@@ -2,7 +2,7 @@
 """Kea 2.6 to 3.x migration: series per node, targets, analysis report (section 26), and the
 prepare, migrate and rollback plans with the replicated migration state (section 28).
 
-`POST /{id}/plan` answers 501 until batches K3 to K5 build the phases on the C5 contract.
+`POST /{id}/plan` builds the prepare phase (batch K3); migrate and rollback answer 501 until K4 and K5.
 """
 
 from __future__ import annotations
@@ -10,8 +10,7 @@ from __future__ import annotations
 from flask_restx import Namespace, Resource
 
 from pelagos.api import models as m
-from pelagos.api.common import json_body
-from pelagos.api.errors import not_implemented
+from pelagos.api.common import json_body, plan_answer
 from pelagos.api.security import check_permission, client_ip, require, services, username
 
 ns = Namespace("kea-migration", description="Kea 3.x migration", path="/install/kea-migration")
@@ -50,7 +49,8 @@ class PhasePlan(Resource):
     @ns.response(
         409, "conflict: a blocking finding is open, or the phase does not follow the state", m.Problem
     )
-    @ns.response(501, "not_implemented", m.Problem)
+    @ns.response(404, "not_found: not the last analysis (prepare) or the migration", m.Problem)
+    @ns.response(501, "not_implemented: migrate and rollback (batches K4 and K5)", m.Problem)
     def post(self, migration_id: str):
         check_permission("ops:dhcp.ha")
-        raise not_implemented("batches K3 to K5")
+        return plan_answer(services().kea_migration.plan(migration_id, json_body(), username(), client_ip()))

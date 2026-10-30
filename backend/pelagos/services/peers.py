@@ -55,7 +55,7 @@ ACTION_CODES = frozenset(
         "forbidden",
     }
 )
-INSTALLER_SCOPES = (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY)
+INSTALLER_SCOPES = (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY, PlanScope.KEA_MIGRATION)
 
 
 def plan_timeout(plan: Plan, settings: dict[str, Any] | None = None) -> float:

@@ -44,7 +44,7 @@ log = logging.getLogger(__name__)
 
 # A part a restart caught mid-apply: which of its nodes applied it is unknown.
 CHECK_BY_HAND = "not rolled back: a restart interrupted this part ({}), check this node by hand"
-JOB_SCOPES = frozenset({PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY})
+JOB_SCOPES = frozenset({PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY, PlanScope.KEA_MIGRATION})
 
 
 class PlanError(Exception):

@@ -61,6 +61,7 @@ OPERATIONS = (
     "plan_import",
     "plan_security",
     "plan_ha_tls",
+    "plan_kea_migration",
     "archive_read",
     "d2_secret_dir",
     "bind_user_write",
@@ -74,7 +75,7 @@ OPERATIONS = (
     "journal_errors",
 )
 UPDATE_OPERATIONS = frozenset(HELPER_UPDATE_OPERATIONS)
-INSTALLER_SCOPES = (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY)
+INSTALLER_SCOPES = (PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY, PlanScope.KEA_MIGRATION)
 MAX_REQUEST = 4 << 20
 
 
@@ -181,6 +182,10 @@ def handle(request: dict[str, Any], env_factory: Callable[[], Any], emit: Callab
 
             nodes = [dict(n) for n in request.get("nodes") or [] if isinstance(n, dict)]
             return _record(build_plan(env, nodes, created_by))
+        if op == "plan_kea_migration":
+            from pelagos.installer.kea_migration_steps import build_plan as build_migration
+
+            return _record(build_migration(env, dict(request.get("request") or {}), created_by))
     except (KeyError, TypeError, ValueError) as exc:
         raise HelperError(str(exc), "value") from None
     return _apply(request, env, emit)
@@ -210,12 +215,14 @@ def _apply(request: dict[str, Any], env: Any, emit: Callable[[dict], None]) -> d
 def _give_back(env: Any) -> str:
     """Files root wrote under /etc/pelagos and /var/lib/pelagos go back to the service user;
     returns a warning when that failed (the web process will then hit permission errors)."""
+    from pelagos.installer.kea_migration_steps import private_paths
     from pelagos.platform import PELAGOS_USER, give_tree_to
 
     paths = env.node_paths
     if paths.node_toml.exists():
         try:
-            give_tree_to(PELAGOS_USER, [paths.etc, paths.var], skip=[paths.etc / "pelagos.env"])
+            skip = [paths.etc / "pelagos.env", *private_paths(paths.var)]
+            give_tree_to(PELAGOS_USER, [paths.etc, paths.var], skip=skip)
         except (OSError, KeyError) as exc:
             log.warning("ownership of %s/%s not restored: %s", paths.etc, paths.var, exc)
             return f"warning: ownership of {paths.etc} and {paths.var} not restored: {exc}"

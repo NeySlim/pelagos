@@ -98,7 +98,9 @@ def connector_context(ctx: NodeContext, engine: str, table: Any) -> ConnectorCon
 
 # Plans received from peers (section 13, /repl/v1/plans/apply|rollback) ---------------------------
 
-INSTALLER_SCOPES = frozenset({PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY})
+INSTALLER_SCOPES = frozenset(
+    {PlanScope.INSTALL, PlanScope.IMPORT, PlanScope.SECURITY, PlanScope.KEA_MIGRATION}
+)
 # A peer waits for its engine lock well below the caller's plan timeout (300 s), so a busy engine
 # answers EngineBusy, a definite failure, before the caller gives up with an unknown outcome.
 PEER_LOCK_TIMEOUT = 60.0

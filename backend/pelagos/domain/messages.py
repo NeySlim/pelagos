@@ -210,7 +210,8 @@ CATALOG: dict[str, str] = {
     ),
     "alert.d2_single_target": (
         "kea-dhcp-ddns has one DNS server per domain ({servers}, {count} domains: {domains}) and DDNS "
-        "stops if it is down; list a second server in dns-servers, D2 tries them first to last"
+        "stops if it is down; prepare the DDNS failover (DDNS page, Failover tab): the primary first, "
+        "then every copy"
     ),
     "alert.update_denied": (
         "named refused {count} dynamic updates in {hours} hours, usually clients updating DNS "

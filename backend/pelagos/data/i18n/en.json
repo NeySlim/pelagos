@@ -18,7 +18,7 @@
   "alert.custom_hook": "{{engine}} loads {{library}}, which no package owns: it will break when Kea is upgraded",
   "alert.custom_hook_builtin": "{{engine}} loads {{library}}, which no package owns and breaks on a Kea upgrade: use the built-in {{option}} options instead",
   "alert.d2_errors": "DDNS updates failing: {{percent}}% over the last hour",
-  "alert.d2_single_target": "kea-dhcp-ddns has one DNS server per domain ({{servers}}, {{count}} domains: {{domains}}) and DDNS stops if it is down; list a second server in dns-servers, D2 tries them first to last",
+  "alert.d2_single_target": "kea-dhcp-ddns has one DNS server per domain ({{servers}}, {{count}} domains: {{domains}}) and DDNS stops if it is down; prepare the DDNS failover (DDNS page, Failover tab): the primary first, then every copy",
   "alert.daemon_down": "{{engine}} does not answer",
   "alert.ddns_outage": "zone {{zone}}: the active primary {{node}} has received no DDNS update since {{since}}",
   "alert.ddns_replay": "{{count}} leases of the DDNS outage from {{start}} to {{end}} lack their DNS records",

@@ -18,7 +18,7 @@
   "alert.custom_hook": "{{engine}} charge {{library}}, qu'aucun paquet ne fournit : il cassera à la mise à jour de Kea",
   "alert.custom_hook_builtin": "{{engine}} charge {{library}}, qu'aucun paquet ne fournit et qui cassera à la mise à jour de Kea : utiliser plutôt les options intégrées {{option}}",
   "alert.d2_errors": "Échecs des mises à jour DDNS : {{percent}} % sur la dernière heure",
-  "alert.d2_single_target": "kea-dhcp-ddns n'a qu'un serveur DNS par domaine ({{servers}}, {{count}} domaines : {{domains}}) et le DDNS s'arrête s'il tombe ; ajoutez un second serveur dans dns-servers, D2 les essaie du premier au dernier",
+  "alert.d2_single_target": "kea-dhcp-ddns n'a qu'un serveur DNS par domaine ({{servers}}, {{count}} domaines : {{domains}}) et le DDNS s'arrête s'il tombe ; préparez la reprise DDNS (page DDNS, onglet Reprise) : le primaire en tête, puis chaque copie",
   "alert.daemon_down": "{{engine}} ne répond pas",
   "alert.ddns_outage": "zone {{zone}} : le primaire actif {{node}} ne reçoit plus de mise à jour DDNS depuis {{since}}",
   "alert.ddns_replay": "{{count}} baux de la panne DDNS du {{start}} au {{end}} n’ont pas leurs enregistrements DNS",

@@ -25,7 +25,7 @@ def test_single_target_needs_two_dns_nodes_and_a_one_server_domain():
     assert alert.kind is AlertKind.DDNS_ADVICE and alert.subject == "d2:dns-servers"
     assert alert.severity is Severity.WARNING
     assert alert.details["domains"] == ["forward:z0.example.lan."]
-    assert "second server" in alert.title
+    assert "prepare the DDNS failover" in alert.title and "second server" not in alert.title
     assert ddns.single_target_alert("n1", d2_config(2, 3), dns_nodes=2) is None
     assert ddns.single_target_alert("n1", d2_config(1), dns_nodes=1) is None  # one DNS node: nothing to add
     assert ddns.single_target_alert("n1", {"DhcpDdns": {}}, dns_nodes=2) is None

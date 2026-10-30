@@ -105,8 +105,13 @@ class ConnectorContext:
     engine_config: dict[str, Any]  # the [engines.bind] or [engines.kea] table of node.toml
     backup_root: Path
     get_secret: Callable[[str], str | None]  # name -> decrypted secret, None when absent
-    settings: dict[str, Any]  # cluster.toml [settings]
+    settings: dict[str, Any]  # cluster.toml [settings] when the connector was built
     pipeline_factory: Callable[..., WritePipeline] = WritePipeline
+    # The current [settings]: a setting changed after start (dns.default_ns) applies at once.
+    live_settings: Callable[[], dict[str, Any]] | None = None
+
+    def current_settings(self) -> dict[str, Any]:
+        return self.live_settings() if self.live_settings is not None else self.settings
 
 
 class DnsBackend(ABC):

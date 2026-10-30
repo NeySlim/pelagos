@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import socket
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -190,3 +191,20 @@ class NodeContext:
             last_seen=utcnow(),
             clock={"offset": 0.0, "uncertainty": 0.0, "ntp": clock.NTP.get()},
         )
+
+
+def live_settings(ctx: NodeContext) -> Callable[[], dict[str, Any]]:
+    """[settings] of cluster.toml, read again only when the file changed."""
+    held: dict[str, Any] = {"stamp": None, "value": ctx.settings()}
+
+    def read() -> dict[str, Any]:
+        try:
+            st = ctx.paths.cluster_toml.stat()
+        except OSError:
+            return held["value"]
+        stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
+        if stamp != held["stamp"]:
+            held["value"], held["stamp"] = ctx.settings(), stamp
+        return held["value"]
+
+    return read

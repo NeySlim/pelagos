@@ -140,7 +140,7 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
 
     @property
     def dns_settings(self) -> dict[str, Any]:
-        return dict(self.ctx.settings.get("dns", {}) or {})
+        return dict(self.ctx.current_settings().get("dns", {}) or {})
 
     def key_name(self, role: str) -> str:
         return global_key_name(self.dns_settings, role)
@@ -187,7 +187,7 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
         return inherited_zone_lists(self._files())
 
     def _plan_ttl(self) -> int:
-        return int(reg.get(self.ctx.settings, "plans.ttl_seconds"))
+        return int(reg.get(self.ctx.current_settings(), "plans.ttl_seconds"))
 
     def _new_plan(self, scope: PlanScope, summary: Message, created_by: str) -> Plan:
         plan = Plan(
@@ -494,7 +494,7 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
             changes,
             current,
             allowed_types=allowed,
-            default_ttl=int(reg.get(self.ctx.settings, "dns.default_ttl_seconds")),
+            default_ttl=int(reg.get(self.ctx.current_settings(), "dns.default_ttl_seconds")),
             error_messages=error_messages,
         )
         plan.changes = [rr.to_change(zone, rc, view) for rc in resolved]
@@ -835,7 +835,7 @@ class BindBackend(BindExtras, BindRestore, DnsBackend):
         if plan is None:
             out = [zone_dir(self.default_zone_dir())]
             rpz = self.rpz_dir()
-            if rpz.exists() or (self.ctx.settings.get("rpz") or {}).get("subscriptions"):
+            if rpz.exists() or (self.ctx.current_settings().get("rpz") or {}).get("subscriptions"):
                 out.append(zone_dir(rpz, "rpz_dir"))
             out.append(
                 permguard.Target(

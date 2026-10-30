@@ -31,7 +31,7 @@ from pelagos.collector.snapshots import SnapshotProvider
 from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBackend, DhcpBackend, DnsBackend
 from pelagos.core import ha_maintenance
 from pelagos.core import settings_registry as reg
-from pelagos.core.context import NodeContext
+from pelagos.core.context import NodeContext, live_settings
 from pelagos.core.paths import Paths
 from pelagos.domain import (
     INCONSISTENCY_KINDS,
@@ -106,6 +106,7 @@ def connector_context(ctx: NodeContext, engine: str) -> ConnectorContext:
         backup_root=ctx.paths.backups_dir / engine,
         get_secret=ctx.get_secret,
         settings=ctx.settings(),
+        live_settings=live_settings(ctx),
     )
 
 

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pelagos.connectors.base import ConnectorContext, ConnectorError, DdnsBackend, DhcpBackend, DnsBackend
-from pelagos.core.context import NodeContext
+from pelagos.core.context import NodeContext, live_settings
 from pelagos.domain import Engine, Family, NodeApplyResult, Plan, PlanScope
 
 log = logging.getLogger(__name__)
@@ -87,12 +87,14 @@ def bound_reads(registry: ConnectorRegistry, ctx: NodeContext) -> None:
 
 def connector_context(ctx: NodeContext, engine: str, table: Any) -> ConnectorContext:
     """[engines.bind] / [engines.kea] tables are dicts; a bare `true` means defaults."""
+    live = live_settings(ctx)
     return ConnectorContext(
         node_id=ctx.node.id,
         engine_config=dict(table) if isinstance(table, dict) else {},
         backup_root=ctx.paths.backups_dir / engine,
         get_secret=ctx.get_secret,
-        settings=ctx.settings(),
+        settings=live(),
+        live_settings=live,
     )
 
 

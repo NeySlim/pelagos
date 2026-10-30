@@ -2321,3 +2321,8 @@ which opens the plan of the missing zone. WP-API-AUTH: `api/ipv6.py`, `services/
 WP-FRONTEND: `pages/hosts/` (selection, reverse zone and prefix dialogs, IPv6 part of the host
 card), `pages/alerts/lib.js`, `api.js`, `endpoints.js`, the mock and its three plan routes;
 messages (en, fr). WP-LAB-E2E: `tests/lab/test_ipv6_plans_lab.py`.
+`ConnectorContext` gains `live_settings` and `current_settings()`: the BIND connector reads the
+current `[settings]` (cluster.toml read again when it changed), so `dns.default_ns` set after start
+applies to the next zone plan (the lab found the reverse zone plan refused until a restart).
+WP-CORE: `core/context.py` (`live_settings`), `connectors/base.py`, `services/registry.py`,
+`collector/main.py`; WP-BIND: `connectors/bind/backend.py`.

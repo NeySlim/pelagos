@@ -467,6 +467,16 @@ Under Administration:
   error, and the watched prefixes: the ones listed here (ULA only when
   listed) and the effective list with where each comes from (reverse zone,
   DHCPv6 subnet, node address, listed).
+- **Updates** (`admin:updates`): the Pelagos version of every node and
+  the previous one it keeps, the releases available (uploaded or read from
+  GitHub) with their notes and signature state, **Prepare the update**
+  (node order, checks, estimated time, automatic rollback, password; an
+  unsigned release asks for a ticked box and the version typed), the
+  rollout live with Resume, Cancel the rest and Roll back, which reconnects
+  by itself while the node serving the page restarts, the BIND and Kea
+  packages of the distribution with their candidates and fixed CVEs, the
+  history and the release source
+  ([Upgrade: from the Updates screen](upgrade.md#upgrade-from-the-updates-screen)).
 - **Settings** (`admin:settings`): one tab per table (Sign-in, Plans,
   Peers, Alert thresholds, Collector, Retention, DNS, Kea, Response policy
   zones, Certificates). Alert thresholds are grouped (DHCP pools, DDNS,

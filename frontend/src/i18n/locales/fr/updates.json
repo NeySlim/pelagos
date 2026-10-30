@@ -1,0 +1,219 @@
+{
+  "nav": "Mises à jour",
+  "title": "Mises à jour",
+  "subtitle": "Versions de Pelagos et paquets des moteurs, nœud par nœud, avec contrôles et retour arrière",
+  "tabs": {
+    "pelagos": "Pelagos",
+    "engines": "Paquets des moteurs",
+    "history": "Historique",
+    "source": "Source"
+  },
+  "nodes": {
+    "title": "Nœuds",
+    "name": "Nœud",
+    "version": "Version",
+    "arch": "Paquet",
+    "previous": "Précédente gardée",
+    "noPrevious": "aucune",
+    "reachable": "État",
+    "firstPassage": "Aucun nœud ne garde encore de paquet précédent : la version d'avant a été installée à la main. Un retour arrière après cette première mise à jour depuis l'écran demande de téléverser à nouveau la release précédente."
+  },
+  "available": {
+    "title": "Releases disponibles",
+    "installed": "installée partout",
+    "behind_one": "À mettre à jour : {{nodes}}",
+    "behind_other": "À mettre à jour ({{count}} nœuds) : {{nodes}}",
+    "minUpgrade": "Cette release ne se met à jour qu'à partir de {{version}} : {{nodes}} doit d'abord être mis à jour à la main.",
+    "notes": "Notes de version",
+    "checkedAt": "Dernière vérification : {{date}}.",
+    "never": "jamais",
+    "uploadHelp": "Le téléversement envoie les fichiers d'un répertoire de release : paquets, SHA256SUMS, SHA256SUMS.sig, release.json, NOTES.md.",
+    "none": "Aucune release connue : vérifiez maintenant ou téléversez un répertoire de release.",
+    "blocked": "Un déroulé est en cours : reprenez-le, annulez-le ou revenez en arrière avant d'en préparer un autre."
+  },
+  "sources": {
+    "upload": "Téléversée",
+    "github": "Releases GitHub",
+    "repository": "Dépôt de paquets"
+  },
+  "signature": {
+    "valid": "Signée",
+    "unsigned": "Non signée",
+    "unknown_key": "Clé inconnue",
+    "invalid": "Signature invalide"
+  },
+  "actions": {
+    "prepare": "Préparer la mise à jour",
+    "check": "Vérifier maintenant",
+    "upload": "Téléverser une release",
+    "goBack": "Revenir à {{version}}",
+    "update": "Mettre à jour",
+    "updateSelected_one": "Mettre à jour {{count}} paquet",
+    "updateSelected_other": "Mettre à jour {{count}} paquets",
+    "save": "Enregistrer",
+    "resume": "Reprendre",
+    "cancel": "Annuler le reste",
+    "rollback": "Revenir en arrière",
+    "dismiss": "Masquer"
+  },
+  "clusterRollback": {
+    "title": "Retour arrière du cluster",
+    "help": "Réinstalle {{version}}, le paquet gardé par la dernière mise à jour, sur chaque nœud qui le garde, dans l'ordre inverse, avec les mêmes contrôles."
+  },
+  "docker": {
+    "title": "Docker",
+    "help": "Ce nœud tourne avec l'image {{image}} {{version}} : elle ne se met pas à jour depuis l'écran. Sur l'hôte Docker, lancez :"
+  },
+  "engines": {
+    "title": "Paquets des moteurs",
+    "help": "Paquets BIND et Kea de la distribution, mis à jour dans la même série par le même déroulé : secondaires DNS avant le primaire, standby Kea d'abord sous maintenance HA. Un changement de série de Kea passe par la",
+    "migrationLink": "migration Kea.",
+    "pick": "Choisir {{package}} sur {{node}}",
+    "node": "Nœud",
+    "engine": "Moteur",
+    "package": "Paquet",
+    "installed": "Installé",
+    "candidate": "Candidat",
+    "upToDate": "à jour",
+    "cves": "Corrigées par le candidat",
+    "none": "Aucun paquet de moteur connu"
+  },
+  "history": {
+    "title": "Déroulés passés",
+    "date": "Début",
+    "kind": "Genre",
+    "version": "Version",
+    "state": "Résultat",
+    "by": "Par",
+    "nodes": "Nœuds",
+    "none": "Aucun déroulé pour l'instant"
+  },
+  "kinds": {
+    "pelagos": "Pelagos",
+    "engine_packages": "Paquets des moteurs",
+    "rollback": "Retour arrière"
+  },
+  "rolloutStates": {
+    "running": "En cours",
+    "failed": "Arrêté",
+    "done": "Terminé",
+    "cancelled": "Annulé"
+  },
+  "nodeStates": {
+    "pending": "En attente",
+    "running": "En cours",
+    "done": "Fait",
+    "failed": "Échec",
+    "rolled_back": "Revenu en arrière",
+    "skipped": "Sauté"
+  },
+  "steps": {
+    "wait": "Attente de son tour",
+    "fetch": "Récupération des paquets",
+    "verify": "Vérification des sommes et de la signature",
+    "precheck": "Contrôles du cluster avant",
+    "backup": "Sauvegarde de l'état",
+    "ha_maintenance": "Maintenance HA Kea",
+    "install": "Installation",
+    "version": "Version installée",
+    "restart": "Services relancés",
+    "settle": "Stabilisation",
+    "health": "Santé",
+    "convergence": "Convergence",
+    "audit": "Compte d'audit",
+    "journal": "Aucune erreur nouvelle dans le journal",
+    "ha": "HA Kea revenue à la normale",
+    "engine_checks": "Contrôles des moteurs",
+    "rollback": "Retour arrière automatique"
+  },
+  "source": {
+    "title": "Source des releases et rythme",
+    "source": "Provenance des nouvelles releases",
+    "repository": "Dépôt GitHub",
+    "help": {
+      "upload": "Les releases sont téléversées depuis cet écran : marche sans accès Internet et avec un dépôt privé.",
+      "github": "Le nœud de service lit la dernière release du dépôt à chaque intervalle de vérification ; un jeton est nécessaire pour un dépôt privé (Contents en lecture seule suffit).",
+      "repository": "Le dépôt apt ou dnf de Pelagos, lu par le gestionnaire de paquets."
+    },
+    "token": "Jeton GitHub",
+    "tokenStored": "Un jeton est enregistré (chiffré). Saisissez-en un nouveau pour le remplacer.",
+    "tokenHelp": "Facultatif, pour un dépôt privé. Enregistré chiffré, jamais réaffiché.",
+    "tokenSave": "Enregistrer le jeton",
+    "tokenRemove": "Supprimer le jeton",
+    "fields": {
+      "check_enabled": "Vérifier les nouvelles releases",
+      "check_interval_hours": "Intervalle de vérification (heures)",
+      "settle_seconds": "Stabilisation après l'installation (s)",
+      "timeout_seconds": "Délai de santé et de convergence (s)",
+      "pause_seconds": "Pause entre les nœuds (s)",
+      "keep_packages_count": "Paquets et sauvegardes d'état gardés",
+      "auto_rollback_enabled": "Retour arrière automatique en cas d'échec"
+    }
+  },
+  "errors": {
+    "range": "De {{min}} à {{max}}",
+    "repository": "propriétaire/nom",
+    "repositoryRequired": "Obligatoire avec la source GitHub"
+  },
+  "toast": {
+    "checked": "Releases vérifiées",
+    "uploaded": "Release {{version}} téléversée : {{signature}}",
+    "uploadedUnsigned": "Release {{version}} téléversée : {{signature}}. Elle ne s'installe qu'après la confirmation supplémentaire.",
+    "settings": "Réglages des mises à jour enregistrés",
+    "resume": "Déroulé repris",
+    "cancel": "Reste du déroulé annulé",
+    "rollback": "Retour arrière lancé"
+  },
+  "preview": {
+    "title": {
+      "pelagos": "Mettre à jour Pelagos vers {{version}}",
+      "rollback": "Revenir à Pelagos {{version}}"
+    },
+    "titleEngines": "Mettre à jour les paquets des moteurs",
+    "unsigned": "La release {{version}} n'est pas signée : son origine n'est pas vérifiée.",
+    "unknownKey": "La release {{version}} est signée par une clé inconnue ({{key}}) : son origine n'est pas vérifiée.",
+    "unsignedHelp": "Les sommes de SHA256SUMS sont toujours vérifiées, mais rien ne prouve qui a construit ces paquets. Root les installe sur chaque nœud. Continuez seulement pour une release que vous avez construite ou téléchargée vous-même.",
+    "unsignedAccept": "J'accepte d'installer une release dont l'origine n'est pas vérifiée",
+    "typeVersion": "Saisissez la version ({{version}}) pour confirmer",
+    "prepare": "Préparer le plan",
+    "computing": "Calcul du plan...",
+    "order": "Ordre des nœuds",
+    "orderHelp": "Un nœud à la fois ; le suivant démarre après la pause, une fois le précédent terminé. Par défaut, le primaire DNS et le primaire de la HA Kea passent en dernier.",
+    "moveUp": "Avancer {{node}}",
+    "moveDown": "Reculer {{node}}",
+    "autoRollback": "Retour arrière automatique en cas d'échec",
+    "autoRollbackHelp": "Réinstalle le paquet précédent sur le nœud en échec quand la release garde la version d'état.",
+    "schemaChanged": "Cette release change la version d'état : pas de retour automatique. Un échec arrête le déroulé et la procédure manuelle s'applique.",
+    "checks": "Contrôles sur chaque nœud",
+    "estimate": "Environ {{minutes}} min en tout",
+    "stale": "L'ordre ou l'option a changé : recalculez le plan.",
+    "recompute": "Calculer le plan",
+    "password": "Votre mot de passe",
+    "passwordHelp": "Exigé pour appliquer une mise à jour.",
+    "passwordRequired": "Saisissez votre mot de passe pour appliquer la mise à jour.",
+    "wrongPassword": "Mot de passe incorrect"
+  },
+  "rollout": {
+    "title": {
+      "pelagos": "Mise à jour vers Pelagos {{version}}",
+      "rollback": "Retour vers Pelagos {{version}}",
+      "engine_packages": "Paquets des moteurs"
+    },
+    "titleEngines": "Paquets des moteurs : {{packages}}",
+    "by": "{{user}}, {{date}}",
+    "unsignedBy": "non signée, acceptée par {{user}}",
+    "progress": "Avancement du déroulé",
+    "steps": "Étapes",
+    "reconnecting": "Le nœud qui sert cette page redémarre (depuis {{since}}) : la page se reconnecte seule et relit le déroulé. Rien ne dépend de son ouverture.",
+    "reconnected": "Reconnectée : l'état du déroulé est relu depuis le cluster.",
+    "rolledBack": "Revenu sur {{version}}",
+    "stopped": "Le déroulé s'est arrêté sur {{node}} ; les nœuds suivants n'ont pas démarré.",
+    "autoRolledBack": "Le nœud est revenu seul à son paquet précédent. Corrigez la cause, puis reprenez, annulez le reste ou revenez en arrière sur les nœuds déjà faits.",
+    "schemaChanged": "Cette release a changé la version d'état : le nœud n'est pas revenu en arrière seul. Suivez la procédure de retour du guide de mise à jour (pelagos settings --legacy, puis la sauvegarde d'état du nœud), puis reprenez ou annulez.",
+    "failedHelp": "Corrigez la cause, puis reprenez. Annuler le reste laisse les nœuds déjà faits sur la nouvelle version.",
+    "cancelTitle": "Annuler le reste du déroulé ?",
+    "cancelHelp": "Les nœuds non commencés sont sautés. Les nœuds déjà faits restent sur la nouvelle version : un cluster à deux versions est pris en charge.",
+    "rollbackTitle": "Revenir en arrière sur les nœuds déjà mis à jour ?",
+    "rollbackHelp": "Lance un déroulé vers la version précédente sur les nœuds déjà faits, dans l'ordre inverse. Le déroulé actuel finit annulé."
+  }
+}

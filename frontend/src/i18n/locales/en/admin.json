@@ -126,7 +126,8 @@
       "modules": "Modules",
       "certificates": "Certificates",
       "notifications": "Notifications",
-      "archives": "Backups"
+      "archives": "Backups",
+      "updates": "Updates"
     }
   },
   "modules": {

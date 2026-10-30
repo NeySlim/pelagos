@@ -1,0 +1,219 @@
+{
+  "nav": "Updates",
+  "title": "Updates",
+  "subtitle": "Pelagos releases and engine packages, node by node, with checks and rollback",
+  "tabs": {
+    "pelagos": "Pelagos",
+    "engines": "Engine packages",
+    "history": "History",
+    "source": "Source"
+  },
+  "nodes": {
+    "title": "Nodes",
+    "name": "Node",
+    "version": "Version",
+    "arch": "Package",
+    "previous": "Previous kept",
+    "noPrevious": "none",
+    "reachable": "State",
+    "firstPassage": "No node keeps a previous package yet: the version before was installed by hand. A rollback after this first update from the screen needs the previous release uploaded again."
+  },
+  "available": {
+    "title": "Available releases",
+    "installed": "installed everywhere",
+    "behind_one": "To update: {{nodes}}",
+    "behind_other": "To update ({{count}} nodes): {{nodes}}",
+    "minUpgrade": "This release upgrades from {{version}} or later only: {{nodes}} must be updated by hand first.",
+    "notes": "Release notes",
+    "checkedAt": "Last check: {{date}}.",
+    "never": "never",
+    "uploadHelp": "Upload sends the files of a release folder: packages, SHA256SUMS, SHA256SUMS.sig, release.json, NOTES.md.",
+    "none": "No release is known yet: check now or upload a release folder.",
+    "blocked": "A rollout is active: resume, cancel or roll it back before preparing another one."
+  },
+  "sources": {
+    "upload": "Uploaded",
+    "github": "GitHub releases",
+    "repository": "Package repository"
+  },
+  "signature": {
+    "valid": "Signed",
+    "unsigned": "Not signed",
+    "unknown_key": "Unknown key",
+    "invalid": "Invalid signature"
+  },
+  "actions": {
+    "prepare": "Prepare the update",
+    "check": "Check now",
+    "upload": "Upload a release",
+    "goBack": "Go back to {{version}}",
+    "update": "Update",
+    "updateSelected_one": "Update {{count}} package",
+    "updateSelected_other": "Update {{count}} packages",
+    "save": "Save",
+    "resume": "Resume",
+    "cancel": "Cancel the rest",
+    "rollback": "Roll back",
+    "dismiss": "Hide"
+  },
+  "clusterRollback": {
+    "title": "Cluster rollback",
+    "help": "Reinstalls {{version}}, the package kept by the last update, on every node that keeps it, in the reverse order, with the same checks."
+  },
+  "docker": {
+    "title": "Docker",
+    "help": "This node runs the image {{image}} {{version}}: it is not updated from the screen. On the Docker host, run:"
+  },
+  "engines": {
+    "title": "Engine packages",
+    "help": "BIND and Kea packages of the distribution, updated within the same series with the same rollout: DNS secondaries before the primary, the Kea standby first under HA maintenance. A change of Kea series goes through the",
+    "migrationLink": "Kea migration.",
+    "pick": "Select {{package}} on {{node}}",
+    "node": "Node",
+    "engine": "Engine",
+    "package": "Package",
+    "installed": "Installed",
+    "candidate": "Candidate",
+    "upToDate": "up to date",
+    "cves": "Fixed by the candidate",
+    "none": "No engine package is known"
+  },
+  "history": {
+    "title": "Past rollouts",
+    "date": "Started",
+    "kind": "Kind",
+    "version": "Version",
+    "state": "Result",
+    "by": "By",
+    "nodes": "Nodes",
+    "none": "No rollout yet"
+  },
+  "kinds": {
+    "pelagos": "Pelagos",
+    "engine_packages": "Engine packages",
+    "rollback": "Rollback"
+  },
+  "rolloutStates": {
+    "running": "Running",
+    "failed": "Stopped",
+    "done": "Done",
+    "cancelled": "Cancelled"
+  },
+  "nodeStates": {
+    "pending": "Waiting",
+    "running": "Running",
+    "done": "Done",
+    "failed": "Failed",
+    "rolled_back": "Rolled back",
+    "skipped": "Skipped"
+  },
+  "steps": {
+    "wait": "Wait for its turn",
+    "fetch": "Fetch the packages",
+    "verify": "Verify sums and signature",
+    "precheck": "Cluster checks before",
+    "backup": "Back up the state",
+    "ha_maintenance": "Kea HA maintenance",
+    "install": "Install",
+    "version": "Installed version",
+    "restart": "Services restarted",
+    "settle": "Settle",
+    "health": "Health",
+    "convergence": "Convergence",
+    "audit": "Audit count",
+    "journal": "No new error in the journal",
+    "ha": "Kea HA back to normal",
+    "engine_checks": "Engine checks",
+    "rollback": "Automatic rollback"
+  },
+  "source": {
+    "title": "Release source and pace",
+    "source": "Where new releases come from",
+    "repository": "GitHub repository",
+    "help": {
+      "upload": "Releases are uploaded from this screen: works without Internet access and with a private repository.",
+      "github": "The service node reads the latest release of the repository at each check interval; a token is needed for a private repository (Contents read only is enough).",
+      "repository": "The apt or dnf repository of Pelagos, read by the package manager."
+    },
+    "token": "GitHub token",
+    "tokenStored": "A token is stored (encrypted). Type a new one to replace it.",
+    "tokenHelp": "Optional, for a private repository. Stored encrypted, never shown again.",
+    "tokenSave": "Store the token",
+    "tokenRemove": "Remove the token",
+    "fields": {
+      "check_enabled": "Check for new releases",
+      "check_interval_hours": "Check interval (hours)",
+      "settle_seconds": "Settle time after the install (s)",
+      "timeout_seconds": "Health and convergence timeout (s)",
+      "pause_seconds": "Pause between nodes (s)",
+      "keep_packages_count": "Packages and state backups kept",
+      "auto_rollback_enabled": "Roll back automatically on failure"
+    }
+  },
+  "errors": {
+    "range": "From {{min}} to {{max}}",
+    "repository": "owner/name",
+    "repositoryRequired": "Required with the GitHub source"
+  },
+  "toast": {
+    "checked": "Releases checked",
+    "uploaded": "Release {{version}} uploaded: {{signature}}",
+    "uploadedUnsigned": "Release {{version}} uploaded: {{signature}}. It installs only after the extra confirmation.",
+    "settings": "Update settings saved",
+    "resume": "Rollout resumed",
+    "cancel": "Rest of the rollout cancelled",
+    "rollback": "Rollback started"
+  },
+  "preview": {
+    "title": {
+      "pelagos": "Update Pelagos to {{version}}",
+      "rollback": "Go back to Pelagos {{version}}"
+    },
+    "titleEngines": "Update the engine packages",
+    "unsigned": "Release {{version}} is not signed: its origin is not verified.",
+    "unknownKey": "Release {{version}} is signed by an unknown key ({{key}}): its origin is not verified.",
+    "unsignedHelp": "The SHA256SUMS sums are still checked, but nothing proves who built these packages. Root installs them on every node. Go on only for a release you built or downloaded yourself.",
+    "unsignedAccept": "I accept to install a release whose origin is not verified",
+    "typeVersion": "Type the version ({{version}}) to confirm",
+    "prepare": "Prepare the plan",
+    "computing": "Computing the plan...",
+    "order": "Order of the nodes",
+    "orderHelp": "One node at a time; the next starts after the pause once the previous is done. By default the DNS primary and the Kea HA primary go last.",
+    "moveUp": "Move {{node}} earlier",
+    "moveDown": "Move {{node}} later",
+    "autoRollback": "Roll back automatically on failure",
+    "autoRollbackHelp": "Reinstalls the previous package on the failing node when the release keeps the state schema.",
+    "schemaChanged": "This release changes the state schema: no automatic rollback. A failure stops the rollout and the manual procedure applies.",
+    "checks": "Checks on each node",
+    "estimate": "About {{minutes}} min in all",
+    "stale": "The order or the option changed: compute the plan again.",
+    "recompute": "Compute the plan",
+    "password": "Your password",
+    "passwordHelp": "Required to apply an update.",
+    "passwordRequired": "Type your password to apply the update.",
+    "wrongPassword": "Wrong password"
+  },
+  "rollout": {
+    "title": {
+      "pelagos": "Update to Pelagos {{version}}",
+      "rollback": "Rollback to Pelagos {{version}}",
+      "engine_packages": "Engine packages"
+    },
+    "titleEngines": "Engine packages: {{packages}}",
+    "by": "{{user}}, {{date}}",
+    "unsignedBy": "unsigned, accepted by {{user}}",
+    "progress": "Progress of the rollout",
+    "steps": "Steps",
+    "reconnecting": "The node serving this page is restarting (since {{since}}): the page reconnects by itself and reads the rollout again. Nothing depends on it staying open.",
+    "reconnected": "Reconnected: the rollout state is read again from the cluster.",
+    "rolledBack": "Back on {{version}}",
+    "stopped": "The rollout stopped at {{node}}; the next nodes did not start.",
+    "autoRolledBack": "The node went back to its previous package automatically. Fix the cause, then resume, cancel the rest or roll back the nodes already done.",
+    "schemaChanged": "This release changed the state schema, so the node was not rolled back automatically. Follow the rollback procedure of the upgrade guide (pelagos settings --legacy, then the state backup of the node), then resume or cancel.",
+    "failedHelp": "Fix the cause, then resume. Cancel the rest leaves the nodes already done on the new version.",
+    "cancelTitle": "Cancel the rest of the rollout?",
+    "cancelHelp": "Nodes not started are skipped. Nodes already done stay on the new version: a cluster with two versions is supported.",
+    "rollbackTitle": "Roll back the nodes already updated?",
+    "rollbackHelp": "Starts a rollout back to the previous version over the nodes already done, in the reverse order. The current rollout ends cancelled."
+  }
+}

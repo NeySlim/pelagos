@@ -2916,12 +2916,28 @@ export function createMockServer({ quiet = false, jobStepMs, live = false, apply
         sendJson(res, 200, { fail_at: state.keaMigration.failAt })
         return
       }
+      // Mock only: pace of the update rollouts ({step_ms}), a release whose second node fails
+      // ({broken: version}), and the node under the page restarting for down_ms (every API call 503).
+      if (url.pathname === `${API}/_mock/updates` && req.method === 'POST') {
+        const raw = await readBody(req)
+        const body = raw ? JSON.parse(raw) : {}
+        if (body.step_ms !== undefined) state.updateStepMs = Number(body.step_ms) || 0
+        if (body.broken && state.updates) for (const r of state.updates.releases) if (r.version === body.broken) r.broken = true
+        if (body.down_ms) state.updatesDownUntil = Date.now() + Number(body.down_ms)
+        sendJson(res, 200, { step_ms: state.updateStepMs, down_until: state.updatesDownUntil || null })
+        return
+      }
+      if (state.updatesDownUntil && Date.now() < state.updatesDownUntil && url.pathname.startsWith(`${API}/`)) {
+        res.writeHead(503, { 'content-type': 'text/plain' })
+        res.end('restarting')
+        return
+      }
       // Mock only: switch the cluster to another scenario (pair, three, four); sessions stay.
       if (url.pathname === `${API}/_mock/scenario` && req.method === 'POST') {
         const raw = await readBody(req)
         const name = (raw ? JSON.parse(raw) : {}).name
         if (!SCENARIOS[name]) throw new Problem(404, 'not_found', `unknown scenario ${name}`)
-        const keep = { sessions: state.sessions, emit: state.emit, jobStepMs: state.jobStepMs, applyNodeMs: state.applyNodeMs, updateStepMs: state.updateStepMs, transferMs: state.transferMs, ptr: state.ptr }
+        const keep = { sessions: state.sessions, emit: state.emit, jobStepMs: state.jobStepMs, applyNodeMs: state.applyNodeMs, updateStepMs: state.updateStepMs, updates: state.updates, transferMs: state.transferMs, ptr: state.ptr }
         for (const k of Object.keys(state)) delete state[k]
         Object.assign(state, createState(name), keep)
         hub.emit('nodes', 'status', state.nodes.find((n) => !n.is_self) || state.nodes[0])

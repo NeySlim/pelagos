@@ -126,7 +126,8 @@
       "modules": "Modules",
       "certificates": "Certificats",
       "notifications": "Notifications",
-      "archives": "Sauvegardes"
+      "archives": "Sauvegardes",
+      "updates": "Mises à jour"
     }
   },
   "modules": {

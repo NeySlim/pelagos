@@ -9,12 +9,14 @@ commit and brought back.
 
 - [What was verified](#what-was-verified)
 - [Before you start](#before-you-start)
+- [Upgrade from the Updates screen](#upgrade-from-the-updates-screen)
 - [Upgrade one node](#upgrade-one-node)
 - [Scripted upgrade](#scripted-upgrade)
 - [Order and pace](#order-and-pace)
 - [What the upgrade changes](#what-the-upgrade-changes)
 - [While two versions run](#while-two-versions-run)
 - [Rollback](#rollback)
+- [Engine packages from the Updates screen](#engine-packages-from-the-updates-screen)
 - [After the upgrade: adopt what was done by hand](#after-the-upgrade-adopt-what-was-done-by-hand)
 - [Check list](#check-list)
 
@@ -52,6 +54,89 @@ untouched, and that no error is logged by the collector after a rollback.
 6. If you changed thresholds or other settings, print them under their old
    names now: `sudo pelagos settings --legacy`. You need them only for a
    rollback.
+
+## Upgrade from the Updates screen
+
+From 0.3.0, **Administration, Updates** (permission `admin:updates`, the
+administrator role) does the same as [the scripted upgrade](#scripted-upgrade),
+one node at a time, without ssh. A cluster still on 0.2.x is upgraded to
+0.3.0 by hand or with `scripts/deploy-prod.sh` first: those releases ignore
+the rollout. Docker installs are not updated from the screen; it shows the
+image version and the command to run on the Docker host
+(`docker compose pull && docker compose up -d`).
+
+**Where releases come from** (tab **Source**):
+
+- *Uploaded*: **Upload a release** sends the files of a release directory
+  (`pelagos_<version>-1_<arch>.deb`, `release.json`, `NOTES.md`, `SHA256SUMS`
+  and, when the release is signed, `SHA256SUMS.sig`). Works without Internet
+  access and for a private repository.
+- *GitHub releases*: the service node reads the latest release of the
+  repository set on the tab (`owner/name`) every `check_interval_hours`
+  (24 by default); **Check now** reads it at once. A private repository
+  needs a token with read access to its contents; it is stored encrypted
+  and never shown again.
+
+**Signature.** Each release is listed with its version, source, date, notes
+and signature state: *Signed* (a key shipped in the package verifies
+`SHA256SUMS.sig`), *Not signed*, or *Unknown key*. The sums of `SHA256SUMS`
+are always checked, by root in the privileged helper; a signature that is
+present but does not verify means the files were altered and the release is
+refused at upload. An unsigned release, or one signed by an unknown key,
+installs only after an extra confirmation: the preview shows "release
+<version> is not signed: its origin is not verified", you tick the box and
+type the version, and the audit log records `update.unsigned_accepted` with
+your name. Accepting an unsigned release lets root install whatever package
+named `pelagos` was uploaded: do it only for a release you built or
+downloaded yourself.
+
+**Preview.** **Prepare the update** computes a plan: the nodes in the order
+they will be upgraded (by default every node that is neither the active DNS
+primary nor the Kea HA primary, then those, the DNS primary last; move them
+with the arrows and compute the plan again), the checks run on each node,
+the estimated time, and the automatic rollback option. Tick the
+confirmation, type your password and apply. Nothing else is changed by the
+apply: it writes the rollout to `cluster.toml`, and each node's collector
+picks its turn from there.
+
+**Rollout.** The panel shows each node with its step, live: wait for its
+turn, fetch the packages from the node that holds them, verify, cluster
+checks before, state backup
+(`/var/lib/pelagos/upgrade/backups/pelagos-state-<date>-<old version>.tar.gz`,
+root only), install, installed version, units restarted, settle
+(`settle_seconds`), health and convergence (until `timeout_seconds`), audit
+count never lower, no `ERROR` line from the new processes, Kea HA back to
+normal. The next node starts `pause_seconds` after the previous one is done.
+The install runs in its own transient systemd unit, so the restart of the
+node serving the page breaks nothing: the page says it is reconnecting,
+waits for `/api/v1/health`, and reads the rollout again from the cluster.
+If the session was lost, sign in again: the screen shows the rollout where
+it is. Closing the browser does not stop it.
+
+**When a node fails** the rollout stops on it with the step and the reason,
+the next nodes do not start, and an `update_failed` alert is raised. When
+the release keeps the state schema of the installed one (`state_schema` in
+`release.json`) and automatic rollback is on, the failing node goes back to
+its previous package by itself (kept in `/var/lib/pelagos/upgrade/packages/`,
+`series.sqlite` removed, same checks). When the schema changed, it is left
+as it is and you follow [Rollback](#rollback) on that node. Then:
+
+- **Resume**: after fixing the cause, the failed node starts again from its
+  turn.
+- **Cancel the rest**: the nodes not started are skipped; those done stay on
+  the new version (a supported mixed state, see
+  [While two versions run](#while-two-versions-run)).
+- **Roll back** (password): a new rollout takes the nodes already done back
+  to the previous version, in the reverse order, with the same checks.
+
+A node that does not move for twice `timeout_seconds` raises
+`update_stalled`. **Go back to <version>** under the node list rolls the
+whole cluster back to the package the last update kept. The first update
+from the screen has no previous package kept when the version before was
+installed by hand: the screen says so; upload the previous release if you
+may need to go back.
+
+Every past rollout, with the result on each node, is under **History**.
 
 ## Upgrade one node
 
@@ -207,6 +292,20 @@ What to expect afterwards:
 
 A cluster in which only some nodes are rolled back is as valid as a
 cluster in the middle of an upgrade (previous section).
+
+## Engine packages from the Updates screen
+
+The tab **Engine packages** lists, per node, the BIND and Kea packages of the
+distribution: installed version, candidate, and the CVEs the candidate
+fixes (from the security tracking of the distribution, the same data as the
+`security_advisory` alert). Select rows and **Update**: the same preview
+and rollout run, DNS secondaries before the primary, and for Kea the
+standby first, with `ha-maintenance-start` sent to its peer before the
+install and `ha-maintenance-cancel` once HA is back to normal. Checks: the
+version read again, `rndc status`, zone transfers up to date, the HA
+`status-get`, no new alert. Only updates within the same series are offered
+(BIND 9.20.x, Kea 2.6.x of Debian); a change of Kea series goes through the
+Kea migration (**Install, Kea migration**).
 
 ## After the upgrade: adopt what was done by hand
 

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Administration area: users, API tokens, roles, modules, certificates, notifications, backups, IPv6
-// sources, settings.
+// sources, updates, settings.
 import { lazy } from 'react'
-import { Users, UserGear, SquaresFour, Gear, Certificate, BellRinging, Archive, Globe, Code } from '@phosphor-icons/react'
+import { Users, UserGear, SquaresFour, Gear, Certificate, BellRinging, Archive, Globe, Code, ArrowCircleUp } from '@phosphor-icons/react'
 
 const UsersPage = lazy(() => import('./UsersPage'))
 const RolesPage = lazy(() => import('./RolesPage'))
@@ -12,6 +12,7 @@ const CertificatesPage = lazy(() => import('./certs/CertificatesPage'))
 const NotificationsPage = lazy(() => import('./notifications/NotificationsPage'))
 const ArchivesPage = lazy(() => import('./archives/ArchivesPage'))
 const Ipv6ObservationPage = lazy(() => import('./ipv6/Ipv6ObservationPage'))
+const UpdatesPage = lazy(() => import('./updates/UpdatesPage'))
 const ApiTokensPage = lazy(() => import('./ApiTokensPage'))
 
 export default {
@@ -26,6 +27,7 @@ export default {
     { path: '/admin/notifications', component: NotificationsPage, permission: 'admin:notifications' },
     { path: '/admin/archives', component: ArchivesPage, permission: 'admin:archives' },
     { path: '/admin/ipv6', component: Ipv6ObservationPage, permission: 'admin:settings' },
+    { path: '/admin/updates', component: UpdatesPage, permission: 'admin:updates' },
   ],
   nav: [
     { id: 'admin-users', group: 'admin', path: '/admin/users', labelKey: 'admin:nav.users', icon: Users, permission: 'admin:users', order: 83 },
@@ -36,6 +38,7 @@ export default {
     { id: 'admin-notifications', group: 'admin', path: '/admin/notifications', labelKey: 'admin:nav.notifications', icon: BellRinging, permission: 'admin:notifications', order: 87.5 },
     { id: 'admin-archives', group: 'admin', path: '/admin/archives', labelKey: 'admin:nav.archives', icon: Archive, permission: 'admin:archives', order: 87.6 },
     { id: 'admin-ipv6', group: 'admin', path: '/admin/ipv6', labelKey: 'ipv6:nav.observation', icon: Globe, permission: 'admin:settings', order: 87.7 },
+    { id: 'admin-updates', group: 'admin', path: '/admin/updates', labelKey: 'updates:nav', icon: ArrowCircleUp, permission: 'admin:updates', order: 87.8 },
     { id: 'admin-settings', group: 'admin', path: '/admin/settings', labelKey: 'admin:nav.settings', icon: Gear, permission: 'admin:settings', order: 88 },
   ],
 }

@@ -136,7 +136,7 @@ Details: [user documentation](docs/user/README.md),
 | --- | --- |
 | deb package | Debian 13 (trixie), amd64 and arm64 |
 | rpm package | RHEL, Rocky Linux, AlmaLinux 9 and 10, x86_64 |
-| Container images | node and all-in-one, amd64 and arm64, built locally with `make docker` and `make docker-allinone` (not published) |
+| Container images | node and all-in-one, amd64 and arm64, on ghcr.io: `ghcr.io/neyslim/pelagos:<version>` and `ghcr.io/neyslim/pelagos-allinone:<version>` |
 | BIND | 9.20 |
 | Kea | 3.x recommended (3.2 tested) with the `lease_cmds`, `host_cmds`, `subnet_cmds` and `stat_cmds` hooks; Kea 2.6 in a reduced mode (no `subnet_cmds` or `host_cmds`: subnet changes through `config-set`), with the built-in migration to 3.x |
 | Browsers | current Chromium, Firefox and Safari |
@@ -176,24 +176,24 @@ sudo firewall-cmd --permanent --add-port=8443/tcp --add-port=8444/tcp && sudo fi
 
 ### Docker compose
 
-The compose file runs the node next to the official ISC images for BIND
-and Kea. No image is published: build the node image first.
+The compose file runs the node image `ghcr.io/neyslim/pelagos:<version>`
+next to the official ISC images for BIND and Kea.
 `PELAGOS_ADMIN_PASSWORD` is required; the node refuses to start without a
 strong one.
 
 ```sh
-make docker
 cd docker
 export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"   # or set your own
 echo "$PELAGOS_ADMIN_PASSWORD"
-PELAGOS_IMAGE=pelagos:latest docker compose up -d
+PELAGOS_IMAGE=ghcr.io/neyslim/pelagos:<version> docker compose up -d
 ```
 
 Kea uses the host network to serve DHCP; add the LAN interface to the
 seeded `kea-dhcp4.conf`. An all-in-one image (BIND, Kea and the node under
-supervisord) is also available. See [docker/README.md](docker/README.md).
+supervisord) is published as `ghcr.io/neyslim/pelagos-allinone:<version>`.
+Details, examples and building the images yourself: [Docker](docs/user/docker.md).
 
-Packages and images are built from this repository with `make deb`,
+Packages and images can also be built from this repository with `make deb`,
 `make rpm`, `make docker` and `make docker-allinone`
 ([packaging/deb/README.md](packaging/deb/README.md),
 [packaging/rpm/README.md](packaging/rpm/README.md)).
@@ -280,7 +280,8 @@ first, see [AppArmor](docs/user/troubleshooting.md#apparmor)), and `lab`
 tier on Python 3.12 and 3.13, the frontend checks, the daemon tier against
 BIND 9.20 and Kea 3.2, and the end-to-end suite. A version tag builds and
 smoke-tests the packages and images for amd64 and arm64; the GitHub release
-and the images are published only by a manual run on that tag.
+is published by a manual run on that tag, and the images by the manual
+`images` workflow.
 
 The frontend can run alone against a mock API: `cd frontend && npm run mock`
 in one terminal and `VITE_API_MOCK=1 npm run dev` in another (see

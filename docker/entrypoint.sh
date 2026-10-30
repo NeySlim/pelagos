@@ -32,6 +32,8 @@ BIND_UID="${PELAGOS_BIND_UID:-53}"
 
 log() { echo "pelagos-entrypoint: $*" >&2; }
 
+bind_is_local() { case "$BIND_HOST" in 127.0.0.1|::1|localhost) return 0 ;; esac; return 1; }
+
 if [ -z "${PELAGOS_ADMIN_PASSWORD:-}" ] && [ -n "${PELAGOS_ADMIN_PASSWORD_FILE:-}" ]; then
   [ -r "$PELAGOS_ADMIN_PASSWORD_FILE" ] || { log "cannot read $PELAGOS_ADMIN_PASSWORD_FILE"; exit 78; }
   PELAGOS_ADMIN_PASSWORD="$(cat "$PELAGOS_ADMIN_PASSWORD_FILE")"
@@ -42,8 +44,14 @@ group_name() {
   # group_name <gid> <fallback name>: existing name for the gid, created when missing
   name="$(getent group "$1" | cut -d: -f1 || true)"
   if [ -z "$name" ]; then
-    groupadd -g "$1" "$2"
+    # The installer names the group (bind): the image's own group of that name takes the gid
+    # of the engines (the host's bind in host-engines), never a second name for it.
     name="$2"
+    if getent group "$name" >/dev/null; then
+      groupmod -g "$1" "$name"
+    else
+      groupadd -g "$1" "$name"
+    fi
   fi
   echo "$name"
 }
@@ -68,8 +76,9 @@ prepare_bind() {
   chmod 0640 /etc/bind/rndc.key
   # Pelagos writes its include directory; named only reads it (setgid keeps the group).
   install -d -o pelagos -g "$bind_group" -m 2770 /etc/bind/pelagos
-  # rndc config of node.toml [engines.bind] rndc_conf; the server is the BIND container.
-  if [ ! -f /etc/bind/pelagos/rndc-pelagos.conf ]; then
+  # rndc config of a BIND container (node.toml [engines.bind] rndc_conf). A local named keeps
+  # its own key name: "pelagos import" writes this file from its controls statement.
+  if ! bind_is_local && [ ! -f /etc/bind/pelagos/rndc-pelagos.conf ]; then
     printf 'include "/etc/bind/rndc.key";\noptions {\n\tdefault-key "rndc-pelagos";\n\tdefault-server %s;\n\tdefault-port 953;\n};\n' \
       "$BIND_HOST" > /etc/bind/pelagos/rndc-pelagos.conf
     chown "pelagos:$bind_group" /etc/bind/pelagos/rndc-pelagos.conf
@@ -140,7 +149,7 @@ configure_bind_engine() {
   # A BIND container (PELAGOS_BIND_HOST not local): node.toml [engines.bind] says where named
   # listens. Keys already present are kept; "pelagos import" keeps them too.
   [ -f "$ETC/node.toml" ] && [ -d /etc/bind ] || return 0
-  case "$BIND_HOST" in 127.0.0.1|::1|localhost) return 0 ;; esac
+  bind_is_local && return 0
   # rndc and the statistics URL take a name; DNS queries and UPDATEs need an address.
   # The BIND container starts after pelagos-init: the long-running modes wait for its name.
   tries=30

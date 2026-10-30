@@ -145,3 +145,23 @@ def test_ddns_record_delete_says_kea_writes_it_again(role_client):
     assert ddns["message"]["key"] == "plan.impact.ddns_record_lease"
     assert ddns["message"]["params"]["ip"] == "192.0.2.100"
     assert plan["requires_confirmation"] is False
+
+
+def test_unread_leases_carry_a_translated_reason(role_client, monkeypatch):
+    from pelagos.services.plan_impact import PlanImpact
+
+    def fail(self, dhcp, subnet_id):
+        raise PermissionError(13, "Permission denied", "/var/lib/kea/kea-leases4.csv")
+
+    monkeypatch.setattr(PlanImpact, "_subnet_leases", fail)
+    change = {"op": "delete", "target": "subnet4/1"}
+    plan = role_client("dhcp-operator").post(D + "/subnets/plan", json={"change": change}).get_json()
+    unread = next(i for i in plan["impact"] if i["kind"] == "leases")
+    assert unread["message"]["key"] == "plan.impact.leases_unread"
+    error = unread["message"]["params"]["error"]
+    assert error["key"] == "permission.apply_failed" and "Errno 13" in unread["text"]
+    monkeypatch.setattr(PlanImpact, "_subnet_leases", lambda self, d, s: 1 / 0)
+    plan = role_client("dhcp-operator").post(D + "/subnets/plan", json={"change": change}).get_json()
+    unread = next(i for i in plan["impact"] if i["kind"] == "leases")
+    assert unread["message"]["params"]["error"]["key"] == "plan.impact.reason.failed"
+    assert unread["text"].endswith("(division by zero)")

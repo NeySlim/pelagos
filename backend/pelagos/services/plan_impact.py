@@ -14,6 +14,7 @@ from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
+from pelagos.core import permguard
 from pelagos.domain import (
     IMPACT_EXAMPLES,
     ChangeOp,
@@ -59,15 +60,23 @@ def _item(
     severity: ImpactSeverity = ImpactSeverity.INFO,
     count: int | None = None,
     examples: Iterable[str] = (),
+    raw: str = "",
 ) -> ImpactItem:
+    """`raw`: an untranslated error kept in `text` only, after the rendered message."""
+    text = messages.render(message)
     return ImpactItem(
         kind=kind,
-        text=messages.render(message),
+        text=f"{text} ({raw})" if raw else text,
         message=message,
         severity=severity,
         count=count,
         examples=list(examples)[:IMPACT_EXAMPLES],
     )
+
+
+def _reason(exc: Exception) -> dict[str, Any]:
+    """A translated reason for a failed read: the errno worded when there is one, else generic."""
+    return permguard.message_for_text(str(exc)) or messages.msg("plan.impact.reason.failed")
 
 
 def _ip(text: Any) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
@@ -170,8 +179,9 @@ class PlanImpact:
                     items.append(
                         _item(
                             "unknown",
-                            messages.msg("plan.impact.unknown", target=change.target, error=str(exc)),
+                            messages.msg("plan.impact.unknown", target=change.target, error=_reason(exc)),
                             ImpactSeverity.WARNING,
+                            raw=str(exc),
                         )
                     )
         reasons |= confirmation_reasons(plan, engine_plans)
@@ -283,7 +293,11 @@ class PlanImpact:
             out.append(
                 _item(
                     "leases",
-                    messages.msg("plan.impact.leases_unread", subnet=name, error="no Kea on this node"),
+                    messages.msg(
+                        "plan.impact.leases_unread",
+                        subnet=name,
+                        error=messages.msg("plan.impact.reason.no_kea"),
+                    ),
                     ImpactSeverity.WARNING,
                 )
             )
@@ -294,8 +308,9 @@ class PlanImpact:
                 out.append(
                     _item(
                         "leases",
-                        messages.msg("plan.impact.leases_unread", subnet=name, error=str(exc)),
+                        messages.msg("plan.impact.leases_unread", subnet=name, error=_reason(exc)),
                         ImpactSeverity.WARNING,
+                        raw=str(exc),
                     )
                 )
             else:

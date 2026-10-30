@@ -156,3 +156,21 @@ def test_every_finding_id_of_the_guard_is_a_helper_fix(tmp_path: Path) -> None:
         os.chmod(cache, 0o755)
     published = {c["finding_id"] for c in checks if "finding_id" in c}
     assert published and published <= known
+
+
+def test_verify_gives_the_node_tree_back_before_the_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A root import writes its backups as root: the guard must see them owned by the service."""
+    from pelagos import platform
+    from pelagos.installer import permissions_cli
+
+    env = bind_tree(tmp_path)
+    env.node_paths.etc.mkdir(parents=True, exist_ok=True)
+    env.node_paths.node_toml.write_text("")
+    calls: list[str] = []
+    monkeypatch.setattr(path_access, "ensure", lambda _env: [])
+    monkeypatch.setattr(platform, "give_tree_to", lambda *_a, **_k: calls.append("give_back"))
+    monkeypatch.setattr(permissions_cli, "check_in_unit", lambda _u: calls.append("guard") or (0, []))
+    assert "0 path(s) writable" in path_access.verify(env)
+    assert calls == ["give_back", "guard"]

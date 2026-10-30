@@ -307,6 +307,12 @@ def verify(env: Any) -> str:
     from pelagos.installer.permissions_cli import check_in_unit
 
     lines = ensure(env)
+    paths = env.node_paths
+    if paths.node_toml.exists():
+        from pelagos.platform import PELAGOS_USER, give_tree_to
+
+        # The job ran as root (backups of the import included): the guard sees what the units will.
+        give_tree_to(PELAGOS_USER, [paths.etc, paths.var], skip=[paths.etc / "pelagos.env"])
     try:
         _code, checks = check_in_unit(GUARD_UNIT)
     except (OSError, RuntimeError) as exc:

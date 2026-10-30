@@ -522,16 +522,16 @@ Deux décisions bloquent la phase 0 : le parseur de `named.conf` et l'autorité 
 
 ## 13. Sixième passe : fonctions nouvelles (points 56 à 63)
 
-Trois fonctions de priorité 1 (points 56, 57 et 58 du relevé de production, 13.1 à 13.3, livrées en 0.2.0), puis les fonctions 59 à 63 (13.4 à 13.8), spécifiées ici avant tout code. Les lots sont en 13.9 et 13.10, les questions des points 59 à 63 avec leur défaut en 13.11. Les contrats techniques (schémas, routes exactes, champs) iront dans `docs/architecture.md` par le premier lot de chaque fonction, avec une entrée dans `docs/contracts-changes.md` ; ce chapitre fixe le besoin, les écrans, les décisions et le découpage.
+Trois fonctions de priorité 1 (points 56, 57 et 58 du relevé de production, 13.1 à 13.3, livrées en 0.2.0), puis les fonctions 59 à 62 (13.4 à 13.7 ; le point 63 est retiré, 13.8), spécifiées ici avant tout code. Les lots sont en 13.9 et 13.10, les questions des points 59 à 63 avec leur défaut en 13.11. Les contrats techniques (schémas, routes exactes, champs) iront dans `docs/architecture.md` par le premier lot de chaque fonction, avec une entrée dans `docs/contracts-changes.md` ; ce chapitre fixe le besoin, les écrans, les décisions et le découpage.
 
 Règles communes :
 
 - Une modification d'un moteur (BIND, Kea, D2) passe par un plan : aperçu, validations, confirmation, application nœud par nœud, retour arrière (architecture, sections 6 et 7). Un réglage propre à Pelagos (`cluster.toml`) suit le modèle des réglages existants : écrit par `update_cluster`, répliqué, audité avec l'état d'avant, donc réversible, sans plan.
-- Nouveaux domaines de réglages : `notifications`, `archives`, `ddns`, puis `resolver`, `updates`, `ipv6`, `integrations` (ajoutés à `DOMAINS` du registre, nommage de la section 10 de l'architecture). Les seuils qui lèvent une alerte vont dans `[settings.checks]`. Les entrées écrites par un écran dédié (canaux, destinations, rôles DNS) sont refusées par `PUT /admin/settings`, comme celles du RPZ.
+- Nouveaux domaines de réglages : `notifications`, `archives`, `ddns`, puis `resolver`, `updates`, `ipv6` (ajoutés à `DOMAINS` du registre, nommage de la section 10 de l'architecture). Les seuils qui lèvent une alerte vont dans `[settings.checks]`. Les entrées écrites par un écran dédié (canaux, destinations, rôles DNS) sont refusées par `PUT /admin/settings`, comme celles du RPZ.
 - Secrets dans `cluster.toml [secrets]`, chiffrés par la clé maître, jamais renvoyés par l'API (booléens « défini »), masqués dans les plans, l'audit et les journaux.
 - Chaque nouvelle alerte a sa clé de message (`alert.*`) en anglais et en français, et figure dans la table des alertes de la section 15 de l'architecture.
 - Tests : les trois niveaux d'AGENTS.md. Le niveau unitaire n'ouvre aucun réseau : les transports sont injectés et remplacés par des faux en mémoire.
-- Le « nœud de service » est celui de la décision 1 du 13.1 (premier nœud en ligne de l'ordre d'envoi) : il fait aussi ce qui ne doit être fait qu'une fois dans le cluster (vérification des versions disponibles, publication MQTT).
+- Le « nœud de service » est celui de la décision 1 du 13.1 (premier nœud en ligne de l'ordre d'envoi) : il fait aussi ce qui ne doit être fait qu'une fois dans le cluster (vérification des versions disponibles).
 
 ### 13.1 Notifications sortantes (point 56)
 
@@ -1216,96 +1216,9 @@ Chaque nœud observe ses voisins et ses baux DHCPv6 ; l'API fusionne par `(mac, 
 - Démons : named réel avec zone directe et zone inverse IPv6 dynamiques, application du plan, `ptr_mismatch` refermée.
 - Labo : le client du labo en SLAAC sur le réseau du labo (préfixe de documentation annoncé par radvd sur un nœud), adresses temporaires activées (`use_tempaddr=2`) : observation, classement après simulation du temps (horodatages injectés), création des AAAA et PTR de l'adresse stable seulement.
 
-### 13.8 Intégration Home Assistant (point 63)
+### 13.8 Intégration Home Assistant (point 63) : retirée
 
-**Besoin**
-
-Le webhook du 13.1 pousse les alertes vers Home Assistant. Il manque l'état continu : HA Kea, alertes ouvertes par gravité, baux, occupation des pools, réplication, et la présence d'appareils choisis à partir de leurs baux et de leurs traces sur le réseau, pour s'en servir dans des tableaux et des automatisations.
-
-**Ce qui existe et sur quoi on s'appuie**
-
-- Préréglage Home Assistant du webhook (`notify/transports/webhook.py`, 13.1) ; nœud de service unique pour l'envoi (13.1, décision 1).
-- `GET /dashboard/summary` donne déjà HA, pools, zones, D2 et le compte des alertes ; `GET /nodes/replication` l'état de la réplication.
-- Pas de jeton d'API aujourd'hui : l'API ne connaît que la session par cookie et CSRF (architecture, sections 16 et 17).
-- Observations de voisins du 13.7.
-
-**Faits vérifiés** (sources lues le 2026-10-28)
-
-- Intégration REST de Home Assistant : `rest:` lit plusieurs capteurs depuis une seule ressource, en-têtes libres (jeton `Bearer` gardé dans `secrets.yaml`), `verify_ssl` (booléen), `scan_interval` 30 s par défaut, `value_template`, `json_attributes`, `json_attributes_path` ([HA, RESTful Sensor](https://www.home-assistant.io/integrations/sensor.rest/)).
-- MQTT discovery : sujet `<discovery_prefix>/<component>/[<node_id>/]<object_id>/config`, préfixe `homeassistant` ; découverte par appareil `homeassistant/device/<object_id>/config` avec `dev`, `o` et les entités sous `cmps` ; message de naissance `online` / `offline` sur `homeassistant/status`, sur lequel republier la découverte ; HA recommande cette republication plutôt que des configurations retenues (« ghost entities ») ; une configuration vide retenue supprime l'entité ([HA, MQTT](https://www.home-assistant.io/integrations/mqtt/)). `device_tracker` MQTT : charges `home` / `not_home`, `source_type` `router` parmi `gps`, `router`, `bluetooth`, `bluetooth_le` ([HA, MQTT device tracker](https://www.home-assistant.io/integrations/device_tracker.mqtt/)).
-- Intégration Python propre (`custom_components`) : HA recommande un coordinateur, une interrogation pour toutes les entités, et le push quand l'API le permet ([HA, Fetching data](https://contributors.home-assistant.io/core/integrations/fetching-data/)).
-- Client MQTT Python : `paho-mqtt` 2.1.0, licence « EPL-2.0 OR BSD-3-Clause » ([PyPI](https://pypi.org/project/paho-mqtt/)), paquet Debian `python3-paho-mqtt` 2.1.0-1 dans trixie.
-
-**Décisions**
-
-1. Deux chemins dans la première version, sans intégration Python à maintenir :
-   - REST : un point d'entrée en lecture `GET /integrations/homeassistant/state`, conçu pour `rest:` (une requête, tous les capteurs), avec un jeton d'API dédié ;
-   - MQTT discovery (option) : le nœud de service publie un appareil « Pelagos » et ses entités sur le courtier de l'utilisateur (Mosquitto de HA en général), et les traceurs de présence choisis comme `device_tracker` `source_type: router`.
-   Une intégration `custom_components` (HACS) n'est pas faite : elle suit le rythme des versions de HA ; à reconsidérer si REST et MQTT ne suffisent pas.
-2. Jetons d'API : livrés par le point 70 (section 9, « Jetons d'API »), avec le préfixe `pel_` et des droits d'écriture possibles ; ce qui suit était la proposition initiale. `Authorization: Bearer pgt_<id>_<secret>` ; le secret (32 octets aléatoires) n'est montré qu'une fois ; `cluster.toml [[api_tokens]]` garde `id`, `name`, l'empreinte SHA-256 du secret (aléa suffisant, pas besoin d'argon2 à chaque requête), `permissions`, `cidrs` autorisés, `expires_at`, `created_by` ; dernier usage gardé par nœud, non répliqué. Un jeton n'appelle que des `GET`, pas de CSRF, et ne peut porter que des permissions de lecture ; le préréglage Home Assistant ne porte que la nouvelle permission `read:integrations`, qui n'ouvre que les routes `/integrations/*`.
-3. Contenu publié (le même en REST et en MQTT) :
-   - HA Kea par moteur et par relation : état local et du pair, `communication-interrupted` ;
-   - alertes ouvertes : nombre par gravité, la plus grave (titre rendu) ;
-   - baux actifs par famille, occupation de chaque pool en pourcentage (sujets stables `subnet_<id>`) ;
-   - réplication : pairs en ligne, retard de configuration et d'audit ;
-   - DDNS : erreurs D2 récentes, reprise (13.3) ;
-   - résolveur (13.5) : p95, SERVFAIL ;
-   - version de Pelagos, mise à jour disponible (13.6).
-   Les entités MQTT ont `availability` sur `pelagos/<cluster>/status` (`online`, `offline` par le testament MQTT du nœud expéditeur) ; un relais par un autre nœud republie `online`.
-4. Présence : seulement pour les appareils listés (`integrations.homeassistant.trackers` : MAC ou hôte, nom, icône), jamais pour tout le réseau. Un appareil est `home` quand l'un de ces signes date de moins de `away_after_seconds` (600) : paquet DHCP reçu (bail renouvelé, `cltt`), entrée de voisin IPv4 ou IPv6 joignable sur un nœud ou chez le routeur (13.7), requête DNS de son adresse dans le journal des requêtes si l'administrateur l'a activé. Un bail encore valide sans autre signe ne suffit pas (un bail dure des heures). Attributs publiés : `ip`, `ipv6`, `hostname`, `mac`, `last_seen`, `source`.
-5. Pas de commande depuis HA dans la première version : lecture seule. Les actions (acquitter, silence) restent dans l'interface ; un service MQTT d'acquittement pourra venir ensuite avec un jeton à permission d'écriture limitée.
-6. MQTT par `paho-mqtt` (dépendance ajoutée par le lot contrat ; sous licence BSD-3-Clause au choix, compatible Apache-2.0) : MQTT 3.1.1 ou 5, TLS, identifiant et mot de passe, QoS 1 pour les états, états retenus (dernier état connu à la reconnexion de HA), découverte non retenue republiée à chaque `online` de `homeassistant/status` et à la connexion.
-
-**Écrans**
-
-- Administration, Intégrations, carte Home Assistant : mode REST (créer un jeton, YAML prêt à coller avec l'URL du nœud et les capteurs), mode MQTT (courtier, port, TLS, identifiants, préfixe de découverte, Tester, état de la connexion et nœud expéditeur), liste des traceurs de présence (ajout depuis la vue Hôtes ou par MAC).
-- Administration, Jetons d'API : liste (nom, permissions, réseaux autorisés, échéance, dernier usage par nœud), création (secret montré une fois), révocation.
-- Vue Hôtes : action « Suivre la présence dans Home Assistant ».
-
-**API**
-
-| Méthode, chemin | Permission | Requête | Réponse |
-| --- | --- | --- | --- |
-| `GET /integrations/homeassistant/state` | `read:integrations` (jeton ou session) | | `{"cluster","generated_at","ha": [{"engine","relationship","local_state","partner_state","interrupted"}],"alerts": {"critical","warning","info","top"},"leases": {"v4","v6"},"pools": [{"key","subnet","percent"}],"replication": {"peers_online","peers_total","lag_seconds"},"ddns": {...},"resolver": {...},"version": {"installed","available"},"trackers": [{"key","name","home","last_seen","ip","ipv6","hostname","source"}]}` |
-| `GET /admin/integrations` | `admin:integrations` | | réglages HA, état MQTT (secrets en booléens) |
-| `PUT /admin/integrations/homeassistant` | `admin:integrations` | réglages, `trackers`, `secrets` | idem |
-| `POST /admin/integrations/homeassistant/test` | `admin:integrations` | réglages MQTT enregistrés ou non | `{"ok","node_id","error"?}` |
-| `GET /admin/api-tokens` | `admin:integrations` | | `{"items": [{"id","name","permissions","cidrs","expires_at","created_by","last_used": {node_id: ts}}]}` |
-| `POST /admin/api-tokens` | `admin:integrations` | `{"name","permissions","cidrs"?,"expires_at"?}` | `201 {"token"}` (une seule fois) et la ligne |
-| `DELETE /admin/api-tokens/{id}` | `admin:integrations` | | `204` |
-
-Nouvelles permissions `read:integrations` (dans aucun rôle humain par défaut) et `admin:integrations` (rôle administrateur). Audit : `admin.api_token.add|delete`, `admin.integrations.*` ; l'usage d'un jeton n'est pas audité par requête (une ligne par jeton et par jour au plus : premier usage). Limitation de débit par jeton (60 requêtes par minute). Architecture, section 16 : le jeton est un second mode d'authentification à côté de la session.
-
-**Réglages**
-
-`[settings.integrations]` (nouveau domaine) : `homeassistant_mqtt_enabled` (faux), `homeassistant_publish_seconds` (30), `homeassistant_away_after_seconds` (600), `homeassistant_discovery_prefix` (`"homeassistant"`), `homeassistant_topic_prefix` (`"pelagos"`). Écrit par l'écran : `integrations.homeassistant.mqtt` (hôte, port, TLS, identifiant), `integrations.homeassistant.trackers`, `api_tokens`. Secrets : `integrations/mqtt/password`, CA en clair (pas un secret).
-
-**Plusieurs nœuds**
-
-REST : chaque nœud répond avec la vue de cluster (agrégée comme `alerts.list`) ; l'utilisateur pointe HA vers un nœud, ou vers les deux avec deux ressources, et la documentation montre comment n'en garder qu'une. MQTT : seul le nœud de service publie ; au relais, le nouveau publie `online`, la découverte et tous les états ; une coupure entre nœuds peut faire publier les deux côtés, sans dommage (mêmes états, mêmes identifiants uniques).
-
-**Sécurité**
-
-- Jeton : secret aléatoire de 256 bits, empreinte seule stockée, réseaux autorisés (défaut : réseaux privés), échéance optionnelle, révocation immédiate répliquée, limitation de débit ; refus de tout verbe autre que `GET` ; jamais accepté sur `/repl/*`.
-- Le point d'entrée HA ne publie ni secret ni détail brut d'alerte, et la présence seulement des appareils listés.
-- MQTT : TLS recommandé, avertissement sans TLS hors adresse de bouclage, identifiants en secret, aucun abonnement autre que `homeassistant/status`.
-
-**Pannes**
-
-| Panne | Comportement |
-| --- | --- |
-| Courtier injoignable | Nouvel essai avec délai croissant ; état dans l'écran ; alerte `integration_failed` (warning) après `notification_failure_warning_minutes` |
-| Nœud expéditeur tombé | Testament MQTT : entités `unavailable` jusqu'au relais par le nœud suivant |
-| HA redémarre | Republication de la découverte sur `online` ; états retenus déjà là |
-| Jeton révoqué ou expiré | `401` ; HA montre les capteurs indisponibles |
-| Nœud consulté hors ligne (REST) | HA ne lit plus rien ; documenté (second nœud en secours) |
-
-**Tests**
-
-- Unitaires : jetons (création, empreinte, réseaux, échéance, verbes refusés, débit, révocation répliquée) ; forme de l'état publié ; présence (signes combinés, délai, bail seul insuffisant) ; messages de découverte MQTT (sujets, `cmps`, `unique_id`, disponibilité) contre un faux client ; relais et republication ; API.
-- Démons : courtier Mosquitto local lancé par une fixture si le binaire est présent (sinon sauté) : connexion, découverte, états, testament à l'arrêt du collecteur.
-- Labo : conteneurs Home Assistant et Mosquitto sur la VM Docker du labo (scénario `tests/lab/test_homeassistant_lab.py`) : configuration REST et MQTT appliquée par l'API de HA, entités créées, HA Kea cassée puis réparée vue dans HA, présence du client du labo (interface DHCP montée puis coupée) qui passe `home` puis `not_home`.
-- Documentation : `docs/user/home-assistant.md` (YAML `rest:`, réglages MQTT, automatisation sur le webhook du 13.1, exemple de carte), relue en suivant les pas dans le conteneur du labo.
+Retirée le 2026-10-30 par l'utilisateur : trop spécifique. Les lots H2 à H5 (état et présence, publication MQTT, écran Intégrations, documentation et labo Home Assistant) sont abandonnés et aucun code Home Assistant n'est prévu. Restent livrés et maintenus : le préréglage Home Assistant du webhook de notification (13.1) et les jetons d'API (point 70, section 9), utilisables par tout outil d'automatisation, Home Assistant compris (`rest:` avec un jeton en lecture).
 
 ### 13.9 Lots d'implémentation des points 56 à 58
 
@@ -1371,14 +1284,10 @@ Mêmes règles qu'en 13.9 : un lot = un agent, un worktree, ses tests, poussé a
 | U5 | API des mises à jour (`/admin/updates*`) | WP-API-AUTH | C3, U3 |
 | U6 | Écran Mises à jour (disponible, aperçu, déroulé qui survit au redémarrage, paquets des moteurs, historique), mise à jour de `docs/user/upgrade.md` | WP-FRONTEND | C3 (factice), U5 |
 | U7 | Démons et labo : déroulé sur deux collecteurs, `test_upgrade_ui_lab.py` (deb amd64 et arm64, paquet cassé et retour, BIND de la distribution), variante rpm | WP-LAB-E2E | U2 à U5 |
-| C4 | Contrat de la 0.2.4 : jetons d'API (section 16 de l'architecture), domaine `integrations`, permissions `read:integrations` et `admin:integrations`, dépendance `paho-mqtt` (`make lock`), alerte `integration_failed`, routes `/hosts/ipv6/plan` et `/integrations/*` | contrat, WP-CORE | |
+| C4 | Contrat de la 0.2.4 : jetons d'API (section 16 de l'architecture), route `/hosts/ipv6/plan` | contrat, WP-CORE | |
 | V4 | Plans IPv6 : AAAA et PTR de la sélection, remplacement de préfixe, création de la zone inverse proposée | WP-API-AUTH, WP-BIND | C4, V2 |
 | V5 | Sélection et plan dans l'onglet IPv6, partie IPv6 de la fiche d'hôte ; labo IPv6 (radvd, client SLAAC avec adresses temporaires) | WP-FRONTEND, WP-LAB-E2E | V4 |
 | H1 | Jetons d'API : authentification `Bearer`, empreintes, réseaux, échéance, débit, verbes, API `/admin/api-tokens` | WP-API-AUTH | C4 |
-| H2 | État Home Assistant et présence (`GET /integrations/homeassistant/state`, signes de présence depuis baux et voisins) | WP-API-AUTH, WP-COLLECTOR | C4, H1, V1 |
-| H3 | Publication MQTT : client `paho-mqtt`, découverte par appareil, traceurs, disponibilité et testament, relais par le nœud de service | WP-COLLECTOR, WP-CORE | C4, H2 |
-| H4 | Écrans Intégrations et Jetons d'API, action « Suivre la présence » | WP-FRONTEND | C4 (factice), H1 à H3 |
-| H5 | `docs/user/home-assistant.md`, démons (Mosquitto) et labo (conteneurs HA et Mosquitto) | WP-LAB-E2E | H1 à H3 |
 | C5 | Contrat de la 0.3.0 : scope `kea.migration`, état `kea.migration` de `cluster.toml`, route `/repl/v1/kea/leases`, étapes de pair de l'assistant, réglages `kea.migration_*` | contrat, WP-CORE | K1 |
 | K3 | Préparation de la migration : archive, téléchargement des paquets, configurations 3.x posées à côté, état noté (paquets et versions exactes) | WP-INSTALLER, WP-KEA | C5 |
 | K4 | Temps 1 et retour du temps 1 : maintenance HA, installation ISC sur le standby, validation réelle des deux configurations, retour en 2.6 du standby | WP-INSTALLER, WP-KEA | K3 |
@@ -1390,7 +1299,7 @@ Ordre et releases proposés (la 0.2.1 en cours garde les correctifs des points 6
 
 - **0.2.2** : C2 ; puis en parallèle R1, R2, K1, V1 ; puis R3, K2, V2 ; puis R4, V3, R5. Résolveur complet, analyse de migration Kea en lecture seule (utile tout de suite : elle dit ce qui casserait en production), contrôles IPv6.
 - **0.2.3** : C3 ; U1 ; U2 ; U3 ; puis U4, U5 en parallèle ; U6 ; U7. Mise à jour depuis l'interface et paquets des moteurs. La 0.2.3 s'installe encore par `deploy-prod.sh` ; les suivantes peuvent passer par l'interface.
-- **0.2.4** : C4 ; puis H1, V4 en parallèle ; H2 ; H3, V5 ; H4 ; H5. Propositions IPv6 et Home Assistant.
+- **0.2.4** : C4 ; puis H1, V4 en parallèle ; V5. Propositions IPv6. H1 a été livré plus tôt par le point 70 ; H2 à H5 (Home Assistant) sont retirés (13.8).
 - **0.3.0** : C5 ; K3 ; K4 ; K5 ; K6 et K7. Migration Kea 3.x. Le numéro mineur change parce que la release change la façon de faire tourner Kea en production (série ISC par défaut, paquets remplacés) ; la production passe en Kea 3.2 avec cette release, au moment choisi par l'utilisateur.
 
 ### 13.11 Points 59 à 63 : décisions
@@ -1418,9 +1327,5 @@ Action de l'utilisateur avant la 0.2.3 (point 61) : générer la clé Ed25519 de
 | 62 | Sources des adresses observées | Table des voisins des nœuds, active ; baux DHCPv6 si le module est actif (source OPNsense retirée en 0.2.3, point 71) |
 | 62 | Exclusion des adresses temporaires | Proposition seulement pour EUI-64 ou adresse vue plus de 3 jours ; temporaires jamais proposées |
 | 62 | Création automatique ou par plan | Toujours par plan choisi hôte par hôte ; pas d'automatique dans la première version |
-| 63 | Mécanisme | API en lecture avec jeton dédié (`rest:`) et MQTT discovery en option ; pas d'intégration Python propre |
-| 63 | Courtier MQTT | Celui de l'utilisateur (Mosquitto de Home Assistant), TLS recommandé, identifiant dédié |
-| 63 | Capteurs en premier | HA Kea, alertes ouvertes par gravité, baux, occupation des pools, réplication, DDNS, résolveur, version |
-| 63 | Présence | Seulement les appareils listés ; absent après 10 min sans paquet DHCP ni trace de voisin |
-| 63 | Jetons d'API | Généraux (utiles hors Home Assistant), lecture seule dans la première version, réseaux privés par défaut |
-| tous | Ordre des releases | 0.2.2 résolveur, analyse Kea, contrôles IPv6 ; 0.2.3 mises à jour ; 0.2.4 IPv6 et Home Assistant ; 0.3.0 migration Kea |
+| 63 | Intégration Home Assistant | Retirée le 2026-10-30 (trop spécifique) : ni état ni présence, ni MQTT, ni écran Intégrations. Restent le préréglage webhook (13.1) et les jetons d'API généraux (point 70) |
+| tous | Ordre des releases | 0.2.2 résolveur, analyse Kea, contrôles IPv6 ; 0.2.3 mises à jour ; 0.2.4 IPv6 (Home Assistant retiré) ; 0.3.0 migration Kea |

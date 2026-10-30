@@ -395,11 +395,11 @@ Two fields read like health but are not:
 
 - `GET /api/v1/health` answers `"degraded"` only while a node syncs its
   replication after a start; it says nothing about BIND or Kea.
-- `engines.kea4.degraded` (and `kea6`) in the dashboard summary and
-  `GET /api/v1/capabilities` names the Kea write path: true when
-  `subnet_cmds` or `host_cmds` is missing (Kea 2.6 from the distribution) and
-  Pelagos edits the whole configuration with `config-set`. It is a
-  capability, not a fault.
+- `engines.kea4.config_write_only` (and `kea6`) in the dashboard summary
+  and `GET /api/v1/capabilities` names the Kea write path: true when
+  `subnet_cmds` or `host_cmds` is missing (Kea 2.6 from the distribution)
+  and Pelagos edits the whole configuration with `config-set`. It is a
+  capability, not a fault; before 0.3.0 the field was called `degraded`.
 
 `scripts/examples/pelagos-metrics.py` (Python standard library only) reads
 these three routes and prints the Prometheus text format, for the

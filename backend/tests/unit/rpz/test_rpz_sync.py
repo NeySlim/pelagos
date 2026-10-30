@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import errno
 import shutil
 from pathlib import Path
 from typing import Any
@@ -280,6 +281,18 @@ def test_a_write_error_is_worded_without_the_temp_file(node: Node) -> None:
     cfg = model.config(node.settings)
     found = sync.findings(model.resolve(node.settings), node.state(), cfg, NOW)
     assert found[0]["error_message"] == message
+
+
+def test_a_full_disk_or_a_missing_tool_is_not_called_a_permission_problem(node: Node) -> None:
+    node.subscribe()
+    node.responses.append(OSError(errno.ENOSPC, "No space left on device", str(node.env.rpz_dir / "tmpx")))
+    node.run()
+    message = node.state()["subs"]["mine"]["error_message"]
+    assert message["params"]["reason"]["key"] == "permission.errno.no_space"
+    node.responses.append(FileNotFoundError(2, "No such file or directory", "/usr/bin/named-checkzone"))
+    node.run(force=True)
+    message = node.state()["subs"]["mine"]["error_message"]
+    assert message["key"] == "rpz.update_failed" and message["params"]["path"] == "/usr/bin/named-checkzone"
 
 
 def test_other_nodes_and_disabled_subscriptions_are_left_alone(node: Node) -> None:

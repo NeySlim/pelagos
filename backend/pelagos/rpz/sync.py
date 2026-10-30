@@ -7,6 +7,7 @@ did not shrink past `rpz.shrink_percent`; the old file stays and the failure is 
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import io
 import json
@@ -195,7 +196,7 @@ class Syncer:
                 self._update(sub, entry, cfg, force or bool(only), report, accept_shrink and bool(only))
             except OSError as exc:  # one list never stops the others
                 log.exception("rpz %s failed", sub.id)
-                worded = permguard.apply_error(self._public_error(exc))
+                worded = self._worded(exc)
                 self._fail(entry, messages.render(worded), cfg, report, sub.id, error_message=worded)
             except Exception as exc:
                 log.exception("rpz %s failed", sub.id)
@@ -385,6 +386,18 @@ class Syncer:
             next_check=int(now + min(RETRY_BASE * 2 ** (failures - 1), RETRY_MAX)),
         )
         report.failed[sub_id] = message
+
+    def _worded(self, exc: OSError) -> Message:
+        """A permission-style message only for a write in the RPZ folder; a missing tool or any
+        other path is reported as it is."""
+        public = self._public_error(exc)
+        path = Path(str(public.filename)) if public.filename else None
+        inside = path is not None and (path == self.env.rpz_dir or self.env.rpz_dir in path.parents)
+        if public.errno == errno.ENOENT and not inside:
+            return messages.msg(
+                "rpz.update_failed", error=public.strerror or str(public), path=str(path or "-")
+            )
+        return permguard.apply_error(public)
 
     def _public_error(self, exc: OSError) -> OSError:
         """`exc` naming the RPZ folder instead of a throwaway temp file inside it."""

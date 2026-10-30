@@ -136,8 +136,225 @@ def _options(raw: Any) -> dict[str, Any]:
     return out
 
 
-# Time 1 of the migrate phase and its return (batch K4); K5 adds the window and time 3.
+# The migrate phase (K4 time 1, K5 the window and time 3) and the returns.
 TURN_ROLES = ("backup", "standby")
+FAMILY_OF = {"kea4": "4", "kea6": "6"}
+Row = tuple[str, dict[str, Any], dict[str, Any], str, str]  # step, node, details, summary, stage
+
+
+def _families(source: dict[str, Any], dest: dict[str, Any]) -> list[str]:
+    return [FAMILY_OF[e] for e in source["engines"] if e in FAMILY_OF and e in dest["engines"]]
+
+
+def _window(
+    base: dict[str, Any],
+    server: dict[str, Any],
+    taker: dict[str, Any],
+    others: list[dict[str, Any]],
+    restore: bool,
+) -> list[Row]:
+    """Time 2: `server` stops and leaves its compacted leases, `taker` (stopped, files ready) takes
+    them and starts alone until it is partner-down; the other nodes take the same leases."""
+    w = "window"
+    rows: list[Row] = [
+        (kmc.H_STOP, server, {"export_leases": True, "outage_start": True}, "Kea stopped, leases exported", w)
+    ]
+    for node in [*others, taker]:
+        fam = _families(server, node)
+        src = {"from_node": server["node_id"], "from_name": server["name"], "families": fam}
+        rows += [
+            (kmc.D_FETCH_LEASES, node, src, f"{server['name']}'s lease file copied over mTLS", w),
+            (kmc.H_LEASES_IN, node, src, f"{server['name']}'s lease file in place", w),
+        ]
+    start = {"engines": taker["engines"], **({"restore": True} if restore else {})}
+    rows += [
+        (kmc.H_START, taker, start, "Kea started alone", w),
+        (kmc.D_WAIT_PARTNER_DOWN, taker, {"outage_end": True}, "partner-down and leases answering", w),
+    ]
+    for node in others:
+        rows.append(
+            (
+                kmc.H_START,
+                node,
+                {"engines": node["engines"], **({"restore": True} if restore else {})},
+                "Kea started",
+                w,
+            )
+        )
+    return rows
+
+
+def _settle(nodes: list[dict[str, Any]], waits: list[dict[str, Any]], stage: str) -> list[Row]:
+    rows: list[Row] = [(kmc.D_WAIT_HA, n, {}, "HA back to its normal state", stage) for n in waits]
+    rows += [(kmc.H_DELAYS, n, {}, "HA detection delays back", stage) for n in nodes]
+    return rows
+
+
+def _migrate_rows(
+    base: dict[str, Any],
+    primary: dict[str, Any],
+    standby: dict[str, Any],
+    backups: list[dict[str, Any]],
+    stage: Any,
+) -> list[Row]:
+    series = base["series"]
+    turns = [*backups, standby]
+    rows: list[Row] = []
+    if stage == "primary":
+        # Resume of a time 3 that failed: the standby serves alone, the primary is done again.
+        rows.append((kmc.H_STOP, primary, {}, "Kea stopped", "primary"))
+    else:
+        rows.append(
+            (
+                kmc.H_MAINTENANCE,
+                primary,
+                {"action": "start"},
+                "HA maintenance: serves alone while its partner changes",
+                "standby",
+            )
+        )
+        for node in turns:
+            rows += [
+                (kmc.H_STOP, node, {}, "Kea stopped", "standby"),
+                (
+                    kmc.H_INSTALL,
+                    node,
+                    {"direction": "target"},
+                    f"Kea {series} installed, files checked",
+                    "standby",
+                ),
+                (
+                    kmc.H_VALIDATE_PARTNER,
+                    node,
+                    {"partner": primary["node_id"], "partner_name": primary["name"]},
+                    f"{primary['name']}'s Kea {series} files checked with its daemons",
+                    "standby",
+                ),
+            ]
+        rows += _window(base, primary, standby, backups, restore=False)
+    rows += [
+        (
+            kmc.H_INSTALL,
+            primary,
+            {"direction": "target"},
+            f"Kea {series} installed, files checked",
+            "primary",
+        ),
+        (
+            kmc.H_START,
+            primary,
+            {"engines": primary["engines"]},
+            "Kea started, syncs from its partner",
+            "primary",
+        ),
+    ]
+    rows += _settle([standby, *backups, primary], [primary, standby], "primary")
+    rows += [
+        (kmc.H_FINISH, n, {}, "files only the way forward needed removed", "primary")
+        for n in [*turns, primary]
+    ]
+    return rows
+
+
+def _return_rows(
+    base: dict[str, Any],
+    primary: dict[str, Any],
+    standby: dict[str, Any],
+    backups: list[dict[str, Any]],
+    stage: Any,
+    touched: set[str],
+) -> list[Row]:
+    """Back to the previous series. Before time 3 (K4): the touched standby and backups return while
+    the primary, still on it, serves or starts again. From time 3 on, the whole pair returns with the
+    same short window: the node still serving changes last."""
+    old = base["from_series"]
+    turns = [*backups, standby]
+    if stage not in ("primary", "done"):
+        rows: list[Row] = []
+        for node in turns:
+            if node["node_id"] not in touched:
+                continue
+            rows += [
+                (kmc.H_STOP, node, {}, "Kea stopped", "standby"),
+                (
+                    kmc.H_INSTALL,
+                    node,
+                    {"direction": "previous"},
+                    f"Kea {old} packages and files back",
+                    "standby",
+                ),
+                (kmc.H_START, node, {"engines": node["engines"], "restore": True}, "Kea started", "standby"),
+            ]
+        return [
+            *rows,
+            (
+                kmc.H_START,
+                primary,
+                {"engines": primary["engines"], "restore": True},
+                "Kea running",
+                "standby",
+            ),
+            (
+                kmc.H_MAINTENANCE,
+                primary,
+                {"action": "cancel"},
+                "HA maintenance over, pair back to normal",
+                "standby",
+            ),
+        ]
+    back = {"direction": "previous"}
+    if stage == "done":
+        # The pair runs the target: the primary serves while its standby returns first.
+        server, taker, first = primary, standby, turns
+        rows = [(kmc.H_MAINTENANCE, primary, {"action": "start"}, "HA maintenance: serves alone", "standby")]
+    else:
+        # Time 3 failed: the standby serves alone (partner-down), the primary returns first.
+        server, taker, first = standby, primary, [primary, *backups]
+        rows = []
+    for node in first:
+        short = {"short_delays": node is taker}
+        rows += [
+            (kmc.H_STOP, node, {}, "Kea stopped", "standby"),
+            (kmc.H_INSTALL, node, {**back, **short}, f"Kea {old} packages and files back", "standby"),
+        ]
+    rows += _window(base, server, taker, [n for n in first if n is not taker], restore=True)
+    rows += [
+        (kmc.H_INSTALL, server, back, f"Kea {old} packages and files back", "primary"),
+        (kmc.H_START, server, {"engines": server["engines"], "restore": True}, "Kea started", "primary"),
+    ]
+    rows += _settle([taker, *[n for n in first if n is not taker], server], [primary, standby], "primary")
+    return rows
+
+
+def _single_rows(
+    base: dict[str, Any], phase: str, nodes: list[dict[str, Any]], stage: Any, touched: set[str]
+) -> list[Row]:
+    """Nodes without HA: each one stops, changes and starts; its outage is that restart."""
+    rows: list[Row] = []
+    for node in nodes:
+        if phase == kmc.MIGRATE:
+            direction, what = "target", f"Kea {base['series']} installed, files checked"
+            start = {"engines": node["engines"]}
+        else:
+            if stage != "done" and node["node_id"] not in touched:
+                continue
+            direction, what = "previous", f"Kea {base['from_series']} packages and files back"
+            start = {"engines": node["engines"], "restore": True}
+        rows += [
+            (kmc.H_STOP, node, {"outage_start": True}, "Kea stopped", "window"),
+            (kmc.H_INSTALL, node, {"direction": direction}, what, "window"),
+            (kmc.H_START, node, start, "Kea started", "window"),
+            (
+                kmc.D_WAIT_PARTNER_DOWN,
+                node,
+                {"outage_end": True, "single": True},
+                "leases answering",
+                "window",
+            ),
+        ]
+        if phase == kmc.MIGRATE:
+            rows.append((kmc.H_FINISH, node, {}, "files only the way forward needed removed", "window"))
+    return rows
 
 
 def _switch_plan(
@@ -148,61 +365,31 @@ def _switch_plan(
     request: dict[str, Any],
     created_by: str,
 ) -> Plan:
+    stage = request.get("stage")
+    singles = [n for n in nodes if n["role"] == "single"]
     primaries = [n for n in nodes if n["role"] == "primary"]
-    turns = [n for r in TURN_ROLES for n in nodes if n["role"] == r]
-    if len(primaries) != 1 or not turns:
-        raise ValueError("this release migrates one HA pair (a primary and its standby or backups) only")
-    primary = primaries[0]
+    standbys = [n for n in nodes if n["role"] == "standby"]
+    backups = [n for n in nodes if n["role"] == "backup"]
     raw = request.get("touched")
-    touched = set(raw) if isinstance(raw, list) else {n["node_id"] for n in turns}
-    rows: list[tuple[str, dict[str, Any], dict[str, Any], str]] = []
-    if phase == kmc.MIGRATE:
-        rows.append(
-            (
-                kmc.H_MAINTENANCE,
-                primary,
-                {"action": "start"},
-                "HA maintenance: serves alone while its partner changes",
-            )
-        )
-        for node in turns:
-            rows += [
-                (kmc.H_STOP, node, {}, "Kea stopped"),
-                (
-                    kmc.H_INSTALL,
-                    node,
-                    {"direction": "target"},
-                    f"Kea {base['series']} installed, files checked",
-                ),
-                (
-                    kmc.H_VALIDATE_PARTNER,
-                    node,
-                    {"partner": primary["node_id"], "partner_name": primary["name"]},
-                    f"{primary['name']}'s Kea {base['series']} files checked with its daemons",
-                ),
-            ]
+    touched = set(raw) if isinstance(raw, list) else {n["node_id"] for n in nodes if n["role"] != "primary"}
+    if singles and len(singles) != len(nodes):
+        raise ValueError("this release migrates one HA pair or nodes without HA, not both at once")
+    if singles:
+        rows = _single_rows(base, phase, singles, stage, touched)
+    elif len(primaries) != 1 or len(standbys) != 1:
+        raise ValueError("this release migrates one HA pair (a primary, its standby and its backups) only")
+    elif phase == kmc.MIGRATE:
+        if stage == "window":
+            raise ValueError("a migration stopped in its window is rolled back, not resumed")
+        rows = _migrate_rows(base, primaries[0], standbys[0], backups, stage)
     else:
-        for node in turns:
-            if node["node_id"] not in touched:
-                continue
-            rows += [
-                (kmc.H_STOP, node, {}, "Kea stopped"),
-                (
-                    kmc.H_INSTALL,
-                    node,
-                    {"direction": "previous"},
-                    f"Kea {base['from_series']} packages and files back",
-                ),
-                (kmc.H_START, node, {"engines": node["engines"], "restore": True}, "Kea started"),
-            ]
-        rows += [
-            (kmc.H_START, primary, {"engines": primary["engines"], "restore": True}, "Kea running"),
-            (kmc.H_MAINTENANCE, primary, {"action": "cancel"}, "HA maintenance over, pair back to normal"),
-        ]
+        rows = _return_rows(base, primaries[0], standbys[0], backups, stage, touched)
+    if not rows:
+        raise ValueError("nothing to return: no node changed")
     changes = []
-    for step, node, extra, what in rows:
+    for step, node, extra, what, row_stage in rows:
         node_row = {k: v for k, v in node.items() if k != "node_id"}
-        details = {**base, "stage": "standby", "node": node_row, "engines": node["engines"], **extra}
+        details = {**base, "stage": row_stage, "node": node_row, "engines": node["engines"], **extra}
         after = {"step": step, "details": details, "summary": f"{node['name']}: {what}"}
         changes.append(
             Change(
@@ -601,6 +788,9 @@ def _switch_steps() -> dict[str, Any]:
         kmc.H_INSTALL: lambda env, d, _p: sw.install(env, d),
         kmc.H_VALIDATE_PARTNER: lambda env, d, _p: sw.validate_partner(env, d),
         kmc.H_START: lambda env, d, _p: sw.start(env, d),
+        kmc.H_LEASES_IN: lambda env, d, _p: sw.leases_in(env, d),
+        kmc.H_DELAYS: lambda env, d, plan_id: sw.delays(env, d, plan_id),
+        kmc.H_FINISH: lambda env, d, _p: sw.finish(env, d),
     }
 
 

@@ -41,13 +41,13 @@ def request(phase: str, **over) -> dict:
 
 def test_migrate_plan_is_time_1_on_the_standby(host):  # noqa: F811
     plan = steps.build_plan(host.env, request("migrate"), "admin")
-    assert [c.target for c in plan.changes] == [
+    assert [c.target for c in plan.changes[:4]] == [
         kmc.target(kmc.H_MAINTENANCE, "node-a"),
         kmc.target(kmc.H_STOP, "node-b"),
         kmc.target(kmc.H_INSTALL, "node-b"),
         kmc.target(kmc.H_VALIDATE_PARTNER, "node-b"),
     ]
-    d = [c.after["details"] for c in plan.changes]
+    d = [c.after["details"] for c in plan.changes[:4]]
     assert d[0]["action"] == "start" and d[2]["direction"] == "target" and d[3]["partner"] == "node-a"
     assert all(x["stage"] == "standby" and x["options"]["response_delay_milliseconds"] == 8000 for x in d)
     assert plan.requires_confirmation and plan.summary_message["key"] == "plan.kea_migration.migrate"

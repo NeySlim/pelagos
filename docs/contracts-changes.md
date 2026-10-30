@@ -2381,3 +2381,23 @@ node's turn, checks after the install, automatic rollback, alerts). The collecto
 permission guard without the alerts. WP-INSTALLER: `installer/updates.py` (`journal_errors`).
 WP-FRONTEND: step `permissions` in `updatesLib.js` and the `updates` catalogs (en, fr).
 Affects U5 (the routes call `core.update_rollout` and `core.update_sources`), U6, U7.
+
+## 2026-10-30, 0.3.0 (lot K5): the Kea migration window, time 3 and the return of the pair
+Section 28 and the peer actions of section 13, additive. New peer action `kea.migration.ha`
+(status-get and a one-lease page through fresh connectors, polled by the driver); `kea.migration.leases`
+implemented: only from the record's driver, the copy kept as `leases<family>.received.csv` with its
+sums in `leases<family>.received.json`, `skipped` when the stopped node had no lease file. Steps:
+`kea-mig-stop` merges `.2`, `.1` and the file then runs `kea-lfc` (the merged file when it is
+missing); `kea-mig-install` takes `details.short_delays` (also on `previous`, for the return of a
+migrated pair) and notes the original file; `kea-mig-delays` puts that file back exactly (else the
+two keys) and uses `config-reload` instead of `config-set` and `config-write`, so the operator's file
+keeps its layout; `kea-mig-finish` keeps what the return of the pair needs (`rollback_ready` stays
+true after a migration, as design 13.4 decision 6 requires); `kea-mig-wait-partner-down` checks a
+lease page instead of `lease4-get-all` (bounded on a large lease table). Plan details
+`outage_start`, `outage_end`, `single`, `from_node`, `families`. A migrate plan from `failed` in the
+window is refused (roll back); from time 3 it resumes with time 3. The record ends `migrated`,
+`stage` `done`. WP-INSTALLER: `installer/kea_migration_steps.py`, `installer/kea_migration_switch.py`.
+WP-CORE: `core/kea_migration.py` (`received_name`, `phase_allowed`). WP-API-AUTH:
+`services/kea_migration_phases.py`, `services/kea_migration_window.py`, `services/peer_actions.py`.
+WP-LAB-E2E: `tests/lab/test_kea_migration_window_lab.py`, `tests/lab/dhcp_probe.py`. Affects K6 (the
+wizard shows `outage_seconds`, the `migrated` state and the return of the pair).

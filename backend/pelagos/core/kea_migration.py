@@ -248,6 +248,8 @@ def phase_allowed(migration: dict[str, Any] | None, phase: str) -> str | None:
     if migration is None:
         return "no prepared migration"
     if phase == MIGRATE:
+        if state == FAILED and migration["phase"] == MIGRATE and migration["stage"] == "window":
+            return "the migration stopped in its window: roll it back"
         if state == PREPARED or (state == FAILED and migration["phase"] == MIGRATE):
             return None
         return f"the migration is {state}: migrate needs it prepared"
@@ -318,6 +320,18 @@ def lease_copy_path(var: Path, migration_id: str, family: str) -> Path:
     if family not in FAMILIES:
         raise MigrationStateError(f"invalid family {family!r}")
     return migration_dir(var, migration_id) / f"leases{family}.csv"
+
+
+def received_name(family: str) -> str:
+    """The partner's copy this node fetched (kea.migration.leases), next to its sums in
+    `received_meta_name`; kea-mig-leases-in installs it."""
+    if family not in FAMILIES:
+        raise MigrationStateError(f"invalid family {family!r}")
+    return f"leases{family}.received.csv"
+
+
+def received_meta_name(family: str) -> str:
+    return received_name(family).removesuffix(".csv") + ".json"
 
 
 def open_lease_copy(

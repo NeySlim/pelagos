@@ -1,15 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Helper steps of the Kea 3.x migration that change a node (architecture section 28, batch K4).
+"""Helper steps of the Kea 3.x migration that change a node (architecture section 28, batches K4, K5).
 
 Time 1 (design 13.4 decision 5): `ha-maintenance-start` on the serving peer, Kea stopped on the
 standby, the target packages installed from the cache prepared earlier, the converted files put in
 place and checked by the installed daemons, then the partner's converted files checked by them too.
+Time 2: the primary stops and leaves a compacted copy of its lease files, which replaces the
+standby's. Time 3: the detection delays shortened for the window are put back.
 The return puts the exact 2.6 packages, the saved files, the AppArmor profiles, the dpkg stat
 overrides and the directory modes back, then starts what ran before.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import posixpath
@@ -36,6 +39,9 @@ START_WAIT = 30.0
 # Copies dpkg and rpm leave beside a configuration file they did not overwrite.
 PACKAGE_COPIES = (".dpkg-dist", ".dpkg-old", ".dpkg-new", ".rpmnew", ".rpmsave")
 HA_WAIT_MIN, HA_WAIT_MAX = 120.0, 600.0
+DELAY_KEYS = ("max-response-delay", "max-unacked-clients")
+FAMILY_OF = {"kea4": "4", "kea6": "6"}
+LEASE_HEADER = "address,"  # first column of both memfile formats
 
 
 class SwitchError(RuntimeError):
@@ -117,7 +123,159 @@ def stop(env: Any, details: dict[str, Any]) -> dict[str, Any]:
     running = [u for u in units if env.services.is_active(u)]
     if running:
         raise SwitchError(f"still running after the stop: {', '.join(running)}")
-    return {"stopped": stopped}
+    out: dict[str, Any] = {"stopped": stopped}
+    if details.get("export_leases"):
+        engines = [e for e in details.get("engines") or [] if e in FAMILY_OF]
+        out["leases"] = export_leases(env, mdir, str(details.get("migration_id")), engines)
+    return out
+
+
+# Lease files -------------------------------------------------------------------------------------
+
+
+def lease_file(env: Any, engine: str) -> Path | None:
+    """The memfile lease file of `engine` as its installed configuration names it; None when the
+    leases are not kept in a file (another backend, `persist: false`)."""
+    cfg = _load(env.paths.kea_conf(km.DAEMONS[engine]))
+    db = (cfg.get(mig.ROOTS[engine]) or {}).get("lease-database") or {}
+    if not isinstance(db, dict) or db.get("type", "memfile") != "memfile" or db.get("persist") is False:
+        return None
+    name = str(db.get("name") or f"kea-leases{FAMILY_OF[engine]}.csv")
+    return _root(env, name) if posixpath.isabs(name) else env.paths.kea_lease_dir / name
+
+
+def _lines(path: Path) -> list[str]:
+    try:
+        return path.read_text(errors="replace").splitlines(keepends=True)
+    except FileNotFoundError:
+        return []
+
+
+def _concat(parts: list[Path], dest: Path) -> None:
+    """The lease files in the order Kea loads them (`.2`, `.1`, the file), one header kept: a later
+    line for an address wins, as when Kea reads them."""
+    header: str | None = None
+    with dest.open("w") as out:
+        for part in parts:
+            lines = _lines(part)
+            if lines and lines[0].startswith(LEASE_HEADER):
+                if header is None:
+                    header = lines[0]
+                    out.write(header)
+                elif lines[0] != header:
+                    raise SwitchError(f"{part} has another lease file format than {parts[0]}")
+                lines = lines[1:]
+            out.writelines(line if line.endswith("\n") else line + "\n" for line in lines)
+
+
+def export_leases(env: Any, mdir: Path, migration_id: str, engines: list[str]) -> dict[str, Any]:
+    """With Kea stopped: each lease file and its `.2` / `.1` leftovers compacted by kea-lfc (merged
+    as Kea would read them when kea-lfc is missing), the result left at the copy the partner
+    fetches (`leases<family>.csv`, 0600). Returns {family: {"sha256","size","source"}}."""
+    from pelagos.installer.kea_migration_steps import _sha256
+
+    out: dict[str, Any] = {}
+    for engine in engines:
+        path = lease_file(env, engine)
+        family = FAMILY_OF[engine]
+        if path is None:
+            out[family] = {"skipped": "leases are not kept in a file"}
+            continue
+        parts = [p for p in (Path(f"{path}.2"), Path(f"{path}.1"), path) if p.is_file()]
+        if not parts:
+            out[family] = {"skipped": f"{path} does not exist"}
+            continue
+        work = mdir / "private" / f"lfc{family}"
+        if work.exists():
+            shutil.rmtree(work)
+        work.mkdir(mode=0o700, parents=True)
+        merged = work / "input.csv"
+        _concat(parts, merged)
+        result = _lfc(env, family, work, merged) or merged
+        copy = kmc.lease_copy_path(env.node_paths.var, migration_id, family)
+        tmp = copy.with_name(f".{copy.name}.part")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as f, result.open("rb") as src:
+            shutil.copyfileobj(src, f)
+        os.replace(tmp, copy)
+        shutil.rmtree(work, ignore_errors=True)
+        out[family] = {"sha256": _sha256(copy), "size": copy.stat().st_size, "source": str(path)}
+    return out
+
+
+def _lfc(env: Any, family: str, work: Path, merged: Path) -> Path | None:
+    """kea-lfc over the merged file: it leaves the compacted leases in its `-x` file. None when the
+    tool is missing or fails (the merged file is then the copy, which Kea loads the same way)."""
+    binary = env.binary("kea-lfc")
+    if not binary:
+        return None
+    prev = work / "previous.csv"
+    argv = [binary, f"-{family}", "-x", str(prev), "-i", str(merged), "-o", str(work / "output.csv")]
+    argv += ["-f", str(work / "finish.csv"), "-p", str(work / "lfc.pid"), "-c", str(work / "unused")]
+    res = env.runner.run(argv, privileged=True, check=False, timeout=600)
+    lines = _lines(prev) if res.ok else []
+    return prev if lines and lines[0].startswith(LEASE_HEADER) else None
+
+
+def received_meta(mdir: Path, family: str) -> dict[str, Any]:
+    try:
+        data = json.loads((mdir / kmc.received_meta_name(family)).read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def leases_in(env: Any, details: dict[str, Any]) -> dict[str, Any]:
+    """`kea-mig-leases-in`: the partner's lease copy fetched by this node's service (sum checked again
+    against what the fetch noted) replaces this node's lease file and its `.1` / `.2` leftovers,
+    which go to the migration's private directory. Kea must be stopped here."""
+    from pelagos.installer.kea_migration_steps import _sha256
+
+    mdir = _mdir(env, details)
+    _all_stopped(env)
+    source = str(details.get("from_node") or "")
+    engines = [e for e in details.get("engines") or [] if e in FAMILY_OF]
+    families = [str(f) for f in details.get("families") or []]
+    out: dict[str, Any] = {}
+    for engine in engines:
+        family = FAMILY_OF[engine]
+        if family not in families:
+            continue
+        copy = mdir / kmc.received_name(family)
+        meta = received_meta(mdir, family)
+        if not copy.is_file() or copy.is_symlink():
+            if meta.get("skipped"):
+                out[family] = {"skipped": meta["skipped"]}
+                continue
+            raise SwitchError(f"no lease copy for DHCPv{family} fetched from the partner")
+        if meta.get("from_node") != source:
+            raise SwitchError(f"the DHCPv{family} lease copy does not come from {source}")
+        digest = _sha256(copy)
+        if digest != meta.get("sha256") or copy.stat().st_size != meta.get("size"):
+            raise SwitchError(f"the DHCPv{family} lease copy changed since it was fetched")
+        if not _lines(copy)[:1] or not _lines(copy)[0].startswith(LEASE_HEADER):
+            raise SwitchError(f"the DHCPv{family} lease copy is not a Kea lease file")
+        path = lease_file(env, engine)
+        if path is None:
+            raise SwitchError(f"{engine} keeps no lease file here: the partner's leases cannot be taken")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        keep = mdir / "private" / f"leases{family}-before"
+        keep.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            st = path.stat()
+            mode, uid, gid = st.st_mode & 0o7777, st.st_uid, st.st_gid
+        except OSError:
+            st = path.parent.stat()
+            mode, uid, gid = 0o644, st.st_uid, st.st_gid
+        for old in (path, Path(f"{path}.1"), Path(f"{path}.2")):
+            if old.is_file() and not (keep / old.name).exists():
+                shutil.copy2(old, keep / old.name)
+            if old != path and (old.is_file() or old.is_symlink()):
+                old.unlink()
+        _write_like(path, copy.read_bytes(), mode, uid, gid)
+        env.relabel([path])
+        out[family] = {"path": str(path), "sha256": digest, "size": copy.stat().st_size}
+    return {"leases": out}
 
 
 def _wait_active(env: Any, engine: str, conf: Path, unit: str) -> str:
@@ -466,11 +624,49 @@ def with_standby_delays(cfg: dict[str, Any], engine: str, delay_ms: int) -> dict
     return out
 
 
+def note_delays(mdir: Path, engine: str, cfg: dict[str, Any], original: bytes, shortened: bytes) -> None:
+    """The detection delays of each relationship before they are shortened and the file as it was,
+    for kea-mig-delays (which puts those bytes back while the file is still the shortened one)."""
+    keep = mdir / "private" / f"delays-{engine}.conf"
+    fd = os.open(keep, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(original)
+    state = _state(mdir)
+    saved = state.setdefault("delays", {})
+    saved[engine] = {
+        "relationships": {
+            str(rel.get("this-server-name") or i): {k: rel.get(k) for k in DELAY_KEYS}
+            for i, rel in enumerate(mig.ha_relationships(cfg, engine))
+        },
+        "file": keep.name,
+        "shortened_sha256": hashlib.sha256(shortened).hexdigest(),
+    }
+    _save_state(mdir, state)
+
+
+def shorten_files(env: Any, mdir: Path, engines: list[str], delay_ms: int) -> list[str]:
+    """The installed files of `engines` with the short delays (the return of a migrated pair: the
+    2.6 files just put back), originals noted for kea-mig-delays."""
+    out = []
+    for engine in [e for e in engines if e in HA_ENGINES]:
+        conf = env.paths.kea_conf(km.DAEMONS[engine])
+        cfg = _load(conf)
+        if not mig.ha_relationships(cfg, engine):
+            continue
+        st = conf.stat()
+        data = (json.dumps(with_standby_delays(cfg, engine, delay_ms), indent=2) + "\n").encode()
+        note_delays(mdir, engine, cfg, conf.read_bytes(), data)
+        _write_like(conf, data, st.st_mode & 0o7777, st.st_uid, st.st_gid)
+        env.relabel([conf])
+        out.append(f"{conf}: HA detection shortened to {delay_ms} ms for the window")
+    return out
+
+
 def put_target_files(
-    env: Any, manifest: dict[str, Any], mdir: Path, role: str, delay_ms: int | None
+    env: Any, manifest: dict[str, Any], mdir: Path, short: bool, delay_ms: int | None
 ) -> list[str]:
     """The converted files in place (sums checked against the manifest), their secret files, the
-    group write `config-write` needs; a standby gets the short detection delays."""
+    group write `config-write` needs; the node that must take over alone gets the short delays."""
     from pelagos.installer.kea_migration_steps import _sha256
 
     target = mdir / "private" / "target"
@@ -490,15 +686,18 @@ def put_target_files(
             raise SwitchError(f"{src} changed since the prepare: prepare again")
         engine = item["engine"]
         cfg = json.loads(src.read_text())
-        if role == "standby" and engine in HA_ENGINES and delay_ms:
-            cfg = with_standby_delays(cfg, engine, delay_ms)
         dest = Path(item["path"])
+        data = (json.dumps(cfg, indent=2) + "\n").encode()
+        if short and engine in HA_ENGINES and delay_ms and mig.ha_relationships(cfg, engine):
+            shortened = (json.dumps(with_standby_delays(cfg, engine, delay_ms), indent=2) + "\n").encode()
+            note_delays(mdir, engine, cfg, data, shortened)
+            data = shortened
         try:
             st = dest.stat()
             mode, uid, gid = st.st_mode & 0o7777, st.st_uid, st.st_gid
         except OSError:
             mode, uid, gid = 0o640, None, None
-        _write_like(dest, (json.dumps(cfg, indent=2) + "\n").encode(), mode, uid, gid)
+        _write_like(dest, data, mode, uid, gid)
         out.append(f"{dest} written (Kea {manifest.get('target_version')})")
         out.append(keasetup.ensure_config_writable(env, dest, km.DAEMONS[engine]))
         env.relabel([dest])
@@ -699,10 +898,7 @@ def install(env: Any, details: dict[str, Any]) -> dict[str, Any]:
         added = sorted(set(state.get("apparmor_disabled") or []) | (set(_apparmor_disabled(env)) - already))
         state["apparmor_disabled"] = added
         _save_state(mdir, state)
-        node = details.get("node") if isinstance(details.get("node"), dict) else {}
-        options = details.get("options") if isinstance(details.get("options"), dict) else {}
-        delay = options.get("response_delay_milliseconds")
-        out += put_target_files(env, manifest, mdir, str(node.get("role") or ""), delay)
+        out += put_target_files(env, manifest, mdir, _short(details), _delay(details))
         env.services.daemon_reload()
         out += check_files(env, engines)
         version = manifest.get("target_version")
@@ -717,12 +913,97 @@ def install(env: Any, details: dict[str, Any]) -> dict[str, Any]:
         out += restore_dirs(env, state.get("dirs") or {})
         out += reenable_apparmor(env, state.get("apparmor_disabled") or [])
         out += remove_repo_files(env, manifest)
+        state = _state(mdir)
+        state.pop("delays", None)
+        _save_state(mdir, state)
+        if details.get("short_delays") and _delay(details):
+            out += shorten_files(env, mdir, engines, int(_delay(details) or 0))
         env.services.daemon_reload()
         out += check_files(env, engines, test_flag=False)
         version = next(iter((manifest.get("from_versions") or {}).values()), "")
     else:
         raise ValueError(f"unknown install direction {direction!r}")
     return {"direction": direction, "version": version, "log": out}
+
+
+def _short(details: dict[str, Any]) -> bool:
+    """Whether this node takes over alone in the window: said by the plan, else its standby role."""
+    if "short_delays" in details:
+        return bool(details["short_delays"])
+    node = details.get("node") if isinstance(details.get("node"), dict) else {}
+    return node.get("role") == "standby"
+
+
+def _delay(details: dict[str, Any]) -> int | None:
+    options = details.get("options") if isinstance(details.get("options"), dict) else {}
+    delay = options.get("response_delay_milliseconds")
+    return int(delay) if isinstance(delay, int) and not isinstance(delay, bool) else None
+
+
+def delays(env: Any, details: dict[str, Any], plan_id: str | None = None) -> dict[str, Any]:
+    """`kea-mig-delays` (time 3): the detection delays noted before the window back in each file,
+    `config-reload`, then a wait until the pair is normal again; the HA maintenance window of the
+    node is closed. Nothing else in the files changes."""
+    mdir = _mdir(env, details)
+    state = _state(mdir)
+    saved = state.get("delays") or {}
+    out: dict[str, Any] = {}
+    engines = [e for e in details.get("engines") or [] if e in HA_ENGINES]
+    for engine in engines:
+        ha_maintenance.close(env.node_paths, engine)
+        if engine not in saved:
+            continue
+        conf = env.paths.kea_conf(km.DAEMONS[engine])
+        entry = saved[engine] if isinstance(saved[engine], dict) else {}
+        current = conf.read_bytes()
+        keep = mdir / "private" / str(entry.get("file") or "")
+        if keep.is_file() and hashlib.sha256(current).hexdigest() == entry.get("shortened_sha256"):
+            data = keep.read_bytes()  # untouched since the window: the file exactly as it was
+        else:
+            cfg = _load(conf)
+            for i, rel in enumerate(mig.ha_relationships(cfg, engine)):
+                original = (entry.get("relationships") or {}).get(str(rel.get("this-server-name") or i)) or {}
+                for key in DELAY_KEYS:
+                    if original.get(key) is None:
+                        rel.pop(key, None)
+                    else:
+                        rel[key] = original[key]
+            data = (json.dumps(cfg, indent=2) + "\n").encode()
+        st = conf.stat()
+        _write_like(conf, data, st.st_mode & 0o7777, st.st_uid, st.st_gid)
+        env.relabel([conf])
+        rels = mig.ha_relationships(_load(conf), engine)
+        sock = keasetup.socket_path(env, engine, conf)
+        answer = env.t.kea_command(sock, "config-reload")
+        if answer.get("result") != 0:
+            raise SwitchError(f"{engine} config-reload: {answer.get('text', answer)}")
+        servers = [str(r.get("this-server-name")) for r in rels if r.get("this-server-name")]
+        out[engine] = wait_ha(env, engine, conf, servers) if servers else "reloaded"
+        state = _state(mdir)
+        (state.get("delays") or {}).pop(engine, None)
+        _save_state(mdir, state)
+    if not out:
+        return {"delays": {}, "note": "no shortened delay on this node"}
+    return {"delays": out}
+
+
+def finish(env: Any, details: dict[str, Any]) -> dict[str, Any]:
+    """`kea-mig-finish`: what only the way forward needed goes (the converted files and dnf's target
+    packages); the saved 2.6 files, the kept 2.6 packages, the notes and the lease copies stay for
+    the return of the pair."""
+    mdir = _mdir(env, details)
+    removed = []
+    for rel in ("private/target", "packages/target"):
+        path = mdir / rel
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+            removed.append(rel)
+    for engine in HA_ENGINES:
+        ha_maintenance.close(env.node_paths, engine)
+    state = _state(mdir)
+    state["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    _save_state(mdir, state)
+    return {"removed": removed, "kept": ["private/before", "packages/previous"]}
 
 
 def _partner_bundle(env: Any, details: dict[str, Any]) -> dict[str, Any]:

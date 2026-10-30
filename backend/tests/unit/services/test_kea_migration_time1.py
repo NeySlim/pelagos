@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Time 1 of the Kea migration and its return on the driving node (section 28, batch K4): the plans
 from the record, the record moved as the steps run, the automatic return when a step of time 1
-fails, and the manual return."""
+fails, and the manual return (the window and time 3: test_kea_migration_window.py)."""
 
 from __future__ import annotations
 
@@ -11,10 +11,9 @@ from typing import Any
 import pytest
 
 from pelagos.core import kea_migration as km
-from pelagos.core.step_seal import SEAL
 from pelagos.domain import Job, NodeApplyResult
 from pelagos.installer import kea_migration_steps as steps
-from pelagos.services.errors import Conflict, ServiceError
+from pelagos.services.errors import Conflict
 from tests.unit.services.test_kea_migration_phases import MID, RESULT, Peers, run, service  # noqa: F401
 
 pytestmark = pytest.mark.unit
@@ -70,35 +69,21 @@ def record(service) -> dict:  # noqa: F811
     return km.read_migration(service.ctx.settings())
 
 
-def test_time_1_leaves_the_standby_switched_and_the_record_migrating(service, local_steps):  # noqa: F811
+def test_the_migrate_plan_starts_with_time_1(service, local_steps):  # noqa: F811
     prepared(service)
     me = service.ctx.node.id
     assert record(service)["nodes"][1]["files_sealed"] is None  # the fake prepare sealed nothing
-    service.peers.sent.clear()
-    plan, job = apply(service, "migrate", {"options": {"response_delay_milliseconds": 5000}})
-    assert job.error is None, job.error
-    assert [c.target for c in plan.changes] == [
+    plan = service.plan(MID, {"phase": "migrate", "options": {"response_delay_milliseconds": 5000}}, "admin")
+    assert [c.target for c in plan.changes[:4]] == [
         km.target(km.H_MAINTENANCE, me),
         km.target(km.H_STOP, "node-b"),
         km.target(km.H_INSTALL, "node-b"),
         km.target(km.H_VALIDATE_PARTNER, "node-b"),
     ]
-    assert [name for name, _ in local_steps] == [km.H_MAINTENANCE]
-    assert [p.changes[0].after["step"] for p in service.peers.sent] == [
-        km.H_STOP,
-        km.H_INSTALL,
-        km.H_VALIDATE_PARTNER,
-    ]
-    assert all(SEAL in p.changes[0].after for p in service.peers.sent)
-    rec = record(service)
-    assert (rec["state"], rec["phase"], rec["stage"]) == (km.MIGRATING, km.MIGRATE, "standby")
-    assert rec["options"]["response_delay_milliseconds"] == 5000 and rec["options"]["auto_rollback"] is True
-    assert km.rollback_possible(rec) and rec["plan_id"] == plan.id
-    standby = next(n for n in rec["nodes"] if n["node_id"] == "node-b")
-    assert standby["step"] == km.H_VALIDATE_PARTNER and standby["status"] == "done"
-    assert km.view(rec)["nodes"][0].get("files_sealed") is None
-    with pytest.raises(Conflict):
-        service.plan(MID, {"phase": "migrate"}, "admin")
+    details = [c.after["details"] for c in plan.changes[:4]]
+    assert all(d["stage"] == "standby" for d in details)
+    assert all(d["options"]["response_delay_milliseconds"] == 5000 for d in details)
+    assert all(d["options"]["auto_rollback"] is True for d in details)
 
 
 def test_a_failed_step_of_time_1_returns_by_itself(service, local_steps):  # noqa: F811
@@ -159,9 +144,16 @@ def test_refusals_before_and_after_time_1(service, local_steps):  # noqa: F811
         km.write(c.settings, {**rec, "state": km.MIGRATING, "stage": "window"})
 
     service.ctx.config_store.update_cluster(window, "test")
-    with pytest.raises(ServiceError) as exc:
-        service.plan(MID, {"phase": "rollback"}, "admin")
-    assert exc.value.code == "not_implemented"
+    back = service.plan(MID, {"phase": "rollback"}, "admin")
+    assert back.changes[-1].after["details"]["action"] == "cancel"
+
+    def failed(c):
+        rec = km.read_migration(c.settings)
+        km.write(c.settings, {**rec, "state": km.FAILED, "phase": km.MIGRATE})
+
+    service.ctx.config_store.update_cluster(failed, "test")
+    with pytest.raises(Conflict, match="roll it back"):
+        service.plan(MID, {"phase": "migrate"}, "admin")
 
 
 def test_sealed_partner_files_reach_the_record(service, monkeypatch):  # noqa: F811

@@ -80,6 +80,10 @@ KEA_MIGRATION_INVENTORY = "kea.migration.inventory"
 KEA_MIGRATION_ANALYZE = "kea.migration.analyze"
 # This node's version, architecture, kept previous release and engine packages (section 29).
 UPDATES_NODE = "updates.node"
+# The window of a Kea migration (services.kea_migration_window, section 28): the partner's lease copy
+# fetched here, and this node's HA state and lease answer for the driver's outage measurement.
+KEA_MIGRATION_LEASES = "kea.migration.leases"
+KEA_MIGRATION_HA = "kea.migration.ha"
 # Last use of each API token on this node (auth.api_tokens.UsageStore).
 TOKENS_USAGE = "tokens.usage"
 # The permission guard's standing checks of this node, run in its collector (services.permissions).
@@ -108,6 +112,9 @@ LOCKLESS = frozenset(
         KEA_MIGRATION_INVENTORY,
         KEA_MIGRATION_ANALYZE,
         UPDATES_NODE,
+        # Fresh connectors on the control socket and a file download: nothing the collector holds.
+        KEA_MIGRATION_LEASES,
+        KEA_MIGRATION_HA,
     }
 )
 
@@ -149,6 +156,8 @@ class PeerActions:
             KEA_MIGRATION_INVENTORY: self.kea_migration_inventory,
             KEA_MIGRATION_ANALYZE: self.kea_migration_analyze,
             UPDATES_NODE: self.updates_node,
+            KEA_MIGRATION_LEASES: self.kea_migration_leases,
+            KEA_MIGRATION_HA: self.kea_migration_ha,
             TOKENS_USAGE: self.tokens_usage,
             PERMISSIONS_STATUS: self.permissions_status,
         }
@@ -363,6 +372,27 @@ class PeerActions:
             return UpdatesService(self.ctx, store=lambda: cache.store).local_node()
         finally:
             cache.close()
+
+    def kea_migration_leases(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """The partner's lease copy fetched here; only the migration's driver may ask."""
+        from pelagos.core import kea_migration as km
+        from pelagos.services.kea_migration_window import WindowError, fetch_leases
+        from pelagos.services.peers import PeerGateway
+
+        record = km.read_migration(self.ctx.settings())
+        if record is None or record["driver"] != caller:
+            raise PeerActionError("forbidden", f"node {caller} does not drive the Kea migration here")
+        try:
+            return fetch_leases(self.ctx, PeerGateway(self.ctx), body)
+        except (WindowError, km.MigrationStateError) as exc:
+            raise ValidationError(str(exc)) from None
+
+    def kea_migration_ha(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
+        """status-get and a lease page of this node's DHCP daemons (read only)."""
+        from pelagos.services.kea_migration_window import kea_probe
+
+        engines = [str(e) for e in body.get("engines") or [] if e in ("kea4", "kea6")]
+        return kea_probe(self.ctx, engines)
 
     def notify_state(self, body: dict[str, Any], caller: str) -> dict[str, Any]:
         """This node's dispatcher state, for the overview of a node that is not the sender."""

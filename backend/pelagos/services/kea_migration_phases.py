@@ -4,13 +4,14 @@ driving node, which keeps `[settings.kea.migration]` up to date and sends each h
 node when its turn comes (sealed with the master key for a peer).
 
 Batch K3 builds the prepare phase, K4 time 1 of the migrate phase and its return (automatic when a
-step of time 1 fails and `options.auto_rollback`); the window, time 3 and the return of a migrated
-pair come with K5.
+step of time 1 fails and `options.auto_rollback`), K5 the window (lease copy, partner-down, the outage
+measured and bounded by `kea.migration_outage_max_seconds`), time 3 and the return of a migrated pair.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
@@ -128,6 +129,7 @@ def switch_request(record: dict[str, Any], phase: str, options: dict[str, Any]) 
         ],
         "options": options,
         "touched": touched(record),
+        "stage": record["stage"],
     }
 
 
@@ -139,8 +141,6 @@ def _plan_switch(service: Any, migration_id: str, phase: str, body: dict[str, An
     why = km.phase_allowed(record, phase)
     if why:
         raise Conflict(why)
-    if record["stage"] not in (None, "standby"):
-        raise ServiceError("not_implemented", f"the {phase} phase after time 1 comes with batch K5")
     options = {k: v for k, v in record["options"].items() if v is not None}
     options.update({k: v for k, v in body.items() if v is not None})
     options.setdefault(
@@ -193,6 +193,9 @@ class PhaseRunner:
         self.service = service
         self.ctx = service.ctx
         self.peers = service.peers
+        self._exports: dict[str, dict[str, Any]] = {}  # node id -> the lease sums its stop step gave
+        self._outage_t0: float | None = None
+        self._outage_max = 0.0
 
     # The record ---------------------------------------------------------------------------------
 
@@ -311,7 +314,9 @@ class PhaseRunner:
 
     # Migrate (time 1, batch K4) and the return --------------------------------------------------
 
-    def _begin(self, plan: Plan, base: dict[str, Any], state: str, phase: str) -> dict[str, Any]:
+    def _begin(
+        self, plan: Plan, base: dict[str, Any], state: str, phase: str, stage: str | None = None
+    ) -> dict[str, Any]:
         now = to_rfc3339(utcnow())
         options = base.get("options") or {}
 
@@ -329,7 +334,7 @@ class PhaseRunner:
                 "options": {**record["options"], **options},
             }
             if phase == km.MIGRATE:
-                fields.update(stage="standby", started_at=now)
+                fields.update(stage=stage or "standby", started_at=now)
             km.move(settings, state, **fields)
 
         self._update(mutate)
@@ -351,11 +356,14 @@ class PhaseRunner:
         progress: Callable[[Job], None],
     ) -> dict[str, Any]:
         actor = plan.created_by or ""
-        record = self._begin(plan, base, km.MIGRATING, km.MIGRATE)
+        first = (changes[0].after.get("details") or {}).get("stage")
+        record = self._begin(plan, base, km.MIGRATING, km.MIGRATE, first)
+        current_stage = record["stage"]
         try:
             for change in changes:
                 stage = (change.after.get("details") or {}).get("stage")
-                if stage and stage != record["stage"]:
+                if stage and stage != current_stage:
+                    current_stage = stage
                     self._update(lambda s, st=stage: km.write(s, {**km.read_migration(s), "stage": st}))
                 self._one(plan, change, nodes[change.node_ids[0]], job, progress, actor)
         except Exception as exc:
@@ -369,8 +377,22 @@ class PhaseRunner:
                 ) from None
             self._fail(error, step_name)
             raise
-        # Time 1 done: the standby runs nothing, its partner serves alone; K5 goes on from here.
-        return {"migration_id": base["migration_id"], "state": km.MIGRATING, "stage": "standby"}
+        now = to_rfc3339(utcnow())
+
+        def done(settings: dict[str, Any]) -> None:
+            current = km.read_migration(settings)
+            for node in current["nodes"]:
+                node.update(status="done", finished_at=now)
+            km.write(settings, current)
+            km.move(settings, km.MIGRATED, stage="done", finished_at=now)
+
+        self._update(done)
+        final = km.read_migration(self.ctx.settings()) or {}
+        return {
+            "migration_id": base["migration_id"],
+            "state": km.MIGRATED,
+            "outage_seconds": final.get("outage_seconds"),
+        }
 
     def _auto_rollback(
         self,
@@ -398,13 +420,20 @@ class PhaseRunner:
         self._audit(actor, "kea.migration.rollback", record, {"ok": True, "automatic": True}, True)
 
     def _finish_rollback(self, record: dict[str, Any], changes: list[Change]) -> None:
-        back = {c.node_ids[0] for c in changes if c.node_ids}
+        back = {
+            c.node_ids[0]
+            for c in changes
+            if c.node_ids
+            and isinstance(c.after, dict)
+            and c.after.get("step") == km.H_INSTALL
+            and (c.after.get("details") or {}).get("direction") == "previous"
+        }
         now = to_rfc3339(utcnow())
 
         def mutate(settings: dict[str, Any]) -> None:
             current = km.read_migration(settings)
             for node in current["nodes"]:
-                if node["node_id"] in back and node["role"] != "primary":
+                if node["node_id"] in back:
                     node.update(status="rolled_back", to_version=node["from_version"])
             km.write(settings, current)
             km.move(settings, km.ROLLED_BACK, finished_at=now)
@@ -447,6 +476,14 @@ class PhaseRunner:
         name = str(change.after["step"])
         node_id = node["node_id"]
         details = change.after.get("details") or {}
+        if details.get("outage_start"):
+            self._outage_t0 = time.monotonic()
+            began = to_rfc3339(utcnow())
+            self._update(
+                lambda s: km.write(
+                    s, {**km.read_migration(s), "outage_started_at": began, "outage_seconds": None}
+                )
+            )
         self._node(node_id, step=name, status="running", error=None)
         weight = 80 // max(1, len(plan.changes))
         try:
@@ -467,7 +504,15 @@ class PhaseRunner:
             raise
         fields = out.pop("record", {}) if isinstance(out, dict) else {}
         self._node(node_id, **fields)
-        self._audit(actor, "kea.migration.step", details, {"ok": True}, True, name, node_id)
+        response: dict[str, Any] = {"ok": True}
+        if details.get("outage_end") and self._outage_t0 is not None:
+            seconds = round(time.monotonic() - self._outage_t0, 1)
+            self._outage_t0 = None
+            self._outage_max = max(self._outage_max, seconds)
+            worst = self._outage_max
+            self._update(lambda s: km.write(s, {**km.read_migration(s), "outage_seconds": worst}))
+            response["outage_seconds"] = seconds
+        self._audit(actor, "kea.migration.step", details, response, True, name, node_id)
         if isinstance(out, dict) and job.steps:
             job.steps[-1]["output"] = out.get("output", "")
 
@@ -481,9 +526,17 @@ class PhaseRunner:
             made = archives.run_on(node_id)
             archive_id = made.get("archive_id")
             return {"record": {"archive_id": archive_id}, "output": f"archive {archive_id}"}
+        if name == km.D_FETCH_LEASES:
+            return self._fetch(change, node)
+        if name == km.D_WAIT_PARTNER_DOWN:
+            return self._wait_partner_down(change, node)
+        if name == km.D_WAIT_HA:
+            return self._wait_ha(node)
         from pelagos.installer.kea_migration_steps import result_of
 
         result = result_of(self._helper_step(plan, change, node))
+        if name == km.H_STOP and isinstance(result.get("leases"), dict):
+            self._exports[node_id] = result["leases"]
         if name == km.H_PREPARE:
             if not result:
                 raise RuntimeError("the prepare step gave no result")
@@ -510,6 +563,97 @@ class PhaseRunner:
         if name == km.H_STOP and (change.after.get("details") or {}).get("phase") == km.MIGRATE:
             record["started_at"] = to_rfc3339(utcnow())
         return {"record": record, "output": _summary(result)}
+
+    # Driver steps of the window and time 3 ----------------------------------------------------
+
+    def _fetch(self, change: Change, node: dict[str, Any]) -> dict[str, Any]:
+        """kea-mig-fetch-leases: the receiving node fetches the stopped node's lease copy over mTLS and
+        checks it against the sums that node's stop step returned in this job."""
+        from pelagos.services.kea_migration_window import FETCH_TIMEOUT, fetch_leases
+
+        details = change.after.get("details") or {}
+        source = str(details.get("from_node") or "")
+        exports = self._exports.get(source)
+        if exports is None:
+            raise RuntimeError(f"{details.get('from_name') or source} exported no lease file in this job")
+        out = []
+        for family in details.get("families") or []:
+            sums = exports.get(family) or {"skipped": "no lease file exported"}
+            body: dict[str, Any] = {
+                "migration": details.get("migration_id"),
+                "family": family,
+                "from_node": source,
+            }
+            if sums.get("skipped") or not sums.get("sha256"):
+                body["skipped"] = str(sums.get("skipped") or "no lease file exported")
+            else:
+                body.update(sha256=sums["sha256"], size=sums["size"])
+            if node["node_id"] == self.ctx.node.id:
+                got = fetch_leases(self.ctx, self.peers, body)
+            else:
+                peer = self.peers.peer(node["node_id"]) if self.peers is not None else None
+                if peer is None:
+                    raise RuntimeError(f"node {node.get('name')} is not enrolled")
+                got = self.peers.action(peer, "kea.migration.leases", body, timeout=FETCH_TIMEOUT + 30)
+            if got.get("skipped"):
+                out.append(f"DHCPv{family}: nothing to copy ({got['skipped']})")
+            else:
+                out.append(
+                    f"DHCPv{family}: {got.get('size')} bytes, sha256 {str(got.get('sha256'))[:16]} checked"
+                )
+        return {"record": {"status": "done"}, "output": "\n".join(out)}
+
+    def _probe(self, node: dict[str, Any], engines: list[str]) -> dict[str, Any]:
+        from pelagos.services.kea_migration_window import kea_probe
+
+        if node["node_id"] == self.ctx.node.id:
+            return kea_probe(self.ctx, engines)
+        peer = self.peers.peer(node["node_id"]) if self.peers is not None else None
+        if peer is None:
+            raise RuntimeError(f"node {node.get('name')} is not enrolled")
+        return self.peers.action(peer, "kea.migration.ha", {"engines": engines}, timeout=PROBE_TIMEOUT)
+
+    def _wait_partner_down(self, change: Change, node: dict[str, Any]) -> dict[str, Any]:
+        """kea-mig-wait-partner-down: every HA relationship of the node partner-down and a lease page
+        answering, within `kea.migration_outage_max_seconds` of the outage start."""
+        limit = float(reg.get(self.ctx.settings(), "kea.migration_outage_max_seconds"))
+        t0 = self._outage_t0 if self._outage_t0 is not None else time.monotonic()
+        engines = [e for e in node.get("engines") or [] if e in ("kea4", "kea6")]
+        why = "no answer yet"
+        while True:
+            try:
+                ok, why, states = serving_alone(self._probe(node, engines))
+            except Exception as exc:  # a node that does not answer yet: polled again
+                ok, why, states = False, str(exc), []
+            if ok:
+                state = ", ".join(sorted(set(states))) or "serving"
+                return {
+                    "record": {"status": "done", "ha_state": states[0] if states else None},
+                    "output": f"serving alone ({state}) {time.monotonic() - t0:.1f} s after the stop",
+                }
+            if time.monotonic() - t0 >= limit:
+                raise RuntimeError(f"not serving alone within {limit:.0f} s of the stop: {why}")
+            _sleep(POLL_SECONDS)
+
+    def _wait_ha(self, node: dict[str, Any]) -> dict[str, Any]:
+        """kea-mig-wait-ha: every HA relationship of the node back to its normal state, twice in a row."""
+        engines = [e for e in node.get("engines") or [] if e in ("kea4", "kea6")]
+        deadline = time.monotonic() + HA_WAIT_SECONDS
+        good, why = 0, "no answer yet"
+        while True:
+            try:
+                ok, why, states = pair_normal(self._probe(node, engines))
+            except Exception as exc:
+                ok, why, states = False, str(exc), []
+            good = good + 1 if ok else 0
+            if good >= 2:
+                return {
+                    "record": {"status": "done", "ha_state": states[0] if states else None},
+                    "output": "HA back in its normal state: " + (", ".join(sorted(set(states))) or "no HA"),
+                }
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"HA not back in its normal state within {HA_WAIT_SECONDS:.0f} s: {why}")
+            _sleep(POLL_SECONDS)
 
     def _helper_step(self, plan: Plan, change: Change, node: dict[str, Any]) -> str:
         """Runs one helper step on its node; returns the step's output."""
@@ -579,6 +723,48 @@ class PhaseRunner:
             )
         except Exception:  # the audit never decides a migration step
             log.exception("audit of %s failed", action)
+
+
+POLL_SECONDS = 1.0
+PROBE_TIMEOUT = 10.0
+HA_WAIT_SECONDS = 600.0
+
+
+def _sleep(seconds: float) -> None:
+    time.sleep(seconds)
+
+
+def serving_alone(probe: dict[str, Any]) -> tuple[bool, str, list[str]]:
+    """(ok, why not, local HA states): every relationship of each daemon partner-down (a daemon
+    without HA only answers) and its lease commands answering."""
+    problems: list[str] = []
+    states: list[str] = []
+    for engine, entry in sorted((probe.get("engines") or {}).items()):
+        if entry.get("error"):
+            problems.append(f"{engine}: {entry['error']}")
+            continue
+        local = [str(s) for s in entry.get("states") or []]
+        states += local
+        if any(s != "partner-down" for s in local):
+            problems.append(f"{engine} is {', '.join(local)}")
+        if entry.get("leases") not in ("ok", "unsupported"):
+            problems.append(f"{engine}: the lease commands do not answer")
+    return not problems, "; ".join(problems), states
+
+
+def pair_normal(probe: dict[str, Any]) -> tuple[bool, str, list[str]]:
+    """(ok, why not, local HA states): each relationship in its normal state, its partner in touch."""
+    from pelagos.installer.ha_tls import _normal
+
+    problems: list[str] = []
+    states: list[str] = []
+    for engine, entry in sorted((probe.get("engines") or {}).items()):
+        if entry.get("error"):
+            problems.append(f"{engine}: {entry['error']}")
+            continue
+        states += [str(s) for s in entry.get("states") or []]
+        problems += [f"{engine}: {p}" for e in entry.get("entries") or [] if (p := _normal(e))]
+    return not problems, "; ".join(problems), states
 
 
 def _upstream(version: str) -> str:

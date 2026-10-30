@@ -427,9 +427,10 @@ a dismissible banner naming the node, the series and its end of life.
 The migration wizard (its plans also need `ops:dhcp.ha`) has three steps.
 "Prepare" (on an analysis without blocking finding) archives each node,
 downloads the target packages and writes the converted files aside: nothing
-stops. Its options: the HA failure detection delay used during the migration
-(10000 ms by default) and, when a client uses `kea-ctrl-agent`, an https
-control socket per daemon. "Migrate" runs the three times: time 1 moves the
+stops. Its option: the HA failure detection delay used during the migration
+(10000 ms by default). When the analysis reports a client of
+`kea-ctrl-agent` (`ctrl_agent_clients`), add the per-daemon control sockets
+it needs by hand after the migration. "Migrate" runs the three times: time 1 moves the
 standby while the primary serves alone, time 2 is the only DHCP outage (the
 primary stops, its lease file goes to the standby, which serves alone), time 3
 moves the primary and the pair resumes. The timeline shows each time, the

@@ -120,7 +120,7 @@ it is. Closing the browser does not stop it.
 the next nodes do not start, and an `update_failed` alert is raised. When
 the release keeps the state schema of the installed one (`state_schema` in
 `release.json`) and automatic rollback is on, the failing node goes back to
-its previous package by itself (kept in `/var/lib/pelagos/upgrade/packages/`,
+its previous package by itself (kept in `/var/lib/pelagos-helper/upgrade/packages/`,
 `series.sqlite` removed, same checks). When the schema changed, it is left
 as it is and you follow [Rollback](#rollback) on that node. Then:
 

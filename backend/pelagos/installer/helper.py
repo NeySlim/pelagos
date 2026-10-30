@@ -68,7 +68,7 @@ OPERATIONS = (
     "kea_file_write",
     "kea_dry_run",
     "apply",
-    # Updates from the UI (section 29): contract C3, built by batch U2.
+    # Updates from the UI (section 29, installer.updates).
     "update_verify",
     "update_start",
     "update_status",
@@ -107,7 +107,12 @@ def handle(request: dict[str, Any], env_factory: Callable[[], Any], emit: Callab
     env = env_factory()
     created_by = str(request.get("created_by") or "")
     if op in UPDATE_OPERATIONS:
-        raise HelperError(f"operation {op} is not implemented yet (batch U2)")
+        from pelagos.installer import updates
+
+        try:
+            return updates.handle(env, op, request)
+        except updates.UpdateRefused as exc:
+            raise HelperError(str(exc), "value") from None
     try:
         if op == "detect":
             from pelagos.installer.detect import detect_env
@@ -687,6 +692,20 @@ class HelperClient:
     ) -> dict[str, Any]:
         """Kea migration analysis of this node (installer.kea_migration.dry_run_request)."""
         return self.call("kea_dry_run", series=series, source=source, configs=configs, node_id=node_id)
+
+    def update_verify(self, version: str, allow_unsigned: bool = False) -> dict[str, Any]:
+        """Copies incoming/<version> to root's packages and checks it (installer.updates.verify)."""
+        return self.call("update_verify", version=version, allow_unsigned=allow_unsigned)
+
+    def update_start(self, rollout_id: str, kind: str, **args: Any) -> dict[str, Any]:
+        """Runs this node's part of the rollout in `pelagos-upgrade-<id>`: {"unit", "progress"}."""
+        return self.call("update_start", rollout_id=rollout_id, kind=kind, **args)
+
+    def update_status(self, rollout_id: str) -> dict[str, Any]:
+        return self.call("update_status", rollout_id=rollout_id)
+
+    def journal_errors(self, since: float | str) -> dict[str, Any]:
+        return self.call("journal_errors", since=since)
 
     def plan(self, op: str, created_by: str, **args: Any) -> Plan:
         return Plan.from_dict(self.call(op, created_by=created_by, **args))

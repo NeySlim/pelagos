@@ -131,8 +131,6 @@ def test_permission_scope_alerts_and_helper_operations() -> None:
     assert {AlertKind("update_available"), AlertKind("update_failed"), AlertKind("update_stalled")}
     assert AlertKind.UPDATE_AVAILABLE in EXCEPTABLE_KINDS and AlertKind.UPDATE_FAILED not in EXCEPTABLE_KINDS
     assert set(HELPER_OPERATIONS) <= set(helper.OPERATIONS)
-    with pytest.raises(helper.HelperError, match="batch U2"):
-        helper.handle({"op": "update_verify"}, lambda: None, lambda _: None)
 
 
 def test_updates_settings_domain() -> None:

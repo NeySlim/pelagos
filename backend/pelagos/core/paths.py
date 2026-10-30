@@ -106,6 +106,17 @@ class Paths:
     def enroll_tokens(self) -> Path:
         return self.var / "enroll_tokens.json"
 
+    @property
+    def upgrade_incoming(self) -> Path:
+        """Release files uploaded or fetched by the node processes (section 29), never trusted."""
+        return self.var / "upgrade" / "incoming"
+
+    @property
+    def upgrade_dir(self) -> Path:
+        """Root's update state (section 29): verified packages, progress, state backups. Beside
+        the service user's tree, never inside it: nothing there may be owned or moved by pelagos."""
+        return self.var.parent / "pelagos-helper" / "upgrade"
+
     def ensure(self) -> None:
         """Create the writable tree with private modes; never touches /opt."""
         for d, mode in ((self.etc, 0o750), (self.var, 0o750), (self.run, 0o750)):

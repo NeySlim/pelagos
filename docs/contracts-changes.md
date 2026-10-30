@@ -13,6 +13,19 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-30, WP-INSTALLER, WP-CORE, WP-PACKAGING: privileged helper for updates (U2)
+Architecture section 29, "Files" and "Helper operations" rewritten. Root's update state moves from
+`/var/lib/pelagos/upgrade/` to `/var/lib/pelagos-helper/upgrade/` (`Paths.upgrade_dir`): the
+prestart and postinst give everything under `/var/lib/pelagos` to the service user. Only
+`incoming/` stays there (`Paths.upgrade_incoming`). `packages/<version>/` is root:pelagos 0750,
+files 0640, so the web process can serve `/repl/v1/releases` (U3's `ReleaseStore` reads it).
+`update_verify` answers also `min_upgrade_from`, `package_version`, `installed`, `direction`,
+`checksums_sha256`, `warnings`; `update_start` takes `keep_packages`, refuses `busy` and anything
+the `cluster.toml` rollout does not hold; `journal_errors` lines are objects with
+`invocation_id`. New `cli.py` command `pelagos upgrade apply|status --rollout <id>`, new
+`platform/versions.py`. U3 reads the progress file, calls `update_start` with kind `rollback` for
+the automatic rollback, and filters `journal_errors` by invocation id.
+
 ## 2026-10-30, WP-CORE, WP-KEA, WP-BIND, WP-COLLECTOR, WP-FRONTEND: RPZ folder wait, Kea config-write guard (item 81, B13, B14, I4)
 Additive. `core/permguard.py`: target kind `daemon` (`Target.daemon`), route `daemon`, problem
 `daemon_denied`, fix action `daemon_write` (never remediable by the helper), `daemon_ids`.

@@ -227,7 +227,8 @@ Pelagos paths (identical on every distro, overridable in `node.toml`
 | `/var/lib/pelagos/plans/` | one encrypted file per plan built on this node, `<id>.plan` (section 6) | 0700, files 0600 |
 | `/var/lib/pelagos/webcert/` | web certificate state of this node: `state.json` (renewal, log), `pending.key` (key of a request made here) | 0700, files 0600 |
 | `/var/lib/pelagos/archives/` | scheduled archives (section 23): `local/` (this node's, with `.sha256` and `.json` sidecars), `peers/<origin>/`, `state.json` | 0700, files 0600 |
-| `/var/lib/pelagos/upgrade/` | updates from the UI (section 29): `incoming/` (pelagos, 0750), `packages/` and `backups/` (root, 0700, files 0600), progress files `<rollout id>/<node id>.json` (root, 0640 group pelagos) | see section 29 |
+| `/var/lib/pelagos/upgrade/incoming/` | updates from the UI (section 29): uploaded and fetched release files (pelagos, 0750), never trusted | see section 29 |
+| `/var/lib/pelagos-helper/upgrade/` | root's update state (section 29): `packages/` (root:pelagos 0750, files 0640), `backups/` (root 0700, files 0600), `<rollout id>/` request (0600) and progress files (root:pelagos 0640) | see section 29 |
 | `/var/lib/pelagos/plan_tombstones.json` | ids of plans built here and when they expire (section 6) | pelagos, 0600 |
 | `/run/pelagos/` | pid files, Unix socket of the web process when used behind a proxy | pelagos, 0750 |
 
@@ -4879,38 +4880,87 @@ the screen (U6), daemon and lab tests (U7).
   the failing node when `auto_rollback` and not `state_schema_changed`: the
   previous package from `packages/`, `series.sqlite` deleted, same checks,
   node `rolled_back`, rollout `failed`.
-- **Files** on each node, under `/var/lib/pelagos/upgrade/`:
-  `incoming/<version>/` (pelagos, 0750: uploads and fetched files, never
-  trusted), `packages/<version>/` (root, 0700, files 0600: the helper's
-  verified copy, the source of every install and of `/repl/v1/releases`;
-  the last `keep_packages_count` versions kept), `<rollout id>/<node
-  id>.json` (root, 0640 group pelagos: progress written by the transient
-  unit: `{"rollout_id","node_id","from_version","to_version","started_at",
-  "finished_at","result": "running"|"installed"|"failed","steps": [{"step",
-  "state","started_at","finished_at","output"}],"backup","error"}`),
-  `backups/pelagos-state-<date>-<old version>.tar.gz` (root, 0600:
-  `/etc/pelagos` and `/var/lib/pelagos` without `series.sqlite` and
-  `upgrade/`; holds the master key and the CA, never sent to a peer).
-- **Helper operations** (`installer.helper`, `domain.updates.HELPER_OPERATIONS`):
+- **Files** on each node (`Paths.upgrade_incoming`, `Paths.upgrade_dir`):
+  `/var/lib/pelagos/upgrade/incoming/<version>/` (the service user's: uploads
+  and fetched files, never trusted, read by root without following links and
+  removed once verified); root's state lives beside the service user's tree,
+  in `/var/lib/pelagos-helper/upgrade/` (root:pelagos 0750), never inside it:
+  the packaged prestart and postinst give everything under `/var/lib/pelagos`
+  back to `pelagos`, and a folder the service user owns or can rename could
+  redirect a root write. There: `packages/<version>/` (root:pelagos 0750,
+  files 0640: the helper's verified copy, the source of every install and of
+  `/repl/v1/releases`, which the web process serves; the last
+  `keep_packages_count` versions kept, plus the installed and the previous
+  one), `<rollout id>/request.json` (root 0600: what `update_start` verified,
+  read by the transient unit), `<rollout id>/<node id>.json` (root:pelagos
+  0640: progress written by the transient unit: `{"rollout_id","node_id",
+  "kind","from_version","to_version","packages","started_at","finished_at",
+  "result": "running"|"installed"|"failed","steps": [{"step","state",
+  "started_at","finished_at","output"}],"backup","error"}`, steps `backup`,
+  `install` (or `rollback`), `version`; engine packages `install`, `version`),
+  `installed.json` and `previous.json` (`{"package_version","release"}` of
+  the last install through the helper and of what it replaced: the only
+  version older than the installed one that the helper accepts),
+  `backups/pelagos-state-<UTC stamp>-<old package version>.tar.gz` (root,
+  0700 folder, 0600 file: `/etc/pelagos` and `/var/lib/pelagos` without
+  `series.sqlite*` and `upgrade/`; holds the master key and the CA, never
+  sent to a peer; the last `keep_packages_count` kept).
+- **Helper operations** (`installer.helper`, `domain.updates.HELPER_OPERATIONS`,
+  built in `installer.updates`; client `HelperClient.update_verify|update_start|
+  update_status|journal_errors`):
   `update_verify` `{"version","allow_unsigned"}`: copies
-  `incoming/<version>/` into `packages/<version>/`, checks sums, signature,
-  manifest and the rules above on the copy, answers `{"version","package",
-  "sha256","signature","key_id","state_schema","arch","package_format"}`
-  or a `value` error whose message starts with the reason
-  (`signature_invalid`, `checksum`, `missing`, `unlisted`, `name`, `arch`,
-  `version`, `manifest`, `unsigned_not_accepted`); `update_start`
-  `{"rollout_id","kind","version"|"packages","allow_unsigned"}`: verifies
-  again, refuses while a `pelagos-upgrade-*` unit is active, runs
-  `systemd-run --unit=pelagos-upgrade-<id> pelagos upgrade apply --rollout
-  <id>` and answers `{"unit","progress"}`; `update_status`
-  `{"rollout_id"}`: the progress file, the unit state (`active`,
-  `inactive`, `failed`, `gone`) and, for an unfinished file without its
-  unit, the package audit (`dpkg --audit`, `rpm -V pelagos`);
-  `journal_errors` `{"since"}`: at most 200 lines of priority `err` or
-  above since `since` from `pelagos.service`, `pelagos-collector.service`
-  and `pelagos-helper@*.service` only (`domain.updates.JOURNAL_UNITS`),
-  `{"lines","count"}`. Until U2 they answer `operation ... is not
-  implemented yet`.
+  `incoming/<version>/` (`SHA256SUMS`, its `.sig` and the files it lists, no
+  link followed) into a new folder, checks sums, signature, manifest and the
+  rules above on the copy, then replaces `packages/<version>/` with it; with
+  no upload, verifies the kept `packages/<version>/` again. Answers
+  `{"version","package","sha256","signature","key_id","state_schema",
+  "min_upgrade_from","arch","package_format","package_version","installed",
+  "direction": "upgrade"|"rollback","checksums_sha256","warnings"}` or a
+  `value` error whose message starts with the reason (`signature_invalid`,
+  `checksum`, `missing`, `unlisted`, `name`, `arch`, `version`, `manifest`,
+  `unsigned_not_accepted`). The package's name, version and architecture are
+  read from the package itself (`dpkg-deb -f`, `rpm -qp`), never from its file
+  name; a release without `release.json` (0.2.x) is found by file name and has
+  `state_schema` null. Versions are ordered as dpkg and rpm do
+  (`platform.versions`, pure Python).
+  `update_start` `{"rollout_id","kind","version"|"packages","allow_unsigned",
+  "keep_packages"?}`: refuses while a `pelagos-upgrade-*` unit is active
+  (`busy`), and unless the rollout of `cluster.toml` has this id, is active,
+  names this node, and matches the request (`kind` `pelagos`: same kind and
+  version; `rollback`: the version the rollout goes back to, or, under a
+  `pelagos` rollout, the automatic rollback of this node to `previous.json`;
+  `engine_packages`: the same versions); an upgrade whose signature needs
+  acceptance also needs `unsigned_accepted_by` in the rollout. Verifies
+  again, writes `request.json`, runs `systemd-run
+  --unit=pelagos-upgrade-<id> --property=RuntimeMaxSec=7200 /usr/bin/pelagos
+  upgrade apply --rollout <id>` (after `systemctl reset-failed` of that unit,
+  so a resumed rollout can run it again) and answers `{"unit","progress"}`.
+  Engine packages: only this host's BIND and Kea packages (`PlatformPaths`),
+  installed with `apt-get install --only-upgrade name=version` or `dnf upgrade
+  name-version`, services untouched (the HA maintenance is the rollout's).
+  `pelagos upgrade apply --rollout <id>` (root, the transient unit): pelagos
+  and rollback kinds stop `pelagos.service` and `pelagos-collector.service`,
+  write the state backup (step `backup`; a failure restarts them), check the
+  package's sha256 against `request.json`, install it (`apt-get install`
+  with `--force-confold` and `DPkg::Lock::Timeout=300`, `--allow-downgrades`
+  for a rollback; `dnf install` or `dnf downgrade`), drop `series.sqlite*` on
+  a rollback, start the units (step `install` or `rollback`: a failed install
+  restarts the previous release, which the package manager left in place),
+  then compare the installed version (step `version`). Exit 0 `installed`, 1
+  `failed`; the checks after the install are the new processes' (U3).
+  `pelagos upgrade status --rollout <id>` prints `update_status`.
+  `update_status` `{"rollout_id"}`: `{"rollout_id","unit","unit_state":
+  "active"|"inactive"|"failed"|"gone","progress": <file>|null,
+  "package_audit": {"command","ok","output"}|null,"installed"?}`; the audit
+  (`dpkg --audit`, `rpm -V pelagos`) and the installed version come only for
+  a progress left `running` by a unit that no longer runs (a reboot).
+  `journal_errors` `{"since"}` (epoch seconds or ISO 8601): entries of
+  `pelagos.service`, `pelagos-collector.service` and `pelagos-helper@*.service`
+  (`domain.updates.JOURNAL_UNITS`) since then, of priority `err` or above or
+  whose message holds ` ERROR ` (the units log on stderr, stored at `info`);
+  `{"lines": [{"time","unit","invocation_id","priority","message"}],
+  "count","truncated","since"}`, at most 200 lines, `count` all matches
+  (the caller tells new processes from old ones by `invocation_id`).
 - **Replication** (section 13): `GET /repl/v1/releases/<version>` `{"version",
   "files": [{"name","size","sha256"}],"signature"}` and `GET
   /repl/v1/releases/<version>/<file>` (the bytes) serve `packages/<version>/`

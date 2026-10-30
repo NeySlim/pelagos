@@ -6,13 +6,13 @@
 #   cp .env.example .env                      # set the host ids: getent group bind _kea; id -u bind
 #   export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"; echo "$PELAGOS_ADMIN_PASSWORD"
 #   docker compose up -d
-#   docker compose exec pelagos pelagos import --dry-run
-#   docker compose exec pelagos pelagos import --yes
+#   docker compose exec pelagos pelagos import --engines bind,kea4,d2 --dry-run
+#   docker compose exec pelagos pelagos import --engines bind,kea4,d2 --yes
 
 name: pelagos
 
 x-pelagos-common: &pelagos-common
-  image: ${PELAGOS_IMAGE:-ghcr.io/neyslim/pelagos:0.3.1}
+  image: ${PELAGOS_IMAGE:-ghcr.io/neyslim/pelagos:${PELAGOS_VERSION:-latest}}
   # Host network: rndc, the statistics channel and DNS queries reach named on 127.0.0.1 like
   # on a packaged node; 8443 and 8444 open directly on the host.
   network_mode: host

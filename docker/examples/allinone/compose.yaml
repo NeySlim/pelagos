@@ -13,7 +13,7 @@ name: pelagos
 
 services:
   pelagos:
-    image: ghcr.io/neyslim/pelagos-allinone:${PELAGOS_VERSION:-0.3.1}
+    image: ${PELAGOS_IMAGE:-ghcr.io/neyslim/pelagos-allinone:${PELAGOS_VERSION:-latest}}
     # DHCP answers broadcasts and relays on the LAN: the container shares the host network.
     # It takes 53 (DNS), 67/udp and 547/udp (DHCP), 8443 (UI and API) and 8444 (replication) on
     # the host; 8001/tcp when a Kea HA relationship is set up.

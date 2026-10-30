@@ -28,8 +28,19 @@ troubleshooting). The compose files are complete and live under
 
 Tags: `<version>` (`0.3.1`) and `latest` (the newest release that is not a
 pre-release). Images are published from `v0.3.1` on; earlier versions are
-built from a checkout (`make docker`, `make docker-allinone`, see
-[Installation](installation.md#docker)). Both images carry the same
+built from a checkout (`make docker`, `make docker-allinone`).
+
+The examples pull `latest`. In production, pin a release in `.env` so that
+a `docker compose pull` never upgrades a node behind your back, and change
+it on purpose ([Upgrade and rollback](#upgrade-and-rollback)):
+
+```sh
+PELAGOS_VERSION=0.3.1                          # tag of the published image
+PELAGOS_IMAGE=registry.example.lan/pelagos:0.3.1   # or a whole image name (mirror, local build)
+```
+
+`PELAGOS_IMAGE` wins over `PELAGOS_VERSION`. The host-engines scenario and
+Kea HA between container nodes need `0.3.2` or later. Both images carry the same
 `/opt/pelagos` payload as the deb and rpm packages, so a container node and a
 packaged node join the same cluster.
 
@@ -54,9 +65,11 @@ from the ISC arm64 packages and gives the same features, hooks included.
   `isc-dhcp-server` or a host Kea first.
 - DNS on `53`: where `systemd-resolved` runs its stub listener (the default
   on Ubuntu and many Debian installs) or `dnsmasq` holds the port, a
-  published `53` fails with "address already in use". Set `BIND_DNS_PORT`
-  to a free port, or turn the stub off (`DNSStubListener=no` in
-  `/etc/systemd/resolved.conf`, then restart `systemd-resolved`).
+  published `53` fails with "address already in use". Publish on the host
+  address only (`BIND_DNS_PORT=192.0.2.11:53`, the stub keeps `127.0.0.53`),
+  set `BIND_DNS_PORT` to a free port, or turn the stub off
+  (`DNSStubListener=no` in `/etc/systemd/resolved.conf`, then restart
+  `systemd-resolved`).
 - The first admin password. The node refuses to initialize without a
   strong one: at least 12 characters mixing three of lowercase, uppercase,
   digits and symbols. Generate it and keep it in your password manager:
@@ -107,7 +120,7 @@ that exists:
 | `/var/lib/pelagos` | `cluster.toml`, `audit/`, `pki/`, `series.sqlite`, `plans/`, `archives/`, `backups/` | `pelagos:pelagos` 0750 |
 | `/run/pelagos` | sockets of the two processes | `pelagos:pelagos` 0750 |
 | `/etc/bind` | `named.conf` seeded when absent, `rndc.key` generated when absent (key `rndc-pelagos`, hmac-sha256) | `root:<bind group>` 0775; `rndc.key` `pelagos:<bind group>` 0640 |
-| `/etc/bind/pelagos` | the Pelagos include directory (`pelagos.conf`, `keys.conf`, `zones.conf`...) and `rndc-pelagos.conf` | `pelagos:<bind group>` 2770 |
+| `/etc/bind/pelagos` | the Pelagos include directory (`pelagos.conf`, `keys.conf`, `zones.conf`...); with a BIND container, `rndc-pelagos.conf` pointing rndc at it (a local `named` gets it from `pelagos import`, with the key of its `controls`) | `pelagos:<bind group>` 2770 |
 | `/var/cache/bind`, `/var/lib/bind` | working directory and zone files of `named`; `pelagos/` for the zones Pelagos creates | `<bind user>:<bind group>` 0775, `pelagos/` 2775 |
 | `/etc/kea` | `kea-dhcp4.conf`, `kea-dhcp6.conf`, `kea-dhcp-ddns.conf` seeded when absent | group `<kea group>`, 2770, files 0660 |
 | `/run/kea` | the Kea control sockets (`kea4-ctrl-socket`, `kea6-ctrl-socket`, `kea-ddns-ctrl-socket`) | group `<kea group>`, 0750 |
@@ -133,8 +146,8 @@ sockets). In the all-in-one image they are Debian's `bind` and `_kea`.
 | `PELAGOS_EXTERNAL_ENGINES` | unset | `1`: BIND and Kea run elsewhere (other containers, the host); the installer reloads them over rndc and the control sockets and never starts, stops or restarts a service |
 | `KEA_DHCP6` | `false` | all-in-one only: also run `kea-dhcp6` |
 
-Compose variables of the examples, read from `.env`: `PELAGOS_IMAGE` or
-`PELAGOS_VERSION` (the tag), `PELAGOS_HTTPS_PORT` and `PELAGOS_REPL_PORT`
+Compose variables of the examples, read from `.env`: `PELAGOS_VERSION`
+(the tag, `latest` by default) or `PELAGOS_IMAGE` (the whole image name), `PELAGOS_HTTPS_PORT` and `PELAGOS_REPL_PORT`
 (published ports, `8443` and `8444`), `BIND_IMAGE`, `BIND_DNS_PORT` (`53`),
 `KEA_VERSION` (`3.2.1`).
 
@@ -161,7 +174,7 @@ want the smallest setup. Example: `docker/examples/allinone/`.
 
 | Item | Value |
 | --- | --- |
-| Service | `pelagos`, image `ghcr.io/neyslim/pelagos-allinone:<version>` |
+| Service | `pelagos`, image `ghcr.io/neyslim/pelagos-allinone:${PELAGOS_VERSION:-latest}` |
 | Network | `host`: DHCP needs it, and DNS and the UI then open directly on the host |
 | Host ports | `53` (DNS), `67/udp` and, with `KEA_DHCP6=true`, `547/udp` (DHCP), `8443`, `8444`, `8001/tcp` once a Kea HA relationship exists |
 | Volumes | `pelagos-etc`, `pelagos-var`, `bind-etc` (`named.conf`, `rndc.key`, `pelagos/`), `bind-cache` (zones, journals), `kea-etc` (the three Kea files), `kea-leases` (`kea-leases4.csv`, `kea-leases6.csv`) |
@@ -279,8 +292,9 @@ with one compose file and one `.env` per host (`ns1.env.example`,
 
 Between the hosts, open: `8444/tcp` (replication), `53/udp` and `53/tcp`
 (zone transfers and notifies), `8001/tcp` (Kea HA, `8002/tcp` for DHCPv6).
-Keep `BIND_DNS_PORT=53`: a secondary zone created from the UI transfers from
-the address of the primary's replication URL, on port 53. Both hosts need
+Keep DNS on port 53 (`BIND_DNS_PORT=53`, or `192.0.2.11:53` next to a
+`systemd-resolved` stub): a secondary zone created from the UI transfers
+from the address of the primary's replication URL, on port 53. Both hosts need
 NTP: Kea ends the HA relationship past 60 s of clock difference, and the
 containers use the host clock.
 
@@ -290,8 +304,8 @@ from host 2 (`https://ns1.example.lan:8443`, `https://ns1.example.lan:8444`
 or the host address). Then sign in, **Administration, Nodes and
 replication**, "Enroll a node": the dialog shows the one-time token and the
 CA fingerprint. Right after `pelagos import` the collector restarts to load
-the engines and `8444` is down for a few seconds: wait for `docker compose
-logs pelagos-collector` to show `collector started` before enrolling.
+the engines and `8444` is closed for a few seconds: `pelagos enroll` on
+host 2 retries a refused connection for up to 60 s, printing each attempt.
 
 **Host 2 (`ns2`)**: `ns2.env.example` as `.env`, no admin password (the node
 joins, it is not initialized). Enroll with the volumes of the stack before
@@ -355,11 +369,11 @@ packages). Example: `docker/examples/host-engines/`.
 
 | Item | Value |
 | --- | --- |
-| Services | `pelagos-init`, `pelagos`, `pelagos-collector`, image `ghcr.io/neyslim/pelagos:<version>` |
+| Services | `pelagos-init`, `pelagos`, `pelagos-collector`, image `ghcr.io/neyslim/pelagos:${PELAGOS_VERSION:-latest}` |
 | Network | `host`: `rndc`, the statistics channel and DNS queries reach `named` on `127.0.0.1` as on a packaged node; `8443` and `8444` open on the host |
 | Named volumes | `pelagos-etc`, `pelagos-var`, `pelagos-run` |
 | Bind mounts | `/etc/bind`, `/var/cache/bind`, `/var/lib/bind`, `/etc/kea`, `/run/kea` (read-write), `/var/lib/kea` (read-only, lease file checks) at the same paths |
-| Required variables | `PELAGOS_BIND_GID`, `PELAGOS_BIND_UID`, `PELAGOS_KEA_GID`: the numeric ids of the host (`getent group bind _kea`, `id -u bind`), since the names inside the image mean nothing to the host |
+| Required variables | `PELAGOS_BIND_GID`, `PELAGOS_BIND_UID`, `PELAGOS_KEA_GID`: the numeric ids of the host (`getent group bind _kea`, `id -u bind`). The entrypoint gives the image's `bind` group the host's gid, so the files the node writes for `named` carry the host's `bind` group |
 | `PELAGOS_EXTERNAL_ENGINES` | `1`: the host's units are never started or restarted from the container |
 
 The host must not run the Pelagos package too (same ports, same
@@ -369,7 +383,9 @@ the first start: `/etc/bind` becomes `root:bind` 0775, `rndc.key`
 reading it by group), `/etc/bind/pelagos` is created, `/var/cache/bind`
 and `/var/lib/bind` become 0775 with a `pelagos/` subdirectory, `/etc/kea`
 gets the Kea group, mode 2770 and files 0660, `/run/kea` mode 0750. The
-existing `named.conf`, `rndc.key` and Kea files are kept.
+existing `named.conf`, `rndc.key` and Kea files are kept; a missing Kea file
+(`kea-dhcp6.conf` when the host runs no DHCPv6) is seeded with
+`"interfaces": []`.
 
 ```sh
 cp -r docker/examples/host-engines ~/pelagos && cd ~/pelagos
@@ -377,21 +393,26 @@ cp .env.example .env                 # the three ids, node name, URLs
 export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"; echo "$PELAGOS_ADMIN_PASSWORD"
 docker compose up -d
 unset PELAGOS_ADMIN_PASSWORD
-docker compose exec pelagos pelagos import --dry-run
-docker compose exec pelagos pelagos import --yes
+docker compose exec pelagos pelagos import --engines bind,kea4,d2 --dry-run
+docker compose exec pelagos pelagos import --engines bind,kea4,d2 --yes
 ```
 
-The import adds the two include lines to `named.conf`, a `controls` channel
-and a statistics channel on the loopback when none is usable, and reloads
-`named` over `rndc`. What a packaged import does through systemd is not
+The node image has no `named` or Kea binary to detect the engines with:
+name them with `--engines` (add `kea6` for a host DHCPv6 server). The import
+adds its include lines to `named.conf`, a `controls` channel and a
+statistics channel on the loopback when none is usable, writes
+`/etc/bind/pelagos/rndc-pelagos.conf` with the key of the host's `controls`
+(`rndc-key` on Debian), and reloads `named` over `rndc`. What a packaged import does through systemd is not
 available from the container: with Debian's Kea 2.6 the sockets are created
 0750, and the drop-in that makes them group-writable, like the AppArmor rule
 for `config-write`, must be added on the host by hand
 ([Troubleshooting: Kea](troubleshooting.md#kea-is-not-reachable),
 [AppArmor](troubleshooting.md#apparmor)). Kea 3.x creates its sockets 0770
-and needs neither. This scenario is supported by the image variables but not
-covered by the automated smoke tests of the repository: read the dry run
-before applying.
+and needs neither. The host's Kea keeps its own hook list: without
+`libdhcp_lease_cmds.so` the lease screens stay empty and the collector logs
+`lease4-get-page ... not supported`; add the hooks from **Advanced, Kea
+editor**. Read the dry run before applying: the import changes the host's
+files.
 
 ## First sign-in and import
 
@@ -483,7 +504,7 @@ state. One node at a time, the DNS primary and the Kea HA primary last
 ([Upgrade](upgrade.md)):
 
 ```sh
-sed -i 's/^PELAGOS_IMAGE=.*/PELAGOS_IMAGE=ghcr.io\/neyslim\/pelagos:<new version>/' .env   # or PELAGOS_VERSION
+sed -i 's/^PELAGOS_VERSION=.*/PELAGOS_VERSION=<new version>/' .env
 docker compose pull
 docker compose up -d
 docker compose logs pelagos-init pelagos --tail 20
@@ -511,7 +532,7 @@ recreate:
 
 ```sh
 docker compose stop pelagos pelagos-collector
-sed -i 's/^PELAGOS_IMAGE=.*/PELAGOS_IMAGE=ghcr.io\/neyslim\/pelagos:<previous version>/' .env
+sed -i 's/^PELAGOS_VERSION=.*/PELAGOS_VERSION=<previous version>/' .env
 docker compose run --rm --no-deps pelagos sh -c 'rm -f /var/lib/pelagos/series.sqlite*'
 docker compose up -d
 ```
@@ -542,10 +563,10 @@ terminal; add `-v` for debug messages.
   `PELAGOS_ADMIN_PASSWORD refused: ...` (too short, not enough character
   classes). Export a strong password and `docker compose up -d` again. To
   join a cluster instead, enroll first ([Two-node HA pair](#two-node-ha-pair)).
-- **`pelagos enroll: cannot connect to ...:8444`, connection refused or reset**:
-  the collector of the first node is restarting (it does so after every
-  `pelagos import`, exit status 75), or `8444/tcp` is closed between the
-  hosts. Check with `openssl s_client -connect ns1.example.lan:8444
+- **`pelagos enroll: cannot connect to ...:8444 ... still failing after 60 s`**:
+  `8444/tcp` is closed between the hosts, or the collector of the first
+  node is down (a restart after `pelagos import`, exit status 75, lasts a
+  few seconds and the enrollment waits for it). Check with `openssl s_client -connect ns1.example.lan:8444
   </dev/null` from host 2: a certificate must come back. Then run the
   enrollment again with the same token (it stays valid until it is consumed
   or expires).
@@ -599,11 +620,11 @@ terminal; add `-v` for debug messages.
   directories with `:z` for the host-engines scenario: the image follows the
   Debian layout only and `named` would lose its own labels. Use the
   packaged rpm on those hosts, or run the ISC images or the all-in-one.
-- **IPv6 observations stay empty**: the collector logs `IPv6 source
-  neighbors failed: the ip command (iproute2) is not installed`. The node
-  image has no `ip` command, and on a bridge network the node containers
-  see no LAN neighbors anyway. The IPv6 tab of the hosts fills from the Kea
-  leases and the DNS records only.
+- **IPv6 observations stay empty**: on a bridge network the node
+  containers see no LAN neighbors (`ip neigh` lists the compose network
+  only). The IPv6 tab of the hosts fills from the Kea leases and the DNS
+  records; with `network_mode: host` (all-in-one, host engines) the
+  neighbor table of the host is read too.
 - **The security audit lists `rndc_nonlocal` and `stats_nonlocal`**: expected
   with the ISC images stack ([above](#node-with-the-isc-bind-and-kea-images)).
 - **A long-running container carries the admin password**: it should not.

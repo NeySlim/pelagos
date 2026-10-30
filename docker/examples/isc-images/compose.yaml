@@ -13,7 +13,7 @@
 name: pelagos
 
 x-pelagos-common: &pelagos-common
-  image: ${PELAGOS_IMAGE:-ghcr.io/neyslim/pelagos:0.3.1}
+  image: ${PELAGOS_IMAGE:-ghcr.io/neyslim/pelagos:${PELAGOS_VERSION:-latest}}
   # The admin password only reaches pelagos-init: long-running containers never carry it.
   environment: &pelagos-env
     PELAGOS_NODE_NAME: ${PELAGOS_NODE_NAME:-ns1}

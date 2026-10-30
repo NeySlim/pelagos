@@ -10,13 +10,20 @@ make docker            # node image: pelagos:<version> and pelagos:latest
 make docker-allinone   # all-in-one image: pelagos-allinone:<version>, KEA_SOURCE=isc|distro
 ```
 
+Release images are published as `ghcr.io/neyslim/pelagos` and
+`ghcr.io/neyslim/pelagos-allinone` (`<version>` and `latest`, amd64 and
+arm64) by `.github/workflows/images.yml`. Deploying them is described in
+[docs/user/docker.md](../docs/user/docker.md), with one compose file per
+scenario under `examples/`. This file covers the local build and the
+development stack of `compose.yaml`.
+
 ## Compose: the node next to the ISC images
 
 `compose.yaml` runs:
 
 | Service | Image | Role |
 | --- | --- | --- |
-| `pelagos-init` | node image | one shot: seeds the `bind-etc` and `kea-etc` volumes, generates the `rndc-pelagos` key and `/etc/bind/pelagos/rndc-pelagos.conf`, runs `pelagos init` with `PELAGOS_ADMIN_PASSWORD` on first start, and exits (nothing else starts) when it is absent or too weak |
+| `pelagos-init` | node image | one shot: seeds the `bind-etc` and `kea-etc` volumes, generates the `rndc-pelagos` key and, for a BIND container (`PELAGOS_BIND_HOST` not local), `/etc/bind/pelagos/rndc-pelagos.conf`, runs `pelagos init` with `PELAGOS_ADMIN_PASSWORD` on first start, and exits (nothing else starts) when it is absent or too weak |
 | `pelagos` | node image | web process, HTTPS on `:8443` |
 | `pelagos-collector` | node image | collector: polling, series cache, alerts, and the replication and enrollment server (mTLS) on `:8444` |
 | `bind` | `internetsystemsconsortium/bind9:9.20` | DNS on host port `${BIND_DNS_PORT:-53}`; `controls` (`:953`) and `statistics-channels` (`:8053`) listen on the compose network only |
@@ -52,8 +59,7 @@ engines.
 
 Variables (environment or a `.env` file next to `compose.yaml`):
 `PELAGOS_IMAGE` (default `pelagos:latest`, the image `make docker` builds;
-no image is published yet, so build it first or point the variable at your
-registry),
+`ghcr.io/neyslim/pelagos:<version>` for a published one),
 `PELAGOS_ADMIN_PASSWORD` (required on first start, given to `pelagos-init` only; `PELAGOS_ADMIN_PASSWORD_FILE`
 reads it from a file inside the container instead; mount that file into `pelagos-init`,
 for example as a compose secret, see the commented example in `compose.yaml`), `PELAGOS_NODE_NAME`, `PELAGOS_WEB_URL`,

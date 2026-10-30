@@ -176,16 +176,17 @@ sudo firewall-cmd --permanent --add-port=8443/tcp --add-port=8444/tcp && sudo fi
 
 ### Docker compose
 
-The compose file runs the node image `ghcr.io/neyslim/pelagos:<version>`
-next to the official ISC images for BIND and Kea.
-`PELAGOS_ADMIN_PASSWORD` is required; the node refuses to start without a
-strong one.
+This example runs the node image `ghcr.io/neyslim/pelagos` next to the
+official ISC images for BIND and Kea. It pulls `latest`: pin a release with
+`PELAGOS_VERSION` in `.env` for production. `PELAGOS_ADMIN_PASSWORD` is
+required; the node refuses to start without a strong one.
 
 ```sh
-cd docker
+cd docker/examples/isc-images
+cp .env.example .env
 export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"   # or set your own
 echo "$PELAGOS_ADMIN_PASSWORD"
-PELAGOS_IMAGE=ghcr.io/neyslim/pelagos:<version> docker compose up -d
+docker compose up -d
 ```
 
 Kea uses the host network to serve DHCP; add the LAN interface to the

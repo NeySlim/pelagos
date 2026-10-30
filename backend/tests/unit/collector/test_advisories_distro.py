@@ -100,6 +100,13 @@ def test_bind_9_20_26_with_9_20_30_candidate_asks_for_the_package_update(tmp_pat
     assert status["CVE-2026-81736"] == "unknown"
     assert alert.details["package"]["candidate"] == "1:9.20.30-1~deb13u1"
     assert alert.details["distribution_data"]["name"] == "Debian security tracker"
+    # The fix is a candidate of the same series: the alert links to the engine packages rollout.
+    assert alert.details["update"] == {
+        "kind": "engine_packages",
+        "packages": ["bind9"],
+        "node_ids": ["n1"],
+        "candidate": "1:9.20.30-1~deb13u1",
+    }
 
 
 def test_only_updates_left_gives_the_update_title(tmp_path):

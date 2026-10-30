@@ -400,6 +400,8 @@ def test_engine_packages(node: Any, keys: Any) -> None:
     _, public = keys
     pkg.engines = {"bind9": "1:9.20.11-4", "kea-dhcp4-server": "2.6.3-1"}
     set_rollout(env, kind="engine_packages", version=None, packages={"bind9": "1:9.20.15-1~deb13u1"})
+    env.runner.responses["systemctl show -p ActiveState --value named"] = "active\n"
+    env.runner.responses["systemctl show -p InvocationID --value named"] = "same-named\n"
     with pytest.raises(updates.UpdateRefused, match=r"^name: openssh-server"):
         updates.start(
             env, {"rollout_id": RID, "kind": "engine_packages", "packages": {"openssh-server": "1"}}, public
@@ -416,6 +418,8 @@ def test_engine_packages(node: Any, keys: Any) -> None:
     assert updates.apply(env, RID) == 0
     assert pkg.engines["bind9"] == "1:9.20.15-1~deb13u1"
     assert "--only-upgrade" in pkg.installs[-1] and not env.runner.commands("systemctl stop")
+    # The package left named running the old binary: restarted by the unit.
+    assert env.runner.commands("systemctl restart") == ["systemctl restart named.service"]
     record = json.loads(updates.layout(env).request(RID).read_text())
     assert record["from_versions"] == {"bind9": "1:9.20.11-4"}
 
@@ -508,3 +512,56 @@ def test_cli_parser_has_upgrade_apply() -> None:
 
     args = build_parser().parse_args(["upgrade", "apply", "--rollout", RID])
     assert args.func is updates.cmd_upgrade and args.rollout == RID
+
+
+def test_engine_packages_series_siblings_and_restart(node: Any, keys: Any) -> None:
+    env, pkg = node
+    _, public = keys
+    pkg.engines = {"kea-dhcp4-server": "2.6.3-1", "kea-common": "2.6.3-1", "kea-dhcp6-server": "2.6.3-1"}
+    listing = (
+        "".join(f"ii \t{n}\tisc-kea\t{v}\n" for n, v in pkg.engines.items())
+        + "ii \topenssh-server\topenssh\t1:10.0p1-7\n"
+    )
+    plain = env.runner.responses["dpkg-query -W"]
+
+    def query(argv: list[str]) -> CommandResult:
+        if argv[-1].startswith("-f="):
+            return CommandResult(argv, 0, listing, "")
+        return plain(argv)
+
+    env.runner.responses["dpkg-query -W"] = query
+    env.runner.responses["apt-cache policy kea-common"] = "kea-common:\n  Candidate: 2.6.4-1\n"
+    env.runner.responses["apt-cache policy kea-dhcp6-server"] = "kea-dhcp6-server:\n  Candidate: 2.6.4-1\n"
+    ids = iter(["old-kea4", "new-kea4"])
+    env.runner.responses["systemctl show -p ActiveState --value kea-dhcp4-server"] = "active\n"
+    env.runner.responses["systemctl show -p InvocationID --value kea-dhcp4-server"] = lambda a: CommandResult(
+        a, 0, next(ids) + "\n", ""
+    )
+
+    def start(packages: dict[str, str]) -> dict[str, Any]:
+        set_rollout(env, kind="engine_packages", version=None, packages=packages)
+        return updates.start(
+            env, {"rollout_id": RID, "kind": "engine_packages", "packages": packages}, public
+        )
+
+    # A change of series is the Kea migration; an older version is refused; nothing installed here.
+    with pytest.raises(updates.UpdateRefused, match=r"^version: .*changes series"):
+        start({"kea-dhcp4-server": "3.0.2-1"})
+    with pytest.raises(updates.UpdateRefused, match=r"^version: .*not newer"):
+        start({"kea-dhcp4-server": "2.6.2-1"})
+    with pytest.raises(updates.UpdateRefused, match=r"^nothing: "):
+        start({"bind9": "1:9.20.15-1~deb13u1"})
+    # The rpm name of another node of a mixed cluster is left out; siblings follow.
+    start({"kea-dhcp4-server": "2.6.4-1", "kea": "2.6.4-1.el10"})
+    record = json.loads(updates.layout(env).request(RID).read_text())
+    assert record["packages"] == {
+        n: "2.6.4-1" for n in ("kea-dhcp4-server", "kea-common", "kea-dhcp6-server")
+    }
+    assert record["from_versions"]["kea-common"] == "2.6.3-1"
+    assert updates.apply(env, RID) == 0
+    assert "--no-remove" in pkg.installs[-1]
+    assert pkg.engines == {n: "2.6.4-1" for n in pkg.engines}
+    progress = json.loads(updates.layout(env).progress(RID, env.node_id).read_text())
+    assert [s["step"] for s in progress["steps"]] == ["install", "version", "restart"]
+    assert "restarted by the package" in progress["steps"][-1]["output"]
+    assert not env.runner.commands("systemctl restart")

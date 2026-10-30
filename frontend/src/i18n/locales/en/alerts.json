@@ -47,6 +47,7 @@
     "openChannel": "Open the channel",
     "openFailover": "Open DDNS failover",
     "openKeaMigration": "Analyze the Kea migration",
+    "updateEnginePackage": "Update the package",
     "openPermissions": "Check the permissions",
     "proposeFallback": "Propose the forwarder fallback",
     "openResolver": "Open resolver health",

@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pelagos.core import engine_packages
 from pelagos.core import release as rel
 from pelagos.core.config_store import ConfigStore
 from pelagos.domain.updates import (
@@ -461,19 +462,85 @@ def _rollout_of(env: Any) -> Rollout | None:
 
 
 def _engine_packages(env: Any, packages: Any) -> dict[str, str]:
-    """Engine packages of this host's layout, each at a version the package manager will accept."""
+    """Engine packages of this host's layout, each at a version the package manager will accept.
+    A BIND or Kea name of another distribution (a mixed cluster) is left out, anything else refused."""
     if not isinstance(packages, dict) or not packages:
         raise UpdateRefused("name", "no engine package")
     p = env.paths
     allowed = set(p.bind_packages) | set(p.kea_packages_distro) | set(p.kea_packages_isc)
     out: dict[str, str] = {}
     for name, version in packages.items():
-        if name not in allowed:
+        if name not in allowed and engine_packages.family_of(str(name)) is None:
             raise UpdateRefused("name", f"{name} is not a BIND or Kea package of this host")
         if not isinstance(version, str) or not _ENGINE_PACKAGE_VERSION.fullmatch(version):
             raise UpdateRefused("version", f"invalid version {version!r} for {name}")
-        out[name] = version
+        if name in allowed:
+            out[name] = version
     return out
+
+
+def _engine_targets(env: Any, fmt: str, packages: dict[str, str]) -> tuple[dict[str, str], dict[str, str]]:
+    """({package: version} to install, {package: installed version}): the requested packages
+    installed here, plus their installed siblings of the same source package at the same version
+    (kea-common, bind9-libs), so the package manager never has to remove one. Within the series only:
+    a change of Kea series is the migration of design 13.4."""
+    present = {n: v for n, v in packages.items() if installed_version(env, fmt, n)}
+    if not present:
+        raise UpdateRefused("nothing", f"none of {', '.join(sorted(packages))} is installed here")
+    installed: dict[str, str] = {}
+    for name, version in present.items():
+        now = str(installed_version(env, fmt, name))
+        if versions.compare(fmt, version, now) <= 0:
+            raise UpdateRefused("version", f"{name} {version} is not newer than the installed {now}")
+        if engine_packages.series(version) != engine_packages.series(now):
+            raise UpdateRefused(
+                "version", f"{name} {now} to {version} changes series: that is the Kea migration"
+            )
+        installed[name] = now
+    targets = dict(present)
+    for name, version in _siblings(env, fmt, present).items():
+        if name not in targets:
+            targets[name] = version
+            installed[name] = str(installed_version(env, fmt, name))
+    return targets, installed
+
+
+def _siblings(env: Any, fmt: str, present: dict[str, str]) -> dict[str, str]:
+    if fmt == "deb":
+        fields = "${db:Status-Abbrev}\t${Package}\t${source:Package}\t${Version}\n"
+        argv = ["dpkg-query", "-W", f"-f={fields}"]
+    else:
+        argv = ["rpm", "-qa", "--qf", "%{NAME}\t%{SOURCERPM}\t%{VERSION}\n"]
+    res = env.runner.run(argv, check=False, mutates=False, timeout=60)
+    rows: list[tuple[str, str]] = []
+    for line in res.stdout.splitlines() if res.ok else []:
+        parts = line.split("\t")
+        if fmt == "deb" and len(parts) >= 3 and parts[0].startswith("ii"):
+            rows.append((parts[1], parts[2].split(" ")[0]))
+        elif fmt == "rpm" and len(parts) >= 2:
+            rows.append((parts[0], parts[1]))
+    source_of = dict(rows)
+    out: dict[str, str] = {}
+    for name, version in present.items():
+        source = source_of.get(name)
+        if not source:
+            continue
+        for other, other_source in rows:
+            if other_source != source or other in present or other in out:
+                continue
+            if fmt == "rpm" or _apt_candidate(env, other) == version:
+                out[other] = version
+    return out
+
+
+def _apt_candidate(env: Any, name: str) -> str | None:
+    res = env.runner.run(["apt-cache", "policy", name], check=False, mutates=False, timeout=60)
+    for line in res.stdout.splitlines() if res.ok else []:
+        key, _, value = line.strip().partition(":")
+        if key == "Candidate":
+            value = value.strip()
+            return None if value in ("", "(none)") else value
+    return None
 
 
 def start(env: Any, request: dict[str, Any], keys: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -506,14 +573,17 @@ def start(env: Any, request: dict[str, Any], keys: dict[str, Any] | None = None)
     if kind is RolloutKind.ENGINE_PACKAGES:
         if rollout.kind != RolloutKind.ENGINE_PACKAGES.value:
             raise UpdateRefused("rollout", f"rollout {rid} is not an engine packages rollout")
-        packages = _engine_packages(env, request.get("packages"))
-        if any(rollout.packages.get(n) != v for n, v in packages.items()):
+        requested = request.get("packages")
+        packages = _engine_packages(env, requested)
+        if any(rollout.packages.get(n) != v for n, v in requested.items()):
             raise UpdateRefused("version", f"packages differ from rollout {rid}")
         facts = node_facts(env)
+        targets, installed = _engine_targets(env, facts.package_format, packages)
         record.update(
-            packages=packages,
+            packages=targets,
+            requested=sorted(packages),
             package_format=facts.package_format,
-            from_versions={n: installed_version(env, facts.package_format, n) for n in packages},
+            from_versions=installed,
         )
     else:
         version = str(request.get("version") or "")
@@ -794,6 +864,7 @@ def _engine_argv(fmt: str, packages: dict[str, str]) -> list[str]:
             "-y",
             "-q",
             "--only-upgrade",
+            "--no-remove",
             "-o",
             "Dpkg::Options::=--force-confold",
             "-o",
@@ -906,6 +977,8 @@ def _apply_pelagos(env: Any, lay: Layout, record: dict[str, Any], progress: Prog
 
 def _apply_engines(env: Any, record: dict[str, Any], progress: Progress) -> None:
     fmt, packages = record["package_format"], dict(record["packages"])
+    units = _engine_units(env, engine_packages.families(packages))
+    before = {u: _invocation(env, u) for u in units}
 
     def install() -> str:
         res = env.runner.run(
@@ -928,6 +1001,51 @@ def _apply_engines(env: Any, record: dict[str, Any], progress: Progress) -> None
         return ", ".join(f"{n} {v}" for n, v in now.items())
 
     _run_step(env, progress, "version", check_versions)
+
+    def restart() -> str:
+        # The package scripts restart the daemons or not, depending on the packaging: a unit that
+        # still runs the process from before the install is restarted here.
+        lines = []
+        for unit, old in before.items():
+            if old and _invocation(env, unit) != old:
+                lines.append(f"{unit}: restarted by the package")
+                continue
+            res = env.runner.run(["systemctl", "restart", unit], check=False, timeout=300)
+            if not res.ok:
+                raise StepFailed(f"systemctl restart {unit} failed: {res.output[-2000:]}")
+            lines.append(f"{unit}: restarted")
+        return "\n".join(lines) or "no engine unit runs here"
+
+    _run_step(env, progress, "restart", restart)
+
+
+def _engine_units(env: Any, families: set[str]) -> list[str]:
+    """The active units of the engines the packages run (BIND, the Kea daemons) on this host."""
+    p = env.paths
+    names: list[str] = []
+    if engine_packages.BIND in families:
+        names.append(p.bind_service)
+    if engine_packages.KEA in families:
+        for engine in ("kea4", "kea6", "d2"):
+            names.extend(p.kea_service_candidates(engine))
+    out = []
+    for unit in dict.fromkeys(names):
+        res = env.runner.run(
+            ["systemctl", "show", "-p", "ActiveState", "--value", unit],
+            check=False,
+            mutates=False,
+            timeout=30,
+        )
+        if res.ok and res.stdout.strip() == "active":
+            out.append(unit if unit.endswith(".service") else f"{unit}.service")
+    return list(dict.fromkeys(out))
+
+
+def _invocation(env: Any, unit: str) -> str:
+    res = env.runner.run(
+        ["systemctl", "show", "-p", "InvocationID", "--value", unit], check=False, mutates=False, timeout=30
+    )
+    return res.stdout.strip() if res.ok else ""
 
 
 def purge(lay: Layout, keep: int) -> list[str]:

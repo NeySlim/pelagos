@@ -2329,7 +2329,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `managed_drift` | warning, critical for `shared_key_divergence` | Something Pelagos manages was changed outside it (security audit finding `managed_drift`, section 15): the HA listener guard, a Kea HA relationship, a file Pelagos owns; per node, subject `kea:<object>`; details `finding_id`, `finding_kind`, `proposal`; resolved when the object matches again (adopt or restore plan). Also raised by the finding `shared_key_divergence` (subject `bind:<key>`), resolved by its security plan |
 | `restart_loop` | critical | `checks.restart_loop_count` restarts in `restart_loop_window_seconds`; subject `engine:<engine>` |
 | `pool_forecast` | warning, critical | a rising pool trend reaches full within `forecast_warning_days` (critical within `forecast_critical_days`) while still under the fixed warning percent; under 60 % use the trend must also rise on each half of the window on its own (details `confirmed`); subject is the pool subject |
-| `security_advisory` | info, warning | the upstream version of an installed BIND or Kea falls in a range of `pelagos/data/isc_advisories.json` (`ranges_preview` for `-S` versions); subject `<engine>:<CVE id>`; details `cve`, `version`, `fixed_in`, `url`, `cvss`, `dataset_verified` |
+| `security_advisory` | info, warning | the upstream version of an installed BIND or Kea falls in a range of `pelagos/data/isc_advisories.json` (`ranges_preview` for `-S` versions); subject `<engine>:<CVE id>`; details `cve`, `version`, `fixed_in`, `url`, `cvss`, `dataset_verified`; `update` when a candidate package of the same series fixes them (section 29, engine packages) |
 | `cert_expiry` | warning / critical | the web certificate (subject `cert:web`), this node's replication certificate (`cert:node`) or the internal CA (`cert:ca`) expires within `checks.cert_warning_days` / `checks.cert_critical_days`, or within a third / a tenth of its lifetime when that is shorter (24 h certificates); details: `cert`, `not_after`, `days_left`, `fingerprint`, `issuer`, and for the web certificate `source` and `mode` |
 | `api_token_expiry` | warning / critical | an API token expires within `checks.api_token_warning_days` (critical within `checks.api_token_critical_days`, and once expired until it is revoked); raised by the service node only (section 22 election: the records are cluster-wide), subject `token:<id>`; details `token_id`, `name`, `user`, `expires_at`, `days_left`, `expired` |
 | `cert_renewal_failed` | warning | the last automatic request of the web certificate failed (subject `cert:web:renewal`; details `failures`, `last_error`, `next_attempt_at`) |
@@ -4958,7 +4958,7 @@ the screen (U6), daemon and lab tests (U7).
   "kind","from_version","to_version","packages","started_at","finished_at",
   "result": "running"|"installed"|"failed","steps": [{"step","state",
   "started_at","finished_at","output"}],"backup","error"}`, steps `backup`,
-  `install` (or `rollback`), `version`; engine packages `install`, `version`),
+  `install` (or `rollback`), `version`; engine packages `install`, `version`, `restart`),
   `installed.json` and `previous.json` (`{"package_version","release"}` of
   the last install through the helper and of what it replaced: the only
   version older than the installed one that the helper accepts),
@@ -4996,9 +4996,22 @@ the screen (U6), daemon and lab tests (U7).
   --unit=pelagos-upgrade-<id> --property=RuntimeMaxSec=7200 /usr/bin/pelagos
   upgrade apply --rollout <id>` (after `systemctl reset-failed` of that unit,
   so a resumed rollout can run it again) and answers `{"unit","progress"}`.
-  Engine packages: only this host's BIND and Kea packages (`PlatformPaths`),
-  installed with `apt-get install --only-upgrade name=version` or `dnf upgrade
-  name-version`, services untouched (the HA maintenance is the rollout's).
+  Engine packages (U4): the request carries the rollout's `packages`; a BIND
+  or Kea name that is not this host's (`PlatformPaths`; the rpm names of a
+  mixed cluster) is left out, any other name refused (`name`). Of what is
+  left, the packages not installed here are dropped (none left: `nothing`,
+  the node has nothing to do); each must be newer than the installed one and
+  of the same series (major.minor of the upstream version, else `version`: a
+  change of Kea series is the migration of section 28). The installed
+  packages of the same source package (`${source:Package}`, `SOURCERPM`:
+  `kea-common`, `bind9-libs`) join at the same version (deb: only when `apt-cache
+  policy` names it the candidate), so the package manager never removes one;
+  `request.json` holds `packages` (all of them), `requested` and
+  `from_versions`. Installed with `apt-get install --only-upgrade --no-remove
+  name=version` or `dnf upgrade name-version`. Progress steps `install`,
+  `version` (every package at its version), `restart`: an active engine unit
+  (`bind_service`, the Kea units) whose `InvocationID` did not change during
+  the install (packaging that does not restart on upgrade) is restarted.
   `pelagos upgrade apply --rollout <id>` (root, the transient unit): pelagos
   and rollback kinds stop `pelagos.service` and `pelagos-collector.service`,
   write the state backup (step `backup`; a failure restarts them), check the
@@ -5088,6 +5101,30 @@ the screen (U6), daemon and lab tests (U7).
   and health, then write the node `rolled_back` (or `failed` at
   `rollback`) and the rollout `failed`, with `update.node.rolled_back`.
   Without it the node is `failed` at the step and the rollout `failed`.
+  Engine packages (U4, design 13.6 decision 9) keep the pelagos processes
+  running: `wait` (health), `precheck` (health and the local Kea HA as above,
+  retried until `timeout_seconds`; the open alerts of this node of the kinds
+  `collector.rollout.ENGINE_ALERT_KINDS` are noted), `ha_maintenance` (only
+  when the rollout holds Kea packages: for each Kea server of this node in an
+  HA relationship, backups aside, the `dhcp.ha` plan `ha/maintenance` `start`
+  of the HA screen is applied on the node running its partner over
+  `/repl/v1/plans/apply`; the partner goes `partner-in-maintenance` and serves
+  every client, this server `in-maintenance`), then `update_start` of kind
+  `engine_packages` with the rollout's `packages` (`nothing` from the helper:
+  the node is `done` at once, the maintenance cancelled). `install`,
+  `version`, `restart` follow the unit's progress; then, after
+  `settle_seconds` and until `timeout_seconds`, `engine_checks` (the daemons
+  answer and run the upstream version installed: `rndc status` for BIND,
+  `version-get` through the Kea capabilities; every secondary zone loaded
+  with a serial, at most 500 read; no alert of those kinds opened since the
+  precheck) and `ha` (`ha-maintenance-cancel` to a partner still in
+  `partner-in-maintenance`: once this server restarted, the partner went
+  `partner-down` and the pair negotiates back on its own, Kea ARM 2.6.3
+  "Controlled Shutdown and Maintenance of DHCP Servers", read 2026-10-30;
+  then the local HA back to a normal state). No automatic rollback (the
+  distribution keeps only the newest version); a failed node cancels the
+  maintenance it started. `to_version` of a node is the list of packages
+  installed (`core.engine_packages.summary`), `from_version` stays absent.
   Actions (`core.update_rollout.resume|cancel|rollback_of`): `cancel`
   leaves a `running` node as it is (its unit ends on its own; its later
   writes find no rollout). `default_order(nodes, dns_primaries,
@@ -5105,6 +5142,21 @@ the screen (U6), daemon and lab tests (U7).
   service node runs it every `check_interval_hours` when `check_enabled` and
   `source` is `github`, and raises `update_available`, `update_failed` and
   `update_stalled` for the cluster.
+- **Engine packages in code** (`core.engine_packages`): `engine_rows(node_id,
+  snapshots)` builds the `engines` rows of `GET /admin/updates` from a node's
+  `advisories` snapshots (`installed`, `candidate` null when up to date, the
+  rpm candidate reduced from the NEVRA of `dnf updateinfo` to
+  `[epoch:]version-release`, `cves` with the verdict `update`);
+  `rollout_packages(rows, packages, node_ids)` gives the rollout's `{package:
+  version}` and its nodes, or raises `EnginePackagesRefused` (`field`
+  `packages`: not a BIND or Kea package, no selected node with a candidate,
+  two candidates for one package, a change of series). The plan's order is
+  `default_order` (DNS secondaries and Kea standby first). A
+  `security_advisory` alert whose remaining CVEs are fixed by a candidate of
+  the same series carries `details.update` `{"kind": "engine_packages",
+  "packages": [name], "node_ids": [node], "candidate"}`; the alert detail
+  links to `/admin/updates?tab=engines&package=<name>&node=<node>` for a user
+  with `admin:updates`, which opens the tab with those rows picked.
 - **Mixed versions**: a node before 0.3.0 ignores `[settings.updates]` and
   is updated by hand or by `scripts/deploy-prod.sh`, which stays the
   fallback tool and the model of the checks. Docker: no update from the

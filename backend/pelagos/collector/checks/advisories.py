@@ -19,6 +19,7 @@ from typing import Any
 
 from pelagos.collector.checks import distro
 from pelagos.collector.checks.versions import version_tuple
+from pelagos.core import engine_packages
 from pelagos.domain import Alert, AlertKind, Engine, Severity, messages
 
 log = logging.getLogger(__name__)
@@ -214,10 +215,19 @@ def advisory_alerts(
                     "dataset_verified": data.get("verified"),
                     "dataset_revision": data.get("revision"),
                     **({"note": NOTE_UPSTREAM} if statuses == {distro.UNKNOWN} else {}),
+                    **_update_link(node_id, pkg, statuses),
                 },
             )
         )
     return out
+
+
+def _update_link(node_id: str, pkg: distro.Package | None, statuses: set[str]) -> dict[str, Any]:
+    """`update`: the engine packages rollout that installs the fix (Administration, Updates)."""
+    if distro.UPDATE not in statuses or pkg is None:
+        return {}
+    link = engine_packages.advisory_update(node_id, pkg.to_dict())
+    return {"update": link} if link else {}
 
 
 def fetch(url: str, var_dir: Path, timeout: float = 15.0) -> bool:

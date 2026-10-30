@@ -5,7 +5,7 @@
 // distribution, the history of past rollouts and the release source settings.
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   ArrowCircleUp, ArrowsClockwise, UploadSimple, Package, ClockCounterClockwise, Gear, ArrowCounterClockwise, Cube, Warning, CaretRight,
 } from '@phosphor-icons/react'
@@ -21,7 +21,7 @@ import { RolloutPanel } from './RolloutPanel'
 import { SignatureBadge, UpdatePreview } from './UpdatePreview'
 import { useRolloutWatch } from './useRolloutWatch'
 import {
-  SETTING_NUMBERS, compareVersions, engineKey, engineSelection, isActive, nodesBehind, previousVersion, settingsChanges, settingsErrors, settingsForm,
+  SETTING_NUMBERS, compareVersions, engineKey, engineSelection, isActive, preselectedEngines, nodesBehind, previousVersion, settingsChanges, settingsErrors, settingsForm,
 } from './updatesLib'
 
 function CardTitle({ icon: Icon, children, actions }) {
@@ -175,9 +175,9 @@ function DockerCard({ docker }) {
   )
 }
 
-function EnginesTab({ engines, nodeName, blocked, onPrepare }) {
+function EnginesTab({ engines, nodeName, blocked, onPrepare, preselect }) {
   const { t } = useTranslation('updates')
-  const [picked, setPicked] = useState([])
+  const [picked, setPicked] = useState(() => preselectedEngines(engines, preselect?.packages, preselect?.nodes))
   const toggle = (k) => setPicked((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]))
   const selection = engineSelection(engines, picked)
   const columns = [
@@ -347,9 +347,14 @@ function SourceTab({ settings, onSaved }) {
   )
 }
 
+const TAB_IDS = ['pelagos', 'engines', 'history', 'source']
+
 export default function UpdatesPage() {
   const { t } = useTranslation(['updates', 'common'])
-  const [tab, setTab] = useState('pelagos')
+  const [params] = useSearchParams()
+  // A link from a security advisory opens the engine packages tab with its rows picked.
+  const [tab, setTab] = useState(() => (TAB_IDS.includes(params.get('tab')) ? params.get('tab') : 'pelagos'))
+  const preselect = useMemo(() => ({ packages: params.getAll('package'), nodes: params.getAll('node') }), [params])
   const [preview, setPreview] = useState(null) // {request, release}
   const [historyKey, setHistoryKey] = useState(0)
   const [dismissed, setDismissed] = useState(null)
@@ -419,7 +424,7 @@ export default function UpdatesPage() {
             {data.docker && <DockerCard docker={data.docker} />}
           </>
         )}
-        {data && tab === 'engines' && <EnginesTab engines={data.engines || []} nodeName={nodeName} blocked={blocked} onPrepare={prepare} />}
+        {data && tab === 'engines' && <EnginesTab engines={data.engines || []} nodeName={nodeName} blocked={blocked} onPrepare={prepare} preselect={preselect} />}
         {tab === 'history' && <HistoryTab nodeName={nodeName} reloadKey={historyKey} />}
         {data && tab === 'source' && <SourceTab settings={data.settings || {}} onSaved={refetch} />}
       </div>

@@ -105,6 +105,14 @@ export function engineSelection(engines, keys) {
 
 export const engineKey = (e) => `${e.node_id}|${e.package}`
 
+// Rows a link from a security advisory preselects (?package=&node=): those with a candidate.
+export function preselectedEngines(engines, packages, nodes) {
+  if (!packages?.length) return []
+  return (engines || [])
+    .filter((e) => e.candidate && packages.includes(e.package) && (!nodes?.length || nodes.includes(e.node_id)))
+    .map(engineKey)
+}
+
 // NOTES.md as blocks (headings, list items, code, paragraphs), rendered as text, never as HTML.
 export function parseNotes(text) {
   const blocks = []

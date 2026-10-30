@@ -131,6 +131,15 @@ describe('UpdatesPage', () => {
     fireEvent.click(within(table).getByTestId('updates-engines-update'))
     await waitFor(() => expect(api.updates.plan).toHaveBeenCalledWith({ kind: 'engine_packages', packages: ['bind9'], node_ids: ['n1'], auto_rollback: true }))
   })
+
+  it('opens the engine packages picked by a security advisory link', async () => {
+    api.updates.plan.mockResolvedValue(PLAN({ kind: 'engine_packages', version: null, packages: { bind9: '1:9.20.15-1~deb13u1' } }))
+    render(<MemoryRouter initialEntries={['/admin/updates?tab=engines&package=bind9&node=n1']}><UpdatesPage /></MemoryRouter>)
+    const table = await screen.findByTestId('updates-engines')
+    expect(within(table).getByTestId('updates-engine-pick')).toBeChecked()
+    fireEvent.click(within(table).getByTestId('updates-engines-update'))
+    await waitFor(() => expect(api.updates.plan).toHaveBeenCalledWith({ kind: 'engine_packages', packages: ['bind9'], node_ids: ['n1'], auto_rollback: true }))
+  })
 })
 
 describe('useRolloutWatch', () => {

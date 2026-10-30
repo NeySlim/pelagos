@@ -181,6 +181,9 @@ describe('AlertsPage', () => {
 
   it('links the obsolete Kea series alert to the migration analysis', () => {
     expect(subjectLink({ subject: 'kea:series' })).toEqual({ to: '/install/kea-migration', label: 'openKeaMigration' })
+    const advisory = { kind: 'security_advisory', subject: 'bind:advisories', state: 'open', details: { update: { kind: 'engine_packages', packages: ['bind9'], node_ids: ['n1'] } } }
+    expect(subjectLink(advisory, { canUpdateEngines: true })).toEqual({ to: '/admin/updates?tab=engines&package=bind9&node=n1', label: 'updateEnginePackage' })
+    expect(subjectLink(advisory)).toBeNull()
     expect(subjectLink({ subject: 'path:/etc/bind/cache/pelagos', node_id: 'n2' })).toEqual({ to: '/install/security?node=n2', label: 'openPermissions' })
   })
 

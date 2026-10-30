@@ -47,6 +47,7 @@
     "openChannel": "Ouvrir le canal",
     "openFailover": "Ouvrir la reprise DDNS",
     "openKeaMigration": "Analyser la migration de Kea",
+    "updateEnginePackage": "Mettre à jour le paquet",
     "openPermissions": "Vérifier les permissions",
     "proposeFallback": "Proposer le repli vers des forwarders",
     "openResolver": "Ouvrir la santé du résolveur",

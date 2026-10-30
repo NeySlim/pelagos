@@ -23,6 +23,16 @@ for time 1 (`details.stage`, `node`, `engines`, `options`, `partner`, `direction
 already sends these options). K5: append the window and time 3 to the migrate plan built by
 `installer.kea_migration_steps._switch_plan`, and extend the return beyond `stage` `standby`.
 
+## 2026-10-30, WP-INSTALLER, WP-KEA, WP-BIND, WP-COLLECTOR: engine packages rollout (U4)
+Architecture section 29: `update_start` of kind `engine_packages` leaves out the BIND or Kea names
+of another distribution, drops packages not installed (`nothing` when none is), refuses an older
+version or a change of series, adds the installed siblings of the same source package; apt runs
+with `--no-remove`; progress steps `install`, `version`, `restart`. The collector drives the
+kind: `ha_maintenance` through the partner's `dhcp.ha` plan, `engine_checks`, `ha`.
+`ClusterView` gains `kea_ha_partners`, `partner_ha_state`, `ha_maintenance`, `engine_problems`,
+`engine_alerts`. New `core/engine_packages.py` (`engine_rows`, `rollout_packages`,
+`advisory_update`) for U5's `engines` rows and plan. `security_advisory` details gain `update`.
+
 ## 2026-10-30, WP-INSTALLER, WP-CORE, WP-PACKAGING: privileged helper for updates (U2)
 Architecture section 29, "Files" and "Helper operations" rewritten. Root's update state moves from
 `/var/lib/pelagos/upgrade/` to `/var/lib/pelagos-helper/upgrade/` (`Paths.upgrade_dir`): the

@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from pelagos import __version__
+from pelagos.core import engine_packages as ep
 from pelagos.core import settings_registry as reg
 from pelagos.core import update_rollout as ur
 from pelagos.core import update_sources as src
@@ -41,6 +42,24 @@ UNIT_STEPS = ("backup", "install", "version")
 POST_STEPS = ("restart", "settle", "health", "convergence", "audit", "journal", "permissions", "ha")
 UNITS = ("pelagos.service", "pelagos-collector.service")
 HA_NORMAL = ("hot-standby", "load-balancing", "backup", "passive-backup")
+# Engine packages (decision 9 of design 13.6): the pelagos processes keep running throughout.
+ENGINE_PRE = ("wait", "precheck", "ha_maintenance")
+ENGINE_UNIT = ("install", "version", "restart")
+ENGINE_POST = ("engine_checks", "ha")
+# Alerts of this node that fail engine_checks when they open after the install.
+ENGINE_ALERT_KINDS = frozenset(
+    {
+        "daemon_down",
+        "zone_error",
+        "serial_divergence",
+        "secondary_stale",
+        "ha_terminated",
+        "ha_degraded",
+        "config_syntax_warning",
+        "restart_loop",
+        "custom_hook",
+    }
+)
 # How long update_start may take to leave a progress file before the node fails.
 UNIT_START_GRACE = 120.0
 
@@ -55,6 +74,11 @@ class ClusterView(Protocol):
     def invocations(self) -> dict[str, str]: ...
     def permission_problems(self) -> list[str]: ...
     def release_clients(self) -> list[Any]: ...
+    def kea_ha_partners(self) -> list[dict[str, Any]]: ...
+    def partner_ha_state(self, engine: str, node_id: str) -> str | None: ...
+    def ha_maintenance(self, engine: str, node_id: str, action: str) -> None: ...
+    def engine_problems(self, packages: dict[str, str]) -> list[str]: ...
+    def engine_alerts(self) -> set[str]: ...
 
 
 class Failed(Exception):
@@ -62,6 +86,11 @@ class Failed(Exception):
         super().__init__(f"{step}: {error}")
         self.step = step
         self.error = error
+
+
+def _target(r: Rollout) -> str:
+    """What the rollout installs, for messages: the version, or the engine packages."""
+    return r.version or ep.summary(r.packages) or "?"
 
 
 def _epoch(text: Any) -> float | None:
@@ -191,6 +220,11 @@ class RolloutDriver:
             me = r.nodes[self.node_id]
         if me.state != NodeState.RUNNING.value:
             return f"node {me.state}"
+        if r.kind == RolloutKind.ENGINE_PACKAGES.value:
+            try:
+                return self._engine(r, me.step or "wait", cfg)
+            except Failed as exc:
+                return self._fail(r, exc.step, exc.error, cfg)
         try:
             if me.step in (None, *PRE_STEPS):
                 return self._pre(r, me.step or "wait", cfg)
@@ -216,14 +250,15 @@ class RolloutDriver:
                 stamp,
             )
             node.finished_at = node.error = node.error_message = None
-            node.from_version = node.from_version or __version__
+            if x.kind != RolloutKind.ENGINE_PACKAGES.value:
+                node.from_version = node.from_version or __version__
 
         fresh = self._write(r.id, change)
         if fresh is not None:
             r.nodes = fresh.nodes
         self._save_state(r.id, {"begun_at": self.clock()})
         self._audit(
-            r, "update.node.start", AuditResult.OK, f"update of {self.node_id} to {r.version} started"
+            r, "update.node.start", AuditResult.OK, f"update of {self.node_id} to {_target(r)} started"
         )
 
     # Before the install ---------------------------------------------------------------------------
@@ -451,12 +486,15 @@ class RolloutDriver:
         def change(x: Rollout) -> None:
             node = x.nodes[self.node_id]
             node.state, node.finished_at, node.step_at = NodeState.DONE.value, stamp, stamp
-            node.to_version = str(state.get("to_version") or node.to_version or __version__)
+            if x.kind == RolloutKind.ENGINE_PACKAGES.value:
+                node.to_version = state.get("to_version") or node.to_version
+            else:
+                node.to_version = str(state.get("to_version") or node.to_version or __version__)
             if all(x.nodes[n].state in ur.PASSED for n in x.order if n in x.nodes):
                 x.state, x.finished_at = RolloutState.DONE.value, stamp
 
         self._write(r.id, change)
-        self._audit(r, "update.node.done", AuditResult.OK, f"{self.node_id} updated to {r.version}")
+        self._audit(r, "update.node.done", AuditResult.OK, f"{self.node_id} updated to {_target(r)}")
         self._forget(r.id)
         return "done"
 
@@ -465,6 +503,159 @@ class RolloutDriver:
             self._state_path(rid).unlink()
         except OSError:
             pass
+
+    # Engine packages ------------------------------------------------------------------------------
+
+    def _engine(self, r: Rollout, step: str, cfg: dict[str, Any]) -> str:
+        """wait, precheck, ha_maintenance (Kea: the partner serves alone), install, version, restart
+        (the helper's unit), engine_checks, ha (maintenance cancelled if still on, HA back to normal)."""
+        if step == "wait":
+            problems = self.view.health()
+            if problems:
+                return "waiting for a healthy cluster: " + "; ".join(problems)
+            self._step(r.id, "precheck")
+            step = "precheck"
+        if step == "precheck":
+            problems = self.view.health() + self.view.ha_problems()
+            if problems:
+                if self._deadline_passed(r, cfg):
+                    raise Failed("precheck", "; ".join(problems))
+                return "precheck: " + "; ".join(problems)
+            state = self._state(r.id)
+            state["alerts_before"] = sorted(self.view.engine_alerts())
+            self._save_state(r.id, state)
+            self._step(r.id, "ha_maintenance")
+            step = "ha_maintenance"
+        if step == "ha_maintenance":
+            self._start_maintenance(r)
+            return self._start_engine_unit(r, cfg)
+        if step in ENGINE_UNIT:
+            return self._engine_unit(r, cfg)
+        if step in ENGINE_POST:
+            return self._engine_post(r, step, cfg)
+        return f"unknown step {step}"
+
+    def _start_maintenance(self, r: Rollout) -> None:
+        """Kea packages: `ha-maintenance-start` to the partner of each relationship of this server,
+        which then serves every client while this one is upgraded (Kea ARM, "Controlled Shutdown
+        and Maintenance of DHCP Servers", 2.6.3, read 2026-10-30)."""
+        if ep.KEA not in ep.families(r.packages):
+            return
+        state = self._state(r.id)
+        done = {(m["engine"], m["node_id"]) for m in state.get("maintenance") or []}
+        for server in self.view.kea_ha_partners():
+            for partner in server["partners"]:
+                key = (server["engine"], partner)
+                if key in done or server.get("state") == "in-maintenance":
+                    continue
+                try:
+                    self.view.ha_maintenance(server["engine"], partner, "start")
+                except Exception as exc:
+                    raise Failed("ha_maintenance", f"{server['engine']}: {exc}") from None
+                done.add(key)
+                state["maintenance"] = [{"engine": e, "node_id": n} for e, n in sorted(done)]
+                self._save_state(r.id, state)
+
+    def _end_maintenance(self, r: Rollout, error: str = "") -> str:
+        """`ha-maintenance-cancel` to each partner still in partner-in-maintenance; after a restart of
+        this server the partner went partner-down and the HA negotiates back on its own."""
+        notes = []
+        for m in self._state(r.id).get("maintenance") or []:
+            try:
+                if self.view.partner_ha_state(m["engine"], m["node_id"]) == "partner-in-maintenance":
+                    self.view.ha_maintenance(m["engine"], m["node_id"], "cancel")
+            except Exception as exc:
+                notes.append(f"HA maintenance of {m['engine']} not cancelled: {exc}")
+        return "; ".join([error, *notes]) if error and notes else (error or "; ".join(notes))
+
+    def _start_engine_unit(self, r: Rollout, cfg: dict[str, Any]) -> str:
+        state = self._state(r.id)
+        state["unit_started_at"] = self.clock()
+        self._save_state(r.id, state)
+        self._step(r.id, "install")
+        try:
+            self.helper.update_start(
+                r.id,
+                RolloutKind.ENGINE_PACKAGES.value,
+                packages=dict(r.packages),
+                keep_packages=int(cfg["keep_packages_count"]),
+            )
+        except Exception as exc:
+            if str(exc).startswith("nothing:") or "nothing: " in str(exc):
+                # None of these packages is installed here: nothing to do on this node.
+                problem = self._end_maintenance(r)
+                if problem:
+                    raise Failed("ha", problem) from None
+                state.pop("to_version", None)
+                return self._done(r, state)
+            raise Failed("install", f"the update did not start: {exc}") from None
+        return "engine packages unit started"
+
+    def _engine_unit(self, r: Rollout, cfg: dict[str, Any]) -> str:
+        st = self._status(r.id)
+        if st.get("unit_state") == "unknown":
+            return f"helper unavailable: {st.get('error')}"
+        progress = st.get("progress") or None
+        state = self._state(r.id)
+        if progress is None:
+            if st.get("unit_state") == "active":
+                return "update unit starting"
+            if self.clock() - float(state.get("unit_started_at") or 0) < UNIT_START_GRACE:
+                return "waiting for the update unit"
+            raise Failed("install", "the update unit left no progress (never ran, or the node rebooted)")
+        steps = progress.get("steps") or []
+        last = str(steps[-1]["step"]) if steps else "install"
+        result = progress.get("result")
+        if result == "running":
+            if st.get("unit_state") == "active":
+                if last in ENGINE_UNIT and r.nodes[self.node_id].step != last:
+                    self._step(r.id, last)
+                return f"update unit at {last}"
+            audit = st.get("package_audit") or {}
+            raise Failed(
+                last,
+                "the update unit stopped before its end (reboot?); "
+                f"{audit.get('command', 'package audit')}: {audit.get('output') or 'ok'}",
+            )
+        if result == "failed":
+            failed = next((s for s in reversed(steps) if s.get("state") == "failed"), {})
+            raise Failed(str(failed.get("step") or last), str(progress.get("error") or "failed"))
+        packages = progress.get("packages") if isinstance(progress.get("packages"), dict) else r.packages
+        state["installed_at"] = _epoch(progress.get("finished_at")) or self.clock()
+        state["to_version"] = ep.summary(packages)
+        state["installed_packages"] = packages
+        self._save_state(r.id, state)
+        self._step(r.id, "engine_checks")
+        return self._engine_post(r, "engine_checks", cfg)
+
+    def _engine_post(self, r: Rollout, step: str, cfg: dict[str, Any]) -> str:
+        state = self._state(r.id)
+        installed_at = float(state.get("installed_at") or self.clock())
+        settle_end = installed_at + float(cfg["settle_seconds"])
+        deadline = settle_end + float(cfg["timeout_seconds"])
+        now = self.clock()
+        if now < settle_end:
+            return f"{step}: {int(settle_end - now)} s left"
+        if step == "engine_checks":
+            packages = state.get("installed_packages") or dict(r.packages)
+            before = set(state.get("alerts_before") or [])
+            new = sorted(self.view.engine_alerts() - before)
+            problems = self.view.engine_problems(packages) + [f"new alert {a}" for a in new]
+            if problems:
+                if now > deadline:
+                    raise Failed("engine_checks", "; ".join(problems))
+                return "engine_checks: " + "; ".join(problems)
+            self._step(r.id, "ha")
+            step = "ha"
+        if step == "ha":
+            problem = self._end_maintenance(r)
+            problems = ([problem] if problem else []) + self.view.ha_problems()
+            if problems:
+                if now > deadline:
+                    raise Failed("ha", "; ".join(problems))
+                return "ha: " + "; ".join(problems)
+            return self._done(r, state)
+        return f"step {step}"
 
     # Failure and automatic rollback ----------------------------------------------------------------
 
@@ -515,6 +706,8 @@ class RolloutDriver:
     def _failed(
         self, r: Rollout, step: str, error: str, audit: bool = True, rolled_back: bool = False
     ) -> str:
+        if r.kind == RolloutKind.ENGINE_PACKAGES.value:
+            error = self._end_maintenance(r, error)
         stamp = to_rfc3339(self._now())
 
         def change(x: Rollout) -> None:
@@ -586,7 +779,7 @@ def rollout_alerts(settings: dict[str, Any], now: datetime, names: dict[str, str
         rolled_back = node.state == NodeState.ROLLED_BACK.value
         title = messages.msg(
             "alert.update_failed",
-            version=r.version or "",
+            version=_target(r),
             node=names.get(n, n),
             step=node.step or "",
             error=node.error or "",
@@ -614,7 +807,7 @@ def rollout_alerts(settings: dict[str, Any], now: datetime, names: dict[str, str
         n = stall["node_id"]
         title = messages.msg(
             "alert.update_stalled",
-            version=r.version or "",
+            version=_target(r),
             node=names.get(n, n),
             minutes=stall["minutes"],
             step=stall["step"] or "",
@@ -677,12 +870,22 @@ class LiveView:
         ha_backends: Callable[[], list[Any]] = list,
         permissions: Callable[[], list[str]] = list,
         backend_lock: Any = None,
+        dns_backend: Callable[[], Any] = lambda: None,
+        open_alerts: Callable[[], list[Any]] = list,
     ) -> None:
         self.ctx = ctx
         self.client_for = client_for
         self.ha_backends = ha_backends
         self.permissions = permissions
         self.backend_lock = backend_lock
+        self.dns_backend = dns_backend
+        self.open_alerts = open_alerts
+
+    def _locked(self, fn: Callable[[], Any]) -> Any:
+        if self.backend_lock is None:
+            return fn()
+        with self.backend_lock:
+            return fn()
 
     def _peers(self) -> list[Any]:
         return [n for n in self.ctx.cluster().nodes if n.id != self.ctx.node.id]
@@ -784,3 +987,138 @@ class LiveView:
         if self.client_for is None:
             return []
         return [self.client_for(p) for p in self._peers()]
+
+    # Engine packages ------------------------------------------------------------------------------
+
+    def _peer(self, node_id: str) -> Any:
+        peer = next((p for p in self._peers() if p.id == node_id), None)
+        if peer is None or self.client_for is None:
+            raise RuntimeError(f"node {node_id} is not a reachable peer")
+        return peer
+
+    def _peer_ha(self, engine: str) -> list[Any]:
+        from pelagos.domain.dhcp import HAState
+
+        out = []
+        for peer in self._peers():
+            if self.client_for is None or not getattr(getattr(peer, "modules", None), engine, False):
+                continue
+            try:
+                snap = self.client_for(peer).engine_snapshot(engine)
+            except Exception as exc:
+                log.debug("HA of %s on %s not read: %s", engine, peer.name, exc)
+                continue
+            if isinstance(snap, dict) and isinstance(snap.get("ha"), dict):
+                out.append(HAState.from_dict(snap["ha"]))
+        return out
+
+    def kea_ha_partners(self) -> list[dict[str, Any]]:
+        """Each Kea server of this node in an HA relationship (backups aside), with the nodes
+        running its partners: where `ha-maintenance-start` goes."""
+        from pelagos.connectors.kea import ha as ha_mod
+
+        out = []
+        for backend in self.ha_backends():
+            ha = self._locked(backend.ha_state)
+            if not getattr(ha, "enabled", False) or ha.role == "backup" or ha.mode is None:
+                continue
+            others = ha_mod.flatten(self._peer_ha(backend.engine_name))
+            partners: list[str] = []
+            for st in ha_mod.flatten([ha]):
+                if st.role == "backup":
+                    continue
+                name = ha_mod.partner_name(st)
+                node = next((o.node_id for o in others if name and o.server_name == name), None)
+                if node is None:
+                    raise RuntimeError(
+                        f"the HA partner {name or '?'} of {backend.engine_name} runs on no reachable node"
+                    )
+                if node not in partners:
+                    partners.append(node)
+            out.append({"engine": backend.engine_name, "state": ha.state, "partners": partners})
+        return out
+
+    def partner_ha_state(self, engine: str, node_id: str) -> str | None:
+        snap = self.client_for(self._peer(node_id)).engine_snapshot(engine) if self.client_for else None
+        ha = snap.get("ha") if isinstance(snap, dict) else None
+        return str(ha.get("state")) if isinstance(ha, dict) and ha.get("state") else None
+
+    def ha_maintenance(self, engine: str, node_id: str, action: str) -> None:
+        """The dhcp.ha plan of the HA screen (`ha/maintenance`), applied on the partner over mTLS."""
+        from pelagos.domain import Change, ChangeOp, Engine, Plan, PlanScope, PlanState
+
+        peer = self._peer(node_id)
+        me = self.ctx.node.name or self.ctx.node.id
+        plan = Plan(
+            scope=PlanScope.DHCP_HA,
+            node_id=self.ctx.node.id,
+            engine=Engine(engine),
+            summary=f"HA maintenance {action} on {peer.name or node_id}: engine packages of {me}",
+            created_by="system",
+            changes=[
+                Change(ChangeOp.REPLACE, "ha/maintenance", before=None, after=action, node_ids=[node_id])
+            ],
+            target_node_ids=[node_id],
+            requires_confirmation=False,
+            state=PlanState.VALIDATED,
+        )
+        result = self.client_for(peer).apply_plan(plan)
+        if not result.ok:
+            raise RuntimeError(f"ha-maintenance-{action} on {peer.name or node_id}: {result.message}")
+
+    def engine_problems(self, packages: dict[str, str]) -> list[str]:
+        """Daemons running the installed version, `rndc status`, secondary zones loaded with a
+        serial (zone transfers working)."""
+        problems: list[str] = []
+        fams = ep.families(packages)
+        target = {f: next((v for n, v in packages.items() if ep.family_of(n) == f), None) for f in fams}
+        if ep.BIND in fams:
+            dns = self.dns_backend()
+            if dns is not None:
+                problems += self._bind_problems(dns, ep.upstream(target[ep.BIND]))
+        if ep.KEA in fams:
+            for backend in self.ha_backends():
+                try:
+                    caps = self._locked(backend.capabilities)
+                except Exception as exc:
+                    problems.append(f"{backend.engine_name}: {exc}")
+                    continue
+                if not caps.running:
+                    problems.append(f"{backend.engine_name} does not answer")
+                elif ep.upstream(caps.version) != ep.upstream(target[ep.KEA]):
+                    problems.append(f"{backend.engine_name} runs {caps.version}, not {target[ep.KEA]}")
+        return problems
+
+    def _bind_problems(self, dns: Any, wanted: tuple[int, ...] | None) -> list[str]:
+        from pelagos.domain import ZoneKind
+
+        try:
+            status = self._locked(dns.server_status)
+        except Exception as exc:
+            return [f"rndc status: {exc}"]
+        version = str(status.get("version") or "")
+        running = ep.upstream(version.removeprefix("BIND ").strip())
+        if wanted and running != wanted:
+            return [f"named runs {version or '?'}, not {'.'.join(map(str, wanted))}"]
+        problems = []
+        try:
+            zones = [z for z in self._locked(dns.list_zones) if z.kind is ZoneKind.SECONDARY]
+        except Exception as exc:
+            return [f"zones not read: {exc}"]
+        for zone in zones[:500]:
+            try:
+                st = self._locked(lambda z=zone: dns.zone_status(z.name, z.view))
+            except Exception as exc:
+                problems.append(f"secondary zone {zone.name}: {exc}")
+                continue
+            if st.error or st.serial is None:
+                problems.append(f"secondary zone {zone.name}: {st.error or 'no serial'}")
+        return problems[:10]
+
+    def engine_alerts(self) -> set[str]:
+        me = self.ctx.node.id
+        return {
+            f"{a.kind.value}:{a.subject}"
+            for a in self.open_alerts()
+            if a.node_id == me and a.kind.value in ENGINE_ALERT_KINDS
+        }

@@ -1128,7 +1128,25 @@ class Collector:
                     if not c["ok"]
                 ]
 
-            view = LiveView(self.ctx, self.replication_client, ha_backends, permissions, self.backend_lock)
+            def open_alerts() -> list[Alert]:
+                # Its own read-only connection: the rollout runs on its own thread.
+                from pelagos.collector import series as series_mod
+
+                conn = series_mod.connect(self.ctx.paths.series_db, readonly=True)
+                try:
+                    return AlertStore(conn).open_alerts()
+                finally:
+                    conn.close()
+
+            view = LiveView(
+                self.ctx,
+                self.replication_client,
+                ha_backends,
+                permissions,
+                self.backend_lock,
+                dns_backend=lambda: self.backends.dns,
+                open_alerts=open_alerts,
+            )
             self.rollout_driver = RolloutDriver(self.ctx, view)
         return self.rollout_driver
 

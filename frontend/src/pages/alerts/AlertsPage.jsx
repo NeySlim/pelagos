@@ -211,7 +211,7 @@ function AlertDetail({ alert, nodeName, canAck, onAck, onIgnore, onClose }) {
   const proposing = proposesFallback(alert) && hasPermission('write:dns.config')
   const resolver = useApi(() => api.resolverHealth.health(), [alert?.id], { enabled: proposing })
   const canProposeFallback = proposing && Boolean(resolver.data) && !resolver.data.fallback
-  const link = alert ? subjectLink(alert, { canProposeFallback }) : null
+  const link = alert ? subjectLink(alert, { canProposeFallback, canUpdateEngines: hasPermission('admin:updates') }) : null
   return (
     <Modal open={Boolean(alert)} onClose={onClose} title={(alert && msg(alert.title_message, alert.title)) || t('detail.title')}>
       {alert && (

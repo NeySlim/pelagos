@@ -37,8 +37,18 @@ export const bySeverity = (a, b) => (SEVERITY_RANK[a.severity] ?? 3) - (SEVERITY
 // Subjects are "ip:<addr>", "mac:<mac>", "name:<fqdn>/<type>", "zone:<zone>[@view]",
 // "kea4:subnet:<id>:pool:<range>", "ha:<engine>", "ha-backup:<engine>", "peer:<id>", "d2:updates", ...
 // canProposeFallback false (no write:dns.config, or a fallback already active) opens the resolver page.
-export function subjectLink(alert, { canProposeFallback = true } = {}) {
+export function engineUpdatePath(update) {
+  const q = new URLSearchParams({ tab: 'engines' })
+  for (const p of update?.packages || []) q.append('package', p)
+  for (const n of update?.node_ids || []) q.append('node', n)
+  return `/admin/updates?${q.toString()}`
+}
+
+export function subjectLink(alert, { canProposeFallback = true, canUpdateEngines = false } = {}) {
   const subject = String(alert?.subject || '')
+  // A security advisory fixed by a candidate package opens the engine packages update, preselected.
+  const update = alert?.kind === 'security_advisory' && alert.state !== 'resolved' ? alert.details?.update : null
+  if (update && canUpdateEngines) return { to: engineUpdatePath(update), label: 'updateEnginePackage' }
   const [kind, ...rest] = subject.split(':')
   const value = rest.join(':')
   if ((kind === 'ip' || kind === 'mac') && value) return { to: `/hosts?q=${encodeURIComponent(value)}`, label: 'openHost' }

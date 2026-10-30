@@ -884,6 +884,11 @@ La production tourne sur Kea 2.6.3 de Debian 13, en HA hot-standby, avec D2. ISC
 - Retour de la paire migrée en 2.6 avec la même fenêtre : coupure 13,8 s, aucun DHCPNAK, fichiers et paquets comme avant la migration.
 - `kea-lfc` compacte le fichier de baux et ses restes `.2` / `.1` concaténés ; le résultat est dans son fichier `-x` (essai sur 3.2.1). Pelagos le lance sur une copie, jamais sur les fichiers du nœud.
 
+**Vérifié au labo par le lot K7** (2026-10-30, campagne de bout en bout rejouable, `scripts/lab/README.md`)
+
+- Paire Debian (`test_kea_migration_e2e_lab.py`, depuis l'instantané `k1-ha26`, 8 min 25) : analyse sans constat bloquant, TLS de la HA gardé, secret D2 converti ; retour automatique au temps 2 (trou client 60 s, aucun DHCPNAK) ; migration vers ISC 3.2.1 en 70 s, coupure mesurée 16,2 s, trou client 16,0 s, aucun DHCPNAK, aucune adresse donnée à deux clients, baux identiques sur les deux nœuds, écouteur HA de chaque nœud qui refuse un pair sans certificat de la CA ; retour de la paire en 66 s, coupure 14,9 s, aucun DHCPNAK, fichiers et paquets comme avant.
+- Rocky 10 (`test_kea_migration_rocky_lab.py`, nœud seul, SELinux actif) : ISC Kea 2.6.5 du dépôt `kea-2-6` (el/10) vers ISC 3.2.1 par dnf, coupure 7 s, aucun DHCPNAK, bail gardé, DDNS par le `secret-file` converti, aucun refus SELinux ; retour en 2.6.5 avec fichiers, étiquettes SELinux et paquets comme avant. Rocky 10 livre lui-même Kea 3.0.3 (`kea`, BaseOS) : la seule source 2.6 sur Rocky 10 est celle d'ISC.
+
 **Décisions**
 
 1. Cible par défaut : Kea 3.2 des dépôts ISC (Cloudsmith `kea-3-2`), la série que Pelagos teste déjà sur l'hôte de développement et que l'installateur pose par défaut. Les backports Debian (3.0) sont proposés comme seconde source, avec l'avertissement sur leur suivi de sécurité ; la série 3.0 d'ISC reste possible. Une seule série pour tout le cluster.

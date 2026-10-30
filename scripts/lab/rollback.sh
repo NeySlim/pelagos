@@ -43,6 +43,9 @@ VMS=(
   "9173:lab-d3c:legacy:10.99.0.73"
   "9155:lab-r5a:legacy:10.99.0.55"
   "9156:lab-r5b:legacy:10.99.0.56"
+  "9185:lab-k1a:k1-ha26:10.99.0.85"
+  "9186:lab-k1b:k1-ha26:10.99.0.86"
+  "9180:lab-k7r:isc26:10.99.0.80"
 )
 # "all" targets only the disposable test VMs; the gateway (9110) is never rolled back.
 ALL_TARGETS=(9111 9112 9113 9114 9116 9117)

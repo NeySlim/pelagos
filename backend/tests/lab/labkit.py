@@ -196,23 +196,27 @@ def rpm_package() -> Path:
     """The rpm built on lab-pkg-rpm (Rocky, rpmbuild snapshot), copied back to build/lab-rpm."""
     host = PKG_RPM[1]
     frontend_dist()
-    src = upload_source(host)
+    # Per-run folders: two checkouts may build on the shared builder at once.
+    src = upload_source(host, f"~/pelagos-src-{os.getpid()}")
+    out_dir = f"~/rpm-out-{os.getpid()}"
     ssh(
         host,
-        f"cd {src} && packaging/rpm/build.sh ~/rpm-out >/tmp/rpm-build.log 2>&1 "
-        "|| (tail -40 /tmp/rpm-build.log; exit 1)",
+        f"cd {src} && packaging/rpm/build.sh {out_dir} >/tmp/rpm-build-{os.getpid()}.log 2>&1 "
+        f"|| (tail -40 /tmp/rpm-build-{os.getpid()}.log; exit 1)",
     )
-    name = ssh(host, "cd ~/rpm-out/rpmbuild/RPMS/x86_64 && ls pelagos-*.x86_64.rpm")[1].split()[0]
+    rpms = f"{out_dir}/rpmbuild/RPMS/x86_64"
+    name = ssh(host, f"cd {rpms} && ls pelagos-*.x86_64.rpm")[1].split()[0]
     out = REPO / "build" / "lab-rpm"
     out.mkdir(parents=True, exist_ok=True)
     target = out / name
     res = subprocess.run(
-        [*ssh_argv(host), f"cat ~/rpm-out/rpmbuild/RPMS/x86_64/{name}"],
+        [*ssh_argv(host), f"cat {rpms}/{name}"],
         capture_output=True,
         timeout=600,
         check=True,
     )
     target.write_bytes(res.stdout)
+    ssh(host, f"rm -rf {src.rsplit('/', 1)[0]} {out_dir}", check=False)
     return target
 
 

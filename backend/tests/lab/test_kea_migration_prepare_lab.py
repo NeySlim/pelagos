@@ -46,9 +46,15 @@ class TestKeaMigrationPrepare:
 
     def test_01_prepare_isc_3_2(self):
         before = {h: ssh(h, UNCHANGED)[1] for h, _ in (K1A, K1B)}
-        report = api(K1A[1]).post(
-            "/install/kea-migration/analyze", {"series": "3.2", "source": "isc"}, timeout=1200
-        )
+
+        def analysis() -> dict | None:
+            # Right after the enrollment the peer's Kea modules may not have replicated yet.
+            out = api(K1A[1]).post(
+                "/install/kea-migration/analyze", {"series": "3.2", "source": "isc"}, timeout=1200
+            )
+            return out if len(out["roles"]) == 2 else None
+
+        report = wait_for("an analysis of both nodes", analysis, timeout=900, interval=30)
         assert not report["blocking"], [f for f in report["findings"] if f["severity"] == "blocking"]
         roles = sorted(report["roles"].values())
         assert roles == ["primary", "standby"], report["roles"]

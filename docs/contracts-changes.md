@@ -13,6 +13,16 @@ Format:
 What changed (file, symbol). Why. Which packages must react, and how.
 ```
 
+## 2026-10-30, WP-CORE, WP-API, WP-FRONTEND: item 81 review fixes (AppArmor probe, errno reasons, PTR cap)
+Additive. `core/permguard.py`: problems `daemon_apparmor` and `daemon_denied_apparmor` (fix field
+`apparmor`), `apparmor_profile`, `apparmor_allows_write`; `apply_error` words `ENOSPC`/`EDQUOT`
+(`permission.errno.no_space`), `EIO` (`io_error`) and any other errno (`other`) instead of calling
+them a permission problem. `rpz/sync.py`: a missing file outside the RPZ folder is `rpz.update_failed`.
+`ptr_mismatch` details capped at 200 items with `truncated`. Impact reasons are messages
+(`plan.impact.reason.no_kea`, `plan.impact.reason.failed`, else the worded errno). A zone delete
+without `node_ids` on a primary held by a peer also removes the Pelagos secondaries. WP-FRONTEND:
+`errors[].tool` prefixes each 422 item; live samples are aborted at their deadline.
+
 ## 2026-10-30, WP-INSTALLER, WP-COLLECTOR, WP-API-AUTH: review fixes of updates from the UI
 Section 29 updated. Rollouts and the Kea migration exclude each other (`update_rollout.
 migration_blocks`, `rollout_blocks`; helper reason `kea_migration`). `update_start` pins the

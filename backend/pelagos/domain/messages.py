@@ -94,6 +94,8 @@ CATALOG: dict[str, str] = {
         " Kea refuses them (NAK) at renewal"
     ),
     "plan.impact.leases_unread": "the leases of {subnet} could not be read: {error}",
+    "plan.impact.reason.no_kea": "no Kea on this node",
+    "plan.impact.reason.failed": "the read failed",
     "plan.impact.subnet_reservations": "{count} reservations of {subnet} are deleted with it",
     "plan.impact.subnet_ddns": "DDNS reverse domains {domains} cover {subnet}",
     "plan.impact.ha_partners": "HA {mode}: every server ({servers}) gets the same change",
@@ -213,6 +215,7 @@ CATALOG: dict[str, str] = {
     "alert.ptr_mismatch.missing": "{count} address records have no matching PTR",
     "alert.ptr_mismatch.stale": "{count} PTR records name a host without that address (stale)",
     "alert.rpz_update": "RPZ list {name}: update failed ({error})",
+    "rpz.update_failed": "the list update failed: {error} ({path})",
     "rpz.dir_missing": "the RPZ folder {path} does not exist yet: enable the list first, its plan creates it",
     "alert.rpz_stuck": "RPZ list updates on this node have been running for {minutes} min",
     "alert.rpz_stale": "RPZ list {name}: no successful update for {hours} h",
@@ -487,6 +490,9 @@ CATALOG: dict[str, str] = {
     "permission.errno.refused": "the operation was refused to the Pelagos service",
     "permission.errno.denied": "the Pelagos service has no write permission there",
     "permission.errno.missing_parent": "a parent folder does not exist",
+    "permission.errno.no_space": "the file system is full",
+    "permission.errno.io_error": "the storage reported an input/output error",
+    "permission.errno.other": "the write failed",
     "permission.purpose.zone_dir": "Zone folder",
     "permission.purpose.rpz_dir": "RPZ folder",
     "permission.purpose.include_dir": "Include folder",
@@ -514,6 +520,16 @@ CATALOG: dict[str, str] = {
     "permission.problem.not_readable.read": "cannot be read: no read permission",
     "permission.problem.daemon_denied.daemon": (
         "cannot be rewritten by the Kea daemon (config-write): its user has no write permission on it"
+    ),
+    "permission.problem.daemon_apparmor.daemon": (
+        "cannot be rewritten by the Kea daemon (config-write): its AppArmor profile (enforce) only lets it"
+        " read /etc/kea; add a write rule to the profile's local override, or move the configuration into"
+        " include files, which Pelagos writes itself"
+    ),
+    "permission.problem.daemon_denied_apparmor.daemon": (
+        "cannot be rewritten by the Kea daemon (config-write): its user has no write permission on it and"
+        " its AppArmor profile (enforce) only lets it read /etc/kea; fix both, or move the configuration"
+        " into include files, which Pelagos writes itself"
     ),
     "permission.problem.missing_parent.dir": "a parent folder is missing",
     "permission.problem.missing_parent.file": "a parent folder is missing",

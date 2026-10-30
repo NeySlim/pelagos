@@ -1140,7 +1140,10 @@
     "detail"
   ],
   "permission.errno.denied": [],
+  "permission.errno.io_error": [],
   "permission.errno.missing_parent": [],
+  "permission.errno.no_space": [],
+  "permission.errno.other": [],
   "permission.errno.read_only": [],
   "permission.errno.refused": [],
   "permission.finding": [
@@ -1160,7 +1163,9 @@
   "permission.plan_refused": [
     "nodes"
   ],
+  "permission.problem.daemon_apparmor.daemon": [],
   "permission.problem.daemon_denied.daemon": [],
+  "permission.problem.daemon_denied_apparmor.daemon": [],
   "permission.problem.denied.dir": [],
   "permission.problem.denied.file": [],
   "permission.problem.denied.read": [],
@@ -1304,6 +1309,8 @@
     "error",
     "subnet"
   ],
+  "plan.impact.reason.failed": [],
+  "plan.impact.reason.no_kea": [],
   "plan.impact.reservation_in_pool": [
     "ip",
     "pool"
@@ -1695,6 +1702,10 @@
   "problem.zone_too_large": [],
   "problem.zone_without_records": [],
   "rpz.dir_missing": [
+    "path"
+  ],
+  "rpz.update_failed": [
+    "error",
     "path"
   ],
   "rrset.changed": [

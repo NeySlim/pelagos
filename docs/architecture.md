@@ -1252,7 +1252,13 @@ owner, dir_mode)` with `kind` `dir` (created when missing, files and subfolders 
 Kea 2.6.3 `src/lib/process/daemon.cc`, read 2026-10-30; `daemon` names the process). A `daemon`
 target is judged by the mode bits against the uid and groups `/proc` shows for that running process
 (route `daemon`; `absent` when it does not run), problem `daemon_denied`, command `chgrp <its group>
-<file> && chmod g+w <file>`, never fixed by the helper. A probe runs the writer's own operation with the same mode bits on a
+<file> && chmod g+w <file>`, never fixed by the helper. The process's AppArmor label
+(`/proc/<pid>/attr/apparmor/current`, else `attr/current`) is read too: a profile in `(enforce)`
+whose local override (`/etc/apparmor.d/local/usr.sbin.<profile>`, where `keasetup` writes its rule)
+grants no write on the file gives problem `daemon_apparmor` (`daemon_denied_apparmor` with the mode
+bits too), fix field `apparmor` and the command `echo '<file> rw,' >> <local> && apparmor_parser -r
+<profile>`: Debian 13's `kea-dhcp4`, `kea-dhcp6` and `kea-dhcp-ddns` profiles (isc-kea
+2.6.3-1+deb13u1, read 2026-10-30) allow `/etc/kea/** r` only. A probe runs the writer's own operation with the same mode bits on a
 throwaway `.pelagos-probe.*` name and removes it, so the unit's user and groups, its sandbox
 (`ProtectSystem=strict`, `ReadWritePaths`) and its seccomp filters (`RestrictSUIDSGID=yes`) answer
 as they will at apply time; `access(2)` alone would miss the last two. A `Check` gives `ok`,
@@ -2313,7 +2319,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `lease_without_record` | info | active lease with `fqdn_fwd` true and no A/AAAA for its hostname in the forward zone |
 | `record_without_lease` | info | A/AAAA with a DHCID whose lease no longer exists; an AAAA is judged only when DHCPv6 leases were read (`run_all(families=)`, the families of the node's Kea backends), an A only with DHCPv4 |
 | `reservation_mismatch` | warning | reservation hostname/IP disagrees with the A/PTR records |
-| `ptr_mismatch` | warning, info | grouped by cause, at most two alerts: subject `ptr:missing` (warning, A/AAAA without a PTR to their owner) and `ptr:stale` (info, PTR naming a host without that address), within managed zones; details `cause`, `count`, `items` (`{"ip","name","found"}` or `{"ip","target"}`) and `exception_keys`. Older nodes raise one alert per address (subject `ip:<addr>`) |
+| `ptr_mismatch` | warning, info | grouped by cause, at most two alerts: subject `ptr:missing` (warning, A/AAAA without a PTR to their owner) and `ptr:stale` (info, PTR naming a host without that address), within managed zones; details `cause`, `count`, `items` (`{"ip","name","found"}` or `{"ip","target"}`) and `exception_keys`, both capped at the first 200 pairs (`count` stays the full number, `truncated: true` when capped). Older nodes raise one alert per address (subject `ip:<addr>`) |
 | `duplicate_ip` | warning | same IP in two reservations or in a reservation and a foreign lease |
 | `insecure_key` | warning | TSIG or rndc key with hmac-md5/hmac-sha1 (from the security audit) |
 | `insecure_listener` | warning | rndc/statistics-channel/Kea HTTP listening off localhost without TLS |
@@ -2345,7 +2351,7 @@ Alert kinds and rules (thresholds from `settings`):
 | `ipv6_reverse_missing` | info | a watched IPv6 prefix has no reverse zone served by the cluster; cluster-wide, subject `ipv6:reverse:<prefix>`; details `prefix`, `reverse_zone` (the zone to create) |
 | `ipv6_stale_aaaa` | warning | AAAA in a watched prefix whose address has not been observed for `ipv6.stale_days` while the host's MAC is seen with another stable address; cluster-wide, subject `ipv6:stale:<zone>`; details `zone`, `count`, `records: [{"name","address","mac","last_seen","current"}]`, `old_prefix`, `new_prefix` when every stale address moved to one other prefix, `exception_keys` |
 | `ipv6_source_failed` | warning | an IPv6 observation source of this node fails on every poll (section 27): `neighbors` or `dhcpv6` for 10 min (`dhcpv6` not while this node's Kea DHCPv6 has an open `daemon_down` or an engine write in progress: one outage, one alert); per node, subject `ipv6:source:<source>`; details `source`, `source_id`, `error`, `failing_since`; resolved by the next successful poll or when the source is no longer polled here |
-| `path_not_writable` | warning | a path the writers of this node need (zone and RPZ folders, include folder, backups, Kea files it reads) cannot be created, written or read by the collector's unit, probed with the writer's own operation (section 7, permission guard); per node and path, subject `path:<path>`, engine of the path; details `path`, `kind` (`dir`, `file`, `read`, `daemon`), `purpose`, `problem` (`read_only`, `refused`, `denied`, `not_readable`, `daemon_denied`), `error`, `probed`, `owner`, `group`, `mode`, `command` (exact remediation), `message`; checked at collector start (so after every upgrade) and every 10 min, resolved by the next check that passes |
+| `path_not_writable` | warning | a path the writers of this node need (zone and RPZ folders, include folder, backups, Kea files it reads) cannot be created, written or read by the collector's unit, probed with the writer's own operation (section 7, permission guard); per node and path, subject `path:<path>`, engine of the path; details `path`, `kind` (`dir`, `file`, `read`, `daemon`), `purpose`, `problem` (`read_only`, `refused`, `denied`, `not_readable`, `daemon_denied`, `daemon_apparmor`, `daemon_denied_apparmor`), `error`, `probed`, `owner`, `group`, `mode`, `command` (exact remediation), `message`; checked at collector start (so after every upgrade) and every 10 min, resolved by the next check that passes |
 | `dns_stale_primary` | critical | a node serves as primary a zone that `ddns.roles` gives to another node at a later epoch (node = that node, subject `ddns:stale:<view>/<zone>`; details `primary_node_id`, `epoch`); resolved by the demotion |
 | `update_available` | info | a newer Pelagos release is available from `updates.source` (section 29); cluster-wide from the service node, subject `update:pelagos`; details `version`, `installed`, `source`, `signature`; exceptable |
 | `update_failed` | critical | a node of a rollout failed (subject `update:<rollout id>`; details `rollout_id`, `node_id`, `step`, `version`, `error`, `rolled_back`) |

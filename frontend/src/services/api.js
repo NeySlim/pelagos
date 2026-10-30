@@ -116,7 +116,7 @@ export const dns = {
   dnssecPolicies: () => apiClient.get('/dns/dnssec/policies'),
   dnssecPoliciesPlan: (change) => apiClient.post('/dns/dnssec/policies/plan', { change }),
   dnssecPlan: (zone, body) => apiClient.post(`/dns/zones/${zonePath(zone)}/dnssec/plan`, body),
-  stats: (node_id) => apiClient.get(`/dns/stats${buildQueryString({ node_id })}`),
+  stats: (node_id, options) => apiClient.get(`/dns/stats${buildQueryString({ node_id })}`, options),
 }
 
 // `family` is 'v4' or 'v6' (v6 paths answer 404 module_disabled when the module is off).
@@ -140,7 +140,7 @@ export const dhcp = {
   leaseDeletePlan: (family, ip, node_id) =>
     apiClient.post(`/dhcp/${family}/leases/${enc(ip)}/delete/plan`, node_id ? { node_id } : undefined),
   utilization: (family, node_id) => apiClient.get(`/dhcp/${family}/utilization${buildQueryString({ node_id })}`),
-  stats: (family, node_id) => apiClient.get(`/dhcp/${family}/stats${buildQueryString({ node_id })}`),
+  stats: (family, node_id, options) => apiClient.get(`/dhcp/${family}/stats${buildQueryString({ node_id })}`, options),
   ha: (family) => apiClient.get(`/dhcp/${family}/ha`),
   haMaintenancePlan: (family, node_id, action) =>
     apiClient.post(`/dhcp/${family}/ha/maintenance/plan`, { node_id, action }),

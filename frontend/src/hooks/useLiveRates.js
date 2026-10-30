@@ -39,6 +39,7 @@ export function resetLiveRates() {
   store = {}
   generation += 1
   inFlight.clear()
+  pending.forEach((c) => c.abort())
   try {
     sessionStorage.removeItem(STORAGE_KEY)
   } catch {
@@ -46,9 +47,9 @@ export function resetLiveRates() {
   }
 }
 
-export const dnsTarget = (id) => ({ key: `dns:${id}`, kind: 'dns', node: id, load: () => api.dns.stats(id), counters: dnsCounters })
+export const dnsTarget = (id) => ({ key: `dns:${id}`, kind: 'dns', node: id, load: (options) => api.dns.stats(id, options), counters: dnsCounters })
 export const dhcpTarget = (family, id) => ({
-  key: `dhcp:${family}:${id}`, kind: 'dhcp', family, node: id, load: () => api.dhcp.stats(family, id), counters: (res) => dhcpCounters(res, family),
+  key: `dhcp:${family}:${id}`, kind: 'dhcp', family, node: id, load: (options) => api.dhcp.stats(family, id, options), counters: (res) => dhcpCounters(res, family),
 })
 
 // Targets for the dashboard: BIND and Kea counters of every node that runs them. Kea6
@@ -70,14 +71,21 @@ export function liveTargets(nodes, { dns = true, dhcp = true, dhcpv6 = true } = 
   return out
 }
 
-// A request that never answers must not hold its key in flight: the series would stop at one point.
+// A request that never answers is aborted at the deadline: the series must not stop at one point,
+// and a hung request must not keep one of the browser's few connections to the origin.
 const SAMPLE_DEADLINE_MS = LIVE_INTERVAL_MS * 3
-function withDeadline(promise, ms) {
-  let timer
-  const deadline = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error('live sample timed out')), ms)
+const pending = new Set()
+function sample(tg, ms) {
+  const controller = new AbortController()
+  pending.add(controller)
+  const timer = setTimeout(() => controller.abort(), ms)
+  const aborted = new Promise((_, reject) => {
+    controller.signal.addEventListener('abort', () => reject(new DOMException('live sample timed out', 'AbortError')))
   })
-  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer))
+  return Promise.race([Promise.resolve().then(() => tg.load({ signal: controller.signal })), aborted]).finally(() => {
+    clearTimeout(timer)
+    pending.delete(controller)
+  })
 }
 
 async function sampleAll(all) {
@@ -87,7 +95,8 @@ async function sampleAll(all) {
   targets.forEach((tg) => inFlight.add(tg.key))
   let results
   try {
-    results = await Promise.allSettled(targets.map((tg) => withDeadline(Promise.resolve().then(tg.load), SAMPLE_DEADLINE_MS)))
+    // A rejected sample (aborted, failed) is skipped: the next interval tries again.
+    results = await Promise.allSettled(targets.map((tg) => sample(tg, SAMPLE_DEADLINE_MS)))
   } finally {
     if (gen === generation) targets.forEach((tg) => inFlight.delete(tg.key))
   }

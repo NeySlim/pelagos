@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
+import { LIVE_INTERVAL_MS } from '../lib/liveRates'
 import { resetLiveRates, useLiveRates } from './useLiveRates'
 
 const counters = (res) => ({ total: res.total, parts: {} })
@@ -30,5 +31,28 @@ describe('useLiveRates', () => {
     rerender()
     expect(result.current['dns:b'].last).toBeNull()
     expect(sessionStorage.getItem('pelagos-live-rates')).toBeNull()
+  })
+
+  it('aborts a sample that never answers and asks again', async () => {
+    vi.useFakeTimers()
+    try {
+      const signals = []
+      const load = vi.fn(({ signal }) => {
+        signals.push(signal)
+        return new Promise(() => {})
+      })
+      const target = { key: 'dns:c', kind: 'dns', node: 'c', load, counters }
+      renderHook(() => useLiveRates([target]))
+      await act(async () => {})
+      expect(load).toHaveBeenCalledTimes(1)
+      expect(signals[0].aborted).toBe(false)
+      await act(async () => vi.advanceTimersByTime(LIVE_INTERVAL_MS * 3))
+      expect(signals[0].aborted).toBe(true)
+      await act(async () => vi.advanceTimersByTime(LIVE_INTERVAL_MS))
+      expect(load).toHaveBeenCalledTimes(2)
+      expect(signals[1].aborted).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

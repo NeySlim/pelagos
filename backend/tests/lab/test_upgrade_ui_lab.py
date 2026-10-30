@@ -587,5 +587,13 @@ class TestRocky:
             check=False,
             timeout=900,
         )
+        # The rpm reader proposes a candidate only from a security advisory (dnf updateinfo).
+        pending = ssh(
+            RPM_HOST,
+            "cd / && sudo -u pelagos dnf -q updateinfo list --with-cve --all 2>/dev/null | grep -E '^CVE-.* bind-[0-9]'",
+            check=False,
+        )[1].strip()
+        if not pending:
+            pytest.skip(f"no advisory in the Rocky repositories fixes a bind newer than {older}")
         ssh(RPM_HOST, "sudo systemctl restart named pelagos-collector")
         engine_rollout(RPM_HOST, [RPM_HOST], "bind", rpm=True)

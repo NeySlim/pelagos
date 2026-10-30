@@ -92,7 +92,7 @@ test('create-host plan in a view, with the PTR in the default view', async ({ pa
   await page.getByTestId('host-hostname').fill('kiosk')
   await page.getByTestId('host-ip').fill('192.0.2.77')
   // The internal view has no reverse zone for 192.0.2.0/24; the default view has one.
-  await expect(form).toContainText('No known reverse zone')
+  await expect(form).toContainText('No reverse zone covers this address')
   await page.getByTestId('host-reverse-view').selectOption('_default')
   await expect(form).toContainText('PTR goes to 2.0.192.in-addr.arpa.')
   const request = page.waitForRequest((r) => r.url().endsWith('/hosts/plan') && r.method() === 'POST')

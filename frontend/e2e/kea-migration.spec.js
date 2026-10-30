@@ -13,6 +13,8 @@ async function signIn(page) {
 }
 
 test('analysis of the migration to Kea 3.2 from ISC', async ({ page }) => {
+  // The reference pair, whatever scenario an earlier spec left (a terminated HA changes the wizard).
+  await page.request.post('/api/v1/_mock/scenario', { data: { name: 'pair' } })
   await signIn(page)
   await page.goto('/install/kea-migration')
   await expect(page.getByTestId('page-kea-migration')).toBeVisible()

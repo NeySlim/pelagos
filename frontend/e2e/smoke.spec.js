@@ -164,6 +164,11 @@ test('navigation, theme and language follow the user menu', async ({ page }) => 
   await page.getByText('English').hover()
   await page.getByText('Français').click()
   await expect(page.locator('[data-nav="hosts"]')).toHaveText('Hôtes')
+  // The language is a saved preference: back to English for the specs that follow.
+  await page.getByTestId('user-menu').click()
+  await page.getByText('Français').hover()
+  await page.getByText('English').click()
+  await expect(page.locator('[data-nav="hosts"]')).toHaveText('Hosts')
 
   await page.getByTestId('user-menu').click()
   await page.getByTestId('logout').click()

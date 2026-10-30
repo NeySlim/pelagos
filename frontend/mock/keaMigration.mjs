@@ -38,8 +38,8 @@ const REPLACEABLE = ['prepared', 'prepare_failed', 'migrated', 'rolled_back']
 const stepKey = (step) => `job.step.kea_migration.${step.replace(/^kea-mig-/, '').replaceAll('-', '_')}`
 
 export function keaMigrationHandlers(state, { Problem, invalid, createPlan, hasPermission }) {
-  state.keaMigration ||= { analysis: null, migration: null, failAt: null }
-  const k = state.keaMigration
+  // Read at each call: a scenario switch replaces state.keaMigration.
+  const K = () => (state.keaMigration ||= { analysis: null, migration: null, failAt: null })
   const nameOf = (id) => state.nodes.find((n) => n.peer.id === id)?.peer.name || id
   const nodes = () => state.nodes.map((n) => ({
     node_id: n.peer.id, name: n.peer.name, reachable: true, error: null, arch: 'amd64',
@@ -86,7 +86,7 @@ export function keaMigrationHandlers(state, { Problem, invalid, createPlan, hasP
   // The effect of one step starting on its node; false when the mock was told to fail it.
   const run = (m, phase, { step, id, stage }) => {
     const node = nodeOf(m, id)
-    if (k.failAt === step) return false
+    if (K().failAt === step) return false
     node.step = step
     node.status = 'running'
     node.started_at ||= iso(Date.now())
@@ -140,12 +140,12 @@ export function keaMigrationHandlers(state, { Problem, invalid, createPlan, hasP
     const opts = body.options || {}
     const delay = opts.response_delay_milliseconds
     if (delay !== undefined && (!Number.isInteger(delay) || delay < 1000 || delay > 60000)) throw invalid('options.response_delay_milliseconds', 'an integer from 1000 to 60000')
-    let m = k.migration
+    let m = K().migration
     if (phase === 'prepare') {
-      if (!k.analysis || k.analysis.id !== id) throw new Problem(404, 'not_found', `no analysis ${id}: analyze first`)
-      if (k.analysis.blocking) throw new Problem(409, 'conflict', 'a blocking finding is still open')
+      if (!K().analysis || K().analysis.id !== id) throw new Problem(404, 'not_found', `no analysis ${id}: analyze first`)
+      if (K().analysis.blocking) throw new Problem(409, 'conflict', 'a blocking finding is still open')
       if (m && !REPLACEABLE.includes(m.state)) throw new Problem(409, 'conflict', `a migration is ${m.state}: finish or roll it back first`)
-      const a = k.analysis
+      const a = K().analysis
       const target = KEA_TARGETS.find((t) => t.series === a.series && t.source === a.source)
       m = {
         id: a.id, analysis_id: a.id, series: a.series, source: a.source, target_version: target?.version ?? a.target_version,
@@ -193,7 +193,7 @@ export function keaMigrationHandlers(state, { Problem, invalid, createPlan, hasP
       requires_confirmation: true,
       job: steps.map(({ step, id: nid }) => ({ name: `kea-migration/${step}/${nid}`, label: `${nameOf(nid)}: ${step}`, label_message: { key: stepKey(step), params: { node: nameOf(nid) } } })),
       onStart: () => {
-        if (phase === 'prepare') k.migration = record
+        if (phase === 'prepare') K().migration = record
         record.phase = phase
         record.state = phase === 'prepare' ? 'preparing' : phase === 'migrate' ? 'migrating' : 'rolling_back'
         record.started_at = iso(Date.now())
@@ -219,10 +219,10 @@ export function keaMigrationHandlers(state, { Problem, invalid, createPlan, hasP
   }
 
   return {
-    'GET /install/kea-migration': () => ({ nodes: nodes(), targets: KEA_TARGETS, analysis: k.analysis, current: view(k.migration) }),
+    'GET /install/kea-migration': () => ({ nodes: nodes(), targets: KEA_TARGETS, analysis: K().analysis, current: view(K().migration) }),
     'GET /install/kea-migration/{id}': ({ params }) => {
-      if (!k.migration || k.migration.id !== params.id) throw new Problem(404, 'not_found', `no Kea migration ${params.id}`)
-      return view(k.migration)
+      if (!K().migration || K().migration.id !== params.id) throw new Problem(404, 'not_found', `no Kea migration ${params.id}`)
+      return view(K().migration)
     },
     'POST /install/kea-migration/{id}/plan': ({ params, body, user }) => {
       if (!hasPermission(user, 'ops:dhcp.ha')) throw new Problem(403, 'forbidden', 'requires ops:dhcp.ha')
@@ -261,7 +261,7 @@ export function keaMigrationHandlers(state, { Problem, invalid, createPlan, hasP
         unreachable: [],
         outage_estimate_seconds: 45,
       }
-      k.analysis = report
+      K().analysis = report
       auditEntry(state, user, { action: 'kea.migration.analyze', target: `kea-migration:${report.id}`, request: { series: report.series, source: report.source, node_ids: ids }, response: { blocking: report.blocking, counts: report.counts } })
       return report
     },

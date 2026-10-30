@@ -17,7 +17,7 @@
 | --- | --- | --- |
 | `/etc/pelagos/node.toml` | this node's identity, listeners, engines (never replicated) | `pelagos`, 0640 |
 | `/etc/pelagos/master.key` | cluster master key: 32 random bytes, base64, the same on every node | `pelagos`, 0600 |
-| `/etc/pelagos/tls/server.crt`, `server.key` | HTTPS certificate of the web process | `pelagos`, key 0600 |
+| `/etc/pelagos/tls/server.crt`, `server.key` | HTTPS certificate of the web process | `pelagos`, certificate 0644, key 0600 |
 | `/etc/pelagos/pelagos.env` | environment of the units and of `/usr/bin/pelagos` | `root:root`, 0644 |
 | `/var/lib/pelagos/cluster.toml` | replicated configuration | `pelagos`, 0640 |
 | `/var/lib/pelagos/audit/audit.jsonl` | replicated audit log, one JSON object per line | `pelagos`, 0640 |
@@ -523,9 +523,8 @@ unless root owns it and only root can write it).
 
 The units and their `ReadWritePaths` use the default directories: keep
 them on packaged nodes. The container variables (`PELAGOS_NODE_NAME`,
-`PELAGOS_KEA_GID`, `PELAGOS_BIND_HOST`...) are listed in
-[Installation: Docker](installation.md#docker) and
-[Installation: Entrypoint modes](installation.md#entrypoint-modes).
+`PELAGOS_KEA_GID`, `PELAGOS_BIND_HOST`...) and the entrypoint modes are
+listed in [Docker: how the images work](docker.md#how-the-images-work).
 
 ## TLS certificates
 

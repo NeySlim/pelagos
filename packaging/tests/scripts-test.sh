@@ -74,6 +74,7 @@ check "prestart: planted target keeps owner and mode" test "$(stat -c '%U %a' "$
 check "prestart: new key is a regular file of the user, 0600" \
   test ! -L "$etc/tls/server.key" -a "$(stat -c '%U %a' "$etc/tls/server.key")" = "$user 600"
 check "prestart: new certificate parses" openssl x509 -noout -in "$etc/tls/server.crt"
+check "prestart: new certificate 0644" test "$(stat -c '%U %a' "$etc/tls/server.crt")" = "$user 644"
 
 # A tls directory swapped for a link to a root directory: nothing is created there.
 rootdir="$work/rootdir"; mkdir -m 0755 "$rootdir"

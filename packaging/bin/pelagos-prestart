@@ -46,6 +46,8 @@ setpriv --reuid "$user" --regid "$group" --init-groups env HOME="$var" sh -eu -c
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
       -subj "/CN=$host" -addext "subjectAltName=DNS:$host,DNS:localhost,IP:127.0.0.1" \
       -keyout "$etc/tls/server.key.new" -out "$etc/tls/server.crt.new" >/dev/null 2>&1
+    # The certificate is public (0644, like the certificate manager writes it); the key is not.
+    chmod 0644 "$etc/tls/server.crt.new"
     mv -f "$etc/tls/server.key.new" "$etc/tls/server.key"
     mv -f "$etc/tls/server.crt.new" "$etc/tls/server.crt"
   fi

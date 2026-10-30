@@ -263,6 +263,11 @@ def test_d2_helpers():
         "kea-ddns.": {"update-error": 0, "update-sent": 0, "update-success": 0, "update-timeout": 0}
     }
     assert stats.totals["ncr-received"] == 0 and "queue-mgr-queue-full" in stats.totals
+    # After a reconfiguration Kea holds only the per-key counters that moved since: the others are 0.
+    moved = {"key[kea-ddns.].update-sent": [[14, "t"]], "key[kea-ddns.].update-success": [[14, "t"]]}
+    assert reduce_d2_stats("n1", moved).per_key == {
+        "kea-ddns.": {"update-sent": 14, "update-success": 14, "update-timeout": 0, "update-error": 0}
+    }
     cfg = {
         "tsig-keys": [
             {"name": "ddi-admin.", "algorithm": "HMAC-SHA256", "secret": "c2VjcmV0"},

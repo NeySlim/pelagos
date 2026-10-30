@@ -64,6 +64,10 @@ _KEY_STAT = re.compile(r"^key\[(?P<key>[^\]]+)\]\.(?P<name>.+)$")
 _SAFE = re.compile(r"[^A-Za-z0-9._-]+")
 ROOT = "DhcpDdns"
 MASK = "***"
+# Per-key counters: Kea recreates them at each reconfiguration, and the old key's destructor
+# may delete the new ones; addValue recreates only those that move (src/lib/d2srv/d2_tsig_key.cc
+# and d2_stats.cc at tag Kea-2.6.3, github.com/isc-projects/kea, read 2026-10-30).
+KEY_STATS = ("update-sent", "update-success", "update-timeout", "update-error")
 
 
 def reduce_d2_stats(node_id: str, stats: dict[str, Any]) -> D2Stats:
@@ -77,6 +81,9 @@ def reduce_d2_stats(node_id: str, stats: dict[str, Any]) -> D2Stats:
             per_key.setdefault(m.group("key"), {})[m.group("name")] = value
         else:
             totals[name] = value
+    for counters in per_key.values():
+        for name in KEY_STATS:
+            counters.setdefault(name, 0)
     return D2Stats(node_id=node_id, collected_at=utcnow(), totals=totals, per_key=per_key, raw=stats)
 
 

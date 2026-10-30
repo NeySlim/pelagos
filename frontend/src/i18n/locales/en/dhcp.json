@@ -364,6 +364,7 @@
     "key": "TSIG key",
     "noConnection": "No dhcp-ddns section",
     "noParameters": "No ddns-* parameter set at the global level",
+    "perKeyNote": "Per-key counters restart each time kea-dhcp-ddns loads a configuration; the totals above count since it started, and unsigned updates count only there.",
     "parameters": "DDNS parameters",
     "sent": "Sent",
     "success": "Success",

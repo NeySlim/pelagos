@@ -178,6 +178,9 @@ export default function DdnsPage({ family }) {
                           ))}
                         </tbody>
                       </table>
+                      {Object.keys(s.per_key || {}).length > 0 && (
+                        <p className="text-2xs text-text-tertiary">{t('ddns.perKeyNote')}</p>
+                      )}
                     </>
                   )}
                 </Card>

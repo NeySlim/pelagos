@@ -364,6 +364,7 @@
     "key": "Clé TSIG",
     "noConnection": "Pas de section dhcp-ddns",
     "noParameters": "Aucun paramètre ddns-* au niveau global",
+    "perKeyNote": "Les compteurs par clé repartent de zéro à chaque chargement de configuration de kea-dhcp-ddns ; les totaux ci-dessus comptent depuis son démarrage, et les mises à jour non signées n'apparaissent que là.",
     "parameters": "Paramètres DDNS",
     "sent": "Envoyées",
     "success": "Réussies",

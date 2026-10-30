@@ -13,6 +13,7 @@ import pytest
 from pelagos.core import kea_migration as km
 from pelagos.domain import Job, NodeApplyResult
 from pelagos.installer import kea_migration_steps as steps
+from pelagos.services import kea_migration_phases as phases
 from pelagos.services.errors import Conflict
 from tests.unit.services.test_kea_migration_phases import MID, RESULT, Peers, run, service  # noqa: F401
 
@@ -47,7 +48,28 @@ def local_steps(monkeypatch):
 
     for name in list(steps.SWITCH_STEPS):
         monkeypatch.setitem(steps.SWITCH_STEPS, name, fake(name))
+    # The pair answers hot-standby on both ends (the checks that end a return).
+    monkeypatch.setattr(phases.PhaseRunner, "_probe", lambda self, node, engines: NORMAL)
     return ran
+
+
+NORMAL = {
+    "engines": {
+        "kea4": {
+            "entries": [
+                {
+                    "ha-servers": {
+                        "local": {"server-name": "x", "state": "hot-standby"},
+                        "remote": {"server-name": "y", "last-state": "hot-standby", "in-touch": True},
+                    }
+                }
+            ],
+            "states": ["hot-standby"],
+            "leases": "ok",
+            "error": None,
+        }
+    }
+}
 
 
 def prepared(service) -> None:  # noqa: F811
@@ -75,10 +97,10 @@ def test_the_migrate_plan_starts_with_time_1(service, local_steps):  # noqa: F81
     assert record(service)["nodes"][1]["files_sealed"] is None  # the fake prepare sealed nothing
     plan = service.plan(MID, {"phase": "migrate", "options": {"response_delay_milliseconds": 5000}}, "admin")
     assert [c.target for c in plan.changes[:4]] == [
+        km.target(km.H_VALIDATE_PARTNER, me),
         km.target(km.H_MAINTENANCE, me),
         km.target(km.H_STOP, "node-b"),
         km.target(km.H_INSTALL, "node-b"),
-        km.target(km.H_VALIDATE_PARTNER, "node-b"),
     ]
     details = [c.after["details"] for c in plan.changes[:4]]
     assert all(d["stage"] == "standby" for d in details)
@@ -101,8 +123,16 @@ def test_a_failed_step_of_time_1_returns_by_itself(service, local_steps):  # noq
         (km.H_INSTALL, "previous"),
         (km.H_START, None),
     ]
-    assert [name for name, _ in local_steps] == [km.H_MAINTENANCE, km.H_START, km.H_MAINTENANCE]
+    assert [name for name, _ in local_steps] == [
+        km.H_VALIDATE_PARTNER,
+        km.H_MAINTENANCE,
+        km.H_START,
+        km.H_MAINTENANCE,
+    ]
     assert local_steps[-1][1]["action"] == "cancel"
+    # Every step of the return is a job step, the pair checked from both ends at the end.
+    names = [s["name"].split("/")[1] for s in job.steps]
+    assert names[-2:] == [km.D_WAIT_HA, km.D_WAIT_HA] and all(s["state"] == "done" for s in job.steps[-7:])
     rec = record(service)
     assert rec["state"] == km.ROLLED_BACK and rec["error_step"] == km.H_INSTALL
     assert next(n for n in rec["nodes"] if n["node_id"] == "node-b")["status"] == "rolled_back"
@@ -112,11 +142,11 @@ def test_a_failed_step_of_time_1_returns_by_itself(service, local_steps):  # noq
 
 def test_without_auto_rollback_the_failure_waits_for_the_manual_return(service, local_steps):  # noqa: F811
     prepared(service)
-    service.peers = FailingPeers(km.H_VALIDATE_PARTNER)
+    service.peers = FailingPeers(km.H_INSTALL, "target")
     _plan, job = apply(service, "migrate", {"options": {"auto_rollback": False}})
     assert "automatic return" not in job.error
     rec = record(service)
-    assert rec["state"] == km.FAILED and rec["error_step"] == km.H_VALIDATE_PARTNER
+    assert rec["state"] == km.FAILED and rec["error_step"] == km.H_INSTALL
     assert km.rollback_possible(rec)
     service.peers = Peers()
     plan, job = apply(service, "rollback")
@@ -127,6 +157,8 @@ def test_without_auto_rollback_the_failure_waits_for_the_manual_return(service, 
         km.H_START,
         km.H_START,
         km.H_MAINTENANCE,
+        km.D_WAIT_HA,
+        km.D_WAIT_HA,
     ]
     rec = record(service)
     assert rec["state"] == km.ROLLED_BACK and rec["phase"] == km.ROLLBACK and not km.rollback_possible(rec)
@@ -145,7 +177,7 @@ def test_refusals_before_and_after_time_1(service, local_steps):  # noqa: F811
 
     service.ctx.config_store.update_cluster(window, "test")
     back = service.plan(MID, {"phase": "rollback"}, "admin")
-    assert back.changes[-1].after["details"]["action"] == "cancel"
+    assert back.changes[-3].after["details"]["action"] == "cancel"
 
     def failed(c):
         rec = km.read_migration(c.settings)
@@ -219,3 +251,106 @@ def test_the_sealed_files_go_once_the_migration_is_over(service, local_steps, mo
     assert "automatic return" in job.error
     rec = record(service)
     assert rec["state"] == km.ROLLED_BACK and all(n["files_sealed"] is None for n in rec["nodes"])
+
+
+class FailingSet(Peers):
+    """Fails each (step, direction) of `fail` on node-b."""
+
+    def __init__(self, *fail: tuple[str, str | None]) -> None:
+        super().__init__()
+        self.fail = set(fail)
+
+    def apply_plan(self, peer: Any, plan: Any) -> NodeApplyResult:
+        after = plan.changes[0].after
+        if (after["step"], after["details"].get("direction")) in self.fail:
+            self.sent.append(plan)
+            return NodeApplyResult(node_id=peer.id, ok=False, message=f"{after['step']} broken")
+        return super().apply_plan(peer, plan)
+
+
+def test_a_standby_that_does_not_come_back_never_keeps_the_primary_down(service, local_steps):  # noqa: F811
+    """The automatic return goes on past a failed step: the primary starts again, the pair steps are
+    skipped and reported, every failure is in the error (item 82: the return stopped at the install)."""
+    prepared(service)
+    service.peers = FailingSet((km.H_INSTALL, "target"), (km.H_INSTALL, "previous"))
+    _plan, job = apply(service, "migrate")
+    assert "the automatic return failed" in job.error and "kea-mig-install broken" in job.error
+    assert [name for name, _ in local_steps] == [km.H_VALIDATE_PARTNER, km.H_MAINTENANCE, km.H_START]
+    assert local_steps[-1][1]["restore"] is True
+    skipped = [(s["name"].split("/")[1], s["output"]) for s in job.steps if s["state"] == "skipped"]
+    assert [n for n, _ in skipped] == [km.H_START, km.H_MAINTENANCE, km.D_WAIT_HA, km.D_WAIT_HA]
+    assert "did not come back" in skipped[1][1]
+    rec = record(service)
+    assert rec["state"] == km.FAILED and rec["error_step"] == km.H_INSTALL and km.rollback_possible(rec)
+
+
+def test_job_steps_carry_text_only(service, local_steps):  # noqa: F811
+    """A step output is the text the wizard shows, never the record fields (React error #31)."""
+    prepared(service)
+    service.peers = FailingPeers(km.H_INSTALL, "target")
+    _plan, job = apply(service, "migrate")
+    assert job.steps and all(isinstance(s["output"], str) for s in job.steps)
+
+
+def test_reconcile_marks_a_hand_restored_pair_returned(service, local_steps):  # noqa: F811
+    prepared(service)
+
+    def left_by_0_3_0(c):
+        # What a failed automatic return of 0.3.0 left: failed, sealed files still there.
+        rec = km.read_migration(c.settings)
+        for n in rec["nodes"]:
+            n["files_sealed"] = "v1:old"
+        km.write(c.settings, {**rec, "state": km.FAILED, "phase": km.ROLLBACK, "stage": "standby"})
+
+    service.ctx.config_store.update_cluster(left_by_0_3_0, "test")
+    me = service.ctx.node.id
+    plan = service.plan(MID, {"phase": "reconcile"}, "admin")
+    assert plan.requires_confirmation and plan.summary_message["key"] == "plan.kea_migration.reconcile"
+    assert [(c.after["step"], c.node_ids[0]) for c in plan.changes] == [
+        (km.H_CHECK, "node-b"),
+        (km.H_CHECK, me),
+        (km.D_WAIT_HA, "node-b"),
+        (km.D_WAIT_HA, me),
+        (km.H_CLEANUP, "node-b"),
+        (km.H_CLEANUP, me),
+    ]
+    standby = next(n for n in record(service)["nodes"] if n["node_id"] == "node-b")
+    assert plan.changes[0].after["details"]["packages_before"] == standby["packages_before"]
+    # A node that is not back: the record stays, with the reason, and nothing is cleaned.
+    service.peers = FailingPeers(km.H_CHECK)
+    _plan, job = apply(service, "reconcile")
+    assert "broken packages" in job.error
+    rec = record(service)
+    assert rec["state"] == km.FAILED and rec["error"].startswith("reconcile:")
+    assert km.H_CLEANUP not in [name for name, _ in local_steps]
+    service.peers = Peers()
+    _plan, job = apply(service, "reconcile")
+    assert job.error is None, job.error
+    rec = record(service)
+    assert (rec["state"], rec["phase"], rec["error"]) == (km.ROLLED_BACK, km.RECONCILE, None)
+    assert all(n["status"] == "rolled_back" and n["files_sealed"] is None for n in rec["nodes"])
+    assert [name for name, _ in local_steps][-2:] == [km.H_CHECK, km.H_CLEANUP]
+    assert "kea.migration.reconcile" in [e.action for e in service.ctx.audit_log.read()]
+    # Run again from rolled_back: only the leftovers, the state stays.
+    _plan, job = apply(service, "reconcile")
+    assert job.error is None and record(service)["state"] == km.ROLLED_BACK
+
+
+def test_reconcile_waits_for_a_running_phase(service, local_steps):  # noqa: F811
+    prepared(service)
+
+    def running(c):
+        rec = km.read_migration(c.settings)
+        km.write(c.settings, {**rec, "state": km.MIGRATING, "phase": km.MIGRATE, "stage": "standby"})
+
+    service.ctx.config_store.update_cluster(running, "test")
+    with pytest.raises(Conflict, match="wait for its phase to end"):
+        service.plan(MID, {"phase": "reconcile"}, "admin")
+
+
+def test_a_lab_injected_failure_after_a_step_returns_the_pair(service, local_steps, monkeypatch):  # noqa: F811
+    prepared(service)
+    monkeypatch.setenv(phases.FAIL_AFTER, f"{km.H_STOP}@standby")
+    _plan, job = apply(service, "migrate")
+    assert "failure injected after kea-mig-stop" in job.error and "automatic return" in job.error
+    assert record(service)["state"] == km.ROLLED_BACK

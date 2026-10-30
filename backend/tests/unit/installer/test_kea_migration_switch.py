@@ -41,14 +41,17 @@ def request(phase: str, **over) -> dict:
 
 def test_migrate_plan_is_time_1_on_the_standby(host):  # noqa: F811
     plan = steps.build_plan(host.env, request("migrate"), "admin")
+    # The primary checks its own converted files first (never on its partner: interface names,
+    # sockets and paths are the host's), before anything stops.
     assert [c.target for c in plan.changes[:4]] == [
+        kmc.target(kmc.H_VALIDATE_PARTNER, "node-a"),
         kmc.target(kmc.H_MAINTENANCE, "node-a"),
         kmc.target(kmc.H_STOP, "node-b"),
         kmc.target(kmc.H_INSTALL, "node-b"),
-        kmc.target(kmc.H_VALIDATE_PARTNER, "node-b"),
     ]
     d = [c.after["details"] for c in plan.changes[:4]]
-    assert d[0]["action"] == "start" and d[2]["direction"] == "target" and d[3]["partner"] == "node-a"
+    assert d[0]["partner"] == "node-a" and d[1]["action"] == "start" and d[3]["direction"] == "target"
+    assert kmc.H_VALIDATE_PARTNER not in [c.after["step"] for c in plan.changes[1:]]
     assert all(x["stage"] == "standby" and x["options"]["response_delay_milliseconds"] == 8000 for x in d)
     assert plan.requires_confirmation and plan.summary_message["key"] == "plan.kea_migration.migrate"
     with pytest.raises(ValueError, match="one HA pair"):
@@ -65,12 +68,21 @@ def test_rollback_plan_returns_the_touched_standby_then_resumes_the_pair(host): 
         kmc.H_START,
         kmc.H_START,
         kmc.H_MAINTENANCE,
+        kmc.D_WAIT_HA,
+        kmc.D_WAIT_HA,
     ]
     assert plan.changes[1].after["details"]["direction"] == "previous"
     assert plan.changes[2].after["details"]["restore"] is True
     assert plan.changes[4].after["details"]["action"] == "cancel"
+    # The pair is checked from both ends at the end of the return.
+    assert [c.node_ids[0] for c in plan.changes[5:]] == ["node-a", "node-b"]
     untouched = steps.build_plan(host.env, request("rollback", touched=[]), "admin")
-    assert [c.after["step"] for c in untouched.changes] == [kmc.H_START, kmc.H_MAINTENANCE]
+    assert [c.after["step"] for c in untouched.changes] == [
+        kmc.H_START,
+        kmc.H_MAINTENANCE,
+        kmc.D_WAIT_HA,
+        kmc.D_WAIT_HA,
+    ]
 
 
 # A node prepared for real (fake package tools), then switched ---------------------------------
@@ -120,7 +132,7 @@ class Packages:
             elif arg.endswith(".deb"):
                 name, version = Path(arg).name.split("_")[:2]
                 self.installed[name] = version
-        if any(a.startswith("isc-kea-common=") for a in argv):
+        if any(a.startswith("isc-kea-common=") or "/isc-kea-common_" in a for a in argv):
             self.statoverrides.append("_kea _kea 0750 /etc/kea")
         return CommandResult(argv, 0, "", "")
 
@@ -161,7 +173,11 @@ def test_stop_notes_the_units_once(node):
     assert not services.active
     sw.stop(env, switch_details())  # again (the return): the first notes stay
     state = sw._state(kmc.state_dir(env.node_paths, MID))
-    assert state["units_before"]["kea-dhcp4-server.service"] == {"active": True, "enabled": True}
+    assert state["units_before"]["kea-dhcp4-server.service"] == {
+        "active": True,
+        "enabled": True,
+        "enabled_state": "enabled",
+    }
 
 
 def test_install_target_then_previous_gives_the_2_6_side_back(node):
@@ -172,7 +188,9 @@ def test_install_target_then_previous_gives_the_2_6_side_back(node):
     (apparmor / "usr.sbin.kea-dhcp4").write_text("profile")
     out = sw.install(env, switch_details(direction="target"))
     [apt] = pk.apt
-    assert "--no-download" in apt and f"isc-kea-dhcp4={ISC}" in apt and "kea-dhcp4-server-" in apt
+    # The exact prepared files, by path.
+    assert "--no-download" in apt and "kea-dhcp4-server-" in apt
+    assert any(a.endswith(f"/isc-kea-dhcp4_{ISC}_amd64.deb") for a in apt), apt
     assert pk.policy_seen == [True] and not (env.paths.root / sw.POLICY_RC).exists()
     assert pk.installed["isc-kea-dhcp4"] == ISC and "kea-dhcp4-server" not in pk.installed
     assert out["version"] == "3.2.1"
@@ -191,6 +209,9 @@ def test_install_target_then_previous_gives_the_2_6_side_back(node):
     back = pk.apt[-1]
     assert "--allow-downgrades" in back and "isc-kea-dhcp4-" in back
     assert any(a.endswith(".deb") and "kea-dhcp4-server_2.6.3" in a for a in back)
+    # The kept files are apt's cache for this run: a version an index also lists is never fetched.
+    previous = kmc.state_dir(env.node_paths, MID) / "packages/previous"
+    assert f"Dir::Cache::archives={previous}/" in back and (previous / "partial").is_dir()
     assert pk.installed["kea-dhcp4-server"] == "2.6.3-1+deb13u1" and "isc-kea-dhcp4" not in pk.installed
     assert kea_files(env) == before
     assert not (apparmor / "disable/usr.sbin.kea-dhcp4").exists()
@@ -381,40 +402,45 @@ def test_sealed_files_open_only_for_their_migration_and_node():
         kmc.open_files(box, MID, "node-b", token)
 
 
-def test_partner_file_checked_here_with_local_tls_and_secret_copies(primary, tmp_path, monkeypatch):
-    env = primary
-    own = env.paths.kea_conf_dir / "tls"
-    own.mkdir()
-    (own / "ns2.pem").write_text("cert")
-    cfg = json.loads(env.paths.kea_conf("kea-dhcp4").read_text())
-    rel = cfg["Dhcp4"]["hooks-libraries"][0]["parameters"]["high-availability"][0]
-    rel["cert-file"] = str(own / "ns2.pem")
-    env.paths.kea_conf("kea-dhcp4").write_text(json.dumps(cfg))
-    partner = json.loads(json.dumps(cfg))
-    partner["Dhcp4"]["hooks-libraries"][0]["library"] = "/usr/lib/aarch64-linux-gnu/kea/hooks/libdhcp_ha.so"
-    prel = partner["Dhcp4"]["hooks-libraries"][0]["parameters"]["high-availability"][0]
-    prel["cert-file"] = "/etc/kea/tls/ns1.pem"
-    d2 = {
-        "DhcpDdns": {
-            "tsig-keys": [{"name": "k", "algorithm": "hmac-sha256", "secret-file": "/etc/kea/k.tsig"}]
-        }
-    }
-    bundle = {"configs": {"kea4": partner, "d2": d2}, "secrets": {"/etc/kea/k.tsig": "c2VjcmV0"}}
-    monkeypatch.setattr(sw, "_partner_bundle", lambda env, d: bundle)
-    seen: dict[str, dict] = {}
+def test_validate_partner_checks_its_own_files_on_its_own_node(node, monkeypatch):
+    """The primary's files are checked on the primary with the daemons of its own prepared packages,
+    as its analysis did: nothing host-dependent (interfaces, sockets, paths) is ever cross-checked."""
+    env, _pk = node
+    mdir = kmc.state_dir(env.node_paths, MID)
+    extracted: list[list[str]] = []
+    checked: list[tuple] = []
 
-    def check(env, daemon, conf, flag):
-        seen[daemon] = json.loads(Path(conf).read_text())
-        if daemon == "kea-dhcp-ddns":
-            assert Path(seen[daemon]["DhcpDdns"]["tsig-keys"][0]["secret-file"]).read_text() == "c2VjcmV0"
-        return True, ""
+    def extract(self, files):
+        extracted.append(sorted(f.name for f in files))
 
-    monkeypatch.setattr(sw, "_kea_check", check)
-    out = sw.validate_partner(env, {"migration_id": MID, "partner": "node-a"})
-    assert len(out["checked"]) == 2
-    hook = seen["kea-dhcp4"]["Dhcp4"]["hooks-libraries"][0]
-    assert hook["library"] == "libdhcp_ha.so"
-    assert hook["parameters"]["high-availability"][0]["cert-file"] == str(own / "ns2.pem")
-    monkeypatch.setattr(sw, "_kea_check", lambda *a: (False, "ERROR [x] DHCP4_CONFIG_LOAD_FAIL bad"))
-    with pytest.raises(sw.SwitchError, match="refuses the partner's file"):
-        sw.validate_partner(env, {"migration_id": MID, "partner": "node-a"})
+    def validate(self, engine, cfg, secrets, display=""):
+        checked.append((engine, cfg, secrets, display))
+        return {"ok": True, "mode": "dry_run", "output": "", "version": "3.2.1"}
+
+    monkeypatch.setattr(sw.km.Workspace, "extract", extract)
+    monkeypatch.setattr(sw.km.Workspace, "validate", validate)
+    out = sw.validate_partner(env, {"migration_id": MID, "partner": env.node_id})
+    manifest = json.loads((mdir / "manifest.json").read_text())
+    assert extracted == [sorted(p["file"] for p in manifest["target_files"])]
+    [(engine, cfg, _secrets, display)] = checked
+    assert engine == "kea4" and display == str(env.paths.kea_conf("kea-dhcp4"))
+    assert cfg == json.loads((mdir / "private/target/kea-dhcp4.conf").read_text())
+    assert "accepted (3.2.1)" in out["checked"][0]
+    with pytest.raises(sw.SwitchError, match="checked on the partner"):
+        sw.validate_partner(env, {"migration_id": MID, "partner": "node-other"})
+    monkeypatch.setattr(
+        sw.km.Workspace,
+        "validate",
+        lambda *a, **k: {
+            "ok": False,
+            "mode": "dry_run",
+            "output": "ERROR [x] DHCP4_CONFIG_LOAD_FAIL bad",
+            "version": "3.2.1",
+        },
+    )
+    with pytest.raises(sw.SwitchError, match=r"refuses .*kea-dhcp4\.conf: .*DHCP4_CONFIG_LOAD_FAIL"):
+        sw.validate_partner(env, {"migration_id": MID, "partner": env.node_id})
+    target = mdir / "private/target/kea-dhcp4.conf"
+    target.write_text(target.read_text() + " ")
+    with pytest.raises(sw.SwitchError, match="changed since the prepare"):
+        sw.validate_partner(env, {"migration_id": MID, "partner": env.node_id})

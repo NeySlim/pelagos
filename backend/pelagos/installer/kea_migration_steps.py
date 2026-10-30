@@ -87,6 +87,8 @@ def build_plan(env: Any, request: dict[str, Any], created_by: str = "") -> Plan:
         "from_series": str(request.get("from_series") or "2.6"),
         "options": _options(request.get("options")),
     }
+    if phase == kmc.RECONCILE:
+        return _reconcile_plan(env, base, nodes, request, created_by)
     if phase != kmc.PREPARE:
         return _switch_plan(env, phase, base, nodes, request, created_by)
     changes = []
@@ -211,6 +213,17 @@ def _migrate_rows(
         # Resume of a time 3 that failed: the standby serves alone, the primary is done again.
         rows.append((kmc.H_STOP, primary, {}, "Kea stopped", "primary"))
     else:
+        # The primary's own converted files checked on the primary, before anything stops: the same
+        # check its prepare made, so a pair the prepare accepted is not refused here.
+        rows.append(
+            (
+                kmc.H_VALIDATE_PARTNER,
+                primary,
+                {"partner": primary["node_id"], "partner_name": primary["name"]},
+                f"Kea {series} files checked with the prepared packages",
+                "standby",
+            )
+        )
         rows.append(
             (
                 kmc.H_MAINTENANCE,
@@ -228,13 +241,6 @@ def _migrate_rows(
                     node,
                     {"direction": "target"},
                     f"Kea {series} installed, files checked",
-                    "standby",
-                ),
-                (
-                    kmc.H_VALIDATE_PARTNER,
-                    node,
-                    {"partner": primary["node_id"], "partner_name": primary["name"]},
-                    f"{primary['name']}'s Kea {series} files checked with its daemons",
                     "standby",
                 ),
             ]
@@ -308,6 +314,8 @@ def _return_rows(
                 "HA maintenance over, pair back to normal",
                 "standby",
             ),
+            # The pair checked from both ends: each node's relationships normal with its partner in touch.
+            *((kmc.D_WAIT_HA, n, {}, "HA back to its normal state", "standby") for n in (primary, standby)),
         ]
     back = {"direction": "previous"}
     if stage == "done":
@@ -413,6 +421,59 @@ def _switch_plan(
         source=base["source"],
         outage=delay // 1000 + 10,
     )
+    return Plan(
+        scope=PlanScope.KEA_MIGRATION,
+        node_id=env.node_id,
+        summary=messages.render(summary),
+        summary_message=summary,
+        created_by=created_by,
+        changes=changes,
+        diff="\n".join(f"~ {c.target}: {c.after['summary']}" for c in changes),
+        target_node_ids=sorted(n["node_id"] for n in nodes),
+        requires_confirmation=True,
+        state=PlanState.VALIDATED,
+    )
+
+
+# The HA probe of a reconcile: the pair is normal now or it is not, no long wait.
+RECONCILE_HA_SECONDS = 90
+
+
+def _reconcile_plan(
+    env: Any, base: dict[str, Any], nodes: list[dict[str, Any]], request: dict[str, Any], created_by: str
+) -> Plan:
+    """Reconcile: every node read back (kea-mig-check), the HA pair probed, then the leftovers of the
+    migration removed on each node (kea-mig-cleanup); the driver moves the record in between."""
+    before = request.get("packages_before") if isinstance(request.get("packages_before"), dict) else {}
+    rows: list[Row] = [(kmc.H_CHECK, n, {}, f"Kea {base['from_series']} read back", "check") for n in nodes]
+    rows += [
+        (kmc.D_WAIT_HA, n, {"max_seconds": RECONCILE_HA_SECONDS}, "HA in its normal state", "check")
+        for n in nodes
+        if n["role"] in ("primary", "standby", "backup")
+    ]
+    rows += [(kmc.H_CLEANUP, n, {}, "migration leftovers removed", "cleanup") for n in nodes]
+    changes = []
+    for step, node, extra, what, row_stage in rows:
+        details = {
+            **base,
+            "stage": row_stage,
+            "node": {k: v for k, v in node.items() if k != "node_id"},
+            "engines": node["engines"],
+            "packages_before": [
+                {"name": str(p.get("name")), "version": str(p.get("version") or "")}
+                for p in before.get(node["node_id"]) or []
+                if isinstance(p, dict) and p.get("name")
+            ],
+            **extra,
+        }
+        after = {"step": step, "details": details, "summary": f"{node['name']}: {what}"}
+        changes.append(
+            Change(
+                ChangeOp.REPLACE, kmc.target(step, node["node_id"]), after=after, node_ids=[node["node_id"]]
+            )
+        )
+    names = ", ".join(n["name"] for n in nodes)
+    summary = messages.msg("plan.kea_migration.reconcile", nodes=names, series=base["from_series"])
     return Plan(
         scope=PlanScope.KEA_MIGRATION,
         node_id=env.node_id,
@@ -806,7 +867,13 @@ def prepare(env: Any, details: dict[str, Any]) -> dict[str, Any]:
     if not installed:
         raise PrepareError("no Kea package installed on this node")
     keep: dict[str, Any] = {}
-    report = km.analyze(env, series, source, configs, env.node_id, None, keep=keep)
+    options = details.get("options") if isinstance(details.get("options"), dict) else {}
+    delay = options.get("response_delay_milliseconds")
+    short = None
+    if node.get("role") == "standby":
+        short = delay if isinstance(delay, int) and delay > 0 else 10000
+    # The same checks time 1 makes: this node's own files, the standby's with its short delays.
+    report = km.analyze(env, series, source, configs, env.node_id, None, keep=keep, standby_delay_ms=short)
     if keep.get("fetch_error"):
         raise PrepareError(f"target packages: {keep['fetch_error'][-400:]}")
     blocking = [f for f in report["findings"] if f.get("severity") == "blocking"]
@@ -858,9 +925,8 @@ def prepare(env: Any, details: dict[str, Any]) -> dict[str, Any]:
         "validation": {e: v.get("mode") for e, v in report["validation"].items()},
     }
     _write(mdir / MANIFEST, json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    sealed = _seal_for_partner(env, migration_id, keep["conversions"])
     return {
-        "files_sealed": sealed,
+        "files_sealed": None,  # each node checks its own files (kea-mig-validate-partner)
         "packages_before": [{"name": p["name"], "version": p["version"]} for p in previous],
         "packages_target": [{"name": p["name"], "version": p["version"]} for p in downloaded],
         "packages_remove": manifest["packages_remove"],
@@ -871,21 +937,6 @@ def prepare(env: Any, details: dict[str, Any]) -> dict[str, Any]:
         "validation": manifest["validation"],
         "repo_files_added": added,
     }
-
-
-def _seal_for_partner(env: Any, migration_id: str, conversions: dict[str, mig.Conversion]) -> str | None:
-    """The converted files and their TSIG secrets under the cluster master key: the standby checks
-    them with its installed 3.x daemons before the window (kea-mig-validate-partner)."""
-    key = env.node_paths.master_key
-    if not key.exists():
-        return None
-    from pelagos.core.secrets import SecretBox
-
-    bundle = {
-        "configs": {engine: conv.after for engine, conv in conversions.items()},
-        "secrets": {p: s for conv in conversions.values() for p, s in conv.files.items()},
-    }
-    return kmc.seal_files(SecretBox.from_file(key), migration_id, env.node_id, bundle)
 
 
 def _engine_version(env: Any, engine: str) -> str:
@@ -905,6 +956,8 @@ def _switch_steps() -> dict[str, Any]:
         kmc.H_LEASES_IN: lambda env, d, _p: sw.leases_in(env, d),
         kmc.H_DELAYS: lambda env, d, plan_id: sw.delays(env, d, plan_id),
         kmc.H_FINISH: lambda env, d, _p: sw.finish(env, d),
+        kmc.H_CHECK: lambda env, d, _p: sw.check(env, d),
+        kmc.H_CLEANUP: lambda env, d, _p: sw.cleanup(env, d),
     }
 
 

@@ -328,7 +328,7 @@ def _match_kea_migration(
         raise HelperError(
             f"step {change.target}: migration {wanted or '?'} is not in this node's cluster.toml yet", "value"
         )
-    if migration["state"] in (km.ROLLED_BACK, km.PREPARE_FAILED):
+    if migration["state"] in (km.ROLLED_BACK, km.PREPARE_FAILED) and step not in km.RECONCILE_STEPS:
         raise HelperError(f"step {change.target}: migration {wanted} is {migration['state']}", "value")
     ids = {n["node_id"] for n in migration["nodes"]}
     if env.node_id not in ids:

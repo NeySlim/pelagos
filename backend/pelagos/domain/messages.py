@@ -365,9 +365,15 @@ CATALOG: dict[str, str] = {
     "job.step.kea_migration.ha_maintenance": "{node}: HA maintenance (serves alone or resumes the pair)",
     "job.step.kea_migration.stop": "{node}: stop Kea",
     "job.step.kea_migration.install": "{node}: install the packages and the configuration, check it",
-    "job.step.kea_migration.validate_partner": (
-        "{node}: check the partner's configuration with these binaries"
+    "plan.kea_migration.reconcile": (
+        "read back the real state of {nodes}: if every node runs Kea {series} as before, mark the"
+        " migration returned and remove its leftovers, no Kea file touched"
     ),
+    "job.step.kea_migration.validate_partner": (
+        "{node}: check its converted configuration with the prepared packages"
+    ),
+    "job.step.kea_migration.check": "{node}: read back the Kea packages, files and services",
+    "job.step.kea_migration.cleanup": "{node}: remove the migration leftovers (removed packages, folders)",
     "job.step.kea_migration.leases_in": "{node}: take the partner's lease file",
     "job.step.kea_migration.start": "{node}: start Kea",
     "job.step.kea_migration.delays": "{node}: restore the HA failure detection delays",

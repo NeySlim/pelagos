@@ -900,6 +900,12 @@
   "job.step.kea_migration.archive": [
     "node"
   ],
+  "job.step.kea_migration.check": [
+    "node"
+  ],
+  "job.step.kea_migration.cleanup": [
+    "node"
+  ],
   "job.step.kea_migration.delays": [
     "node"
   ],
@@ -1479,6 +1485,10 @@
     "nodes",
     "series",
     "source"
+  ],
+  "plan.kea_migration.reconcile": [
+    "nodes",
+    "series"
   ],
   "plan.kea_migration.rollback": [
     "nodes",

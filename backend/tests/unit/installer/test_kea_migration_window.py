@@ -81,7 +81,6 @@ def test_backups_take_the_leases_and_start_after_the_standby(host):  # noqa: F81
     assert steps_c == [
         kmc.H_STOP,
         kmc.H_INSTALL,
-        kmc.H_VALIDATE_PARTNER,
         kmc.D_FETCH_LEASES,
         kmc.H_LEASES_IN,
         kmc.H_START,

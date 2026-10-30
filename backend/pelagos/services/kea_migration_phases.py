@@ -11,6 +11,7 @@ measured and bounded by `kea.migration_outage_max_seconds`), time 3 and the retu
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable
@@ -45,6 +46,9 @@ STALE_PREPARE = timedelta(hours=2)
 # A migrate or return no job of this process runs: past this bound (longer than any helper step, the
 # package install's 1800 s included) it was interrupted and becomes failed, so it can be returned.
 STALE_SWITCH = timedelta(minutes=40)
+# Lab only: `<step>@<role>` in the driver's environment fails that migrate step once it really ran,
+# so the automatic return is proven after each step of times 1 and 2 (tests/lab, item 82).
+FAIL_AFTER = "PELAGOS_KEA_MIGRATION_FAIL_AFTER"
 _running: set[str] = set()  # migration ids a PhaseRunner of this process is running
 _running_lock = threading.Lock()
 
@@ -54,7 +58,7 @@ def plan_phase(service: Any, migration_id: str, body: dict[str, Any], actor: str
     phase = body.get("phase") if isinstance(body, dict) else None
     if phase not in km.PHASES:
         raise ValidationError(
-            "phase must be prepare, migrate or rollback", [field_error("phase", "unknown phase")]
+            "phase must be prepare, migrate, rollback or reconcile", [field_error("phase", "unknown phase")]
         )
     options = body.get("options")
     if options is not None and not isinstance(options, dict):
@@ -113,7 +117,7 @@ def plan_phase(service: Any, migration_id: str, body: dict[str, Any], actor: str
 
 
 # Steps a node ran once the prepare was over: the return starts from those nodes.
-UNTOUCHED_STEPS = (None, km.H_PREPARE, km.D_ARCHIVE)
+UNTOUCHED_STEPS = (None, km.H_PREPARE, km.D_ARCHIVE, km.H_VALIDATE_PARTNER)
 
 
 def touched(record: dict[str, Any]) -> list[str]:
@@ -147,6 +151,10 @@ def _plan_switch(service: Any, migration_id: str, phase: str, body: dict[str, An
     why = km.phase_allowed(record, phase)
     if why:
         raise Conflict(why)
+    if phase == km.RECONCILE:
+        request = switch_request(record, phase, {})
+        request["packages_before"] = {n["node_id"]: n["packages_before"] for n in record["nodes"]}
+        return _build(service, request, actor)
     options = {k: v for k, v in record["options"].items() if v is not None}
     options.update({k: v for k, v in body.items() if v is not None})
     options.setdefault(
@@ -345,6 +353,8 @@ class PhaseRunner:
             return self._migrate(plan, base, changes, nodes, job, progress)
         if phase == km.ROLLBACK:
             return self._rollback(plan, base, changes, nodes, job, progress)
+        if phase == km.RECONCILE:
+            return self._reconcile(plan, base, changes, nodes, job, progress)
         if phase != km.PREPARE:
             raise RuntimeError(f"unknown phase {phase}")
         self._start(plan, base, list(nodes.values()))
@@ -473,8 +483,7 @@ class PhaseRunner:
             back = _build(self.service, switch_request(record, km.ROLLBACK, record["options"]), actor)
             changes = [c for c in back.changes if c.node_ids and isinstance(c.after, dict)]
             nodes = {n["node_id"]: n for n in record["nodes"]}
-            for change in changes:
-                self._one(back, change, nodes[change.node_ids[0]], job, progress, actor)
+            self._steps(back, changes, nodes, job, progress, actor, tolerant=True)
         except Exception as exc:
             why = f"{error}; the automatic return failed at {self._failed_step}: {exc}"
             self._fail(why, self._failed_step)
@@ -516,9 +525,11 @@ class PhaseRunner:
     ) -> dict[str, Any]:
         actor = plan.created_by or ""
         record = self._begin(plan, base, km.ROLLING_BACK, km.ROLLBACK)
+        # Before time 3 the primary never changed: a node that does not come back never keeps the
+        # primary stopped or in maintenance. The return of a migrated pair stops at the first failure.
+        tolerant = record["stage"] not in ("primary", "done")
         try:
-            for change in changes:
-                self._one(plan, change, nodes[change.node_ids[0]], job, progress, actor)
+            self._steps(plan, changes, nodes, job, progress, actor, tolerant=tolerant)
         except Exception as exc:
             self._fail(f"{self._failed_step}: {exc}", self._failed_step)
             self._audit(actor, "kea.migration.rollback", base, {"ok": False, "error": str(exc)}, False)
@@ -527,7 +538,127 @@ class PhaseRunner:
         self._audit(actor, "kea.migration.rollback", base, {"ok": True}, True)
         return {"migration_id": base["migration_id"], "state": km.ROLLED_BACK}
 
+    def _reconcile(
+        self,
+        plan: Plan,
+        base: dict[str, Any],
+        changes: list[Change],
+        nodes: dict[str, dict[str, Any]],
+        job: Job,
+        progress: Callable[[Job], None],
+    ) -> dict[str, Any]:
+        """The real state of every node read back; all of them healthy on the previous series moves
+        the record to rolled_back (Kea untouched), then each node's leftovers are removed. A node
+        that is not back leaves the record as it was, with the reason in `error`."""
+        actor = plan.created_by or ""
+
+        def claim(settings: dict[str, Any]) -> None:
+            record = km.read_migration(settings)
+            if record is None or record["id"] != base["migration_id"]:
+                raise km.MigrationStateError(f"migration {base['migration_id']} is not the current one")
+            why = km.phase_allowed(record, km.RECONCILE)
+            if why:
+                raise km.MigrationStateError(why)
+            km.write(settings, {**record, "driver": self.ctx.node.id, "plan_id": plan.id})
+
+        self._update(claim)
+        record = km.read_migration(self.ctx.settings())
+        checks = [c for c in changes if c.after["step"] != km.H_CLEANUP]
+        cleanups = [c for c in changes if c.after["step"] == km.H_CLEANUP]
+        try:
+            self._push(record["nodes"])
+            for change in checks:
+                self._one(plan, change, nodes[change.node_ids[0]], job, progress, actor)
+        except Exception as exc:
+            error = f"reconcile: {self._failed_step or 'push'}: {exc}"[:2000]
+            self._update(lambda s: km.write(s, {**km.read_migration(s), "error": error}))
+            self._audit(actor, "kea.migration.reconcile", base, {"ok": False, "error": str(exc)}, False)
+            raise
+        now = to_rfc3339(utcnow())
+        before_state = record["state"]
+
+        def back(settings: dict[str, Any]) -> None:
+            current = km.read_migration(settings)
+            for node in current["nodes"]:
+                node.update(
+                    status="rolled_back", to_version=node["from_version"], files_sealed=None, error=None
+                )
+            current.update(phase=km.RECONCILE, error=None, error_step=None, finished_at=now)
+            km.write(settings, current)
+            if current["state"] != km.ROLLED_BACK:
+                km.move(settings, km.ROLLED_BACK)
+
+        self._update(back)
+        self._audit(actor, "kea.migration.reconcile", base, {"ok": True, "from_state": before_state}, True)
+        try:
+            self._steps(plan, cleanups, nodes, job, progress, actor, tolerant=True)
+        finally:
+
+            def settle(settings: dict[str, Any]) -> None:
+                current = km.read_migration(settings)
+                for node in current["nodes"]:
+                    if node["status"] == "done":  # a failed cleanup keeps its error
+                        node["status"] = "rolled_back"
+                km.write(settings, current)
+
+            self._update(settle)
+        return {"migration_id": base["migration_id"], "state": km.ROLLED_BACK, "from_state": before_state}
+
     _failed_step: str | None = None
+
+    # Steps that need the whole pair back; skipped once a node of the return failed.
+    PAIR_STEPS = (km.H_MAINTENANCE, km.D_WAIT_HA, km.H_DELAYS)
+
+    def _steps(
+        self,
+        plan: Plan,
+        changes: list[Change],
+        nodes: dict[str, dict[str, Any]],
+        job: Job,
+        progress: Callable[[Job], None],
+        actor: str,
+        tolerant: bool = False,
+    ) -> None:
+        """The changes in order. `tolerant` (a return before time 3): a failed step skips the rest of
+        its node and the pair steps, every other node's steps still run, each one reported; the
+        first failure is raised at the end."""
+        if not tolerant:
+            for change in changes:
+                self._one(plan, change, nodes[change.node_ids[0]], job, progress, actor)
+            return
+        failed: dict[str, str] = {}
+        errors: list[str] = []
+        first: str | None = None
+        for change in changes:
+            node = nodes[change.node_ids[0]]
+            name = str(change.after["step"])
+            why = None
+            if node["node_id"] in failed:
+                why = f"skipped: an earlier step of {node.get('name') or node['node_id']} failed"
+            elif failed and name in self.PAIR_STEPS:
+                why = "skipped: " + ", ".join(failed.values()) + " did not come back"
+            if why:
+                job.steps.append(
+                    {
+                        "name": change.target,
+                        **_label_of(name, node),
+                        "state": "skipped",
+                        "output": why,
+                        "started_at": utcnow(),
+                        "finished_at": utcnow(),
+                    }
+                )
+                progress(job)
+                continue
+            try:
+                self._one(plan, change, node, job, progress, actor)
+            except Exception as exc:
+                failed[node["node_id"]] = str(node.get("name") or node["node_id"])
+                errors.append(f"{name} on {failed[node['node_id']]}: {str(exc)[:600]}")
+                first = first or self._failed_step
+        if errors:
+            self._failed_step = first
+            raise RuntimeError("; ".join(errors))
 
     def _one(
         self,
@@ -551,11 +682,24 @@ class PhaseRunner:
             )
         self._node(node_id, step=name, status="running", error=None)
         weight = 80 // max(1, len(plan.changes))
+        got: dict[str, Any] = {}
+
+        def run() -> str:
+            # The job step keeps only the text: the record fields never reach a client as an output.
+            result = self._run(plan, change, node)
+            got.update(result if isinstance(result, dict) else {"output": str(result)})
+            if (
+                details.get("phase") == km.MIGRATE
+                and os.environ.get(FAIL_AFTER) == f"{name}@{node.get('role')}"
+            ):
+                raise RuntimeError(f"failure injected after {name} ran ({FAIL_AFTER})")
+            return str(got.get("output") or "")
+
         try:
-            out = step(
+            step(
                 job,
                 change.target,
-                lambda: self._run(plan, change, node),
+                run,
                 progress,
                 weight=weight,
                 label=km.step_message(name, node.get("name") or node_id),
@@ -567,7 +711,7 @@ class PhaseRunner:
                 actor, "kea.migration.step", details, {"ok": False, "error": str(exc)}, False, name, node_id
             )
             raise
-        fields = out.pop("record", {}) if isinstance(out, dict) else {}
+        fields = got.get("record") or {}
         self._node(node_id, **fields)
         response: dict[str, Any] = {"ok": True}
         if details.get("outage_end") and self._outage_t0 is not None:
@@ -578,8 +722,6 @@ class PhaseRunner:
             self._update(lambda s: km.write(s, {**km.read_migration(s), "outage_seconds": worst}))
             response["outage_seconds"] = seconds
         self._audit(actor, "kea.migration.step", details, response, True, name, node_id)
-        if isinstance(out, dict) and job.steps:
-            job.steps[-1]["output"] = out.get("output", "")
 
     def _run(self, plan: Plan, change: Change, node: dict[str, Any]) -> dict[str, Any]:
         name = change.after["step"]
@@ -596,7 +738,8 @@ class PhaseRunner:
         if name == km.D_WAIT_PARTNER_DOWN:
             return self._wait_partner_down(change, node)
         if name == km.D_WAIT_HA:
-            return self._wait_ha(node)
+            limit = (change.after.get("details") or {}).get("max_seconds")
+            return self._wait_ha(node, float(limit) if isinstance(limit, int | float) else HA_WAIT_SECONDS)
         from pelagos.installer.kea_migration_steps import result_of
 
         result = result_of(self._helper_step(plan, change, node))
@@ -700,10 +843,11 @@ class PhaseRunner:
                 raise RuntimeError(f"not serving alone within {limit:.0f} s of the stop: {why}")
             _sleep(POLL_SECONDS)
 
-    def _wait_ha(self, node: dict[str, Any]) -> dict[str, Any]:
+    def _wait_ha(self, node: dict[str, Any], limit: float | None = None) -> dict[str, Any]:
         """kea-mig-wait-ha: every HA relationship of the node back to its normal state, twice in a row."""
         engines = [e for e in node.get("engines") or [] if e in ("kea4", "kea6")]
-        deadline = time.monotonic() + HA_WAIT_SECONDS
+        limit = HA_WAIT_SECONDS if limit is None else limit
+        deadline = time.monotonic() + limit
         good, why = 0, "no answer yet"
         while True:
             try:
@@ -717,7 +861,7 @@ class PhaseRunner:
                     "output": "HA back in its normal state: " + (", ".join(sorted(set(states))) or "no HA"),
                 }
             if time.monotonic() >= deadline:
-                raise RuntimeError(f"HA not back in its normal state within {HA_WAIT_SECONDS:.0f} s: {why}")
+                raise RuntimeError(f"HA not back in its normal state within {limit:.0f} s: {why}")
             _sleep(POLL_SECONDS)
 
     def _helper_step(self, plan: Plan, change: Change, node: dict[str, Any]) -> str:
@@ -788,6 +932,12 @@ class PhaseRunner:
             )
         except Exception:  # the audit never decides a migration step
             log.exception("audit of %s failed", action)
+
+
+def _label_of(name: str, node: dict[str, Any]) -> dict[str, Any]:
+    from pelagos.services.jobs import _label
+
+    return _label(name, km.step_message(name, node.get("name") or node["node_id"]))
 
 
 POLL_SECONDS = 1.0

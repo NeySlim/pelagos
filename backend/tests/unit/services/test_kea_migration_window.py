@@ -51,6 +51,16 @@ class WindowPeers(Peers):
         state = self.states.pop(0) if len(self.states) > 1 else self.states[0]
         return probe(state, "hot-standby" if state == "hot-standby" else "unavailable")
 
+    def apply_plan(self, peer: Any, plan: Any) -> Any:
+        after = plan.changes[0].after
+        if (
+            after["step"] == km.H_START
+            and after["details"].get("restore")
+            and after["details"]["stage"] == "standby"
+        ):
+            self.states = ["hot-standby"]  # back on the previous series: the pair negotiates again
+        return super().apply_plan(peer, plan)
+
 
 @pytest.fixture
 def driver(service, monkeypatch):  # noqa: F811
@@ -90,7 +100,7 @@ def test_the_whole_migration_measures_the_outage(driver, monkeypatch):
         "size": 120,
     }
     sent = [p.changes[0].after["step"] for p in driver.peers.sent]
-    assert sent[3:] == [km.H_LEASES_IN, km.H_START, km.H_DELAYS, km.H_FINISH]
+    assert sent[2:] == [km.H_LEASES_IN, km.H_START, km.H_DELAYS, km.H_FINISH]
     assert [n for n, _ in driver.ran][-5:] == [km.H_STOP, km.H_INSTALL, km.H_START, km.H_DELAYS, km.H_FINISH]
     rec = record(driver)
     assert (rec["state"], rec["stage"]) == (km.MIGRATED, "done")

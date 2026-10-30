@@ -2,8 +2,8 @@
 """Kea 2.6 to 3.x migration: series per node, targets, analysis report (section 26), and the
 prepare, migrate and rollback plans with the replicated migration state (section 28).
 
-`POST /{id}/plan` builds the prepare phase (K3), time 1 and its return (K4); the window and time 3
-come with K5.
+`POST /{id}/plan` builds a phase: prepare, migrate (times 1 to 3), rollback, or reconcile (the real
+state read back after a return finished by hand).
 """
 
 from __future__ import annotations

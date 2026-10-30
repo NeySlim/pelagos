@@ -26,7 +26,10 @@ FAMILIES = ("4", "6")
 
 # Phases: one plan each (POST /install/kea-migration/{id}/plan).
 PREPARE, MIGRATE, ROLLBACK = "prepare", "migrate", "rollback"
-PHASES = (PREPARE, MIGRATE, ROLLBACK)
+# Reconcile: the real state of every node read back; all healthy on the previous series moves the
+# record to rolled_back without touching Kea (a return finished by hand), then the leftovers go.
+RECONCILE = "reconcile"
+PHASES = (PREPARE, MIGRATE, ROLLBACK, RECONCILE)
 
 # Migration states and the moves between them; a move not listed is refused.
 PREPARING = "preparing"
@@ -40,11 +43,11 @@ ROLLED_BACK = "rolled_back"
 STATES = (PREPARING, PREPARED, PREPARE_FAILED, MIGRATING, MIGRATED, FAILED, ROLLING_BACK, ROLLED_BACK)
 TRANSITIONS: dict[str, tuple[str, ...]] = {
     PREPARING: (PREPARED, PREPARE_FAILED),
-    PREPARED: (MIGRATING, PREPARING),
-    PREPARE_FAILED: (PREPARING,),
+    PREPARED: (MIGRATING, PREPARING, ROLLED_BACK),
+    PREPARE_FAILED: (PREPARING, ROLLED_BACK),
     MIGRATING: (MIGRATED, FAILED, ROLLING_BACK),
-    FAILED: (MIGRATING, ROLLING_BACK),
-    MIGRATED: (ROLLING_BACK,),
+    FAILED: (MIGRATING, ROLLING_BACK, ROLLED_BACK),
+    MIGRATED: (ROLLING_BACK, ROLLED_BACK),
     ROLLING_BACK: (ROLLED_BACK, FAILED),
     ROLLED_BACK: (),
 }
@@ -69,6 +72,9 @@ H_LEASES_IN = "kea-mig-leases-in"  # the fetched lease copy replaces this node's
 H_START = "kea-mig-start"  # start the Kea units (details.engines)
 H_DELAYS = "kea-mig-delays"  # max-response-delay and max-unacked-clients back, config-write
 H_FINISH = "kea-mig-finish"  # drop the migration files of this node except the lease backup
+H_CHECK = "kea-mig-check"  # reconcile: packages, files and units of this node read back, nothing changed
+H_CLEANUP = "kea-mig-cleanup"  # reconcile: removed ISC packages purged, migration directories removed
+RECONCILE_STEPS = (H_CHECK, H_CLEANUP)
 HELPER_STEPS = (
     H_PREPARE,
     H_MAINTENANCE,
@@ -79,6 +85,8 @@ HELPER_STEPS = (
     H_START,
     H_DELAYS,
     H_FINISH,
+    H_CHECK,
+    H_CLEANUP,
 )
 # Steps the driving node's service runs itself (no helper, nothing sealed).
 D_ARCHIVE = "kea-mig-archive"  # archive.run on the node, wait for a newer archive
@@ -254,6 +262,10 @@ def phase_allowed(migration: dict[str, Any] | None, phase: str) -> str | None:
         return f"the migration is {state}: migrate needs it prepared"
     if phase == ROLLBACK:
         return None if rollback_possible(migration) else f"no rollback possible from {state}"
+    if phase == RECONCILE:
+        if state in (PREPARING, MIGRATING, ROLLING_BACK):
+            return f"the migration is {state}: wait for its phase to end (or 40 minutes without progress)"
+        return None
     return f"unknown phase {phase!r}"
 
 

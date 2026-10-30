@@ -315,6 +315,40 @@ class Workspace:
                 raise DryRunError(f"rpm2cpio {rpm.name}: {got.output.strip()[-300:]}")
             self.files.append(rpm)
 
+    def extract(self, files: list[Path]) -> None:
+        """Package files already on this node (a prepared `packages/target`) extracted into the tree,
+        exactly as `fetch` extracts what it downloads; their versions noted."""
+        self.tree.mkdir(parents=True, exist_ok=True)
+        for path in files:
+            if path.suffix == ".deb":
+                meta = self._run(["dpkg-deb", "-f", str(path), "Package", "Version"], timeout=60)
+                fields = dict(line.split(": ", 1) for line in meta.stdout.splitlines() if ": " in line)
+                got = self._run(["dpkg-deb", "-x", str(path), str(self.tree)], timeout=300)
+            elif path.suffix == ".rpm":
+                meta = self._run(
+                    ["rpm", "-qp", "--qf", "%{NAME}\t%{VERSION}-%{RELEASE}", str(path)], timeout=60
+                )
+                n, _, v = meta.stdout.strip().partition("\t")
+                fields = {"Package": n, "Version": v}
+                got = self._run(
+                    [
+                        "sh",
+                        "-c",
+                        'rpm2cpio "$1" | cpio -idm --quiet -D "$2"',
+                        "sh",
+                        str(path),
+                        str(self.tree),
+                    ],
+                    timeout=300,
+                )
+            else:
+                continue
+            if not got.ok:
+                raise DryRunError(f"cannot extract {path.name}: {got.output.strip()[-300:]}")
+            if fields.get("Package") and fields.get("Version"):
+                self.versions[fields["Package"]] = fields["Version"]
+            self.files.append(path)
+
     def fetch(self, packages: list[str]) -> None:
         packages = [p for p in packages if p not in self.versions]
         if not packages:
@@ -438,6 +472,16 @@ class Workspace:
                     path.chmod(mode | (0o055 if path.is_dir() or mode & 0o100 else 0o044))
                 except OSError as exc:
                     raise DryRunError(f"cannot share {path.name} with {self.kea_user}: {exc}") from None
+
+
+def with_standby_delays(cfg: dict[str, Any], engine: str, delay_ms: int) -> dict[str, Any]:
+    """The standby's 3.x file during the migration: a short failure detection so that it serves alone
+    soon after the primary stops (time 2); kea-mig-delays puts the original values back."""
+    out = json.loads(json.dumps(cfg))
+    for rel in mig.ha_relationships(out, engine):
+        rel["max-response-delay"] = int(delay_ms)
+        rel["max-unacked-clients"] = 0
+    return out
 
 
 def _summary(output: str) -> str:
@@ -605,6 +649,7 @@ def analyze(
     workdir: Path | None = None,
     units: dict[str, dict[str, Any]] | None = None,
     keep: dict[str, Any] | None = None,
+    standby_delay_ms: int | None = None,
 ) -> dict[str, Any]:
     """Converts and dry-runs this node's Kea files (`configs`: engine -> 2.6 file) for one target.
 
@@ -613,7 +658,8 @@ def analyze(
     `files` lists the secret files the conversion adds (paths only) and `configs` the converted
     files with passwords and secrets masked. Nothing outside a temporary directory changes.
     `keep` (the prepare step) receives the unmasked `conversions` and `fetch_error`, the download
-    failure that skipped the validation ("" when the packages came).
+    failure that skipped the validation ("" when the packages came). `standby_delay_ms` (the prepare
+    of a standby): each HA file is also checked as time 1 installs it, with the short delays.
     """
     check_target(env.distro, series, source)
     engines = [e for e in ("kea4", "kea6", "d2") if e in configs]
@@ -670,9 +716,12 @@ def analyze(
                 result = {"ok": False, "mode": "skipped", "output": skipped, "version": ""}
             else:
                 try:
-                    result = ws.validate(
-                        engine, conv.after, conv.files, str(env.paths.kea_conf(DAEMONS[engine]))
-                    )
+                    display = str(env.paths.kea_conf(DAEMONS[engine]))
+                    result = ws.validate(engine, conv.after, conv.files, display)
+                    if result["ok"] and standby_delay_ms and mig.ha_relationships(conv.after, engine):
+                        # Time 1 installs the standby's file with the short delays: check that one too.
+                        short = with_standby_delays(conv.after, engine, standby_delay_ms)
+                        result = ws.validate(engine, short, conv.files, display)
                 except DryRunError as exc:
                     result = {"ok": False, "mode": "skipped", "output": str(exc), "version": ""}
             out["validation"][engine] = result

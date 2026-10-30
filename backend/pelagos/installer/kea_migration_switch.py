@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Helper steps of the Kea 3.x migration that change a node (architecture section 28, batches K4, K5).
 
-Time 1 (design 13.4 decision 5): `ha-maintenance-start` on the serving peer, Kea stopped on the
-standby, the target packages installed from the cache prepared earlier, the converted files put in
-place and checked by the installed daemons, then the partner's converted files checked by them too.
+Time 1 (design 13.4 decision 5): the primary's converted files checked on the primary with the
+daemons of its prepared packages, `ha-maintenance-start` on it, Kea stopped on the standby, the
+target packages installed from the cache prepared earlier, the converted files put in place and
+checked by the installed daemons.
 Time 2: the primary stops and leaves a compacted copy of its lease files, which replaces the
 standby's. Time 3: the detection delays shortened for the window are put back.
 The return puts the exact 2.6 packages, the saved files, the AppArmor profiles, the dpkg stat
-overrides and the directory modes back, then starts what ran before.
+overrides, the directory modes and the unit states back, part by part, then starts what ran before.
+Reconcile (`kea-mig-check`, `kea-mig-cleanup`) reads a node back and removes the leftovers.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import hashlib
 import json
 import os
 import posixpath
+import re
 import shutil
 import stat
 import tempfile
@@ -178,7 +181,11 @@ def stop(env: Any, details: dict[str, Any]) -> dict[str, Any]:
     before = {}
     for unit in units:
         active, enabled = env.services.unit_state(unit)
-        before[unit] = {"active": active == "active", "enabled": enabled == "enabled"}
+        before[unit] = {
+            "active": active == "active",
+            "enabled": enabled == "enabled",
+            "enabled_state": enabled,
+        }
     _remember(mdir, "units_before", before)
     stopped = []
     for unit in units:
@@ -655,9 +662,11 @@ def install_target_packages(env: Any, manifest: dict[str, Any], mdir: Path) -> s
     check_packages(mdir, manifest, ("target",))
     folder = mdir / "packages" / "target"
     if env.distro.is_debian:
-        from pelagos.installer.kea_migration_steps import apt_archives
+        from pelagos.installer.kea_migration_steps import _mkdir, apt_archives
 
-        specs = [f"{p['name']}={p['version']}" for p in target]
+        _mkdir(folder / "partial")
+        files = [str(folder / p["file"]) for p in target if p.get("file")]
+        specs = files if len(files) == len(target) else [f"{p['name']}={p['version']}" for p in target]
         res = _apt(env, [*apt_archives(folder), "install", *specs, *(f"{n}-" for n in remove)])
     elif env.distro.is_rhel:
         files = [str(folder / p["file"]) for p in target]
@@ -691,10 +700,23 @@ def install_previous_packages(env: Any, manifest: dict[str, Any], mdir: Path) ->
     installed = km.installed_packages(env.runner, env.distro)
     extra = sorted(n for n in installed if n not in keep)
     check_packages(mdir, manifest, ("previous",))
-    files = [mdir / "packages" / "previous" / p["file"] for p in previous]
+    folder = mdir / "packages" / "previous"
+    files = [folder / p["file"] for p in previous]
     if env.distro.is_debian:
+        from pelagos.installer.kea_migration_steps import _mkdir, apt_archives
+
+        # A local .deb whose version an index also lists is fetched from that index (lab 2026-10-30:
+        # "Unable to fetch some archives" under --no-download): the kept files are apt's cache here.
+        _mkdir(folder / "partial")
         res = _apt(
-            env, ["--allow-downgrades", "install", *(str(f) for f in files), *(f"{n}-" for n in extra)]
+            env,
+            [
+                *apt_archives(folder),
+                "--allow-downgrades",
+                "install",
+                *(str(f) for f in files),
+                *(f"{n}-" for n in extra),
+            ],
         )
     elif env.distro.is_rhel:
         res = env.runner.run(
@@ -733,14 +755,7 @@ def _write_like(path: Path, data: bytes, mode: int, uid: int | None, gid: int | 
     os.replace(tmp, path)
 
 
-def with_standby_delays(cfg: dict[str, Any], engine: str, delay_ms: int) -> dict[str, Any]:
-    """The standby's 3.x file during the migration: a short failure detection so that it serves alone
-    soon after the primary stops (time 2); kea-mig-delays puts the original values back."""
-    out = json.loads(json.dumps(cfg))
-    for rel in mig.ha_relationships(out, engine):
-        rel["max-response-delay"] = int(delay_ms)
-        rel["max-unacked-clients"] = 0
-    return out
+with_standby_delays = km.with_standby_delays
 
 
 def note_delays(mdir: Path, engine: str, cfg: dict[str, Any], original: bytes, shortened: bytes) -> None:
@@ -863,6 +878,16 @@ def restore_files(env: Any, manifest: dict[str, Any], mdir: Path) -> list[str]:
         if leftover.suffix in PACKAGE_COPIES and str(leftover) not in known and leftover.is_file():
             leftover.unlink()
             out.append(f"{leftover} removed (left by the package manager)")
+    # Anything else the prepare did not see (a key file the conversion added under another name):
+    # moved aside, never deleted, so /etc/kea is exactly the saved tree.
+    extra = mdir / "private" / "extra"
+    for leftover in sorted(conf_dir.rglob("*"), key=lambda p: -len(p.parts)):
+        if str(leftover) in known or (leftover.is_dir() and not leftover.is_symlink()):
+            continue
+        dest = extra / leftover.relative_to(conf_dir)
+        dest.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        shutil.move(str(leftover), str(dest))
+        out.append(f"{leftover} moved to {dest} (not there before the migration)")
     env.relabel([Path(e["path"]) for e in saved])
     return out
 
@@ -933,16 +958,135 @@ def _kea_check(env: Any, daemon: str, conf: Path, flag: str) -> tuple[bool, str]
 # AppArmor, stat overrides, directories ---------------------------------------------------------
 
 
+def apparmor_active(env: Any) -> bool:
+    """AppArmor enforces here: its securityfs is mounted (absent in many containers and some VMs)."""
+    return _root(env, "sys/kernel/security/apparmor").is_dir()
+
+
 def reenable_apparmor(env: Any, names: list[str]) -> list[str]:
+    """The `disable/` links the target added removed; each profile loaded again when AppArmor runs
+    (without it the link alone is what the next boot reads)."""
     out = []
+    active = apparmor_active(env)
     for name in names:
         link = _root(env, "etc/apparmor.d/disable") / name
         profile = _root(env, "etc/apparmor.d") / name
-        if link.is_symlink():
+        if link.is_symlink() or link.exists():
             link.unlink()
-        if profile.is_file():
-            env.runner.run(["apparmor_parser", "-r", str(profile)], privileged=True, check=False, timeout=60)
+            out.append(f"{link} removed")
+        if not profile.is_file():
+            continue
+        if not active:
+            out.append(f"AppArmor profile {name}: not loaded, AppArmor is not active on this host")
+            continue
+        res = env.runner.run(
+            ["apparmor_parser", "-r", str(profile)], privileged=True, check=False, timeout=60
+        )
+        if res.ok:
             out.append(f"AppArmor profile {name} enabled again")
+        else:
+            out.append(f"AppArmor profile {name}: apparmor_parser failed ({res.output.strip()[-200:]})")
+    return out
+
+
+def restore_units(env: Any, before: dict[str, Any]) -> list[str]:
+    """Each Kea unit enabled or disabled as the first stop found it (a package script may have
+    enabled one again, kea-dhcp6-server for instance); nothing starts here."""
+    if not env.binary("systemctl") or not isinstance(before, dict):
+        return []
+    out = []
+    for unit, was in sorted(before.items()):
+        if not isinstance(was, dict) or not env.services.exists(unit):
+            continue
+        raw = str(was.get("enabled_state") or ("enabled" if was.get("enabled") else ""))
+        _active, now = env.services.unit_state(unit)
+        if raw == "enabled" and now != "enabled":
+            verb = "enable"
+        elif raw != "enabled" and now == "enabled" and (raw == "disabled" or not was.get("enabled")):
+            verb = "disable"
+        else:
+            continue
+        env.runner.run(["systemctl", verb, unit], privileged=True, check=False, timeout=60)
+        out.append(f"{unit} {verb}d again (as before the migration)")
+    return out
+
+
+NOOP_POSTRM = "#!/bin/sh\n# pelagos: neutralized before the purge of a removed ISC package\nexit 0\n"
+_ISC_PACKAGE = re.compile(r"^(python3-)?isc-kea(-|$)")
+
+
+def purge_leftovers(env: Any, mdir: Path | None) -> list[str]:
+    """ISC Kea packages dpkg still knows as removed (`rc`) purged. Their purge scripts would delete
+    /etc/kea, /var/lib/kea and the `_kea` user the Debian packages share, so they are replaced by a
+    no-op first and /etc/kea is checked against a copy taken just before."""
+    if not env.distro.is_debian:
+        return []
+    res = env.runner.run(
+        [
+            "dpkg-query",
+            "-W",
+            "-f=${Package}\t${db:Status-Abbrev}\t${Conffiles}\n",
+            "isc-kea*",
+            "python3-isc-kea*",
+        ],
+        privileged=True,
+        check=False,
+        mutates=False,
+        timeout=60,
+    )
+    names, inits = [], []
+    current = ""
+    for line in res.stdout.splitlines():
+        parts = line.split("\t")
+        if not line.startswith(" ") and len(parts) >= 2:  # ${Conffiles} goes on, one per line
+            current = parts[0] if parts[1].strip() == "rc" and _ISC_PACKAGE.match(parts[0]) else ""
+            if current:
+                names.append(current)
+        if current:
+            inits += [w.rsplit("/", 1)[1] for w in line.split() if w.startswith("/etc/init.d/")]
+    if not names:
+        return []
+    conf_dir = env.paths.kea_conf_dir
+    guard = Path(tempfile.mkdtemp(prefix="pelagos-kea-purge-", dir=str(mdir) if mdir else None))
+    out = []
+    try:
+        copy = guard / "conf"
+        if conf_dir.is_dir():
+            shutil.copytree(conf_dir, copy, symlinks=True)
+        info = _root(env, "var/lib/dpkg/info")
+        for name in names:
+            for script in info.glob(f"{name}.postrm"), info.glob(f"{name}:*.postrm"):
+                for path in script:
+                    path.write_text(NOOP_POSTRM)
+        got = env.runner.run(["dpkg", "--purge", *names], privileged=True, check=False, timeout=600)
+        if not got.ok:
+            raise SwitchError(f"dpkg --purge {' '.join(names)}: {got.output.strip()[-300:]}")
+        out.append(f"purged (removed ISC packages): {', '.join(names)}")
+        for init in dict.fromkeys(inits):
+            if not _root(env, f"etc/init.d/{init}").exists():
+                env.runner.run(
+                    ["update-rc.d", "-f", init, "remove"], privileged=True, check=False, timeout=60
+                )
+        if copy.is_dir():
+            for saved in sorted(copy.rglob("*")):
+                dest = conf_dir / saved.relative_to(copy)
+                if saved.is_symlink():
+                    if not dest.exists() and not dest.is_symlink():
+                        os.symlink(os.readlink(saved), dest)
+                    continue
+                if saved.is_dir():
+                    if not dest.exists():
+                        dest.mkdir()
+                        shutil.copystat(saved, dest)
+                    continue
+                if not dest.is_file() or dest.read_bytes() != saved.read_bytes():
+                    shutil.copy2(saved, dest)
+                    st = saved.stat()
+                    if os.geteuid() == 0:
+                        os.chown(dest, st.st_uid, st.st_gid)
+                    out.append(f"{dest} put back after the purge")
+    finally:
+        shutil.rmtree(guard, ignore_errors=True)
     return out
 
 
@@ -1022,27 +1166,54 @@ def install(env: Any, details: dict[str, Any]) -> dict[str, Any]:
         out += check_files(env, engines)
         version = manifest.get("target_version")
     elif direction == "previous":
-        state = _state(mdir)
-        out += (
-            restore_statoverrides(env, state.get("statoverrides") or []) if "statoverrides" in state else []
-        )
-        out.append(install_previous_packages(env, manifest, mdir))
-        out += restore_files(env, manifest, mdir)
-        out += remove_target_conffiles(env, manifest)
-        out += restore_dirs(env, state.get("dirs") or {})
-        out += reenable_apparmor(env, state.get("apparmor_disabled") or [])
-        out += remove_repo_files(env, manifest)
-        state = _state(mdir)
-        state.pop("delays", None)
-        _save_state(mdir, state)
-        if details.get("short_delays") and _delay(details):
-            out += shorten_files(env, mdir, engines, int(_delay(details) or 0))
-        env.services.daemon_reload()
-        out += check_files(env, engines, test_flag=False)
-        version = next(iter((manifest.get("from_versions") or {}).values()), "")
+        out, version = install_previous(env, manifest, mdir, details, engines)
     else:
         raise ValueError(f"unknown install direction {direction!r}")
     return {"direction": direction, "version": version, "log": out}
+
+
+def install_previous(
+    env: Any, manifest: dict[str, Any], mdir: Path, details: dict[str, Any], engines: list[str]
+) -> tuple[list[str], str]:
+    """The return of one node, in order: packages, files, directories, AppArmor, repository files,
+    unit states, leftover ISC packages, then the 2.6 check. A part that fails does not stop the
+    others (Kea is stopped, each part is safe alone); every failure is reported at the end."""
+    state = _state(mdir)
+    out: list[str] = []
+    errors: list[str] = []
+
+    def part(name: str, fn: Any) -> None:
+        try:
+            got = fn()
+        except Exception as exc:
+            errors.append(f"{name}: {str(exc)[-600:]}")
+            out.append(f"FAILED {name}: {str(exc)[-600:]}")
+            return
+        out.extend([got] if isinstance(got, str) else list(got or []))
+
+    if "statoverrides" in state:
+        part("stat overrides", lambda: restore_statoverrides(env, state.get("statoverrides") or []))
+    part("packages", lambda: install_previous_packages(env, manifest, mdir))
+    part("files", lambda: restore_files(env, manifest, mdir))
+    part("target conffiles", lambda: remove_target_conffiles(env, manifest))
+    part("directories", lambda: restore_dirs(env, state.get("dirs") or {}))
+    part("AppArmor", lambda: reenable_apparmor(env, state.get("apparmor_disabled") or []))
+    part("repository files", lambda: remove_repo_files(env, manifest))
+    part("units", lambda: restore_units(env, state.get("units_before") or {}))
+    part("removed ISC packages", lambda: purge_leftovers(env, mdir))
+    fresh = _state(mdir)
+    fresh.pop("delays", None)
+    _save_state(mdir, fresh)
+    if details.get("short_delays") and _delay(details):
+        part("short delays", lambda: shorten_files(env, mdir, engines, int(_delay(details) or 0)))
+    try:
+        env.services.daemon_reload()
+    except Exception as exc:  # the check below says whether the units still work
+        out.append(f"daemon-reload: {exc}")
+    part("check", lambda: check_files(env, engines, test_flag=False))
+    if errors:
+        raise SwitchError("the return is incomplete: " + "; ".join(errors) + "\n" + "\n".join(out))
+    return out, next(iter((manifest.get("from_versions") or {}).values()), "")
 
 
 def _short(details: dict[str, Any]) -> bool:
@@ -1125,107 +1296,148 @@ def finish(env: Any, details: dict[str, Any]) -> dict[str, Any]:
     return {"removed": removed, "kept": ["private/before", "packages/previous"]}
 
 
-def _partner_bundle(env: Any, details: dict[str, Any]) -> dict[str, Any]:
-    from pelagos.core.config_store import ConfigStore
-    from pelagos.core.secrets import SecretBox
-
-    paths = env.node_paths
-    migration_id = str(details.get("migration_id") or "")
-    partner = str(details.get("partner") or "")
-    cluster = ConfigStore(paths.node_toml, paths.cluster_toml).load_cluster()
-    record = kmc.read_migration(cluster.settings)
-    if record is None or record["id"] != migration_id:
-        raise SwitchError(f"migration {migration_id} is not in this node's cluster.toml")
-    node = next((n for n in record["nodes"] if n["node_id"] == partner), None)
-    if node is None or not node.get("files_sealed"):
-        raise SwitchError(f"the partner's converted files are not in migration {migration_id}: prepare again")
-    try:
-        return kmc.open_files(
-            SecretBox.from_file(paths.master_key), migration_id, partner, node["files_sealed"]
-        )
-    except Exception as exc:
-        raise SwitchError(f"the partner's converted files do not open here: {exc}") from None
-
-
-def _own_tls(env: Any, engine: str) -> dict[str, str]:
-    cfg = _load(env.paths.kea_conf(km.DAEMONS[engine]))
-    out: dict[str, str] = {}
-    for rel in mig.ha_relationships(cfg, engine):
-        for key in TLS_KEYS:
-            if isinstance(rel.get(key), str):
-                out.setdefault(key, rel[key])
-        for peer in rel.get("peers") or []:
-            for key in TLS_KEYS:
-                if isinstance(peer, dict) and isinstance(peer.get(key), str):
-                    out.setdefault(key, peer[key])
-    return out
-
-
-def _for_this_host(
-    env: Any, engine: str, cfg: dict[str, Any], work: Path, secrets: dict[str, str]
-) -> dict[str, Any]:
-    """The partner's file made checkable here: hooks by name (the pair may mix architectures), HA TLS
-    files this host lacks replaced by its own (the same cluster CA), secret files as copies."""
-    out = json.loads(json.dumps(cfg))
-    root = out.get(mig.ROOTS[engine]) or {}
-    for hook in root.get("hooks-libraries") or []:
-        if isinstance(hook, dict) and isinstance(hook.get("library"), str):
-            hook["library"] = posixpath.basename(hook["library"])
-    own = _own_tls(env, engine) if engine in HA_ENGINES else {}
-    for rel in mig.ha_relationships(out, engine):
-        for holder in [rel, *(p for p in rel.get("peers") or [] if isinstance(p, dict))]:
-            for key in TLS_KEYS:
-                value = holder.get(key)
-                if isinstance(value, str) and not Path(value).exists() and key in own:
-                    holder[key] = own[key]
-    for i, key in enumerate(root.get("tsig-keys") or []):
-        if isinstance(key, dict) and key.get("secret-file") in secrets:
-            copy = work / f"secret-{i}.tsig"
-            copy.write_text(secrets[key["secret-file"]])
-            key["secret-file"] = str(copy)
-    return out
-
-
 def validate_partner(env: Any, details: dict[str, Any]) -> dict[str, Any]:
-    """`kea-mig-validate-partner`: the partner's converted files (sealed in the migration record by
-    its prepare step) checked by this node's installed 3.x daemons in a temporary directory."""
-    bundle = _partner_bundle(env, details)
-    secrets = {str(k): str(v) for k, v in (bundle.get("secrets") or {}).items()}
-    configs = bundle["configs"]
-    work = Path(tempfile.mkdtemp(prefix="pelagos-kea-partner-"))
+    """`kea-mig-validate-partner`, on the partner itself before time 1: its converted files checked
+    by the target daemons extracted from its own prepared packages, exactly as its analysis and
+    prepare checked them. A file never leaves its host: interface names, sockets and paths differ
+    between nodes (2026-10-30: a standby refused its primary's `interfaces-config`)."""
+    if str(details.get("partner") or env.node_id) != env.node_id:
+        raise SwitchError("the partner's files are checked on the partner: plan this phase again")
+    mdir = _mdir(env, details)
+    manifest = _manifest(env, mdir)
+    check_packages(mdir, manifest, ("target",))
+    from pelagos.installer.kea_migration_steps import _sha256
+
+    target = mdir / "private" / "target"
+    conv = manifest.get("converted") or {}
+    secrets = {}
+    for item in conv.get("secrets") or []:
+        src = target / item["file"]
+        if _sha256(src) != item["sha256"]:
+            raise SwitchError(f"{src} changed since the prepare: prepare again")
+        secrets[str(item["path"])] = src.read_text().rstrip("\n")
+    folder = mdir / "packages" / "target"
+    files = [
+        folder / p["file"] for p in manifest.get("target_files") or manifest.get("packages_target") or []
+    ]
+    work = Path(tempfile.mkdtemp(prefix="pelagos-kea-validate-"))
+    ws = km.Workspace(
+        env.runner,
+        env.distro,
+        str(manifest.get("series")),
+        str(manifest.get("source")),
+        work,
+        kea_user=env.paths.kea_user,
+    )
     out = []
     try:
-        for engine in [e for e in km.DAEMONS if e in configs]:
-            daemon = km.DAEMONS[engine]
-            if not env.binary(daemon):
+        try:
+            ws.extract(files)
+        except km.DryRunError as exc:
+            raise SwitchError(str(exc)) from None
+        for item in conv.get("files") or []:
+            src = target / item["file"]
+            if _sha256(src) != item["sha256"]:
+                raise SwitchError(f"{src} changed since the prepare: prepare again")
+            engine = item["engine"]
+            try:
+                result = ws.validate(engine, json.loads(src.read_text()), secrets, str(item["path"]))
+            except km.DryRunError as exc:
+                raise SwitchError(f"{km.DAEMONS[engine]}: {exc}") from None
+            if not result["ok"]:
                 raise SwitchError(
-                    f"{daemon} is not installed here: the partner's {engine} file cannot be checked"
+                    f"{km.DAEMONS[engine]} {result['version']} refuses {item['path']}: "
+                    f"{km.error_line(result['output'])}"
                 )
-            d = work / engine
-            d.mkdir()
-            cfg = _for_this_host(env, engine, configs[engine], d, secrets)
-            conf = d / f"{daemon}.conf"
-            conf.write_text(json.dumps(cfg, indent=2) + "\n")
-            _share(env, work, d)
-            ok, output = _kea_check(env, daemon, conf, km.TEST_FLAG[engine])
-            if not ok:
-                raise SwitchError(f"{daemon} refuses the partner's file: {km.error_line(output)}")
-            out.append(f"{daemon} {km.TEST_FLAG[engine]}: the partner's file is accepted")
+            out.append(
+                f"{km.DAEMONS[engine]} {km.TEST_FLAG[engine]} {item['path']}: accepted ({result['version']})"
+            )
     finally:
         shutil.rmtree(work, ignore_errors=True)
+    if not out:
+        raise SwitchError("no converted file to check on this node: prepare again")
     return {"checked": out}
 
 
-def _share(env: Any, work: Path, d: Path) -> None:
-    """The Kea user reads the check directory through its group, nothing more."""
-    if os.geteuid() != 0:
-        return
-    import grp
+# Reconcile: the real state read back, then the leftovers removed ------------------------------------
 
+
+def _series(version: str) -> str:
+    v = version.split(":", 1)[-1]
+    return ".".join(v.split(".")[:2])
+
+
+def check(env: Any, details: dict[str, Any]) -> dict[str, Any]:
+    """`kea-mig-check`: whether this node runs the previous series as before the migration: its Kea
+    packages (no ISC package installed, the exact versions noted at the prepare when known), each
+    daemon's file accepted by the installed daemon, each unit running. Nothing changes here."""
+    engines = [e for e in details.get("engines") or [] if e in km.DAEMONS]
+    want = str(details.get("from_series") or "2.6")
+    problems: list[str] = []
+    notes: list[str] = []
+    installed = km.installed_packages(env.runner, env.distro)
+    isc = sorted(n for n in installed if _ISC_PACKAGE.match(n))
+    if isc:
+        problems.append("ISC packages installed: " + ", ".join(isc))
+    before = [p for p in details.get("packages_before") or [] if isinstance(p, dict) and p.get("name")]
+    for p in before:
+        if installed.get(p["name"]) != p.get("version"):
+            problems.append(f"{p['name']} {installed.get(p['name'], 'absent')} instead of {p.get('version')}")
+    versions = {}
+    for engine in engines:
+        pkg = km.engine_package(env.runner, env.distro, engine)
+        version = (pkg or {}).get("version") or ""
+        versions[engine] = version
+        if _series(version.rsplit("-", 1)[0] if "-" in version else version) != want:
+            problems.append(f"{km.DAEMONS[engine]} is {version or 'not installed'}, not Kea {want}")
+            continue
+        ok, output = _kea_check(env, km.DAEMONS[engine], env.paths.kea_conf(km.DAEMONS[engine]), "-t")
+        if not ok:
+            problems.append(f"{km.DAEMONS[engine]} -t refuses its file: {km.error_line(output)}")
+        unit = env.kea_unit(engine)
+        if not env.services.is_active(unit):
+            problems.append(f"{unit} is not running")
     try:
-        gid = grp.getgrnam(env.paths.kea_group).gr_gid
-    except KeyError:
-        return
-    for path in (work, d, *d.iterdir()):
-        os.chown(path, 0, gid)
-        path.chmod(0o750 if path.is_dir() else 0o640)
+        mdir = kmc.state_dir(env.node_paths, str(details.get("migration_id") or ""))
+        manifest = json.loads((mdir / "manifest.json").read_text())
+    except (OSError, ValueError, kmc.MigrationStateError):
+        manifest = {}
+    from pelagos.installer.kea_migration_steps import _sha256
+
+    for entry in manifest.get("saved") or []:
+        path = Path(str(entry.get("path") or ""))
+        if (
+            entry.get("sha256")
+            and path.is_file()
+            and not path.is_symlink()
+            and _sha256(path) != entry["sha256"]
+        ):
+            notes.append(f"{path} differs from the file saved at the prepare (kept as it is)")
+    left = _apparmor_disabled(env)
+    if left:
+        notes.append("AppArmor disabled here: " + ", ".join(left))
+    if problems:
+        raise SwitchError(f"this node is not back on Kea {want}: " + "; ".join(problems))
+    return {"versions": versions, "packages": installed, "notes": notes}
+
+
+def cleanup(env: Any, details: dict[str, Any]) -> dict[str, Any]:
+    """`kea-mig-cleanup`: once the node is back on the previous series, the AppArmor profiles the
+    migration disabled enabled again, the removed ISC packages purged (purge_leftovers), the HA
+    maintenance windows closed and every migration directory of the node removed. Kea files stay."""
+    out: list[str] = []
+    root = Path(env.node_paths.kea_migration_state)
+    noted: set[str] = set()
+    for d in sorted(root.glob("*")) if root.is_dir() else []:
+        noted |= set(_state(d).get("apparmor_disabled") or []) if kmc.ID_RE.match(d.name) else set()
+    out += reenable_apparmor(env, sorted(noted))
+    out += purge_leftovers(env, None)
+    for engine in HA_ENGINES:
+        ha_maintenance.close(env.node_paths, engine)
+    public = Path(env.node_paths.var) / kmc.DIR
+    for top in (root, public):
+        for d in sorted(top.glob("*")) if top.is_dir() else []:
+            if kmc.ID_RE.match(d.name) and d.is_dir() and not d.is_symlink():
+                shutil.rmtree(d)
+                out.append(f"{d} removed")
+    return {"log": out}

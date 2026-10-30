@@ -3095,6 +3095,9 @@ only, never sent out of the cluster.
 | `GET /hosts/ipv6?filter=&zone=&page=&per_page=` | `read:hosts` | | paginated `{"host_key","name","mac","mac_random","ipv4","observed": [{"address","class","sources","first_seen","last_seen","current"}],"aaaa","ptr","ptr_missing","proposal": {"address","class","name","zone","reverse_zone"}|null,"excepted","stale"}` (`mac` null on a row from the zones without DHCP data); `filter` one of `missing_aaaa`, `missing_ptr`, `stale`, `unknown`, `random_mac`; `meta.unavailable` lists the nodes and sources that did not answer or whose last poll gives nothing usable (section 27), `meta.errors` the engines and zones that could not be read (`dns.zones`: each zone with its error; `dns.peers`: each BIND node whose zone list could not be read). The zones are those of every BIND node: a primary zone the read node does not serve in that view is read from a node holding it (peer snapshot `records`), and `ptr_missing` pairs each node's primary forward zones with its own primary reverse zones, as that node's `ptr_mismatch` does, nothing for a node with an unread zone |
 | `GET /admin/ipv6` | `admin:settings` | | `{"prefixes","effective_prefixes": [{"prefix","from": "setting"|"reverse_zone"|"dhcpv6"|"interface"}],"settings","status": [SourceStatus]}` |
 | `PUT /admin/ipv6` | `admin:settings` | `{"prefixes"?}` (the read-only members of a `GET` echoed back are ignored; any other member is a `400`) | same as `GET`; audited `admin.ipv6.replace` |
+| `POST /hosts/ipv6/plan` | `write:dns.records` | `{"items": [{"host_key","address","name"?}],"view"?,"reverse_view"?}` (section 27, Plans; `409 precondition_failed` with `reverse_zones` when an address has no served reverse zone) | `Plan` (AAAA and PTR) |
+| `POST /hosts/ipv6/replace-prefix/plan` | `write:dns.records` | `{"old_prefix","new_prefix","zones"?,"view"?,"reverse_view"?}` | `Plan` (`requires_confirmation`) |
+| `POST /hosts/ipv6/reverse-zone/plan` | `write:dns.zones` | `{"prefix","view"?,"node_ids"?}` | `Plan` (a dynamic primary `ip6.arpa` zone) |
 
 ## 18. WebSocket
 
@@ -4269,7 +4272,8 @@ run; K2 API, alert and the read-only screen.
 
 Design: `design.md` 13.7 (RFC 8981 read on 2026-10-28). This contract covers the observations, the checks and the
 read routes of release 0.2.2; the AAAA and PTR plans (`POST /hosts/ipv6/plan`,
-`POST /hosts/ipv6/replace-prefix/plan`) are contract C4 (release 0.2.4).
+`POST /hosts/ipv6/replace-prefix/plan`, `POST /hosts/ipv6/reverse-zone/plan`) are batch V4
+(release 0.3.0), below under Plans.
 Code: sources in `collector/ipv6/` (`neighbors.py`, `dhcpv6.py`, interface `NeighborSource` in `source.py`), watched prefixes in
 `prefixes.py`, the table in `store.py`, the collector task `observe_ipv6`
 (every 60 s) in `observer.py`, classification and host matching in
@@ -4419,3 +4423,44 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
   and the `dhcpv6` module is off); `GET /admin/ipv6` gives the same text as `problem` on the status.
 - **Audit**: `admin.ipv6.replace` (request `{"prefixes"}`), `admin.ipv6.op`
   (the removal of the 0.2.2 router sources, above).
+- **Plans** (V4, `services/ipv6_plans.py`, routes in `api/ipv6.py`). Every zone is read once per
+  plan through the bounded web read (`409 zone_too_large`), and the candidate zones are the
+  served primary and secondary zones `bulk_zone` is false for (policy and catalog zones never
+  are). The parts are one RRset part per zone, applied where the zone is primary, as record plans
+  (`dns.rrset_part`), composite when there are several; audit and apply are those of any plan.
+  - `POST /hosts/ipv6/plan` (`write:dns.records`): `{"items": [{"host_key","address","name"?}],
+    "view"?,"reverse_view"?}`, at most 500 items, an address once. Each item names a row of
+    `GET /hosts/ipv6` and one of its observed addresses (`400` for an unknown `host_key`, an
+    address not observed for that row, a `temporary` one, link-local or multicast). The owner is
+    `name`, else the row's `proposal.name`, else its `name`; it must lie in a forward zone the
+    cluster can write (`400` otherwise). The AAAA RRset of the owner gains the address (TTL of the
+    RRset, else of the owner's A, else 3600) and the PTR in the longest served reverse zone of
+    `reverse_view` (default `view`) names the owner: a PTR naming another host is replaced for a
+    new address (`requires_confirmation`, `note.ptr_overwrite`), left for an address the AAAA
+    already held (`note.ptr_kept_elsewhere`), so an AAAA without PTR gets only its PTR. An
+    address no served reverse zone holds refuses the whole selection before any plan: `409
+    precondition_failed` with the extension member `reverse_zones`: `[{"prefix","zone","view"}]`,
+    the widest watched prefix holding the address (its /64 when none) and its zone, cut as
+    `ipv6_reverse_missing` cuts it. Summary `plan.ipv6.aaaa` (`count`), notes
+    `note.ipv6_ddns_owner` (owners with a DHCID: D2 never removes the AAAA written here),
+    `note.ipv6_random_mac` (rows with `mac_random`), `note.ipv6_unknown_class` (addresses still
+    `unknown`). Nothing to change: `409 conflict`.
+  - `POST /hosts/ipv6/replace-prefix/plan` (`write:dns.records`): `{"old_prefix","new_prefix",
+    "zones"?,"view"?,"reverse_view"?}`, both prefixes the same length (/16 to /124), not
+    overlapping. Every AAAA address under `old_prefix` in `zones` (default every writable served
+    forward zone of `view`; a default zone that cannot be read is skipped and named in
+    `note.ipv6_zones_unread`, a listed one fails the plan) takes `new_prefix` with the same
+    interface bits, in one `replace` of its RRset; its PTR leaves the old name (a DHCID there
+    goes with an emptied RRset) and names the owner at the new one. When the old PTR is in a
+    served reverse zone and no served zone holds the new address: `409 precondition_failed`
+    with `reverse_zones` for `new_prefix`; when neither is served the AAAA moves alone
+    (`note.ptr_not_covered`). Always `requires_confirmation`. Summary
+    `plan.ipv6.replace_prefix` (`old_prefix`, `new_prefix`, `count`, `zones`). No AAAA under
+    the old prefix: `409 conflict`. The alert `ipv6_stale_aaaa` gives `old_prefix` and
+    `new_prefix` for this route.
+  - `POST /hosts/ipv6/reverse-zone/plan` (`write:dns.zones`): `{"prefix","view"?,"node_ids"?}`:
+    the zone `POST /dns/zones/plan` would build for `{"op": "add", "target": "<view>/<zone>",
+    "after": {"name","kind": "primary","view","file": "db.<zone>"}}`, with its defaults
+    (`update-policy` of the admin key, `allow-transfer` of the read key, `dns.default_ns`);
+    `<zone>` is `reverse_zone_name(prefix)`, `node_ids` hold secondary copies. `409 conflict`
+    when a served `ip6.arpa` zone of that view already holds the prefix.

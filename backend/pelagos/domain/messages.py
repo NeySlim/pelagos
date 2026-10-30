@@ -31,6 +31,12 @@ CATALOG: dict[str, str] = {
     "note.ptr_overwrite": "the PTR of {ip} pointed to {targets} and is replaced",
     "note.ptr_kept_elsewhere": "the PTR of {ip} points to {targets} and is left as it is",
     "note.ptr_not_covered": "no reverse zone served for {addresses}, PTR left out",
+    "note.ipv6_ddns_owner": (
+        "{names}: name also written by DDNS, the AAAA added here stays when the IPv4 lease ends"
+    ),
+    "note.ipv6_random_mac": "{names}: random MAC, the name may follow another device",
+    "note.ipv6_unknown_class": "{addresses}: not yet known as stable",
+    "note.ipv6_zones_unread": "zones not read, left as they are: {zones}",
     # Plan summaries.
     "plan.change": "{op} {target}",
     "plan.rrset.changes": "{zone}: record changes",
@@ -49,6 +55,8 @@ CATALOG: dict[str, str] = {
     "plan.zone.secondaries_none": "zone {zone}: no secondary node",
     "plan.host.reserved": "host {fqdn} -> {ip} reserved for {mac}",
     "plan.ptr.cleanup": "PTR cleanup: {deleted} PTR targets removed, {created} addresses added",
+    "plan.ipv6.aaaa": "AAAA and PTR of {count} IPv6 addresses",
+    "plan.ipv6.replace_prefix": "{old_prefix} replaced by {new_prefix}: {count} AAAA addresses in {zones}",
     "plan.kea.subnet": "{op} subnet {subnet}",
     "plan.kea.reservation": "{op} reservation {target}",
     "plan.kea.global": "{engine}: {targets}",

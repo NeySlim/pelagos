@@ -2144,3 +2144,17 @@ restore plans, plan preconditions and catalog member edits on a larger zone are 
 `connectors/base.py`. WP-BIND: `connectors/bind/backend.py`, `roles.py`, `dns_client.py`.
 WP-COLLECTOR: `collector/main.py`, `pollers/bind.py`, `checks/runner.py`, `archive_collect.py`.
 WP-API-AUTH: `api/`, `services/`. WP-FRONTEND: messages and the setting's labels (en, fr).
+
+## 2026-10-30, 0.3.0: IPv6 plans (batch V4)
+Sections 17 and 27, additive. New routes `POST /hosts/ipv6/plan` and
+`POST /hosts/ipv6/replace-prefix/plan` (`write:dns.records`, as design 13.7 named them; contract
+C4 had left them to this batch) and `POST /hosts/ipv6/reverse-zone/plan` (`write:dns.zones`, the
+creation of the reverse zone `ipv6_reverse_missing` proposes). A selection whose address has no
+served reverse zone answers `409 precondition_failed` with the extension member `reverse_zones`
+(`[{"prefix","zone","view"}]`). New message keys `plan.ipv6.aaaa`, `plan.ipv6.replace_prefix`,
+`note.ipv6_ddns_owner`, `note.ipv6_random_mac`, `note.ipv6_unknown_class`,
+`note.ipv6_zones_unread`. Policy and catalog zones are never candidates and every zone read is
+bounded (0.2.5 entry above). WP-API-AUTH: `api/ipv6.py`, `services/ipv6_plans.py`,
+`services/ipv6_service.py` (`rows()`), `services/container.py`. WP-FRONTEND (batch V5): the
+selection, replacement and zone buttons of the IPv6 tab, `endpoints.js`, `api.js` and the mock
+for the three routes; messages (en, fr) are already in the catalogs.

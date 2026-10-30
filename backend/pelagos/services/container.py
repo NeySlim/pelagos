@@ -26,6 +26,7 @@ from pelagos.services.exceptions_service import ExceptionsService
 from pelagos.services.group_watch import GroupWatch
 from pelagos.services.hosts_service import HostsService
 from pelagos.services.install_service import InstallService
+from pelagos.services.ipv6_plans import Ipv6Plans
 from pelagos.services.ipv6_service import Ipv6Service
 from pelagos.services.jobs import JobStore
 from pelagos.services.kea_migration_service import KeaMigrationService
@@ -108,6 +109,7 @@ class Services:
         self.certs = CertService(ctx, self.peers, self.jobs, self.dns)
         self.notifications = NotifyService(ctx, self.peers)
         self.ipv6 = Ipv6Service(ctx, self.peers, self.hosts, self.cache)
+        self.ipv6_plans = Ipv6Plans(ctx, self.ipv6, self.ptr, self.dns)
         self.last_login = LastLoginStore(
             ctx.paths.var / "last_login.json", ctx.paths.locks_dir / "last_login.lock"
         )

@@ -448,5 +448,11 @@
   "finding.path_access.description.create_dir": "The {{what}} {{path}} does not exist and the pelagos service cannot create it",
   "finding.path_access.description.group_write": "The pelagos service cannot write the {{what}} {{path}} ({{before}})",
   "finding.path_access.proposal": "{{command}} ({{before}} -> {{after}})",
-  "finding.path_access.risk": "Plans that write there are refused and the RPZ subscriptions or new zones cannot be set up"
+  "finding.path_access.risk": "Plans that write there are refused and the RPZ subscriptions or new zones cannot be set up",
+  "note.ipv6_ddns_owner": "{{names}}: name also written by DDNS, the AAAA added here stays when the IPv4 lease ends",
+  "note.ipv6_random_mac": "{{names}}: random MAC, the name may follow another device",
+  "note.ipv6_unknown_class": "{{addresses}}: not yet known as stable",
+  "note.ipv6_zones_unread": "zones not read, left as they are: {{zones}}",
+  "plan.ipv6.aaaa": "AAAA and PTR of {{count}} IPv6 addresses",
+  "plan.ipv6.replace_prefix": "{{old_prefix}} replaced by {{new_prefix}}: {{count}} AAAA addresses in {{zones}}"
 }

@@ -996,6 +996,18 @@
     "engine",
     "reason"
   ],
+  "note.ipv6_ddns_owner": [
+    "names"
+  ],
+  "note.ipv6_random_mac": [
+    "names"
+  ],
+  "note.ipv6_unknown_class": [
+    "addresses"
+  ],
+  "note.ipv6_zones_unread": [
+    "zones"
+  ],
   "note.no_difference": [],
   "note.ptr_kept_elsewhere": [
     "ip",
@@ -1162,6 +1174,15 @@
   "plan.install.distro_packages": [],
   "plan.install.isc_kea": [
     "series"
+  ],
+  "plan.ipv6.aaaa": [
+    "count"
+  ],
+  "plan.ipv6.replace_prefix": [
+    "count",
+    "new_prefix",
+    "old_prefix",
+    "zones"
   ],
   "plan.kea.adopt_file": [
     "engine",

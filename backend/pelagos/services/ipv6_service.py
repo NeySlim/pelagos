@@ -366,11 +366,9 @@ class Ipv6Service:
             out["errors"] = {"dns.peers": f"zones not listed: {unread}"}
         return out
 
-    def hosts_list(
-        self, filter_: str | None, zone: str | None
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        if filter_ is not None and filter_ not in FILTERS:
-            raise ValidationError("invalid filter", [field_error("filter", "one of " + ", ".join(FILTERS))])
+    def rows(self) -> tuple[list[dict[str, Any]], set[str], Gathered, dict[str, str]]:
+        """Every row of `GET /hosts/ipv6` with its `stale` addresses (times still Unix), the MACs
+        `missing_aaaa` keeps, the gathered observations and the read errors."""
         settings = self.ctx.settings()
         now = int(self.clock())
         stable = int(reg.get(settings, "ipv6.stable_min_days"))
@@ -403,6 +401,16 @@ class Ipv6Service:
             stale.setdefault(s.mac, []).append(s.address)
         for row in rows:
             row["stale"] = stale.get(row["mac"], [])
+        return rows, missing, g, errors
+
+    def hosts_list(
+        self, filter_: str | None, zone: str | None
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        if filter_ is not None and filter_ not in FILTERS:
+            raise ValidationError("invalid filter", [field_error("filter", "one of " + ", ".join(FILTERS))])
+        settings = self.ctx.settings()
+        now = int(self.clock())
+        rows, missing, g, errors = self.rows()
         if filter_ == "stale":
             rows = [r for r in rows if r["stale"]]
         elif filter_ == "missing_aaaa":

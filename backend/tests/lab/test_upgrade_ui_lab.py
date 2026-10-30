@@ -179,7 +179,7 @@ def upload(client: Api, folder: Path) -> dict[str, Any]:
 
 
 def apply_update(client: Api, plan: dict[str, Any]) -> dict[str, Any]:
-    assert plan["scope"] == "update" and plan["state"] == "validated", plan
+    assert plan["scope"] == "update" and not plan.get("error"), plan
     return client.post(f"/plans/{plan['id']}/apply", {"confirm": True, "password": PASSWORD}, timeout=300)
 
 
@@ -418,7 +418,7 @@ class TestDebianPair:
             return len(nodes) == 2 and all(n["status"] == "online" for n in nodes)
 
         wait_for("both online", online, timeout=300)
-        STATE["node_ids"] = [n["id"] for n in api(A1).get("/nodes")["items"]]
+        STATE["node_ids"] = [n["peer"]["id"] for n in api(A1).get("/nodes")["items"]]
         for i, via in enumerate((A1, A2)):
             add_record(via, f"before{i}", f"10.99.0.{180 + i}")
         wait_for("records on both", lambda: dig(A2, "before0.example.lan") == "10.99.0.180", timeout=120)
@@ -486,7 +486,8 @@ class TestDebianPair:
 
 
 def build_rpm(src: str, version: str, public: Path, broken: bool) -> Path:
-    """An rpm of this checkout with __version__ = `version` (no snapshot), built on lab-pkg-rpm."""
+    """An rpm of this checkout with __version__ = `version` (no snapshot), built on lab-pkg-rpm;
+    `broken`: gunicorn gets an unknown option, the web unit exits at once."""
     host = labkit.PKG_RPM[1]
     keys = f"{src}/backend/pelagos/data/release-keys"
     labkit.put(host, f"/tmp/{public.name}", public.read_text())
@@ -495,13 +496,14 @@ def build_rpm(src: str, version: str, public: Path, broken: bool) -> Path:
         f"sed -i 's/^__version__ = .*/__version__ = \"{version}\"/' backend/pelagos/__init__.py && "
         f"mkdir -p {keys} && cp /tmp/{public.name} {keys}/ && "
         + (
-            "sed -i '1i raise SystemExit(\"broken on purpose by the lab\")' backend/pelagos/gunicorn_conf.py && "
+            "cp packaging/systemd/pelagos.service /tmp/pelagos.service.orig && "
+            "sed -i 's|/gunicorn |/gunicorn --broken-on-purpose-by-the-lab |' packaging/systemd/pelagos.service && "
             if broken
             else ""
         )
         + f"rm -rf ~/rpm-{version} && packaging/rpm/build.sh ~/rpm-{version} >/tmp/rpm-{version}.log 2>&1 "
         f"|| (tail -40 /tmp/rpm-{version}.log; exit 1); "
-        + ("sed -i '1d' backend/pelagos/gunicorn_conf.py; " if broken else "")
+        + ("cp /tmp/pelagos.service.orig packaging/systemd/pelagos.service; " if broken else "")
         + f"ls ~/rpm-{version}/pelagos-{version}-*.x86_64.rpm"
     )
     remote = ssh(host, script, timeout=3600)[1].split()[-1]
@@ -553,7 +555,7 @@ class TestRocky:
             RPM_HOST,
             "sudo systemctl start pelagos pelagos-collector; if systemctl is-active -q firewalld; then sudo firewall-cmd -q --add-port=8443/tcp; fi",
         )
-        STATE["node_ids"] = [api(RPM_HOST).get("/nodes/self")["id"]]
+        STATE["node_ids"] = [api(RPM_HOST).get("/nodes/self")["peer"]["id"]]
         STATE["rpm_audit"] = audit_lines(RPM_HOST)
         assert version(RPM_HOST, rpm=True).startswith(f"{BASE}-1")
 

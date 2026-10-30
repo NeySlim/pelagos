@@ -31,6 +31,9 @@ class Pkg:
         self.engines: dict[str, str] = {}
         self.install_ok = True
         self.installs: list[list[str]] = []
+        # Versions whose units never stay up (a restart loop).
+        self.crash: set[str] = set()
+        self.restarts = 0
 
     def responses(self) -> dict[str, Any]:
         return {
@@ -39,7 +42,14 @@ class Pkg:
             "dpkg-deb -f": self.fields,
             "apt-get install": self.install,
             "systemctl list-units": "",
+            "systemctl show -p ActiveState -p NRestarts": self.units,
         }
+
+    def units(self, argv: list[str]) -> CommandResult:
+        if self.installed in self.crash:
+            self.restarts += 1
+            return CommandResult(argv, 0, f"ActiveState=activating\nNRestarts={self.restarts}\n", "")
+        return CommandResult(argv, 0, f"ActiveState=active\nNRestarts={self.restarts}\n", "")
 
     def query(self, argv: list[str]) -> CommandResult:
         name = argv[-1]
@@ -100,6 +110,13 @@ def keys(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
     private = tmp_path / "keys" / "release.key"
     rel.generate_key(private)
     return private, rel.load_public_keys(private.parent)
+
+
+@pytest.fixture(autouse=True)
+def quick_units(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(updates, "UNITS_STABLE_SECONDS", 0.0)
+    monkeypatch.setattr(updates, "UNITS_TIMEOUT_SECONDS", 0.5)
+    monkeypatch.setattr(updates.time, "sleep", lambda s: None)
 
 
 @pytest.fixture
@@ -289,7 +306,7 @@ def test_start_runs_the_transient_unit_and_apply_installs(node: Any, keys: Any) 
     assert updates.apply(env, RID) == 0
     progress = json.loads(Path(out["progress"]).read_text())
     assert progress["result"] == "installed" and progress["error"] is None
-    assert [s["step"] for s in progress["steps"]] == ["backup", "install", "version"]
+    assert [s["step"] for s in progress["steps"]] == ["backup", "install", "version", "restart"]
     assert all(s["state"] == "done" for s in progress["steps"])
     assert pkg.installed == "0.3.0-1"
     stop = env.runner.commands("systemctl stop")
@@ -393,6 +410,45 @@ def test_rollback_to_the_kept_previous_release(node: Any, keys: Any) -> None:
     build_release(incoming(env, "0.2.4"), "0.2.4", manifest=False)
     with pytest.raises(updates.UpdateRefused, match=r"^version"):
         updates.verify(env, "0.2.4", True, public)
+
+
+def test_services_that_never_stay_up_roll_back_in_the_unit(node: Any, keys: Any) -> None:
+    env, pkg = node
+    private, public = keys
+    set_rollout(env)
+    build_release(incoming(env), key=private)
+    updates.start(env, {"rollout_id": RID, "kind": "pelagos", "version": "0.3.0"}, public)
+    assert updates.apply(env, RID) == 0
+    rid2 = "01JB0000000000000000000002"
+    pkg.crash.add("0.3.1-1")
+    (env.node_paths.var / "series.sqlite").write_text("cache")
+    set_rollout(env, id=rid2, version="0.3.1")
+    build_release(incoming(env, "0.3.1"), "0.3.1", key=private)
+    updates.start(env, {"rollout_id": rid2, "kind": "pelagos", "version": "0.3.1"}, public)
+    assert json.loads(updates.layout(env).request(rid2).read_text())["auto_rollback"] is True
+    assert updates.apply(env, rid2) == 1
+    progress = json.loads(updates.layout(env).progress(rid2, env.node_id).read_text())
+    assert [(s["step"], s["state"]) for s in progress["steps"]][-2:] == [
+        ("restart", "failed"),
+        ("rollback", "done"),
+    ]
+    assert "do not stay up" in progress["error"] and "rolled back to 0.3.0" in progress["error"]
+    assert progress["rolled_back"] == "0.3.0" and progress["result"] == "failed"
+    assert pkg.installed == "0.3.0-1" and "--allow-downgrades" in pkg.installs[-1]
+    assert not (env.node_paths.var / "series.sqlite").exists()
+    lay = updates.layout(env)
+    assert json.loads(lay.installed.read_text()) == {"package_version": "0.3.0-1", "release": "0.3.0"}
+
+    # Without automatic rollback the unit leaves the new release and says so.
+    rid3 = "01JB0000000000000000000003"
+    set_rollout(env, id=rid3, version="0.3.1", auto_rollback=False)
+    updates.start(env, {"rollout_id": rid3, "kind": "pelagos", "version": "0.3.1"}, public)
+    for old in lay.backups.iterdir():  # backups are named to the second
+        old.unlink()
+    assert updates.apply(env, rid3) == 1
+    progress = json.loads(lay.progress(rid3, env.node_id).read_text())
+    assert "no automatic rollback" in progress["error"] and not progress.get("rolled_back")
+    assert pkg.installed == "0.3.1-1"
 
 
 def test_engine_packages(node: Any, keys: Any) -> None:

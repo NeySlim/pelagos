@@ -328,3 +328,20 @@ def test_available_alert_only_for_a_newer_release() -> None:
     assert available_alert({"version": "0.3.0", "signature": "valid"}, "0.3.0") is None
     alert = available_alert({"version": "0.3.1", "signature": "unsigned", "source": "github"}, "0.3.0")
     assert alert is not None and alert.title_message["key"] == "alert.update_available_unsigned"
+
+
+def test_unit_that_rolled_back_by_itself_marks_the_node_rolled_back(rig) -> None:
+    ctx, driver, helper = rig.ctx, rig.driver, rig.helper
+    _install(rig)
+    progress = _progress("failed", steps=("backup", "install", "version", "restart"), failed="restart")
+    progress["steps"].append({"step": "rollback", "state": "done"})
+    progress.update(rolled_back="0.3.0", error="services do not stay up; rolled back to 0.3.0")
+    helper.status = {"unit_state": "gone", "progress": progress}
+    assert driver.tick().startswith("rolled back at restart")
+    r = _rollout(ctx)
+    me = r.nodes[ctx.node.id]
+    assert (r.state, me.state, me.step) == ("failed", "rolled_back", "restart")
+    assert "rolled back to 0.3.0" in me.error
+    assert [c[0] for c in helper.calls].count("start") == 1  # no second rollback from here
+    actions = [e.action for e in ctx.audit_log.read() if e.action.startswith("update.")]
+    assert actions == ["update.node.start", "update.node.rolled_back"]

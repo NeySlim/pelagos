@@ -401,6 +401,9 @@ class RolloutDriver:
             failed = next((s for s in reversed(steps) if s.get("state") == "failed"), {})
             step = str(failed.get("step") or last)
             error = str(progress.get("error") or failed.get("output") or "failed")
+            if progress.get("rolled_back"):
+                # The services never stayed up: the unit itself put the previous release back.
+                return self._failed(r, step, error, rolled_back=True)
             if step == "version":
                 state["installed_at"] = _epoch(progress.get("finished_at")) or self.clock()
                 self._save_state(r.id, state)

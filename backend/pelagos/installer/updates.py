@@ -50,6 +50,11 @@ JOURNAL_MAX_LINES = 200
 JOURNAL_SCAN = 20000
 MAX_RELEASE_BYTES = 1 << 30
 KEEP_DEFAULT = 2
+# After the install both units must stay active, without a restart, this long (within the
+# timeout): a web unit in a restart loop also restarts the collector (PartOf=), so no process
+# would be left to run the checks and roll back. Root does it here instead.
+UNITS_STABLE_SECONDS = 20.0
+UNITS_TIMEOUT_SECONDS = 180.0
 _ENGINE_PACKAGE_VERSION = re.compile(r"^[A-Za-z0-9.+~:_-]{1,64}$")
 _DEB = re.compile(r"^pelagos_(?P<version>[^_/]+)_(?P<arch>amd64|arm64)\.deb$")
 _RPM = re.compile(r"^pelagos-(?P<version>[^-/]+-[^/]+?)\.(?P<arch>x86_64|aarch64)\.rpm$")
@@ -606,6 +611,9 @@ def start(env: Any, request: dict[str, Any], keys: dict[str, Any] | None = None)
         ):
             raise UpdateRefused("unsigned_not_accepted", f"rollout {rid} does not record the acceptance")
         record.update(
+            auto_rollback=kind is RolloutKind.PELAGOS
+            and rollout.auto_rollback
+            and not rollout.state_schema_changed,
             version=version,
             package=str(v.folder / v.file),
             sha256=v.sha256,
@@ -972,7 +980,87 @@ def _apply_pelagos(env: Any, lay: Layout, record: dict[str, Any], progress: Prog
         0o640,
         True,
     )
+    if not rollback:
+        try:
+            _run_step(env, progress, "restart", lambda: wait_units_up(env))
+        except StepFailed as exc:
+            raise StepFailed(f"{exc}; {_roll_back_here(env, lay, record, progress)}") from None
     purge(lay, int(record.get("keep_packages") or KEEP_DEFAULT))
+
+
+def _unit_props(env: Any, unit: str) -> tuple[str, str]:
+    res = env.runner.run(
+        ["systemctl", "show", "-p", "ActiveState", "-p", "NRestarts", unit],
+        check=False,
+        mutates=False,
+        timeout=30,
+    )
+    props = dict(line.partition("=")[::2] for line in res.stdout.splitlines())
+    return props.get("ActiveState", "") or "unknown", props.get("NRestarts", "")
+
+
+def wait_units_up(env: Any, stable: float | None = None, timeout: float | None = None) -> str:
+    """Both units active with the same restart count for `stable` seconds, else StepFailed."""
+    stable = UNITS_STABLE_SECONDS if stable is None else stable
+    timeout = UNITS_TIMEOUT_SECONDS if timeout is None else timeout
+    start = time.monotonic()
+    since: float | None = None
+    last: dict[str, tuple[str, str]] | None = None
+    while True:
+        states = {u: _unit_props(env, u) for u in SERVICES}
+        up = all(state == "active" for state, _ in states.values())
+        now = time.monotonic()
+        if up and states == last and since is not None and now - since >= stable:
+            return f"{', '.join(SERVICES)} active for {int(now - since)} s"
+        if states != last or not up:
+            since = now if up else None
+        last = states
+        if now - start > timeout:
+            shown = ", ".join(f"{u} {a} (restarts {n or '?'})" for u, (a, n) in states.items())
+            raise StepFailed(f"the services do not stay up after the install: {shown}")
+        time.sleep(1.0)
+
+
+def _roll_back_here(env: Any, lay: Layout, record: dict[str, Any], progress: Progress) -> str:
+    """The previous release reinstalled by the unit itself; `rolled_back` names it in the progress."""
+    previous = str((_read_json(lay.previous) or {}).get("release") or "")
+    if not record.get("auto_rollback") or not previous:
+        return "no automatic rollback (disabled, state format changed, or no kept previous release)"
+    try:
+        v = verify(env, previous, True)
+        if v.direction != "rollback":
+            return f"no automatic rollback: {v.package_version} is a {v.direction}"
+        fmt = record["package_format"]
+
+        def back() -> str:
+            _services(env, "stop")
+            res = env.runner.run(
+                _install_argv(fmt, str(v.folder / v.file), True),
+                check=False,
+                timeout=1800,
+                env={**os.environ, "DEBIAN_FRONTEND": "noninteractive"},
+            )
+            if not res.ok:
+                raise StepFailed(f"reinstall of {v.package_version} failed: {res.output[-4000:]}")
+            for p in env.node_paths.var.glob(env.node_paths.series_db.name + "*"):
+                p.unlink(missing_ok=True)
+            return f"{res.output}\n{_services(env, 'start')}"
+
+        _run_step(env, progress, "rollback", back)
+    except (StepFailed, UpdateRefused) as exc:
+        _services_quietly(env, "start")
+        return f"automatic rollback failed: {exc}"
+    _write_json(lay.installed, {"package_version": v.package_version, "release": previous}, 0o640, True)
+    progress.data["rolled_back"] = previous
+    progress.save()
+    return f"rolled back to {previous}"
+
+
+def _services_quietly(env: Any, verb: str) -> None:
+    try:
+        _services(env, verb)
+    except StepFailed:
+        pass
 
 
 def _apply_engines(env: Any, record: dict[str, Any], progress: Progress) -> None:

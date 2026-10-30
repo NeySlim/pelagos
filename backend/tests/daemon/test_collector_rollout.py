@@ -10,7 +10,9 @@ ids). The release is uploaded on ns1 and fetched by ns2 over `/repl/v1/releases`
 
 Scenario: 0.2.5 -> 0.3.0 on both nodes; 0.3.0 -> 0.3.1 whose web process does not come up on
 ns2, rolled back automatically to 0.3.0 (`rolled_back`, rollout `failed`, `update_failed`);
-then "Roll back" from the screen brings ns1 back to 0.3.0 by a rollout of kind `rollback`.
+then "Roll back" from the screen brings ns1 back to 0.3.0 by a rollout of kind `rollback`; last,
+0.3.2 on ns2 alone, whose web unit restarts in a loop (taking the collector with it): the transient
+unit puts 0.3.0 back by itself and the new collector marks the node `rolled_back`.
 """
 
 from __future__ import annotations
@@ -66,8 +68,11 @@ class Host:
     up: bool = True
     generation: int = 0
     ids: dict[str, str] = field(default_factory=dict)
-    # Package versions whose web process never answers (a unit that does not start).
+    # Package versions whose web process never answers its health probe.
     broken: set[str] = field(default_factory=set)
+    # Package versions whose web unit restarts in a loop (and the collector with it, PartOf=).
+    crash: set[str] = field(default_factory=set)
+    restarts: int = 0
     units: dict[str, threading.Thread] = field(default_factory=dict)
     installs: list[str] = field(default_factory=list)
 
@@ -88,6 +93,7 @@ class Host:
                 "apt-get install": self._install,
                 "systemctl list-units": self._active_units,
                 "systemctl show -p LoadState": self._unit_state,
+                "systemctl show -p ActiveState -p NRestarts": self._service_state,
                 "systemctl stop": self._stop,
                 "systemctl start": self._start,
                 "systemd-run": self._systemd_run,
@@ -124,6 +130,13 @@ class Host:
         self.units[rid] = unit
         unit.start()
         return CommandResult(argv, 0, f"Running as unit: pelagos-upgrade-{rid}.service", "")
+
+    def _service_state(self, argv: list[str]) -> CommandResult:
+        if self.installed in self.crash:
+            self.restarts += 1
+            self.up = False  # the collector is restarted with the web unit: no turn runs
+            return CommandResult(argv, 0, f"ActiveState=activating\nNRestarts={self.restarts}\n", "")
+        return CommandResult(argv, 0, f"ActiveState=active\nNRestarts={self.restarts}\n", "")
 
     def _rid(self, unit: str) -> str:
         return unit.removeprefix(updates.UNIT_PREFIX).removesuffix(".service")
@@ -294,7 +307,9 @@ def _host_env(ctx: NodeContext, host: Host) -> Any:
 
 
 @pytest.fixture
-def pair(tmp_root: Path) -> Iterator[Pair]:
+def pair(tmp_root: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pair]:
+    monkeypatch.setattr(updates, "UNITS_STABLE_SECONDS", 1.0)
+    monkeypatch.setattr(updates, "UNITS_TIMEOUT_SECONDS", 4.0)
     port1, port2 = free_port(), free_port()
     paths1 = dev_paths(tmp_root / "ns1")
     bootstrap_first_node(
@@ -523,3 +538,22 @@ def test_rollout_on_two_collectors_with_a_failure_and_the_way_back(pair: Pair) -
     for node in pair.nodes:
         node.collector.rollout()
     assert not [a for n in pair.nodes for a in n.open_alerts() if a.kind is AlertKind.UPDATE_FAILED]
+
+    # 4. A web unit in a restart loop: no collector lives long enough, the unit rolls back itself.
+    ns2.host.crash.add("0.3.2-1")
+    upload(pair, "0.3.2")
+    rid4 = start_rollout(pair, "0.3.2", [ns2], "0.3.0")
+
+    def restarted(node: Node, out: str) -> None:
+        if node is ns2 and not node.host.up and node.host.installed == "0.3.0-1":
+            node.host.up = True  # the units come back on the previous release
+
+    def unit_failed() -> bool:
+        r = rollout_of(ns1)
+        return r is not None and r.id == rid4 and r.state == RolloutState.FAILED.value
+
+    drive(pair, unit_failed, "ns2 rolled back by its unit", on=restarted)
+    me = rollout_of(ns1).nodes[ns2.id]
+    assert (me.state, me.step) == (NodeState.ROLLED_BACK.value, "restart"), me
+    assert "do not stay up" in me.error and "rolled back to 0.3.0" in me.error
+    assert ns2.host.installs[-2:] == ["0.3.2-1", "0.3.0-1"] and ns2.host.installed == "0.3.0-1"

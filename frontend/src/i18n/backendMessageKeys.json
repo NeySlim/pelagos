@@ -1089,6 +1089,9 @@
   "note.ipv6_ddns_owner": [
     "names"
   ],
+  "note.ipv6_ddns_random_mac": [
+    "names"
+  ],
   "note.ipv6_random_mac": [
     "names"
   ],
@@ -1590,6 +1593,62 @@
     "fqdn",
     "rdata",
     "rtype"
+  ],
+  "problem.detail.ipv6_create_reverse": [
+    "zones"
+  ],
+  "problem.detail.ipv6_no_aaaa": [
+    "prefix"
+  ],
+  "problem.detail.ipv6_no_aaaa_unread": [
+    "prefix",
+    "zones"
+  ],
+  "problem.detail.ipv6_no_longer_observed": [
+    "address",
+    "days"
+  ],
+  "problem.detail.ipv6_no_name": [
+    "key"
+  ],
+  "problem.detail.ipv6_no_reverse_for": [
+    "prefix"
+  ],
+  "problem.detail.ipv6_not_in_view": [
+    "key"
+  ],
+  "problem.detail.ipv6_not_observed": [
+    "address",
+    "key"
+  ],
+  "problem.detail.ipv6_nothing_to_change": [],
+  "problem.detail.ipv6_overlap": [],
+  "problem.detail.ipv6_owner_not_writable": [
+    "owner"
+  ],
+  "problem.detail.ipv6_prefix_length": [
+    "min"
+  ],
+  "problem.detail.ipv6_prefix_link_local": [],
+  "problem.detail.ipv6_prefix_required": [],
+  "problem.detail.ipv6_reverse_exists": [
+    "prefix",
+    "zone"
+  ],
+  "problem.detail.ipv6_reverse_no_primary": [
+    "address"
+  ],
+  "problem.detail.ipv6_reverse_not_served": [
+    "address"
+  ],
+  "problem.detail.ipv6_same_length": [
+    "length"
+  ],
+  "problem.detail.ipv6_temporary": [
+    "address"
+  ],
+  "problem.detail.ipv6_zone_not_writable": [
+    "zone"
   ],
   "problem.detail.option_exists": [
     "option"

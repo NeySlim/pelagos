@@ -134,6 +134,7 @@
   "plans": {
     "selectRow": "Select the proposal of {{host}}",
     "selectAddress": "Select {{address}}",
+    "needsName": "No name in a forward zone the cluster can write: give the host a full name (an A record in a forward zone) first.",
     "createSelection": "Create AAAA and PTR of the selection ({{n}})",
     "clear": "Clear the selection",
     "reverse": {
@@ -142,6 +143,8 @@
       "prefix": "Prefix {{prefix}}",
       "view": "view {{view}}",
       "create": "Create the zone",
+      "nodes": "Primary on {{primary}}, secondary copies on {{copies}}",
+      "nodesAlone": "Primary on {{primary}}, no secondary copy",
       "noPermission": "Creating a zone needs the write:dns.zones permission.",
       "then": "Once the zone plan is applied, build the AAAA and PTR plan again."
     },

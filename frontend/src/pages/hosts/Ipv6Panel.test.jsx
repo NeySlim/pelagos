@@ -186,22 +186,31 @@ describe('Ipv6Panel', () => {
   })
 
   it('offers the missing reverse zone a selection needs', async () => {
-    db.planError = Object.assign(new Error('no reverse zone'), { status: 409, code: 'precondition_failed', problem: { reverse_zones: [{ prefix: '2001:db8:1::/64', zone: '0.0.0.0.1.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.', view: '_default' }] } })
+    db.planError = Object.assign(new Error('no reverse zone'), { status: 409, code: 'precondition_failed', problem: { reverse_zones: [{ prefix: '2001:db8:1::/64', zone: '0.0.0.0.1.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.', view: '_default', node_id: 'n1', node_ids: ['n2'] }] } })
     renderPanel()
     await screen.findByText('02:00:5e:00:53:10')
     fireEvent.click(within(rowOf('02:00:5e:00:53:10')).getByTestId('ipv6-select-row'))
     fireEvent.click(screen.getByTestId('ipv6-plan-selection'))
     const dialog = await screen.findByTestId('ipv6-reverse-dialog')
     expect(dialog).toHaveTextContent('0.0.0.0.1.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.')
+    expect(within(dialog).getByTestId('ipv6-reverse-nodes')).toHaveTextContent('secondary copies on')
     fireEvent.click(within(dialog).getByTestId('ipv6-reverse-create'))
     await screen.findByTestId('plan-preview')
-    expect(db.plans.at(-1)).toEqual(['zone', { prefix: '2001:db8:1::/64' }])
+    // The placement of the host's forward zone goes back with the zone plan.
+    expect(db.plans.at(-1)).toEqual(['zone', { prefix: '2001:db8:1::/64', node_id: 'n1', node_ids: ['n2'] }])
   })
 
   it('opens the zone of the reverse alert link', async () => {
     renderPanel('/hosts?tab=ipv6&reverse=2001:db8:2::/64')
     const dialog = await screen.findByTestId('ipv6-reverse-dialog')
     expect(dialog).toHaveTextContent('0.0.0.0.2.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.')
+  })
+
+  it('opens the prefix replacement of the stale alert link prefilled', async () => {
+    renderPanel('/hosts?tab=ipv6&filter=stale&old=2001:db8:1::/64&new=2001:db8:2::/64')
+    const dialog = await screen.findByTestId('ipv6-replace-dialog')
+    expect(within(dialog).getByTestId('ipv6-replace-old')).toHaveValue('2001:db8:1::/64')
+    expect(within(dialog).getByTestId('ipv6-replace-new')).toHaveValue('2001:db8:2::/64')
   })
 
   it('checks and builds a prefix replacement', async () => {

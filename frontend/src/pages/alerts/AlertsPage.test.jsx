@@ -190,6 +190,8 @@ describe('AlertsPage', () => {
   it('links the IPv6 checks to the filtered IPv6 tab of Hosts', () => {
     expect(subjectLink({ subject: 'ipv6:aaaa:example.lan.' })).toEqual({ to: '/hosts?tab=ipv6&filter=missing_aaaa&zone=example.lan.', label: 'openIpv6' })
     expect(subjectLink({ subject: 'ipv6:stale:example.lan.' }).to).toBe('/hosts?tab=ipv6&filter=stale&zone=example.lan.')
+    const moved = { subject: 'ipv6:stale:example.lan.', details: { old_prefix: '2001:db8:1::/64', new_prefix: '2001:db8:2::/64' } }
+    expect(subjectLink(moved).to).toContain('&old=2001%3Adb8%3A1%3A%3A%2F64&new=2001%3Adb8%3A2%3A%3A%2F64')
     expect(subjectLink({ subject: 'ipv6:reverse:2001:db8::/64' })).toEqual({ to: '/hosts?tab=ipv6&reverse=2001%3Adb8%3A%3A%2F64', label: 'openIpv6' })
   })
 

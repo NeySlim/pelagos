@@ -2419,3 +2419,15 @@ WP-CORE: `core/kea_migration.py` (`received_name`, `phase_allowed`). WP-API-AUTH
 `services/kea_migration_phases.py`, `services/kea_migration_window.py`, `services/peer_actions.py`.
 WP-LAB-E2E: `tests/lab/test_kea_migration_window_lab.py`, `tests/lab/dhcp_probe.py`. Affects K6 (the
 wizard shows `outage_seconds`, the `migrated` state and the return of the pair).
+
+## 2026-10-30, 0.3.0 (review of V4, V5): IPv6 plans placement and errors
+Section 27, additive. `POST /hosts/ipv6/reverse-zone/plan` takes `node_id` (the primary) and
+defaults `node_ids` to every other BIND node; the `reverse_zones` entries of the `409` carry
+`node_id` and `node_ids` (the placement of the owner's forward zone). `POST /hosts/ipv6/plan`
+refuses an address not seen for `ipv6.stable_min_days`, answers `409` only when a missing reverse
+zone is the sole error, proposes a /64 for a watched prefix wider than /48, and adds
+`note.ipv6_ddns_random_mac` (`requires_confirmation`). The three routes give `message_message`
+on field errors and `detail_message` (keys `problem.detail.ipv6_*`). `ipv6_hosts.stale_records`
+joins a host without MAC through the MAC seen with its AAAA. `KeaBackend.plan_ttl` and
+`D2Backend.plan_ttl` read the current settings. WP-FRONTEND: `reverseZoneBody`, `ownerWritable`,
+`ipv6Path({oldPrefix, newPrefix})`.

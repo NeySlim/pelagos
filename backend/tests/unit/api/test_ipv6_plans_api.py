@@ -25,6 +25,7 @@ EUI = "2001:db8::a8bb:ccff:fedd:ee01"
 TEMP = "2001:db8::1234:5678:9abc:def0"
 REV48 = "0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa."  # 2001:db8::/48, holds 2001:db8:0:1::/64 too
 DAY = 86400
+NODE_B = "01JB0ZK4Q9X3M5N7P8R2T4V6WB"
 SOA = "ns1.example.lan. hostmaster.example.lan. 1 3600 900 1209600 300"
 
 
@@ -68,10 +69,123 @@ def test_selection_without_reverse_zone_names_the_zone_to_create(admin, observed
     assert r.status_code == 409, r.get_json()
     body = r.get_json()
     assert body["code"] == "precondition_failed"
-    assert body["reverse_zones"] == [
-        {"prefix": "2001:db8::/64", "zone": "0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.", "view": "_default"}
-    ]
+    (entry,) = body["reverse_zones"]
+    assert {k: entry[k] for k in ("prefix", "zone", "view")} == {
+        "prefix": "2001:db8::/64",
+        "zone": "0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.ip6.arpa.",
+        "view": "_default",
+    }
     assert body["errors"][0]["field"] == "items[0].address"
+
+
+@pytest.fixture
+def peer_b(node_ctx, services, fake_registry):
+    """ns2 holds a secondary copy of example.lan., the forward zone of pc1."""
+    from pelagos.domain import Family, NodeModules, Peer
+    from pelagos.services.registry import ConnectorRegistry
+    from tests.unit.services.fakes import (
+        FakeDhcpBackend,
+        FakeDnsBackend,
+        FakeReplicationClient,
+        fake_context,
+    )
+
+    node_ctx.config_store.update_cluster(
+        lambda c: c.nodes.append(
+            Peer(
+                id=NODE_B,
+                name="ns2",
+                url="https://192.0.2.2:8444",
+                web_url="https://192.0.2.2:8443",
+                cert_fingerprint="sha256:bb",
+                modules=NodeModules(bind=True, kea4=True),
+            )
+        ),
+        updated_by="test",
+    )
+    dns = FakeDnsBackend(fake_context(NODE_B, "bind"))
+    dns.zones["example.lan."].kind = ZoneKind.SECONDARY
+    registry = ConnectorRegistry(dns=dns, kea4=FakeDhcpBackend(fake_context(NODE_B, "kea4"), Family.V4))
+    client = FakeReplicationClient(NODE_B, registry)
+    services.peers.client = lambda peer: client if peer.id == NODE_B else None
+    services.peers.forget()
+    return dns
+
+
+def test_the_reverse_zone_of_a_pair_lands_on_both_nodes(admin, observed, node_ctx, peer_b):
+    r = admin.post(H + "/plan", json={"items": [{"host_key": key_of(admin), "address": EUI}]})
+    assert r.status_code == 409, r.get_json()
+    (entry,) = r.get_json()["reverse_zones"]
+    # The placement of example.lan.: primary here, its secondary copy on ns2.
+    assert entry["node_id"] == node_ctx.node.id and entry["node_ids"] == [NODE_B]
+    body = {"prefix": entry["prefix"], "node_id": entry["node_id"], "node_ids": entry["node_ids"]}
+    plan = admin.post(H + "/reverse-zone/plan", json=body).get_json()
+    assert plan["target_node_ids"] == [node_ctx.node.id, NODE_B], plan
+    # Without placement (the ipv6_reverse_missing link): every BIND node still holds the zone.
+    plan = admin.post(H + "/reverse-zone/plan", json={"prefix": "2001:db8:7::/64"}).get_json()
+    assert plan["target_node_ids"] == [node_ctx.node.id, NODE_B], plan
+    # The admin may still choose a zone on this node only.
+    plan = admin.post(H + "/reverse-zone/plan", json={"prefix": "2001:db8:7::/64", "node_ids": []})
+    assert NODE_B not in (plan.get_json()["target_node_ids"] or [])
+
+
+def test_the_primary_of_the_forward_zone_holds_the_reverse_zone(
+    admin, observed, node_ctx, peer_b, fake_registry
+):
+    # Browsing ns1 whose example.lan. is the copy: the reverse zone goes primary on ns2.
+    fake_registry.dns.zones["example.lan."].kind = ZoneKind.SECONDARY
+    peer_b.zones["example.lan."].kind = ZoneKind.PRIMARY
+    r = admin.post(H + "/plan", json={"items": [{"host_key": key_of(admin), "address": EUI}]})
+    assert r.status_code == 409, r.get_json()
+    (entry,) = r.get_json()["reverse_zones"]
+    assert entry["node_id"] == NODE_B and entry["node_ids"] == [node_ctx.node.id]
+
+
+def test_a_wide_watched_prefix_proposes_the_64(admin, observed, node_ctx):
+    ula = "fd00::a8bb:ccff:fedd:ee01"
+    now = int(time.time())
+    obs_store.record(observed, [Neighbor(MAC, ula, "reachable")], "neighbors", None, node_ctx.node.id, now)
+    observed.commit()
+    assert admin.put("/api/v1/admin/ipv6", json={"prefixes": ["fd00::/8"]}).status_code == 200
+    r = admin.post(H + "/plan", json={"items": [{"host_key": key_of(admin), "address": ula}]})
+    assert r.status_code == 409, r.get_json()
+    (entry,) = r.get_json()["reverse_zones"]
+    assert entry["prefix"] == "fd00::/64"
+    assert admin.post(H + "/reverse-zone/plan", json={"prefix": entry["prefix"]}).status_code == 200
+
+
+def test_an_address_no_longer_observed_is_refused(admin, observed, node_ctx, fake_registry):
+    add_reverse(fake_registry.dns)
+    # The EUI-64 of a /64 the host left 20 days ago.
+    old = "2001:db8:0:9:a8bb:ccff:fedd:ee01"
+    now = int(time.time())
+    obs_store.record(
+        observed, [Neighbor(MAC, old, "reachable")], "neighbors", None, node_ctx.node.id, now - 20 * DAY
+    )
+    observed.commit()
+    r = admin.post(H + "/plan", json={"items": [{"host_key": key_of(admin), "address": old}]})
+    assert r.status_code == 400, r.get_json()
+    (error,) = r.get_json()["errors"]
+    assert "no longer observed" in error["message"]
+    # The UI shows it in its own language.
+    assert error["message_message"]["key"] == "problem.detail.ipv6_no_longer_observed"
+
+
+def test_a_missing_reverse_zone_next_to_another_error_is_a_400(admin, observed, node_ctx):
+    now = int(time.time())
+    for i, ts in enumerate((now - 5 * DAY, now - 3 * DAY)):
+        addr = f"2001:db8::1234:5678:9abc:def{i}"
+        obs_store.record(
+            observed, [Neighbor(MAC, addr, "reachable")], "neighbors", None, node_ctx.node.id, ts
+        )
+    observed.commit()
+    key = key_of(admin)
+    r = admin.post(
+        H + "/plan", json={"items": [{"host_key": key, "address": TEMP}, {"host_key": key, "address": EUI}]}
+    )
+    assert r.status_code == 400, r.get_json()
+    fields = [e["field"] for e in r.get_json()["errors"]]
+    assert fields == ["items[0].address", "items[1].address"]
 
 
 def test_reverse_zone_plan_creates_the_proposed_zone_once(admin, fake_registry):
@@ -85,6 +199,7 @@ def test_reverse_zone_plan_creates_the_proposed_zone_once(admin, fake_registry):
     add_reverse(fake_registry.dns)
     r = admin.post(H + "/reverse-zone/plan", json={"prefix": "2001:db8::/64"})
     assert r.status_code == 409 and REV48 in r.get_json()["detail"]
+    assert r.get_json()["detail_message"]["key"] == "problem.detail.ipv6_reverse_exists"
     bad = admin.post(H + "/reverse-zone/plan", json={"prefix": "fe80::/64", "x": 1}).get_json()
     assert {e["field"] for e in bad["errors"]} == {"prefix", "x"}
 
@@ -101,8 +216,9 @@ def test_selection_writes_aaaa_and_ptr_in_one_plan(admin, observed, fake_registr
     }
     text = str(plan["summary_message"])
     assert "plan.ipv6.aaaa" in text and "note.ipv6_ddns_owner" in text and "note.ipv6_random_mac" in text
-    assert plan["requires_confirmation"] is False
-    apply(admin, plan)
+    # A random MAC on a DDNS name (a DHCID): the next MAC is refused the name, so confirm.
+    assert "note.ipv6_ddns_random_mac" in text and plan["requires_confirmation"] is True
+    apply(admin, plan, confirm=True)
     assert dns.rrsets["example.lan."][("pc1.example.lan.", "AAAA")].rdata == [EUI]
     assert dns.rrsets[REV48][(ptr_name(EUI), "PTR")].rdata == ["pc1.example.lan."]
     again = admin.post(H + "/plan", json={"items": [{"host_key": key_of(admin), "address": EUI}]})

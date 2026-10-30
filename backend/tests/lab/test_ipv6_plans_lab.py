@@ -183,6 +183,9 @@ def test_stable_address_gets_aaaa_and_ptr_temporaries_never(lab):
     assert all(classes[t] == "temporary" for t, _f, _l in temps[:-2]), classes
     assert r["proposal"]["address"] == eui and r["proposal"]["name"] == HOST
     assert mac in {x["mac"] for x in a.get("/hosts/ipv6?filter=missing_aaaa&per_page=500")["items"]}
+    # The AAAA of the old prefix, unseen for 20 days, is stale on the host without lease.
+    stale = a.get("/hosts/ipv6?filter=stale&per_page=500")["items"]
+    assert [x["stale"] for x in stale if x["mac"] == mac] == [[old_eui]], stale
 
     # A temporary address is never written.
     with pytest.raises(ApiError) as refused:

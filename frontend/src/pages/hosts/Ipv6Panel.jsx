@@ -21,8 +21,8 @@ import { usePlanFlow } from '../dhcp/hooks'
 import { Ipv6ExceptionDialog } from './Ipv6ExceptionDialog'
 import { ReplacePrefixDialog, ReverseZonesDialog } from './Ipv6PlanDialogs'
 import {
-  CLASS_VARIANT, FILTERS, defaultAddress, exceptionTargets, missingReverseZones, parsePrefix, reverseZoneName,
-  selectableAddresses, selectionKey, staleAaaa, suggestPrefixSwap, unavailableLines, validFilter,
+  CLASS_VARIANT, FILTERS, defaultAddress, exceptionTargets, missingReverseZones, ownerWritable, parsePrefix, reverseZoneName,
+  reverseZoneBody, selectableAddresses, selectionKey, staleAaaa, suggestPrefixSwap, unavailableLines, validFilter,
 } from './ipv6'
 
 function Chip({ active, onClick, children, testId, value }) {
@@ -85,6 +85,22 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
     setMissingZones(null)
     if (reversePrefix) update({ reverse: '' })
   }
+  // ?old=&new= (the ipv6_stale_aaaa alert link) opens the prefix replacement prefilled.
+  const oldParam = params.get('old')
+  const newParam = params.get('new')
+  const fromAlert = useMemo(() => {
+    const a = oldParam && parsePrefix(oldParam)
+    const b = newParam && parsePrefix(newParam)
+    return a && b ? { old_prefix: a.text, new_prefix: b.text } : null
+  }, [oldParam, newParam])
+  useEffect(() => {
+    if (fromAlert) setReplacing(true)
+  }, [fromAlert])
+  const closeReplace = () => {
+    setReplacing(false)
+    if (oldParam || newParam) update({ old: '', new: '' })
+  }
+  const zoneNames = useMemo(() => zoneOptions.map((o) => o.value), [zoneOptions])
 
   const toggle = (row, address) => {
     setSelected((prev) => {
@@ -100,7 +116,7 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
     if (rowSelected(row)) {
       setSelected((prev) => new Map([...prev].filter(([, v]) => v.host_key !== row.host_key)))
     } else {
-      const address = defaultAddress(row)
+      const address = defaultAddress(row, zoneNames)
       if (address) toggle(row, address)
     }
   }
@@ -116,7 +132,7 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
   }
   const createZone = async (z) => {
     keepSelection.current = true
-    const plan = await flow.build(() => api.ipv6.reverseZonePlan({ prefix: z.prefix, ...(z.view && z.view !== '_default' ? { view: z.view } : {}) }))
+    const plan = await flow.build(() => api.ipv6.reverseZonePlan(reverseZoneBody(z)))
     if (plan) closeZones()
   }
   const suggestion = useMemo(() => suggestPrefixSwap(hosts.items || []), [hosts.items])
@@ -139,7 +155,8 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
           key: 'select',
           label: '',
           render: (h) => {
-            const selectable = Boolean(defaultAddress(h)) || rowSelected(h)
+            const selectable = Boolean(defaultAddress(h, zoneNames)) || rowSelected(h)
+            const needsName = !selectable && (h.observed || []).length > 0 && !ownerWritable(h, zoneNames)
             return (
               <input
                 type="checkbox"
@@ -149,6 +166,7 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
                 onChange={() => toggleRow(h)}
                 onClick={(e) => e.stopPropagation()}
                 aria-label={t('plans.selectRow', { host: h.name || h.mac || h.host_key })}
+                title={needsName ? t('plans.needsName') : undefined}
                 data-testid="ipv6-select-row"
               />
             )
@@ -183,7 +201,7 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
       label: t('columns.observed'),
       render: (h) => {
         if (!h.observed?.length) return <span className="text-text-tertiary" data-testid="ipv6-not-observed">{t('notObserved')}</span>
-        const selectable = canPlan ? new Set(selectableAddresses(h)) : new Set()
+        const selectable = canPlan ? new Set(selectableAddresses(h, zoneNames)) : new Set()
         return (
         <ul className="space-y-1" data-testid="ipv6-observed">
           {h.observed.map((o) => (
@@ -349,8 +367,8 @@ export function Ipv6Panel({ zoneOptions = [], refreshKey = 0 }) {
       <ReverseZonesDialog zones={missingZones} onClose={closeZones} canCreate={canZones} building={flow.building} onCreate={createZone} />
       <ReplacePrefixDialog
         open={replacing}
-        initial={suggestion}
-        onClose={() => setReplacing(false)}
+        initial={fromAlert || suggestion}
+        onClose={closeReplace}
         build={(body) => (keepSelection.current = false, flow.build(() => api.ipv6.replacePrefixPlan(body), { rethrow: true }))}
         onMissingZones={setMissingZones}
       />

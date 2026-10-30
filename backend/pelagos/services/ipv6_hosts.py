@@ -347,11 +347,18 @@ def stale_records(
         for item in items:
             seen[item.address] = max(seen.get(item.address, 0), item.last_seen)
     limit = now - stale_days * DAY
+    # A MAC-less host (static address) joins the MAC seen with one of its AAAA, as in host_rows.
+    mac_of: dict[str, str] = {}
+    owned = {h.mac for h in hosts if h.mac}
+    for mac, items in sorted(by_mac.items()):
+        for item in items if mac not in owned else []:
+            mac_of.setdefault(item.address, mac)
     out: list[Stale] = []
     for host in hosts:
-        if not host.mac or host.mac not in by_mac or ex(STALE_KIND, mac_key(host.mac)):
+        mac = host.mac or next((mac_of[a] for a, _o in _aaaa_pairs(host) if a in mac_of), None)
+        if not mac or mac not in by_mac or ex(STALE_KIND, mac_key(mac)):
             continue
-        items = by_mac[host.mac]
+        items = by_mac[mac]
         current = [i for i in items if i.cls in PROPOSABLE and i.last_seen >= now - DAY]
         if not current:
             continue
@@ -369,5 +376,5 @@ def stale_records(
             other = next((i.address for i in current if i.address != address), None)
             if other is None:
                 continue
-            out.append(Stale(host.key, owner, zone, address, host.mac, last, other))
+            out.append(Stale(host.key, owner, zone, address, mac, last, other))
     return out

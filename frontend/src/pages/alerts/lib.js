@@ -85,7 +85,12 @@ export function subjectLink(alert, { canProposeFallback = true, canUpdateEngines
   }
   // IPv6 checks: "ipv6:aaaa:<zone>", "ipv6:stale:<zone>" open the filtered IPv6 tab of Hosts.
   if (kind === 'ipv6') {
-    if (rest[0] === 'aaaa' || rest[0] === 'stale') return { to: ipv6Path({ filter: rest[0] === 'aaaa' ? 'missing_aaaa' : 'stale', zone: rest.slice(1).join(':') }), label: 'openIpv6' }
+    if (rest[0] === 'aaaa') return { to: ipv6Path({ filter: 'missing_aaaa', zone: rest.slice(1).join(':') }), label: 'openIpv6' }
+    // A provider prefix change (old_prefix and new_prefix) opens the replacement prefilled.
+    if (rest[0] === 'stale') {
+      const d = alert?.details || {}
+      return { to: ipv6Path({ filter: 'stale', zone: rest.slice(1).join(':'), oldPrefix: d.old_prefix, newPrefix: d.new_prefix }), label: 'openIpv6' }
+    }
     // "ipv6:reverse:<prefix>": the IPv6 tab opens the plan of the missing zone.
     if (rest[0] === 'reverse') return { to: ipv6Path({ reverse: rest.slice(1).join(':') }), label: 'openIpv6' }
   }

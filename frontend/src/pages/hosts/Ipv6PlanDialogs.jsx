@@ -8,12 +8,14 @@ import { Button } from '../../components/Button'
 import { FormModal } from '../../components/FormModal'
 import { Input } from '../../components/Input'
 import { Modal } from '../../components/Modal'
-import { errorMessage } from '../../services/apiClient'
+import { useNodeNames } from '../../hooks/useNodeNames'
+import { errorItemText, errorMessage } from '../../services/apiClient'
 import { missingReverseZones, prefixSwapErrors } from './ipv6'
 
 // The ip6.arpa zones to create before the AAAA and PTR plan; each button builds its zone plan.
 export function ReverseZoneList({ zones, canCreate, building, onCreate }) {
   const { t } = useTranslation(['ipv6'])
+  const nameOf = useNodeNames()
   return (
     <ul className="space-y-2" data-testid="ipv6-reverse-zones">
       {zones.map((z) => (
@@ -24,6 +26,13 @@ export function ReverseZoneList({ zones, canCreate, building, onCreate }) {
               {t('plans.reverse.prefix', { prefix: z.prefix })}
               {z.view && z.view !== '_default' ? ` · ${t('plans.reverse.view', { view: z.view })}` : ''}
             </span>
+            {z.node_id && (
+              <span className="block text-text-tertiary" data-testid="ipv6-reverse-nodes">
+                {z.node_ids?.length
+                  ? t('plans.reverse.nodes', { primary: nameOf(z.node_id), copies: z.node_ids.map(nameOf).join(', ') })
+                  : t('plans.reverse.nodesAlone', { primary: nameOf(z.node_id) })}
+              </span>
+            )}
           </span>
           {canCreate && (
             <Button size="xs" variant="secondary" disabled={building} onClick={() => onCreate(z)} data-testid="ipv6-reverse-create">
@@ -89,7 +98,7 @@ export function ReplacePrefixDialog({ open, initial, onClose, build, onMissingZo
         onClose()
         return
       }
-      const byField = Object.fromEntries((err?.errors || []).map((e) => [e.field, e.message]))
+      const byField = Object.fromEntries((err?.errors || []).map((e) => [e.field, errorItemText(e)]))
       setServerErrors(byField)
       if (!Object.keys(byField).length) setError(errorMessage(err))
     } finally {

@@ -14,7 +14,7 @@ import { api } from '../../services/api'
 import { errorMessage } from '../../services/apiClient'
 import { formatDate } from '../../lib/utils'
 import { ReverseZoneList } from './Ipv6PlanDialogs'
-import { CLASS_VARIANT, IPV6_TAB, missingReverseZones, staleAaaa } from './ipv6'
+import { CLASS_VARIANT, IPV6_TAB, missingReverseZones, reverseZoneBody, staleAaaa } from './ipv6'
 
 export function HostIpv6Section({ hostKey, flow, refreshKey = 0 }) {
   const { t } = useTranslation(['ipv6', 'hosts'])
@@ -37,7 +37,7 @@ export function HostIpv6Section({ hostKey, flow, refreshKey = 0 }) {
     }
   }
   const createZone = async (z) => {
-    const plan = await flow.build(() => api.ipv6.reverseZonePlan({ prefix: z.prefix, ...(z.view && z.view !== '_default' ? { view: z.view } : {}) }))
+    const plan = await flow.build(() => api.ipv6.reverseZonePlan(reverseZoneBody(z)))
     if (plan) setMissing(null)
   }
 

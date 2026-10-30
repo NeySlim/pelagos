@@ -134,6 +134,7 @@
   "plans": {
     "selectRow": "Sélectionner la proposition de {{host}}",
     "selectAddress": "Sélectionner {{address}}",
+    "needsName": "Aucun nom dans une zone directe que le cluster peut écrire : donnez d'abord un nom complet à l'hôte (un enregistrement A dans une zone directe).",
     "createSelection": "Créer AAAA et PTR de la sélection ({{n}})",
     "clear": "Vider la sélection",
     "reverse": {
@@ -142,6 +143,8 @@
       "prefix": "Préfixe {{prefix}}",
       "view": "vue {{view}}",
       "create": "Créer la zone",
+      "nodes": "Primaire sur {{primary}}, copies secondaires sur {{copies}}",
+      "nodesAlone": "Primaire sur {{primary}}, sans copie secondaire",
       "noPermission": "Créer une zone demande la permission write:dns.zones.",
       "then": "Une fois le plan de la zone appliqué, refaites le plan AAAA et PTR."
     },

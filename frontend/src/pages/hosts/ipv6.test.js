@@ -12,6 +12,9 @@ describe('ipv6 helpers', () => {
   it('builds the tab link with its filter and zone', () => {
     expect(ipv6Path()).toBe('/hosts?tab=ipv6')
     expect(ipv6Path({ filter: 'stale', zone: 'example.lan.' })).toBe('/hosts?tab=ipv6&filter=stale&zone=example.lan.')
+    expect(ipv6Path({ filter: 'stale', oldPrefix: '2001:db8:1::/64', newPrefix: '2001:db8:2::/64' })).toBe(
+      '/hosts?tab=ipv6&filter=stale&old=2001%3Adb8%3A1%3A%3A%2F64&new=2001%3Adb8%3A2%3A%3A%2F64',
+    )
     expect(validFilter('random_mac')).toBe('random_mac')
     expect(validFilter('bogus')).toBe('')
   })
@@ -129,6 +132,25 @@ describe('ipv6 helpers', () => {
     expect(defaultAddress(r)).toBe('2001:db8::4')
     expect(selectableAddresses({ ...r, name: null })).toEqual([])
     expect(defaultAddress(row({ name: 'x.', observed: [{ address: '2001:db8::9', class: 'unknown', current: false }] }))).toBeNull()
+  })
+
+  it('never selects an address of a prefix the host left', () => {
+    const r = row({ name: 'pc.example.lan.', observed: [
+      { address: '2001:db8:0:1::4', class: 'eui64', current: false },
+      { address: '2001:db8:0:2::4', class: 'eui64', current: true },
+    ] })
+    expect(selectableAddresses(r)).toEqual(['2001:db8:0:2::4'])
+  })
+
+  it('selects only when the owner is a name in a writable forward zone', () => {
+    const observed = [{ address: '2001:db8::4', class: 'eui64', current: true }]
+    const zones = ['example.lan.']
+    expect(selectableAddresses(row({ name: 'pc', observed }), zones)).toEqual([])
+    expect(selectableAddresses(row({ name: 'pc.other.lan.', observed }), zones)).toEqual([])
+    expect(selectableAddresses(row({ name: 'pc.example.lan', observed }), zones)).toEqual(['2001:db8::4'])
+    expect(selectableAddresses(row({ name: 'pc', observed, proposal: { name: 'pc.example.lan.', address: '2001:db8::4' } }), zones)).toEqual(['2001:db8::4'])
+    // Zone list not loaded: the server judges.
+    expect(selectableAddresses(row({ name: 'pc', observed }))).toEqual(['2001:db8::4'])
   })
 
   it('reads the reverse zones of a 409 answer only', () => {

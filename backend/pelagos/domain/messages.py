@@ -42,9 +42,15 @@ CATALOG: dict[str, str] = {
     "note.ptr_kept_elsewhere": "the PTR of {ip} points to {targets} and is left as it is",
     "note.ptr_not_covered": "no reverse zone served for {addresses}, PTR left out",
     "note.ipv6_ddns_owner": (
-        "{names}: name also written by DDNS, the AAAA added here stays when the IPv4 lease ends"
+        "{names}: name also written by DDNS; when the IPv4 lease ends the DHCP server removes only "
+        "the A, the AAAA added here, the DHCID and the IPv4 PTR stay, and a client with another "
+        "identifier is refused the name until they are deleted"
     ),
     "note.ipv6_random_mac": "{names}: random MAC, the name may follow another device",
+    "note.ipv6_ddns_random_mac": (
+        "{names}: random MAC on a DDNS name; once the device changes its MAC, the DHCP server can "
+        "no longer update this name while the AAAA added here stays"
+    ),
     "note.ipv6_unknown_class": "{addresses}: not yet known as stable",
     "note.ipv6_zones_unread": "zones not read, left as they are: {zones}",
     # Plan summaries.
@@ -928,6 +934,28 @@ CATALOG: dict[str, str] = {
     "problem.detail.option_exists": "option {option} already exists; use replace",
     "problem.detail.engine_rejected": "{tool} rejected the change",
     "problem.detail.zone_without_records": "{zone} is a {kind} zone: named holds no records for it",
+    "problem.detail.ipv6_prefix_required": "an IPv6 prefix (2001:db8::/64) is required",
+    "problem.detail.ipv6_prefix_length": "prefix length between /{min} and /124",
+    "problem.detail.ipv6_prefix_link_local": "link-local and multicast prefixes hold no host",
+    "problem.detail.ipv6_same_length": "same length as old_prefix (/{length})",
+    "problem.detail.ipv6_overlap": "must not overlap old_prefix",
+    "problem.detail.ipv6_zone_not_writable": "{zone} is not a forward zone the cluster can write",
+    "problem.detail.ipv6_not_in_view": "{key} is not in the IPv6 view",
+    "problem.detail.ipv6_not_observed": "{address} is not observed for {key}",
+    "problem.detail.ipv6_temporary": "{address} is a temporary address and is never published",
+    "problem.detail.ipv6_no_longer_observed": "{address} is no longer observed (not seen for {days} days)",
+    "problem.detail.ipv6_no_name": "{key} has no name: give one",
+    "problem.detail.ipv6_owner_not_writable": "{owner} is not in a forward zone the cluster can write",
+    "problem.detail.ipv6_reverse_not_served": "the reverse zone of {address} is not served",
+    "problem.detail.ipv6_reverse_no_primary": "the reverse zone of {address} has no reachable primary",
+    "problem.detail.ipv6_no_reverse_for": "no reverse zone serves {prefix}",
+    "problem.detail.ipv6_create_reverse": "no reverse zone serves these addresses: create {zones} first",
+    "problem.detail.ipv6_nothing_to_change": "the AAAA and PTR records already match; nothing to change",
+    "problem.detail.ipv6_no_aaaa": "no AAAA under {prefix} in the chosen zones",
+    "problem.detail.ipv6_no_aaaa_unread": (
+        "no AAAA under {prefix} in the chosen zones (zones not read: {zones})"
+    ),
+    "problem.detail.ipv6_reverse_exists": "{zone} already serves {prefix}",
     "problem.detail.zone_too_large": (
         "{zone} holds {size} names or more, above the read limit of {limit} (dns.zone_read_max_names)"
     ),

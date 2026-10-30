@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from pelagos.collector.ipv6 import prefixes as prefixes_mod
+from pelagos.core import settings_registry as reg
 from pelagos.domain import Change, ChangeOp, Plan, RRset, ValidationResult, messages, normalize_name
 from pelagos.services import consistency
 from pelagos.services.errors import ConnectorError, ServiceError, ValidationError, field_error
@@ -24,9 +25,23 @@ TEMPORARY = "temporary"
 UNKNOWN = "unknown"
 # Shorter prefixes would give a reverse zone above a site's delegation.
 MIN_PREFIX = 16
+# A watched prefix wider than a site (fd00::/8, a provider's /32) proposes the address's /64.
+SITE_PREFIX = 48
+DAY = 86400
 DEFAULT_TTL = 3600
 
 Index = dict[tuple[str, str], RRset]
+
+
+def _err(field: str, name: str, /, **params: Any) -> dict[str, Any]:
+    """A field error with its English text and `message_message` for the UI language."""
+    message = messages.msg(f"problem.detail.ipv6_{name}", **params)
+    return {**field_error(field, messages.render(message)), "message_message": message}
+
+
+def _fail(code: str, name: str, errors: list[dict[str, Any]] | None = None, /, **params: Any) -> ServiceError:
+    message = messages.msg(f"problem.detail.ipv6_{name}", **params)
+    return ServiceError(code, messages.render(message), errors, extra={"detail_message": message})
 
 
 def _view(value: Any) -> str | None:
@@ -51,13 +66,13 @@ def _prefix(value: Any, field: str, errors: list[dict[str, str]]) -> ipaddress.I
     except ValueError:
         net = None
     if net is None:
-        errors.append(field_error(field, "an IPv6 prefix (2001:db8::/64) is required"))
+        errors.append(_err(field, "prefix_required"))
         return None
     if net.prefixlen < MIN_PREFIX or net.prefixlen > 124:
-        errors.append(field_error(field, f"prefix length between /{MIN_PREFIX} and /124"))
+        errors.append(_err(field, "prefix_length", min=MIN_PREFIX))
         return None
     if net.overlaps(prefixes_mod.LINK_LOCAL) or net.is_multicast:
-        errors.append(field_error(field, "link-local and multicast prefixes hold no host"))
+        errors.append(_err(field, "prefix_link_local"))
         return None
     return net
 
@@ -98,21 +113,57 @@ class Ipv6Plans:
         return cache[key]
 
     def _proposed_zone(self, address: str) -> tuple[str, str]:
-        """(prefix, reverse zone) to create for `address`: the widest watched prefix holding it, its
-        /64 when none does, as `ipv6_reverse_missing` names it."""
+        """(prefix, reverse zone) to create for `address`: the widest watched prefix of at most a
+        site (/48) holding it, its /64 when none does."""
         addr = ipaddress.IPv6Address(address)
-        nets = [p.network for p in self.ipv6.effective_prefixes() if addr in p.network]
+        nets = [
+            p.network
+            for p in self.ipv6.effective_prefixes()
+            if addr in p.network and p.network.prefixlen >= SITE_PREFIX
+        ]
         net = min(nets, key=lambda n: n.prefixlen) if nets else ipaddress.IPv6Network(f"{address}/64", False)
         return str(net), prefixes_mod.reverse_zone_name(net)
 
-    def _missing_reverse(self, missing: dict[str, dict[str, Any]], errors: list[dict[str, str]]) -> None:
+    def _placement(self, forward_zone: str | None, view: str | None) -> tuple[str | None, list[str]]:
+        """(primary node, secondary nodes) of a new reverse zone: the primary of the host's forward
+        zone and the nodes holding a copy of it, else this node and every other BIND node."""
+        bind = [n.id for n in self.ctx.cluster().nodes if n.modules.bind]
+        primary: str | None = None
+        copies: list[str] = []
+        if forward_zone:
+            try:
+                held = self.dns.zone_copies(forward_zone, view or DEFAULT_VIEW)
+            except (ServiceError, ConnectorError):
+                held = {}
+            primaries = sorted(n for n, z in held.items() if z["kind"] == "primary")
+            primary = self.ctx.node.id if self.ctx.node.id in primaries else next(iter(primaries), None)
+            copies = sorted(n for n, z in held.items() if z["kind"] == "secondary" and n != primary)
+        if primary is None:
+            primary = self.ctx.node.id if self.dns.local is not None else next(iter(bind), None)
+        if not copies:
+            copies = [n for n in bind if n != primary]
+        return primary, copies
+
+    def _zone_entry(
+        self, address: str, forward_zone: str | None, rview: str | None, placed: dict[str, Any]
+    ) -> dict[str, Any]:
+        prefix, zone = self._proposed_zone(address)
+        if forward_zone not in placed:
+            placed[forward_zone] = self._placement(forward_zone, rview)
+        primary, copies = placed[forward_zone]
+        return {
+            "prefix": prefix,
+            "zone": zone,
+            "view": rview or DEFAULT_VIEW,
+            "node_id": primary,
+            "node_ids": copies,
+        }
+
+    def _missing_reverse(self, missing: dict[str, dict[str, Any]], errors: list[dict[str, Any]]) -> None:
         zones = sorted(missing)
-        raise ServiceError(
-            "precondition_failed",
-            "no reverse zone serves these addresses: create " + ", ".join(zones) + " first",
-            errors,
-            extra={"reverse_zones": [missing[z] for z in zones]},
-        )
+        err = _fail("precondition_failed", "create_reverse", errors, zones=", ".join(zones))
+        err.extra["reverse_zones"] = [missing[z] for z in zones]
+        raise err
 
     def _ptr_parts(
         self,
@@ -225,51 +276,56 @@ class Ipv6Plans:
         zones = self.ptr._zones()
         selected: list[tuple[str, str, str, str]] = []  # address, owner, forward zone, reverse zone
         missing: dict[str, dict[str, Any]] = {}
+        zone_errors: list[dict[str, str]] = []
+        placed: dict[str, Any] = {}
+        stable_days = int(reg.get(self.ctx.settings(), "ipv6.stable_min_days"))
+        oldest = int(self.ipv6.clock()) - stable_days * DAY
         unknown: list[str] = []
         random_names: list[str] = []
         for i, key, address, name in wanted:
             row = by_key.get(key)
             if row is None:
-                errors.append(field_error(f"items[{i}].host_key", f"{key} is not in the IPv6 view"))
+                errors.append(_err(f"items[{i}].host_key", "not_in_view", key=key))
                 continue
             seen_as = next((o for o in row["observed"] if o["address"] == address), None)
             if seen_as is None:
-                errors.append(field_error(f"items[{i}].address", f"{address} is not observed for {key}"))
+                errors.append(_err(f"items[{i}].address", "not_observed", address=address, key=key))
                 continue
             if seen_as["class"] == TEMPORARY:
+                errors.append(_err(f"items[{i}].address", "temporary", address=address))
+                continue
+            if int(seen_as["last_seen"]) < oldest:
+                # An address of a prefix the host left: ipv6_stale_aaaa would flag it at once.
                 errors.append(
-                    field_error(
-                        f"items[{i}].address", f"{address} is a temporary address and is never published"
-                    )
+                    _err(f"items[{i}].address", "no_longer_observed", address=address, days=stable_days)
                 )
                 continue
             owner = name or (row["proposal"] or {}).get("name") or row["name"]
             owner = normalize_name(owner) if owner else None
             fzone = self.ptr._best_zone(owner, view, zones, reverse=False) if owner else None
             if owner is None:
-                errors.append(field_error(f"items[{i}].name", f"{key} has no name: give one"))
+                errors.append(_err(f"items[{i}].name", "no_name", key=key))
                 continue
             if fzone is None or not self.ptr._writable(fzone, view):
-                errors.append(
-                    field_error(f"items[{i}].name", f"{owner} is not in a forward zone the cluster can write")
-                )
+                errors.append(_err(f"items[{i}].name", "owner_not_writable", owner=owner))
                 continue
             rzone, reason = self.ptr.reverse_zone(address, rview, zones)
             if rzone is None:
-                prefix, proposed = self._proposed_zone(address)
-                missing[proposed] = {"prefix": prefix, "zone": proposed, "view": rview or DEFAULT_VIEW}
-                why = "has no reachable primary" if reason == "no_primary" else "is not served"
-                errors.append(field_error(f"items[{i}].address", f"the reverse zone of {address} {why}"))
+                entry = self._zone_entry(address, fzone["name"], rview, placed)
+                missing.setdefault(entry["zone"], entry)
+                why = "reverse_no_primary" if reason == "no_primary" else "reverse_not_served"
+                zone_errors.append(_err(f"items[{i}].address", why, address=address))
                 continue
             if seen_as["class"] == UNKNOWN:
                 unknown.append(address)
             if row.get("mac_random") and owner not in random_names:
                 random_names.append(owner)
             selected.append((address, owner, fzone["name"], rzone))
-        if missing and all(e["field"].endswith(".address") for e in errors):
-            self._missing_reverse(missing, errors)
-        if errors:
-            raise ValidationError("invalid IPv6 plan", errors)
+        # Creating the zone helps only when nothing else is wrong with the selection.
+        if missing and not errors:
+            self._missing_reverse(missing, zone_errors)
+        if errors or zone_errors:
+            raise ValidationError("invalid IPv6 plan", sorted(errors + zone_errors, key=_item_order))
         cache: dict[tuple[str, str | None], Index] = {}
         by_owner: dict[tuple[str, str], list[str]] = {}
         for address, owner, fzone, _rzone in selected:
@@ -303,17 +359,21 @@ class Ipv6Plans:
             ptrs.setdefault((rzone, name), (set(), []))[1].append((owner, ttls[owner], new))
         reverse, overwritten, elsewhere = self._ptr_parts(cache, ptrs, rview)
         if not forward and not reverse:
-            raise ServiceError("conflict", "the AAAA and PTR records already match; nothing to change")
+            raise _fail("conflict", "nothing_to_change")
         notes = []
         if ddns:
             notes.append(messages.msg("note.ipv6_ddns_owner", names=sorted(ddns)))
+        # A DHCID held by a random MAC: the next MAC is refused the name (RFC 4703, lab-checked).
+        random_ddns = [n for n in random_names if n in ddns]
+        if random_ddns:
+            notes.append(messages.msg("note.ipv6_ddns_random_mac", names=random_ddns))
         if random_names:
             notes.append(messages.msg("note.ipv6_random_mac", names=random_names))
         if unknown:
             notes.append(messages.msg("note.ipv6_unknown_class", addresses=unknown))
         summary = messages.msg("plan.ipv6.aaaa", count=len(selected))
         return self._finish(
-            summary, forward, reverse, rview, created_by, notes, overwritten, elsewhere, False
+            summary, forward, reverse, rview, created_by, notes, overwritten, elsewhere, bool(random_ddns)
         )
 
     # Prefix replacement ------------------------------------------------------------------------
@@ -328,9 +388,9 @@ class Ipv6Plans:
         new = _prefix(body.get("new_prefix"), "new_prefix", errors)
         if old is not None and new is not None:
             if old.prefixlen != new.prefixlen:
-                errors.append(field_error("new_prefix", f"same length as old_prefix (/{old.prefixlen})"))
+                errors.append(_err("new_prefix", "same_length", length=old.prefixlen))
             elif old.overlaps(new):
-                errors.append(field_error("new_prefix", "must not overlap old_prefix"))
+                errors.append(_err("new_prefix", "overlap"))
         listed = body.get("zones")
         if listed is not None and (
             not isinstance(listed, list) or not listed or not all(isinstance(z, str) for z in listed)
@@ -351,7 +411,7 @@ class Ipv6Plans:
             for zone in listed:
                 z = by_name.get(normalize_name(zone))
                 if z is None or not self.ptr._writable(z, view):
-                    errors.append(field_error("zones", f"{zone} is not a forward zone the cluster can write"))
+                    errors.append(_err("zones", "zone_not_writable", zone=zone))
         if errors:
             raise ValidationError("invalid prefix replacement", errors)
         assert old is not None and new is not None
@@ -368,6 +428,7 @@ class Ipv6Plans:
         ddns: list[str] = []
         touched: list[str] = []
         ttls: dict[str, int] = {}
+        owner_zone: dict[str, str] = {}
         for zone in sorted(chosen, key=lambda z: z["name"]):
             try:
                 index = self._read(cache, zone["name"], view)
@@ -393,13 +454,15 @@ class Ipv6Plans:
                 )
                 moved += [(owner, a, b) for a, b in pairs]
                 ttls[owner] = rrset.ttl
+                owner_zone[owner] = zone["name"]
                 if (owner, "DHCID") in index:
                     ddns.append(owner)
                 if zone["name"] not in touched:
                     touched.append(zone["name"])
         if not forward:
-            where = f" (zones not read: {', '.join(unread)})" if unread else ""
-            raise ServiceError("conflict", f"no AAAA under {old} in the chosen zones{where}")
+            if unread:
+                raise _fail("conflict", "no_aaaa_unread", prefix=str(old), zones=", ".join(unread))
+            raise _fail("conflict", "no_aaaa", prefix=str(old))
         zones = served
         ptrs: dict[tuple[str, str], tuple[set[str], list[tuple[str, int, bool]]]] = {}
         missing: dict[str, dict[str, Any]] = {}
@@ -416,11 +479,19 @@ class Ipv6Plans:
             elif old_zone is not None or reason == "no_primary":
                 # The old PTR is managed: moving the AAAA without its PTR would lose it.
                 zone = prefixes_mod.reverse_zone_name(new)
-                missing[zone] = {"prefix": str(new), "zone": zone, "view": rview or DEFAULT_VIEW}
+                if zone not in missing:
+                    primary, copies = self._placement(owner_zone[owner], rview)
+                    missing[zone] = {
+                        "prefix": str(new),
+                        "zone": zone,
+                        "view": rview or DEFAULT_VIEW,
+                        "node_id": primary,
+                        "node_ids": copies,
+                    }
             else:
                 uncovered.append(after)
         if missing:
-            self._missing_reverse(missing, [field_error("new_prefix", f"no reverse zone serves {new}")])
+            self._missing_reverse(missing, [_err("new_prefix", "no_reverse_for", prefix=str(new))])
         reverse, overwritten, elsewhere = self._ptr_parts(cache, ptrs, rview)
         notes = []
         if uncovered:
@@ -442,10 +513,11 @@ class Ipv6Plans:
 
     def plan_reverse_zone(self, body: dict[str, Any], created_by: str) -> Plan:
         """A dynamic primary `ip6.arpa` zone for `prefix`, cut at the nibble at or above it, with the
-        defaults of every zone Pelagos creates (`update-policy` of the admin key); `node_ids` hold
-        a secondary copy, as `POST /dns/zones/plan`."""
+        defaults of every zone Pelagos creates (`update-policy` of the admin key), primary on
+        `node_id` with a secondary copy on each of `node_ids`. Both default to the placement of
+        the 409 `reverse_zones` entries without a forward zone: this node and every other BIND node."""
         errors: list[dict[str, str]] = []
-        for key in sorted(set(body) - {"prefix", "view", "node_ids"}):
+        for key in sorted(set(body) - {"prefix", "view", "node_id", "node_ids"}):
             errors.append(field_error(key, "unknown field"))
         net = _prefix(body.get("prefix"), "prefix", errors)
         node_ids = body.get("node_ids")
@@ -453,6 +525,9 @@ class Ipv6Plans:
             not isinstance(node_ids, list) or not all(isinstance(n, str) for n in node_ids)
         ):
             errors.append(field_error("node_ids", "a list of node ids"))
+        node_id = body.get("node_id")
+        if node_id is not None and (not isinstance(node_id, str) or not node_id):
+            errors.append(field_error("node_id", "a node id"))
         if errors:
             raise ValidationError("invalid reverse zone", errors)
         assert net is not None
@@ -465,14 +540,24 @@ class Ipv6Plans:
         ]
         holder = next((z for z in served if prefixes_mod.covered(net, [z])), None)
         if holder is not None:
-            raise ServiceError("conflict", f"{holder} already serves {net}")
+            raise _fail("conflict", "reverse_exists", zone=holder, prefix=str(net))
         change = {
             "op": "add",
             "target": f"{view}/{name}",
             "before": None,
             "after": {"name": name, "kind": "primary", "view": view, "file": f"db.{name.rstrip('.')}"},
         }
-        return self.dns.plan_zone(change, created_by, node_ids or None)
+        if node_id is None or node_ids is None:
+            primary, copies = self._placement(None, view)
+            node_id = node_id or primary
+            node_ids = copies if node_ids is None else node_ids
+        return self.dns.plan_zone(change, created_by, [n for n in node_ids if n != node_id] or None, node_id)
+
+
+def _item_order(error: dict[str, str]) -> tuple[int, str]:
+    field = error["field"]
+    index = field[6 : field.find("]")] if field.startswith("items[") else ""
+    return (int(index) if index.isdigit() else -1, field)
 
 
 def _ip_of(ptr_name: str) -> str:

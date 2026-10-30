@@ -162,7 +162,6 @@ class KeaBackend(DhcpBackend):
         )
         self.conf_path = Path(cfg.get(f"dhcp{n}_conf", f"/etc/kea/kea-dhcp{n}.conf"))
         self.backup_root = Path(ctx.backup_root) / self.engine_name
-        self.plan_ttl = int(reg.get(ctx.settings, "plans.ttl_seconds"))
         self._version: str | None = None
         self.file = KeaConfigFile(
             self.conf_path,
@@ -182,6 +181,11 @@ class KeaBackend(DhcpBackend):
         # relationship's peers): config-get is too heavy per live pass.
         self._ha_peers: tuple[float, dict[str, list[HAPeer]], list[HAPeer]] | None = None
         self.sleep: Callable[[float], None] = time.sleep
+
+    @property
+    def plan_ttl(self) -> int:
+        """Read at each plan: a TTL changed from the settings screen applies without a restart."""
+        return int(reg.get(self.ctx.current_settings(), "plans.ttl_seconds"))
 
     # Helpers ----------------------------------------------------------------------
 

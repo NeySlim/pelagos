@@ -140,6 +140,24 @@ def test_prefix_change_raises_stale_with_old_and_new_prefix():
     assert missing(rows([h], history))[0].details["hosts"][0]["address"] == NEW
 
 
+def test_a_host_without_mac_joins_the_mac_seen_with_its_aaaa_for_stale():
+    # A static host: A and AAAA only, no lease; its old address was seen 20 days ago.
+    old_eui = "2001:db8:1:0:be24:11ff:fe63:b806"
+    new_eui = "2001:db8:2:0:be24:11ff:fe63:b806"
+    records = [
+        RRset("srv.example.lan.", "A", 300, ["192.0.2.20"]),
+        RRset("srv.example.lan.", "AAAA", 300, [old_eui]),
+    ]
+    h = Host(key="name:srv.example.lan.", mac=None, ips=["192.0.2.20"], hostname="srv", records=records)
+    history = [obs(old_eui, NOW - 40 * DAY, NOW - 20 * DAY), obs(new_eui, NOW - 20 * DAY, NOW)]
+    found = stale([h], history)
+    assert [(s.host_key, s.address, s.current, s.mac) for s in found] == [
+        ("name:srv.example.lan.", old_eui, new_eui, MAC)
+    ]
+    # A MAC that belongs to another host is never borrowed.
+    assert stale([h, host()], history) == []
+
+
 def test_stale_needs_another_current_address_and_enough_history():
     h = host(extra=[RRset("laptop.example.lan.", "AAAA", 300, [OLD])])
     # The host is away: no current address, nothing stale.

@@ -194,7 +194,6 @@ class D2Backend(DdnsBackend):
         )
         self.secret_group: str | None = cfg.get("kea_group")
         self.backup_root = Path(ctx.backup_root) / "d2"
-        self.plan_ttl = int(reg.get(ctx.settings, "plans.ttl_seconds"))
         # Per plan id, never serialized; dropped once the plan can no longer be applied or rolled back.
         self._private: dict[str, _PlanPrivate] = {}
         self.file = KeaConfigFile(
@@ -207,6 +206,11 @@ class D2Backend(DdnsBackend):
             ctx.node_id,
             cwd=Path(cfg.get("kea_cwd", "/")),
         )
+
+    @property
+    def plan_ttl(self) -> int:
+        """Read at each plan: a TTL changed from the settings screen applies without a restart."""
+        return int(reg.get(self.ctx.current_settings(), "plans.ttl_seconds"))
 
     # Observation ----------------------------------------------------------------------
 

@@ -10,12 +10,17 @@ const PROPOSABLE = new Set(['eui64', 'stable'])
 
 export const validFilter = (value) => (FILTERS.includes(value) ? value : '')
 
-// The hosts page link of an IPv6 view, as the alert links and the URL state use it.
-export function ipv6Path({ filter, zone, reverse } = {}) {
+// The hosts page link of an IPv6 view, as the alert links and the URL state use it; old and
+// new prefixes (the ipv6_stale_aaaa details) open the prefix replacement prefilled.
+export function ipv6Path({ filter, zone, reverse, oldPrefix, newPrefix } = {}) {
   const q = new URLSearchParams({ tab: IPV6_TAB })
   if (filter) q.set('filter', filter)
   if (zone) q.set('zone', zone)
   if (reverse) q.set('reverse', reverse)
+  if (oldPrefix && newPrefix) {
+    q.set('old', oldPrefix)
+    q.set('new', newPrefix)
+  }
   return `/hosts?${q.toString()}`
 }
 
@@ -143,22 +148,39 @@ export function suggestPrefixSwap(rows = []) {
 // The owner the selection plan writes for a row: the proposal's name, else the row's name.
 export const ownerOf = (row) => row.proposal?.name || row.name || null
 
-// Observed addresses a selection may hold: a known owner, never a temporary address, and not
-// already complete (an AAAA with its PTR); an AAAA without PTR gets only its PTR.
-export function selectableAddresses(row) {
-  if (!ownerOf(row)) return []
+const dotted = (name) => (String(name).endsWith('.') ? String(name).toLowerCase() : `${String(name).toLowerCase()}.`)
+
+// Whether the plan can write the row's owner: a proposal names one in a writable zone; a row
+// name must be a FQDN under one of the forward `zones` (a short lease name never is).
+// Without the zone list (not loaded), only the name is required.
+export function ownerWritable(row, zones = null) {
+  if (row.proposal?.name) return true
+  if (!row.name) return false
+  if (!zones?.length) return true
+  const name = dotted(row.name)
+  return zones.some((z) => {
+    const zone = dotted(z)
+    return name === zone || name.endsWith(`.${zone}`)
+  })
+}
+
+// Observed addresses a selection may hold: a writable owner, an address not flagged past
+// (`current: false`, a prefix the host left) unless still unknown, never a temporary one, and not already complete (an AAAA with its PTR); an AAAA
+// without PTR gets only its PTR.
+export function selectableAddresses(row, zones = null) {
+  if (!ownerOf(row) || !ownerWritable(row, zones)) return []
   const aaaa = new Set(row.aaaa || [])
   const missing = new Set(row.ptr_missing || [])
   const ptr = new Set(row.ptr || [])
   return (row.observed || [])
-    .filter((o) => o.class !== 'temporary')
+    .filter((o) => o.class !== 'temporary' && (o.current !== false || o.class === 'unknown'))
     .filter((o) => !aaaa.has(o.address) || missing.has(o.address) || !ptr.has(o.address))
     .map((o) => o.address)
 }
 
 // The address a row's checkbox selects: the proposal, else the first selectable current one.
-export function defaultAddress(row) {
-  const selectable = selectableAddresses(row)
+export function defaultAddress(row, zones = null) {
+  const selectable = selectableAddresses(row, zones)
   if (row.proposal && selectable.includes(row.proposal.address)) return row.proposal.address
   const current = (row.observed || []).find((o) => o.current && selectable.includes(o.address))
   return current ? current.address : null
@@ -170,4 +192,15 @@ export const selectionKey = (hostKey, address) => `${hostKey}|${address}`
 export function missingReverseZones(err) {
   const zones = err?.status === 409 ? err.problem?.reverse_zones : null
   return Array.isArray(zones) && zones.length ? zones : null
+}
+
+// The body of POST /hosts/ipv6/reverse-zone/plan for an entry of `reverse_zones`: its placement
+// (the primary and the copies of the host's forward zone) when the server gave one.
+export function reverseZoneBody(z) {
+  return {
+    prefix: z.prefix,
+    ...(z.view && z.view !== '_default' ? { view: z.view } : {}),
+    ...(z.node_id ? { node_id: z.node_id } : {}),
+    ...(Array.isArray(z.node_ids) ? { node_ids: z.node_ids } : {}),
+  }
 }

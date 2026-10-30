@@ -854,6 +854,39 @@
       "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]{0,62}$"
     },
     {
+      "key": "kea.migration_response_delay_milliseconds",
+      "type": "integer",
+      "default": 10000,
+      "min": 1000,
+      "max": 60000,
+      "unit": "milliseconds",
+      "group": "migration"
+    },
+    {
+      "key": "kea.migration_auto_rollback_enabled",
+      "type": "boolean",
+      "default": true,
+      "group": "migration"
+    },
+    {
+      "key": "kea.migration_outage_max_seconds",
+      "type": "integer",
+      "default": 180,
+      "min": 30,
+      "max": 3600,
+      "unit": "seconds",
+      "group": "migration"
+    },
+    {
+      "key": "kea.migration_lease_file_max_mb",
+      "type": "integer",
+      "default": 256,
+      "min": 1,
+      "max": 4096,
+      "unit": "mb",
+      "group": "migration"
+    },
+    {
       "key": "rpz.check_seconds",
       "type": "integer",
       "default": 300,

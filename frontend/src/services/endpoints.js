@@ -254,6 +254,9 @@ export const ENDPOINTS = [
   // Installation > Kea migration, read-only analysis (section 26)
   'GET /install/kea-migration',
   'POST /install/kea-migration/analyze',
+  // Installation > Kea migration, prepare, migrate and roll back (section 28)
+  'GET /install/kea-migration/{id}',
+  'POST /install/kea-migration/{id}/plan',
   // Hosts > IPv6 and Administration > IPv6 observation (section 27)
   'GET /hosts/ipv6',
   'GET /admin/ipv6',

@@ -49,7 +49,8 @@ export function rrsetText(rrset) {
 const CONFIRM_SCOPES = new Set(['dhcp.ha', 'dhcp.lease', 'security'])
 
 // spec: { scope, engine, summary, summary_message?, changes, diff, targets, preconditions?, validations?,
-//         requires_confirmation?, apply(), rollback?(), job? }
+//         requires_confirmation?, apply(), rollback?(), job?, onStart?(), onStep?(i) (false fails the
+//         job at step i), onStepDone?(i), onFail?(i) }
 export function createPlan(state, user, spec) {
   const created = Date.now()
   const ttl = (state.settings.plans?.ttl_seconds || 600) * 1000
@@ -80,7 +81,7 @@ export function createPlan(state, user, spec) {
     error: refused ? refused.text : failed ? 'Validation failed' : null,
     error_message: refused ? refused.message : null,
   }
-  state.plans.set(plan.id, { plan, apply: spec.apply, rollback: spec.rollback, job: spec.job, creator: user.username })
+  state.plans.set(plan.id, { plan, apply: spec.apply, rollback: spec.rollback, job: spec.job, creator: user.username, onStart: spec.onStart, onStep: spec.onStep, onStepDone: spec.onStepDone, onFail: spec.onFail })
   state.emit?.('plans', 'validated', planPhase(state, plan, plan.state))
   return plan
 }
@@ -158,6 +159,7 @@ export const SCOPE_PERMISSIONS = {
   'd2.config': 'write:dhcp.config',
   'dns.failover': 'write:dns.zones',
   'dns.resolver': 'write:dns.config',
+  'kea.migration': 'admin:install',
   host: 'write:hosts',
   install: 'admin:install',
   import: 'admin:install',
@@ -178,6 +180,8 @@ function scopeDenied(user, plan) {
   const permission = SCOPE_PERMISSIONS[plan.scope]
   // A DDNS failover plan also rewrites D2 (api/plans.py).
   if (plan.scope === 'dns.failover' && !can(user, 'write:dhcp.config') && !isAdmin(user)) return { status: 403, code: 'forbidden', detail: 'requires write:dhcp.config' }
+  // A Kea migration stops and switches HA pairs (section 28).
+  if (plan.scope === 'kea.migration' && !can(user, 'ops:dhcp.ha') && !isAdmin(user)) return { status: 403, code: 'forbidden', detail: 'requires ops:dhcp.ha' }
   if (permission ? can(user, permission) : isAdmin(user)) return null
   return { status: 403, code: 'forbidden', detail: `requires ${permission || 'admin'}` }
 }
@@ -302,6 +306,7 @@ function startJob(state, user, held, emit) {
   const steps = held.job.map((s) => ({ ...(typeof s === 'string' ? { name: s } : s), state: 'queued', output: '', started_at: null, finished_at: null }))
   const job = { id: ulid(), plan_id: held.plan.id, state: 'queued', progress: 0, steps, created_at: iso(Date.now()), finished_at: null, error: null }
   state.jobs.set(job.id, job)
+  held.onStart?.()
   let index = 0
   const tick = () => {
     if (index > 0) {
@@ -309,6 +314,7 @@ function startJob(state, user, held, emit) {
       prev.state = 'done'
       prev.output = 'ok'
       prev.finished_at = iso(Date.now())
+      held.onStepDone?.(index - 1)
     }
     if (index >= job.steps.length) {
       job.state = 'done'
@@ -324,6 +330,16 @@ function startJob(state, user, held, emit) {
     job.state = 'running'
     job.steps[index].state = 'running'
     job.steps[index].started_at = iso(Date.now())
+    if (held.onStep?.(index) === false) {
+      const step = job.steps[index]
+      Object.assign(step, { state: 'failed', output: 'failed (mock)', finished_at: iso(Date.now()) })
+      Object.assign(job, { state: 'failed', error: `${step.name} failed`, finished_at: iso(Date.now()) })
+      held.plan.state = 'failed'
+      held.plan.error = job.error
+      held.onFail?.(index)
+      emit('jobs', 'failed', job)
+      return
+    }
     job.progress = Math.round((index / job.steps.length) * 100)
     index += 1
     emit('jobs', 'progress', job)

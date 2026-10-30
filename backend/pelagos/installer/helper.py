@@ -29,6 +29,7 @@ from typing import IO, Any
 
 from pelagos.core.kea_ha_tls import ALL_STEPS as HA_TLS_STEPS
 from pelagos.core.kea_ha_tls import KEY_SECRET as HA_TLS_KEY
+from pelagos.core.kea_migration import HELPER_STEPS as KEA_MIGRATION_STEPS
 from pelagos.domain import Change, Job, Plan, PlanScope
 
 log = logging.getLogger(__name__)
@@ -41,9 +42,15 @@ PLAN_TTL = 7 * 86400
 REQUEST_TIMEOUT = 30.0
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 # Steps a peer may send: the D2 step of a dual-key switch (BIND steps always run on their own node)
-# and the steps of the coordinated Kea HA TLS switch (installer.ha_tls).
+# and the steps of the coordinated Kea HA TLS switch (installer.ha_tls), in security plans; the
+# helper steps of a Kea migration (core.kea_migration), in kea.migration plans.
 DUAL_KEY_PEER_STEPS = frozenset({"2-d2-switch"})
-PEER_STEPS = DUAL_KEY_PEER_STEPS | frozenset(HA_TLS_STEPS)
+SECURITY_PEER_STEPS = DUAL_KEY_PEER_STEPS | frozenset(HA_TLS_STEPS)
+PEER_STEPS = SECURITY_PEER_STEPS | frozenset(KEA_MIGRATION_STEPS)
+PEER_SCOPE_STEPS = {
+    PlanScope.SECURITY: SECURITY_PEER_STEPS,
+    PlanScope.KEA_MIGRATION: frozenset(KEA_MIGRATION_STEPS),
+}
 SAFE_KEY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 OPERATIONS = (
     "detect",
@@ -256,8 +263,8 @@ def authorize(plan: Plan, env: Any) -> None:
     """Raises HelperError("...", "value") unless every change of `plan` for this node may run as root.
 
     A plan made on this node must have been built by this helper, change for change. A plan made on
-    a peer (received over mTLS) may only carry the D2 switch step of a dual-key switch. Either way, the paths,
-    groups, packages and include lines named by a change must be this host's own."""
+    a peer (received over mTLS) may only carry the sealed peer steps of its scope (PEER_SCOPE_STEPS).
+    Either way, the paths, groups, packages and include lines named by a change must be this host's."""
     mine = [c for c in plan.changes if env.node_id in c.node_ids]
     if plan.node_id == env.node_id:
         record = _recorded(plan.id)
@@ -268,12 +275,13 @@ def authorize(plan: Plan, env: Any) -> None:
             if _digest(change.to_dict()) not in known:
                 raise HelperError(f"change {change.target} differs from the planned one", "value")
     else:
-        if plan.scope is not PlanScope.SECURITY:
+        allowed = PEER_SCOPE_STEPS.get(plan.scope)
+        if allowed is None:
             raise HelperError(f"{plan.scope} plans from another node are not accepted", "value")
         for change in mine:
             after = change.after if isinstance(change.after, dict) else {}
             details = after.get("details") if isinstance(after.get("details"), dict) else {}
-            if after.get("step") not in PEER_STEPS:
+            if after.get("step") not in allowed:
                 raise HelperError(f"change {change.target} from another node is not accepted", "value")
             for name in ("key", "new_key"):
                 if name in details and not SAFE_KEY.fullmatch(str(details[name])):
@@ -286,6 +294,33 @@ def authorize(plan: Plan, env: Any) -> None:
 
 
 # Dual-key steps sent by a peer ---------------------------------------------------------------------
+
+
+def _match_kea_migration(
+    plan: Plan, change: Change, step: str, details: dict[str, Any], cluster: Any, env: Any
+) -> None:
+    """A migration step from a peer must name the migration this node's cluster.toml holds, come from
+    its driver, target this node among its nodes, and that migration must not be over."""
+    from pelagos.core import kea_migration as km
+
+    migration = km.read_migration(cluster.settings)
+    wanted = str(details.get("migration_id") or "")
+    if migration is None or migration["id"] != wanted:
+        raise HelperError(
+            f"step {change.target}: migration {wanted or '?'} is not in this node's cluster.toml yet", "value"
+        )
+    if migration["state"] in (km.ROLLED_BACK, km.PREPARE_FAILED):
+        raise HelperError(f"step {change.target}: migration {wanted} is {migration['state']}", "value")
+    ids = {n["node_id"] for n in migration["nodes"]}
+    if env.node_id not in ids:
+        raise HelperError(f"step {change.target}: this node is not part of migration {wanted}", "value")
+    if plan.node_id != migration["driver"]:
+        raise HelperError(f"step {change.target}: {plan.node_id} does not drive migration {wanted}", "value")
+    if change.target != km.target(step, env.node_id):
+        raise HelperError(f"step {change.target} is not this node's {step}", "value")
+    for name in ("series", "source"):
+        if name in details and details[name] != migration[name]:
+            raise HelperError(f"step {change.target}: {name} differs from the migration", "value")
 
 
 def verify_peer_steps(
@@ -333,6 +368,10 @@ def verify_peer_steps(
         if step not in PEER_STEPS:
             raise HelperError(f"change {change.target} from another node is not accepted", "value")
         details = change.after.get("details") if isinstance(change.after.get("details"), dict) else {}
+        if step in KEA_MIGRATION_STEPS:
+            _match_kea_migration(plan, change, step, details, cluster, env)
+            digests.append(step_seal.seal_digest(change))
+            continue
         if step in HA_TLS_STEPS:
             _match_ha_tls(change, step, details, env)
             if sealed_secret is not None:

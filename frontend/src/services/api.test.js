@@ -111,6 +111,7 @@ const invocations = [
   () => api.resolverHealth.fallbackPlan({ preset: 'quad9', forward: 'first', hours: 24 }),
   () => api.resolverHealth.returnPlan(), () => api.resolverHealth.extend(4),
   () => api.keaMigration.overview(), () => api.keaMigration.analyze({ series: '3.2', source: 'isc' }),
+  () => api.keaMigration.get('m1'), () => api.keaMigration.plan('m1', { phase: 'prepare' }),
   () => api.ipv6.hosts({ filter: 'missing_aaaa' }), () => api.ipv6.settings(), () => api.ipv6.update({ prefixes: [] }),
 ]
 

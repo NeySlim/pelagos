@@ -216,6 +216,19 @@ REGISTRY: tuple[Setting, ...] = (
     S("dns.zone_read_max_names", "integer", 50000, 1000, 10_000_000, "names"),
     # Kea
     S("kea.ddns_key", "string", "kea-ddns", pattern=NAME_PATTERN),
+    # Kea 2.6 to 3.x migration (section 28)
+    S(
+        "kea.migration_response_delay_milliseconds",
+        "integer",
+        10000,
+        1000,
+        60000,
+        "milliseconds",
+        "migration",
+    ),
+    S("kea.migration_auto_rollback_enabled", "boolean", True, group="migration"),
+    S("kea.migration_outage_max_seconds", "integer", 180, 30, 3600, "seconds", "migration"),
+    S("kea.migration_lease_file_max_mb", "integer", 256, 1, 4096, "mb", "migration"),
     # Response policy zones (section 21)
     S("rpz.check_seconds", "integer", 300, 30, DAY, "seconds"),
     S("rpz.default_interval_hours", "integer", 24, 1, 720, "hours"),
@@ -289,6 +302,7 @@ MANAGED: dict[str, tuple[str, ...]] = {
     "ddns": ("roles",),
     "resolver": ("fallback", "presets"),
     "ipv6": ("prefixes",),
+    "kea": ("migration",),
 }
 
 # (lower, higher, strict): `lower` must stay below `higher` (or at most equal when not strict).

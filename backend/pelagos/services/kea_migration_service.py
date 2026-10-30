@@ -21,6 +21,7 @@ from typing import Any
 
 from pelagos.collector.checks import advisories, kea_series
 from pelagos.connectors.kea import migration as mig
+from pelagos.core import settings_registry as reg
 from pelagos.core.context import NodeContext
 from pelagos.domain import AuditEntry, AuditResult, new_id, to_rfc3339, utcnow
 from pelagos.installer import helper
@@ -160,7 +161,7 @@ class KeaMigrationService:
         return self.peers.action(peer, action, body, timeout=timeout)
 
     def overview(self) -> dict[str, Any]:
-        """{"nodes": [KeaInventory],"targets": [Target],"analysis": Report|null,"current": null}."""
+        """{"nodes": [KeaInventory],"targets": [Target],"analysis": Report|null,"current": Migration|null}."""
         from pelagos.services.peer_actions import KEA_MIGRATION_INVENTORY
 
         nodes = self._nodes()  # every node: one without Kea shows no engine
@@ -186,8 +187,24 @@ class KeaMigrationService:
             "nodes": inventory,
             "targets": self.targets(inventory, analysis),
             "analysis": analysis,
-            "current": None,
+            "current": self.current(),
         }
+
+    def current(self) -> dict[str, Any] | None:
+        """The migration cluster.toml holds (section 28), as the API shows it; None when there is none."""
+        from pelagos.core import kea_migration as km
+
+        settings = self.ctx.settings()
+        return km.view(
+            km.read_migration(settings), int(reg.get(settings, "kea.migration_outage_max_seconds"))
+        )
+
+    def migration(self, migration_id: str) -> dict[str, Any]:
+        """GET /install/kea-migration/{id}: 404 unless it is the migration cluster.toml holds."""
+        found = self.current()
+        if found is None or found["id"] != migration_id:
+            raise ServiceError("not_found", f"no Kea migration {migration_id}")
+        return found
 
     @staticmethod
     def targets(

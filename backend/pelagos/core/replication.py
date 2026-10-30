@@ -70,6 +70,7 @@ _ENGINE_RE = re.compile(r"^/engines/([a-z0-9]+)/snapshot$")
 SNAPSHOT_ENGINES = frozenset({"bind", "kea4", "kea6", "d2"})
 _ACTION_RE = re.compile(r"^/actions/([a-z0-9][a-z0-9_.-]{0,63})$")
 _ARCHIVE_RE = re.compile(r"^/archives/([A-Za-z0-9_-]{1,64})$")
+_KEA_LEASES_RE = re.compile(r"^/kea/leases/([46])$")
 # Per socket operation: an archive transfer moves up to `archives.max_archive_mb`.
 ARCHIVE_TIMEOUT = 120.0
 # Event the collector receives when entries from a peer were merged into the local audit log.
@@ -379,6 +380,14 @@ class ReplicationClient:
             raise ReplicationError(f"GET /archives on {self.peer.name}: malformed answer")
         return data
 
+    def fetch_kea_leases(
+        self, family: str, migration_id: str, sink: BinaryIO, timeout: float = ARCHIVE_TIMEOUT
+    ) -> None:
+        """GET /kea/leases/<family>: the peer's lease copy of a Kea migration, written into `sink`; the
+        caller checks its size and sha256 against the stop step's result (section 28)."""
+        query = urllib.parse.urlencode({"migration": migration_id})
+        self._stream("GET", f"/kea/leases/{family}?{query}", timeout, sink=sink)
+
     def fetch_archive(self, archive_id: str, sink: BinaryIO, timeout: float = ARCHIVE_TIMEOUT) -> None:
         """GET /archives/<id>: the encrypted file, written into `sink`."""
         self._stream("GET", f"/archives/{urllib.parse.quote(archive_id, safe='')}", timeout, sink=sink)
@@ -409,8 +418,11 @@ class ReplicationApp:
         secrets: SecretBox | None = None,
         actions: ActionHandler | None = None,
         archives: ArchiveInbox | None = None,
+        var_dir: Path | None = None,
     ) -> None:
         self.node = node
+        # The node's var dir: the lease copy of a Kea migration is served from it (section 28).
+        self.var_dir = var_dir
         # Archives peers send this node and the ones it serves (section 23); None: not served.
         self.archives = archives
         # Writes a peer asks this node to build or run (services.peer_actions); None: not served.
@@ -509,6 +521,9 @@ class ReplicationApp:
         m = _ARCHIVE_RE.match(route)
         if m and method == "GET":
             return self._get_archive(m.group(1))
+        m = _KEA_LEASES_RE.match(route)
+        if m and method == "GET":
+            return self._kea_leases(m.group(1), environ.get("QUERY_STRING", ""), caller)
         raise _Refused(404, "not_found", f"{method} {route}")
 
     # Archives (section 23) ---------------------------------------------------------------
@@ -570,6 +585,30 @@ class ReplicationApp:
             return 200, FileBody(path)
         except OSError:
             raise _Refused(404, "not_found", f"archive {archive_id} is gone") from None
+
+    def _kea_leases(self, family: str, query: str, caller: str) -> tuple[int, Any]:
+        """GET /kea/leases/<family>?migration=<id>: the lease copy the stop step of a Kea migration left
+        here, only for a node of that migration while it is active (section 28)."""
+        from pelagos.core import kea_migration as km
+
+        if self.var_dir is None:
+            raise _Refused(404, "not_found", "Kea lease copies are not served by this node")
+        migration_id = dict(urllib.parse.parse_qsl(query)).get("migration", "")
+        if not km.ID_RE.match(migration_id):
+            raise _Refused(400, "validation_error", "migration must be a migration id")
+        settings = self.config_store.load_cluster().settings
+        limit = int(reg.get(settings, "kea.migration_lease_file_max_mb")) << 20
+        try:
+            fd, _size = km.open_lease_copy(
+                self.var_dir, settings, self.node.id, caller, migration_id, family, limit
+            )
+        except LookupError as exc:
+            raise _Refused(404, "not_found", str(exc)) from None
+        except PermissionError as exc:
+            raise _Refused(403, "forbidden", str(exc)) from None
+        except OverflowError as exc:
+            raise _Refused(413, "too_large", str(exc)) from None
+        return 200, FileBody(fd)
 
     def _snapshot(self, engine: str, query: str) -> tuple[int, Any]:
         params = dict(urllib.parse.parse_qsl(query, keep_blank_values=True))
@@ -839,7 +878,7 @@ class ReplicationApp:
 class FileBody:
     """A file answered as the response body, read in chunks by whoever iterates it."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path | int) -> None:
         self._fh = open(path, "rb")
         self.size = os.fstat(self._fh.fileno()).st_size
 
@@ -1350,6 +1389,7 @@ class ReplicationService:
             secrets=ctx.secrets,
             actions=actions,
             archives=ArchiveInbox(ctx.paths.archives_dir, ctx.node.id, ctx.settings),
+            var_dir=ctx.paths.var,
         )
         self.app.on_peer_seen = self._on_peer_seen
         self.on_audit_merged = on_audit_merged

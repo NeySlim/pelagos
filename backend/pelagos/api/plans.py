@@ -51,6 +51,9 @@ def _check_scope(plan: Plan) -> None:
     # A DDNS failover plan writes the D2 configuration too (section 24).
     if plan.scope is PlanScope.DNS_FAILOVER and not has_permission(perms, "write:dhcp.config"):
         raise ApiError("forbidden", "requires write:dhcp.config")
+    # A Kea migration stops and switches HA pairs (section 28).
+    if plan.scope is PlanScope.KEA_MIGRATION and not has_permission(perms, "ops:dhcp.ha"):
+        raise ApiError("forbidden", "requires ops:dhcp.ha")
 
 
 @ns.route("/plans/<string:plan_id>")

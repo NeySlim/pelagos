@@ -247,7 +247,7 @@
       },
       "kea": {
         "title": "Kea",
-        "help": "Key used by kea-dhcp-ddns"
+        "help": "Key used by kea-dhcp-ddns, and the move to Kea 3"
       },
       "rpz": {
         "title": "Response policy zones",
@@ -294,7 +294,8 @@
       "notifications": "Notifications",
       "archives": "Backups",
       "retention": "Retention",
-      "api_tokens": "API tokens"
+      "api_tokens": "API tokens",
+      "migration": "Kea 3 migration"
     },
     "fields": {
       "auth": {
@@ -411,7 +412,11 @@
         "zone_read_max_names": "Largest zone the web interface reads"
       },
       "kea": {
-        "ddns_key": "DDNS key"
+        "ddns_key": "DDNS key",
+        "migration_response_delay_milliseconds": "Failure detection delay during the migration",
+        "migration_auto_rollback_enabled": "Roll back automatically when a check fails during the outage",
+        "migration_outage_max_seconds": "Longest DHCP outage before an automatic rollback",
+        "migration_lease_file_max_mb": "Largest lease file copied to the partner"
       },
       "rpz": {
         "check_seconds": "List update check",
@@ -550,6 +555,10 @@
       "ipv6": {
         "stable_min_days": "Above the 7 day lifetime of a temporary address on Windows and macOS (2 days on Linux, RFC 8981).",
         "auto_apply_enabled": "Reserved: the first version creates records only by plan."
+      },
+      "kea": {
+        "migration_response_delay_milliseconds": "max-response-delay of the standby while it waits to serve alone; restored after the migration.",
+        "migration_outage_max_seconds": "Past this, the pair goes back to Kea 2.6 when automatic rollback is on."
       }
     }
   },

@@ -91,6 +91,7 @@ const BODIES = {
   'POST /dns/resolver/fallback/plan': { preset: 'quad9', forward: 'first', hours: 24 },
   'PUT /dns/resolver/fallback': () => ({ until: new Date(Date.now() + 3600000).toISOString() }),
   'POST /install/kea-migration/analyze': { series: '3.2', source: 'isc' },
+  'POST /install/kea-migration/{id}/plan': { phase: 'migrate' },
   'PUT /admin/ipv6': { prefixes: ['2001:db8:1::/64'] },
   'POST /dhcp/{family}/ha/setup/plan': { remove: true },
   'POST /dns/zones/{zone}/secondaries/plan': { node_ids: [] },
@@ -191,6 +192,8 @@ const EXPECTED = {
   'POST /dhcp/ddns/replay/plan': 409, // no outage: no lease lacks its records
   'POST /dns/resolver/fallback/return/plan': 409, // no fallback is active
   'PUT /dns/resolver/fallback': 409, // no fallback is active
+  'GET /install/kea-migration/{id}': 404, // no migration prepared
+  'POST /install/kea-migration/{id}/plan': 404, // no migration prepared
 }
 
 describe('mock server PTR and exceptions', () => {

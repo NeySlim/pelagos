@@ -247,7 +247,7 @@
       },
       "kea": {
         "title": "Kea",
-        "help": "Clé utilisée par kea-dhcp-ddns"
+        "help": "Clé utilisée par kea-dhcp-ddns, et le passage à Kea 3"
       },
       "rpz": {
         "title": "Zones de politique de réponse",
@@ -294,7 +294,8 @@
       "notifications": "Notifications",
       "archives": "Sauvegardes",
       "retention": "Rétention",
-      "api_tokens": "Jetons d'API"
+      "api_tokens": "Jetons d'API",
+      "migration": "Migration vers Kea 3"
     },
     "fields": {
       "auth": {
@@ -411,7 +412,11 @@
         "zone_read_max_names": "Plus grande zone lue par l'interface web"
       },
       "kea": {
-        "ddns_key": "Clé DDNS"
+        "ddns_key": "Clé DDNS",
+        "migration_response_delay_milliseconds": "Délai de détection de panne pendant la migration",
+        "migration_auto_rollback_enabled": "Retour arrière automatique si un contrôle échoue pendant la coupure",
+        "migration_outage_max_seconds": "Coupure DHCP la plus longue avant un retour arrière automatique",
+        "migration_lease_file_max_mb": "Plus gros fichier de baux copié vers le partenaire"
       },
       "rpz": {
         "check_seconds": "Vérification des mises à jour de listes",
@@ -550,6 +555,10 @@
       "ipv6": {
         "stable_min_days": "Au-dessus des 7 jours de validité d'une adresse temporaire sous Windows et macOS (2 jours sous Linux, RFC 8981).",
         "auto_apply_enabled": "Réservé : la première version ne crée les enregistrements que par plan."
+      },
+      "kea": {
+        "migration_response_delay_milliseconds": "max-response-delay du standby pendant qu'il attend de servir seul ; remis à la fin de la migration.",
+        "migration_outage_max_seconds": "Au-delà, la paire revient en Kea 2.6 si le retour arrière automatique est actif."
       }
     }
   },

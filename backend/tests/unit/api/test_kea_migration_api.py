@@ -69,3 +69,34 @@ def test_analyze_refuses_an_unknown_target_and_non_admins(admin, login):
     resp = admin.post(f"{V1}/install/kea-migration/analyze", json={"series": "2.6", "source": "distro"})
     assert resp.status_code == 400
     assert login("dhani").post(f"{V1}/install/kea-migration/analyze", json={}).status_code == 403
+
+
+MID = "01JB0ZK4Q9X3M5N7P8R2T4V6W8"
+
+
+def test_migration_state_from_cluster_toml(admin, services):
+    me = services.ctx.node.id
+    rec = {
+        "id": MID,
+        "series": "3.2",
+        "source": "isc",
+        "state": "migrating",
+        "phase": "migrate",
+        "stage": "window",
+        "outage_seconds": 12.5,
+        "nodes": {me: {"name": "ns1", "role": "primary", "rollback_ready": True, "packages_before": []}},
+    }
+    services.ctx.config_store.update_cluster(
+        lambda c: c.settings.setdefault("kea", {}).update({"migration": rec}), "test"
+    )
+    current = admin.get(f"{V1}/install/kea-migration").get_json()["current"]
+    assert current["id"] == MID and current["stage"] == "window" and current["rollback_possible"] is True
+    assert current["outage_max_seconds"] == 180
+    assert "packages_before" not in current["nodes"][0]
+    assert admin.get(f"{V1}/install/kea-migration/{MID}").get_json() == current
+    assert admin.get(f"{V1}/install/kea-migration/01JB0ZK4Q9X3M5N7P8R2T4V6W9").status_code == 404
+
+
+def test_phase_plan_is_specified_but_not_built(admin, login):
+    resp = admin.post(f"{V1}/install/kea-migration/{MID}/plan", json={"phase": "prepare"})
+    assert resp.status_code == 501

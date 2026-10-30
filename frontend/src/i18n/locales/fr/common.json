@@ -183,7 +183,8 @@
       "admin": "Administration",
       "restore": "Restauration",
       "dns.failover": "Reprise DDNS",
-      "dns.resolver": "Repli du résolveur"
+      "dns.resolver": "Repli du résolveur",
+      "kea.migration": "Migration Kea"
     },
     "steps": {
       "apply": "Revérifier les préconditions et appliquer sur {{node}}",

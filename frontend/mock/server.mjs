@@ -111,6 +111,7 @@ Object.assign(PERMISSIONS, {
   'POST /dns/resolver/fallback/plan': 'write:dns.config', 'POST /dns/resolver/fallback/return/plan': 'write:dns.config',
   'PUT /dns/resolver/fallback': 'write:dns.config',
   'GET /install/kea-migration': 'admin:install', 'POST /install/kea-migration/analyze': 'admin:install',
+  'GET /install/kea-migration/{id}': 'admin:install', 'POST /install/kea-migration/{id}/plan': 'admin:install',
   'GET /hosts/ipv6': 'read:hosts', 'GET /admin/ipv6': 'admin:settings', 'PUT /admin/ipv6': 'admin:settings',
 })
 
@@ -2791,7 +2792,7 @@ function buildHandlers(state, emit) {
     ...archivesHandlers(state, { Problem, invalid, createPlan }),
     ...ddnsFailoverHandlers(state, { Problem, invalid, createPlan, hasPermission }),
     ...resolverHandlers(state, { Problem, invalid, createPlan }),
-    ...keaMigrationHandlers(state, { Problem, invalid }),
+    ...keaMigrationHandlers(state, { Problem, invalid, createPlan, hasPermission }),
     ...ipv6Handlers(state, { Problem, invalid }),
   }
 }
@@ -2894,6 +2895,14 @@ export function createMockServer({ quiet = false, jobStepMs, live = false, apply
         if (broken) state.permissionsBroken.add(node || state.selfId)
         else state.permissionsBroken.delete(node || state.selfId)
         sendJson(res, 200, { broken: [...state.permissionsBroken] })
+        return
+      }
+      // Mock only: make one step of the next Kea migration job fail ({fail_at: step name or null}).
+      if (url.pathname === `${API}/_mock/kea-migration` && req.method === 'POST') {
+        const raw = await readBody(req)
+        state.keaMigration ||= { analysis: null, migration: null, failAt: null }
+        state.keaMigration.failAt = (raw ? JSON.parse(raw) : {}).fail_at || null
+        sendJson(res, 200, { fail_at: state.keaMigration.failAt })
         return
       }
       // Mock only: switch the cluster to another scenario (pair, three, four); sessions stay.

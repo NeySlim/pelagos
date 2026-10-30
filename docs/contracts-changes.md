@@ -2168,3 +2168,25 @@ bounded (0.2.5 entry above). WP-API-AUTH: `api/ipv6.py`, `services/ipv6_plans.py
 `services/ipv6_service.py` (`rows()`), `services/container.py`. WP-FRONTEND (batch V5): the
 selection, replacement and zone buttons of the IPv6 tab, `endpoints.js`, `api.js` and the mock
 for the three routes; messages (en, fr) are already in the catalogs.
+
+## 2026-10-30, contract C5: Kea 3.x migration
+Additive, release 0.3.0. Architecture section 28 (new), sections 4, 10, 13 and 17. Contract
+(`domain/plan.py`): plan scope `kea.migration` (`admin:install`, apply also needs `ops:dhcp.ha`);
+keys `plan.kea_migration.prepare|migrate|rollback` and `job.step.kea_migration.*`
+(`domain/messages.py`). WP-CORE: `core/kea_migration.py` (the replicated `[settings.kea.migration]`
+record, its state machine, the helper and driver step names, the lease copy), settings
+`kea.migration_response_delay_milliseconds`, `migration_auto_rollback_enabled`,
+`migration_outage_max_seconds`, `migration_lease_file_max_mb` (group `migration`; design 13.4 named
+the first `_ms`, renamed per the settings naming rule; the last is new: the bound of the lease copy),
+`kea.migration` managed by its own screen, `kea.migration` in `UNLOCKED_SCOPES`, the Kea migration
+helper steps sealed by `core.step_seal`, route `GET /repl/v1/kea/leases/<family>` and
+`ReplicationClient.fetch_kea_leases`. WP-INSTALLER: `installer/helper.py` accepts sealed
+`kea.migration` steps from the migration's driver for the migration its cluster.toml holds
+(`PEER_SCOPE_STEPS`); K3 adds the helper operation `plan_kea_migration` and the step runners.
+WP-API-AUTH: `GET /install/kea-migration` fills `current`, `GET /install/kea-migration/{id}` answers
+from cluster.toml, `POST /install/kea-migration/{id}/plan` is registered and answers 501 until K3 to
+K5; `POST /plans/{id}/apply` of a `kea.migration` plan needs `ops:dhcp.ha`; K5 adds the peer action
+`kea.migration.leases`. WP-FRONTEND: `api.keaMigration.get` and `.plan`, the mock runs the three
+phases as jobs with labelled steps, moves the HA states and the record, returns automatically when
+a step of time 1 or 2 fails (`POST /_mock/kea-migration {"fail_at": step}`), labels of the settings
+and the scope in en and fr. Affects K3 to K7.

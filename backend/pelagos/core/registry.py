@@ -19,8 +19,9 @@ from pelagos.domain.plan import NodeApplyResult, Plan
 log = logging.getLogger(__name__)
 
 # Installer plans edit files and restart services: they do not use the connectors' sockets, so they
-# run without the backend lock and never stall the collector's polls for minutes.
-UNLOCKED_SCOPES = frozenset({"install", "import", "security"})
+# run without the backend lock and never stall the collector's polls for minutes. Kea migration
+# steps install packages and stop daemons through the helper the same way (section 28).
+UNLOCKED_SCOPES = frozenset({"install", "import", "security", "kea.migration"})
 
 
 class EngineNotConfigured(LookupError):

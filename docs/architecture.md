@@ -736,7 +736,7 @@ class PlanScope(str, Enum):
     DHCP_CLASS="dhcp.class"; DHCP_OPTIONS="dhcp.options"; DHCP_CONFIG="dhcp.config"; DHCP_LEASE="dhcp.lease"
     DHCP_HA="dhcp.ha"; DHCP_DDNS="dhcp.ddns"; D2_CONFIG="d2.config"
     HOST="host"; INSTALL="install"; IMPORT="import"; SECURITY="security"; ADMIN="admin"
-    RESTORE="restore"; DNS_FAILOVER="dns.failover"; DNS_RESOLVER="dns.resolver"
+    RESTORE="restore"; DNS_FAILOVER="dns.failover"; DNS_RESOLVER="dns.resolver"; KEA_MIGRATION="kea.migration"
 class PlanState(str, Enum): DRAFT="draft"; VALIDATED="validated"; APPLYING="applying"; APPLIED="applied"; FAILED="failed"; ROLLED_BACK="rolled_back"; EXPIRED="expired"
 class PreconditionKind(str, Enum): CONFIG_HASH="config_hash"; SOA_SERIAL="soa_serial"; RRSET_EXISTS="rrset_exists"; RRSET_ABSENT="rrset_absent"; FILE_SHA256="file_sha256"; HA_STATE="ha_state"
 
@@ -1632,7 +1632,7 @@ copy the mock server serves):
   `certificates.nodes`, `notifications.channels`, `notifications.order`,
   `notifications.mute`, `archives.destinations`, `archives.recipients`,
   `ddns.roles`, `resolver.fallback`, `resolver.presets`, `ipv6.sources`,
-  `ipv6.prefixes`) sit in their domain table but are not settings:
+  `ipv6.prefixes`, `kea.migration`) sit in their domain table but are not settings:
   `PUT /admin/settings` refuses them ("set through its own screen").
 - A time of day is a `string` `"HH:MM"` (`archives.start_time`), local time
   of the node.
@@ -1763,6 +1763,7 @@ application/json`. All endpoints under `/repl/v1`.
 | `POST /repl/v1/enroll` | section 14 | section 14 | accepts a connection without a client certificate; protected by the one-time token |
 | `GET /repl/v1/ca` | | `{"ca_pem","ca_fingerprint","node_id","name"}` | no client certificate; the enrolling node checks the fingerprint before sending its token |
 | `POST /repl/v1/renew` | `{"csr_pem"}` | `{"cert_pem"}` | section 14; the CSR must carry the caller's own node id |
+| `GET /repl/v1/kea/leases/<family>?migration=<id>` | | the lease file (`application/octet-stream`) | `family` `4` or `6`; the copy a Kea migration's stop step left in `<var>/kea-migration/<id>/leases<family>.csv`, served only while `[settings.kea.migration]` holds that id in `migrating`, `failed` or `rolling_back` and lists both this node and the caller (`404` otherwise, `403` for a caller not in the migration); a symlink or non-regular file is `404`, a file over `kea.migration_lease_file_max_mb` is `413`; the caller checks size and sha256 against the stop step's result (section 28) |
 
 The TLS layer requests a client certificate (`CERT_OPTIONAL`, chain verified
 against the cluster CA when presented) so that `enroll` and `ca` are
@@ -1836,6 +1837,7 @@ run under the collector's backend lock):
 | `archive.run` | `{}` | `{"requested": true}`: sends the `archive` event to this node's collector (section 23) |
 | `resolver.health` | `{}` | this node's entry of `GET /dns/resolver/health` (`nodes[]`, NodeHealth of section 25), read from its series cache and probe table |
 | `resolver.series` | `{"metric","since","until","step"}` | `{"node_id","series"}`: this node's series of one resolver metric from its own cache, the `GET /series/resolver` answer for that node (section 25) |
+| `kea.migration.leases` | `{"migration","family","from_node","sha256","size"}` | `{"path","sha256","size"}`: this node fetches the lease copy of `from_node` (`GET /repl/v1/kea/leases/<family>`) into its own `<var>/kea-migration/<id>/` (0700) and checks it; the step `kea-mig-leases-in` then installs it (section 28, batch K5) |
 | `permissions.status` | `{}` | `{"node_id", "checks": [check]}`: the permission guard's standing checks of this node, run now in its collector (section 7) |
 | `tokens.usage` | `{}` | `{"usage": {token id: {"at","node","ip"}}}`: last use of each API token on this node (section 16) |
 | `ipv6.observations` | `{"since"?}` | `{"node_id","observations": [Observation],"sources": [SourceStatus]}`: what this node observed (section 27) |
@@ -3079,16 +3081,17 @@ peer action (4 s per peer); a node that does not answer is listed in
 | `POST /dns/resolver/fallback/return/plan` | `write:dns.config` | `{}` | composite `Plan` (scope `dns.resolver`) that puts back `forward` and `forwarders` of each node as recorded in `before`; `409` when no fallback is active |
 | `PUT /dns/resolver/fallback` | `write:dns.config` | `{"hours"}` (1 to `fallback_max_hours`, counted from the node's clock) or `{"until"}`: in the future, at most `fallback_max_hours` from now | `{"fallback"}`; `409` when no fallback is active |
 
-### Kea migration analysis
+### Kea migration
 
-Section 26. Read-only in release 0.2.2: nothing is installed or written to
-`/etc/kea`. The prepare, migrate and rollback plans and `GET
-/install/kea-migration/{id}` come with release 0.3.0 (contract C5).
+Sections 26 (analysis, read-only) and 28 (prepare, migrate, roll back, release 0.3.0). The analysis
+installs nothing and writes nothing to `/etc/kea`.
 
 | Method, path | Permission | Request | Response |
 | --- | --- | --- | --- |
-| `GET /install/kea-migration` | `admin:install` | | `{"nodes": [KeaInventory], "targets": [Target], "analysis": Report|null, "current": null}` (`analysis`: the last report this node produced; `current` stays null until 0.3.0) |
+| `GET /install/kea-migration` | `admin:install` | | `{"nodes": [KeaInventory], "targets": [Target], "analysis": Report|null, "current": Migration|null}` (`analysis`: the last report this node produced; `current`: the migration `[settings.kea.migration]` holds, section 28) |
 | `POST /install/kea-migration/analyze` | `admin:install` | `{"series","source","node_ids"?}` (`series` and `source` one of `targets`; `node_ids` default every node running Kea) | `Report`; `400` on an unknown target or node; audited `kea.migration.analyze` |
+| `GET /install/kea-migration/{id}` | `admin:install` | | `Migration` (section 28); `404` unless it is the migration cluster.toml holds |
+| `POST /install/kea-migration/{id}/plan` | `admin:install` and `ops:dhcp.ha` | `{"phase": "prepare"|"migrate"|"rollback","options"?: {"response_delay_milliseconds","https_sockets","auto_rollback"}}` (`id`: the analysis for `prepare`, the migration otherwise) | composite `Plan` (scope `kea.migration`, `requires_confirmation`); `404` unknown id, `409 conflict` while a blocking finding is open or when the phase does not follow the state (section 28); `501` until batches K3 to K5 |
 
 ### IPv6 observations
 
@@ -4108,7 +4111,7 @@ fallback, return and the health route, R4 screen, R5 daemon and lab tests.
 
 Design: `design.md` 13.4 (ISC knowledge base, ARM 3.2.1 and the Debian and
 Cloudsmith package lists read on 2026-10-28). This contract covers the
-read-only analysis of release 0.2.2; the migration itself is contract C5
+read-only analysis of release 0.2.2; the migration itself is contract C5 (section 28)
 (release 0.3.0). Code: rules and conversion in `connectors/kea/migration.py`
 (pure functions over configuration dicts, no I/O), packages per source, the
 hooks list of a target and the dry-run validation in
@@ -4476,3 +4479,142 @@ the cache's `meta` (`ipv6.sources_status`). **SourceStatus**: `{"source","source
     (`update-policy` of the admin key, `allow-transfer` of the read key, `dns.default_ns`);
     `<zone>` is `reverse_zone_name(prefix)`, `node_ids` hold secondary copies. `409 conflict`
     when a served `ip6.arpa` zone of that view already holds the prefix.
+
+## 28. Kea 3.x migration
+
+Design: `design.md` 13.4 decisions 4 to 7 (ISC KB "Things to be aware of when upgrading to Kea
+3.0.0" and "Kea 3.2", ARM 3.2.1 `hooks-ha.rst`, read on 2026-10-28; lab facts of batch K1,
+2026-10-29). Contract C5 of release 0.3.0. Code: the replicated state, its state machine, the step
+vocabulary and the lease copy in `core/kea_migration.py`; the phase plans in
+`services/kea_migration_service.py` (K3 to K5); the helper steps in `installer/kea_migration.py`
+(K3 to K5); the wizard in `frontend/src/pages/install/` (K6). Batches: K3 prepare, K4 time 1 and its
+return, K5 the window, time 3 and the return of the pair, K6 wizard, K7 lab.
+
+- **Migration** (`[settings.kea.migration]` in cluster.toml, replicated entry by entry like any
+  setting, written only by the driving node through `kea_migration.write` and `move`; not a
+  setting: `PUT /admin/settings` refuses it). TOML holds no null: null keys are left out and read
+  back as null by `read_migration`; a record without `id`, `series` or a known `state` is no
+  migration.
+
+  ```toml
+  [settings.kea.migration]
+  id = "01JB0ZK4Q9X3M5N7P8R2T4V6W8"      # ULID; the id of the analysis the prepare plan came from
+  analysis_id = "01JB0ZK4Q9X3M5N7P8R2T4V6W8"
+  series = "3.2"                          # target series and source, one per cluster (decision 1)
+  source = "isc"                          # isc | backports
+  target_version = "3.2.1-isc20260928103142"
+  from_series = "2.6"
+  state = "migrating"                     # below
+  phase = "migrate"                       # prepare | migrate | rollback: the last phase planned
+  stage = "window"                        # migrate only: standby (time 1) | window (time 2) | primary (time 3) | done
+  driver = "01JB0ZK4Q9X3M5N7P8R2T4V6W8"  # node running the current phase; peers accept steps only from it
+  plan_id = "01JB..."                     # the plan of the current phase
+  created_by = "admin"
+  started_at = "2026-11-02T03:00:00Z"
+  updated_at = "2026-11-02T03:01:10Z"
+  finished_at = "2026-11-02T03:04:00Z"
+  outage_started_at = "2026-11-02T03:01:02Z"   # P stopped (start of time 2)
+  outage_seconds = 21.4                   # until S answered partner-down and lease4-get-all
+  error = "kea-mig-wait-partner-down: no partner-down within 180 s"
+  error_step = "kea-mig-wait-partner-down"
+  options = { response_delay_milliseconds = 10000, https_sockets = false, auto_rollback = true }
+
+  [settings.kea.migration.nodes.01JB0ZK4Q9X3M5N7P8R2T4V6W8]
+  name = "ns2"
+  role = "standby"                        # primary | standby | backup | single (no HA)
+  order = 1                               # order of the node's turn
+  engines = ["kea4", "d2"]                # the used daemons (analysis `units`)
+  step = "kea-mig-start"                  # the last step started on this node
+  status = "done"                         # pending | running | done | failed | rolled_back
+  ha_state = "partner-down"               # last status-get the driver read
+  from_version = "2.6.3"
+  to_version = "3.2.1"                    # the version running now
+  packages_before = [{ name = "kea-dhcp4-server", version = "2.6.3-1+deb13u1" }]   # exact, for the return
+  packages_target = [{ name = "isc-kea-dhcp4", version = "3.2.1-isc20260928103142" }]
+  archive_id = "01JB..."                  # archive made by the prepare phase (section 23)
+  rollback_ready = true                   # previous packages cached and previous files saved
+  prepared_at = "..."; started_at = "..."; finished_at = "..."; error = "..."
+  ```
+
+- **States** (`kea_migration.TRANSITIONS`, `check_move`; any other move raises
+  `MigrationStateError`): a prepare plan creates the record in `preparing`, then `prepared` or
+  `prepare_failed`; a migrate plan moves `prepared` to `migrating`, then `migrated`, or `failed`
+  (stopped at a step, Kea possibly stopped somewhere: resume with a new migrate plan or roll back),
+  or `rolling_back` (automatic return during time 1 or 2); a rollback plan moves `migrating`,
+  `failed` or `migrated` to `rolling_back`, then `rolled_back` or `failed`. A new prepare plan (a
+  new analysis id) replaces a record in `prepared`, `prepare_failed`, `migrated` or `rolled_back`;
+  any other state answers `409`. `phase_allowed(migration, phase)` gives that refusal.
+  `rollback_possible` is true in `migrating`, `failed` and `migrated` when every node has
+  `rollback_ready`; it is false after `kea-mig-finish` dropped the cached packages.
+- **Migration** (API view, `kea_migration.view`): the record above with `nodes` as a list sorted by
+  `order` (without the package lists), plus `outage_max_seconds` (setting) and
+  `rollback_possible`. The wizard polls `GET /install/kea-migration/{id}` (every 2 s while a phase
+  runs) and follows the HA states through the existing `ha` WebSocket events and the plan's job
+  through `jobs` events; each job step carries `label_message`
+  (`job.step.kea_migration.<step without kea-mig->`, parameter `node`, `step_message`).
+- **Plans**: scope `kea.migration` (`PlanScope.KEA_MIGRATION`), permission `admin:install` to
+  apply, plus `ops:dhcp.ha` (checked by the route and by `POST /plans/{id}/apply`), always
+  `requires_confirmation`, run as a job without the backend lock (`UNLOCKED_SCOPES`). One composite
+  per phase, one change per step and node: target `kea-migration/<step>/<node id>`, `after =
+  {"step","details": {"migration_id","series","source",...},"summary"}`, `node_ids` the node that
+  runs it. Summary keys `plan.kea_migration.prepare|migrate|rollback` (parameters `nodes`,
+  `series`, `source`, `outage`). The driver writes the record before the first step, pushes
+  cluster.toml to every node of the migration (`PUT /repl/v1/config`) and sends each step to its
+  node when its turn comes, sealed then (`core.step_seal`, one hour of validity). The job stops at
+  the first failed step.
+- **Steps**. Helper steps (`HELPER_STEPS`, run by the node's privileged helper; a peer's helper
+  accepts one only in a `kea.migration` plan, sealed with the master key, from the record's
+  `driver`, with `details.migration_id` the id of its own `[settings.kea.migration]` and its own
+  target, and refuses it while that record is missing, `rolled_back` or `prepare_failed`; the
+  driver's own helper accepts only steps its operation `plan_kea_migration` recorded):
+  `kea-mig-prepare` (packages downloaded into the package manager cache, `apt-get install
+  --download-only` or `dnf download`, converted files and the 2.6 files saved under
+  `<var>/kea-migration/<id>/`, 0700, never in `/etc/kea`; result `packages_before`,
+  `packages_target`, `rollback_ready`), `kea-mig-ha-maintenance` (`details.action` `start` or
+  `cancel`, sent to the node that keeps serving), `kea-mig-stop` (every Kea unit of the node, and
+  `kea-ctrl-agent`; with `details.export_leases` it runs `kea-lfc` on each lease file, then copies it
+  to `<var>/kea-migration/<id>/leases<family>.csv`, 0600 pelagos; result `{"leases": {family:
+  {"sha256","size"}}}`), `kea-mig-install` (`details.direction` `target`: target packages, AppArmor
+  profiles of removed Debian packages disabled, converted files in place with
+  `max-response-delay` set to `options.response_delay_milliseconds` and `max-unacked-clients` 0 on a
+  standby, `kea-dhcp4 -t` and friends with the installed binaries; `previous`: the packages of
+  `packages_before` at their exact versions, saved files and AppArmor profiles back),
+  `kea-mig-validate-partner` (the partner's converted files, carried sealed in the step, checked with
+  this node's 3.x binaries in a temporary directory), `kea-mig-leases-in` (the copy fetched by
+  `kea.migration.leases`, checked again, replaces the node's lease file, owner and mode of Kea's),
+  `kea-mig-start` (`details.engines`), `kea-mig-delays` (the original detection delays through
+  `config-set` and `config-write`), `kea-mig-finish` (drops the migration directory but the
+  lease copies, the cached packages may go). Driver steps (`DRIVER_STEPS`, run by the driving
+  node's service, never sent to a helper): `kea-mig-archive` (`archive.run` on the node, then
+  `archive.state` until a newer archive, its id noted), `kea-mig-fetch-leases` (peer action
+  `kea.migration.leases` on the receiving node with the sum the stop step returned),
+  `kea-mig-wait-partner-down` (status-get partner-down and a `lease4-get-all` answer on the standby,
+  bounded by `kea.migration_outage_max_seconds`; the outage is measured from `outage_started_at`),
+  `kea-mig-wait-ha` (every relationship back to its normal state, as `ha-tls-4-verify` waits). A new
+  step is a contract change.
+- **Order of a hot-standby pair** (design 13.4 decision 5; backups run their standby steps before S,
+  a node without HA runs the primary's turn alone, `load-balancing` like hot-standby):
+  prepare: `kea-mig-archive`, `kea-mig-prepare` on every node. Migrate, time 1: maintenance start on
+  P, stop, install (target), validate-partner on S. Time 2: stop with `export_leases` on P,
+  fetch-leases and leases-in on S, start S, wait-partner-down. Time 3: install (target) and start
+  on P, wait-ha, delays on every node, finish on every node. Rollback before time 3 (automatic when
+  `options.auto_rollback`, default `kea.migration_auto_rollback_enabled`, and a step of time 1 or 2
+  fails, or the outage passes `kea.migration_outage_max_seconds`): stop S if started, install
+  (previous) and start on S, start P if stopped, maintenance cancel on P; state `rolled_back`.
+  Rollback of a migrated pair: the same choreography as migrate with `direction` `previous` and the
+  same short window, then `rolled_back`.
+- **Lease copy**: served by the collector of the node that stopped
+  (`GET /repl/v1/kea/leases/<family>`, section 13, `open_lease_copy`), fetched by the collector of the
+  receiving node (`ReplicationClient.fetch_kea_leases`), never outside the mTLS channel, Kea's data
+  directory and the 0700 migration directory. The memfile format is the same in 2.6 and 3.x (KB
+  3.0), so the copy works both ways.
+- **Settings** (`[settings.kea]`, group `migration`): `migration_response_delay_milliseconds`
+  (10000, 1000 to 60000), `migration_auto_rollback_enabled` (true),
+  `migration_outage_max_seconds` (180, 30 to 3600), `migration_lease_file_max_mb` (256, 1 to 4096).
+  No new secret.
+- **Audit**: `kea.migration.prepare`, `kea.migration.step` (one entry per step: target
+  `kea-migration:<id>`, request `{"step","node_id","phase"}`, response `{"ok","outage_seconds"?}`),
+  `kea.migration.rollback`, on the driving node; each node audits the plan it applies as usual.
+- **Takeover**: a driver that restarts or stops answering leaves the record as it is; any node then
+  shows it and may plan the next phase allowed by its state (`failed` after a step that never
+  finished is set by the new driver, which becomes `driver`).

@@ -356,11 +356,14 @@ export const resolverHealth = {
   extend: (hours) => apiClient.put('/dns/resolver/fallback', { hours }),
 }
 
-// Kea 2.6 to 3.x migration, read-only analysis (Installation > Kea migration, section 26).
+// Kea 2.6 to 3.x migration (Installation > Kea migration): analysis (section 26), phases (section 28).
 export const keaMigration = {
   overview: () => apiClient.get('/install/kea-migration'),
   // {series, source, node_ids?}
   analyze: (body) => apiClient.post('/install/kea-migration/analyze', body),
+  get: (id) => apiClient.get(`/install/kea-migration/${encodeURIComponent(id)}`),
+  // {phase: prepare|migrate|rollback, options?: {response_delay_milliseconds, https_sockets}}
+  plan: (id, body) => apiClient.post(`/install/kea-migration/${encodeURIComponent(id)}/plan`, body),
 }
 
 // Observed IPv6 addresses (Hosts > IPv6, Administration > IPv6 observation, section 27).

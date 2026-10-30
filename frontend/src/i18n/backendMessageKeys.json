@@ -846,6 +846,45 @@
   "job.step.kea_config": [
     "engine"
   ],
+  "job.step.kea_migration.archive": [
+    "node"
+  ],
+  "job.step.kea_migration.delays": [
+    "node"
+  ],
+  "job.step.kea_migration.fetch_leases": [
+    "node"
+  ],
+  "job.step.kea_migration.finish": [
+    "node"
+  ],
+  "job.step.kea_migration.ha_maintenance": [
+    "node"
+  ],
+  "job.step.kea_migration.install": [
+    "node"
+  ],
+  "job.step.kea_migration.leases_in": [
+    "node"
+  ],
+  "job.step.kea_migration.prepare": [
+    "node"
+  ],
+  "job.step.kea_migration.start": [
+    "node"
+  ],
+  "job.step.kea_migration.stop": [
+    "node"
+  ],
+  "job.step.kea_migration.validate_partner": [
+    "node"
+  ],
+  "job.step.kea_migration.wait_ha": [
+    "node"
+  ],
+  "job.step.kea_migration.wait_partner_down": [
+    "node"
+  ],
   "job.step.kea_socket": [
     "engine"
   ],
@@ -1276,6 +1315,21 @@
   "plan.kea.write_running": [
     "engine",
     "path"
+  ],
+  "plan.kea_migration.migrate": [
+    "nodes",
+    "outage",
+    "series",
+    "source"
+  ],
+  "plan.kea_migration.prepare": [
+    "nodes",
+    "series",
+    "source"
+  ],
+  "plan.kea_migration.rollback": [
+    "nodes",
+    "series"
   ],
   "plan.ptr.cleanup": [
     "created",

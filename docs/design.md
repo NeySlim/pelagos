@@ -923,7 +923,7 @@ Nouveau scope de plan `kea.migration`, permission `admin:install` plus `ops:dhcp
 
 **Réglages**
 
-`[settings.kea]` : `migration_response_delay_ms` (10 000), `migration_auto_rollback_enabled` (vrai), `migration_outage_max_seconds` (180 : au-delà, retour arrière automatique pendant le temps 2). Pas de secret nouveau.
+`[settings.kea]` : `migration_response_delay_milliseconds` (10 000), `migration_auto_rollback_enabled` (vrai), `migration_outage_max_seconds` (180 : au-delà, retour arrière automatique pendant le temps 2), `migration_lease_file_max_mb` (256 : taille maximale du fichier de baux copié). Pas de secret nouveau. Noms fixés par le contrat C5 (architecture, section 28) selon la règle de nommage des réglages ; l'option du plan s'appelle de même `response_delay_milliseconds`.
 
 **Plusieurs nœuds**
 

@@ -471,6 +471,21 @@ MATRIX: list[tuple[str, str, str, dict | None, str]] = [
     ("GET", "/series/resolver", "/series/resolver", None, "read:series"),
     ("GET", "/install/kea-migration", "/install/kea-migration", None, "admin:install"),
     ("POST", "/install/kea-migration/analyze", "/install/kea-migration/analyze", {}, "admin:install"),
+    # Kea migration state and phase plans (section 28): the plan route answers 501 until K3 to K5.
+    (
+        "GET",
+        "/install/kea-migration/<string:migration_id>",
+        "/install/kea-migration/x",
+        None,
+        "admin:install",
+    ),
+    (
+        "POST",
+        "/install/kea-migration/<string:migration_id>/plan",
+        "/install/kea-migration/x/plan",
+        {"phase": "prepare"},
+        "admin:install+ops:dhcp.ha",
+    ),
     ("GET", "/hosts/ipv6", "/hosts/ipv6", None, "read:hosts"),
     ("POST", "/hosts/ipv6/plan", "/hosts/ipv6/plan", {"items": []}, "write:dns.records"),
     (

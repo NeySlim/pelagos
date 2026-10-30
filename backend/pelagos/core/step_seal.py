@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Seals on the dual-key switch and Kea HA TLS steps a node sends to a peer (installer security plans).
+"""Seals on the dual-key, Kea HA TLS and Kea migration steps a node sends to a peer (installer plans).
 
 The sending node seals each step it sends with the cluster master key (section 12): `after.seal`
 is the canonical change, the origin and receiving node ids, the time and a nonce, encrypted under
@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from pelagos.core.kea_ha_tls import ALL_STEPS as HA_TLS_STEPS
+from pelagos.core.kea_migration import HELPER_STEPS as KEA_MIGRATION_STEPS
 from pelagos.core.secrets import SecretBox, SecretError
 from pelagos.domain.common import from_rfc3339, to_rfc3339, utcnow
 from pelagos.domain.plan import Change, Plan
@@ -27,7 +28,7 @@ SEAL = "seal"
 SEALED_SECRET = "sealed_secret"  # noqa: S105 (a field name)
 SECRET_SHA256 = "secret_sha256"  # noqa: S105 (a field name)
 DUAL_KEY_STEPS = ("1-bind-add", "2-d2-switch", "3-bind-remove")
-SEALED_STEPS = (*DUAL_KEY_STEPS, *HA_TLS_STEPS)
+SEALED_STEPS = (*DUAL_KEY_STEPS, *HA_TLS_STEPS, *KEA_MIGRATION_STEPS)
 SEAL_MAX_AGE = timedelta(hours=1)
 CLOCK_SKEW = timedelta(minutes=5)
 

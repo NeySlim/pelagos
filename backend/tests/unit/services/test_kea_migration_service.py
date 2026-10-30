@@ -114,6 +114,30 @@ def test_overview_asks_each_kea_peer_and_keeps_one_cluster_target(service):
     assert out["analysis"] is None and out["current"] is None
 
 
+def test_overview_shows_the_newest_analysis_of_any_node(service):
+    """An analysis run from the peer shows here, with its target version (review B10, B25)."""
+    mine = {"id": "A1", "created_at": "2026-10-29T23:00:00Z", "series": "3.2", "source": "isc",
+            "target_version": "3.2.0"}  # fmt: skip
+    service._keep(mine)
+    theirs = {"id": "A2", "created_at": "2026-10-30T01:50:00Z", "series": "3.2", "source": "isc",
+              "target_version": "3.2.1"}  # fmt: skip
+    peer_inv = {**service.local_inventory(), "node_id": "node-b", "name": "ns2", "analysis": theirs}
+    service.peers = Peers({"node-b": lambda name, body: peer_inv})
+    out = service.overview()
+    assert out["analysis"]["id"] == "A2" and out["analysis"]["kept_on"] == {
+        "node_id": "node-b",
+        "name": "ns2",
+    }
+    assert all("analysis" not in n for n in out["nodes"])
+    by = {(t["series"], t["source"]): t for t in out["targets"]}
+    assert by[("3.2", "isc")]["version"] == "3.2.1"
+    # A peer on an older release sends no analysis: this node's own report still counts.
+    service.peers = Peers(
+        {"node-b": lambda name, body: {k: v for k, v in peer_inv.items() if k != "analysis"}}
+    )
+    assert service.overview()["analysis"]["id"] == "A1"
+
+
 def test_overview_reports_an_offline_peer(service):
     service.peers = Peers({"node-b": lambda name, body: EngineUnavailable("node ns2 is offline")})
     nodes = service.overview()["nodes"]

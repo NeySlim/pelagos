@@ -107,6 +107,8 @@ class KeaMigrationService:
             "distro": {"id": env.distro.id, "codename": env.distro.codename},
             "engines": engines,
             "targets": [{"series": t["series"], "source": t["source"]} for t in km.targets(env.distro)],
+            # The last report kept here: the overview shows the newest one of the cluster.
+            "analysis": self.last_report(),
         }
 
     @staticmethod
@@ -182,10 +184,11 @@ class KeaMigrationService:
 
         with ThreadPoolExecutor(max_workers=max(1, min(8, len(nodes)))) as pool:
             inventory = list(pool.map(one, nodes))
-        analysis = self.last_report()
+        reports = cluster_reports(inventory, self.ctx.node.id, self.last_report())
+        analysis = reports[0] if reports else None
         return {
             "nodes": inventory,
-            "targets": self.targets(inventory, analysis),
+            "targets": self.targets(inventory, analysis, reports),
             "analysis": analysis,
             "current": self.current(),
         }
@@ -210,6 +213,7 @@ class KeaMigrationService:
     def targets(
         inventory: list[dict[str, Any]],
         analysis: dict[str, Any] | None,
+        reports: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """One target for the whole cluster: available when every node answers and can install it
         (an offline node or one on an older release has an unknown distribution); otherwise
@@ -236,8 +240,10 @@ class KeaMigrationService:
                 if reason:
                     break
             version = None
-            if analysis and analysis.get("series") == series and analysis.get("source") == source:
-                version = analysis.get("target_version") or None
+            for report in reports if reports is not None else [analysis] if analysis else []:
+                if report.get("series") == series and report.get("source") == source:
+                    version = report.get("target_version") or None
+                    break
             target = {
                 "series": series,
                 "source": source,
@@ -373,6 +379,22 @@ class KeaMigrationService:
         except (OSError, ValueError):
             return None
         return data if isinstance(data, dict) else None
+
+
+def cluster_reports(
+    inventory: list[dict[str, Any]], local_id: str, local: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """Every node's last analysis (taken out of its inventory entry), newest first, each with
+    `kept_on` {"node_id","name"}: a report run from one node shows on all of them."""
+    seen: dict[str, dict[str, Any]] = {}
+    entries = [(n.get("node_id"), n.get("name"), n.pop("analysis", None)) for n in inventory]
+    if not any(e[0] == local_id for e in entries):
+        entries.append((local_id, None, local))
+    for node_id, name, report in entries:
+        if not isinstance(report, dict) or not report.get("id") or report["id"] in seen:
+            continue
+        seen[report["id"]] = {**report, "kept_on": {"node_id": node_id, "name": name}}
+    return sorted(seen.values(), key=lambda r: str(r.get("created_at") or ""), reverse=True)
 
 
 def _finding(node_id: str, finding: mig.Finding) -> dict[str, Any]:

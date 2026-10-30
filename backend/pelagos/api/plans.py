@@ -27,7 +27,11 @@ def _plan(plan_id: str) -> Plan:
             "plan_expired", f"plan {plan_id} expired at {to_rfc3339(exc.expired_at)}; build it again"
         ) from None
     except PlanNotFound:
-        raise ApiError("not_found", f"plan {plan_id} unknown") from None
+        # Plans live on the node that built them (review B10): say so rather than a bare 404.
+        raise ApiError(
+            "not_found",
+            f"plan {plan_id} unknown on {ctx().node.name}: a plan stays on the node where it was built",
+        ) from None
     session = current_session()
     if plan.created_by != session.username and not has_permission(session.permissions, "*"):
         raise ApiError("forbidden", "only the creator or an admin can use this plan")

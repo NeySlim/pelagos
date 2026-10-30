@@ -31,7 +31,7 @@ const finding = (severity, code, node_id, engine, params = {}) => ({
   message: { key: `kea_migration.${code}`, params: { path: 'Dhcp4', ...params } },
 })
 const report = {
-  id: 'R1', created_at: '2026-10-29T10:00:00Z', created_by: 'admin', series: '3.2', source: 'isc', target_version: '3.2.1-isc20260928103142',
+  id: 'R1', created_at: '2026-10-29T10:00:00Z', created_by: 'admin', kept_on: { node_id: 'N2', name: 'ns2' }, series: '3.2', source: 'isc', target_version: '3.2.1-isc20260928103142',
   node_ids: ['n1', 'n2'],
   findings: [
     finding('converted', 'restrict_commands', 'n1', 'kea4'),
@@ -143,6 +143,7 @@ describe('KeaMigrationPage', () => {
     fireEvent.change(await screen.findByTestId('kea-migration-target-select'), { target: { value: '3.0/isc' } })
     fireEvent.click(screen.getByTestId('kea-migration-analyze'))
     await screen.findByTestId('kea-migration-report')
+    expect(screen.getByTestId('kea-migration-report')).toHaveTextContent('from ns2')
     expect(api.keaMigration.analyze).toHaveBeenCalledWith({ series: '3.0', source: 'isc' })
     expect(screen.getByTestId('kea-migration-blocking')).toBeInTheDocument()
     const groups = screen.getAllByTestId('kea-migration-group')

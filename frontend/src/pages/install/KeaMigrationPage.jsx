@@ -153,7 +153,7 @@ function Report({ report, names }) {
           {t('keaMigration.report.title', { series: report.series, source: t(`keaMigration.source.${report.source}`, { defaultValue: report.source }) })}
         </h3>
         {report.target_version && <Badge variant="outline" size="sm" className="font-mono">{report.target_version}</Badge>}
-        <span className="text-xs text-text-tertiary ml-auto">{t('keaMigration.report.by', { user: report.created_by, date: formatDate(report.created_at) })}</span>
+        <span className="text-xs text-text-tertiary ml-auto">{report.kept_on?.name ? t('keaMigration.report.byOn', { user: report.created_by, date: formatDate(report.created_at), node: report.kept_on.name }) : t('keaMigration.report.by', { user: report.created_by, date: formatDate(report.created_at) })}</span>
       </div>
       {report.blocking ? (
         <p className="flex items-center gap-2 text-sm status-danger-text" role="alert" data-testid="kea-migration-blocking">

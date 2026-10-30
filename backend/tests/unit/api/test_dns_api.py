@@ -182,7 +182,10 @@ def test_plan_ownership_expiry_and_delete(role_client, node_ctx):
     r = dora.post(f"/api/v1/plans/{plan['id']}/apply", json={})
     assert r.status_code == 410 and r.get_json()["code"] == "plan_expired"
     assert dora.get(f"/api/v1/plans/{plan['id']}").status_code == 410
-    assert dora.get("/api/v1/plans/01AAAAAAAAAAAAAAAAAAAAAAAA").status_code == 404
+    missing = dora.get("/api/v1/plans/01AAAAAAAAAAAAAAAAAAAAAAAA")
+    assert (
+        missing.status_code == 404 and "stays on the node where it was built" in missing.get_json()["detail"]
+    )
     plan2 = _plan_records(
         dora, [{"op": "add", "target": "own2/A", "after": {"ttl": 60, "rdata": ["192.0.2.63"]}}]
     ).get_json()

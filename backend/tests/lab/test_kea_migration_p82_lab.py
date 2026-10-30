@@ -11,7 +11,8 @@ version the Debian index lists: "Unable to fetch some archives"). Checked here:
   2.6.3, removed ISC packages `rc`, migration folders): the reconcile phase reads every node back,
   marks the migration rolled_back without touching /etc/kea, purges the `rc` packages and removes
   the folders. With `PELAGOS_P82_OLD_DEB` (a 0.3.0 deb) the state is first made for real: the old
-  migration fails, the pair is restored by hand as in production, then this checkout's deb goes in.
+  migration fails, the pair is restored by hand as in production, then this checkout's deb goes in
+  (by scripts/deploy-prod.sh when `PELAGOS_P82_RELEASE_DIR` names a release directory).
 - test_02: a failure injected after each step of times 1 and 2 (`PELAGOS_KEA_MIGRATION_FAIL_AFTER`
   on the driver) and a converted file changed behind the prepare: each time the automatic return
   puts both nodes back on the exact 2.6.3 packages, with /etc/kea, the AppArmor links, the unit
@@ -28,6 +29,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -36,7 +38,7 @@ import pytest
 
 from tests.lab import test_kea_migration_api_lab as k1
 from tests.lab import test_kea_migration_time1_lab as k4
-from tests.lab.labkit import deb_package, scp, ssh, wait_for
+from tests.lab.labkit import REPO, deb_package, scp, ssh, wait_for
 from tests.lab.test_kea_migration_api_lab import K1A, K1B, api
 
 pytestmark = pytest.mark.lab
@@ -233,14 +235,26 @@ class TestKeaMigrationP82:
         )
         ssh(STANDBY[0], restore, timeout=900)
         k4.pair_back()
-        deb = deb_package()
-        for host, _ in NODES:
-            scp(host, deb, "/tmp/pelagos.deb")
-            ssh(
-                host,
-                "sudo dpkg -i /tmp/pelagos.deb && sudo systemctl restart pelagos pelagos-collector",
-                timeout=900,
+        release = os.environ.get("PELAGOS_P82_RELEASE_DIR")
+        if release:
+            # The production path: deploy-prod.sh with a release directory, standby first.
+            res = subprocess.run(
+                [str(REPO / "scripts" / "deploy-prod.sh"), "--settle", "10", release, STANDBY[0], PRIMARY[0]],
+                capture_output=True,
+                text=True,
+                timeout=1800,
+                check=False,
             )
+            assert res.returncode == 0 and "all nodes on" in res.stdout, res.stdout + res.stderr
+        else:
+            deb = deb_package()
+            for host, _ in NODES:
+                scp(host, deb, "/tmp/pelagos.deb")
+                ssh(
+                    host,
+                    "sudo dpkg -i /tmp/pelagos.deb && sudo systemctl restart pelagos pelagos-collector",
+                    timeout=900,
+                )
         relogin()
         return wait_for(
             "the record",

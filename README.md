@@ -1,5 +1,7 @@
 # Pelagos
 
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 DNS and DHCP management for BIND 9 and ISC Kea, high availability included.
 
 Pelagos runs one identical node on every DNS/DHCP server: a local agent, a
@@ -12,8 +14,10 @@ cluster.
 
 ![Dashboard, Instrument theme: cluster trace with live DNS and DHCP rates](docs/images/dashboard-dark.png)
 
-Status: early release (`0.1`). The feature set below is implemented and
-tested against real `named` and Kea daemons; expect rough edges.
+Status: `0.3.1` ([releases](https://github.com/NeySlim/pelagos/releases)).
+Every feature below is tested against real `named` and Kea daemons, and on
+lab clusters of disposable VMs: Debian 13 HA pairs on amd64 and arm64 (arm64
+under emulation) and Rocky Linux nodes.
 
 ## Features
 
@@ -21,20 +25,49 @@ tested against real `named` and Kea daemons; expect rough edges.
   with a live preview, dynamic zones edited through signed UPDATE, views,
   ACLs and TSIG keys, resolver options, DNSSEC status, RPZ,
   secondaries and transfers, zone sync across servers.
+- **RPZ subscriptions**: public block lists by category and level from a
+  catalog, your own lists, update rules and exceptions.
+- **Resolver health**: SERVFAIL and DNSSEC failures, query drops and root
+  reachability, with a fallback to forwarders.
 - **DHCPv4 and DHCPv6 (Kea)**: subnets and pools with utilization, shared
   networks, options and client classes, reservations, leases with search
   and release, prefix delegation pools, DDNS (`kea-dhcp-ddns`), hooks.
+- **DDNS failover**: no single point of failure for `kea-dhcp-ddns`, with a
+  catch-up of the updates missed during an outage.
+- **IPv6**: observed addresses per host (stable, temporary, EUI-64),
+  consistency checks, plans that add the AAAA and PTR records, prefix
+  replacement and reverse zone creation.
 - **High availability**: Kea HA pairs (hot-standby, load-balancing) with
   state, partner view, unsent updates and a guided maintenance mode; alerts
-  when a partner degrades.
+  when a partner degrades, including a communication interrupted while Kea
+  still reports hot-standby.
+- **Kea 2.6 to 3.x migration**: built in, in three steps (prepare, switch
+  the standby, switch the primary) with the analysis and the validations
+  done first and an automatic return to 2.6 on failure.
 - **Hosts**: one card per host joining the lease, the reservation and the
   DNS records (A, AAAA, PTR) from every server, with the inconsistencies
   between them (record without lease, PTR mismatch, reservation without
   lease) and a single plan to create or fix a host.
 - **Plans**: every change is a plan first, with its diff, the engine
   validation (`named-checkconf`, `named-checkzone`, Kea `config-test`) and
-  its preconditions. Apply it, then roll it back while it is in memory. The
+  its preconditions. An impact section lists what the change breaks (leases
+  lost, records removed) and one rule decides when a plan needs an explicit
+  confirmation. Apply it, then roll it back while it is in memory. The
   audit log keeps who changed what, on which node, with the full diff.
+- **Permission guard**: every plan checks, in the real context of the
+  service, that it can write every path it touches; a continuous alert and
+  a remediation plan through the root helper.
+- **Updates from the UI**: upload a release or take it from GitHub
+  releases, checksums always verified, signature optional (an unsigned
+  release needs an extra confirmation), node by node rollout with automatic
+  rollback, and the BIND and Kea packages too.
+- **Archives**: encrypted with [age](https://age-encryption.org), on a
+  schedule, to a peer node, a folder or SFTP; restore online and rebuild a
+  lost node.
+- **Notifications**: alerts by SMTP, ntfy, Gotify, webhook and Matrix.
+- **API tokens**: limited to chosen permissions, with an expiry and
+  optional client networks, for scripts and monitoring, with an example Prometheus exporter
+  ([Metrics](docs/user/operations.md#metrics-and-monitoring)).
 - **Replication**: nodes enroll with a one-time token against an internal
   CA, replicate the cluster configuration and the audit log, and catch up
   after an outage.
@@ -48,12 +81,16 @@ tested against real `named` and Kea daemons; expect rough edges.
 - **Import and install**: adopt an existing BIND and Kea setup with a single
   include line added to `named.conf`, or install BIND and Kea (distribution
   packages or ISC repositories) and configure them.
-- **UI**: themes (Instrument by default, plus Mission Control and
+- **UI**: built on the design system of
+  [Ultimate CA Manager (UCM)](https://github.com/NeySlim/ultimate-ca-manager), themes (Instrument by default, plus Mission Control and
   others, dark and light; animations at three levels and optional ambient
   backgrounds, both following the reduced-motion setting), English and French,
   dashboard with a live cluster trace, DNS and DHCP rates, nodes, HA, zone
   sync, pool usage and DDNS errors, live updates over WebSocket, roles,
   TOTP, security keys and passkeys.
+- **Certificates**: the HTTPS certificate of each node, self-signed,
+  uploaded, ACME (Let's Encrypt, step-ca, any ACME server) or UCM through its
+  API, renewed and checked before install (Administration > Certificates).
 
 | Zone record with its plan | DHCP subnets |
 | --- | --- |
@@ -99,9 +136,9 @@ Details: [user documentation](docs/user/README.md),
 | --- | --- |
 | deb package | Debian 13 (trixie), amd64 and arm64 |
 | rpm package | RHEL, Rocky Linux, AlmaLinux 9 and 10, x86_64 |
-| Container images | node and all-in-one, amd64 and arm64, built with `make docker` and `make docker-allinone` |
+| Container images | node and all-in-one, amd64 and arm64, built locally with `make docker` and `make docker-allinone` (not published) |
 | BIND | 9.20 |
-| Kea | 3.x (3.2 tested) with the `lease_cmds`, `host_cmds`, `subnet_cmds` and `stat_cmds` hooks; Kea 2.6 in a reduced mode (no `subnet_cmds` or `host_cmds`: subnet changes through `config-set`) |
+| Kea | 3.x recommended (3.2 tested) with the `lease_cmds`, `host_cmds`, `subnet_cmds` and `stat_cmds` hooks; Kea 2.6 in a reduced mode (no `subnet_cmds` or `host_cmds`: subnet changes through `config-set`), with the built-in migration to 3.x |
 | Browsers | current Chromium, Firefox and Safari |
 
 The packages bundle their own Python environment under `/opt/pelagos`
@@ -109,9 +146,14 @@ The packages bundle their own Python environment under `/opt/pelagos`
 
 ## Installation
 
+The deb packages (amd64 and arm64) and their `SHA256SUMS` are attached to
+each [GitHub release](https://github.com/NeySlim/pelagos/releases). Recent
+releases carry no rpm: build it with `make rpm` (see below).
+
 ### Debian 13 (deb)
 
 ```sh
+sha256sum -c --ignore-missing SHA256SUMS
 sudo apt install ./pelagos_<version>_amd64.deb
 sudo pelagos init --name ns1          # asks for the first admin password
 sudo systemctl start pelagos pelagos-collector
@@ -120,7 +162,8 @@ sudo systemctl start pelagos pelagos-collector
 Open `https://ns1.example.lan:8443/` (self-signed certificate on first
 start; replace `/etc/pelagos/tls/server.crt` and `server.key` with your
 own). The units are enabled by the package and only start once the node is
-initialized.
+initialized. Later upgrades go through **Administration > Updates**
+([Upgrade](docs/user/upgrade.md)).
 
 ### RHEL, Rocky, AlmaLinux (rpm)
 
@@ -134,12 +177,16 @@ sudo firewall-cmd --permanent --add-port=8443/tcp --add-port=8444/tcp && sudo fi
 ### Docker compose
 
 The compose file runs the node next to the official ISC images for BIND
-and Kea. No image is published yet: build the node image first.
+and Kea. No image is published: build the node image first.
+`PELAGOS_ADMIN_PASSWORD` is required; the node refuses to start without a
+strong one.
 
 ```sh
 make docker
 cd docker
-PELAGOS_IMAGE=pelagos:latest PELAGOS_ADMIN_PASSWORD='Change-Me-Please-1' docker compose up -d
+export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"   # or set your own
+echo "$PELAGOS_ADMIN_PASSWORD"
+PELAGOS_IMAGE=pelagos:latest docker compose up -d
 ```
 
 Kea uses the host network to serve DHCP; add the LAN interface to the
@@ -220,7 +267,7 @@ make test           # unit tier + vitest
 make test-daemon    # real named and Kea in a temporary directory
 make test-e2e       # Playwright against the mock server
 make build-frontend # vite build into frontend/dist
-make run            # dev node on http://127.0.0.1:8480 (admin / Admin-Dev-Password-1) + UI on :5173
+make run            # dev node on http://127.0.0.1:8480 + UI on :5173; prints a generated admin password on first start (or uses PELAGOS_ADMIN_PASSWORD)
 make screenshots    # regenerate docs/images from the mock server
 ```
 
@@ -231,13 +278,15 @@ first, see [AppArmor](docs/user/troubleshooting.md#apparmor)), and `lab`
 (installs packages on disposable VMs, `make test-lab`, see
 [scripts/lab/README.md](scripts/lab/README.md)). CI runs lint, the unit
 tier on Python 3.12 and 3.13, the frontend checks, the daemon tier against
-BIND 9.20 and Kea 3.2, and the end-to-end suite; version tags build the
-packages and publish the images.
+BIND 9.20 and Kea 3.2, and the end-to-end suite. A version tag builds and
+smoke-tests the packages and images for amd64 and arm64; the GitHub release
+and the images are published only by a manual run on that tag.
 
 The frontend can run alone against a mock API: `cd frontend && npm run mock`
 in one terminal and `VITE_API_MOCK=1 npm run dev` in another (see
 [frontend/README.md](frontend/README.md)). Contribution rules, ownership
-and conventions: [AGENTS.md](AGENTS.md).
+and conventions: [CONTRIBUTING.md](CONTRIBUTING.md) and
+[AGENTS.md](AGENTS.md).
 
 ## License
 

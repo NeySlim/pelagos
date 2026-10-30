@@ -451,7 +451,7 @@ see [RPZ block lists](rpz.md). The settings API refuses them.
 
 | Key | Default | Range | Effect |
 | --- | --- | --- | --- |
-| `ucm_renew_days` | `30` | 1 to 365 days | UCM source: renewal this long before the end |
+| `ucm_renew_days` | `30` | 1 to 365 days | [Ultimate CA Manager (UCM)](https://github.com/NeySlim/ultimate-ca-manager) source: renewal this long before the end |
 | `retry_min_seconds` | `300` | 30 to 86400 s | first retry after a failed automatic request, then doubling |
 | `retry_max_seconds` | `21600` | 60 to 604800 s | longest delay between retries |
 | `propagation_seconds` | `180` | 10 to 3600 s | DNS-01: wait for the TXT on every authoritative server |

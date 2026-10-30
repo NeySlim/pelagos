@@ -24,7 +24,7 @@ L'outil pilote BIND 9 et Kea au plus près des logiciels, sans dupliquer leur é
 6. Portable : paquets deb et rpm, livraison Docker sur les images officielles ISC. L'état propre à l'outil tient dans un fichier de configuration et un journal d'audit.
 7. Conscience de la HA : état des deux pairs Kea, serials primaire / secondaire. L'outil est lui-même redondant : un nœud identique sur chaque serveur.
 8. Statistiques par élément : chaque instance BIND, chaque serveur Kea DHCPv4 ou DHCPv6, chaque D2.
-9. Le système de design d'UCM : thèmes existants gardés, nouveaux thèmes ajoutés.
+9. Le système de design d'[Ultimate CA Manager (UCM)](https://github.com/NeySlim/ultimate-ca-manager) : thèmes existants gardés, nouveaux thèmes ajoutés.
 
 **Non-objectifs**
 

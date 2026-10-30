@@ -1,7 +1,7 @@
 # Pelagos frontend
 
 React 18, Vite, Tailwind, Radix primitives, i18next, recharts and
-react-grid-layout, on the design system copied from UCM
+react-grid-layout, on the design system copied from [Ultimate CA Manager (UCM)](https://github.com/NeySlim/ultimate-ca-manager)
 (`src/DESIGN_SYSTEM.md`). Toolchain and conventions: `AGENTS.md`.
 
 ```sh

@@ -2052,7 +2052,7 @@ issuing node is any node holding `ca.key`, which is the first node; a copy of
 `ca.key` is handed to nodes with the `ca` flag at enrollment so the CA
 survives the first node). A renewal records the new fingerprint in `[[nodes]]`
 and appends the replaced one to `[revoked]`; it is audited as `admin.node.op`
-with `request.op = "renew"`. UCM as external CA is a documented future option,
+with `request.op = "renew"`. [Ultimate CA Manager (UCM)](https://github.com/NeySlim/ultimate-ca-manager) as external CA is a documented future option,
 not implemented.
 
 Flow:

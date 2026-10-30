@@ -497,7 +497,7 @@ Under Administration:
   and the engines of each node
   ([Configuration: modules](configuration.md#modules)).
 - **Certificates** (`admin:certificates`): the HTTPS certificate of each
-  node, its source (self-signed, manual, ACME, UCM), upload with checks,
+  node, its source (self-signed, manual, ACME, [Ultimate CA Manager (UCM)](https://github.com/NeySlim/ultimate-ca-manager)), upload with checks,
   renewal, one source for all nodes ([Certificates](certificates.md)).
 - **Notifications** (`admin:notifications`): channels that push alerts
   (e-mail, ntfy, Gotify, Matrix, signed webhook, Home Assistant), each with

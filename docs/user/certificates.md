@@ -45,7 +45,7 @@ source applied to several nodes; **Apply to all nodes** sets it.
 | Self-signed (default) | made on the node | none: the install creates one valid 10 years, **New self-signed** replaces it |
 | Manual | made on the node (request) or given with the certificate | none: the expiry alert reminds you |
 | ACME | made on the node at each issuance | automatic, when a third of the lifetime is left |
-| UCM | made on the node at each issuance | automatic, `ucm_renew_days` (30) before the end |
+| [Ultimate CA Manager (UCM)](https://github.com/NeySlim/ultimate-ca-manager) | made on the node at each issuance | automatic, `ucm_renew_days` (30) before the end |
 
 Common options of ACME and UCM: **Added names** (beside the node name and
 the host of its web URL), **Key type** (ECDSA P-256 or RSA 3072), and **One

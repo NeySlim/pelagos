@@ -34,7 +34,8 @@ mode="${SMOKE_MODE:-auto}"
 if [[ "$mode" == auto ]]; then
   if [[ "$(uname -m)" == "$machine" ]]; then mode=container; else mode=vm; fi
 fi
-password=Smoke-Test-Password-1
+# Admin password of the run, given to install-smoke.sh (mixed prefix for the policy).
+password="Smoke-$(openssl rand -hex 12)"
 packages="systemd systemd-sysv dbus ca-certificates curl openssl procps python3 sudo bind9 bind9-utils"
 packages="$packages bind9-dnsutils kea-dhcp4-server kea-dhcp-ddns-server"
 work="$(mktemp -d)"
@@ -203,7 +204,7 @@ in_box apt-get update -q >/dev/null
 # Emulation is slow: the units get longer to answer.
 wait=30
 [[ "$mode" == vm ]] && wait=300
-if in_box env SMOKE_KEEP=1 SMOKE_WAIT="$wait" bash /root/install-smoke.sh "/root/$(basename "$deb")"; then
+if in_box env SMOKE_KEEP=1 SMOKE_WAIT="$wait" PELAGOS_ADMIN_PASSWORD="$password" bash /root/install-smoke.sh "/root/$(basename "$deb")"; then
   ok "install-smoke.sh"
 else
   fail "install-smoke.sh"

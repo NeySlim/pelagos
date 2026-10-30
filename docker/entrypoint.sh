@@ -5,7 +5,8 @@
 # other command which is executed as given.
 #
 # Environment:
-#   PELAGOS_ADMIN_PASSWORD  when set and node.toml is absent, runs "pelagos init" on first start
+#   PELAGOS_ADMIN_PASSWORD  required on first start (no node.toml): "pelagos init" runs with it;
+#                           absent or too weak, the container refuses to start (exit 78)
 #   PELAGOS_ADMIN_PASSWORD_FILE  file holding that password (a compose or swarm secret)
 #   PELAGOS_NODE_NAME       node name for init (default: pelagos)
 #   PELAGOS_WEB_URL, PELAGOS_REPLICATION_URL  advertised URLs for init (optional)
@@ -105,18 +106,33 @@ prepare_kea() {
   fi
 }
 
+check_admin_password() {
+  # A first start never runs without a strong admin password: the policy of "pelagos init".
+  if [ -z "${PELAGOS_ADMIN_PASSWORD:-}" ]; then
+    log "PELAGOS_ADMIN_PASSWORD is required to initialize this node: set it (or"
+    log "PELAGOS_ADMIN_PASSWORD_FILE), for example PELAGOS_ADMIN_PASSWORD=\"\$(openssl rand -base64 18)\";"
+    log "to join a cluster instead, run 'pelagos enroll' in this container first"
+    exit 78
+  fi
+  /opt/pelagos/venv/bin/python -I -c '
+import os, sys
+from pelagos.auth.passwords import WeakPassword, check_strength
+try:
+    check_strength(os.environ["PELAGOS_ADMIN_PASSWORD"])
+except WeakPassword as exc:
+    sys.exit(f"pelagos-entrypoint: PELAGOS_ADMIN_PASSWORD refused: {exc}")
+' || exit 78
+}
+
 prepare_node() {
   install -d -o pelagos -g pelagos -m 0750 "$ETC" "$ETC/tls" "$VAR" "$RUN"
   if [ ! -f "$ETC/node.toml" ]; then
-    if [ -n "${PELAGOS_ADMIN_PASSWORD:-}" ]; then
-      log "initializing the first node (${PELAGOS_NODE_NAME:-pelagos})"
-      set -- --name "${PELAGOS_NODE_NAME:-pelagos}" --admin-user "${PELAGOS_ADMIN_USER:-admin}"
-      [ -n "${PELAGOS_WEB_URL:-}" ] && set -- "$@" --web-url "$PELAGOS_WEB_URL"
-      [ -n "${PELAGOS_REPLICATION_URL:-}" ] && set -- "$@" --replication-url "$PELAGOS_REPLICATION_URL"
-      runuser -u pelagos -- /opt/pelagos/venv/bin/pelagos init "$@"
-    else
-      log "no $ETC/node.toml and PELAGOS_ADMIN_PASSWORD is not set: run 'pelagos init' or 'pelagos enroll' in this container"
-    fi
+    check_admin_password
+    log "initializing the first node (${PELAGOS_NODE_NAME:-pelagos})"
+    set -- --name "${PELAGOS_NODE_NAME:-pelagos}" --admin-user "${PELAGOS_ADMIN_USER:-admin}"
+    [ -n "${PELAGOS_WEB_URL:-}" ] && set -- "$@" --web-url "$PELAGOS_WEB_URL"
+    [ -n "${PELAGOS_REPLICATION_URL:-}" ] && set -- "$@" --replication-url "$PELAGOS_REPLICATION_URL"
+    runuser -u pelagos -- /opt/pelagos/venv/bin/pelagos init "$@"
   fi
 }
 

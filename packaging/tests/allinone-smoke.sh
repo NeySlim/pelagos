@@ -24,7 +24,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
-$DOCKER run -d --name "$name" -e PELAGOS_ADMIN_PASSWORD=Ci-Smoke-Password-1 -p "127.0.0.1:$port:8443" "$image" >/dev/null
+# The first start refuses a missing or weak admin password (exit 78, nothing initialized).
+for weak in "" short alllowercaseletters; do
+  if out="$($DOCKER run --rm -e PELAGOS_ADMIN_PASSWORD="$weak" "$image" init 2>&1)"; then
+    fail "first start accepted the admin password '$weak'"
+  elif grep -q PELAGOS_ADMIN_PASSWORD <<<"$out"; then
+    ok "first start refuses the admin password '$weak'"
+  else
+    fail "first start without a usable admin password: $out"
+  fi
+done
+
+# Admin password of the run (mixed prefix for the policy).
+password="Smoke-$(openssl rand -hex 12)"
+$DOCKER run -d --name "$name" -e PELAGOS_ADMIN_PASSWORD="$password" -p "127.0.0.1:$port:8443" "$image" >/dev/null
 health=""
 for _ in $(seq 1 90); do
   health="$(curl -fsk "https://127.0.0.1:$port/api/v1/health" 2>/dev/null || true)"

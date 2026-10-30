@@ -97,9 +97,20 @@ lab-demo:
 build-frontend:
 	cd $(FRONTEND) && npm run build
 
-run-backend:
-	cd $(BACKEND) && test -f .pelagos-dev/etc/node.toml || PELAGOS_ADMIN_PASSWORD=Admin-Dev-Password-1 .venv/bin/pelagos --home .pelagos-dev init --name dev
+run-backend: $(BACKEND)/.pelagos-dev/etc/node.toml
 	cd $(BACKEND) && .venv/bin/pelagos --home .pelagos-dev serve --bind 127.0.0.1:8480
+
+# First start of the dev tree: PELAGOS_ADMIN_PASSWORD, else a generated password printed once
+# and kept in backend/.pelagos-dev/admin-password (gitignored, mode 0600).
+$(BACKEND)/.pelagos-dev/etc/node.toml:
+	@cd $(BACKEND) && if [ -n "$$PELAGOS_ADMIN_PASSWORD" ]; then \
+	  .venv/bin/pelagos --home .pelagos-dev init --name dev; \
+	else \
+	  PELAGOS_ADMIN_PASSWORD="$$(.venv/bin/python -c 'import re, secrets; print(next(p for p in iter(lambda: secrets.token_urlsafe(18), "") if re.search("[a-z]", p) and re.search("[A-Z]", p) and re.search("[0-9]", p)))')" \
+	  && export PELAGOS_ADMIN_PASSWORD && .venv/bin/pelagos --home .pelagos-dev init --name dev \
+	  && (umask 077 && printf '%s\n' "$$PELAGOS_ADMIN_PASSWORD" > .pelagos-dev/admin-password) \
+	  && printf '\n  dev admin: admin / %s\n  (shown once; kept in backend/.pelagos-dev/admin-password)\n\n' "$$PELAGOS_ADMIN_PASSWORD"; \
+	fi
 
 run-frontend:
 	cd $(FRONTEND) && npm run dev -- --host 127.0.0.1

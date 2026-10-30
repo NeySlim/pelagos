@@ -16,16 +16,23 @@ make docker-allinone   # all-in-one image: pelagos-allinone:<version>, KEA_SOURC
 
 | Service | Image | Role |
 | --- | --- | --- |
-| `pelagos-init` | node image | one shot: seeds the `bind-etc` and `kea-etc` volumes, generates the `rndc-pelagos` key and `/etc/bind/pelagos/rndc-pelagos.conf`, runs `pelagos init` when `PELAGOS_ADMIN_PASSWORD` is set |
+| `pelagos-init` | node image | one shot: seeds the `bind-etc` and `kea-etc` volumes, generates the `rndc-pelagos` key and `/etc/bind/pelagos/rndc-pelagos.conf`, runs `pelagos init` with `PELAGOS_ADMIN_PASSWORD` on first start, and exits (nothing else starts) when it is absent or too weak |
 | `pelagos` | node image | web process, HTTPS on `:8443` |
 | `pelagos-collector` | node image | collector: polling, series cache, alerts, and the replication and enrollment server (mTLS) on `:8444` |
 | `bind` | `internetsystemsconsortium/bind9:9.20` | DNS on host port `${BIND_DNS_PORT:-53}`; `controls` (`:953`) and `statistics-channels` (`:8053`) listen on the compose network only |
 | `kea-dhcp4`, `kea-dhcp-ddns` | `docker.cloudsmith.io/isc/docker/kea-dhcp4`, `kea-dhcp-ddns` (`${KEA_VERSION:-3.2.1}`) | host network (DHCP needs the LAN broadcasts); control sockets in the shared `kea-run` volume at `/run/kea` |
 | `kea-dhcp6` | `docker.cloudsmith.io/isc/docker/kea-dhcp6` | profile `dhcpv6` |
 
+`PELAGOS_ADMIN_PASSWORD` is required; the node refuses to start without a
+strong one (at least 12 characters mixing three of: lowercase, uppercase,
+digits, symbols). Choose your own or generate one, and keep it: it is the
+first admin sign-in.
+
 ```sh
 cd docker
-PELAGOS_ADMIN_PASSWORD='Change-Me-Please-1' PELAGOS_IMAGE=pelagos:latest docker compose up -d
+export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"   # or set your own
+echo "admin password: $PELAGOS_ADMIN_PASSWORD"
+PELAGOS_IMAGE=pelagos:latest docker compose up -d
 curl -k https://127.0.0.1:8443/api/v1/health
 ```
 
@@ -47,7 +54,7 @@ Variables (environment or a `.env` file next to `compose.yaml`):
 `PELAGOS_IMAGE` (default `pelagos:latest`, the image `make docker` builds;
 no image is published yet, so build it first or point the variable at your
 registry),
-`PELAGOS_ADMIN_PASSWORD` (given to `pelagos-init` only; `PELAGOS_ADMIN_PASSWORD_FILE`
+`PELAGOS_ADMIN_PASSWORD` (required on first start, given to `pelagos-init` only; `PELAGOS_ADMIN_PASSWORD_FILE`
 reads it from a file inside the container instead; mount that file into `pelagos-init`,
 for example as a compose secret, see the commented example in `compose.yaml`), `PELAGOS_NODE_NAME`, `PELAGOS_WEB_URL`,
 `PELAGOS_REPLICATION_URL`, `PELAGOS_HTTPS_PORT`, `PELAGOS_REPL_PORT`,
@@ -92,8 +99,13 @@ the web process and the collector. rndc and statistics stay on the
 loopback. BIND and Kea are MPL-2.0; their license texts are in
 `/usr/share/doc/<package>/copyright`.
 
+The same rule holds: without a strong `PELAGOS_ADMIN_PASSWORD` the first
+start stops with a message (exit 78).
+
 ```sh
-docker run -d --name pelagos -e PELAGOS_ADMIN_PASSWORD='Change-Me-Please-1' \
+export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"   # or set your own
+echo "admin password: $PELAGOS_ADMIN_PASSWORD"
+docker run -d --name pelagos -e PELAGOS_ADMIN_PASSWORD \
   -p 8443:8443 -p 53:53/udp -p 53:53/tcp pelagos-allinone:latest
 ```
 

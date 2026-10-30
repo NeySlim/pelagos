@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# Pelagos next to the official ISC images. Start: PELAGOS_ADMIN_PASSWORD=... docker compose up -d
+# Pelagos next to the official ISC images. Start: PELAGOS_ADMIN_PASSWORD=<your own> docker compose up -d
+# PELAGOS_ADMIN_PASSWORD is required; the node refuses to start without a strong one.
 #
 # Layout (see docker/README.md):
 #   pelagos-init       one shot: seeds the BIND and Kea configuration volumes, generates the rndc
-#                      key, runs "pelagos init" when PELAGOS_ADMIN_PASSWORD is set
+#                      key, runs "pelagos init" with PELAGOS_ADMIN_PASSWORD (first start; exits 78
+#                      when it is absent or too weak, and nothing else starts)
 #   pelagos            web process (HTTPS :8443)
 #   pelagos-collector  polling, series cache, alerts, replication and enrollment (:8444)
 #   bind               internetsystemsconsortium/bind9; rndc :953 and statistics :8053 stay on the
@@ -13,8 +15,8 @@
 #                      control sockets are shared with the node through the kea-run volume
 #
 # Variables (.env file next to this compose.yaml or the environment):
-#   PELAGOS_IMAGE (default pelagos:latest, built by make docker), PELAGOS_ADMIN_PASSWORD (or
-#   PELAGOS_ADMIN_PASSWORD_FILE, a path inside the container), PELAGOS_NODE_NAME,
+#   PELAGOS_IMAGE (default pelagos:latest, built by make docker), PELAGOS_ADMIN_PASSWORD (required,
+#   or PELAGOS_ADMIN_PASSWORD_FILE, a path inside the container), PELAGOS_NODE_NAME,
 #   PELAGOS_WEB_URL, PELAGOS_HTTPS_PORT (8443), PELAGOS_REPL_PORT (8444), BIND_IMAGE, KEA_VERSION.
 
 name: pelagos

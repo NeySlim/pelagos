@@ -14,6 +14,8 @@ pkg="$(readlink -f "${1:?package file required}")"
 SUDO=""
 [[ $(id -u) -eq 0 ]] || SUDO="sudo -n"
 failures=0
+# Admin password of the run: PELAGOS_ADMIN_PASSWORD, else generated (mixed prefix for the policy).
+password="${PELAGOS_ADMIN_PASSWORD:-Smoke-$(openssl rand -hex 12)}"
 # Seconds the units get to answer (longer under emulation).
 wait="${SMOKE_WAIT:-30}"
 
@@ -53,7 +55,7 @@ check "helper socket is root:pelagos 0660" test "$(stat -c '%U:%G %a' /run/pelag
 $SUDO systemctl start pelagos.service pelagos-collector.service
 check "start before init is skipped" test "$(systemctl is-active pelagos.service || true)" = inactive
 
-$SUDO env PELAGOS_ADMIN_PASSWORD=Smoke-Test-Password-1 pelagos init --name smoke
+$SUDO env PELAGOS_ADMIN_PASSWORD="$password" pelagos init --name smoke
 $SUDO systemctl start pelagos.service pelagos-collector.service
 
 health=""

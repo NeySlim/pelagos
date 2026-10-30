@@ -272,17 +272,24 @@ images:
 
 | Service | Image | Role |
 | --- | --- | --- |
-| `pelagos-init` | node image | one shot: seeds the BIND and Kea configuration volumes, generates the rndc key, runs `pelagos init` when `PELAGOS_ADMIN_PASSWORD` is set |
+| `pelagos-init` | node image | one shot: seeds the BIND and Kea configuration volumes, generates the rndc key, runs `pelagos init` with `PELAGOS_ADMIN_PASSWORD` on first start, and exits (nothing else starts) when it is absent or too weak |
 | `pelagos` | node image | web process, HTTPS on `:8443` |
 | `pelagos-collector` | node image | collector, replication and enrollment on `:8444` |
 | `bind` | `internetsystemsconsortium/bind9:9.20` | DNS on host port `${BIND_DNS_PORT:-53}`; rndc and statistics stay on the compose network |
 | `kea-dhcp4`, `kea-dhcp-ddns` | `docker.cloudsmith.io/isc/docker/kea-dhcp4`, `kea-dhcp-ddns` (`${KEA_VERSION:-3.2.1}`) | host network (DHCP needs the LAN broadcasts); sockets shared in the `kea-run` volume |
 | `kea-dhcp6` | `docker.cloudsmith.io/isc/docker/kea-dhcp6` | profile `dhcpv6` |
 
+`PELAGOS_ADMIN_PASSWORD` is required; the node refuses to start without a
+strong one (at least 12 characters mixing three of: lowercase, uppercase,
+digits, symbols). Choose your own or generate one, and keep it: it is the
+first admin sign-in.
+
 ```sh
 make docker
 cd docker
-PELAGOS_IMAGE=pelagos:latest PELAGOS_ADMIN_PASSWORD='Change-Me-Please-1' docker compose up -d
+export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"   # or set your own
+echo "admin password: $PELAGOS_ADMIN_PASSWORD"
+PELAGOS_IMAGE=pelagos:latest docker compose up -d
 curl -k https://127.0.0.1:8443/api/v1/health
 ```
 
@@ -319,7 +326,7 @@ Variables (environment or a `.env` file next to `compose.yaml`):
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `PELAGOS_IMAGE` | `pelagos:latest` | node image |
-| `PELAGOS_ADMIN_PASSWORD` | empty | first admin password, given to `pelagos-init` only; empty: the node is not initialized |
+| `PELAGOS_ADMIN_PASSWORD` | none, required | first admin password, given to `pelagos-init` only; absent or too weak on first start: `pelagos-init` exits 78 and the stack does not start |
 | `PELAGOS_ADMIN_PASSWORD_FILE` | empty | path, inside `pelagos-init`, of a file holding that password (a compose secret; see the commented example in `compose.yaml`) |
 | `PELAGOS_NODE_NAME` | `pelagos` | node name for `init` |
 | `PELAGOS_WEB_URL`, `PELAGOS_REPLICATION_URL` | empty | advertised URLs for `init` (`--web-url`, `--replication-url`) |
@@ -349,7 +356,9 @@ default) or Debian's Kea 2.6 (`KEA_SOURCE=distro`), and supervisord running
 the web process and the collector.
 
 ```sh
-docker run -d --name pelagos -e PELAGOS_ADMIN_PASSWORD='Change-Me-Please-1' \
+export PELAGOS_ADMIN_PASSWORD="$(openssl rand -base64 18)"   # or set your own
+echo "admin password: $PELAGOS_ADMIN_PASSWORD"
+docker run -d --name pelagos -e PELAGOS_ADMIN_PASSWORD \
   -p 8443:8443 -p 8444:8444 -p 53:53/udp -p 53:53/tcp pelagos-allinone:latest
 docker exec pelagos pelagos import --engines bind,kea4,d2 --yes
 ```
@@ -443,12 +452,15 @@ Node 22 with npm; for the daemon tests BIND 9.20 and Kea 3.x.
 
 ```sh
 make dev            # backend/.venv and frontend/node_modules
-make run            # dev node on http://127.0.0.1:8480 (admin / Admin-Dev-Password-1) and the UI on :5173
+make run            # dev node on http://127.0.0.1:8480 and the UI on :5173
 make lint test      # ruff, eslint, unit tier, vitest
 ```
 
 `make run` initializes a development tree in `backend/.pelagos-dev`
-(`pelagos --home`) and serves it with the Flask development server. The
+(`pelagos --home`) and serves it with the Flask development server. On first
+start it prints a generated admin password (user `admin`, also kept in
+`backend/.pelagos-dev/admin-password`, which Git ignores), or uses
+`PELAGOS_ADMIN_PASSWORD` when set. The
 frontend also runs alone against a mock API (`frontend/README.md`).
 Contribution rules are in `AGENTS.md`.
 

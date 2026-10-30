@@ -224,3 +224,37 @@ def test_d2_failed_write_rolls_back_to_the_previous_configuration(debian_d2):
     assert d2.config_hash() == before_hash and d2.config_get() == before
     assert {p: p.read_text() for p in files} == files
     assert not (etc / "pelagos" / "ddi-extra.secret").exists()
+
+
+def test_d2_rollback_after_a_failed_write_never_names_a_missing_secret_file(debian_d2):
+    """Production (0.2.0): a write failed mid-plan and the rollback sent a configuration naming a
+    secret file that did not exist. A rollback asked after the failure (a peer whose outcome is
+    unknown is rolled back too) leaves D2 and its files as before the plan."""
+    d2, etc = debian_d2
+    before_hash, before = d2.config_hash(), d2.config_get()
+    files = {p: p.read_text() for p in (etc / "kea-dhcp-ddns.conf", etc / "tsig-keys.json")}
+    plan = d2.plan_config_replace({"DhcpDdns": with_new_key(d2.config_get())}, "tester")
+    _RootHelper.refuse = "kea-dhcp-ddns.conf"
+    result = d2.apply(plan)
+    assert not result.ok and "Expected a file" not in result.message, result.message
+    _RootHelper.refuse = None
+    back = d2.rollback(plan)
+    assert back.ok, back.message
+    assert "Expected a file" not in back.message
+    assert d2.config_hash() == before_hash and d2.config_get() == before
+    assert {p: p.read_text() for p in files} == files
+    assert not (etc / "pelagos" / "ddi-extra.secret").exists()
+
+
+def test_d2_rollback_through_the_helper_removes_the_new_secret_file(debian_d2):
+    d2, etc = debian_d2
+    before_hash = d2.config_hash()
+    files = {p: p.read_text() for p in (etc / "kea-dhcp-ddns.conf", etc / "tsig-keys.json")}
+    plan = d2.plan_config_replace({"DhcpDdns": with_new_key(d2.config_get())}, "tester")
+    assert d2.apply(plan).ok
+    secret = etc / "pelagos" / "ddi-extra.secret"
+    assert secret.exists()
+    back = d2.rollback(plan)
+    assert back.ok, back.message
+    assert d2.config_hash() == before_hash and not secret.exists()
+    assert {p: p.read_text() for p in files} == files

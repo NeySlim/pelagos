@@ -859,7 +859,7 @@ class UpdatesService:
         if kind == RolloutKind.ROLLBACK.value:
             changed = False  # the kept previous package is what each node ran before
         cfg = reg.domain(self._settings(), "updates")
-        wanted = body.get("auto_rollback", cfg.get("auto_rollback_enabled", True))
+        wanted = body.get("auto_rollback", cfg["auto_rollback_enabled"])
         order = self._order(body, targets)
         artifacts, sums = self._artifacts(version)
         auto = bool(wanted) and not changed and kind == RolloutKind.PELAGOS.value

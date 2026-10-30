@@ -649,12 +649,13 @@ class DnsService(DnsExtras):
         apply_key_defaults(change, self.ctx.settings())
         check_zone_name(change.target.partition("/")[2])
         owner = self.zone_owner(node_id)
-        if owner is not None:
-            return self._store(self.remote_zone_plan(owner, change, created_by, node_ids))
         if change.op is ChangeOp.DELETE and not node_ids:
-            composite = self.plan_zone_delete_copies(change, created_by)
+            # Whichever node holds the primary, its Pelagos secondaries lose their copy with it.
+            composite = self.plan_zone_delete_copies(change, created_by, owner.id if owner else None)
             if composite is not None:
                 return self._store(composite)
+        if owner is not None:
+            return self._store(self.remote_zone_plan(owner, change, created_by, node_ids))
         targets = self.secondary_for_peers(change, node_ids) if node_ids else None
         plan = self._local().plan_zone_change(change, created_by)
         if targets:

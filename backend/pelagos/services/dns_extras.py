@@ -325,27 +325,30 @@ class DnsExtras:
         self.plans.register_composite(plan, parts)
         return self.ctx.plan_store.put(plan)
 
-    def plan_zone_delete_copies(self, change: Change, created_by: str) -> Plan | None:
-        """A primary deleted here also leaves the nodes holding a Pelagos secondary copy of it: one
-        part per node, the primary first. None when no other node holds such a copy."""
+    def plan_zone_delete_copies(
+        self, change: Change, created_by: str, owner_id: str | None = None
+    ) -> Plan | None:
+        """A primary deleted on `owner_id` (default: this node) also leaves the nodes holding a
+        Pelagos secondary copy of it: one part per node, the primary first. None when no other node
+        holds such a copy."""
+        owner_id = owner_id or self.ctx.node.id
         view, _, name = change.target.partition("/")
         zone, view = normalize_name(name), view or DEFAULT_VIEW
         copies = self._zone_copies(zone, view)
-        mine = copies.get(self.ctx.node.id)
+        mine = copies.get(owner_id)
         if mine is None or mine.kind is not ZoneKind.PRIMARY:
             return None
         others = [
             n
             for n, z in copies.items()
-            if n != self.ctx.node.id and z.kind is ZoneKind.SECONDARY and z.source is ZoneSource.PELAGOS
+            if n != owner_id and z.kind is ZoneKind.SECONDARY and z.source is ZoneSource.PELAGOS
         ]
         if not others:
             return None
         from pelagos.services.composite import merge_parts
 
         target = f"{view}/{zone}"
-        primary = self._local().plan_zone_change(change, created_by)
-        primary.target_node_ids = [self.ctx.node.id]
+        primary = self._zone_part(owner_id, change, created_by)
         parts = [primary] + [self._zone_part(n, Change(ChangeOp.DELETE, target), created_by) for n in others]
         names = {p.id: p.name for p in self.ctx.cluster().nodes}
         names.setdefault(self.ctx.node.id, self.ctx.node.name)

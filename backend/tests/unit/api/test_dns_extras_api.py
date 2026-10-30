@@ -179,3 +179,24 @@ def test_zone_delete_also_removes_the_secondary_copies(role_client, peer_b, node
     assert result["state"] == "applied", result
     assert "example.lan." not in fake_registry.dns.zones
     assert "example.lan." not in peer_b.registry.dns.zones
+
+
+def test_zone_delete_on_a_peer_primary_also_removes_the_copies(role_client, peer_b, node_ctx, fake_registry):
+    from pelagos.domain import ZoneSource
+
+    primary = Zone(name="remote.example.", kind=ZoneKind.PRIMARY, source=ZoneSource.PELAGOS)
+    peer_b.registry.dns.add_zone(primary, [])
+    copy = Zone(
+        name="remote.example.", kind=ZoneKind.SECONDARY, primaries=["192.0.2.2"], source=ZoneSource.PELAGOS
+    )
+    fake_registry.dns.add_zone(copy, [])
+    admin = role_client("admin")
+    body = {"change": {"op": "delete", "target": "_default/remote.example"}, "node_id": NODE_B}
+    r = admin.post(Z + "/plan", json=body)
+    assert r.status_code == 200, r.get_json()
+    plan = r.get_json()
+    assert plan["target_node_ids"] == [NODE_B, node_ctx.node.id]
+    result = admin.post(f"/api/v1/plans/{plan['id']}/apply", json={"confirm": True}).get_json()
+    assert result["state"] == "applied", result
+    assert "remote.example." not in peer_b.registry.dns.zones
+    assert "remote.example." not in fake_registry.dns.zones

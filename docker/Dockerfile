@@ -23,8 +23,9 @@ LABEL org.opencontainers.image.title="Pelagos" \
       org.opencontainers.image.source="https://github.com/NeySlim/pelagos"
 # bind9-utils: rndc, named-checkconf and tsig-keygen used against the BIND container.
 # util-linux: setpriv drops privileges in the entrypoint. curl serves the healthcheck.
+# iproute2: "ip neigh" feeds the IPv6 observations of the collector.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends python3 openssl ca-certificates bind9-utils curl util-linux openssh-client \
+ && apt-get install -y --no-install-recommends python3 openssl ca-certificates bind9-utils curl util-linux openssh-client iproute2 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd -g 53 bind \
  && groupadd -g "$PELAGOS_GID" pelagos \

@@ -27,7 +27,7 @@ LABEL org.opencontainers.image.title="Pelagos all-in-one" \
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      python3 openssl ca-certificates curl gnupg util-linux libcap2-bin supervisor \
+      python3 openssl ca-certificates curl gnupg util-linux libcap2-bin supervisor iproute2 \
       bind9 bind9-utils bind9-dnsutils \
  && if [ "$KEA_SOURCE" = "isc" ]; then \
       curl -1sLf https://dl.cloudsmith.io/public/isc/kea-3-2/setup.deb.sh | distro=debian codename=trixie bash \

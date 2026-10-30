@@ -167,6 +167,15 @@ def test_ptr_mismatch():
     assert alone.subject == "ptr:missing" and alone.details["items"][0]["ip"] == "2001:db8::1"
 
 
+def test_ptr_mismatch_alert_is_capped():
+    hosts = [rr(f"h{i}.example.lan.", "AAAA", f"2001:db8::{i:x}") for i in range(1, c.PTR_ALERT_ITEMS + 51)]
+    [alert] = c.ptr_mismatches(hosts, [])
+    assert alert.details["count"] == c.PTR_ALERT_ITEMS + 50 and alert.details["truncated"] is True
+    assert len(alert.details["items"]) == len(alert.details["exception_keys"]) == c.PTR_ALERT_ITEMS
+    [few] = c.ptr_mismatches(hosts[:3], [])
+    assert "truncated" not in few.details
+
+
 def test_duplicate_ip():
     r1 = res("192.0.2.10", "aa:bb:cc:dd:ee:01")
     r2 = res("192.0.2.10", "aa:bb:cc:dd:ee:02")

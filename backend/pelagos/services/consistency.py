@@ -331,6 +331,10 @@ PTR_MISSING_SUBJECT = "ptr:missing"
 PTR_STALE_SUBJECT = "ptr:stale"
 
 
+# One alert row travels to every node, the WebSocket and the channels: the full list is on the PTR page.
+PTR_ALERT_ITEMS = 200
+
+
 def ptr_mismatches(
     forward: Iterable[RRset], reverse: Iterable[RRset], excepted: Excepted = _never
 ) -> list[Alert]:
@@ -370,18 +374,22 @@ def ptr_mismatches(
     ):
         if not items:
             continue
+        shown = items[:PTR_ALERT_ITEMS]
+        details: dict[str, Any] = {
+            "cause": subject.split(":", 1)[1],
+            "count": len(items),
+            "items": [{k: v for k, v in i.items() if k != "key"} for i in shown],
+            "exception_keys": list(dict.fromkeys(i["key"] for i in shown)),
+        }
+        if len(items) > len(shown):
+            details["truncated"] = True
         alerts.append(
             Alert(
                 kind=AlertKind.PTR_MISMATCH,
                 severity=severity,
                 subject=subject,
                 **_title(title, count=len(items)),
-                details={
-                    "cause": subject.split(":", 1)[1],
-                    "count": len(items),
-                    "items": [{k: v for k, v in i.items() if k != "key"} for i in items],
-                    "exception_keys": list(dict.fromkeys(i["key"] for i in items)),
-                },
+                details=details,
             )
         )
     return alerts
